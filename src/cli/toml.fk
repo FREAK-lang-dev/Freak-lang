@@ -9,9 +9,19 @@ pilot toml_vals_arr = 0
 pilot toml_count = 0
 
 task toml_clear() -> void {
+    if toml_keys_arr != 0 {
+        array_release(toml_keys_arr)
+        array_release(toml_vals_arr)
+        array_release(toml_types_arr)
+        array_release(toml_sections_arr)
+    }
     toml_keys_arr = array_new()
     toml_vals_arr = array_new()
     toml_count = 0
+    toml_types_arr = array_new()
+    toml_sections_arr = array_new()
+    toml_error = ""
+    toml_error_line = 0
 }
 
 task toml_set(key: word, val: word) -> void {
@@ -20,12 +30,14 @@ task toml_set(key: word, val: word) -> void {
         pilot k: word = array_get(toml_keys_arr, i)
         if k == key {
             array_set(toml_vals_arr, i, val)
+            array_set(toml_types_arr, i, "string")
             give back
         }
         i += 1
     }
     array_push(toml_keys_arr, key)
     array_push(toml_vals_arr, val)
+    array_push(toml_types_arr, "string")
     toml_count += 1
 }
 
@@ -56,20 +68,26 @@ task toml_has(key: word) -> bool {
 task toml_remove_prefix(prefix: word) -> void {
     pilot new_keys = array_new()
     pilot new_vals = array_new()
+    pilot new_types = array_new()
     pilot new_count = 0
     pilot i = 0
     repeat until i >= toml_count {
         pilot k: word = array_get(toml_keys_arr, i)
         pilot v: word = array_get(toml_vals_arr, i)
-        if k.starts_with(prefix) == false {
+        if k != prefix and not k.starts_with(prefix + ".") {
             array_push(new_keys, k)
             array_push(new_vals, v)
+            array_push(new_types, array_get(toml_types_arr, i))
             new_count += 1
         }
         i += 1
     }
+    array_release(toml_keys_arr)
+    array_release(toml_vals_arr)
+    array_release(toml_types_arr)
     toml_keys_arr = new_keys
     toml_vals_arr = new_vals
+    toml_types_arr = new_types
     toml_count = new_count
 }
 
@@ -109,278 +127,297 @@ task toml_trim(s: word) -> word {
     give back s.trim()
 }
 
--- ===================== PARSING =====================================
+-- ===================== STRICT MANIFEST SUBSET =======================
+-- Native manifests support basic/literal strings, decimal integers, booleans,
+-- ordinary dotted tables/keys, and flat inline tables. Unsupported syntax is
+-- an error, never a partially parsed manifest. Values retain scalar kind for
+-- round-trip writing; all parser state belongs to this one parse operation.
 
-task toml_parse(content: word) -> void {
-    toml_clear()
-    pilot section = ""
-    pilot pos = 0
-    pilot clen = content.length()
+pilot toml_error = ""
+pilot toml_error_line = 0
+pilot toml_value_kind = "string"
+pilot toml_types_arr = 0
+pilot toml_sections_arr = 0
 
-    repeat until pos >= clen {
-        pilot line: word = toml_get_line(content, pos)
-        pos = toml_line_end(content, pos)
-
-        pilot trimmed: word = toml_trim(line)
-        if trimmed == "" {
-            -- skip empty line
-        } else if trimmed.starts_with("#") {
-            -- skip comment
-        } else if trimmed.starts_with("[") {
-            -- Section header: extract name between [ and ]
-            section = toml_extract_section(trimmed)
-        } else if trimmed.contains("=") {
-            -- Key = value
-            toml_parse_kv(trimmed, section)
-        }
-    }
+task toml_fail(message: word) -> void {
+    if toml_error == "" { toml_error = message }
 }
 
-task toml_extract_section(line: word) -> word {
-    -- Extract "project" from "[project]"
-    pilot name = ""
-    pilot i = 1
-    pilot llen = line.length()
-    repeat until i >= llen {
-        pilot c: word = line.char_at(i)
-        if c == "]" {
-            give back name
-        }
-        if c != " " {
-            name = name + c
-        }
-        i += 1
-    }
-    give back name
-}
-
-task toml_parse_kv(line: word, section: word) -> void {
-    -- Parse "key = value" or "key = { ... }"
-    -- Find the = sign
-    pilot eq_pos = 0 - 1
+task toml_valid_key(key: word) -> bool {
+    if key == "" or key.starts_with(".") or key.ends_with(".") { give back false }
+    pilot allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-."
+    pilot previous_dot = false
     pilot i = 0
-    pilot llen = line.length()
-    pilot in_quotes = false
-    repeat until i >= llen {
-        pilot c: word = line.char_at(i)
-        if c == "\"" { in_quotes = in_quotes == false }
-        if c == "=" and in_quotes == false and eq_pos < 0 {
-            eq_pos = i
-        }
+    repeat until i >= key.length() {
+        pilot ch = key.char_at(i)
+        if not allowed.contains(ch) { give back false }
+        if ch == "." and previous_dot { give back false }
+        previous_dot = ch == "."
         i += 1
     }
-    if eq_pos < 0 { give back }
-
-    -- Extract key (before =)
-    pilot raw_key = ""
-    pilot ki = 0
-    repeat until ki >= eq_pos {
-        pilot kc: word = line.char_at(ki)
-        if kc != " " and kc != "\t" {
-            raw_key = raw_key + kc
-        }
-        ki += 1
-    }
-
-    -- Extract value (after =), trimmed
-    pilot raw_val = ""
-    pilot vi = eq_pos + 1
-    repeat until vi >= llen {
-        raw_val = raw_val + line.char_at(vi)
-        vi += 1
-    }
-    raw_val = toml_trim(raw_val)
-
-    pilot full_key = ""
-    if section != "" {
-        full_key = section + "." + raw_key
-    } else {
-        full_key = raw_key
-    }
-
-    -- Check if value is a quoted string
-    if raw_val.starts_with("\"") {
-        pilot str_val: word = toml_unquote(raw_val)
-        -- Check if this is a short dependency syntax: [dependencies] muvluv = "^1.2.0"
-        if section == "dependencies" {
-            -- Store as dependencies.name.version for uniform access
-            toml_set(full_key + ".version", str_val)
-        } else {
-            toml_set(full_key, str_val)
-        }
-    } else if raw_val.starts_with("{") {
-        -- Inline table: { git = "...", version = "..." }
-        toml_parse_inline_table(raw_val, full_key)
-    } else {
-        -- Bare value (number, bool, etc)
-        toml_set(full_key, raw_val)
-    }
+    give back true
 }
 
-task toml_unquote(s: word) -> word {
-    -- Remove surrounding quotes from "value"
-    pilot slen = s.length()
-    if slen < 2 { give back s }
+task toml_strip_comment(line: word) -> word {
     pilot out = ""
-    pilot i = 1
-    pilot end_pos = slen - 1
-    repeat until i >= end_pos {
-        out = out + s.char_at(i)
+    pilot quote = ""
+    pilot escaped = false
+    pilot i = 0
+    repeat until i >= line.length() {
+        pilot ch = line.char_at(i)
+        if quote == "" {
+            if ch == "#" { give back out.trim() }
+            if ch == "\"" or ch == "'" { quote = ch }
+        } else if escaped {
+            escaped = false
+        } else if quote == "\"" and ch == "\\" {
+            escaped = true
+        } else if ch == quote {
+            quote = ""
+        }
+        out = out + ch
         i += 1
     }
-    give back out
+    if quote != "" { toml_fail("unterminated quoted value") }
+    give back out.trim()
 }
 
-task toml_parse_inline_table(s: word, prefix: word) -> void {
-    -- Parse { key = "val", key2 = "val2" }
-    -- Strip { and }
-    pilot inner = ""
+task toml_unquote(value: word) -> word {
+    pilot out = ""
+    pilot quote = value.char_at(0)
+    pilot escaped = false
     pilot i = 1
-    pilot slen = s.length()
-    repeat until i >= slen {
-        pilot c: word = s.char_at(i)
-        if c == "}" { i = slen }
-        if c != "}" {
-            inner = inner + c
+    repeat until i >= value.length() {
+        pilot ch = value.char_at(i)
+        if escaped {
+            if ch == "n" { out = out + "\n" } else if ch == "r" { out = out + "\r" } else if ch == "t" { out = out + "\t" } else if ch == "\\" or ch == "\"" { out = out + ch } else { toml_fail("unsupported escape in manifest string") }
+            escaped = false
+        } else if quote == "\"" and ch == "\\" {
+            escaped = true
+        } else if ch == quote {
+            if i != value.length() - 1 { toml_fail("unexpected data after quoted value") }
+            give back out
+        } else {
+            out = out + ch
         }
         i += 1
     }
+    toml_fail("unterminated quoted value")
+    give back ""
+}
 
-    -- Split on commas and parse each pair
-    pilot pair = ""
-    pilot pi = 0
-    pilot ilen = inner.length()
-    repeat until pi >= ilen {
-        pilot pc: word = inner.char_at(pi)
-        if pc == "," {
-            toml_parse_inline_pair(pair, prefix)
-            pair = ""
-        } else {
-            pair = pair + pc
+task toml_parse_scalar(value: word) -> word {
+    toml_value_kind = "string"
+    if value == "" {
+        toml_fail("missing value after '='")
+        give back ""
+    }
+    if value.starts_with("\"") or value.starts_with("'") { give back toml_unquote(value) }
+    toml_value_kind = "bare"
+    if value == "true" or value == "false" { give back value }
+    pilot start = 0
+    if value.starts_with("+") or value.starts_with("-") { start = 1 }
+    if start == value.length() { toml_fail("invalid decimal value") give back "" }
+    pilot i = start
+    repeat until i >= value.length() {
+        if not "0123456789".contains(value.char_at(i)) {
+            toml_fail("unsupported manifest value; use a quoted string or a flat inline table")
+            give back ""
         }
-        pi += 1
+        i += 1
     }
-    if pair != "" {
-        toml_parse_inline_pair(pair, prefix)
+    if value.length() - start > 1 and value.char_at(start) == "0" { toml_fail("leading zeros in decimal value") }
+    give back value
+}
+
+task toml_insert(key: word, value: word) -> void {
+    if toml_has(key) { toml_fail("duplicate manifest key: " + key) give back }
+    pilot i = 0
+    repeat until i >= toml_count {
+        pilot existing = array_get(toml_keys_arr, i)
+        if existing.starts_with(key + ".") or key.starts_with(existing + ".") {
+            toml_fail("scalar/table conflict at manifest key: " + key)
+            give back
+        }
+        i += 1
     }
+    toml_set(key, value)
+    array_set(toml_types_arr, toml_count - 1, toml_value_kind)
+}
+
+task toml_find_equals(line: word) -> int {
+    pilot i = 0
+    repeat until i >= line.length() {
+        if line.char_at(i) == "=" { give back i }
+        i += 1
+    }
+    give back 0 - 1
 }
 
 task toml_parse_inline_pair(pair: word, prefix: word) -> void {
-    -- Parse "key = \"val\""
-    pilot trimmed: word = toml_trim(pair)
-    if trimmed == "" { give back }
-
-    -- Find =
-    pilot eq = 0 - 1
-    pilot i = 0
-    pilot plen = trimmed.length()
-    repeat until i >= plen {
-        pilot c: word = trimmed.char_at(i)
-        if c == "=" and eq < 0 { eq = i }
-        i += 1
-    }
-    if eq < 0 { give back }
-
-    -- Extract key
-    pilot subkey = ""
-    pilot ki = 0
-    repeat until ki >= eq {
-        pilot kc: word = trimmed.char_at(ki)
-        if kc != " " and kc != "\t" {
-            subkey = subkey + kc
-        }
-        ki += 1
-    }
-
-    -- Extract value
-    pilot raw_val = ""
-    pilot vi = eq + 1
-    repeat until vi >= plen {
-        raw_val = raw_val + trimmed.char_at(vi)
-        vi += 1
-    }
-    raw_val = toml_trim(raw_val)
-
-    pilot full_key = prefix + "." + subkey
-    if raw_val.starts_with("\"") {
-        pilot uv: word = toml_unquote(raw_val)
-        toml_set(full_key, uv)
-    } else {
-        toml_set(full_key, raw_val)
-    }
+    pilot trimmed = pair.trim()
+    pilot eq = toml_find_equals(trimmed)
+    if eq < 1 { toml_fail("expected key = value inside inline table") give back }
+    pilot key = trimmed.substring(0, eq).trim()
+    if not toml_valid_key(key) or key.contains(".") { toml_fail("invalid inline table key") give back }
+    pilot value = toml_parse_scalar(trimmed.substring(eq + 1, trimmed.length()).trim())
+    if toml_error != "" { give back }
+    toml_insert(prefix + "." + key, value)
 }
 
--- ===================== WRITING =====================================
-
-task toml_write_file(path: word) -> void {
-    pilot out = ""
-
-    -- Write [project] section
-    if toml_has("project.name") or toml_has("project.version") {
-        out = out + "[project]\n"
-        pilot pname: word = toml_get("project.name")
-        if pname != "" {
-            out = out + "name = \"" + pname + "\"\n"
+task toml_parse_inline_table(value: word, prefix: word) -> void {
+    if not value.ends_with("}") { toml_fail("unterminated inline table") give back }
+    pilot pair = ""
+    pilot quote = ""
+    pilot escaped = false
+    pilot i = 1
+    repeat until i >= value.length() - 1 {
+        pilot ch = value.char_at(i)
+        pilot separator = false
+        if quote == "" {
+            if ch == "\"" or ch == "'" { quote = ch } else if ch == "{" or ch == "}" or ch == "[" or ch == "]" {
+                toml_fail("nested inline tables and arrays are unsupported")
+                give back
+            } else if ch == "," {
+                toml_parse_inline_pair(pair, prefix)
+                pair = ""
+                separator = true
+            }
+        } else if escaped {
+            escaped = false
+        } else if quote == "\"" and ch == "\\" {
+            escaped = true
+        } else if ch == quote {
+            quote = ""
         }
-        pilot pver: word = toml_get("project.version")
-        if pver != "" {
-            out = out + "version = \"" + pver + "\"\n"
-        }
-        out = out + "\n"
+        if not separator { pair = pair + ch }
+        i += 1
     }
+    if quote != "" { toml_fail("unterminated inline table string") give back }
+    if pair.trim() == "" {
+        if value.substring(1, value.length() - 1).trim() != "" { toml_fail("trailing inline table comma") }
+    } else { toml_parse_inline_pair(pair, prefix) }
+}
 
-    -- Collect unique dependency names
-    pilot dep_names = array_new()
-    pilot dep_names_count = 0
+task toml_parse_kv(line: word, section: word) -> void {
+    pilot eq = toml_find_equals(line)
+    if eq < 1 { toml_fail("expected key = value") give back }
+    pilot key = line.substring(0, eq).trim()
+    if not toml_valid_key(key) { toml_fail("invalid manifest key") give back }
+    pilot full_key = key
+    if section != "" { full_key = section + "." + key }
+    pilot raw = line.substring(eq + 1, line.length()).trim()
+    if raw.starts_with("{") { toml_parse_inline_table(raw, full_key) give back }
+    pilot value = toml_parse_scalar(raw)
+    if toml_error != "" { give back }
+    if section == "dependencies" { full_key = full_key + ".version" }
+    toml_insert(full_key, value)
+}
+
+task toml_extract_section(line: word) -> word {
+    if line.starts_with("[[") or not line.ends_with("]") {
+        toml_fail("unsupported or unterminated table header")
+        give back ""
+    }
+    pilot name = line.substring(1, line.length() - 1).trim()
+    if not toml_valid_key(name) { toml_fail("invalid table name") give back "" }
+    if toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), name) {
+        toml_fail("duplicate table: " + name)
+        give back ""
+    }
+    array_push(toml_sections_arr, name)
+    give back name
+}
+
+task toml_parse(content: word) -> bool {
+    toml_clear()
+    pilot section = ""
+    pilot pos = 0
+    toml_error_line = 0
+    repeat until pos >= content.length() {
+        toml_error_line += 1
+        pilot raw = toml_get_line(content, pos)
+        pos = toml_line_end(content, pos)
+        pilot line = toml_strip_comment(raw)
+        if toml_error != "" { give back false }
+        if line != "" {
+            if line.starts_with("[") { section = toml_extract_section(line) } else { toml_parse_kv(line, section) }
+            if toml_error != "" { give back false }
+        }
+    }
+    toml_error_line = 0
+    give back true
+}
+
+-- Serialize every retained key, rather than dropping author/module/export/tool
+-- metadata. Dotted keys are ordinary TOML and preserve nested table ownership.
+
+task toml_quote(value: word) -> word {
+    pilot out = "\""
+    pilot i = 0
+    repeat until i >= value.length() {
+        pilot ch = value.char_at(i)
+        if ch == "\\" { out = out + "\\\\" } else if ch == "\"" { out = out + "\\\"" } else if ch == "\n" { out = out + "\\n" } else if ch == "\r" { out = out + "\\r" } else if ch == "\t" { out = out + "\\t" } else { out = out + ch }
+        i += 1
+    }
+    give back out + "\""
+}
+
+task toml_key_char_rank(ch: word) -> int {
+    pilot ordered = "-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz"
+    pilot i = 0
+    repeat until i >= ordered.length() {
+        if ordered.char_at(i) == ch { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task toml_key_before(left: word, right: word) -> bool {
+    pilot i = 0
+    repeat until i >= left.length() or i >= right.length() {
+        pilot a = toml_key_char_rank(left.char_at(i))
+        pilot b = toml_key_char_rank(right.char_at(i))
+        if a != b { give back a < b }
+        i += 1
+    }
+    give back left.length() < right.length()
+}
+
+task toml_render() -> word {
+    pilot order = array_new()
     pilot i = 0
     repeat until i >= toml_count {
-        pilot k: word = array_get(toml_keys_arr, i)
-        if k.starts_with("dependencies.") {
-            pilot dname: word = toml_extract_dep_name(k)
-            if dname != "" {
-                if toml_arr_contains(dep_names, dep_names_count, dname) == false {
-                    array_push(dep_names, dname)
-                    dep_names_count += 1
-                }
+        array_push(order, word_from_int(i))
+        pilot j = i
+        repeat until j <= 0 {
+            pilot current = word_to_int(array_get(order, j))
+            pilot previous = word_to_int(array_get(order, j - 1))
+            if not toml_key_before(array_get(toml_keys_arr, current), array_get(toml_keys_arr, previous)) {
+                j = 0
+            } else {
+                array_set(order, j, word_from_int(previous))
+                array_set(order, j - 1, word_from_int(current))
+                j -= 1
             }
         }
         i += 1
     }
-
-    if dep_names_count > 0 {
-        out = out + "[dependencies]\n"
-        pilot di = 0
-        repeat until di >= dep_names_count {
-            pilot dn: word = array_get(dep_names, di)
-            pilot git_key = "dependencies." + dn + ".git"
-            pilot ver_key = "dependencies." + dn + ".version"
-            pilot git_val: word = toml_get(git_key)
-            pilot ver_val: word = toml_get(ver_key)
-            if git_val == "" and ver_val != "" {
-                -- Short syntax: muvluv = "^1.2.0"
-                pilot ln_short = dn + " = \"" + ver_val + "\"\n"
-                out = out + ln_short
-            } else {
-                -- Full inline table syntax: muvluv = { git = "...", version = "..." }
-                pilot ln = dn + " = { "
-                pilot has_f = false
-                if git_val != "" {
-                    ln = ln + "git = \"" + git_val + "\""
-                    has_f = true
-                }
-                if ver_val != "" {
-                    if has_f { ln = ln + ", " }
-                    ln = ln + "version = \"" + ver_val + "\""
-                }
-                ln = ln + " }\n"
-                out = out + ln
-            }
-            di += 1
-        }
-        out = out + "\n"
+    pilot out = ""
+    i = 0
+    repeat until i >= toml_count {
+        pilot item = word_to_int(array_get(order, i))
+        pilot value = array_get(toml_vals_arr, item)
+        if array_get(toml_types_arr, item) != "bare" { value = toml_quote(value) }
+        out = out + array_get(toml_keys_arr, item) + " = " + value + "\n"
+        i += 1
     }
+    array_release(order)
+    give back out
+}
 
-    fs::write(path, out)
+task toml_write_file(path: word) -> void {
+    fs::write(path, toml_render())
 }
 
 task toml_extract_dep_name(key: word) -> word {
@@ -433,9 +470,14 @@ task toml_dep_is_short_syntax(dep_name: word) -> bool {
 
 -- ===================== READING FROM FILE ===========================
 
-task toml_load(path: word) -> void {
+task toml_load(path: word) -> bool {
     pilot content: word = fs::read(path)
-    toml_parse(content)
+    if content == "" {
+        toml_clear()
+        toml_fail("manifest is empty or unreadable")
+        give back false
+    }
+    give back toml_parse(content)
 }
 
 -- ===================== DEPENDENCY LISTING ===========================

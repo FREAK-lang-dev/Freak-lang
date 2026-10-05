@@ -81,7 +81,10 @@ task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int
         give back 1
     }
 
-    toml_load(manifest)
+    if not toml_load(manifest) {
+        say "  Invalid manifest " + manifest + ":" + word_from_int(toml_error_line) + ": " + toml_error
+        give back 1
+    }
     -- Add must validate the dependency before recording it in the manifest.
     -- Registry resolution is currently unsupported; it must not fabricate an
     -- installed dependency or require a live public registry to diagnose this.
@@ -111,7 +114,10 @@ task hangar_remove(project_dir: word, pkg_name: word) -> int {
         give back 1
     }
 
-    toml_load(manifest)
+    if not toml_load(manifest) {
+        say "  Invalid manifest " + manifest + ":" + word_from_int(toml_error_line) + ": " + toml_error
+        give back 1
+    }
 
     pilot git_key = "dependencies." + pkg_name + ".git"
     pilot ver_only_key = "dependencies." + pkg_name + ".version"
@@ -327,7 +333,10 @@ task hangar_install(project_dir: word) -> int {
         give back 1
     }
 
-    toml_load(manifest)
+    if not toml_load(manifest) {
+        say "  Invalid manifest " + manifest + ":" + word_from_int(toml_error_line) + ": " + toml_error
+        give back 1
+    }
 
     pilot dep_cnt = toml_dep_count()
     if dep_cnt == 0 {
@@ -454,7 +463,10 @@ task hangar_update(project_dir: word, pkg_name: word) -> int {
         give back 1
     }
 
-    toml_load(manifest)
+    if not toml_load(manifest) {
+        say "  Invalid manifest " + manifest + ":" + word_from_int(toml_error_line) + ": " + toml_error
+        give back 1
+    }
 
     pilot dep_cnt = toml_dep_count()
     if dep_cnt == 0 {
@@ -649,7 +661,10 @@ task hangar_version_cmd(project_dir: word, bump: word) -> int {
         give back 1
     }
 
-    toml_load(manifest)
+    if not toml_load(manifest) {
+        say "  Invalid manifest " + manifest + ":" + word_from_int(toml_error_line) + ": " + toml_error
+        give back 1
+    }
     pilot pname: word = toml_get("project.name")
     pilot current: word = toml_get("project.version")
     if pname == "" { pname = "unknown" }
@@ -1164,7 +1179,10 @@ task hangar_outdated(project_dir: word) -> int {
         give back 1
     }
 
-    toml_load(manifest)
+    if not toml_load(manifest) {
+        say "  Invalid manifest " + manifest + ":" + word_from_int(toml_error_line) + ": " + toml_error
+        give back 1
+    }
 
     pilot dep_cnt = toml_dep_count()
     if dep_cnt == 0 {
@@ -1431,7 +1449,10 @@ task hangar_audit(project_dir: word, fix_mode: bool) -> int {
         give back 1
     }
 
-    toml_load(manifest)
+    if not toml_load(manifest) {
+        say "  Invalid manifest " + manifest + ":" + word_from_int(toml_error_line) + ": " + toml_error
+        give back 1
+    }
     pilot lockfile = project_dir + "/hangar.lock"
     pilot has_lock = lock_load(lockfile)
 
@@ -1553,7 +1574,10 @@ task hangar_publish(project_dir: word, dry_run: bool) -> int {
         give back 1
     }
 
-    toml_load(manifest)
+    if not toml_load(manifest) {
+        say "  Invalid manifest " + manifest + ":" + word_from_int(toml_error_line) + ": " + toml_error
+        give back 1
+    }
     pilot pname: word = toml_get("project.name")
     pilot pver: word = toml_get("project.version")
 

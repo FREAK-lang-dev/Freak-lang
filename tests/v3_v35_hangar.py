@@ -28,6 +28,8 @@ NATIVE_CASES = (
     "unavailable-registry-add", "unavailable-registry-install", "invalid-package-name",
     "failed-git-add", "failed-git-install", "failed-git-update",
     "preserved-existing-add", "preserved-existing-update", "unavailable-publication",
+    "malformed-header", "unterminated-value", "duplicate-key", "duplicate-table",
+    "invalid-inline-table", "unknown-manifest-escape",
 )
 
 
@@ -87,6 +89,12 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
         "preserved-existing-add": (["add", "existing", "owner/repository"], "", "Cannot safely replace existing"),
         "preserved-existing-update": (["update", "existing"], 'existing = { git = "owner/repository", version = "latest" }\n', "Cannot safely replace existing"),
         "unavailable-publication": (["publish"], "", "Publication is unavailable"),
+        "malformed-header": (["install"], "[dependencies\n", "Invalid manifest"),
+        "unterminated-value": (["install"], 'missing = "unterminated\n', "Invalid manifest"),
+        "duplicate-key": (["install"], 'missing = "1.0"\nmissing = "2.0"\n', "duplicate manifest key"),
+        "duplicate-table": (["install"], "[project]\n", "duplicate table"),
+        "invalid-inline-table": (["install"], 'missing = { git = "owner/repository", broken }\n', "expected key = value inside inline table"),
+        "unknown-manifest-escape": (["install"], 'missing = "bad\\q"\n', "unsupported escape"),
     }
     assert tuple(cases) == NATIVE_CASES, "Failure acceptance inventory drift"
     for invocation, binary, prefix in [("freak", freak, ["hangar"]), ("standalone", hangar, [])]:
@@ -105,6 +113,20 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
             assert not (cwd / "hangar_modules" / "missing").exists(), (name, "failed dependency materialized")
             assert not (root / "escape").exists(), (name, "package escaped project")
             print(f"native:{invocation}:{name}:passed")
+        import tomllib
+        cwd = root / f"{invocation}-manifest-round-trip"
+        project(cwd)
+        manifest = (MANIFEST.replace('version = "0.1.0"', 'version = "0.1.0"\nauthor = "comma, hash # and quote \\"data\\""') +
+                    '[modules]\ncore = "src/core.fk"\n[exports]\napi = "core::api"\n[tool]\nenabled = true\ncount = 17\n')
+        (cwd / "hangar.toml").write_text(manifest, encoding="utf-8")
+        before_manifest = tomllib.loads(manifest)
+        result = subprocess.run([str(binary), *prefix, "version", "patch"], cwd=cwd, env=env,
+                                capture_output=True, text=True, timeout=30, check=False)
+        assert result.returncode == 0, result.stdout + result.stderr
+        after_manifest = tomllib.loads((cwd / "hangar.toml").read_text(encoding="utf-8"))
+        before_manifest["project"]["version"] = "0.1.1"
+        assert after_manifest == before_manifest, (after_manifest, before_manifest)
+        print(f"native:{invocation}:manifest-round-trip:passed")
 
 
 def python_compatibility(root: Path) -> None:
@@ -139,6 +161,7 @@ def main() -> int:
         for invocation in ("freak", "standalone"):
             for case in NATIVE_CASES:
                 print(f"native:{invocation}:{case}")
+            print(f"native:{invocation}:manifest-round-trip")
         return 0
     if not args.python_only and not all((args.freak, args.hangar, args.clang)):
         parser.error("fresh --freak, --hangar, and native --clang paths are required")
