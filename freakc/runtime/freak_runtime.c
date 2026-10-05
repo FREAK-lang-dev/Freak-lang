@@ -945,6 +945,43 @@ _Noreturn void freak_panic(freak_word msg) {
     exit(1);
 }
 
+static _Noreturn void freak_int_fail(const char *reason, const char *operation) {
+    fprintf(stderr,"FREAK: integer %s in %s\n",reason,operation);
+    exit(1);
+}
+
+int64_t freak_int_add_checked(int64_t a, int64_t b) {
+    if ((b > 0 && a > INT64_MAX - b) || (b < 0 && a < INT64_MIN - b))
+        freak_int_fail("overflow","addition");
+    return a + b;
+}
+int64_t freak_int_sub_checked(int64_t a, int64_t b) {
+    if ((b > 0 && a < INT64_MIN + b) || (b < 0 && a > INT64_MAX + b))
+        freak_int_fail("overflow","subtraction");
+    return a - b;
+}
+int64_t freak_int_mul_checked(int64_t a, int64_t b) {
+    /* Every admission division has a nonzero divisor and cannot be MIN/-1. */
+    if ((a > 0 && ((b > 0 && a > INT64_MAX / b) || (b < 0 && b < INT64_MIN / a))) ||
+        (a < 0 && ((b > 0 && a < INT64_MIN / b) || (b < 0 && a < INT64_MAX / b))))
+        freak_int_fail("overflow","multiplication");
+    return a * b;
+}
+int64_t freak_int_div_checked(int64_t a, int64_t b) {
+    if (b == 0) freak_int_fail("division by zero","division");
+    if (a == INT64_MIN && b == -1) freak_int_fail("overflow","division");
+    return a / b;
+}
+int64_t freak_int_rem_checked(int64_t a, int64_t b) {
+    if (b == 0) freak_int_fail("division by zero","remainder");
+    if (a == INT64_MIN && b == -1) freak_int_fail("overflow","remainder");
+    return a % b;
+}
+int64_t freak_int_neg_checked(int64_t value) {
+    if (value == INT64_MIN) freak_int_fail("overflow","negation");
+    return -value;
+}
+
 /* ------------------------------------------------------------------ */
 /*  std::fs — file I/O                                                */
 /* ------------------------------------------------------------------ */

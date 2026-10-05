@@ -306,6 +306,15 @@ freak_word freak_ask(freak_word prompt);
 /* Print message to stderr and exit(1). */
 _Noreturn void freak_panic(freak_word msg);
 
+/* Defined signed-integer arithmetic. C and LLVM call the same scalar ABI;
+   overflow and division/remainder by zero diagnose on stderr and exit 1. */
+int64_t freak_int_add_checked(int64_t a, int64_t b);
+int64_t freak_int_sub_checked(int64_t a, int64_t b);
+int64_t freak_int_mul_checked(int64_t a, int64_t b);
+int64_t freak_int_div_checked(int64_t a, int64_t b);
+int64_t freak_int_rem_checked(int64_t a, int64_t b);
+int64_t freak_int_neg_checked(int64_t value);
+
 /* ------------------------------------------------------------------ */
 /*  std::fs — file I/O                                                */
 /* ------------------------------------------------------------------ */
