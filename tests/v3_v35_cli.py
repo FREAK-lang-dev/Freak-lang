@@ -278,13 +278,24 @@ def check_doctor(freak: Path, clang: Path, root: Path, env: dict[str, str]) -> N
     assert not list(root.glob("freak-doctor-*-probe-*")), "Doctor retained probe artifacts"
     print("doctor/probe: --version success cannot mask compile/link failure OK", flush=True)
 
+    missing_tool = root / "explicit missing Clang"
+    missing_env = env.copy()
+    missing_env["FREAK_CLANG"] = str(missing_tool)
+    missing = run([str(freak), "doctor", "--json"], root, missing_env)
+    check = json.loads(missing.stdout)["checks"]["clang"]
+    assert missing.returncode == 1 and check["executable"] == str(missing_tool), check
+    assert not check["ok"] and not check["version_ok"] and not check["probe_ok"], check
+    print("doctor/override: missing explicit executable never falls back OK", flush=True)
+
     if os.name == "posix":
         # A distro may install only a versioned driver. Keep bare clang and
         # newer drivers out of PATH so discovery must find its declared floor.
         isolated_path = root / "only clang-15"
         isolated_path.mkdir()
         shutil.copy2(wrapper, isolated_path / "clang-15")
-        for tool in ("uname", "mkdir", "rm", "ld", "as"):
+        # od/tr are the current installed payload-marker transport. Keep them
+        # while isolating driver discovery; they do not provide another Clang.
+        for tool in ("uname", "mkdir", "rm", "ld", "as", "od", "tr"):
             executable = shutil.which(tool, path=env.get("PATH"))
             assert executable, f"fixture tool missing: {tool}"
             (isolated_path / tool).symlink_to(Path(executable).resolve())
