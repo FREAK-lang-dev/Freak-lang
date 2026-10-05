@@ -813,6 +813,11 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_TRAINING_ARC, "", word_from_int(cond_id), body_id, "", word_from_int(max_id), "", "", stmt_line)
     }
 
+    if match_tok(TOK_KW, "check") {
+        expect_tok(TOK_KW, "result")
+        give back parse_check_result()
+    }
+
     -- when expr { val -> stmt, ... }
     if match_tok(TOK_KW, "when") {
         give back parse_when()
@@ -1008,6 +1013,49 @@ task parse_impl() -> int {
     -- The semantic pass must validate the owner and top-level context; method
     -- tasks remain separately indexed for instance/associated dispatch.
     give back alloc_stmt(STMT_IMPL, impl_name, "", "", "", doctrine_name, "", "", stmt_line)
+}
+
+-- The v3.5 result slice is closed to the checked file-read carrier. Each arm
+-- introduces one owned word in its own block; both alternatives are required.
+task parse_check_result() -> int {
+    pilot stmt_line = current_source_location()
+    pilot target = parse_expr()
+    expect_tok(TOK_PUNCT, "{")
+    pilot ok_name = ""
+    pilot err_name = ""
+    pilot ok_body = ""
+    pilot err_body = ""
+    pilot finished = false
+    repeat until finished {
+        parser_skip_statement_separators()
+        if match_tok(TOK_PUNCT, "}") { finished = true }
+        else if parser_at_eof() {
+            diag_error("unclosed check result block", "expected '}'")
+            finished = true
+        } else {
+            pilot arm = cur_tok_val()
+            if not match_tok(TOK_KW, "ok") and not match_tok(TOK_KW, "err") {
+                diag_error("check result arm must be ok or err", "")
+                advance_tok()
+            }
+            expect_tok(TOK_PUNCT, "(")
+            pilot binder = parser_take_ident("check result arm binding")
+            expect_tok(TOK_PUNCT, ")")
+            expect_tok(TOK_PUNCT, "->")
+            pilot body = parse_block()
+            if arm == "ok" {
+                if ok_name != "" { diag_error("duplicate ok arm in check result", "") }
+                ok_name = binder
+                ok_body = body
+            } else if arm == "err" {
+                if err_name != "" { diag_error("duplicate err arm in check result", "") }
+                err_name = binder
+                err_body = body
+            }
+        }
+    }
+    if ok_name == "" or err_name == "" { diag_error("check result requires exactly one ok arm and one err arm", "") }
+    give back alloc_stmt(STMT_CHECK_RESULT, "", word_from_int(target), ok_body, err_body, "", ok_name, err_name, stmt_line)
 }
 
 task parse_when() -> int {

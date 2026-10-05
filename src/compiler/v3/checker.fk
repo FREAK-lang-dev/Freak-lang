@@ -412,6 +412,18 @@ task bc_walk_stmt(stmt_id: int) -> void {
         give back
     }
 
+    if kind == STMT_CHECK_RESULT {
+        bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
+        bc_enter_scope()
+        bc_push_sym(array_get(ast_task_params, stmt_id), "owned", "0", line)
+        bc_walk_block(array_get(ast_stmt_bodies, stmt_id))
+        bc_leave_scope()
+        bc_enter_scope()
+        bc_push_sym(array_get(ast_task_returns, stmt_id), "owned", "0", line)
+        bc_walk_block(array_get(ast_stmt_else_bodies, stmt_id))
+        bc_leave_scope()
+        give back
+    }
     if kind == STMT_IF {
         pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
         pilot then_w: word = array_get(ast_stmt_bodies, stmt_id)
@@ -593,6 +605,7 @@ task tc_is_list(type_name: word) -> bool {
 }
 
 task tc_is_known_value_type(type_name: word) -> bool {
+    if type_name == "CheckedReadResult" { give back false }
     pilot element = tc_list_element(type_name)
     if element != "" { give back tc_is_scalar(element) or is_shape_name(element) }
     give back tc_is_scalar(type_name) or type_name == "ByteBuffer" or is_shape_name(type_name)
@@ -606,6 +619,7 @@ task tc_is_known_return_type(type_name: word) -> bool {
 -- but never silently narrows num to int. "any" and "scalar" are checker-only
 -- builtin signature markers and cannot be written as source types.
 task tc_type_assignable(destination: word, source: word) -> bool {
+    if source == "CheckedReadResult" or destination == "CheckedReadResult" { give back false }
     if destination == "any" { give back source != "" and source != "void" }
     if destination == "scalar" { give back tc_is_scalar(source) }
     if destination == "word-array" { give back source == "int" or source == "List<word>" }
@@ -615,6 +629,7 @@ task tc_type_assignable(destination: word, source: word) -> bool {
 }
 
 task tc_types_equality_compatible(left_type: word, right_type: word) -> bool {
+    if left_type == "CheckedReadResult" or right_type == "CheckedReadResult" { give back false }
     if left_type == "" or right_type == "" { give back false }
     if left_type == right_type { give back true }
     give back tc_is_numeric(left_type) and tc_is_numeric(right_type)
@@ -877,6 +892,7 @@ task tc_task_return_shape(task_name: word) -> word {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    if name == "fs::read_checked" { give back "CheckedReadResult" }
     if name == "process::command_poll" { give back "int" }
     if name == "fs::rename_new_checked" { give back "int" }
     if name == "fs::read_ticket" { give back "int" }
@@ -963,6 +979,7 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "fs::read_checked" { give back "word" }
     if name == "process::command_poll" { give back "int" }
     if name == "fs::rename_new_checked" { give back "word,word" }
     if name == "fs::read_ticket" { give back "word" }
@@ -1386,7 +1403,9 @@ task tc_validate_args(args: word, line: int) -> void {
     pilot count = tc_arg_count(args)
     pilot i = 0
     repeat count times {
-        tc_validate_expr(tc_arg_at(args, i), line)
+        pilot argument_id = tc_arg_at(args, i)
+        tc_validate_expr(argument_id, line)
+        if tc_expr_type(argument_id) == "CheckedReadResult" { tc_diag("checked read result cannot be passed or stored; use check result", tc_expr_diag_line(argument_id, line), tc_expr_diag_file(argument_id, input_file)) }
         i += 1
     }
 }
@@ -1773,7 +1792,7 @@ task tc_validate_shape_signature(stmt_id: int) -> void {
     pilot fields: word = array_get(ast_stmt_extras, stmt_id)
     pilot line = word_to_int(array_get(ast_stmt_lines, stmt_id))
     pilot source_file: word = array_get(ast_stmt_files, stmt_id)
-    if tc_is_scalar(shape_name) or shape_name == "void" {
+    if tc_is_scalar(shape_name) or shape_name == "void" or shape_name == "CheckedReadResult" {
         tc_diag("shape name '" + shape_name + "' conflicts with a built-in type", line, source_file)
     }
     if tc_reserved_builtin_namespace_owner(shape_name) {
@@ -1873,6 +1892,7 @@ task tc_stmt_definitely_returns(stmt_id: int) -> bool {
         pilot else_body: word = array_get(ast_stmt_else_bodies, stmt_id)
         give back else_body != "" and tc_block_definitely_returns(array_get(ast_stmt_bodies, stmt_id)) and tc_block_definitely_returns(else_body)
     }
+    if kind == STMT_CHECK_RESULT { give back tc_block_definitely_returns(array_get(ast_stmt_bodies, stmt_id)) and tc_block_definitely_returns(array_get(ast_stmt_else_bodies, stmt_id)) }
     if kind == STMT_WHEN { give back tc_when_definitely_returns(array_get(ast_stmt_bodies, stmt_id)) }
     give back false
 }
@@ -2235,6 +2255,14 @@ task tc_dependency_walk_stmt(stmt_id: int, local_names: int, local_types: int, l
         tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
         give back local_count
     }
+    if kind == STMT_CHECK_RESULT {
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
+        pilot ok_count = tc_dependency_set_local(local_names, local_types, local_count, array_get(ast_task_params, stmt_id), "word")
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, ok_count, global_index, global_name, visited)
+        pilot err_count = tc_dependency_set_local(local_names, local_types, local_count, array_get(ast_task_returns, stmt_id), "word")
+        tc_dependency_walk_block(array_get(ast_stmt_else_bodies, stmt_id), local_names, local_types, err_count, global_index, global_name, visited)
+        give back local_count
+    }
     if kind == STMT_IF {
         tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
         tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
@@ -2429,6 +2457,11 @@ task tc_validate_stmt(stmt_id: int) -> void {
         if expr_kind == EXPR_ARRAY_LIT and tc_arg_count(array_get(ast_expr_lefts, expr_id)) == 0 and tc_is_list(binding_type) { is_empty_list_init = true }
         if expr_kind == EXPR_CALL and (expr_val == "List::new" or expr_val == "List::with_capacity") and tc_is_list(binding_type) { is_empty_list_init = true }
         if is_empty_list_init { value_type = binding_type }
+        if value_type == "CheckedReadResult" {
+            if type_ann != "" or expr_kind != EXPR_CALL or expr_val != "fs::read_checked" or tc_direct_top_stmt {
+                tc_diag("checked read result requires an inferred local initialized by fs::read_checked; aliases, annotations and global storage are unsupported", line, source_file)
+            }
+        }
         if binding_type == "" { binding_type = value_type }
         else if not tc_is_known_value_type(binding_type) {
             tc_diag("binding '" + binding_name + "' has unknown or non-value type '" + binding_type + "'", line, source_file)
@@ -2470,6 +2503,7 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot left_type = tc_expr_type(left_id)
         pilot right_type = tc_expr_type(right_id)
         pilot op: word = array_get(ast_stmt_names, stmt_id)
+        if left_type == "CheckedReadResult" or right_type == "CheckedReadResult" { tc_diag("checked read result cannot be reassigned or stored; use check result", line, source_file) }
         if op == "=" {
             pilot rhs_kind: word = array_get(ast_expr_kinds, right_id)
             pilot rhs_val: word = array_get(ast_expr_vals, right_id)
@@ -2527,7 +2561,26 @@ task tc_validate_stmt(stmt_id: int) -> void {
         give back
     }
     if kind == STMT_EXPR {
-        tc_validate_expr(word_to_int(expr), line)
+        pilot discarded_id = word_to_int(expr)
+        tc_validate_expr(discarded_id, line)
+        if tc_expr_type(discarded_id) == "CheckedReadResult" and array_get(ast_expr_kinds, discarded_id) != EXPR_CALL { tc_diag("checked read result may be inspected only with check result", line, source_file) }
+        give back
+    }
+    if kind == STMT_CHECK_RESULT {
+        pilot target_id = word_to_int(expr)
+        tc_validate_expr(target_id, line)
+        if tc_expr_type(target_id) != "CheckedReadResult" { tc_diag("check result target must be a checked read result", line, source_file) }
+        pilot saved_count = tc_local_count
+        pilot saved_scope = tc_local_scope_start
+        tc_local_scope_start = saved_count
+        tc_set_local(array_get(ast_task_params, stmt_id), "word")
+        tc_validate_task_body(array_get(ast_stmt_bodies, stmt_id))
+        tc_local_count = saved_count
+        tc_local_scope_start = saved_count
+        tc_set_local(array_get(ast_task_returns, stmt_id), "word")
+        tc_validate_task_body(array_get(ast_stmt_else_bodies, stmt_id))
+        tc_local_count = saved_count
+        tc_local_scope_start = saved_scope
         give back
     }
     if kind == STMT_IF {

@@ -268,6 +268,7 @@ task llvm_get_var_type(name: word) -> word {
 }
 
 task llvm_type_code(type_name: word) -> word {
+    if type_name == "CheckedReadResult" { give back "r" }
     if type_name.starts_with("List<") { give back "a:" + llvm_type_code(type_name.substring(5, type_name.length() - 6)) }
     if type_name.starts_with("a:") { give back type_name }
     if type_name == "q" or type_name == "ByteBuffer" { give back "q" }
@@ -618,6 +619,7 @@ task llvm_is_num_expr(expr_id: word) -> bool {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task llvm_map_call_name(val: word) -> word {
+    if val == "fs::read_checked" { give back "@freak_llvm_fs_read_source_ticket" }
     if val.starts_with("fs::") and tc_builtin_call_type(val) != "" { give back "@freak_llvm_" + val.replace("::", "_") }
     if val.starts_with("process::command_") and tc_builtin_call_type(val) != "" { give back "@freak_llvm_" + val.replace("::", "_") }
     if val == "ByteBuffer::new" { give back "@freak_llvm_byte_buffer_new" }
@@ -794,7 +796,7 @@ task llvm_builtin_param_types(name: word) -> word {
 }
 
 task llvm_v3_owned_type(vtype: word) -> bool {
-    give back vtype.starts_with("a:") or vtype.starts_with("s:")
+    give back vtype == "r" or vtype.starts_with("a:") or vtype.starts_with("s:")
 }
 
 task llvm_v3_kind(vtype: word) -> word {
@@ -815,6 +817,8 @@ task llvm_v3_temporary(expr_id: word) -> bool {
 }
 
 task llvm_v3_retain(reg: word, vtype: word) -> word {
+    -- Closed checked-read carriers cannot be copied by source programs.
+    if vtype == "r" { give back reg }
     pilot array_result = next_reg()
     pilot helper = "freak_v3_shape_retain"
     if vtype.starts_with("a:") { helper = "freak_v3_array_retain" }
@@ -823,6 +827,7 @@ task llvm_v3_retain(reg: word, vtype: word) -> word {
 }
 
 task llvm_v3_release(reg: word, vtype: word) -> void {
+    if vtype == "r" { llvm_emit_line("    call void @__freak_drop_result(i64 " + reg + ")") give back }
     pilot helper = "freak_v3_shape_release"
     if vtype.starts_with("a:") { helper = "freak_v3_array_release" }
     llvm_emit_line("    call void @" + helper + "(i64 " + reg + ")")
@@ -848,6 +853,7 @@ task llvm_v3_preserve_element(reg: word, vtype: word) -> word {
 task llvm_v3_register_slot(slot: word, vtype: word) -> void {
     pilot prefix = "shape:"
     if vtype.starts_with("a:") { prefix = "array:" }
+    if vtype == "r" { prefix = "result:" }
     llvm_word_local_slots = llvm_word_local_slots + prefix + slot + "|"
 }
 
@@ -1746,7 +1752,13 @@ task llvm_emit_word_local_cleanup_since(prefix: word, skip_slot: word) -> void {
         pilot ch: word = llvm_word_local_slots.char_at(i)
         if ch == "|" {
             if current != "" and current != skip_slot {
-                if current.starts_with("array:") or current.starts_with("shape:") {
+                if current.starts_with("result:") {
+                    pilot slot = current.substring(7, current.length() - 7)
+                    pilot previous = next_reg()
+                    llvm_emit_line("    " + previous + " = load i64, i64* %" + slot)
+                    llvm_v3_release(previous, "r")
+                    llvm_emit_line("    store i64 0, i64* %" + slot)
+                } else if current.starts_with("array:") or current.starts_with("shape:") {
                     pilot slot = current.substring(6, current.length() - 6)
                     pilot previous = next_reg()
                     llvm_emit_line("    " + previous + " = load i64, i64* %" + slot)
@@ -1788,6 +1800,7 @@ task llvm_emit_stmt(eid: word) -> void {
     llvm_dbg_set_stmt_line(eid)
 
     if kind == STMT_PILOT { llvm_emit_stmt_pilot(eid) give back }
+    if kind == STMT_CHECK_RESULT { llvm_emit_check_result(eid) give back }
     if kind == STMT_SAY {
         pilot reg = llvm_emit_expr(expr_id_w)
         pilot say_type = llvm_infer_expr_type(expr_id_w)
@@ -1962,12 +1975,112 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
     } else {
         pilot uniq = name_w + "_v" + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
+        if vtype == "r" { uniq = "checked_local_" + eid }
         llvm_reg_var(name_w, uniq)
-        llvm_emit_line("    %" + uniq + " = alloca i64")
+        if vtype != "r" { llvm_emit_line("    %" + uniq + " = alloca i64") }
         llvm_emit_line("    store i64 " + stored_reg + ", i64* %" + uniq)
         if vtype.starts_with("w") { llvm_register_word_local_slot(uniq) }
         if llvm_v3_owned_type(vtype) { llvm_v3_register_slot(uniq, vtype) }
     }
+}
+
+-- Checked-read storage is allocated once at task entry, including matches
+-- nested inside loops. Dynamic execution only initializes and clears slots.
+task llvm_preallocate_result_slots(block: word) -> void {
+    pilot index = 0
+    repeat tc_arg_count(block) times {
+        pilot sid = tc_arg_at(block, index)
+        pilot eid = word_from_int(sid)
+        pilot kind: word = array_get(ast_stmt_kinds, sid)
+        if kind == STMT_PILOT {
+            pilot expression = word_to_int(array_get(ast_stmt_exprs, sid))
+            if array_get(ast_expr_kinds, expression) == EXPR_CALL and array_get(ast_expr_vals, expression) == "fs::read_checked" {
+                llvm_emit_line("    %checked_local_" + eid + " = alloca i64")
+            }
+        } else if kind == STMT_CHECK_RESULT {
+            llvm_emit_line("    %checked_owner_" + eid + " = alloca i64")
+            llvm_emit_line("    %checked_ok_" + eid + " = alloca i64")
+            llvm_emit_line("    %checked_err_" + eid + " = alloca i64")
+            llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
+            llvm_preallocate_result_slots(array_get(ast_stmt_else_bodies, sid))
+        } else if kind == STMT_IF {
+            llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
+            llvm_preallocate_result_slots(array_get(ast_stmt_else_bodies, sid))
+        } else if kind == STMT_BLOCK or kind == STMT_EVENTUALLY or kind == STMT_REPEAT or kind == STMT_RANGE or kind == STMT_FOR or kind == STMT_FOREACH or kind == STMT_TRAINING_ARC {
+            llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
+        } else if kind == STMT_WHEN {
+            pilot cases: word = array_get(ast_stmt_bodies, sid)
+            pilot arm_index = 0
+            repeat tc_arg_count(cases) times {
+                llvm_preallocate_result_slots(tc_case_stmt_part(tc_list_item(cases, arm_index)))
+                arm_index += 1
+            }
+        }
+        index += 1
+    }
+}
+
+task llvm_emit_check_result_arm(eid: word, owner: word, success: bool) -> void {
+    pilot sid = word_to_int(eid)
+    pilot saved_names = llvm_var_names
+    pilot saved_types = llvm_var_types
+    pilot saved_map = llvm_var_reg_map
+    pilot saved_slots = llvm_word_local_slots
+    pilot saved_locals = tc_local_count
+    pilot binder: word = array_get(ast_task_params, sid)
+    pilot slot = "checked_ok_" + eid
+    pilot body: word = array_get(ast_stmt_bodies, sid)
+    pilot getter = "freak_llvm_fs_result_word"
+    if not success {
+        binder = array_get(ast_task_returns, sid)
+        slot = "checked_err_" + eid
+        body = array_get(ast_stmt_else_bodies, sid)
+        getter = "freak_llvm_fs_result_error"
+    }
+    pilot payload = next_reg()
+    llvm_emit_line("    " + payload + " = call i64 @" + getter + "(i64 " + owner + ")")
+    llvm_emit_line("    store i64 " + payload + ", i64* %" + slot)
+    llvm_set_var_type(binder, "w")
+    llvm_reg_var(binder, slot)
+    tc_set_local(binder, "word")
+    llvm_register_word_local_slot(slot)
+    llvm_emit_block(body)
+    llvm_emit_word_local_cleanup_since(saved_slots, "")
+    llvm_var_names = saved_names
+    llvm_var_types = saved_types
+    llvm_var_reg_map = saved_map
+    llvm_word_local_slots = saved_slots
+    tc_local_count = saved_locals
+}
+
+task llvm_emit_check_result(eid: word) -> void {
+    pilot sid = word_to_int(eid)
+    pilot target: word = array_get(ast_stmt_exprs, sid)
+    pilot saved_slots = llvm_word_local_slots
+    pilot owner = llvm_emit_expr(target)
+    pilot owns: bool = array_get(ast_expr_kinds, word_to_int(target)) != EXPR_IDENT
+    if owns {
+        pilot slot = "checked_owner_" + eid
+        llvm_emit_line("    store i64 " + owner + ", i64* %" + slot)
+        llvm_v3_register_slot(slot, "r")
+    }
+    pilot state = next_reg()
+    pilot condition = next_reg()
+    pilot ok_label = "checked.ok." + eid
+    pilot err_label = "checked.err." + eid
+    pilot end_label = "checked.end." + eid
+    llvm_emit_line("    " + state + " = call i64 @freak_llvm_fs_result_ok(i64 " + owner + ")")
+    llvm_emit_line("    " + condition + " = icmp ne i64 " + state + ", 0")
+    llvm_emit_line("    br i1 " + condition + ", label %" + ok_label + ", label %" + err_label)
+    llvm_emit_line(ok_label + ":")
+    llvm_emit_check_result_arm(eid, owner, true)
+    llvm_emit_line("    br label %" + end_label)
+    llvm_emit_line(err_label + ":")
+    llvm_emit_check_result_arm(eid, owner, false)
+    llvm_emit_line("    br label %" + end_label)
+    llvm_emit_line(end_label + ":")
+    llvm_emit_word_local_cleanup_since(saved_slots, "")
+    llvm_word_local_slots = saved_slots
 }
 
 task llvm_emit_stmt_if(eid: word) -> void {
@@ -2799,6 +2912,7 @@ task llvm_emit_task(eid: word) -> void {
     llvm_emit_line("define " + ret_type + " " + llvm_user_task_symbol(name_w) + "(" + p_str + ")" + dbg_attr + " {")
     llvm_emit_line("entry:")
     if params_w.length() > 0 { llvm_allocate_params(params_w) }
+    llvm_preallocate_result_slots(body_id_w)
     llvm_emit_block(body_id_w)
     llvm_emit_word_local_cleanup_since("", "")
     llvm_emit_current_word_param_cleanup("")
@@ -3058,6 +3172,19 @@ task llvm_emit_runtime_decls() -> void {
 -- ===================== PROGRAM ASSEMBLY ==============================
 -- v3 KEY CHANGE: proper reserved global-init + top-level wrapper split
 
+task llvm_emit_result_drop_helper() -> void {
+    llvm_emit_line("define internal void @__freak_drop_result(i64 %ticket) {")
+    llvm_emit_line("entry:")
+    llvm_emit_line("    %live = icmp ne i64 %ticket, 0")
+    llvm_emit_line("    br i1 %live, label %release, label %done")
+    llvm_emit_line("release:")
+    llvm_emit_line("    call void @freak_llvm_fs_result_release(i64 %ticket)")
+    llvm_emit_line("    br label %done")
+    llvm_emit_line("done:")
+    llvm_emit_line("    ret void")
+    llvm_emit_line("}")
+}
+
 task emit_llvm_program() -> void {
     temp_reg_counter = 0
     string_literals = ""
@@ -3070,6 +3197,7 @@ task emit_llvm_program() -> void {
     llvm_emit_line("; FREAK LLVM IR Generator (v3)")
     llvm_emit_line("")
     llvm_emit_runtime_decls()
+    llvm_emit_result_drop_helper()
     llvm_emit_line("")
 
     pilot top_count = array_len(ast_top_stmts)
@@ -3198,6 +3326,11 @@ task emit_llvm_program() -> void {
         llvm_emit_line("entry:")
         i = 0
         repeat top_count times {
+            llvm_preallocate_result_slots(array_get(ast_top_stmts, i))
+            i += 1
+        }
+        i = 0
+        repeat top_count times {
             pilot cur_id: word = array_get(ast_top_stmts, i)
             pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
             if kind == STMT_PILOT {
@@ -3226,6 +3359,11 @@ task emit_llvm_program() -> void {
         pilot main_dbg = llvm_dbg_begin_func("__freak_generated_top_level", 1)
         llvm_emit_line("define void @__freak_generated_top_level()" + main_dbg + " {")
         llvm_emit_line("entry:")
+        i = 0
+        repeat top_count times {
+            llvm_preallocate_result_slots(array_get(ast_top_stmts, i))
+            i += 1
+        }
         i = 0
         repeat top_count times {
             pilot cur_id: word = array_get(ast_top_stmts, i)

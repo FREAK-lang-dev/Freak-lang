@@ -15,6 +15,7 @@ task c_value_type(code: word) -> word {
 }
 
 task c_cleanup_attr(code: word) -> word {
+    if code == "r" { give back " __attribute__((cleanup(__freak_drop_result)))" }
     if code.starts_with("a:") { give back " __attribute__((cleanup(__freak_drop_array)))" }
     if code.starts_with("s:") { give back " __attribute__((cleanup(__freak_drop_shape)))" }
     give back ""
@@ -537,6 +538,7 @@ task emit_c_borrowing_call(expr_id: word, func_name: word, args: word) -> void {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task c_map_call(val: word) -> word {
+    if val == "fs::read_checked" { give back "freak_fs_read_source_ticket" }
     if val.starts_with("fs::") and tc_builtin_call_type(val) != "" { give back "freak_" + val.replace("::", "_") }
     if val == "ByteBuffer::new" { give back "freak_byte_buffer_new" }
     if val == "ByteBuffer::with_capacity" { give back "freak_byte_buffer_with_capacity" }
@@ -824,6 +826,7 @@ task emit_c_call(expr_id: word, val: word, left: word) -> void {
 }
 
 task emt_raw_type_code(type_name: word) -> word {
+    if type_name == "CheckedReadResult" { give back "r" }
     if tc_is_list(type_name) { give back "a:" + tc_list_element(type_name) }
     if is_shape_name(type_name) { give back "s:" + type_name }
     if type_name == "word" { give back "w" }
@@ -1266,6 +1269,7 @@ task emit_stmt(eid: word) -> void {
     pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
 
     if kind == STMT_PILOT { emit_stmt_pilot(eid) give back }
+    if kind == STMT_CHECK_RESULT { emit_c_check_result(eid) give back }
     if kind == STMT_SAY {
         pilot say_type = emt_expr_type_code(expr_id_w)
         if say_type == "w" {
@@ -1289,6 +1293,7 @@ task emit_stmt(eid: word) -> void {
         give back
     }
     if kind == STMT_EXPR {
+        if emt_expr_type_code(expr_id_w) == "r" { emit("{ ") emit_c_value_decl(expr_id_w, "__freak_discard") emit_line("}") give back }
         if c_handle_type(emt_expr_type_code(expr_id_w)) {
             emit("{ ") emit_c_value_decl(expr_id_w, "__freak_discard") emit_line("}") give back
         }
@@ -1618,6 +1623,39 @@ task emit_stmt_pilot(eid: word) -> void {
     tc_set_local(name_w, binding_type)
 }
 
+task emit_c_check_result(eid: word) -> void {
+    pilot sid = word_to_int(eid)
+    pilot target: word = array_get(ast_stmt_exprs, sid)
+    pilot saved_vars = emt_var_count
+    pilot saved_locals = tc_local_count
+    pilot owner = "__freak_result_" + eid
+    pilot owned_target: bool = array_get(ast_expr_kinds, word_to_int(target)) != EXPR_IDENT
+    emit("{ int64_t " + owner)
+    if owned_target { emit(c_cleanup_attr("r")) }
+    emit(" = ") emit_expr(target) emit_line(";")
+    emit_line("if (freak_fs_result_ok(" + owner + ")) {")
+    pilot ok_name: word = array_get(ast_task_params, sid)
+    pilot ok_local = "__freak_checked_ok_" + eid
+    emit_line("freak_word " + ok_local + " = freak_fs_result_word(" + owner + ");")
+    emt_set_var_type_named(ok_name, "w", ok_local)
+    tc_set_local(ok_name, "word")
+    emit_block(array_get(ast_stmt_bodies, sid))
+    emit_word_local_cleanup_range(saved_vars, "")
+    emt_var_count = saved_vars
+    tc_local_count = saved_locals
+    emit_line("} else {")
+    pilot err_name: word = array_get(ast_task_returns, sid)
+    pilot err_local = "__freak_checked_err_" + eid
+    emit_line("freak_word " + err_local + " = freak_fs_result_error(" + owner + ");")
+    emt_set_var_type_named(err_name, "w", err_local)
+    tc_set_local(err_name, "word")
+    emit_block(array_get(ast_stmt_else_bodies, sid))
+    emit_word_local_cleanup_range(saved_vars, "")
+    emt_var_count = saved_vars
+    tc_local_count = saved_locals
+    emit_line("} }")
+}
+
 task emit_stmt_when(eid: word) -> void {
     pilot i = word_to_int(eid)
     pilot target_id_w: word = array_get(ast_stmt_exprs, i)
@@ -1941,6 +1979,7 @@ task emit_c_program() -> void {
     emit_line("#include \"freak_runtime.h\"")
 
     emit_line("#include <stdlib.h>")
+    emit_line("static void __freak_drop_result(int64_t *p) { if (*p) freak_fs_result_release(*p); *p = 0; }")
     emit_line("static void __freak_drop_array(int64_t *p) { if (*p) freak_v3_array_release(*p); *p = 0; }")
     emit_line("static void __freak_drop_shape(int64_t *p) { if (*p) freak_v3_shape_release(*p); *p = 0; }")
 

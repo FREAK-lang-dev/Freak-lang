@@ -80,6 +80,7 @@ pilot STMT_IMPL = "17"
 pilot STMT_FOREACH = "18"
 pilot STMT_RANGE = "19"
 pilot STMT_FOR = "20"
+pilot STMT_CHECK_RESULT = "21"
 
 pilot ast_stmt_kinds = 0
 pilot ast_stmt_names = 0
