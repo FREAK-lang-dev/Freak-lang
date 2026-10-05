@@ -142,6 +142,7 @@ jobs:
           --smoke target_c_integer_contract_smoke.fk
           --smoke parse_closure_index_smoke.fk
           --smoke mir_predecessor_scaling_smoke.fk
+          --smoke mir_never_summary_scaling_smoke.fk
           --smoke borrowck_candidate_scaling_smoke.fk
 
   v4-runtime-helpers:
