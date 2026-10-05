@@ -299,7 +299,7 @@ task package_lock_render() -> word {
         package_lock_line(builder, prefix + "name", array_get(hangar_graph_names, index), false)
         package_lock_line(builder, prefix + "version", array_get(hangar_graph_versions, index), false)
         package_lock_line(builder, prefix + "identity", array_get(hangar_graph_identities, index), false)
-        package_lock_line(builder, prefix + "origin", array_get(package_source_original_roots, index), false)
+        package_lock_line(builder, prefix + "origin", array_get(package_source_origins, index), false)
         package_lock_line(builder, prefix + "kind", array_get(package_source_kinds, index), false)
         package_lock_line(builder, prefix + "commit", array_get(package_source_commits, index), false)
         package_lock_line(builder, prefix + "tree_sha256", array_get(package_source_hashes, index), false)

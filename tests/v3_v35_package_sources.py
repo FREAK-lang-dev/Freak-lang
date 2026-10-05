@@ -3,6 +3,9 @@
 from __future__ import annotations
 import argparse
 import hashlib
+import os
+import shutil
+import subprocess
 from pathlib import Path
 import struct
 import tempfile
@@ -28,11 +31,7 @@ task main() {
             say package_read_graph_source(0, "main.fk")
         }
     }
-    package_sources_release()
-    package_inputs_release()
-    hangar_graph_release()
-    package_lock_release()
-    toml_release()
+    package_release_graph()
 }
 '''
 
@@ -72,6 +71,85 @@ def validate_lock(path: Path) -> dict:
     return lock
 
 
+def git(command: list[str], cwd: Path) -> str:
+    tool = shutil.which('git')
+    assert tool, 'native Git prerequisite missing'
+    result = subprocess.run([tool, *command], cwd=cwd, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, (command, result.stdout, result.stderr)
+    return result.stdout.strip()
+
+
+def git_fixture(directory: Path) -> tuple[Path,str]:
+    directory.mkdir()
+    git(['init','--quiet'], directory)
+    git(['config','user.name','Fixture'], directory)
+    git(['config','user.email','fixture@example.invalid'], directory)
+    (directory/'hangar.toml').write_text('[project]\nname="c"\nversion="1.0.0"\nkind="lib"\n[modules]\ncore="core.fk"\n[exports]\nvalue="core::value"\n[assets]\nbinary="assets/raw.bin"\n',encoding='utf-8')
+    (directory/'core.fk').write_bytes(b'task value() -> int { give back 42 }\n')
+    (directory/'.gitattributes').write_text('*.fk text eol=crlf\n',encoding='ascii')
+    (directory/'assets').mkdir()
+    (directory/'assets/raw.bin').write_bytes(b'A\0\xffB\r\n')
+    (directory/'tests').mkdir()
+    (directory/'tests/z_test.fk').write_bytes(b'task main() { say 42 }\n')
+    (directory/'.env').write_bytes(b'UNDECLARED SECRET')
+    git(['add','--','hangar.toml','core.fk','.gitattributes','assets/raw.bin','tests/z_test.fk','.env'],directory)
+    git(['commit','--quiet','-m','First fixture'],directory)
+    git(['tag','v1'],directory)
+    return directory,git(['rev-parse','HEAD'],directory)
+
+
+def git_move_tag(directory: Path, body: bytes) -> str:
+    (directory/'core.fk').write_bytes(body)
+    git(['add','--','core.fk'],directory)
+    git(['commit','--quiet','-m','Moved source'],directory)
+    git(['tag','--force','v1'],directory)
+    return git(['rev-parse','HEAD'],directory)
+
+
+def git_move_symlink(directory: Path) -> None:
+    (directory/'core.fk').unlink()
+    (directory/'core.fk').symlink_to('outside-source.fk')
+    git(['add','--','core.fk'],directory)
+    git(['commit','--quiet','-m','Symlink source'],directory)
+    git(['tag','--force','v1'],directory)
+
+
+def build_git_shim(clang: Path, root: Path) -> Path:
+    real = shutil.which('git')
+    assert real, 'native Git prerequisite missing'
+    source=root/'git-native-fixture.c'
+    source.write_text(r'''#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+int main(int argc,char **argv) {
+    char **args=calloc((size_t)argc+1,sizeof(char*));
+    if (!args) return 70;
+    args[0]=getenv("FREAK_GIT_FIXTURE_TOOL");
+    if (!args[0]) return 70;
+    for (int i=1;i<argc;i++) {
+        args[i]=argv[i];
+        if (!strcmp(argv[i],"https://fixture.invalid/c")) args[i]=getenv("FREAK_GIT_FIXTURE_REPO");
+        if (!strcmp(argv[i],"fetch") && getenv("FREAK_GIT_FORBID_FETCH")) return 71;
+        if (!strcmp(argv[i],"fetch") && getenv("FREAK_GIT_PARTIAL_FAIL")) {
+            FILE *file=fopen("partial-before-failure","wb");
+            if (!file) return 72;
+            fputs("partial native fetch",file); fclose(file); return 23;
+        }
+    }
+    /* Fixture-only transport redirection: production retains https-only. */
+    setenv("GIT_ALLOW_PROTOCOL","https:file",1);
+    execv(args[0],args);
+    return 73;
+}
+''',encoding='ascii')
+    binary=root/'git-native-fixture'
+    built=foundation.run([str(clang),str(source),'-o',str(binary)],root,timeout=30)
+    assert built.returncode==0,(built.stdout,built.stderr)
+    os.environ['FREAK_GIT_FIXTURE_TOOL']=real
+    return binary
+
+
 def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
     repo = Path(__file__).resolve().parents[1]
     hangar = (repo/'src/cli/hangar.fk').read_text()
@@ -81,18 +159,32 @@ def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
     source = ((repo/'std/version.fk').read_text() + '\n' + toml + '\n' +
               task_source(hangar, 'hangar_valid_package_name') + '\n' +
               task_source(hangar, 'hangar_checked_fs') + '\n' +
+              '\n'.join(task_source(hangar, name) for name in ('hangar_git_command','hangar_valid_git_source','hangar_valid_revision')) + '\n' +
               '\n'.join((repo/f'src/cli/{name}.fk').read_text() for name in ('package_graph','package_paths','package_inputs','package_sources','package_lock')) + '\n' + PROGRAM)
+    git_shim = build_git_shim(clang, root)
     for backend in ('c','llvm'):
         program = root/f'sources-{backend}.fk'
         program.write_text(source, encoding='utf-8')
         generated = probe_transpile(foundation, None, compiler, repo, program, backend)
         binary = root/f'sources-{backend}'
         foundation.compile_generated(clang=str(clang), repo=repo, runtime_root=runtime, generated=generated, backend=backend, binary=binary)
-        def execute(manifest: Path, mode='ordinary', snapshot='') -> str:
-            result = foundation.run([str(binary), str(manifest), mode, str(snapshot)], root, foundation.sanitizer_env(), timeout=30)
+        def execute(manifest: Path, mode='ordinary', snapshot='', extra_env=None) -> str:
+            environment = foundation.sanitizer_env()
+            if extra_env: environment.update(extra_env)
+            result = foundation.run([str(binary), str(manifest), mode, str(snapshot)], root, environment, timeout=45)
             assert result.returncode == 0, (backend, mode, result.returncode, result.stdout, result.stderr)
             require_resource_conservation(foundation, result.stderr)
             return result.stdout
+        for label, declaration, reason in (
+            ('reserved-fact', '\n[__package]\ntests_declared="true"\n', 'reserved package admission fact'),
+            ('nested-tests', '\n[tests.nested]\npath="main.fk"\n', 'flat name-to-relative-source map'),
+        ):
+            invalid = project(root/f'invalid-{backend}-{label}')
+            invalid.write_text(invalid.read_text()+declaration, encoding='utf-8')
+            rejected = execute(invalid)
+            assert rejected.startswith('error:') and reason in rejected, rejected
+            assert not invalid.with_name('hangar.lock').exists()
+            print(f'native:{backend}:sources:{label}:passed', flush=True)
         manifest = project(root/f'diamond-{backend}')
         initial = execute(manifest)
         assert initial.startswith('ready: 4:4\n'), initial
@@ -128,6 +220,63 @@ def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
         assert malformed.with_name('hangar.lock').read_bytes() == before
         assert execute(malformed, 'update').startswith('ready: 4:4\n')
         print(f'native:{backend}:sources:explicit-legacy-migration:passed', flush=True)
+        git_manifest = project(root/f'git-diamond-{backend}')
+        for name in ('a', 'b'):
+            item = git_manifest.parent.parent/name/'hangar.toml'
+            item.write_text(item.read_text().replace('c={path="../c"}', 'c={git="https://fixture.invalid/c",rev="v1"}'), encoding='utf-8')
+        repository, old_commit = git_fixture(root/f'git-repository-{backend}')
+        git_env = {"FREAK_GIT":str(git_shim), "FREAK_GIT_FIXTURE_REPO":str(repository)}
+        rejected = execute(git_manifest, extra_env=git_env)
+        assert rejected.startswith('error:') and 'unlocked mutable Git revision requires explicit' in rejected, rejected
+        assert not git_manifest.with_name('hangar.lock').exists()
+        print(f'native:{backend}:sources:git-mutable-explicit-only:passed', flush=True)
+        installed = execute(git_manifest, 'update', extra_env=git_env)
+        assert installed.startswith('ready: 4:4\n'), installed
+        locked_git = tomllib.loads(git_manifest.with_name('hangar.lock').read_text())
+        node = next(item for item in locked_git['node'].values() if item['kind']=='git')
+        assert node['commit'] == old_commit and node['origin'] == 'https://fixture.invalid/c'
+        git_tree = git_manifest.parent/'.freak/store'/node['tree_sha256']
+        assert (git_tree/'core.fk').read_bytes() == b'task value() -> int { give back 42 }\n'
+        assert (git_tree/'assets/raw.bin').read_bytes() == b'A\0\xffB\r\n'
+        assert sorted(path.relative_to(git_tree).as_posix() for path in git_tree.rglob('*') if path.is_file()) == ['assets/raw.bin','core.fk','hangar.toml','tests/z_test.fk']
+        records = [item for item in locked_git['file'].values() if item['node'] == next(int(index) for index,item in locked_git['node'].items() if item['kind']=='git')]
+        canonical = b'FREAK-source-input-tree-v2\n'+struct.pack('>q',len(records))
+        for record in records:
+            blob = subprocess.run([shutil.which('git'), 'show', old_commit+':'+record['path']], cwd=repository, capture_output=True, timeout=30)
+            assert blob.returncode == 0, blob.stderr
+            relative = record['path'].encode('utf-8')
+            assert blob.stdout == (git_tree/record['path']).read_bytes()
+            assert hashlib.sha256(blob.stdout).hexdigest() == record['sha256'] and len(blob.stdout) == record['length']
+            canonical += struct.pack('>q',len(relative))+relative+struct.pack('>qqq',1,0,len(blob.stdout))+blob.stdout
+        assert hashlib.sha256(canonical).hexdigest() == node['tree_sha256']
+        print(f'native:{backend}:sources:git-raw-objects-no-checkout:passed', flush=True)
+        print(f'native:{backend}:sources:git-declared-only-binary-default-tests:passed', flush=True)
+        old_lock = git_manifest.with_name('hangar.lock').read_bytes()
+        new_commit = git_move_tag(repository, b'task value() -> int { give back 43 }\n')
+        no_fetch = {**git_env, 'FREAK_GIT_FORBID_FETCH':'1'}
+        assert execute(git_manifest, 'locked', extra_env=no_fetch) == installed
+        assert execute(git_manifest, 'offline', extra_env=no_fetch) == installed
+        assert git_manifest.with_name('hangar.lock').read_bytes() == old_lock
+        print(f'native:{backend}:sources:git-moved-tag-locked-offline:passed', flush=True)
+        failed = execute(git_manifest, 'update', extra_env={**git_env,'FREAK_GIT_PARTIAL_FAIL':'1'})
+        assert failed.startswith('error:') and 'Git object operation failed' in failed, failed
+        assert git_manifest.with_name('hangar.lock').read_bytes() == old_lock
+        assert not list((git_manifest.parent/'.freak').glob('.git-fetch-*')) and not list((git_manifest.parent/'.freak').glob('.git-input-*'))
+        print(f'native:{backend}:sources:git-failure-preserves-generation:passed', flush=True)
+        refreshed = execute(git_manifest, 'update', extra_env=git_env)
+        assert refreshed.startswith('ready: 4:4\n') and refreshed != installed, refreshed
+        current = tomllib.loads(git_manifest.with_name('hangar.lock').read_text())
+        fresh_node = next(item for item in current['node'].values() if item['kind']=='git')
+        assert fresh_node['commit'] == new_commit and (git_tree/'core.fk').read_bytes().endswith(b'42 }\n')
+        print(f'native:{backend}:sources:git-explicit-update:passed', flush=True)
+        new_lock = git_manifest.with_name('hangar.lock').read_bytes()
+        git_move_symlink(repository)
+        rejected = execute(git_manifest, 'update', extra_env=git_env)
+        assert rejected.startswith('error:') and 'ordinary blob' in rejected, rejected
+        assert git_manifest.with_name('hangar.lock').read_bytes() == new_lock
+        assert not list((git_manifest.parent/'.freak').glob('.git-fetch-*')) and not list((git_manifest.parent/'.freak').glob('.git-input-*'))
+        print(f'native:{backend}:sources:git-symlink-refused:passed', flush=True)
+
 
 
 def main() -> int:

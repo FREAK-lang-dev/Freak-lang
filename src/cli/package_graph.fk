@@ -178,6 +178,12 @@ task hangar_graph_validate_surface() -> bool {
     repeat until i >= toml_count {
         pilot key = array_get(toml_keys_arr, i)
         pilot value = array_get(toml_vals_arr, i)
+        if key.starts_with("__package.") { hangar_graph_fail("manifest uses a reserved package admission fact: " + key) give back false }
+        if key.starts_with("tests.") {
+            if not hangar_graph_symbol(key.substring(6, key.length() - 6)) or not hangar_graph_relative_file(value) { hangar_graph_fail("tests must be a flat name-to-relative-source map: " + key) give back false }
+        } else if key.starts_with("assets.") {
+            if not hangar_graph_symbol(key.substring(7, key.length() - 7)) { hangar_graph_fail("assets must be a flat name-to-relative-file map: " + key) give back false }
+        }
         if key.starts_with("modules.") {
             pilot name = key.substring(8, key.length())
             if not hangar_graph_symbol(name) or not hangar_graph_relative_file(value) {
