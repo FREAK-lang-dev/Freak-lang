@@ -425,7 +425,8 @@ def graph_probe(freak: Path | None, clang: Path, runtime: Path, root: Path,
 
 
 INPUT_CASES = ("canonical-bytes", "sorted-inventory", "binary-stage", "unknown-ignored",
-               "metadata-ignored", "declared-edit", "symlink-component", "secret-declaration", "protected-aliases", "case-collision", "byte-limit", "manifest-race")
+               "metadata-ignored", "declared-edit", "symlink-component", "secret-declaration", "protected-aliases", "case-collision", "byte-limit", "manifest-race", "default-tests", "empty-tests-table",
+               "default-tests-limit", "ancestor-swap-contained")
 INPUT_MANIFEST = ('[project]\nname = "inputs"\nversion = "1.0.0"\nkind = "lib"\n'
                   'readme = "README.md"\nlicense_file = "LICENSE"\n'
                   '[modules]\ncore = "src/é helper.fk"\n'
@@ -442,13 +443,33 @@ task main() {
     fs::result_release(manifest)
     pilot node = hangar_graph_add_manifest("input-tree", root + "/hangar.toml", content, "inputs")
     if node < 0 { process::exit(52) }
+    if toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), "tests") {
+        array_push(hangar_graph_fact_nodes, word_from_int(node))
+        array_push(hangar_graph_fact_keys, "__package.tests_declared")
+        array_push(hangar_graph_fact_values, "true")
+    }
     if process::arg(3) == "limit" { package_input_file_limit = 1 }
     if process::arg(3) == "manifest-race" {
         pilot written = fs::write_checked(root + "/hangar.toml", content.replace("src/é helper.fk", "missing-late.fk"))
         if not fs::result_ok(written) { process::exit(53) }
         fs::result_release(written)
     }
-    pilot hash = package_hash_declared_inputs(node, root, "hangar.toml", stage)
+    pilot hash = ""
+    if process::arg(3) == "ancestor-swap" {
+        pilot original = fs::open_dir_ticket(root)
+        pilot output = fs::open_dir_ticket(stage)
+        if not fs::result_ok(original) or not fs::result_ok(output) { process::exit(54) }
+        pilot command = process::command_new(process::arg(4))
+        process::command_arg(command, root)
+        process::command_arg(command, stage)
+        process::command_arg(command, process::arg(5))
+        pilot status = process::command_run(command, 5000, 4096, 4096)
+        if status != 2 or process::command_exit_code(command) != 0 { process::exit(55) }
+        process::command_release(command)
+        hash = package_hash_declared_inputs_rooted(node, original, "hangar.toml", output)
+        fs::result_release(original)
+        fs::result_release(output)
+    } else { hash = package_hash_declared_inputs(node, root, "hangar.toml", stage) }
     if hash == "" { say "error:" + hangar_graph_error } else {
         say hash
         pilot index = 0
@@ -493,16 +514,35 @@ def inputs_probe(freak: Path | None, clang: Path, runtime: Path, root: Path,
             target.write_bytes(contents)
         (cwd / "hangar.toml").write_text(manifest, encoding="utf-8")
 
-    def expected(cwd: Path) -> str:
-        ordered = sorted(files, key=lambda path: path.encode("utf-8"))
+    def expected(cwd: Path, inventory: dict | None = None) -> str:
+        selected = files if inventory is None else inventory
+        ordered = sorted(selected, key=lambda path: path.encode("utf-8"))
         data = b"FREAK-source-input-tree-v2\n" + struct.pack(">q", len(ordered))
         lines = []
         for relative in ordered:
             name = relative.encode("utf-8")
             contents = (cwd / relative).read_bytes()
             data += struct.pack(">q", len(name)) + name + struct.pack(">qqq", 1, 0, len(contents)) + contents
-            lines.append(f"{relative}|{hashlib.sha256(contents).hexdigest()}|{len(contents)}|{files[relative][1]}\n")
+            lines.append(f"{relative}|{hashlib.sha256(contents).hexdigest()}|{len(contents)}|{selected[relative][1]}\n")
         return hashlib.sha256(data).hexdigest() + "\n" + "".join(lines)
+
+    swap_helper = root / "ancestor-swap"
+    if os.name != "nt":
+        swap_c = root / "ancestor-swap.c"
+        swap_c.write_text(r'''#include <stdio.h>
+#include <unistd.h>
+int main(int argc,char **argv) {
+    if (argc != 4) return 61;
+    for (int i=1;i<=2;i++) {
+        char held[8192];
+        int count=snprintf(held,sizeof(held),"%s.held",argv[i]);
+        if (count < 0 || (size_t)count >= sizeof(held) || rename(argv[i],held) || symlink(argv[3],argv[i])) return 62;
+    }
+    return 0;
+}
+''', encoding="ascii")
+        built = foundation.run([str(clang), str(swap_c), "-o", str(swap_helper)], root, timeout=30)
+        assert built.returncode == 0, (built.stdout, built.stderr)
 
     for backend in ("c", "llvm"):
         program = root / f"inputs-{backend}.fk"
@@ -515,7 +555,8 @@ def inputs_probe(freak: Path | None, clang: Path, runtime: Path, root: Path,
         def execute(cwd: Path, name: str, mode: str = "normal") -> tuple[str, Path]:
             stage = root / f"stage-{backend}-{name}"
             stage.mkdir()
-            result = foundation.run([str(binary), str(cwd), str(stage), mode], root,
+            extra = [str(swap_helper), str(root / f"outside-{backend}")] if mode == "ancestor-swap" else []
+            result = foundation.run([str(binary), str(cwd), str(stage), mode, *extra], root,
                                     foundation.sanitizer_env(), timeout=30)
             assert result.returncode == 0, (backend, name, result.returncode, result.stdout, result.stderr)
             require_resource_conservation(foundation, result.stderr)
@@ -581,6 +622,44 @@ def inputs_probe(freak: Path | None, clang: Path, runtime: Path, root: Path,
         rejected, _ = execute(changed_manifest, "manifest-race", "manifest-race")
         assert rejected.startswith("error:") and "manifest changed after graph admission" in rejected, rejected
         print(f"native:{backend}:inputs:manifest-race:passed")
+        default_manifest = INPUT_MANIFEST.replace('[tests]\nmain = "tests/sample.fk"\n', '')
+        defaults = root / f"input-default-tests-{backend}"
+        create(defaults, default_manifest)
+        (defaults / "tests/z_test.fk").write_bytes(b"task main() { say 2 }\n")
+        (defaults / "tests/a_test.fk").write_bytes(b"task main() { say 1 }\n")
+        default_files = {path: value for path, value in files.items() if value[1] != "test"}
+        default_files.update({"tests/z_test.fk": (b"", "test"), "tests/a_test.fk": (b"", "test")})
+        actual, _ = execute(defaults, "default-tests")
+        assert actual == expected(defaults, default_files), (actual, expected(defaults, default_files))
+        print(f"native:{backend}:inputs:default-tests:passed")
+        empty_tests = root / f"input-empty-tests-{backend}"
+        create(empty_tests, default_manifest + "\n[tests]\n")
+        (empty_tests / "tests/a_test.fk").write_bytes(b"task main() { say 1 }\n")
+        actual, _ = execute(empty_tests, "empty-tests")
+        assert actual == expected(empty_tests, {path: value for path, value in files.items() if value[1] != "test"}), actual
+        print(f"native:{backend}:inputs:empty-tests-table:passed")
+        limit_tests = root / f"input-test-limit-{backend}"
+        create(limit_tests, default_manifest)
+        for index in range(257):
+            (limit_tests / f"tests/a{index:03}_test.fk").write_bytes(b"task main() {}\n")
+        rejected, _ = execute(limit_tests, "test-limit")
+        assert rejected.startswith("error:") and "limit of 256" in rejected, rejected
+        print(f"native:{backend}:inputs:default-tests-limit:passed")
+        if os.name != "nt":
+            original = root / f"input-ancestor-{backend}"
+            outside = root / f"outside-{backend}"
+            create(original)
+            create(outside)
+            (outside / "assets/raw.bin").write_bytes(b"OUTSIDE SECRET")
+            before_outside = {path.relative_to(outside).as_posix(): path.read_bytes() for path in outside.rglob("*") if path.is_file()}
+            wanted = expected(original)
+            actual, stage = execute(original, "ancestor", "ancestor-swap")
+            assert actual == wanted, (actual, wanted)
+            assert {path.relative_to(outside).as_posix(): path.read_bytes() for path in outside.rglob("*") if path.is_file()} == before_outside
+            held = Path(str(stage) + ".held")
+            assert {(path.relative_to(held).as_posix(), path.read_bytes()) for path in held.rglob("*") if path.is_file()} == {(path, data) for path, (data, _) in files.items()}
+            print(f"native:{backend}:inputs:ancestor-swap-contained:passed")
+
 
 
 def main() -> int:

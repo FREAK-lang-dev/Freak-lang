@@ -168,6 +168,46 @@ task package_collect_declared_inputs(node: int, manifest_file: word) -> bool {
     give back true
 }
 
+task package_collect_default_tests(node: int, root_ticket: int) -> bool {
+    pilot declared = hangar_graph_fact(node, "__package.tests_declared") == "true"
+    pilot count = 0
+    pilot index = 0
+    repeat until index >= array_len(package_pending_roles) {
+        if array_get(package_pending_roles, index) == "test" { declared = true
+            count += 1 }
+        index += 1
+    }
+    if count > 256 { hangar_graph_fail("declared tests exceed the supported limit of 256") give back false }
+    if declared { give back true }
+    pilot tests = fs::open_relative_dir_ticket(root_ticket, "tests")
+    if not fs::result_ok(tests) {
+        pilot absent = fs::result_missing(tests)
+        if not absent { hangar_graph_fail("fallback tests/ must be an ordinary anchored directory without links: " + fs::result_error(tests)) }
+        fs::result_release(tests)
+        give back absent
+    }
+    pilot listing = fs::list_dir_ticket(tests)
+    fs::result_release(tests)
+    if not fs::result_ok(listing) {
+        hangar_graph_fail("cannot list anchored fallback tests/: " + fs::result_error(listing))
+        fs::result_release(listing)
+        give back false
+    }
+    pilot valid = true
+    index = 0
+    repeat until index >= fs::result_count(listing) or not valid {
+        pilot name = fs::result_entry(listing, index)
+        if name.ends_with("_test.fk") {
+            count += 1
+            if count > 256 { hangar_graph_fail("fallback tests exceed the supported limit of 256")
+                valid = false } else { valid = package_input_add("tests/" + name, "test") }
+        }
+        index += 1
+    }
+    fs::result_release(listing)
+    give back valid
+}
+
 task package_write_staged_input(stage_ticket: int, relative: word, bytes: ByteBuffer, created: int) -> bool {
     -- Parents are created once within the held, privately owned staging root.
     -- A path supplied by a tool is never a write or recursive cleanup authority.
@@ -197,6 +237,7 @@ task package_write_staged_input(stage_ticket: int, relative: word, bytes: ByteBu
 
 task package_hash_declared_inputs_rooted(node: int, root_ticket: int, manifest_file: word, stage_ticket: int) -> word {
     if not package_collect_declared_inputs(node, manifest_file) { give back "" }
+    if not package_collect_default_tests(node, root_ticket) { give back "" }
     pilot created = array_new()
     pilot canonical: ByteBuffer = ByteBuffer::new()
     canonical.write_word("FREAK-source-input-tree-v2\n")
