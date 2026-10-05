@@ -40,6 +40,7 @@ PROGRAM = '''task main() {
     pilot missing: bool = fs::result_missing(held)
     pilot held_path = fs::directory_path_ticket(held)
     pilot held_identity = fs::directory_identity_ticket(held)
+    pilot held_rename = fs::rename_relative_new_checked(held, "old", held, "new")
     pilot write: int = fs::write_checked("path", "text")
     pilot write_bytes: int = fs::write_bytes_checked("path", bytes)
     pilot append: int = fs::append_checked("path", "text")
@@ -70,6 +71,7 @@ PROGRAM = '''task main() {
 '''
 
 OPERATIONS = (
+    "rename_relative_new_checked",
     "directory_identity_ticket",
     "open_dir_ticket",
     "read_bytes_limit_ticket",
@@ -98,6 +100,14 @@ OPERATIONS = (
 )
 
 NEGATIVE = {
+    "held_rename_parent_type": (
+        'fs::rename_relative_new_checked(1, "old", "parent", "new")',
+        "argument 3 expects int, got word", False,
+    ),
+    "held_rename_arity": (
+        'fs::rename_relative_new_checked(1, "old", 2)',
+        "expects 4 argument(s), got 3", False,
+    ),
     "directory_identity_type": (
         'fs::directory_identity_ticket("dir")',
         "argument 1 expects int, got word", False,
