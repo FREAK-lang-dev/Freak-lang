@@ -1844,21 +1844,31 @@ task v4_mir_add_place(mir_id: int, body_id: int, place_kind: word, text: word, b
 }
 
 task v4_mir_add_rvalue(mir_id: int, body_id: int, rvalue_kind: word, text: word, op: word, lhs: int, rhs: int, span: word, rvalue_ty: word) -> int {
-    pilot rvalue_id = array_len(v4_mir_body_rvalue_kinds_handle(mir_id, body_id))
+    pilot kinds_handle: int = v4_mir_body_rvalue_kinds_handle(mir_id, body_id)
+    pilot texts_handle: int = v4_mir_body_rvalue_texts_handle(mir_id, body_id)
+    pilot ops_handle: int = v4_mir_body_rvalue_ops_handle(mir_id, body_id)
+    pilot lhs_handle: int = v4_mir_body_rvalue_lhs_handle(mir_id, body_id)
+    pilot rhs_handle: int = v4_mir_body_rvalue_rhs_handle(mir_id, body_id)
+    pilot spans_handle: int = v4_mir_body_rvalue_spans_handle(mir_id, body_id)
+    pilot tys_handle: int = v4_mir_body_rvalue_tys_handle(mir_id, body_id)
+    pilot abis_handle: int = v4_mir_body_rvalue_abis_handle(mir_id, body_id)
+    pilot args_handle: int = v4_mir_body_rvalue_args_handle(mir_id, body_id)
+    pilot builtin_methods_handle: int = v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id)
+    pilot rvalue_id = array_len(kinds_handle)
     pilot never_count = v4_mir_body_never_summary_begin_write(mir_id, body_id)
-    array_push(v4_mir_body_rvalue_kinds_handle(mir_id, body_id), rvalue_kind)
-    array_push(v4_mir_body_rvalue_texts_handle(mir_id, body_id), text)
-    array_push(v4_mir_body_rvalue_ops_handle(mir_id, body_id), op)
-    array_push(v4_mir_body_rvalue_lhs_handle(mir_id, body_id), word_from_int(lhs))
-    array_push(v4_mir_body_rvalue_rhs_handle(mir_id, body_id), word_from_int(rhs))
-    array_push(v4_mir_body_rvalue_spans_handle(mir_id, body_id), span)
-    array_push(v4_mir_body_rvalue_tys_handle(mir_id, body_id), rvalue_ty)
-    array_push(v4_mir_body_rvalue_abis_handle(mir_id, body_id), "")
-    array_push(v4_mir_body_rvalue_args_handle(mir_id, body_id), "")
-    array_push(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), "")
+    array_push(kinds_handle, rvalue_kind)
+    array_push(texts_handle, text)
+    array_push(ops_handle, op)
+    array_push(lhs_handle, word_from_int(lhs))
+    array_push(rhs_handle, word_from_int(rhs))
+    array_push(spans_handle, span)
+    array_push(tys_handle, rvalue_ty)
+    array_push(abis_handle, "")
+    array_push(args_handle, "")
+    array_push(builtin_methods_handle, "")
     -- A partial append must keep the optional summary cold, even when the
     -- kinds/type columns advanced but another authoritative column did not.
-    if never_count >= 0 and array_len(v4_mir_body_rvalue_kinds_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_texts_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_ops_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_lhs_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_rhs_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_spans_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_tys_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_abis_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_args_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id)) == rvalue_id + 1 {
+    if never_count >= 0 and array_len(kinds_handle) == rvalue_id + 1 and array_len(texts_handle) == rvalue_id + 1 and array_len(ops_handle) == rvalue_id + 1 and array_len(lhs_handle) == rvalue_id + 1 and array_len(rhs_handle) == rvalue_id + 1 and array_len(spans_handle) == rvalue_id + 1 and array_len(tys_handle) == rvalue_id + 1 and array_len(abis_handle) == rvalue_id + 1 and array_len(args_handle) == rvalue_id + 1 and array_len(builtin_methods_handle) == rvalue_id + 1 {
         if rvalue_ty == v4_ty_never { never_count += 1 }
         v4_mir_publish_body_never_summary(mir_id, body_id, rvalue_id + 1, never_count)
     }
