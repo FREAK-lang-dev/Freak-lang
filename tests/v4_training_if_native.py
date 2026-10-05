@@ -39,11 +39,11 @@ CASES = (
     ('if', 0, 0, '1\n2\n3\n'), ('if', 1, 0, '1\n2\n3\n4\n5\n'),
     ('if', 2, 0, 'live\n4\n'), ('if', 3, 0, '1\n2\n3\n'),
     ('if', 4, 2, ''), ('if', 5, 0, 'minus\nzero!\nfresh\n'),
-    ('if', 6, 0, '3\n'),
+    ('if', 6, 0, '3\n'), ('if', 7, 0, '}\n1\n3\ntail\n4\n'),
 )
 FIXTURES = {'training': 'mir_training_cap_contract_smoke.fk',
             'if': 'mir_if_terminal_contract_smoke.fk'}
-ADVERSE_CASES = (20, 21, 22, 23, 24, 30)
+ADVERSE_CASES = (20, 21, 22, 23, 24, 25, 30)
 
 
 def prefix(family: str, case: int) -> str:
@@ -91,9 +91,9 @@ def validate_report(report: dict, sanitize: bool) -> None:
             or {r['case'] for r in report['compiler_contracts']} != set(ADVERSE_CASES)
             or any(r['status'] != 'pass' for r in report['compiler_contracts'])):
         raise RuntimeError('native report lacks preserved diagnostic/hostile-join contracts')
-    # 2 bootstrap + 21 runtime objects + 9 audit jobs + 6 adverse contracts +
-    # 25 source reads + 25 emits + 75 links + 75 executions. SAN adds 3 jobs.
-    expected_jobs = 238 + (3 if sanitize else 0) + (1 if report['target'] == 'aarch64-apple-darwin' else 0)
+    # 2 bootstrap + 21 runtime objects + 9 audit jobs + 7 adverse contracts +
+    # 26 source reads + 26 emits + 78 links + 78 executions. SAN adds 3 jobs.
+    expected_jobs = 247 + (3 if sanitize else 0) + (1 if report['target'] == 'aarch64-apple-darwin' else 0)
     if report['jobs'] != expected_jobs or report['inputs_before'] != report['inputs_after']:
         raise RuntimeError('native job count or input conservation differs from the closed plan')
 

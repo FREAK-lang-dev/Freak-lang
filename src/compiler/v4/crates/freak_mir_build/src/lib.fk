@@ -6039,6 +6039,34 @@ task v4_mir_find_else_token(stream_id: int, start_token: int, end_token: int) ->
     give back 0 - 1
 }
 
+-- Return the exclusive end of one ordinary conditional chain. Only the next
+-- nontrivia else may attach; a following statement or semicolon ends the chain.
+-- Existing syntax projection excludes quoted braces and matching-brace reads
+-- retain nested bodies. Malformed clauses keep the original recovery path.
+task v4_mir_if_statement_end(stream_id: int, if_token: int, end_token: int) -> int {
+    pilot clause = if_token
+    repeat until clause >= end_token {
+        pilot open_token = v4_mir_find_token_value(stream_id, clause + 1, end_token, "{")
+        if open_token < 0 { give back -1 }
+        pilot close_token = v4_mir_find_matching_brace(stream_id, open_token, end_token)
+        if close_token >= end_token { give back -1 }
+        pilot next_token = v4_mir_skip_trivia(stream_id, close_token + 1)
+        if next_token >= end_token { give back close_token + 1 }
+        if v4_lex_token_type(stream_id, next_token) != v4_tok_keyword or v4_lex_token_syntax_value(stream_id, next_token) != "else" { give back close_token + 1 }
+        pilot else_head = v4_mir_skip_trivia(stream_id, next_token + 1)
+        if else_head >= end_token { give back -1 }
+        if v4_lex_token_type(stream_id, else_head) == v4_tok_keyword and v4_lex_token_syntax_value(stream_id, else_head) == "if" {
+            clause = else_head
+        } else {
+            if v4_lex_token_syntax_value(stream_id, else_head) != "{" { give back -1 }
+            pilot else_close = v4_mir_find_matching_brace(stream_id, else_head, end_token)
+            if else_close >= end_token { give back -1 }
+            give back else_close + 1
+        }
+    }
+    give back -1
+}
+
 task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, if_token: int, stmt_end: int) -> int {
     pilot open_token = v4_mir_find_token_value(stream_id, if_token, stmt_end, "{")
     if open_token < 0 {
@@ -9131,12 +9159,22 @@ task v4_mir_lower_block_body(mir_id: int, body_id: int, block_id: int, stream_id
             idx = close_token
         } else {
             pilot stmt_end = v4_mir_statement_end(stream_id, idx, close_token)
+            pilot next_statement = stmt_end + 1
+            if v4_lex_token_syntax_value(stream_id, idx) == "if" {
+                pilot conditional_end = v4_mir_if_statement_end(stream_id, idx, close_token)
+                if conditional_end > idx {
+                    stmt_end = conditional_end
+                    -- This end points just past the closing brace. Retain the
+                    -- first tail token even when no whitespace separates it.
+                    next_statement = conditional_end
+                }
+            }
             current_block = v4_mir_lower_statement(mir_id, body_id, current_block, stream_id, idx, stmt_end)
             if terminal_block < 0 and v4_mir_control_block_is_terminal(mir_id, body_id, current_block) { terminal_block = current_block; v4_mir_control_diagnostic_depth += 1 }
             if v4_mir_block_has_terminal_stmt(mir_id, body_id, current_block) and v4_mir_control_diagnostic_depth == 0 {
                 idx = close_token
             } else {
-                if stmt_end <= idx { idx += 1 } else { idx = stmt_end + 1 }
+                if stmt_end <= idx { idx += 1 } else { idx = next_statement }
                 if v4_mir_control_diagnostic_depth > 0 and idx < close_token and v4_mir_block_has_terminal_stmt(mir_id, body_id, current_block) {
                     current_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
                 }
