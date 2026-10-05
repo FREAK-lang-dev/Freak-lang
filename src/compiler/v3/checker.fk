@@ -152,6 +152,57 @@ task bc_leave_scope() -> void {
     bc_scope_depth = prev
 }
 
+-- Branches begin with the same outer owners. Only routes that continue
+-- contribute moves to the join; a returned route cannot poison its sibling.
+task bc_capture_states(count: int) -> word {
+    pilot states = ""
+    pilot index = 0
+    repeat count times {
+        if array_get(bc_sym_state, index) == "moved" { states = states + "1" }
+        else { states = states + "0" }
+        index += 1
+    }
+    give back states
+}
+
+task bc_restore_states(states: word, count: int) -> void {
+    pilot index = 0
+    repeat count times {
+        pilot state = "live"
+        if states.char_at(index) == "1" { state = "moved" }
+        array_set(bc_sym_state, index, state)
+        index += 1
+    }
+}
+
+task bc_walk_branches(then_body: word, else_body: word, then_name: word, else_name: word, line: int) -> void {
+    pilot outer_count = bc_sym_count
+    pilot initial_states = bc_capture_states(outer_count)
+    bc_enter_scope()
+    if then_name != "" { bc_push_sym(then_name, "owned", "0", line) }
+    bc_walk_block(then_body)
+    bc_leave_scope()
+    pilot then_states = bc_capture_states(outer_count)
+    bc_restore_states(initial_states, outer_count)
+    bc_enter_scope()
+    if else_name != "" { bc_push_sym(else_name, "owned", "0", line) }
+    bc_walk_block(else_body)
+    bc_leave_scope()
+    pilot else_states = bc_capture_states(outer_count)
+    pilot then_terminal = tc_block_definitely_returns(then_body)
+    pilot else_terminal = tc_block_definitely_returns(else_body)
+    pilot index = 0
+    repeat outer_count times {
+        pilot moved = false
+        if not then_terminal and then_states.char_at(index) == "1" { moved = true }
+        if not else_terminal and else_states.char_at(index) == "1" { moved = true }
+        pilot state = "live"
+        if moved { state = "moved" }
+        array_set(bc_sym_state, index, state)
+        index += 1
+    }
+}
+
 -- ---------- Diagnostic emission -------------------------------------
 -- The borrow checker runs after parsing, so diagnostics use the current
 -- statement's stored source provenance rather than the exhausted token cursor.
@@ -421,14 +472,7 @@ task bc_walk_stmt(stmt_id: int) -> void {
 
     if kind == STMT_CHECK_RESULT {
         bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
-        bc_enter_scope()
-        bc_push_sym(array_get(ast_task_params, stmt_id), "owned", "0", line)
-        bc_walk_block(array_get(ast_stmt_bodies, stmt_id))
-        bc_leave_scope()
-        bc_enter_scope()
-        bc_push_sym(array_get(ast_task_returns, stmt_id), "owned", "0", line)
-        bc_walk_block(array_get(ast_stmt_else_bodies, stmt_id))
-        bc_leave_scope()
+        bc_walk_branches(array_get(ast_stmt_bodies, stmt_id), array_get(ast_stmt_else_bodies, stmt_id), array_get(ast_task_params, stmt_id), array_get(ast_task_returns, stmt_id), line)
         give back
     }
     if kind == STMT_IF {
@@ -436,14 +480,7 @@ task bc_walk_stmt(stmt_id: int) -> void {
         pilot then_w: word = array_get(ast_stmt_bodies, stmt_id)
         pilot else_w: word = array_get(ast_stmt_else_bodies, stmt_id)
         bc_walk_expr(word_to_int(cond_w), false, line)
-        bc_enter_scope()
-        bc_walk_block(then_w)
-        bc_leave_scope()
-        if else_w != "" {
-            bc_enter_scope()
-            bc_walk_block(else_w)
-            bc_leave_scope()
-        }
+        bc_walk_branches(then_w, else_w, "", "", line)
         give back
     }
 
@@ -543,7 +580,11 @@ task bc_walk_block(block_str: word) -> void {
     repeat n times {
         pilot c: word = block_str.char_at(i)
         if c == "," {
-            if cur != "" { bc_walk_stmt(word_to_int(cur)) }
+            if cur != "" {
+                pilot statement = word_to_int(cur)
+                bc_walk_stmt(statement)
+                if tc_stmt_definitely_returns(statement) { give back }
+            }
             cur = ""
         } else {
             cur = cur + c
