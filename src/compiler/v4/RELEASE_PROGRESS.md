@@ -235,17 +235,33 @@ identity check in MIR Build, and 126 plus 41 in TY. MIR has zero forbidden
 family references; codegen retains eight Meiya call sites. This inventory is
 not a native performance measurement.
 
-The next bounded batch adds the A0 authority guard and fixes the ignored
-training-session cap and fully returning ordinary else-if chains. Training
-tests follow the bible's condition-first, re-evaluated-cap semantics; the V3
-native emitter's evaluate-once cap is an explicit parity difference. Continue
-must route through the increment epilogue. Conditional fixes must retain later
-source diagnostics and the original strict CFG/snapshot/native contracts.
-The two capability rows remain open until their implementation and behavioral
-gates pass. A0 is implemented and documented: the registered source-boundary
-gate passes, fourteen direct/function-valued forbidden-family controls reject,
-and actual gate injection rejects both an upstream and a builder-owned reference.
-The pure check dispatches no compiler, transpiler, native or subprocess jobs.
+The first revision 3.1 batch is implemented and locally verified. A0 is
+registered and documented; its direct/function-valued references and actual
+upstream/builder gate injections reject. Training arcs now own a typed session
+counter and condition-first/re-evaluated-cap test in Built-MIR. Normal completion
+and `continue` share the increment epilogue; `break` and return preserve their
+terminal edges. The admitted `sessions` binding works in a heading comparison.
+Fully returning ordinary conditional chains compact before publication, keep
+later source diagnostics, and retain same-line return/call tails.
+
+The closed native matrix has 26 programs at O0/O2/O3 (78 executions per mode),
+seven adverse compiler/snapshot contracts, and both C/LLVM ownership audits.
+Plain `9fa1827` passes all 247 jobs and six audit controls; mandatory ASan/UBSan
+`0909760` passes all 250 jobs and eight audit/sanitizer controls. Each conserves
+44 inputs; independent raw command/output, module/source and physical artifact
+reviews are CLEAR. The literal registry rewrite preserves the exact original
+runtime values; later checker changes affect only three removed-join goldens.
+
+Local MIR coverage is 83 fixtures/144 process cases: 45 fixtures/62 passing
+prefix cases at `0909760` plus 38 fixtures/82 passing cases at `bee80ac`, with
+an independently checked disjoint partition and unchanged prefix/source transfer.
+The original whole `0909760` run failed on three stale if-condition expectations
+and retains its failure receipt. All 33 new process-isolated compiler contracts
+pass with the original 60-second/64-MiB/1024-handle limits. Static boundaries,
+version/contributor checks and the source conformance audit pass; the native CLI
+is not built in this isolated Linux checkout. Hosted Linux/macOS/Windows native
+portability and Linux mandatory sanitizer gates are registered. Fresh current-head
+CI remains a delivery gate; local proof is not relabeled as hosted platform proof.
 
 Inline overflow intrinsics, speed regression guards and renewed TY/Meiya growth
 rates remain open. So do default unwind/cleanup, bootstrap/self-hosting, general

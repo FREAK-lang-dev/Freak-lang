@@ -42,13 +42,28 @@ Sum slices. General aggregates, arbitrary source-main parameters, default
 panic unwind/cleanup, self-hosting, full V3 parity and distribution remain open.
 The private C panic-context proof establishes only its helper ABI scope.
 
-Next bounded batch, after this reconciliation is committed:
+Revision 3.1 first batch is implemented and locally verified:
 
-1. A0: enforce and document the `freak_mir` authority/construction boundary.
-2. Enforce training-session caps with condition-first tests, a distinct counter
-   and an increment epilogue used by `continue`; retain existing diagnostics.
-3. Close fully returning ordinary conditional chains before MIR publication,
-   retaining diagnostics for later source and strict snapshot/CFG admission.
+1. A0: the registered guard enforces the documented `freak_mir`
+   authority/construction boundary.
+2. Training-session caps use condition-first tests, a distinct counter and an
+   increment epilogue used by `continue`; existing diagnostics are preserved.
+3. Fully returning ordinary conditional chains close before MIR publication.
+   Later source retains its diagnostics, and same-line return/call statements
+   following a chain are processed separately.
+
+The native gate runs 26 programs at O0/O2/O3: 78 executions in each of the
+plain and mandatory ASan/UBSan modes. Seven adverse compiler/snapshot contracts
+and six ownership-audit controls pass; the sanitizer run additionally proves
+both sanitizer diagnostics. Plain `9fa1827` used 247 guarded jobs; sanitized
+`0909760` used 250, each conserving 44 input hashes. Independent raw-output,
+physical-artifact and source reviews are CLEAR. Local MIR coverage is 83 fixtures
+and 144 process cases: 62 unchanged prefix cases at `0909760`, then 82 passing
+cases at `bee80ac` after correcting three removed-join metadata expectations.
+The original run retains its failure receipt for those stale expectations; the exact
+source/registration transfer and disjoint coverage are independently verified.
+Fresh current-head Linux/macOS/Windows CI is registered and remains a delivery
+gate. These local results do not complete the preview or the release checklist.
 
 The remaining correctness rows and A4 Runtime MIR transform stay separately
 tracked. The reviewed U0 unwind plan must integrate with A4 ownership facts;
@@ -171,7 +186,7 @@ existing chain provably cannot express the fact. TIR stays a view.
 - [x] Build refuses an output path that names the input source
 - [x] Extern-member return types as HIR facts (HIR snapshot v10)
 - [x] `repeat N times` on scalars, native
-- [x] `training arc until cond` loop and condition on scalars, native (the `max N sessions` cap is **not** enforced: tier 1)
+- [x] `training arc until cond max N sessions` on scalars, native; the cap and shared `continue` increment are verified in the revision 3.1 batch
 - [x] `when` on integer literals, native
 - [x] `fix/v4-backend-scaling` merged to `main`
 - [x] `freak_mir` holds no lowering code and no forbidden upstream/later-stage references; A0's registered guard is implemented
@@ -360,15 +375,16 @@ PR #143 handoff-7 dispositions and remaining performance work:
 Correctness:
 
 - [ ] **M** `|>`: the pre-Word baseline silently dropped it (`3 |> inc |> dbl` returned 3 with zero diagnostics); merged `116dae0` rejects it only as `native rvalue not yet supported: Unknown`. Lower it, or reject it by name
-- [ ] **S** `training arc ... max N sessions`: the cap is type-checked and then dropped. `v4_mir_lower_training_arc_stmt` lowers the cap expression, checks it is numeric, and wires a plain condition loop with no session counter. `training arc until drills > 10 max 3 sessions { drills += 1 }` leaves `drills` at 11 on `main` and on #143; V3 and bible §5.6 give 3. A condition that never becomes true does not terminate. Add the counter local and the `sessions < N` test, and a smoke that fails when the cap is ignored
-- [ ] **M** An `if` / `else if` / `else` chain in which every branch gives back does not build: `mir cfg unreachable live block|sign block 5 has no predecessors but still carries live statements or control flow`. A plain `if` / `else` with both branches giving back works, and the chain works when the last `give back` follows it. Same on #143. This is the usual shape of a task that classifies a value
+- [x] **S** `training arc ... max N sessions`: the ignored-cap bug at merged `116dae0` is fixed. Built-MIR owns a distinct typed counter, a condition-first/re-evaluated-cap branch and a shared increment for normal completion and `continue`. The checklist repro now exits 3; never-true, zero/negative, early exit, nested/sibling, changing/effectful/numeric caps and owned-Word loops pass the 18-program native matrix at O0/O2/O3 with both ownership audits and ASan/UBSan
+- [x] **M** An `if` / `else if` / `else` chain with every branch giving back builds and publishes a canonical module. Checked construction compaction removes only the completed join/diagnostic continuation; strict CFG and snapshot/native admission remain. Eight native programs cover long/nested chains, mixed live exits, loop exits, Word returns and same-line tails; seven adverse contracts preserve later source errors, missing-return/condition diagnostics and atomic hostile-endpoint rejection
 - [ ] **S** A num is accepted where an int is required (initialiser, assignment, argument, return value) and the fraction is dropped with no diagnostic: `pilot n: int = 2.5` gives 2. V3 rejects all four. Same on #143. Reject it, or make the narrowing an explicit conversion rvalue (A3, "no implicit widening decided in codegen")
 - [ ] **S** `0xFF` is read as `0` with no diagnostic on `main`; on #143 it is rejected, but only as `native rvalue not yet supported: Unknown`. The bible defines no hexadecimal literal. Reject it by name in the lexer
 - [ ] **S** `fixed pilot` is accepted and can be reassigned (`fixed pilot fuel = 50` then `fuel = 75` gives 75; same on #143). Bible §1.1 says it cannot be
 - [ ] **S** An unknown name is reported only by codegen, as `native type not yet supported: unknown`, with no span and no name. Same for a call to an unknown task. Resolve or TY should report it by name (same on #143)
 - [ ] **S** A task with no return type (`task greet() { ... }`, and `task main()`) fails with that same codegen message. Accept it as `-> void` like V3, or reject it by name (decision 13)
-- [ ] **S** `sessions` is accepted as a pilot name, and a `training arc` heading that uses it (`until sessions >= 3 max 10 sessions`) then fails as `native rvalue not yet supported: Unknown`, because the heading is found by searching for the first `sessions` token. V3 reserves the word. Reserve it, or match the heading from the right
+- [x] **S** `sessions` remains an admitted V4 pilot name: the heading matches its final suffix and the binary operand scanner recognizes the binding. `until sessions >= 3 max 10 sessions` executes with exit 3 at O0/O2/O3. V3 reserves the word; this fix follows the checklist's right-matching alternative
 - [ ] **S** A `pilot` in an inner block with the name of an outer pilot is rejected as `duplicate local declaration`. V3 allows the shadow (decision 12; same on #143)
+- [x] **S** Same-line statements after an ordinary conditional chain are retained, including `}give back` adjacency. The completed-chain range stops before a following statement or semicolon, attaches only the immediate `else`, and keeps malformed-header recovery bounded. Original mixed-return/live-tail and discarded-call sources remain regression cases; a wrong later call is still diagnosed
 - [ ] **S** Sweep the remaining tier 4 surface forms for the same failure (accepted, no diagnostic, wrong code). `eventually`, `isekai` and `PLUS ULTRA` are rejected today, though with misleading messages. The `training arc` cap above was found this way
 
 Scaling (residual, on `main`):
@@ -693,7 +709,7 @@ python src/compiler/v4/check_v4.py
 python v4_scale_bench.py --check
 ```
 
-The `training arc` cap repro (expected exit code 3; `main` and #143 give 11):
+The `training arc` cap repro (expected exit 3; merged `116dae0` gave 11, and the verified revision 3.1 batch gives 3):
 
 ```
 task main() -> int {

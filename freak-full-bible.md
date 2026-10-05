@@ -100,7 +100,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.4 Compound types (`maybe<T>`, `result<T,E>`) | ✅ Implemented |
 | §1.5 Shapes | ✅ Implemented — V4 also lowers concrete and doctrine-bound UFCS calls through MIR with receiver, argument, and editor diagnostics |
 | §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships; V4 also parses and enforces doctrine bounds plus multi-bound generics across TY/MIR/editor, carries bound static and UFCS calls with instantiated doctrine arguments, preserves body-generic identity over same-named global aliases, diagnoses overlapping bound methods, and provides first-pass `dyn Doctrine` type positions, object-safety diagnostics, coercion checks, MIR method dispatch facts, and editor facts; `Ord`/`Index`/`IndexMut` plus dyn fat-pointer/vtable codegen still expand |
-| §1.7 Control flow | ⚠️ Partial — V4 carries tuple, fixed-array, and route/variant payload pattern destructuring with exhaustiveness diagnostics plus `training arc with growth` mutation checks for local and projected places; `prob_when` and broader pattern ergonomics remain 🔜 V4 |
+| §1.7 Control flow | ⚠️ Partial — V4 carries tuple, fixed-array, and route/variant payload pattern destructuring, canonical terminal conditional chains, and condition-first training-session caps plus `with growth` mutation checks; `prob_when` and broader pattern ergonomics remain 🔜 V4 |
 | §1.8 Closures | ⚠️ Partial — V4 carries default/`copy`/`move`/`mut` capture environments through HIR/TY/MIR/Meiya/editor/snapshot/invalidation; nested closure inference, borrowed-return contracts, `Send`/`Sync`, and backend environment codegen remain 🔜 V4 |
 | §1.9 Pipe operator `\|>` | ✅ Implemented |
 | §1.10 Error handling (`?`, `or else`, `check`) | ✅ Implemented |
@@ -1425,7 +1425,7 @@ strict semantic enforcement is mostly V4.
 | §5.3 Route system (`route`, `check route`, `only on … from`) | 🔜 V4 — `route` lexes as a keyword but the route declaration grammar and route-locked scopes are V4. |
 | §5.4 Anime operators (`PLUS ULTRA`, `NAKAMA`, `FINAL FORM`, `TSUNDERE`) | ⚠️ Partial — multi-word tokens lex; codegen and the `FINAL FORM` 5-second build pause are 🔜 V4. |
 | §5.5 `deus_ex_machina` block | ⚠️ Partial — 20-word minimum is enforced (compile error if shorter). The "all safety checks suspended within the block" semantic, the `>3 = warning` / `>10 = error` codebase-wide limit, and pragma-level optimization codegen are 🔜 V4. `freak audit-miracles` reports every block. |
-| §5.6 Training arc loop | ⚠️ Partial — `training arc until cond max N sessions` parses and emits as a bounded while loop. V4 enforces the `with growth` compile-time mutation check for local and projected condition subjects; production backend parity still expands. |
+| §5.6 Training arc loop | ⚠️ Partial — V4 enforces condition-first, re-evaluated session caps with a shared increment for `continue`, plus the `with growth` mutation check for local and projected subjects. The closed scalar/owned-Word native matrix passes O0/O2/O3 and ownership/sanitizer controls; production parity and static unreachable-condition warnings still expand. |
 | §5.7 Isekai and Eventually | ⚠️ Partial — both parse; `isekai { } bringing back { vars }` emits as a nested scope but does not strictly validate exports. `eventually { }` emits inline rather than LIFO-deferred (it does not run on `give back` / `panic` / `break` reliably). True deferred semantics are 🔜 V4. |
 
 ### 5.1 Annotations
@@ -1633,12 +1633,14 @@ training arc until condition max N sessions {
 
 -- Compiles to:
 -- int64_t __arc_sessions = 0;
--- while (!(condition) && __arc_sessions < N) {
+-- for (; !(condition) && __arc_sessions < N; __arc_sessions++) {
 --     body;
---     __arc_sessions++;
 -- }
 
 -- If condition is never met after N sessions, execution continues normally
+-- continue ends one session and runs the conceptual session increment.
+-- The condition is evaluated before the cap on every test; N is evaluated
+-- again only when the condition is false. break and return keep their exits.
 -- The compiler warns if static analysis shows the condition can never be met:
 -- Warning (Takeru voice): "I've done this training arc. It doesn't work if
 --   the condition is structurally unreachable. Trust me."
