@@ -1,0 +1,256 @@
+-- MIR-owned exact Never presence: real getter work and cold negative controls.
+task mir_never_assert(condition: bool, label: word) -> void {
+    if not condition { panic("MIR Never summary: " + label) }
+}
+
+task mir_never_available_handles() -> int {
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted: bool = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            count += 1
+        }
+    }
+    pilot row = 0
+    repeat until row >= count {
+        array_release(word_to_int(array_get(holders, row)))
+        row += 1
+    }
+    array_release(holders)
+    give back count
+}
+
+task mir_never_add(mir: int, body: int, ty: word) -> int {
+    give back v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_int, "6", "", -1, -1, V4_NO_SPAN, ty)
+}
+
+task mir_never_restore(mir: int, body: int, value: int, ty: word) -> int {
+    give back v4_mir_restore_rvalue_slot(mir, body, value, v4_mir_rvalue_const_int, "6", "", -1, -1, V4_NO_SPAN, ty, "", "", "")
+}
+
+task mir_never_wire_restore() -> void {
+    -- Run the complete restore before manual malformed/sparse construction.
+    pilot stream = v4_lex_text(0, "task main() -> int " + chr(123) + "\n give back 6\n" + chr(125) + "\n")
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    mir_never_assert(v4_mir_diag_count(mir) == 0 and v4_mir_body_never_summary_is_ready(mir, 0) and not v4_mir_build_body_has_control(mir, 0), "lowering publishes exact summary")
+    pilot payload: word = v4_mir_snapshot()
+    pilot links = v4_mir_stmt_next_index_handle(mir, 0)
+    v4_mir_invalidate_body_never_summary(mir, 0)
+    pilot reads = v4_mir_rvalue_ty_reads
+    mir_never_assert(not v4_mir_build_body_has_control(mir, 0) and v4_mir_rvalue_ty_reads - reads == v4_mir_body_rvalue_count(mir, 0) and not v4_mir_body_never_summary_is_ready(mir, 0), "cold reads remain cold")
+    mir_never_assert(v4_mir_snapshot() == payload and v4_mir_finalize_body_never_summary(mir, 0) and v4_mir_snapshot() == payload, "summary does not enter wire")
+    pilot rejected: word = v4_mir_snapshot_restore_component(payload + "\nmir-body")
+    mir_never_assert(rejected.starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == payload and v4_mir_stmt_next_index_handle(mir, 0) == links and v4_mir_body_never_summary_is_ready(mir, 0), "rejected whole restore preserves summary")
+    pilot omitted = v4_mir_add_body(mir, "omitted", "omitted", "")
+    mir_never_add(mir, omitted, v4_ty_never)
+    pilot omitted_links = v4_mir_stmt_next_index_handle(mir, omitted)
+    mir_never_assert(v4_mir_build_body_has_control(mir, omitted), "omitted body starts ready with Never")
+    pilot restored: word = v4_mir_snapshot_restore_component(payload)
+    mir_never_assert(restored.starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload and array_len(links) == 0 and v4_mir_body_never_summary_is_ready(mir, 0) and not v4_mir_build_body_has_control(mir, 0), "whole restore releases and republishes derived storage")
+    reads = v4_mir_rvalue_ty_reads
+    mir_never_assert(v4_mir_body_count(mir) == 1 and array_len(omitted_links) == 0 and not v4_mir_body_has_never(mir, omitted) and v4_mir_rvalue_ty_reads == reads, "shortened whole restore retires omitted body summary")
+    say "mir-never lowering=true whole-restore=true rejected-atomic=true wire-exact=true"
+}
+
+task mir_never_mutations(mir: int) -> void {
+    pilot body = v4_mir_add_body(mir, "mutations", "mutations", "")
+    pilot other = v4_mir_add_body(mir, "other", "other", "")
+    pilot links = v4_mir_stmt_next_index_handle(mir, body)
+    mir_never_assert(v4_mir_body_never_summary_is_ready(mir, body) and not v4_mir_build_body_has_control(mir, body) and array_len(links) == 4, "empty summary uses four existing-child cells")
+    pilot first = mir_never_add(mir, body, "Never")
+    mir_never_add(mir, body, "never ")
+    mir_never_assert(not v4_mir_build_body_has_control(mir, body), "predicate is exact type equality")
+    v4_mir_set_rvalue_ty(mir, body, first, v4_ty_never)
+    v4_mir_set_rvalue_ty(mir, body, first, v4_ty_never)
+    mir_never_assert(v4_mir_build_body_has_control(mir, body) and word_to_int(array_get(links, 3)) == 1 and not v4_mir_build_body_has_control(mir, other), "setter and independent bodies")
+    v4_mir_wire_control_flow_rvalue(mir, body, 0, V4_NO_SPAN, -1)
+    mir_never_assert(v4_mir_control_wire_limit == 256, "Never retains traversal cap")
+    v4_mir_set_rvalue_ty(mir, body, 1, v4_ty_never)
+    v4_mir_set_rvalue_ty(mir, body, first, v4_ty_int)
+    mir_never_assert(v4_mir_build_body_has_control(mir, body) and word_to_int(array_get(links, 3)) == 1, "removing one of two Never values keeps presence")
+    v4_mir_set_rvalue_ty(mir, body, 1, v4_ty_int)
+    v4_mir_set_rvalue_ty(mir, body, -1, v4_ty_never)
+    v4_mir_set_rvalue_ty(mir, body, 99, v4_ty_never)
+    v4_mir_set_rvalue_ty(mir, body, first, v4_ty_int)
+    v4_mir_wire_control_flow_rvalue(mir, body, 0, V4_NO_SPAN, first)
+    mir_never_assert(not v4_mir_build_body_has_control(mir, body) and v4_mir_body_never_summary_is_ready(mir, body) and v4_mir_control_wire_limit == 4096 and v4_mir_diag_count(mir) == 0, "setter removal and invalid IDs preserve cap")
+
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "6", V4_NO_SPAN, -1, first)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "6", V4_NO_SPAN, -1, first)
+    mir_never_assert(array_len(links) == 6 and v4_mir_block_first_stmt(mir, body, 0) == 0 and v4_mir_block_next_stmt(mir, body, 0, 0) == 1 and v4_mir_block_next_stmt(mir, body, 0, 1) == -1 and v4_mir_body_never_summary_is_ready(mir, body), "shifted statement links retain physical order")
+    v4_mir_invalidate_block_stmt_index(mir, body)
+    mir_never_assert(v4_mir_body_never_summary_is_ready(mir, body) and v4_mir_finalize_block_stmt_index(mir, body) and v4_mir_body_never_summary_is_ready(mir, body), "block rebuild preserves summary prefix")
+    v4_mir_invalidate_body_never_summary(mir, body)
+    mir_never_assert(v4_mir_block_stmt_index_is_ready(mir, body) and not v4_mir_build_body_has_control(mir, body) and not v4_mir_body_never_summary_is_ready(mir, body) and v4_mir_finalize_body_never_summary(mir, body), "ready flags are independent")
+    say "mir-never empty=true exact-types=true setters=true independent-ready=true links=true caps=4096,256"
+
+    mir_never_assert(mir_never_restore(mir, body, first, v4_ty_never) == 1 and v4_mir_build_body_has_control(mir, body) and v4_mir_body_never_summary_is_ready(mir, body), "existing slot adds Never")
+    mir_never_assert(mir_never_restore(mir, body, first, v4_ty_int) == 1 and not v4_mir_build_body_has_control(mir, body) and v4_mir_body_never_summary_is_ready(mir, body), "existing slot removes Never")
+    mir_never_assert(mir_never_restore(mir, body, 5, v4_ty_never) == 1 and v4_mir_body_rvalue_count(mir, body) == 6 and v4_mir_rvalue_ty(mir, body, 3) == v4_ty_unknown and v4_mir_body_never_summary_is_ready(mir, body) and word_to_int(array_get(links, 3)) == 1, "sparse gaps contribute no Never")
+    pilot types = v4_mir_body_rvalue_tys_handle(mir, body)
+    pilot wire: word = v4_mir_snapshot()
+    mir_never_assert(v4_mir_restore_rvalue_slot(mir, body, 5, v4_mir_rvalue_const_int, "6", "", -1, -1, V4_NO_SPAN, v4_ty_int, "", "", "invalid-method") == 0 and v4_mir_snapshot() == wire and v4_mir_body_never_summary_is_ready(mir, body), "rejected slot restore retains ready data")
+    mir_never_assert(v4_mir_restore_body_slot(mir, body, "shortened", "shortened", "") == 1 and v4_mir_body_rvalue_count(mir, body) == 0 and array_len(types) == 0 and not v4_mir_body_never_summary_is_ready(mir, body) and not v4_mir_build_body_has_control(mir, body), "body replacement drops old Never")
+    mir_never_assert(mir_never_restore(mir, body, 0, v4_ty_int) == 1 and v4_mir_finalize_body_never_summary(mir, body) and not v4_mir_build_body_has_control(mir, body) and v4_mir_stmt_next_index_handle(mir, body) == links, "shortened owner reuses summary child")
+
+    types = v4_mir_body_rvalue_tys_handle(mir, body)
+    array_set(types, 0, v4_ty_never)
+    v4_mir_invalidate_body_never_summary(mir, body)
+    pilot reads = v4_mir_rvalue_ty_reads
+    mir_never_assert(v4_mir_build_body_has_control(mir, body) and v4_mir_rvalue_ty_reads - reads == 1 and not v4_mir_body_never_summary_is_ready(mir, body), "same-size raw edit uses explicit invalidation")
+    mir_never_assert(v4_mir_finalize_body_never_summary(mir, body), "raw edit explicit finalization")
+    pilot replacement = array_new()
+    array_push(replacement, v4_ty_int)
+    array_set(v4_mir_rvalue_tys_index_handle(mir), body, word_from_int(replacement))
+    array_release(types)
+    mir_never_assert(not v4_mir_body_never_summary_is_ready(mir, body) and not v4_mir_build_body_has_control(mir, body) and v4_mir_finalize_body_never_summary(mir, body), "type-column handle drift is cold")
+    array_push(replacement, v4_ty_never)
+    mir_never_assert(not v4_mir_body_never_summary_is_ready(mir, body) and not v4_mir_build_body_has_control(mir, body) and not v4_mir_finalize_body_never_summary(mir, body), "malformed extra type rows do not expand active scan")
+    mir_never_assert(v4_mir_finalize_lookup_indexes(mir) and not v4_mir_body_never_summary_is_ready(mir, body), "optional summary failure preserves lookup finalizer result")
+    -- An aligned raw append is observed through the recorded active count.
+    array_push(v4_mir_body_rvalue_kinds_handle(mir, body), v4_mir_rvalue_const_int)
+    mir_never_assert(v4_mir_build_body_has_control(mir, body) and v4_mir_finalize_body_never_summary(mir, body), "active count drift is cold and exact")
+    array_push(replacement, v4_ty_int)
+    array_push(v4_mir_body_rvalue_kinds_handle(mir, body), v4_mir_rvalue_const_int)
+    mir_never_assert(not v4_mir_body_never_summary_is_ready(mir, body) and v4_mir_build_body_has_control(mir, body) and v4_mir_finalize_body_never_summary(mir, body), "aligned raw growth rejects the old recorded count")
+    -- Rejected growth in a non-type column must not publish a ready summary.
+    pilot partial = v4_mir_add_body(mir, "partial", "partial", "")
+    pilot args = v4_mir_body_rvalue_args_handle(mir, partial)
+    array_set(v4_mir_rvalue_args_index_handle(mir), partial, "-1")
+    mir_never_add(mir, partial, v4_ty_never)
+    mir_never_assert(v4_mir_build_body_has_control(mir, partial) and not v4_mir_body_never_summary_is_ready(mir, partial) and array_len(args) == 0, "partial append keeps summary cold")
+    array_set(v4_mir_rvalue_args_index_handle(mir), partial, word_from_int(args))
+    array_push(args, "")
+    mir_never_assert(v4_mir_finalize_body_never_summary(mir, partial) and v4_mir_build_body_has_control(mir, partial), "repaired append explicitly republishes")
+    say "mir-never slot-overwrite=true sparse=true shortened=true owner-reuse=true raw-invalidation=true malformed-columns=true"
+}
+
+task mir_never_growth(mir: int, count: int) -> int {
+    pilot body = v4_mir_add_body(mir, "growth" + word_from_int(count), "growth" + word_from_int(count), "")
+    pilot capacity = mir_never_available_handles()
+    pilot fast_reads = 0
+    pilot old_reads = 0
+    pilot row = 0
+    repeat until row >= count {
+        pilot before = v4_mir_rvalue_ty_reads
+        pilot value = mir_never_add(mir, body, v4_ty_int)
+        mir_never_assert(not v4_mir_build_body_has_control(mir, body), "growing wrapper exact")
+        mir_never_assert(v4_mir_wire_control_flow_rvalue(mir, body, 0, V4_NO_SPAN, value) == 0 and v4_mir_control_wire_limit == 4096, "growing real wire caller")
+        v4_mir_set_rvalue_ty(mir, body, value, v4_ty_int)
+        mir_never_assert(mir_never_restore(mir, body, value, v4_ty_int) == 1 and v4_mir_body_never_summary_is_ready(mir, body) and not v4_mir_build_body_has_control(mir, body), "growing setters and overwrite remain ready")
+        fast_reads += v4_mir_rvalue_ty_reads - before
+        -- Execute the real original scanner against the same growing body.
+        before = v4_mir_rvalue_ty_reads
+        mir_never_assert(not v4_mir_body_has_never_linear(mir, body), "old scanner same answer")
+        old_reads += v4_mir_rvalue_ty_reads - before
+        row += 1
+    }
+    mir_never_assert(fast_reads > 0 and fast_reads <= 6 * count and old_reads == count * (count + 1) / 2 and old_reads > 16 * fast_reads and v4_mir_body_rvalue_count(mir, body) == count and mir_never_available_handles() == capacity and v4_mir_diag_count(mir) == 0, "actual getter work linear with quadratic old control")
+    give back fast_reads
+}
+
+task mir_never_capture(mir: int) -> void {
+    pilot body = v4_mir_add_body(mir, "capture", "capture", "")
+    pilot row = 0
+    repeat until row >= 128 { mir_never_add(mir, body, v4_ty_int); row += 1 }
+    pilot capacity = mir_never_available_handles()
+    pilot reads = v4_mir_rvalue_ty_reads
+    row = 0
+    repeat until row >= 64 {
+        mir_never_assert(v4_mir_capture_control_flow_value(mir, body, 0, V4_NO_SPAN, row) == row and v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_use_local and v4_mir_body_never_summary_is_ready(mir, body) and not v4_mir_build_body_has_control(mir, body), "capture overwrite is incremental")
+        row += 1
+    }
+    mir_never_assert(v4_mir_rvalue_ty_reads - reads <= 8 * 64 and v4_mir_body_rvalue_count(mir, body) == 192 and mir_never_available_handles() == capacity and v4_mir_diag_count(mir) == 0, "capture getter work bounded without new handles")
+    say "mir-never capture-overwrite=true capture-type-reads-bounded=true handles-stable=true"
+}
+
+task mir_never_compaction(mir: int) -> void {
+    pilot body = v4_mir_add_body(mir, "compact", "compact", "")
+    pilot value = mir_never_add(mir, body, v4_ty_int)
+    mir_never_add(mir, body, v4_ty_never)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "6", V4_NO_SPAN, -1, value)
+    pilot capacity = mir_never_available_handles()
+    pilot types = v4_mir_body_rvalue_tys_handle(mir, body)
+    pilot compacted: word = v4_mir_compact_body_rvalue_roots(mir, body)
+    mir_never_assert(compacted == "" and array_len(types) == 0 and v4_mir_body_rvalue_count(mir, body) == 1 and not v4_mir_body_never_summary_is_ready(mir, body) and not v4_mir_build_body_has_control(mir, body) and not v4_mir_block_stmt_index_is_ready(mir, body) and mir_never_available_handles() == capacity, "successful compaction drops dead Never and invalidates")
+    mir_never_assert(v4_mir_finalize_body_never_summary(mir, body) and not v4_mir_block_stmt_index_is_ready(mir, body) and v4_mir_finalize_block_stmt_index(mir, body) and v4_mir_body_never_summary_is_ready(mir, body), "independent post-compaction publication")
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "bad", V4_NO_SPAN, -1, 99)
+    pilot wire: word = v4_mir_snapshot()
+    types = v4_mir_body_rvalue_tys_handle(mir, body)
+    pilot failed: word = v4_mir_compact_body_rvalue_roots(mir, body)
+    mir_never_assert(failed == "invalid source control compaction root" and v4_mir_snapshot() == wire and v4_mir_body_rvalue_tys_handle(mir, body) == types and v4_mir_body_never_summary_is_ready(mir, body) and mir_never_available_handles() == capacity, "failed compaction preserves original ready columns")
+    say "mir-never compaction-removal=true success-invalidates=true failed-atomic=true independent-finalize=true"
+}
+
+task mir_never_exhaustion(mir: int) -> void {
+    pilot body = v4_mir_add_body(mir, "resource", "resource", "")
+    mir_never_add(mir, body, v4_ty_int)
+    mir_never_add(mir, body, v4_ty_never)
+    pilot capacity = mir_never_available_handles()
+    v4_mir_release_lookup_indexes(mir)
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted: bool = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            count += 1
+        }
+    }
+    mir_never_assert(exhausted and not v4_mir_finalize_body_never_summary(mir, body) and not v4_mir_body_never_summary_is_ready(mir, body), "optional storage allocation fails cold")
+    pilot reads = v4_mir_rvalue_ty_reads
+    pilot row = 0
+    repeat until row >= 16 {
+        mir_never_assert(v4_mir_build_body_has_control(mir, body) and not v4_mir_body_never_summary_is_ready(mir, body) and v4_mir_stmt_next_index_handle(mir, body) < 0 and array_new() < 0, "exhausted query remains exact read-only")
+        row += 1
+    }
+    mir_never_assert(v4_mir_rvalue_ty_reads - reads == 32, "cold scanner actual getter count")
+    row = 0
+    repeat until row >= count {
+        array_release(word_to_int(array_get(holders, row)))
+        row += 1
+    }
+    array_release(holders)
+    -- Some manually malformed bodies cannot finalize their block rows. The
+    -- optional Never finalizer remains independently available for this body.
+    mir_never_assert(v4_mir_finalize_body_never_summary(mir, body) and v4_mir_build_body_has_control(mir, body) and v4_mir_body_never_summary_is_ready(mir, body), "explicit recovery publishes summary")
+    row = 0
+    repeat until row >= v4_mir_body_count(mir) {
+        v4_mir_finalize_block_stmt_index(mir, row)
+        v4_mir_finalize_body_never_summary(mir, row)
+        row += 1
+    }
+    mir_never_assert(mir_never_available_handles() == capacity, "recovery retains zero extra handles")
+    pilot wire: word = v4_mir_snapshot()
+    reads = v4_mir_rvalue_ty_reads
+    row = 0
+    repeat until row >= 32 { mir_never_assert(v4_mir_build_body_has_control(mir, body) and v4_mir_finalize_body_never_summary(mir, body), "warm repeated recovery"); row += 1 }
+    mir_never_assert(v4_mir_rvalue_ty_reads == reads and v4_mir_snapshot() == wire and mir_never_available_handles() == capacity, "warm query and finalization leak no resources or wire state")
+    say "mir-never exhaustion-cold=true readonly-fallback=true recovery=true cells-per-body=4 extra-handles=0"
+}
+
+task mir_never_run() -> void {
+    pilot capacity = mir_never_available_handles()
+    pilot reads = v4_mir_rvalue_ty_reads
+    mir_never_assert(not v4_mir_body_has_never(0, 0) and not v4_mir_body_has_never_linear(-1, 0) and not v4_mir_finalize_body_never_summary(0, 0) and v4_mir_ready == 0 and v4_mir_rvalue_ty_reads == reads and mir_never_available_handles() == capacity, "uninitialized queries do not allocate")
+    mir_never_wire_restore()
+    pilot mir = v4_mir_file_new(91, -1)
+    mir_never_mutations(mir)
+    pilot small_reads = mir_never_growth(mir, 200)
+    pilot large_reads = mir_never_growth(mir, 800)
+    mir_never_assert(large_reads <= 4 * small_reads + 8, "actual getter growth remains linear")
+    say "mir-never growth=200,800 bounded-type-reads=true old-type-reads=20100,320400 quadratic-control=true"
+    mir_never_capture(mir)
+    mir_never_compaction(mir)
+    mir_never_exhaustion(mir)
+}
+
+mir_never_run()
