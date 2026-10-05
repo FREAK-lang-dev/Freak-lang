@@ -1,0 +1,539 @@
+-- Source admission and immutable source-only graph publication. Package roots
+-- are held directory tickets; diagnostic paths never authorize reads/cleanup.
+pilot package_source_roots = 0
+pilot package_source_original_roots = 0
+pilot package_source_tickets = 0
+pilot package_source_original_tickets = 0
+pilot package_source_physical_keys = 0
+pilot package_source_kinds = 0
+pilot package_source_commits = 0
+pilot package_source_hashes = 0
+pilot package_source_manifest_files = 0
+pilot package_source_manifest_hashes = 0
+pilot package_graph_snapshot_path = ""
+pilot package_graph_manifest_path = ""
+pilot package_graph_ready = false
+pilot package_graph_no_manifest = false
+pilot package_snapshot_override = ""
+
+task package_sources_release() -> void {
+    if package_source_roots != 0 {
+        pilot index = 0
+        repeat until index >= array_len(package_source_tickets) {
+            pilot ticket = word_to_int(array_get(package_source_tickets, index))
+            if ticket != 0 { fs::result_release(ticket) }
+            pilot original = word_to_int(array_get(package_source_original_tickets, index))
+            if original != 0 { fs::result_release(original) }
+            index += 1
+        }
+        array_release(package_source_roots)
+        array_release(package_source_original_roots)
+        array_release(package_source_tickets)
+        array_release(package_source_original_tickets)
+        array_release(package_source_physical_keys)
+        array_release(package_source_kinds)
+        array_release(package_source_commits)
+        array_release(package_source_hashes)
+        array_release(package_source_manifest_files)
+        array_release(package_source_manifest_hashes)
+    }
+    package_source_roots = 0
+    package_source_original_roots = 0
+    package_source_tickets = 0
+    package_source_original_tickets = 0
+    package_source_physical_keys = 0
+    package_source_kinds = 0
+    package_source_commits = 0
+    package_source_hashes = 0
+    package_source_manifest_files = 0
+    package_source_manifest_hashes = 0
+    package_graph_snapshot_path = ""
+    package_graph_manifest_path = ""
+    package_graph_ready = false
+    package_graph_no_manifest = false
+}
+
+task package_sources_clear() -> void {
+    package_sources_release()
+    hangar_graph_clear()
+    package_inputs_clear()
+    package_source_roots = array_new()
+    package_source_original_roots = array_new()
+    package_source_tickets = array_new()
+    package_source_original_tickets = array_new()
+    package_source_physical_keys = array_new()
+    package_source_kinds = array_new()
+    package_source_commits = array_new()
+    package_source_hashes = array_new()
+    package_source_manifest_files = array_new()
+    package_source_manifest_hashes = array_new()
+}
+
+task package_parent_path(path: word) -> word {
+    pilot position = path.length() - 1
+    repeat until position < 0 {
+        if path.char_at(position) == "/" or path.char_at(position) == "\\" {
+            if position == 0 { give back "/" }
+            if position == 2 and path.char_at(1) == ":" { give back path.substring(0, 3) }
+            give back path.substring(0, position)
+        }
+        position -= 1
+    }
+    give back "."
+}
+
+task package_leaf_path(path: word) -> word {
+    pilot position = path.length() - 1
+    repeat until position < 0 {
+        if path.char_at(position) == "/" or path.char_at(position) == "\\" { give back path.substring(position + 1, path.length() - position - 1) }
+        position -= 1
+    }
+    give back path
+}
+
+task package_directory_path(ticket: int) -> word {
+    pilot canonical = fs::directory_path_ticket(ticket)
+    pilot path = ""
+    if fs::result_ok(canonical) { path = fs::result_word(canonical) } else { hangar_graph_fail("cannot identify held package root: " + fs::result_error(canonical)) }
+    fs::result_release(canonical)
+    give back path
+}
+
+task package_local_path(root: word, request: word) -> word {
+    if request == "" or request.length() > 4096 or request.contains("\n") or request.contains("\r") or request.contains("\t") {
+        hangar_graph_fail("invalid local package path")
+        give back ""
+    }
+    pilot windows = process::env("OS") == "Windows_NT"
+    pilot source = request
+    pilot base = root
+    if windows {
+        source = source.replace("\\", "/")
+        base = base.replace("\\", "/")
+        if source.starts_with("//?/UNC/") { source = "//" + source.substring(8, source.length() - 8) } else if source.starts_with("//?/") { source = source.substring(4, source.length() - 4) }
+        if base.starts_with("//?/UNC/") { base = "//" + base.substring(8, base.length() - 8) } else if base.starts_with("//?/") { base = base.substring(4, base.length() - 4) }
+    } else if source.contains("\\") or source.contains(":") {
+        hangar_graph_fail("local package path uses unsupported host syntax")
+        give back ""
+    }
+    pilot absolute = source.starts_with("/")
+    if windows and source.length() >= 3 { if source.char_at(1) == ":" and source.char_at(2) == "/" { absolute = true } }
+    if not absolute { source = base + "/" + source }
+    pilot prefix = "/"
+    pilot start = 1
+    pilot floor = 0
+    if windows and source.starts_with("//") { prefix = "//"
+        start = 2
+        floor = 2 } else if windows and source.length() >= 3 and source.char_at(1) == ":" and source.char_at(2) == "/" { prefix = source.substring(0, 3)
+        start = 3 } else if not source.starts_with("/") {
+        hangar_graph_fail("local package path must resolve to an absolute host path")
+        give back ""
+    }
+    pilot pieces = array_new()
+    pilot component = ""
+    pilot index = start
+    pilot length = 0
+    pilot valid = true
+    repeat until index > source.length() or not valid {
+        pilot boundary = index == source.length()
+        if not boundary { boundary = source.char_at(index) == "/" }
+        if boundary {
+            if component == ".." {
+                if length <= floor { hangar_graph_fail("local package path escapes its filesystem root")
+                    valid = false } else { length -= 1 }
+            } else if component != "" and component != "." {
+                if component.contains(":") or component.ends_with(".") or component.ends_with(" ") or length >= 256 {
+                    hangar_graph_fail("local package path has unsafe components or exceeds its depth limit")
+                    valid = false
+                } else {
+                    if length < array_len(pieces) { array_set(pieces, length, component) } else { array_push(pieces, component) }
+                    length += 1
+                }
+            }
+            component = ""
+        } else { component = component + source.char_at(index) }
+        index += 1
+    }
+    pilot out = prefix
+    index = 0
+    repeat until index >= length {
+        if index > 0 { out = out + "/" }
+        out = out + array_get(pieces, index)
+        index += 1
+    }
+    array_release(pieces)
+    if not valid { give back "" }
+    give back out
+}
+
+task package_private_directory(parent: int, name: word) -> int {
+    pilot directory = fs::open_relative_dir_ticket(parent, name)
+    if fs::result_ok(directory) { give back directory }
+    pilot absent = fs::result_missing(directory)
+    pilot detail = fs::result_error(directory)
+    fs::result_release(directory)
+    if not absent { hangar_graph_fail("cannot open private package directory " + name + ": " + detail) give back 0 }
+    directory = fs::mkdir_relative_checked(parent, name)
+    if not fs::result_ok(directory) { hangar_graph_fail("cannot create private package directory " + name + ": " + fs::result_error(directory))
+        fs::result_release(directory)
+        give back 0 }
+    give back directory
+}
+
+task package_source_register(node: int, ticket: int, root: word, kind: word, commit: word, manifest_file: word, manifest_hash: word) -> void {
+    array_push(package_source_roots, root)
+    array_push(package_source_original_roots, root)
+    array_push(package_source_tickets, "0")
+    array_push(package_source_original_tickets, word_from_int(ticket))
+    array_push(package_source_kinds, kind)
+    array_push(package_source_commits, commit)
+    array_push(package_source_hashes, "")
+    array_push(package_source_manifest_files, manifest_file)
+    array_push(package_source_manifest_hashes, manifest_hash)
+    array_push(package_source_physical_keys, "")
+}
+
+task package_admit_local(path: word, manifest_file: word, request_path: word) -> int {
+    pilot directory = fs::open_dir_ticket(path)
+    if not fs::result_ok(directory) { hangar_graph_fail("cannot open local package " + request_path + ": " + fs::result_error(directory))
+        fs::result_release(directory)
+        give back 0 - 1 }
+    pilot root = package_directory_path(directory)
+    if root == "" { fs::result_release(directory) give back 0 - 1 }
+    pilot physical = fs::directory_identity_ticket(directory)
+    if not fs::result_ok(physical) { hangar_graph_fail("cannot identify physical local package root: " + fs::result_error(physical))
+        fs::result_release(physical)
+        fs::result_release(directory)
+        give back 0 - 1 }
+    pilot physical_key = fs::result_word(physical)
+    fs::result_release(physical)
+    pilot identity = "local:" + root
+    pilot known = hangar_graph_find_identity(identity)
+    if known >= 0 {
+        if array_get(package_source_physical_keys, known) != physical_key { hangar_graph_fail("local package root was replaced during graph admission: " + request_path)
+            known = 0 - 1 }
+        fs::result_release(directory)
+        give back known
+    }
+    pilot previous = 0
+    repeat until previous >= array_len(package_source_physical_keys) {
+        if array_get(package_source_kinds, previous) == "local" and array_get(package_source_physical_keys, previous) == physical_key {
+            fs::result_release(directory)
+            give back previous
+        }
+        previous += 1
+    }
+    pilot manifest = fs::read_relative_bytes_limit_ticket(directory, manifest_file, hangar_graph_manifest_limit)
+    if not fs::result_ok(manifest) { hangar_graph_fail("cannot read local package manifest " + request_path + ": " + fs::result_error(manifest))
+        fs::result_release(manifest)
+        fs::result_release(directory)
+        give back 0 - 1 }
+    pilot bytes: ByteBuffer = fs::result_bytes(manifest)
+    fs::result_release(manifest)
+    pilot hash = fs::sha256_bytes(bytes)
+    pilot content = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    if not valid { hangar_graph_fail("package manifest must be UTF-8 text without NUL: " + request_path)
+        fs::result_release(directory)
+        give back 0 - 1 }
+    pilot node = hangar_graph_add_manifest(identity, package_join_host(root, manifest_file), content, request_path)
+    if node < 0 { fs::result_release(directory) give back 0 - 1 }
+    package_source_register(node, directory, root, "local", "", manifest_file, hash)
+    array_set(package_source_physical_keys, node, physical_key)
+    -- Empty [tests] disables fallback discovery too. Preserve this admission
+    -- fact independently of whichever child TOML document is parsed next.
+    if toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), "tests") {
+        array_push(hangar_graph_fact_nodes, word_from_int(node))
+        array_push(hangar_graph_fact_keys, "__package.tests_declared")
+        array_push(hangar_graph_fact_values, "true")
+    }
+    give back node
+}
+
+task package_verify_recorded_inputs(node: int, directory: int) -> bool {
+    pilot index = 0
+    repeat until index >= array_len(package_input_paths) {
+        if word_to_int(array_get(package_input_nodes, index)) == node {
+            pilot relative = array_get(package_input_paths, index)
+            pilot expected = word_to_int(array_get(package_input_lengths, index))
+            pilot read = fs::read_relative_bytes_limit_ticket(directory, relative, expected)
+            if not fs::result_ok(read) { hangar_graph_fail("immutable source input is missing, unsafe or changed: " + relative + ": " + fs::result_error(read))
+                fs::result_release(read)
+                give back false }
+            pilot bytes: ByteBuffer = fs::result_bytes(read)
+            fs::result_release(read)
+            pilot valid = bytes.length() == expected and fs::sha256_bytes(bytes) == array_get(package_input_hashes, index)
+            bytes.release()
+            if not valid { hangar_graph_fail("immutable source input digest changed: " + relative) give back false }
+        }
+        index += 1
+    }
+    give back true
+}
+
+task package_publish_source_node(node: int, store: int, store_path: word) -> bool {
+    pilot original = word_to_int(array_get(package_source_original_tickets, node))
+    pilot stage = fs::temp_dir(store_path, ".input-")
+    if not fs::result_ok(stage) { hangar_graph_fail("cannot create private source staging: " + fs::result_error(stage))
+        fs::result_release(stage)
+        give back false }
+    pilot hash = package_hash_declared_inputs_rooted(node, original, array_get(package_source_manifest_files, node), stage)
+    if hash == "" {
+        hangar_checked_fs(fs::remove_temp_dir_checked(stage), "Could not clean owned source staging")
+        fs::result_release(stage)
+        give back false
+    }
+    pilot published = fs::publish_temp_dir_checked(stage, store, hash)
+    pilot complete = fs::result_ok(published)
+    pilot completed = fs::result_completed(published)
+    pilot detail = fs::result_error(published)
+    fs::result_release(published)
+    pilot cached = 0
+    if complete {
+        cached = stage
+    } else if not completed {
+        -- Concurrent complete content-addressed objects may be reused only
+        -- after every recorded input has been verified through held handles.
+        cached = fs::open_relative_dir_ticket(store, hash)
+        if fs::result_ok(cached) {
+            complete = package_verify_recorded_inputs(node, cached)
+        } else { fs::result_release(cached)
+            cached = 0 }
+        hangar_checked_fs(fs::remove_temp_dir_checked(stage), "Could not clean owned source staging")
+        fs::result_release(stage)
+    } else {
+        -- A completed-but-unsynced publication remains owned by its carrier.
+        hangar_checked_fs(fs::remove_temp_dir_checked(stage), "Could not roll back owned source publication")
+        fs::result_release(stage)
+    }
+    if not complete {
+        if cached != 0 { fs::result_release(cached) }
+        hangar_graph_fail("cannot publish immutable source input tree: " + detail)
+        give back false
+    }
+    array_set(package_source_tickets, node, word_from_int(cached))
+    array_set(package_source_roots, node, package_join_host(store_path, hash))
+    array_set(package_source_hashes, node, hash)
+    give back true
+}
+
+task package_read_graph_source(node: int, relative: word) -> word {
+    if not package_graph_ready or node < 0 or node >= hangar_graph_count or not hangar_graph_relative_file(relative) {
+        hangar_graph_fail("compiler source requires a prepared graph and declared relative .fk path: " + relative)
+        give back ""
+    }
+    pilot record = 0 - 1
+    pilot index = 0
+    repeat until index >= array_len(package_input_paths) {
+        if word_to_int(array_get(package_input_nodes, index)) == node and array_get(package_input_paths, index) == relative {
+            pilot role = array_get(package_input_roles, index)
+            if role == "source" or role == "test" { record = index }
+        }
+        index += 1
+    }
+    if record < 0 { hangar_graph_fail("compiler source is absent from declared immutable input inventory: " + relative) give back "" }
+    pilot directory = word_to_int(array_get(package_source_tickets, node))
+    pilot expected = word_to_int(array_get(package_input_lengths, record))
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, relative, expected)
+    if not fs::result_ok(read) { hangar_graph_fail("cannot read bounded immutable compiler source: " + relative + ": " + fs::result_error(read))
+        fs::result_release(read)
+        give back "" }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    if bytes.length() != expected or fs::sha256_bytes(bytes) != array_get(package_input_hashes, record) {
+        hangar_graph_fail("immutable compiler source changed after graph preparation: " + relative)
+        bytes.release()
+        give back ""
+    }
+    pilot source = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    if not valid { hangar_graph_fail("compiler source must be UTF-8 text without NUL: " + relative) give back "" }
+    give back source
+}
+
+task package_lock_matches_graph(frozen: bool) -> bool {
+    if word_to_int(package_lock_field("lock.node_count")) != hangar_graph_count or word_to_int(package_lock_field("lock.edge_count")) != hangar_graph_edge_count or word_to_int(package_lock_field("lock.fact_count")) != array_len(hangar_graph_fact_keys) {
+        hangar_graph_fail("locked graph structure changed; run hangar update explicitly")
+        give back false
+    }
+    pilot index = 0
+    repeat until index >= hangar_graph_count {
+        pilot prefix = "node." + word_from_int(index) + "."
+        if package_lock_field(prefix + "name") != array_get(hangar_graph_names, index) or package_lock_field(prefix + "version") != array_get(hangar_graph_versions, index) or package_lock_field(prefix + "identity") != array_get(hangar_graph_identities, index) or package_lock_field(prefix + "origin") != array_get(package_source_original_roots, index) or package_lock_field(prefix + "kind") != array_get(package_source_kinds, index) or package_lock_field(prefix + "commit") != array_get(package_source_commits, index) or package_lock_field(prefix + "manifest_sha256") != array_get(package_source_manifest_hashes, index) {
+            hangar_graph_fail("locked package identity or manifest changed: " + array_get(hangar_graph_request_paths, index))
+            give back false
+        }
+        if frozen or array_get(package_source_kinds, index) == "git" {
+            if package_lock_field(prefix + "tree_sha256") != array_get(package_source_hashes, index) { hangar_graph_fail("frozen source input tree changed: " + array_get(hangar_graph_request_paths, index)) give back false }
+        }
+        index += 1
+    }
+    index = 0
+    repeat until index >= hangar_graph_edge_count {
+        pilot prefix = "edge." + word_from_int(index) + "."
+        pilot kind = array_get(hangar_graph_edge_kinds, index)
+        if kind == "path" { kind = "local" }
+        if package_lock_field(prefix + "parent") != array_get(hangar_graph_edge_parents, index) or package_lock_field(prefix + "target") != array_get(hangar_graph_edge_targets, index) or package_lock_field(prefix + "alias") != array_get(hangar_graph_edge_aliases, index) or package_lock_field(prefix + "kind") != kind or package_lock_field(prefix + "source") != array_get(hangar_graph_edge_sources, index) or package_lock_field(prefix + "revision") != array_get(hangar_graph_edge_revisions, index) or package_lock_field(prefix + "version") != array_get(hangar_graph_edge_versions, index) {
+            hangar_graph_fail("locked dependency edge changed: " + array_get(hangar_graph_edge_aliases, index))
+            give back false
+        }
+        index += 1
+    }
+    index = 0
+    repeat until index >= array_len(hangar_graph_fact_keys) {
+        pilot prefix = "fact." + word_from_int(index) + "."
+        if package_lock_field(prefix + "node") != array_get(hangar_graph_fact_nodes, index) or package_lock_field(prefix + "key") != array_get(hangar_graph_fact_keys, index) or package_lock_field(prefix + "value") != array_get(hangar_graph_fact_values, index) { hangar_graph_fail("locked manifest facts disagree with admitted source manifests") give back false }
+        index += 1
+    }
+    give back true
+}
+
+task package_prepare_graph(manifest_path: word, locked: bool, offline: bool, frozen: bool, update_name: word) -> bool {
+    package_sources_clear()
+    package_lock_release()
+    pilot manifest_file = package_leaf_path(manifest_path)
+    if not package_input_allowed(manifest_file) { hangar_graph_fail("invalid package manifest filename") give back false }
+    pilot root = package_admit_local(package_parent_path(manifest_path), manifest_file, "root")
+    if root != 0 { give back false }
+    package_graph_manifest_path = package_join_host(array_get(package_source_original_roots, 0), manifest_file)
+    pilot project = word_to_int(array_get(package_source_original_tickets, 0))
+    pilot lock = 0
+    if package_snapshot_override == "" { lock = fs::read_relative_bytes_limit_ticket(project, "hangar.lock", 67108864) } else {
+        pilot snapshot_root = fs::open_dir_ticket(package_parent_path(package_snapshot_override))
+        if not fs::result_ok(snapshot_root) { hangar_graph_fail("cannot anchor graph snapshot: " + fs::result_error(snapshot_root))
+            fs::result_release(snapshot_root)
+            give back false }
+        lock = fs::read_relative_bytes_limit_ticket(snapshot_root, package_leaf_path(package_snapshot_override), 67108864)
+        fs::result_release(snapshot_root)
+    }
+    pilot malformed_lock = false
+    pilot had_lock = fs::result_ok(lock)
+    if had_lock {
+        pilot bytes: ByteBuffer = fs::result_bytes(lock)
+        pilot content = bytes.to_word()
+        pilot text = bytes.status() == 0
+        bytes.release()
+        if not text or not package_lock_parse(content) { malformed_lock = true
+            hangar_graph_fail("invalid or legacy hangar.lock; explicitly regenerate with hangar update: " + package_lock_error) }
+    } else if not fs::result_missing(lock) { hangar_graph_fail("cannot read hangar.lock: " + fs::result_error(lock)) }
+    fs::result_release(lock)
+    if hangar_graph_error != "" {
+        if update_name == "" or not malformed_lock { give back false }
+        -- Explicit update is the deliberate migration path, never a build's
+        -- silent repair. The old on-disk lock remains until graph completion.
+        hangar_graph_error = ""
+        package_lock_release()
+        had_lock = false
+    }
+    if (locked or frozen) and not had_lock { hangar_graph_fail("locked/frozen graph requires a valid existing lock v2") give back false }
+    if (locked or frozen) and package_lock_field("lock.manifest_sha256") != array_get(package_source_manifest_hashes, 0) { hangar_graph_fail("locked root manifest fingerprint changed; run hangar update explicitly") give back false }
+    pilot edge = 0
+    repeat until edge >= hangar_graph_edge_count {
+        pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
+        pilot alias = array_get(hangar_graph_edge_aliases, edge)
+        pilot request = array_get(hangar_graph_request_paths, parent) + " -> " + alias
+        pilot target = 0 - 1
+        if array_get(hangar_graph_edge_kinds, edge) == "path" {
+            if array_get(package_source_kinds, parent) != "local" { hangar_graph_fail("local filesystem dependency cannot be resolved from a Git object source: " + request) give back false }
+            pilot path = package_local_path(array_get(package_source_original_roots, parent), array_get(hangar_graph_edge_sources, edge))
+            if path == "" { give back false }
+            target = package_admit_local(path, "hangar.toml", request)
+        } else {
+            hangar_graph_fail("Git immutable object admission is not available in this local-graph slice: " + request)
+            give back false
+        }
+        if target < 0 or not hangar_graph_link(edge, target) { give back false }
+        edge += 1
+    }
+    if not hangar_graph_complete(0) { give back false }
+    pilot private = package_private_directory(project, ".freak")
+    if private == 0 { give back false }
+    pilot operation = fs::lock_dir_ticket(private, "graph.lock")
+    if not fs::result_ok(operation) { hangar_graph_fail("graph preparation is active or private cache lock is unavailable: " + fs::result_error(operation))
+        fs::result_release(operation)
+        fs::result_release(private)
+        give back false }
+    pilot store = package_private_directory(private, "store")
+    pilot snapshots = package_private_directory(private, "graphs")
+    pilot valid = store != 0 and snapshots != 0
+    pilot store_path = ""
+    if valid { store_path = package_directory_path(store)
+        valid = store_path != "" }
+    pilot index = 0
+    repeat until index >= hangar_graph_count or not valid {
+        valid = package_publish_source_node(index, store, store_path)
+        index += 1
+    }
+    if valid and (locked or frozen) { valid = package_lock_matches_graph(frozen) }
+    if valid {
+        package_graph_ready = true
+        pilot content = package_lock_render()
+        if content == "" { valid = false } else {
+            pilot bytes: ByteBuffer = ByteBuffer::new()
+            bytes.write_word(content)
+            pilot identity = fs::sha256_bytes(bytes)
+            pilot recorded = fs::write_relative_bytes_checked(snapshots, identity + ".lock", bytes)
+            valid = fs::result_ok(recorded)
+            if not valid { hangar_graph_fail("cannot write immutable graph snapshot: " + fs::result_error(recorded)) }
+            fs::result_release(recorded)
+            if valid {
+                package_graph_snapshot_path = package_join_host(package_directory_path(snapshots), identity + ".lock")
+                if not locked and not frozen {
+                    recorded = fs::write_relative_bytes_checked(project, "hangar.lock", bytes)
+                    valid = fs::result_ok(recorded)
+                    if not valid { hangar_graph_fail("cannot atomically publish completed graph lock: " + fs::result_error(recorded)) }
+                    fs::result_release(recorded)
+                }
+            }
+            bytes.release()
+        }
+    }
+    package_graph_ready = valid
+    if store != 0 { fs::result_release(store) }
+    if snapshots != 0 { fs::result_release(snapshots) }
+    fs::result_release(operation)
+    fs::result_release(private)
+    give back valid
+}
+
+task package_prepare_project_sources(source: word) -> bool {
+    if package_graph_ready { give back true }
+    package_graph_no_manifest = false
+    hangar_graph_error = ""
+    pilot parent = package_parent_path(source)
+    pilot depth = 0
+    repeat until depth >= 256 {
+        pilot directory = fs::open_dir_ticket(parent)
+        if not fs::result_ok(directory) { hangar_graph_fail("cannot inspect source's enclosing project directory: " + fs::result_error(directory))
+            fs::result_release(directory)
+            give back false }
+        pilot canonical = package_directory_path(directory)
+        if canonical == "" { fs::result_release(directory) give back false }
+        pilot manifest = fs::read_relative_bytes_limit_ticket(directory, "hangar.toml", hangar_graph_manifest_limit)
+        pilot found = fs::result_ok(manifest)
+        pilot missing = fs::result_missing(manifest)
+        if not found and not missing { hangar_graph_fail("cannot read enclosing package manifest: " + fs::result_error(manifest)) }
+        fs::result_release(manifest)
+        fs::result_release(directory)
+        if found { give back package_prepare_graph(package_join_host(canonical, "hangar.toml"), false, false, false, "") }
+        if not missing { give back false }
+        pilot next = package_parent_path(canonical)
+        if next == canonical { package_graph_no_manifest = true give back true }
+        parent = next
+        depth += 1
+    }
+    hangar_graph_fail("enclosing project discovery exceeds its directory depth limit")
+    give back false
+}
+
+task package_load_graph_snapshot(snapshot_path: word, manifest_path: word, frozen: bool) -> bool {
+    -- A child snapshot always describes immutable inputs, even if the caller
+    -- omitted a redundant --frozen flag. No refresh or mutable-label lookup.
+    if not package_relative_file(package_leaf_path(snapshot_path)) { hangar_graph_fail("invalid immutable graph snapshot filename") give back false }
+    package_snapshot_override = snapshot_path
+    pilot valid = package_prepare_graph(manifest_path, true, true, true, "")
+    package_snapshot_override = ""
+    give back valid
+}

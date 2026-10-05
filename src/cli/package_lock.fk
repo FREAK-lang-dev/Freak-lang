@@ -1,0 +1,350 @@
+-- Strict counted lock v2 records. Cache paths are derived from validated hashes;
+-- a lock cannot name arbitrary installation destinations or executable hooks.
+-- The reader retains a private snapshot and restores the requester's TOML state.
+
+pilot package_lock_keys = 0
+pilot package_lock_values = 0
+pilot package_lock_seen = 0
+pilot package_lock_valid = false
+pilot package_lock_error = ""
+pilot package_lock_compiler_capability = "package-scopes-v1"
+pilot package_lock_runtime_capability = "checked-fs-rooted-v1,process-argv-v1,bytes-v1"
+pilot package_lock_library_capability = "source-library-v1"
+
+task package_lock_fail(message: word) -> void {
+    if package_lock_error == "" { package_lock_error = message }
+}
+
+task package_lock_field(key: word) -> word {
+    if not package_lock_valid { give back "" }
+    pilot index = 0
+    repeat until index >= array_len(package_lock_keys) {
+        if array_get(package_lock_keys, index) == key { give back array_get(package_lock_values, index) }
+        index += 1
+    }
+    give back ""
+}
+
+task package_lock_take(key: word, bare: bool) -> word {
+    if not toml_has(key) {
+        package_lock_fail("lock v2 is missing field: " + key)
+        give back ""
+    }
+    if not toml_arr_contains(package_lock_seen, array_len(package_lock_seen), key) { array_push(package_lock_seen, key) }
+    pilot index = 0
+    repeat until index >= toml_count {
+        if array_get(toml_keys_arr, index) == key {
+            pilot numeric = array_get(toml_types_arr, index) == "bare"
+            if bare != numeric { package_lock_fail("lock v2 field has the wrong scalar type: " + key) }
+            give back array_get(toml_vals_arr, index)
+        }
+        index += 1
+    }
+    give back ""
+}
+
+task package_lock_count(key: word, maximum: int) -> int {
+    pilot text = package_lock_take(key, true)
+    if text == "" or (text.length() > 1 and text.starts_with("0")) {
+        package_lock_fail("lock v2 requires a canonical bounded nonnegative integer: " + key)
+        give back 0 - 1
+    }
+    pilot value = 0
+    pilot index = 0
+    repeat until index >= text.length() {
+        pilot digit = 0 - 1
+        pilot rank = 0
+        repeat until rank >= 10 {
+            if text.char_at(index) == "0123456789".char_at(rank) { digit = rank }
+            rank += 1
+        }
+        if digit < 0 or value > maximum / 10 {
+            package_lock_fail("lock v2 integer is invalid or exceeds its limit: " + key)
+            give back 0 - 1
+        }
+        value = value * 10 + digit
+        if value > maximum {
+            package_lock_fail("lock v2 integer exceeds its limit: " + key)
+            give back 0 - 1
+        }
+        index += 1
+    }
+    give back value
+}
+
+task package_lock_hex(text: word, length: int) -> bool {
+    if text.length() != length { give back false }
+    pilot index = 0
+    repeat until index >= text.length() {
+        if not "0123456789abcdef".contains(text.char_at(index)) { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task package_lock_validate() -> bool {
+    if package_lock_count("lock.schema", 2) != 2 or package_lock_take("lock.profile", false) != "source-only-v2" {
+        package_lock_fail("unsupported lock schema/profile; explicitly regenerate legacy locks with hangar update")
+        give back false
+    }
+    if package_lock_take("lock.requires.compiler", false) != package_lock_compiler_capability or package_lock_take("lock.requires.runtime", false) != package_lock_runtime_capability or package_lock_take("lock.requires.library", false) != package_lock_library_capability {
+        package_lock_fail("lock v2 requires an unsupported compiler/runtime/library capability profile")
+        give back false
+    }
+    if not package_lock_hex(package_lock_take("lock.manifest_sha256", false), 64) {
+        package_lock_fail("lock v2 root manifest fingerprint must be a SHA-256 value")
+        give back false
+    }
+    pilot nodes = package_lock_count("lock.node_count", hangar_graph_node_limit)
+    pilot files = package_lock_count("lock.file_count", package_input_inventory_limit)
+    pilot edges = package_lock_count("lock.edge_count", hangar_graph_edge_limit)
+    pilot facts = package_lock_count("lock.fact_count", 65536)
+    if nodes <= 0 or files < nodes or edges < 0 or facts < 0 or package_lock_count("lock.root", nodes - 1) != 0 {
+        package_lock_fail("lock v2 has invalid graph counts or root")
+        give back false
+    }
+    pilot index = 0
+    repeat until index >= nodes {
+        pilot prefix = "node." + word_from_int(index) + "."
+        pilot name = package_lock_take(prefix + "name", false)
+        pilot version = package_lock_take(prefix + "version", false)
+        pilot identity = package_lock_take(prefix + "identity", false)
+        pilot origin = package_lock_take(prefix + "origin", false)
+        pilot kind = package_lock_take(prefix + "kind", false)
+        pilot commit = package_lock_take(prefix + "commit", false)
+        pilot tree = package_lock_take(prefix + "tree_sha256", false)
+        pilot manifest = package_lock_take(prefix + "manifest_sha256", false)
+        pilot manifest_file = package_lock_take(prefix + "manifest_file", false)
+        pilot inputs = package_lock_count(prefix + "input_count", package_input_node_limit)
+        if not hangar_valid_package_name(name) or version == "" or version != ver_to_string(ver_parse(version)) or identity == "" or origin == "" or (kind != "local" and kind != "git") or not package_lock_hex(tree, 64) or not package_lock_hex(manifest, 64) or not package_input_allowed(manifest_file) or inputs <= 0 {
+            package_lock_fail("lock v2 has an invalid package identity or input record: " + prefix)
+            give back false
+        }
+        if (kind == "local" and commit != "") or (kind == "git" and not package_lock_hex(commit, 40) and not package_lock_hex(commit, 64)) {
+            package_lock_fail("lock v2 Git identity requires an exact resolved commit: " + prefix)
+            give back false
+        }
+        pilot previous = 0
+        repeat until previous >= index {
+            pilot other = "node." + word_from_int(previous) + "."
+            if toml_get(other + "name") == name or toml_get(other + "identity") == identity {
+                package_lock_fail("lock v2 has duplicate or conflicting package identities: " + name)
+                give back false
+            }
+            previous += 1
+        }
+        index += 1
+    }
+    if toml_get("lock.manifest_sha256") != toml_get("node.0.manifest_sha256") {
+        package_lock_fail("lock v2 root manifest fingerprint disagrees with node zero")
+        give back false
+    }
+    index = 0
+    repeat until index >= files {
+        pilot prefix = "file." + word_from_int(index) + "."
+        pilot node = package_lock_count(prefix + "node", nodes - 1)
+        pilot path = package_lock_take(prefix + "path", false)
+        pilot hash = package_lock_take(prefix + "sha256", false)
+        pilot length = package_lock_count(prefix + "length", package_input_file_limit)
+        pilot role = package_lock_take(prefix + "role", false)
+        if node < 0 or length < 0 or not package_input_allowed(path) or not package_lock_hex(hash, 64) or (role != "manifest" and role != "source" and role != "test" and role != "asset" and role != "documentation") {
+            package_lock_fail("lock v2 has an invalid file inventory record: " + prefix)
+            give back false
+        }
+        pilot previous = 0
+        repeat until previous >= index {
+            pilot other = "file." + word_from_int(previous) + "."
+            if toml_get(other + "node") == word_from_int(node) and toml_get(other + "path").to_lower() == path.to_lower() {
+                package_lock_fail("lock v2 file inventory contains duplicate host aliases: " + path)
+                give back false
+            }
+            previous += 1
+        }
+        index += 1
+    }
+    index = 0
+    repeat until index >= nodes {
+        pilot prefix = "node." + word_from_int(index) + "."
+        pilot manifest_file = toml_get(prefix + "manifest_file")
+        pilot count = 0
+        pilot manifests = 0
+        pilot file = 0
+        repeat until file >= files {
+            pilot record = "file." + word_from_int(file) + "."
+            if toml_get(record + "node") == word_from_int(index) {
+                count += 1
+                if toml_get(record + "role") == "manifest" {
+                    manifests += 1
+                    if toml_get(record + "path") != manifest_file or toml_get(record + "sha256") != toml_get(prefix + "manifest_sha256") {
+                        package_lock_fail("lock v2 manifest inventory disagrees with package identity: " + prefix)
+                        give back false
+                    }
+                }
+            }
+            file += 1
+        }
+        if count != word_to_int(toml_get(prefix + "input_count")) or manifests != 1 {
+            package_lock_fail("lock v2 package has a partial or missing input inventory: " + prefix)
+            give back false
+        }
+        index += 1
+    }
+    index = 0
+    repeat until index >= edges {
+        pilot prefix = "edge." + word_from_int(index) + "."
+        pilot parent = package_lock_count(prefix + "parent", nodes - 1)
+        pilot target = package_lock_count(prefix + "target", nodes - 1)
+        pilot alias = package_lock_take(prefix + "alias", false)
+        pilot kind = package_lock_take(prefix + "kind", false)
+        pilot source = package_lock_take(prefix + "source", false)
+        pilot revision = package_lock_take(prefix + "revision", false)
+        pilot constraint = package_lock_take(prefix + "version", false)
+        if parent < 0 or target < 0 or not hangar_graph_symbol(alias) or (kind != "local" and kind != "git") or source == "" or (kind == "local" and revision != "") or not version_matches_constraint(toml_get("node." + word_from_int(target) + ".version"), constraint) {
+            package_lock_fail("lock v2 has an invalid or incompatible resolved edge: " + prefix)
+            give back false
+        }
+        pilot previous = 0
+        repeat until previous >= index {
+            pilot other = "edge." + word_from_int(previous) + "."
+            if toml_get(other + "parent") == word_from_int(parent) and toml_get(other + "alias") == alias {
+                package_lock_fail("lock v2 contains a duplicate dependency alias: " + alias)
+                give back false
+            }
+            previous += 1
+        }
+        index += 1
+    }
+    index = 0
+    repeat until index >= facts {
+        pilot prefix = "fact." + word_from_int(index) + "."
+        pilot node = package_lock_count(prefix + "node", nodes - 1)
+        pilot key = package_lock_take(prefix + "key", false)
+        package_lock_take(prefix + "value", false)
+        if node < 0 or not toml_valid_key(key) { package_lock_fail("lock v2 contains an invalid manifest fact: " + prefix) give back false }
+        pilot previous = 0
+        repeat until previous >= index {
+            pilot other = "fact." + word_from_int(previous) + "."
+            if toml_get(other + "node") == word_from_int(node) and toml_get(other + "key") == key { package_lock_fail("lock v2 contains duplicate manifest facts: " + key) give back false }
+            previous += 1
+        }
+        index += 1
+    }
+    if array_len(package_lock_seen) != toml_count {
+        package_lock_fail("lock v2 contains unknown or uncounted fields")
+        give back false
+    }
+    give back package_lock_error == ""
+}
+
+task package_lock_parse(content: word) -> bool {
+    package_lock_valid = false
+    package_lock_error = ""
+    pilot requester = ""
+    if toml_keys_arr != 0 { requester = toml_render() }
+    pilot seen = array_new()
+    package_lock_seen = seen
+    pilot valid = toml_parse(content)
+    if not valid { package_lock_fail("invalid lock document at line " + word_from_int(toml_error_line) + ": " + toml_error) } else { valid = package_lock_validate() }
+    if valid {
+        if package_lock_keys != 0 { array_release(package_lock_keys) array_release(package_lock_values) }
+        package_lock_keys = array_new()
+        package_lock_values = array_new()
+        pilot index = 0
+        repeat until index >= toml_count {
+            array_push(package_lock_keys, array_get(toml_keys_arr, index))
+            array_push(package_lock_values, array_get(toml_vals_arr, index))
+            index += 1
+        }
+    }
+    array_release(seen)
+    package_lock_seen = 0
+    if requester == "" { toml_clear() } else { toml_parse(requester) }
+    package_lock_valid = valid
+    give back valid
+}
+
+task package_lock_release() -> void {
+    if package_lock_keys != 0 { array_release(package_lock_keys) array_release(package_lock_values) }
+    package_lock_keys = 0
+    package_lock_values = 0
+    package_lock_valid = false
+    package_lock_error = ""
+}
+
+task package_lock_line(builder: int, key: word, value: word, bare: bool) -> void {
+    word_builder::append(builder, key)
+    word_builder::append(builder, " = ")
+    if bare { word_builder::append(builder, value) } else { word_builder::append(builder, toml_quote(value)) }
+    word_builder::append(builder, "\n")
+}
+
+task package_lock_render() -> word {
+    if not package_graph_ready or not hangar_graph_complete(0) { give back "" }
+    pilot builder = word_builder::new()
+    word_builder::append(builder, "# Hangar immutable source-only graph. Generated lock schema 2.\n")
+    package_lock_line(builder, "lock.schema", "2", true)
+    package_lock_line(builder, "lock.profile", "source-only-v2", false)
+    package_lock_line(builder, "lock.requires.compiler", package_lock_compiler_capability, false)
+    package_lock_line(builder, "lock.requires.runtime", package_lock_runtime_capability, false)
+    package_lock_line(builder, "lock.requires.library", package_lock_library_capability, false)
+    package_lock_line(builder, "lock.manifest_sha256", array_get(package_source_manifest_hashes, 0), false)
+    package_lock_line(builder, "lock.node_count", word_from_int(hangar_graph_count), true)
+    package_lock_line(builder, "lock.file_count", word_from_int(array_len(package_input_paths)), true)
+    package_lock_line(builder, "lock.edge_count", word_from_int(hangar_graph_edge_count), true)
+    package_lock_line(builder, "lock.fact_count", word_from_int(array_len(hangar_graph_fact_keys)), true)
+    package_lock_line(builder, "lock.root", "0", true)
+    pilot index = 0
+    repeat until index >= hangar_graph_count {
+        pilot prefix = "node." + word_from_int(index) + "."
+        package_lock_line(builder, prefix + "name", array_get(hangar_graph_names, index), false)
+        package_lock_line(builder, prefix + "version", array_get(hangar_graph_versions, index), false)
+        package_lock_line(builder, prefix + "identity", array_get(hangar_graph_identities, index), false)
+        package_lock_line(builder, prefix + "origin", array_get(package_source_original_roots, index), false)
+        package_lock_line(builder, prefix + "kind", array_get(package_source_kinds, index), false)
+        package_lock_line(builder, prefix + "commit", array_get(package_source_commits, index), false)
+        package_lock_line(builder, prefix + "tree_sha256", array_get(package_source_hashes, index), false)
+        package_lock_line(builder, prefix + "manifest_sha256", array_get(package_source_manifest_hashes, index), false)
+        package_lock_line(builder, prefix + "manifest_file", array_get(package_source_manifest_files, index), false)
+        pilot count = 0
+        pilot file = 0
+        repeat until file >= array_len(package_input_paths) {
+            if word_to_int(array_get(package_input_nodes, file)) == index { count += 1 }
+            file += 1
+        }
+        package_lock_line(builder, prefix + "input_count", word_from_int(count), true)
+        index += 1
+    }
+    index = 0
+    repeat until index >= array_len(package_input_paths) {
+        pilot prefix = "file." + word_from_int(index) + "."
+        package_lock_line(builder, prefix + "node", array_get(package_input_nodes, index), true)
+        package_lock_line(builder, prefix + "path", array_get(package_input_paths, index), false)
+        package_lock_line(builder, prefix + "sha256", array_get(package_input_hashes, index), false)
+        package_lock_line(builder, prefix + "length", array_get(package_input_lengths, index), true)
+        package_lock_line(builder, prefix + "role", array_get(package_input_roles, index), false)
+        index += 1
+    }
+    index = 0
+    repeat until index >= hangar_graph_edge_count {
+        pilot prefix = "edge." + word_from_int(index) + "."
+        pilot kind = array_get(hangar_graph_edge_kinds, index)
+        if kind == "path" { kind = "local" }
+        package_lock_line(builder, prefix + "parent", array_get(hangar_graph_edge_parents, index), true)
+        package_lock_line(builder, prefix + "target", array_get(hangar_graph_edge_targets, index), true)
+        package_lock_line(builder, prefix + "alias", array_get(hangar_graph_edge_aliases, index), false)
+        package_lock_line(builder, prefix + "kind", kind, false)
+        package_lock_line(builder, prefix + "source", array_get(hangar_graph_edge_sources, index), false)
+        package_lock_line(builder, prefix + "revision", array_get(hangar_graph_edge_revisions, index), false)
+        package_lock_line(builder, prefix + "version", array_get(hangar_graph_edge_versions, index), false)
+        index += 1
+    }
+    index = 0
+    repeat until index >= array_len(hangar_graph_fact_keys) {
+        pilot prefix = "fact." + word_from_int(index) + "."
+        package_lock_line(builder, prefix + "node", array_get(hangar_graph_fact_nodes, index), true)
+        package_lock_line(builder, prefix + "key", array_get(hangar_graph_fact_keys, index), false)
+        package_lock_line(builder, prefix + "value", array_get(hangar_graph_fact_values, index), false)
+        index += 1
+    }
+    give back word_builder::finish(builder)
+}
