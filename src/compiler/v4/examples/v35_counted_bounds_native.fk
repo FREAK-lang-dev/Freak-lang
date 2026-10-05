@@ -1,0 +1,40 @@
+task v35_counted_lower() -> int {
+    say "lower"
+    give back 1
+}
+
+task v35_counted_upper() -> int {
+    say "upper"
+    give back 6
+}
+
+task v35_counted_step() -> int {
+    say "step"
+    give back 2
+}
+
+task v35_counted_once() -> int {
+    pilot sum = 0
+    for each i in v35_counted_lower()..v35_counted_upper() step v35_counted_step() {
+        sum += i
+    }
+    give back sum
+}
+
+task v35_counted_contextual() -> int {
+    pilot step = 3
+    pilot with = 2
+    pilot sum = 0
+    for each i in 0..step { sum += i }sum += with
+    for each i in 0..with + step { sum += i }
+    for each i in 0..with step with { sum += i }
+    repeat with times with step { sum += step }
+    give back sum
+}
+
+task main() -> int {
+    if v35_counted_once() != 9 { give back 1 }
+    if v35_counted_contextual() != 16 { give back 2 }
+    say "v35-counted-bounds-ok"
+    give back 42
+}

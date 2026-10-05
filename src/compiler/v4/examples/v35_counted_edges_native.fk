@@ -1,0 +1,37 @@
+task v35_counted_empty() -> int {
+    pilot hits = 0
+    repeat 0 times with i { hits += 100 }
+    repeat -2 times with i { hits += 100 }
+    for each i in 4..2 { hits += 100 }
+    for each i in 2..2 { hits += 100 }
+    for each i in 4..=2 { hits += 100 }
+    for (pilot i = 0; false; i += 1) { hits += 100 }
+    give back hits
+}
+
+task v35_counted_maximum() -> int {
+    pilot hits = 0
+    for each i in 9223372036854775806..=9223372036854775807 {
+        hits += 1
+        continue
+    }
+    for each i in 9223372036854775806..=9223372036854775807 step 2 {
+        hits += 1
+    }
+    for each i in 9223372036854775807..=9223372036854775807 { hits += 1 }
+    give back hits
+}
+
+task v35_counted_projection_step() -> int {
+    pilot slots: [int; 1] = [0]
+    for (pilot i = 0; i < 3; slots[0] += 1) { i += 1 }
+    give back slots[0]
+}
+
+task main() -> int {
+    if v35_counted_empty() != 0 { give back 1 }
+    if v35_counted_maximum() != 4 { give back 2 }
+    if v35_counted_projection_step() != 3 { give back 3 }
+    say "v35-counted-edges-ok"
+    give back 42
+}

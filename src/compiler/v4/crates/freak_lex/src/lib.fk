@@ -487,6 +487,10 @@ task v4_lex_is_symbol_start(ch: word) -> bool {
 task v4_lex_symbol_len(text: word, pos: int) -> int {
     pilot ch = v4_lex_char_at(text, pos)
     pilot next_ch = v4_lex_char_at(text, pos + 1)
+    if ch == "." and next_ch == "." {
+        if v4_lex_char_at(text, pos + 2) == "=" { give back 3 }
+        give back 2
+    }
     if ch == "=" and next_ch == "=" { give back 2 }
     if ch == "!" and next_ch == "=" { give back 2 }
     if ch == "<" and next_ch == "=" { give back 2 }

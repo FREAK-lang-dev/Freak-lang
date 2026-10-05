@@ -1086,6 +1086,7 @@ task v4_mir_check_dyn_lend_erasure_rvalue(mir_id: int, body_id: int, target_ty: 
 }
 
 task v4_mir_check_assignment_types(mir_id: int, body_id: int, stmt_span: word, place_id: int, place_ty: word, value_ty: word) -> void {
+    v4_mir_check_counted_binding_write(mir_id, body_id, stmt_span, place_id)
     v4_mir_check_dyn_lend_erasure(mir_id, stmt_span, place_ty, value_ty, v4_mir_assignment_target_context(mir_id, body_id, place_id))
     if not v4_mir_types_compatible(mir_id, body_id, place_ty, value_ty) {
         pilot place_kind = v4_mir_place_unknown
@@ -5453,6 +5454,9 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
                             pilot capture_ty = v4_mir_local_ty(mir_id, body_id, local_id)
                             pilot capture_span = v4_lex_token_span(stream_id, idx)
                             pilot mutated = v4_mir_closure_capture_is_mutated(mir_id, body_id, stream_id, capture_name, capture_ty, body_start, body_end, param_names)
+                            if mode == v4_ty_closure_mode_mut and v4_mir_counted_binding_is_immutable(mir_id, body_id, local_id) {
+                                v4_mir_add_type_error(mir_id, capture_span, "iteration binding is immutable", capture_name + " cannot be captured through a mutable loan")
+                            }
                             v4_mir_closure_capture_diag(mir_id, mode, capture_name, capture_ty, capture_span, mutated)
                             pilot capture_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_closure_capture_kind(mode), capture_name, mode, 0 - 1, 0 - 1, capture_span, capture_ty)
                             array_push(children_handle, word_from_int(capture_rvalue))
@@ -5504,6 +5508,12 @@ task v4_mir_try_lower_lend_expr(mir_id: int, body_id: int, stream_id: int, first
 
     pilot operand_expected_ty = v4_mir_lend_operand_expected_ty(expected_ty)
     pilot operand_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, operand_start, last + 1, operand_expected_ty)
+    if mode == v4_ty_param_mode_lend_mut {
+        pilot source_local = v4_mir_rvalue_local_id(mir_id, body_id, operand_id)
+        if source_local >= 0 and v4_mir_counted_binding_is_immutable(mir_id, body_id, source_local) {
+            v4_mir_add_type_error(mir_id, expr_span, "iteration binding is immutable", v4_mir_local_name(mir_id, body_id, source_local) + " cannot be lent mutably")
+        }
+    }
     pilot operand_ty = v4_mir_rvalue_ty(mir_id, body_id, operand_id)
     if not v4_mir_lend_source_is_place(mir_id, body_id, operand_id) {
         v4_mir_add_type_error(mir_id, expr_span, "lend source must be a place", "Meiya can only loan a named local, field, index, or deref place; store the value first")
@@ -6119,11 +6129,148 @@ task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: i
     give back v4_mir_build_close_check_join(mir_id, body_id, after_block)
 }
 
+-- Numeric loops keep source bindings separate from their private advancing
+-- storage. Ordinary local/place identities are sufficient for snapshots and
+-- Meiya; source mutability is a construction check, never an ABI local mode.
+task v4_mir_counted_binding_is_immutable(mir_id: int, body_id: int, local_id: int) -> bool {
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt) == v4_mir_stmt_local {
+            pilot place = v4_mir_stmt_place(mir_id, body_id, stmt)
+            if place >= 0 and v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_local and v4_mir_place_base(mir_id, body_id, place) == local_id {
+                pilot value = v4_mir_stmt_rvalue(mir_id, body_id, stmt)
+                pilot source = v4_mir_rvalue_local_id(mir_id, body_id, value)
+                if source >= 0 and v4_mir_local_name(mir_id, body_id, source).starts_with("$counted_i#") { give back true }
+            }
+        }
+        stmt += 1
+    }
+    give back false
+}
+
+task v4_mir_check_counted_binding_write(mir_id: int, body_id: int, span: word, place_id: int) -> void {
+    if place_id >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
+        pilot local = v4_mir_place_base(mir_id, body_id, place_id)
+        if local >= 0 and v4_mir_counted_binding_is_immutable(mir_id, body_id, local) {
+            v4_mir_add_type_error(mir_id, span, "iteration binding is immutable", v4_mir_local_name(mir_id, body_id, local) + " receives a fresh index on each iteration")
+        }
+    }
+}
+
+task v4_mir_counted_read(mir_id: int, body_id: int, local: int, span: word) -> int {
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, v4_mir_local_name(mir_id, body_id, local), "local#" + word_from_int(local), -1, -1, span, v4_ty_int)
+}
+
+task v4_mir_counted_store(mir_id: int, body_id: int, block: int, local: int, value: int, span: word, declaration: bool) -> void {
+    pilot name = v4_mir_local_name(mir_id, body_id, local)
+    pilot place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, name, local, name, -1, span, v4_ty_int)
+    pilot kind = v4_mir_stmt_assign
+    if declaration { kind = v4_mir_stmt_local }
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block, kind, name, v4_mir_rvalue_text(mir_id, body_id, value), span, place, value)
+}
+
+task v4_mir_counted_capture(mir_id: int, body_id: int, block: int, value: int, span: word, prefix: word) -> int {
+    pilot name = prefix + word_from_int(v4_mir_body_local_count(mir_id, body_id))
+    pilot local = v4_mir_add_local_at_scope(mir_id, body_id, name, v4_ty_int, span, span)
+    v4_mir_counted_store(mir_id, body_id, block, local, value, span, true)
+    give back local
+}
+
+task v4_mir_counted_check_int(mir_id: int, body_id: int, value: int, span: word, message: word) -> void {
+    pilot actual = v4_mir_rvalue_ty(mir_id, body_id, value)
+    if actual != v4_ty_int and actual != v4_ty_never { v4_mir_add_type_error(mir_id, span, message, "got " + actual) }
+}
+
+task v4_mir_counted_branch(mir_id: int, body_id: int, block: int, yes: int, no: int, condition: int, span: word) -> void {
+    pilot text = v4_mir_rvalue_text(mir_id, body_id, condition)
+    v4_mir_set_body_block(mir_id, body_id, block, v4_mir_block_new_full(block, v4_mir_term_if, yes, no, text))
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block, v4_mir_stmt_branch, text, "then#" + word_from_int(yes) + " else#" + word_from_int(no), span, -1, condition)
+}
+
+task v4_mir_counted_step_failure(mir_id: int, body_id: int, block: int, span: word) -> void {
+    pilot message = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, "range step must be positive", "", -1, -1, span, v4_ty_word)
+    pilot loan = v4_mir_word_borrow_argument(mir_id, body_id, message, span)
+    pilot identity = v4_mir_control_intrinsic_identity("panic")
+    pilot call = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, "range step must be positive", identity, -1, -1, span, v4_ty_never)
+    v4_mir_build_set_call_args(mir_id, body_id, call, word_from_int(loan))
+    v4_mir_set_rvalue_builtin_method(mir_id, body_id, call, identity)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block, v4_mir_stmt_expr, "", "range step must be positive", span, -1, call)
+    v4_mir_set_body_block(mir_id, body_id, block, v4_mir_block_new_full(block, v4_mir_term_unreachable, -1, -1, ""))
+}
+
+task v4_mir_lower_numeric_loop(mir_id: int, body_id: int, entry: int, stream_id: int, open_token: int, stmt_end: int, span: word, label: word, binder: word, binder_span: word, index: int, upper: int, step: int, inclusive: bool) -> int {
+    pilot outer_scope = v4_mir_current_scope_span(span)
+    v4_mir_push_scope_span(span)
+    pilot body = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    pilot condition = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    pilot increment = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    pilot advance = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    pilot after = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    v4_mir_set_block_scope_span(mir_id, body_id, after, outer_scope)
+    pilot cmp_op = v4_mir_bin_lt
+    if inclusive { cmp_op = v4_mir_bin_le }
+    pilot current = v4_mir_counted_read(mir_id, body_id, index, span)
+    pilot limit = v4_mir_counted_read(mir_id, body_id, upper, span)
+    pilot compare = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, label, cmp_op, current, limit, span, v4_ty_bool)
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, entry, condition)
+    v4_mir_set_body_block(mir_id, body_id, condition, v4_mir_block_new_full(condition, v4_mir_term_if, body, after, label))
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, condition, v4_mir_stmt_loop, label, "body#" + word_from_int(body) + " exit#" + word_from_int(after), span, -1, compare)
+
+    pilot binding = v4_mir_add_local_at_scope(mir_id, body_id, binder, v4_ty_int, binder_span, span)
+    pilot binding_value = v4_mir_counted_read(mir_id, body_id, index, span)
+    v4_mir_counted_store(mir_id, body_id, body, binding, binding_value, span, true)
+    v4_mir_push_loop_context(after, increment)
+    pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body, stream_id, open_token, stmt_end)
+    v4_mir_pop_loop_context()
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, increment)
+
+    -- Positive step subtraction cannot overflow. Stop before addition when
+    -- the final inclusive value reaches INT_MAX, even if the body continues.
+    pilot max_value = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "9223372036854775807", "", -1, -1, span, v4_ty_int)
+    pilot guard_step = v4_mir_counted_read(mir_id, body_id, step, span)
+    pilot safe_limit = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, "INT_MAX - step", v4_mir_bin_sub, max_value, guard_step, span, v4_ty_int)
+    pilot guard_index = v4_mir_counted_read(mir_id, body_id, index, span)
+    pilot overflow = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, "index > INT_MAX - step", v4_mir_bin_gt, guard_index, safe_limit, span, v4_ty_bool)
+    v4_mir_counted_branch(mir_id, body_id, increment, after, advance, overflow, span)
+    pilot old_index = v4_mir_counted_read(mir_id, body_id, index, span)
+    pilot advance_step = v4_mir_counted_read(mir_id, body_id, step, span)
+    pilot next_index = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, "index + step", v4_mir_bin_add, old_index, advance_step, span, v4_ty_int)
+    v4_mir_counted_store(mir_id, body_id, advance, index, next_index, span, false)
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, advance, condition)
+    v4_mir_pop_scope_span()
+    give back after
+}
+
+task v4_mir_lower_repeat_binding_stmt(mir_id: int, body_id: int, block: int, stream_id: int, repeat_token: int, times_token: int, open_token: int, stmt_end: int) -> int {
+    pilot span = v4_mir_span_from_tokens(stream_id, repeat_token, stmt_end)
+    pilot with_token = v4_mir_skip_trivia(stream_id, times_token + 1)
+    pilot binder_token = v4_mir_skip_trivia(stream_id, with_token + 1)
+    pilot binder_end = v4_mir_skip_trivia(stream_id, binder_token + 1)
+    if v4_lex_token_syntax_value(stream_id, with_token) != "with" or binder_token >= open_token or binder_end != open_token or v4_lex_token_type(stream_id, binder_token) != v4_tok_ident {
+        v4_mir_add_type_error(mir_id, span, "repeat index binding requires with name", "use repeat count times with i followed by a braced body")
+        v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end)
+        give back block
+    }
+    pilot count = v4_mir_lower_expr(mir_id, body_id, stream_id, repeat_token + 1, times_token)
+    v4_mir_counted_check_int(mir_id, body_id, count, span, "repeat N times count must be int")
+    pilot captured_block = v4_mir_wire_try_propagation(mir_id, body_id, block, span, count)
+    if v4_mir_control_block_is_terminal(mir_id, body_id, captured_block) {
+        v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end)
+        give back captured_block
+    }
+    pilot upper = v4_mir_counted_capture(mir_id, body_id, captured_block, count, span, "$counted_bound#")
+    pilot zero = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "0", "", -1, -1, span, v4_ty_int)
+    pilot index = v4_mir_counted_capture(mir_id, body_id, captured_block, zero, span, "$counted_i#")
+    pilot one = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", -1, -1, span, v4_ty_int)
+    pilot step = v4_mir_counted_capture(mir_id, body_id, captured_block, one, span, "$counted_step#")
+    give back v4_mir_lower_numeric_loop(mir_id, body_id, captured_block, stream_id, open_token, stmt_end, span, "repeat " + v4_mir_expr_text(stream_id, repeat_token + 1, times_token) + " times", v4_lex_token_syntax_value(stream_id, binder_token), v4_lex_token_span(stream_id, binder_token), index, upper, step, false)
+}
+
 task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, repeat_token: int, stmt_end: int) -> int {
     pilot next_kw = v4_mir_skip_trivia(stream_id, repeat_token + 1)
     pilot while_mode: bool = v4_lex_token_syntax_value(stream_id, repeat_token) == "while"
     if v4_lex_token_syntax_value(stream_id, repeat_token) == "repeat" and next_kw < stmt_end and v4_lex_token_syntax_value(stream_id, next_kw) == "while" { while_mode = true }
-    pilot open_token = v4_mir_find_token_value(stream_id, repeat_token, stmt_end, "{")
+    pilot open_token = v4_mir_counted_header_body_token(stream_id, repeat_token, stmt_end)
     if open_token < 0 {
         if while_mode {
             v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, repeat_token, stmt_end), "while loop requires a body", "add a braced body after the bool condition")
@@ -6133,10 +6280,13 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
     }
 
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, repeat_token, stmt_end)
-    pilot times_token = v4_mir_find_token_value(stream_id, repeat_token + 1, open_token, "times")
+    pilot times_token = v4_mir_find_top_level_token(stream_id, repeat_token + 1, open_token, "times")
     if while_mode or (next_kw < open_token and v4_lex_token_syntax_value(stream_id, next_kw) == "until") { times_token = -1 }
 
     if times_token >= 0 {
+        if v4_mir_skip_trivia(stream_id, times_token + 1) < open_token {
+            give back v4_mir_lower_repeat_binding_stmt(mir_id, body_id, block_id, stream_id, repeat_token, times_token, open_token, stmt_end)
+        }
         -- repeat N times { body }
         pilot count_text = v4_mir_expr_text(stream_id, repeat_token + 1, times_token)
         pilot count_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, repeat_token + 1, times_token)
@@ -6914,8 +7064,190 @@ task v4_mir_lower_for_each_binding(mir_id: int, body_id: int, block_id: int, stm
     give back temp_place
 }
 
+task v4_mir_counted_header_body_token(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot token = start_token
+    pilot depth = 0
+    repeat until token >= end_token {
+        pilot kind = v4_lex_token_type(stream_id, token)
+        pilot value = v4_lex_token_syntax_value(stream_id, token)
+        if kind != v4_tok_trivia and kind != v4_tok_string and kind != v4_tok_char {
+            if depth == 0 and value == "{" { give back token }
+            if depth == 0 and (value == ";" or value == "}") { give back -1 }
+            depth = v4_mir_depth_after_token(depth, value)
+        } else if kind == v4_tok_trivia and depth == 0 and v4_lex_token_value(stream_id, token) == "\n" {
+            give back -1
+        }
+        token += 1
+    }
+    give back -1
+}
+
+task v4_mir_range_step_token(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot token = start_token
+    pilot depth = 0
+    repeat until token >= end_token {
+        pilot value = v4_lex_token_syntax_value(stream_id, token)
+        if v4_lex_token_type(stream_id, token) != v4_tok_trivia {
+            if depth == 0 and value == "step" and v4_lex_token_type(stream_id, token) == v4_tok_ident {
+                pilot previous = v4_mir_prev_nontrivia(stream_id, token - 1, start_token)
+                pilot next = v4_mir_skip_trivia(stream_id, token + 1)
+                if previous >= start_token and next < end_token {
+                    pilot previous_kind = v4_lex_token_type(stream_id, previous)
+                    pilot previous_value = v4_lex_token_syntax_value(stream_id, previous)
+                    pilot keyword_value: bool = previous_kind == v4_tok_keyword and previous_value != "and" and previous_value != "or" and previous_value != "not" and previous_value != "lend" and previous_value != "mut"
+                    if previous_kind == v4_tok_ident or previous_kind == v4_tok_int or previous_kind == v4_tok_float or keyword_value or previous_value == ")" or previous_value == "]" or previous_value == "true" or previous_value == "false" { give back token }
+                }
+            }
+            depth = v4_mir_depth_after_token(depth, value)
+        }
+        token += 1
+    }
+    give back -1
+}
+
+task v4_mir_lower_range_stmt(mir_id: int, body_id: int, block: int, stream_id: int, for_token: int, in_token: int, range_token: int, open_token: int, stmt_end: int) -> int {
+    pilot span = v4_mir_span_from_tokens(stream_id, for_token, stmt_end)
+    pilot each_token = v4_mir_skip_trivia(stream_id, for_token + 1)
+    pilot binder_token = v4_mir_skip_trivia(stream_id, each_token + 1)
+    if binder_token >= in_token or v4_mir_skip_trivia(stream_id, binder_token + 1) != in_token or v4_lex_token_type(stream_id, binder_token) != v4_tok_ident {
+        v4_mir_add_type_error(mir_id, span, "range iteration requires one index binding", "use for each i in start..end")
+        v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end)
+        give back block
+    }
+    pilot step_token = v4_mir_range_step_token(stream_id, range_token + 1, open_token)
+    pilot upper_end = open_token
+    if step_token >= 0 { upper_end = step_token }
+    if v4_mir_skip_trivia(stream_id, in_token + 1) >= range_token or v4_mir_skip_trivia(stream_id, range_token + 1) >= upper_end {
+        v4_mir_add_type_error(mir_id, span, "range requires start and end bounds", "write two int expressions around .. or ..=")
+        v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end)
+        give back block
+    }
+    -- Each capture is emitted before lowering the next expression. This keeps
+    -- source order, once-only calls, and references to an outer index binding.
+    pilot lower_value = v4_mir_lower_expr(mir_id, body_id, stream_id, in_token + 1, range_token)
+    v4_mir_counted_check_int(mir_id, body_id, lower_value, span, "range bounds and step must be int")
+    pilot current_block = v4_mir_wire_try_propagation(mir_id, body_id, block, span, lower_value)
+    if v4_mir_control_block_is_terminal(mir_id, body_id, current_block) { v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end); give back current_block }
+    pilot index = v4_mir_counted_capture(mir_id, body_id, current_block, lower_value, span, "$counted_i#")
+    pilot upper_value = v4_mir_lower_expr(mir_id, body_id, stream_id, range_token + 1, upper_end)
+    v4_mir_counted_check_int(mir_id, body_id, upper_value, span, "range bounds and step must be int")
+    current_block = v4_mir_wire_try_propagation(mir_id, body_id, current_block, span, upper_value)
+    if v4_mir_control_block_is_terminal(mir_id, body_id, current_block) { v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end); give back current_block }
+    pilot upper = v4_mir_counted_capture(mir_id, body_id, current_block, upper_value, span, "$counted_bound#")
+    pilot step_value = -1
+    if step_token >= 0 {
+        step_value = v4_mir_lower_expr(mir_id, body_id, stream_id, step_token + 1, open_token)
+    } else {
+        step_value = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", -1, -1, span, v4_ty_int)
+    }
+    v4_mir_counted_check_int(mir_id, body_id, step_value, span, "range bounds and step must be int")
+    pilot literal_step = v4_mir_const_integer_text_from_rvalue(mir_id, body_id, step_value)
+    if literal_step != v4_ty_unknown and word_to_int(literal_step) <= 0 { v4_mir_add_type_error(mir_id, span, "range step must be positive", "use an int step greater than zero") }
+    current_block = v4_mir_wire_try_propagation(mir_id, body_id, current_block, span, step_value)
+    if v4_mir_control_block_is_terminal(mir_id, body_id, current_block) { v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end); give back current_block }
+    pilot step = v4_mir_counted_capture(mir_id, body_id, current_block, step_value, span, "$counted_step#")
+    pilot ready = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    pilot failure = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    pilot step_read = v4_mir_counted_read(mir_id, body_id, step, span)
+    pilot zero = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "0", "", -1, -1, span, v4_ty_int)
+    pilot valid = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, "step > 0", v4_mir_bin_gt, step_read, zero, span, v4_ty_bool)
+    v4_mir_counted_branch(mir_id, body_id, current_block, ready, failure, valid, span)
+    v4_mir_counted_step_failure(mir_id, body_id, failure, span)
+    pilot label = "for each " + v4_lex_token_syntax_value(stream_id, binder_token) + " in " + v4_mir_expr_text(stream_id, in_token + 1, open_token)
+    give back v4_mir_lower_numeric_loop(mir_id, body_id, ready, stream_id, open_token, stmt_end, span, label, v4_lex_token_syntax_value(stream_id, binder_token), v4_lex_token_span(stream_id, binder_token), index, upper, step, v4_lex_token_syntax_value(stream_id, range_token) == "..=")
+}
+
+task v4_mir_lower_counted_for_stmt(mir_id: int, body_id: int, block: int, stream_id: int, for_token: int, stmt_end: int) -> int {
+    pilot span = v4_mir_span_from_tokens(stream_id, for_token, stmt_end)
+    pilot header_open = v4_mir_skip_trivia(stream_id, for_token + 1)
+    pilot header_close = v4_mir_find_matching_paren(stream_id, header_open, stmt_end)
+    pilot open_token = v4_mir_skip_trivia(stream_id, header_close + 1)
+    if header_close < 0 or open_token >= stmt_end or v4_lex_token_syntax_value(stream_id, open_token) != "{" {
+        v4_mir_add_type_error(mir_id, span, "counted for requires a header and body", "use for (pilot i = 0; condition; step) followed by a braced body")
+        give back block
+    }
+    -- The shared top-level finder scans from the right.
+    pilot second_semi = v4_mir_find_top_level_token(stream_id, header_open + 1, header_close, ";")
+    pilot first_semi = v4_mir_find_top_level_token(stream_id, header_open + 1, second_semi, ";")
+    if first_semi < 0 or second_semi < 0 or v4_mir_find_top_level_token(stream_id, header_open + 1, first_semi, ";") >= 0 {
+        v4_mir_add_type_error(mir_id, span, "counted for requires three header clauses", "separate initializer, bool condition, and int assignment or int/void expression step with semicolons")
+        v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end)
+        give back block
+    }
+    pilot pilot_token = v4_mir_skip_trivia(stream_id, header_open + 1)
+    pilot binder_token = v4_mir_skip_trivia(stream_id, pilot_token + 1)
+    if v4_lex_token_syntax_value(stream_id, binder_token) == "mut" { binder_token = v4_mir_skip_trivia(stream_id, binder_token + 1) }
+    pilot after_name = v4_mir_skip_trivia(stream_id, binder_token + 1)
+    pilot eq_token = v4_mir_find_assignment_operator_token(stream_id, binder_token + 1, first_semi)
+    pilot colon_token = v4_mir_find_top_level_token(stream_id, binder_token + 1, first_semi, ":")
+    if v4_lex_token_syntax_value(stream_id, pilot_token) != "pilot" or v4_lex_token_type(stream_id, pilot_token) != v4_tok_keyword or binder_token >= first_semi or v4_lex_token_type(stream_id, binder_token) != v4_tok_ident or eq_token < 0 or v4_lex_token_syntax_value(stream_id, eq_token) != "=" or (after_name != eq_token and after_name != colon_token) {
+        v4_mir_add_type_error(mir_id, span, "counted for initializer must be a pilot int binding", "use pilot i = int or pilot mut i: int = int")
+        v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end)
+        give back block
+    }
+    pilot declared_ty = v4_ty_unknown
+    if colon_token >= 0 {
+        pilot ty = v4_mir_ty_id(mir_id)
+        pilot signature = v4_mir_body_signature_id(mir_id, body_id)
+        pilot annotation = v4_ty_signature_local_annotation_at_offset(ty, signature, v4_span_start(v4_lex_token_span(stream_id, pilot_token)))
+        if annotation >= 0 { declared_ty = v4_ty_signature_local_annotation_type(ty, signature, annotation) }
+        if declared_ty != v4_ty_int { v4_mir_add_type_error(mir_id, span, "counted for initializer must have type int", "only an optional :int annotation is supported") }
+    }
+    pilot initial = v4_mir_lower_expr(mir_id, body_id, stream_id, eq_token + 1, first_semi)
+    v4_mir_counted_check_int(mir_id, body_id, initial, span, "counted for initializer must have type int")
+    pilot initial_block = v4_mir_wire_try_propagation(mir_id, body_id, block, span, initial)
+    if v4_mir_control_block_is_terminal(mir_id, body_id, initial_block) { v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end); give back initial_block }
+    pilot outer_scope = v4_mir_current_scope_span(span)
+    v4_mir_push_scope_span(span)
+    pilot binder = v4_lex_token_syntax_value(stream_id, binder_token)
+    pilot binding = v4_mir_add_local_at_scope(mir_id, body_id, binder, v4_ty_int, v4_mir_span_from_tokens(stream_id, pilot_token, first_semi), span)
+    v4_mir_counted_store(mir_id, body_id, initial_block, binding, initial, span, true)
+    pilot condition_entry = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    pilot body = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    pilot step_entry = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    pilot after = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    v4_mir_set_block_scope_span(mir_id, body_id, after, outer_scope)
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, initial_block, condition_entry)
+    pilot condition_value = v4_mir_lower_expr(mir_id, body_id, stream_id, first_semi + 1, second_semi)
+    v4_mir_check_condition_type(mir_id, span, "counted for", v4_mir_rvalue_ty(mir_id, body_id, condition_value))
+    pilot condition_block = v4_mir_wire_try_propagation(mir_id, body_id, condition_entry, span, condition_value)
+    if not v4_mir_control_block_is_terminal(mir_id, body_id, condition_block) {
+        pilot condition_text = v4_mir_expr_text(stream_id, first_semi + 1, second_semi)
+        v4_mir_set_body_block(mir_id, body_id, condition_block, v4_mir_block_new_full(condition_block, v4_mir_term_if, body, after, condition_text))
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, condition_block, v4_mir_stmt_loop, "for " + condition_text, "body#" + word_from_int(body) + " exit#" + word_from_int(after), span, -1, condition_value)
+    }
+    pilot step_start = v4_mir_skip_trivia(stream_id, second_semi + 1)
+    pilot step_assign = v4_mir_find_assignment_operator_token(stream_id, step_start, header_close)
+    pilot step_stmt_start = v4_mir_body_stmt_count(mir_id, body_id)
+    pilot step_tail = v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, step_entry, stream_id, step_start, header_close)
+    pilot step_stmt_end = v4_mir_body_stmt_count(mir_id, body_id)
+    if step_stmt_end <= step_stmt_start {
+        v4_mir_add_type_error(mir_id, span, "counted for requires a step", "use an int assignment or an int/void expression")
+    } else {
+        pilot step_stmt = step_stmt_end - 1
+        pilot step_value = v4_mir_stmt_rvalue(mir_id, body_id, step_stmt)
+        pilot step_ty = v4_mir_rvalue_ty(mir_id, body_id, step_value)
+        if step_assign >= 0 {
+            pilot step_place = v4_mir_stmt_place(mir_id, body_id, step_stmt)
+            if step_ty != v4_ty_int or step_place < 0 or v4_mir_place_ty(mir_id, body_id, step_place) != v4_ty_int { v4_mir_add_type_error(mir_id, span, "counted for assignment step must have type int", "assign an int value into an int place") }
+        } else if step_ty != v4_ty_int and step_ty != v4_ty_void and step_ty != v4_ty_never {
+            v4_mir_add_type_error(mir_id, span, "counted for expression step must have type int or void", "got " + step_ty)
+        }
+    }
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, step_tail, condition_entry)
+    v4_mir_push_loop_context(after, step_entry)
+    pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body, stream_id, open_token, stmt_end)
+    v4_mir_pop_loop_context()
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, step_entry)
+    v4_mir_pop_scope_span()
+    if v4_mir_control_block_is_terminal(mir_id, body_id, condition_block) { give back condition_block }
+    give back after
+}
+
 task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, for_token: int, stmt_end: int) -> int {
-    pilot open_token = v4_mir_find_token_value(stream_id, for_token, stmt_end, "{")
+    pilot next_token = v4_mir_skip_trivia(stream_id, for_token + 1)
+    if v4_lex_token_syntax_value(stream_id, next_token) == "(" { give back v4_mir_lower_counted_for_stmt(mir_id, body_id, block_id, stream_id, for_token, stmt_end) }
+    pilot open_token = v4_mir_counted_header_body_token(stream_id, for_token, stmt_end)
     if open_token < 0 {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, for_token, stmt_end)
     }
@@ -6931,6 +7263,9 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
     }
 
     pilot loop_pattern = v4_mir_pattern_text(stream_id, each_token + 1, in_token)
+    pilot range_token = v4_mir_find_top_level_token(stream_id, in_token + 1, open_token, "..")
+    if range_token < 0 { range_token = v4_mir_find_top_level_token(stream_id, in_token + 1, open_token, "..=") }
+    if range_token >= 0 { give back v4_mir_lower_range_stmt(mir_id, body_id, block_id, stream_id, for_token, in_token, range_token, open_token, stmt_end) }
     pilot iterable_text = v4_mir_expr_text(stream_id, in_token + 1, open_token)
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, for_token, stmt_end)
     -- The loop binding is declared in the header, before the opening brace.
@@ -9165,12 +9500,11 @@ task v4_mir_lower_suppressed_loop_body(mir_id: int, body_id: int, stream_id: int
     v4_mir_pop_loop_context()
 }
 
--- A complete repeat/while body ends the statement even without a separator.
+-- A complete repeat/while/for body ends the statement without a separator.
 -- Limit brace discovery to the current header so a malformed loop cannot
 -- consume a later statement's body.
 task v4_mir_repeat_statement_end(stream_id: int, loop_token: int, end_token: int) -> int {
-    pilot header_end = v4_mir_statement_end(stream_id, loop_token, end_token)
-    pilot open_token = v4_mir_find_token_value(stream_id, loop_token + 1, header_end, "{")
+    pilot open_token = v4_mir_counted_header_body_token(stream_id, loop_token, end_token)
     if open_token < 0 { give back -1 }
     pilot close_token = v4_mir_find_matching_brace(stream_id, open_token, end_token)
     if close_token >= end_token { give back -1 }
@@ -9201,7 +9535,7 @@ task v4_mir_lower_block_body(mir_id: int, body_id: int, block_id: int, stream_id
                     -- first tail token even when no whitespace separates it.
                     next_statement = conditional_end
                 }
-            } else if v4_lex_token_syntax_value(stream_id, idx) == "repeat" or v4_lex_token_syntax_value(stream_id, idx) == "while" {
+            } else if v4_lex_token_syntax_value(stream_id, idx) == "repeat" or v4_lex_token_syntax_value(stream_id, idx) == "while" or v4_lex_token_syntax_value(stream_id, idx) == "for" {
                 pilot loop_end = v4_mir_repeat_statement_end(stream_id, idx, close_token)
                 if loop_end > idx {
                     stmt_end = loop_end
