@@ -369,7 +369,8 @@ PR #143 handoff-7 dispositions and remaining performance work:
 - [x] **S** Repair six stale smoke proofs for canonical LocalID/PlaceID facts, ordered short circuit, wire/native graph and literal/general say; preserve the semantic contracts and exact diagnostics
 - [ ] **M** Generated code is 4x to 6x slower: emit overflow intrinsics inline instead of calling the numeric runtime for `+ - *`
 - [ ] **S** Runtime benchmark in the gate, so generated-code speed cannot regress unnoticed
-- [ ] **M** Compile time is 1.7x to 2.6x slower and codegen is super-linear on long bodies (0.26 s to 5.80 s at 8,243 lines)
+- [ ] **M** Remaining compile-time overhead relative to V3 and unmeasured scaling families. The historical handoff-7 comparison was 1.7x to 2.6x slower; the current long-body repair below supersedes its codegen growth observation.
+- [x] **M** Remove the four measured repeated compiler scans: Parse closure children, MIR CFG predecessors, Meiya ordered loan candidates and MIR Never presence. The [pinned scaling report](../../../benchmarks/v4/compiler_superlinear_speed.md) records long1600 at 13.011 -> 2.922 seconds (three-run medians), exact module/native equivalence and actual-work regression guards. The broader compile-time/V3 comparison above remains open; smaller-workload costs and conservative spanning-loan work remain explicit.
 - [x] **S** Integrate current main, resolve merge conflicts and complete all current-head gates; regular merge delivered with the original history preserved
 
 Correctness:

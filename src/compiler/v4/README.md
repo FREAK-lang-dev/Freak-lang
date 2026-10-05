@@ -1048,6 +1048,11 @@ physical conflict. It caches no holder or provenance result, retains every
 conflict predicate, and releases scratch after checking. Small requests or
 unavailable scratch use the original scan. Many genuinely spanning loans can
 still require quadratic comparisons.
+The [compiler scaling checkpoint](../../../benchmarks/v4/compiler_superlinear_speed.md)
+records pinned before/after measurements, complete output equivalence and
+remaining workload costs. Regression guards count actual getter/work activity;
+CI also retains checked task-count and long-body timing measurements.
+
 Task-parameter owner and `(item, ordinal)` lookups use stable sorted physical
 record IDs and lower-bound search, preserving the first physical duplicate.
 Partial construction and direct slot mutation retain linear first-match lookup
