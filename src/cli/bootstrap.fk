@@ -422,6 +422,12 @@ task cli_bootstrap_quote(text: word) -> word {
     give back "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + "\""
 }
 
+-- FREAK generated-source quoting additionally escapes interpolation braces.
+-- TOML/JSON quoting remains separate because those formats reject \{ escapes.
+task cli_bootstrap_freak_quote(text: word) -> word {
+    give back cli_bootstrap_quote(text).replace("{", "\\{").replace("}", "\\}")
+}
+
 task cli_bootstrap_mkdirs(directory: int, relative: word) -> bool {
     pilot mut index = 0
     repeat until index >= relative.length() {
@@ -633,7 +639,7 @@ task cli_bootstrap_snapshot_runtime(runtime: int, owned: int) -> bool {
 
 task cli_bootstrap_engine_appendix() -> word {
     pilot identity = "FREAK-V4-NATIVE-1 " + cli_bootstrap_source_commit + " " + cli_bootstrap_input_sha256
-    give back "\ntask v35_native_preview_entry() -> void {\n    if process::args_count() == 2 and process::arg(1) == \"--identity\" { say " + cli_bootstrap_quote(identity) + " give back }\n    if process::args_count() == 2 and process::arg(1) == \"--query-probe\" {\n        v4_query_store(\"bootstrap:probe\", \"input\", \"value\")\n        if v4_query_get(\"bootstrap:probe\", \"input\") != \"value\" { process::exit(1) }\n        v4_query_mark_dirty_key(\"bootstrap:probe\")\n        if v4_query_get(\"bootstrap:probe\", \"input\") != \"\" { process::exit(1) }\n        say \"FREAK-V4-QUERY-OK\"\n        give back\n    }\n    v4_build_llvm_run()\n}\ntask main() -> void { v35_native_preview_entry() }\n"
+    give back "\ntask v35_native_preview_entry() -> void \{\n    if process::args_count() == 2 and process::arg(1) == \"--identity\" \{ say " + cli_bootstrap_freak_quote(identity) + " give back \}\n    if process::args_count() == 2 and process::arg(1) == \"--query-probe\" \{\n        v4_query_store(\"bootstrap:probe\", \"input\", \"value\")\n        if v4_query_get(\"bootstrap:probe\", \"input\") != \"value\" \{ process::exit(1) \}\n        v4_query_mark_dirty_key(\"bootstrap:probe\")\n        if v4_query_get(\"bootstrap:probe\", \"input\") != \"\" \{ process::exit(1) \}\n        say \"FREAK-V4-QUERY-OK\"\n        give back\n    \}\n    v4_build_llvm_run()\n\}\ntask main() -> void \{ v35_native_preview_entry() \}\n"
 }
 
 task cli_bootstrap_prepare_stage(owned: int, source_root: word, action: word, nonce: word, launcher: word, protocol: word, appendix: word) -> bool {
@@ -751,11 +757,11 @@ task cli_bootstrap_program(executable: word, expected_exit: int, expected_stdout
 task cli_bootstrap_corpus(owned: int, stage_root: word, engine: word, clang: word, target: word) -> bool {
     pilot mut index = 0
     repeat until index >= 2 or cli_bootstrap_error != "" {
-        pilot mut source = "task main() -> int {\n    say \"native-v4\"\n    give back 42\n}\n"
+        pilot mut source = "task main() -> int \{\n    say \"native-v4\"\n    give back 42\n\}\n"
         pilot mut exit_code = 42
         pilot mut output = "native-v4\n"
         if index == 1 {
-            source = "task twice(value: int) -> int {\n    give back value * 2\n}\ntask main() -> int {\n    pilot number = twice(3)\n    if number == 6 {\n        say \"native-v4-branches\"\n        give back number + 1\n    }\n    give back 1\n}\n"
+            source = "task twice(value: int) -> int \{\n    give back value * 2\n\}\ntask main() -> int \{\n    pilot number = twice(3)\n    if number == 6 \{\n        say \"native-v4-branches\"\n        give back number + 1\n    \}\n    give back 1\n\}\n"
             exit_code = 7
             output = "native-v4-branches\n"
         }

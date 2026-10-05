@@ -23,4 +23,6 @@ src/cli/templates.fk
 src/cli/hangar.fk
 src/cli/doctor.fk
 src/cli/audit.fk
+src/compiler/v4/tools/preview_protocol.fk
+src/cli/bootstrap.fk
 src/cli/main.fk

@@ -180,7 +180,7 @@ task cli_doctor_clang_probe(clang_executable: word) -> bool {
     pilot probe_source = probe_stem + ".c"
     pilot probe_binary = probe_stem
     if is_win { probe_binary = probe_binary + ".exe" }
-    pilot probe_text = "#include <stdio.h>\nint main(void) { return 0; }\n"
+    pilot probe_text = "#include <stdio.h>\nint main(void) \{ return 0; \}\n"
     fs::write(probe_source, probe_text)
     pilot compile_command = process::command_new(clang_executable)
     process::command_arg(compile_command, "-x")
@@ -797,7 +797,7 @@ task cli_doctor(fix_mode: bool) -> int {
     pending_marker = cli_pending_upgrade_marker()
     pilot pipeline_ok = false
     if clang_ok and runtime_missing == "" and std_missing == "" and templates_missing == "" and abi_ok and runtime_api_ok and std_api_ok and pending_marker == "" {
-        pilot test_src = "task main() { say \"FREAK doctor test\" }"
+        pilot test_src = "task main() \{ say \"FREAK doctor test\" \}"
         pilot test_probe = cli_doctor_temp_stem("freak-doctor-pipeline-probe-")
         if test_probe == "" {
             say "        " + C_BRED + SYM_CROSS + C_RESET + " could not create an owned temporary probe directory"

@@ -251,7 +251,7 @@ task pb_parse_use(unit: int, start: int, collect: bool) -> void {
         pb_scan_end = i give back
     }
     i += 1
-    if pb_value(i) != "{" { pb_token_error(i, "import requires {symbol, symbol as alias}") give back }
+    if pb_value(i) != "{" { pb_token_error(i, "import requires \{symbol, symbol as alias\}") give back }
     i += 1
     pilot finished = false
     pilot count = 0
