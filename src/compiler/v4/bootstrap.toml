@@ -1,0 +1,16 @@
+# Language inputs are pinned to the verified V4 source commit. The separate
+# byte inventory covers this manifest and the native preview metadata.
+schema = 1
+name = "maverick-bootstrap"
+source_commit = "08f264ca097b845137bf322e0a1872255d20749b"
+source_prefix = "src/compiler/v4"
+entry = "tools/build_llvm.fk"
+source_order_file = "bootstrap-sources.manifest"
+native_runtime_file = "native-runtime.manifest"
+launcher = "tools/preview_launcher.fk"
+protocol = "tools/preview_protocol.fk"
+lock_file = "bootstrap.lock"
+compatibility = "v4-host-bootstrap-v1"
+compiler_capability = "native-v4-bootstrap-v1"
+target = "host"
+panic = "abort"

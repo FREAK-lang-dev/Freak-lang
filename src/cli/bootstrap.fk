@@ -1,0 +1,1007 @@
+-- Native V4 bootstrap orchestration. Ordinary builds never select this profile.
+pilot mut cli_bootstrap_error = ""
+pilot FREAK_V35_BUILD_ID = "unversioned-development"
+pilot CLI_BOOTSTRAP_FILE_LIMIT = 16777216
+pilot CLI_BOOTSTRAP_TOTAL_LIMIT = 67108864
+pilot CLI_BOOTSTRAP_TOOL_LIMIT = 33554432
+
+task cli_bootstrap_fail(message: word) -> bool {
+    if cli_bootstrap_error == "" { cli_bootstrap_error = message }
+    give back false
+}
+
+task cli_bootstrap_hex(value: word, digits: int) -> bool {
+    if value.length() != digits { give back false }
+    pilot alphabet = "0123456789abcdef"
+    pilot mut index = 0
+    repeat until index >= digits {
+        if not alphabet.contains(value.char_at(index)) { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task cli_bootstrap_relative(path: word) -> bool {
+    if not package_relative_file(path) { give back false }
+    pilot allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-"
+    pilot mut index = 0
+    repeat until index >= path.length() {
+        if not allowed.contains(path.char_at(index)) { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task cli_bootstrap_text(directory: int, relative: word, limit: int) -> word {
+    if not cli_bootstrap_relative(relative) {
+        cli_bootstrap_fail("unsafe bootstrap input path: " + relative)
+        give back ""
+    }
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, relative, limit)
+    if not fs::result_ok(read) {
+        pilot error = fs::result_error(read)
+        fs::result_release(read)
+        cli_bootstrap_fail("cannot read bootstrap input " + relative + ": " + error)
+        give back ""
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot text = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    if not valid {
+        cli_bootstrap_fail("bootstrap metadata is not NUL-free UTF-8: " + relative)
+        give back ""
+    }
+    give back text
+}
+
+task cli_bootstrap_write(directory: int, relative: word, text: word) -> bool {
+    if not cli_bootstrap_relative(relative) { give back cli_bootstrap_fail("unsafe bootstrap output path: " + relative) }
+    pilot bytes: ByteBuffer = ByteBuffer::with_capacity(text.length())
+    bytes.write_word(text)
+    pilot written = fs::write_relative_bytes_checked(directory, relative, bytes)
+    bytes.release()
+    pilot valid = fs::result_ok(written)
+    pilot error = fs::result_error(written)
+    fs::result_release(written)
+    if not valid { give back cli_bootstrap_fail("cannot write owned bootstrap input " + relative + ": " + error) }
+    give back true
+}
+
+task cli_bootstrap_hash_text(text: word) -> word {
+    pilot bytes: ByteBuffer = ByteBuffer::with_capacity(text.length())
+    bytes.write_word(text)
+    pilot hash = fs::sha256_bytes(bytes)
+    bytes.release()
+    give back hash
+}
+
+task cli_bootstrap_capture(command: int, timeout_ms: int, limit: int, stage: word) -> word {
+    pilot status = process::command_run(command, timeout_ms, limit, limit)
+    pilot exit_code = process::command_exit_code(command)
+    pilot signal = process::command_signal(command)
+    pilot error = process::command_error(command)
+    pilot bytes: ByteBuffer = process::command_stdout_bytes(command)
+    pilot output = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    pilot diagnostic = cli_build_output_text(process::command_stderr_bytes(command))
+    process::command_release(command)
+    if diagnostic != "" { say diagnostic }
+    if status != 2 or exit_code != 0 or not valid {
+        if valid and output != "" { say output }
+        pilot mut reason = "process status " + word_from_int(status)
+        if status == 2 { reason = "exit " + word_from_int(exit_code) }
+        if status == 4 { reason = "signal " + word_from_int(signal) }
+        if status == 5 { reason = "deadline exceeded" }
+        if status == 6 { reason = "capture limit exceeded" }
+        if not valid { reason = "captured output is not NUL-free UTF-8" }
+        cli_bootstrap_fail(stage + " failed: " + reason + "; " + error)
+        give back ""
+    }
+    give back output
+}
+
+task cli_bootstrap_index(index: int) -> word {
+    pilot value = word_from_int(index)
+    if index < 10 { give back "0" + value }
+    give back value
+}
+
+pilot mut cli_bootstrap_source_commit = ""
+pilot mut cli_bootstrap_source_prefix = ""
+pilot mut cli_bootstrap_lock_paths = 0
+pilot mut cli_bootstrap_lock_roles = 0
+pilot mut cli_bootstrap_lock_hashes = 0
+pilot mut cli_bootstrap_source_paths = 0
+pilot mut cli_bootstrap_runtime_paths = 0
+pilot mut cli_bootstrap_runtime_roles = 0
+
+task cli_bootstrap_inventory_clear() -> void {
+    if cli_bootstrap_lock_paths != 0 {
+        array_release(cli_bootstrap_lock_paths)
+        array_release(cli_bootstrap_lock_roles)
+        array_release(cli_bootstrap_lock_hashes)
+        array_release(cli_bootstrap_source_paths)
+        array_release(cli_bootstrap_runtime_paths)
+        array_release(cli_bootstrap_runtime_roles)
+    }
+    cli_bootstrap_lock_paths = array_new()
+    cli_bootstrap_lock_roles = array_new()
+    cli_bootstrap_lock_hashes = array_new()
+    cli_bootstrap_source_paths = array_new()
+    cli_bootstrap_runtime_paths = array_new()
+    cli_bootstrap_runtime_roles = array_new()
+}
+
+task cli_bootstrap_manifest(content: word) -> bool {
+    if not toml_parse(content) { give back cli_bootstrap_fail("invalid bootstrap.toml at line " + word_from_int(toml_error_line) + ": " + toml_error) }
+    if array_len(toml_sections_arr) != 0 { give back cli_bootstrap_fail("bootstrap.toml does not permit tables") }
+    pilot keys = "|schema|name|source_commit|source_prefix|entry|source_order_file|native_runtime_file|launcher|protocol|lock_file|compatibility|compiler_capability|target|panic|"
+    if toml_count != 14 { give back cli_bootstrap_fail("bootstrap.toml requires exactly the supported 14 fields") }
+    pilot mut index = 0
+    repeat until index >= toml_count {
+        pilot key = array_get(toml_keys_arr, index)
+        if not keys.contains("|" + key + "|") { give back cli_bootstrap_fail("unsupported bootstrap.toml field: " + key) }
+        pilot kind = array_get(toml_types_arr, index)
+        if key == "schema" {
+            if kind != "bare" { give back cli_bootstrap_fail("bootstrap schema must be an integer") }
+        } else {
+            if kind != "string" { give back cli_bootstrap_fail("bootstrap field must be a string: " + key) }
+        }
+        index += 1
+    }
+    if toml_get("schema") != "1" or toml_get("name") != "maverick-bootstrap" { give back cli_bootstrap_fail("unsupported bootstrap schema or name") }
+    if toml_get("entry") != "tools/build_llvm.fk" or toml_get("source_order_file") != "bootstrap-sources.manifest" or toml_get("native_runtime_file") != "native-runtime.manifest" or toml_get("launcher") != "tools/preview_launcher.fk" or toml_get("protocol") != "tools/preview_protocol.fk" or toml_get("lock_file") != "bootstrap.lock" { give back cli_bootstrap_fail("unsupported bootstrap input inventory or entry tool") }
+    if toml_get("compatibility") != "v4-host-bootstrap-v1" or toml_get("compiler_capability") != "native-v4-bootstrap-v1" { give back cli_bootstrap_fail("explicit supported V4 bootstrap compatibility and capability are required") }
+    if toml_get("target") != "host" or toml_get("panic") != "abort" { give back cli_bootstrap_fail("the native V4 preview supports the host target with panic abort") }
+    cli_bootstrap_source_commit = toml_get("source_commit")
+    cli_bootstrap_source_prefix = toml_get("source_prefix")
+    if not cli_bootstrap_hex(cli_bootstrap_source_commit, 40) { give back cli_bootstrap_fail("bootstrap source_commit must be a frozen lowercase 40-digit Git commit") }
+    if cli_bootstrap_source_prefix != "" and not cli_bootstrap_relative(cli_bootstrap_source_prefix) { give back cli_bootstrap_fail("invalid bootstrap source_prefix") }
+    give back true
+}
+
+task cli_bootstrap_add_path(paths: int, path: word) -> bool {
+    if not cli_bootstrap_relative(path) { give back cli_bootstrap_fail("unsafe bootstrap inventory path: " + path) }
+    pilot mut index = 0
+    repeat until index >= array_len(paths) {
+        if array_get(paths, index).to_lower() == path.to_lower() { give back cli_bootstrap_fail("duplicate or case-conflicting bootstrap input: " + path) }
+        index += 1
+    }
+    array_push(paths, path)
+    give back true
+}
+
+task cli_bootstrap_sources(content: word) -> bool {
+    pilot mut index = 0
+    repeat until index >= content.length() {
+        pilot line = toml_get_line(content, index).trim()
+        index = toml_line_end(content, index)
+        if line != "" {
+            if not line.ends_with(".fk") or not line.starts_with("crates/") { give back cli_bootstrap_fail("source order must declare compiler crate .fk inputs") }
+            if not cli_bootstrap_add_path(cli_bootstrap_source_paths, line) { give back false }
+        }
+    }
+    if array_len(cli_bootstrap_source_paths) != 22 { give back cli_bootstrap_fail("the supported bootstrap source order requires exactly 22 compiler crates") }
+    give back cli_bootstrap_add_path(cli_bootstrap_source_paths, "tools/build_llvm.fk")
+}
+
+task cli_bootstrap_runtime(content: word) -> bool {
+    pilot mut index = 0
+    pilot mut source_count = 0
+    pilot mut markers = 0
+    repeat until index >= content.length() {
+        pilot line = toml_get_line(content, index).trim()
+        index = toml_line_end(content, index)
+        if line != "" and not line.starts_with("#") {
+            pilot mut split = 0
+            repeat until split >= line.length() or line.char_at(split) == " " { split += 1 }
+            if split == line.length() { give back cli_bootstrap_fail("runtime inventory requires role and relative path") }
+            pilot role = line.substring(0, split)
+            pilot path = line.substring(split + 1, line.length() - split - 1)
+            if role != "source" and role != "header" and role != "asset" and role != "marker" { give back cli_bootstrap_fail("unsupported native runtime role: " + role) }
+            if not cli_bootstrap_add_path(cli_bootstrap_runtime_paths, path) { give back false }
+            array_push(cli_bootstrap_runtime_roles, role)
+            if role == "source" {
+                if not path.ends_with(".c") or path.contains("/") { give back cli_bootstrap_fail("native runtime source must name a top-level C source") }
+                source_count += 1
+            }
+            if role == "marker" {
+                if path != "freak_abi" and path != "freak_runtime_api" { give back cli_bootstrap_fail("unsupported native runtime marker: " + path) }
+                markers += 1
+            }
+            if array_len(cli_bootstrap_runtime_paths) > 256 { give back cli_bootstrap_fail("native runtime inventory exceeds 256 inputs") }
+        }
+    }
+    if source_count != 7 or markers != 2 { give back cli_bootstrap_fail("native runtime requires seven sources and both ABI/API markers") }
+    give back true
+}
+
+task cli_bootstrap_lock(content: word) -> bool {
+    if toml_get_line(content, 0).trim() != "FREAK-V4-BOOTSTRAP-LOCK-1" { give back cli_bootstrap_fail("unsupported bootstrap.lock format") }
+    pilot mut index = toml_line_end(content, 0)
+    pilot mut commit_seen = false
+    repeat until index >= content.length() {
+        pilot line = toml_get_line(content, index).trim()
+        index = toml_line_end(content, index)
+        if line.starts_with("commit ") {
+            if commit_seen or line.substring(7, line.length() - 7) != cli_bootstrap_source_commit { give back cli_bootstrap_fail("bootstrap.lock source commit mismatch or duplicate") }
+            commit_seen = true
+        } else if line != "" {
+            pilot mut split = 0
+            repeat until split >= line.length() or line.char_at(split) == " " { split += 1 }
+            if line.length() < split + 67 { give back cli_bootstrap_fail("invalid bootstrap.lock input record") }
+            pilot role = line.substring(0, split)
+            pilot hash = line.substring(split + 1, 64)
+            if line.char_at(split + 65) != " " or not cli_bootstrap_hex(hash, 64) { give back cli_bootstrap_fail("invalid bootstrap.lock SHA256") }
+            pilot path = line.substring(split + 66, line.length() - split - 66)
+            if role != "source_order" and role != "source" and role != "entry" and role != "metadata" { give back cli_bootstrap_fail("unsupported bootstrap.lock role") }
+            if not cli_bootstrap_add_path(cli_bootstrap_lock_paths, path) { give back false }
+            array_push(cli_bootstrap_lock_roles, role)
+            array_push(cli_bootstrap_lock_hashes, hash)
+            if array_len(cli_bootstrap_lock_paths) > 28 { give back cli_bootstrap_fail("bootstrap.lock exceeds its complete input inventory") }
+        }
+    }
+    if not commit_seen or array_len(cli_bootstrap_lock_paths) != 28 { give back cli_bootstrap_fail("bootstrap.lock requires the frozen complete source and metadata byte inventory") }
+    give back true
+}
+
+task cli_bootstrap_locked_hash(path: word, role: word) -> word {
+    pilot mut index = 0
+    repeat until index >= array_len(cli_bootstrap_lock_paths) {
+        if array_get(cli_bootstrap_lock_paths, index) == path {
+            if array_get(cli_bootstrap_lock_roles, index) != role { cli_bootstrap_fail("bootstrap.lock input role mismatch: " + path)
+                give back "" }
+            give back array_get(cli_bootstrap_lock_hashes, index)
+        }
+        index += 1
+    }
+    cli_bootstrap_fail("bootstrap.lock omits selected input: " + path)
+    give back ""
+}
+
+task cli_bootstrap_check_locked(path: word, role: word, content: word) -> bool {
+    pilot expected = cli_bootstrap_locked_hash(path, role)
+    if cli_bootstrap_error != "" { give back false }
+    if cli_bootstrap_hash_text(content) != expected { give back cli_bootstrap_fail("bootstrap byte inventory mismatch: " + path) }
+    give back true
+}
+
+task cli_bootstrap_entry_source(source: word) -> word {
+    pilot mut ending = source.length()
+    repeat until ending <= 0 {
+        pilot ch = source.char_at(ending - 1)
+        if ch != "\n" and ch != "\r" and ch != " " and ch != "\t" { break }
+        ending -= 1
+    }
+    pilot call = "v4_build_llvm_run()"
+    if ending < call.length() or source.substring(ending - call.length(), call.length()) != call {
+        cli_bootstrap_fail("the selected V4 entry tool has an unsupported invocation contract")
+        give back ""
+    }
+    give back source.substring(0, ending - call.length()) + "-- selected by the native preview entry" + source.substring(ending, source.length() - ending)
+}
+
+task cli_bootstrap_stage(stage_root: word, nonce: word) -> bool {
+    cli_bootstrap_error = ""
+    if not cli_bootstrap_hex(nonce, 64) or process::env("FREAK_BOOTSTRAP_STAGE_NONCE") != nonce {
+        give back cli_bootstrap_fail("private bootstrap stage requires its parent invocation nonce")
+    }
+    pilot directory = fs::open_dir_ticket(stage_root)
+    if not fs::result_ok(directory) {
+        fs::result_release(directory)
+        give back cli_bootstrap_fail("cannot open owned private bootstrap stage")
+    }
+    pilot metadata = cli_bootstrap_text(directory, "stage.toml", 1048576)
+    if cli_bootstrap_error != "" { fs::result_release(directory)
+        give back false }
+    if not toml_parse(metadata) {
+        fs::result_release(directory)
+        give back cli_bootstrap_fail("invalid private bootstrap stage metadata")
+    }
+    pilot action = toml_get("action")
+    pilot mut count = 23
+    if action == "launcher" { count = 2 }
+    pilot expected = toml_get("aggregate_sha256")
+    pilot identity = toml_get("owner_identity")
+    pilot compatibility = toml_get("compatibility")
+    if toml_get("schema") != "1" or toml_get("nonce") != nonce or not cli_bootstrap_hex(expected, 64) or (action != "engine" and action != "launcher") or toml_get("source_count") != word_from_int(count) or (action == "engine" and compatibility != "v4-host-bootstrap-v1") or (action == "launcher" and compatibility != "ordinary-v3") {
+        fs::result_release(directory)
+        give back cli_bootstrap_fail("private stage metadata does not describe a supported owned compilation")
+    }
+    pilot info = fs::directory_identity_ticket(directory)
+    pilot same = fs::result_ok(info) and fs::result_word(info) == identity
+    fs::result_release(info)
+    if not same { fs::result_release(directory)
+        give back cli_bootstrap_fail("private bootstrap stage directory identity changed") }
+    pilot names = array_new()
+    pilot origins = array_new()
+    pilot hashes = array_new()
+    pilot mut index = 1
+    repeat until index > count {
+        array_push(names, toml_get("source.file" + cli_bootstrap_index(index)))
+        array_push(origins, toml_get("origin.file" + cli_bootstrap_index(index)))
+        array_push(hashes, toml_get("hash.file" + cli_bootstrap_index(index)))
+        index += 1
+    }
+    pilot appendix_hash = toml_get("appendix_sha256")
+    pilot appendix_origin = toml_get("appendix_origin")
+    if toml_count != count * 3 + 9 or array_len(toml_sections_arr) != 3 {
+        cli_bootstrap_fail("private stage contains unexpected metadata fields")
+    }
+    source_map_reset()
+    source_line_offset = 0
+    pilot builder = word_builder::with_capacity(1048576)
+    pilot mut total_size = 0
+    index = 0
+    repeat until index >= count or cli_bootstrap_error != "" {
+        pilot path = array_get(names, index)
+        pilot mut source = cli_bootstrap_text(directory, path, CLI_BOOTSTRAP_FILE_LIMIT)
+        total_size += source.length() + 1
+        if total_size > CLI_BOOTSTRAP_TOTAL_LIMIT { cli_bootstrap_fail("private bootstrap source aggregate exceeds 64 MiB") }
+        if cli_bootstrap_error == "" {
+            if cli_bootstrap_hash_text(source) != array_get(hashes, index) {
+                cli_bootstrap_fail("private bootstrap input changed: " + path)
+            } else {
+                source_map_register(array_get(origins, index), source)
+                if action == "engine" and index == count - 1 { source = cli_bootstrap_entry_source(source) }
+                word_builder::append(builder, source + "\n")
+            }
+        }
+        index += 1
+    }
+    pilot appendix = cli_bootstrap_text(directory, "appendix.fk", 1048576)
+    if total_size + appendix.length() > CLI_BOOTSTRAP_TOTAL_LIMIT { cli_bootstrap_fail("private bootstrap appendix exceeds its aggregate budget") }
+    if cli_bootstrap_hash_text(appendix) != appendix_hash { cli_bootstrap_fail("private bootstrap appendix changed") }
+    source_map_register(appendix_origin, appendix)
+    word_builder::append(builder, appendix)
+    pilot aggregate = word_builder::finish(builder)
+    array_release(names)
+    array_release(origins)
+    array_release(hashes)
+    if cli_bootstrap_hash_text(aggregate) != expected { cli_bootstrap_fail("private bootstrap aggregate changed") }
+    pilot mut binary_name = "freak-v4-engine"
+    if action == "launcher" { binary_name = "freak-v4" }
+    pilot generated_path = cli_host_path_join(stage_root, binary_name + ".c")
+    pilot prior = fs::stat_checked(generated_path)
+    if fs::result_ok(prior) { cli_bootstrap_fail("private stage cannot replace a pre-existing generated file") }
+    fs::result_release(prior)
+    if cli_bootstrap_error != "" { fs::result_release(directory)
+        give back false }
+    if action == "engine" {
+        if not v35_set_bootstrap_compat("v4-host-bootstrap-v1") { fs::result_release(directory)
+            give back cli_bootstrap_fail("V4 host bootstrap capability is unavailable") }
+    } else { v35_bootstrap_compat = false }
+    pilot selected = cli_host_path_join(stage_root, binary_name)
+    if not cli_set_output_path_override(cli_host_path_join(stage_root, "aggregate.fk"), selected) { fs::result_release(directory)
+        give back cli_bootstrap_fail("private stage output validation failed") }
+    pilot emitted = cli_transpile(cli_host_path_join(stage_root, "aggregate.fk"), aggregate, "c")
+    v35_bootstrap_compat = false
+    fs::result_release(directory)
+    if emitted == "" { give back cli_bootstrap_fail("native V3.5 frontend rejected the owned bootstrap input") }
+    if not cli_build_regular_output(emitted) { give back cli_bootstrap_fail("native V3.5 C emission did not produce a complete owned source") }
+    give back true
+}
+
+-- Every filesystem mutation below stays in a parent-owned private directory.
+-- The final directory publication is the only operation exposing a preview.
+pilot mut cli_bootstrap_source_words = 0
+pilot mut cli_bootstrap_source_hashes = 0
+pilot mut cli_bootstrap_runtime_hashes = 0
+pilot mut cli_bootstrap_input_sha256 = ""
+pilot mut cli_bootstrap_runtime_inventory = ""
+pilot mut cli_bootstrap_runtime_sources = ""
+pilot mut cli_bootstrap_git_verified = false
+pilot mut cli_bootstrap_clang_host_triple = ""
+
+task cli_bootstrap_host_target(triple: word) -> word {
+    -- V4 deliberately exposes four target profiles. Preserve the raw SDK
+    -- triple in the report; aliases here still require real native execution.
+    if triple == "x86_64-unknown-linux-gnu" or triple == "x86_64-pc-linux-gnu" { give back "x86_64-unknown-linux-gnu" }
+    if triple == "aarch64-unknown-linux-gnu" or triple == "aarch64-pc-linux-gnu" { give back "aarch64-unknown-linux-gnu" }
+    if triple == "x86_64-w64-windows-gnu" { give back triple }
+    pilot mut darwin = ""
+    if triple.starts_with("arm64-apple-darwin") { darwin = "arm64-apple-darwin" }
+    if triple.starts_with("aarch64-apple-darwin") { darwin = "aarch64-apple-darwin" }
+    if darwin != "" {
+        pilot mut index = darwin.length()
+        repeat until index >= triple.length() {
+            if not "0123456789.".contains(triple.char_at(index)) { cli_bootstrap_fail("unsupported Darwin SDK target triple")
+                give back "" }
+            index += 1
+        }
+        give back "aarch64-apple-darwin"
+    }
+    cli_bootstrap_fail("native V4 preview has no supported host target profile for the selected Clang triple: " + triple)
+    give back ""
+}
+
+task cli_bootstrap_quote(text: word) -> word {
+    give back "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + "\""
+}
+
+task cli_bootstrap_mkdirs(directory: int, relative: word) -> bool {
+    pilot mut index = 0
+    repeat until index >= relative.length() {
+        if relative.char_at(index) == "/" {
+            pilot parent = relative.substring(0, index)
+            pilot existing = fs::open_relative_dir_ticket(directory, parent)
+            pilot mut valid = fs::result_ok(existing)
+            pilot missing = fs::result_missing(existing)
+            fs::result_release(existing)
+            if not valid and missing {
+                pilot made = fs::mkdir_relative_checked(directory, parent)
+                valid = fs::result_ok(made)
+                fs::result_release(made)
+            }
+            if not valid { give back cli_bootstrap_fail("cannot prepare ordinary owned bootstrap directory: " + parent) }
+        }
+        index += 1
+    }
+    give back true
+}
+
+task cli_bootstrap_hash_file(path: word) -> word {
+    pilot read = fs::read_bytes_limit_ticket(path, CLI_BOOTSTRAP_TOTAL_LIMIT)
+    if not fs::result_ok(read) {
+        pilot error = fs::result_error(read)
+        fs::result_release(read)
+        cli_bootstrap_fail("cannot read native builder/artifact identity: " + error)
+        give back ""
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot hash = fs::sha256_bytes(bytes)
+    bytes.release()
+    give back hash
+}
+
+task cli_bootstrap_safe_token(token: word) -> bool {
+    if token == "" or token.length() > 256 { give back false }
+    pilot mut index = 0
+    repeat until index >= token.length() {
+        if not "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-".contains(token.char_at(index)) { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task cli_bootstrap_input_arrays() -> void {
+    if cli_bootstrap_source_words != 0 {
+        array_release(cli_bootstrap_source_words)
+        array_release(cli_bootstrap_source_hashes)
+        array_release(cli_bootstrap_runtime_hashes)
+    }
+    cli_bootstrap_source_words = array_new()
+    cli_bootstrap_source_hashes = array_new()
+    cli_bootstrap_runtime_hashes = array_new()
+    cli_bootstrap_runtime_inventory = ""
+    cli_bootstrap_runtime_sources = ""
+    cli_bootstrap_git_verified = false
+}
+
+task cli_bootstrap_release() -> void {
+    if cli_bootstrap_lock_paths != 0 {
+        array_release(cli_bootstrap_lock_paths)
+        array_release(cli_bootstrap_lock_roles)
+        array_release(cli_bootstrap_lock_hashes)
+        array_release(cli_bootstrap_source_paths)
+        array_release(cli_bootstrap_runtime_paths)
+        array_release(cli_bootstrap_runtime_roles)
+        cli_bootstrap_lock_paths = 0
+        cli_bootstrap_lock_roles = 0
+        cli_bootstrap_lock_hashes = 0
+        cli_bootstrap_source_paths = 0
+        cli_bootstrap_runtime_paths = 0
+        cli_bootstrap_runtime_roles = 0
+    }
+    if cli_bootstrap_source_words != 0 {
+        array_release(cli_bootstrap_source_words)
+        array_release(cli_bootstrap_source_hashes)
+        array_release(cli_bootstrap_runtime_hashes)
+        cli_bootstrap_source_words = 0
+        cli_bootstrap_source_hashes = 0
+        cli_bootstrap_runtime_hashes = 0
+    }
+    cli_bootstrap_source_commit = ""
+    cli_bootstrap_source_prefix = ""
+    cli_bootstrap_input_sha256 = ""
+    cli_bootstrap_runtime_inventory = ""
+    cli_bootstrap_runtime_sources = ""
+    cli_bootstrap_clang_host_triple = ""
+    cli_bootstrap_git_verified = false
+}
+
+task cli_bootstrap_read_sources(directory: int, locked: bool) -> bool {
+    pilot builder = word_builder::with_capacity(4096)
+    pilot mut size = 0
+    pilot mut index = 0
+    repeat until index >= array_len(cli_bootstrap_source_paths) or cli_bootstrap_error != "" {
+        pilot path = array_get(cli_bootstrap_source_paths, index)
+        pilot source = cli_bootstrap_text(directory, path, CLI_BOOTSTRAP_FILE_LIMIT)
+        pilot hash = cli_bootstrap_hash_text(source)
+        pilot mut role = "source"
+        if index == 22 { role = "entry" }
+        if locked and cli_bootstrap_error == "" { cli_bootstrap_check_locked(path, role, source) }
+        -- Require every selected path and role even for an unlocked development run.
+        if not locked and cli_bootstrap_error == "" { cli_bootstrap_locked_hash(path, role) }
+        size += source.length()
+        if size > CLI_BOOTSTRAP_TOTAL_LIMIT { cli_bootstrap_fail("bootstrap source inventory exceeds 64 MiB") }
+        array_push(cli_bootstrap_source_words, source)
+        array_push(cli_bootstrap_source_hashes, hash)
+        word_builder::append(builder, path + " " + hash + "\n")
+        index += 1
+    }
+    cli_bootstrap_input_sha256 = cli_bootstrap_hash_text(word_builder::finish(builder))
+    give back cli_bootstrap_error == ""
+}
+
+task cli_bootstrap_git_check(source_root: word) -> bool {
+    -- Git is a local byte cross-check when the selected directory is a checkout.
+    -- Archives still require the complete byte inventory; no network is used.
+    pilot probe = process::command_new("git")
+    process::command_arg(probe, "-C")
+    process::command_arg(probe, source_root)
+    process::command_arg(probe, "rev-parse")
+    process::command_arg(probe, "--show-toplevel")
+    pilot status = process::command_run(probe, 10000, 65536, 65536)
+    pilot code = process::command_exit_code(probe)
+    pilot mut git_root = ""
+    if status == 2 and code == 0 {
+        pilot bytes: ByteBuffer = process::command_stdout_bytes(probe)
+        git_root = bytes.to_word().trim()
+        pilot valid = bytes.status() == 0
+        bytes.release()
+        if not valid { cli_bootstrap_fail("Git checkout path is not NUL-free UTF-8") }
+    }
+    process::command_release(probe)
+    if status == 3 or (status == 2 and code == 128) { give back true }
+    if status != 2 or code != 0 or git_root == "" or cli_bootstrap_error != "" { give back cli_bootstrap_fail("local Git checkout discovery failed") }
+    pilot expected_root = git_root
+    if cli_bootstrap_source_prefix != "" { expected_root = cli_host_path_join(git_root, cli_bootstrap_source_prefix) }
+    pilot expected = fs::canonical_path(expected_root)
+    pilot actual = fs::canonical_path(source_root)
+    pilot mut same = fs::result_ok(expected) and fs::result_ok(actual) and fs::result_word(expected) == fs::result_word(actual)
+    if freak_process_platform_is_windows() { same = fs::result_ok(expected) and fs::result_ok(actual) and fs::result_word(expected).to_lower() == fs::result_word(actual).to_lower() }
+    fs::result_release(expected)
+    fs::result_release(actual)
+    if not same { give back cli_bootstrap_fail("selected Git checkout directory does not match bootstrap source_prefix") }
+    pilot commit = process::command_new("git")
+    process::command_arg(commit, "-C")
+    process::command_arg(commit, git_root)
+    process::command_arg(commit, "cat-file")
+    process::command_arg(commit, "-t")
+    process::command_arg(commit, cli_bootstrap_source_commit)
+    if cli_bootstrap_capture(commit, 10000, 65536, "local Git source commit verification") != "commit\n" { give back cli_bootstrap_fail("declared bootstrap source commit is unavailable in the local checkout") }
+    pilot mut index = 0
+    repeat until index >= array_len(cli_bootstrap_source_paths) or cli_bootstrap_error != "" {
+        pilot relative = array_get(cli_bootstrap_source_paths, index)
+        pilot mut selected = relative
+        if cli_bootstrap_source_prefix != "" { selected = cli_bootstrap_source_prefix + "/" + relative }
+        pilot command = process::command_new("git")
+        process::command_arg(command, "-C")
+        process::command_arg(command, git_root)
+        process::command_arg(command, "cat-file")
+        process::command_arg(command, "blob")
+        process::command_arg(command, cli_bootstrap_source_commit + ":" + selected)
+        pilot original = cli_bootstrap_capture(command, 10000, CLI_BOOTSTRAP_FILE_LIMIT, "local Git source byte verification")
+        if cli_bootstrap_hash_text(original) != array_get(cli_bootstrap_source_hashes, index) { cli_bootstrap_fail("selected source differs from declared Git commit: " + relative) }
+        index += 1
+    }
+    cli_bootstrap_git_verified = cli_bootstrap_error == ""
+    give back cli_bootstrap_git_verified
+}
+
+task cli_bootstrap_snapshot_runtime(runtime: int, owned: int) -> bool {
+    pilot mut index = 0
+    pilot mut size = 0
+    repeat until index >= array_len(cli_bootstrap_runtime_paths) or cli_bootstrap_error != "" {
+        pilot relative = array_get(cli_bootstrap_runtime_paths, index)
+        pilot role = array_get(cli_bootstrap_runtime_roles, index)
+        pilot destination = "runtime/" + relative
+        if not cli_bootstrap_mkdirs(owned, destination) { break }
+        pilot read = fs::read_relative_bytes_limit_ticket(runtime, relative, CLI_BOOTSTRAP_FILE_LIMIT)
+        if not fs::result_ok(read) {
+            pilot error = fs::result_error(read)
+            fs::result_release(read)
+            cli_bootstrap_fail("cannot snapshot selected native runtime " + relative + ": " + error)
+            break
+        }
+        pilot bytes: ByteBuffer = fs::result_bytes(read)
+        fs::result_release(read)
+        size += bytes.length()
+        pilot hash = fs::sha256_bytes(bytes)
+        pilot mut valid = size <= CLI_BOOTSTRAP_TOTAL_LIMIT
+        if valid {
+            pilot written = fs::write_relative_bytes_checked(owned, destination, bytes)
+            valid = fs::result_ok(written)
+            fs::result_release(written)
+        }
+        bytes.release()
+        if not valid { cli_bootstrap_fail("native runtime snapshot failed or exceeds 64 MiB: " + relative) }
+        array_push(cli_bootstrap_runtime_hashes, hash)
+        cli_bootstrap_runtime_inventory = cli_bootstrap_runtime_inventory + hash + " " + relative + "\n"
+        if role == "source" { cli_bootstrap_runtime_sources = cli_bootstrap_runtime_sources + relative + "\n" }
+        index += 1
+    }
+    if cli_bootstrap_error != "" { give back false }
+    if cli_bootstrap_text(owned, "runtime/freak_abi", 4096).trim() != FREAK_V3_ABI or cli_bootstrap_text(owned, "runtime/freak_runtime_api", 4096).trim() != FREAK_V3_RUNTIME_API { give back cli_bootstrap_fail("selected native runtime ABI/API markers do not match the builder") }
+    give back cli_bootstrap_error == ""
+}
+
+task cli_bootstrap_engine_appendix() -> word {
+    pilot identity = "FREAK-V4-NATIVE-1 " + cli_bootstrap_source_commit + " " + cli_bootstrap_input_sha256
+    give back "\ntask v35_native_preview_entry() -> void {\n    if process::args_count() == 2 and process::arg(1) == \"--identity\" { say " + cli_bootstrap_quote(identity) + " give back }\n    if process::args_count() == 2 and process::arg(1) == \"--query-probe\" {\n        v4_query_store(\"bootstrap:probe\", \"input\", \"value\")\n        if v4_query_get(\"bootstrap:probe\", \"input\") != \"value\" { process::exit(1) }\n        v4_query_mark_dirty_key(\"bootstrap:probe\")\n        if v4_query_get(\"bootstrap:probe\", \"input\") != \"\" { process::exit(1) }\n        say \"FREAK-V4-QUERY-OK\"\n        give back\n    }\n    v4_build_llvm_run()\n}\ntask main() -> void { v35_native_preview_entry() }\n"
+}
+
+task cli_bootstrap_prepare_stage(owned: int, source_root: word, action: word, nonce: word, launcher: word, protocol: word, appendix: word) -> bool {
+    pilot identity_result = fs::directory_identity_ticket(owned)
+    if not fs::result_ok(identity_result) { fs::result_release(identity_result)
+        give back cli_bootstrap_fail("cannot identify parent-owned bootstrap directory") }
+    pilot identity = fs::result_word(identity_result)
+    fs::result_release(identity_result)
+    pilot mut count = 23
+    pilot mut compatibility = "v4-host-bootstrap-v1"
+    if action == "launcher" { count = 2; compatibility = "ordinary-v3" }
+    pilot mut names = "\n[source]\n"
+    pilot mut origins = "\n[origin]\n"
+    pilot mut hashes = "\n[hash]\n"
+    pilot builder = word_builder::with_capacity(1048576)
+    pilot mut index = 0
+    repeat until index >= count or cli_bootstrap_error != "" {
+        pilot mut contents = ""
+        pilot mut origin = ""
+        if action == "engine" {
+            contents = array_get(cli_bootstrap_source_words, index)
+            origin = cli_host_path_join(source_root, array_get(cli_bootstrap_source_paths, index))
+        } else {
+            contents = protocol
+            origin = cli_host_path_join(source_root, "tools/preview_protocol.fk")
+            if index == 1 { contents = launcher; origin = cli_host_path_join(source_root, "tools/preview_launcher.fk") }
+        }
+        pilot key = "file" + cli_bootstrap_index(index + 1)
+        pilot path = action + "-" + key + ".fk"
+        cli_bootstrap_write(owned, path, contents)
+        names = names + key + " = " + cli_bootstrap_quote(path) + "\n"
+        origins = origins + key + " = " + cli_bootstrap_quote(origin) + "\n"
+        hashes = hashes + key + " = " + cli_bootstrap_quote(cli_bootstrap_hash_text(contents)) + "\n"
+        if action == "engine" and index == 22 { contents = cli_bootstrap_entry_source(contents) }
+        word_builder::append(builder, contents + "\n")
+        index += 1
+    }
+    word_builder::append(builder, appendix)
+    pilot aggregate = word_builder::finish(builder)
+    if aggregate.length() > CLI_BOOTSTRAP_TOTAL_LIMIT { cli_bootstrap_fail("private bootstrap aggregate exceeds 64 MiB") }
+    if cli_bootstrap_error != "" { give back false }
+    pilot metadata = "schema = 1\nnonce = " + cli_bootstrap_quote(nonce) + "\naction = " + cli_bootstrap_quote(action) + "\nsource_count = " + word_from_int(count) + "\naggregate_sha256 = " + cli_bootstrap_quote(cli_bootstrap_hash_text(aggregate)) + "\nowner_identity = " + cli_bootstrap_quote(identity) + "\ncompatibility = " + cli_bootstrap_quote(compatibility) + "\nappendix_sha256 = " + cli_bootstrap_quote(cli_bootstrap_hash_text(appendix)) + "\nappendix_origin = " + cli_bootstrap_quote("<native-bootstrap-entry>") + "\n" + names + origins + hashes
+    give back cli_bootstrap_write(owned, "appendix.fk", appendix) and cli_bootstrap_write(owned, "stage.toml", metadata)
+}
+
+task cli_bootstrap_run_stage(builder: word, stage_root: word, nonce: word, action: word) -> bool {
+    pilot command = process::command_new(builder)
+    process::command_arg(command, "__bootstrap-stage")
+    process::command_arg(command, stage_root)
+    process::command_arg(command, nonce)
+    process::command_env(command, "FREAK_BOOTSTRAP_STAGE_NONCE", nonce)
+    pilot output = cli_bootstrap_capture(command, 120000, CLI_BOOTSTRAP_TOOL_LIMIT, "native V3.5 " + action + " C emission")
+    if cli_bootstrap_error != "" { give back false }
+    pilot mut name = "freak-v4-engine.c"
+    if action == "launcher" { name = "freak-v4.c" }
+    if not cli_build_regular_output(cli_host_path_join(stage_root, name)) { if output != "" { say output }
+        give back cli_bootstrap_fail("native emission did not produce a complete " + action + " C artifact") }
+    give back true
+}
+
+task cli_bootstrap_compile(clang: word, stage_root: word, name: word, target: word, llvm: bool) -> bool {
+    pilot command = process::command_new(clang)
+    process::command_arg(command, "-O0")
+    if not llvm {
+        -- These constructs are intentional in the generated C backend.
+        process::command_arg(command, "-Wno-parentheses-equality")
+        process::command_arg(command, "-Wno-unused-value")
+    }
+    process::command_arg(command, "--target=" + target)
+    pilot mut source = name + ".c"
+    if llvm { source = name + ".ll" }
+    process::command_arg(command, cli_host_path_join(stage_root, source))
+    pilot mut index = 0
+    repeat until index >= array_len(cli_bootstrap_runtime_paths) {
+        pilot relative = array_get(cli_bootstrap_runtime_paths, index)
+        if array_get(cli_bootstrap_runtime_roles, index) == "source" and (llvm or relative == "freak_runtime.c") {
+            process::command_arg(command, cli_host_path_join(stage_root, "runtime/" + relative))
+        }
+        index += 1
+    }
+    process::command_arg(command, "-I")
+    process::command_arg(command, cli_host_path_join(stage_root, "runtime"))
+    if freak_process_platform_is_windows() { process::command_arg(command, "-lws2_32") } else { process::command_arg(command, "-lm") }
+    process::command_arg(command, "-o")
+    pilot mut artifact = name
+    if freak_process_platform_is_windows() { artifact = artifact + ".exe" }
+    process::command_arg(command, cli_host_path_join(stage_root, artifact))
+    cli_bootstrap_capture(command, 120000, 1048576, "native Clang compile/link " + name)
+    if cli_bootstrap_error != "" { give back false }
+    if not cli_build_regular_output(cli_host_path_join(stage_root, artifact)) { give back cli_bootstrap_fail("Clang did not produce a complete ordinary native artifact: " + artifact) }
+    give back true
+}
+
+task cli_bootstrap_program(executable: word, expected_exit: int, expected_stdout: word) -> bool {
+    pilot command = process::command_new(executable)
+    pilot status = process::command_run(command, 10000, 65536, 65536)
+    pilot code = process::command_exit_code(command)
+    pilot stdout_bytes: ByteBuffer = process::command_stdout_bytes(command)
+    pilot output = stdout_bytes.to_word()
+    pilot text_ok = stdout_bytes.status() == 0
+    stdout_bytes.release()
+    pilot stderr_bytes: ByteBuffer = process::command_stderr_bytes(command)
+    pilot empty_stderr = stderr_bytes.length() == 0
+    pilot diagnostic = cli_build_output_text(stderr_bytes)
+    pilot error = process::command_error(command)
+    process::command_release(command)
+    if status != 2 or code != expected_exit or not text_ok or output != expected_stdout or not empty_stderr {
+        if diagnostic != "" { say diagnostic }
+        if text_ok and output != "" { say output }
+        give back cli_bootstrap_fail("native corpus execution failed: status " + word_from_int(status) + ", exit " + word_from_int(code) + "; " + error)
+    }
+    give back true
+}
+
+task cli_bootstrap_corpus(owned: int, stage_root: word, engine: word, clang: word, target: word) -> bool {
+    pilot mut index = 0
+    repeat until index >= 2 or cli_bootstrap_error != "" {
+        pilot mut source = "task main() -> int {\n    say \"native-v4\"\n    give back 42\n}\n"
+        pilot mut exit_code = 42
+        pilot mut output = "native-v4\n"
+        if index == 1 {
+            source = "task twice(value: int) -> int {\n    give back value * 2\n}\ntask main() -> int {\n    pilot number = twice(3)\n    if number == 6 {\n        say \"native-v4-branches\"\n        give back number + 1\n    }\n    give back 1\n}\n"
+            exit_code = 7
+            output = "native-v4-branches\n"
+        }
+        pilot name = "native-corpus-" + cli_bootstrap_index(index)
+        if not cli_bootstrap_write(owned, name + ".fk", source) { break }
+        pilot command = process::command_new(engine)
+        process::command_arg(command, cli_host_path_join(stage_root, name + ".fk"))
+        process::command_arg(command, target)
+        process::command_arg(command, "abort")
+        pilot result_text = cli_bootstrap_capture(command, 120000, CLI_BOOTSTRAP_TOOL_LIMIT, "native V4 corpus frontend/codegen")
+        if cli_bootstrap_error != "" { break }
+        pilot module = preview_protocol_module(result_text)
+        if preview_protocol_error != "" { say result_text
+            cli_bootstrap_fail(preview_protocol_error)
+            break }
+        if not cli_bootstrap_write(owned, name + ".ll", module) { break }
+        if not cli_bootstrap_compile(clang, stage_root, name, target, true) { break }
+        pilot mut executable = cli_host_path_join(stage_root, name)
+        if freak_process_platform_is_windows() { executable = executable + ".exe" }
+        if not cli_bootstrap_program(executable, exit_code, output) { break }
+        index += 1
+    }
+    give back cli_bootstrap_error == ""
+}
+
+task cli_bootstrap_cleanup(owned: int) -> bool {
+    pilot removed = fs::remove_temp_dir_checked(owned)
+    pilot valid = fs::result_ok(removed)
+    pilot error = fs::result_error(removed)
+    fs::result_release(removed)
+    fs::result_release(owned)
+    if not valid { give back cli_bootstrap_fail("owned bootstrap stage cleanup failed: " + error) }
+    give back true
+}
+
+task cli_bootstrap_parent(path: word) -> word {
+    pilot mut split = -1
+    pilot mut index = 0
+    repeat until index >= path.length() {
+        if path.char_at(index) == "/" or (freak_process_platform_is_windows() and path.char_at(index) == "\\") { split = index }
+        index += 1
+    }
+    if split == 0 { give back "/" }
+    if freak_process_platform_is_windows() and split == 2 { give back path.substring(0, 3) }
+    if split < 0 { give back "" }
+    give back path.substring(0, split)
+}
+
+task cli_bootstrap_leaf(path: word) -> word {
+    pilot parent = cli_bootstrap_parent(path)
+    pilot mut offset = parent.length() + 1
+    if parent.ends_with("/") or parent.ends_with("\\") { offset = parent.length() }
+    give back path.substring(offset, path.length() - offset)
+}
+
+task cli_bootstrap_destination(source_root: word, output: word) -> word {
+    if not cli_output_path_absolute(output) { cli_bootstrap_fail("bootstrap --output requires an absolute new preview directory")
+        give back "" }
+    pilot leaf = cli_bootstrap_leaf(output)
+    if leaf == "" or leaf == "." or leaf == ".." or (freak_process_platform_is_windows() and (leaf.contains(":") or leaf.ends_with(".") or leaf.ends_with(" "))) {
+        cli_bootstrap_fail("bootstrap output must name a new ordinary directory component")
+        give back ""
+    }
+    pilot parent_info = fs::stat_checked(cli_bootstrap_parent(output))
+    pilot ordinary = fs::result_ok(parent_info) and fs::result_kind(parent_info) == 2
+    fs::result_release(parent_info)
+    if not ordinary { cli_bootstrap_fail("bootstrap output parent must be an existing ordinary directory")
+        give back "" }
+    pilot parent = fs::canonical_path(cli_bootstrap_parent(output))
+    if not fs::result_ok(parent) { fs::result_release(parent)
+        cli_bootstrap_fail("cannot resolve bootstrap output parent")
+        give back "" }
+    pilot destination = cli_host_path_join(fs::result_word(parent), leaf)
+    fs::result_release(parent)
+    pilot source = fs::canonical_path(source_root)
+    pilot mut inside_source = false
+    if fs::result_ok(source) {
+        pilot mut origin = fs::result_word(source)
+        pilot mut selected = destination
+        if freak_process_platform_is_windows() { origin = origin.to_lower(); selected = selected.to_lower() }
+        inside_source = selected == origin or selected.starts_with(cli_host_path_join(origin, ""))
+    }
+    fs::result_release(source)
+    if inside_source { cli_bootstrap_fail("bootstrap output cannot modify the selected source tree")
+        give back "" }
+    -- Directory-open absence is classified through the held parent. A file,
+    -- symlink or denied directory is a failure distinct from a missing leaf.
+    pilot held_parent = fs::open_dir_ticket(cli_bootstrap_parent(destination))
+    if not fs::result_ok(held_parent) { fs::result_release(held_parent)
+        cli_bootstrap_fail("cannot hold bootstrap output parent for absence validation")
+        give back "" }
+    pilot prior = fs::open_relative_dir_ticket(held_parent, leaf)
+    pilot absent = fs::result_missing(prior)
+    fs::result_release(prior)
+    fs::result_release(held_parent)
+    if not absent { cli_bootstrap_fail("bootstrap output must not already exist or fail its filesystem check")
+        give back "" }
+    give back destination
+}
+
+task cli_bootstrap_preview_source(template: word, builder_hash: word, engine_hash: word, target: word, locked: bool) -> word {
+    pilot mut lock_mode = "unlocked-development"
+    if locked { lock_mode = "byte-verified" }
+    pilot generated = template.replace("@@SOURCE_COMMIT@@", cli_bootstrap_source_commit).replace("@@SOURCE_INPUT_SHA256@@", cli_bootstrap_input_sha256).replace("@@LOCKED_SOURCE@@", lock_mode).replace("@@BUILDER_SHA256@@", builder_hash).replace("@@BUILDER_ID@@", FREAK_V35_BUILD_ID).replace("@@HOST_TARGET@@", target).replace("@@ENGINE_SHA256@@", engine_hash)
+    -- Replace the complete quoted placeholder with a quoted, escaped inventory.
+    give back generated.replace("\"@@RUNTIME_INVENTORY@@\"", cli_bootstrap_quote(cli_bootstrap_runtime_inventory)).replace("\"@@RUNTIME_SOURCES@@\"", cli_bootstrap_quote(cli_bootstrap_runtime_sources))
+}
+
+task cli_bootstrap_report(owned: int, builder: word, builder_hash: word, engine_hash: word, launcher_hash: word, target: word, clang: word, clang_version: word, locked: bool) -> bool {
+    pilot mut lock_mode = "unlocked-development"
+    if locked { lock_mode = "byte-verified" }
+    pilot mut git_mode = "not-checked"
+    if locked { git_mode = "archive-or-git-unavailable" }
+    if cli_bootstrap_git_verified { git_mode = "commit-source-bytes-verified" }
+    pilot report = "{\n  \"schema\": 1,\n  \"status\": \"verified\",\n  \"compiler_capability\": \"native-v4-bootstrap-v1\",\n  \"compatibility\": \"v4-host-bootstrap-v1\",\n  \"panic\": \"abort\",\n  \"source_commit\": \"" + cli_bootstrap_source_commit + "\",\n  \"source_input_sha256\": \"" + cli_bootstrap_input_sha256 + "\",\n  \"source_inventory\": \"" + lock_mode + "\",\n  \"git_verification\": \"" + git_mode + "\",\n  \"builder_executable\": \"" + cli_doctor_json_escape(builder) + "\",\n  \"builder_sha256\": \"" + builder_hash + "\",\n  \"builder_id\": \"" + FREAK_V35_BUILD_ID + "\",\n  \"builder_version\": \"" + FREAK_VERSION + "\",\n  \"runtime_abi\": \"" + FREAK_V3_ABI + "\",\n  \"runtime_api\": \"" + FREAK_V3_RUNTIME_API + "\",\n  \"std_api\": \"" + FREAK_V3_STD_API + "\",\n  \"clang_host_triple\": \"" + cli_bootstrap_clang_host_triple + "\",\n  \"host_target\": \"" + target + "\",\n  \"clang_executable\": \"" + cli_doctor_json_escape(clang) + "\",\n  \"clang_version\": \"" + cli_doctor_json_escape(clang_version.trim()) + "\",\n  \"engine_sha256\": \"" + engine_hash + "\",\n  \"launcher_sha256\": \"" + launcher_hash + "\",\n  \"runtime_inventory_sha256\": \"" + cli_bootstrap_hash_text(cli_bootstrap_runtime_inventory) + "\",\n  \"verification\": [\"native-identity\", \"query-store-invalidation\", \"scalar-stdio\", \"task-arithmetic-branch\", \"preview-version\", \"preview-check\"]\n}\n"
+    give back cli_bootstrap_write(owned, "bootstrap-report.json", report) and cli_bootstrap_write(owned, "runtime-sha256.manifest", cli_bootstrap_runtime_inventory)
+}
+
+task cli_bootstrap_v4(source_root: word, output: word, locked: bool) -> bool {
+    cli_bootstrap_error = ""
+    cli_bootstrap_inventory_clear()
+    cli_bootstrap_input_arrays()
+    if not cli_bootstrap_safe_token(FREAK_V35_BUILD_ID) { give back cli_bootstrap_fail("native builder has an invalid build identity marker") }
+    pilot destination = cli_bootstrap_destination(source_root, output)
+    if destination == "" { give back false }
+    pilot source = fs::open_dir_ticket(source_root)
+    if not fs::result_ok(source) { fs::result_release(source)
+        give back cli_bootstrap_fail("cannot hold the selected bootstrap source directory") }
+    pilot source_path_result = fs::directory_path_ticket(source)
+    pilot source_path = fs::result_word(source_path_result)
+    pilot valid_path = fs::result_ok(source_path_result) and cli_output_path_absolute(source_path)
+    fs::result_release(source_path_result)
+    if not valid_path { fs::result_release(source)
+        give back cli_bootstrap_fail("cannot identify the selected bootstrap source directory") }
+    pilot manifest = cli_bootstrap_text(source, "bootstrap.toml", 65536)
+    if cli_bootstrap_error == "" { cli_bootstrap_manifest(manifest) }
+    pilot lock = cli_bootstrap_text(source, "bootstrap.lock", 1048576)
+    if cli_bootstrap_error == "" { cli_bootstrap_lock(lock) }
+    pilot order = cli_bootstrap_text(source, "bootstrap-sources.manifest", 65536)
+    if cli_bootstrap_error == "" { cli_bootstrap_check_locked("bootstrap-sources.manifest", "source_order", order); cli_bootstrap_sources(order) }
+    pilot runtime_manifest = cli_bootstrap_text(source, "native-runtime.manifest", 65536)
+    if cli_bootstrap_error == "" { cli_bootstrap_check_locked("native-runtime.manifest", "metadata", runtime_manifest); cli_bootstrap_runtime(runtime_manifest) }
+    pilot launcher_template = cli_bootstrap_text(source, "tools/preview_launcher.fk", CLI_BOOTSTRAP_FILE_LIMIT)
+    pilot protocol = cli_bootstrap_text(source, "tools/preview_protocol.fk", CLI_BOOTSTRAP_FILE_LIMIT)
+    if cli_bootstrap_error == "" {
+        cli_bootstrap_check_locked("bootstrap.toml", "metadata", manifest)
+        cli_bootstrap_check_locked("tools/preview_launcher.fk", "metadata", launcher_template)
+        cli_bootstrap_check_locked("tools/preview_protocol.fk", "metadata", protocol)
+        cli_bootstrap_read_sources(source, locked)
+    }
+    fs::result_release(source)
+    if cli_bootstrap_error == "" and locked { cli_bootstrap_git_check(source_path) }
+    if cli_bootstrap_error != "" { give back false }
+    pilot builder = process::executable_path()
+    if not cli_output_path_absolute(builder) { give back cli_bootstrap_fail("cannot identify the running native V3.5 builder") }
+    pilot builder_hash = cli_bootstrap_hash_file(builder)
+    if cli_bootstrap_error != "" { give back false }
+    pilot clang = cli_build_selected_clang()
+    if clang == "" { give back cli_bootstrap_fail("a supported native Clang SDK is required") }
+    pilot version_command = process::command_new(clang)
+    process::command_arg(version_command, "--version")
+    pilot clang_version = cli_bootstrap_capture(version_command, 10000, 65536, "Clang version recording")
+    pilot target_command = process::command_new(clang)
+    process::command_arg(target_command, "-dumpmachine")
+    cli_bootstrap_clang_host_triple = cli_bootstrap_capture(target_command, 10000, 65536, "Clang host target recording").trim()
+    if cli_bootstrap_error != "" { give back false }
+    if not cli_bootstrap_safe_token(cli_bootstrap_clang_host_triple) { give back cli_bootstrap_fail("Clang returned an invalid host target triple") }
+    pilot target = cli_bootstrap_host_target(cli_bootstrap_clang_host_triple)
+    if target == "" { give back false }
+    pilot runtime_path = cli_find_runtime_dir()
+    pilot runtime = fs::open_dir_ticket(runtime_path)
+    if not fs::result_ok(runtime) { fs::result_release(runtime)
+        give back cli_bootstrap_fail("cannot hold the selected builder runtime") }
+    pilot standard = fs::open_dir_ticket(cli_find_std_dir())
+    pilot mut std_ok = fs::result_ok(standard)
+    if std_ok { std_ok = cli_bootstrap_text(standard, "freak_abi", 4096).trim() == FREAK_V3_ABI and cli_bootstrap_text(standard, "freak_std_api", 4096).trim() == FREAK_V3_STD_API }
+    fs::result_release(standard)
+    if not std_ok or cli_bootstrap_error != "" { fs::result_release(runtime)
+        give back cli_bootstrap_fail("selected standard library ABI/API markers do not match the builder") }
+    pilot parent = fs::open_dir_ticket(cli_bootstrap_parent(destination))
+    if not fs::result_ok(parent) { fs::result_release(parent); fs::result_release(runtime)
+        give back cli_bootstrap_fail("cannot hold bootstrap output parent") }
+    pilot owned = fs::temp_dir(cli_bootstrap_parent(destination), ".freak-v4-bootstrap")
+    if not fs::result_ok(owned) { fs::result_release(owned); fs::result_release(parent); fs::result_release(runtime)
+        give back cli_bootstrap_fail("cannot create parent-owned native bootstrap stage") }
+    pilot stage_root = fs::result_word(owned)
+    cli_bootstrap_snapshot_runtime(runtime, owned)
+    fs::result_release(runtime)
+    pilot nonce = cli_bootstrap_hash_text(stage_root + builder_hash + cli_bootstrap_input_sha256 + word_from_int(time::monotonic_ns()))
+    if cli_bootstrap_error == "" { cli_bootstrap_prepare_stage(owned, source_path, "engine", nonce, "", "", cli_bootstrap_engine_appendix()) }
+    if cli_bootstrap_error == "" { cli_bootstrap_run_stage(builder, stage_root, nonce, "engine") }
+    if cli_bootstrap_error == "" { cli_bootstrap_compile(clang, stage_root, "freak-v4-engine", target, false) }
+    pilot mut engine = cli_host_path_join(stage_root, "freak-v4-engine")
+    if freak_process_platform_is_windows() { engine = engine + ".exe" }
+    if cli_bootstrap_error == "" {
+        pilot identity_command = process::command_new(engine)
+        process::command_arg(identity_command, "--identity")
+        if cli_bootstrap_capture(identity_command, 10000, 65536, "native V4 identity probe") != "FREAK-V4-NATIVE-1 " + cli_bootstrap_source_commit + " " + cli_bootstrap_input_sha256 + "\n" { cli_bootstrap_fail("native V4 identity probe returned the wrong compiler identity") }
+    }
+    if cli_bootstrap_error == "" {
+        pilot query_command = process::command_new(engine)
+        process::command_arg(query_command, "--query-probe")
+        if cli_bootstrap_capture(query_command, 10000, 65536, "native V4 query store/invalidation probe") != "FREAK-V4-QUERY-OK\n" { cli_bootstrap_fail("native V4 query probe did not store and invalidate its query") }
+    }
+    if cli_bootstrap_error == "" { cli_bootstrap_corpus(owned, stage_root, engine, clang, target) }
+    pilot mut engine_hash = ""
+    if cli_bootstrap_error == "" { engine_hash = cli_bootstrap_hash_file(engine) }
+    pilot mut generated_launcher = ""
+    if cli_bootstrap_error == "" { generated_launcher = cli_bootstrap_preview_source(launcher_template, builder_hash, engine_hash, target, locked)
+        cli_bootstrap_prepare_stage(owned, source_path, "launcher", nonce, generated_launcher, protocol, "") }
+    if cli_bootstrap_error == "" { cli_bootstrap_run_stage(builder, stage_root, nonce, "launcher") }
+    if cli_bootstrap_error == "" { cli_bootstrap_compile(clang, stage_root, "freak-v4", target, false) }
+    pilot mut launcher = cli_host_path_join(stage_root, "freak-v4")
+    if freak_process_platform_is_windows() { launcher = launcher + ".exe" }
+    if cli_bootstrap_error == "" {
+        pilot preview_command = process::command_new(launcher)
+        process::command_arg(preview_command, "--version")
+        pilot version = cli_bootstrap_capture(preview_command, 10000, 65536, "native preview identity probe")
+        if not version.contains(builder_hash) or not version.contains(cli_bootstrap_source_commit) or not version.contains(cli_bootstrap_input_sha256) { cli_bootstrap_fail("installed preview does not report its actual builder/source provenance") }
+    }
+    if cli_bootstrap_error == "" {
+        pilot check_command = process::command_new(launcher)
+        process::command_arg(check_command, "check")
+        process::command_arg(check_command, cli_host_path_join(stage_root, "native-corpus-00.fk"))
+        pilot checked = cli_bootstrap_capture(check_command, 120000, CLI_BOOTSTRAP_TOOL_LIMIT, "native preview frontend probe")
+        if not checked.starts_with("FREAK V4 preview: checked ") { cli_bootstrap_fail("native preview check did not validate its source") }
+    }
+    if cli_bootstrap_error == "" {
+        pilot launcher_hash = cli_bootstrap_hash_file(launcher)
+        cli_bootstrap_report(owned, builder, builder_hash, engine_hash, launcher_hash, target, clang, clang_version, locked)
+        cli_bootstrap_write(owned, "bootstrap.lock", lock)
+        cli_bootstrap_write(owned, "bootstrap.toml", manifest)
+    }
+    pilot mut published = false
+    if cli_bootstrap_error == "" {
+        pilot result_ticket = fs::publish_temp_dir_checked(owned, parent, cli_bootstrap_leaf(destination))
+        published = fs::result_completed(result_ticket)
+        pilot valid = fs::result_ok(result_ticket)
+        pilot error = fs::result_error(result_ticket)
+        fs::result_release(result_ticket)
+        if not valid { cli_bootstrap_fail("native preview publication failed: " + error)
+            if published { say "Verified preview was published but its directory durability check failed: " + destination } }
+    }
+    fs::result_release(parent)
+    if published { fs::result_release(owned) } else { cli_bootstrap_cleanup(owned) }
+    if cli_bootstrap_error != "" { give back false }
+    say "Verified native V4 preview: " + destination
+    give back true
+}
