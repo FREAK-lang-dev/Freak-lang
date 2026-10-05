@@ -155,6 +155,9 @@ static int64_t freak_fs_read_mode(freak_word path,bool text) {
         freak_fs_ticket_error(result,!regular ? "filesystem path is not a readable regular file" : "filesystem file exceeds 64 MiB read limit");
         return handle;
     }
+#ifndef _WIN32
+    result->mode=(int64_t)(metadata.st_mode & 07777);
+#endif
 #ifdef _WIN32
     FILE *file = _fdopen(descriptor,"rb");
 #else
@@ -665,6 +668,11 @@ static int64_t freak_fs_read_descriptor(int64_t handle,int descriptor,bool text,
     if (!regular || metadata.st_size < 0 || (uintmax_t)metadata.st_size > limit) {
         freak_fs_close_descriptor(descriptor); freak_fs_ticket_error(result,"filesystem file is not regular or exceeds bounded read limit"); return handle;
     }
+#ifndef _WIN32
+    /* Preserve permissions from the same admitted file, without a path lookup.
+       Windows has no corresponding POSIX permission mode; its value stays 0. */
+    result->mode=(int64_t)(metadata.st_mode & 07777);
+#endif
     size_t capacity=(size_t)metadata.st_size+1, length=0;
     if (capacity > limit+1) capacity=limit+1;
     unsigned char *data=freak_command_allocate(capacity,1); bool complete=true;
@@ -834,6 +842,36 @@ int64_t freak_fs_rename_relative_new_checked(int64_t source_handle,freak_word so
         "file publication requires safe owned destination and source parents");
     freak_fs_anchor_close(file); freak_fs_anchor_close(source_parent); freak_fs_anchor_close(destination_parent);
     free(from); free(to); return handle;
+}
+int64_t freak_fs_set_mode_relative_checked(int64_t root_handle,freak_word relative,int64_t mode) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+    if (mode < 0 || mode > 0777) { freak_fs_ticket_error(result,"filesystem permission mode must be 0..0777 without privilege bits"); return handle; }
+    char *name=freak_fs_checked_path(result,relative); if (!name) return handle;
+    if (!freak_fs_relative_valid(name,false)) { free(name); freak_fs_ticket_error(result,"filesystem relative path has unsafe components"); return handle; }
+#ifdef _WIN32
+    free(name); freak_fs_ticket_error(result,"POSIX permission modes are not supported on Windows"); return handle;
+#else
+    char *leaf; freak_fs_anchor parent=freak_fs_anchor_parent(root,name,&leaf);
+    struct stat parent_info,admitted,current;
+    bool safe=parent >= 0 && fstat(parent,&parent_info) == 0 && parent_info.st_uid == geteuid() && !(parent_info.st_mode & 0022);
+    freak_fs_anchor file=safe ? freak_fs_anchor_child(parent,leaf,false,false,false) : FREAK_FS_INVALID_ANCHOR;
+    safe=file >= 0 && fstat(file,&admitted) == 0 && admitted.st_uid == geteuid() && admitted.st_nlink == 1 &&
+        fstatat(parent,leaf,&current,AT_SYMLINK_NOFOLLOW) == 0 && S_ISREG(current.st_mode) &&
+        current.st_dev == admitted.st_dev && current.st_ino == admitted.st_ino;
+    bool changed=safe && fchmod(file,(mode_t)mode) == 0;
+    result->completed=changed;
+    bool synchronized=changed && fsync(file) == 0;
+    bool same=changed && fstat(file,&current) == 0 && current.st_uid == geteuid() && current.st_nlink == 1 &&
+        (current.st_mode & 07777) == (mode_t)mode &&
+        fstatat(parent,leaf,&current,AT_SYMLINK_NOFOLLOW) == 0 && S_ISREG(current.st_mode) &&
+        current.st_dev == admitted.st_dev && current.st_ino == admitted.st_ino;
+    bool closed=file < 0 || freak_fs_close_write(file);
+    if (changed && synchronized && same && closed) result->ok=true;
+    else freak_fs_ticket_error(result,changed ? "permission mode changed but synchronization, close or identity verification failed" :
+        "could not set permission mode on owned single-link ordinary file in safe parent");
+    freak_fs_anchor_close(parent); free(name); return handle;
+#endif
 }
 int64_t freak_fs_write_relative_bytes_checked(int64_t root_handle,freak_word relative,int64_t bytes_handle) {
     freak_byte_buffer_record *buffer=freak_byte_buffer_require(bytes_handle,"anchored filesystem binary write");
@@ -1466,6 +1504,7 @@ int64_t freak_llvm_fs_read_source_relative_ticket(int64_t root,int64_t path) { r
 int64_t freak_llvm_fs_read_relative_bytes_ticket(int64_t root,int64_t path) { return freak_fs_read_relative_bytes_ticket(root,freak_llvm_word_view(path)); }
 int64_t freak_llvm_fs_read_relative_bytes_limit_ticket(int64_t root,int64_t path,int64_t limit) { return freak_fs_read_relative_bytes_limit_ticket(root,freak_llvm_word_view(path),limit); }
 int64_t freak_llvm_fs_write_relative_bytes_checked(int64_t root,int64_t path,int64_t bytes) { return freak_fs_write_relative_bytes_checked(root,freak_llvm_word_view(path),bytes); }
+int64_t freak_llvm_fs_set_mode_relative_checked(int64_t root,int64_t path,int64_t mode) { return freak_fs_set_mode_relative_checked(root,freak_llvm_word_view(path),mode); }
 int64_t freak_llvm_fs_remove_temp_dir_checked(int64_t temp) { return freak_fs_remove_temp_dir_checked(temp); }
 int64_t freak_llvm_fs_publish_temp_dir_checked(int64_t temp,int64_t parent,int64_t path) { return freak_fs_publish_temp_dir_checked(temp,parent,freak_llvm_word_view(path)); }
 int64_t freak_llvm_fs_result_completed(int64_t result) { return freak_fs_result_completed(result) ? 1 : 0; }
