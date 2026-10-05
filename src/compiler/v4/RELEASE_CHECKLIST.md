@@ -174,7 +174,7 @@ existing chain provably cannot express the fact. TIR stays a view.
 - [x] `training arc until cond` loop and condition on scalars, native (the `max N sessions` cap is **not** enforced: tier 1)
 - [x] `when` on integer literals, native
 - [x] `fix/v4-backend-scaling` merged to `main`
-- [x] `freak_mir` holds no lowering code and no upstream-stage calls (guard still to add, A0)
+- [x] `freak_mir` holds no lowering code and no forbidden upstream/later-stage references; A0's registered guard is implemented
 
 ## Architecture lane
 
@@ -197,9 +197,8 @@ A3 has no slot of its own; the lane rule finishes it as capabilities land.
 
 ### A0: `freak_mir` is an authority, not a lowering engine (split plan phase A)
 
-Already true in the code: `freak_mir` makes no lexer, parser, expansion,
-HIR or Resolve calls and defines no lowering tasks. What is missing is the
-guard that keeps it true.
+`freak_mir` makes no lexer, parser, expansion, HIR or Resolve calls and defines
+no lowering tasks. The registered A0 guard now keeps that boundary enforced.
 
 - [x] **S** Exact guard in `check_v4.py`: `freak_mir` may not reference `v4_lex_`, `v4_parse_`, `v4_expand_`, `v4_hir_`, `v4_resolve_`, `v4_borrowck_` or `v4_codegen_`; builder-owned task references are rejected as well. Registered boundary checks and adverse direct/function-valued controls pass
 - [x] **S** Document the `freak_mir` / `freak_mir_build` contract in the V4 README (who owns ids, records, snapshots; who owns lowering)
