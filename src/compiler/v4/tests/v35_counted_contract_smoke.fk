@@ -33,6 +33,8 @@ task v35_counted_contract_source(mode: int) -> word {
     if mode == 22 { give back head + "for (pilot i = 0; i < 1;) " + open + close + tail }
     if mode == 23 { give back head + "pilot with = 2; pilot step = 3; pilot result = 0; for each i in 0..step " + open + " result += i " + close + "for each i in 0..with + step step with " + open + " result += i " + close + "repeat with times with step " + open + " result += step " + close + "give back result " + close + "\n" }
     if mode == 26 { give back head + "pilot slots: [int; 1] = [0]; for (pilot i = 0; i < 3; slots[0] += 1) " + open + " i += 1 " + close + "give back slots[0] " + close + "\n" }
+    if mode == 27 { give back "task bound(value: bool) -> int " + open + " give back 4 " + close + "\n" + head + "for each i in 0..bound(0 < 1) step 0 " + open + close + tail }
+    if mode == 28 { give back head + "for (pilot i = 0; i < 3; true) " + open + " break " + close + tail }
     if mode == 25 { give back head + "repeat 2 times with i " + open + " pilot callback = mut | | " + open + " i += 1 " + close + close + tail }
     panic("unknown counted contract case")
     give back ""
@@ -41,12 +43,12 @@ task v35_counted_contract_source(mode: int) -> word {
 task v35_counted_contract_expected(mode: int) -> word {
     if mode == 1 { give back "repeat N times count must be int" }
     if mode == 2 or mode == 3 { give back "range bounds and step must be int" }
-    if mode == 4 or mode == 5 { give back "range step must be positive" }
+    if mode == 4 or mode == 5 or mode == 27 { give back "range step must be positive" }
     if mode == 6 or mode == 7 or mode == 8 or mode == 21 or mode == 25 { give back "iteration binding is immutable" }
     if mode == 9 or mode == 16 { give back "counted for initializer must have type int" }
     if mode == 10 { give back "counted for condition must be bool" }
     if mode == 11 or mode == 20 { give back "counted for assignment step must have type int" }
-    if mode == 12 { give back "counted for expression step must have type int or void" }
+    if mode == 12 or mode == 28 { give back "counted for expression step must have type int or void" }
     if mode == 13 { give back "counted for initializer must be a pilot int binding" }
     if mode == 14 { give back "repeat index binding requires with name" }
     if mode == 15 { give back "range iteration requires one index binding" }
@@ -82,7 +84,7 @@ task v35_counted_contract_run(mode: int) -> void {
     pilot ty = v4_ty_lower_resolve(0, resolve)
     pilot mir = v4_mir_lower_ty(0, ty)
     pilot body = v4_mir_lookup_body_name(mir, "main")
-    if (mode >= 1 and mode <= 22) or mode == 25 {
+    if (mode >= 1 and mode <= 22) or mode == 25 or mode == 27 or mode == 28 {
         pilot expected = v35_counted_contract_expected(mode)
         pilot found: bool = false
         pilot row = 0

@@ -7124,7 +7124,9 @@ EXECUTABLE_SMOKES = [
                        {'argv': ['25'],
                         'expect': ['v35-counted-contract case=25 rejected=true diagnostic=iteration binding is '
                                    'immutable module=false']},
-                       {'argv': ['26'], 'expect': ['v35-counted-contract case=26 frontend=true meiya=true projection=true restore=true']}]},
+                       {'argv': ['26'], 'expect': ['v35-counted-contract case=26 frontend=true meiya=true projection=true restore=true']},
+                       {'argv': ['27'], 'expect': ['v35-counted-contract case=27 rejected=true diagnostic=range step must be positive module=false']},
+                       {'argv': ['28'], 'expect': ['v35-counted-contract case=28 rejected=true diagnostic=counted for expression step must have type int or void module=false']}]},
     {'name': 'V3.5 counted native execution',
      'fixture': 'v35_native_counted_execute_smoke.fk',
      'expect_mode': 'line',
