@@ -5,6 +5,9 @@
 #ifndef _WIN32
 extern char *realpath(const char *restrict path,char *restrict resolved);
 #endif
+#ifndef _WIN32
+#include <sys/file.h>
+#endif
 #ifdef __linux__
 #include <sys/syscall.h>
 extern long syscall(long number,...);
@@ -21,7 +24,13 @@ typedef struct {
     char **entries;
     size_t entry_count;
     uint32_t generation;
-    bool in_use, ok, source_text;
+    bool in_use, ok, source_text, completed, has_directory, owns_temp, temp_active, owns_lock;
+#ifdef _WIN32
+    HANDLE directory, temp_parent;
+#else
+    int directory, temp_parent;
+#endif
+    char *temp_name;
     int64_t kind, size, mode;
     char error[256];
 } freak_fs_ticket;
@@ -60,7 +69,11 @@ static int64_t freak_fs_ticket_new(void) {
     }
     freak_fs_ticket *result = &freak_fs_tickets[slot];
     uint32_t generation = result->generation + 1;
-    memset(result,0,sizeof(*result)); result->generation = generation; result->in_use = true;
+    memset(result,0,sizeof(*result));
+#ifndef _WIN32
+    result->directory = result->temp_parent = -1;
+#endif
+    result->generation = generation; result->in_use = true;
     freak_fs_tickets_live++;
     return (int64_t)(FREAK_FS_RESULT_DOMAIN | ((uint64_t)generation << 32) | (slot + 1));
 }
@@ -318,7 +331,7 @@ static int64_t freak_fs_write_mode(freak_word path,const unsigned char *bytes,si
     bool complete = descriptor >= 0 && freak_fs_write_all(descriptor,bytes,length);
     if (descriptor >= 0 && !freak_fs_close_write(descriptor)) complete = false;
     if (complete && temporary) complete = freak_fs_rename_native(temporary,name);
-    bool published = complete;
+    bool published = complete; result->completed = published;
     if (complete) complete = freak_fs_sync_parent(name);
     if (!complete) {
         if (temporary) (void)freak_fs_remove_native(temporary);
@@ -360,6 +373,7 @@ int64_t freak_fs_rename_checked(freak_word source,freak_word destination) {
     char *from = freak_fs_checked_path(result,source), *to = freak_fs_checked_path(result,destination);
     if (from && to) {
         if (freak_fs_rename_native(from,to)) {
+            result->completed = true;
             if (freak_fs_sync_parent(to) && freak_fs_sync_parent(from)) result->ok = true;
             else freak_fs_ticket_error(result,"filesystem rename completed but directory synchronization failed");
         }
@@ -386,6 +400,7 @@ int64_t freak_fs_rename_new_checked(freak_word source,freak_word destination) {
         unavailable = true;
 #endif
         if (renamed) {
+            result->completed = true;
             if (freak_fs_sync_parent(to) && freak_fs_sync_parent(from)) result->ok = true;
             else freak_fs_ticket_error(result,"filesystem publication completed but directory synchronization failed");
         } else freak_fs_ticket_error(result,unavailable ? "atomic no-replace rename is unavailable on this host/filesystem" :
@@ -397,7 +412,7 @@ int64_t freak_fs_remove_checked(freak_word path) {
     int64_t handle = freak_fs_ticket_new(); freak_fs_ticket *result = freak_fs_ticket_require(handle);
     char *name = freak_fs_checked_path(result,path);
     if (name) {
-        if (freak_fs_remove_native(name)) result->ok = true;
+        if (freak_fs_remove_native(name)) result->ok = result->completed = true;
         else freak_fs_ticket_error(result,"could not remove filesystem file");
     }
     free(name); return handle;
@@ -415,7 +430,7 @@ int64_t freak_fs_rmdir_checked(freak_word path) {
 #else
         bool ok = rmdir(name) == 0;
 #endif
-        if (ok) result->ok = true;
+        if (ok) result->ok = result->completed = true;
         else freak_fs_ticket_error(result,"could not remove empty filesystem directory");
     }
     free(name); return handle;
@@ -434,33 +449,571 @@ int64_t freak_fs_mkdir_checked(freak_word path) {
     int64_t handle = freak_fs_ticket_new(); freak_fs_ticket *result = freak_fs_ticket_require(handle);
     char *name = freak_fs_checked_path(result,path);
     if (name) {
-        if (freak_fs_mkdir_native(name)) result->ok = true;
+        if (freak_fs_mkdir_native(name)) result->ok = result->completed = true;
         else freak_fs_ticket_error(result,"could not create filesystem directory");
     }
     free(name); return handle;
 }
-int64_t freak_fs_temp_dir(freak_word parent,freak_word prefix) {
-    int64_t handle = freak_fs_ticket_new(); freak_fs_ticket *result = freak_fs_ticket_require(handle);
-    char *directory = freak_fs_checked_path(result,parent), *name = freak_fs_checked_path(result,prefix);
-    if (!directory || !name) { free(directory); free(name); return handle; }
-    if (strpbrk(name,"/\\:") || strcmp(name,".") == 0 || strcmp(name,"..") == 0 || strlen(name) > 128) {
-        free(directory); free(name); freak_fs_ticket_error(result,"temporary prefix must be a simple filename"); return handle;
-    }
-    size_t size = strlen(directory) + strlen(name) + 2;
-    char *base = freak_command_allocate(size,1); snprintf(base,size,"%s/%s",directory,name);
-    char *temporary = NULL;
-    for (int attempt = 0; attempt < 128; attempt++) {
-        free(temporary); temporary = freak_fs_temporary_name(base);
-        if (freak_fs_mkdir_native(temporary)) { freak_fs_ticket_data(result,temporary,strlen(temporary)); break; }
+/* Package I/O uses directory identity, not a checked path followed by a second
+   lookup. Each child is opened relative to its admitted parent with no links. */
 #ifdef _WIN32
-        if (GetLastError() != ERROR_ALREADY_EXISTS) break;
+typedef HANDLE freak_fs_anchor;
+#define FREAK_FS_INVALID_ANCHOR INVALID_HANDLE_VALUE
+typedef struct { USHORT length, maximum; PWSTR buffer; } freak_fs_nt_string;
+typedef struct { ULONG length; HANDLE root; freak_fs_nt_string *name; ULONG attributes; PVOID security, quality; } freak_fs_nt_object;
+typedef struct { union { LONG status; PVOID pointer; } value; ULONG_PTR information; } freak_fs_nt_io;
+typedef LONG (NTAPI *freak_fs_nt_create_fn)(PHANDLE,ACCESS_MASK,freak_fs_nt_object *,freak_fs_nt_io *,PLARGE_INTEGER,ULONG,ULONG,ULONG,ULONG,PVOID,ULONG);
+static void freak_fs_anchor_close(freak_fs_anchor directory) { if (directory != INVALID_HANDLE_VALUE) CloseHandle(directory); }
+static freak_fs_anchor freak_fs_anchor_dup(freak_fs_anchor directory) {
+    HANDLE copy = INVALID_HANDLE_VALUE;
+    if (!DuplicateHandle(GetCurrentProcess(),directory,GetCurrentProcess(),&copy,0,FALSE,DUPLICATE_SAME_ACCESS)) return INVALID_HANDLE_VALUE;
+    return copy;
+}
+static freak_fs_anchor freak_fs_anchor_child_mode(freak_fs_anchor parent,const char *name,bool directory,bool create,bool writable,bool allow_reparse,bool exclusive) {
+    static freak_fs_nt_create_fn create_file = NULL;
+    if (!create_file) create_file = (freak_fs_nt_create_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtCreateFile");
+    if (!create_file) return INVALID_HANDLE_VALUE;
+    wchar_t *wide = freak_command_wide(name);
+    size_t bytes = wcslen(wide) * sizeof(wchar_t);
+    if (bytes > USHRT_MAX) { free(wide); return INVALID_HANDLE_VALUE; }
+    freak_fs_nt_string string = {(USHORT)bytes,(USHORT)bytes,wide};
+    freak_fs_nt_object object = {sizeof(object),parent,&string,0x40 /* OBJ_CASE_INSENSITIVE */,NULL,NULL};
+    freak_fs_nt_io io; HANDLE child = INVALID_HANDLE_VALUE;
+    ACCESS_MASK access = SYNCHRONIZE | FILE_READ_ATTRIBUTES | (directory ? FILE_LIST_DIRECTORY | FILE_TRAVERSE : GENERIC_READ);
+    if (writable) access |= DELETE | (directory ? FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_DELETE_CHILD : GENERIC_WRITE);
+    LONG status = create_file(&child,access,&object,&io,NULL,FILE_ATTRIBUTE_NORMAL,
+        exclusive ? 0 : FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,create ? 2 /* FILE_CREATE */ : 1 /* FILE_OPEN */,
+        (directory ? 1 /* FILE_DIRECTORY_FILE */ : 0x40 /* FILE_NON_DIRECTORY_FILE */) | 0x20 /* FILE_SYNCHRONOUS_IO_NONALERT */ | 0x200000 /* FILE_OPEN_REPARSE_POINT */,NULL,0);
+    free(wide);
+    BY_HANDLE_FILE_INFORMATION info;
+    if (status < 0) {
+        typedef ULONG (WINAPI *convert_fn)(LONG);
+        convert_fn convert=(convert_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"RtlNtStatusToDosError");
+        SetLastError(convert ? convert(status) : ERROR_ACCESS_DENIED); return INVALID_HANDLE_VALUE;
+    }
+    if (!GetFileInformationByHandle(child,&info) || GetFileType(child) != FILE_TYPE_DISK ||
+        (!allow_reparse && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) || !!(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != directory) {
+        if (child != INVALID_HANDLE_VALUE) CloseHandle(child);
+        SetLastError(ERROR_ACCESS_DENIED); return INVALID_HANDLE_VALUE;
+    }
+    return child;
+}
+static freak_fs_anchor freak_fs_anchor_child(freak_fs_anchor parent,const char *name,bool directory,bool create,bool writable) {
+    return freak_fs_anchor_child_mode(parent,name,directory,create,writable,false,false);
+}
+static bool freak_fs_anchor_same(freak_fs_anchor first,freak_fs_anchor second) {
+    BY_HANDLE_FILE_INFORMATION a,b;
+    return GetFileInformationByHandle(first,&a) && GetFileInformationByHandle(second,&b) &&
+        a.dwVolumeSerialNumber == b.dwVolumeSerialNumber && a.nFileIndexHigh == b.nFileIndexHigh && a.nFileIndexLow == b.nFileIndexLow;
+}
+static bool freak_fs_anchor_sync(freak_fs_anchor directory) { (void)directory; return true; }
+static int freak_fs_anchor_file_descriptor(freak_fs_anchor file,bool writable) {
+    int descriptor = _open_osfhandle((intptr_t)file,(writable ? _O_WRONLY : _O_RDONLY) | _O_BINARY);
+    if (descriptor < 0) CloseHandle(file);
+    return descriptor;
+}
 #else
-        if (errno != EEXIST) break;
+typedef int freak_fs_anchor;
+#define FREAK_FS_INVALID_ANCHOR (-1)
+static void freak_fs_anchor_close(freak_fs_anchor directory) { if (directory >= 0) close(directory); }
+static freak_fs_anchor freak_fs_anchor_dup(freak_fs_anchor directory) { return fcntl(directory,F_DUPFD_CLOEXEC,0); }
+static freak_fs_anchor freak_fs_anchor_child(freak_fs_anchor parent,const char *name,bool directory,bool create,bool writable) {
+    int flags = O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK | (directory ? O_RDONLY | O_DIRECTORY : writable ? O_WRONLY : O_RDONLY);
+    if (create && directory) { if (mkdirat(parent,name,0700) != 0) return -1; }
+    if (create && !directory) flags |= O_CREAT | O_EXCL;
+    int child = openat(parent,name,flags,0600);
+    struct stat info;
+    if (child >= 0 && (fstat(child,&info) != 0 || (directory ? !S_ISDIR(info.st_mode) : !S_ISREG(info.st_mode)))) { close(child); return -1; }
+    return child;
+}
+static bool freak_fs_anchor_same(freak_fs_anchor first,freak_fs_anchor second) {
+    struct stat a,b; return fstat(first,&a) == 0 && fstat(second,&b) == 0 && a.st_dev == b.st_dev && a.st_ino == b.st_ino;
+}
+static bool freak_fs_anchor_sync(freak_fs_anchor directory) { return fsync(directory) == 0; }
+static int freak_fs_anchor_file_descriptor(freak_fs_anchor file,bool writable) { (void)writable; return file; }
+#endif
+static bool freak_fs_relative_valid(const char *name,bool single) {
+    size_t length = strlen(name);
+    if (!length || length > 4096 || name[0] == '/' || name[length-1] == '/' || strpbrk(name,"\\:\n\r\t")) return false;
+    const char *component = name;
+    for (const char *cursor = name;;cursor++) {
+        if (*cursor == '/' || !*cursor) {
+            size_t count = (size_t)(cursor-component);
+            if (!count || (count == 1 && component[0] == '.') || (count == 2 && component[0] == '.' && component[1] == '.')) return false;
+            if (!*cursor) return true;
+            if (single) return false;
+            component = cursor+1;
+        }
+    }
+}
+static freak_fs_anchor freak_fs_anchor_root(const char *path) {
+    if (strlen(path) > 4096) return FREAK_FS_INVALID_ANCHOR;
+#ifdef _WIN32
+    wchar_t *input = freak_command_wide(path);
+    DWORD count = GetFullPathNameW(input,0,NULL,NULL);
+    wchar_t *absolute = count ? freak_command_allocate(count+1,sizeof(wchar_t)) : NULL;
+    DWORD written=count ? GetFullPathNameW(input,count+1,absolute,NULL) : 0;
+    bool resolved = written && written <= count;
+    free(input);
+    if (!resolved) { free(absolute); return INVALID_HANDLE_VALUE; }
+    for (wchar_t *p=absolute;*p;p++) if (*p == L'/') *p = L'\\';
+    size_t start=0;
+    if (absolute[0] == L'\\' && absolute[1] == L'\\' && absolute[2] == L'?' && absolute[3] == L'\\') {
+        if (wcsncmp(absolute+4,L"UNC\\",4) == 0) memmove(absolute+2,absolute+8,(wcslen(absolute+8)+1)*sizeof(wchar_t));
+        else memmove(absolute,absolute+4,(wcslen(absolute+4)+1)*sizeof(wchar_t));
+    }
+    if (absolute[0] && absolute[1] == L':' && absolute[2] == L'\\') start=3;
+    else if (absolute[0] == L'\\' && absolute[1] == L'\\') {
+        wchar_t *server_end=wcschr(absolute+2,L'\\');
+        wchar_t *share_end=server_end ? wcschr(server_end+1,L'\\') : NULL;
+        if (share_end) start=(size_t)(share_end-absolute)+1;
+        else if (server_end && server_end[1]) start=wcslen(absolute);
+    }
+    if (!start) { free(absolute); return INVALID_HANDLE_VALUE; }
+    wchar_t saved=absolute[start]; absolute[start]=0;
+    HANDLE current = CreateFileW(absolute,FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,NULL,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,NULL);
+    absolute[start]=saved;
+    BY_HANDLE_FILE_INFORMATION root_info;
+    if (current != INVALID_HANDLE_VALUE && (!GetFileInformationByHandle(current,&root_info) ||
+        !(root_info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || (root_info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))) {
+        CloseHandle(current); current=INVALID_HANDLE_VALUE;
+    }
+    int utf8_size=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,absolute+start,-1,NULL,0,NULL,NULL);
+    char *tail=utf8_size > 0 ? freak_command_allocate((size_t)utf8_size,1) : NULL;
+    if (tail) WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,absolute+start,-1,tail,utf8_size,NULL,NULL);
+    free(absolute);
+    if (!tail) { freak_fs_anchor_close(current); return INVALID_HANDLE_VALUE; }
+    for (char *p=tail;*p;p++) if (*p == '\\') *p='/';
+#else
+    freak_fs_anchor current = open(path[0] == '/' ? "/" : ".",O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    char *tail=freak_command_copy(freak_word_lit(path[0] == '/' ? path+1 : path),false);
+#endif
+    char *cursor=tail;
+    while (*cursor && current != FREAK_FS_INVALID_ANCHOR) {
+        while (*cursor == '/') cursor++;
+        if (!*cursor) break;
+        char *slash=strchr(cursor,'/'); if (slash) *slash=0;
+        if (strcmp(cursor,".") != 0) {
+            if (!freak_fs_relative_valid(cursor,true)) { freak_fs_anchor_close(current); current=FREAK_FS_INVALID_ANCHOR; break; }
+            freak_fs_anchor next=freak_fs_anchor_child(current,cursor,true,false,false);
+            freak_fs_anchor_close(current); current=next;
+        }
+        if (!slash) break;
+        cursor=slash+1;
+    }
+    free(tail); return current;
+}
+static freak_fs_anchor freak_fs_anchor_parent(freak_fs_ticket *root,char *relative,char **leaf) {
+    freak_fs_anchor current=freak_fs_anchor_dup(root->directory);
+    char *cursor=relative,*slash;
+    while (current != FREAK_FS_INVALID_ANCHOR && (slash=strchr(cursor,'/')) != NULL) {
+        *slash=0;
+        freak_fs_anchor next=freak_fs_anchor_child(current,cursor,true,false,false);
+        freak_fs_anchor_close(current); current=next; cursor=slash+1;
+    }
+    *leaf=cursor; return current;
+}
+static freak_fs_ticket *freak_fs_directory_require(int64_t handle) {
+    freak_fs_ticket *root=freak_fs_ticket_require(handle);
+    if (!root->ok || !root->has_directory || root->kind != 2) freak_command_fail("filesystem operation requires a successful directory ticket");
+    return root;
+}
+int64_t freak_fs_open_dir_ticket(freak_word path) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    char *name=freak_fs_checked_path(result,path); if (!name) return handle;
+    freak_fs_anchor directory=freak_fs_anchor_root(name);
+    if (directory == FREAK_FS_INVALID_ANCHOR) freak_fs_ticket_error(result,"could not open anchored directory without following links");
+    else { freak_fs_ticket_data(result,name,strlen(name)); result->directory=directory; result->has_directory=true; result->kind=2; }
+    free(name); return handle;
+}
+/* The limit applies to the bytes actually read. A growth race gets at most one
+   extra byte for detection and can never cause an unbounded allocation/read. */
+static int64_t freak_fs_read_descriptor(int64_t handle,int descriptor,bool text,bool source,size_t limit) {
+    freak_fs_ticket *result=freak_fs_ticket_require(handle);
+#ifdef _WIN32
+    struct _stat64 metadata;
+    bool regular=_fstat64(descriptor,&metadata) == 0 && (metadata.st_mode & _S_IFMT) == _S_IFREG;
+#else
+    struct stat metadata;
+    bool regular=fstat(descriptor,&metadata) == 0 && S_ISREG(metadata.st_mode);
+#endif
+    if (!regular || metadata.st_size < 0 || (uintmax_t)metadata.st_size > limit) {
+        freak_fs_close_descriptor(descriptor); freak_fs_ticket_error(result,"filesystem file is not regular or exceeds bounded read limit"); return handle;
+    }
+    size_t capacity=(size_t)metadata.st_size+1, length=0;
+    if (capacity > limit+1) capacity=limit+1;
+    unsigned char *data=freak_command_allocate(capacity,1); bool complete=true;
+    for (;;) {
+        if (length == capacity) {
+            size_t next=capacity < 4096 ? 4096 : capacity*2;
+            if (next > limit+1) next=limit+1;
+            if (next <= capacity) { complete=false; break; }
+            unsigned char *grown=realloc(data,next); if (!grown) freak_command_fail("out of memory reading bounded filesystem file");
+            data=grown; capacity=next;
+        }
+#ifdef _WIN32
+        unsigned int wanted=capacity-length > INT_MAX ? INT_MAX : (unsigned int)(capacity-length);
+        int count=_read(descriptor,data+length,wanted);
+#else
+        ssize_t count=read(descriptor,data+length,capacity-length);
+#endif
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0) { complete=false; break; }
+        if (!count) break;
+        length+=(size_t)count;
+        if (length > limit) { complete=false; break; }
+    }
+    if (!freak_fs_close_write(descriptor)) complete=false;
+    if (!complete || (text && !freak_byte_buffer_utf8_valid(data,length))) {
+        free(data); freak_fs_ticket_error(result,!complete ? "filesystem file exceeded limit or could not be read completely" : "filesystem text is not NUL-free UTF-8; use binary I/O"); return handle;
+    }
+    unsigned char *terminated=realloc(data,length+1); if (!terminated) freak_command_fail("out of memory completing filesystem read");
+    terminated[length]=0; result->data=terminated; result->length=length; result->size=(int64_t)length; result->ok=true; result->source_text=source;
+    return handle;
+}
+int64_t freak_fs_read_bytes_limit_ticket(freak_word path,int64_t limit) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    if (limit < 0 || (uint64_t)limit > FREAK_FS_READ_LIMIT) { freak_fs_ticket_error(result,"filesystem read limit must be 0..64 MiB"); return handle; }
+    char *name=freak_fs_checked_path(result,path); if (!name) return handle;
+    int descriptor=freak_fs_open_read(name); free(name);
+    if (descriptor < 0) { freak_fs_ticket_error(result,"could not open bounded filesystem file"); return handle; }
+    return freak_fs_read_descriptor(handle,descriptor,false,false,(size_t)limit);
+}
+static int64_t freak_fs_read_relative_mode(int64_t root_handle,freak_word path,int64_t limit,bool text,bool source) {
+    /* Allocate the result first: growing the ticket table may move root. */
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+    if (limit < 0 || (uint64_t)limit > FREAK_FS_READ_LIMIT) { freak_fs_ticket_error(result,"filesystem read limit must be 0..64 MiB"); return handle; }
+    char *name=freak_fs_checked_path(result,path); if (!name) return handle;
+    if (!freak_fs_relative_valid(name,false)) { free(name); freak_fs_ticket_error(result,"filesystem relative path has unsafe components"); return handle; }
+    char *leaf; freak_fs_anchor parent=freak_fs_anchor_parent(root,name,&leaf);
+    freak_fs_anchor file=parent == FREAK_FS_INVALID_ANCHOR ? FREAK_FS_INVALID_ANCHOR : freak_fs_anchor_child(parent,leaf,false,false,false);
+    freak_fs_anchor_close(parent); free(name);
+    if (file == FREAK_FS_INVALID_ANCHOR) { freak_fs_ticket_error(result,"could not read anchored regular file without following links"); return handle; }
+    int descriptor=freak_fs_anchor_file_descriptor(file,false);
+    if (descriptor < 0) { freak_fs_ticket_error(result,"could not open anchored filesystem stream"); return handle; }
+    return freak_fs_read_descriptor(handle,descriptor,text,source,(size_t)limit);
+}
+int64_t freak_fs_read_relative_ticket(int64_t root,freak_word relative) { return freak_fs_read_relative_mode(root,relative,FREAK_FS_READ_LIMIT,true,false); }
+int64_t freak_fs_read_source_relative_ticket(int64_t root,freak_word relative) { return freak_fs_read_relative_mode(root,relative,FREAK_FS_READ_LIMIT,false,true); }
+int64_t freak_fs_read_relative_bytes_ticket(int64_t root,freak_word relative) { return freak_fs_read_relative_mode(root,relative,FREAK_FS_READ_LIMIT,false,false); }
+int64_t freak_fs_read_relative_bytes_limit_ticket(int64_t root,freak_word relative,int64_t limit) { return freak_fs_read_relative_mode(root,relative,limit,false,false); }
+#ifdef _WIN32
+typedef LONG (NTAPI *freak_fs_nt_set_fn)(HANDLE,freak_fs_nt_io *,PVOID,ULONG,ULONG);
+static bool freak_fs_anchor_set_information(HANDLE item,void *information,size_t length,ULONG kind) {
+    freak_fs_nt_set_fn set_information=(freak_fs_nt_set_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtSetInformationFile");
+    if (!set_information || length > ULONG_MAX) return false;
+    freak_fs_nt_io io;
+    return set_information(item,&io,information,(ULONG)length,kind) >= 0;
+}
+static bool freak_fs_anchor_delete_handle(HANDLE item) {
+    BOOLEAN dispose=TRUE;
+    return freak_fs_anchor_set_information(item,&dispose,sizeof(dispose),13 /* FileDispositionInformation */);
+}
+#endif
+static bool freak_fs_anchor_delete(freak_fs_anchor parent,const char *leaf,bool directory) {
+#ifdef _WIN32
+    HANDLE item=freak_fs_anchor_child(parent,leaf,directory,false,true);
+    if (item == INVALID_HANDLE_VALUE) return false;
+    bool ok=freak_fs_anchor_delete_handle(item);
+    CloseHandle(item); return ok;
+#else
+    return unlinkat(parent,leaf,directory ? AT_REMOVEDIR : 0) == 0;
+#endif
+}
+#ifdef _WIN32
+static bool freak_fs_anchor_rename_handle(HANDLE item,HANDLE destination,const char *to,bool replace) {
+    wchar_t *name=freak_command_wide(to); size_t bytes=wcslen(name)*sizeof(wchar_t);
+    size_t size=offsetof(FILE_RENAME_INFO,FileName)+bytes;
+    FILE_RENAME_INFO *rename_info=freak_command_allocate(size,1);
+    rename_info->ReplaceIfExists=replace; rename_info->RootDirectory=destination; rename_info->FileNameLength=(DWORD)bytes;
+    memcpy(rename_info->FileName,name,bytes);
+    bool renamed=freak_fs_anchor_set_information(item,rename_info,size,10 /* FileRenameInformation */);
+    free(name); free(rename_info); return renamed;
+}
+#endif
+static bool freak_fs_anchor_rename(freak_fs_anchor source,const char *from,freak_fs_anchor destination,const char *to,bool replace) {
+#ifdef _WIN32
+    HANDLE item=freak_fs_anchor_child(source,from,false,false,true);
+    if (item == INVALID_HANDLE_VALUE) item=freak_fs_anchor_child(source,from,true,false,true);
+    if (item == INVALID_HANDLE_VALUE) return false;
+    bool renamed=freak_fs_anchor_rename_handle(item,destination,to,replace);
+    CloseHandle(item); return renamed;
+#else
+    if (replace) return renameat(source,from,destination,to) == 0;
+#if defined(__linux__) && defined(SYS_renameat2)
+    return syscall(SYS_renameat2,source,from,destination,to,1) == 0;
+#elif defined(__APPLE__)
+    extern int renameatx_np(int,const char *,int,const char *,unsigned int);
+    return renameatx_np(source,from,destination,to,FREAK_DARWIN_RENAME_EXCL) == 0;
+#else
+    errno=ENOTSUP; return false;
+#endif
+#endif
+}
+int64_t freak_fs_write_relative_bytes_checked(int64_t root_handle,freak_word relative,int64_t bytes_handle) {
+    freak_byte_buffer_record *buffer=freak_byte_buffer_require(bytes_handle,"anchored filesystem binary write");
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) { freak_fs_ticket_error(result,"binary buffer has a pending error"); return handle; }
+    char *name=freak_fs_checked_path(result,relative); if (!name) return handle;
+    if (!freak_fs_relative_valid(name,false)) { free(name); freak_fs_ticket_error(result,"filesystem relative path has unsafe components"); return handle; }
+    char *leaf; freak_fs_anchor parent=freak_fs_anchor_parent(root,name,&leaf);
+    if (parent == FREAK_FS_INVALID_ANCHOR) { free(name); freak_fs_ticket_error(result,"could not open anchored destination parent"); return handle; }
+    bool safe=true;
+#ifndef _WIN32
+    struct stat prior; bool existing=fstatat(parent,leaf,&prior,AT_SYMLINK_NOFOLLOW) == 0;
+    safe=existing ? S_ISREG(prior.st_mode) : errno == ENOENT;
+#else
+    HANDLE prior=freak_fs_anchor_child(parent,leaf,false,false,false);
+    bool existing=prior != INVALID_HANDLE_VALUE;
+    if (existing) CloseHandle(prior);
+    else safe=GetLastError() == ERROR_FILE_NOT_FOUND;
+#endif
+    char *temporary=NULL; freak_fs_anchor file=FREAK_FS_INVALID_ANCHOR;
+    if (safe) for (int i=0;i<128;i++) { free(temporary); temporary=freak_fs_temporary_name(".write"); file=freak_fs_anchor_child(parent,temporary,false,true,true); if (file != FREAK_FS_INVALID_ANCHOR) break; }
+    int descriptor=file == FREAK_FS_INVALID_ANCHOR ? -1 : freak_fs_anchor_file_descriptor(file,true);
+#ifndef _WIN32
+    if (descriptor >= 0 && existing && fchmod(descriptor,prior.st_mode & 07777) != 0) { close(descriptor); descriptor=-1; }
+#endif
+    bool complete=descriptor >= 0 && freak_fs_write_all(descriptor,buffer->data,buffer->length);
+    if (descriptor >= 0 && !freak_fs_close_write(descriptor)) complete=false;
+    if (complete) complete=freak_fs_anchor_rename(parent,temporary,parent,leaf,true);
+    result->completed=complete;
+    if (complete && freak_fs_anchor_sync(parent)) result->ok=true;
+    else { if (temporary && !result->completed) freak_fs_anchor_delete(parent,temporary,false); freak_fs_ticket_error(result,result->completed ? "filesystem publication completed but directory synchronization failed" : "could not write and publish anchored filesystem file"); }
+    freak_fs_anchor_close(parent); free(temporary); free(name); return handle;
+}
+int64_t freak_fs_remove_relative_file_checked(int64_t root_handle,freak_word relative) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+    char *name=freak_fs_checked_path(result,relative); if (!name) return handle;
+    if (!freak_fs_relative_valid(name,false)) { free(name); freak_fs_ticket_error(result,"filesystem relative path has unsafe components"); return handle; }
+    char *leaf; freak_fs_anchor parent=freak_fs_anchor_parent(root,name,&leaf); bool removed=false;
+    if (parent != FREAK_FS_INVALID_ANCHOR) {
+#ifdef _WIN32
+        HANDLE file=freak_fs_anchor_child_mode(parent,leaf,false,false,true,true,false);
+        if (file != INVALID_HANDLE_VALUE) { removed=freak_fs_anchor_delete_handle(file); CloseHandle(file); }
+#else
+        struct stat info;
+        removed=fstatat(parent,leaf,&info,AT_SYMLINK_NOFOLLOW) == 0 && !S_ISDIR(info.st_mode) && unlinkat(parent,leaf,0) == 0;
 #endif
     }
-    if (!result->ok) freak_fs_ticket_error(result,"could not exclusively create temporary directory");
-    free(directory); free(name); free(base); free(temporary); return handle;
+    result->completed=removed;
+    if (removed && freak_fs_anchor_sync(parent)) result->ok=true;
+    else freak_fs_ticket_error(result,removed ? "file removal completed but directory synchronization failed" : "could not remove anchored file entry");
+    freak_fs_anchor_close(parent); free(name); return handle;
 }
+int64_t freak_fs_lock_dir_ticket(int64_t root_handle,freak_word lock_name) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+    char *name=freak_fs_checked_path(result,lock_name); if (!name) return handle;
+    if (!freak_fs_relative_valid(name,true)) { free(name); freak_fs_ticket_error(result,"directory lock name must be one safe component"); return handle; }
+#ifdef _WIN32
+    HANDLE lock=freak_fs_anchor_child_mode(root->directory,name,false,true,true,false,true);
+    if (lock == INVALID_HANDLE_VALUE && (GetLastError() == ERROR_FILE_EXISTS || GetLastError() == ERROR_ALREADY_EXISTS))
+        lock=freak_fs_anchor_child_mode(root->directory,name,false,false,true,false,true);
+    bool locked=lock != INVALID_HANDLE_VALUE;
+#else
+    struct stat root_info;
+    if (fstat(root->directory,&root_info) != 0 || root_info.st_uid != geteuid() || (root_info.st_mode & 0077)) {
+        free(name); freak_fs_ticket_error(result,"directory transaction lock requires a private owned directory"); return handle;
+    }
+    int lock=openat(root->directory,name,O_RDWR | O_CREAT | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC,0600);
+    struct stat info;
+    bool locked=lock >= 0 && fstat(lock,&info) == 0 && S_ISREG(info.st_mode) && info.st_nlink == 1 &&
+        info.st_uid == geteuid() && !(info.st_mode & 0077) && flock(lock,LOCK_EX | LOCK_NB) == 0;
+#endif
+    if (locked) { freak_fs_ticket_data(result,name,strlen(name)); result->directory=lock; result->owns_lock=true; result->kind=5; }
+    else { freak_fs_anchor_close(lock); freak_fs_ticket_error(result,"directory transaction lock is held or not a private regular file"); }
+    free(name); return handle;
+}
+static char *freak_fs_anchor_join(const char *parent,const char *name) {
+    size_t length=strlen(parent)+strlen(name)+2;
+    char *full=freak_command_allocate(length,1);
+#ifdef _WIN32
+    snprintf(full,length,"%s\\%s",parent,name);
+    for (char *cursor=full;*cursor;cursor++) if (*cursor == '/') *cursor='\\';
+#else
+    snprintf(full,length,"%s/%s",parent,name);
+#endif
+    return full;
+}
+int64_t freak_fs_open_relative_dir_ticket(int64_t root_handle,freak_word relative) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+    char *name=freak_fs_checked_path(result,relative); if (!name) return handle;
+    if (!freak_fs_relative_valid(name,false)) { free(name); freak_fs_ticket_error(result,"filesystem relative path has unsafe components"); return handle; }
+    char *logical=freak_command_copy(freak_word_lit(name),false),*leaf;
+    freak_fs_anchor parent=freak_fs_anchor_parent(root,name,&leaf);
+    freak_fs_anchor directory=parent == FREAK_FS_INVALID_ANCHOR ? FREAK_FS_INVALID_ANCHOR : freak_fs_anchor_child(parent,leaf,true,false,false);
+    if (directory != FREAK_FS_INVALID_ANCHOR) {
+        char *full=freak_fs_anchor_join((const char *)root->data,logical);
+        freak_fs_ticket_data(result,full,strlen(full)); free(full);
+        result->directory=directory; result->has_directory=true; result->kind=2;
+#ifndef _WIN32
+        struct stat info; if (fstat(directory,&info) == 0) result->mode=(int64_t)(info.st_mode & 07777);
+#endif
+    } else freak_fs_ticket_error(result,"could not open anchored directory without following links");
+    freak_fs_anchor_close(parent); free(logical); free(name); return handle;
+}
+int64_t freak_fs_mkdir_relative_checked(int64_t root_handle,freak_word relative) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+    char *name=freak_fs_checked_path(result,relative); if (!name) return handle;
+    if (!freak_fs_relative_valid(name,false)) { free(name); freak_fs_ticket_error(result,"filesystem relative path has unsafe components"); return handle; }
+    char *logical=freak_command_copy(freak_word_lit(name),false),*leaf;
+    freak_fs_anchor parent=freak_fs_anchor_parent(root,name,&leaf),directory=FREAK_FS_INVALID_ANCHOR;
+    if (parent != FREAK_FS_INVALID_ANCHOR) {
+#ifdef _WIN32
+        directory=freak_fs_anchor_child(parent,leaf,true,true,true);
+        result->completed=directory != FREAK_FS_INVALID_ANCHOR;
+#else
+        result->completed=mkdirat(parent,leaf,0700) == 0;
+        if (result->completed) directory=freak_fs_anchor_child(parent,leaf,true,false,false);
+#endif
+    }
+    if (directory != FREAK_FS_INVALID_ANCHOR) {
+        char *full=freak_fs_anchor_join((const char *)root->data,logical);
+        freak_fs_ticket_data(result,full,strlen(full)); free(full);
+        result->directory=directory; result->has_directory=true; result->kind=2;
+        if (!freak_fs_anchor_sync(parent)) freak_fs_ticket_error(result,"directory creation completed but directory synchronization failed");
+    } else freak_fs_ticket_error(result,result->completed ? "directory creation completed but identity could not be opened" : "could not exclusively create anchored directory");
+    freak_fs_anchor_close(parent); free(logical); free(name); return handle;
+}
+int64_t freak_fs_temp_dir(freak_word parent,freak_word prefix) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    char *directory=freak_fs_checked_path(result,parent),*name=freak_fs_checked_path(result,prefix);
+    if (!directory || !name) { free(directory); free(name); return handle; }
+    if (!freak_fs_relative_valid(name,true) || strlen(name) > 128) { freak_fs_ticket_error(result,"temporary prefix must be a simple filename"); free(directory); free(name); return handle; }
+    freak_fs_anchor owner=freak_fs_anchor_root(directory),child=FREAK_FS_INVALID_ANCHOR;
+    char *temporary=NULL;
+    if (owner != FREAK_FS_INVALID_ANCHOR) for (int i=0;i<128;i++) { free(temporary); temporary=freak_fs_temporary_name(name); child=freak_fs_anchor_child(owner,temporary,true,true,true); if (child != FREAK_FS_INVALID_ANCHOR) break; }
+    if (child == FREAK_FS_INVALID_ANCHOR) { freak_fs_anchor_close(owner); freak_fs_ticket_error(result,"could not exclusively create anchored temporary directory"); }
+    else {
+        char *full=freak_fs_anchor_join(directory,temporary);
+        freak_fs_ticket_data(result,full,strlen(full)); free(full);
+        result->directory=child; result->temp_parent=owner; result->temp_name=temporary; temporary=NULL;
+        result->has_directory=result->owns_temp=result->temp_active=result->completed=true; result->kind=2;
+    }
+    free(directory); free(name); free(temporary); return handle;
+}
+/* Enumerate/decrement a bounded tree through admitted directory handles. A
+   link is removed as an entry; its target is never opened or enumerated. */
+static bool freak_fs_anchor_clear(freak_fs_anchor directory,size_t depth,size_t *remaining) {
+    if (depth > 128) return false;
+#ifdef _WIN32
+    const size_t capacity=64*1024; unsigned char *batch=freak_command_allocate(capacity,1);
+    FILE_INFO_BY_HANDLE_CLASS operation=FileIdBothDirectoryRestartInfo; bool ok=true;
+    for (;;) {
+        if (!GetFileInformationByHandleEx(directory,operation,batch,(DWORD)capacity)) { ok=GetLastError() == ERROR_NO_MORE_FILES; break; }
+        operation=FileIdBothDirectoryInfo; size_t position=0;
+        for (;;) {
+            FILE_ID_BOTH_DIR_INFO *item=(FILE_ID_BOTH_DIR_INFO *)(batch+position);
+            size_t prefix=offsetof(FILE_ID_BOTH_DIR_INFO,FileName);
+            if (position > capacity-prefix || item->FileNameLength % sizeof(wchar_t) || item->FileNameLength > capacity-position-prefix) { ok=false; break; }
+            int characters=(int)(item->FileNameLength/sizeof(wchar_t));
+            int bytes=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,item->FileName,characters,NULL,0,NULL,NULL);
+            char *name=bytes > 0 ? freak_command_allocate((size_t)bytes+1,1) : NULL;
+            if (!name || WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,item->FileName,characters,name,bytes,NULL,NULL) != bytes) { free(name); ok=false; break; }
+            if (strcmp(name,".") && strcmp(name,"..")) {
+                if (!*remaining) { free(name); ok=false; break; } --*remaining;
+                bool folder=(item->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                if (item->FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+                    HANDLE link=freak_fs_anchor_child_mode(directory,name,folder,false,true,true,false);
+                    ok=link != INVALID_HANDLE_VALUE && freak_fs_anchor_delete_handle(link); freak_fs_anchor_close(link);
+                }
+                else if (folder) {
+                    HANDLE child=freak_fs_anchor_child(directory,name,true,false,true);
+                    ok=child != INVALID_HANDLE_VALUE && freak_fs_anchor_clear(child,depth+1,remaining) && freak_fs_anchor_delete_handle(child);
+                    freak_fs_anchor_close(child);
+                }
+                else ok=freak_fs_anchor_delete(directory,name,false);
+            }
+            free(name); if (!ok || !item->NextEntryOffset) break;
+            if (item->NextEntryOffset < prefix || item->NextEntryOffset > capacity-position-prefix) { ok=false; break; } position+=item->NextEntryOffset;
+        }
+        if (!ok) break;
+    }
+    free(batch); return ok;
+#else
+    int copy=freak_fs_anchor_dup(directory); DIR *scan=copy >= 0 ? fdopendir(copy) : NULL;
+    if (!scan) { if (copy >= 0) close(copy); return false; }
+    bool ok=true; struct dirent *entry;
+    rewinddir(scan); errno=0;
+    while ((entry=readdir(scan)) != NULL) {
+        if (!strcmp(entry->d_name,".") || !strcmp(entry->d_name,"..")) continue;
+        if (!*remaining) { ok=false; break; } --*remaining;
+        struct stat info;
+        if (fstatat(directory,entry->d_name,&info,AT_SYMLINK_NOFOLLOW) != 0) { ok=false; break; }
+        if (S_ISDIR(info.st_mode)) {
+            int child=freak_fs_anchor_child(directory,entry->d_name,true,false,false);
+            struct stat opened; bool same=child >= 0 && fstat(child,&opened) == 0 && opened.st_dev == info.st_dev && opened.st_ino == info.st_ino;
+            ok=same && freak_fs_anchor_clear(child,depth+1,remaining);
+            struct stat current; if (ok) ok=fstatat(directory,entry->d_name,&current,AT_SYMLINK_NOFOLLOW) == 0 && current.st_dev == opened.st_dev && current.st_ino == opened.st_ino;
+            freak_fs_anchor_close(child);
+            if (ok) ok=unlinkat(directory,entry->d_name,AT_REMOVEDIR) == 0;
+        } else ok=unlinkat(directory,entry->d_name,0) == 0;
+        if (!ok) break;
+        errno=0;
+    }
+    if (ok && errno) ok=false;
+    if (closedir(scan) != 0) ok=false;
+    return ok;
+#endif
+}
+static bool freak_fs_temp_identity(freak_fs_ticket *temp) {
+    if (!temp->owns_temp || !temp->temp_active || !temp->has_directory) return false;
+    freak_fs_anchor current=freak_fs_anchor_child(temp->temp_parent,temp->temp_name,true,false,false);
+    bool same=current != FREAK_FS_INVALID_ANCHOR && freak_fs_anchor_same(current,temp->directory);
+    freak_fs_anchor_close(current); return same;
+}
+int64_t freak_fs_remove_temp_dir_checked(int64_t temp_handle) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *temp=freak_fs_ticket_require(temp_handle);
+    if (!freak_fs_temp_identity(temp)) { freak_fs_ticket_error(result,"temporary directory ownership identity is absent or changed"); return handle; }
+    size_t remaining=65535;
+    bool cleared=freak_fs_anchor_clear(temp->directory,0,&remaining) && freak_fs_temp_identity(temp);
+#ifdef _WIN32
+    bool removed=cleared && freak_fs_anchor_delete_handle(temp->directory);
+#else
+    bool removed=cleared && freak_fs_anchor_delete(temp->temp_parent,temp->temp_name,true);
+#endif
+    if (removed) { freak_fs_anchor_close(temp->directory); temp->has_directory=false; }
+    if (removed) { result->completed=true; temp->temp_active=false; if (freak_fs_anchor_sync(temp->temp_parent)) result->ok=true; }
+    if (!result->ok) freak_fs_ticket_error(result,result->completed ? "temporary removal completed but directory synchronization failed" : "could not safely remove complete owned temporary directory");
+    return handle;
+}
+int64_t freak_fs_publish_temp_dir_checked(int64_t temp_handle,int64_t parent_handle,freak_word destination) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *temp=freak_fs_ticket_require(temp_handle),*parent=freak_fs_directory_require(parent_handle);
+    char *name=freak_fs_checked_path(result,destination); if (!name) return handle;
+    if (!freak_fs_relative_valid(name,true) || !freak_fs_temp_identity(temp)) { free(name); freak_fs_ticket_error(result,"publication requires owned temporary identity and simple destination name"); return handle; }
+    freak_fs_anchor old_parent=temp->temp_parent,new_parent=freak_fs_anchor_dup(parent->directory);
+    if (new_parent == FREAK_FS_INVALID_ANCHOR) { free(name); freak_fs_ticket_error(result,"could not retain publication parent identity"); return handle; }
+#ifdef _WIN32
+    bool renamed=freak_fs_anchor_rename_handle(temp->directory,parent->directory,name,false);
+#else
+    bool renamed=freak_fs_anchor_rename(old_parent,temp->temp_name,parent->directory,name,false);
+#endif
+    if (renamed) {
+        result->completed=true;
+        /* Retain ownership of the published identity, including an unsynced
+           publication: the transaction may safely roll back its own new tree. */
+        temp->temp_parent=new_parent; new_parent=FREAK_FS_INVALID_ANCHOR;
+        free(temp->temp_name); temp->temp_name=name; name=NULL;
+        char *full=freak_fs_anchor_join((const char *)parent->data,temp->temp_name);
+        free(temp->data); temp->data=(unsigned char *)full; temp->length=strlen(full);
+        bool synced=freak_fs_anchor_sync(parent->directory) && freak_fs_anchor_sync(old_parent);
+        freak_fs_anchor_close(old_parent);
+        if (!freak_fs_temp_identity(temp)) freak_fs_ticket_error(result,"publication completed but owned directory identity changed during rename");
+        else if (synced) result->ok=true;
+        else freak_fs_ticket_error(result,"temporary publication completed but directory synchronization failed");
+    } else freak_fs_ticket_error(result,"could not publish owned temporary directory without replacing destination");
+    freak_fs_anchor_close(new_parent); free(name); return handle;
+}
+
 int64_t freak_fs_canonical_path(freak_word path) {
     int64_t handle = freak_fs_ticket_new(); freak_fs_ticket *result = freak_fs_ticket_require(handle);
     char *name = freak_fs_checked_path(result,path); if (!name) return handle;
@@ -618,6 +1171,7 @@ int64_t freak_fs_list_dir_checked(freak_word path) {
     if (result->ok && result->entry_count > 1) qsort(result->entries,result->entry_count,sizeof(char *),freak_fs_entry_compare);
     free(name); return handle;
 }
+bool freak_fs_result_completed(int64_t ticket) { return freak_fs_ticket_require(ticket)->completed; }
 bool freak_fs_result_ok(int64_t ticket) { return freak_fs_ticket_require(ticket)->ok; }
 static freak_fs_ticket *freak_fs_result_success(int64_t ticket) {
     freak_fs_ticket *result = freak_fs_ticket_require(ticket);
@@ -650,6 +1204,10 @@ freak_word freak_fs_result_entry(int64_t ticket,int64_t index) {
 }
 void freak_fs_result_release(int64_t ticket) {
     freak_fs_ticket *result = freak_fs_ticket_require(ticket);
+    if (result->has_directory || result->owns_lock) freak_fs_anchor_close(result->directory);
+    if (result->owns_temp) freak_fs_anchor_close(result->temp_parent);
+    free(result->temp_name); result->temp_name = NULL;
+    result->has_directory = result->owns_temp = result->owns_lock = false;
     free(result->data);
     for (size_t index = 0; index < result->entry_count; index++) free(result->entries[index]);
     free(result->entries); result->data = NULL; result->entries = NULL;
@@ -709,3 +1267,19 @@ freak_word freak_fs_sha256_bytes(int64_t handle) {
     for (unsigned i=0;i<8;i++) snprintf(hex+i*8,9,"%08x",state[i]);
     return freak_word_own(hex,64);
 }
+
+/* Scalar adapters preserve the LLVM word view and the same ticket domains. */
+int64_t freak_llvm_fs_open_dir_ticket(int64_t path) { return freak_fs_open_dir_ticket(freak_llvm_word_view(path)); }
+int64_t freak_llvm_fs_read_bytes_limit_ticket(int64_t path,int64_t limit) { return freak_fs_read_bytes_limit_ticket(freak_llvm_word_view(path),limit); }
+int64_t freak_llvm_fs_read_relative_ticket(int64_t root,int64_t path) { return freak_fs_read_relative_ticket(root,freak_llvm_word_view(path)); }
+int64_t freak_llvm_fs_read_source_relative_ticket(int64_t root,int64_t path) { return freak_fs_read_source_relative_ticket(root,freak_llvm_word_view(path)); }
+int64_t freak_llvm_fs_read_relative_bytes_ticket(int64_t root,int64_t path) { return freak_fs_read_relative_bytes_ticket(root,freak_llvm_word_view(path)); }
+int64_t freak_llvm_fs_read_relative_bytes_limit_ticket(int64_t root,int64_t path,int64_t limit) { return freak_fs_read_relative_bytes_limit_ticket(root,freak_llvm_word_view(path),limit); }
+int64_t freak_llvm_fs_write_relative_bytes_checked(int64_t root,int64_t path,int64_t bytes) { return freak_fs_write_relative_bytes_checked(root,freak_llvm_word_view(path),bytes); }
+int64_t freak_llvm_fs_remove_temp_dir_checked(int64_t temp) { return freak_fs_remove_temp_dir_checked(temp); }
+int64_t freak_llvm_fs_publish_temp_dir_checked(int64_t temp,int64_t parent,int64_t path) { return freak_fs_publish_temp_dir_checked(temp,parent,freak_llvm_word_view(path)); }
+int64_t freak_llvm_fs_result_completed(int64_t result) { return freak_fs_result_completed(result) ? 1 : 0; }
+int64_t freak_llvm_fs_lock_dir_ticket(int64_t root,int64_t name) { return freak_fs_lock_dir_ticket(root,freak_llvm_word_view(name)); }
+int64_t freak_llvm_fs_remove_relative_file_checked(int64_t root,int64_t path) { return freak_fs_remove_relative_file_checked(root,freak_llvm_word_view(path)); }
+int64_t freak_llvm_fs_mkdir_relative_checked(int64_t root,int64_t relative) { return freak_fs_mkdir_relative_checked(root,freak_llvm_word_view(relative)); }
+int64_t freak_llvm_fs_open_relative_dir_ticket(int64_t root,int64_t relative) { return freak_fs_open_relative_dir_ticket(root,freak_llvm_word_view(relative)); }
