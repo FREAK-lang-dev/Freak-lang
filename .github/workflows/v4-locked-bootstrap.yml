@@ -85,6 +85,14 @@ jobs:
           --clang "${{ env.FREAK_V4_CI_CLANG }}"
           --sanitize --optimization O2
           --report "${{ runner.temp }}/freak-v4-word-call-ownership.json"
+      - name: Verify bounded C emission and write failures (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          python -B -u tests/v3_v35_c_emit_batch.py
+          --compiler "${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction/freakc_stage2"
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --optimization O2 --sanitize
+          --output "${{ runner.temp }}/freak-v4-c-emission"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -94,6 +102,7 @@ jobs:
             ${{ runner.temp }}/freak-v4-locked-bootstrap/public-contracts.json
             ${{ runner.temp }}/freak-v4-runtime-ci.json
             ${{ runner.temp }}/freak-v4-word-call-ownership.json
+            ${{ runner.temp }}/freak-v4-c-emission/gate.json
             ${{ runner.temp }}/freak-v4-bootstrap-fs-probe.json
             ${{ runner.temp }}/freak-v4-windows-fs.json
           if-no-files-found: warn

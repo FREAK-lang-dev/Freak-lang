@@ -61,8 +61,8 @@ Python is only its test orchestrator. The dedicated `Locked V4 bootstrap`
 workflow reconstructs and verifies this installed command on native Linux,
 macOS and Windows. Its Windows job also runs native filesystem identity,
 publication, failure and handle-balance checks at O0, O2 and O3. Its Linux job
-also runs the word ownership and copied-byte
-gate with ASan and UBSan. Platform results must be read at the current PR head.
+also runs the word ownership, copied-byte and bounded C-emission failure
+gates with ASan and UBSan. Platform results must be read at the current PR head.
 
 The scout's official V4 revision is used without input patches. On Linux,
 480 identical source inputs produced byte-identical stdout, stderr and status
