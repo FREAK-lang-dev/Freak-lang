@@ -712,6 +712,34 @@ static void freak_command_wait_record(freak_command_record *command) {
     freak_command_service_record(command,true);
 }
 
+enum freak_command_launch_stage {
+    FREAK_COMMAND_LAUNCH_SETPGID = 1,
+    FREAK_COMMAND_LAUNCH_FAMILY_FD,
+    FREAK_COMMAND_LAUNCH_CHDIR,
+    FREAK_COMMAND_LAUNCH_TERMINAL,
+    FREAK_COMMAND_LAUNCH_STDOUT,
+    FREAK_COMMAND_LAUNCH_STDERR,
+    FREAK_COMMAND_LAUNCH_EXECVE
+};
+typedef struct {
+    int32_t error;
+    uint32_t stage;
+} freak_command_launch_failure;
+_Static_assert(sizeof(freak_command_launch_failure) == 8, "fixed POSIX launch-error record");
+
+static const char *freak_command_launch_stage_name(uint32_t stage) {
+    switch (stage) {
+        case FREAK_COMMAND_LAUNCH_SETPGID: return "setpgid";
+        case FREAK_COMMAND_LAUNCH_FAMILY_FD: return "family-fd";
+        case FREAK_COMMAND_LAUNCH_CHDIR: return "chdir";
+        case FREAK_COMMAND_LAUNCH_TERMINAL: return "terminal";
+        case FREAK_COMMAND_LAUNCH_STDOUT: return "stdout";
+        case FREAK_COMMAND_LAUNCH_STDERR: return "stderr";
+        case FREAK_COMMAND_LAUNCH_EXECVE: return "execve";
+        default: return NULL;
+    }
+}
+
 static bool freak_command_posix_spawn(freak_command_record *command) {
     int output[2] = {-1, -1}, errors[2] = {-1, -1}, execution[2] = {-1, -1}, guardian[2] = {-1, -1};
     int *descriptors = NULL; size_t descriptor_count = 0;
@@ -741,20 +769,37 @@ static bool freak_command_posix_spawn(freak_command_record *command) {
     if (pid == 0) {
         close(execution[0]);
         int failure = 0;
+        uint32_t stage = FREAK_COMMAND_LAUNCH_SETPGID;
         if (setpgid(0, 0) != 0) failure = errno;
-        if (!failure && fcntl(command->family_fd, F_SETFD, 0) < 0) failure = errno;
-        if (!failure && command->cwd && chdir(command->cwd) != 0) failure = errno;
-        if (!failure && command->terminal_owner && !freak_command_terminal_set(getpid())) failure = errno;
+        if (!failure) {
+            stage = FREAK_COMMAND_LAUNCH_FAMILY_FD;
+            if (fcntl(command->family_fd, F_SETFD, 0) < 0) failure = errno;
+        }
+        if (!failure && command->cwd) {
+            stage = FREAK_COMMAND_LAUNCH_CHDIR;
+            if (chdir(command->cwd) != 0) failure = errno;
+        }
+        if (!failure && command->terminal_owner) {
+            stage = FREAK_COMMAND_LAUNCH_TERMINAL;
+            if (!freak_command_terminal_set(getpid())) failure = errno;
+        }
         if (!command->inherited) {
             close(output[0]); close(errors[0]);
-            if (!failure && (dup2(output[1], STDOUT_FILENO) < 0 ||
-                    dup2(errors[1], STDERR_FILENO) < 0)) failure = errno;
+            if (!failure) {
+                stage = FREAK_COMMAND_LAUNCH_STDOUT;
+                if (dup2(output[1], STDOUT_FILENO) < 0) failure = errno;
+            }
+            if (!failure) {
+                stage = FREAK_COMMAND_LAUNCH_STDERR;
+                if (dup2(errors[1], STDERR_FILENO) < 0) failure = errno;
+            }
             close(output[1]); close(errors[1]);
         }
         if (!failure) {
             /* execve never falls back to /bin/sh on ENOEXEC. All strings and
                PATH candidates are allocated in the parent before fork. */
             int denied = 0;
+            stage = FREAK_COMMAND_LAUNCH_EXECVE;
             for (size_t target = 0; executables[target]; target++) {
                 execve(executables[target], command->argv, environment);
                 failure = errno;
@@ -763,8 +808,9 @@ static bool freak_command_posix_spawn(freak_command_record *command) {
             }
             if ((failure == ENOENT || failure == ENOTDIR) && denied) failure = denied;
         }
+        freak_command_launch_failure record = {failure, stage};
         ssize_t sent;
-        do { sent = write(execution[1], &failure, sizeof(failure)); } while (sent < 0 && errno == EINTR);
+        do { sent = write(execution[1], &record, sizeof(record)); } while (sent < 0 && errno == EINTR);
         _exit(127);
     }
     command->pid = pid;
@@ -795,14 +841,15 @@ static bool freak_command_posix_spawn(freak_command_record *command) {
     command->stdout_read = output[0]; output[0] = -1;
     command->stderr_read = errors[0]; errors[0] = -1;
     /* CLOEXEC makes EOF unambiguous: a successfully launched child may still
-       exit 127, whereas exec/chdir errors carry errno through this private pipe. */
-    int failure = 0;
+       exit 127. A failed child writes one fixed record, smaller than PIPE_BUF.
+       The extra byte rejects an oversized read without accepting its prefix. */
+    unsigned char message[sizeof(freak_command_launch_failure) + 1];
     ssize_t received;
     while (true) {
         struct pollfd handshake = {execution[0], POLLIN | POLLHUP, 0};
         int ready = poll(&handshake, 1, 10);
         if (ready > 0) {
-            do { received = read(execution[0], &failure, sizeof(failure)); } while (received < 0 && errno == EINTR);
+            do { received = read(execution[0], message, sizeof(message)); } while (received < 0 && errno == EINTR);
             break;
         }
         if (ready < 0 && errno != EINTR) { received = -1; break; }
@@ -823,8 +870,14 @@ static bool freak_command_posix_spawn(freak_command_record *command) {
     }
     if (received != 0) {
         command->status = FREAK_COMMAND_SPAWN_FAILED;
-        snprintf(command->error, sizeof(command->error), "could not launch executable: %s",
-                received == sizeof(failure) ? strerror(failure) : "exec status pipe failed");
+        freak_command_launch_failure record = {0};
+        if (received == sizeof(record)) memcpy(&record, message, sizeof(record));
+        const char *stage = freak_command_launch_stage_name(record.stage);
+        if (received == sizeof(record) && record.error > 0 && stage) {
+            snprintf(command->error, sizeof(command->error),
+                    "could not launch executable: %s (stage=%s, errno=%d)",
+                    strerror(record.error), stage, (int)record.error);
+        } else freak_command_set_error(command, "could not launch executable: exec status pipe failed");
         freak_command_native_stop(command);
         freak_command_wait_record(command);
         return false;
