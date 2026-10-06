@@ -49,18 +49,23 @@ def observations(result: subprocess.CompletedProcess, control: bool) -> dict:
                 summary["resources_balanced"])
     assert summary["production_contract_passed"] == truthful
     assert summary["tickets_before"] == summary["tickets_after"] == 0
-    if control:
+    if control and tickets["temp_dir"]["ok"]:
         assert "control_existing_runtime" in tickets
         assert not summary["production_contract_passed"]
         assert not tickets["mkdir_runtime"]["ok"] and not tickets["mkdir_runtime"]["completed"]
     if sys.platform == "win32":
         events = [row for row in rows if row["type"] == "native"]
-        assert any(row["api"] == "CreateFileW" and row["phase"] == "open_parent" for row in events)
-        assert any(row["api"] == "NtCreateFile" and row["phase"] == "temp_dir" for row in events)
-        assert any(row["api"] == "NtCreateFile" and row["phase"] == "mkdir_runtime" for row in events)
-        assert any(row["type"] == "filesystem" for row in rows)
-        assert any(row["type"] == "token" for row in rows)
-    return {"summary": summary, "observations": rows}
+        if tickets["open_parent"]["ok"]:
+            assert any(row["api"] == "CreateFileW" and row["phase"] == "open_parent" for row in events)
+            assert any(row["type"] == "filesystem" for row in rows)
+            assert any(row["type"] == "token" for row in rows)
+        if tickets["temp_dir"]["ok"]:
+            assert any(row["api"] == "NtCreateFile" and row["phase"] == "temp_dir" for row in events)
+        if tickets.get("mkdir_runtime", {}).get("completed"):
+            assert any(row["api"] == "NtCreateFile" and row["phase"] == "mkdir_runtime" for row in events)
+    return {"summary": summary, "observations": rows,
+            "unreached_phases": sorted(expected - tickets.keys()),
+            "control_exercised": bool(control and tickets.get("control_existing_runtime", {}).get("completed"))}
 
 
 def main() -> int:
@@ -129,6 +134,13 @@ def main() -> int:
             data["control"] = control; report["runs"].append(data)
             if not control:
                 report["production_contract_passed"] = data["summary"]["production_contract_passed"]
+        # An actual missing parent stops before mkdir. Preserve both failed
+        # tickets/native events and explicitly mark later phases unavailable.
+        result = run([str(executable), str(parent / "absent parent")], "native-missing-parent")
+        data = observations(result, False)
+        assert not data["summary"]["production_contract_passed"]
+        assert data["unreached_phases"] == ["cleanup_temp", "mkdir_runtime", "open_missing_runtime"]
+        data["control"] = "missing_parent"; report["runs"].append(data)
         if args.windows_sdk:
             cross = [str(clang), "--target=x86_64-w64-windows-gnu",
                      f"--sysroot={args.windows_sdk.resolve()}", *strict]
