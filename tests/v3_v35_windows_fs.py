@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Check Windows publication ACL policy and prepare real native durability gates.
+"""Check Windows held-directory synchronization and publication ACL policy.
 
 Portable runs execute the exact production ACL decision with synthetic ACL
 layout fixtures. They prove policy/bounds logic, not Windows OS semantics.
-Native Windows runs additionally use real owner/DACL queries and checked flushes.
+Native Windows runs additionally execute actual held local-NTFS queries, full128
+identity opens, normal native flushes and controlled failure responses. Successful
+flushes are API evidence, not power-loss or unprivileged-profile proof.
 """
 from __future__ import annotations
 
@@ -100,15 +102,122 @@ int main(void) {
 }
 '''
 
+SYNC_MODEL = r'''
+/* Exact production decision logic; API responses below are controlled models,
+   not execution of Windows APIs or proof of provider durability. */
+#include <stdint.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <wchar.h>
+#define NTAPI
+#define WINAPI
+typedef int BOOL;typedef uint32_t DWORD,ULONG,ACCESS_MASK;typedef int32_t LONG;
+typedef uintptr_t HANDLE,HMODULE,freak_fs_anchor;typedef void *PVOID;
+typedef struct { union {LONG status;PVOID pointer;} value;uintptr_t information; } freak_fs_nt_io;
+typedef struct {unsigned char Identifier[16];} FILE_ID_128;
+typedef struct {uint64_t VolumeSerialNumber;FILE_ID_128 FileId;} FILE_ID_INFO;
+typedef struct {DWORD dwFileAttributes;} BY_HANDLE_FILE_INFORMATION;
+typedef struct {DWORD dwSize;int Type;FILE_ID_128 ExtendedFileId;} FILE_ID_DESCRIPTOR;
+#define INVALID_HANDLE_VALUE UINTPTR_MAX
+#define FILE_TYPE_DISK 1
+#define FILE_ATTRIBUTE_DIRECTORY 16
+#define FILE_ATTRIBUTE_REPARSE_POINT 1024
+#define FILE_READ_ATTRIBUTES 128
+#define FILE_APPEND_DATA 4
+#define SYNCHRONIZE 0x100000
+#define FILE_SHARE_READ 1
+#define FILE_SHARE_WRITE 2
+#define FILE_SHARE_DELETE 4
+#define FILE_FLAG_BACKUP_SEMANTICS 0x02000000
+#define FILE_FLAG_OPEN_REPARSE_POINT 0x00200000
+#define FileIdInfo 18
+#define ExtendedFileIdType 2
+#define ERROR_ACCESS_DENIED 5
+#define ERROR_IO_DEVICE 1117
+#define ERROR_NOT_SUPPORTED 50
+#define ERROR_PROC_NOT_FOUND 127
+static const char *scenario;static DWORD error=777;static int opens=0,closes=0,flushes=0;
+static int is(const char *s){return !strcmp(scenario,s);}
+static void require(int ok){if(!ok){fputs("MODEL_ASSERTION\n",stderr);exit(70);}}
+static DWORD GetLastError(void){return error;}static void SetLastError(DWORD value){error=value;}
+static HMODULE GetModuleHandleW(const wchar_t *name){(void)name;return 1;}
+static ULONG WINAPI convert(LONG status){(void)status;return ERROR_IO_DEVICE;}
+static LONG NTAPI model_query(HANDLE file,freak_fs_nt_io *io,PVOID output,ULONG size,ULONG type){
+    require(file==1 && size==8 && type==4);
+    if(is("query-pending"))return 0x103;if(is("query-nonfinal"))return 0;
+    if(is("query-error"))return -1;
+    ULONG *device=output;device[0]=is("query-device")?0:7;device[1]=is("query-remote")?16:0;
+    io->value.status=is("query-io-error")?-1:0;io->information=is("query-short")?7:8;return 0;
+}
+static LONG NTAPI model_flush(HANDLE file,ULONG flags,PVOID parameters,ULONG size,freak_fs_nt_io *io){
+    require(file==2 && flags==0 && !parameters && !size);flushes++;
+    if(is("flush-pending"))return 0x103;if(is("flush-nonfinal"))return 0;
+    if(is("flush-error"))return -1;io->value.status=is("flush-io-error")?-1:0;io->information=0;return 0;
+}
+static void *GetProcAddress(HMODULE module,const char *name){
+    require(module==1);
+    if(!strcmp(name,"NtFlushBuffersFileEx"))return is("missing-flush")?NULL:(void *)model_flush;
+    if(!strcmp(name,"NtQueryVolumeInformationFile"))return is("missing-query")?NULL:(void *)model_query;
+    return (void *)convert;
+}
+static BOOL GetFileInformationByHandle(HANDLE file,BY_HANDLE_FILE_INFORMATION *info){
+    if(is("attributes-error")){error=5;return 0;}
+    info->dwFileAttributes=FILE_ATTRIBUTE_DIRECTORY;
+    if((file==1 && is("root-reparse")) || (file==2 && is("candidate-reparse")))info->dwFileAttributes|=FILE_ATTRIBUTE_REPARSE_POINT;
+    if((file==1 && is("root-file")) || (file==2 && is("candidate-file")))info->dwFileAttributes=0;return 1;
+}
+static BOOL GetFileInformationByHandleEx(HANDLE file,int type,PVOID raw,DWORD size){
+    require(type==FileIdInfo && size==sizeof(FILE_ID_INFO));
+    if(file==2 && is("identity-error")){error=5;return 0;}
+    FILE_ID_INFO *id=raw;memset(id,0,sizeof(*id));id->VolumeSerialNumber=42;id->FileId.Identifier[15]=99;
+    if(file==2 && is("identity-high"))id->FileId.Identifier[15]^=1;
+    if(file==2 && is("identity-volume"))id->VolumeSerialNumber^=1;return 1;
+}
+static DWORD GetFileType(HANDLE file){return (file==1 && is("root-device")) || (file==2 && is("candidate-device"))?3:1;}
+static BOOL GetVolumeInformationByHandleW(HANDLE file,wchar_t *name,DWORD count,DWORD *serial,DWORD *component,DWORD *flags,wchar_t *fs,DWORD fs_count){
+    require(file==1 && !name && !count && !serial && !component && !flags && fs_count==32);
+    if(is("filesystem-error")){error=5;return 0;}wcscpy(fs,is("filesystem-other")?L"ReFS":L"NTFS");return 1;
+}
+static HANDLE OpenFileById(HANDLE file,FILE_ID_DESCRIPTOR *id,DWORD access,DWORD share,PVOID security,DWORD flags){
+    require(file==1 && id->Type==ExtendedFileIdType && id->dwSize==sizeof(*id) && id->ExtendedFileId.Identifier[15]==99 && access==(FILE_APPEND_DATA|FILE_READ_ATTRIBUTES|SYNCHRONIZE) && share==7 && !security && flags==(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT));
+    if(is("open-error")){error=5;return INVALID_HANDLE_VALUE;}opens++;return 2;
+}
+static void freak_fs_anchor_close(HANDLE file){require(file==2);closes++;}
+PRODUCTION_SYNC
+static void callback(void){if(strstr(scenario,"pending") || strstr(scenario,"nonfinal"))fputs("UNSAFE_EXIT_CALLBACK\n",stderr);}
+int main(int argc,char **argv){
+    require(argc==2);scenario=argv[1];require(atexit(callback)==0);
+    bool ok=freak_fs_anchor_sync(1);require(ok==is("native"));require(opens==closes);
+    if(ok)require(error==777 && flushes==1 && opens==1);
+    else require(error!=777);
+    if(strstr(scenario,"identity") || strstr(scenario,"candidate"))require(opens==1 && flushes==0);
+    if(strstr(scenario,"query") || strstr(scenario,"missing") || strstr(scenario,"filesystem") || strstr(scenario,"root"))require(!opens && !flushes);
+    printf("SYNC_MODEL_OK %d %d %d\n",opens,closes,flushes);return 0;
+}
+'''
+
+SYNC_CONTROLS = ('missing-flush', 'missing-query', 'filesystem-error', 'filesystem-other',
+                 'query-error', 'query-short', 'query-device', 'query-remote',
+                 'open-error', 'identity-high', 'identity-volume', 'candidate-reparse',
+                 'candidate-file', 'candidate-device')
+NONFINAL_CONTROLS = ('query-pending', 'query-nonfinal', 'flush-pending', 'flush-nonfinal')
+
 WINDOWS_HARNESS = r'''
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
+#endif
 #include "freak_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
+#include <winternl.h>
 #include <aclapi.h>
 extern int64_t freak_llvm_fs_rename_relative_new_checked(int64_t,int64_t,int64_t,int64_t);
-static const char *scenario="";static int directory_flushes=0;
+static const char *scenario="";static int active=0,directory_flushes=0,candidate_opens=0,candidate_closes=0,dispositions=0;
+static HANDLE candidate=INVALID_HANDLE_VALUE,delete_marked=INVALID_HANDLE_VALUE;
 static void require(int ok,const char *why) {if(!ok) {fprintf(stderr,"FAIL: %s (Win32 %lu)\n",why,GetLastError());exit(2);}}
 #ifdef USE_LLVM_ADAPTER
 #define W(s) ((int64_t)(intptr_t)(s))
@@ -117,17 +226,78 @@ static void require(int ok,const char *why) {if(!ok) {fprintf(stderr,"FAIL: %s (
 #define W(s) freak_word_lit(s)
 #define F(n) freak_fs_##n
 #endif
-BOOL WINAPI freak_test_flush_buffers(HANDLE file) {
-    BY_HANDLE_FILE_INFORMATION info;require(GetFileInformationByHandle(file,&info),"flush handle information");
-    if(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-        directory_flushes++;
-        if(!strcmp(scenario,"directory-fault") && directory_flushes==1) {SetLastError(ERROR_IO_DEVICE);return FALSE;}
-    }
-    return FlushFileBuffers(file);
+static int is(const char *name){return active && !strcmp(scenario,name);}
+static void unsafe_callback(void){if(strstr(scenario,"pending") || strstr(scenario,"nonfinal"))fputs("UNSAFE_EXIT_CALLBACK\n",stderr);}
+NTSTATUS NTAPI freak_test_flush_ex(HANDLE file,ULONG flags,PVOID parameters,ULONG size,PIO_STATUS_BLOCK io) {
+    typedef NTSTATUS (NTAPI *fn)(HANDLE,ULONG,PVOID,ULONG,PIO_STATUS_BLOCK);
+    fn real=(fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtFlushBuffersFileEx");
+    require(real && flags==0 && !parameters && !size && file==candidate,"exact flush call");
+    require(delete_marked==INVALID_HANDLE_VALUE,"delete handle closed before parent flush");
+    directory_flushes++;
+    if(is("flush-pending"))return 0x103;
+    if(is("flush-nonfinal")){io->Status=0x103;return 0;}
+    if(is("directory-fault") && directory_flushes==1)return (NTSTATUS)0xc0000185;
+    return real(file,flags,parameters,size,io);
 }
+NTSTATUS NTAPI freak_test_query_volume(HANDLE file,PIO_STATUS_BLOCK io,PVOID out,ULONG size,FS_INFORMATION_CLASS type) {
+    require(type==FileFsDeviceInformation && size==sizeof(FILE_FS_DEVICE_INFORMATION),"exact device query");
+    if(is("query-pending"))return 0x103;
+    if(is("query-nonfinal")){io->Status=0x103;return 0;}
+    if(is("query-error"))return (NTSTATUS)0xc0000022;
+    NTSTATUS status=NtQueryVolumeInformationFile(file,io,out,size,type);
+    if(status==0 && io->Status==0){
+        FILE_FS_DEVICE_INFORMATION *device=out;
+        if(is("query-short"))io->Information=sizeof(*device)-1;
+        if(is("query-remote"))device->Characteristics|=0x10;
+        if(is("query-device"))device->DeviceType=0;
+    }
+    return status;
+}
+NTSTATUS NTAPI freak_test_set_information(HANDLE,PIO_STATUS_BLOCK,PVOID,ULONG,FILE_INFORMATION_CLASS);
 FARPROC WINAPI freak_test_get_proc_address(HMODULE module,LPCSTR name) {
-    if(!strcmp(scenario,"missing-security-api") && !strcmp(name,"GetSecurityInfo")) return NULL;
+    if(is("missing-security-api") && !strcmp(name,"GetSecurityInfo")) return NULL;
+    if(!strcmp(name,"NtSetInformationFile"))return (FARPROC)freak_test_set_information;
+    if(!strcmp(name,"NtFlushBuffersFileEx"))return is("missing-flush") ? NULL : (FARPROC)freak_test_flush_ex;
+    if(!strcmp(name,"NtQueryVolumeInformationFile"))return is("missing-query") ? NULL : (FARPROC)freak_test_query_volume;
     return GetProcAddress(module,name);
+}
+HANDLE WINAPI freak_test_open_by_id(HANDLE parent,LPFILE_ID_DESCRIPTOR id,DWORD access,DWORD share,LPSECURITY_ATTRIBUTES security,DWORD flags){
+    require(id->Type==ExtendedFileIdType && id->dwSize==sizeof(*id) && access==(FILE_APPEND_DATA|FILE_READ_ATTRIBUTES|SYNCHRONIZE) && share==7 && !security && flags==(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT),"full identity/minimum access open");
+    if(is("open-error")){SetLastError(ERROR_ACCESS_DENIED);return INVALID_HANDLE_VALUE;}
+    candidate=OpenFileById(parent,id,access,share,security,flags);if(candidate!=INVALID_HANDLE_VALUE)candidate_opens++;return candidate;
+}
+BOOL WINAPI freak_test_information(HANDLE file,LPBY_HANDLE_FILE_INFORMATION info){
+    BOOL ok=GetFileInformationByHandle(file,info);
+    if(ok && file==candidate){if(is("candidate-reparse"))info->dwFileAttributes|=FILE_ATTRIBUTE_REPARSE_POINT;if(is("candidate-file"))info->dwFileAttributes&=~FILE_ATTRIBUTE_DIRECTORY;}return ok;
+}
+BOOL WINAPI freak_test_information_ex(HANDLE file,FILE_INFO_BY_HANDLE_CLASS type,LPVOID out,DWORD size){
+    BOOL ok=GetFileInformationByHandleEx(file,type,out,size);
+    if(ok && file==candidate && type==FileIdInfo){FILE_ID_INFO *id=out;if(is("identity-high"))id->FileId.Identifier[15]^=1;if(is("identity-volume"))id->VolumeSerialNumber^=1;}return ok;
+}
+DWORD WINAPI freak_test_file_type(HANDLE file){return file==candidate && is("candidate-device") ? FILE_TYPE_PIPE : GetFileType(file);}
+BOOL WINAPI freak_test_volume(HANDLE file,LPWSTR name,DWORD count,LPDWORD serial,LPDWORD component,LPDWORD flags,LPWSTR fs,DWORD fs_count){
+    BOOL ok=GetVolumeInformationByHandleW(file,name,count,serial,component,flags,fs,fs_count);
+    if(is("filesystem-error")){SetLastError(ERROR_ACCESS_DENIED);return FALSE;}
+    if(ok && is("filesystem-other")){require(fs_count>=5,"filesystem buffer");wcscpy(fs,L"ReFS");}return ok;
+}
+NTSTATUS NTAPI freak_test_set_information(HANDLE file,PIO_STATUS_BLOCK io,PVOID info,ULONG size,FILE_INFORMATION_CLASS type){
+    typedef NTSTATUS (NTAPI *fn)(HANDLE,PIO_STATUS_BLOCK,PVOID,ULONG,FILE_INFORMATION_CLASS);
+    fn real=(fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtSetInformationFile");
+    require(real!=NULL,"real native set-information export");
+    NTSTATUS status=real(file,io,info,size,type);DWORD error=GetLastError();
+    if(status==0x103 || (status==0 && io->Status==0x103)){
+        fputs("NONFINAL_NATIVE_DISPOSITION\n",stderr);fflush(NULL);_Exit(1);
+    }
+    if(status==0 && type==FileDispositionInformation && size==sizeof(BOOLEAN) && *(BOOLEAN *)info){
+        require(delete_marked==INVALID_HANDLE_VALUE,"one live deletion disposition");delete_marked=file;dispositions++;
+    }
+    SetLastError(error);return status;
+}
+BOOL WINAPI freak_test_close(HANDLE file){
+    DWORD error=GetLastError();BOOL ok=CloseHandle(file);
+    if(ok && file==candidate){candidate_closes++;candidate=INVALID_HANDLE_VALUE;}
+    if(ok && file==delete_marked)delete_marked=INVALID_HANDLE_VALUE;
+    SetLastError(error);return ok;
 }
 static void private_acl(const char *name,int policy) {
     HANDLE token=NULL;require(OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token),"token query");DWORD count=0;
@@ -145,31 +315,74 @@ static void private_acl(const char *name,int policy) {
         user->User.Sid,NULL,policy==5 ? NULL : acl,NULL);
     require(status==ERROR_SUCCESS,"set real owner/private DACL");LocalFree(acl);free(wide);free(user);CloseHandle(token);
 }
+static void release(int64_t ticket,int expected,int completed){require(!!F(result_ok)(ticket)==expected,"checked result");require(!!F(result_completed)(ticket)==completed,"completed result");F(result_release)(ticket);}
 int main(int argc,char **argv) {
-    require(argc==4,"arguments");scenario=argv[3];
+    require(argc==4,"arguments");scenario=argv[3];require(atexit(unsafe_callback)==0,"callback registration");
     int source_policy=!strcmp(scenario,"source-write") ? 2 : !strcmp(scenario,"null-dacl") ? 5 : 0;
     int destination_policy=!strcmp(scenario,"readonly-others") ? 1 : !strcmp(scenario,"destination-write") ? 2 : !strcmp(scenario,"write-dac") ? 3 : !strcmp(scenario,"delete-child") ? 4 : 0;
     private_acl(argv[1],source_policy);private_acl(argv[2],destination_policy);
-    DWORD before=0,after=0;require(GetProcessHandleCount(GetCurrentProcess(),&before),"handle baseline");
+    /* Measure first-use cache effects explicitly, then require exact handle
+       balance for the tested operation. Warmup is independent owned mutation. */
+    DWORD cold=0,before=0,after=0;require(GetProcessHandleCount(GetCurrentProcess(),&cold),"cold handle baseline");
+    int64_t warm=F(temp_dir)(W(argv[1]),W("warm"));require(F(result_ok)(warm),"warmup owned temp");
+    release(F(mkdir_relative_checked)(warm,W("child")),1,1);release(F(remove_temp_dir_checked)(warm),1,1);F(result_release)(warm);
+    require(freak_fs_result_live()==0,"warmup ticket balance");
+    require(candidate_opens==candidate_closes && candidate==INVALID_HANDLE_VALUE && delete_marked==INVALID_HANDLE_VALUE,"warmup owned handle balance before reset");require(GetProcessHandleCount(GetCurrentProcess(),&before),"warm handle baseline");
+    printf("WARMUP_HANDLES %ld\n",(long)before-(long)cold);
     int64_t source=F(open_dir_ticket)(W(argv[1])),destination=F(open_dir_ticket)(W(argv[2]));require(F(result_ok)(source) && F(result_ok)(destination),"root admission");
-    int64_t publication=F(rename_relative_new_checked)(source,W("a"),destination,W("result"));
-    int accepted=!strcmp(scenario,"native") || !strcmp(scenario,"readonly-others");int completed=accepted || !strcmp(scenario,"directory-fault");
-    require(!!F(result_completed)(publication)==completed,"publication completed classification");
-    require(!!F(result_ok)(publication)==accepted,"native checked directory durability/ACL classification");
-    if(completed) require(directory_flushes==2,"both held parent flushes attempted");
-    F(result_release)(publication);F(result_release)(source);F(result_release)(destination);
-    require(freak_fs_result_live()==0,"result ownership");require(GetProcessHandleCount(GetCurrentProcess(),&after) && before==after,"handle ownership");
-    printf("WINDOWS_OK %d\n",directory_flushes);return 0;
+    directory_flushes=candidate_opens=candidate_closes=dispositions=0;active=1;
+    int ordinary=!strcmp(scenario,"native") || !strcmp(scenario,"readonly-others") || !strcmp(scenario,"source-write") || !strcmp(scenario,"destination-write") || !strcmp(scenario,"write-dac") || !strcmp(scenario,"delete-child") || !strcmp(scenario,"null-dacl") || !strcmp(scenario,"missing-security-api") || !strcmp(scenario,"directory-fault");
+    if(ordinary){
+        int accepted=!strcmp(scenario,"native") || !strcmp(scenario,"readonly-others");int completed=accepted || !strcmp(scenario,"directory-fault");
+        release(F(rename_relative_new_checked)(source,W("a"),destination,W("result")),accepted,completed);
+        if(completed)require(directory_flushes==2,"both held parent flushes attempted");
+    }else if(is("replace-delete")){
+        int64_t buffer=freak_byte_buffer_new();freak_byte_buffer_write_byte(buffer,'N');freak_byte_buffer_write_byte(buffer,0);freak_byte_buffer_write_byte(buffer,255);
+        release(F(write_relative_bytes_checked)(source,W("a"),buffer),1,1);freak_byte_buffer_release(buffer);
+        release(F(remove_relative_file_checked)(source,W("deletable")),1,1);require(directory_flushes==2 && dispositions==1,"replace/delete both barriers and real disposition");
+    }else if(is("temp-rollback")){
+        active=0;int64_t temp=F(temp_dir)(W(argv[1]),W("owned"));require(F(result_ok)(temp),"owned staging");active=1;scenario="directory-fault";
+        release(F(publish_temp_dir_checked)(temp,destination,W("published")),0,1);require(directory_flushes==2,"both temp parents attempted after first failure");
+        scenario="temp-rollback";release(F(remove_temp_dir_checked)(temp),1,1);F(result_release)(temp);require(dispositions==1,"real owned temp disposition observed");
+    }else{
+        release(F(mkdir_relative_checked)(source,W("runtime")),0,1);
+        require(directory_flushes==0,"rejected support/identity never flushed");
+    }
+    require(candidate_opens==candidate_closes && candidate==INVALID_HANDLE_VALUE,"every sync candidate closed");
+    F(result_release)(source);F(result_release)(destination);require(freak_fs_result_live()==0,"result ownership");
+    require(GetProcessHandleCount(GetCurrentProcess(),&after) && before==after,"tested-operation handle ownership");
+    printf("WINDOWS_OK %d %d %d\n",directory_flushes,candidate_opens,candidate_closes);
+    return 0;
 }
 '''
 
-WINDOWS_RUNTIME_WRAPPER = '''#include <winsock2.h>
+WINDOWS_RUNTIME_WRAPPER = r'''
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
+#endif
+#include <winsock2.h>
 #include <windows.h>
-BOOL WINAPI freak_test_flush_buffers(HANDLE);
+#include <winternl.h>
 FARPROC WINAPI freak_test_get_proc_address(HMODULE,LPCSTR);
-#define FlushFileBuffers freak_test_flush_buffers
+HANDLE WINAPI freak_test_open_by_id(HANDLE,LPFILE_ID_DESCRIPTOR,DWORD,DWORD,LPSECURITY_ATTRIBUTES,DWORD);
+BOOL WINAPI freak_test_information(HANDLE,LPBY_HANDLE_FILE_INFORMATION);
+BOOL WINAPI freak_test_information_ex(HANDLE,FILE_INFO_BY_HANDLE_CLASS,LPVOID,DWORD);
+DWORD WINAPI freak_test_file_type(HANDLE);
+BOOL WINAPI freak_test_volume(HANDLE,LPWSTR,DWORD,LPDWORD,LPDWORD,LPDWORD,LPWSTR,DWORD);
+BOOL WINAPI freak_test_close(HANDLE);
 #define GetProcAddress freak_test_get_proc_address
+#define OpenFileById freak_test_open_by_id
+#define GetFileInformationByHandle freak_test_information
+#define GetFileInformationByHandleEx freak_test_information_ex
+#define GetFileType freak_test_file_type
+#define GetVolumeInformationByHandleW freak_test_volume
+#define CloseHandle freak_test_close
 #include "freak_runtime.c"
+_Static_assert(sizeof(freak_fs_nt_io)==sizeof(IO_STATUS_BLOCK),"native IOSB size");
+_Static_assert(offsetof(freak_fs_nt_io,value)==offsetof(IO_STATUS_BLOCK,Status),"native IOSB status");
+_Static_assert(offsetof(freak_fs_nt_io,information)==offsetof(IO_STATUS_BLOCK,Information),"native IOSB information");
+_Static_assert(sizeof(freak_fs_nt_device)==sizeof(FILE_FS_DEVICE_INFORMATION),"device native size");
+_Static_assert(offsetof(freak_fs_nt_device,characteristics)==offsetof(FILE_FS_DEVICE_INFORMATION,Characteristics),"device native layout");
 '''
 
 POSIX_TEMP_HARNESS = r'''
@@ -246,11 +459,14 @@ def main() -> int:
     begin = contents.index('typedef BOOL', contents.index('FREAK_WINDOWS_ACL_POLICY_BEGIN'))
     end = contents.index('/* FREAK_WINDOWS_ACL_POLICY_END */', begin)
     policy = contents[begin:end]
+    sync_begin = contents.index('typedef LONG', contents.index('FREAK_WINDOWS_DIRECTORY_SYNC_BEGIN'))
+    sync_end = contents.index('/* FREAK_WINDOWS_DIRECTORY_SYNC_END */', sync_begin)
+    sync = contents[sync_begin:sync_end]
     hashes = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in [include, runtime/'freak_runtime.c', runtime/'freak_runtime.h', runtime/'freak_llvm_runtime.c']}
     records = []
-    report = {'runtime_sha256': hashes, 'cases': records, 'native_windows_verified': os.name == 'nt',
+    report = {'runtime_sha256': hashes, 'test_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), 'cases': records, 'native_windows_verified': os.name == 'nt',
               'portable_scope': 'exact ACL policy with synthetic native-layout fixtures; not Windows syscall behavior',
-              'native_windows_scope': 'real caller ownership, private/readonly/nonowner-write/null DACLs, real directory flush and first-flush fault'}
+              'native_windows_scope': 'real local NTFS/full128 identity opens, checked normal NtFlushEx, original ACL controls, both parents, partial completion, owned rollback, atomic replacement/deletion order; controlled rejection models labelled separately'}
     flags = ['-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-g'] if args.sanitize else []
     environment = dict(os.environ, ASAN_OPTIONS='detect_leaks=1:halt_on_error=1', UBSAN_OPTIONS='halt_on_error=1')
     with tempfile.TemporaryDirectory(prefix='freak-windows-fs-') as temporary:
@@ -277,6 +493,33 @@ def main() -> int:
             assert result.returncode == 0 and not result.stderr and result.stdout.startswith(b'POLICY_OK '), result
             records.append({'case': 'portable-acl-policy', 'optimization': optimization, 'checks': int(result.stdout.split()[1]), 'status': 'pass'})
             print(f'PASS portable Windows ACL policy O{optimization}: {result.stdout.strip().decode()}', flush=True)
+        model_source = home/'sync-model.c';model_source.write_text(SYNC_MODEL.replace('PRODUCTION_SYNC',sync))
+        model_cases = ('native', *SYNC_CONTROLS, 'attributes-error', 'root-reparse', 'root-file', 'root-device', 'identity-error', 'query-io-error', 'flush-error', 'flush-io-error', *NONFINAL_CONTROLS)
+        for optimization in args.optimization or (0, 2, 3):
+            binary = home/f'sync-model-{optimization}'
+            built = subprocess.run([clang,str(model_source),f'-O{optimization}',*flags,'-o',str(binary)],capture_output=True,timeout=60);assert built.returncode==0,built.stderr
+            for name in model_cases:
+                result = subprocess.run([str(binary),name],env=environment,capture_output=True,timeout=15)
+                if name in NONFINAL_CONTROLS:
+                    assert result.returncode==1 and b'nonfinal synchronous directory' in result.stderr and b'UNSAFE_EXIT_CALLBACK' not in result.stderr and not result.stdout,(name,result)
+                else:assert result.returncode==0 and not result.stderr and result.stdout.startswith(b'SYNC_MODEL_OK '),(name,result)
+                records.append({'case':'controlled-sync-model-'+name,'optimization':optimization,'status':'pass','native_windows_execution':False})
+            print(f'PASS exact production directory sync model O{optimization}: {len(model_cases)} controls',flush=True)
+        negative_controls = []
+        for name, weakened, case in (
+                ('truncate-identity-to64',sync.replace('sizeof(identity.FileId.Identifier)', '8'),'identity-high'),
+                ('ignore-provider-remote',sync.replace('(device.characteristics & 0x10 /* FILE_REMOTE_DEVICE */)', 'false'),'query-remote'),
+                ('skip-real-flush',sync.replace('status=flush(writable,0,NULL,0,&io);', 'io.value.status=0; status=0;'),'native'),
+                ('return-with-pending-iosb',sync.replace('freak_fs_sync_nonfinal("flush");', 'return false;'),'flush-pending')):
+            assert weakened != sync
+            model_source.write_text(SYNC_MODEL.replace('PRODUCTION_SYNC',weakened))
+            binary=home/'broken-sync-model'
+            built=subprocess.run([clang,str(model_source),'-O2',*flags,'-o',str(binary)],capture_output=True,timeout=60);assert built.returncode==0,built.stderr
+            result=subprocess.run([str(binary),case],env=environment,capture_output=True,timeout=15)
+            assert result.returncode!=0 and (b'MODEL_ASSERTION' in result.stderr or b'UNSAFE_EXIT_CALLBACK' in result.stderr),(name,result)
+            assert b'nonfinal synchronous directory' not in result.stderr,(name,result)
+            negative_controls.append({'case':name,'status':'rejected','returncode':result.returncode,'stderr':result.stderr.decode(errors='replace')})
+        report['broken_implementation_controls']=negative_controls
         if os.name != 'nt' and os.uname().sysname == 'Linux':
             temp_source = home/'temp-parents.c';temp_source.write_text(POSIX_TEMP_HARNESS)
             for adapter in ('c', 'llvm'):
@@ -311,25 +554,37 @@ def main() -> int:
             assert result.returncode == 0, result.stderr
             symbols = coff_undefined_symbols(object_path)
             security_names = ('OpenProcessToken', 'OpenThreadToken', 'GetTokenInformation', 'GetSecurityInfo', 'CreateWellKnownSid', 'IsValidAcl', 'GetAce', 'IsValidSid', 'EqualSid')
-            assert '__imp_ReOpenFile' in symbols and not any(s.endswith(n) for s in symbols for n in security_names), symbols
+            assert '__imp_OpenFileById' in symbols and '__imp_GetVolumeInformationByHandleW' in symbols and '__imp_ReOpenFile' in symbols and not any(s.endswith(n) for s in symbols for n in security_names), symbols
             report['windows_sdk_object'] = {'command': command, 'status': 'pass', 'sha256': hashlib.sha256(object_path.read_bytes()).hexdigest(), 'undefined_symbols': symbols, 'no_new_security_library_imports': True, 'native_execution': False}
         if os.name == 'nt':
             for adapter in ('c', 'llvm'):
                 for optimization in args.optimization or (0, 2, 3):
                     binary = home/f'{adapter}-{optimization}.exe'
-                    command = [clang, str(harness), str(wrapper), f'-I{runtime}', f'-O{optimization}', *flags, '-lws2_32', '-lshell32', '-ladvapi32', '-o', str(binary)]
+                    command = [clang, str(harness), str(wrapper), f'-I{runtime}', f'-O{optimization}', *flags, '-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1', '-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1', '-lws2_32', '-lshell32', '-ladvapi32', '-lntdll', '-o', str(binary)]
                     if adapter == 'llvm':command += ['-DUSE_LLVM_ADAPTER=1', str(runtime/'freak_llvm_runtime.c')]
                     built = subprocess.run(command, capture_output=True, timeout=90);assert built.returncode == 0, built.stderr
-                    for name in ('native', 'readonly-others', 'source-write', 'destination-write', 'write-dac', 'delete-child', 'null-dacl', 'missing-security-api', 'directory-fault'):
+                    for name in ('native', 'readonly-others', 'source-write', 'destination-write', 'write-dac', 'delete-child', 'null-dacl', 'missing-security-api', 'directory-fault', *SYNC_CONTROLS, *NONFINAL_CONTROLS, 'replace-delete', 'temp-rollback'):
                         case = home/f'{adapter}-{optimization}-{name}';case.mkdir();source_root, destination = case/'source', case/'destination'
-                        source_root.mkdir();destination.mkdir();(source_root/'a').write_bytes(b'published\0\xff');(destination/'neighbor').write_bytes(b'unchanged')
+                        source_root.mkdir();destination.mkdir();(source_root/'a').write_bytes(b'published\0\xff');(destination/'neighbor').write_bytes(b'unchanged');(source_root/'deletable').write_bytes(b'delete-me')
                         result = subprocess.run([str(binary), str(source_root), str(destination), name], env=environment, capture_output=True, timeout=15)
-                        assert result.returncode == 0 and not result.stderr, (adapter, optimization, name, result)
-                        moved = name in ('native', 'readonly-others', 'directory-fault')
                         assert (destination/'neighbor').read_bytes() == b'unchanged'
-                        assert not (source_root/'a').exists() if moved else (source_root/'a').read_bytes() == b'published\0\xff'
-                        assert (destination/'result').read_bytes() == b'published\0\xff' if moved else not (destination/'result').exists()
-                        records.append({'adapter': adapter, 'optimization': optimization, 'case': 'native-windows-'+name, 'status': 'pass'})
+                        assert not any(p.is_dir() and p.name.startswith('warm') for p in source_root.iterdir()), 'actual warmup owned directory must be absent'
+                        if name in NONFINAL_CONTROLS:
+                            assert result.returncode==1 and b'nonfinal synchronous directory' in result.stderr and b'UNSAFE_EXIT_CALLBACK' not in result.stderr,(name,result)
+                            assert (source_root/'runtime').is_dir(), 'namespace mutation remains completed on fatal contract violation'
+                        else:
+                            assert result.returncode==0 and not result.stderr,(adapter,optimization,name,result)
+                            assert result.stdout.startswith(b'WARMUP_HANDLES ') and b'WINDOWS_OK ' in result.stdout,result.stdout
+                            moved=name in ('native','readonly-others','directory-fault')
+                            if name=='replace-delete':
+                                assert (source_root/'a').read_bytes()==b'N\0\xff' and not (source_root/'deletable').exists()
+                            else:assert not (source_root/'a').exists() if moved else (source_root/'a').read_bytes()==b'published\0\xff'
+                            assert (destination/'result').read_bytes()==b'published\0\xff' if moved else not (destination/'result').exists()
+                            if name in SYNC_CONTROLS:assert (source_root/'runtime').is_dir(), 'completed failed barrier must leave actual creation'
+                            if name=='temp-rollback':assert not (destination/'published').exists() and sorted(p.name for p in source_root.iterdir())==['a','deletable']
+                        records.append({'adapter':adapter,'optimization':optimization,'case':'native-windows-'+name,'status':'pass',
+                                        'controlled_api_response':name in (*SYNC_CONTROLS,*NONFINAL_CONTROLS,'directory-fault'),
+                                        'stdout':result.stdout.decode(errors='replace'),'stderr':result.stderr.decode(errors='replace')})
     assert hashes == {str(path): hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in hashes}, 'runtime changed during verification'
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True);args.report.write_text(json.dumps(report, indent=2)+'\n')

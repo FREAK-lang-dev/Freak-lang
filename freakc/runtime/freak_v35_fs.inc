@@ -529,11 +529,71 @@ static freak_fs_anchor freak_fs_anchor_reopen(freak_fs_anchor directory,ACCESS_M
     }
     return reopened;
 }
+/* FREAK_WINDOWS_DIRECTORY_SYNC_BEGIN: normal native directory flush is only
+   supported here on positively identified local NTFS. Other providers may
+   report a successful directory flush without persisting its structure. */
+typedef LONG (NTAPI *freak_fs_nt_flush_ex_fn)(HANDLE,ULONG,PVOID,ULONG,freak_fs_nt_io *);
+typedef LONG (NTAPI *freak_fs_nt_query_volume_fn)(HANDLE,freak_fs_nt_io *,PVOID,ULONG,ULONG);
+typedef struct { ULONG device_type, characteristics; } freak_fs_nt_device;
+static void freak_fs_nt_error(LONG status) {
+    typedef ULONG (WINAPI *convert_fn)(LONG);
+    convert_fn convert=(convert_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"RtlNtStatusToDosError");
+    SetLastError(convert ? convert(status) : ERROR_IO_DEVICE);
+}
+static void freak_fs_sync_nonfinal(const char *operation) {
+    /* These handles and APIs are synchronous. A nonfinal request must not
+       escape its stack IOSB/output or close its handle before completion.
+       Teardown keeps those objects alive and skips reentrant exit callbacks. */
+    fprintf(stderr,"FREAK runtime: nonfinal synchronous directory %s; namespace changes may have completed\n",operation);
+    fflush(NULL); _Exit(1);
+}
 static bool freak_fs_anchor_sync(freak_fs_anchor directory) {
-    HANDLE writable=freak_fs_anchor_reopen(directory,GENERIC_WRITE);
-    bool synchronized=writable != INVALID_HANDLE_VALUE && FlushFileBuffers(writable) != 0;
+    DWORD previous=GetLastError();
+    HMODULE native=GetModuleHandleW(L"ntdll.dll");
+    freak_fs_nt_query_volume_fn query=(freak_fs_nt_query_volume_fn)(void *)GetProcAddress(native,"NtQueryVolumeInformationFile");
+    freak_fs_nt_flush_ex_fn flush=(freak_fs_nt_flush_ex_fn)(void *)GetProcAddress(native,"NtFlushBuffersFileEx");
+    if (!query || !flush) { SetLastError(ERROR_PROC_NOT_FOUND); return false; }
+    BY_HANDLE_FILE_INFORMATION attributes; FILE_ID_INFO identity;
+    if (!GetFileInformationByHandle(directory,&attributes) ||
+        !GetFileInformationByHandleEx(directory,FileIdInfo,&identity,sizeof(identity))) return false;
+    if (GetFileType(directory) != FILE_TYPE_DISK || !(attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+        (attributes.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) { SetLastError(ERROR_ACCESS_DENIED); return false; }
+    wchar_t filesystem[32]={0};
+    if (!GetVolumeInformationByHandleW(directory,NULL,0,NULL,NULL,NULL,filesystem,32)) return false;
+    if (wcscmp(filesystem,L"NTFS")) { SetLastError(ERROR_NOT_SUPPORTED); return false; }
+    freak_fs_nt_device device={0}; freak_fs_nt_io io={0}; io.value.status=0x103 /* STATUS_PENDING */;
+    LONG status=query(directory,&io,&device,sizeof(device),4 /* FileFsDeviceInformation */);
+    if (status == 0x103 || (status == 0 && io.value.status == 0x103)) freak_fs_sync_nonfinal("device query");
+    if (status != 0) { freak_fs_nt_error(status); return false; }
+    if (io.value.status != 0) { freak_fs_nt_error(io.value.status); return false; }
+    if (io.information < sizeof(device) || device.device_type != 7 /* FILE_DEVICE_DISK */ ||
+        (device.characteristics & 0x10 /* FILE_REMOTE_DEVICE */)) { SetLastError(ERROR_NOT_SUPPORTED); return false; }
+    /* Open the held identity with minimum directory append access. ReOpenFile
+       cannot reliably change access on the NtCreateFile-held directories.
+       ExtendedFileIdType preserves all 128 bits; no path or short-ID fallback. */
+    FILE_ID_DESCRIPTOR descriptor={0}; descriptor.dwSize=sizeof(descriptor);
+    descriptor.Type=ExtendedFileIdType; descriptor.ExtendedFileId=identity.FileId;
+    HANDLE writable=OpenFileById(directory,&descriptor,FILE_APPEND_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,NULL,FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    if (writable == INVALID_HANDLE_VALUE) return false;
+    FILE_ID_INFO reopened; bool synchronized=false;
+    if (!GetFileInformationByHandle(writable,&attributes) ||
+        !GetFileInformationByHandleEx(writable,FileIdInfo,&reopened,sizeof(reopened))) goto finish;
+    if (GetFileType(writable) != FILE_TYPE_DISK || !(attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+        (attributes.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) || identity.VolumeSerialNumber != reopened.VolumeSerialNumber ||
+        memcmp(identity.FileId.Identifier,reopened.FileId.Identifier,sizeof(identity.FileId.Identifier))) {
+        SetLastError(ERROR_ACCESS_DENIED); goto finish;
+    }
+    io=(freak_fs_nt_io){0}; io.value.status=0x103;
+    status=flush(writable,0,NULL,0,&io);
+    if (status == 0x103 || (status == 0 && io.value.status == 0x103)) freak_fs_sync_nonfinal("flush");
+    if (status != 0) freak_fs_nt_error(status);
+    else if (io.value.status != 0) freak_fs_nt_error(io.value.status);
+    else { synchronized=true; SetLastError(previous); }
+finish:
     freak_fs_anchor_close(writable); return synchronized;
 }
+/* FREAK_WINDOWS_DIRECTORY_SYNC_END */
 /* FREAK_WINDOWS_ACL_POLICY_BEGIN: tested policy uses the native ACL layout. */
 typedef BOOL (WINAPI *freak_fs_acl_valid_fn)(PACL);
 typedef BOOL (WINAPI *freak_fs_ace_fn)(PACL,DWORD,PVOID *);
