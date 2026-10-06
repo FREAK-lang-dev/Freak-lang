@@ -211,9 +211,10 @@ static LONG NTAPI probe_nt_query_volume(HANDLE handle, freak_fs_nt_io *io,
             event->io_information = io->information;
             if (information && kind == FileFsDeviceInformation && length >= sizeof(FILE_FS_DEVICE_INFORMATION) &&
                 io->information >= sizeof(FILE_FS_DEVICE_INFORMATION) && io->information <= length) {
-                FILE_FS_DEVICE_INFORMATION *device = information;
-                event->has_device = 1; event->device_type = device->DeviceType;
-                event->attributes = device->Characteristics;
+                FILE_FS_DEVICE_INFORMATION device;
+                memcpy(&device, information, sizeof(device));
+                event->has_device = 1; event->device_type = device.DeviceType;
+                event->attributes = device.Characteristics;
             }
         }
     }
