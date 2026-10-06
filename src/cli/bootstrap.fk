@@ -546,10 +546,60 @@ task cli_bootstrap_read_sources(directory: int, locked: bool) -> bool {
     give back cli_bootstrap_error == ""
 }
 
+task cli_bootstrap_git_candidate(directory: word) -> word {
+    pilot mut entry = directory
+    if entry.length() >= 2 and entry.starts_with("\"") and entry.ends_with("\"") {
+        pilot bytes: ByteBuffer = ByteBuffer::with_capacity(entry.length())
+        bytes.write_word(entry)
+        pilot length = bytes.length()
+        bytes.release()
+        entry = entry.substring(1, length - 2)
+    }
+    if entry == "" { give back "" }
+    pilot candidate = cli_host_path_join(entry, "git.exe")
+    pilot info = fs::stat_checked(candidate)
+    pilot usable = fs::result_ok(info) and fs::result_kind(info) == 1 and fs::result_size(info) > 0
+    fs::result_release(info)
+    if not usable { give back "" }
+    pilot resolved = fs::canonical_path(candidate)
+    pilot mut executable = ""
+    if fs::result_ok(resolved) and cli_output_path_absolute(fs::result_word(resolved)) {
+        executable = fs::result_word(resolved)
+    }
+    fs::result_release(resolved)
+    give back executable
+}
+
+task cli_bootstrap_git_executable() -> word {
+    if not freak_process_platform_is_windows() { give back "git" }
+    -- CreateProcessW receives an explicit application name and does not search PATH.
+    -- Select a native executable without a shell, retaining its canonical prefix.
+    pilot path = process::env("PATH")
+    -- char_at and substring use byte offsets; word.length counts UTF-8 characters.
+    pilot bytes: ByteBuffer = ByteBuffer::with_capacity(path.length())
+    bytes.write_word(path)
+    pilot length = bytes.length()
+    bytes.release()
+    pilot mut start = 0
+    pilot mut index = 0
+    pilot mut quoted = false
+    repeat until index > length {
+        if index == length or (path.char_at(index) == ";" and not quoted) {
+            pilot executable = cli_bootstrap_git_candidate(path.substring(start, index - start))
+            if executable != "" { give back executable }
+            start = index + 1
+        } else if path.char_at(index) == "\"" { quoted = not quoted }
+        index += 1
+    }
+    -- Preserve the existing unavailable-Git/archive result when PATH has no candidate.
+    give back "git"
+}
+
 task cli_bootstrap_git_check(source_root: word) -> bool {
     -- Git is a local byte cross-check when the selected directory is a checkout.
     -- Archives still require the complete byte inventory; no network is used.
-    pilot probe = process::command_new("git")
+    pilot git_executable = cli_bootstrap_git_executable()
+    pilot probe = process::command_new(git_executable)
     process::command_arg(probe, "-C")
     process::command_arg(probe, source_root)
     process::command_arg(probe, "rev-parse")
@@ -576,7 +626,7 @@ task cli_bootstrap_git_check(source_root: word) -> bool {
     fs::result_release(expected)
     fs::result_release(actual)
     if not same { give back cli_bootstrap_fail("selected Git checkout directory does not match bootstrap source_prefix") }
-    pilot commit = process::command_new("git")
+    pilot commit = process::command_new(git_executable)
     process::command_arg(commit, "-C")
     process::command_arg(commit, git_root)
     process::command_arg(commit, "cat-file")
@@ -588,7 +638,7 @@ task cli_bootstrap_git_check(source_root: word) -> bool {
         pilot relative = array_get(cli_bootstrap_source_paths, index)
         pilot mut selected = relative
         if cli_bootstrap_source_prefix != "" { selected = cli_bootstrap_source_prefix + "/" + relative }
-        pilot command = process::command_new("git")
+        pilot command = process::command_new(git_executable)
         process::command_arg(command, "-C")
         process::command_arg(command, git_root)
         process::command_arg(command, "cat-file")

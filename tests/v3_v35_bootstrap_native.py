@@ -692,8 +692,21 @@ def main() -> int:
             before = {relative: digest(checkout / relative) for _, _, relative in checkout_records}
             git_output = output_parent / 'git-bundle'
             git_result = bootstrap(installed, checkout, git_output, env)
+            if os.name == 'nt':
+                raw=witness.read_bytes() if witness.exists() else b''
+                native_observation['git_checkout_bootstrap']={
+                    'returncode':git_result.returncode,'stdout_hex':git_result.stdout.hex(),
+                    'stderr_hex':git_result.stderr.hex(),'cumulative_witness_frames_hex':raw.hex(),
+                    'witness_phase':'second local Git checkout bootstrap'}
+                save_clang_observations(args.evidence,forwarder,clang_paths,staged_witnesses,
+                                        failed=git_result.returncode!=0,native=native_observation)
             assert git_result.returncode == 0, (git_result.returncode, git_result.stdout[-4000:], git_result.stderr[-4000:])
             git_report = json.loads((git_output / 'bootstrap-report.json').read_text())
+            if os.name == 'nt':
+                native_observation['git_checkout_bootstrap']['report']=git_report
+                save_clang_observations(args.evidence,forwarder,clang_paths,staged_witnesses,
+                                        failed=git_report['git_verification']!='commit-source-bytes-verified',
+                                        native=native_observation)
             assert git_report['git_verification'] == 'commit-source-bytes-verified', git_report
             assert {relative: digest(checkout / relative) for _, _, relative in checkout_records} == before
             checks.append('exact local Git object/source-byte verification and unchanged checkout')
