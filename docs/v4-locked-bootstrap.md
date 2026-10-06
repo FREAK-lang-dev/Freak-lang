@@ -19,6 +19,9 @@ when automatic discovery does not select it. Bootstrap targets the current
 host. Windows requires Windows 8 or newer and a GNU-targeting LLVM-MinGW UCRT
 toolchain; release and bootstrap CI pin the 20260616 UCRT SDK. Plain MSVC
 linking and legacy MSVCRT SDKs are unsupported by this bootstrap profile.
+Windows source, include and output paths passed to Clang use forward separators
+with the extended prefix intact. LLVM normalizes these paths during header
+search in both bootstrap and preview compilation.
 Windows arguments are decoded from the CRT's wide vector into UTF-8. Invalid
 Unicode or allocation failure during that initialization is fatal: the runtime
 frees staging, flushes its diagnostic and stops without invoking user exit
@@ -64,8 +67,9 @@ publication, failure and handle-balance checks at O0, O2 and O3. Its Linux job
 also runs the word ownership, copied-byte and bounded C-emission failure
 gates with ASan and UBSan. Platform results must be read at the current PR head.
 
-The scout's official V4 revision is used without input patches. On Linux,
-480 identical source inputs produced byte-identical stdout, stderr and status
+The official V4 crates and LLVM driver retain their pinned source bytes.
+Historical Linux comparisons of the word optimization used 480 identical source
+inputs and produced byte-identical stdout, stderr and status
 against a freshly Python-built compiler of the same revision: 54 modules and
 426 diagnostic cases. Additional abort/read-failure controls and three larger
 sources agreed. The C emitter now borrows read-only word identifiers after
