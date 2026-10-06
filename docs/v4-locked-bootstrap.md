@@ -25,6 +25,16 @@ frees staging, flushes its diagnostic and stops without invoking user exit
 callbacks. Successfully decoded argument views remain valid through normal
 exit callbacks and process teardown.
 
+Windows staged publication requires local NTFS directories. Each parent barrier
+classifies the held directory's filesystem and device, opens its full 128-bit
+file identity on that volume, verifies the opened directory, and requires a
+completed native directory flush. Missing APIs, remote or unsupported providers,
+identity mismatches and flush errors fail the checked operation. A namespace
+change can already have completed when its barrier fails; the error preserves
+that distinction. An unexpected nonfinal synchronous result flushes its
+diagnostic and terminates without user callbacks. This profile does not claim
+support for every Windows 8 NTFS provider or proof from power-loss testing.
+
 The command validates the locked inputs, compiles the V4 engine and launcher,
 tests query invalidation and generated programs, and publishes the preview only
 after those checks pass. The shipping V3 executable is preserved. The output
@@ -49,7 +59,9 @@ installed native CLI, real Clang, the frozen source bundle, and an optional Git
 checkout for exact source-object checks. It invokes the real public command;
 Python is only its test orchestrator. The dedicated `Locked V4 bootstrap`
 workflow reconstructs and verifies this installed command on native Linux,
-macOS and Windows. Its Linux job also runs the word ownership and copied-byte
+macOS and Windows. Its Windows job also runs native filesystem identity,
+publication, failure and handle-balance checks at O0, O2 and O3. Its Linux job
+also runs the word ownership and copied-byte
 gate with ASan and UBSan. Platform results must be read at the current PR head.
 
 The scout's official V4 revision is used without input patches. On Linux,
