@@ -1,3 +1,12 @@
+#ifdef _WIN32
+/* FileIdInfo preserves the full 128-bit held-file identity. LLVM-MinGW's
+   default targets Windows 7, which hides that Windows 8 SDK interface. */
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
+#elif _WIN32_WINNT < 0x0602
+#error "FREAK checked filesystem requires _WIN32_WINNT >= 0x0602 (Windows 8)"
+#endif
+#endif
 #ifdef __APPLE__
 /* Checked directory walks require Darwin's real no-follow and BSD locking
    interfaces even when the shared runtime also requests POSIX declarations. */

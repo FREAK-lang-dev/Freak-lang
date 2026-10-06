@@ -2,6 +2,12 @@
    Compile this standalone file; it includes the runtime with local I/O wrappers.
    Run with args: empty regular file, readable regular file, missing path, directory.
    POSIX FIFO/unreadable paths may follow as extra expected failures. */
+#ifdef _WIN32
+/* Select the runtime's required API before MinGW CRT headers set a default. */
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
+#endif
+#endif
 #ifdef __APPLE__
 /* This fixture includes libc before the runtime, so select the same Darwin
    interfaces before those headers freeze their feature visibility. */

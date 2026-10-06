@@ -116,6 +116,19 @@ def main() -> int:
                     ):
                         result = run([*cross, *(str(p) for p in sources)], f"windows-sdk-{name}")
                         assert result.returncode == 0, result.stderr.decode(errors="replace")
+                if os.name == "nt" or args.windows_sdk:
+                    windows = ([clang, *strict, "-fsyntax-only"] if os.name == "nt" else cross)
+                    for version in ("0x0602", "0x0a00"):
+                        result = run([*windows, "-Werror=macro-redefined", f"-D_WIN32_WINNT={version}",
+                                      str(runtime / "freak_runtime.c"),
+                                      str(runtime / "freak_llvm_runtime.c"), str(fixture)],
+                                     f"windows-api-supported-{version}")
+                        assert result.returncode == 0, result.stderr.decode(errors="replace")
+                    result = run([*windows, "-D_WIN32_WINNT=0x0601",
+                                  str(runtime / "freak_runtime.c")], "windows-api-unsupported-0x0601")
+                    assert result.returncode != 0 and (
+                        b"FREAK checked filesystem requires _WIN32_WINNT >= 0x0602 (Windows 8)"
+                        in result.stderr), records[-1]
             finally:
                 denied.chmod(0o600)
         assert hashes == {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}, "inputs changed during gate"
