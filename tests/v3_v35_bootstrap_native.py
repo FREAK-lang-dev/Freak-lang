@@ -18,6 +18,8 @@ import subprocess
 import tempfile
 import time
 
+NATIVE_PROGRAM_STDOUT = b'native-v4\r\n' if os.name == 'nt' else b'native-v4\n'
+
 WRAPPER = r'''#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
@@ -216,7 +218,7 @@ def main() -> int:
                 assert b'define i32 @main' in module and b'@@V4-MODULE' not in module
             if action == 'build':
                 executed = subprocess.run([destination], cwd=root, env=contradictory, capture_output=True, timeout=30)
-                assert executed.returncode == 42 and executed.stdout == b'native-v4\n' and not executed.stderr, executed
+                assert executed.returncode == 42 and executed.stdout == NATIVE_PROGRAM_STDOUT and not executed.stderr, executed
         checks.append('relocated preview version/check/emit/build and actual native program execution')
         if os.name != 'nt':
             # Backslashes are literal POSIX bytes. Guard the different slash path
@@ -236,7 +238,7 @@ def main() -> int:
                     assert b'define i32 @main' in requested.read_bytes()
                 else:
                     executed = subprocess.run([requested], cwd=root, env=contradictory, capture_output=True, timeout=30)
-                    assert executed.returncode == 42 and executed.stdout == b'native-v4\n' and not executed.stderr, executed
+                    assert executed.returncode == 42 and executed.stdout == NATIVE_PROGRAM_STDOUT and not executed.stderr, executed
             checks.append('POSIX trailing-backslash parents, repeated separators and literal output leaves preserve unrelated slash-path bytes')
         # Public preview error contracts include stale-output invalidation and aliases.
         program.write_text('task main() -> int { pilot broken = }\n', encoding='utf-8')

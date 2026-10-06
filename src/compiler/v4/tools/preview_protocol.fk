@@ -23,8 +23,11 @@ task preview_protocol_module(output: word) -> word {
     pilot mut success_frames = 0
     pilot mut rejected = false
     repeat until index >= output.length() {
-        pilot line = preview_protocol_line(output, index)
+        pilot mut line = preview_protocol_line(output, index)
         index += line.length() + 1
+        -- Accept the native CRT's line delimiter while preserving module bytes
+        -- and calculating offsets from the original captured line length.
+        if line.ends_with("\r") { line = line.substring(0, line.length() - 1) }
         if line == "@@V4-MODULE" { if success_frames != 1 { rejected = true }
             markers += 1
             module_start = index }

@@ -733,7 +733,15 @@ task cli_bootstrap_compile(clang: word, stage_root: word, name: word, target: wo
     give back true
 }
 
+task cli_bootstrap_expected_native_stdout(text: word) -> word {
+    -- The native Windows CRT writes CRLF to captured text streams. Keep the
+    -- captured bytes intact and construct the exact host-specific oracle.
+    if freak_process_platform_is_windows() { give back text.replace("\n", "\r\n") }
+    give back text
+}
+
 task cli_bootstrap_program(executable: word, expected_exit: int, expected_stdout: word) -> bool {
+    pilot expected = cli_bootstrap_expected_native_stdout(expected_stdout)
     pilot command = process::command_new(executable)
     pilot status = process::command_run(command, 10000, 65536, 65536)
     pilot code = process::command_exit_code(command)
@@ -746,7 +754,7 @@ task cli_bootstrap_program(executable: word, expected_exit: int, expected_stdout
     pilot diagnostic = cli_build_output_text(stderr_bytes)
     pilot error = process::command_error(command)
     process::command_release(command)
-    if status != 2 or code != expected_exit or not text_ok or output != expected_stdout or not empty_stderr {
+    if status != 2 or code != expected_exit or not text_ok or output != expected or not empty_stderr {
         if diagnostic != "" { say diagnostic }
         if text_ok and output != "" { say output }
         give back cli_bootstrap_fail("native corpus execution failed: status " + word_from_int(status) + ", exit " + word_from_int(code) + "; " + error)
@@ -963,12 +971,13 @@ task cli_bootstrap_v4(source_root: word, output: word, locked: bool) -> bool {
     if cli_bootstrap_error == "" {
         pilot identity_command = process::command_new(engine)
         process::command_arg(identity_command, "--identity")
-        if cli_bootstrap_capture(identity_command, 10000, 65536, "native V4 identity probe") != "FREAK-V4-NATIVE-1 " + cli_bootstrap_source_commit + " " + cli_bootstrap_input_sha256 + "\n" { cli_bootstrap_fail("native V4 identity probe returned the wrong compiler identity") }
+        pilot expected_identity = cli_bootstrap_expected_native_stdout("FREAK-V4-NATIVE-1 " + cli_bootstrap_source_commit + " " + cli_bootstrap_input_sha256 + "\n")
+        if cli_bootstrap_capture(identity_command, 10000, 65536, "native V4 identity probe") != expected_identity { cli_bootstrap_fail("native V4 identity probe returned the wrong compiler identity") }
     }
     if cli_bootstrap_error == "" {
         pilot query_command = process::command_new(engine)
         process::command_arg(query_command, "--query-probe")
-        if cli_bootstrap_capture(query_command, 10000, 65536, "native V4 query store/invalidation probe") != "FREAK-V4-QUERY-OK\n" { cli_bootstrap_fail("native V4 query probe did not store and invalidate its query") }
+        if cli_bootstrap_capture(query_command, 10000, 65536, "native V4 query store/invalidation probe") != cli_bootstrap_expected_native_stdout("FREAK-V4-QUERY-OK\n") { cli_bootstrap_fail("native V4 query probe did not store and invalidate its query") }
     }
     if cli_bootstrap_error == "" { cli_bootstrap_corpus(owned, stage_root, engine, clang, target) }
     pilot mut engine_hash = ""
