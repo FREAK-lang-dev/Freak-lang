@@ -436,13 +436,15 @@ task cli_bootstrap_mkdirs(directory: int, relative: word) -> bool {
             pilot existing = fs::open_relative_dir_ticket(directory, parent)
             pilot mut valid = fs::result_ok(existing)
             pilot missing = fs::result_missing(existing)
+            pilot mut error = fs::result_error(existing)
             fs::result_release(existing)
             if not valid and missing {
                 pilot made = fs::mkdir_relative_checked(directory, parent)
                 valid = fs::result_ok(made)
+                error = fs::result_error(made)
                 fs::result_release(made)
             }
-            if not valid { give back cli_bootstrap_fail("cannot prepare ordinary owned bootstrap directory: " + parent) }
+            if not valid { give back cli_bootstrap_fail("cannot prepare ordinary owned bootstrap directory: " + parent + ": " + error) }
         }
         index += 1
     }
