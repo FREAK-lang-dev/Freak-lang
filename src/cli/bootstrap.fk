@@ -702,6 +702,13 @@ task cli_bootstrap_run_stage(builder: word, stage_root: word, nonce: word, actio
     give back true
 }
 
+-- LLVM normalizes the //?/ spelling before it joins include paths on Windows.
+-- Keep the held filesystem paths unchanged; render only external Clang inputs.
+task cli_bootstrap_clang_path(path: word) -> word {
+    if freak_process_platform_is_windows() { give back path.replace("\\", "/") }
+    give back path
+}
+
 task cli_bootstrap_compile(clang: word, stage_root: word, name: word, target: word, llvm: bool) -> bool {
     pilot command = process::command_new(clang)
     process::command_arg(command, "-O0")
@@ -713,22 +720,22 @@ task cli_bootstrap_compile(clang: word, stage_root: word, name: word, target: wo
     process::command_arg(command, "--target=" + target)
     pilot mut source = name + ".c"
     if llvm { source = name + ".ll" }
-    process::command_arg(command, cli_host_path_join(stage_root, source))
+    process::command_arg(command, cli_bootstrap_clang_path(cli_host_path_join(stage_root, source)))
     pilot mut index = 0
     repeat until index >= array_len(cli_bootstrap_runtime_paths) {
         pilot relative = array_get(cli_bootstrap_runtime_paths, index)
         if array_get(cli_bootstrap_runtime_roles, index) == "source" and (llvm or relative == "freak_runtime.c") {
-            process::command_arg(command, cli_host_path_join(stage_root, "runtime/" + relative))
+            process::command_arg(command, cli_bootstrap_clang_path(cli_host_path_join(stage_root, "runtime/" + relative)))
         }
         index += 1
     }
     process::command_arg(command, "-I")
-    process::command_arg(command, cli_host_path_join(stage_root, "runtime"))
+    process::command_arg(command, cli_bootstrap_clang_path(cli_host_path_join(stage_root, "runtime")))
     if freak_process_platform_is_windows() { process::command_arg(command, "-lws2_32") } else { process::command_arg(command, "-lm") }
     process::command_arg(command, "-o")
     pilot mut artifact = name
     if freak_process_platform_is_windows() { artifact = artifact + ".exe" }
-    process::command_arg(command, cli_host_path_join(stage_root, artifact))
+    process::command_arg(command, cli_bootstrap_clang_path(cli_host_path_join(stage_root, artifact)))
     cli_bootstrap_capture(command, 120000, 1048576, "native Clang compile/link " + name)
     if cli_bootstrap_error != "" { give back false }
     if not cli_build_regular_output(cli_host_path_join(stage_root, artifact)) { give back cli_bootstrap_fail("Clang did not produce a complete ordinary native artifact: " + artifact) }

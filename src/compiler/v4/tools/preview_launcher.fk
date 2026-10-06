@@ -33,6 +33,12 @@ task preview_join(parent: word, relative: word) -> word {
     give back parent + "/" + relative
 }
 
+-- This spelling belongs only to external Clang, not the held filesystem paths.
+task preview_clang_path(path: word) -> word {
+    if preview_windows() { give back path.replace("\\", "/") }
+    give back path
+}
+
 task preview_parent(path: word) -> word {
     pilot mut index = 0
     pilot mut split = -1
@@ -333,24 +339,24 @@ task preview_compile(stage_root: word) -> bool {
     pilot command = process::command_new(executable)
     process::command_arg(command, "-O0")
     process::command_arg(command, "--target=" + preview_target)
-    process::command_arg(command, preview_join(stage_root, "module.ll"))
+    process::command_arg(command, preview_clang_path(preview_join(stage_root, "module.ll")))
     pilot mut index = 0
     pilot mut sources = 0
     repeat until index >= preview_runtime_sources.length() {
         pilot source = preview_line(preview_runtime_sources, index)
         index += source.length() + 1
         if source != "" {
-            process::command_arg(command, preview_join(stage_root, "runtime/" + source))
+            process::command_arg(command, preview_clang_path(preview_join(stage_root, "runtime/" + source)))
             sources += 1
         }
     }
     process::command_arg(command, "-I")
-    process::command_arg(command, preview_join(stage_root, "runtime"))
+    process::command_arg(command, preview_clang_path(preview_join(stage_root, "runtime")))
     if preview_windows() { process::command_arg(command, "-lws2_32") } else { process::command_arg(command, "-lm") }
     process::command_arg(command, "-o")
     pilot mut program_name = "program"
     if preview_windows() { program_name = "program.exe" }
-    process::command_arg(command, preview_join(stage_root, program_name))
+    process::command_arg(command, preview_clang_path(preview_join(stage_root, program_name)))
     if sources != 7 { process::command_release(command)
         give back preview_fail("private runtime does not declare seven native sources") }
     preview_capture(command, "native Clang compile/link", 120000, 1048576)

@@ -19,6 +19,10 @@ import tempfile
 import time
 
 NATIVE_PROGRAM_STDOUT = b'native-v4\r\n' if os.name == 'nt' else b'native-v4\n'
+# The required negative control is bound to the workflow's immutable UCRT SDK,
+# not a claim about every Windows Clang configuration.
+PINNED_WINDOWS_CLANG_SHA256 = 'a8b7a614eeadd9105f814be3701a7f312cda4cea51751b75b408c16100c94e85'
+PINNED_WINDOWS_SDK_SHA256 = 'b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35'
 
 WRAPPER = r'''#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
@@ -74,6 +78,114 @@ done:
     return result;
 #endif
 }
+/* Observe the actual parsed first-hop argv and staged header before Clang runs.
+   The incoming tool spelling is separate from the backslash kernel spelling.
+   Collection never changes compiler arguments or its return status. */
+static int observe_utf8(FILE *file,const wchar_t *value) {
+    int size=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,value,-1,NULL,0,NULL,NULL);
+    if(size<1)return 0;
+    unsigned char *bytes=malloc((size_t)size);
+    if(!bytes)return 0;
+    int valid=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,value,-1,(char *)bytes,size,NULL,NULL)==size;
+    if(valid)for(int i=0;i<size-1;i++)fprintf(file,"%02x",bytes[i]);
+    free(bytes);return valid;
+}
+/* Give ordinary/relative diagnostic inputs the same explicit long-path kernel
+   admission. This changes only the witness path, never the forwarded argv. */
+static wchar_t *observe_absolute_kernel(wchar_t *path,FILE *file) {
+    if(wcsncmp(path,L"\\\\?\\",4)==0)return path;
+    DWORD capacity=GetFullPathNameW(path,0,NULL,NULL);
+    DWORD error=capacity?0:GetLastError();
+    if(!capacity||capacity>32768) {
+        fprintf(file,"full_path 0 %lu %lu\n",(unsigned long)capacity,(unsigned long)error);
+        fputs("collection_error absolute-kernel-path-size\n",file);free(path);return NULL;
+    }
+    wchar_t *absolute=calloc(capacity,sizeof(wchar_t));
+    if(!absolute){fputs("collection_error absolute-kernel-path-allocation\n",file);free(path);return NULL;}
+    DWORD copied=GetFullPathNameW(path,capacity,absolute,NULL);
+    error=copied?0:GetLastError();free(path);
+    fprintf(file,"full_path %d %lu %lu\n",copied&&copied<capacity,(unsigned long)copied,(unsigned long)error);
+    if(!copied||copied>=capacity){fputs("collection_error absolute-kernel-path-resolution\n",file);free(absolute);return NULL;}
+    const wchar_t *tail=absolute;
+    const wchar_t *prefix=L"\\\\?\\";
+    if(absolute[0]==L'\\'&&absolute[1]==L'\\'){prefix=L"\\\\?\\UNC\\";tail+=2;}
+    size_t prefix_length=wcslen(prefix),length=wcslen(tail);
+    if(length>32766-prefix_length){fputs("collection_error absolute-kernel-path-limit\n",file);free(absolute);return NULL;}
+    wchar_t *extended=calloc(prefix_length+length+1,sizeof(wchar_t));
+    if(!extended){fputs("collection_error extended-kernel-path-allocation\n",file);free(absolute);return NULL;}
+    memcpy(extended,prefix,prefix_length*sizeof(wchar_t));
+    memcpy(extended+prefix_length,tail,(length+1)*sizeof(wchar_t));
+    free(absolute);return extended;
+}
+static void observe_clang_arguments(int count,wchar_t **arguments,const wchar_t *compiler) {
+    const wchar_t *include=NULL;
+    for(int i=1;i+1<count;i++)if(wcscmp(arguments[i],L"-I")==0){include=arguments[i+1];break;}
+    if(!include)return;
+    DWORD capacity=GetEnvironmentVariableW(L"FREAK_BOOTSTRAP_NATIVE_WITNESS",NULL,0);
+    if(!capacity||capacity>32768)return;
+    wchar_t *channel=calloc(capacity,sizeof(wchar_t));
+    if(!channel)return;
+    DWORD copied=GetEnvironmentVariableW(L"FREAK_BOOTSTRAP_NATIVE_WITNESS",channel,capacity);
+    FILE *file=copied&&copied<capacity?_wfopen(channel,L"ab"):NULL;
+    free(channel);if(!file)return;
+    fprintf(file,"FREAK-BOOTSTRAP-CLANG-1 %d\n",count);
+    int encoded=1;
+    for(int i=0;i<count;i++){fputs("arg ",file);encoded&=observe_utf8(file,arguments[i]);fputc('\n',file);}
+    fputs("compiler ",file);encoded&=observe_utf8(file,compiler);fputc('\n',file);
+    fputs("include ",file);encoded&=observe_utf8(file,include);fputc('\n',file);
+    size_t length=wcslen(include);
+    const wchar_t suffix[]=L"\\freak_runtime.h";
+    wchar_t *kernel=length<=32700?calloc(length+sizeof(suffix)/sizeof(wchar_t),sizeof(wchar_t)):NULL;
+    if(!kernel){fputs("collection_error path-allocation\nend\n",file);fclose(file);return;}
+    for(size_t i=0;i<length;i++)kernel[i]=include[i]==L'/'?L'\\':include[i];
+    memcpy(kernel+length,suffix,sizeof(suffix));
+    kernel=observe_absolute_kernel(kernel,file);
+    if(!kernel){fputs("end\n",file);fclose(file);return;}
+    fputs("kernel_header ",file);encoded&=observe_utf8(file,kernel);fputc('\n',file);
+    HANDLE header=CreateFileW(kernel,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
+                             NULL,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,NULL);
+    DWORD error=header==INVALID_HANDLE_VALUE?GetLastError():0;
+    fprintf(file,"open %d %lu\n",header!=INVALID_HANDLE_VALUE,(unsigned long)error);
+    free(kernel);
+    if(header!=INVALID_HANDLE_VALUE) {
+        FILE_ATTRIBUTE_TAG_INFO attributes={0};
+        BOOL attributes_ok=GetFileInformationByHandleEx(header,FileAttributeTagInfo,&attributes,sizeof(attributes));
+        error=attributes_ok?0:GetLastError();
+        fprintf(file,"attributes %d %lu %lu %lu\n",attributes_ok!=0,(unsigned long)attributes.FileAttributes,
+                (unsigned long)attributes.ReparseTag,(unsigned long)error);
+        SetLastError(0);DWORD type=GetFileType(header);
+        error=type==FILE_TYPE_UNKNOWN?GetLastError():0;
+        fprintf(file,"type %lu %lu\n",(unsigned long)type,(unsigned long)error);
+        LARGE_INTEGER size={0};
+        BOOL size_ok=GetFileSizeEx(header,&size);
+        error=size_ok?0:GetLastError();
+        fprintf(file,"size %d %lld %lu\n",size_ok!=0,(long long)size.QuadPart,(unsigned long)error);
+        if(attributes_ok&&!(attributes.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))&&
+           type==FILE_TYPE_DISK&&size_ok&&size.QuadPart>=0&&size.QuadPart<=1048576) {
+            size_t expected=(size_t)size.QuadPart,used=0;
+            unsigned char *bytes=malloc(expected+1);
+            if(!bytes)fputs("collection_error header-buffer-allocation\n",file);
+            BOOL valid=bytes!=NULL;DWORD read_error=0;
+            while(valid&&used<expected) {
+                DWORD amount=0;
+                valid=ReadFile(header,bytes+used,(DWORD)(expected-used),&amount,NULL);
+                if(!valid){read_error=GetLastError();break;}
+                if(!amount){valid=FALSE;break;}
+                used+=amount;
+            }
+            DWORD extra=0;unsigned char tail;
+            if(valid){valid=ReadFile(header,&tail,1,&extra,NULL);if(!valid)read_error=GetLastError();}
+            fprintf(file,"read %d %zu %lu %lu\n",valid!=0,used,(unsigned long)read_error,(unsigned long)extra);
+            fputs("bytes ",file);
+            if(bytes)for(size_t i=0;i<used;i++)fprintf(file,"%02x",bytes[i]);
+            fputc('\n',file);free(bytes);
+        } else fputs("collection_error header-not-bounded-ordinary-file\n",file);
+        BOOL closed=CloseHandle(header);error=closed?0:GetLastError();
+        fprintf(file,"close %d %lu\n",closed!=0,(unsigned long)error);
+    }
+    if(!encoded)fputs("collection_error utf8-conversion\n",file);
+    fputs("end\n",file);fclose(file);
+}
 #else
 #include <unistd.h>
 #endif
@@ -105,6 +217,7 @@ int main(int argc, char **argv) {
     DWORD size=GetEnvironmentVariableW(L"FREAK_BOOTSTRAP_NATIVE_CLANG",NULL,0);
     wchar_t *compiler=calloc(size,sizeof(wchar_t));
     if(!size||!compiler||!GetEnvironmentVariableW(L"FREAK_BOOTSTRAP_NATIVE_CLANG",compiler,size))return 94;
+    observe_clang_arguments(argc,wide,compiler);
     wide[0]=compiler;
     int result=forward_spawn(compiler,argc,wide);
     for(int i=0;i<argc;i++)free(argv[i]);
@@ -226,6 +339,192 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def clang_witnesses(path: Path, expected_header: bytes) -> list[dict]:
+    """Decode bounded ASCII frames from real wide-argv/kernel observations."""
+    data=path.read_bytes()
+    assert len(data)<=67108864, 'Clang witness collection exceeds 64 MiB'
+    lines=data.splitlines()
+    records=[]
+    index=0
+    while index<len(lines):
+        magic,count=lines[index].split(b' ',1)
+        assert magic==b'FREAK-BOOTSTRAP-CLANG-1'
+        count=int(count)
+        assert 1<=count<=256 and len(records)<128
+        index+=1
+        record={'arguments_hex':[],'collection_errors':[]}
+        for _ in range(count):
+            key,value=lines[index].split(b' ',1)
+            assert key==b'arg'
+            bytes.fromhex(value.decode('ascii')).decode('utf-8')
+            record['arguments_hex'].append(value.decode('ascii'))
+            index+=1
+        while lines[index]!=b'end':
+            key,value=lines[index].split(b' ',1)
+            name=key.decode('ascii')
+            if name=='collection_error':
+                record['collection_errors'].append(value.decode('ascii'))
+            elif name in ('compiler','include','kernel_header','bytes'):
+                assert name+'_hex' not in record
+                raw=bytes.fromhex(value.decode('ascii'))
+                if name!='bytes':
+                    raw.decode('utf-8')
+                record[name+'_hex']=value.decode('ascii')
+            else:
+                assert name not in record and name in ('full_path','open','attributes','type','size','read','close')
+                record[name]=[int(part) for part in value.split()]
+            index+=1
+        index+=1
+        raw=bytes.fromhex(record.get('bytes_hex',''))
+        record['header_sha256']=hashlib.sha256(raw).hexdigest()
+        record['kernel_header_verified']=(
+            not record['collection_errors'] and record.get('open')==[1,0] and
+            len(record.get('attributes',[]))==4 and record['attributes'][0]==1 and
+            record['attributes'][1]&(0x10|0x400)==0 and record['attributes'][2:]==[0,0] and
+            record.get('type')==[1,0] and record.get('size')==[1,len(expected_header),0] and
+            record.get('read')==[1,len(expected_header),0,0] and record.get('close')==[1,0] and
+            raw==expected_header)
+        arguments=[bytes.fromhex(value).decode('utf-8') for value in record['arguments_hex']]
+        include=bytes.fromhex(record['include_hex']).decode('utf-8')
+        assert arguments[arguments.index('-I')+1]==include, record
+        record['include_argument']=include
+        record['kernel_header_path']=bytes.fromhex(record['kernel_header_hex']).decode('utf-8')
+        records.append(record)
+    return records
+
+
+def windows_extended(path: Path) -> str:
+    text=str(path)
+    assert len(text)>=3 and text[1:3]==':\\', text
+    return '\\\\?\\'+text
+
+
+def save_clang_observations(evidence: Path | None, forwarder: dict | None,
+                            paths: dict | None, witnesses: list[dict], *, failed: bool = False,
+                            native: dict | None = None) -> None:
+    if evidence:
+        evidence.parent.mkdir(parents=True,exist_ok=True)
+        evidence.write_text(json.dumps({'status':'fail' if failed else 'running',
+            'phase':'native Clang path/header observations','public_bootstrap_verified':False,
+            'forwarder':forwarder,'clang_paths':paths,'staged_clang_witnesses':witnesses,
+            'native_bootstrap_observation':native},indent=2)+'\n')
+
+
+def verify_windows_clang_paths(clang: Path, wrapper: Path, root: Path, env: dict[str,str],
+                               evidence: Path | None, forwarder: dict | None) -> dict:
+    """Compare only Clang path spellings over exactly the same native files."""
+    header=b'#define FREAK_PATH_PROBE_RESULT 23\n'
+    source=b'#include "freak_runtime.h"\nint main(void) { return FREAK_PATH_PROBE_RESULT; }\n'
+    witness=root/'path-probe-witnesses.txt'
+    report={'status':'running','scope':'native wrapper to pinned Clang path spelling',
+            'negative_control_profile':'llvm-mingw-20260616-ucrt, Clang 22.1.8',
+            'public_bootstrap_verified':False,'clang_sha256':digest(clang),
+            'header_sha256':hashlib.sha256(header).hexdigest(),'source_sha256':hashlib.sha256(source).hexdigest(),
+            'source_bytes_hex':source.hex(),'header_bytes_hex':header.hex(),'cases':[],
+            'kernel_witnesses':[]}
+    pinned=report['clang_sha256']==PINNED_WINDOWS_CLANG_SHA256
+    report['pinned_negative_control_required']=pinned
+    report['pinned_sdk_archive_sha256']=PINNED_WINDOWS_SDK_SHA256 if pinned else None
+    selected={**env,'FREAK_BOOTSTRAP_NATIVE_WITNESS':str(witness)}
+
+    def save(failed: bool = False) -> None:
+        if witness.exists():
+            report['witness_frames_hex']=witness.read_bytes().hex()
+        save_clang_observations(evidence,forwarder,report,[],failed=failed)
+
+    try:
+        report['tool_identity']=[]
+        for option in ('--version','-dumpmachine'):
+            command=[str(wrapper),option]
+            result=subprocess.run(command,env=selected,capture_output=True,timeout=30)
+            report['tool_identity'].append({'argv':command,'returncode':result.returncode,
+                                           'stdout_hex':result.stdout.hex(),'stderr_hex':result.stderr.hex()})
+            save()
+            assert result.returncode==0, report['tool_identity'][-1]
+        if pinned:
+            assert b'clang version 22.1.8' in bytes.fromhex(report['tool_identity'][0]['stdout_hex'])
+            assert b'x86_64-w64-windows-gnu' in bytes.fromhex(report['tool_identity'][1]['stdout_hex'])
+        for profile in ('short','long'):
+            fixture=root/"include é 日本 ' $ &"/profile
+            if profile=='long':
+                fixture=fixture/('a'*80)/('b'*80)/('c'*80)
+            kernel=Path(windows_extended(fixture))
+            (kernel/'src').mkdir(parents=True)
+            (kernel/'include').mkdir()
+            (kernel/'include/freak_runtime.h').write_bytes(header)
+            (kernel/'src/probe.c').write_bytes(source)
+            assert (kernel/'include/freak_runtime.h').read_bytes()==header
+            assert (kernel/'src/probe.c').read_bytes()==source
+            source_path=fixture/'src/probe.c'
+            include_path=fixture/'include'
+            length=len(str(fixture/'include/freak_runtime.h').encode('utf-16-le'))//2
+            parent_length=len(str(fixture).encode('utf-16-le'))//2
+            assert (length<260 if profile=='short' else parent_length>260), (length,parent_length)
+            assert all(len(part.encode('utf-16-le'))//2<255 for part in fixture.parts[1:])
+            extended_source=windows_extended(source_path)
+            extended_include=windows_extended(include_path)
+            cases=(
+                ('ordinary',str(source_path),str(include_path),False,True),
+                ('extended-backslash',extended_source,extended_include,False,False),
+                ('extended-forward',extended_source.replace('\\','/'),extended_include.replace('\\','/'),True,True),
+                ('backslash-source-forward-include',extended_source,extended_include.replace('\\','/'),True,True),
+                ('forward-source-backslash-include',extended_source.replace('\\','/'),extended_include,True,False),
+                ('relative-cwd','src/probe.c','include',False,True))
+            for label,rendered_source,rendered_include,forward_output,should_pass in cases:
+                if label=='relative-cwd' or (profile=='long' and label=='ordinary'):
+                    should_pass=None
+                if not should_pass and not pinned:
+                    should_pass=None
+                output=fixture/('program-'+label+'.exe')
+                if label=='relative-cwd':
+                    rendered_output=output.name
+                elif label=='ordinary':
+                    rendered_output=str(output)
+                else:
+                    rendered_output=windows_extended(output)
+                    if forward_output:
+                        rendered_output=rendered_output.replace('\\','/')
+                command=[str(wrapper),'-O0',rendered_source,'-I',rendered_include,'-o',rendered_output]
+                result=subprocess.run(command,cwd=kernel,env=selected,capture_output=True,timeout=60)
+                record={'profile':profile,'case':label,'path_characters':length,
+                        'parent_utf16_code_units':parent_length,
+                        'argv':command,'cwd':str(kernel),'returncode':result.returncode,
+                        'stdout_hex':result.stdout.hex(),'stderr_hex':result.stderr.hex(),
+                        'expected_compile_success':should_pass,
+                        'expectation_kind':('observational-baseline' if should_pass is None else
+                                            'required-success' if should_pass else 'required-pinned-missing-header'),
+                        'verified':False}
+                report['cases'].append(record)
+                save()
+                if should_pass is True or (should_pass is None and result.returncode==0):
+                    assert result.returncode==0, record
+                    physical=Path(windows_extended(output))
+                    record['output_sha256']=digest(physical)
+                    executed=subprocess.run([str(physical)],cwd=kernel,env=selected,capture_output=True,timeout=30)
+                    record['executed']={'returncode':executed.returncode,
+                                        'stdout_hex':executed.stdout.hex(),'stderr_hex':executed.stderr.hex()}
+                    save()
+                    assert executed.returncode==23 and executed.stdout==executed.stderr==b'', record
+                elif should_pass is False:
+                    assert result.returncode==1 and b"'freak_runtime.h' file not found" in result.stderr, record
+                    assert not Path(windows_extended(output)).exists(), record
+                else:
+                    record['baseline_only_observed']=True
+                record['verified']=True
+                save()
+        report['kernel_witnesses']=clang_witnesses(witness,header)
+        save()
+        assert len(report['kernel_witnesses'])==len(report['cases'])==12
+        assert all(record['kernel_header_verified'] for record in report['kernel_witnesses'])
+        report['status']='pass'
+    except BaseException:
+        report['status']='fail'
+        save(True)
+        raise
+    save()
+    return report
+
+
 def inventory(source: Path) -> list[tuple[str, str, str]]:
     lines = (source / 'bootstrap.lock').read_text(encoding='utf-8').splitlines()
     assert lines[0] == 'FREAK-V4-BOOTSTRAP-LOCK-1' and len(lines[1].split()[1]) == 40, 'source has no frozen bootstrap lock'
@@ -285,6 +584,9 @@ def main() -> int:
     checks: list[str] = []
     limitations: list[str] = []
     forwarder: dict | None = None
+    clang_paths: dict | None = None
+    staged_witnesses: list[dict] = []
+    native_observation: dict | None = None
     with tempfile.TemporaryDirectory(prefix='freak-v35-bootstrap-') as temporary:
         root = Path(temporary).resolve()
         # Hostile paths are real arguments, including quotes, Unicode and metacharacters.
@@ -315,6 +617,8 @@ def main() -> int:
         env['PATH'] = str(tools) + os.pathsep + env.get('PATH', '')
         if os.name == 'nt':
             forwarder=verify_windows_forwarder(clang,wrapper,wrapper_source,root,env,args.evidence)
+            clang_paths=verify_windows_clang_paths(clang,wrapper,root,env,args.evidence,forwarder)
+            env['FREAK_BOOTSTRAP_NATIVE_WITNESS']=str(root/'staged-clang-witnesses.txt')
         selected = root / "source é 日本 ' $ &"
         copy_source(source, selected, records)
         output_parent = root / ("preview é 日本 ' $ &" + ('\\' if os.name != 'nt' else ''))
@@ -322,12 +626,31 @@ def main() -> int:
         output = output_parent / 'bundle'
         result = bootstrap(installed, selected, output, env,
                            output_spelling=str(output_parent) + '//bundle' if os.name != 'nt' else None)
+        if os.name == 'nt':
+            witness=Path(env['FREAK_BOOTSTRAP_NATIVE_WITNESS'])
+            raw=witness.read_bytes() if witness.exists() else b''
+            native_observation={'returncode':result.returncode,'stdout_hex':result.stdout.hex(),
+                                'stderr_hex':result.stderr.hex(),'witness_frames_hex':raw.hex(),
+                                'witness_phase':'first installed public bootstrap',
+                                'expected_header_sha256':digest(payload/'runtime/freak_runtime.h'),
+                                'collection_error':None}
+            try:
+                staged_witnesses=clang_witnesses(witness,(payload/'runtime/freak_runtime.h').read_bytes())
+            except Exception as error:
+                native_observation['collection_error']=str(error)
+            save_clang_observations(args.evidence,forwarder,clang_paths,staged_witnesses,
+                                    failed=result.returncode!=0,native=native_observation)
         if result.returncode != 0:
             if args.evidence:
                 args.evidence.parent.mkdir(parents=True, exist_ok=True)
                 args.evidence.with_suffix('.stdout').write_bytes(result.stdout)
                 args.evidence.with_suffix('.stderr').write_bytes(result.stderr)
             raise AssertionError((result.returncode, result.stdout[-4000:], result.stderr[-4000:]))
+        if os.name == 'nt':
+            assert native_observation['collection_error'] is None, native_observation
+            assert staged_witnesses and all(record['kernel_header_verified'] for record in staged_witnesses)
+            assert all(record['include_argument'].startswith('//?/') and
+                       '\\' not in record['include_argument'] for record in staged_witnesses)
         assert output.is_dir(), output
         assert not list(output_parent.glob('.freak-v4-bootstrap*'))
         report = json.loads((output / 'bootstrap-report.json').read_text(encoding='utf-8'))
@@ -499,9 +822,22 @@ def main() -> int:
         assert 'python' not in log.lower(), log
         assert digest(installed) == stable_hash
         checks.append('compiled Python traps unused; stable V3 binary unchanged')
+        if os.name == 'nt':
+            witness=Path(env['FREAK_BOOTSTRAP_NATIVE_WITNESS'])
+            native_observation['cumulative_witness_frames_hex']=witness.read_bytes().hex()
+            native_observation['cumulative_witness_phase']='all bootstrap/preview attempts before final collection'
+            save_clang_observations(args.evidence,forwarder,clang_paths,staged_witnesses,native=native_observation)
+            staged_witnesses=clang_witnesses(witness,
+                                            (payload/'runtime/freak_runtime.h').read_bytes())
+            save_clang_observations(args.evidence,forwarder,clang_paths,staged_witnesses,native=native_observation)
+            assert staged_witnesses and all(record['kernel_header_verified'] for record in staged_witnesses)
+            assert all(record['include_argument'].startswith('//?/') and
+                       '\\' not in record['include_argument'] for record in staged_witnesses)
     report = {'status': 'pass', 'candidate_sha256': digest(candidate), 'clang_sha256': digest(clang),
               'scope': 'focused native orchestration entry' if args.entry_probe else 'installed public native CLI',
-              'checks': checks, 'limitations': limitations, 'forwarder': forwarder}
+              'checks': checks, 'limitations': limitations, 'forwarder': forwarder,
+              'clang_paths':clang_paths,'staged_clang_witnesses':staged_witnesses,
+              'native_bootstrap_observation':native_observation,'public_bootstrap_verified':True}
     if args.evidence:
         args.evidence.parent.mkdir(parents=True, exist_ok=True)
         args.evidence.write_text(json.dumps(report, indent=2) + '\n')
