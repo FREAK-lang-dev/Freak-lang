@@ -16,7 +16,9 @@ freak bootstrap-v4 --source=/absolute/locked-v4-source --output=/absolute/new-v4
 contain the recorded metadata and source files. The output directory must be
 new. Set `FREAK_CLANG` to the absolute path of a supported Clang installation
 when automatic discovery does not select it. Bootstrap targets the current
-host; plain MSVC linking is unsupported.
+host. Windows requires Windows 8 or newer and a GNU-targeting LLVM-MinGW UCRT
+toolchain; release and bootstrap CI pin the 20260616 UCRT SDK. Plain MSVC
+linking and legacy MSVCRT SDKs are unsupported by this bootstrap profile.
 
 The command validates the locked inputs, compiles the V4 engine and launcher,
 tests query invalidation and generated programs, and publishes the preview only
@@ -40,13 +42,20 @@ The production verification entry point is
 `tests/v3_v35_bootstrap_native.py`, supplied with the freshly reconstructed or
 installed native CLI, real Clang, the frozen source bundle, and an optional Git
 checkout for exact source-object checks. It invokes the real public command;
-Python is only its test orchestrator. Linux x86-64 can be verified in this
-workspace. Native Windows and macOS verification remains pending GitHub CI.
+Python is only its test orchestrator. The dedicated `Locked V4 bootstrap`
+workflow reconstructs and verifies this installed command on native Linux,
+macOS and Windows. Its Linux job also runs the word ownership and copied-byte
+gate with ASan and UBSan. Platform results must be read at the current PR head.
 
 The scout's official V4 revision is used without input patches. On Linux,
 480 identical source inputs produced byte-identical stdout, stderr and status
 against a freshly Python-built compiler of the same revision: 54 modules and
 426 diagnostic cases. Additional abort/read-failure controls and three larger
-sources agreed. Deep word argument copies remain a measured performance gap;
-changing caller copies requires matching callee ownership behavior. Performance
-work is separate from this locked compilation checkpoint.
+sources agreed. The C emitter now borrows read-only word identifiers after
+proving the callee and argument expressions safe; uncertain alias, escape,
+mutation, call or recursion cases retain copies. Owning ABI and cleanup remain
+intact. The 4096-byte nested reader removes 4097 clones and 16,781,312 copied
+bytes. Controlled native O2 comparisons measured 2.08x, 2.72x and 3.79x faster
+compilation on three large Linux fixtures, with identical raw output and status
+across three interleaved trials per engine. These measurements describe that
+host and workload; product bootstrap optimization flags are unchanged.
