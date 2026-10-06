@@ -28,6 +28,52 @@ WRAPPER = r'''#define _POSIX_C_SOURCE 200809L
 #include <windows.h>
 #include <shellapi.h>
 #include <process.h>
+#include <stdint.h>
+#include <wchar.h>
+/* CRT spawn joins argv strings with spaces; quote each string for the
+   receiving CRT, including empty arguments and trailing backslashes. */
+static wchar_t *quote_spawn_argument(const wchar_t *argument) {
+    size_t length=wcslen(argument);
+    if(length>(SIZE_MAX/sizeof(wchar_t)-3)/2)return NULL;
+    wchar_t *quoted=calloc(length*2+3,sizeof(wchar_t));
+    if(!quoted)return NULL;
+    size_t used=0; quoted[used++]=L'"';
+    const wchar_t *cursor=argument;
+    while(*cursor) {
+        size_t slashes=0;
+        while(*cursor==L'\\'){slashes++;cursor++;}
+        size_t escaped=(*cursor==L'"'||!*cursor)?slashes*2:slashes;
+        for(size_t i=0;i<escaped;i++)quoted[used++]=L'\\';
+        if(*cursor==L'"')quoted[used++]=L'\\';
+        if(*cursor)quoted[used++]=*cursor++;
+    }
+    quoted[used++]=L'"';
+    return quoted;
+}
+static int forward_spawn(const wchar_t *compiler,int count,wchar_t **arguments) {
+#ifdef FREAK_BOOTSTRAP_TEST_UNQUOTED_FORWARD
+    /* Deliberately preserve the old broken second hop for its native oracle. */
+    return (int)_wspawnv(_P_WAIT,compiler,(const wchar_t *const *)arguments);
+#else
+    if(count<1||(size_t)count>SIZE_MAX/sizeof(wchar_t *)-1)return 96;
+    wchar_t **quoted=calloc((size_t)count+1,sizeof(wchar_t *));
+    if(!quoted)return 96;
+    size_t command_length=0;
+    int result=96;
+    for(int i=0;i<count;i++) {
+        if(!arguments[i]||!(quoted[i]=quote_spawn_argument(arguments[i])))goto done;
+        size_t length=wcslen(quoted[i]);
+        size_t separator=i?1:0;
+        if(length>32766-separator||command_length>32766-separator-length)goto done;
+        command_length+=length+separator;
+    }
+    result=(int)_wspawnv(_P_WAIT,compiler,(const wchar_t *const *)quoted);
+done:
+    for(int i=0;i<count;i++)free(quoted[i]);
+    free(quoted);
+    return result;
+#endif
+}
 #else
 #include <unistd.h>
 #endif
@@ -59,13 +105,120 @@ int main(int argc, char **argv) {
     DWORD size=GetEnvironmentVariableW(L"FREAK_BOOTSTRAP_NATIVE_CLANG",NULL,0);
     wchar_t *compiler=calloc(size,sizeof(wchar_t));
     if(!size||!compiler||!GetEnvironmentVariableW(L"FREAK_BOOTSTRAP_NATIVE_CLANG",compiler,size))return 94;
-    wide[0]=compiler;return (int)_wspawnv(_P_WAIT,compiler,(const wchar_t *const *)wide);
+    wide[0]=compiler;
+    int result=forward_spawn(compiler,argc,wide);
+    for(int i=0;i<argc;i++)free(argv[i]);
+    free(argv);free(compiler);LocalFree(wide);
+    return result;
 #else
     const char *compiler=getenv("FREAK_BOOTSTRAP_NATIVE_CLANG");if(!compiler)return 94;
     argv[0]=(char*)compiler;execv(compiler,argv);return 95;
 #endif
 }
 '''
+
+FORWARD_RECEIVER = r'''#include <stdio.h>
+#include <stdlib.h>
+#include <corecrt_startup.h>
+#include <windows.h>
+int main(void) {
+    if(_configure_wide_argv(_crt_argv_unexpanded_arguments)!=0)return 90;
+    int count=*__p___argc(); wchar_t **arguments=*__p___wargv();
+    if(count<1||!arguments)return 91;
+    puts("FREAK-BOOTSTRAP-FORWARD-ARGV-1");printf("%d\n",count);
+    for(int i=0;i<count;i++) {
+        if(!arguments[i])return 92;
+        int size=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,arguments[i],-1,NULL,0,NULL,NULL);
+        if(size<1)return 93;
+        unsigned char *bytes=malloc((size_t)size);
+        if(!bytes)return 94;
+        if(WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,arguments[i],-1,(char *)bytes,size,NULL,NULL)!=size){free(bytes);return 93;}
+        printf("%d:",size-1);
+        for(int j=0;j<size-1;j++)printf("%02x",bytes[j]);
+        putchar('\n');free(bytes);
+    }
+    if(fflush(stdout)!=0)return 95;
+    return 23;
+}
+'''
+
+FORWARD_ARGUMENTS = ('', 'a b', 'tab\tvalue', 'é日本🙂', '"quoted"', 'tail\\',
+                     'two\\\\', 'slash\\"quote', "' $ & %PATH% ; |", '*?literal')
+
+
+def forward_arguments(stdout: bytes) -> list[bytes]:
+    lines=stdout.splitlines()
+    assert len(lines)>=2 and lines[0]==b'FREAK-BOOTSTRAP-FORWARD-ARGV-1', stdout
+    count=int(lines[1])
+    assert count>=0 and len(lines)==count+2, stdout
+    arguments=[]
+    for line in lines[2:]:
+        length, encoded=line.split(b':',1)
+        assert len(encoded)==int(length)*2, line
+        argument=bytes.fromhex(encoded.decode('ascii'))
+        assert len(argument)==int(length), line
+        arguments.append(argument)
+    return arguments
+
+
+def verify_windows_forwarder(clang: Path, wrapper: Path, wrapper_source: Path,
+                             root: Path, env: dict[str,str], evidence: Path | None) -> dict:
+    """Observe the real wrapper→UCRT child hop, including the old defect."""
+    receiver_source=root/'forward-receiver.c'
+    receiver_source.write_text(FORWARD_RECEIVER,encoding='utf-8')
+    receiver=root/"receiver é 日本 ' $ &.exe"
+    broken=root/'old-unquoted-forwarder.exe'
+    report={'status':'running','scope':'native test-wrapper second-hop argv only',
+            'expected_arguments_hex':[value.encode('utf-8').hex() for value in (str(receiver),*FORWARD_ARGUMENTS)],
+            'argv0_included':True,
+            'fixed_matched':False,'old_control_exercised':False,
+            'sources_sha256':{'wrapper':digest(wrapper_source),'receiver':digest(receiver_source)},
+            'binaries_sha256':{'clang':digest(clang),'fixed_wrapper':digest(wrapper)},
+            'commands':[]}
+
+    def save() -> None:
+        if evidence:
+            evidence.parent.mkdir(parents=True,exist_ok=True)
+            evidence.write_text(json.dumps({'status':'fail' if report['status']=='fail' else 'running','phase':'test forwarder argv',
+                                            'forwarder':report},indent=2)+'\n')
+
+    def run(command: list[str], selected: dict[str,str]) -> subprocess.CompletedProcess[bytes]:
+        result=subprocess.run(command,env=selected,capture_output=True,timeout=60)
+        report['commands'].append({'argv':command,'returncode':result.returncode,
+                                    'stdout_hex':result.stdout.hex(),'stderr_hex':result.stderr.hex()})
+        save()
+        return result
+
+    try:
+        for command in ([str(clang),'-O0',str(receiver_source),'-o',str(receiver)],
+                        [str(clang),'-O0','-DFREAK_BOOTSTRAP_TEST_UNQUOTED_FORWARD=1',
+                         str(wrapper_source),'-o',str(broken),'-lshell32']):
+            result=run(command,env)
+            assert result.returncode==0, result.stderr
+        report['binaries_sha256'].update({'old_control_wrapper':digest(broken),'receiver':digest(receiver)})
+        selected={**env,'FREAK_BOOTSTRAP_NATIVE_CLANG':str(receiver)}
+        selected.pop('FREAK_BOOTSTRAP_NATIVE_MODE',None)
+        expected=[value.encode('utf-8') for value in (str(receiver),*FORWARD_ARGUMENTS)]
+        result=run([str(wrapper),*FORWARD_ARGUMENTS],selected)
+        assert result.returncode==23 and result.stderr==b'', result
+        actual=forward_arguments(result.stdout)
+        report['fixed_arguments_hex']=[value.hex() for value in actual]
+        assert actual==expected, (actual,expected)
+        report['fixed_matched']=True
+        result=run([str(broken),*FORWARD_ARGUMENTS],selected)
+        assert result.returncode==23 and result.stderr==b'', result
+        actual=forward_arguments(result.stdout)
+        report['old_arguments_hex']=[value.hex() for value in actual]
+        assert actual!=expected, 'old unquoted spawn unexpectedly preserved every argument'
+        report['old_control_exercised']=True
+        report['status']='pass'
+    except BaseException:
+        report['status']='fail'
+        raise
+    finally:
+        save()
+    return report
+
 PROGRAM = 'task main() -> int {\n    say "native-v4"\n    give back 42\n}\n'
 
 
@@ -131,6 +284,7 @@ def main() -> int:
     records = inventory(source)
     checks: list[str] = []
     limitations: list[str] = []
+    forwarder: dict | None = None
     with tempfile.TemporaryDirectory(prefix='freak-v35-bootstrap-') as temporary:
         root = Path(temporary).resolve()
         # Hostile paths are real arguments, including quotes, Unicode and metacharacters.
@@ -159,6 +313,8 @@ def main() -> int:
                'FREAK_BOOTSTRAP_NATIVE_CLANG': str(clang), 'FREAK_BOOTSTRAP_NATIVE_LOG': str(root / 'native.log')}
         # Keep SDK/system executable discovery but intercept every Python basename.
         env['PATH'] = str(tools) + os.pathsep + env.get('PATH', '')
+        if os.name == 'nt':
+            forwarder=verify_windows_forwarder(clang,wrapper,wrapper_source,root,env,args.evidence)
         selected = root / "source é 日本 ' $ &"
         copy_source(source, selected, records)
         output_parent = root / ("preview é 日本 ' $ &" + ('\\' if os.name != 'nt' else ''))
@@ -345,7 +501,7 @@ def main() -> int:
         checks.append('compiled Python traps unused; stable V3 binary unchanged')
     report = {'status': 'pass', 'candidate_sha256': digest(candidate), 'clang_sha256': digest(clang),
               'scope': 'focused native orchestration entry' if args.entry_probe else 'installed public native CLI',
-              'checks': checks, 'limitations': limitations}
+              'checks': checks, 'limitations': limitations, 'forwarder': forwarder}
     if args.evidence:
         args.evidence.parent.mkdir(parents=True, exist_ok=True)
         args.evidence.write_text(json.dumps(report, indent=2) + '\n')
