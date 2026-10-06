@@ -59,6 +59,12 @@ jobs:
           python -B -u tests/v4_bootstrap_runtime_ci.py
           --clang "${{ env.FREAK_V4_CI_CLANG }}"
           --report "${{ runner.temp }}/freak-v4-runtime-ci.json"
+      - name: Observe native Windows bootstrap directory operations
+        if: runner.os == 'Windows'
+        run: >
+          python -B -u tests/v4_bootstrap_fs_probe.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --report "${{ runner.temp }}/freak-v4-bootstrap-fs-probe.json"
       - name: Reconstruct CLI and verify installed public locked bootstrap
         run: >
           python -B -u tests/v3_v4_bootstrap_ci.py
@@ -81,4 +87,5 @@ jobs:
             ${{ runner.temp }}/freak-v4-locked-bootstrap/public-contracts.json
             ${{ runner.temp }}/freak-v4-runtime-ci.json
             ${{ runner.temp }}/freak-v4-word-call-ownership.json
+            ${{ runner.temp }}/freak-v4-bootstrap-fs-probe.json
           if-no-files-found: warn
