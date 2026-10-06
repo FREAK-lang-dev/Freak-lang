@@ -117,6 +117,9 @@ task main() {
 
 
 NATIVE = r'''
+#if defined(_WIN32) && !defined(_WIN32_WINNT)
+#define _WIN32_WINNT 0x0602
+#endif
 #if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
 #define _DARWIN_C_SOURCE 1
 #endif
