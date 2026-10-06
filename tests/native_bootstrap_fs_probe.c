@@ -25,10 +25,10 @@ typedef struct {
     const char *api, *phase;
     uint64_t handle, other, access, flags, share, disposition, options;
     int64_t result, io_status;
-    uint64_t io_information, volume;
-    DWORD error, attributes;
-    unsigned char identity[16];
-    int has_identity, has_io;
+    uint64_t io_information, volume, length;
+    DWORD error, attributes, device_type, descriptor_type, descriptor_size;
+    unsigned char identity[16], descriptor_id[16];
+    int has_identity, has_io, has_device, has_descriptor;
 } probe_event;
 static probe_event probe_events[512];
 static size_t probe_event_count;
@@ -59,6 +59,25 @@ static HANDLE WINAPI probe_reopen(HANDLE original, DWORD access, DWORD share, DW
     probe_event *event = probe_record("ReOpenFile", result != INVALID_HANDLE_VALUE, error, original);
     if (event) { event->other = (uintptr_t)result; event->access = access;
         event->share = share; event->flags = flags; }
+    SetLastError(error); return result;
+}
+static HANDLE WINAPI probe_open_by_id(HANDLE volume, LPFILE_ID_DESCRIPTOR descriptor,
+        DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security, DWORD flags) {
+    FILE_ID_DESCRIPTOR requested;
+    int extended = descriptor && descriptor->dwSize >= sizeof(*descriptor) && descriptor->Type == ExtendedFileIdType;
+    if (extended) requested = *descriptor;
+    HANDLE result = OpenFileById(volume, descriptor, access, share, security, flags);
+    DWORD error = GetLastError();
+    probe_event *event = probe_record("OpenFileById", result != INVALID_HANDLE_VALUE, error, volume);
+    if (event) {
+        event->other = (uintptr_t)result; event->access = access;
+        event->share = share; event->flags = flags;
+        if (extended) {
+            event->has_descriptor = 1; event->descriptor_type = requested.Type;
+            event->descriptor_size = requested.dwSize;
+            memcpy(event->descriptor_id, requested.ExtendedFileId.Identifier, sizeof(event->descriptor_id));
+        }
+    }
     SetLastError(error); return result;
 }
 static BOOL WINAPI probe_flush(HANDLE handle) {
@@ -109,6 +128,7 @@ static BOOL WINAPI probe_duplicate(HANDLE source_process, HANDLE source,
 static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name);
 #define CreateFileW probe_create
 #define ReOpenFile probe_reopen
+#define OpenFileById probe_open_by_id
 #define FlushFileBuffers probe_flush
 #define GetFileInformationByHandle probe_information
 #define GetFileInformationByHandleEx probe_information_ex
@@ -121,6 +141,7 @@ static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name);
 #ifdef _WIN32
 #undef CreateFileW
 #undef ReOpenFile
+#undef OpenFileById
 #undef FlushFileBuffers
 #undef GetFileInformationByHandle
 #undef GetFileInformationByHandleEx
@@ -132,6 +153,10 @@ static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name);
 /* Use the production resolver's exact existing native ABI type. This changes
    only the returned function pointer; all native calls and arguments remain. */
 static freak_fs_nt_create_fn probe_nt_real;
+typedef LONG (NTAPI *probe_flush_ex_fn)(HANDLE,ULONG,PVOID,ULONG,freak_fs_nt_io *);
+typedef LONG (NTAPI *probe_query_volume_fn)(HANDLE,freak_fs_nt_io *,PVOID,ULONG,ULONG);
+static probe_flush_ex_fn probe_flush_ex_real;
+static probe_query_volume_fn probe_query_volume_real;
 static LONG NTAPI probe_nt_create(PHANDLE handle, ACCESS_MASK access,
         freak_fs_nt_object *object, freak_fs_nt_io *io, PLARGE_INTEGER allocation,
         ULONG attributes, ULONG share, ULONG disposition, ULONG options,
@@ -155,11 +180,61 @@ static LONG NTAPI probe_nt_create(PHANDLE handle, ACCESS_MASK access,
         probe_nonfinal("NtCreateFile",status);
     SetLastError(error); return status;
 }
+static LONG NTAPI probe_nt_flush_ex(HANDLE handle, ULONG flags, PVOID parameters,
+        ULONG length, freak_fs_nt_io *io) {
+    /* NTSTATUS and a successful completed IOSB are separate observations.
+       Failure/pending returns do not authorize reading caller output. */
+    LONG status = probe_flush_ex_real(handle, flags, parameters, length, io);
+    DWORD error = GetLastError();
+    probe_event *event = probe_record("NtFlushBuffersFileEx", status, error, handle);
+    if (event) {
+        event->flags = flags; event->length = length;
+        if (status == 0 && io && io->value.status == 0) {
+            event->has_io = 1; event->io_status = io->value.status;
+            event->io_information = io->information;
+        }
+    }
+    if (status == 0x103 || (status == 0 && io &&
+        (io->value.status == INT32_MIN || io->value.status == 0x103)))
+        probe_nonfinal("NtFlushBuffersFileEx", status);
+    SetLastError(error); return status;
+}
+static LONG NTAPI probe_nt_query_volume(HANDLE handle, freak_fs_nt_io *io,
+        PVOID information, ULONG length, ULONG kind) {
+    LONG status = probe_query_volume_real(handle, io, information, length, kind);
+    DWORD error = GetLastError();
+    probe_event *event = probe_record("NtQueryVolumeInformationFile", status, error, handle);
+    if (event) {
+        event->flags = kind; event->length = length;
+        if (status == 0 && io && io->value.status == 0) {
+            event->has_io = 1; event->io_status = io->value.status;
+            event->io_information = io->information;
+            if (information && kind == FileFsDeviceInformation && length >= sizeof(FILE_FS_DEVICE_INFORMATION) &&
+                io->information >= sizeof(FILE_FS_DEVICE_INFORMATION) && io->information <= length) {
+                FILE_FS_DEVICE_INFORMATION *device = information;
+                event->has_device = 1; event->device_type = device->DeviceType;
+                event->attributes = device->Characteristics;
+            }
+        }
+    }
+    if (status == 0x103 || (status == 0 && io &&
+        (io->value.status == INT32_MIN || io->value.status == 0x103)))
+        probe_nonfinal("NtQueryVolumeInformationFile", status);
+    SetLastError(error); return status;
+}
 static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name) {
     FARPROC result = GetProcAddress(module, name); DWORD error = GetLastError();
-    if ((uintptr_t)name > UINT16_MAX && !strcmp(name, "NtCreateFile") && result) {
-        probe_nt_real = (freak_fs_nt_create_fn)(void *)result;
-        result = (FARPROC)(void *)probe_nt_create;
+    if ((uintptr_t)name > UINT16_MAX && result) {
+        if (!strcmp(name, "NtCreateFile")) {
+            probe_nt_real = (freak_fs_nt_create_fn)(void *)result;
+            result = (FARPROC)(void *)probe_nt_create;
+        } else if (!strcmp(name, "NtFlushBuffersFileEx")) {
+            probe_flush_ex_real = (probe_flush_ex_fn)(void *)result;
+            result = (FARPROC)(void *)probe_nt_flush_ex;
+        } else if (!strcmp(name, "NtQueryVolumeInformationFile")) {
+            probe_query_volume_real = (probe_query_volume_fn)(void *)result;
+            result = (FARPROC)(void *)probe_nt_query_volume;
+        }
     }
     SetLastError(error); return result;
 }
@@ -215,7 +290,6 @@ static void probe_checkpoint(const char *name) {
 _Static_assert(sizeof(freak_fs_nt_io)==sizeof(IO_STATUS_BLOCK),"native IOSB size");
 _Static_assert(offsetof(freak_fs_nt_io,value)==offsetof(IO_STATUS_BLOCK,Status),"native IOSB status");
 _Static_assert(offsetof(freak_fs_nt_io,information)==offsetof(IO_STATUS_BLOCK,Information),"native IOSB information");
-typedef LONG (NTAPI *probe_flush_ex_fn)(HANDLE,ULONG,PVOID,ULONG,freak_fs_nt_io *);
 
 static void probe_alternative_flush(const char *method,HANDLE reference,HANDLE candidate,
                                     ACCESS_MASK access,int open_attempted,DWORD open_error) {
@@ -419,6 +493,11 @@ static void probe_dump_events(void) {
             event->has_io?"true":"false",event->io_status,event->io_information,
             event->has_identity?"true":"false",event->volume);
         for (size_t j=0;j<sizeof(event->identity);j++) printf("%02x",event->identity[j]);
+        printf("\",\"length\":%"PRIu64",\"device_valid\":%s,\"device_type\":%lu,\"descriptor_valid\":%s,\"descriptor_type\":%lu,\"descriptor_size\":%lu,\"descriptor_id\":\"",
+            event->length,event->has_device?"true":"false",(unsigned long)event->device_type,
+            event->has_descriptor?"true":"false",(unsigned long)event->descriptor_type,
+            (unsigned long)event->descriptor_size);
+        for (size_t j=0;j<sizeof(event->descriptor_id);j++) printf("%02x",event->descriptor_id[j]);
         puts("\"}");
     }
 }
