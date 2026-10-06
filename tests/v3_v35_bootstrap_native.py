@@ -516,10 +516,13 @@ def verify_windows_clang_paths(clang: Path, wrapper: Path, root: Path, env: dict
                     physical=Path(windows_extended(output))
                     record['output_sha256']=digest(physical)
                     report['pending_launch']={'phase':'execute','profile':profile,'case':label,
-                                              'argv':[str(physical)],'cwd':launch_cwd,'child_status_unknown':True}
+                                              'argv':[str(physical)],'executable':str(physical),
+                                              'cwd':launch_cwd,'child_status_unknown':True}
                     save()
-                    executed=subprocess.run([str(physical)],cwd=root,env=selected,capture_output=True,timeout=30)
-                    record['executed']={'returncode':executed.returncode,
+                    executed=subprocess.run([str(physical)],executable=str(physical),cwd=root,
+                                            env=selected,capture_output=True,timeout=30)
+                    record['executed']={'argv':[str(physical)],'executable':str(physical),
+                                        'cwd':launch_cwd,'returncode':executed.returncode,
                                         'stdout_hex':executed.stdout.hex(),'stderr_hex':executed.stderr.hex()}
                     report['pending_launch']=None
                     save()
