@@ -64,9 +64,11 @@ def observations(result: subprocess.CompletedProcess, control: bool) -> dict:
             assert any(row["api"] == "NtCreateFile" and row["phase"] == "temp_dir" for row in events)
         if tickets.get("mkdir_runtime", {}).get("completed"):
             assert any(row["api"] == "NtCreateFile" and row["phase"] == "mkdir_runtime" for row in events)
+    control_exercised = bool(control and tickets.get("control_existing_runtime", {}).get("completed"))
     return {"summary": summary, "observations": rows,
             "unreached_phases": sorted(expected - tickets.keys()),
-            "control_exercised": bool(control and tickets.get("control_existing_runtime", {}).get("completed"))}
+            "control_exercised": control_exercised,
+            "control_status": "exercised" if control_exercised else "inconclusive" if control else "not_requested"}
 
 
 def main() -> int:
