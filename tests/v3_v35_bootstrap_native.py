@@ -106,6 +106,9 @@ static wchar_t *observe_absolute_kernel(wchar_t *path,FILE *file) {
     error=copied?0:GetLastError();free(path);
     fprintf(file,"full_path %d %lu %lu\n",copied&&copied<capacity,(unsigned long)copied,(unsigned long)error);
     if(!copied||copied>=capacity){fputs("collection_error absolute-kernel-path-resolution\n",file);free(absolute);return NULL;}
+    /* Resolution may already supply an extended DOS/UNC path. Keep that
+       qualified spelling instead of treating its leading slashes as UNC. */
+    if(wcsncmp(absolute,L"\\\\?\\",4)==0)return absolute;
     const wchar_t *tail=absolute;
     const wchar_t *prefix=L"\\\\?\\";
     if(absolute[0]==L'\\'&&absolute[1]==L'\\'){prefix=L"\\\\?\\UNC\\";tail+=2;}
@@ -426,6 +429,14 @@ def verify_windows_clang_paths(clang: Path, wrapper: Path, root: Path, env: dict
     report['pinned_negative_control_required']=pinned
     report['pinned_sdk_archive_sha256']=PINNED_WINDOWS_SDK_SHA256 if pinned else None
     selected={**env,'FREAK_BOOTSTRAP_NATIVE_WITNESS':str(witness)}
+    # Keep the process CWD short while file arguments retain extended paths.
+    # Relative controls still name the same fixture files.
+    launch_cwd=str(root)
+    cwd_length=len(launch_cwd.encode('utf-16-le'))//2
+    assert root.is_absolute() and not launch_cwd.startswith(('\\\\?\\','//?/')) and cwd_length<260, launch_cwd
+    report['launch_cwd']=launch_cwd
+    report['launch_cwd_utf16_code_units']=cwd_length
+    report['pending_launch']=None
 
     def save(failed: bool = False) -> None:
         if witness.exists():
@@ -469,7 +480,7 @@ def verify_windows_clang_paths(clang: Path, wrapper: Path, root: Path, env: dict
                 ('extended-forward',extended_source.replace('\\','/'),extended_include.replace('\\','/'),True,True),
                 ('backslash-source-forward-include',extended_source,extended_include.replace('\\','/'),True,True),
                 ('forward-source-backslash-include',extended_source.replace('\\','/'),extended_include,True,False),
-                ('relative-cwd','src/probe.c','include',False,True))
+                ('relative-cwd',os.path.relpath(source_path,root),os.path.relpath(include_path,root),False,True))
             for label,rendered_source,rendered_include,forward_output,should_pass in cases:
                 if label=='relative-cwd' or (profile=='long' and label=='ordinary'):
                     should_pass=None
@@ -477,7 +488,7 @@ def verify_windows_clang_paths(clang: Path, wrapper: Path, root: Path, env: dict
                     should_pass=None
                 output=fixture/('program-'+label+'.exe')
                 if label=='relative-cwd':
-                    rendered_output=output.name
+                    rendered_output=os.path.relpath(output,root)
                 elif label=='ordinary':
                     rendered_output=str(output)
                 else:
@@ -485,24 +496,32 @@ def verify_windows_clang_paths(clang: Path, wrapper: Path, root: Path, env: dict
                     if forward_output:
                         rendered_output=rendered_output.replace('\\','/')
                 command=[str(wrapper),'-O0',rendered_source,'-I',rendered_include,'-o',rendered_output]
-                result=subprocess.run(command,cwd=kernel,env=selected,capture_output=True,timeout=60)
+                report['pending_launch']={'phase':'compile','profile':profile,'case':label,
+                                          'argv':command,'cwd':launch_cwd,'child_status_unknown':True}
+                save()
+                result=subprocess.run(command,cwd=root,env=selected,capture_output=True,timeout=60)
                 record={'profile':profile,'case':label,'path_characters':length,
                         'parent_utf16_code_units':parent_length,
-                        'argv':command,'cwd':str(kernel),'returncode':result.returncode,
+                        'argv':command,'cwd':launch_cwd,'returncode':result.returncode,
                         'stdout_hex':result.stdout.hex(),'stderr_hex':result.stderr.hex(),
                         'expected_compile_success':should_pass,
                         'expectation_kind':('observational-baseline' if should_pass is None else
                                             'required-success' if should_pass else 'required-pinned-missing-header'),
                         'verified':False}
                 report['cases'].append(record)
+                report['pending_launch']=None
                 save()
                 if should_pass is True or (should_pass is None and result.returncode==0):
                     assert result.returncode==0, record
                     physical=Path(windows_extended(output))
                     record['output_sha256']=digest(physical)
-                    executed=subprocess.run([str(physical)],cwd=kernel,env=selected,capture_output=True,timeout=30)
+                    report['pending_launch']={'phase':'execute','profile':profile,'case':label,
+                                              'argv':[str(physical)],'cwd':launch_cwd,'child_status_unknown':True}
+                    save()
+                    executed=subprocess.run([str(physical)],cwd=root,env=selected,capture_output=True,timeout=30)
                     record['executed']={'returncode':executed.returncode,
                                         'stdout_hex':executed.stdout.hex(),'stderr_hex':executed.stderr.hex()}
+                    report['pending_launch']=None
                     save()
                     assert executed.returncode==23 and executed.stdout==executed.stderr==b'', record
                 elif should_pass is False:
