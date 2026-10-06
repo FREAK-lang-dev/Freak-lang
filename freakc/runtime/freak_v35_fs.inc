@@ -519,12 +519,36 @@ static bool freak_fs_anchor_same(freak_fs_anchor first,freak_fs_anchor second) {
     return GetFileInformationByHandleEx(first,FileIdInfo,&a,sizeof(a)) && GetFileInformationByHandleEx(second,FileIdInfo,&b,sizeof(b)) &&
         a.VolumeSerialNumber == b.VolumeSerialNumber && !memcmp(a.FileId.Identifier,b.FileId.Identifier,sizeof(a.FileId.Identifier));
 }
+typedef struct {
+    const char *phase;
+    DWORD native_error;
+    int owner_match; /* -1: not examined, 0: different, 1: same */
+} freak_fs_windows_parent_diagnostic;
+static void freak_fs_windows_parent_note(freak_fs_windows_parent_diagnostic *diagnostic,const char *phase,DWORD error) {
+    if (diagnostic) { diagnostic->phase=phase; diagnostic->native_error=error; }
+}
 /* Reopen the held object, never its mutable path, and verify its identity.
    ReOpenFile is the native HANDLE operation for changing granted access. */
-static freak_fs_anchor freak_fs_anchor_reopen(freak_fs_anchor directory,ACCESS_MASK access) {
+static freak_fs_anchor freak_fs_anchor_reopen(freak_fs_anchor directory,ACCESS_MASK access,
+        freak_fs_windows_parent_diagnostic *diagnostic) {
     freak_fs_anchor reopened=ReOpenFile(directory,access | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,FILE_FLAG_BACKUP_SEMANTICS);
-    if (reopened != INVALID_HANDLE_VALUE && !freak_fs_anchor_same(directory,reopened)) {
+    if (reopened == INVALID_HANDLE_VALUE) {
+        freak_fs_windows_parent_note(diagnostic,"read-control-reopen",diagnostic ? GetLastError() : 0);
+        return reopened;
+    }
+    FILE_ID_INFO original,current;
+    const char *phase=NULL; DWORD error=0;
+    if (!GetFileInformationByHandleEx(directory,FileIdInfo,&original,sizeof(original))) {
+        phase="held-identity"; if (diagnostic) error=GetLastError();
+    } else if (!GetFileInformationByHandleEx(reopened,FileIdInfo,&current,sizeof(current))) {
+        phase="reopened-identity"; if (diagnostic) error=GetLastError();
+    } else if (original.VolumeSerialNumber != current.VolumeSerialNumber ||
+            memcmp(original.FileId.Identifier,current.FileId.Identifier,sizeof(original.FileId.Identifier))) {
+        phase="identity-mismatch";
+    }
+    if (phase) {
+        freak_fs_windows_parent_note(diagnostic,phase,error);
         freak_fs_anchor_close(reopened); SetLastError(ERROR_ACCESS_DENIED); return INVALID_HANDLE_VALUE;
     }
     return reopened;
@@ -627,48 +651,89 @@ static bool freak_fs_windows_acl_private(PACL acl,PSID owner,PSID caller,PSID sy
     return true;
 }
 /* FREAK_WINDOWS_ACL_POLICY_END */
-static bool freak_fs_windows_parent_private(freak_fs_anchor directory) {
+static FARPROC freak_fs_windows_security_proc(HMODULE security,const char *name,const char *phase,
+        freak_fs_windows_parent_diagnostic *diagnostic) {
+    FARPROC address=GetProcAddress(security,name);
+    if (!address && diagnostic && !diagnostic->phase) freak_fs_windows_parent_note(diagnostic,phase,GetLastError());
+    return address;
+}
+static bool freak_fs_windows_parent_private(freak_fs_anchor directory,freak_fs_windows_parent_diagnostic *diagnostic) {
     /* Resolve system security APIs without changing runtime linker libraries. */
     HMODULE security=LoadLibraryExW(L"advapi32.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);
     HANDLE inspected=INVALID_HANDLE_VALUE,token=NULL;
     TOKEN_USER *user=NULL; PSECURITY_DESCRIPTOR descriptor=NULL; bool private=false;
-    if (!security) return false;
+    if (!security) {
+        freak_fs_windows_parent_note(diagnostic,"security-library",diagnostic ? GetLastError() : 0);
+        return false;
+    }
     typedef BOOL (WINAPI *open_process_fn)(HANDLE,DWORD,PHANDLE);
     typedef BOOL (WINAPI *open_thread_fn)(HANDLE,DWORD,BOOL,PHANDLE);
     typedef BOOL (WINAPI *token_info_fn)(HANDLE,TOKEN_INFORMATION_CLASS,LPVOID,DWORD,PDWORD);
     typedef DWORD (WINAPI *security_info_fn)(HANDLE,SE_OBJECT_TYPE,SECURITY_INFORMATION,PSID *,PSID *,PACL *,PACL *,PSECURITY_DESCRIPTOR *);
     typedef BOOL (WINAPI *well_known_fn)(WELL_KNOWN_SID_TYPE,PSID,PSID,DWORD *);
-    open_process_fn open_process=(open_process_fn)(void *)GetProcAddress(security,"OpenProcessToken");
-    open_thread_fn open_thread=(open_thread_fn)(void *)GetProcAddress(security,"OpenThreadToken");
-    token_info_fn token_info=(token_info_fn)(void *)GetProcAddress(security,"GetTokenInformation");
-    security_info_fn security_info=(security_info_fn)(void *)GetProcAddress(security,"GetSecurityInfo");
-    well_known_fn well_known=(well_known_fn)(void *)GetProcAddress(security,"CreateWellKnownSid");
-    freak_fs_acl_valid_fn acl_valid=(freak_fs_acl_valid_fn)(void *)GetProcAddress(security,"IsValidAcl");
-    freak_fs_ace_fn get_ace=(freak_fs_ace_fn)(void *)GetProcAddress(security,"GetAce");
-    freak_fs_sid_valid_fn sid_valid=(freak_fs_sid_valid_fn)(void *)GetProcAddress(security,"IsValidSid");
-    freak_fs_sid_equal_fn sid_equal=(freak_fs_sid_equal_fn)(void *)GetProcAddress(security,"EqualSid");
+#define FREAK_FS_SECURITY_PROC(name) freak_fs_windows_security_proc(security,name,"api-" name,diagnostic)
+    open_process_fn open_process=(open_process_fn)(void *)FREAK_FS_SECURITY_PROC("OpenProcessToken");
+    open_thread_fn open_thread=(open_thread_fn)(void *)FREAK_FS_SECURITY_PROC("OpenThreadToken");
+    token_info_fn token_info=(token_info_fn)(void *)FREAK_FS_SECURITY_PROC("GetTokenInformation");
+    security_info_fn security_info=(security_info_fn)(void *)FREAK_FS_SECURITY_PROC("GetSecurityInfo");
+    well_known_fn well_known=(well_known_fn)(void *)FREAK_FS_SECURITY_PROC("CreateWellKnownSid");
+    freak_fs_acl_valid_fn acl_valid=(freak_fs_acl_valid_fn)(void *)FREAK_FS_SECURITY_PROC("IsValidAcl");
+    freak_fs_ace_fn get_ace=(freak_fs_ace_fn)(void *)FREAK_FS_SECURITY_PROC("GetAce");
+    freak_fs_sid_valid_fn sid_valid=(freak_fs_sid_valid_fn)(void *)FREAK_FS_SECURITY_PROC("IsValidSid");
+    freak_fs_sid_equal_fn sid_equal=(freak_fs_sid_equal_fn)(void *)FREAK_FS_SECURITY_PROC("EqualSid");
+#undef FREAK_FS_SECURITY_PROC
     if (!open_process || !open_thread || !token_info || !security_info || !well_known || !acl_valid || !get_ace || !sid_valid || !sid_equal) goto cleanup;
-    inspected=freak_fs_anchor_reopen(directory,READ_CONTROL);
+    inspected=freak_fs_anchor_reopen(directory,READ_CONTROL,diagnostic);
     if (inspected == INVALID_HANDLE_VALUE) goto cleanup;
     if (!open_thread(GetCurrentThread(),TOKEN_QUERY,TRUE,&token)) {
-        if (GetLastError() != ERROR_NO_TOKEN || !open_process(GetCurrentProcess(),TOKEN_QUERY,&token)) goto cleanup;
+        DWORD error=GetLastError();
+        if (error != ERROR_NO_TOKEN) { freak_fs_windows_parent_note(diagnostic,"thread-token",error); goto cleanup; }
+        if (!open_process(GetCurrentProcess(),TOKEN_QUERY,&token)) {
+            freak_fs_windows_parent_note(diagnostic,"process-token",diagnostic ? GetLastError() : 0); goto cleanup;
+        }
     }
     DWORD needed=0;
-    token_info(token,TokenUser,NULL,0,&needed);
-    if (needed < sizeof(TOKEN_USER) || needed > 1048576) goto cleanup;
+    BOOL sized=token_info(token,TokenUser,NULL,0,&needed);
+    if (needed < sizeof(TOKEN_USER) || needed > 1048576) {
+        freak_fs_windows_parent_note(diagnostic,"token-user-size",diagnostic && !sized ? GetLastError() : 0); goto cleanup;
+    }
     user=freak_command_allocate(needed,1);
-    if (!token_info(token,TokenUser,user,needed,&needed)) goto cleanup;
+    if (!token_info(token,TokenUser,user,needed,&needed)) {
+        freak_fs_windows_parent_note(diagnostic,"token-user",diagnostic ? GetLastError() : 0); goto cleanup;
+    }
     PSID owner=NULL; PACL acl=NULL;
-    if (security_info(inspected,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,&owner,NULL,&acl,NULL,&descriptor) != ERROR_SUCCESS) goto cleanup;
+    DWORD security_error=security_info(inspected,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,&owner,NULL,&acl,NULL,&descriptor);
+    if (security_error != ERROR_SUCCESS) { freak_fs_windows_parent_note(diagnostic,"security-info",security_error); goto cleanup; }
     union { DWORD aligned; BYTE bytes[SECURITY_MAX_SID_SIZE]; } system,administrators;
     DWORD system_size=sizeof(system.bytes),administrators_size=sizeof(administrators.bytes);
-    if (!well_known(WinLocalSystemSid,NULL,system.bytes,&system_size) ||
-        !well_known(WinBuiltinAdministratorsSid,NULL,administrators.bytes,&administrators_size)) goto cleanup;
+    if (!well_known(WinLocalSystemSid,NULL,system.bytes,&system_size)) {
+        freak_fs_windows_parent_note(diagnostic,"system-sid",diagnostic ? GetLastError() : 0); goto cleanup;
+    }
+    if (!well_known(WinBuiltinAdministratorsSid,NULL,administrators.bytes,&administrators_size)) {
+        freak_fs_windows_parent_note(diagnostic,"administrators-sid",diagnostic ? GetLastError() : 0); goto cleanup;
+    }
     private=freak_fs_windows_acl_private(acl,owner,user->User.Sid,system.bytes,administrators.bytes,acl_valid,get_ace,sid_valid,sid_equal);
+    if (diagnostic) {
+        freak_fs_windows_parent_note(diagnostic,private ? "passed" : "acl-policy",0);
+        if (private) diagnostic->owner_match=1;
+        else if (owner && user->User.Sid && sid_valid(owner) && sid_valid(user->User.Sid)) {
+            diagnostic->owner_match=sid_equal(owner,user->User.Sid) ? 1 : 0;
+        }
+    }
 cleanup:
     if (descriptor) LocalFree(descriptor);
     free(user); if (token) CloseHandle(token);
     freak_fs_anchor_close(inspected); FreeLibrary(security); return private;
+}
+static void freak_fs_windows_publication_guard_error(freak_fs_ticket *result,
+        const freak_fs_windows_parent_diagnostic *source,const freak_fs_windows_parent_diagnostic *destination) {
+    char reason[256];
+    snprintf(reason,sizeof(reason),"file publication requires safe owned destination and source parents [source=%s,error=%lu,owner=%s;destination=%s,error=%lu,owner=%s]",
+        source->phase ? source->phase : "not-examined",(unsigned long)source->native_error,
+        source->owner_match < 0 ? "unknown" : source->owner_match ? "same" : "different",
+        destination->phase ? destination->phase : "not-examined",(unsigned long)destination->native_error,
+        destination->owner_match < 0 ? "unknown" : destination->owner_match ? "same" : "different");
+    freak_fs_ticket_error(result,reason);
 }
 static int freak_fs_anchor_file_descriptor(freak_fs_anchor file,bool writable) {
     int descriptor = _open_osfhandle((intptr_t)file,(writable ? _O_WRONLY : _O_RDONLY) | _O_BINARY);
@@ -963,12 +1028,22 @@ int64_t freak_fs_rename_relative_new_checked(int64_t source_handle,freak_word so
         free(from); free(to); freak_fs_ticket_error(result,"file publication relative path has unsafe components"); return handle;
     }
     char *source_leaf,*destination_leaf;
+#ifdef _WIN32
+    freak_fs_windows_parent_diagnostic source_diagnostic={NULL,0,-1},destination_diagnostic={NULL,0,-1};
+#endif
     freak_fs_anchor source_parent=freak_fs_anchor_parent(source_root,from,&source_leaf);
+#ifdef _WIN32
+    if (source_parent == FREAK_FS_INVALID_ANCHOR) freak_fs_windows_parent_note(&source_diagnostic,"parent-acquisition",GetLastError());
+#endif
     freak_fs_anchor destination_parent=freak_fs_anchor_parent(destination_root,to,&destination_leaf);
+#ifdef _WIN32
+    if (destination_parent == FREAK_FS_INVALID_ANCHOR) freak_fs_windows_parent_note(&destination_diagnostic,"parent-acquisition",GetLastError());
+#endif
     freak_fs_anchor file=FREAK_FS_INVALID_ANCHOR;
     bool private_parents=source_parent != FREAK_FS_INVALID_ANCHOR && destination_parent != FREAK_FS_INVALID_ANCHOR;
 #ifdef _WIN32
-    private_parents=private_parents && freak_fs_windows_parent_private(source_parent) && freak_fs_windows_parent_private(destination_parent);
+    private_parents=private_parents && freak_fs_windows_parent_private(source_parent,&source_diagnostic) &&
+        freak_fs_windows_parent_private(destination_parent,&destination_diagnostic);
 #else
     struct stat source_info,destination_info;
     private_parents=private_parents && fstat(source_parent,&source_info) == 0 && fstat(destination_parent,&destination_info) == 0 &&
@@ -1003,8 +1078,15 @@ int64_t freak_fs_rename_relative_new_checked(int64_t source_handle,freak_word so
         if (same && source_synced && destination_synced) result->ok=true;
         else freak_fs_ticket_error(result,same ? "file publication completed but directory synchronization failed" :
             "file publication completed but destination identity changed during rename");
+#ifdef _WIN32
+    } else {
+        if (!private_parents) freak_fs_windows_publication_guard_error(result,&source_diagnostic,&destination_diagnostic);
+        else freak_fs_ticket_error(result,"could not synchronize and publish ordinary file without replacing destination");
+    }
+#else
     } else freak_fs_ticket_error(result,private_parents ? "could not synchronize and publish ordinary file without replacing destination" :
         "file publication requires safe owned destination and source parents");
+#endif
     freak_fs_anchor_close(file); freak_fs_anchor_close(source_parent); freak_fs_anchor_close(destination_parent);
     free(from); free(to); return handle;
 }
