@@ -99,7 +99,7 @@ jobs:
           name: locked-v4-bootstrap-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction.json
-            ${{ runner.temp }}/freak-v4-locked-bootstrap/public-contracts.json
+            ${{ runner.temp }}/freak-v4-locked-bootstrap/public-contracts*.json
             ${{ runner.temp }}/freak-v4-runtime-ci.json
             ${{ runner.temp }}/freak-v4-word-call-ownership.json
             ${{ runner.temp }}/freak-v4-c-emission/gate.json

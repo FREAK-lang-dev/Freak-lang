@@ -66,6 +66,10 @@ macOS and Windows. Its Windows job also runs native filesystem identity,
 publication, failure and handle-balance checks at O0, O2 and O3. Its Linux job
 also runs the word ownership, copied-byte and bounded C-emission failure
 gates with ASan and UBSan. Platform results must be read at the current PR head.
+The public suite contains 12 groups on Unix and 11 on Windows; one group checks
+literal POSIX backslash filenames. Both platform suites retain every applicable
+assertion. The second Git-checkout build saves its complete output, status and
+executable identities in a separate artifact before verification assertions.
 
 The official V4 crates and LLVM driver retain their pinned source bytes.
 Historical Linux comparisons of the word optimization used 480 identical source

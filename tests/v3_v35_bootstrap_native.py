@@ -342,6 +342,43 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def save_git_build_capture(evidence: Path | None, process: subprocess.CompletedProcess[bytes] | None,
+                           images: dict[str, Path], before_images: dict | None = None) -> dict | None:
+    if evidence is None:
+        return
+    identities = {}
+    for name, path in images.items():
+        try:
+            before = path.stat()
+            sha256 = digest(path)
+            after = path.stat()
+            identities[name] = {
+                'path': str(path), 'sha256': sha256,
+                'mode': after.st_mode, 'size': after.st_size,
+                'device': after.st_dev, 'inode': after.st_ino, 'mtime_ns': after.st_mtime_ns,
+                'stat_unchanged_while_hashing':
+                    (before.st_dev, before.st_ino, before.st_mode, before.st_size, before.st_mtime_ns, before.st_ctime_ns) ==
+                    (after.st_dev, after.st_ino, after.st_mode, after.st_size, after.st_mtime_ns, after.st_ctime_ns),
+            }
+        except OSError as error:
+            identities[name] = {'path': str(path), 'sha256': None,
+                                'observation_error': {'type': type(error).__name__,
+                                                      'errno': error.errno, 'message': str(error)}}
+    report = {
+        'phase': 'second local Git checkout bootstrap',
+        'state': 'pending' if process is None else 'completed',
+        'returncode': None if process is None else process.returncode,
+        'stdout_hex': None if process is None else process.stdout.hex(),
+        'stderr_hex': None if process is None else process.stderr.hex(),
+        'images_before': identities if process is None else before_images,
+        'images_after': None if process is None else identities,
+    }
+    destination = evidence.with_suffix('.git-build.json')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+    return identities
+
+
 def clang_witnesses(path: Path, expected_header: bytes) -> list[dict]:
     """Decode bounded ASCII frames from real wide-argv/kernel observations."""
     data=path.read_bytes()
@@ -691,7 +728,10 @@ def main() -> int:
             checkout_records = inventory(checkout)
             before = {relative: digest(checkout / relative) for _, _, relative in checkout_records}
             git_output = output_parent / 'git-bundle'
+            images = {'installed': installed, 'selected_clang_wrapper': wrapper, 'underlying_clang': clang}
+            image_identities = save_git_build_capture(args.evidence, None, images)
             git_result = bootstrap(installed, checkout, git_output, env)
+            save_git_build_capture(args.evidence, git_result, images, image_identities)
             if os.name == 'nt':
                 raw=witness.read_bytes() if witness.exists() else b''
                 native_observation['git_checkout_bootstrap']={
