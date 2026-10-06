@@ -81,6 +81,8 @@ static wchar_t **probe_wide_arguments(void) {
 #define WideCharToMultiByte probe_encode
 #undef __wargv
 #define __wargv probe_wide_arguments()
+static _Noreturn void probe_fatal_exit(int code);
+#define _Exit probe_fatal_exit
 #endif
 #include "../freakc/runtime/freak_runtime.c"
 #ifdef _WIN32
@@ -89,8 +91,19 @@ static wchar_t **probe_wide_arguments(void) {
 #undef calloc
 #undef free
 #undef WideCharToMultiByte
+#undef _Exit
 #undef __wargv
 #define __wargv (*__p___wargv())
+
+static _Noreturn void probe_fatal_exit(int code) {
+    if (probe_fault && code == 1) {
+        assert(!probe_live);
+        assert(freak_argv == probe_raw_arguments && freak_argc == probe_raw_count);
+        puts("argv-failed-cleanly");
+        fflush(stdout);
+    }
+    _Exit(code);
+}
 #endif
 
 static freak_word probe_retained;
@@ -99,17 +112,12 @@ static int probe_admitted;
 
 static void probe_exit_before(void) {
     if (probe_fault) {
-#ifdef _WIN32
-        if (probe_live || freak_argv != probe_raw_arguments || freak_argc != probe_raw_count) {
-            fputs("argv failure published or leaked a snapshot\n", stderr);
-            fflush(stderr);
-            _Exit(72);
-        }
-#endif
-        assert(!probe_live);
-        assert(freak_argv == probe_raw_arguments && freak_argc == probe_raw_count);
-        puts("argv-failed-cleanly");
-        return;
+        /* Fatal construction must skip this earlier callback. With exit()
+           inside INIT_ONCE, its arg access would deadlock on initialization. */
+        fputs("argv unexpected failure callback\n", stderr);
+        fflush(stderr);
+        (void)freak_args_count();
+        _Exit(72);
     }
     assert(probe_admitted);
     assert(!probe_retained.heap && !strcmp(probe_retained.data, probe_retained_bytes));

@@ -180,7 +180,7 @@ define i32 @main(i32 %argc, ptr %argv) {
                     result = run([str(executable), *vector], "argv-permissive-control-native",
                                  {"FREAK_BOOTSTRAP_ARGV_FAULT": "8"})
                     assert result.returncode == 72 and result.stderr == (
-                        b"argv failure published or leaked a snapshot\r\n"), records[-1]
+                        b"argv unexpected failure callback\r\n"), records[-1]
 
                 # Prove the fixture refuses a bypassed open fault and a content
                 # fault moved to an earlier allocation, without allocating GBs.

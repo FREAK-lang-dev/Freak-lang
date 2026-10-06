@@ -86,7 +86,10 @@ static _Noreturn void freak_args_windows_fail(char **staged, int count,
                                              const char *reason) {
     freak_args_windows_free(staged, count);
     fprintf(stderr, "FREAK: %s\n", reason);
-    exit(1);
+    fflush(stderr);
+    /* This initializer has not published a usable argument snapshot. User
+       exit callbacks could reenter INIT_ONCE and wait on this same thread. */
+    _Exit(1);
 }
 
 static BOOL CALLBACK freak_args_windows_initialize(PINIT_ONCE once, PVOID parameter,
