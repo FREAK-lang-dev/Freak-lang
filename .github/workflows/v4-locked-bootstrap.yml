@@ -64,6 +64,14 @@ jobs:
           python -B -u tests/v3_v4_bootstrap_ci.py
           --clang "${{ env.FREAK_V4_CI_CLANG }}"
           --output "${{ runner.temp }}/freak-v4-locked-bootstrap"
+      - name: Verify native word-call ownership and copied bytes (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          python -B -u tests/v3_v4_word_call_borrowing.py
+          --compiler "${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction/freakc_stage2"
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --sanitize --optimization O2
+          --report "${{ runner.temp }}/freak-v4-word-call-ownership.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -72,4 +80,5 @@ jobs:
             ${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction.json
             ${{ runner.temp }}/freak-v4-locked-bootstrap/public-contracts.json
             ${{ runner.temp }}/freak-v4-runtime-ci.json
+            ${{ runner.temp }}/freak-v4-word-call-ownership.json
           if-no-files-found: warn
