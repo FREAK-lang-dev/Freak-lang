@@ -228,6 +228,22 @@ static void require(int ok,const char *why) {if(!ok) {fprintf(stderr,"FAIL: %s (
 #endif
 static int is(const char *name){return active && !strcmp(scenario,name);}
 static void unsafe_callback(void){if(strstr(scenario,"pending") || strstr(scenario,"nonfinal"))fputs("UNSAFE_EXIT_CALLBACK\n",stderr);}
+/* These pointers address production-declared native records. Observe/edit
+   their SDK-compatible fields through bytes, preserving the original pointer
+   and storage lifetime when submitting real native operations. */
+static NTSTATUS io_status(PIO_STATUS_BLOCK io){
+    NTSTATUS status;memcpy(&status,(const unsigned char *)io+offsetof(IO_STATUS_BLOCK,Status),sizeof(status));return status;
+}
+static ULONG_PTR io_information(PIO_STATUS_BLOCK io){
+    ULONG_PTR information;memcpy(&information,(const unsigned char *)io+offsetof(IO_STATUS_BLOCK,Information),sizeof(information));return information;
+}
+static void io_pending(PIO_STATUS_BLOCK io){
+    NTSTATUS status=0x103;memcpy((unsigned char *)io+offsetof(IO_STATUS_BLOCK,Status),&status,sizeof(status));
+}
+static void io_short(PIO_STATUS_BLOCK io){
+    ULONG_PTR information=sizeof(FILE_FS_DEVICE_INFORMATION)-1;
+    memcpy((unsigned char *)io+offsetof(IO_STATUS_BLOCK,Information),&information,sizeof(information));
+}
 NTSTATUS NTAPI freak_test_flush_ex(HANDLE file,ULONG flags,PVOID parameters,ULONG size,PIO_STATUS_BLOCK io) {
     typedef NTSTATUS (NTAPI *fn)(HANDLE,ULONG,PVOID,ULONG,PIO_STATUS_BLOCK);
     fn real=(fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtFlushBuffersFileEx");
@@ -235,21 +251,25 @@ NTSTATUS NTAPI freak_test_flush_ex(HANDLE file,ULONG flags,PVOID parameters,ULON
     require(delete_marked==INVALID_HANDLE_VALUE,"delete handle closed before parent flush");
     directory_flushes++;
     if(is("flush-pending"))return 0x103;
-    if(is("flush-nonfinal")){io->Status=0x103;return 0;}
+    if(is("flush-nonfinal")){io_pending(io);return 0;}
     if(is("directory-fault") && directory_flushes==1)return (NTSTATUS)0xc0000185;
     return real(file,flags,parameters,size,io);
 }
 NTSTATUS NTAPI freak_test_query_volume(HANDLE file,PIO_STATUS_BLOCK io,PVOID out,ULONG size,FS_INFORMATION_CLASS type) {
     require(type==FileFsDeviceInformation && size==sizeof(FILE_FS_DEVICE_INFORMATION),"exact device query");
     if(is("query-pending"))return 0x103;
-    if(is("query-nonfinal")){io->Status=0x103;return 0;}
+    if(is("query-nonfinal")){io_pending(io);return 0;}
     if(is("query-error"))return (NTSTATUS)0xc0000022;
     NTSTATUS status=NtQueryVolumeInformationFile(file,io,out,size,type);
-    if(status==0 && io->Status==0){
-        FILE_FS_DEVICE_INFORMATION *device=out;
-        if(is("query-short"))io->Information=sizeof(*device)-1;
-        if(is("query-remote"))device->Characteristics|=0x10;
-        if(is("query-device"))device->DeviceType=0;
+    if(status==0 && io_status(io)==0){
+        FILE_FS_DEVICE_INFORMATION device;
+        if(io_information(io)>=sizeof(device)){
+            memcpy(&device,out,sizeof(device));
+            if(is("query-remote"))device.Characteristics|=0x10;
+            if(is("query-device"))device.DeviceType=0;
+            memcpy(out,&device,sizeof(device));
+        }
+        if(is("query-short"))io_short(io);
     }
     return status;
 }
@@ -285,7 +305,7 @@ NTSTATUS NTAPI freak_test_set_information(HANDLE file,PIO_STATUS_BLOCK io,PVOID 
     fn real=(fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtSetInformationFile");
     require(real!=NULL,"real native set-information export");
     NTSTATUS status=real(file,io,info,size,type);DWORD error=GetLastError();
-    if(status==0x103 || (status==0 && io->Status==0x103)){
+    if(status==0x103 || (status==0 && io_status(io)==0x103)){
         fputs("NONFINAL_NATIVE_DISPOSITION\n",stderr);fflush(NULL);_Exit(1);
     }
     if(status==0 && type==FileDispositionInformation && size==sizeof(BOOLEAN) && *(BOOLEAN *)info){
