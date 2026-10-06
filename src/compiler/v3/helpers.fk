@@ -227,14 +227,53 @@ task get_shape_field_type(shape_name: word, field_name: word) -> word {
 }
 
 -- ===================== STREAMING EMIT ==============================
--- v3 KEY CHANGE: emit writes directly to file. No buffer.
+-- Ordinary emission writes immediately. The explicit V4 host C profile
+-- batches at most 64 KiB of bytes between the program's begin/end calls.
+pilot emt_c_batch_active = false
+pilot emt_c_batch_builder = 0
+
+task emit_c_batch_begin() -> void {
+    if emt_c_batch_active { panic("C emission batch is already active") }
+    emt_c_batch_active = true
+}
+
+task emit_c_batch_flush() -> void {
+    if emt_c_batch_builder != 0 {
+        pilot chunk: word = word_builder::finish(emt_c_batch_builder)
+        emt_c_batch_builder = 0
+        -- Consume the builder before the original checked append can fail.
+        fs::append(out_file, chunk)
+    }
+}
+
+task emit_c_batch_finish() -> void {
+    emit_c_batch_flush()
+    emt_c_batch_active = false
+}
 
 task emit(s: word) -> void {
-    fs::append(out_file, s)
+    if not emt_c_batch_active { fs::append(out_file, s) give back }
+    pilot size = s.length()
+    -- Empty appends still validate/open/close the file as they did before.
+    -- Oversized fragments bypass the bounded builder without being copied.
+    if size == 0 or size > 65536 {
+        emit_c_batch_flush()
+        fs::append(out_file, s)
+        give back
+    }
+    if emt_c_batch_builder != 0 {
+        if word_builder::length(emt_c_batch_builder) > 65536 - size {
+            emit_c_batch_flush()
+        }
+    }
+    if emt_c_batch_builder == 0 {
+        emt_c_batch_builder = word_builder::with_capacity(65536)
+    }
+    word_builder::append(emt_c_batch_builder, s)
 }
 
 task emit_line(s: word) -> void {
-    fs::append(out_file, s + "\n")
+    emit(s + "\n")
 }
 
 task adjust_token_lines(offset: int) -> void {

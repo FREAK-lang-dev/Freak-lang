@@ -2177,6 +2177,7 @@ task emit_extern_decl(eid: word) -> void {
 -- ===================== PROGRAM EMIT ==================================
 
 task emit_c_program() -> void {
+    if v35_bootstrap_compat { emit_c_batch_begin() }
     array_release(emt_c_word_observer_states)
     emt_c_word_observer_states = array_new()
     emt_c_word_observer_depth = 0
@@ -2301,4 +2302,5 @@ task emit_c_program() -> void {
         emit_line("    return 0;")
     }
     emit_line("\}")
+    if v35_bootstrap_compat { emit_c_batch_finish() }
 }
