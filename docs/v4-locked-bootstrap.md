@@ -19,6 +19,11 @@ when automatic discovery does not select it. Bootstrap targets the current
 host. Windows requires Windows 8 or newer and a GNU-targeting LLVM-MinGW UCRT
 toolchain; release and bootstrap CI pin the 20260616 UCRT SDK. Plain MSVC
 linking and legacy MSVCRT SDKs are unsupported by this bootstrap profile.
+Windows arguments are decoded from the CRT's wide vector into UTF-8. Invalid
+Unicode or allocation failure during that initialization is fatal: the runtime
+frees staging, flushes its diagnostic and stops without invoking user exit
+callbacks. Successfully decoded argument views remain valid through normal
+exit callbacks and process teardown.
 
 The command validates the locked inputs, compiles the V4 engine and launcher,
 tests query invalidation and generated programs, and publishes the preview only
