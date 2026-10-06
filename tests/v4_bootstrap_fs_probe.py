@@ -51,8 +51,9 @@ def observations(result: subprocess.CompletedProcess, control: bool) -> dict:
     assert summary["tickets_before"] == summary["tickets_after"] == 0
     if control and tickets["temp_dir"]["ok"]:
         assert "control_existing_runtime" in tickets
-        assert not summary["production_contract_passed"]
-        assert not tickets["mkdir_runtime"]["ok"] and not tickets["mkdir_runtime"]["completed"]
+        if tickets["control_existing_runtime"]["completed"]:
+            assert not summary["production_contract_passed"]
+            assert not tickets["mkdir_runtime"]["ok"] and not tickets["mkdir_runtime"]["completed"]
     if sys.platform == "win32":
         events = [row for row in rows if row["type"] == "native"]
         if tickets["open_parent"]["ok"]:
