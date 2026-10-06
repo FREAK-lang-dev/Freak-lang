@@ -65,6 +65,11 @@ jobs:
           python -B -u tests/v4_bootstrap_fs_probe.py
           --clang "${{ env.FREAK_V4_CI_CLANG }}"
           --report "${{ runner.temp }}/freak-v4-bootstrap-fs-probe.json"
+      - name: Reconstruct CLI and verify installed public locked bootstrap
+        run: >
+          python -B -u tests/v3_v4_bootstrap_ci.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --output "${{ runner.temp }}/freak-v4-locked-bootstrap"
       - name: Verify native Windows checked filesystem barriers
         if: runner.os == 'Windows'
         run: >
@@ -72,11 +77,6 @@ jobs:
           --clang "${{ env.FREAK_V4_CI_CLANG }}"
           --optimization 0 --optimization 2 --optimization 3
           --report "${{ runner.temp }}/freak-v4-windows-fs.json"
-      - name: Reconstruct CLI and verify installed public locked bootstrap
-        run: >
-          python -B -u tests/v3_v4_bootstrap_ci.py
-          --clang "${{ env.FREAK_V4_CI_CLANG }}"
-          --output "${{ runner.temp }}/freak-v4-locked-bootstrap"
       - name: Verify native word-call ownership and copied bytes (Linux)
         if: runner.os == 'Linux'
         run: >
