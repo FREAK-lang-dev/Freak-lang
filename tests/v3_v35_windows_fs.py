@@ -327,7 +327,7 @@ static void private_acl(const char *name,int policy) {
     EXPLICIT_ACCESSW grants[2]={0};grants[0].grfAccessPermissions=FILE_ALL_ACCESS;grants[0].grfAccessMode=SET_ACCESS;
     grants[0].Trustee.TrusteeForm=TRUSTEE_IS_SID;grants[0].Trustee.ptstrName=user->User.Sid;
     grants[1].grfAccessPermissions=policy==1 ? FILE_GENERIC_READ | FILE_GENERIC_EXECUTE : policy==2 ? FILE_ADD_FILE : policy==3 ? WRITE_DAC : FILE_DELETE_CHILD;
-    grants[1].grfAccessMode=SET_ACCESS;grants[1].Trustee.TrusteeForm=TRUSTEE_IS_SID;grants[1].Trustee.ptstrName=everyone.bytes;
+    grants[1].grfAccessMode=SET_ACCESS;grants[1].Trustee.TrusteeForm=TRUSTEE_IS_SID;grants[1].Trustee.ptstrName=(LPWSTR)(void *)everyone.bytes;
     PACL acl=NULL;require(SetEntriesInAclW(policy ? 2 : 1,grants,NULL,&acl)==ERROR_SUCCESS,"construct private ACL");
     int characters=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,name,-1,NULL,0);wchar_t *wide=malloc((size_t)characters*sizeof(wchar_t));
     require(wide && MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,name,-1,wide,characters)==characters,"path UTF8");
