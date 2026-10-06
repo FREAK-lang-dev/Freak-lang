@@ -325,6 +325,9 @@ static void private_acl(const char *name,int policy) {
     union {DWORD aligned;BYTE bytes[SECURITY_MAX_SID_SIZE];} everyone;DWORD size=sizeof everyone.bytes;
     require(CreateWellKnownSid(WinWorldSid,NULL,everyone.bytes,&size),"everyone SID");
     EXPLICIT_ACCESSW grants[2]={0};grants[0].grfAccessPermissions=FILE_ALL_ACCESS;grants[0].grfAccessMode=SET_ACCESS;
+    /* Keep the owner's access on existing and newly created fixture children.
+       The controlled nonowner grant below still applies only to the parent. */
+    grants[0].grfInheritance=SUB_CONTAINERS_AND_OBJECTS_INHERIT;
     grants[0].Trustee.TrusteeForm=TRUSTEE_IS_SID;grants[0].Trustee.ptstrName=user->User.Sid;
     grants[1].grfAccessPermissions=policy==1 ? FILE_GENERIC_READ | FILE_GENERIC_EXECUTE : policy==2 ? FILE_ADD_FILE : policy==3 ? WRITE_DAC : FILE_DELETE_CHILD;
     grants[1].grfAccessMode=SET_ACCESS;grants[1].Trustee.TrusteeForm=TRUSTEE_IS_SID;grants[1].Trustee.ptstrName=(LPWSTR)(void *)everyone.bytes;
@@ -335,11 +338,20 @@ static void private_acl(const char *name,int policy) {
         user->User.Sid,NULL,policy==5 ? NULL : acl,NULL);
     require(status==ERROR_SUCCESS,"set real owner/private DACL");LocalFree(acl);free(wide);free(user);CloseHandle(token);
 }
+static void seed_owner_acl(const char *parent,const char *leaf){
+    size_t length=strlen(parent)+strlen(leaf)+2;char *path=malloc(length);
+    require(path!=NULL,"seeded child ACL path allocation");
+    int written=snprintf(path,length,"%s/%s",parent,leaf);
+    require(written>=0 && (size_t)written<length,"seeded child ACL path join");
+    private_acl(path,0);free(path);
+}
 static void release(int64_t ticket,int expected,int completed){require(!!F(result_ok)(ticket)==expected,"checked result");require(!!F(result_completed)(ticket)==completed,"completed result");F(result_release)(ticket);}
 int main(int argc,char **argv) {
     require(argc==4,"arguments");scenario=argv[3];require(atexit(unsafe_callback)==0,"callback registration");
     int source_policy=!strcmp(scenario,"source-write") ? 2 : !strcmp(scenario,"null-dacl") ? 5 : 0;
     int destination_policy=!strcmp(scenario,"readonly-others") ? 1 : !strcmp(scenario,"destination-write") ? 2 : !strcmp(scenario,"write-dac") ? 3 : !strcmp(scenario,"delete-child") ? 4 : 0;
+    /* Preserve seeded byte-oracle access even for the NULL parent DACL case. */
+    seed_owner_acl(argv[1],"a");seed_owner_acl(argv[1],"deletable");seed_owner_acl(argv[2],"neighbor");
     private_acl(argv[1],source_policy);private_acl(argv[2],destination_policy);
     /* Measure first-use cache effects explicitly, then require exact handle
        balance for the tested operation. Warmup is independent owned mutation. */
@@ -577,6 +589,9 @@ def main() -> int:
             assert '__imp_OpenFileById' in symbols and '__imp_GetVolumeInformationByHandleW' in symbols and '__imp_ReOpenFile' in symbols and not any(s.endswith(n) for s in symbols for n in security_names), symbols
             report['windows_sdk_object'] = {'command': command, 'status': 'pass', 'sha256': hashlib.sha256(object_path.read_bytes()).hexdigest(), 'undefined_symbols': symbols, 'no_new_security_library_imports': True, 'native_execution': False}
         if os.name == 'nt':
+            report['native_windows_observations'] = []
+            report['native_windows_verified'] = False
+            report['gate_passed'] = False
             for adapter in ('c', 'llvm'):
                 for optimization in args.optimization or (0, 2, 3):
                     binary = home/f'{adapter}-{optimization}.exe'
@@ -586,15 +601,31 @@ def main() -> int:
                     for name in ('native', 'readonly-others', 'source-write', 'destination-write', 'write-dac', 'delete-child', 'null-dacl', 'missing-security-api', 'directory-fault', *SYNC_CONTROLS, *NONFINAL_CONTROLS, 'replace-delete', 'temp-rollback'):
                         case = home/f'{adapter}-{optimization}-{name}';case.mkdir();source_root, destination = case/'source', case/'destination'
                         source_root.mkdir();destination.mkdir();(source_root/'a').write_bytes(b'published\0\xff');(destination/'neighbor').write_bytes(b'unchanged');(source_root/'deletable').write_bytes(b'delete-me')
-                        result = subprocess.run([str(binary), str(source_root), str(destination), name], env=environment, capture_output=True, timeout=15)
-                        assert (destination/'neighbor').read_bytes() == b'unchanged'
-                        assert not any(p.is_dir() and p.name.startswith('warm') for p in source_root.iterdir()), 'actual warmup owned directory must be absent'
+                        invocation = [str(binary), str(source_root), str(destination), name]
+                        result = subprocess.run(invocation, env=environment, capture_output=True, timeout=15)
+                        observation = {'adapter': adapter, 'optimization': optimization, 'case': name,
+                                       'command': invocation, 'returncode': result.returncode,
+                                       'controlled_api_response': name in (*SYNC_CONTROLS,*NONFINAL_CONTROLS,'directory-fault','missing-security-api','temp-rollback'),
+                                       'stdout': result.stdout.decode(errors='replace'),
+                                       'stderr': result.stderr.decode(errors='replace'),
+                                       'stdout_hex': result.stdout.hex(), 'stderr_hex': result.stderr.hex(),
+                                       'text_decoding': 'UTF8 with replacement; hex preserves original bytes',
+                                       'oracles_passed': False}
+                        report['native_windows_observations'].append(observation)
+                        print('WINDOWS_OBSERVATION '+json.dumps(observation), flush=True)
+                        if args.report:
+                            args.report.parent.mkdir(parents=True, exist_ok=True)
+                            args.report.write_text(json.dumps(report, indent=2)+'\n')
                         if name in NONFINAL_CONTROLS:
                             assert result.returncode==1 and b'nonfinal synchronous directory' in result.stderr and b'UNSAFE_EXIT_CALLBACK' not in result.stderr,(name,result)
-                            assert (source_root/'runtime').is_dir(), 'namespace mutation remains completed on fatal contract violation'
                         else:
                             assert result.returncode==0 and not result.stderr,(adapter,optimization,name,result)
                             assert result.stdout.startswith(b'WARMUP_HANDLES ') and b'WINDOWS_OK ' in result.stdout,result.stdout
+                        assert (destination/'neighbor').read_bytes() == b'unchanged'
+                        assert not any(p.is_dir() and p.name.startswith('warm') for p in source_root.iterdir()), 'actual warmup owned directory must be absent'
+                        if name in NONFINAL_CONTROLS:
+                            assert (source_root/'runtime').is_dir(), 'namespace mutation remains completed on fatal contract violation'
+                        else:
                             moved=name in ('native','readonly-others','directory-fault')
                             if name=='replace-delete':
                                 assert (source_root/'a').read_bytes()==b'N\0\xff' and not (source_root/'deletable').exists()
@@ -602,10 +633,12 @@ def main() -> int:
                             assert (destination/'result').read_bytes()==b'published\0\xff' if moved else not (destination/'result').exists()
                             if name in SYNC_CONTROLS:assert (source_root/'runtime').is_dir(), 'completed failed barrier must leave actual creation'
                             if name=='temp-rollback':assert not (destination/'published').exists() and sorted(p.name for p in source_root.iterdir())==['a','deletable']
+                        observation['oracles_passed'] = True
                         records.append({'adapter':adapter,'optimization':optimization,'case':'native-windows-'+name,'status':'pass',
-                                        'controlled_api_response':name in (*SYNC_CONTROLS,*NONFINAL_CONTROLS,'directory-fault'),
+                                        'controlled_api_response':name in (*SYNC_CONTROLS,*NONFINAL_CONTROLS,'directory-fault','missing-security-api','temp-rollback'),
                                         'stdout':result.stdout.decode(errors='replace'),'stderr':result.stderr.decode(errors='replace')})
     assert hashes == {str(path): hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in hashes}, 'runtime changed during verification'
+    if os.name == 'nt':report['gate_passed'] = report['native_windows_verified'] = True
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True);args.report.write_text(json.dumps(report, indent=2)+'\n')
     return 0
