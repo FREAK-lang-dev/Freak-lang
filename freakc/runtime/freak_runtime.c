@@ -36,6 +36,7 @@
 #include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
 #include <windows.h>
+#include <corecrt_startup.h>
 #include <io.h>
 #include <direct.h>
 #else
@@ -66,11 +67,76 @@ static int64_t freak_normalize_process_status(int status) {
 int freak_argc = 0;
 char** freak_argv = NULL;
 
+#ifdef _WIN32
+/* Generated C seeds still assign the narrow CRT argv directly. Decode the
+   UCRT's own wide argument vector at first access, preserving its quote and
+   wildcard rules. CRT-like borrowed views remain valid through exit callbacks;
+   the bounded, reachable snapshot is reclaimed by the OS at process teardown. */
+static INIT_ONCE freak_args_windows_once = INIT_ONCE_STATIC_INIT;
+static char **freak_args_windows_snapshot = NULL;
+static int freak_args_windows_count = 0;
+
+static void freak_args_windows_free(char **arguments, int count) {
+    if (!arguments) return;
+    for (int i = 0; i < count; ++i) free(arguments[i]);
+    free(arguments);
+}
+
+static _Noreturn void freak_args_windows_fail(char **staged, int count,
+                                             const char *reason) {
+    freak_args_windows_free(staged, count);
+    fprintf(stderr, "FREAK: %s\n", reason);
+    exit(1);
+}
+
+static BOOL CALLBACK freak_args_windows_initialize(PINIT_ONCE once, PVOID parameter,
+                                                   PVOID *context) {
+    (void)once; (void)parameter; (void)context;
+    if (_configure_wide_argv(_crt_argv_unexpanded_arguments) != 0)
+        freak_args_windows_fail(NULL, 0, "could not decode Unicode argument vector");
+    int count = __argc;
+    wchar_t **wide = __wargv;
+    if (count < 1 || !wide || (size_t)count > SIZE_MAX / sizeof(char *) - 1)
+        freak_args_windows_fail(NULL, 0, "invalid Unicode argument vector");
+    char **staged = calloc((size_t)count + 1, sizeof(char *));
+    if (!staged) freak_args_windows_fail(NULL, 0, "out of memory decoding arguments");
+    for (int i = 0; i < count; ++i) {
+        int length = wide[i] ? WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+            wide[i], -1, NULL, 0, NULL, NULL) : 0;
+        if (length < 1)
+            freak_args_windows_fail(staged, count, "argument is not valid Unicode");
+        staged[i] = malloc((size_t)length);
+        if (!staged[i])
+            freak_args_windows_fail(staged, count, "out of memory decoding arguments");
+        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide[i], -1,
+                               staged[i], length, NULL, NULL) != length)
+            freak_args_windows_fail(staged, count, "could not encode Unicode argument");
+    }
+    freak_args_windows_snapshot = staged;
+    freak_args_windows_count = count;
+    freak_argc = freak_args_windows_count;
+    freak_argv = freak_args_windows_snapshot;
+    return TRUE;
+}
+
+static void freak_args_windows_prepare(void) {
+    if (!InitOnceExecuteOnce(&freak_args_windows_once,
+                            freak_args_windows_initialize, NULL, NULL))
+        freak_args_windows_fail(NULL, 0, "could not initialize Unicode arguments");
+}
+#endif
+
 int64_t freak_args_count(void) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     return (int64_t)freak_argc;
 }
 
 freak_word freak_arg(int64_t index) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     if (index < 0 || index >= freak_argc) {
         freak_panic(freak_word_lit("Argument index out of bounds"));
     }
@@ -2429,6 +2495,9 @@ freak_word freak_process_env(freak_word name) {
 }
 
 void* freak_process_args(void) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     return (void*)freak_argv;
 }
 
@@ -2696,8 +2765,13 @@ void freak_enable_ansi(void) {
 
 void freak_llvm_setup_args(int64_t argc, int64_t argv) {
     freak_enable_ansi();
+#ifdef _WIN32
+    (void)argc; (void)argv;
+    freak_args_windows_prepare();
+#else
     freak_argc = (int)argc;
     freak_argv = (char**)argv;
+#endif
 }
 
 #include <stdio.h>
@@ -3209,10 +3283,16 @@ int64_t freak_llvm_ask(int64_t prompt) {
 }
 
 int64_t freak_process_args_count(void) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     return (int64_t)freak_argc;
 }
 
 freak_word freak_process_arg(int64_t index) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     if (index < 0 || index >= freak_argc) {
         return freak_word_lit("");
     }
@@ -3220,10 +3300,16 @@ freak_word freak_process_arg(int64_t index) {
 }
 
 int64_t freak_llvm_process_args_count(void) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     return (int64_t)freak_argc;
 }
 
 int64_t freak_llvm_process_arg(int64_t index) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     if (index < 0 || index >= freak_argc) {
         return freak_llvm_word_adopt((int64_t)_strdup(""));
     }
