@@ -18,6 +18,8 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <windows.h>
+#include <winternl.h>
+#include <winioctl.h>
 
 typedef struct {
     const char *api, *phase;
@@ -32,6 +34,7 @@ static probe_event probe_events[512];
 static size_t probe_event_count;
 static int probe_overflow;
 static const char *probe_phase = "startup";
+static _Noreturn void probe_nonfinal(const char *api,LONG status);
 static probe_event *probe_record(const char *api, int64_t result, DWORD error, HANDLE handle) {
     if (probe_event_count == sizeof(probe_events) / sizeof(*probe_events)) {
         probe_overflow = 1; return NULL;
@@ -94,6 +97,15 @@ static BOOL WINAPI probe_close(HANDLE handle) {
     probe_record("CloseHandle", result, error, handle);
     SetLastError(error); return result;
 }
+static BOOL WINAPI probe_duplicate(HANDLE source_process, HANDLE source,
+        HANDLE target_process, LPHANDLE target, DWORD access, BOOL inherit, DWORD options) {
+    BOOL result = DuplicateHandle(source_process,source,target_process,target,access,inherit,options);
+    DWORD error = GetLastError();
+    probe_event *event = probe_record("DuplicateHandle",result,error,source);
+    if (event) { event->access=access; event->options=options;
+        if (result) event->other=(uintptr_t)*target; }
+    SetLastError(error); return result;
+}
 static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name);
 #define CreateFileW probe_create
 #define ReOpenFile probe_reopen
@@ -102,6 +114,7 @@ static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name);
 #define GetFileInformationByHandleEx probe_information_ex
 #define GetFileType probe_file_type
 #define CloseHandle probe_close
+#define DuplicateHandle probe_duplicate
 #define GetProcAddress probe_address
 #endif
 #include "../freakc/runtime/freak_runtime.c"
@@ -113,6 +126,7 @@ static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name);
 #undef GetFileInformationByHandleEx
 #undef GetFileType
 #undef CloseHandle
+#undef DuplicateHandle
 #undef GetProcAddress
 
 /* Use the production resolver's exact existing native ABI type. This changes
@@ -129,12 +143,16 @@ static LONG NTAPI probe_nt_create(PHANDLE handle, ACCESS_MASK access,
     if (event) {
         event->access = access; event->attributes = attributes; event->share = share;
         event->disposition = disposition; event->options = options;
-        if (status >= 0) {
+        if (status == 0 && io->value.status == 0) {
             event->other = (uintptr_t)*handle; event->has_io = 1;
             event->io_status = io->value.status; event->io_information = io->information;
         }
-        /* A failure need not initialize IO_STATUS_BLOCK; never read indeterminate bytes. */
+        /* A failure/pending return need not complete IO_STATUS_BLOCK; never
+           read indeterminate bytes or label a pending operation complete. */
     }
+    if (status==0x103 || (status==0 &&
+        (io->value.status==INT32_MIN || io->value.status==0x103)))
+        probe_nonfinal("NtCreateFile",status);
     SetLastError(error); return status;
 }
 static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name) {
@@ -184,6 +202,126 @@ static long probe_resources(void) {
 #endif
 }
 #ifdef _WIN32
+static void probe_checkpoint(const char *name) {
+    DWORD error = GetLastError();
+    long count = probe_resources();
+    printf("{\"type\":\"resource_checkpoint\",\"phase\":"); probe_string(name);
+    printf(",\"process_handles\":%ld}\n",count);
+    SetLastError(error);
+}
+/* Microsoft NtFlushBuffersFileEx: HANDLE, ULONG Flags, PVOID Parameters,
+   ULONG ParametersSize, PIO_STATUS_BLOCK. Pinned ntdll also exports @20 on
+   x86. Reuse the production IOSB only after verifying its SDK layout. */
+_Static_assert(sizeof(freak_fs_nt_io)==sizeof(IO_STATUS_BLOCK),"native IOSB size");
+_Static_assert(offsetof(freak_fs_nt_io,value)==offsetof(IO_STATUS_BLOCK,Status),"native IOSB status");
+_Static_assert(offsetof(freak_fs_nt_io,information)==offsetof(IO_STATUS_BLOCK,Information),"native IOSB information");
+typedef LONG (NTAPI *probe_flush_ex_fn)(HANDLE,ULONG,PVOID,ULONG,freak_fs_nt_io *);
+
+static void probe_alternative_flush(const char *method,HANDLE reference,HANDLE candidate,
+                                    ACCESS_MASK access,int open_attempted,DWORD open_error) {
+    DWORD original_error=GetLastError();
+    BY_HANDLE_FILE_INFORMATION metadata;
+    int opened=candidate != INVALID_HANDLE_VALUE;
+    int same=opened && probe_information(candidate,&metadata) &&
+        probe_file_type(candidate)==FILE_TYPE_DISK &&
+        (metadata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+        !(metadata.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
+        freak_fs_anchor_same(reference,candidate);
+    probe_flush_ex_fn flush=(probe_flush_ex_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtFlushBuffersFileEx");
+    freak_fs_nt_io io; memset(&io,0,sizeof(io));
+    io.value.status=INT32_MIN; io.information=UINTPTR_MAX;
+    int called=same && flush != NULL;
+    LONG status=INT32_MIN; DWORD error=GetLastError();
+    if (called) {
+        status=flush(candidate,0,NULL,0,&io); error=GetLastError();
+        probe_event *event=probe_record("NtFlushBuffersFileEx",status,error,candidate);
+        if (event && status==0 && io.value.status==0 && io.information!=UINTPTR_MAX) {
+            event->has_io=1; event->io_status=io.value.status;
+            event->io_information=io.information;
+        }
+    }
+    int pending=called && status==0x103; /* STATUS_PENDING is not completion. */
+    int completed=called && status==0 && io.value.status==0;
+    printf("{\"type\":\"alternative\",\"method\":"); probe_string(method);
+    printf(",\"open_attempted\":%s,\"opened\":%s,\"open_error\":%lu,\"requested_access\":%lu,\"reference_handle\":%"PRIu64",\"candidate_handle\":%"PRIu64
+        ",\"identity_matches\":%s,\"flush_api_available\":%s,\"flush_called\":%s,\"flush_flags\":0,\"parameters_size\":0,\"ntstatus\":",
+        open_attempted?"true":"false",opened?"true":"false",(unsigned long)open_error,(unsigned long)access,
+        (uint64_t)(uintptr_t)reference,(uint64_t)(uintptr_t)candidate,
+        same?"true":"false",flush?"true":"false",called?"true":"false");
+    if (called) printf("%ld",(long)status); else printf("null");
+    printf(",\"status_pending\":%s,\"completion_valid\":%s,\"io_status\":",pending?"true":"false",completed?"true":"false");
+    if (completed) printf("%ld",(long)io.value.status); else printf("null");
+    printf(",\"io_information\":");
+    if (completed && io.information!=UINTPTR_MAX) printf("%"PRIu64,(uint64_t)io.information); else printf("null");
+    printf(",\"last_error\":%lu,\"durability_proven\":false}\n",(unsigned long)error);
+    if (pending || (called && status==0 &&
+        (io.value.status==INT32_MIN || io.value.status==0x103)))
+        probe_nonfinal("NtFlushBuffersFileEx",status);
+    SetLastError(original_error);
+}
+static void probe_alternatives(HANDLE parent,HANDLE temp) {
+    probe_phase="alternative_held_temp";
+    probe_alternative_flush("held_writable_temp",temp,temp,0,0,0);
+    probe_phase="alternative_duplicate_temp";
+    HANDLE copy=INVALID_HANDLE_VALUE;
+    BOOL copied=probe_duplicate(GetCurrentProcess(),temp,GetCurrentProcess(),&copy,0,FALSE,DUPLICATE_SAME_ACCESS);
+    DWORD error=GetLastError();
+    if (!copied) copy=INVALID_HANDLE_VALUE;
+    probe_alternative_flush("duplicate_same_access_temp",temp,copy,0,1,error);
+    freak_fs_anchor_close(copy);
+    if (parent==INVALID_HANDLE_VALUE) return;
+    ACCESS_MASK rights[]={FILE_APPEND_DATA,FILE_WRITE_DATA};
+    const char *reopens[]={"reopen_parent_append","reopen_parent_write"};
+    const char *empties[]={"nt_empty_parent_append","nt_empty_parent_write"};
+    const char *by_ids[]={"open_by_id_parent_append","open_by_id_parent_write"};
+    for (size_t i=0;i<2;i++) {
+        ACCESS_MASK access=rights[i]|FILE_READ_ATTRIBUTES|SYNCHRONIZE;
+        probe_phase=reopens[i];
+        HANDLE reopened=probe_reopen(parent,access,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_FLAG_BACKUP_SEMANTICS);
+        error=GetLastError();
+        probe_alternative_flush(reopens[i],parent,reopened,access,1,error);
+        freak_fs_anchor_close(reopened);
+        probe_phase=empties[i];
+        /* Hypothesis only: an empty relative object name may reopen its held
+           RootDirectory. FILE_OPEN never creates an entry; verify identity. */
+        wchar_t empty[]=L"";
+        freak_fs_nt_string name={0,sizeof(empty),empty};
+        freak_fs_nt_object object={sizeof(object),parent,&name,0x40,NULL,NULL};
+        freak_fs_nt_io io; memset(&io,0,sizeof(io));
+        io.value.status=INT32_MIN; io.information=UINTPTR_MAX;
+        HANDLE native=INVALID_HANDLE_VALUE; int attempted=probe_nt_real != NULL;
+        LONG status=attempted ? probe_nt_create(&native,access,&object,&io,NULL,FILE_ATTRIBUTE_NORMAL,
+            FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,1,1|0x20|0x200000,NULL,0) : INT32_MIN;
+        error=GetLastError();
+        if (status!=0) {
+            if (native!=INVALID_HANDLE_VALUE) freak_fs_anchor_close(native);
+            native=INVALID_HANDLE_VALUE;
+        }
+        probe_alternative_flush(empties[i],parent,native,access,attempted,error);
+        freak_fs_anchor_close(native);
+        probe_phase=by_ids[i];
+        FILE_ID_INFO identity; FILE_ID_DESCRIPTOR descriptor;
+        memset(&descriptor,0,sizeof(descriptor));
+        descriptor.dwSize=sizeof(descriptor); descriptor.Type=ExtendedFileIdType;
+        int identity_known=probe_information_ex(parent,FileIdInfo,&identity,sizeof(identity)) != 0;
+        HANDLE by_id=INVALID_HANDLE_VALUE;
+        if (identity_known) {
+            descriptor.ExtendedFileId=identity.FileId;
+            by_id=OpenFileById(parent,&descriptor,access,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,
+                FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT);
+            error=GetLastError();
+            probe_event *event=probe_record("OpenFileById",by_id!=INVALID_HANDLE_VALUE,error,parent);
+            if (event) {
+                event->other=(uintptr_t)by_id; event->access=access;
+                event->flags=FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT; event->share=7;
+                event->has_identity=1; event->volume=identity.VolumeSerialNumber;
+                memcpy(event->identity,descriptor.ExtendedFileId.Identifier,sizeof(event->identity));
+            }
+        } else error=GetLastError();
+        probe_alternative_flush(by_ids[i],parent,by_id,access,identity_known,error);
+        freak_fs_anchor_close(by_id);
+    }
+}
 static void probe_profile(HANDLE directory) {
     WCHAR filesystem[128] = {0}; DWORD serial = 0, maximum = 0, flags = 0;
     BOOL volume_ok = GetVolumeInformationByHandleW(directory, NULL, 0, &serial,
@@ -195,6 +333,42 @@ static void probe_profile(HANDLE directory) {
            volume_ok ? "true" : "false", (unsigned long)volume_error);
     probe_string(name); printf(",\"volume_serial\":%lu,\"flags\":%lu}\n",
         (unsigned long)serial, (unsigned long)flags);
+    /* Actual configured SDK query/structure. FILE_REMOTE_DEVICE=0x10 is the
+       pinned SDK wdm.h characteristic; failure never means a local device. */
+    _Static_assert(FileFsDeviceInformation==4,"native filesystem device class");
+    _Static_assert(sizeof(FILE_FS_DEVICE_INFORMATION)==8,"native filesystem device size");
+    typedef NTSTATUS (NTAPI *query_fn)(HANDLE,PIO_STATUS_BLOCK,PVOID,ULONG,FS_INFORMATION_CLASS);
+    query_fn query=(query_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtQueryVolumeInformationFile");
+    IO_STATUS_BLOCK io; memset(&io,0,sizeof(io)); io.Status=INT32_MIN; io.Information=UINTPTR_MAX;
+    FILE_FS_DEVICE_INFORMATION device; memset(&device,0xff,sizeof(device));
+    NTSTATUS status=query ? query(directory,&io,&device,sizeof(device),FileFsDeviceInformation) : INT32_MIN;
+    DWORD query_error=GetLastError();
+    int completed=query && status==0 && io.Status==0 && io.Information>=sizeof(device) && io.Information!=UINTPTR_MAX;
+    if (query) {
+        probe_event *event=probe_record("NtQueryVolumeInformationFile",status,query_error,directory);
+        if (event) { event->flags=FileFsDeviceInformation;
+            if (completed) { event->has_io=1; event->io_status=io.Status; event->io_information=io.Information;
+                event->attributes=device.Characteristics; } }
+    }
+    printf("{\"type\":\"device_profile\",\"query_available\":%s,\"information_class\":4,\"ntstatus\":",
+        query?"true":"false");
+    if (query) printf("%ld",(long)status); else printf("null");
+    printf(",\"status_pending\":%s,\"completion_valid\":%s,\"io_status\":",
+        query && status==0x103?"true":"false",completed?"true":"false");
+    if (completed) printf("%ld",(long)io.Status); else printf("null");
+    printf(",\"io_information\":");
+    if (completed) printf("%"PRIu64,(uint64_t)io.Information); else printf("null");
+    printf(",\"device_type\":");
+    if (completed) printf("%lu",(unsigned long)device.DeviceType); else printf("null");
+    printf(",\"characteristics\":");
+    if (completed) printf("%lu",(unsigned long)device.Characteristics); else printf("null");
+    printf(",\"remote\":");
+    if (completed) printf("%s",device.Characteristics & 0x10?"true":"false"); else printf("null");
+    printf(",\"local_disk\":");
+    if (completed) printf("%s",device.DeviceType==FILE_DEVICE_DISK && !(device.Characteristics & 0x10)?"true":"false"); else printf("null");
+    printf(",\"last_error\":%lu}\n",(unsigned long)query_error);
+    if (query && (status==0x103 || (status==0 && (io.Status==INT32_MIN || io.Status==0x103))))
+        probe_nonfinal("NtQueryVolumeInformationFile",status);
     /* Public SDK types/declarations, resolved from the actual system module;
        this observational profile does not add a product linker dependency. */
     HMODULE security = LoadLibraryExW(L"advapi32.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -248,6 +422,16 @@ static void probe_dump_events(void) {
         puts("\"}");
     }
 }
+static _Noreturn void probe_nonfinal(const char *api,LONG status) {
+    printf("{\"type\":\"incomplete\",\"api\":"); probe_string(api);
+    printf(",\"ntstatus\":%ld,\"diagnostic_completed\":false,\"termination\":\"no_unwind\"}\n",(long)status);
+    probe_dump_events(); fflush(stdout);
+    fputs("checked FS diagnostic: pending or nonfinal native output; terminating without unwinding\n",stderr);
+    fflush(stderr);
+    /* Keep pending handles and output storage alive until process teardown.
+       No callback, caller return, stack unwind, or premature close occurs. */
+    _Exit(74);
+}
 #define PROBE_PHASE(name) (probe_phase = (name))
 #else
 #define PROBE_PHASE(name) ((void)0)
@@ -265,12 +449,17 @@ int main(int argc, char **argv) {
     probe_ticket("open_parent",root,probe_native_error());
     passed &= freak_fs_result_ok(root);
 #ifdef _WIN32
+    probe_checkpoint("after_open_parent");
     if (freak_fs_result_ok(root)) probe_profile(freak_fs_ticket_require(root)->directory);
+    probe_checkpoint("after_profile");
 #endif
     PROBE_PHASE("temp_dir");
     int64_t temp = freak_fs_temp_dir(parent,freak_word_lit("fs-probe"));
     probe_ticket("temp_dir",temp,probe_native_error());
     passed &= freak_fs_result_ok(temp);
+#ifdef _WIN32
+    probe_checkpoint("after_temp_dir");
+#endif
     if (freak_fs_result_ok(temp)) {
         /* A real existing-directory control proves reporting does not turn
            rejected creation or a false missing fact into successful proof. */
@@ -291,6 +480,7 @@ int main(int argc, char **argv) {
         passed &= freak_fs_result_ok(made) && freak_fs_result_completed(made);
         freak_fs_result_release(made);
 #ifdef _WIN32
+        probe_checkpoint("after_mkdir");
         /* The admitted parent itself came through NtCreateFile component
            walks. Compare an actual CreateFileW handle of the same identity;
            these observations never decide or repair the production contract. */
@@ -318,6 +508,10 @@ int main(int argc, char **argv) {
         unsigned long native_error = probe_native_error();
         printf("{\"type\":\"sync_observation\",\"origin\":\"NtCreateFile_temp\",\"synchronized\":%s,\"native_error\":%lu}\n",
             synchronized?"true":"false",native_error);
+        probe_checkpoint("before_alternatives");
+        probe_alternatives(freak_fs_result_ok(root) ? freak_fs_ticket_require(root)->directory : INVALID_HANDLE_VALUE,
+                           freak_fs_ticket_require(temp)->directory);
+        probe_checkpoint("after_alternatives");
 #endif
         PROBE_PHASE("cleanup_temp");
         int64_t removed = freak_fs_remove_temp_dir_checked(temp);
@@ -325,6 +519,9 @@ int main(int argc, char **argv) {
         cleanup_completed = freak_fs_result_completed(removed);
         passed &= freak_fs_result_ok(removed) && cleanup_completed;
         freak_fs_result_release(removed);
+#ifdef _WIN32
+        probe_checkpoint("after_cleanup");
+#endif
     }
     PROBE_PHASE("release_tickets");
     freak_fs_result_release(temp); freak_fs_result_release(root);

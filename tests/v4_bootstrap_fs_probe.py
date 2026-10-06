@@ -60,10 +60,45 @@ def observations(result: subprocess.CompletedProcess, control: bool) -> dict:
             assert any(row["api"] == "CreateFileW" and row["phase"] == "open_parent" for row in events)
             assert any(row["type"] == "filesystem" for row in rows)
             assert any(row["type"] == "token" for row in rows)
+            devices = [row for row in rows if row["type"] == "device_profile"]
+            assert len(devices) == 1
+            device = devices[0]
+            assert device["information_class"] == 4
+            if device["completion_valid"]:
+                assert device["ntstatus"] == device["io_status"] == 0
+                assert device["io_information"] >= 8 and not device["status_pending"]
+                assert device["remote"] == bool(device["characteristics"] & 0x10)
+                assert device["local_disk"] == (device["device_type"] == 7 and not device["remote"])
+            else:
+                assert device["remote"] is device["local_disk"] is None
         if tickets["temp_dir"]["ok"]:
             assert any(row["api"] == "NtCreateFile" and row["phase"] == "temp_dir" for row in events)
         if tickets.get("mkdir_runtime", {}).get("completed"):
             assert any(row["api"] == "NtCreateFile" and row["phase"] == "mkdir_runtime" for row in events)
+        alternatives = [row for row in rows if row["type"] == "alternative"]
+        expected_alternatives = {"held_writable_temp", "duplicate_same_access_temp"}
+        if tickets["open_parent"]["ok"]:
+            expected_alternatives |= {"reopen_parent_append", "reopen_parent_write",
+                                      "nt_empty_parent_append", "nt_empty_parent_write",
+                                      "open_by_id_parent_append", "open_by_id_parent_write"}
+        if tickets["temp_dir"]["ok"]:
+            assert {row["method"] for row in alternatives} == expected_alternatives
+        else:
+            assert not alternatives
+        for row in alternatives:
+            assert row["flush_flags"] == row["parameters_size"] == 0
+            assert row["durability_proven"] is False
+            if row["flush_called"]:
+                assert row["opened"] and row["identity_matches"] and row["flush_api_available"]
+                assert type(row["ntstatus"]) is int
+            else:
+                assert row["ntstatus"] is None and not row["completion_valid"]
+            if row["completion_valid"]:
+                assert row["ntstatus"] == row["io_status"] == 0 and not row["status_pending"]
+            else:
+                assert row["io_status"] is None
+            if row["status_pending"]:
+                assert row["ntstatus"] == 0x103 and not row["completion_valid"]
     control_exercised = bool(control and tickets.get("control_existing_runtime", {}).get("completed"))
     return {"summary": summary, "observations": rows,
             "unreached_phases": sorted(expected - tickets.keys()),
@@ -100,6 +135,7 @@ def main() -> int:
               "scope": "observational checked FS; BOOT12 remains authoritative",
               "native_platform": sys.platform, "sanitize": args.sanitize,
               "windows_sdk_is_native_execution": False,
+              "alternative_scope": "Observational normal native flush only; NTFS directory semantics do not establish portable or crash-tested durability. Original product result is unchanged.",
               "inputs": inputs, "clang": {"path": str(clang), "sha256": sha(clang)},
               "commands": [], "runs": []}
     env = dict(os.environ, ASAN_OPTIONS="detect_leaks=1:halt_on_error=1",
