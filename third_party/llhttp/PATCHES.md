@@ -15,3 +15,11 @@ pointers explicitly. This prevents indirect incompatible-function-pointer UB.
 actual vendored files including the two-line correction and trusted shim.
 The focused parser gate feeds request headers and a binary body one byte at a
 time under UBSan function checks and verifies a deliberately failing control.
+
+The FREAK-owned `src/llhttp.h` forwarding shim checks the public header's
+`INCLUDE_LLHTTP_H_` guard before including `../include/llhttp.h`.
+`freak_amalgamation.inc` loads the public header before including the upstream
+sources, so this skips a redundant parent-directory lookup that can fail with
+explicit extended Windows paths. Standalone translation units still use the
+existing forwarding include when the public header has not been loaded. The
+public API, generated parser, and callback bridges are unchanged.
