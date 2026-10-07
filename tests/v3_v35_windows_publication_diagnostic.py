@@ -28,6 +28,10 @@ typedef HANDLE *PHANDLE;
 typedef void *LPVOID;
 typedef DWORD *PDWORD;
 typedef unsigned char BYTE;
+typedef int32_t LONG;
+typedef uint32_t ULONG;
+typedef uintptr_t ULONG_PTR;
+#define NTAPI
 #undef NULL
 #define NULL 0
 #define TRUE 1
@@ -35,7 +39,11 @@ typedef void (*FARPROC)(void);
 typedef void *PSECURITY_DESCRIPTOR;
 typedef int TOKEN_INFORMATION_CLASS,SE_OBJECT_TYPE,SECURITY_INFORMATION,WELL_KNOWN_SID_TYPE;
 typedef struct {struct {PSID Sid;} User;} TOKEN_USER;
-typedef struct {uint64_t VolumeSerialNumber;struct {unsigned char Identifier[16];} FileId;} FILE_ID_INFO;
+typedef struct {unsigned char Identifier[16];} FILE_ID_128;
+typedef struct {uint64_t VolumeSerialNumber;FILE_ID_128 FileId;} FILE_ID_INFO;
+typedef struct {DWORD dwFileAttributes;} BY_HANDLE_FILE_INFORMATION;
+typedef struct {DWORD dwSize;int Type;FILE_ID_128 ExtendedFileId;} FILE_ID_DESCRIPTOR;
+typedef struct {union {LONG status;PVOID pointer;} value;ULONG_PTR information;} freak_fs_nt_io;
 typedef struct {bool ok,completed;HANDLE directory;char error[256];} freak_fs_ticket;
 typedef const char *freak_word;
 #define INVALID_HANDLE_VALUE ((HANDLE)-1)
@@ -43,6 +51,9 @@ typedef const char *freak_word;
 #define ERROR_SUCCESS 0
 #define ERROR_ACCESS_DENIED 5
 #define ERROR_NO_TOKEN 1008
+#define ERROR_NOT_SUPPORTED 50
+#define ERROR_PROC_NOT_FOUND 127
+#define ERROR_IO_DEVICE 1117
 #define TOKEN_QUERY 8
 #define TokenUser 1
 #define SE_FILE_OBJECT 1
@@ -58,6 +69,11 @@ typedef const char *freak_word;
 #define FILE_SHARE_WRITE 2
 #define FILE_SHARE_DELETE 4
 #define FILE_FLAG_BACKUP_SEMANTICS 0x02000000u
+#define FILE_FLAG_OPEN_REPARSE_POINT 0x00200000u
+#define FILE_ATTRIBUTE_DIRECTORY 0x10u
+#define FILE_ATTRIBUTE_REPARSE_POINT 0x400u
+#define FILE_TYPE_DISK 1
+#define ExtendedFileIdType 2
 #define LOAD_LIBRARY_SEARCH_SYSTEM32 0x800u
 #define FileIdInfo 18
 static DWORD GetLastError(void);
@@ -65,6 +81,11 @@ static void SetLastError(DWORD);
 static HANDLE GetCurrentProcess(void),GetCurrentThread(void);
 static HANDLE ReOpenFile(HANDLE,DWORD,DWORD,DWORD);
 static BOOL GetFileInformationByHandleEx(HANDLE,int,void *,DWORD);
+static BOOL GetFileInformationByHandle(HANDLE,BY_HANDLE_FILE_INFORMATION *);
+static DWORD GetFileType(HANDLE);
+static BOOL GetVolumeInformationByHandleW(HANDLE,wchar_t *,DWORD,DWORD *,DWORD *,DWORD *,wchar_t *,DWORD);
+static HMODULE GetModuleHandleW(const wchar_t *);
+static HANDLE OpenFileById(HANDLE,FILE_ID_DESCRIPTOR *,DWORD,DWORD,PVOID,DWORD);
 static void freak_fs_anchor_close(HANDLE);
 static bool freak_fs_anchor_same(HANDLE,HANDLE);
 static HMODULE LoadLibraryExW(const wchar_t *,HANDLE,DWORD);
@@ -78,10 +99,13 @@ static void freak_fs_ticket_error(freak_fs_ticket *,const char *);
 API = r'''
 static const char *scenario;static int target,current_side,loads[2],acquisitions[2],file_opens,renames,syncs;
 static int module_live,reopened_live,token_live,descriptor_live;
+static DWORD expected_access=READ_CONTROL;
+static int by_id_handles[2];
 static DWORD last_error;static char trace[16384];static size_t trace_used;
 static SID caller,foreign,invalid,system_sid,admin_sid,everyone;static PACL effective_acl;
 static void event(const char *name,int side) {int n=snprintf(trace+trace_used,sizeof(trace)-trace_used,"%s:%d,",name,side);require(n>=0 && (size_t)n<sizeof(trace)-trace_used,"trace bounds");trace_used+=(size_t)n;}
-static bool fault(const char *name,int side) {return side==target && !strcmp(scenario,name);}
+static bool by_id_side(int side) {return !strncmp(scenario,"by-id-",6) && (side==target || !strcmp(scenario,"by-id-both-success"));}
+static bool fault(const char *name,int side) {const char *selected=!strncmp(scenario,"by-id-",6)?scenario+6:scenario;return side==target && !strcmp(selected,name);}
 static DWORD GetLastError(void) {return last_error;}
 static void SetLastError(DWORD error) {last_error=error;}
 static HANDLE GetCurrentProcess(void) {return -2;}
@@ -97,11 +121,13 @@ static HMODULE LoadLibraryExW(const wchar_t *name,HANDLE unused,DWORD flags) {
     if(fault("security-library",current_side)){last_error=101;return 0;}
     effective_acl=reset();caller=make_sid(1000);foreign=make_sid(1001);invalid=caller;invalid.Revision=2;system_sid=make_sid(18);admin_sid=make_sid(544);everyone=make_sid(0);
     if(fault("acl-write",current_side))append(effective_acl,ACCESS_ALLOWED_ACE_TYPE,0,GENERIC_WRITE,&everyone);
+    if(fault("acl-inherit-only",current_side))append(effective_acl,ACCESS_ALLOWED_ACE_TYPE,INHERIT_ONLY_ACE,GENERIC_WRITE,&everyone);
     if(fault("acl-unsupported",current_side))append(effective_acl,9,0,0,&caller);
     module_live++;return current_side+50;
 }
 static HANDLE ReOpenFile(HANDLE directory,DWORD access,DWORD share,DWORD flags) {
-    event("reopen",(int)directory);require(access==(READ_CONTROL|FILE_READ_ATTRIBUTES|SYNCHRONIZE) && share==7 && flags==FILE_FLAG_BACKUP_SEMANTICS,"held minimum access");
+    event("reopen",(int)directory);require(access==(expected_access|FILE_READ_ATTRIBUTES|SYNCHRONIZE) && share==7 && flags==FILE_FLAG_BACKUP_SEMANTICS,"held minimum access");
+    if(by_id_side((int)directory)){last_error=ERROR_ACCESS_DENIED;return INVALID_HANDLE_VALUE;}
     if(fault("read-control-reopen",(int)directory)){last_error=102;return INVALID_HANDLE_VALUE;}reopened_live++;return directory+100;
 }
 static BOOL GetFileInformationByHandleEx(HANDLE handle,int info,void *buffer,DWORD size) {
@@ -109,9 +135,51 @@ static BOOL GetFileInformationByHandleEx(HANDLE handle,int info,void *buffer,DWO
     int side=handle>=100 ? (int)handle-100 : (int)handle;
     if(fault("held-identity",side) && handle<100){last_error=103;return 0;}
     if(fault("reopened-identity",side) && handle>=100){last_error=104;return 0;}
+    if(fault("id-query",side) && handle>=100){last_error=140;return 0;}
     FILE_ID_INFO *id=buffer;memset(id,0,sizeof(*id));id->VolumeSerialNumber=42;id->FileId.Identifier[0]=(unsigned char)(handle==30 || handle==40 ? 30 : side);
+    id->FileId.Identifier[15]=99;
     if(fault("identity-mismatch",side) && handle>=100)id->FileId.Identifier[15]=1;
+    if(fault("id-high-mismatch",side) && handle>=100)id->FileId.Identifier[15]=98;
+    if(fault("id-volume-mismatch",side) && handle>=100)id->VolumeSerialNumber=43;
     return 1;
+}
+static BOOL GetFileInformationByHandle(HANDLE handle,BY_HANDLE_FILE_INFORMATION *attributes) {
+    int side=handle>=100?(int)handle-100:(int)handle;event("attributes",(int)handle);
+    if(fault(handle>=100?"id-attrs":"held-attrs",side)){last_error=handle>=100?142:141;return 0;}
+    attributes->dwFileAttributes=FILE_ATTRIBUTE_DIRECTORY;
+    if(fault(handle>=100?"id-file":"held-file",side))attributes->dwFileAttributes=0;
+    if(fault(handle>=100?"id-reparse":"held-reparse",side))attributes->dwFileAttributes|=FILE_ATTRIBUTE_REPARSE_POINT;
+    return 1;
+}
+static DWORD GetFileType(HANDLE handle) {int side=handle>=100?(int)handle-100:(int)handle;event("file-type",(int)handle);return fault(handle>=100?"id-device":"held-device",side)?2:FILE_TYPE_DISK;}
+static BOOL GetVolumeInformationByHandleW(HANDLE handle,wchar_t *volume,DWORD volume_size,DWORD *serial,DWORD *maximum,DWORD *flags,wchar_t *filesystem,DWORD size) {
+    require(!volume && !volume_size && !serial && !maximum && !flags && size==32,"held filesystem query");event("filesystem",(int)handle);
+    if(fault("filesystem",(int)handle)){last_error=143;return 0;}
+    if(fault("filesystem-unterminated",(int)handle)){for(DWORD i=0;i<size;i++)filesystem[i]=L'X';return 1;}
+    wcscpy(filesystem,fault("wrong-filesystem",(int)handle)?L"ReFS":L"NTFS");return 1;
+}
+static HMODULE GetModuleHandleW(const wchar_t *name) {require(!wcscmp(name,L"ntdll.dll"),"native module only");event("native-module",current_side);return fault("native-module",current_side)?0:1;}
+static LONG query_volume(HANDLE handle,freak_fs_nt_io *io,PVOID buffer,ULONG size,ULONG info) {
+    struct device {ULONG type,characteristics;} *device=buffer;
+    require(info==4 && size==sizeof(*device),"held exact device query");event("device-query",(int)handle);
+    io->value.status=0;io->information=sizeof(*device);device->type=7;device->characteristics=0;
+    if(fault("query-failed",(int)handle))return -1;
+    if(fault("query-pending",(int)handle))return 0x103;
+    if(fault("io-failed",(int)handle))io->value.status=-2;
+    if(fault("io-pending",(int)handle))io->value.status=0x103;
+    if(fault("query-short",(int)handle))io->information=sizeof(*device)-1;
+    if(fault("query-long",(int)handle))io->information=sizeof(*device)+1;
+    if(fault("remote-device",(int)handle))device->characteristics=0x10;
+    if(fault("wrong-device",(int)handle))device->type=8;
+    return 0;
+}
+static ULONG convert_status(LONG status) {event("convert-status",current_side);return status==-1?144:145;}
+static HANDLE OpenFileById(HANDLE directory,FILE_ID_DESCRIPTOR *id,DWORD access,DWORD share,PVOID security,DWORD flags) {
+    event("open-by-id",(int)directory);FILE_ID_INFO original={0};original.VolumeSerialNumber=42;original.FileId.Identifier[0]=(BYTE)directory;original.FileId.Identifier[15]=99;
+    require(id->dwSize==sizeof(*id) && id->Type==ExtendedFileIdType && !memcmp(id->ExtendedFileId.Identifier,original.FileId.Identifier,16),"all 128 identity bits");
+    require(access==(READ_CONTROL|FILE_READ_ATTRIBUTES|SYNCHRONIZE) && share==7 && !security && flags==(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT),"by-ID minimum rights and no reparse");
+    if(fault("open-denied",(int)directory)){last_error=ERROR_ACCESS_DENIED;return INVALID_HANDLE_VALUE;}
+    by_id_handles[directory==20]++;reopened_live++;return directory+100;
 }
 static bool freak_fs_anchor_same(HANDLE first,HANDLE second) {FILE_ID_INFO a,b;return GetFileInformationByHandleEx(first,FileIdInfo,&a,sizeof(a)) && GetFileInformationByHandleEx(second,FileIdInfo,&b,sizeof(b)) && a.VolumeSerialNumber==b.VolumeSerialNumber && !memcmp(a.FileId.Identifier,b.FileId.Identifier,sizeof(a.FileId.Identifier));}
 static BOOL open_thread(HANDLE thread,DWORD access,BOOL itself,HANDLE *token) {
@@ -142,7 +210,8 @@ static BOOL api_equal_sid(PSID a,PSID b) {event("equal-sid",current_side);requir
 static BOOL api_valid_acl(PACL acl) {event("valid-acl",current_side);return valid_acl(acl);}
 static BOOL api_get_ace(PACL acl,DWORD index,PVOID *value) {event("get-ace",current_side);return get_ace(acl,index,value);}
 static FARPROC GetProcAddress(HMODULE module,const char *name) {
-    (void)module;event(name,current_side);char missing[64];snprintf(missing,sizeof(missing),"api-%s",name);
+    event(name,current_side);char missing[64];snprintf(missing,sizeof(missing),"api-%s",name);
+    if(module==1){if(!strcmp(name,"NtQueryVolumeInformationFile")){if(fault("query-api",current_side)){last_error=146;return NULL;}return (FARPROC)query_volume;}if(!strcmp(name,"RtlNtStatusToDosError"))return (FARPROC)convert_status;require(0,"unknown native API");}
     if(fault(missing,current_side)){last_error=112;return NULL;}
     last_error=909;
     if(!strcmp(name,"OpenProcessToken"))return (FARPROC)open_process;
@@ -173,9 +242,18 @@ static bool freak_fs_anchor_sync(HANDLE parent) {event("sync",(int)parent);syncs
 '''
 
 MAIN = r'''
+static void unsafe_exit_callback(void) {fputs("UNSAFE_EXIT_CALLBACK\n",stderr);}
 int main(int argc,char **argv) {
     require(argc>=3,"arguments");scenario=argv[1];target=!strcmp(argv[2],"destination")?20:10;
     tickets[0].directory=10;tickets[1].directory=20;
+    if(fault("query-pending",target) || fault("io-pending",target))require(!atexit(unsafe_exit_callback),"exit callback registration");
+    if(argc==5){
+        expected_access=!strcmp(argv[4],"wide")?READ_CONTROL|WRITE_DAC:0;
+        freak_fs_windows_parent_diagnostic diagnostic={NULL,0,-1};
+        HANDLE handle=freak_fs_anchor_reopen(10,expected_access,&diagnostic);
+        require(handle==INVALID_HANDLE_VALUE && !by_id_handles[0] && !module_live && !reopened_live,"mismatched access cannot use by-ID");
+        printf("%s|%lu\n%s\n",diagnostic.phase,(unsigned long)diagnostic.native_error,trace);return 0;
+    }
     if(argc==4){
         freak_fs_windows_parent_diagnostic diagnostic={NULL,0,-1};
         bool accepted=freak_fs_windows_parent_private(10,!strcmp(argv[3],"null")?NULL:&diagnostic);
@@ -185,7 +263,7 @@ int main(int argc,char **argv) {
     }
     int64_t result=freak_fs_rename_relative_new_checked(1,"module.ll",2,"emitted.ll");
     require(!module_live && !reopened_live && !token_live && !descriptor_live,"all publication native owners released");
-    bool accepted=!strcmp(scenario,"success") || !strcmp(scenario,"thread-present");
+    bool accepted=!strcmp(scenario,"success") || !strcmp(scenario,"thread-present") || !strcmp(scenario,"by-id-success") || !strcmp(scenario,"by-id-both-success") || !strcmp(scenario,"by-id-acl-inherit-only");
     require(tickets[result-1].ok==accepted && tickets[result-1].completed==accepted,"unchanged publication outcome");
     require(acquisitions[0]==1 && acquisitions[1]==1,"both parent acquisitions retained");
     if(accepted){require(file_opens==2 && renames==1 && syncs==2 && loads[0]==1 && loads[1]==1,"success publication trace");}
@@ -215,7 +293,9 @@ def models(contents: str) -> str:
     helper_end = contents.index('static int freak_fs_anchor_file_descriptor(', helper_begin)
     rename_begin = contents.index('int64_t freak_fs_rename_relative_new_checked(')
     rename_end = contents.index('int64_t freak_fs_set_mode_relative_checked(', rename_begin)
-    return preamble + TYPES + declaration + contents[policy_begin:policy_end] + support + API + contents[helper_begin:helper_end] + FILESYSTEM + contents[rename_begin:rename_end] + MAIN
+    native_error_begin = contents.index('static void freak_fs_nt_error(LONG status) {')
+    native_error_end = contents.index('static bool freak_fs_anchor_sync(', native_error_begin)
+    return preamble + TYPES + declaration + contents[policy_begin:policy_end] + support + API + contents[native_error_begin:native_error_end] + contents[helper_begin:helper_end] + FILESYSTEM + contents[rename_begin:rename_end] + MAIN
 
 
 def main() -> int:
@@ -251,6 +331,21 @@ def main() -> int:
         'acl-write': ('acl-policy',0,1),
         'acl-unsupported': ('acl-policy',0,1),
         'parent-acquisition': ('parent-acquisition',113,-1),
+        'by-id-held-attrs': ('read-control-held-attrs',141,-1),
+        **{'by-id-held-'+kind: ('read-control-held-kind',5,-1) for kind in ('file','reparse','device')},
+        'by-id-held-identity': ('read-control-held-id',103,-1),
+        'by-id-filesystem': ('read-control-filesystem',143,-1),
+        **{'by-id-'+kind: ('read-control-provider',50,-1) for kind in ('wrong-filesystem','filesystem-unterminated')},
+        **{'by-id-'+kind: ('read-control-api-query',127,-1) for kind in ('native-module','query-api')},
+        'by-id-query-failed': ('read-control-device-query',144,-1),
+        'by-id-io-failed': ('read-control-device-io',145,-1),
+        **{'by-id-'+kind: ('read-control-local-device',50,-1) for kind in ('query-short','query-long','remote-device','wrong-device')},
+        'by-id-open-denied': ('read-control-open-by-id',5,-1),
+        'by-id-id-attrs': ('read-control-id-attrs',142,-1),
+        **{'by-id-id-'+kind: ('read-control-id-kind',5,-1) for kind in ('file','reparse','device')},
+        'by-id-id-query': ('read-control-id-query',140,-1),
+        **{'by-id-id-'+kind: ('read-control-id-mismatch',5,-1) for kind in ('high-mismatch','volume-mismatch')},
+        **{'by-id-'+kind: ('acl-policy',0,owner) for kind,owner in (('owner-different',0),('owner-null',-1),('owner-invalid',-1),('caller-null',-1),('acl-null',1),('acl-write',1),('acl-unsupported',1))},
     }
     records = []
     commands = []
@@ -259,12 +354,12 @@ def main() -> int:
     home = Path(home_context.name) if home_context else args.evidence
     assert home is not None
     home.mkdir(parents=True, exist_ok=True)
-    def run(label: str, command: list[str], *, expected: int = 0) -> subprocess.CompletedProcess:
-        result = subprocess.run(command, cwd=home, env=environment, capture_output=True, timeout=60)
+    def run(label: str, command: list[str], *, expected: int | None = 0, timeout: int = 60) -> subprocess.CompletedProcess:
+        result = subprocess.run(command, cwd=home, env=environment, capture_output=True, timeout=timeout)
         (home/(label+'.stdout')).write_bytes(result.stdout)
         (home/(label+'.stderr')).write_bytes(result.stderr)
         commands.append({'label':label,'command':command,'returncode':result.returncode,'stdout_sha256':hashlib.sha256(result.stdout).hexdigest(),'stderr_sha256':hashlib.sha256(result.stderr).hexdigest()})
-        assert result.returncode == expected, (label,result.stdout,result.stderr)
+        assert expected is None or result.returncode == expected, (label,result.stdout,result.stderr)
         return result
     source = home/'publication-model.c'
     source.write_text(models(contents))
@@ -284,40 +379,68 @@ def main() -> int:
             if side=='destination' and scenario!='parent-acquisition':
                 assert b'source=passed,error=0,owner=same' in result.stdout
             assert len(result.stdout.splitlines()[0][2:]) < 256
+            if scenario.startswith('by-id-') and phase != 'acl-policy':
+                assert f'security-info:{10 if side=="source" else 20},'.encode() not in result.stdout
+            if scenario == 'read-control-reopen':
+                assert b'attributes:' not in result.stdout and b'open-by-id:' not in result.stdout
             records.append({'scenario':scenario,'side':side,'phase':phase,'error':error,'owner_match':owner,'status':'pass'})
-    for scenario in ('success','thread-present'):
-        result = run(scenario,[str(binary),scenario,'source'])
-        assert result.stdout.startswith(b'1|\n') and not result.stderr
+    for scenario in ('success','thread-present','by-id-success','by-id-both-success','by-id-acl-inherit-only'):
+        for side in ('source','destination'):
+            result = run(scenario+'-'+side,[str(binary),scenario,side])
+            assert result.stdout.startswith(b'1|\n') and not result.stderr
+            if scenario.startswith('by-id-'):
+                assert f'open-by-id:{10 if side=="source" else 20},'.encode() in result.stdout
+            else:
+                assert b'attributes:' not in result.stdout and b'open-by-id:' not in result.stdout
+            records.append({'scenario':scenario,'side':side,'status':'pass'})
         with_record = run(scenario+'-helper-record',[str(binary),scenario,'source','record'])
         without_record = run(scenario+'-helper-null',[str(binary),scenario,'source','null'])
         assert with_record.stdout.splitlines()[1:] == without_record.stdout.splitlines()[1:]
         assert with_record.stdout.startswith(b'1|passed|0|1\n') and without_record.stdout.startswith(b'1|not-examined|0|-1\n')
         records.append({'scenario':scenario,'success_API_trace_exact_with_or_without_diagnostic':True,'status':'pass'})
+    for access in ('wide','zero'):
+        result=run('ineligible-access-'+access,[str(binary),'by-id-success','source','direct',access])
+        assert result.stdout.startswith(b'read-control-reopen|5\n') and b'attributes:' not in result.stdout and b'open-by-id:' not in result.stdout and not result.stderr
+        records.append({'scenario':'ineligible-access-'+access,'status':'pass'})
+    for scenario in ('by-id-query-pending','by-id-io-pending'):
+        for side in ('source','destination'):
+            result=run(scenario+'-'+side,[str(binary),scenario,side],expected=1)
+            assert b'nonfinal synchronous directory security device query' in result.stderr and b'UNSAFE_EXIT_CALLBACK' not in result.stderr
+            records.append({'scenario':scenario,'side':side,'nonreturning_policy':True,'status':'pass'})
     # A cleanup-contaminated error or evaluation of an unexamined parent must fail.
     negative_controls = []
     for label, original, weakened, scenario in (
         ('stale-security-return','"security-info",security_error','"security-info",GetLastError()','security-info'),
         ('stale-logical-size','diagnostic && !sized ? GetLastError() : 0','diagnostic ? GetLastError() : 0','token-size-success-invalid'),
         ('destination-after-source-reject','private_parents && freak_fs_windows_parent_private(source_parent,&source_diagnostic) &&','private_parents && (freak_fs_windows_parent_private(source_parent,&source_diagnostic),true) &&','read-control-reopen'),
+        ('short-identity-comparison','memcmp(identity.FileId.Identifier,current.FileId.Identifier,sizeof(identity.FileId.Identifier))','memcmp(identity.FileId.Identifier,current.FileId.Identifier,8)','by-id-id-high-mismatch'),
+        ('inexact-device-output','io.information != sizeof(device)','io.information < sizeof(device)','by-id-query-long'),
     ):
         mutated = source.read_text().replace(original,weakened)
         assert mutated != source.read_text()
         broken = home/(label+'.c');broken.write_text(mutated)
         bad = home/(label+'.model')
         run(label+'-build',[clang,'-O2',*flags,str(broken),'-o',str(bad)])
-        result = subprocess.run([str(bad),scenario,'source'],cwd=home,env=environment,capture_output=True,timeout=15)
-        (home/(label+'.stdout')).write_bytes(result.stdout);(home/(label+'.stderr')).write_bytes(result.stderr)
+        result = run(label,[str(bad),scenario,'source'],expected=None,timeout=15)
         expected = scenarios[scenario]
         oracle = f'source={expected[0]},error={expected[1]}'.encode()
         assert result.returncode != 0 or oracle not in result.stdout or b'destination=not-examined,error=0,owner=unknown' not in result.stdout
         negative_controls.append({'control':label,'status':'rejected','returncode':result.returncode})
+    broken_access=source.read_text().replace('access == READ_CONTROL && error == ERROR_ACCESS_DENIED','error == ERROR_ACCESS_DENIED')
+    assert broken_access != source.read_text()
+    access_source=home/'wider-access-fallback.c';access_source.write_text(broken_access)
+    access_binary=home/'wider-access-fallback.model'
+    run('wider-access-fallback-build',[clang,'-O2',*flags,str(access_source),'-o',str(access_binary)])
+    rejected_access=run('wider-access-fallback',[str(access_binary),'by-id-success','source','direct','wide'],expected=None,timeout=15)
+    assert rejected_access.returncode != 0 and b'mismatched access cannot use by-ID' in rejected_access.stderr
+    negative_controls.append({'control':'wider-access-fallback','status':'rejected','returncode':rejected_access.returncode})
     if args.windows_sdk:
         sdk = args.windows_sdk.resolve(strict=True)
         runtime = ROOT/'freakc/runtime'
         strict=['-Werror=implicit-function-declaration','-Werror=incompatible-pointer-types','-Werror=int-conversion','-Werror=return-type']
         run('GNU-runtime-syntax',[clang,'--target=x86_64-w64-windows-gnu','--sysroot='+str(sdk),*strict,'-fsyntax-only','-I'+str(runtime),str(runtime/'freak_runtime.c'),str(runtime/'freak_llvm_runtime.c')])
         run('GNU-runtime-object',[clang,'--target=x86_64-w64-windows-gnu','--sysroot='+str(sdk),*strict,'-O2','-c','-I'+str(runtime),str(runtime/'freak_runtime.c'),'-o',str(home/'runtime.obj')])
-    report={'status':'pass','runtime_include_sha256':hashlib.sha256(INCLUDE.read_bytes()).hexdigest(),'test_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'cases':records,'negative_controls':negative_controls,'commands':commands,'native_Windows_execution':False,'scope':'Exact extracted helper/publication C with modeled Windows APIs; success API trace, failure phase/error before poisoned cleanup, source/destination order, safe owner observation and bounded prefix. SDK checks are compilation only.'}
+    report={'status':'pass','runtime_include_sha256':hashlib.sha256(INCLUDE.read_bytes()).hexdigest(),'test_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'cases':records,'negative_controls':negative_controls,'commands':commands,'native_Windows_execution':False,'scope':'Exact extracted helper/publication C with modeled Windows APIs; unchanged ReOpenFile success trace, READ_CONTROL/error5-only held full-ID local NTFS fallback, exact device classification, ordinary non-reparse identity, failure phase/error before poisoned cleanup, source/destination order, unchanged ACL, nonreturning pending policy and bounded prefix. SDK checks are compilation only.'}
     (home/'report.json').write_text(json.dumps(report,indent=2)+'\n')
     print(f'PASS Windows publication diagnostic: {len(records)} modeled controls, {len(negative_controls)} broken controls rejected',flush=True)
     if home_context:home_context.cleanup()

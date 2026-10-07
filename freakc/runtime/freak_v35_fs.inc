@@ -527,14 +527,87 @@ typedef struct {
 static void freak_fs_windows_parent_note(freak_fs_windows_parent_diagnostic *diagnostic,const char *phase,DWORD error) {
     if (diagnostic) { diagnostic->phase=phase; diagnostic->native_error=error; }
 }
-/* Reopen the held object, never its mutable path, and verify its identity.
-   ReOpenFile is the native HANDLE operation for changing granted access. */
+static void freak_fs_nt_error(LONG status);
+static void freak_fs_sync_nonfinal(const char *operation);
+/* A READ_CONTROL ReOpenFile denial can occur on admitted directories. Limit
+   this held full-ID alternative to positively identified local NTFS; it
+   requests the same rights and never resolves a mutable path. */
+static freak_fs_anchor freak_fs_anchor_read_control_by_id(freak_fs_anchor directory,
+        freak_fs_windows_parent_diagnostic *diagnostic) {
+    typedef LONG (NTAPI *query_fn)(HANDLE,freak_fs_nt_io *,PVOID,ULONG,ULONG);
+    struct { ULONG device_type, characteristics; } device={0};
+    BY_HANDLE_FILE_INFORMATION attributes; FILE_ID_INFO identity,current;
+    HANDLE candidate=INVALID_HANDLE_VALUE;
+    const char *phase=NULL; DWORD error=0;
+    if (!GetFileInformationByHandle(directory,&attributes)) {
+        phase="read-control-held-attrs"; error=GetLastError(); goto rejected;
+    }
+    if (GetFileType(directory) != FILE_TYPE_DISK || !(attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+            (attributes.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        phase="read-control-held-kind"; error=ERROR_ACCESS_DENIED; goto rejected;
+    }
+    if (!GetFileInformationByHandleEx(directory,FileIdInfo,&identity,sizeof(identity))) {
+        phase="read-control-held-id"; error=GetLastError(); goto rejected;
+    }
+    wchar_t filesystem[32]={0};
+    if (!GetVolumeInformationByHandleW(directory,NULL,0,NULL,NULL,NULL,filesystem,32)) {
+        phase="read-control-filesystem"; error=GetLastError(); goto rejected;
+    }
+    if (wmemcmp(filesystem,L"NTFS",5)) {
+        phase="read-control-provider"; error=ERROR_NOT_SUPPORTED; goto rejected;
+    }
+    HMODULE native=GetModuleHandleW(L"ntdll.dll");
+    query_fn query=native ? (query_fn)(void *)GetProcAddress(native,"NtQueryVolumeInformationFile") : NULL;
+    if (!query) { phase="read-control-api-query"; error=ERROR_PROC_NOT_FOUND; goto rejected; }
+    freak_fs_nt_io io={0}; io.value.status=0x103 /* STATUS_PENDING */;
+    LONG status=query(directory,&io,&device,sizeof(device),4 /* FileFsDeviceInformation */);
+    if (status == 0x103 || (status == 0 && io.value.status == 0x103)) freak_fs_sync_nonfinal("security device query");
+    if (status != 0) {
+        freak_fs_nt_error(status); phase="read-control-device-query"; error=GetLastError(); goto rejected;
+    }
+    if (io.value.status != 0) {
+        freak_fs_nt_error(io.value.status); phase="read-control-device-io"; error=GetLastError(); goto rejected;
+    }
+    if (io.information != sizeof(device) || device.device_type != 7 /* FILE_DEVICE_DISK */ ||
+            (device.characteristics & 0x10 /* FILE_REMOTE_DEVICE */)) {
+        phase="read-control-local-device"; error=ERROR_NOT_SUPPORTED; goto rejected;
+    }
+    FILE_ID_DESCRIPTOR descriptor={0}; descriptor.dwSize=sizeof(descriptor);
+    descriptor.Type=ExtendedFileIdType; descriptor.ExtendedFileId=identity.FileId;
+    candidate=OpenFileById(directory,&descriptor,READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,NULL,FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    if (candidate == INVALID_HANDLE_VALUE) {
+        phase="read-control-open-by-id"; error=GetLastError(); goto rejected;
+    }
+    if (!GetFileInformationByHandle(candidate,&attributes)) {
+        phase="read-control-id-attrs"; error=GetLastError(); goto rejected;
+    }
+    if (GetFileType(candidate) != FILE_TYPE_DISK || !(attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+            (attributes.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        phase="read-control-id-kind"; error=ERROR_ACCESS_DENIED; goto rejected;
+    }
+    if (!GetFileInformationByHandleEx(candidate,FileIdInfo,&current,sizeof(current))) {
+        phase="read-control-id-query"; error=GetLastError(); goto rejected;
+    }
+    if (identity.VolumeSerialNumber != current.VolumeSerialNumber ||
+            memcmp(identity.FileId.Identifier,current.FileId.Identifier,sizeof(identity.FileId.Identifier))) {
+        phase="read-control-id-mismatch"; error=ERROR_ACCESS_DENIED; goto rejected;
+    }
+    return candidate;
+rejected:
+    freak_fs_windows_parent_note(diagnostic,phase,error);
+    freak_fs_anchor_close(candidate); SetLastError(error); return INVALID_HANDLE_VALUE;
+}
+/* Reopen the held object, never its mutable path, and verify its identity. */
 static freak_fs_anchor freak_fs_anchor_reopen(freak_fs_anchor directory,ACCESS_MASK access,
         freak_fs_windows_parent_diagnostic *diagnostic) {
     freak_fs_anchor reopened=ReOpenFile(directory,access | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,FILE_FLAG_BACKUP_SEMANTICS);
     if (reopened == INVALID_HANDLE_VALUE) {
-        freak_fs_windows_parent_note(diagnostic,"read-control-reopen",diagnostic ? GetLastError() : 0);
+        DWORD error=GetLastError();
+        if (access == READ_CONTROL && error == ERROR_ACCESS_DENIED)
+            return freak_fs_anchor_read_control_by_id(directory,diagnostic);
+        freak_fs_windows_parent_note(diagnostic,"read-control-reopen",diagnostic ? error : 0);
         return reopened;
     }
     FILE_ID_INFO original,current;
