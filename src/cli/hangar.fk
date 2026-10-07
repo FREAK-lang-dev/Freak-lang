@@ -1588,7 +1588,8 @@ task hangar_compute_sha256(path: word) -> word {
 task hangar_compute_dir_sha256(pkg_dir: word) -> word {
     -- Compatibility hash only. Lock v2 replaces archive metadata with the
     -- canonical path/kind/mode/length/bytes inventory before immutable publish.
-    pilot temporary = fs::temp_dir(pkg_dir + "/..", ".hangar-integrity-")
+    -- The anchored filesystem API rejects parent traversal components.
+    pilot temporary = fs::temp_dir(package_parent_path(pkg_dir), ".hangar-integrity-")
     if not fs::result_ok(temporary) {
         say "  Could not create owned integrity staging: " + fs::result_error(temporary)
         fs::result_release(temporary)

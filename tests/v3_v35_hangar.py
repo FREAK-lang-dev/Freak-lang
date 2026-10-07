@@ -37,6 +37,65 @@ NATIVE_CASES = (
 )
 
 
+def selected_clang(path: Path) -> Path:
+    if os.name == "nt":
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            path = path.with_name(path.name + ".exe")
+    physical = path.resolve(strict=True)
+    if not physical.is_file():
+        raise FileNotFoundError(f"Selected Clang path is not a file: {path}")
+    return physical
+
+
+def selected_clang_controls(root: Path) -> None:
+    # These exercise physical fixture selection with a controlled host selector;
+    # the placeholder files are never executed as compilers.
+    tools = root / "selected-clang-controls"
+    tools.mkdir()
+    exact = tools / "clang chosen 'Ω'"
+    exact.write_bytes(b"exact supplied image")
+    exact.with_name(exact.name + ".exe").write_bytes(b"different suffix image")
+    missing = tools / "clang extensionless 日本"
+    suffixed = missing.with_name(missing.name + ".exe")
+    suffixed.write_bytes(b"literal executable suffix image")
+    directory = tools / "clang-directory"
+    directory.mkdir()
+    directory.with_name(directory.name + ".exe").write_bytes(b"must not select sibling")
+
+    def resolve(path: Path, windows: bool) -> Path:
+        with mock.patch.object(os, "name", "nt" if windows else "posix"):
+            return selected_clang(path)
+
+    def rejected(path: Path, windows: bool, error: type[Exception] = FileNotFoundError) -> None:
+        try:
+            resolve(path, windows)
+        except error:
+            return
+        raise AssertionError((path, windows, "invalid selected tool admitted"))
+
+    assert resolve(exact, True) == exact.resolve(strict=True)
+    assert resolve(exact, False) == exact.resolve(strict=True)
+    assert resolve(missing, True) == suffixed.resolve(strict=True)
+    rejected(missing, False)
+    rejected(tools / "absent", True)
+    rejected(tools / "absent", False)
+    rejected(directory, True)
+    rejected(directory, False)
+    # An existing broken/unreadable raw entry must never fall through to its
+    # executable-suffix neighbor. Model these without Windows symlink privileges.
+    with mock.patch.object(type(exact), "resolve", side_effect=FileNotFoundError("broken target")), \
+            mock.patch.object(type(exact), "with_name") as suffix:
+        rejected(exact, True)
+        suffix.assert_not_called()
+    with mock.patch.object(type(exact), "lstat", side_effect=PermissionError("unreadable raw entry")), \
+            mock.patch.object(type(exact), "with_name") as suffix:
+        rejected(exact, True, PermissionError)
+        suffix.assert_not_called()
+    print("fixture:selected-clang:physical-admission:passed:10")
+
+
 def snapshot(root: Path) -> dict[str, bytes]:
     result = {}
     for path in [root / "hangar.toml", root / "hangar.lock", root / "previous-build",
@@ -185,6 +244,13 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
                 assert retry.returncode == 0 and "INSTALLED" in retry_output, retry_output
                 assert (cwd / "hangar_modules" / "missing" / "partial.fk").is_file(), retry_output
                 assert not list((cwd / "hangar_modules").glob(".hangar-stage-*")), retry_output
+                assert not list((cwd / "hangar_modules").glob(".hangar-integrity-*")), retry_output
+                import tomllib
+                packages = tomllib.loads((cwd / "hangar.lock").read_text(encoding="utf-8"))["package"]
+                installed = [package for package in packages if package["name"] == "missing"]
+                assert len(installed) == 1 and re.fullmatch(r"[0-9a-f]{64}", installed[0]["sha256"]), packages
+                for relative in ("hangar.toml", "previous-build", "previous-build.freak-run-cache"):
+                    assert (cwd / relative).read_bytes() == before[relative], (relative, "retry changed prior project/build")
                 # A successful retry proves that the persistent marker is not
                 # mistaken for active ownership of the held operating-system lock.
                 assert (cwd / "hangar_modules" / ".hangar-operations" / "install.lock").is_file(), retry_output
@@ -706,18 +772,19 @@ def main() -> int:
         root = Path(temporary)
         if args.graph_only:
             runtime = args.runtime_root or Path(__file__).resolve().parents[1] / "freakc/runtime"
-            graph_probe(args.freak.resolve(strict=True) if args.freak else None, args.clang.resolve(strict=True),
+            graph_probe(args.freak.resolve(strict=True) if args.freak else None, selected_clang(args.clang),
                         runtime.resolve(strict=True), root, args.compiler.resolve(strict=True) if args.compiler else None)
             return 0
         if args.inputs_only:
             runtime = args.runtime_root or Path(__file__).resolve().parents[1] / "freakc/runtime"
-            inputs_probe(args.freak.resolve(strict=True) if args.freak else None, args.clang.resolve(strict=True),
+            inputs_probe(args.freak.resolve(strict=True) if args.freak else None, selected_clang(args.clang),
                          runtime.resolve(strict=True), root, args.compiler.resolve(strict=True) if args.compiler else None)
             return 0
         python_compatibility(root)
         if not args.python_only:
+            selected_clang_controls(root)
             native(args.freak.resolve(strict=True), args.hangar.resolve(strict=True),
-                   args.clang.resolve(strict=True), root)
+                   selected_clang(args.clang), root)
     return 0
 
 
