@@ -555,7 +555,7 @@ def main() -> int:
     freak, clang, repo = args.freak.resolve(), resolve_selected_clang(args.clang), args.repo.resolve()
     assert freak.is_file() and clang.is_file(), "native candidate and Clang are required"
     with tempfile.TemporaryDirectory(prefix="freak-v35-cli-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve(strict=True)
         home = root / "payload"
         for source, destination in manifest_entries(repo):
             if not destination.startswith(("runtime/", "templates/v35/")):
