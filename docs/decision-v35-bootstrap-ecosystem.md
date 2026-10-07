@@ -78,8 +78,10 @@ overflow, matching V4 at O0/O2/O3 on the C and LLVM backends.
 
 The selected stronger FIX-05 interpolation rule is a breaking change from
 silently printing unsupported expression-like brace bodies. Such bodies now
-produce a diagnostic; unterminated paths and call/operator expressions also
-fail. Spell intentional literal braces with `\{` and `\}`. Empty braces and
+produce a diagnostic. An unclosed expression-like body, as classified in the
+bible, also fails when its trimmed text is a valid path or it contains `(`,
+`+`, `-`, `*`, `/`, or `=`; other unmatched braces remain literal. Spell
+intentional literal braces with `\{` and `\}`. Empty braces and
 object/JSON-like literal text retain their existing behavior. The normative
 bible and V3 conformance row record this rule; these V3 checks do not establish
 V4 interpolation parity. Include this change in the eventual release notes.

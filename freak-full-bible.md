@@ -159,10 +159,11 @@ connect(host: "localhost", port: 8080, timeout: 30)
   path is an identifier followed by zero or more `.field` hops. The path must
   resolve to `word`, `int`, `num`, or `bool`. Unsupported expression-like
   bodies are errors: after trimming whitespace, a matched non-path body that
-  starts with an identifier/keyword, number, `(`, `+`, `-`, or `!` is rejected
-  unless it contains `:` (object/JSON-like literal text). An unclosed path or
-  expression containing call/operator syntax is also an error. Empty braces
-  and other non-expression brace text remain literal. Use `\{` and `\}` to
+  starts with an identifier/keyword, digit, `(`, `+`, `-`, or `!` is rejected
+  unless it contains `:` (object/JSON-like literal text). An unclosed such body
+  is rejected when its trimmed text is a valid path or it contains one of `(`,
+  `+`, `-`, `*`, `/`, `=`. Other unmatched braces, empty braces and other
+  non-expression brace text remain literal. Use `\{` and `\}` to
   spell literal braces, for example `"\{score + 1\}"`.
 - `{}` and `done` are identical block delimiters
 
