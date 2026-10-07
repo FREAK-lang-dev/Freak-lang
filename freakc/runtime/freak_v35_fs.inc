@@ -1072,10 +1072,22 @@ static bool freak_fs_windows_discard_new_temp(HANDLE child) {
         freak_fs_sync_nonfinal("owned temporary cleanup");
     return status == 0 && io.value.status == 0;
 }
-/* Owned temporary directories must belong to the effective user, even when
-   their token's default owner is a group. Supply only the owner; native DACL
-   inheritance remains in force. Existing objects and token defaults are never
-   modified. The absolute descriptor references the live bounded SID buffer. */
+/* Bound all returned descriptor components before validating their contents. */
+static bool freak_fs_windows_temp_span(const void *base,size_t size,const void *pointer,size_t length) {
+    uintptr_t begin=(uintptr_t)base,position=(uintptr_t)pointer;
+    return pointer && position >= begin && position-begin <= size && length <= size-(position-begin);
+}
+static bool freak_fs_windows_temp_sid(const void *base,size_t size,PSID pointer,freak_fs_sid_valid_fn valid) {
+    if (!freak_fs_windows_temp_span(base,size,pointer,8) || (uintptr_t)pointer % _Alignof(SID)) return false;
+    SID *sid=pointer;
+    size_t length=8+(size_t)sid->SubAuthorityCount*sizeof(DWORD);
+    return sid->SubAuthorityCount <= SID_MAX_SUB_AUTHORITIES &&
+        freak_fs_windows_temp_span(base,size,pointer,length) && valid(pointer);
+}
+/* Like Unix mkdir(0700), owned temps receive a private creation-time DACL.
+   Explicit effective-user ownership also handles group-default tokens. Only
+   this new object receives the descriptor; existing parents and token defaults
+   stay intact. Its absolute SD references live bounded SID and ACL storage. */
 static freak_fs_anchor freak_fs_windows_owned_temp(freak_fs_anchor parent,const char *name,bool *retryable) {
     *retryable=false;
     HANDLE child=INVALID_HANDLE_VALUE,token=NULL;
@@ -1088,16 +1100,31 @@ static freak_fs_anchor freak_fs_windows_owned_temp(freak_fs_anchor parent,const 
     typedef BOOL (WINAPI *token_info_fn)(HANDLE,TOKEN_INFORMATION_CLASS,LPVOID,DWORD,PDWORD);
     typedef BOOL (WINAPI *init_fn)(PSECURITY_DESCRIPTOR,DWORD);
     typedef BOOL (WINAPI *owner_fn)(PSECURITY_DESCRIPTOR,PSID,BOOL);
+    typedef BOOL (WINAPI *init_acl_fn)(PACL,DWORD,DWORD);
+    typedef BOOL (WINAPI *add_ace_fn)(PACL,DWORD,DWORD,DWORD,PSID);
+    typedef BOOL (WINAPI *dacl_fn)(PSECURITY_DESCRIPTOR,BOOL,PACL,BOOL);
+    typedef BOOL (WINAPI *control_fn)(PSECURITY_DESCRIPTOR,SECURITY_DESCRIPTOR_CONTROL,SECURITY_DESCRIPTOR_CONTROL);
+    typedef BOOL (WINAPI *get_control_fn)(PSECURITY_DESCRIPTOR,PSECURITY_DESCRIPTOR_CONTROL,LPDWORD);
+    typedef DWORD (WINAPI *length_fn)(PSECURITY_DESCRIPTOR);
     typedef DWORD (WINAPI *info_fn)(HANDLE,SE_OBJECT_TYPE,SECURITY_INFORMATION,PSID *,PSID *,PACL *,PACL *,PSECURITY_DESCRIPTOR *);
     open_process_fn open_process=(open_process_fn)(void *)GetProcAddress(security,"OpenProcessToken");
     open_thread_fn open_thread=(open_thread_fn)(void *)GetProcAddress(security,"OpenThreadToken");
     token_info_fn token_info=(token_info_fn)(void *)GetProcAddress(security,"GetTokenInformation");
     init_fn initialize=(init_fn)(void *)GetProcAddress(security,"InitializeSecurityDescriptor");
     owner_fn set_owner=(owner_fn)(void *)GetProcAddress(security,"SetSecurityDescriptorOwner");
+    init_acl_fn initialize_acl=(init_acl_fn)(void *)GetProcAddress(security,"InitializeAcl");
+    add_ace_fn add_ace=(add_ace_fn)(void *)GetProcAddress(security,"AddAccessAllowedAceEx");
+    dacl_fn set_dacl=(dacl_fn)(void *)GetProcAddress(security,"SetSecurityDescriptorDacl");
+    control_fn set_control=(control_fn)(void *)GetProcAddress(security,"SetSecurityDescriptorControl");
+    get_control_fn get_control=(get_control_fn)(void *)GetProcAddress(security,"GetSecurityDescriptorControl");
+    length_fn get_length=(length_fn)(void *)GetProcAddress(security,"GetSecurityDescriptorLength");
+    freak_fs_acl_valid_fn valid_acl=(freak_fs_acl_valid_fn)(void *)GetProcAddress(security,"IsValidAcl");
+    freak_fs_ace_fn get_ace=(freak_fs_ace_fn)(void *)GetProcAddress(security,"GetAce");
     info_fn get_info=(info_fn)(void *)GetProcAddress(security,"GetSecurityInfo");
     freak_fs_sid_valid_fn valid=(freak_fs_sid_valid_fn)(void *)GetProcAddress(security,"IsValidSid");
     freak_fs_sid_equal_fn equal=(freak_fs_sid_equal_fn)(void *)GetProcAddress(security,"EqualSid");
-    if (!open_process || !open_thread || !token_info || !initialize || !set_owner || !get_info || !valid || !equal) {
+    if (!open_process || !open_thread || !token_info || !initialize || !set_owner || !initialize_acl || !add_ace ||
+        !set_dacl || !set_control || !get_control || !get_length || !valid_acl || !get_ace || !get_info || !valid || !equal) {
         error=ERROR_PROC_NOT_FOUND; goto cleanup;
     }
     HANDLE candidate=NULL;
@@ -1118,28 +1145,68 @@ static freak_fs_anchor freak_fs_windows_owned_temp(freak_fs_anchor parent,const 
     if (!token_info(token,TokenUser,user,capacity,&needed)) { error=GetLastError(); goto cleanup; }
     if (needed < sizeof(TOKEN_USER) || needed > capacity || !user->User.Sid) { error=ERROR_INVALID_SID; goto cleanup; }
     uintptr_t begin=(uintptr_t)user,position=(uintptr_t)user->User.Sid;
-    if (position < begin || position-begin > needed || needed-(position-begin) < 8) { error=ERROR_INVALID_SID; goto cleanup; }
+    if (position < begin || position-begin > needed || needed-(position-begin) < 8 || position % _Alignof(SID)) {
+        error=ERROR_INVALID_SID; goto cleanup;
+    }
     SID *sid=(SID *)user->User.Sid;
     size_t length=8+(size_t)sid->SubAuthorityCount*sizeof(DWORD);
     if (sid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES || length > needed-(position-begin) || !valid(sid)) {
         error=ERROR_INVALID_SID; goto cleanup;
     }
     SECURITY_DESCRIPTOR descriptor;
-    if (!initialize(&descriptor,SECURITY_DESCRIPTOR_REVISION) || !set_owner(&descriptor,sid,FALSE)) {
+    union { DWORD aligned; BYTE bytes[sizeof(ACL)+offsetof(ACCESS_ALLOWED_ACE,SidStart)+SECURITY_MAX_SID_SIZE]; } acl_storage;
+    PACL private_acl=(PACL)acl_storage.bytes;
+    if (!initialize(&descriptor,SECURITY_DESCRIPTOR_REVISION) || !set_owner(&descriptor,sid,FALSE) ||
+        !initialize_acl(private_acl,sizeof(acl_storage.bytes),ACL_REVISION) ||
+        !add_ace(private_acl,ACL_REVISION,OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,FILE_ALL_ACCESS,sid) ||
+        !set_dacl(&descriptor,TRUE,private_acl,FALSE) ||
+        !set_control(&descriptor,SE_DACL_PROTECTED,SE_DACL_PROTECTED)) {
         error=GetLastError(); goto cleanup;
     }
     child=freak_fs_anchor_child_mode_security(parent,name,true,true,true,false,false,&descriptor);
     if (child == INVALID_HANDLE_VALUE) {
         error=GetLastError(); *retryable=error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS; goto cleanup;
     }
-    PSID actual=NULL;
-    error=get_info(child,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION,&actual,NULL,NULL,NULL,&returned);
-    if (error != ERROR_SUCCESS || !actual || !valid(actual) || !equal(actual,sid)) {
-        if (error == ERROR_SUCCESS) error=ERROR_INVALID_OWNER;
-        freak_fs_windows_discard_new_temp(child); freak_fs_anchor_close(child); child=INVALID_HANDLE_VALUE;
-        goto cleanup;
+    PSID actual=NULL; PACL actual_acl=NULL;
+    error=get_info(child,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,&actual,NULL,&actual_acl,NULL,&returned);
+    if (error != ERROR_SUCCESS) goto reject;
+    if (!returned) { error=ERROR_INVALID_SECURITY_DESCR; goto reject; }
+    DWORD returned_size=get_length(returned),revision=0; SECURITY_DESCRIPTOR_CONTROL control=0;
+    if (returned_size < sizeof(SECURITY_DESCRIPTOR_RELATIVE) || returned_size > 1048576) {
+        error=ERROR_INVALID_SECURITY_DESCR; goto reject;
+    }
+    if (!get_control(returned,&control,&revision)) { error=GetLastError(); goto reject; }
+    if (revision != SECURITY_DESCRIPTOR_REVISION ||
+        (control & (SE_SELF_RELATIVE | SE_DACL_PRESENT | SE_DACL_PROTECTED)) != (SE_SELF_RELATIVE | SE_DACL_PRESENT | SE_DACL_PROTECTED)) {
+        error=ERROR_INVALID_SECURITY_DESCR; goto reject;
+    }
+    if (!freak_fs_windows_temp_sid(returned,returned_size,actual,valid) || !equal(actual,sid)) {
+        error=ERROR_INVALID_OWNER; goto reject;
+    }
+    if (!freak_fs_windows_temp_span(returned,returned_size,actual_acl,sizeof(ACL)) || (uintptr_t)actual_acl % _Alignof(ACL) ||
+        actual_acl->AclRevision != ACL_REVISION || actual_acl->AceCount != 1 || actual_acl->AclSize < sizeof(ACL) ||
+        !freak_fs_windows_temp_span(returned,returned_size,actual_acl,actual_acl->AclSize) || !valid_acl(actual_acl)) {
+        error=ERROR_INVALID_ACL; goto reject;
+    }
+    PVOID pointer=NULL;
+    if (!get_ace(actual_acl,0,&pointer)) { error=GetLastError(); goto reject; }
+    if (!freak_fs_windows_temp_span(actual_acl,actual_acl->AclSize,pointer,offsetof(ACCESS_ALLOWED_ACE,SidStart)+8) ||
+        (uintptr_t)pointer % _Alignof(ACCESS_ALLOWED_ACE)) {
+        error=ERROR_INVALID_ACL; goto reject;
+    }
+    ACCESS_ALLOWED_ACE *allow=pointer; SID *granted=(SID *)&allow->SidStart;
+    size_t granted_size=8+(size_t)granted->SubAuthorityCount*sizeof(DWORD);
+    if (allow->Header.AceType != ACCESS_ALLOWED_ACE_TYPE ||
+        allow->Header.AceFlags != (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE) ||
+        allow->Header.AceSize != offsetof(ACCESS_ALLOWED_ACE,SidStart)+granted_size ||
+        !freak_fs_windows_temp_span(actual_acl,actual_acl->AclSize,allow,allow->Header.AceSize) ||
+        allow->Mask != FILE_ALL_ACCESS || !freak_fs_windows_temp_sid(allow,allow->Header.AceSize,granted,valid) || !equal(granted,sid)) {
+        error=ERROR_INVALID_ACL; goto reject;
     }
     error=ERROR_SUCCESS;
+    goto cleanup;
+reject:
+    freak_fs_windows_discard_new_temp(child); freak_fs_anchor_close(child); child=INVALID_HANDLE_VALUE;
 cleanup:
     if (returned) LocalFree(returned);
     free(user); if (token) CloseHandle(token); FreeLibrary(security);
