@@ -119,6 +119,225 @@ def fingerprint(root: Path) -> dict[str,str]:
     return {str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(root.rglob('*')) if p.is_file()}
 
 
+def legacy_filename_probe(compiler: Path, clang: Path, runtime: Path, root: Path) -> dict:
+    """Keep native filename/byte witnesses separate from the original gate."""
+    import v3_word_foundation as foundation
+
+    root.mkdir(parents=True, exist_ok=False)
+    report = {"host": os.name, "gate_passed": False, "processes": [],
+              "windows_filesystem_execution_claimed": os.name == "nt",
+              "unc_scope": "native Windows lexical conversion only; no network share is opened"}
+    source = root / "filename-witness.c"
+    source.write_text(r'''
+#ifdef _WIN32
+#define _WIN32_WINNT 0x0602
+#endif
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <windows.h>
+#include <wchar.h>
+#include <io.h>
+#include <fcntl.h>
+static int tracking, allocation_count, fail_allocation, full_count, fail_full, live;
+static void *owned[8];
+static void *observe_malloc(size_t size) {
+    if (tracking && ++allocation_count == fail_allocation) return NULL;
+    void *value = malloc(size);
+    if (tracking && value) { if (live == 8) abort(); owned[live++] = value; }
+    return value;
+}
+static void observe_free(void *value) {
+    if (tracking && value) {
+        int found = 0;
+        for (int index = 0; index < live; ++index) if (owned[index] == value) {
+            owned[index] = owned[--live]; found = 1; break;
+        }
+        if (!found) abort();
+    }
+    free(value);
+}
+static DWORD WINAPI observe_full(LPCWSTR name, DWORD count, LPWSTR output, LPWSTR *leaf) {
+    if (tracking && ++full_count == fail_full) { SetLastError(ERROR_INVALID_NAME); return 0; }
+    return GetFullPathNameW(name, count, output, leaf);
+}
+#define malloc observe_malloc
+#define free observe_free
+#define GetFullPathNameW observe_full
+#endif
+#include "freak_runtime.c"
+#ifdef _WIN32
+#undef malloc
+#undef free
+#undef GetFullPathNameW
+static wchar_t *decode(freak_word value) {
+    int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data,
+        (int)value.length, NULL, 0);
+    wchar_t *wide = count ? calloc((size_t)count + 1, sizeof(*wide)) : NULL;
+    if (wide && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data,
+            (int)value.length, wide, count) != count) { free(wide); return NULL; }
+    return wide;
+}
+static void emit_wide(const char *kind, const wchar_t *value) {
+    printf("%s:%zu:", kind, wcslen(value));
+    for (; *value; ++value) printf("%04x", (unsigned)*value);
+    putchar('\n');
+}
+static int failures(freak_word path) {
+    for (int mode = 1; mode <= 4; ++mode) {
+        wchar_t *input = decode(path); if (!input) return 61;
+        live = 1; owned[0] = input; allocation_count = full_count = 0;
+        fail_allocation = mode <= 2 ? mode : 0;
+        fail_full = mode > 2 ? mode - 2 : 0; tracking = 1;
+        wchar_t *result = freak_fs_windows_filename(input);
+        tracking = 0;
+        if (result || live) return 62;
+    }
+    puts("allocation-and-resolution-failures:4:released"); return 0;
+}
+#endif
+int main(int count, char **arguments) {
+    freak_argc = count; freak_argv = arguments;
+    if (count < 3) return 63;
+    freak_word mode = freak_arg(1), path = freak_arg(2);
+#ifdef _WIN32
+    if (freak_word_eq(mode, freak_word_lit("normalize"))) {
+        wchar_t *input = decode(path); if (!input) return 64;
+        wchar_t *normalized = freak_fs_windows_filename(input); if (!normalized) return 65;
+        printf("same-pointer:%d\n", normalized == input); emit_wide("kernel-utf16", normalized);
+        free(normalized); return 0;
+    }
+    if (freak_word_eq(mode, freak_word_lit("failures"))) return failures(path);
+    wchar_t *ordinary = decode(path); if (!ordinary) return 66;
+    emit_wide("old-ordinary-utf16", ordinary);
+    int old_descriptor = _wopen(ordinary, _O_RDONLY | _O_BINARY);
+    int old_errno = errno;
+    printf("old-ordinary-open:%d:errno:%d\n", old_descriptor, old_descriptor >= 0 ? 0 : old_errno);
+    if (old_descriptor >= 0) _close(old_descriptor);
+    wchar_t *normalized = freak_fs_windows_filename(ordinary); if (!normalized) return 67;
+    emit_wide("kernel-utf16", normalized); free(normalized);
+#endif
+    if (count != 5) return 68;
+    freak_word target = freak_arg(3), directory = freak_arg(4);
+    const char expected[] = {'A', 0, (char)255, 'B', '\r', '\n'};
+    freak_result_word_word read = freak_fs_read_checked(path);
+    if (!read.is_ok || read.data.ok_val.length != sizeof(expected) ||
+        memcmp(read.data.ok_val.data, expected, sizeof(expected))) return 69;
+    puts("read-bytes:6:4100ff420d0a");
+    freak_word_release_owned(&read.data.ok_val);
+    freak_fs_write(target, (freak_word){expected, sizeof(expected), false});
+    freak_fs_append(target, freak_word_lit("XY"));
+    read = freak_fs_read_checked(target);
+    if (!read.is_ok || read.data.ok_val.length != sizeof(expected) + 2 ||
+        memcmp(read.data.ok_val.data, expected, sizeof(expected)) ||
+        memcmp(read.data.ok_val.data + sizeof(expected), "XY", 2)) return 70;
+    puts("copied-bytes:8:4100ff420d0a5859");
+    freak_word_release_owned(&read.data.ok_val);
+    if (!freak_fs_exists(target) || !freak_fs_delete(target) || freak_fs_exists(target) ||
+        !freak_fs_delete(target) || freak_fs_delete(directory)) return 71;
+    int64_t canonical = freak_fs_canonical_path(path);
+    if (!freak_fs_result_ok(canonical)) return 72;
+    freak_word resolved = freak_fs_result_word(canonical);
+    printf("canonical-utf8:%zu:", resolved.length);
+    for (size_t index = 0; index < resolved.length; ++index)
+        printf("%02x", (unsigned char)resolved.data[index]);
+    putchar('\n'); freak_word_release_owned(&resolved); freak_fs_result_release(canonical);
+    const char nul[] = {'x', 0, 'y'};
+    freak_word invalid = {nul, sizeof(nul), false};
+    read = freak_fs_read_checked(invalid);
+    if (read.is_ok || freak_fs_fopen_checked(invalid, freak_word_lit("wb")) ||
+        freak_fs_exists(invalid) || freak_fs_delete(invalid)) return 73;
+    freak_word_release_owned(&read.data.err_val);
+#ifdef _WIN32
+    const char bad_utf8[] = {'x', (char)255, 'y'};
+    invalid = (freak_word){bad_utf8, sizeof(bad_utf8), false};
+    read = freak_fs_read_checked(invalid);
+    if (read.is_ok || freak_fs_fopen_checked(invalid, freak_word_lit("wb")) ||
+        freak_fs_exists(invalid) || freak_fs_delete(invalid)) return 74;
+    freak_word_release_owned(&read.data.err_val);
+#endif
+    puts("LEGACY_LONG_FILENAME_OK"); return 0;
+}
+''', encoding="ascii")
+    binary = root / ("filename-witness.exe" if os.name == "nt" else "filename-witness")
+
+    def execute(command: list[str], cwd: Path = root) -> subprocess.CompletedProcess:
+        sequence = len(report["processes"]) + 1
+        result = subprocess.run(command, cwd=cwd, capture_output=True, timeout=90)
+        row = {"argv": command, "cwd": str(cwd), "returncode": result.returncode,
+               "launcher_pid": os.getpid(), "image_sha256": hashlib.sha256(Path(command[0]).read_bytes()).hexdigest()}
+        for name in ("stdout", "stderr"):
+            data = getattr(result, name); destination = root / f"{sequence:02d}.{name}.raw"
+            destination.write_bytes(data)
+            row[name] = {"path": str(destination), "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        report["processes"].append(row)
+        (root / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+        assert result.returncode == 0, (command, result.returncode, result.stdout, result.stderr)
+        return result
+
+    execute([str(clang), "-O0", "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1", "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1",
+             str(source), "-I", str(runtime), "-o", str(binary),
+             *(["-lws2_32"] if os.name == "nt" else ["-lm"])])
+    physical = root / "native-日本-Ω"
+    physical.mkdir()
+    for _ in range(12):
+        physical /= "long-component-日本-Ω"; physical.mkdir()
+    raw = physical / "raw.data"; raw.write_bytes(b"A\0\xffB\r\n")
+    target = physical / "copy.data"
+    paths = [(str(raw), str(target))]
+    paths.append((str(raw.relative_to(root)), str(target.relative_to(root))))
+    if os.name == "nt":
+        def extended(path: Path) -> str:
+            value = str(path)
+            if value.startswith("\\\\?\\"): return value
+            return "\\\\?\\UNC\\" + value[2:] if value.startswith("\\\\") else "\\\\?\\" + value
+        paths += [(str(raw).replace("\\", "/"), str(target).replace("\\", "/")),
+                  (extended(raw), extended(target))]
+        if len(raw.drive) == 2:
+            paths += [(str(raw)[2:], str(target)[2:]),
+                      (raw.drive + str(raw.relative_to(root)), target.drive + str(target.relative_to(root)))]
+    for path, output in paths:
+        result = execute([str(binary), "files", path, output, str(physical)])
+        assert result.stdout.replace(b"\r\n", b"\n").endswith(b"LEGACY_LONG_FILENAME_OK\n") and not result.stderr, result
+        assert raw.read_bytes() == b"A\0\xffB\r\n" and physical.is_dir() and not target.exists()
+    if os.name == "nt":
+        def normalized(path: str, expected: str, same: bool) -> None:
+            result = execute([str(binary), "normalize", path])
+            units = expected.encode("utf-16-le")
+            encoded = "".join(f"{int.from_bytes(units[index:index + 2], 'little'):04x}" for index in range(0, len(units), 2))
+            assert result.stdout.replace(b"\r\n", b"\n") == f"same-pointer:{int(same)}\nkernel-utf16:{len(units) // 2}:{encoded}\n".encode(), result
+        for path in ("relative.txt", "C:/short/../caller.txt", "\\\\?\\C:\\explicit\\..\\caller.txt",
+                     "\\\\?\\UNC\\server\\share\\caller.txt", "\\\\.\\NUL"):
+            normalized(path, path, True)
+        long_unc = "\\\\server\\share\\" + "long-component\\" * 24 + "file"
+        normalized(long_unc, "\\\\?\\UNC\\" + long_unc[2:], False)
+        if not str(root).startswith("\\\\?\\"):
+            normalized(str(root) + "\\." * 150 + "\\short.txt", extended(root / "short.txt"), False)
+        relative = execute([str(binary), "files", "raw.data", "copy.data", str(physical)], physical)
+        assert relative.stdout.replace(b"\r\n", b"\n").endswith(b"LEGACY_LONG_FILENAME_OK\n") and not relative.stderr, relative
+        execute([str(binary), "failures", str(raw)])
+    program = physical / "main.fk"
+    program.write_text('task main() { say "LONG_EMIT" }\n', encoding="ascii")
+    for backend in ("c", "llvm"):
+        suffix = ".c" if backend == "c" else ".ll"
+        generated = Path(str(program) + suffix); generated.write_bytes(b"OLD_STALE_BACKEND\n")
+        execute([str(compiler), str(program), "--" + backend])
+        assert generated.is_file() and b"OLD_STALE_BACKEND" not in generated.read_bytes()
+        emitted = root / ("emitted-" + backend + (".exe" if os.name == "nt" else ""))
+        foundation.compile_generated(clang=str(clang), repo=Path(__file__).resolve().parents[1],
+                                     runtime_root=runtime, generated=generated, backend=backend, binary=emitted)
+        result = execute([str(emitted)])
+        assert result.stdout.replace(b"\r\n", b"\n") == b"LONG_EMIT\n", result
+    report["gate_passed"] = True
+    report["runtime_sha256"] = hashlib.sha256((runtime / "freak_runtime.c").read_bytes()).hexdigest()
+    (root / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+    print("PASS legacy filename native bytes, read/write/append/exists/delete/canonical and C+LLVM sibling emissions", flush=True)
+    return report
+
+
 def main() -> int:
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--cli',type=Path,required=True,help='fresh native full CLI with trusted std assembly')

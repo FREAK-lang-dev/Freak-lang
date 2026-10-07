@@ -1638,8 +1638,8 @@ int64_t freak_fs_canonical_path(freak_word path) {
     int64_t handle = freak_fs_ticket_new(); freak_fs_ticket *result = freak_fs_ticket_require(handle);
     char *name = freak_fs_checked_path(result,path); if (!name) return handle;
 #ifdef _WIN32
-    wchar_t *wide = freak_command_wide(name);
-    HANDLE file = CreateFileW(wide,0,FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,NULL,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,NULL);
+    wchar_t *wide = freak_fs_windows_filename(freak_command_wide(name));
+    HANDLE file = wide ? CreateFileW(wide,0,FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,NULL,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,NULL) : INVALID_HANDLE_VALUE;
     free(wide);
     if (file != INVALID_HANDLE_VALUE) {
         DWORD count = GetFinalPathNameByHandleW(file,NULL,0,FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);

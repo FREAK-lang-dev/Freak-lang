@@ -1175,6 +1175,48 @@ int64_t freak_num_to_int_checked(double value) {
 /*  std::fs — file I/O                                                */
 /* ------------------------------------------------------------------ */
 
+#ifdef _WIN32
+/* Consume a decoded filename. Keep ordinary short and explicitly qualified
+   caller spellings intact; only a long ordinary absolute result needs the
+   extended namespace. GetFullPathNameW resolves names without opening them,
+   so caller-selected source links retain the CRT's existing follow behavior. */
+static wchar_t *freak_fs_windows_filename(wchar_t *name) {
+    if (!name) return NULL;
+    if (wcsncmp(name, L"\\\\?\\", 4) == 0 || wcsncmp(name, L"\\\\.\\", 4) == 0)
+        return name;
+    wchar_t short_absolute[MAX_PATH];
+    DWORD count = GetFullPathNameW(name, MAX_PATH, short_absolute, NULL);
+    if (count && count < MAX_PATH && wcslen(name) < MAX_PATH) return name;
+    if (!count || count > 32768) {
+        free(name); errno = count ? ENAMETOOLONG : EINVAL; return NULL;
+    }
+    DWORD capacity = count < MAX_PATH ? count + 1 : count;
+    wchar_t *absolute = malloc((size_t)capacity * sizeof(*absolute));
+    if (!absolute) { free(name); errno = ENOMEM; return NULL; }
+    DWORD written = GetFullPathNameW(name, capacity, absolute, NULL);
+    free(name);
+    if (!written || written >= capacity) { free(absolute); errno = EINVAL; return NULL; }
+    for (wchar_t *cursor = absolute; *cursor; ++cursor)
+        if (*cursor == L'/') *cursor = L'\\';
+    if (wcsncmp(absolute, L"\\\\?\\", 4) == 0) return absolute;
+    const wchar_t *tail = absolute;
+    const wchar_t *prefix = L"\\\\?\\";
+    if (absolute[0] == L'\\' && absolute[1] == L'\\') {
+        prefix = L"\\\\?\\UNC\\"; tail += 2;
+    } else if (!absolute[0] || absolute[1] != L':' || absolute[2] != L'\\') {
+        free(absolute); errno = EINVAL; return NULL;
+    }
+    size_t prefix_length = wcslen(prefix), length = wcslen(tail);
+    if (length > 32766 - prefix_length) { free(absolute); errno = ENAMETOOLONG; return NULL; }
+    wchar_t *extended = malloc((prefix_length + length + 1) * sizeof(*extended));
+    if (!extended) { free(absolute); errno = ENOMEM; return NULL; }
+    memcpy(extended, prefix, prefix_length * sizeof(*extended));
+    memcpy(extended + prefix_length, tail, (length + 1) * sizeof(*extended));
+    free(absolute);
+    return extended;
+}
+#endif
+
 freak_word freak_fs_read(freak_word path) {
     freak_result_word_word result = freak_fs_read_checked(path);
     if (!result.is_ok) {
@@ -1204,8 +1246,10 @@ freak_result_word_word freak_fs_read_checked(freak_word path) {
     int wide_count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, NULL, 0);
     wchar_t *wide_name = wide_count ? malloc((size_t)wide_count * sizeof(*wide_name)) : NULL;
     int descriptor = -1;
-    if (wide_name && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, wide_name, wide_count))
-        descriptor = _wopen(wide_name, _O_RDONLY | _O_BINARY);
+    if (wide_name && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, wide_name, wide_count)) {
+        wide_name = freak_fs_windows_filename(wide_name);
+        if (wide_name) descriptor = _wopen(wide_name, _O_RDONLY | _O_BINARY);
+    }
     free(wide_name);
 #else
     /* Nonblocking open lets us reject a FIFO before it can wait for a writer. */
@@ -1296,8 +1340,10 @@ int64_t freak_fs_fopen_checked(freak_word path, freak_word mode) {
         wchar_t *wide_flags = m ? malloc((size_t)m * sizeof(*wide_flags)) : NULL;
         if (wide_name && wide_flags &&
             MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, wide_name, n) &&
-            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, flags, -1, wide_flags, m))
-            stream = _wfopen(wide_name, wide_flags);
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, flags, -1, wide_flags, m)) {
+            wide_name = freak_fs_windows_filename(wide_name);
+            if (wide_name) stream = _wfopen(wide_name, wide_flags);
+        }
         else errno = EINVAL;
         free(wide_name); free(wide_flags);
     } else errno = EINVAL;
@@ -1356,7 +1402,8 @@ bool freak_fs_exists(freak_word path) {
     if (!wide) return false;
     bool exists=false;
     if (MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.data,(int)path.length,wide,count) == count) {
-        wide[count]=0; exists=_waccess(wide,0) == 0;
+        wide[count]=0; wide=freak_fs_windows_filename(wide);
+        if (wide) exists=_waccess(wide,0) == 0;
     }
     free(wide); return exists;
 #else
@@ -1393,6 +1440,7 @@ bool freak_fs_delete(freak_word path) {
     wchar_t *wide=malloc(((size_t)count+1)*sizeof(wchar_t));if (!wide) return false;
     if (MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.data,(int)path.length,wide,count) != count) { free(wide); return false; }
     wide[count]=0;
+    wide=freak_fs_windows_filename(wide); if (!wide) return false;
     int result=_wunlink(wide); /* file-only: never consume an artifact directory */
     int error=errno; free(wide); errno=error;
 #else

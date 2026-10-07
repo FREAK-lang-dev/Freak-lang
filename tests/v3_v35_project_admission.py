@@ -18,6 +18,7 @@ import tempfile
 import v3_word_foundation as foundation
 from v3_v35_hangar import probe_transpile, require_resource_conservation, task_source
 from v3_v35_package_sources import PROGRAM, package_probe_source
+from v3_v35_legacy_fs import legacy_filename_probe
 from windows_private_fixture import WindowsPrivateFixture
 
 
@@ -253,10 +254,13 @@ def main() -> int:
         # outside this facade's explicitly named fixture setup.
         private_fixture = WindowsPrivateFixture(root, root / "report.json")
         checks = run_gate(args.compiler.resolve(strict=True), args.clang.resolve(strict=True), args.payload_home.resolve(strict=True), root, private_fixture)
+        filename_report = legacy_filename_probe(args.compiler.resolve(strict=True), args.clang.resolve(strict=True),
+                                               args.payload_home.resolve(strict=True) / "runtime", root / "legacy-filename-probe")
         (root / "report.json").write_text(json.dumps({"host": os.name, "checks": checks,
             "package_sources_sha256": hashlib.sha256((Path(__file__).resolve().parents[1] / "src/cli/package_sources.fk").read_bytes()).hexdigest(),
             "windows_filesystem_execution_claimed": os.name == "nt", "gate_passed": True,
-            "phase": "complete", "windows_private_fixture": private_fixture.report}, indent=2) + "\n")
+            "phase": "complete", "windows_private_fixture": private_fixture.report,
+            "legacy_filename_probe": filename_report}, indent=2) + "\n")
     return 0
 
 
