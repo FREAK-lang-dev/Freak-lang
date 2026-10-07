@@ -25,7 +25,11 @@ AUDIT_FLAGS = ("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1", "-DFREAK_C_RUNTIME_OWNERSHIP
 SANITIZER_FLAGS = ("-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer")
 DARWIN_DEPLOYMENT_SOURCE = "/* Observe the selected Clang deployment target; no executable. */\n"
 RUNTIME_SOURCES = ("freak_llvm_runtime.c", "freak_v4_word_runtime.c", "freak_v4_numeric_runtime.c", "freak_v4_unicode_runtime.c", "freak_v4_system_runtime.c", "freak_v4_panic_runtime.c", "freak_runtime.c")
-RUNTIME_HEADERS = ("freak_runtime.h", "freak_v4_word_runtime.h", "freak_v4_numeric_runtime.h", "freak_v4_unicode_runtime.h", "freak_v4_unicode_lower_tables.h", "freak_v4_system_runtime.h", "freak_v4_panic_runtime.h")
+RUNTIME_HEADERS = ("freak_runtime.h", "freak_v4_word_runtime.h", "freak_v4_numeric_runtime.h", "freak_v4_unicode_runtime.h", "freak_v4_unicode_lower_tables.h", "freak_v4_system_runtime.h", "freak_v4_panic_runtime.h", "freak_v35_process.inc", "freak_v35_fs.inc", "freak_v35_json.inc", "freak_v35_http.inc")
+RUNTIME_VENDOR_HEADERS = ("third_party/llhttp/freak_amalgamation.inc", "third_party/llhttp/include/llhttp.h", "third_party/llhttp/src/llhttp.h", "third_party/llhttp/src/api.c", "third_party/llhttp/src/http.c", "third_party/llhttp/src/llhttp.c")
+BOOTSTRAP_MANIFEST = "src/compiler/v4/bootstrap-sources.manifest"
+RUNTIME_MANIFEST = "src/compiler/v4/native-runtime.manifest"
+RUNTIME_INVENTORY_READER = "freakc/v4_native_runtime.py"
 CRATES = ("freak_span", "freak_diag", "freak_macro_api", "freak_arena", "freak_intern", "freak_session", "freak_target", "freak_lex", "freak_parse", "freak_expand", "freak_hir", "freak_resolve", "freak_ty", "freak_mir", "freak_mir_build", "freak_borrowck", "freak_codegen_llvm", "freak_query", "freak_driver", "freak_editor", "freak_snapshot", "freak_lsp")
 OWNED_NAMES = ("src/compiler/v4/tests/typed_os_entry_contract_smoke.fk", "src/compiler/v4/tests/typed_os_entry_execute_smoke.fk", "tests/v4_typed_os_entry_codegen.py", "tests/test_v4_typed_os_entry_codegen.py", "src/compiler/v4/TYPED_OS_ENTRY_CONTRACT.md")
 SUPPORT_NAME = "tests/v4_c_integer_runtime.py"
@@ -703,11 +707,38 @@ def validate_module(module, program):
     require("@freak_v4_process_arg(" not in module and "@freak_fs_read_checked" not in module and "@freak_v4_word_to_int" not in legacy_free, "legacy helper cannot substitute typed bridge")
 
 
+def runtime_input_names(root):
+    # Read the real resolver without occupying the frozen bootstrap's freakc
+    # import namespace. Its manifest and Python source are themselves frozen.
+    path = root / RUNTIME_INVENTORY_READER
+    require(path.is_file() and not path.is_symlink(), "runtime inventory reader missing or alias")
+    module = types.ModuleType("v4_typed_os_inventory")
+    module.__file__ = str(path)
+    exec(compile(path.read_bytes(), str(path), "exec"), module.__dict__)
+    rows = module.read_inventory(root / RUNTIME_MANIFEST)
+    sources = tuple(name for role, name in rows if role == "source")
+    headers = tuple(name for role, name in rows if role == "header" and not name.startswith("third_party/"))
+    vendors = tuple(name for role, name in rows if role == "header" and name.startswith("third_party/"))
+    require((sources, headers, vendors) == (RUNTIME_SOURCES, RUNTIME_HEADERS, RUNTIME_VENDOR_HEADERS),
+            "exact ordered 7-source/11-local-header/6-vendor-header runtime inventory")
+    names = []
+    for name in (*sources, *headers, *vendors):
+        path = module.runtime_file(root / "freakc/runtime", name)
+        relative = str(path.relative_to(root)).replace("\\", "/")
+        expected = name if name in vendors else "freakc/runtime/" + name
+        require(relative == expected, "runtime resolver source identity: " + name)
+        names.append(relative)
+    return tuple(names)
+
+
 def source_names(root=None):
     if root is None: root = ROOT
-    names = [*OWNED_NAMES, SUPPORT_NAME, GUARD_NAME,
+    expected_crates = tuple("crates/" + crate + "/src/lib.fk" for crate in CRATES)
+    require(tuple((root / BOOTSTRAP_MANIFEST).read_text(encoding="utf-8").splitlines()) == expected_crates,
+            "exact ordered bootstrap manifest inventory")
+    names = [*OWNED_NAMES, SUPPORT_NAME, GUARD_NAME, BOOTSTRAP_MANIFEST, RUNTIME_MANIFEST,
              *("src/compiler/v4/crates/" + crate + "/src/lib.fk" for crate in CRATES),
-             *("freakc/runtime/" + name for name in (*RUNTIME_SOURCES, *RUNTIME_HEADERS))]
+             *runtime_input_names(root)]
     names += [str(path.relative_to(root)).replace("\\", "/") for path in sorted((root / "freakc").rglob("*.py"))]
     require(len(names) == len(set(names)), "source inventory duplicate")
     require(len(names) <= 256 and any(name == "freakc/__main__.py" for name in names), "bounded complete bootstrap Python inventory")
@@ -718,6 +749,15 @@ def source_names(root=None):
 
 
 def source_hashes(): return {name: sha(ROOT / name) for name in source_names()}
+
+
+def validate_source_closure(report, frozen):
+    sources = report.get("source_hashes", {})
+    names = source_names()
+    require(type(sources) is dict and tuple(sources) == names == source_names(frozen),
+            "exact ordered original/report/frozen source inventory")
+    require(sources == source_hashes() == {name: sha(frozen / name) for name in names},
+            "original/report/frozen physical source conservation")
 
 
 def load_support(frozen, names, role):
@@ -921,6 +961,7 @@ def validate_report(report, sanitize):
     require(report.get("artifact_hashes") == report.get("final_artifact_hashes") and report.get("binary_hashes") == report.get("final_binary_hashes"), "produced file conservation")
     work = Path(report.get("work", ""))
     require(work.is_absolute(), "absolute retained evidence root")
+    validate_source_closure(report, work / "frozen-source")
     suffix = ".exe" if host == "win32" else ""
     expected_images = {str(work / ("typed-os-" + kind + suffix)) for kind in ("contract", "execute")}
     expected_images |= {str(work / (name + f".O{opt}" + (".obj" if host == "win32" else ".o"))) for opt in OPTS for name in RUNTIME_SOURCES}
@@ -989,6 +1030,7 @@ def run_gate(clang, directory, frozen, report, supports):
             self.artifacts = {}
         def check(self):
             super().check()
+            require(tuple(self.expected_sources) == source_names(frozen), "exact frozen source inventory")
             reject_bytecode(frozen)
             validate_data()
             require(fixture_facts(fixtures, sys.platform) == report["fixture_facts"], "fixture conservation drift")
