@@ -178,7 +178,7 @@ def main() -> int:
     check_installer_contracts(repo)
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-run-freshness-") as tmp:
-        root = Path(tmp)
+        root = Path(tmp).resolve(strict=True)
         # Keep a competing checkout stdlib beside the compiler so this test
         # proves explicit FREAK_HOME inputs drive both cache fingerprints and
         # rebuilds on every platform, not only when the test binary is isolated.
