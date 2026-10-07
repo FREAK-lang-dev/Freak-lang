@@ -66,7 +66,51 @@ def extract_module(result, family: str, case: int) -> str:
     return module
 
 
+def runtime_inventory_names() -> dict[str, tuple[str, ...]]:
+    from freakc import v4_native_runtime as inventory
+    if Path(inventory.__file__).resolve() != (ROOT / 'freakc/v4_native_runtime.py').resolve():
+        raise RuntimeError('runtime inventory imported from a different checkout')
+    rows = inventory.read_inventory(ROOT / 'src/compiler/v4/native-runtime.manifest')
+    names = {
+        'runtime_sources': tuple(name for role, name in rows if role == 'source'),
+        'runtime_headers': tuple(name for role, name in rows
+                                 if role == 'header' and not name.startswith('third_party/')),
+        'runtime_vendor_headers': tuple(name for role, name in rows
+                                        if role == 'header' and name.startswith('third_party/')),
+    }
+    if tuple(len(group) for group in names.values()) != (7, 11, 6):
+        raise RuntimeError('central runtime inventory changed; review the closed plan')
+    return names
+
+
+def runtime_inventory_paths(runtime_root: Path) -> dict[str, dict[str, Path]]:
+    from freakc import v4_native_runtime as inventory
+    return {key: {name: inventory.runtime_file(runtime_root, name) for name in names}
+            for key, names in runtime_inventory_names().items()}
+
+
+def validate_runtime_inventory(report: dict) -> None:
+    inputs = report.get('inputs_before', {})
+    manifest_key = 'src/compiler/v4/native-runtime.manifest'
+    if inputs.get(manifest_key) != sha(ROOT / manifest_key):
+        raise RuntimeError('native runtime inventory differs from its frozen compiler input')
+    for key, paths in runtime_inventory_paths(ROOT / 'freakc/runtime').items():
+        observed = report.get(key, {})
+        if not isinstance(observed, dict) or set(observed) != set(paths):
+            raise RuntimeError('incomplete or unexpected frozen ' + key + ' identity')
+        for name, path in paths.items():
+            pinned = inputs.get(path.relative_to(ROOT).as_posix())
+            if observed[name] != pinned or pinned != sha(path):
+                raise RuntimeError('runtime identity differs from its frozen compiler input: ' + name)
+
+
 def validate_report(report: dict, sanitize: bool) -> None:
+    validate_runtime_inventory(report)
+    if (report.get('compiler_process_contract') !=
+            {'memory_limit_mib':64, 'live_handle_limit':1024, 'timeout_seconds':60}
+            or report.get('bootstrap_process_contract') !=
+            {'memory_limit_mib':1024, 'live_handle_limit':1024, 'timeout_seconds':120}):
+        raise RuntimeError('compiler/bootstrap resource contract changed')
     wanted = {(family, case, opt) for family, case, _, _ in CASES for opt in OPTS}
     rows = report['programs']
     if len(rows) != len(wanted) or {(r['family'], r['case'], r['optimization']) for r in rows} != wanted:
@@ -120,23 +164,41 @@ def run_gate(args, report: dict) -> None:
     from freakc.v4_native_runtime import HEADER_NAMES
     checks = build.checks
     work = args.work.resolve()
-    # Freeze the original guard in Runner's view before recording bootstrap.
-    runner = Runner(SimpleNamespace(run_with_heartbeat=checks.run_with_heartbeat), work)
+    names = runtime_inventory_names()
+    if (tuple(build.SOURCE_NAMES) != names['runtime_sources']
+            or tuple(HEADER_NAMES) != names['runtime_headers']
+            or checks.C_ARRAY_HANDLE_RESOURCE_LIMIT != 1024):
+        raise RuntimeError('central runtime/handle inventory changed; review the closed plan')
+    runtime_paths = runtime_inventory_paths(checks.RUNTIME_ROOT)
     paths = [checks.crate_path(name) for name in checks.CRATE_ORDER]
     paths += [checks.TESTS_ROOT / name for name in FIXTURES.values()]
-    paths += [checks.RUNTIME_ROOT / name for name in (*build.SOURCE_NAMES, *HEADER_NAMES)]
+    paths += [path for group in runtime_paths.values() for path in group.values()]
     paths += [Path(__file__), Path(checks.__file__), ROOT / 'src/compiler/v4/build_v4.py',
+              ROOT / 'src/compiler/v4/native-runtime.manifest',
               ROOT / 'freakc/v4_native_runtime.py', ROOT / 'tests/v4_checked_numeric_codegen.py',
-              ROOT / 'tests/v4_scalar_sum_codegen.py']
+              ROOT / 'tests/v4_scalar_sum_codegen.py', ROOT / 'tests/test_v4_training_if_native.py']
     def pins():
-        return {str(path.relative_to(ROOT)): sha(path) for path in paths}
+        return {path.relative_to(ROOT).as_posix(): sha(path) for path in paths}
     report['inputs_before'] = pins()
     report['compiler_process_contract'] = {'memory_limit_mib':64, 'live_handle_limit':1024, 'timeout_seconds':60}
     report['bootstrap_process_contract'] = {'memory_limit_mib':1024, 'live_handle_limit':1024, 'timeout_seconds':120}
-    report['runtime_sources'] = list(build.SOURCE_NAMES)
-    report['runtime_headers'] = list(HEADER_NAMES)
-    if len(build.SOURCE_NAMES) != 7 or len(HEADER_NAMES) != 7 or checks.C_ARRAY_HANDLE_RESOURCE_LIMIT != 1024:
-        raise RuntimeError('central runtime/handle inventory changed; review the closed plan')
+    report.update({key: {name: sha(path) for name, path in group.items()}
+                   for key, group in runtime_paths.items()})
+    validate_runtime_inventory(report)
+
+    class PinnedRunner(Runner):
+        def run(self, *args, **kwargs):
+            if pins() != report['inputs_before']:
+                raise RuntimeError('training input identity changed during proof')
+            validate_runtime_inventory(report)
+            result = super().run(*args, **kwargs)
+            if pins() != report['inputs_before']:
+                raise RuntimeError('training input identity changed during proof')
+            validate_runtime_inventory(report)
+            return result
+
+    # Retain the original subprocess guard and verify inputs around every job.
+    runner = PinnedRunner(SimpleNamespace(run_with_heartbeat=checks.run_with_heartbeat), work)
     flat = checks.check_flattened_crates()
     compilers = {}
     for family, name in FIXTURES.items():
