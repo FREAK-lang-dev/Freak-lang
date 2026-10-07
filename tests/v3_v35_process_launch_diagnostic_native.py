@@ -32,6 +32,11 @@ int main(int argc, char **argv) {
 '''
 
 HARNESS = r'''
+#ifdef __APPLE__
+/* The fixture includes SDK headers before the runtime. Enable Darwin's
+   no-follow and BSD interfaces before their include guards become fixed. */
+#define _DARWIN_C_SOURCE 1
+#endif
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include <unistd.h>
