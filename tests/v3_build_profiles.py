@@ -248,7 +248,7 @@ def check_real_profile_matrix(
     native_target: str,
 ) -> None:
     source = root / "profile-matrix.fk"
-    source.write_text('say "PROFILE_MATRIX_OK"\n', encoding="utf-8")
+    source.write_text('task main() { say "PROFILE_MATRIX_OK"; }\n', encoding="utf-8")
     for backend in ("--c", "--llvm"):
         for level in range(4):
             output, entries = build_and_record(
@@ -373,7 +373,7 @@ def check_unsupported_lto(
     log: Path,
 ) -> None:
     source = root / "unsupported-lto.fk"
-    source.write_text('say "NO_LTO_FALLBACK"\n', encoding="utf-8")
+    source.write_text('task main() { say "NO_LTO_FALLBACK"; }\n', encoding="utf-8")
     binary = binary_path(source)
     binary.write_bytes(b"stale executable\n")
     log.unlink(missing_ok=True)
@@ -408,7 +408,7 @@ def check_cache_separation(
     freak: Path, root: Path, env: dict[str, str]
 ) -> None:
     source = root / "profile-cache.fk"
-    source.write_text('say "CACHE_PROFILE_OK"\n', encoding="utf-8")
+    source.write_text('task main() { say "CACHE_PROFILE_OK"; }\n', encoding="utf-8")
     binary = binary_path(source)
 
     assert_run_cache(freak, root, source, [], env, hit=False)
@@ -592,7 +592,7 @@ def check_linker_identity_selection(
     real_clang: str,
 ) -> None:
     source = root / "linker-cache.fk"
-    source.write_text('say "CACHE_PROFILE_OK"\n', encoding="utf-8")
+    source.write_text('task main() { say "CACHE_PROFILE_OK"; }\n', encoding="utf-8")
     programs = controlled_linkers(root, real_clang)
     scenarios = (([], "off"), (["--lto=thin"], "thin"))
     controlled_env = env.copy()

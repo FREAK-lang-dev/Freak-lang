@@ -13,6 +13,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from v3_final_release_gate import manifest_entries
+
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -158,19 +160,17 @@ def main() -> int:
         std = install / "std"
         runtime.mkdir(parents=True)
         std.mkdir(parents=True)
-        for name in ("freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c"):
-            shutil.copy2(repo / "freakc" / "runtime" / name, runtime / name)
+        for runtime_source, destination_name in manifest_entries(repo):
+            if destination_name.startswith("runtime/"):
+                destination = install / destination_name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(runtime_source, destination)
         runtime_abi = runtime / "freak_abi"
         shutil.copy2(repo / "freakc" / "runtime" / "freak_abi", runtime_abi)
         runtime_api = runtime / "freak_runtime_api"
         shutil.copy2(
             repo / "freakc" / "runtime" / "freak_runtime_api", runtime_api
         )
-        if sys.platform == "win32":
-            runtime_ui = runtime / "ui"
-            runtime_ui.mkdir()
-            for name in ("win32_backend.c", "freak_ui_platform.h"):
-                shutil.copy2(repo / "freakc" / "runtime" / "ui" / name, runtime_ui / name)
         if sys.platform != "win32":
             # Old archives may contain runtime objects. They must not select
             # the raw ld.lld bundle path on POSIX; Clang must link sources.
@@ -193,7 +193,7 @@ def main() -> int:
         source_dir.mkdir()
         source = source_dir / "freshness.fk"
         source_arg = Path(source.name)
-        source.write_text('say "CACHE_A"\n', encoding="utf-8")
+        source.write_text('task main() { say "CACHE_A"; }\n', encoding="utf-8")
         binary = source.with_suffix(".exe" if sys.platform == "win32" else "")
         sidecar = Path(str(binary) + ".freak-run-cache")
 
@@ -244,7 +244,7 @@ def main() -> int:
         # either backend. Keep the warm artifact beside it to also prove that
         # a rejected cold operation cannot invalidate unrelated cache entries.
         cold_source = source_dir / "runtime-api-cold.fk"
-        cold_source.write_text('say "COLD_API_EXECUTED"\n', encoding="utf-8")
+        cold_source.write_text('task main() { say "COLD_API_EXECUTED"; }\n', encoding="utf-8")
         cold_binary = cold_source.with_suffix(
             ".exe" if sys.platform == "win32" else ""
         )
@@ -285,7 +285,7 @@ def main() -> int:
         # be removed, the old executable is preserved; if only the executable
         # is undeletable, its proof is already gone before the build rejects.
         blocked_source = source_dir / "blocked-invalidation.fk"
-        blocked_source.write_text('say "BLOCKED_INVALIDATION"\n', encoding="utf-8")
+        blocked_source.write_text('task main() { say "BLOCKED_INVALIDATION"; }\n', encoding="utf-8")
         blocked_arg = Path(blocked_source.name)
         blocked_binary = blocked_source.with_suffix(
             ".exe" if sys.platform == "win32" else ""
@@ -347,7 +347,7 @@ def main() -> int:
         # persisted FREAK_CLANG must fall through to normal discovery rather
         # than masking the replacement toolchain that is already available.
         stale_source = source_dir / "stale-clang-override.fk"
-        stale_source.write_text('say "STALE_CLANG_RECOVERED"\n', encoding="utf-8")
+        stale_source.write_text('task main() { say "STALE_CLANG_RECOVERED"; }\n', encoding="utf-8")
         stale_env = env.copy()
         stale_env["FREAK_CLANG"] = str(
             root / "removed-llvm-mingw-version" / "bin" / "clang.exe"
@@ -431,7 +431,7 @@ def main() -> int:
         code, output = invoke(freak, source_dir, source_arg, "--c", env)
         assert_run(code, output, "CACHE_A", cache_hit=False)
 
-        source.write_text('say "CACHE_B"\n', encoding="utf-8")
+        source.write_text('task main() { say "CACHE_B"; }\n', encoding="utf-8")
         code, output = invoke(freak, source_dir, source_arg, "--c", env)
         assert_run(code, output, "CACHE_B", cache_hit=False)
 
@@ -577,7 +577,7 @@ def main() -> int:
         child_command = "cmd /c exit 7" if sys.platform == "win32" else "sh -c 'exit 7'"
         failing_source.write_text(
             f'pilot child_status = process::exec("{child_command}")\n'
-            "process::exit(child_status)\n",
+            "task main() { process::exit(child_status); }\n",
             encoding="utf-8",
         )
         for backend in ("--c", "--llvm"):
@@ -593,7 +593,7 @@ def main() -> int:
             percent_source_dir = root / "%FREAK_PATH_EXPANSION%"
             percent_source_dir.mkdir()
             percent_source = percent_source_dir / "literal percent.fk"
-            percent_source.write_text('say "SAFE_WINDOWS_PATH"\n', encoding="utf-8")
+            percent_source.write_text('task main() { say "SAFE_WINDOWS_PATH"; }\n', encoding="utf-8")
             mock_linker = root / "ld.lld.exe"
             shutil.copy2(freak, mock_linker)
             mock_clang = root / "mock-clang.cmd"
@@ -633,7 +633,7 @@ def main() -> int:
         else:
             path_sentinel = source_dir / "FREAK_PATH_INJECTED"
             quoted_source = source_dir / "$(touch${IFS}FREAK_PATH_INJECTED).fk"
-            quoted_source.write_text('say "SAFE_PATH"\n', encoding="utf-8")
+            quoted_source.write_text('task main() { say "SAFE_PATH"; }\n', encoding="utf-8")
             code, output = invoke(
                 freak, source_dir, Path(quoted_source.name), "--c", env
             )
@@ -677,7 +677,7 @@ def main() -> int:
         # executable. Remove the staged runtime, change source, and verify the
         # prior CACHE_B artifact cannot be mistaken for a successful rebuild.
         (runtime / "freak_runtime.c").unlink()
-        source.write_text('say "CACHE_C"\n', encoding="utf-8")
+        source.write_text('task main() { say "CACHE_C"; }\n', encoding="utf-8")
         code, output = invoke(freak, source_dir, source_arg, "--llvm", env)
         assert code != 0, output
         assert "CACHE_B" not in output, output
