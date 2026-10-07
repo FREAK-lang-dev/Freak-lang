@@ -42,6 +42,8 @@ def selected_clang(path: Path) -> Path:
         try:
             path.lstat()
         except FileNotFoundError:
+            if path.suffix or path.name.endswith("."):
+                raise
             path = path.with_name(path.name + ".exe")
     physical = path.resolve(strict=True)
     if not physical.is_file():
@@ -93,7 +95,14 @@ def selected_clang_controls(root: Path) -> None:
             mock.patch.object(type(exact), "with_name") as suffix:
         rejected(exact, True, PermissionError)
         suffix.assert_not_called()
-    print("fixture:selected-clang:physical-admission:passed:10")
+    for name in ("clang.exe", "clang.cmd", "clang.dll", "clang.other", "clang."):
+        invalid = tools / name
+        invalid.with_name(invalid.name + ".exe").write_bytes(b"unsupported suffix neighbor")
+        rejected(invalid, True)
+    exact_suffix = tools / "exact.other"
+    exact_suffix.write_bytes(b"existing exact spelling wins")
+    assert resolve(exact_suffix, True) == exact_suffix.resolve(strict=True)
+    print("fixture:selected-clang:physical-admission:passed:16")
 
 
 def snapshot(root: Path) -> dict[str, bytes]:
