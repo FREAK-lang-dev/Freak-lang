@@ -88,6 +88,20 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_process.inc")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_fs.inc")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_json.inc")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_http.inc")
+        -- Match freak_v35_http.inc's __has_include selection. The same
+        -- amalgamation compiles these headers and C sources into the runtime.
+        pilot http_vendor = runtime_dir + "/../../third_party/llhttp"
+        if fs::exists(runtime_dir + "/third_party/llhttp/freak_amalgamation.inc") {
+            http_vendor = runtime_dir + "/third_party/llhttp"
+        }
+        material = material + "|http-vendor=" + http_vendor
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/freak_amalgamation.inc")
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/include/llhttp.h")
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/src/api.c")
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/src/http.c")
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/src/llhttp.c")
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/src/llhttp.h")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.o")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_llvm_runtime.o")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.obj")
@@ -117,14 +131,58 @@ task cli_run_resolve_program(command: word) -> word {
     } else if cli_is_windows() {
         resolved = cli_first_line(process::exec_capture("where " + cli_quote_cmd_path(command) + " 2>nul"))
     } else {
+        if command.contains("/") { give back "" }
         -- The argv runtime defaults an absent PATH to /bin:/usr/bin. A shell
         -- may invent a different default; preserve an explicitly empty PATH.
-        pilot search_path = "/bin:/usr/bin"
-        check process::env_var("PATH") {
-            got value -> search_path = value
-            nobody -> search_path = "/bin:/usr/bin"
+        pilot search_path = process::env("PATH")
+        if search_path == "" {
+            -- V3's scalar env read cannot distinguish empty from absent.
+            -- Probe presence through native argv; never guess after a failed
+            -- utility launch or a malformed/concurrently changed response.
+            pilot presence = process::command_new("/usr/bin/printenv")
+            process::command_arg(presence, "PATH")
+            pilot state = process::command_run(presence, 10000, 65536, 65536)
+            pilot exit_code = process::command_exit_code(presence)
+            pilot valid = false
+            if state == 2 {
+                pilot output: ByteBuffer = process::command_stdout_bytes(presence)
+                pilot errors: ByteBuffer = process::command_stderr_bytes(presence)
+                pilot text = output.to_word()
+                pilot diagnostic = errors.to_word()
+                if output.status() == 0 and errors.status() == 0 and diagnostic == "" {
+                    if exit_code == 0 and text == "\n" { valid = true }
+                    if exit_code == 1 and text == "" {
+                        search_path = "/bin:/usr/bin"
+                        valid = true
+                    }
+                }
+                output.release()
+                errors.release()
+            }
+            process::command_release(presence)
+            if not valid { give back "" }
         }
-        resolved = cli_first_line(process::exec_capture("PATH=" + cli_quote_cmd_path(search_path) + " command -v " + cli_quote_cmd_path(command) + " 2>/dev/null"))
+        -- Match native execve's PATH order without shell builtin precedence.
+        -- Empty directory entries denote cwd; keep the selected bytes intact.
+        pilot directory = ""
+        pilot pi = 0
+        repeat until pi > search_path.length() {
+            pilot at_end = pi == search_path.length()
+            pilot ch = ":"
+            if not at_end { ch = search_path.char_at(pi) }
+            if ch == ":" {
+                pilot candidate = command
+                if directory != "" { candidate = directory + "/" + command }
+                pilot quoted = cli_quote_cmd_path(candidate)
+                if process::exec("test -f " + quoted + " && test -x " + quoted) == 0 {
+                    give back candidate
+                }
+                directory = ""
+            } else {
+                directory = directory + ch
+            }
+            pi += 1
+        }
     }
     give back resolved
 }

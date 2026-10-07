@@ -73,11 +73,13 @@ int main(int argc, char **argv) {
     bool linker = !strcmp(leaf, linker_name.data);
     freak_word first = freak_process_arg(1);
     bool version = !strcmp(first.data, "--version");
+    bool target = !strcmp(first.data, "-dumpmachine");
     freak_word mode = freak_process_env(freak_word_lit(linker ? "FREAK_TOOL_LINKER_VERSION" : "FREAK_TOOL_CLANG_VERSION"));
-    if (version && !strcmp(mode.data, "empty")) return 91;
-    if (version && !strcmp(mode.data, "invalid")) { fputc(255, stdout); return 0; }
-    if (version && !strcmp(mode.data, "nul")) { fwrite("bad\0version", 1, 11, stdout); return 0; }
-    if (version && !strcmp(mode.data, "signal")) { raise(SIGTERM); return 91; }
+    if (target) mode = freak_process_env(freak_word_lit("FREAK_TOOL_TARGET_MODE"));
+    if ((version || target) && !strcmp(mode.data, "empty")) return 91;
+    if ((version || target) && !strcmp(mode.data, "invalid")) { fputc(255, stdout); return 0; }
+    if ((version || target) && !strcmp(mode.data, "nul")) { fwrite("bad\0version", 1, 11, stdout); return 0; }
+    if ((version || target) && !strcmp(mode.data, "signal")) { raise(SIGTERM); return 91; }
     if (version && !strcmp(mode.data, "stderr")) { fputs("native linker diagnostic\n", stderr); return 64; }
     if (version && !strcmp(mode.data, "both")) {
         fputs("native linker stdout version\n", stdout); fputs("native linker stderr diagnostic\n", stderr); return 64;
@@ -100,7 +102,7 @@ int main(int argc, char **argv) {
     int64_t state = freak_process_command_run_inherit(command, 0);
     int code = state == 2 ? (int)freak_process_command_exit_code(command) : 94;
     freak_process_command_release(command);
-    if (version && !strcmp(mode.data, "nonzero")) return 91;
+    if ((version || target) && !strcmp(mode.data, "nonzero")) return 91;
     return code;
 }
 '''
@@ -297,6 +299,30 @@ def main() -> int:
                 invoke("--c", hit=None, supplied=unset_path)
                 invoke("--c", hit=True, supplied=empty_path)
                 decoy.unlink()
+                # Shell builtin names are ordinary PATH names for native argv.
+                builtin_dir = root / "builtin PATH"
+                builtin_dir.mkdir()
+                private.claim_fresh_directories(builtin_dir)
+                builtin_tool = builtin_dir / "printf"
+                shutil.copy2(recorder, builtin_tool)
+                (source_dir / "printf").write_bytes(b"stable cwd builtin-name decoy\n")
+                builtin_env = env | {"FREAK_CLANG": "printf", "PATH": str(builtin_dir) + os.pathsep + env["PATH"]}
+                invoke("--c", hit=False, supplied=builtin_env)
+                invoke("--c", hit=True, supplied=builtin_env)
+                builtin_tool.write_bytes(builtin_tool.read_bytes() + b"\nbuiltin-name compiler replacement\n")
+                invoke("--c", hit=False, supplied=builtin_env)
+                invoke("--c", hit=True, supplied=builtin_env)
+                denied_dir = root / "nonexecutable PATH entry"
+                denied_dir.mkdir()
+                private.claim_fresh_directories(denied_dir)
+                denied = denied_dir / "printf"
+                denied.write_bytes(b"not executable\n")
+                denied.chmod(0o644)
+                denied_env = builtin_env | {"PATH": str(denied_dir) + os.pathsep + builtin_env["PATH"]}
+                invoke("--c", hit=True, supplied=denied_env)
+                denied.unlink()
+                denied.mkdir()
+                invoke("--c", hit=True, supplied=denied_env)
             env["FREAK_CLANG"] = str(wrappers[-1])
             invoke("--llvm", hit=False)
             invoke("--llvm", hit=True)
@@ -309,10 +335,19 @@ def main() -> int:
                 linker.write_bytes(linker.read_bytes() + b"\nlinker generation 2\n")
                 invoke(backend, hit=False)
                 invoke(backend, hit=True)
+                if backend == "--c":
+                    env["FREAK_TOOL_LINKER_VERSION"] = "both"
+                    invoke(backend, hit=False)
+                    invoke(backend, hit=True)
                 for mode in ("nonzero", "empty", "invalid", "nul", "signal"):
                     bad = env | {"FREAK_TOOL_CLANG_VERSION": mode}
                     invoke(backend, hit=None, supplied=bad)
+                for mode in ("empty", "invalid", "nul", "signal"):
+                    invoke(backend, hit=None, supplied=env | {"FREAK_TOOL_LINKER_VERSION": mode})
+                for mode in ("empty", "nonzero", "invalid", "nul"):
+                    invoke(backend, hit=None, supplied=env | {"FREAK_TOOL_TARGET_MODE": mode})
                 invoke(backend, hit=None, supplied=env | {"FREAK_CLANG": str(root / "missing-clang")})
+                invoke(backend, hit=None, supplied=env | {"FREAK_CLANG": str(linker_dir)})
                 for trace in ('"' + str(linker) + '"suffix\n', '"' + str(linker) + '\\q"\n', '"' + str(linker), ""):
                     invoke(backend, hit=None, supplied=env | {"FREAK_TOOL_TRACE_MODE": "override", "FREAK_TOOL_TRACE": trace})
                 held = linker.read_bytes()
@@ -321,6 +356,66 @@ def main() -> int:
                 linker.write_bytes(held)
                 linker.chmod(0o755)
                 invoke(backend, hit=True)
+            # Each source included by the HTTP amalgamation independently
+            # invalidates a warm proof, even for a program that never uses HTTP.
+            runtime = install / "runtime"
+            vendor = runtime / "third_party" / "llhttp"
+            http_inputs = [runtime / "freak_v35_http.inc", vendor / "freak_amalgamation.inc",
+                           vendor / "include/llhttp.h", vendor / "src/api.c", vendor / "src/http.c",
+                           vendor / "src/llhttp.c", vendor / "src/llhttp.h"]
+            invoke("--c", hit=False)
+            invoke("--c", hit=True)
+            report["http_mutations"] = []
+            for path in http_inputs:
+                before = sha(path)
+                path.write_bytes(path.read_bytes() + b"\n/* run cache source mutation */\n")
+                invoke("--c", hit=False)
+                invoke("--c", hit=True)
+                report["http_mutations"].append({"path": str(path), "before_sha256": before, "after_sha256": sha(path)})
+            invoke("--llvm", hit=False)
+            invoke("--llvm", hit=True)
+            http_inputs[0].write_bytes(http_inputs[0].read_bytes() + b"\n/* LLVM HTTP source mutation */\n")
+            invoke("--llvm", hit=False)
+            invoke("--llvm", hit=True)
+            # Missing mandatory sources must neither launch the old artifact
+            # nor retain a valid freshness proof after the rejected cold build.
+            for path in (http_inputs[0], vendor / "include/llhttp.h"):
+                held = path.read_bytes()
+                path.unlink()
+                code, output = run([str(freak), "run", source.name, "--llvm"], source_dir, env)
+                assert code != 0 and MARKER not in output and "run cache hit" not in output, output
+                assert not cache.exists(), "missing runtime input retained a freshness proof"
+                path.write_bytes(held)
+                invoke("--llvm", hit=False)
+                invoke("--llvm", hit=True)
+            # The development-layout fallback is the actual second include
+            # branch. Changes to an unselected installed vendor remain irrelevant.
+            fallback = root / "third_party" / "llhttp"
+            shutil.copytree(vendor, fallback)
+            fallback_dirs = {root / "third_party", fallback}
+            for relative in report["installed_inputs"]:
+                if relative.startswith("runtime/third_party/llhttp/"):
+                    parent = fallback / Path(relative).relative_to("runtime/third_party/llhttp").parent
+                    while parent != fallback:
+                        fallback_dirs.add(parent)
+                        parent = parent.parent
+            private.claim_fresh_directories(*sorted(fallback_dirs))
+            amalgam = vendor / "freak_amalgamation.inc"
+            held = amalgam.read_bytes()
+            amalgam.unlink()
+            invoke("--llvm", hit=False)
+            invoke("--llvm", hit=True)
+            fallback_api = fallback / "src/api.c"
+            fallback_api.write_bytes(fallback_api.read_bytes() + b"\n/* selected fallback mutation */\n")
+            invoke("--llvm", hit=False)
+            invoke("--llvm", hit=True)
+            unselected = vendor / "src/http.c"
+            unselected.write_bytes(unselected.read_bytes() + b"\n/* unselected source mutation */\n")
+            invoke("--llvm", hit=True)
+            amalgam.write_bytes(held)
+            invoke("--llvm", hit=False)
+            invoke("--llvm", hit=True)
+            report["http_prefix_selection"] = {"installed": str(vendor), "fallback": str(fallback), "unselected_source_cache_hit": True}
             entries = [json.loads(line) for line in Path(env["FREAK_TOOL_LOG"]).read_text(encoding="utf-8").splitlines()]
             for wrapper in wrappers:
                 assert any(Path(entry["image"]).samefile(wrapper) for entry in entries), wrapper
