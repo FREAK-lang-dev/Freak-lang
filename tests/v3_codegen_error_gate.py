@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -106,6 +107,7 @@ class NegativeCase:
     diagnostic: str
     flags: tuple[str, ...]
     direct: bool
+    public_cli: bool
 
 
 def load_negative_corpus(repo: Path) -> list[NegativeCase]:
@@ -138,6 +140,7 @@ def load_negative_corpus(repo: Path) -> list[NegativeCase]:
         diagnostic = entry.get("diagnostic")
         flags = entry.get("flags", [])
         direct = entry.get("direct", False)
+        public_cli = entry.get("public_cli", True)
         assert isinstance(name, str) and name, f"negative case has no name: {entry!r}"
         assert name not in names, f"duplicate negative case name: {name}"
         assert kind in {"lex", "parse", "type", "borrow"}, (
@@ -155,6 +158,7 @@ def load_negative_corpus(repo: Path) -> list[NegativeCase]:
             f"negative case {name} has invalid flags"
         )
         assert isinstance(direct, bool), f"negative case {name} has invalid direct flag"
+        assert isinstance(public_cli, bool), f"negative case {name} has invalid public_cli flag"
         source = corpus / file_name
         assert source.is_file(), f"negative corpus source missing: {source}"
         names.add(name)
@@ -167,6 +171,7 @@ def load_negative_corpus(repo: Path) -> list[NegativeCase]:
                 diagnostic=diagnostic.lower(),
                 flags=tuple(flags),
                 direct=direct,
+                public_cli=public_cli,
             )
         )
 
@@ -174,6 +179,12 @@ def load_negative_corpus(repo: Path) -> list[NegativeCase]:
     assert sources == on_disk, (
         "negative corpus manifest/file mismatch: "
         f"unlisted={sorted(on_disk - sources)}, missing={sorted(sources - on_disk)}"
+    )
+    assert {case.name for case in cases if not case.public_cli} == {"forward_shape_constructor"}, (
+        "only the documented forward-shape direct-stage fixture may differ at the public CLI"
+    )
+    assert all(case.direct for case in cases if not case.public_cli), (
+        "a public CLI exception must retain direct-stage rejection"
     )
     return cases
 
@@ -520,6 +531,376 @@ def assert_case_diagnostics(case: NegativeCase, output: str) -> None:
             )
 
 
+def assert_bound_diagnostic_source_labels(freak: Path, repo: Path, work: Path) -> None:
+    """Preserve source type labels, including names resembling internal symbols."""
+    for name in ('Vector3', 'pkg_' + '0' * 64 + '_Vector3'):
+        source = work / (name + '.fk')
+        source.write_text(
+            f'shape {name} {{ value: int }}\n'
+            f'task main() {{ pilot a: {name} = {name} {{ value: 1 }} '
+            f'pilot b: {name} = {name} {{ value: 2 }} say a + b }}\n',
+            encoding='utf-8',
+        )
+        expected = f"operator '+' does not accept {name} and {name}"
+        for action, flag in (('check', ''), ('transpile', '--c'), ('transpile', '--llvm')):
+            result = run(freak, repo, source, action, *([flag] if flag else []))
+            output = result.stdout + result.stderr
+            if action == 'check':
+                assert_check_rejected(result, f'{name}/{action}')
+            else:
+                assert_rejected(result, f'{name}/{flag}')
+            assert expected in output, (
+                f'{name}/{action}/{flag}: missing exact source-name diagnostic\n{output}'
+            )
+
+
+def assert_bound_declaration_namespaces(freak: Path, repo: Path, work: Path) -> None:
+    """Exercise type/value and impl-member binding through the public CLI."""
+    cases = {
+        'type-and-task': (
+            'shape Shared { value: int }\n'
+            'task Shared() -> int { give back 8 }\n'
+            'task main() { pilot item: Shared = Shared { value: 7 } say item.value say Shared() }\n'),
+        'type-and-fixed': (
+            'shape Shared { value: int }\nfixed pilot Shared: int = 7\n'
+            'task main() { pilot item: Shared = Shared { value: Shared } say item.value say Shared }\n'),
+        'fixed-and-impl-member': (
+            'shape Shared { value: int }\nfixed pilot Shared_read: int = 19\n'
+            'impl Shared { task read(self) -> int { give back self.value } }\n'
+            'task main() { pilot item: Shared = Shared { value: 7 } say item.read() say Shared_read }\n'),
+    }
+    for label, body in cases.items():
+        source = work / (label + '.fk')
+        source.write_text(body, encoding='utf-8')
+        for action, flag in (('check', ''), ('transpile', '--c'), ('transpile', '--llvm')):
+            result = run(freak, repo, source, action, *([flag] if flag else []))
+            assert result.returncode == 0, (
+                f'{label}/{action}/{flag}: rejected disjoint declaration namespaces\n'
+                + result.stdout + result.stderr
+            )
+    project = work / 'import-namespace-project'
+    project.mkdir()
+    (project / 'hangar.toml').write_text(
+        '[project]\nname = "namespace-gate"\nversion = "1.0.0"\nkind = "app"\n'
+        'entry = "main.fk"\n[modules]\ncore = "core.fk"\n', encoding='utf-8')
+    (project / 'core.fk').write_text(
+        'shape Point { value: int }\ntask measure() -> int { give back 8 }\n', encoding='utf-8')
+    source = project / 'main.fk'
+    source.write_text(
+        'use self::core::{Point as Shared, measure as Shared}\n'
+        'task main() { pilot item: Shared = Shared { value: 7 } say item.value say Shared() }\n',
+        encoding='utf-8')
+    for action, flag in (('check', ''), ('transpile', '--c'), ('transpile', '--llvm')):
+        result = run(freak, repo, source, action, *([flag] if flag else []))
+        assert result.returncode == 0, (
+            f'imported type/value aliases/{action}/{flag}: incorrect namespace collision\n'
+            + result.stdout + result.stderr
+        )
+    (project / 'core.fk').write_text('fixed pilot seed: int = 11\n', encoding='utf-8')
+    source.write_text(
+        'use self::core::{seed as std_abs}\ntask main() { say std_abs(-2) }\n', encoding='utf-8')
+    for action, flag in (('check', ''), ('transpile', '--c'), ('transpile', '--llvm')):
+        result = run(freak, repo, source, action, *([flag] if flag else []))
+        output = result.stdout + result.stderr
+        if action == 'check':
+            assert_check_rejected(result, f'imported fixed value ambient fallback/{action}')
+        else:
+            assert_rejected(result, f'imported fixed value ambient fallback/{flag}')
+        assert "unknown callable 'std_abs'" in output, output
+
+
+def assert_generated_package_identity_access(freak: Path, repo: Path, work: Path) -> None:
+    """Generated identities cannot widen the source import/export surface."""
+    project = work / 'generated-identity-project'
+    library = project / 'lib'
+    app = project / 'app'
+    library.mkdir(parents=True)
+    app.mkdir()
+    (library / 'hangar.toml').write_text(
+        '[project]\nname="identity-library"\nversion="1.0.0"\nkind="lib"\n'
+        '[modules]\ncore="core.fk"\n[exports]\napi="core::api"\nother="core::other"\n')
+    (library / 'core.fk').write_text(
+        'fixed pilot secret: int = 4\nshape Hidden { value: int }\n'
+        'impl Hidden { task make() -> Hidden { give back Hidden { value: 6 } } }\n'
+        'task helper() -> int { give back secret }\n'
+        'task api() -> int { pilot item = Hidden::make() give back helper() + item.value }\n'
+        'task other() -> int { give back 9 }\n')
+    (app / 'hangar.toml').write_text(
+        '[project]\nname="identity-app"\nversion="1.0.0"\nkind="app"\nentry="main.fk"\n'
+        '[dependencies]\nlib={path="../lib"}\n')
+    source = app / 'main.fk'
+    source.write_text('use lib::{api}\ntask main() { say api() }\n')
+    admitted = run(freak, repo, source, 'transpile', '--c')
+    assert admitted.returncode == 0, admitted.stdout + admitted.stderr
+    emitted = Path(str(source) + '.c').read_text()
+    matches = re.findall(r'__freak_user_(pkg_[0-9a-f]{64}_)helper\(', emitted)
+    assert len(set(matches)) == 1, 'missing unique emitted private helper identity'
+    prefix = matches[0]
+    cases = {
+        'private-call': f'say {prefix}helper()',
+        'private-value': f'say {prefix}secret',
+        'private-annotation': f'task consume(item: {prefix}Hidden) {{}}\ntask main() {{}}',
+        'private-list-annotation': f'task consume(item: List<{prefix}Hidden>) {{}}\ntask main() {{}}',
+        'private-associated': f'pilot item = {prefix}Hidden::make() say item.value',
+        'unimported-public-call': f'say {prefix}other()',
+    }
+    for label, body in cases.items():
+        declaration = body if 'annotation' in label else f'task main() {{ {body} }}'
+        source.write_text(f'use lib::{{api}}\n{declaration}\n')
+        for action, flag in (('check', ''), ('transpile', '--c'), ('transpile', '--llvm')):
+            artifact = Path(str(source) + ('.c' if flag == '--c' else '.ll'))
+            if flag:
+                seed_stale_outputs(artifact)
+            result = run(freak, repo, source, action, *([flag] if flag else []))
+            output = result.stdout + result.stderr
+            if action == 'check':
+                assert_check_rejected(result, f'{label}/{action}')
+            else:
+                assert_rejected(result, f'{label}/{flag}')
+                assert_outputs_absent((artifact,), f'{label}/{flag}')
+            assert 'missing or unimported' in output and str(source) in output, output
+    controls = {
+        'source-declarations-and-local': (
+            'use lib::{api}\n'
+            f'task {prefix}helper() -> int {{ give back 7 }}\n'
+            f'fixed pilot {prefix}secret: int = 8\n'
+            f'shape {prefix}Hidden {{ value: int }}\n'
+            f'task main() {{ {{ pilot {prefix}helper: int = 1 say {prefix}helper }} '
+            f'say {prefix}helper() say {prefix}secret '
+            f'pilot item: {prefix}Hidden = {prefix}Hidden {{ value: 2 }} say item.value say api() }}\n'),
+        'explicit-alias': (
+            f'use lib::{{api as {prefix}helper}}\n'
+            f'task main() {{ say {prefix}helper() }}\n'),
+    }
+    for label, body in controls.items():
+        source.write_text(body)
+        for action, flag in (('check', ''), ('transpile', '--c'), ('transpile', '--llvm')):
+            result = run(freak, repo, source, action, *([flag] if flag else []))
+            assert result.returncode == 0, f'{label}/{action}/{flag}\n' + result.stdout + result.stderr
+    # Standalone externs are supported; their parameter/return types need the
+    # same source admission and nominal binding as ordinary task signatures.
+    source = work / 'standalone-extern-identity.fk'
+    source.write_text('shape Hidden { value: int }\n'
+                      'task identity_probe() -> int { give back 1 }\n'
+                      'task main() { say identity_probe() }\n')
+    result = run(freak, repo, source, 'transpile', '--c')
+    assert result.returncode == 0, result.stdout + result.stderr
+    emitted = Path(str(source) + '.c').read_text()
+    prefixes = re.findall(r'__freak_user_(pkg_[0-9a-f]{64}_)identity_probe\(', emitted)
+    assert len(set(prefixes)) == 1, 'missing unique standalone emitted identity'
+    own = prefixes[0] + 'Hidden'
+    for label, signature in (
+        ('parameter', f'extern task consume(item: {own}) -> void'),
+        ('list-parameter', f'extern task consume(item: List<{own}>) -> void'),
+        ('return', f'extern task consume() -> {own}'),
+    ):
+        source.write_text(f'shape Hidden {{ value: int }}\n{signature}\ntask main() {{}}\n')
+        for action, flag in (('check', ''), ('transpile', '--c'), ('transpile', '--llvm')):
+            artifact = Path(str(source) + ('.c' if flag == '--c' else '.ll'))
+            if flag:
+                seed_stale_outputs(artifact)
+            result = run(freak, repo, source, action, *([flag] if flag else []))
+            output = result.stdout + result.stderr
+            if action == 'check':
+                assert_check_rejected(result, f'extern own-generated {label}/{action}')
+            else:
+                assert_rejected(result, f'extern own-generated {label}/{flag}')
+                assert_outputs_absent((artifact,), f'extern own-generated {label}/{flag}')
+            assert "missing or unimported type '" + own + "'" in output and str(source) in output, output
+    for label, declarations in (
+        ('source-nominal', 'shape Hidden { value: int }\nextern task consume(item: Hidden) -> Hidden\n'),
+        ('scalar', 'extern task consume(item: int) -> int\n'),
+        ('source-exact-lookalike', f'shape {own} {{ value: int }}\nextern task consume(item: {own}) -> {own}\n'),
+    ):
+        source.write_text(declarations + 'task main() {}\n')
+        for action, flag in (('check', ''), ('transpile', '--c'), ('transpile', '--llvm')):
+            result = run(freak, repo, source, action, *([flag] if flag else []))
+            assert result.returncode == 0, f'extern {label}/{action}/{flag}\n' + result.stdout + result.stderr
+
+
+def assert_local_value_call_shadowing(
+    freak: Path, direct_compiler: Path | None, repo: Path, work: Path
+) -> None:
+    """Local values and parameters shadow callable VALUE names until scope exit."""
+    for label, body in (
+        ('ordinary', 'task main() { pilot measure: int = 7 say measure() }\n'),
+        ('fixed', 'task main() { fixed pilot measure: int = 7 say measure() }\n'),
+        ('parameter', 'task consume(measure: int) { say measure() }\ntask main() {}\n'),
+        ('outer-scope', 'task main() { pilot measure: int = 7 { say measure() } }\n'),
+        ('range-binder', 'task main() { for each measure in 0..1 { say measure() } }\n'),
+        ('repeat-binder', 'task main() { repeat 1 times with measure { say measure() } }\n'),
+    ):
+        source = work / ('local-call-' + label + '.fk')
+        source.write_text('task measure() -> int { give back 8 }\n' + body, encoding='utf-8')
+        for flag in ('--c', '--llvm'):
+            artifact = Path(str(source) + ('.c' if flag == '--c' else '.ll'))
+            seed_stale_outputs(artifact)
+            result = run(freak, repo, source, 'transpile', flag)
+            output = result.stdout + result.stderr
+            assert_rejected(result, f'local {label} shadow/{flag}/public')
+            assert "unknown callable 'measure': local value shadows this name" in output, output
+            assert_outputs_absent((artifact,), f'local {label} shadow/{flag}/public')
+            if direct_compiler is not None:
+                seed_stale_outputs(artifact)
+                result = run_direct_compiler(direct_compiler, repo, str(source), flag)
+                output = result.stdout + result.stderr
+                assert result.returncode != 0, f'local {label} shadow/{flag}/direct accepted\n{output}'
+                assert "unknown callable 'measure': local value shadows this name" in output, output
+                assert 'emitting' not in output.lower(), output
+                assert_outputs_absent((artifact,), f'local {label} shadow/{flag}/direct')
+    source = work / 'local-call-scope-exit.fk'
+    source.write_text(
+        'shape measure { value: int }\ntask measure() -> int { give back 8 }\n'
+        'task main() { { pilot measure: int = 7 '
+        'pilot item: measure = measure { value: measure } say item.value } say measure() }\n',
+        encoding='utf-8')
+    for flag in ('--c', '--llvm'):
+        result = run(freak, repo, source, 'transpile', flag)
+        assert result.returncode == 0, result.stdout + result.stderr
+        if direct_compiler is not None:
+            result = run_direct_compiler(direct_compiler, repo, str(source), flag)
+            assert result.returncode == 0, result.stdout + result.stderr
+
+
+def assert_bound_lexical_error_counts(
+    freak: Path, direct_compiler: Path | None, repo: Path, work: Path
+) -> None:
+    """Early source admission preserves the lexer count in both scan phases."""
+    for count in (1, 2):
+        invalid = 'task lexical_probe() { say "' + 'before\\x00after' * count + '" }\n'
+        loaded = work / f'lexical-count-{count}.fk'
+        loaded.write_text(invalid + 'task main() {}\n', encoding='utf-8')
+        project = work / f'lexical-export-count-{count}'
+        library, app = project / 'lib', project / 'app'
+        library.mkdir(parents=True)
+        app.mkdir()
+        (library / 'hangar.toml').write_text(
+            '[project]\nname="lexical-count-library"\nversion="1.0.0"\nkind="lib"\n'
+            '[modules]\ncore="core.fk"\nother="other.fk"\n'
+            '[exports]\napi="core::api"\nexposed="other::exposed"\n', encoding='utf-8')
+        (library / 'core.fk').write_text('task api() -> int { give back 8 }\n', encoding='utf-8')
+        unloaded = library / 'other.fk'
+        unloaded.write_text('task exposed() -> int { give back 4 }\n' + invalid, encoding='utf-8')
+        (app / 'hangar.toml').write_text(
+            '[project]\nname="lexical-count-app"\nversion="1.0.0"\nkind="app"\nentry="main.fk"\n'
+            '[dependencies]\nlib={path="../lib"}\n', encoding='utf-8')
+        entry = app / 'main.fk'
+        entry.write_text('use lib::{api}\ntask main() { say api() }\n', encoding='utf-8')
+        for phase, source, lexical_source in (
+            ('loaded', loaded, loaded), ('unloaded-export', entry, unloaded)
+        ):
+            for action, flag in (('check', ''), ('transpile', '--c'), ('transpile', '--llvm')):
+                artifact = Path(str(source) + ('.c' if flag == '--c' else '.ll'))
+                if flag:
+                    seed_stale_outputs(artifact)
+                result = run(freak, repo, source, action, *([flag] if flag else []))
+                output = result.stdout + result.stderr
+                if action == 'check':
+                    assert_check_rejected(result, f'{phase} lexical count {count}/{action}')
+                else:
+                    assert_rejected(result, f'{phase} lexical count {count}/{flag}')
+                    assert_outputs_absent((artifact,), f'{phase} lexical count {count}/{flag}')
+                assert f'{count} syntax error(s)' in output, output
+                assert output.count('embedded NUL escape is not supported') == count, output
+                assert str(lexical_source) in output, output
+            if direct_compiler is not None:
+                for flag in ('--c', '--llvm'):
+                    artifact = Path(str(lexical_source) + ('.c' if flag == '--c' else '.ll'))
+                    seed_stale_outputs(artifact)
+                    result = run_direct_compiler(direct_compiler, repo, str(lexical_source), flag)
+                    output = result.stdout + result.stderr
+                    assert result.returncode != 0, output
+                    assert f'aborting: {count} error(s) found' in output, output
+                    assert output.count('embedded NUL escape is not supported') == count, output
+                    assert 'emitting' not in output.lower(), output
+                    assert_outputs_absent((artifact,), f'direct {phase} lexical count {count}/{flag}')
+
+
+def assert_public_forward_shape_constructor(freak: Path, repo: Path, work: Path) -> None:
+    """The package binder discovers headers before parsing constructor bodies."""
+    original = (repo / 'tests/v3_legacy/negative/forward_shape_constructor.fk').read_text()
+    assert 'say "unreachable"' in original
+    source = work / 'public-forward-shape-constructor.fk'
+    source.write_text(original.replace('say "unreachable"', 'say make().value'))
+    checked = run(freak, repo, source, 'check')
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    for flag in ('--c', '--llvm'):
+        emitted = run(freak, repo, source, 'transpile', flag)
+        assert emitted.returncode == 0, emitted.stdout + emitted.stderr
+        built = run(freak, repo, source, 'build', flag)
+        assert built.returncode == 0, built.stdout + built.stderr
+        executed = subprocess.run([str(derived_binary(source))], cwd=work, capture_output=True,
+                                  text=True, encoding='utf-8', timeout=10, check=False)
+        assert executed.returncode == 0 and executed.stdout == '1\n' and not executed.stderr, (
+            executed.stdout + executed.stderr
+        )
+
+
+def assert_bound_source_reservations(
+    freak: Path, direct_compiler: Path | None, repo: Path, work: Path
+) -> None:
+    """Compiler name reservations apply to authored names before flattening."""
+    cases = {
+        'reserved-shape-owner': ('shape math { value: num }\n', "shape name 'math' conflicts with a compiler builtin namespace"),
+        'reserved-shape-type': ('shape CheckedReadResult { value: int }\n', "shape name 'CheckedReadResult' conflicts with a built-in type"),
+        'reserved-task': ('task word_to_int(value: word) -> int { give back 99 }\n', "callable 'word_to_int' conflicts with a compiler builtin"),
+        'reserved-runtime-task': ('task llvm_fs_read(value: word) -> int { give back 99 }\n', "callable 'llvm_fs_read' conflicts with a compiler builtin"),
+    }
+    for label, (declarations, expected) in cases.items():
+        source = work / (label + '.fk')
+        source.write_text(declarations + 'task main() {}\n')
+        for action, flag in (('check', ''), ('transpile', '--c'), ('transpile', '--llvm')):
+            artifact = Path(str(source) + ('.c' if flag == '--c' else '.ll'))
+            if flag:
+                seed_stale_outputs(artifact)
+            result = run(freak, repo, source, action, *([flag] if flag else []))
+            output = result.stdout + result.stderr
+            if action == 'check':
+                assert_check_rejected(result, f'{label}/{action}')
+            else:
+                assert_rejected(result, f'{label}/{flag}')
+                assert_outputs_absent((artifact,), f'{label}/{flag}')
+            assert expected in output, output
+            if flag and direct_compiler is not None:
+                result = run_direct_compiler(direct_compiler, repo, str(source), flag)
+                assert result.returncode != 0 and expected in result.stdout + result.stderr, result.stdout + result.stderr
+    source = work / 'source-reservation-lookalikes.fk'
+    source.write_text('shape pkg_' + '0' * 64 + '_math { value: int }\n'
+                      'task chr(value: int) -> int { give back value }\n'
+                      'task main() { say chr(7) }\n')
+    for flag in ('--c', '--llvm'):
+        result = run(freak, repo, source, 'transpile', flag)
+        assert result.returncode == 0, result.stdout + result.stderr
+        if direct_compiler is not None:
+            for profile in ((), ('--bootstrap-compat=v4-host-bootstrap-v1',)):
+                result = run_direct_compiler(direct_compiler, repo, str(source), flag, *profile)
+                assert result.returncode == 0, result.stdout + result.stderr
+
+
+def assert_fixed_value_namespace_collisions(
+    freak: Path, direct_compiler: Path | None, repo: Path, work: Path
+) -> None:
+    """Fixed root bindings share the callable value namespace in both front doors."""
+    for label, declarations in (
+        ('fixed-before-task', 'fixed pilot overlap: int = 7\ntask overlap() -> int { give back 8 }\n'),
+        ('task-before-fixed', 'task overlap() -> int { give back 8 }\nfixed pilot overlap: int = 7\n'),
+        ('fixed-before-extern', 'fixed pilot overlap: int = 7\nextern task overlap() -> int\n'),
+        ('extern-before-fixed', 'extern task overlap() -> int\nfixed pilot overlap: int = 7\n'),
+    ):
+        source = work / (label + '.fk')
+        source.write_text(declarations + 'task main() {}\n', encoding='utf-8')
+        for flag in ('--c', '--llvm'):
+            result = run(freak, repo, source, 'transpile', flag)
+            assert_rejected(result, f'{label}/{flag}/public')
+            assert 'duplicate module declaration' in result.stdout + result.stderr
+            if direct_compiler is not None:
+                direct = run_direct_compiler(direct_compiler, repo, str(source), flag)
+                output = direct.stdout + direct.stderr
+                assert direct.returncode != 0, f'{label}/{flag}/direct accepted fixed collision\n{output}'
+                assert 'conflicts with a callable in the value namespace' in output
+                assert 'emitting' not in output.lower(), f'{label}/{flag}/direct entered emission\n{output}'
+
+
 def run_direct_compiler(
     compiler: Path,
     repo: Path,
@@ -682,6 +1063,8 @@ def main() -> int:
             malformed = tmp_path / case.source.name
             shutil.copy2(case.source, malformed)
             staged_cases[case.name] = malformed
+            if not case.public_cli:
+                continue
 
             binary = derived_binary(malformed)
             cache = run_cache(binary)
@@ -1129,6 +1512,15 @@ def main() -> int:
         assert dependency_scale_check.returncode == 0, (
             dependency_scale_check.stdout + dependency_scale_check.stderr
         )
+
+        assert_bound_diagnostic_source_labels(freak, repo, tmp_path)
+        assert_bound_declaration_namespaces(freak, repo, tmp_path)
+        assert_generated_package_identity_access(freak, repo, tmp_path)
+        assert_fixed_value_namespace_collisions(freak, direct_compiler, repo, tmp_path)
+        assert_local_value_call_shadowing(freak, direct_compiler, repo, tmp_path)
+        assert_bound_source_reservations(freak, direct_compiler, repo, tmp_path)
+        assert_bound_lexical_error_counts(freak, direct_compiler, repo, tmp_path)
+        assert_public_forward_shape_constructor(freak, repo, tmp_path)
 
         # This matrix proves checker acceptance only. Some of these contracts
         # (mixed numeric lowering, num/word when equality, and int-returning
@@ -1687,8 +2079,8 @@ def main() -> int:
         primitive_ok.write_text(
             "pilot inferred_global = 1.5 + 2.25\n"
             "pilot __freak_param_0: int = 42\n"
-            "task truth() -> bool { give back true }\n"
-            "task decimal() -> num { give back 6.75 }\n"
+            "task truth_result() -> bool { give back true }\n"
+            "task decimal_result() -> num { give back 6.75 }\n"
             "task read_collision(other: int) -> int { give back __freak_param_0 }\n"
             "task main() {\n"
             "    pilot integer: int = 7\n"
@@ -1710,8 +2102,8 @@ def main() -> int:
             "    say (inferred_checksum > 0).to_word()\n"
             "    say (1 < 2).to_word()\n"
             "    say \"x\".contains(\"x\").to_word()\n"
-            "    say truth().to_word()\n"
-            "    say decimal().to_int().to_word()\n"
+            "    say truth_result().to_word()\n"
+            "    say decimal_result().to_int().to_word()\n"
             "    say fs::exists(\"definitely-missing-v3-type-probe\").to_word()\n"
             "    say math::sqrt(9.0).to_int().to_word()\n"
             "    say inferred_global.to_word()\n"
@@ -1885,8 +2277,15 @@ def main() -> int:
         nominal_c = run(freak, repo, nominal_methods, "build", "--c")
         assert nominal_c.returncode == 0, nominal_c.stdout + nominal_c.stderr
         nominal_c_text = nominal_methods.with_suffix(".fk.c").read_text(encoding="utf-8")
-        assert "__freak_user_PrimitiveNamed_to_word(" in nominal_c_text
-        assert "__freak_user_consume_number(__freak_call_arg_0)" in nominal_c_text
+        standalone_prefix = "pkg_" + hashlib.sha256(b"standalone\n@entry").hexdigest() + "_"
+        method_symbol = "__freak_user_" + standalone_prefix + "PrimitiveNamed_to_word"
+        number_symbol = "__freak_user_" + standalone_prefix + "consume_number"
+        assert f"freak_word {method_symbol}(int64_t __freak_param_0)" in nominal_c_text
+        assert f"freak_word __freak_result = {method_symbol}(__freak_call_arg_0);" in nominal_c_text
+        assert f"int64_t __freak_result = {number_symbol}(__freak_call_arg_0);" in nominal_c_text
+        assert "__freak_user_PrimitiveNamed_to_word(" not in nominal_c_text
+        assert "__freak_user_consume_number(__freak_call_arg_0)" not in nominal_c_text
+        assert "__freak_user_pkg_" + "0" * 64 + "_PrimitiveNamed_to_word(" not in nominal_c_text
         assert "int64_t __freak_index = 1;" in nominal_c_text
         assert "int64_t __freak_value = freak_v3_shape_get(__freak_recv, __freak_index)" in nominal_c_text
         assert "freak_word_clone(freak_v3_shape_get(" not in nominal_c_text

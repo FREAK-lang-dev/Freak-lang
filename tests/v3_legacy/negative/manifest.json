@@ -541,7 +541,8 @@
       "kind": "parse",
       "file": "forward_shape_constructor.fk",
       "diagnostic": "unexpected ':'",
-      "direct": true
+      "direct": true,
+      "public_cli": false
     },
     {
       "name": "unreachable_shape_intrinsic",

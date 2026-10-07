@@ -283,7 +283,7 @@ task cli_prepare_source(src_file: word, target: word) -> word {
     if not fs::result_ok(read) {
         cli_project_source_error = fs::result_error(read)
         fs::result_release(read)
-        say "Cannot read source: " + cli_project_source_error
+        say "Could not read source file: " + cli_project_source_error
         give back ""
     }
     pilot source = fs::result_word(read)

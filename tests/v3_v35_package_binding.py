@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
@@ -115,6 +116,7 @@ task cli_load_std(source: word, target: word) -> word {
 }
 task main() -> void {
     init_arrays()
+    if process::arg(5) != "" and not v35_set_bootstrap_compat(process::arg(5)) { process::exit(80) }
     pilot root = process::arg(1)
     if root != "standalone" { probe_prepare(root) } else { hangar_graph_clear() }
     input_file = process::arg(2)
@@ -137,7 +139,6 @@ task main() -> void {
     say "BINDING_SOURCE_SHA=" + PROBE_BINDING_SHA
     cli_project_binding_release()
 }
-main()
 '''
 
 
@@ -216,7 +217,7 @@ task main() {
     pilot left: LeftPoint = LeftPoint { value: left_seed }
     pilot right = rhs::make()
     say left_api() + rhs::api() + extra()
-    say "literal helper seed Point use ghost::{x, y}"
+    say "literal helper seed Point use ghost::\\{x, y\\}"
     say "bound={helper}, left={left.value}, right={right.title}"
     say local(5)
     pilot mut value = 0
@@ -294,6 +295,89 @@ def main() -> None:
                 raise RuntimeError(f'{backend} O{opt} unexpected output {executed.stdout!r}, expected {expected!r}')
             records.append({'case': 'external-diamond-private-shapes-scope-interpolation', 'backend': backend,
                             'opt': opt, 'output': executed.stdout.decode(), 'generated_sha256': hashlib.sha256(generated.read_bytes()).hexdigest()})
+    # Declaration kinds must drive value, call, type and impl-owner binding.
+    # Type/value aliases may share spelling without weakening value collisions.
+    namespace_cases = {
+        'forward-shape-constructor': (
+            'task make() -> Later { give back Later { value: 1 } }\n'
+            'shape Later { value: int }\ntask main() { say make().value }\n', '1\n'),
+        'ordinary-source-helper': (
+            'shape pkg_' + '0' * 64 + '_math { value: int }\n'
+            'task chr(value: int) -> int { give back value }\ntask main() { say chr(7) }\n', '7\n'),
+        'bootstrap-source-helper': (
+            'shape pkg_' + '0' * 64 + '_math { value: int }\n'
+            'task chr(value: int) -> int { give back value }\ntask main() { say chr(7) }\n', '7\n'),
+        'legacy-ordinary-global-and-call': (
+            'pilot Shared: int = 7\ntask Shared() -> int { give back 8 }\n'
+            'task main() { say Shared say Shared() }\n', '7\n8\n'),
+        'fixed-global-and-impl-member': (
+            'shape Shared { value: int }\n'
+            'fixed pilot Shared_read: int = 19\n'
+            'impl Shared { task read(self) -> int { give back self.value } }\n'
+            'task main() { pilot item = Shared { value: 7 } say item.read() say Shared_read }\n', '7\n19\n'),
+        'shape-and-task': (
+            'shape Shared { value: int }\n'
+            'impl Shared { task read(self) -> int { give back self.value } '
+            'task make(value: int) -> Shared { give back Shared { value: value } } }\n'
+            'task Shared() -> int { give back 8 }\n'
+            'task main() { pilot item: Shared = Shared { value: 7 } '
+            'say item.read() say Shared() say Shared::make(9).read() }\n', '7\n8\n9\n'),
+        'shape-and-global': (
+            'shape Shared { value: int }\nfixed pilot Shared: int = 11\n'
+            'task main() { pilot item: Shared = Shared { value: Shared } say item.value say Shared }\n', '11\n11\n'),
+        'import-type-and-call': (
+            'use left::{Point as Shared, api as Shared}\n'
+            'task main() { pilot item: Shared = Shared { value: 7 } say item.read() say Shared() }\n', '7\n14\n'),
+        'import-type-and-local-call': (
+            'use left::{Point as Shared}\ntask Shared() -> int { give back 8 }\n'
+            'task main() { pilot item: Shared = Shared { value: 7 } say item.read() say Shared() }\n', '7\n8\n'),
+        'import-call-and-local-type': (
+            'use left::{api as Shared}\nshape Shared { value: int }\n'
+            'task main() { pilot item: Shared = Shared { value: 7 } say item.value say Shared() }\n', '7\n14\n'),
+        'import-type-with-ambient-value': (
+            'use left::{Point as std_abs}\n'
+            'task main() { pilot item: std_abs = std_abs { value: 7 } say item.read() say std_abs(-2) }\n', '7\n2\n'),
+        'import-call-after-scope-exit': (
+            'use left::{api as measure}\n'
+            'task main() { { pilot measure: int = 7 say measure } say measure() }\n', '7\n14\n'),
+        'type-constructor-with-local-value': (
+            'shape Shared { value: int }\n'
+            'task main() { pilot Shared: int = 7 pilot item: Shared = Shared { value: Shared } say item.value }\n', '7\n'),
+        'module-call-with-local-value': (
+            'use left as measure\n'
+            'task main() { pilot measure: int = 7 say measure::api() }\n', '14\n'),
+        'associated-type-call-with-local-value': (
+            'shape Shared { value: int }\n'
+            'impl Shared { task make() -> Shared { give back Shared { value: 9 } } }\n'
+            'task main() { pilot Shared: int = 7 pilot item = Shared::make() say item.value }\n', '9\n'),
+        'module-and-value-alias': (
+            'use left as Shared\nuse right::{api as Shared}\n'
+            'task main() { say Shared::api() say Shared() }\n', '14\n24\n'),
+    }
+    for case, (source, expected) in namespace_cases.items():
+        root = work / f'namespace-{case}'
+        source_app, _ = fixture(root)
+        file = source_app / 'src/main.fk'
+        file.write_text(source)
+        for backend in ('c', 'llvm'):
+            generated = work / f'namespace-{case}.{backend if backend == "c" else "ll"}'
+            profile = ['v4-host-bootstrap-v1'] if case == 'bootstrap-source-helper' else []
+            result = run([str(probe), str(source_app), str(file), backend, str(generated), *profile], cwd=unrelated, env=env)
+            (work / f'namespace-{case}-{backend}.log').write_bytes(result.stdout + result.stderr)
+            if result.returncode:
+                raise RuntimeError(f'{case}/{backend} binding failed: {result.stdout + result.stderr!r}')
+            binary = work / f'namespace-{case}-{backend}'
+            command = [args.clang, '-O2', '-I', str(runtime), str(generated),
+                       str(runtime / 'freak_runtime.c'), str(runtime / 'freak_llvm_runtime.c'), '-lm', '-o', str(binary)]
+            linked = run(command, cwd=unrelated, env=env)
+            (work / f'namespace-link-{case}-{backend}.log').write_bytes(linked.stdout + linked.stderr)
+            if linked.returncode:
+                raise RuntimeError(f'{case}/{backend} link failed')
+            executed = run([str(binary)], cwd=unrelated, env=env)
+            if executed.returncode or executed.stdout.decode() != expected or executed.stderr:
+                raise RuntimeError(f'{case}/{backend} output {executed.stdout!r}/{executed.stderr!r}, expected {expected!r}')
+            records.append({'case': case, 'backend': backend, 'status': 'executed', 'output': expected,
+                            'generated_sha256': hashlib.sha256(generated.read_bytes()).hexdigest()})
     negatives = {
         'transitive': ('use base::{api}\ntask main() {}\n', 'undeclared direct dependency', 1, 5),
         'missing-public': ('use left::{missing}\ntask main() {}\n', 'missing public export', 1, 12),
@@ -303,9 +387,25 @@ def main() -> None:
         'unimported-namespace': ('task main() { say left::api() }\n', 'missing or unimported public export', 1, 19),
         'unknown-standard': ('use std::madeup::{thing}\ntask main() {}\n', 'unsupported standard module', 1, 1),
         'wrong-standard-owner': ('use std::math::{ver_parse}\ntask main() {}\n', 'selected standard module', 1, 17),
+        'nominal-type-isolation': ('use left::{Point as Left}\nuse right::{Point as Right}\ntask main() { pilot bad: Left = Right { title: "other", value: 1 } }\n', 'cannot initialize Point binding', 3, 1),
+        'call-only-is-not-value': ('use left::{api as Only}\ntask main() { say Only }\n', "unknown binding 'Only'", 2, 19),
+        'fixed-import-cannot-use-ambient-call': ('use left::{seed as std_abs}\ntask main() { say std_abs(-2) }\n', "unknown callable 'std_abs'", 2, 19),
+        'fixed-local-cannot-use-ambient-call': ('fixed pilot std_abs: int = 7\ntask main() { say std_abs(-2) }\n', "unknown callable 'std_abs'", 2, 19),
+        'local-shadows-selected-call': ('use left::{api as measure}\ntask main() { pilot measure: int = 7 say measure() }\n', "unknown callable 'measure': local value shadows this name", 2, 42),
+        'fixed-local-shadows-selected-call': ('use left::{api as measure}\ntask main() { fixed pilot measure: int = 7 say measure() }\n', "unknown callable 'measure': local value shadows this name", 2, 48),
+        'parameter-shadows-selected-call': ('use left::{api as measure}\ntask consume(measure: int) { say measure() }\ntask main() {}\n', "unknown callable 'measure': local value shadows this name", 2, 34),
+        'outer-local-shadows-selected-call': ('use left::{api as measure}\ntask main() { pilot measure: int = 7 { say measure() } }\n', "unknown callable 'measure': local value shadows this name", 2, 44),
+        'multiple-shadowed-calls': ('use left::{api as measure}\ntask main() { pilot measure: int = 7 say measure() say measure() }\n', "unknown callable 'measure': local value shadows this name", 2, 1),
+        'range-binder-shadows-call': ('use left::{api as measure}\ntask main() { for each measure in 0..1 { say measure() } }\n', "unknown callable 'measure': local value shadows this name", 2, 46),
+        'repeat-binder-shadows-call': ('use left::{api as measure}\ntask main() { repeat 1 times with measure { say measure() } }\n', "unknown callable 'measure': local value shadows this name", 2, 49),
+        'type-only-is-not-call': ('use left::{Point as Only}\ntask main() { say Only() }\n', "unknown callable 'Only'", 2, 1),
         'alias-declaration-conflict': ('use left::{api as helper}\nfixed pilot helper: int = 1\ntask main() {}\n', 'import alias conflicts', 1, 12),
         'nested-import': ('task main() {\n    use left::{api}\n}\n', 'valid only at module scope', 2, 5),
         'builtin-namespace-shadow': ('use left as process\ntask main() { say process::args_count() }\n', 'missing or unimported public export', 2, 19),
+        'reserved-shape-owner': ('shape math { value: num }\ntask main() {}\n', "shape name 'math' conflicts with a compiler builtin namespace", 1, 7),
+        'reserved-shape-type': ('shape CheckedReadResult { value: int }\ntask main() {}\n', "shape name 'CheckedReadResult' conflicts with a built-in type", 1, 7),
+        'reserved-task': ('task word_to_int(value: word) -> int { give back 99 }\ntask main() {}\n', "callable 'word_to_int' conflicts with a compiler builtin", 1, 6),
+        'reserved-runtime-task': ('task llvm_fs_read(value: word) -> int { give back 99 }\ntask main() {}\n', "callable 'llvm_fs_read' conflicts with a compiler builtin", 1, 6),
     }
     for case, (source, message, line, column) in negatives.items():
         root = work / f'negative-{case}'
@@ -323,6 +423,10 @@ def main() -> None:
     mutations = {
         'missing-export-declaration': ('task wrong() -> int { give back 4 }\n', 'use left::{api}\ntask main() {}\n', 'unsupported exported declaration', 'app/src/main.fk', 1, 12),
         'mutable-export': ('pilot seed: int = 4\ntask api() -> int { give back seed }\n', 'use left::{seed}\ntask main() {}\n', 'unsupported exported declaration', 'app/src/main.fk', 1, 12),
+        'duplicate-private-shape': ('shape Point { value: int }\nshape Point { value: int }\ntask api() -> int { give back 4 }\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 7),
+        'duplicate-private-global': ('fixed pilot seed: int = 4\nfixed pilot seed: int = 5\nshape Point { value: int }\ntask api() -> int { give back 4 }\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 13),
+        'fixed-before-call': ('fixed pilot api: int = 4\ntask api() -> int { give back 5 }\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 6),
+        'call-before-fixed': ('task api() -> int { give back 5 }\nfixed pilot api: int = 4\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 13),
         'duplicate-private-task': ('task api() -> int { give back 4 }\ntask api() -> int { give back 5 }\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 6),
         'dependency-source-import': ('\n\nuse rogue::{helper}\ntask api() -> int { give back 4 }\n', 'use left::{api}\ntask main() {}\n', 'undeclared direct dependency', 'left/src/core.fk', 3, 5),
         'extern-export': ('extern task api() -> int\n', 'use left::{api}\ntask main() {}\n', 'extern declarations are unsupported', 'left/src/core.fk', 1, 13),
@@ -341,6 +445,181 @@ def main() -> None:
             if result.returncode == 0 or message.encode() not in log or location not in log:
                 raise RuntimeError(f'{case}/{backend} missing original source rejection {location!r}: {log!r}')
             records.append({'case': case, 'backend': backend, 'status': 'rejected', 'file': str(root / relative), 'line': line, 'column': column})
+    # A dependency export can admit a callable without accidentally exposing
+    # its same-spelled legacy ordinary global as an imported value.
+    legacy_root = work / 'legacy-export-surface'
+    legacy_app, _ = fixture(legacy_root)
+    (legacy_root / 'left/src/core.fk').write_text(
+        'pilot api: int = 4\nshape Point { value: int }\n'
+        'fixed pilot seed: int = 1\ntask api() -> int { give back 5 }\n'
+        'task make() -> Point { give back Point { value: 1 } }\n')
+    legacy_file = legacy_app / 'src/main.fk'
+    for source, accepted in (('use left::{api}\ntask main() { say api() }\n', True),
+                             ('use left::{api}\ntask main() { say api }\n', False)):
+        legacy_file.write_text(source)
+        for backend in ('c', 'llvm'):
+            result = run([str(probe), str(legacy_app), str(legacy_file), backend, str(work / f'legacy-export-{accepted}-{backend}')], cwd=unrelated, env=env)
+            log = result.stdout + result.stderr
+            (work / f'legacy-export-{accepted}-{backend}.log').write_bytes(log)
+            if accepted:
+                if result.returncode or b'BINDING_OK' not in result.stdout:
+                    raise RuntimeError(f'{backend} admitted callable sibling failed: {log!r}')
+            elif result.returncode == 0 or b"unknown binding 'api'" not in log:
+                raise RuntimeError(f'{backend} ordinary sibling leaked through public export: {log!r}')
+            records.append({'case': 'legacy-export-call' if accepted else 'legacy-export-value-rejected', 'backend': backend, 'status': 'accepted' if accepted else 'rejected'})
+    # Source references cannot admit declarations through their flattened
+    # identities. Exact source-authored lookalikes remain legal bindings.
+    identity_root = work / 'generated-identity-access'
+    identity_lib = identity_root / 'lib'
+    identity_app = identity_root / 'app'
+    write_project(identity_lib, 'identity-library', {'core.fk':
+        'fixed pilot secret: int = 4\nshape Hidden { value: int }\n'
+        'impl Hidden { task make() -> Hidden { give back Hidden { value: 6 } } }\n'
+        'task helper() -> int { give back secret }\n'
+        'task api() -> int { pilot item = Hidden::make() give back helper() + item.value }\n'
+        'task other() -> int { give back 9 }\n'}, modules={'core': 'core.fk'},
+        exports={'api': 'core::api', 'other': 'core::other'})
+    write_project(identity_app, 'identity-app', {'main.fk':
+        'use lib::{api}\ntask main() { say api() }\n'}, entry='main.fk', dependencies={'lib': '../lib'})
+    identity_file = identity_app / 'main.fk'
+    identity_c = work / 'identity-admitted.c'
+    admitted = run([str(probe), str(identity_app), str(identity_file), 'c', str(identity_c)], cwd=unrelated, env=env)
+    if admitted.returncode:
+        raise RuntimeError(f'identity admission failed: {admitted.stdout + admitted.stderr!r}')
+    prefixes = re.findall(r'__freak_user_(pkg_[0-9a-f]{64}_)helper\(', identity_c.read_text())
+    if len(set(prefixes)) != 1:
+        raise RuntimeError('missing unique emitted private helper identity')
+    prefix = prefixes[0]
+    for case, body in {
+        'private-call': f'say {prefix}helper()',
+        'private-value': f'say {prefix}secret',
+        'private-annotation': f'task consume(item: {prefix}Hidden) {{}}\ntask main() {{}}',
+        'private-list-annotation': f'task consume(item: List<{prefix}Hidden>) {{}}\ntask main() {{}}',
+        'private-associated': f'pilot item = {prefix}Hidden::make() say item.value',
+        'unimported-public-call': f'say {prefix}other()',
+    }.items():
+        declaration = body if 'annotation' in case else f'task main() {{ {body} }}'
+        identity_file.write_text(f'use lib::{{api}}\n{declaration}\n')
+        for backend in ('c', 'llvm'):
+            generated = work / f'identity-{case}-{backend}'
+            result = run([str(probe), str(identity_app), str(identity_file), backend, str(generated)], cwd=unrelated, env=env)
+            log = result.stdout + result.stderr
+            (work / f'identity-{case}-{backend}.log').write_bytes(log)
+            if result.returncode == 0 or b'missing or unimported' not in log or str(identity_file).encode() not in log or generated.exists():
+                raise RuntimeError(f'{case}/{backend} generated identity admitted: {log!r}')
+            records.append({'case': case, 'backend': backend, 'status': 'rejected'})
+    identity_controls = {
+        'source-exact-lookalikes': (
+            'use lib::{api}\n'
+            f'task {prefix}helper() -> int {{ give back 7 }}\n'
+            f'fixed pilot {prefix}secret: int = 8\n'
+            f'shape {prefix}Hidden {{ value: int }}\n'
+            f'task main() {{ {{ pilot {prefix}helper: int = 1 say {prefix}helper }} '
+            f'say {prefix}helper() say {prefix}secret '
+            f'pilot item: {prefix}Hidden = {prefix}Hidden {{ value: 2 }} say item.value say api() }}\n',
+            '1\n7\n8\n2\n10\n'),
+        'explicit-exact-alias': (
+            f'use lib::{{api as {prefix}helper}}\n'
+            f'task main() {{ say {prefix}helper() }}\n', '10\n'),
+    }
+    for case, (source, expected) in identity_controls.items():
+        identity_file.write_text(source)
+        for backend in ('c', 'llvm'):
+            generated = work / f'identity-{case}.{"c" if backend == "c" else "ll"}'
+            result = run([str(probe), str(identity_app), str(identity_file), backend, str(generated)], cwd=unrelated, env=env)
+            if result.returncode:
+                raise RuntimeError(f'{case}/{backend} legal lookalike rejected: {result.stdout + result.stderr!r}')
+            binary = work / f'identity-{case}-{backend}'
+            linked = run([args.clang, '-O2', '-I', str(runtime), str(generated), str(runtime / 'freak_runtime.c'),
+                          str(runtime / 'freak_llvm_runtime.c'), '-lm', '-o', str(binary)], cwd=unrelated, env=env)
+            if linked.returncode:
+                raise RuntimeError(f'{case}/{backend} link failed: {linked.stdout + linked.stderr!r}')
+            executed = run([str(binary)], cwd=unrelated, env=env)
+            if executed.returncode or executed.stdout.decode() != expected or executed.stderr:
+                raise RuntimeError(f'{case}/{backend} wrong binding output: {executed.stdout!r}/{executed.stderr!r}')
+            records.append({'case': case, 'backend': backend, 'status': 'executed', 'output': expected})
+    standalone = work / 'standalone-extern-identity.fk'
+    standalone.write_text('shape Hidden { value: int }\n'
+                          'task identity_probe() -> int { give back 1 }\n'
+                          'task main() { say identity_probe() }\n')
+    generated = work / 'standalone-identity.c'
+    result = run([str(probe), 'standalone', str(standalone), 'c', str(generated)], cwd=unrelated, env=env)
+    if result.returncode:
+        raise RuntimeError(f'standalone admission failed: {result.stdout + result.stderr!r}')
+    prefixes = re.findall(r'__freak_user_(pkg_[0-9a-f]{64}_)identity_probe\(', generated.read_text())
+    if len(set(prefixes)) != 1:
+        raise RuntimeError('missing unique standalone emitted identity')
+    own = prefixes[0] + 'Hidden'
+    for case, signature in (
+        ('parameter', f'extern task consume(item: {own}) -> void'),
+        ('list-parameter', f'extern task consume(item: List<{own}>) -> void'),
+        ('return', f'extern task consume() -> {own}'),
+    ):
+        standalone.write_text(f'shape Hidden {{ value: int }}\n{signature}\ntask main() {{}}\n')
+        for backend in ('c', 'llvm'):
+            generated = work / f'standalone-extern-{case}-{backend}'
+            result = run([str(probe), 'standalone', str(standalone), backend, str(generated)], cwd=unrelated, env=env)
+            log = result.stdout + result.stderr
+            if result.returncode == 0 or ("missing or unimported type '" + own + "'").encode() not in log or str(standalone).encode() not in log or generated.exists():
+                raise RuntimeError(f'extern {case}/{backend} leaked nominal type: {log!r}')
+            records.append({'case': 'extern-generated-' + case, 'backend': backend, 'status': 'rejected'})
+    for case, declarations in (
+        ('source-nominal', 'shape Hidden { value: int }\nextern task consume(item: Hidden) -> Hidden\n'),
+        ('scalar', 'extern task consume(item: int) -> int\n'),
+        ('source-exact-lookalike', f'shape {own} {{ value: int }}\nextern task consume(item: {own}) -> {own}\n'),
+    ):
+        standalone.write_text(declarations + 'task main() {}\n')
+        for backend in ('c', 'llvm'):
+            generated = work / f'standalone-extern-{case}-admitted-{backend}'
+            result = run([str(probe), 'standalone', str(standalone), backend, str(generated)], cwd=unrelated, env=env)
+            if result.returncode:
+                raise RuntimeError(f'extern {case}/{backend} source type rejected: {result.stdout + result.stderr!r}')
+            records.append({'case': 'extern-' + case, 'backend': backend, 'status': 'accepted'})
+    # Supported unused export headers carry type/value namespace facts without
+    # loading or emitting unused module bodies; extern headers are unsupported.
+    for declarations, accepted in (
+        ('shape Shared { value: int }\ntask Shared() -> int { give back 5 }\n', True),
+        ('fixed pilot Shared: int = 4\ntask Shared() -> int { give back 5 }\n', False),
+    ):
+        root = work / f'unused-namespace-{accepted}'
+        source_app, _ = fixture(root)
+        manifest = root / 'left/hangar.toml'
+        manifest.write_text(manifest.read_text().replace('[modules]\n', '[modules]\nother = "src/other.fk"\n').replace('[exports]\n', '[exports]\nshared = "other::Shared"\n'))
+        (root / 'left/src/other.fk').write_text(declarations)
+        for backend in ('c', 'llvm'):
+            result = run([str(probe), str(source_app), str(source_app / 'src/main.fk'), backend, str(work / f'unused-namespace-{accepted}-{backend}')], cwd=unrelated, env=env)
+            log = result.stdout + result.stderr
+            (work / f'unused-namespace-{accepted}-{backend}.log').write_bytes(log)
+            if accepted:
+                if result.returncode or b'BINDING_OK' not in result.stdout:
+                    raise RuntimeError(f'{backend} unused type/value export incorrectly rejected: {log!r}')
+            elif result.returncode == 0 or b'duplicate module declaration' not in log:
+                raise RuntimeError(f'{backend} unused fixed/callable collision accepted: {log!r}')
+            records.append({'case': 'unused-type-value-export' if accepted else 'unused-fixed-callable-collision', 'backend': backend, 'status': 'accepted' if accepted else 'rejected'})
+    for count in (1, 2):
+        invalid = 'task lexical_probe() { say "' + 'before\\x00after' * count + '" }\n'
+        loaded = work / f'lexical-count-{count}.fk'
+        loaded.write_text(invalid + 'task main() {}\n')
+        root = work / f'unused-lexical-count-{count}'
+        source_app, _ = fixture(root)
+        manifest = root / 'left/hangar.toml'
+        manifest.write_text(manifest.read_text().replace('[modules]\n', '[modules]\nother = "src/other.fk"\n').replace('[exports]\n', '[exports]\nexposed = "other::exposed"\n'))
+        unloaded = root / 'left/src/other.fk'
+        unloaded.write_text('task exposed() -> int { give back 4 }\n' + invalid)
+        for phase, project_root, source in (
+            ('loaded', 'standalone', loaded), ('unloaded-export', str(source_app), source_app / 'src/main.fk')
+        ):
+            for backend in ('c', 'llvm'):
+                generated = work / f'lexical-count-{count}-{phase}-{backend}'
+                result = run([str(probe), project_root, str(source), backend, str(generated)], cwd=unrelated, env=env)
+                log = result.stdout + result.stderr
+                (work / f'lexical-count-{count}-{phase}-{backend}.log').write_bytes(log)
+                if result.returncode == 0 or f'{count} syntax error(s)'.encode() not in log or log.count(b'embedded NUL escape is not supported') != count or generated.exists():
+                    raise RuntimeError(f'{backend} {phase} lexical count {count} not preserved: {log!r}')
+                expected_phase = b'lexically invalid source module:' if phase == 'loaded' else b'lexically invalid exported source module:'
+                if expected_phase not in log:
+                    raise RuntimeError(f'{backend} wrong lexical admission phase: {log!r}')
+                records.append({'case': f'{phase}-lexical-count-{count}', 'backend': backend, 'status': 'rejected'})
     # Missing exports in an unused public module are validated as declaration
     # metadata, while unused private modules stay outside the emitted program.
     unused = work / 'negative-unused-export'

@@ -939,6 +939,15 @@ task tc_local_in_current_scope(name: word) -> bool {
     give back false
 }
 
+task tc_local_binding_seen(name: word) -> bool {
+    pilot i = tc_local_count - 1
+    repeat until i < 0 {
+        if array_get(tc_local_names, i) == name { give back true }
+        i -= 1
+    }
+    give back false
+}
+
 task tc_global_seen(name: word) -> bool {
     pilot i = 0
     repeat tc_global_count times {
@@ -1698,7 +1707,56 @@ task tc_has_impl_method(shape_name: word, method_name: word) -> bool {
     give back entry >= 0 and array_get(tc_callable_extras, entry) == "impl:" + shape_name and tc_callable_is_instance(entry)
 }
 
+-- Binding supplies an exact source-name map for diagnostics. This is display
+-- metadata only: nominal type comparison and emitted symbols retain identities.
+pilot tc_diag_generated_names = 0
+pilot tc_diag_source_names = 0
+
+task tc_diag_labels_clear() -> void {
+    if tc_diag_generated_names != 0 {
+        array_release(tc_diag_generated_names) array_release(tc_diag_source_names)
+    }
+    tc_diag_generated_names = 0 tc_diag_source_names = 0
+}
+
+task tc_diag_label_add(generated: word, source: word) -> void {
+    if generated == source { give back }
+    if tc_diag_generated_names == 0 {
+        tc_diag_generated_names = array_new() tc_diag_source_names = array_new()
+    }
+    array_push(tc_diag_generated_names, generated) array_push(tc_diag_source_names, source)
+}
+
+task tc_diag_source_name(name: word) -> word {
+    if tc_diag_generated_names == 0 { give back name }
+    pilot i = 0
+    repeat until i >= array_len(tc_diag_generated_names) {
+        if array_get(tc_diag_generated_names, i) == name { give back array_get(tc_diag_source_names, i) }
+        i += 1
+    }
+    give back name
+}
+
+task tc_diag_display(message: word) -> word {
+    if tc_diag_generated_names == 0 { give back message }
+    -- char_at uses byte positions and returns an empty word beyond storage.
+    -- Count those positions directly so Unicode prose is preserved, while the
+    -- historical compiler seed needs only its existing word operations.
+    pilot length = 0
+    repeat until message.char_at(length) == "" { length += 1 }
+    pilot displayed = "" pilot i = 0
+    repeat until i >= length {
+        pilot start = i
+        if is_alnum_ext(message.substring(i, 1)) {
+            repeat until i >= length or not is_alnum_ext(message.substring(i, 1)) { i += 1 }
+            displayed = displayed + tc_diag_source_name(message.substring(start, i - start))
+        } else { displayed = displayed + message.substring(i, 1) i += 1 }
+    }
+    give back displayed
+}
+
 task tc_diag_code(code: word, message: word, line: int, source_file: word) -> void {
+    message = tc_diag_display(message)
     diag_record_fact(code, message, "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: " + message + " (line " + word_from_int(line) + ")"
@@ -1726,6 +1784,7 @@ task tc_expr_diag_file(expr_id: int, fallback: word) -> word {
 }
 
 task tc_diag_member(shape_name: word, member_kind: word, member_name: word, line: int, source_file: word) -> void {
+    shape_name = tc_diag_source_name(shape_name)
     diag_record_fact("E0002", "shape '" + shape_name + "' has no " + member_kind + " '" + member_name + "' (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: shape '" + shape_name + "' has no " + member_kind + " '" + member_name + "' (line " + word_from_int(line) + ")"
@@ -2078,6 +2137,10 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
                     label_index += 1
                 }
             }
+            give back
+        }
+        if tc_local_binding_seen(val) {
+            tc_diag_code("E0005", "unknown callable '" + val + "': local value shadows this name", line, source_file)
             give back
         }
         if val == "process::args" {
@@ -3393,6 +3456,10 @@ task tc_run_program() -> void {
             pilot binding_type = type_ann
             if binding_type == "" { binding_type = tc_expr_type(expr) }
             pilot global_name: word = array_get(ast_stmt_names, sid)
+            pilot callable = tc_callable_entry(global_name)
+            if array_get(ast_pilot_is_mut, sid) == "fixed" and callable >= 0 and not array_get(tc_callable_extras, callable).starts_with("impl:") {
+                tc_diag("fixed binding '" + global_name + "' conflicts with a callable in the value namespace", word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+            }
             if tc_global_seen(global_name) {
                 tc_diag("duplicate top-level binding '" + global_name + "'", word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
             } else {
