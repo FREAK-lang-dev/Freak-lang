@@ -127,10 +127,17 @@ def check_installer_contracts(repo: Path) -> None:
     for needle in (
         'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"',
         "task cli_run_clang_identity",
-        "certutil -hashfile",
+        "task cli_run_windows_file_sha256(path: word) -> word {",
+        "task cli_run_sha256_from_bytes(output: ByteBuffer) -> word {",
+        'hangar_native_tool_executable("certutil")',
+        'process::command_arg(command, "-hashfile")',
+        'process::command_arg(command, path)',
+        'process::command_arg(command, "SHA256")',
         "sha256sum ",
     ):
         assert needle in run_text, f"run cache identity missing {needle}"
+    native_hash = run_text.split("task cli_run_windows_file_sha256(path: word) -> word {", 1)[1].split("\ntask ", 1)[0]
+    assert "process::exec_capture(" not in native_hash, "Windows file hashing must use native argv"
     signature = "task cli_run_resolve_program(command: word) -> word {"
     assert run_text.count(signature) == 1, "raw executable resolver must be unambiguous"
     resolver = run_text.split(signature, 1)[1].split("\ntask ", 1)[0]
