@@ -219,11 +219,11 @@ NEGATIVE = {
 
 PANIC = {}
 for label, offset in (("negative", "-1"), ("at_length", "2"), ("extreme", "9223372036854775807")):
-    PANIC[f"read_{label}"] = (f'pilot values = [1, 2]\nsay values[{offset}]\n', "out of bounds")
-    PANIC[f"write_{label}"] = (f'pilot mut values = [1, 2]\nvalues[{offset}] = 9\n', "out of bounds")
-PANIC["empty_read"] = ('pilot values = List::filled(0, 0)\nsay values[0]\n', "out of bounds")
-PANIC["negative_count"] = ('pilot values = List::filled(0, -1)\n', "negative or too large")
-PANIC["overflow_count"] = ('pilot values = List::filled(0, 9223372036854775807)\n', "negative or too large")
+    PANIC[f"read_{label}"] = (f'pilot values = [1, 2]\ntask main() {{\n    say values[{offset}]\n}}\n', "out of bounds")
+    PANIC[f"write_{label}"] = (f'pilot mut values = [1, 2]\ntask main() {{\n    values[{offset}] = 9\n}}\n', "out of bounds")
+PANIC["empty_read"] = ('pilot values = List::filled(0, 0)\ntask main() {\n    say values[0]\n}\n', "out of bounds")
+PANIC["negative_count"] = ('pilot values = List::filled(0, -1)\ntask main() {}\n', "negative or too large")
+PANIC["overflow_count"] = ('pilot values = List::filled(0, 9223372036854775807)\ntask main() {}\n', "negative or too large")
 
 
 def emission(compiler: Path, root: Path, backend: str, name: str, source: str, strict: bool = False):
@@ -301,7 +301,7 @@ def main() -> int:
                 records.append(expect_panic(compiler, repo, root, backend, name, source, diagnostic))
                 print(f"PASS {name}/{backend}", flush=True)
             if not args.case or args.case == "strict_primitive":
-                source = "pilot mut values = [1, 2]\nvalues[0] += 3\nfor each value in values { say value }\n"
+                source = "pilot mut values = [1, 2]\ntask main() {\n    values[0] += 3\n    for each value in values { say value }\n}\n"
                 compiled, generated = emission(compiler, root, backend, "strict_primitive", source, True)
                 require_ok(compiled, f"strict_primitive/{backend} emission")
                 executed = native_run(repo, root, backend, "strict_primitive", generated)
