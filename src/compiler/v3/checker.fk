@@ -38,16 +38,35 @@ task bc_is_copy_type(type_ann: word) -> bool {
     give back false
 }
 
--- Preserve the semantic pass's lexical type facts for inferred bindings.
+-- These legacy resource constructors expose int signatures without Copy
+-- ownership. Keep their inferred owners distinct from ordinary scalar results.
+task bc_legacy_owned_handle_factory(name: word) -> bool {
+    if name == "word_builder::new" or name == "word_builder::with_capacity" { give back true }
+    if name == "array_new" { give back true }
+    if name == "tcp::socket_connect" or name == "tcp::socket_listen" or name == "tcp::socket_accept" { give back true }
+    if name == "tcp::connect" or name == "tcp_connect" { give back true }
+    give back name == "ui::create_window"
+}
+
+-- Preserve inferred owner provenance before the semantic pass's scalar facts.
 -- Unknown facts retain the conservative owned fallback.
 task bc_classify_rhs(expr_id: int) -> word {
     if expr_id < 0 { give back "owned" }
+    pilot k: word = array_get(ast_expr_kinds, expr_id)
+    if k == EXPR_IDENT {
+        pilot source_symbol = bc_lookup_idx(array_get(ast_expr_vals, expr_id))
+        if source_symbol >= 0 and array_get(bc_sym_kinds, source_symbol) != "copy" {
+            give back array_get(bc_sym_kinds, source_symbol)
+        }
+    }
+    if k == EXPR_CALL and bc_legacy_owned_handle_factory(array_get(ast_expr_vals, expr_id)) {
+        give back "owned"
+    }
     if expr_id < array_len(tc_checked_expr_types) {
         pilot checked_type: word = array_get(tc_checked_expr_types, expr_id)
         if bc_is_copy_type(checked_type) { give back "copy" }
         if checked_type == "ByteBuffer" { give back "byte_buffer" }
     }
-    pilot k: word = array_get(ast_expr_kinds, expr_id)
     if k == EXPR_INT   { give back "copy" }
     if k == EXPR_FLOAT { give back "copy" }
     if k == EXPR_BOOL  { give back "copy" }
