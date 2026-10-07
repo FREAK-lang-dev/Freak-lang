@@ -244,6 +244,18 @@ jobs:
         shell: bash
         run: python -u tests/v3_run_freshness.py ./build/freak$EXT
 
+      - name: Test - V3 run tool identity
+        shell: bash
+        run: python -B -u tests/v3_run_tool_identity.py --freak ./build/freak$EXT --json run-tool-identity.json
+
+      - name: Retain V3 run tool identity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-tool-identity-${{ matrix.os }}
+          path: run-tool-identity.json
+          if-no-files-found: ignore
+
       - name: Test - V3 platform helper regressions
         shell: bash
         run: |
@@ -541,6 +553,18 @@ jobs:
       - name: Test - V3 run freshness and installer cleanup
         shell: bash
         run: python -u tests/v3_run_freshness.py ./build/freak$EXT
+
+      - name: Test - V3 run tool identity
+        shell: bash
+        run: python -B -u tests/v3_run_tool_identity.py --freak ./build/freak$EXT --json run-tool-identity.json
+
+      - name: Retain V3 run tool identity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-tool-identity-windows
+          path: run-tool-identity.json
+          if-no-files-found: ignore
 
       - name: Test - V3 platform helper regressions
         shell: bash
