@@ -567,6 +567,8 @@ task main() {
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
+#include <io.h>
+#include <fcntl.h>
 #endif
 static int observe(int count, char **values) {
     if (getenv("FREAK_HANGAR_TOOL_GIT_OBJECTS")) {
@@ -587,6 +589,7 @@ static int observe(int count, char **values) {
 }
 int main(int count, char **values) {
 #ifdef _WIN32
+    if (_setmode(_fileno(stdout),_O_BINARY) == -1) return 90;
     int total=0; wchar_t **wide=CommandLineToArgvW(GetCommandLineW(),&total);
     if (!wide) return 91;
     char **utf8=calloc((size_t)total,sizeof(*utf8)); if (!utf8) { LocalFree(wide); return 91; }
@@ -674,14 +677,17 @@ int main(int count, char **values) {
             assert execute("posix", name, root, "") == "selected:" + name + "\n"
         values = ("", "space value", "日本語😀", 'literal"quote', "trailing\\", "%VALUE% &|<>^!", "$(touch owned)")
         expected = observed_arguments((canonical(first / "tar.exe"), *values))
-        assert execute("run", "tar", root, str(first), values) == "status:2\nexit:0\n" + expected + "\n"
+        actual = execute("run", "tar", root, str(first), values)
+        assert actual == "status:2\nexit:0\n" + expected + "\n", (backend, "run", expected, actual)
         null = "NUL" if os.environ.get("OS") == "Windows_NT" else "/dev/null"
         git_flags = ("-c", "core.hooksPath=" + null, "-c", "core.autocrlf=false", "-c", "fetch.recurseSubmodules=false", "-c", "submodule.recurse=false")
         expected = observed_arguments((canonical(first / "git.exe"), *git_flags, *values))
-        assert execute("git", "git", root, str(first), values) == "status:2\nexit:0\n" + expected + "\n"
+        actual = execute("git", "git", root, str(first), values)
+        assert actual == "status:2\nexit:0\n" + expected + "\n", (backend, "git", expected, actual)
         override = str(later / "git.exe")
         expected = observed_arguments((override, *git_flags, *values))
-        assert execute("git", "git", root, "", values, {"FREAK_GIT": override}) == "status:2\nexit:0\n" + expected + "\n"
+        actual = execute("git", "git", root, "", values, {"FREAK_GIT": override})
+        assert actual == "status:2\nexit:0\n" + expected + "\n", (backend, "git", expected, actual)
         missing = root / (backend + "-missing-project")
         project(missing, 'missing = { git = "owner/repository", version = "latest" }\n')
         before = snapshot(missing)
