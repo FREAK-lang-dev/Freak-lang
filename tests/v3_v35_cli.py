@@ -529,6 +529,21 @@ def check_doctor(freak: Path, clang: Path, root: Path, env: dict[str, str]) -> N
         print("doctor/discovery: versioned minimum-only PATH OK", flush=True)
 
 
+def resolve_selected_clang(supplied: Path) -> Path:
+    """Admit an exact selected executable, including Windows command-v paths."""
+    if os.name == "nt":
+        try:
+            supplied.lstat()
+        except FileNotFoundError:
+            if supplied.suffix or supplied.name.endswith("."):
+                raise
+            supplied = supplied.with_name(supplied.name + ".exe")
+    physical = supplied.resolve(strict=True)
+    if not physical.is_file():
+        raise FileNotFoundError(f"selected Clang is not a file: {physical}")
+    return physical
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("freak", type=Path, help="native CLI candidate; never rebuilt")
@@ -537,7 +552,7 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--section", choices=("all", "run", "doctor"), default="all")
     args = parser.parse_args()
-    freak, clang, repo = args.freak.resolve(), args.clang.resolve(), args.repo.resolve()
+    freak, clang, repo = args.freak.resolve(), resolve_selected_clang(args.clang), args.repo.resolve()
     assert freak.is_file() and clang.is_file(), "native candidate and Clang are required"
     with tempfile.TemporaryDirectory(prefix="freak-v35-cli-") as temporary:
         root = Path(temporary)
