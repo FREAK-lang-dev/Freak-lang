@@ -37,6 +37,9 @@ change can already have completed when its barrier fails; the error preserves
 that distinction. An unexpected nonfinal synchronous result flushes its
 diagnostic and terminates without user callbacks. This profile does not claim
 support for every Windows 8 NTFS provider or proof from power-loss testing.
+Rejected Windows file publication also reports which held-parent check failed
+and its native error. Failed POSIX launches report the failed setup or execution
+stage and errno; these diagnostics preserve the existing failure behavior.
 
 The command validates the locked inputs, compiles the V4 engine and launcher,
 tests query invalidation and generated programs, and publishes the preview only

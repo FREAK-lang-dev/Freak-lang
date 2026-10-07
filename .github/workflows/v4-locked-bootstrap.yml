@@ -59,6 +59,18 @@ jobs:
           python -B -u tests/v4_bootstrap_runtime_ci.py
           --clang "${{ env.FREAK_V4_CI_CLANG }}"
           --report "${{ runner.temp }}/freak-v4-runtime-ci.json"
+      - name: Verify POSIX failed launch diagnostics (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          python -B -u tests/v3_v35_process_launch_diagnostic_native.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}" --sanitize
+          --report "${{ runner.temp }}/freak-v4-posix-launch-diagnostic.json"
+      - name: Verify POSIX failed launch diagnostics (macOS)
+        if: runner.os == 'macOS'
+        run: >
+          python -B -u tests/v3_v35_process_launch_diagnostic_native.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --report "${{ runner.temp }}/freak-v4-posix-launch-diagnostic.json"
       - name: Observe native Windows bootstrap directory operations
         if: runner.os == 'Windows'
         run: >
@@ -101,6 +113,7 @@ jobs:
             ${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction.json
             ${{ runner.temp }}/freak-v4-locked-bootstrap/public-contracts*.json
             ${{ runner.temp }}/freak-v4-runtime-ci.json
+            ${{ runner.temp }}/freak-v4-posix-launch-diagnostic.json
             ${{ runner.temp }}/freak-v4-word-call-ownership.json
             ${{ runner.temp }}/freak-v4-c-emission/gate.json
             ${{ runner.temp }}/freak-v4-bootstrap-fs-probe.json
