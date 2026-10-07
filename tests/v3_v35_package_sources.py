@@ -189,13 +189,15 @@ int main(int argc,char **argv) {
 
 def package_probe_source(repo: Path) -> str:
     hangar = (repo/'src/cli/hangar.fk').read_text()
+    build = (repo/'src/cli/build.fk').read_text()
     toml = (repo/'src/cli/toml.fk').read_text()
     for name in ('toml_load', 'toml_write_file'):
         toml = toml.replace(task_source(toml, name), '')
     return ((repo/'std/version.fk').read_text() + '\n' + toml + '\n' +
               task_source(hangar, 'hangar_valid_package_name') + '\n' +
               task_source(hangar, 'hangar_checked_fs') + '\n' +
-              '\n'.join(task_source(hangar, name) for name in ('hangar_git_command','hangar_valid_git_source','hangar_valid_revision')) + '\n' +
+              '\n'.join(task_source(build, name) for name in ('cli_is_windows','cli_host_path_join','cli_output_path_absolute')) + '\n' +
+              '\n'.join(task_source(hangar, name) for name in ('hangar_native_tool_candidate','hangar_native_tool_executable','hangar_git_command','hangar_valid_git_source','hangar_valid_revision')) + '\n' +
               '\n'.join((repo/f'src/cli/{name}.fk').read_text() for name in ('package_graph','package_paths','package_inputs','package_sources','package_lock','package_transaction')))
 
 

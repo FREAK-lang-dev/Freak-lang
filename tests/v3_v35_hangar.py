@@ -472,6 +472,238 @@ def probe_transpile(foundation, freak: Path | None, compiler: Path | None, repo:
     return generated
 
 
+def tools_probe(compiler: Path | None, clang: Path, runtime: Path, root: Path,
+                freak: Path | None = None) -> None:
+    """Model Windows PATH selection with native host files and argv witnesses."""
+    import shutil
+    import v3_word_foundation as foundation
+    from v3_v35_package_sources import package_probe_source
+
+    repo = Path(__file__).resolve().parents[1]
+    hangar = (repo / "src/cli/hangar.fk").read_text(encoding="utf-8")
+    package = (repo / "src/cli/package_sources.fk").read_text(encoding="utf-8")
+    source = package_probe_source(repo)
+    selector = task_source(hangar, "hangar_native_tool_executable")
+    # Only the selector's host decision is modeled. Path joining, physical
+    # admission, process launch, filesystem cleanup and ownership stay native.
+    source = source.replace(selector, selector.replace(
+        "not process::platform_is_windows()", 'process::arg(1) == "posix"'))
+    command = task_source(package, "package_git_command")
+    # A selected Git may disappear between operations. Inject its checked zero
+    # result at each operation boundary; every consumer body remains exact.
+    injected = command.replace("    pilot command = hangar_git_command()", '''    if process::arg(1).starts_with("late-") {
+        tool_probe_calls += 1
+        if tool_probe_calls == process::arg(4).to_int() {
+            hangar_graph_fail("injected missing native Git")
+            give back 0
+        }
+    }
+    pilot command = hangar_git_command()''', 1)
+    source = source.replace(command, injected)
+    source += '\npilot mut tool_probe_calls = 0\n'
+    source += '\npilot C_DIM = ""\npilot C_RESET = ""\npilot C_BWHITE = ""\npilot C_BGREEN = ""\n'
+    source += (repo / "src/cli/lockfile.fk").read_text(encoding="utf-8")
+    toml = (repo / "src/cli/toml.fk").read_text(encoding="utf-8")
+    source += '\n' + '\n'.join(task_source(toml, name) for name in ("toml_load", "toml_write_file"))
+    source += '\n' + '\n'.join(task_source(hangar, name) for name in (
+        "hangar_command_text", "hangar_command_result", "hangar_hash_output",
+        "hangar_compute_sha256", "hangar_compute_dir_sha256", "hangar_remove_owned_stage",
+        "hangar_validate_fetched_manifest", "hangar_install_one"))
+    source += r'''
+task main() {
+    pilot mode = process::arg(1)
+    pilot name = process::arg(2)
+    pilot root = process::arg(3)
+    if mode == "select" or mode == "posix" {
+        say "selected:" + hangar_native_tool_executable(name)
+    } else if mode == "run" or mode == "git" {
+        pilot command = 0
+        if mode == "git" { command = hangar_git_command() } else {
+            pilot executable = hangar_native_tool_executable(name)
+            if executable != "" { command = process::command_new(executable) }
+        }
+        if command == 0 { say "missing:0" } else {
+            pilot index = 4
+            repeat until index >= process::args_count() {
+                process::command_arg(command, process::arg(index))
+                index += 1
+            }
+            say "status:" + word_from_int(process::command_run(command, 10000, 65536, 65536))
+            say "exit:" + word_from_int(process::command_exit_code(command))
+            pilot output: ByteBuffer = process::command_stdout_bytes(command)
+            say output.to_word()
+            output.release()
+            process::command_release(command)
+        }
+    } else if mode == "archive" { say "hash:" + hangar_compute_dir_sha256(root) }
+    else if mode == "hash" { say "hash:" + hangar_compute_sha256(root) }
+    else if mode == "install" { say "install:" + word_from_int(hangar_install_one(root, "missing", "owner/repository", "latest")) }
+    else {
+        if mode == "package-command" {
+            pilot command = package_git_command(root)
+            say "command:" + word_from_int(command)
+            if command != 0 { process::command_release(command) }
+        } else if mode.ends_with("mode") {
+            say "mode:" + package_git_mode(root, "commit", "core.fk")
+        } else if mode.ends_with("blob") {
+            pilot bytes: ByteBuffer = package_git_blob(root, "commit", "core.fk", 4096)
+            say "blob:" + word_from_int(bytes.length())
+            bytes.release()
+        } else if mode.ends_with("tests") {
+            if package_git_default_tests(0, root, "commit", "") { say "tests:true" } else { say "tests:false" }
+        } else if mode.ends_with("fetch") {
+            say "repository:" + word_from_int(package_fetch_git_repository("https://example.invalid/repo", "", "main", "request", root))
+        }
+        say "error:" + hangar_graph_error
+    }
+    package_release_graph()
+}
+'''
+    witness = root / "tool-witness.c"
+    witness.write_text(r'''#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#include <shellapi.h>
+#endif
+static int observe(int count, char **values) {
+    if (getenv("FREAK_HANGAR_TOOL_GIT_OBJECTS")) {
+        for (int i=1;i<count;i++) if (!strcmp(values[i],"ls-tree")) {
+            const char *path=values[count-1];
+            printf("%s %s aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t%s", !strcmp(path,"tests")?"040000":"100644", !strcmp(path,"tests")?"tree":"blob", path);
+            putchar(0); break;
+        }
+        return 0;
+    }
+    puts("NATIVE-TOOL-WITNESS");
+    for (int i=0;i<count;i++) {
+        printf("%zu:",strlen(values[i]));
+        for (const unsigned char *p=(unsigned char *)values[i];*p;p++) printf("%02x",*p);
+        putchar('\n');
+    }
+    return 0;
+}
+int main(int count, char **values) {
+#ifdef _WIN32
+    int total=0; wchar_t **wide=CommandLineToArgvW(GetCommandLineW(),&total);
+    if (!wide) return 91;
+    char **utf8=calloc((size_t)total,sizeof(*utf8)); if (!utf8) { LocalFree(wide); return 91; }
+    for (int i=0;i<total;i++) {
+        int size=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,wide[i],-1,NULL,0,NULL,NULL);
+        if (!size) return 91;
+        utf8[i]=calloc((size_t)size,1);
+        if (!utf8[i] || !WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,wide[i],-1,utf8[i],size,NULL,NULL)) return 91;
+    }
+    int result=observe(total,utf8);
+    for (int i=0;i<total;i++) free(utf8[i]); free(utf8); LocalFree(wide); return result;
+#else
+    return observe(count,values);
+#endif
+}
+''', encoding="ascii")
+    image = root / ("tool-witness.exe" if os.name == "nt" else "tool-witness")
+    argv = [str(clang), str(witness), "-o", str(image)]
+    if os.name == "nt":
+        argv.append("-lshell32")
+    result = foundation.run(argv, repo, timeout=30)
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    first = root / "first tools 日本 Ω $ &"
+    later = root / "later tools"
+    bad = root / "invalid tools"
+    quoted = root / "quoted; tools 日本"
+    for directory in (first, later, bad, quoted):
+        directory.mkdir()
+        for name in ("tar", "certutil", "git"):
+            if directory == bad:
+                (directory / (name + ".exe")).mkdir()
+            else:
+                shutil.copy2(image, directory / (name + ".exe"))
+    empty = root / "empty tools"
+    empty.mkdir()
+    (empty / "tar.exe").touch()
+    for name in ("tar", "certutil", "git"):
+        shutil.copy2(image, root / (name + ".exe"))  # cwd decoys never selected.
+
+    def canonical(path: Path) -> str:
+        value = str(path.resolve())
+        if os.name == "nt" and not value.startswith("\\\\?\\"):
+            return "\\\\?\\UNC\\" + value[2:] if value.startswith("\\\\") else "\\\\?\\" + value
+        return value
+
+    def observed_arguments(values: tuple[str, ...]) -> str:
+        return "NATIVE-TOOL-WITNESS\n" + "".join(
+            f"{len(value.encode('utf-8'))}:{value.encode('utf-8').hex()}\n" for value in values)
+
+    for backend in ("c", "llvm"):
+        program = root / ("native-tools-" + backend + ".fk")
+        program.write_text(source, encoding="utf-8")
+        generated = probe_transpile(foundation, freak, compiler, repo, program, backend)
+        binary = program.with_suffix(".exe" if os.name == "nt" else "")
+        foundation.compile_generated(clang=str(clang), repo=repo, runtime_root=runtime,
+                                     generated=generated, backend=backend, binary=binary)
+        checks = 0
+
+        def execute(mode: str, name: str, directory: Path, path: str | None,
+                    extra: tuple[str, ...] = (), overrides: dict[str, str] | None = None) -> str:
+            nonlocal checks
+            environment = foundation.sanitizer_env()
+            environment.pop("FREAK_GIT", None)
+            if path is None:
+                environment.pop("PATH", None)
+            else:
+                environment["PATH"] = path
+            if overrides:
+                environment.update(overrides)
+            result = foundation.run([str(binary), mode, name, str(directory), *extra], root,
+                                    environment, timeout=30)
+            assert result.returncode == 0, (backend, mode, result.returncode, result.stdout, result.stderr)
+            require_resource_conservation(foundation, result.stderr)
+            checks += 1
+            return result.stdout
+
+        for name in ("tar", "certutil", "git"):
+            for path, expected in ((str(first) + ";" + str(later), first),
+                                   (str(bad) + ";" + str(first), first),
+                                   ('"' + str(quoted) + '";' + str(first), quoted),
+                                   (";;" + str(first) + ";", first)):
+                assert execute("select", name, root, path) == "selected:" + canonical(expected / (name + ".exe")) + "\n"
+            for path in ("", None, str(empty)):
+                assert execute("select", name, root, path) == "selected:\n"
+            assert execute("posix", name, root, "") == "selected:" + name + "\n"
+        values = ("", "space value", "日本語😀", 'literal"quote', "trailing\\", "%VALUE% &|<>^!", "$(touch owned)")
+        expected = observed_arguments((canonical(first / "tar.exe"), *values))
+        assert execute("run", "tar", root, str(first), values) == "status:2\nexit:0\n" + expected + "\n"
+        null = "NUL" if os.environ.get("OS") == "Windows_NT" else "/dev/null"
+        git_flags = ("-c", "core.hooksPath=" + null, "-c", "core.autocrlf=false", "-c", "fetch.recurseSubmodules=false", "-c", "submodule.recurse=false")
+        expected = observed_arguments((canonical(first / "git.exe"), *git_flags, *values))
+        assert execute("git", "git", root, str(first), values) == "status:2\nexit:0\n" + expected + "\n"
+        override = str(later / "git.exe")
+        expected = observed_arguments((override, *git_flags, *values))
+        assert execute("git", "git", root, "", values, {"FREAK_GIT": override}) == "status:2\nexit:0\n" + expected + "\n"
+        missing = root / (backend + "-missing-project")
+        project(missing, 'missing = { git = "owner/repository", version = "latest" }\n')
+        before = snapshot(missing)
+        assert "install:1\n" in execute("install", "git", missing, "")
+        assert snapshot(missing) == before and not (missing / "hangar_modules/missing").exists()
+        assert not list((missing / "hangar_modules").glob(".hangar-stage-*"))
+        assert "hash:\n" in execute("archive", "tar", missing / "hangar_modules/existing", "")
+        assert not list((missing / "hangar_modules").glob(".hangar-integrity-*"))
+        assert "hash:\n" in execute("hash", "certutil", missing / "hangar.toml", "", overrides={"OS": "Windows_NT"})
+        for mode, expected_line in (("package-command", "command:0"), ("package-mode", "mode:"),
+                                    ("package-blob", "blob:0"), ("package-tests", "tests:false"),
+                                    ("package-fetch", "repository:0")):
+            assert expected_line + "\n" in execute(mode, "git", missing, "")
+            assert not list(missing.glob(".git-fetch-*"))
+        for mode, boundary, expected_line in (("late-mode", "1", "mode:"), ("late-blob", "2", "blob:0"),
+                                              ("late-tests", "2", "tests:false"), ("late-fetch", "1", "repository:0"),
+                                              ("late-fetch", "2", "repository:0"), ("late-fetch", "3", "repository:0")):
+            output = execute(mode, "git", missing, str(first), (boundary,), {"FREAK_HANGAR_TOOL_GIT_OBJECTS": "1"})
+            assert expected_line + "\n" in output and "error:injected missing native Git\n" in output
+            assert not list(missing.glob(".git-fetch-*"))
+        print(f"native:{backend}:tools-probe:passed:{checks}:native-host-files/windows-selector-model")
+
+
 def graph_probe(freak: Path | None, clang: Path, runtime: Path, root: Path,
                 compiler: Path | None = None) -> None:
     import v3_word_foundation as foundation
@@ -746,6 +978,7 @@ def main() -> int:
     parser.add_argument("--python-only", action="store_true")
     parser.add_argument("--graph-only", action="store_true")
     parser.add_argument("--inputs-only", action="store_true")
+    parser.add_argument("--tools-only", action="store_true")
     parser.add_argument("--runtime-root", type=Path)
     parser.add_argument("--probe-root", type=Path, help="Retain probe files in a new task-owned evidence directory")
     parser.add_argument("--list", action="store_true", help="Print the expected native case inventory")
@@ -772,13 +1005,21 @@ def main() -> int:
         parser.error("--graph-only requires --freak or --compiler, and --clang")
     if args.inputs_only and not ((args.freak or args.compiler) and args.clang):
         parser.error("--inputs-only requires --freak or --compiler, and --clang")
-    if not args.python_only and not args.graph_only and not args.inputs_only and not all((args.freak, args.hangar, args.clang)):
+    if args.tools_only and not ((args.freak or args.compiler) and args.clang):
+        parser.error("--tools-only requires --freak or --compiler, and --clang")
+    if not args.python_only and not args.graph_only and not args.inputs_only and not args.tools_only and not all((args.freak, args.hangar, args.clang)):
         parser.error("fresh --freak, --hangar, and native --clang paths are required")
     if args.probe_root:
         args.probe_root.mkdir(parents=True, exist_ok=False)
     context = contextlib.nullcontext(str(args.probe_root.resolve())) if args.probe_root else tempfile.TemporaryDirectory(prefix="freak-v35-hangar-")
     with context as temporary:
         root = Path(temporary)
+        if args.tools_only:
+            runtime = args.runtime_root or Path(__file__).resolve().parents[1] / "freakc/runtime"
+            tools_probe(args.compiler.resolve(strict=True) if args.compiler else None,
+                        selected_clang(args.clang), runtime.resolve(strict=True), root,
+                        args.freak.resolve(strict=True) if args.freak else None)
+            return 0
         if args.graph_only:
             runtime = args.runtime_root or Path(__file__).resolve().parents[1] / "freakc/runtime"
             graph_probe(args.freak.resolve(strict=True) if args.freak else None, selected_clang(args.clang),
@@ -794,6 +1035,12 @@ def main() -> int:
             selected_clang_controls(root)
             native(args.freak.resolve(strict=True), args.hangar.resolve(strict=True),
                    selected_clang(args.clang), root)
+            tool_root = root / "native-tools-probe"
+            tool_root.mkdir()
+            runtime = args.runtime_root or Path(__file__).resolve().parents[1] / "freakc/runtime"
+            tools_probe(args.compiler.resolve(strict=True) if args.compiler else None,
+                        selected_clang(args.clang), runtime.resolve(strict=True), tool_root,
+                        args.freak.resolve(strict=True))
     return 0
 
 

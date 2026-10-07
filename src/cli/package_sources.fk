@@ -848,6 +848,10 @@ task package_git_url(source: word) -> word {
 
 task package_git_command(root: word) -> int {
     pilot command = hangar_git_command()
+    if command == 0 {
+        hangar_graph_fail("native git.exe was not found on PATH")
+        give back 0
+    }
     process::command_env(command, "GIT_LITERAL_PATHSPECS", "1")
     process::command_cwd(command, root)
     give back command
@@ -910,6 +914,7 @@ task package_git_entry_mode(record: word, expected: word) -> word {
 
 task package_git_mode(root: word, commit: word, path: word) -> word {
     pilot command = package_git_command(root)
+    if command == 0 { give back "" }
     process::command_arg(command, "ls-tree")
     process::command_arg(command, "-z")
     process::command_arg(command, "--full-tree")
@@ -942,6 +947,7 @@ task package_git_regular_path(root: word, commit: word, path: word) -> bool {
 task package_git_blob(root: word, commit: word, path: word, limit: int) -> ByteBuffer {
     if not package_git_regular_path(root, commit, path) { give back ByteBuffer::new() }
     pilot command = package_git_command(root)
+    if command == 0 { give back ByteBuffer::new() }
     process::command_arg(command, "show")
     process::command_arg(command, commit + ":" + path)
     give back package_git_capture(command, limit)
@@ -961,6 +967,7 @@ task package_git_default_tests(node: int, root: word, commit: word, package_pref
     if mode == "" { give back true }
     if mode != "040000" { hangar_graph_fail("Git fallback tests/ must be an ordinary tree, not a symlink/submodule") give back false }
     pilot command = package_git_command(root)
+    if command == 0 { give back false }
     process::command_arg(command, "ls-tree")
     process::command_arg(command, "-z")
     process::command_arg(command, commit + ":" + tests_path)
@@ -1313,6 +1320,7 @@ task package_fetch_git_repository(url: word, commit: word, revision: word, reque
         give back 0 }
     pilot repository_path = fs::result_word(repository)
     pilot command = package_git_command(repository_path)
+    if command == 0 { package_discard_temp(repository) give back 0 }
     process::command_arg(command, "init")
     process::command_arg(command, "--bare")
     process::command_arg(command, "--quiet")
@@ -1321,6 +1329,7 @@ task package_fetch_git_repository(url: word, commit: word, revision: word, reque
     output.release()
     if hangar_graph_error == "" {
         command = package_git_command(repository_path)
+        if command == 0 { package_discard_temp(repository) give back 0 }
         process::command_arg(command, "fetch")
         process::command_arg(command, "--depth=1")
         process::command_arg(command, "--no-tags")
@@ -1334,6 +1343,7 @@ task package_fetch_git_repository(url: word, commit: word, revision: word, reque
     }
     if hangar_graph_error != "" { package_discard_temp(repository) give back 0 }
     command = package_git_command(repository_path)
+    if command == 0 { package_discard_temp(repository) give back 0 }
     process::command_arg(command, "rev-parse")
     process::command_arg(command, "--verify")
     process::command_arg(command, "FETCH_HEAD^0")

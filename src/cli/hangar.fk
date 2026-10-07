@@ -586,9 +586,61 @@ task hangar_command_result(command: int, operation: word) -> int {
     give back code
 }
 
+task hangar_native_tool_candidate(directory: word, name: word) -> word {
+    pilot mut entry = directory
+    if entry.length() >= 2 and entry.starts_with("\"") and entry.ends_with("\"") {
+        pilot bytes: ByteBuffer = ByteBuffer::with_capacity(entry.length())
+        bytes.write_word(entry)
+        pilot length = bytes.length()
+        bytes.release()
+        entry = entry.substring(1, length - 2)
+    }
+    if entry == "" { give back "" }
+    pilot candidate = cli_host_path_join(entry, name + ".exe")
+    pilot info = fs::stat_checked(candidate)
+    pilot usable = fs::result_ok(info) and fs::result_kind(info) == 1 and fs::result_size(info) > 0
+    fs::result_release(info)
+    if not usable { give back "" }
+    pilot resolved = fs::canonical_path(candidate)
+    pilot mut executable = ""
+    if fs::result_ok(resolved) and cli_output_path_absolute(fs::result_word(resolved)) {
+        executable = fs::result_word(resolved)
+    }
+    fs::result_release(resolved)
+    give back executable
+}
+
+task hangar_native_tool_executable(name: word) -> word {
+    if not process::platform_is_windows() { give back name }
+    -- CreateProcessW uses an explicit application name without PATH search.
+    -- Keep the already-supported native PATH-directory quote grammar.
+    pilot path = process::env("PATH")
+    pilot bytes: ByteBuffer = ByteBuffer::with_capacity(path.length())
+    bytes.write_word(path)
+    pilot length = bytes.length()
+    bytes.release()
+    pilot mut start = 0
+    pilot mut index = 0
+    pilot mut quoted = false
+    repeat until index > length {
+        if index == length or (path.char_at(index) == ";" and not quoted) {
+            pilot executable = hangar_native_tool_candidate(path.substring(start, index - start), name)
+            if executable != "" { give back executable }
+            start = index + 1
+        } else if path.char_at(index) == "\"" { quoted = not quoted }
+        index += 1
+    }
+    -- Missing tools never fall through to an unrelated executable in cwd.
+    give back ""
+}
+
 task hangar_git_command() -> int {
     pilot executable = process::env("FREAK_GIT")
-    if executable == "" { executable = "git" }
+    if executable == "" { executable = hangar_native_tool_executable("git") }
+    if executable == "" {
+        say "  Git package fetch failed: native git.exe was not found on PATH."
+        give back 0
+    }
     pilot command = process::command_new(executable)
     process::command_env(command, "GIT_CONFIG_NOSYSTEM", "1")
     pilot null_path = "/dev/null"
@@ -793,20 +845,23 @@ task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word
     }
     say C_DIM + "  >> " + C_RESET + "Fetching " + C_BWHITE + pkg_name + C_RESET + C_DIM + " from " + repo + "..." + C_RESET
     pilot command = hangar_git_command()
-    process::command_arg(command, "clone")
-    process::command_arg(command, "--depth")
-    process::command_arg(command, "1")
-    process::command_arg(command, "--quiet")
-    process::command_arg(command, "--template=")
-    process::command_arg(command, "--no-recurse-submodules")
-    if ver != "latest" and ver != "*" {
-        process::command_arg(command, "--branch")
-        process::command_arg(command, "v" + ver)
+    pilot code = 1
+    if command != 0 {
+        process::command_arg(command, "clone")
+        process::command_arg(command, "--depth")
+        process::command_arg(command, "1")
+        process::command_arg(command, "--quiet")
+        process::command_arg(command, "--template=")
+        process::command_arg(command, "--no-recurse-submodules")
+        if ver != "latest" and ver != "*" {
+            process::command_arg(command, "--branch")
+            process::command_arg(command, "v" + ver)
+        }
+        process::command_arg(command, "--")
+        process::command_arg(command, git_url)
+        process::command_arg(command, stage)
+        code = hangar_command_result(command, "Git package fetch")
     }
-    process::command_arg(command, "--")
-    process::command_arg(command, git_url)
-    process::command_arg(command, stage)
-    pilot code = hangar_command_result(command, "Git package fetch")
     pilot pkg_sha = ""
     if code == 0 {
         if not hangar_validate_fetched_manifest(stage_result) { code = 1 }
@@ -1552,7 +1607,12 @@ task hangar_compute_sha256(path: word) -> word {
     pilot command = 0
     pilot output = ""
     if process::env("OS") == "Windows_NT" {
-        command = process::command_new("certutil")
+        pilot executable = hangar_native_tool_executable("certutil")
+        if executable == "" {
+            say "  Package integrity hash failed: native certutil.exe was not found on PATH."
+            give back ""
+        }
+        command = process::command_new(executable)
         process::command_arg(command, "-hashfile")
         process::command_arg(command, path)
         process::command_arg(command, "SHA256")
@@ -1597,14 +1657,20 @@ task hangar_compute_dir_sha256(pkg_dir: word) -> word {
     }
     pilot owned = fs::result_word(temporary)
     pilot tmp_tar = owned + "/package.tar.gz"
-    pilot command = process::command_new("tar")
-    process::command_arg(command, "-czf")
-    process::command_arg(command, tmp_tar)
-    process::command_arg(command, "--exclude=.git")
-    process::command_arg(command, "-C")
-    process::command_arg(command, pkg_dir)
-    process::command_arg(command, ".")
-    pilot code = hangar_command_result(command, "Package integrity archive")
+    pilot executable = hangar_native_tool_executable("tar")
+    pilot code = 1
+    if executable == "" {
+        say "  Package integrity archive failed: native tar.exe was not found on PATH."
+    } else {
+        pilot command = process::command_new(executable)
+        process::command_arg(command, "-czf")
+        process::command_arg(command, tmp_tar)
+        process::command_arg(command, "--exclude=.git")
+        process::command_arg(command, "-C")
+        process::command_arg(command, pkg_dir)
+        process::command_arg(command, ".")
+        code = hangar_command_result(command, "Package integrity archive")
+    }
     pilot hash = ""
     if code == 0 { hash = hangar_compute_sha256(tmp_tar) }
     if not hangar_checked_fs(fs::remove_temp_dir_checked(temporary), "Could not remove owned integrity staging") { hash = "" }
