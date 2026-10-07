@@ -327,16 +327,21 @@ validate_manifest_entry() {
 
 validate_manifest() {
     [ -s "$STAGE_MANIFEST" ] || err "Staged distribution manifest is missing"
-    local source destination nul_probe key prior
+    local line source destination nul_probe key prior
     local destinations=()
     # Bash otherwise silently drops NUL bytes while reading text lines.
     if IFS= read -r -d '' nul_probe < "$STAGE_MANIFEST"; then
         err "Unsafe distribution manifest contains a NUL byte"
     fi
-    while IFS='|' read -r source destination || [ -n "$source$destination" ]; do
-        destination=${destination%$'\r'}
-        if [ -z "$source" ] && [ -z "$destination" ]; then continue; fi
-        if [[ "$source" == \#* ]]; then continue; fi
+    # Normalize only the record ending before splitting. This accepts CRLF
+    # blank records while preserving CR bytes inside source/destination fields.
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        if [ -z "$line" ] || [[ "$line" == \#* ]]; then continue; fi
+        case "$line" in
+            *'|'*) source=${line%%|*}; destination=${line#*|} ;;
+            *) err "Malformed distribution manifest entry: $line" ;;
+        esac
         [ -n "$destination" ] || err "Malformed distribution manifest entry: $source"
         validate_manifest_entry "$source" "$destination"
         # Reject aliases on case-insensitive distribution filesystems, and
@@ -363,10 +368,14 @@ validate_stage() {
     [ -f "$STAGE_BIN/freak" ] && [ -s "$STAGE_BIN/freak" ] || err "Staged compiler is missing"
     [ -f "$STAGE_BIN/hangar" ] && [ -s "$STAGE_BIN/hangar" ] || err "Staged Hangar is missing"
     validate_manifest
-    local source destination
-    while IFS='|' read -r source destination || [ -n "$source$destination" ]; do
-        destination=${destination%$'\r'}
-        if [ -z "$source" ] || [[ "$source" == \#* ]]; then continue; fi
+    local line source destination
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        if [ -z "$line" ] || [[ "$line" == \#* ]]; then continue; fi
+        case "$line" in
+            *'|'*) source=${line%%|*}; destination=${line#*|} ;;
+            *) err "Malformed distribution manifest entry: $line" ;;
+        esac
         [ -n "$destination" ] || err "Malformed distribution manifest entry: $source"
         validate_manifest_entry "$source" "$destination"
         [ -f "$STAGE_DIR/$destination" ] && [ -s "$STAGE_DIR/$destination" ] || err "Staged payload is missing $destination"
@@ -382,10 +391,14 @@ stage_fallback_payload() {
     fetch_file "$RAW_BASE/packaging/distribution-files.manifest" "$STAGE_MANIFEST"
     verify_downloaded_asset "$STAGE_MANIFEST" "raw/packaging/distribution-files.manifest"
     validate_manifest
-    local source destination
-    while IFS='|' read -r source destination || [ -n "$source$destination" ]; do
-        destination=${destination%$'\r'}
-        if [ -z "$source" ] || [[ "$source" == \#* ]]; then continue; fi
+    local line source destination
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        if [ -z "$line" ] || [[ "$line" == \#* ]]; then continue; fi
+        case "$line" in
+            *'|'*) source=${line%%|*}; destination=${line#*|} ;;
+            *) err "Malformed distribution manifest entry: $line" ;;
+        esac
         [ -n "$destination" ] || err "Malformed distribution manifest entry: $source"
         validate_manifest_entry "$source" "$destination"
         mkdir -p "$(dirname "$STAGE_DIR/$destination")"

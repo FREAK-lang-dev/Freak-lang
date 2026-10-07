@@ -133,11 +133,17 @@ def check_installer_manifest_validation(repo: Path, root: Path) -> None:
         command = ["bash", str(script), str(manifest)]
 
     valid = (repo / "packaging/distribution-files.manifest").read_bytes()
-    manifest.write_bytes(valid.replace(b"\n", b"\r\n").rstrip(b"\r\n"))
-    accepted = subprocess.run(command, cwd=repo, capture_output=True, timeout=30)
-    assert accepted.returncode == 0, accepted.stdout + accepted.stderr
-    if sys.platform == "win32":
-        assert int(accepted.stdout.strip()) == len(manifest_entries(repo))
+    valid_controls = {
+        "CRLF-no-final-newline": valid.replace(b"\n", b"\r\n").rstrip(b"\r\n"),
+        "LF-blank-records": b"\n" + valid.replace(b"\n", b"\n\n") + b"\n",
+        "CRLF-blank-records": b"\r\n" + valid.replace(b"\n", b"\r\n\r\n") + b"\r\n",
+    }
+    for name, contents in valid_controls.items():
+        manifest.write_bytes(contents)
+        accepted = subprocess.run(command, cwd=repo, capture_output=True, timeout=30)
+        assert accepted.returncode == 0, (name, accepted.stdout, accepted.stderr)
+        if sys.platform == "win32":
+            assert int(accepted.stdout.strip()) == len(manifest_entries(repo))
 
     controls = {
         "cross-subsystem": b"std/math.fk|runtime/math.fk\n",
@@ -163,6 +169,9 @@ def check_installer_manifest_validation(repo: Path, root: Path) -> None:
         "nul-comment": b"# comment\x00\nstd/math.fk|std/math.fk\n",
         "control": b"std/ma\x01th.fk|std/ma\x01th.fk\n",
         "source-carriage-return": b"std/math.fk\r|std/math.fk\n",
+        "carriage-return-source-field": b"\r|std/math.fk\n",
+        "empty-delimited-record": b"std/math.fk|std/math.fk\n|\n",
+        "carriage-return-before-empty-destination": b"std/math.fk|std/math.fk\n\r|\n",
         "duplicate": b"std/math.fk|std/math.fk\nstd/math.fk|std/math.fk\n",
         "case-alias": b"std/math.fk|std/math.fk\nstd/MATH.fk|std/MATH.fk\n",
         "ancestor": b"freakc/runtime/leaf|runtime/leaf\nfreakc/runtime/leaf/child|runtime/leaf/child\n",
@@ -416,7 +425,7 @@ def create_distribution(
         encoding="utf-8"
     )
     (dist / "distribution-files.manifest").write_bytes(
-        manifest_text.replace("\n", "\r\n").rstrip("\r\n").encode("utf-8")
+        ("\r\n" + manifest_text.replace("\n", "\r\n\r\n").rstrip("\r\n")).encode("utf-8")
     )
 
     if windows:
@@ -659,7 +668,7 @@ def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> 
             hangar_asset = f"hangar-{platform_tag}-{arch_tag}"
         (fallback_release / freak_asset).write_bytes(b"standalone freak\n")
         (fallback_release / hangar_asset).write_bytes(b"standalone hangar\n")
-        manifest_bytes = (repo / "packaging" / "distribution-files.manifest").read_bytes().rstrip(b"\r\n")
+        manifest_bytes = b"\r\n" + (repo / "packaging" / "distribution-files.manifest").read_bytes().replace(b"\n", b"\r\n\r\n").rstrip(b"\r\n")
         raw_manifest = fallback_raw / "packaging" / "distribution-files.manifest"
         raw_manifest.parent.mkdir(parents=True)
         raw_manifest.write_bytes(manifest_bytes)
