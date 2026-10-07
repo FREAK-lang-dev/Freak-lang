@@ -112,28 +112,49 @@ def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def trace_token(line: str) -> tuple[str, str]:
+    # Clang's printArg grammar escapes quote, backslash, and dollar;
+    # its display is not JSON or a shell command.
+    line = line.strip()
+    if not line:
+        return "", ""
+    quoted = line.startswith('"')
+    token = ""
+    end = int(quoted)
+    while end < len(line):
+        ch = line[end]
+        if quoted and ch == '"':
+            assert end + 1 == len(line) or line[end + 1].isspace(), line
+            return token, line[end + 1:]
+        if not quoted and ch.isspace():
+            return token, line[end + 1:]
+        if quoted and ch == "\\":
+            end += 1
+            assert end < len(line) and line[end] in '\\"$', line
+            ch = line[end]
+        elif not quoted:
+            assert ch != '"', line
+        token += ch
+        end += 1
+    assert not quoted, line
+    return token, ""
+
+
+def display_token(value: str) -> str:
+    return '"' + ''.join('\\' + ch if ch in '\\"$' else ch for ch in value) + '"'
+
+
 def linker_from_trace(text: str) -> Path:
     for line in text.splitlines():
         line = line.strip()
         if not line.startswith('"'):
             continue
-        # Clang's printArg grammar escapes quote, backslash, and dollar;
-        # its display is not JSON or a shell command.
-        token = ""
-        end = 1
-        while end < len(line):
-            ch = line[end]
-            if ch == '"':
-                break
-            if ch == "\\":
-                end += 1
-                assert end < len(line) and line[end] in '\\"$', line
-                ch = line[end]
-            token += ch
-            end += 1
-        assert end < len(line) and (end + 1 == len(line) or line[end + 1].isspace()), line
+        token, remaining = trace_token(line)
+        role, _ = trace_token(remaining)
+        if role in {"-cc1", "-cc1as"}:
+            continue
         leaf = Path(token).name.lower()
-        if leaf in {"ld", "ld.exe", "ld.lld", "ld.lld.exe", "lld-link", "lld-link.exe", "link.exe", "ld64", "ld.bfd", "ld.gold"} or leaf.endswith(("-ld", "-ld.exe")):
+        if leaf in {"ld", "ld.exe", "ld.lld", "ld.lld.exe", "lld-link", "lld-link.exe", "link", "link.exe", "ld64", "ld64.lld", "mold", "mold.exe", "ld.bfd", "ld.gold"} or leaf.endswith(("-ld", "-ld.exe")):
             result = Path(token)
             if sys.platform == "win32" and not result.exists():
                 result = Path(token + ".exe")
@@ -212,6 +233,7 @@ def main() -> int:
             report["recorder"] = {"path": str(recorder), "sha256": sha(recorder)}
             code, output = run([str(real_clang), "-###", "-x", "c", os.devnull, "-o", os.devnull], root, env)
             assert code == 0, output
+            driver_trace = output
             real_linker = linker_from_trace(output)
             report["linker"] = {"path": str(real_linker), "sha256": sha(real_linker)}
             names = ["plain", "spaces in path", "apostrophe'path", "日本語", "dollar$percent%"]
@@ -377,6 +399,68 @@ def main() -> int:
                 invoke("--c", hit=True, supplied=bad_linker_env)
                 report["missing_interpreter_controls"] = {"clang_path": True, "clang_empty_component": True,
                                                           "completed_nonzero_linker_path": True}
+            # A compiler basename can itself look like a linker. Decode the
+            # immediate command role before adopting the later link job.
+            role_alias = linker_dir / ("foo-ld.exe" if os.name == "nt" else "foo-ld")
+            shutil.copy2(recorder, role_alias)
+            role_env = env | {"FREAK_CLANG": str(role_alias), "FREAK_TOOL_TRACE_MODE": "override"}
+            for number, role in enumerate(("-cc1", "-cc1as")):
+                role_env["FREAK_TOOL_TRACE"] = (display_token(str(role_alias)) + " " + display_token(role) + "\n" +
+                                               display_token(str(linker)) + ' "--link-job"\n')
+                invoke("--c", hit=number != 0, supplied=role_env)
+                invoke("--c", hit=True, supplied=role_env)
+                linker.write_bytes(linker.read_bytes() + b"\nrole-selected linker replacement\n")
+                invoke("--c", hit=False, supplied=role_env)
+                invoke("--c", hit=True, supplied=role_env)
+            report["controlled_native_roles"] = ["-cc1", "-cc1as"]
+            # Linux can relocate the actual image with its conventional
+            # resource tree. Other hosts retain the native controlled role
+            # cases without asserting an unverified SDK relocation contract.
+            if sys.platform.startswith("linux"):
+                compiler = None
+                for line in driver_trace.splitlines():
+                    if line.strip().startswith('"'):
+                        image, remaining = trace_token(line)
+                        role, _ = trace_token(remaining)
+                        if role == "-cc1":
+                            compiler = Path(image).resolve(strict=True)
+                            break
+                assert compiler is not None and compiler.is_file(), driver_trace
+                code, output = run([str(real_clang), "-print-resource-dir"], root, env)
+                assert code == 0, output
+                resources = Path(output.strip()).resolve(strict=True)
+                alias_root = root / "actual Clang alias"
+                alias_bin = alias_root / "bin"
+                alias_bin.mkdir(parents=True)
+                alias_resources = alias_root / "lib" / "clang" / resources.name
+                shutil.copytree(resources, alias_resources)
+                private.claim_fresh_directories(alias_root, alias_bin, alias_root / "lib", alias_root / "lib" / "clang",
+                                                alias_resources, *sorted(path for path in alias_resources.rglob("*") if path.is_dir()))
+                actual_alias = alias_bin / "foo-ld"
+                shutil.copy2(compiler, actual_alias)
+                adjacent_linker = alias_bin / real_linker.name
+                shutil.copy2(recorder, adjacent_linker)
+                actual_alias_env = env | {"FREAK_CLANG": str(actual_alias), "FREAK_TOOL_LINKER_NAME": adjacent_linker.name}
+                for key in ("FREAK_TOOL_LINKER_FLAG", "FREAK_TOOL_LINKER_FLAG2"):
+                    actual_alias_env.pop(key, None)
+                code, output = run([str(actual_alias), "-###", "-x", "c", os.devnull, "-o", os.devnull], root, actual_alias_env)
+                assert code == 0 and linker_from_trace(output).samefile(adjacent_linker), output
+                assert any(trace_token(trace_token(line)[1])[0] == "-cc1" and
+                           Path(trace_token(line)[0]).samefile(actual_alias)
+                           for line in output.splitlines() if line.strip().startswith('"')), output
+                invoke("--c", hit=False, supplied=actual_alias_env)
+                invoke("--c", hit=True, supplied=actual_alias_env)
+                before_linker = sha(adjacent_linker)
+                adjacent_linker.write_bytes(adjacent_linker.read_bytes() + b"\nactual alias linker replacement\n")
+                invoke("--c", hit=False, supplied=actual_alias_env)
+                invoke("--c", hit=True, supplied=actual_alias_env)
+                report["actual_linux_alias"] = {"image": str(actual_alias), "image_sha256": sha(actual_alias),
+                                                "original_image": str(compiler), "original_image_sha256": sha(compiler),
+                                                "resource_source": str(resources), "resource_destination": str(alias_resources),
+                                                "resource_inputs": {path.relative_to(resources).as_posix(): sha(path) for path in resources.rglob("*") if path.is_file()},
+                                                "resource_copies": {path.relative_to(alias_resources).as_posix(): sha(path) for path in alias_resources.rglob("*") if path.is_file()},
+                                                "linker_before": before_linker, "linker_after": sha(adjacent_linker)}
+                assert report["actual_linux_alias"]["resource_inputs"] == report["actual_linux_alias"]["resource_copies"]
             env["FREAK_CLANG"] = str(wrappers[-1])
             invoke("--llvm", hit=False)
             invoke("--llvm", hit=True)

@@ -1199,14 +1199,42 @@ task cli_linker_executable_from_trace(trace: word) -> word {
             pilot executable = cli_trace_executable_token(line)
             if executable == "" and line.trim() != "" { give back "" }
             if cli_trace_command_is_linker(executable) {
-                if cli_is_windows() and not fs::exists(executable) and fs::exists(executable + ".exe") {
-                    executable = executable + ".exe"
+                pilot arguments = cli_trace_argument_tail(line)
+                pilot first_argument = cli_trace_executable_token(arguments)
+                if first_argument == "" and arguments.trim() != "" { give back "" }
+                -- A selected Clang image may itself be named ld or foo-ld.
+                -- Its immediate cc1 role identifies compilation, not linking.
+                if first_argument != "-cc1" and first_argument != "-cc1as" {
+                    if cli_is_windows() and not fs::exists(executable) and fs::exists(executable + ".exe") {
+                        executable = executable + ".exe"
+                    }
+                    give back executable
                 }
-                give back executable
             }
             line = ""
         } else {
             line = line + ch
+        }
+        ti += 1
+    }
+    give back ""
+}
+
+task cli_trace_argument_tail(line: word) -> word {
+    -- The caller has validated the first display token with the shared
+    -- decoder. Locate its lexical end, then decode the immediate argument
+    -- through that same decoder without interpreting other argument text.
+    pilot clean_line = line.trim()
+    if clean_line == "" { give back "" }
+    pilot quoted = clean_line.char_at(0) == "\""
+    pilot ti = 0
+    if quoted { ti = 1 }
+    repeat until ti >= clean_line.length() {
+        pilot ch = clean_line.char_at(ti)
+        if quoted and ch == "\\" {
+            ti += 1
+        } else if (quoted and ch == "\"") or (not quoted and (ch == " " or ch == "\t")) {
+            give back clean_line.substring(ti + 1, clean_line.length() - ti - 1)
         }
         ti += 1
     }
