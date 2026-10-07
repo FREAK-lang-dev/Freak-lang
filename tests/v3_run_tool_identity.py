@@ -201,6 +201,9 @@ task main() {
 ''', encoding="utf-8")
     digest = hashlib.sha256(b"raw certutil parser oracle").hexdigest()
     encoded = digest.encode()
+    # Captured `say` uses the native CRT text stream: CRLF on Windows,
+    # LF elsewhere. Compare exact output bytes without normalizing the digest.
+    newline = b"\r\n" if os.name == "nt" else b"\n"
     cases = [
         ("lower", encoded + b"\n", digest),
         ("upper", encoded.upper() + b"\r\n", digest),
@@ -231,13 +234,13 @@ task main() {
             fixture = root / ("sha256-" + name + ".data"); fixture.write_bytes(data)
             code, output = run([str(binary), str(fixture)], root, env, timeout=15)
             command = report["commands"][-1]
-            assert code == 0 and bytes.fromhex(command["stdout_hex"]) == (expected + "\n").encode(), (backend, name, code, output)
+            assert code == 0 and bytes.fromhex(command["stdout_hex"]) == expected.encode() + newline, (backend, name, code, output)
             assert not any(marker in bytes.fromhex(command["stderr_hex"]) for marker in
                            (b"ownership audit found", b"AddressSanitizer", b"LeakSanitizer", b"runtime error:")), (backend, name, output)
             evidence["cases"].append({"backend": backend, "case": name, "input_sha256": sha(fixture), "expected": expected, "returncode": code})
         dirty = root / "sha256-dirty.data"; dirty.write_bytes(encoded + b"\n")
         code, output = run([str(binary), str(dirty), "dirty"], root, env, timeout=15)
-        assert code == 0 and bytes.fromhex(report["commands"][-1]["stdout_hex"]) == b"\n", (backend, "dirty", code, output)
+        assert code == 0 and bytes.fromhex(report["commands"][-1]["stdout_hex"]) == newline, (backend, "dirty", code, output)
         assert b"ownership audit found" not in bytes.fromhex(report["commands"][-1]["stderr_hex"]), (backend, "dirty", output)
         evidence["cases"].append({"backend": backend, "case": "dirty-buffer", "input_sha256": sha(dirty), "expected": "", "returncode": code})
     print("PASS raw SHA256 parser C/LLVM: 36 localized, exact and fail-closed controls", flush=True)
