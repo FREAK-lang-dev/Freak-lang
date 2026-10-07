@@ -26,6 +26,12 @@ task cli_run_sha256_from_output(output: word) -> word {
         if not at_end { ch = output.char_at(oi) }
         if ch == " " or ch == "\t" or ch == "\r" or ch == "\n" {
             if cli_run_valid_sha256(token) { give back token.to_lower() }
+            -- GNU-compatible hash tools mark escaped filenames by prefixing
+            -- the digest with one backslash. The digest bytes stay unchanged.
+            if token.length() == 65 and token.starts_with("\\") {
+                pilot digest = token.substring(1, 64)
+                if cli_run_valid_sha256(digest) { give back digest.to_lower() }
+            }
             token = ""
         } else {
             token = token + ch

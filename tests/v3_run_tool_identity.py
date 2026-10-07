@@ -117,9 +117,21 @@ def linker_from_trace(text: str) -> Path:
         line = line.strip()
         if not line.startswith('"'):
             continue
-        token, end = json.JSONDecoder().raw_decode(line)
-        if not isinstance(token, str) or (end < len(line) and not line[end].isspace()):
-            continue
+        # Clang's printArg grammar escapes quote, backslash, and dollar;
+        # its display is not JSON or a shell command.
+        token = ""
+        end = 1
+        while end < len(line):
+            ch = line[end]
+            if ch == '"':
+                break
+            if ch == "\\":
+                end += 1
+                assert end < len(line) and line[end] in '\\"$', line
+                ch = line[end]
+            token += ch
+            end += 1
+        assert end < len(line) and (end + 1 == len(line) or line[end + 1].isspace()), line
         leaf = Path(token).name.lower()
         if leaf in {"ld", "ld.exe", "ld.lld", "ld.lld.exe", "lld-link", "lld-link.exe", "link.exe", "ld64", "ld.bfd", "ld.gold"} or leaf.endswith(("-ld", "-ld.exe")):
             result = Path(token)
