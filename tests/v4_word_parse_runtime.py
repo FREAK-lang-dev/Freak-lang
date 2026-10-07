@@ -196,8 +196,8 @@ def sanitizer_environment(sanitized: bool):
         for name in names:
             os.environ.pop(name, None)
         if sanitized:
-            os.environ["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1:exitcode=88"
-            os.environ["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1:exitcode=88"
+            os.environ["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1:exitcode=88:symbolize=0"
+            os.environ["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1:exitcode=88:symbolize=0"
         yield
     finally:
         for name, value in previous.items():

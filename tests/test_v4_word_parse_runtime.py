@@ -186,20 +186,35 @@ class WordParseOracleTests(unittest.TestCase):
             gate.validate_build_flags([*flags, "-DNDEBUG"], True)
 
     def test_sanitizer_environment_restores_prior_settings(self):
-        original = {name: "inherited" for name in ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTIONS")}
-        with mock.patch.dict(os.environ, original):
-            with gate.sanitizer_environment(True):
-                self.assertIn("detect_leaks=1", os.environ["ASAN_OPTIONS"])
-                self.assertIn("exitcode=88", os.environ["UBSAN_OPTIONS"])
-                self.assertNotIn("LSAN_OPTIONS", os.environ)
-            for name in original:
-                self.assertEqual(os.environ[name], "inherited")
-            with self.assertRaises(RuntimeError):
-                with gate.sanitizer_environment(False):
-                    self.assertTrue(all(name not in os.environ for name in original))
-                    raise RuntimeError("test exception")
-            for name in original:
-                self.assertEqual(os.environ[name], "inherited")
+        original = {
+            "ASAN_OPTIONS": "symbolize=1:detect_leaks=0:halt_on_error=0:exitcode=0:print_summary=0",
+            "LSAN_OPTIONS": "symbolize=1:detect_leaks=0:exitcode=0:suppressions=/mock/suppressions",
+            "UBSAN_OPTIONS": "symbolize=1:print_stacktrace=0:halt_on_error=0:exitcode=0:print_summary=0",
+        }
+        expected = {
+            "ASAN_OPTIONS": {"halt_on_error": "1", "detect_leaks": "1", "exitcode": "88", "symbolize": "0"},
+            "UBSAN_OPTIONS": {"halt_on_error": "1", "print_stacktrace": "1", "exitcode": "88", "symbolize": "0"},
+        }
+        for sanitized, body_raises in itertools.product((False, True), repeat=2):
+            with self.subTest(sanitized=sanitized, body_raises=body_raises), mock.patch.dict(os.environ, original):
+                def exercise():
+                    with gate.sanitizer_environment(sanitized):
+                        self.assertNotIn("LSAN_OPTIONS", os.environ)
+                        for name, options in expected.items():
+                            if sanitized:
+                                actual = dict(item.split("=", 1) for item in os.environ[name].split(":"))
+                                self.assertEqual(actual, options)
+                            else:
+                                self.assertNotIn(name, os.environ)
+                        if body_raises:
+                            raise RuntimeError("test exception")
+
+                if body_raises:
+                    with self.assertRaisesRegex(RuntimeError, "test exception"):
+                        exercise()
+                else:
+                    exercise()
+                self.assertEqual({name: os.environ.get(name) for name in original}, original)
 
     @staticmethod
     def completed_report(sanitized):
