@@ -66,14 +66,14 @@ LITERAL_PROGRAM = '''task main() {
     say "{}"
     say "{\\"kind\\":\\"object\\"}"
     say "!{}"
-    say "code { if (x) { y } }"
-    say "{score + 1}"
-    say "{ name }"
-    say "{true}"
-    say "{TRUE}"
-    say "{if}"
-    say "{Task}"
-    say "unmatched {name"
+    say "code \\{ if (x) \\{ y \\} \\}"
+    say "\\{score + 1\\}"
+    say "\\{ name \\}"
+    say "\\{true\\}"
+    say "\\{TRUE\\}"
+    say "\\{if\\}"
+    say "\\{Task\\}"
+    say "unmatched \\{name"
     say "<<PIPE>>"
     say "\\x41{code}\\x42"
     say "z\\x41{code}q\\x42"
@@ -168,6 +168,28 @@ NEGATIVE_LINES = {
     "missing_field": 4,
     "unsupported_terminal": 4,
 }
+
+# Preserve the original unescaped literal cases as strict FIX-05 rejection
+# controls. Their escaped counterparts above retain every original output.
+SYNTAX_PROGRAMS = {
+    "literal_code": 'task main() {\n    say "code { if (x) { y } }"\n}\n',
+    "literal_expression": 'task main() {\n    say "{score + 1}"\n}\n',
+    "literal_spaced": 'task main() {\n    say "{ name }"\n}\n',
+    "literal_true": 'task main() {\n    say "{true}"\n}\n',
+    "literal_upper_true": 'task main() {\n    say "{TRUE}"\n}\n',
+    "literal_if": 'task main() {\n    say "{if}"\n}\n',
+    "literal_task": 'task main() {\n    say "{Task}"\n}\n',
+    "literal_unclosed": 'task main() {\n    say "unmatched {name"\n}\n',
+}
+NEGATIVE_PROGRAMS.update(SYNTAX_PROGRAMS)
+NEGATIVE_DIAGNOSTICS.update({
+    name: (
+        "unterminated interpolation expression" if name == "literal_unclosed"
+        else "unsupported interpolation expression"
+    )
+    for name in SYNTAX_PROGRAMS
+})
+NEGATIVE_LINES.update({name: 2 for name in SYNTAX_PROGRAMS})
 
 
 def run(
@@ -323,6 +345,7 @@ def assert_negative(
     diagnostic: str,
     source: Path,
     line: int,
+    syntax_error: bool = False,
 ) -> None:
     """
     Validate a failed compilation result against its expected diagnostic and source location.
@@ -338,9 +361,14 @@ def assert_negative(
     normalized = output.replace("\\", "/")
     assert result.returncode != 0, f"{label} unexpectedly passed\n{output}"
     assert diagnostic in output, f"{label} missed diagnostic\n{output}"
-    assert normalized.count("type error") == 1, (
-        f"{label} emitted duplicate type diagnostics\n{output}"
-    )
+    if syntax_error:
+        assert normalized.count(diagnostic) == 1, (
+            f"{label} emitted duplicate syntax diagnostics\n{output}"
+        )
+    else:
+        assert normalized.count("type error") == 1, (
+            f"{label} emitted duplicate type diagnostics\n{output}"
+        )
     assert f"/{source.name}:{line}:" in normalized, (
         f"{label} lost string-token line provenance\n{output}"
     )
@@ -520,6 +548,7 @@ def main() -> int:
                 diagnostic=diagnostic,
                 source=source,
                 line=line,
+                syntax_error=name in SYNTAX_PROGRAMS,
             )
             assert_absent(artifacts, f"check {name}")
             for backend, flag in (("c", "--c"), ("llvm", "--llvm")):
@@ -535,6 +564,7 @@ def main() -> int:
                         diagnostic=diagnostic,
                         source=source,
                         line=line,
+                        syntax_error=name in SYNTAX_PROGRAMS,
                     )
                     assert_absent(artifacts, f"{backend} {command} {name}")
 
@@ -551,6 +581,7 @@ def main() -> int:
                     diagnostic=diagnostic,
                     source=source,
                     line=line,
+                    syntax_error=name in SYNTAX_PROGRAMS,
                 )
                 assert_absent([direct_artifact], f"direct {backend} {name}")
 

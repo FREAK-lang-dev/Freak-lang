@@ -157,8 +157,13 @@ connect(host: "localhost", port: 8080, timeout: 30)
 - `say` — print keyword (always available, no import)
 - String path interpolation: `{path}` inside double-quoted strings, where a
   path is an identifier followed by zero or more `.field` hops. The path must
-  resolve to `word`, `int`, `num`, or `bool`. Matched brace bodies that are not
-  paths, and unmatched braces, remain literal text.
+  resolve to `word`, `int`, `num`, or `bool`. Unsupported expression-like
+  bodies are errors: after trimming whitespace, a matched non-path body that
+  starts with an identifier/keyword, number, `(`, `+`, `-`, or `!` is rejected
+  unless it contains `:` (object/JSON-like literal text). An unclosed path or
+  expression containing call/operator syntax is also an error. Empty braces
+  and other non-expression brace text remain literal. Use `\{` and `\}` to
+  spell literal braces, for example `"\{score + 1\}"`.
 - `{}` and `done` are identical block delimiters
 
 ### 1.3 Types — Primitive

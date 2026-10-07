@@ -2085,20 +2085,24 @@ def audit_conformance(paths: List[Path]) -> int:
         )
 
     # Check 6c: V3 freezes path interpolation as an ordinary owned word
-    # expression. Non-path brace bodies are literal compatibility text.
+    # expression. Stronger FIX-05 rejects expression-like non-path bodies;
+    # escaped braces and non-expression text retain their literal contract.
     interpolation_missing: List[str] = []
     interpolation_sources = {
         "bible": (
             bible,
-            ("String path interpolation", "`{path}`", "remain literal text"),
+            ("String path interpolation", "`{path}`", "Unsupported expression-like",
+             "object/JSON-like literal text", "Use `\\{` and `\\}`"),
         ),
         "audit": (
             audit_doc,
-            ("String path interpolation", "IDENT(.IDENT)*", "tests/v3_interpolation.py"),
+            ("String path interpolation", "IDENT(.IDENT)*", "tests/v3_interpolation.py",
+             "Stronger FIX-05", "does not establish V4 interpolation parity"),
         ),
         "parser": (
             repo / "src" / "compiler" / "v3" / "parser.fk",
-            ("parser_interp_path_valid", "lex_ident_token_type", "EXPR_INTERP"),
+            ("parser_interp_path_valid", "lex_ident_token_type", "EXPR_INTERP",
+             "unsupported interpolation expression", "unterminated interpolation expression"),
         ),
         "checker": (
             repo / "src" / "compiler" / "v3" / "checker.fk",
@@ -2114,7 +2118,8 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "focused gate": (
             repo / "tests" / "v3_interpolation.py",
-            ("LITERAL_PROGRAM", "NEGATIVE_PROGRAMS", "detect_leaks=1"),
+            ("LITERAL_PROGRAM", "NEGATIVE_PROGRAMS", "detect_leaks=1",
+             "SYNTAX_PROGRAMS", "syntax_error=name in SYNTAX_PROGRAMS"),
         ),
         "preservation manifest": (
             repo / "tests" / "v3_legacy" / "golden" / "cases.json",
