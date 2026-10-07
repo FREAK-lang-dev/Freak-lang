@@ -1177,7 +1177,7 @@ task cli_trace_executable_token(line: word) -> word {
             ti += 1
             if ti >= clean_line.length() { give back "" }
             ch = clean_line.char_at(ti)
-            if ch != "\\" and ch != "\"" { give back "" }
+            if ch != "\\" and ch != "\"" and ch != "$" { give back "" }
         } else if not quoted and ch == "\"" {
             give back ""
         }

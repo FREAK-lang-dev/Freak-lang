@@ -213,7 +213,7 @@ def main() -> int:
                 wrapper = directory / ("tool-clang.exe" if os.name == "nt" else "tool-clang")
                 shutil.copy2(recorder, wrapper)
                 wrappers.append(wrapper)
-            linker_dir = root / "linker space'apostrophe日本語$%"
+            linker_dir = root / "linker space'apostrophe日本語$%`"
             linker_dir.mkdir()
             private.claim_fresh_directories(linker_dir)
             linker = linker_dir / real_linker.name
