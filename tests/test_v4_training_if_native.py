@@ -154,5 +154,64 @@ class TrainingRuntimeInventory(unittest.TestCase):
                     gate.validate_report(report, sanitize)
 
 
+class TrainingBootstrapQuietLink(unittest.TestCase):
+    def invoke(self, host, command, result, memory=1024):
+        original = object()
+        checks = SimpleNamespace(run_with_heartbeat=original)
+        calls = []
+        def run(argv, label, **caps):
+            calls.append((argv, label, caps))
+            return result
+        try:
+            with patch.object(gate.sys, 'platform', host), gate.recorded_bootstrap(checks, SimpleNamespace(run=run)):
+                actual = checks.run_with_heartbeat(command, label='first bootstrap', memory_limit_mb=memory)
+        finally:
+            self.assertIs(checks.run_with_heartbeat, original)
+        return actual, calls
+
+    def test_windows_actual_bootstrap_selects_lld_for_default_msvc_and_gnu(self):
+        result = SimpleNamespace(returncode=0, stdout='', stderr='')
+        for target in ((), ('--target=x86_64-pc-windows-msvc',), ('--target=x86_64-w64-windows-gnu',)):
+            command = [r'C:\Program Files\LLVM\bin\clang.EXE', *target, '-o', 'fresh.exe', 'fresh.c',
+                       'freak_runtime.c', '-Iruntime', '-w', '-O0', '-DFREAK_ARRAY_LIVE_LIMIT=1024', '-lws2_32']
+            saved = list(command)
+            with self.subTest(target=target):
+                actual, calls = self.invoke('win32', command, result)
+                self.assertIs(actual, result)
+                self.assertEqual(command, saved)
+                self.assertEqual(calls, [(saved + ['-fuse-ld=lld'], 'first bootstrap', {'timeout':120, 'memory':1024})])
+                self.assertEqual(calls[0][0][0], command[0])
+                self.assertEqual(calls[0][0].count('-fuse-ld=lld'), 1)
+
+    def test_nonwindows_actual_bootstrap_preserves_same_command_and_caps(self):
+        command = ['clang', '-o', 'fresh', 'fresh.c', 'freak_runtime.c', '-O0', '-DFREAK_ARRAY_LIVE_LIMIT=1024']
+        result = SimpleNamespace(returncode=0, stdout='', stderr='')
+        for host in ('linux', 'darwin'):
+            with self.subTest(host=host):
+                actual, calls = self.invoke(host, command, result)
+                self.assertIs(actual, result)
+                self.assertIs(calls[0][0], command)
+                self.assertEqual(calls, [(command, 'first bootstrap', {'timeout':120, 'memory':1024})])
+
+    def test_actual_quiet_guard_rejects_failed_exits_and_every_stream(self):
+        notice = '   Creating library fresh.lib and object fresh.exp\n'
+        command = ['clang', '-DFREAK_ARRAY_LIVE_LIMIT=1024']
+        for host in ('win32', 'linux'):
+            for code, stdout, stderr in ((1,'',''),(-9,'',''),(0,notice,''),(0,'warning\n',''),
+                                         (0,'','warning\n'),(0,' ','') ,(0,'',' '),(1,notice,'error\n')):
+                with self.subTest(host=host, exit=code, stdout=stdout, stderr=stderr), self.assertRaisesRegex(RuntimeError, 'bounded bootstrap compile failed'):
+                    self.invoke(host, command, SimpleNamespace(returncode=code, stdout=stdout, stderr=stderr))
+
+    def test_original_resource_guard_precedes_actual_runner(self):
+        for host in ('win32', 'linux'):
+            for memory, command in ((512,['clang','-DFREAK_ARRAY_LIVE_LIMIT=1024']),
+                                    (1024,['clang']), (1024,['clang','-DFREAK_ARRAY_LIVE_LIMIT=2048'])):
+                checks = SimpleNamespace(run_with_heartbeat=object())
+                def forbidden(*args, **kwargs): self.fail('invalid resource contract reached Runner')
+                with self.subTest(host=host, memory=memory, command=command), patch.object(gate.sys, 'platform', host), gate.recorded_bootstrap(checks, SimpleNamespace(run=forbidden)):
+                    with self.assertRaisesRegex(RuntimeError, 'bootstrap resource/handle contract changed'):
+                        checks.run_with_heartbeat(command, label='first bootstrap', memory_limit_mb=memory)
+
+
 if __name__ == '__main__':
     unittest.main()

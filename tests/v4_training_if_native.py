@@ -148,7 +148,10 @@ def recorded_bootstrap(checks, runner):
     def execute(command, *, label, memory_limit_mb):
         if memory_limit_mb != 1024 or '-DFREAK_ARRAY_LIVE_LIMIT=1024' not in command:
             raise RuntimeError('bootstrap resource/handle contract changed')
-        result = runner.run(command, label, timeout=120, memory=1024)
+        # MSVC LINK prints import-library notices for this runtime's exports.
+        # Select the quiet LLD linker while keeping the exact stream guard.
+        argv = [*command, '-fuse-ld=lld'] if sys.platform == 'win32' else command
+        result = runner.run(argv, label, timeout=120, memory=1024)
         if result.returncode != 0 or result.stdout or result.stderr:
             raise RuntimeError('bounded bootstrap compile failed')
         return result
