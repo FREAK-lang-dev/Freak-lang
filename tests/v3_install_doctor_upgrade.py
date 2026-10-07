@@ -2910,7 +2910,7 @@ def main() -> int:
     check_manifest(repo, entries)
     check_static_contracts(repo)
     with tempfile.TemporaryDirectory(prefix="freak-v3-install-doctor-") as tmp:
-        root = Path(tmp)
+        root = Path(tmp).resolve(strict=True)
         check_installer_manifest_validation(repo, root)
         archive = create_distribution(
             repo, root, entries, windows=sys.platform == "win32"
