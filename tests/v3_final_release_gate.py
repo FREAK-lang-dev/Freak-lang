@@ -573,7 +573,9 @@ def assert_exact_installed_discovery(
     assert "compile, link, and execution work" in doctor.stdout
 
     hello = hostile / "installed_hello.fk"
-    hello.write_text('say "FINAL_RELEASE_INSTALLED_OK"\n', encoding="utf-8")
+    hello.write_text(
+        'task main() { say "FINAL_RELEASE_INSTALLED_OK" }\n', encoding="utf-8"
+    )
     built = run([str(freak), "build", str(hello)], hostile, env, timeout=300)
     require_ok(built, "installed compiler build")
     if sys.platform == "win32":
@@ -598,7 +600,7 @@ def assert_installed_abi_mismatch(
     Verify that installed runtime and standard-library ABI mismatches fail closed for C and LLVM builds and are reported by Doctor.
     """
     source = root / "abi_mismatch.fk"
-    source.write_text('say "must not compile"\n', encoding="utf-8")
+    source.write_text('task main() { say "must not compile" }\n', encoding="utf-8")
     binary = source.with_suffix(".exe" if sys.platform == "win32" else "")
     outputs = (
         Path(str(source) + ".c"),
