@@ -71,6 +71,18 @@ jobs:
           python -B -u tests/v3_v35_process_launch_diagnostic_native.py
           --clang "${{ env.FREAK_V4_CI_CLANG }}"
           --report "${{ runner.temp }}/freak-v4-posix-launch-diagnostic.json"
+      - name: Verify ticket word ownership (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          python -B -u tests/v3_v35_ticket_word_ownership_native.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}" --sanitize
+          --report "${{ runner.temp }}/freak-v4-ticket-word-ownership.json"
+      - name: Verify ticket word ownership (macOS and Windows)
+        if: runner.os != 'Linux'
+        run: >
+          python -B -u tests/v3_v35_ticket_word_ownership_native.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --report "${{ runner.temp }}/freak-v4-ticket-word-ownership.json"
       - name: Observe native Windows bootstrap directory operations
         if: runner.os == 'Windows'
         run: >
@@ -89,6 +101,37 @@ jobs:
           --clang "${{ env.FREAK_V4_CI_CLANG }}"
           --optimization 0 --optimization 2 --optimization 3
           --report "${{ runner.temp }}/freak-v4-windows-fs.json"
+      - name: Verify native project-directory admission
+        shell: bash
+        env:
+          FREAK_PROJECT_WORK: ${{ runner.temp }}/freak-v4-project-admission
+          FREAK_PROJECT_STAGE2: ${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction/freakc_stage2
+        run: |
+          python -B -u - <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+          work = Path(os.environ['FREAK_PROJECT_WORK'])
+          payload = work / 'payload'
+          payload.mkdir(parents=True, exist_ok=False)
+          rows = 0
+          for line in Path('packaging/distribution-files.manifest').read_text(encoding='utf-8').splitlines():
+              if not line or line.startswith('#'):
+                  continue
+              source, destination = line.split('|')
+              target = payload / destination
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, target)
+              rows += 1
+          assert rows == 72
+          compiler = os.environ['FREAK_PROJECT_STAGE2'] + ('.exe' if os.name == 'nt' else '')
+          clang = shutil.which(os.environ['FREAK_V4_CI_CLANG']) or os.environ['FREAK_V4_CI_CLANG']
+          subprocess.run([sys.executable, '-B', '-u', 'tests/v3_v35_project_admission.py',
+                          '--compiler', compiler, '--clang', clang,
+                          '--payload-home', str(payload), '--probe-root', str(work / 'probes')], check=True)
+          PY
       - name: Verify native word-call ownership and copied bytes (Linux)
         if: runner.os == 'Linux'
         run: >
@@ -114,6 +157,8 @@ jobs:
             ${{ runner.temp }}/freak-v4-locked-bootstrap/public-contracts*.json
             ${{ runner.temp }}/freak-v4-runtime-ci.json
             ${{ runner.temp }}/freak-v4-posix-launch-diagnostic.json
+            ${{ runner.temp }}/freak-v4-ticket-word-ownership.json
+            ${{ runner.temp }}/freak-v4-project-admission/probes/report.json
             ${{ runner.temp }}/freak-v4-word-call-ownership.json
             ${{ runner.temp }}/freak-v4-c-emission/gate.json
             ${{ runner.temp }}/freak-v4-bootstrap-fs-probe.json
