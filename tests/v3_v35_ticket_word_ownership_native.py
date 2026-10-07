@@ -271,6 +271,8 @@ def main() -> int:
     assert clang, args.clang
     repo = Path(__file__).resolve().parents[1]
     runtime = (args.runtime or repo/'freakc/runtime').resolve(strict=True)
+    executable_suffix = '.exe' if os.name == 'nt' else ''
+    native_eol = b'\r\n' if os.name == 'nt' else b'\n'
     vendor = runtime.parents[1]/'third_party/llhttp'
     inputs = sorted(set([Path(__file__).resolve(), *(p for p in runtime.iterdir() if p.is_file()),
                          *(p for p in vendor.rglob('*') if p.is_file())]))
@@ -308,14 +310,14 @@ def main() -> int:
             if args.sanitize:
                 control_source = work/'sanitizer-control.c'
                 control_source.write_text('int main(void) { volatile int a=2147483647; return a+1; }\n')
-                control = work/'sanitizer-control'
+                control = work/f'sanitizer-control{executable_suffix}'
                 result = run([clang, '-O0', *sanitize, str(control_source), '-o', str(control)], 'sanitizer-control-build')
                 assert result.returncode == 0, records[-1]
                 result = run([str(control)], 'sanitizer-control-run')
                 assert result.returncode != 0 and b'runtime error' in result.stderr, records[-1]
                 address_source = work/'address-control.c'
                 address_source.write_text('#include <stdlib.h>\nint main(void) { char *p=malloc(1); free(p); return *(volatile char *)p; }\n')
-                address = work/'address-control'
+                address = work/f'address-control{executable_suffix}'
                 result = run([clang, '-O0', *sanitize, str(address_source), '-o', str(address)], 'address-control-build')
                 assert result.returncode == 0, records[-1]
                 result = run([str(address)], 'address-control-run')
@@ -323,7 +325,7 @@ def main() -> int:
             binaries = {}
             for optimization in args.optimization or (0, 2, 3):
                 for abi in ('c', 'llvm'):
-                    executable = work/f'owner-{abi}-O{optimization}'
+                    executable = work/f'owner-{abi}-O{optimization}{executable_suffix}'
                     command = [clang, *strict, f'-O{optimization}', *sanitize,
                                '-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1', '-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1',
                                str(source), str(runtime/'freak_llvm_runtime.c'), *libraries, '-o', str(executable)]
@@ -334,13 +336,13 @@ def main() -> int:
                     arguments = [str(fixture), str(work/'missing')]
                     result = run([str(executable), 'all', *arguments], f'run-{abi}-O{optimization}')
                     assert result.returncode == 0 and result.stderr == b'', records[-1]
-                    assert result.stdout.count(b'CASE ') == 24 and result.stdout.endswith(b'TICKET_WORD_OWNERSHIP_OK cases=24\n'), records[-1]
+                    assert result.stdout.count(b'CASE ') == 24 and result.stdout.endswith(b'TICKET_WORD_OWNERSHIP_OK cases=24' + native_eol), records[-1]
                     result = run([str(executable), 'leak', *arguments], f'leak-control-{abi}-O{optimization}')
                     assert result.returncode == (87 if abi == 'c' else 86), records[-1]
                     assert b'ownership audit found' in result.stderr and b'unreleased word allocation' in result.stderr, records[-1]
                     for kind in range(6):
                         result = run([str(executable), f'oom-{kind}', *arguments], f'oom-{kind}-{abi}-O{optimization}')
-                        assert result.returncode == 1 and b'FREAK: out of memory\n' in result.stderr, records[-1]
+                        assert result.returncode == 1 and b'FREAK: out of memory' + native_eol in result.stderr, records[-1]
                         assert b'UNREACHABLE' not in result.stdout, records[-1]
             report.update(status='pass', binaries=binaries, fixture_sha256=digest(source))
     finally:
