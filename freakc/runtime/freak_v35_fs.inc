@@ -482,7 +482,9 @@ static freak_fs_anchor freak_fs_anchor_dup(freak_fs_anchor directory) {
     if (!DuplicateHandle(GetCurrentProcess(),directory,GetCurrentProcess(),&copy,0,FALSE,DUPLICATE_SAME_ACCESS)) return INVALID_HANDLE_VALUE;
     return copy;
 }
-static freak_fs_anchor freak_fs_anchor_child_mode(freak_fs_anchor parent,const char *name,bool directory,bool create,bool writable,bool allow_reparse,bool exclusive) {
+static void freak_fs_sync_nonfinal(const char *operation);
+static bool freak_fs_windows_discard_new_temp(HANDLE child);
+static freak_fs_anchor freak_fs_anchor_child_mode_security(freak_fs_anchor parent,const char *name,bool directory,bool create,bool writable,bool allow_reparse,bool exclusive,PVOID security) {
     static freak_fs_nt_create_fn create_file = NULL;
     if (!create_file) create_file = (freak_fs_nt_create_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtCreateFile");
     if (!create_file) return INVALID_HANDLE_VALUE;
@@ -490,13 +492,17 @@ static freak_fs_anchor freak_fs_anchor_child_mode(freak_fs_anchor parent,const c
     size_t bytes = wcslen(wide) * sizeof(wchar_t);
     if (bytes > USHRT_MAX) { free(wide); return INVALID_HANDLE_VALUE; }
     freak_fs_nt_string string = {(USHORT)bytes,(USHORT)bytes,wide};
-    freak_fs_nt_object object = {sizeof(object),parent,&string,0x40 /* OBJ_CASE_INSENSITIVE */,NULL,NULL};
-    freak_fs_nt_io io; HANDLE child = INVALID_HANDLE_VALUE;
+    freak_fs_nt_object object = {sizeof(object),parent,&string,0x40 /* OBJ_CASE_INSENSITIVE */,security,NULL};
+    freak_fs_nt_io io={0}; io.value.status=0x103 /* STATUS_PENDING */;
+    HANDLE child = INVALID_HANDLE_VALUE;
     ACCESS_MASK access = SYNCHRONIZE | FILE_READ_ATTRIBUTES | (directory ? FILE_LIST_DIRECTORY | FILE_TRAVERSE : GENERIC_READ);
     if (writable) access |= DELETE | (directory ? FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_DELETE_CHILD : GENERIC_WRITE);
+    if (security) access |= READ_CONTROL;
     LONG status = create_file(&child,access,&object,&io,NULL,FILE_ATTRIBUTE_NORMAL,
         exclusive ? 0 : FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,create ? 2 /* FILE_CREATE */ : 1 /* FILE_OPEN */,
         (directory ? 1 /* FILE_DIRECTORY_FILE */ : 0x40 /* FILE_NON_DIRECTORY_FILE */) | 0x20 /* FILE_SYNCHRONOUS_IO_NONALERT */ | 0x200000 /* FILE_OPEN_REPARSE_POINT */,NULL,0);
+    if (security && (status == 0x103 || (status == 0 && io.value.status == 0x103)))
+        freak_fs_sync_nonfinal("owned temporary creation");
     free(wide);
     BY_HANDLE_FILE_INFORMATION info;
     if (status < 0) {
@@ -504,12 +510,22 @@ static freak_fs_anchor freak_fs_anchor_child_mode(freak_fs_anchor parent,const c
         convert_fn convert=(convert_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"RtlNtStatusToDosError");
         SetLastError(convert ? convert(status) : ERROR_ACCESS_DENIED); return INVALID_HANDLE_VALUE;
     }
+    if (security && (status != 0 || io.value.status != 0 || io.information != 2 /* FILE_CREATED */)) {
+        if (child != INVALID_HANDLE_VALUE) freak_fs_anchor_close(child);
+        SetLastError(ERROR_ACCESS_DENIED); return INVALID_HANDLE_VALUE;
+    }
     if (!GetFileInformationByHandle(child,&info) || GetFileType(child) != FILE_TYPE_DISK ||
         (!allow_reparse && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) || !!(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != directory) {
-        if (child != INVALID_HANDLE_VALUE) CloseHandle(child);
+        if (child != INVALID_HANDLE_VALUE) {
+            if (security) freak_fs_windows_discard_new_temp(child);
+            CloseHandle(child);
+        }
         SetLastError(ERROR_ACCESS_DENIED); return INVALID_HANDLE_VALUE;
     }
     return child;
+}
+static freak_fs_anchor freak_fs_anchor_child_mode(freak_fs_anchor parent,const char *name,bool directory,bool create,bool writable,bool allow_reparse,bool exclusive) {
+    return freak_fs_anchor_child_mode_security(parent,name,directory,create,writable,allow_reparse,exclusive,NULL);
 }
 static freak_fs_anchor freak_fs_anchor_child(freak_fs_anchor parent,const char *name,bool directory,bool create,bool writable) {
     return freak_fs_anchor_child_mode(parent,name,directory,create,writable,false,false);
@@ -1045,6 +1061,90 @@ static bool freak_fs_anchor_delete_handle(HANDLE item) {
     BOOLEAN dispose=TRUE;
     return freak_fs_anchor_set_information(item,&dispose,sizeof(dispose),13 /* FileDispositionInformation */);
 }
+/* Only a terminal FILE_CREATED response grants ownership of this new empty
+   identity. Never unwind a pending request's IOSB or dispose it by its name. */
+static bool freak_fs_windows_discard_new_temp(HANDLE child) {
+    freak_fs_nt_set_fn set=(freak_fs_nt_set_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtSetInformationFile");
+    if (!set) return false;
+    BOOLEAN dispose=TRUE; freak_fs_nt_io io={0}; io.value.status=0x103;
+    LONG status=set(child,&io,&dispose,sizeof(dispose),13 /* FileDispositionInformation */);
+    if (status == 0x103 || (status == 0 && io.value.status == 0x103))
+        freak_fs_sync_nonfinal("owned temporary cleanup");
+    return status == 0 && io.value.status == 0;
+}
+/* Owned temporary directories must belong to the effective user, even when
+   their token's default owner is a group. Supply only the owner; native DACL
+   inheritance remains in force. Existing objects and token defaults are never
+   modified. The absolute descriptor references the live bounded SID buffer. */
+static freak_fs_anchor freak_fs_windows_owned_temp(freak_fs_anchor parent,const char *name,bool *retryable) {
+    *retryable=false;
+    HANDLE child=INVALID_HANDLE_VALUE,token=NULL;
+    TOKEN_USER *user=NULL; PSECURITY_DESCRIPTOR returned=NULL;
+    DWORD error=ERROR_ACCESS_DENIED;
+    HMODULE security=LoadLibraryExW(L"advapi32.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!security) return INVALID_HANDLE_VALUE;
+    typedef BOOL (WINAPI *open_process_fn)(HANDLE,DWORD,PHANDLE);
+    typedef BOOL (WINAPI *open_thread_fn)(HANDLE,DWORD,BOOL,PHANDLE);
+    typedef BOOL (WINAPI *token_info_fn)(HANDLE,TOKEN_INFORMATION_CLASS,LPVOID,DWORD,PDWORD);
+    typedef BOOL (WINAPI *init_fn)(PSECURITY_DESCRIPTOR,DWORD);
+    typedef BOOL (WINAPI *owner_fn)(PSECURITY_DESCRIPTOR,PSID,BOOL);
+    typedef DWORD (WINAPI *info_fn)(HANDLE,SE_OBJECT_TYPE,SECURITY_INFORMATION,PSID *,PSID *,PACL *,PACL *,PSECURITY_DESCRIPTOR *);
+    open_process_fn open_process=(open_process_fn)(void *)GetProcAddress(security,"OpenProcessToken");
+    open_thread_fn open_thread=(open_thread_fn)(void *)GetProcAddress(security,"OpenThreadToken");
+    token_info_fn token_info=(token_info_fn)(void *)GetProcAddress(security,"GetTokenInformation");
+    init_fn initialize=(init_fn)(void *)GetProcAddress(security,"InitializeSecurityDescriptor");
+    owner_fn set_owner=(owner_fn)(void *)GetProcAddress(security,"SetSecurityDescriptorOwner");
+    info_fn get_info=(info_fn)(void *)GetProcAddress(security,"GetSecurityInfo");
+    freak_fs_sid_valid_fn valid=(freak_fs_sid_valid_fn)(void *)GetProcAddress(security,"IsValidSid");
+    freak_fs_sid_equal_fn equal=(freak_fs_sid_equal_fn)(void *)GetProcAddress(security,"EqualSid");
+    if (!open_process || !open_thread || !token_info || !initialize || !set_owner || !get_info || !valid || !equal) {
+        error=ERROR_PROC_NOT_FOUND; goto cleanup;
+    }
+    HANDLE candidate=NULL;
+    if (open_thread(GetCurrentThread(),TOKEN_QUERY,TRUE,&candidate)) token=candidate;
+    else {
+        error=GetLastError();
+        if (error != ERROR_NO_TOKEN) goto cleanup;
+        candidate=NULL;
+        if (!open_process(GetCurrentProcess(),TOKEN_QUERY,&candidate)) { error=GetLastError(); goto cleanup; }
+        token=candidate;
+    }
+    DWORD needed=0;
+    BOOL sized=token_info(token,TokenUser,NULL,0,&needed);
+    if (sized || GetLastError() != ERROR_INSUFFICIENT_BUFFER || needed < sizeof(TOKEN_USER) || needed > 1048576) {
+        error=ERROR_INVALID_DATA; goto cleanup;
+    }
+    DWORD capacity=needed; user=freak_command_allocate(capacity,1);
+    if (!token_info(token,TokenUser,user,capacity,&needed)) { error=GetLastError(); goto cleanup; }
+    if (needed < sizeof(TOKEN_USER) || needed > capacity || !user->User.Sid) { error=ERROR_INVALID_SID; goto cleanup; }
+    uintptr_t begin=(uintptr_t)user,position=(uintptr_t)user->User.Sid;
+    if (position < begin || position-begin > needed || needed-(position-begin) < 8) { error=ERROR_INVALID_SID; goto cleanup; }
+    SID *sid=(SID *)user->User.Sid;
+    size_t length=8+(size_t)sid->SubAuthorityCount*sizeof(DWORD);
+    if (sid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES || length > needed-(position-begin) || !valid(sid)) {
+        error=ERROR_INVALID_SID; goto cleanup;
+    }
+    SECURITY_DESCRIPTOR descriptor;
+    if (!initialize(&descriptor,SECURITY_DESCRIPTOR_REVISION) || !set_owner(&descriptor,sid,FALSE)) {
+        error=GetLastError(); goto cleanup;
+    }
+    child=freak_fs_anchor_child_mode_security(parent,name,true,true,true,false,false,&descriptor);
+    if (child == INVALID_HANDLE_VALUE) {
+        error=GetLastError(); *retryable=error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS; goto cleanup;
+    }
+    PSID actual=NULL;
+    error=get_info(child,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION,&actual,NULL,NULL,NULL,&returned);
+    if (error != ERROR_SUCCESS || !actual || !valid(actual) || !equal(actual,sid)) {
+        if (error == ERROR_SUCCESS) error=ERROR_INVALID_OWNER;
+        freak_fs_windows_discard_new_temp(child); freak_fs_anchor_close(child); child=INVALID_HANDLE_VALUE;
+        goto cleanup;
+    }
+    error=ERROR_SUCCESS;
+cleanup:
+    if (returned) LocalFree(returned);
+    free(user); if (token) CloseHandle(token); FreeLibrary(security);
+    SetLastError(error); return child;
+}
 #endif
 static bool freak_fs_anchor_delete(freak_fs_anchor parent,const char *leaf,bool directory) {
 #ifdef _WIN32
@@ -1330,7 +1430,15 @@ int64_t freak_fs_temp_dir(freak_word parent,freak_word prefix) {
     if (!freak_fs_relative_valid(name,true) || strlen(name) > 128) { freak_fs_ticket_error(result,"temporary prefix must be a simple filename"); free(directory); free(name); return handle; }
     freak_fs_anchor owner=freak_fs_anchor_root(directory),child=FREAK_FS_INVALID_ANCHOR;
     char *temporary=NULL;
-    if (owner != FREAK_FS_INVALID_ANCHOR) for (int i=0;i<128;i++) { free(temporary); temporary=freak_fs_temporary_name(name); child=freak_fs_anchor_child(owner,temporary,true,true,true); if (child != FREAK_FS_INVALID_ANCHOR) break; }
+    if (owner != FREAK_FS_INVALID_ANCHOR) for (int i=0;i<128;i++) {
+        free(temporary); temporary=freak_fs_temporary_name(name);
+#ifdef _WIN32
+        bool retryable=false; child=freak_fs_windows_owned_temp(owner,temporary,&retryable);
+        if (child != FREAK_FS_INVALID_ANCHOR || !retryable) break;
+#else
+        child=freak_fs_anchor_child(owner,temporary,true,true,true); if (child != FREAK_FS_INVALID_ANCHOR) break;
+#endif
+    }
     if (child == FREAK_FS_INVALID_ANCHOR) { freak_fs_anchor_close(owner); freak_fs_ticket_error(result,"could not exclusively create anchored temporary directory"); }
     else {
         char *full=freak_fs_anchor_join(directory,temporary);
