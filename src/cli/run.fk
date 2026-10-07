@@ -163,7 +163,8 @@ task cli_run_resolve_program(command: word) -> word {
             if not valid { give back "" }
         }
         -- Match native execve's PATH order without shell builtin precedence.
-        -- Empty directory entries denote cwd; keep the selected bytes intact.
+        -- Empty entries denote cwd. Keep the slash in the resolved candidate
+        -- so its identity probe cannot search later PATH entries.
         pilot directory = ""
         pilot pi = 0
         repeat until pi > search_path.length() {
@@ -171,7 +172,7 @@ task cli_run_resolve_program(command: word) -> word {
             pilot ch = ":"
             if not at_end { ch = search_path.char_at(pi) }
             if ch == ":" {
-                pilot candidate = command
+                pilot candidate = "./" + command
                 if directory != "" { candidate = directory + "/" + command }
                 pilot quoted = cli_quote_cmd_path(candidate)
                 if process::exec("test -f " + quoted + " && test -x " + quoted) == 0 {
@@ -218,7 +219,7 @@ task cli_run_clang_identity(clang_cmd: word) -> word {
     if resolved == "" { give back CLI_RUN_UNHASHABLE + ":clang-resolution:" + clang_cmd }
     pilot digest = cli_run_file_sha256(resolved)
     if digest == "" { give back CLI_RUN_UNHASHABLE + ":clang-digest:" + resolved }
-    pilot version = cli_run_tool_version(clang_cmd, false)
+    pilot version = cli_run_tool_version(resolved, false)
     if version == "" { give back CLI_RUN_UNHASHABLE + ":clang-version:" + clang_cmd }
     give back "command=" + clang_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + version
 }
@@ -237,7 +238,7 @@ task cli_run_linker_identity(clang_cmd: word, lto: word, cross: word) -> word {
     if resolved == "" { give back CLI_RUN_UNHASHABLE + ":linker-resolution:" + linker_cmd }
     pilot digest = cli_run_file_sha256(resolved)
     if digest == "" { give back CLI_RUN_UNHASHABLE + ":linker-digest:" + resolved }
-    pilot version = cli_run_tool_version(linker_cmd, true)
+    pilot version = cli_run_tool_version(resolved, true)
     if version == "" { give back CLI_RUN_UNHASHABLE + ":linker-version:" + linker_cmd }
     give back "target=" + clang_target + "|command=" + linker_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + version
 }

@@ -323,6 +323,48 @@ def main() -> int:
                 denied.unlink()
                 denied.mkdir()
                 invoke("--c", hit=True, supplied=denied_env)
+                # Native execve skips a PATH image with a missing shebang
+                # interpreter. Its later usable image must never validate the
+                # bytes hashed for the unlaunchable first candidate.
+                denied.rmdir()
+                missing_interpreter = root / "missing-script-interpreter"
+                bad_script = ("#!" + str(missing_interpreter) + "\n").encode()
+                denied.write_bytes(bad_script)
+                denied.chmod(0o755)
+                code, output = run([str(recorder)], source_dir, denied_env | {"FREAK_TOOL_PROBE_EXECUTABLE": "printf"})
+                assert code == 0, output
+                invoke("--c", hit=None, supplied=denied_env)
+                denied.unlink()
+                invoke("--c", hit=True, supplied=denied_env)
+                cwd_builtin = source_dir / "printf"
+                cwd_before = cwd_builtin.read_bytes()
+                cwd_builtin.write_bytes(bad_script)
+                cwd_builtin.chmod(0o755)
+                empty_component = builtin_env | {"PATH": os.pathsep + builtin_env["PATH"]}
+                code, output = run([str(recorder)], source_dir, empty_component | {"FREAK_TOOL_PROBE_EXECUTABLE": "printf"})
+                assert code == 0, output
+                invoke("--c", hit=None, supplied=empty_component)
+                cwd_builtin.write_bytes(cwd_before)
+                cwd_builtin.chmod(0o644)
+                invoke("--c", hit=True, supplied=empty_component)
+                # The completed-nonzero linker policy has the same literal
+                # binding requirement as the strict Clang version probe.
+                linker_search = env | {"FREAK_CLANG": str(wrappers[0]),
+                                       "PATH": str(linker_dir) + os.pathsep + env["PATH"],
+                                       "FREAK_TOOL_TRACE_MODE": "override", "FREAK_TOOL_TRACE": real_linker.name + "\n"}
+                invoke("--c", hit=False, supplied=linker_search)
+                invoke("--c", hit=True, supplied=linker_search)
+                bad_linker = denied_dir / real_linker.name
+                bad_linker.write_bytes(bad_script)
+                bad_linker.chmod(0o755)
+                bad_linker_env = linker_search | {"PATH": str(denied_dir) + os.pathsep + linker_search["PATH"]}
+                code, output = run([str(recorder)], source_dir, bad_linker_env | {"FREAK_TOOL_PROBE_EXECUTABLE": real_linker.name})
+                assert code == 64, output
+                invoke("--c", hit=None, supplied=bad_linker_env)
+                bad_linker.unlink()
+                invoke("--c", hit=True, supplied=bad_linker_env)
+                report["missing_interpreter_controls"] = {"clang_path": True, "clang_empty_component": True,
+                                                          "completed_nonzero_linker_path": True}
             env["FREAK_CLANG"] = str(wrappers[-1])
             invoke("--llvm", hit=False)
             invoke("--llvm", hit=True)
