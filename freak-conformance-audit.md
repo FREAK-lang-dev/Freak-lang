@@ -17,6 +17,29 @@ The four experimental V4 loop fixtures and their full executable expectations
 are retained under `src/compiler/v4/tests/deferred/v35-loops`; they require the
 matching semantic implementation before joining the active positive gates.
 
+**V3 source binding and ticket-word correctness (2026-10-07):** source package
+binding distinguishes declaration roles and preserves source diagnostic names.
+Fixed root value/callable collisions and calls through lexical non-callable
+values are rejected by both CLI binding and the direct V3 checker. Generated
+private names do not provide source-level access to package declarations.
+Supported unloaded task/fixed/shape export headers remain narrower than full
+validation of unused unsupported declarations; package externs are unsupported.
+Original names retain builtin type/namespace/callable reservations before
+flattening. The public CLI supports forward shape constructors through header
+registration; the legacy direct parser's order limitation remains separately
+verified alongside public C/LLVM construction and field access.
+The established V3 non-fixed root pilot/task contextual lookup remains a legacy
+compatibility boundary, without a new namespace or bootstrap-flag exception.
+The normative V4 value namespace and mutable-root prohibition in bible §17.4
+remain unchanged; full V4 namespace/root-constant conformance stays partial.
+Six filesystem/process/JSON/HTTP ticket getters now return independently owned
+words that survive ticket release, reuse and table growth. Generic literal
+cloning keeps its existing sharing semantics. Focused C/LLVM and sanitizer
+proofs do not replace final current-head shipping and native-platform CI.
+Windows owned temporary creation explicitly selects the effective caller's
+owner SID while preserving inherited DACLs and strict publication-parent policy.
+Native verification must retain the original token default-owner context.
+
 **V3.5 initial syntax checkpoint (2026-10-05):** native V3 statement lists
 accept semicolons, including a trailing separator and bare void return.
 `tests/v3_v35_language.py` checks twelve positive/negative C/LLVM cases against

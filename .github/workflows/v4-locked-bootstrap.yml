@@ -83,6 +83,12 @@ jobs:
           python -B -u tests/v3_v35_ticket_word_ownership_native.py
           --clang "${{ env.FREAK_V4_CI_CLANG }}"
           --report "${{ runner.temp }}/freak-v4-ticket-word-ownership.json"
+      - name: Verify Windows owned-temp failure controls (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          python -B -u tests/v3_v35_windows_temp_owner.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}" --sanitize
+          --evidence "${{ runner.temp }}/freak-v4-windows-temp-owner.json"
       - name: Observe native Windows bootstrap directory operations
         if: runner.os == 'Windows'
         run: >
@@ -158,6 +164,7 @@ jobs:
             ${{ runner.temp }}/freak-v4-runtime-ci.json
             ${{ runner.temp }}/freak-v4-posix-launch-diagnostic.json
             ${{ runner.temp }}/freak-v4-ticket-word-ownership.json
+            ${{ runner.temp }}/freak-v4-windows-temp-owner.json
             ${{ runner.temp }}/freak-v4-project-admission/probes/report.json
             ${{ runner.temp }}/freak-v4-word-call-ownership.json
             ${{ runner.temp }}/freak-v4-c-emission/gate.json

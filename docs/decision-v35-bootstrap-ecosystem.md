@@ -22,10 +22,41 @@ then may flatten the resolved source closure. No network resolution enters
 the parser or checker. Scoped source packages remain required: a unique-prefix
 bundle is a narrower delivery profile, not completion of the all-P0 goal.
 
+Source binding resolves declarations by their type or value role, preserves
+nominal type identity, and displays source names in diagnostics. Fixed root
+pilots and ordinary task/extern declarations share value-name collision checks
+where those declarations are admitted. A lexical local value shadows a callable;
+calling a non-callable value fails before emission. Source references cannot
+gain access through generated private names. Package extern declarations remain
+unsupported. Unloaded export headers validate the supported task/fixed/shape
+surface; they do not promise validation of every unused unsupported declaration.
+The unused extern-collision boundary is tracked in
+[issue #151](https://github.com/FREAK-lang-dev/Freak-lang/issues/151).
+Original source names retain builtin type, namespace and callable reservations
+before package name generation, including the established trusted-runtime and
+bootstrap-profile allowances.
+
+The shipping V3 checker retains its established contextual lookup for a
+non-fixed root pilot and a same-named task. This is a legacy V3 compatibility
+boundary, not a new language namespace or a flag-gated rule. Bible section 17.4
+still defines the V4 value namespace and forbids mutable root bindings. This
+repair does not promote full V4 namespace or root-constant conformance.
+The public CLI registers shape headers before parsing bodies and accepts forward
+shape constructors. The legacy direct parser retains its declaration-order
+limitation; regression checks preserve its original rejection and separately
+verify public C/LLVM construction and field access.
+
 Public process launching uses explicit executable/argument vectors and owned,
 generation-checked command tickets. Checked filesystem and byte APIs support
 transactional publication. Legacy explicit shell APIs remain a compatibility
 surface; package/build/bootstrap/test consumers migrate to shell-free launch.
+Words returned from filesystem entry/error, process error, JSON-document error
+and HTTP server/request error getters own independent storage. Releasing,
+reusing or growing the source ticket cannot invalidate the returned word.
+Generic cloning of immutable literal words retains its existing sharing rule.
+Windows owned temporary directories explicitly select the effective caller as
+owner. Publication still requires caller-owned safe parents; existing parent
+ACL checks and the process's default-owner setting remain unchanged.
 
 The HTTP profile is synchronous, bounded and one request per connection,
 defaulting to loopback with configurable framing/size/deadline limits. The
