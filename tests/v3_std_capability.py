@@ -135,6 +135,7 @@ def main() -> int:
         payload = root / payload_name
         shutil.copytree(runtime, payload / "runtime")
         shutil.copytree(repo / "std", payload / "std")
+        shutil.copytree(repo / "templates/v35", payload / "templates/v35")
         marker = payload / "std/freak_std_api"
         expected = marker.read_bytes()
         expected_text = expected.decode("utf-8").strip()
