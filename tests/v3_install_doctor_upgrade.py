@@ -2596,10 +2596,31 @@ def check_doctor(
                     timeout=180,
                     check=False,
                 )
-                assert unc.returncode != 0, unc.stdout + unc.stderr
+                # The OS image is the copied local executable, even when its
+                # relative argv and UNC CWD cause command-shell warnings.
+                assert unc.returncode == 0, unc.stdout + unc.stderr
                 unc_report = json.loads(unc.stdout)
-                assert unc_report["checks"]["runtime"]["path"] == ""
-                assert unc_report["checks"]["stdlib"]["path"] == ""
+                assert unc_report["status"] == "ok"
+                assert unc_report["platform"] == {"os": "windows", "windows": True}
+                for check, directory in (("runtime", "runtime"), ("stdlib", "std")):
+                    assert unc_report["checks"][check]["ok"] is True
+                    assert Path(unc_report["checks"][check]["path"]).samefile(
+                        unc_home_local / directory
+                    ), unc_report
+                unc_clang = unc_report["checks"]["clang"]
+                assert unc_clang["ok"] is True
+                assert unc_clang["version_ok"] is True
+                assert unc_clang["probe_ok"] is True
+                assert unc_clang["cleanup_retained"] == ""
+                unc_clang_path = shutil.which(
+                    unc_clang["executable"], path=repo_env.get("PATH", "")
+                )
+                repo_clang_path = shutil.which(
+                    repo_report["checks"]["clang"]["executable"],
+                    path=repo_env.get("PATH", ""),
+                )
+                assert unc_clang_path and repo_clang_path, unc_report
+                assert Path(unc_clang_path).samefile(repo_clang_path), unc_report
 
     # Direct archive use (`cd <home>/bin && ./freak`) supplies a relative
     # argv[0]. It must still resolve the executable-adjacent payload before
