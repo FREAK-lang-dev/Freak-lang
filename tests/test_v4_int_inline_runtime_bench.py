@@ -3,6 +3,7 @@ from copy import deepcopy
 import importlib.util
 from pathlib import Path, PureWindowsPath
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -64,9 +65,9 @@ def report(sanitized=False):
     manifest_key = "src/compiler/v4/native-runtime.manifest"
     value["compiler_inputs"][manifest_key] = gate.sha(ROOT / manifest_key)
     for key, names in gate.runtime_inventory_names().items():
-        value[key] = {name: gate.sha(ROOT / "freakc/runtime" / name) for name in names}
-        value["compiler_inputs"].update({"freakc/runtime/" + name: digest
-                                         for name, digest in value[key].items()})
+        prefix = "" if key == "runtime_vendor_headers" else "freakc/runtime/"
+        value[key] = {name: gate.sha(ROOT / (prefix + name)) for name in names}
+        value["compiler_inputs"].update({prefix + name: digest for name, digest in value[key].items()})
     for opt in gate.OPTS:
         value["build_flags"][str(opt)] = [f"-O{opt}", "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1", "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1"]
         if sanitized:
@@ -120,27 +121,29 @@ class IntRuntimeOracles(unittest.TestCase):
         clean = report()
         self.assertEqual(len(clean["runtime_sources"]), 7)
         self.assertEqual(len(clean["runtime_headers"]), 11)
+        self.assertEqual(len(clean["runtime_vendor_headers"]), 6)
         gate.validate_runtime_inventory(clean)
-        for key in ("runtime_sources", "runtime_headers"):
-            name = next(iter(clean[key]))
-            mutations = []
-            missing = deepcopy(clean); del missing[key][name]; mutations.append(missing)
-            extra = deepcopy(clean); extra[key]["extra.h"] = "a" * 64; mutations.append(extra)
-            renamed = deepcopy(clean)
-            renamed[key]["replacement.h"] = renamed[key].pop(name)
-            mutations.append(renamed)
-            changed = deepcopy(clean); changed[key][name] = "a" * 64; mutations.append(changed)
-            changed_pin = deepcopy(clean)
-            changed_pin["compiler_inputs"]["freakc/runtime/" + name] = "a" * 64
-            mutations.append(changed_pin)
-            changed_both = deepcopy(changed_pin); changed_both[key][name] = "a" * 64
-            mutations.append(changed_both)
-            missing_pin = deepcopy(clean)
-            del missing_pin["compiler_inputs"]["freakc/runtime/" + name]
-            mutations.append(missing_pin)
-            for index, changed in enumerate(mutations):
-                with self.subTest(key=key, mutation=index), self.assertRaises(gate.GateError):
-                    gate.validate_runtime_inventory(changed)
+        for key in ("runtime_sources", "runtime_headers", "runtime_vendor_headers"):
+            prefix = "" if key == "runtime_vendor_headers" else "freakc/runtime/"
+            for name in clean[key]:
+                mutations = []
+                missing = deepcopy(clean); del missing[key][name]; mutations.append(missing)
+                extra = deepcopy(clean); extra[key]["extra.h"] = "a" * 64; mutations.append(extra)
+                renamed = deepcopy(clean)
+                renamed[key]["replacement.h"] = renamed[key].pop(name)
+                mutations.append(renamed)
+                changed = deepcopy(clean); changed[key][name] = "a" * 64; mutations.append(changed)
+                changed_pin = deepcopy(clean)
+                changed_pin["compiler_inputs"][prefix + name] = "a" * 64
+                mutations.append(changed_pin)
+                changed_both = deepcopy(changed_pin); changed_both[key][name] = "a" * 64
+                mutations.append(changed_both)
+                missing_pin = deepcopy(clean)
+                del missing_pin["compiler_inputs"][prefix + name]
+                mutations.append(missing_pin)
+                for index, changed in enumerate(mutations):
+                    with self.subTest(key=key, name=name, mutation=index), self.assertRaises(gate.GateError):
+                        gate.validate_runtime_inventory(changed)
         changed_manifest = deepcopy(clean)
         changed_manifest["compiler_inputs"]["src/compiler/v4/native-runtime.manifest"] = "a" * 64
         with self.assertRaisesRegex(gate.GateError, "inventory differs"):
@@ -148,12 +151,62 @@ class IntRuntimeOracles(unittest.TestCase):
 
     def test_runtime_identity_rejects_byte_changes_after_freezing(self):
         clean = report()
-        runtime_path = ROOT / "freakc/runtime/freak_runtime.c"
         real_sha = gate.sha
-        with patch.object(gate, "sha", side_effect=lambda path: "a" * 64
-                          if path == runtime_path else real_sha(path)):
-            with self.assertRaisesRegex(gate.GateError, "frozen compiler input: freak_runtime.c"):
-                gate.validate_runtime_inventory(clean)
+        for key, names in gate.runtime_inventory_names().items():
+            prefix = "" if key == "runtime_vendor_headers" else "freakc/runtime/"
+            for name in names:
+                runtime_path = ROOT / (prefix + name)
+                with self.subTest(name=name), patch.object(gate, "sha", side_effect=lambda path:
+                             "a" * 64 if path == runtime_path else real_sha(path)):
+                    with self.assertRaisesRegex(gate.GateError, "runtime identity differs"):
+                        gate.validate_runtime_inventory(clean)
+
+    def test_vendor_inputs_are_frozen_before_the_first_native_job(self):
+        class StopBeforeNativeJob(Exception):
+            pass
+
+        class Runner:
+            def __init__(self, checks, work):
+                pass
+
+            def run(self, *args, **kwargs):
+                raise StopBeforeNativeJob
+
+        identities = []
+
+        class RecordingIdentity(gate.Identity):
+            def __init__(self, *args):
+                super().__init__(*args)
+                identities.append(self)
+
+        names = gate.runtime_inventory_names()
+        checks = SimpleNamespace(RUNTIME_ROOT=ROOT / "freakc/runtime",
+                                 TESTS_ROOT=ROOT / "src/compiler/v4/tests",
+                                 __file__=str(ROOT / "src/compiler/v4/check_v4.py"),
+                                 CRATE_ORDER=())
+        build = SimpleNamespace(checks=checks)
+        numeric = SimpleNamespace(Runner=Runner)
+        args = SimpleNamespace(work=ROOT, clang=sys.executable)
+        actual = {}
+        with patch.object(gate, "dependencies", return_value=(numeric, None, build,
+                           names["runtime_sources"], names["runtime_headers"])), \
+                patch.object(gate, "head_identity", return_value="b" * 40), \
+                patch.object(gate, "Identity", RecordingIdentity):
+            with self.assertRaises(StopBeforeNativeJob):
+                gate.run_gate(args, actual)
+            self.assertEqual(len(identities), 1)
+            identity = identities[0]
+            gate.validate_runtime_inventory(actual)
+            for name in names["runtime_vendor_headers"]:
+                runtime_path = ROOT / name
+                self.assertEqual(actual["compiler_inputs"][name], gate.sha(runtime_path))
+                real_sha = gate.sha
+                with self.subTest(name=name), patch.object(gate, "sha", side_effect=lambda path:
+                             "a" * 64 if path == runtime_path else real_sha(path)):
+                    with self.assertRaisesRegex(gate.GateError, "identity changed"):
+                        identity.check()
+                    with self.assertRaisesRegex(gate.GateError, "runtime identity differs"):
+                        gate.validate_runtime_inventory(actual)
 
     def test_geometric_oracle_against_unbounded_direct_integer_recurrence(self):
         for seed in (0, 1, 17, 21845, 65535):

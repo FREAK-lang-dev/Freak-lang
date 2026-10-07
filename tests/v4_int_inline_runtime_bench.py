@@ -57,6 +57,8 @@ def runtime_inventory_names() -> dict[str, tuple[str, ...]]:
         "runtime_sources": tuple(name for role, name in rows if role == "source"),
         "runtime_headers": tuple(name for role, name in rows
                                  if role == "header" and not name.startswith("third_party/")),
+        "runtime_vendor_headers": tuple(name for role, name in rows
+                                        if role == "header" and name.startswith("third_party/")),
     }
 
 
@@ -70,7 +72,7 @@ def validate_runtime_inventory(report: dict) -> None:
         if not isinstance(observed, dict) or set(observed) != set(names):
             raise GateError("incomplete or unexpected frozen " + key + " identity")
         for name in names:
-            input_key = "freakc/runtime/" + name
+            input_key = name if key == "runtime_vendor_headers" else "freakc/runtime/" + name
             pinned = inputs.get(input_key)
             if observed[name] != pinned or pinned != sha(ROOT / input_key):
                 raise GateError("runtime identity differs from its frozen compiler input: " + name)
@@ -416,18 +418,22 @@ def run_gate(args, report: dict) -> None:
     clang = Path(selected).resolve(strict=True)
     runtime_paths = [checks.RUNTIME_ROOT / name for name in source_names]
     header_paths = [checks.RUNTIME_ROOT / name for name in header_names]
+    vendor_names = runtime_inventory_names()["runtime_vendor_headers"]
+    vendor_paths = [ROOT / name for name in vendor_names]
     inputs = [SOURCE, Path(__file__), ROOT / "tests/test_v4_int_inline_runtime_bench.py",
               ROOT / "tests/v4_checked_numeric_codegen.py", ROOT / "tests/v4_scalar_sum_codegen.py",
               Path(checks.__file__), ROOT / "src/compiler/v4/build_v4.py",
               ROOT / "src/compiler/v4/native-runtime.manifest",
               checks.TESTS_ROOT / "checked_numeric_execute_smoke.fk", checks.TESTS_ROOT / "checked_numeric_contract_smoke.fk",
-              *runtime_paths, *header_paths, *(checks.crate_path(name) for name in checks.CRATE_ORDER),
+              *runtime_paths, *header_paths, *vendor_paths,
+              *(checks.crate_path(name) for name in checks.CRATE_ORDER),
               *sorted((ROOT / "freakc").glob("**/*.py"))]
     identity = Identity(list(dict.fromkeys(inputs)), clang)
     report.update(compiler_head=identity.head, compiler_inputs=identity.inputs,
                   clang={"selected": selected, "resolved": str(clang), "sha256": identity.clang_sha},
                   runtime_sources={p.name: sha(p) for p in runtime_paths},
-                  runtime_headers={p.name: sha(p) for p in header_paths})
+                  runtime_headers={p.name: sha(p) for p in header_paths},
+                  runtime_vendor_headers={name: sha(path) for name, path in zip(vendor_names, vendor_paths)})
 
     class PinnedRunner(numeric.Runner):
         def run(self, command, label, *, timeout=60, memory=64):
