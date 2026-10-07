@@ -1037,7 +1037,9 @@ def main() -> int:
     negative_cases = load_negative_corpus(repo)
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-codegen-gate-") as tmp:
-        tmp_path = Path(tmp)
+        # Installed payload admission refuses symlinked directory components.
+        # macOS temporary roots may use aliases such as /var -> /private/var.
+        tmp_path = Path(tmp).resolve()
         assert_word_compare_extern_contract(freak, repo, tmp_path, direct_compiler)
         for name, source_text, diagnostic in (
             ("root_execution", 'say "outside entry"\ntask main() {}\n', "executable statement at top level is unsupported"),
