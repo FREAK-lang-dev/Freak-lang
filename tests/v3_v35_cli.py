@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import tempfile
 
+from v3_final_release_gate import manifest_entries
+
 
 ARGV_PROGRAM = '''task main() {
     say "FREAK_ARGV_BEGIN"
@@ -324,7 +326,12 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="freak-v35-cli-") as temporary:
         root = Path(temporary)
         home = root / "payload"
-        shutil.copytree(repo / "freakc" / "runtime", home / "runtime")
+        for source, destination in manifest_entries(repo):
+            if not destination.startswith(("runtime/", "templates/v35/")):
+                continue
+            target = home / destination
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
         shutil.copytree(repo / "std", home / "std")
         env = os.environ.copy()
         for name in tuple(env):
