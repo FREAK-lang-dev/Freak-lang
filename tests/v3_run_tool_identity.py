@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 
 from windows_private_fixture import WindowsPrivateFixture
+import v3_word_foundation as foundation
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 MARKER = "RAW_TOOL_EXECUTED"
@@ -58,6 +59,18 @@ int main(int argc, char **argv) {
         if (i) fputc(',', file); json_word(file, freak_process_arg(i));
     }
     fputs("]}\n", file); if (fclose(file)) return 93;
+#ifdef _WIN32
+    freak_word legacy = freak_process_env(freak_word_lit("FREAK_TOOL_LEGACY_HASH_COMMAND"));
+    if (legacy.length) {
+        freak_process_output result = freak_process_run(legacy, NULL);
+        printf("legacy-hash:%lld:acp:%u:console:%u:%u\n", (long long)result.exit_code,
+               GetACP(), GetConsoleCP(), GetConsoleOutputCP());
+        for (size_t i = 0; i < result.out.length; ++i)
+            printf("%02x", (unsigned char)result.out.data[i]);
+        putchar('\n'); freak_word_release_owned(&result.out);
+        freak_word_release_owned(&result.err); return 0;
+    }
+#endif
     freak_word probe = freak_process_env(freak_word_lit("FREAK_TOOL_PROBE_EXECUTABLE"));
     if (probe.length) {
         int64_t command = freak_process_command_new(probe);
@@ -163,6 +176,73 @@ def linker_from_trace(text: str) -> Path:
     raise AssertionError(text)
 
 
+def raw_sha256_parser_probe(freak: Path, clang: Path, repo: Path, runtime: Path,
+                           root: Path, env: dict[str, str], run, report: dict) -> None:
+    def task(text: str, name: str) -> str:
+        start = text.index("task " + name + "(")
+        end = text.find("\ntask ", start + 5)
+        return text[start:end if end >= 0 else len(text)]
+
+    lexer = (repo / "src/compiler/v3/lexer.fk").read_text(encoding="utf-8")
+    implementation = (repo / "src/cli/run.fk").read_text(encoding="utf-8")
+    selected = [task(lexer, "is_numeric"), task(lexer, "is_hex_digit"),
+                task(implementation, "cli_run_valid_sha256"), task(implementation, "cli_run_sha256_from_bytes")]
+    source = root / "sha256-parser.fk"
+    source.write_text("\n".join(selected) + r'''
+task main() {
+    pilot read = fs::read_bytes_limit_ticket(process::arg(1), 65536)
+    if not fs::result_ok(read) { fs::result_release(read) process::exit(3) }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    if process::arg(2) == "dirty" { bytes.seek(bytes.length() + 1) }
+    say cli_run_sha256_from_bytes(bytes)
+    bytes.release()
+}
+''', encoding="utf-8")
+    digest = hashlib.sha256(b"raw certutil parser oracle").hexdigest()
+    encoded = digest.encode()
+    cases = [
+        ("lower", encoded + b"\n", digest),
+        ("upper", encoded.upper() + b"\r\n", digest),
+        ("localized-header", b"SHA256 de caf\xe9\xff:\r\n" + encoded + b"\r\nTermin\xe9.\r\n", digest),
+        ("spaced", b" \t" + b" ".join(encoded[i:i + 2] for i in range(0, 64, 2)) + b"\t\r\n", digest),
+        ("empty", b"", ""),
+        ("no-digest", b"localized \xff error\r\n", ""),
+        ("short", encoded[:-1] + b"\n", ""),
+        ("overlong", encoded + b"a\n", ""),
+        ("short-before-valid", encoded[:-1] + b"\n" + encoded + b"\n", ""),
+        ("overlong-before-valid", encoded + b"a\n" + encoded + b"\n", ""),
+        ("nul-header", b"bad\0header\n" + encoded + b"\n", ""),
+        ("nul-digest", encoded[:32] + b"\0" + encoded[32:] + b"\n", ""),
+        ("duplicate", encoded + b"\n" + encoded + b"\n", ""),
+        ("duplicate-different", encoded + b"\n" + hashlib.sha256(b"different").hexdigest().encode() + b"\n", ""),
+        ("unterminated-digest", encoded, ""),
+        ("unterminated-footer", encoded + b"\nfooter", ""),
+        ("malformed", encoded[:-1] + b"g\n", ""),
+    ]
+    evidence = {"source_sha256": sha(source), "task_sha256": [hashlib.sha256(text.encode()).hexdigest() for text in selected], "cases": []}
+    report["raw_sha256_parser"] = evidence
+    for backend in ("c", "llvm"):
+        generated, _ = foundation.transpile(freak=freak, repo=repo, source=source, backend=backend)
+        binary = root / ("sha256-parser-" + backend + (".exe" if os.name == "nt" else ""))
+        foundation.compile_generated(clang=str(clang), repo=repo, runtime_root=runtime,
+                                     generated=generated, backend=backend, binary=binary)
+        for name, data, expected in cases:
+            fixture = root / ("sha256-" + name + ".data"); fixture.write_bytes(data)
+            code, output = run([str(binary), str(fixture)], root, env, timeout=15)
+            command = report["commands"][-1]
+            assert code == 0 and bytes.fromhex(command["stdout_hex"]) == (expected + "\n").encode(), (backend, name, code, output)
+            assert not any(marker in bytes.fromhex(command["stderr_hex"]) for marker in
+                           (b"ownership audit found", b"AddressSanitizer", b"LeakSanitizer", b"runtime error:")), (backend, name, output)
+            evidence["cases"].append({"backend": backend, "case": name, "input_sha256": sha(fixture), "expected": expected, "returncode": code})
+        dirty = root / "sha256-dirty.data"; dirty.write_bytes(encoded + b"\n")
+        code, output = run([str(binary), str(dirty), "dirty"], root, env, timeout=15)
+        assert code == 0 and bytes.fromhex(report["commands"][-1]["stdout_hex"]) == b"\n", (backend, "dirty", code, output)
+        assert b"ownership audit found" not in bytes.fromhex(report["commands"][-1]["stderr_hex"]), (backend, "dirty", output)
+        evidence["cases"].append({"backend": backend, "case": "dirty-buffer", "input_sha256": sha(dirty), "expected": "", "returncode": code})
+    print("PASS raw SHA256 parser C/LLVM: 36 localized, exact and fail-closed controls", flush=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--freak", type=Path)
@@ -236,6 +316,7 @@ def main() -> int:
             driver_trace = output
             real_linker = linker_from_trace(output)
             report["linker"] = {"path": str(real_linker), "sha256": sha(real_linker)}
+            raw_sha256_parser_probe(freak, real_clang, repo, install / "runtime", root, env, run, report)
             names = ["plain", "spaces in path", "apostrophe'path", "日本語", "dollar$percent%"]
             if os.name != "nt":
                 names.append('literal"quote\\path')
@@ -260,6 +341,30 @@ def main() -> int:
                 env["FREAK_TOOL_LINKER_FLAG2"] = "-fuse-ld=" + ("link.exe" if real_linker.name.lower() == "link.exe" else "lld-link")
             else:
                 env["FREAK_TOOL_LINKER_FLAG"] = "--ld-path=" + str(linker)
+
+            if os.name == "nt":
+                code, output = run([str(wrappers[0]), "-###", "-x", "c", os.devnull, "-o", os.devnull], root, env)
+                assert code == 0, output
+                selected_linker = linker_from_trace(output)
+                assert selected_linker.samefile(linker), (selected_linker, linker, output)
+                certutil_path = shutil.which("certutil.exe")
+                assert certutil_path, "native certutil.exe is required on Windows PATH"
+                certutil = Path(certutil_path).resolve(strict=True)
+                assert certutil.is_file(), certutil
+                code, output = run([str(certutil), "-hashfile", str(linker), "SHA256"], root, env)
+                assert code == 0, output
+                raw = bytes.fromhex(report["commands"][-1]["stdout_hex"])
+                digests = [line.replace(b" ", b"").replace(b"\t", b"").lower() for line in raw.splitlines()
+                           if re.fullmatch(rb"[0-9a-fA-F \t]{64,}", line)]
+                assert digests == [sha(linker).encode()], (digests, raw)
+                quoted = '"' + str(linker).replace('%', '"^%"') + '"'
+                legacy = env | {"FREAK_TOOL_LEGACY_HASH_COMMAND": "certutil -hashfile " + quoted + " SHA256 2>nul"}
+                code, output = run([str(recorder)], root, legacy)
+                assert code == 0 and output.startswith("legacy-hash:"), output
+                report["windows_hash_preflight"] = {"selected_linker": str(selected_linker),
+                    "selected_linker_sha256": sha(linker), "native_certutil": str(certutil),
+                    "native_certutil_sha256": sha(certutil), "legacy_output": output,
+                    "cause_scope": "Actual native preflight; original failed fingerprint substage was not printed."}
 
             def invoke(backend: str, *, hit: bool | None, supplied: dict[str, str] | None = None) -> None:
                 active = supplied or env
