@@ -65,7 +65,8 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     pilot runtime_dir: word = cli_find_runtime_dir()
     pilot std_dir: word = cli_find_std_dir()
     pilot pending_marker: word = cli_pending_upgrade_marker()
-    pilot clang_cmd = cli_find_clang_command()
+    -- Tool identity uses the same raw executable selected for native argv.
+    pilot clang_cmd = cli_find_clang_executable()
     pilot link_plan = cli_runtime_link_plan(runtime_dir, lto, cross)
     pilot strict_label = "0"
     if strict_borrow { strict_label = "1" }
@@ -106,18 +107,51 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
 
 task cli_run_resolve_program(command: word) -> word {
     if command == "" { give back "" }
-    pilot clean_cmd = command.replace("\"", "")
     pilot resolved = ""
-    if fs::exists(clean_cmd) {
-        resolved = clean_cmd
-    } else if cli_is_windows() and fs::exists(clean_cmd + ".exe") {
-        resolved = clean_cmd + ".exe"
+    -- POSIX argv searches PATH for a slash-free name, even when a same-named
+    -- file exists in the working directory. Only literal paths bypass lookup.
+    if (cli_is_windows() or command.contains("/")) and fs::exists(command) {
+        resolved = command
+    } else if cli_is_windows() and fs::exists(command + ".exe") {
+        resolved = command + ".exe"
     } else if cli_is_windows() {
-        resolved = cli_first_line(process::exec_capture("where " + cli_quote_cmd_path(clean_cmd) + " 2>nul"))
+        resolved = cli_first_line(process::exec_capture("where " + cli_quote_cmd_path(command) + " 2>nul"))
     } else {
-        resolved = cli_first_line(process::exec_capture("command -v " + cli_quote_cmd_path(clean_cmd) + " 2>/dev/null"))
+        -- The argv runtime defaults an absent PATH to /bin:/usr/bin. A shell
+        -- may invent a different default; preserve an explicitly empty PATH.
+        pilot search_path = "/bin:/usr/bin"
+        check process::env_var("PATH") {
+            got value -> search_path = value
+            nobody -> search_path = "/bin:/usr/bin"
+        }
+        resolved = cli_first_line(process::exec_capture("PATH=" + cli_quote_cmd_path(search_path) + " command -v " + cli_quote_cmd_path(command) + " 2>/dev/null"))
     }
-    give back resolved.trim()
+    give back resolved
+}
+
+task cli_run_tool_version(executable: word, allow_nonzero: bool) -> word {
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "--version")
+    -- Some native linkers (including Apple ld) report an unsupported-option
+    -- diagnostic with a normal nonzero exit. Preserve that version identity
+    -- while keeping the probe bounded and entirely in argv.
+    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot exit_code = process::command_exit_code(command)
+    pilot version = ""
+    if state == 2 and (allow_nonzero or exit_code == 0) {
+        pilot output: ByteBuffer = process::command_stdout_bytes(command)
+        pilot errors: ByteBuffer = process::command_stderr_bytes(command)
+        pilot text = output.to_word()
+        pilot diagnostic = errors.to_word()
+        if output.status() == 0 and errors.status() == 0 {
+            if text == "" { text = diagnostic }
+            version = cli_first_line(text)
+        }
+        output.release()
+        errors.release()
+    }
+    process::command_release(command)
+    give back version
 }
 
 task cli_run_clang_identity(clang_cmd: word) -> word {
@@ -126,19 +160,27 @@ task cli_run_clang_identity(clang_cmd: word) -> word {
     if resolved == "" { give back CLI_RUN_UNHASHABLE + ":clang-resolution:" + clang_cmd }
     pilot digest = cli_run_file_sha256(resolved)
     if digest == "" { give back CLI_RUN_UNHASHABLE + ":clang-digest:" + resolved }
-    give back "command=" + clang_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + cli_clang_version_line(clang_cmd)
+    pilot version = cli_run_tool_version(clang_cmd, false)
+    if version == "" { give back CLI_RUN_UNHASHABLE + ":clang-version:" + clang_cmd }
+    give back "command=" + clang_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + version
 }
 
 task cli_run_linker_identity(clang_cmd: word, lto: word, cross: word) -> word {
-    pilot clang_target = cli_clang_target_triple(clang_cmd, cross)
+    pilot clang_target = cross
+    if clang_target == "" {
+        pilot command = process::command_new(clang_cmd)
+        process::command_arg(command, "-dumpmachine")
+        clang_target = cli_first_line(cli_tool_capture(command, false)).trim()
+    }
     if clang_target == "" { give back CLI_RUN_UNHASHABLE + ":clang-target" }
-    pilot linker_cmd = cli_selected_linker_command(clang_cmd, lto, cross)
+    pilot linker_cmd = cli_selected_linker_executable(clang_cmd, lto, cross)
     if linker_cmd == "" { give back CLI_RUN_UNHASHABLE + ":linker-trace" }
     pilot resolved = cli_run_resolve_program(linker_cmd)
     if resolved == "" { give back CLI_RUN_UNHASHABLE + ":linker-resolution:" + linker_cmd }
     pilot digest = cli_run_file_sha256(resolved)
     if digest == "" { give back CLI_RUN_UNHASHABLE + ":linker-digest:" + resolved }
-    pilot version = cli_first_line(process::exec_capture(cli_shell_command_prefix(linker_cmd) + " --version 2>&1"))
+    pilot version = cli_run_tool_version(linker_cmd, true)
+    if version == "" { give back CLI_RUN_UNHASHABLE + ":linker-version:" + linker_cmd }
     give back "target=" + clang_target + "|command=" + linker_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + version
 }
 

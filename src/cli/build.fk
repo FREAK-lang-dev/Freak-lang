@@ -1151,6 +1151,44 @@ task cli_trace_command_is_linker(command: word) -> bool {
 }
 
 task cli_linker_command_from_trace(trace: word) -> word {
+    give back cli_normalize_cmd_override(cli_linker_executable_from_trace(trace))
+}
+
+task cli_trace_executable_token(line: word) -> word {
+    -- Decode the driver's display token, never a shell command. Unknown or
+    -- incomplete escapes must not identify an existing prefix as the linker.
+    pilot clean_line = line.trim()
+    if clean_line == "" { give back "" }
+    pilot token = ""
+    pilot quoted = clean_line.char_at(0) == "\""
+    pilot ti = 0
+    if quoted { ti = 1 }
+    repeat until ti >= clean_line.length() {
+        pilot ch = clean_line.char_at(ti)
+        if quoted and ch == "\"" {
+            if ti + 1 < clean_line.length() {
+                pilot next = clean_line.char_at(ti + 1)
+                if next != " " and next != "\t" { give back "" }
+            }
+            give back token
+        }
+        if not quoted and (ch == " " or ch == "\t") { give back token }
+        if quoted and ch == "\\" {
+            ti += 1
+            if ti >= clean_line.length() { give back "" }
+            ch = clean_line.char_at(ti)
+            if ch != "\\" and ch != "\"" { give back "" }
+        } else if not quoted and ch == "\"" {
+            give back ""
+        }
+        token = token + ch
+        ti += 1
+    }
+    if quoted { give back "" }
+    give back token
+}
+
+task cli_linker_executable_from_trace(trace: word) -> word {
     pilot line = ""
     pilot ti = 0
     repeat until ti > trace.length() {
@@ -1158,12 +1196,13 @@ task cli_linker_command_from_trace(trace: word) -> word {
         pilot ch = "\n"
         if not at_end { ch = trace.char_at(ti) }
         if ch == "\n" or ch == "\r" {
-            pilot command = cli_trace_command_token(line)
-            if cli_trace_command_is_linker(command) {
-                if cli_is_windows() and not fs::exists(command) and fs::exists(command + ".exe") {
-                    command = command + ".exe"
+            pilot executable = cli_trace_executable_token(line)
+            if executable == "" and line.trim() != "" { give back "" }
+            if cli_trace_command_is_linker(executable) {
+                if cli_is_windows() and not fs::exists(executable) and fs::exists(executable + ".exe") {
+                    executable = executable + ".exe"
                 }
-                give back cli_normalize_cmd_override(command)
+                give back executable
             }
             line = ""
         } else {
@@ -1174,19 +1213,17 @@ task cli_linker_command_from_trace(trace: word) -> word {
     give back ""
 }
 
-task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> word {
+task cli_selected_linker_trace(executable: word, lto: word, cross: word) -> word {
     -- Ask the selected driver for the exact link command. Target-name guesses
     -- are not sufficient: upstream Windows Clang, LLVM-MinGW, Apple Clang, and
     -- distro Clang may select different linkers for the same broad family.
-    if clang_cmd == "" or not cli_cross_target_is_safe(cross) { give back "" }
+    if executable == "" or not cli_cross_target_is_safe(cross) { give back "" }
     pilot null_input = "/dev/null"
     pilot null_output = "/dev/null"
     if cli_is_windows() {
         null_input = "nul"
         null_output = "nul"
     }
-    pilot executable = cli_find_clang_executable()
-    if executable == "" { give back "" }
     pilot command = process::command_new(executable)
     process::command_arg(command, "-###")
     process::command_arg(command, "-x")
@@ -1196,8 +1233,18 @@ task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> wor
     process::command_arg(command, null_output)
     cli_build_lto_args(command, lto)
     if cross != "" { process::command_arg(command, "--target=" + cross) }
-    pilot trace = cli_tool_capture(command, true)
-    give back cli_linker_command_from_trace(trace)
+    give back cli_tool_capture(command, true)
+}
+
+task cli_selected_linker_executable(executable: word, lto: word, cross: word) -> word {
+    give back cli_linker_executable_from_trace(cli_selected_linker_trace(executable, lto, cross))
+}
+
+task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> word {
+    -- Preserve the compatibility presentation independently of raw identity.
+    if clang_cmd == "" { give back "" }
+    pilot executable = cli_find_clang_executable()
+    give back cli_linker_command_from_trace(cli_selected_linker_trace(executable, lto, cross))
 }
 
 task cli_runtime_link_plan(runtime_dir: word, lto: word, cross: word) -> word {
