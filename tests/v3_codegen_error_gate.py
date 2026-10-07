@@ -15,6 +15,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from windows_private_fixture import WindowsPrivateFixture
+
 
 SENTINEL = "stale output from an older successful invocation\n"
 NEGATIVE_CORPUS_SCHEMA = "freak-v3-negative-corpus-v1"
@@ -554,7 +556,9 @@ def assert_bound_diagnostic_source_labels(freak: Path, repo: Path, work: Path) -
             )
 
 
-def assert_bound_declaration_namespaces(freak: Path, repo: Path, work: Path) -> None:
+def assert_bound_declaration_namespaces(
+    freak: Path, repo: Path, work: Path, private_fixture: WindowsPrivateFixture | None = None
+) -> None:
     """Exercise type/value and impl-member binding through the public CLI."""
     cases = {
         'type-and-task': (
@@ -580,6 +584,8 @@ def assert_bound_declaration_namespaces(freak: Path, repo: Path, work: Path) -> 
             )
     project = work / 'import-namespace-project'
     project.mkdir()
+    if private_fixture is not None:
+        private_fixture.claim_fresh_directories(project)
     (project / 'hangar.toml').write_text(
         '[project]\nname = "namespace-gate"\nversion = "1.0.0"\nkind = "app"\n'
         'entry = "main.fk"\n[modules]\ncore = "core.fk"\n', encoding='utf-8')
@@ -609,13 +615,17 @@ def assert_bound_declaration_namespaces(freak: Path, repo: Path, work: Path) -> 
         assert "unknown callable 'std_abs'" in output, output
 
 
-def assert_generated_package_identity_access(freak: Path, repo: Path, work: Path) -> None:
+def assert_generated_package_identity_access(
+    freak: Path, repo: Path, work: Path, private_fixture: WindowsPrivateFixture | None = None
+) -> None:
     """Generated identities cannot widen the source import/export surface."""
     project = work / 'generated-identity-project'
     library = project / 'lib'
     app = project / 'app'
     library.mkdir(parents=True)
     app.mkdir()
+    if private_fixture is not None:
+        private_fixture.claim_fresh_directories(project, library, app)
     (library / 'hangar.toml').write_text(
         '[project]\nname="identity-library"\nversion="1.0.0"\nkind="lib"\n'
         '[modules]\ncore="core.fk"\n[exports]\napi="core::api"\nother="core::other"\n')
@@ -763,7 +773,8 @@ def assert_local_value_call_shadowing(
 
 
 def assert_bound_lexical_error_counts(
-    freak: Path, direct_compiler: Path | None, repo: Path, work: Path
+    freak: Path, direct_compiler: Path | None, repo: Path, work: Path,
+    private_fixture: WindowsPrivateFixture | None = None
 ) -> None:
     """Early source admission preserves the lexer count in both scan phases."""
     for count in (1, 2):
@@ -774,6 +785,8 @@ def assert_bound_lexical_error_counts(
         library, app = project / 'lib', project / 'app'
         library.mkdir(parents=True)
         app.mkdir()
+        if private_fixture is not None:
+            private_fixture.claim_fresh_directories(project, library, app)
         (library / 'hangar.toml').write_text(
             '[project]\nname="lexical-count-library"\nversion="1.0.0"\nkind="lib"\n'
             '[modules]\ncore="core.fk"\nother="other.fk"\n'
@@ -1040,6 +1053,7 @@ def main() -> int:
         # Installed payload admission refuses symlinked directory components.
         # macOS temporary roots may use aliases such as /var -> /private/var.
         tmp_path = Path(tmp).resolve()
+        private_fixture = WindowsPrivateFixture(tmp_path)
         assert_word_compare_extern_contract(freak, repo, tmp_path, direct_compiler)
         for name, source_text, diagnostic in (
             ("root_execution", 'say "outside entry"\ntask main() {}\n', "executable statement at top level is unsupported"),
@@ -1516,12 +1530,12 @@ def main() -> int:
         )
 
         assert_bound_diagnostic_source_labels(freak, repo, tmp_path)
-        assert_bound_declaration_namespaces(freak, repo, tmp_path)
-        assert_generated_package_identity_access(freak, repo, tmp_path)
+        assert_bound_declaration_namespaces(freak, repo, tmp_path, private_fixture)
+        assert_generated_package_identity_access(freak, repo, tmp_path, private_fixture)
         assert_fixed_value_namespace_collisions(freak, direct_compiler, repo, tmp_path)
         assert_local_value_call_shadowing(freak, direct_compiler, repo, tmp_path)
         assert_bound_source_reservations(freak, direct_compiler, repo, tmp_path)
-        assert_bound_lexical_error_counts(freak, direct_compiler, repo, tmp_path)
+        assert_bound_lexical_error_counts(freak, direct_compiler, repo, tmp_path, private_fixture)
         assert_public_forward_shape_constructor(freak, repo, tmp_path)
 
         # This matrix proves checker acceptance only. Some of these contracts
