@@ -2,6 +2,18 @@
    clang -O1 tests/native_snapshot_lines.c -o native_snapshot_lines -lm
    Windows: replace -lm with -lws2_32. Includes runtime sources deliberately
    so allocation faults, scan calls and private handle state are observable. */
+#ifdef _WIN32
+/* Match freak_runtime.c before this fixture's first SDK include. */
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
+#elif _WIN32_WINNT < 0x0602
+#error "FREAK checked filesystem requires _WIN32_WINNT >= 0x0602 (Windows 8)"
+#endif
+#endif
+#ifdef __APPLE__
+/* Set Darwin visibility before libc fixes its feature-selection state. */
+#define _DARWIN_C_SOURCE 1
+#endif
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
 #endif
@@ -65,6 +77,10 @@ static void* probe_memcpy(void* dst, const void* src, size_t length) {
 #define realloc probe_realloc
 #define free probe_free
 #define strlen probe_strlen
+#ifdef memcpy
+/* Darwin's fortified libc macro must yield to this allocation/copy probe. */
+#undef memcpy
+#endif
 #define memcpy probe_memcpy
 #define FREAK_ARRAY_LIVE_LIMIT 16
 #define FREAK_C_RUNTIME_OWNERSHIP_AUDIT 1

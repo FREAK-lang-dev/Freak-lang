@@ -60,9 +60,13 @@ def report(sanitized=False):
     value.update(compiler_head="b" * 40, clang={"sha256": pin}, source_sha256=pin,
                  compiler_inputs={"benchmarks/v4/int_checked_hot_loop.fk": pin},
                  compiler={"binary_sha256": pin, "generated_c_sha256": pin, "live_handle_limit": 1024},
-                 runtime_sources={f"source-{i}": pin for i in range(7)},
-                 runtime_headers={f"header-{i}": pin for i in range(7)},
                  artifact_sha256={f"runtime-{i}": pin for i in range(7)})
+    manifest_key = "src/compiler/v4/native-runtime.manifest"
+    value["compiler_inputs"][manifest_key] = gate.sha(ROOT / manifest_key)
+    for key, names in gate.runtime_inventory_names().items():
+        value[key] = {name: gate.sha(ROOT / "freakc/runtime" / name) for name in names}
+        value["compiler_inputs"].update({"freakc/runtime/" + name: digest
+                                         for name, digest in value[key].items()})
     for opt in gate.OPTS:
         value["build_flags"][str(opt)] = [f"-O{opt}", "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1", "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1"]
         if sanitized:
@@ -104,13 +108,52 @@ class IntRuntimeOracles(unittest.TestCase):
                 patch.object(gate, "sha", side_effect=lambda path: pins[path]):
             identity = gate.Identity([source], clang)
             self.assertEqual(identity.inputs, {"benchmarks/v4/int_checked_hot_loop.fk": "a" * 64})
-            actual = report()
-            actual["compiler_inputs"] = identity.inputs
-            gate.validate_report(actual)
             identity.check()
             pins[source] = "d" * 64
             with self.assertRaisesRegex(gate.GateError, "identity changed"):
                 identity.check()
+        actual = report()
+        actual["compiler_inputs"].update(identity.inputs)
+        gate.validate_report(actual)
+
+    def test_runtime_identity_matches_declared_sources_headers_and_frozen_bytes(self):
+        clean = report()
+        self.assertEqual(len(clean["runtime_sources"]), 7)
+        self.assertEqual(len(clean["runtime_headers"]), 11)
+        gate.validate_runtime_inventory(clean)
+        for key in ("runtime_sources", "runtime_headers"):
+            name = next(iter(clean[key]))
+            mutations = []
+            missing = deepcopy(clean); del missing[key][name]; mutations.append(missing)
+            extra = deepcopy(clean); extra[key]["extra.h"] = "a" * 64; mutations.append(extra)
+            renamed = deepcopy(clean)
+            renamed[key]["replacement.h"] = renamed[key].pop(name)
+            mutations.append(renamed)
+            changed = deepcopy(clean); changed[key][name] = "a" * 64; mutations.append(changed)
+            changed_pin = deepcopy(clean)
+            changed_pin["compiler_inputs"]["freakc/runtime/" + name] = "a" * 64
+            mutations.append(changed_pin)
+            changed_both = deepcopy(changed_pin); changed_both[key][name] = "a" * 64
+            mutations.append(changed_both)
+            missing_pin = deepcopy(clean)
+            del missing_pin["compiler_inputs"]["freakc/runtime/" + name]
+            mutations.append(missing_pin)
+            for index, changed in enumerate(mutations):
+                with self.subTest(key=key, mutation=index), self.assertRaises(gate.GateError):
+                    gate.validate_runtime_inventory(changed)
+        changed_manifest = deepcopy(clean)
+        changed_manifest["compiler_inputs"]["src/compiler/v4/native-runtime.manifest"] = "a" * 64
+        with self.assertRaisesRegex(gate.GateError, "inventory differs"):
+            gate.validate_runtime_inventory(changed_manifest)
+
+    def test_runtime_identity_rejects_byte_changes_after_freezing(self):
+        clean = report()
+        runtime_path = ROOT / "freakc/runtime/freak_runtime.c"
+        real_sha = gate.sha
+        with patch.object(gate, "sha", side_effect=lambda path: "a" * 64
+                          if path == runtime_path else real_sha(path)):
+            with self.assertRaisesRegex(gate.GateError, "frozen compiler input: freak_runtime.c"):
+                gate.validate_runtime_inventory(clean)
 
     def test_geometric_oracle_against_unbounded_direct_integer_recurrence(self):
         for seed in (0, 1, 17, 21845, 65535):
