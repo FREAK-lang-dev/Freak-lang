@@ -211,6 +211,21 @@ int main(int count, char **arguments) {
         free(normalized); return 0;
     }
     if (freak_word_eq(mode, freak_word_lit("failures"))) return failures(path);
+    if (freak_word_eq(mode, freak_word_lit("files-long-cwd"))) {
+        if (count != 5) return 75;
+        freak_word directory = freak_arg(4);
+        if (!directory.length || directory.length > INT_MAX) return 76;
+        wchar_t *wide = decode(directory); if (!wide) return 77;
+        wchar_t *qualified = freak_fs_windows_filename(wide); if (!qualified) return 78;
+        int entered = SetCurrentDirectoryW(qualified); free(qualified);
+        if (!entered) return 79;
+        DWORD capacity = GetCurrentDirectoryW(0, NULL);
+        if (capacity <= MAX_PATH || capacity > 32767) return 80;
+        wchar_t *current = calloc(capacity, sizeof(*current)); if (!current) return 81;
+        DWORD written = GetCurrentDirectoryW(capacity, current);
+        if (!written || written >= capacity) { free(current); return 82; }
+        emit_wide("current-directory-utf16", current); free(current);
+    }
     wchar_t *ordinary = decode(path); if (!ordinary) return 66;
     emit_wide("old-ordinary-utf16", ordinary);
     int old_descriptor = _wopen(ordinary, _O_RDONLY | _O_BINARY);
@@ -316,8 +331,17 @@ int main(int count, char **arguments) {
         normalized(long_unc, "\\\\?\\UNC\\" + long_unc[2:], False)
         if not str(root).startswith("\\\\?\\"):
             normalized(str(root) + "\\." * 150 + "\\short.txt", extended(root / "short.txt"), False)
-        relative = execute([str(binary), "files", "raw.data", "copy.data", str(physical)], physical)
+        # CreateProcessW rejects a long current directory. Enter it in the
+        # native witness after launching from the ordinary short fixture root.
+        relative = execute([str(binary), "files-long-cwd", "raw.data", "copy.data", extended(physical)])
+        current_directories = []
+        for directory in (str(physical), extended(physical)):
+            units = directory.encode("utf-16-le")
+            encoded = "".join(f"{int.from_bytes(units[index:index + 2], 'little'):04x}" for index in range(0, len(units), 2))
+            current_directories.append(f"current-directory-utf16:{len(units) // 2}:{encoded}".encode())
+        assert relative.stdout.replace(b"\r\n", b"\n").splitlines()[0] in current_directories, relative
         assert relative.stdout.replace(b"\r\n", b"\n").endswith(b"LEGACY_LONG_FILENAME_OK\n") and not relative.stderr, relative
+        assert raw.read_bytes() == b"A\0\xffB\r\n" and physical.is_dir() and not target.exists()
         execute([str(binary), "failures", str(raw)])
     program = physical / "main.fk"
     program.write_text('task main() { say "LONG_EMIT" }\n', encoding="ascii")
