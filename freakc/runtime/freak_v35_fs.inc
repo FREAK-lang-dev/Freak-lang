@@ -1226,7 +1226,10 @@ static bool freak_fs_anchor_delete(freak_fs_anchor parent,const char *leaf,bool 
 #ifdef _WIN32
 static bool freak_fs_anchor_rename_handle(HANDLE item,HANDLE destination,const char *to,bool replace) {
     wchar_t *name=freak_command_wide(to); size_t bytes=wcslen(name)*sizeof(wchar_t);
-    size_t size=offsetof(FILE_RENAME_INFO,FileName)+bytes;
+    /* NtSetInformationFile requires the full fixed record plus name bytes.
+       Callers admit relative names of at most 4096 UTF-8 bytes, so this
+       zeroed allocation and its ULONG submission length remain bounded. */
+    size_t size=sizeof(FILE_RENAME_INFO)+bytes;
     FILE_RENAME_INFO *rename_info=freak_command_allocate(size,1);
     rename_info->ReplaceIfExists=replace; rename_info->RootDirectory=destination; rename_info->FileNameLength=(DWORD)bytes;
     memcpy(rename_info->FileName,name,bytes);

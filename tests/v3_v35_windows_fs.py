@@ -219,6 +219,10 @@ extern int64_t freak_llvm_fs_rename_relative_new_checked(int64_t,int64_t,int64_t
 static const char *scenario="";static int active=0,directory_flushes=0,candidate_opens=0,candidate_closes=0,dispositions=0;
 static HANDLE candidate=INVALID_HANDLE_VALUE,delete_marked=INVALID_HANDLE_VALUE;
 static int inspection_opens=0,inspection_closes=0;static HANDLE inspection=INVALID_HANDLE_VALUE;
+static int short_rename_controls=0;
+_Static_assert(sizeof(FILE_RENAME_INFO)==sizeof(FILE_RENAME_INFORMATION),"native rename fixed layout");
+_Static_assert(offsetof(FILE_RENAME_INFO,FileName)==offsetof(FILE_RENAME_INFORMATION,FileName),"native rename name layout");
+_Static_assert(sizeof(FILE_RENAME_INFO)==24 && offsetof(FILE_RENAME_INFO,FileName)==20 && sizeof(WCHAR)==2,"AMD64 rename short-name lengths");
 static void require(int ok,const char *why) {if(!ok) {fprintf(stderr,"FAIL: %s (Win32 %lu)\n",why,GetLastError());exit(2);}}
 #ifdef USE_LLVM_ADAPTER
 #define W(s) ((int64_t)(intptr_t)(s))
@@ -244,6 +248,28 @@ static void io_pending(PIO_STATUS_BLOCK io){
 static void io_short(PIO_STATUS_BLOCK io){
     ULONG_PTR information=sizeof(FILE_FS_DEVICE_INFORMATION)-1;
     memcpy((unsigned char *)io+offsetof(IO_STATUS_BLOCK,Information),&information,sizeof(information));
+}
+/* Read the seeded target through the same held parent. Close each observation
+   handle before a rename so it cannot change the tested sharing contract. */
+static void short_rename_target(HANDLE parent,FILE_ID_INFO *identity,unsigned char bytes[11]){
+    WCHAR leaf=L'a';UNICODE_STRING name={sizeof(leaf),sizeof(leaf),&leaf};
+    OBJECT_ATTRIBUTES object={0};object.Length=sizeof(object);object.RootDirectory=parent;
+    object.ObjectName=&name;object.Attributes=0x40;IO_STATUS_BLOCK io={0};io.Status=0x103;
+    HANDLE target=INVALID_HANDLE_VALUE;
+    NTSTATUS status=NtCreateFile(&target,FILE_READ_DATA|FILE_READ_ATTRIBUTES|SYNCHRONIZE,&object,&io,NULL,
+        FILE_ATTRIBUTE_NORMAL,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,1,
+        0x40|0x20|0x200000,NULL,0);
+    if(status==0x103 || (status==0 && io.Status==0x103)){
+        fputs("NONFINAL_SHORT_RENAME_OBSERVATION\n",stderr);fflush(NULL);_Exit(1);
+    }
+    require(status==0 && io.Status==0 && target!=INVALID_HANDLE_VALUE,"held short-rename target");
+    BY_HANDLE_FILE_INFORMATION attributes;
+    require(GetFileInformationByHandle(target,&attributes) && GetFileType(target)==FILE_TYPE_DISK &&
+        !(attributes.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT)),"ordinary short-rename target");
+    require(GetFileInformationByHandleEx(target,FileIdInfo,identity,sizeof(*identity)),"short-rename target full identity");
+    unsigned char data[12];DWORD count=0;
+    require(ReadFile(target,data,sizeof(data),&count,NULL) && count==11,"short-rename target complete bytes");
+    memcpy(bytes,data,11);require(CloseHandle(target),"short-rename observation handle close");
 }
 NTSTATUS NTAPI freak_test_flush_ex(HANDLE file,ULONG flags,PVOID parameters,ULONG size,PIO_STATUS_BLOCK io) {
     typedef NTSTATUS (NTAPI *fn)(HANDLE,ULONG,PVOID,ULONG,PIO_STATUS_BLOCK);
@@ -315,13 +341,57 @@ NTSTATUS NTAPI freak_test_set_information(HANDLE file,PIO_STATUS_BLOCK io,PVOID 
     typedef NTSTATUS (NTAPI *fn)(HANDLE,PIO_STATUS_BLOCK,PVOID,ULONG,FILE_INFORMATION_CLASS);
     fn real=(fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtSetInformationFile");
     require(real!=NULL,"real native set-information export");
+    int short_control=is("replace-delete") && type==FileRenameInformation;
+    if(short_control){
+        FILE_RENAME_INFO rename;
+        require(size>=sizeof(rename),"complete production rename structure");memcpy(&rename,info,sizeof(rename));
+        require(!short_rename_controls && rename.ReplaceIfExists && rename.RootDirectory &&
+            rename.FileNameLength==sizeof(WCHAR) && rename.FileName[0]==L'a' &&
+            size==sizeof(rename)+rename.FileNameLength,"exact documented short replacement");
+        for(ULONG i=(ULONG)offsetof(FILE_RENAME_INFO,FileName)+rename.FileNameLength;i<size;i++)
+            require(((unsigned char *)info)[i]==0,"zeroed extra rename allocation");
+        FILE_ID_INFO before,after;unsigned char prior[11],current[11];
+        WCHAR source_before[32768],source_after[32768];
+        DWORD before_length=GetFinalPathNameByHandleW(file,source_before,32768,FILE_NAME_NORMALIZED|VOLUME_NAME_DOS);
+        require(before_length && before_length<32768,"held source name before rejected rename");
+        short_rename_target(rename.RootDirectory,&before,prior);
+        IO_STATUS_BLOCK old_io={0};old_io.Status=0x103;
+        ULONG old_size=(ULONG)offsetof(FILE_RENAME_INFO,FileName)+rename.FileNameLength;
+        NTSTATUS old=real(file,&old_io,info,old_size,type);
+        printf("NATIVE_SHORT_RENAME_OLD size=%lu documented=%lu name_bytes=%lu status=%08lx iosb_valid=%d\n",
+            (unsigned long)old_size,(unsigned long)size,(unsigned long)rename.FileNameLength,
+            (unsigned long)(ULONG)old,old==0);
+        fflush(stdout);
+        if(old==0x103 || (old==0 && old_io.Status==0x103)){
+            fputs("NONFINAL_SHORT_RENAME_CONTROL\n",stderr);fflush(NULL);_Exit(1);
+        }
+        require(old<0,"actual old short allocation must be rejected");
+        short_rename_target(rename.RootDirectory,&after,current);
+        DWORD after_length=GetFinalPathNameByHandleW(file,source_after,32768,FILE_NAME_NORMALIZED|VOLUME_NAME_DOS);
+        require(after_length==before_length && !memcmp(source_before,source_after,before_length*sizeof(WCHAR)),
+            "rejected short rename preserves source namespace");
+        require(before.VolumeSerialNumber==after.VolumeSerialNumber &&
+            !memcmp(before.FileId.Identifier,after.FileId.Identifier,sizeof(before.FileId.Identifier)) &&
+            !memcmp(prior,current,sizeof(prior)),"rejected short rename preserves target identity and bytes");
+        short_rename_controls++;
+    }
     NTSTATUS status=real(file,io,info,size,type);DWORD error=GetLastError();
+    if(short_control){
+        printf("NATIVE_SHORT_RENAME_DOCUMENTED size=%lu status=%08lx iosb_valid=%d",
+            (unsigned long)size,(unsigned long)(ULONG)status,status==0);
+        if(status==0){
+            LONG completion=io_status(io);printf(" iosb_status=%08lx",(unsigned long)(ULONG)completion);
+            if(completion==0)printf(" iosb_information=%llu",(unsigned long long)io_information(io));
+        }
+        putchar('\n');fflush(stdout);
+    }
     if(status==0x103 || (status==0 && io_status(io)==0x103)){
         fputs("NONFINAL_NATIVE_DISPOSITION\n",stderr);fflush(NULL);_Exit(1);
     }
     if(status==0 && type==FileDispositionInformation && size==sizeof(BOOLEAN) && *(BOOLEAN *)info){
         require(delete_marked==INVALID_HANDLE_VALUE,"one live deletion disposition");delete_marked=file;dispositions++;
     }
+    if(short_control)require(status==0 && io_status(io)==0,"documented short rename completes natively");
     SetLastError(error);return status;
 }
 BOOL WINAPI freak_test_close(HANDLE file){
@@ -357,7 +427,15 @@ static void seed_owner_acl(const char *parent,const char *leaf){
     require(written>=0 && (size_t)written<length,"seeded child ACL path join");
     private_acl(path,0);free(path);
 }
-static void release(int64_t ticket,int expected,int completed){require(!!F(result_ok)(ticket)==expected,"checked result");require(!!F(result_completed)(ticket)==completed,"completed result");F(result_release)(ticket);}
+static void release(int64_t ticket,int expected,int completed){
+    if(!!F(result_ok)(ticket)!=expected || !!F(result_completed)(ticket)!=completed){
+        freak_word error=freak_fs_result_error(ticket);
+        fprintf(stderr,"FS_RESULT_MISMATCH ok=%d completed=%d expected=%d/%d error=%.*s\n",
+            !!F(result_ok)(ticket),!!F(result_completed)(ticket),expected,completed,(int)error.length,error.data);
+        freak_word_release_owned(&error);
+    }
+    require(!!F(result_ok)(ticket)==expected,"checked result");require(!!F(result_completed)(ticket)==completed,"completed result");F(result_release)(ticket);
+}
 int main(int argc,char **argv) {
     require(argc==4,"arguments");scenario=argv[3];require(atexit(unsafe_callback)==0,"callback registration");
     int source_policy=!strcmp(scenario,"source-write") ? 2 : !strcmp(scenario,"null-dacl") ? 5 : 0;
@@ -385,6 +463,7 @@ int main(int argc,char **argv) {
     }else if(is("replace-delete")){
         int64_t buffer=freak_byte_buffer_new();freak_byte_buffer_write_byte(buffer,'N');freak_byte_buffer_write_byte(buffer,0);freak_byte_buffer_write_byte(buffer,255);
         release(F(write_relative_bytes_checked)(source,W("a"),buffer),1,1);freak_byte_buffer_release(buffer);
+        require(short_rename_controls==1,"real old/documented short rename control exercised");
         release(F(remove_relative_file_checked)(source,W("deletable")),1,1);require(directory_flushes==2 && dispositions==1,"replace/delete both barriers and real disposition");
     }else if(is("temp-rollback")){
         active=0;int64_t temp=F(temp_dir)(W(argv[1]),W("owned"));require(F(result_ok)(temp),"owned staging");active=1;scenario="directory-fault";
@@ -643,6 +722,8 @@ def main() -> int:
                         else:
                             moved=name in ('native','readonly-others','directory-fault')
                             if name=='replace-delete':
+                                assert b'NATIVE_SHORT_RENAME_OLD size=22 documented=26 name_bytes=2 status=' in result.stdout
+                                assert b'NATIVE_SHORT_RENAME_DOCUMENTED size=26 status=00000000 iosb_valid=1 iosb_status=00000000' in result.stdout
                                 assert (source_root/'a').read_bytes()==b'N\0\xff' and not (source_root/'deletable').exists()
                             else:assert not (source_root/'a').exists() if moved else (source_root/'a').read_bytes()==b'published\0\xff'
                             assert (destination/'result').read_bytes()==b'published\0\xff' if moved else not (destination/'result').exists()
