@@ -14,6 +14,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from v3_run_freshness import windows_python_driver
+
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -46,9 +48,7 @@ def selected_clang(freak: Path, cwd: Path, env: dict[str, str]) -> str:
     document = json.loads(output)
     clang = document["checks"]["clang"]
     assert clang["ok"] is True, output
-    command = clang["command"]
-    if len(command) >= 2 and command.startswith('"') and command.endswith('"'):
-        command = command[1:-1]
+    command = clang["executable"]
     resolved = shutil.which(command)
     if resolved:
         return resolved
@@ -73,7 +73,7 @@ if args == ["-dumpmachine"] and os.environ.get("FREAK_PROFILE_FAKE_TARGET"):
     print(os.environ["FREAK_PROFILE_FAKE_TARGET"])
     raise SystemExit(0)
 if os.environ.get("FREAK_PROFILE_REJECT_LTO") == "1" and any(
-    arg.startswith("-flto=") for arg in args
+    arg == "-flto" or arg.startswith("-flto=") for arg in args
 ):
     print("recording clang: LTO deliberately unsupported", file=sys.stderr)
     raise SystemExit(86)
@@ -90,10 +90,7 @@ raise SystemExit(subprocess.run(delegate, env=delegate_env).returncode)
         encoding="utf-8",
     )
     if sys.platform == "win32":
-        wrapper = root / "record-clang.cmd"
-        wrapper.write_text(
-            f'@"{sys.executable}" "{recorder}" %*\n', encoding="utf-8"
-        )
+        wrapper = windows_python_driver(root / "native-profile-recorder", real_clang, recorder)
     else:
         wrapper = root / "record-clang"
         wrapper.write_text(
@@ -166,12 +163,58 @@ def check_static_contract(repo: Path) -> None:
         "task cli_clang_target_triple",
         "task cli_linker_command_from_trace",
         "task cli_selected_linker_command",
-        '" -### -x c "',
         'lto == "off" and runtime_obj_ext != ""',
         'profile_label = "+03 — FINAL FORM"',
         "No non-LTO fallback was attempted",
     ):
         assert needle in build, f"build profile contract missing {needle}"
+    signature = "task cli_selected_linker_trace(executable: word, lto: word, cross: word) -> word {"
+    assert build.count(signature) == 1, "selected linker trace helper must be unambiguous"
+    trace = build.split(signature, 1)[1].split("\ntask ", 1)[0]
+    for needle in (
+        'if executable == "" or not cli_cross_target_is_safe(cross) { give back "" }',
+        'pilot null_input = "/dev/null"',
+        'pilot null_output = "/dev/null"',
+        'if cli_is_windows() {\n        null_input = "nul"\n        null_output = "nul"\n    }',
+    ):
+        assert needle in trace, f"selected linker trace missing {needle}"
+    ordered = (
+        "pilot command = process::command_new(executable)",
+        'process::command_arg(command, "-###")',
+        'process::command_arg(command, "-x")',
+        'process::command_arg(command, "c")',
+        "process::command_arg(command, null_input)",
+        'process::command_arg(command, "-o")',
+        "process::command_arg(command, null_output)",
+        "cli_build_lto_args(command, lto)",
+        'if cross != "" { process::command_arg(command, "--target=" + cross) }',
+        "give back cli_tool_capture(command, true)",
+    )
+    positions = []
+    for needle in ordered:
+        assert trace.count(needle) == 1, f"selected linker trace missing unique {needle}"
+        positions.append(trace.index(needle))
+    assert positions == sorted(positions), "selected linker trace arguments are out of order"
+    raw_signature = "task cli_selected_linker_executable(executable: word, lto: word, cross: word) -> word {"
+    assert build.count(raw_signature) == 1
+    raw_selector = build.split(raw_signature, 1)[1].split("\ntask ", 1)[0]
+    assert "give back cli_linker_executable_from_trace(cli_selected_linker_trace(executable, lto, cross))" in raw_selector
+    compat_signature = "task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> word {"
+    assert build.count(compat_signature) == 1
+    compatibility = build.split(compat_signature, 1)[1].split("\ntask ", 1)[0]
+    assert "pilot executable = cli_find_clang_executable()" in compatibility
+    assert "give back cli_linker_command_from_trace(cli_selected_linker_trace(executable, lto, cross))" in compatibility
+    assert "pilot linker_cmd = cli_selected_linker_executable(clang_cmd, lto, cross)" in run
+    lto_signature = "task cli_build_lto_args(command: int, lto: word) -> void {"
+    assert build.count(lto_signature) == 1
+    lto_args = build.split(lto_signature, 1)[1].split("\ntask ", 1)[0]
+    for needle in (
+        'if lto == "off" { give back }',
+        'if lto == "thin" { process::command_arg(command, "-flto=thin") }',
+        'if lto == "full" { process::command_arg(command, "-flto") }',
+        'if cli_is_macos() { process::command_arg(command, "-fuse-ld=ld") } else { process::command_arg(command, "-fuse-ld=lld") }',
+    ):
+        assert needle in lto_args, f"native LTO arguments missing {needle}"
     for forbidden in ("-Ofast", "-ffast-math", "-march=native"):
         assert forbidden not in build, f"unsafe optimization flag present: {forbidden}"
     for needle in (
@@ -262,7 +305,7 @@ def check_real_profile_matrix(
             assert f"Profile: O{level}" in output, output
             flattened = [arg for entry in entries for arg in entry]
             assert f"-O{level}" in flattened, entries
-            assert not any(arg.startswith("-flto=") for arg in flattened), entries
+            assert not any(arg == "-flto" or arg.startswith("-flto=") for arg in flattened), entries
 
         output, entries = build_and_record(
             freak, root, source, [backend, "+03"], env, log
@@ -284,7 +327,9 @@ def check_real_profile_matrix(
             freak, root, source, [backend, "--opt=3", "--lto=full"], env, log
         )
         full_flat = [arg for entry in full_entries for arg in entry]
-        assert "-O3" in full_flat and "-flto=full" in full_flat, full_entries
+        assert "-O3" in full_flat and {
+            arg for arg in full_flat if arg.startswith("-flto")
+        } == {"-flto"}, full_entries
 
     _, cross_off_entries = build_and_record(
         freak,
@@ -296,7 +341,7 @@ def check_real_profile_matrix(
     )
     cross_off_flat = [arg for entry in cross_off_entries for arg in entry]
     assert f"--target={native_target}" in cross_off_flat, cross_off_entries
-    assert not any(arg.startswith("-flto=") for arg in cross_off_flat), cross_off_entries
+    assert not any(arg == "-flto" or arg.startswith("-flto=") for arg in cross_off_flat), cross_off_entries
 
 
 def check_invalid_flags(

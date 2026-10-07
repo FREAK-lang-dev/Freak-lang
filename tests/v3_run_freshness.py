@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -53,14 +55,29 @@ def selected_clang(freak: Path, cwd: Path, env: dict[str, str]) -> str:
     )
     document = json.loads(report.stdout)
     assert document["checks"]["clang"]["ok"] is True, report.stdout + report.stderr
-    command = document["checks"]["clang"]["command"]
-    if len(command) >= 2 and command.startswith('"') and command.endswith('"'):
-        command = command[1:-1]
+    command = document["checks"]["clang"]["executable"]
     resolved = shutil.which(command)
     if resolved:
         return resolved
     assert Path(command).is_file(), command
     return command
+
+
+def windows_python_driver(root: Path, real_clang: str, recorder: Path) -> Path:
+    """Use the reviewed direct-executable recorder at the native tool boundary."""
+    tool = Path(__file__).resolve().parents[1] / "tools" / "v3_performance_lab.py"
+    specification = importlib.util.spec_from_file_location("freak_v3_performance_lab", tool)
+    assert specification is not None and specification.loader is not None, tool
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    root.mkdir(parents=True, exist_ok=True)
+    _, _, identity = module._build_windows_recording_launcher(
+        root, Path(real_clang), str(Path(sys.executable).resolve()), str(recorder.resolve())
+    )
+    (root / "launcher-build.json").write_text(
+        json.dumps(identity, indent=2) + "\n", encoding="utf-8"
+    )
+    return root / "record-clang.exe"
 
 
 def check_installer_contracts(repo: Path) -> None:
@@ -110,11 +127,28 @@ def check_installer_contracts(repo: Path) -> None:
     for needle in (
         'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"',
         "task cli_run_clang_identity",
-        "command -v ",
         "certutil -hashfile",
         "sha256sum ",
     ):
         assert needle in run_text, f"run cache identity missing {needle}"
+    signature = "task cli_run_resolve_program(command: word) -> word {"
+    assert run_text.count(signature) == 1, "raw executable resolver must be unambiguous"
+    resolver = run_text.split(signature, 1)[1].split("\ntask ", 1)[0]
+    for needle in (
+        'if (cli_is_windows() or command.contains("/")) and fs::exists(command)',
+        'if command.contains("/") { give back "" }',
+        'pilot search_path = process::env("PATH")',
+        'search_path = "/bin:/usr/bin"',
+        'pilot directory = ""',
+        'repeat until pi > search_path.length()',
+        'pilot ch = ":"',
+        'pilot candidate = "./" + command',
+        'if directory != "" { candidate = directory + "/" + command }',
+        'pilot quoted = cli_quote_cmd_path(candidate)',
+        'if process::exec("test -f " + quoted + " && test -x " + quoted) == 0 {\n                    give back candidate\n                }',
+    ):
+        assert needle in resolver, f"raw executable resolver missing {needle}"
+    assert "command -v " not in resolver, "shell builtin resolution differs from native argv"
 
     bash = shutil.which("bash")
     if bash:
@@ -343,53 +377,97 @@ def main() -> int:
         )
         blocked_binary.rmdir()
 
-        # WinGet upgrades remove versioned LLVM-MinGW directories. A stale
-        # persisted FREAK_CLANG must fall through to normal discovery rather
-        # than masking the replacement toolchain that is already available.
+        # An explicit missing executable is authoritative. Reject it without
+        # starting the program, then recover only after restoring the tool.
         stale_source = source_dir / "stale-clang-override.fk"
         stale_source.write_text('task main() { say "STALE_CLANG_RECOVERED"; }\n', encoding="utf-8")
         stale_env = env.copy()
         stale_env["FREAK_CLANG"] = str(
             root / "removed-llvm-mingw-version" / "bin" / "clang.exe"
         )
+        warm_artifacts = {
+            path: (path.read_bytes(), path.stat().st_mtime_ns)
+            for path in (binary, sidecar, Path(str(source) + ".c"), Path(str(source) + ".ll"))
+            if path.is_file()
+        }
+        assert binary in warm_artifacts and sidecar in warm_artifacts
         code, output = invoke(
             freak, source_dir, Path(stale_source.name), "--c", stale_env
         )
+        assert code != 0, output
+        assert "STALE_CLANG_RECOVERED" not in output, output
+        assert "CACHE_A" not in output, output
+        stale_binary = stale_source.with_suffix(".exe" if sys.platform == "win32" else "")
+        assert not stale_binary.exists(), "missing explicit compiler produced a program"
+        assert not Path(str(stale_binary) + ".freak-run-cache").exists()
+        for suffix in (".c", ".ll", ".obj"):
+            assert not Path(str(stale_source) + suffix).exists()
+        assert not stale_source.with_suffix(".obj").exists()
+        for path, expected in warm_artifacts.items():
+            assert (path.read_bytes(), path.stat().st_mtime_ns) == expected, (
+                "missing explicit compiler mutated unrelated warm artifacts", path
+            )
+        code, output = invoke(freak, source_dir, source_arg, "--c", env)
+        assert_run(code, output, "CACHE_A", cache_hit=True)
+        code, output = invoke(freak, source_dir, Path(stale_source.name), "--c", env)
         assert_run(code, output, "STALE_CLANG_RECOVERED", cache_hit=False)
 
         # Version text alone is not a toolchain identity. Two wrappers can
         # advertise the same version while selecting different compiler
         # bytes. Replacing the selected executable must invalidate the cache.
         real_clang = selected_clang(freak, root, env)
-        clang_wrapper = root / (
-            "clang-fingerprint.cmd" if sys.platform == "win32" else "clang-fingerprint.sh"
+        version_probe = subprocess.run(
+            [real_clang, "--version"], capture_output=True, timeout=120, check=False
         )
-        if sys.platform == "win32":
-            wrapper_template = (
-                "@echo off\n"
-                "rem fixture generation {generation}\n"
-                'if "%~1"=="--version" (echo clang identical-version fixture& exit /b 0)\n'
-                f'"{real_clang}" %*\n'
+        assert version_probe.returncode == 0, version_probe.stderr
+        identical_version = version_probe.stdout
+        assert identical_version, "selected Clang produced no version banner"
+        clang_wrapper = root / (
+            "clang-fingerprint.exe" if sys.platform == "win32" else "clang-fingerprint.sh"
+        )
+
+        def write_fingerprint_driver(generation: int) -> None:
+            recorder = root / f"fingerprint-driver-{generation}.py"
+            recorder.write_text(
+                "import subprocess, sys\n"
+                f"version = {identical_version!r}\n"
+                "if sys.argv[1:] == ['--version']:\n"
+                "    sys.stdout.buffer.write(version)\n"
+                "    raise SystemExit(0)\n"
+                f"raise SystemExit(subprocess.call([{real_clang!r}, *sys.argv[1:]]))\n",
+                encoding="utf-8",
             )
-        else:
-            wrapper_template = (
-                "#!/bin/sh\n"
-                "# fixture generation {generation}\n"
-                'if [ "$1" = "--version" ]; then echo "clang identical-version fixture"; exit 0; fi\n'
-                f'exec \'{real_clang}\' "$@"\n'
-            )
+            if sys.platform == "win32":
+                launcher = windows_python_driver(
+                    root / f"native-fingerprint-{generation}", real_clang, recorder
+                )
+                shutil.copy2(launcher, clang_wrapper)
+            else:
+                clang_wrapper.write_text(
+                    f"#!/bin/sh\n# fixture generation {generation}\n"
+                    f"exec {shlex.quote(sys.executable)} {shlex.quote(str(recorder))} \"$@\"\n",
+                    encoding="utf-8",
+                )
+                clang_wrapper.chmod(0o755)
+
         clang_env = env.copy()
         clang_env["FREAK_CLANG"] = str(clang_wrapper)
-        clang_wrapper.write_text(wrapper_template.format(generation=1), encoding="utf-8")
-        if sys.platform != "win32":
-            clang_wrapper.chmod(0o755)
+        write_fingerprint_driver(1)
+        first_driver_bytes = clang_wrapper.read_bytes()
+        first_version = subprocess.run(
+            [str(clang_wrapper), "--version"], capture_output=True, timeout=120, check=False
+        )
+        assert first_version.returncode == 0 and first_version.stdout == identical_version
         code, output = invoke(freak, source_dir, source_arg, "--c", clang_env)
         assert_run(code, output, "CACHE_A", cache_hit=False)
         code, output = invoke(freak, source_dir, source_arg, "--c", clang_env)
         assert_run(code, output, "CACHE_A", cache_hit=True)
-        clang_wrapper.write_text(wrapper_template.format(generation=2), encoding="utf-8")
-        if sys.platform != "win32":
-            clang_wrapper.chmod(0o755)
+        write_fingerprint_driver(2)
+        assert clang_wrapper.read_bytes() != first_driver_bytes
+        second_version = subprocess.run(
+            [str(clang_wrapper), "--version"], capture_output=True, timeout=120, check=False
+        )
+        assert second_version.returncode == 0 and second_version.stdout == first_version.stdout
         code, output = invoke(freak, source_dir, source_arg, "--c", clang_env)
         assert_run(code, output, "CACHE_A", cache_hit=False)
 
@@ -522,9 +600,8 @@ def main() -> int:
                 "raise SystemExit(subprocess.call([real, *sys.argv[1:]]))\n",
                 encoding="utf-8",
             )
-            fallback_wrapper = root / "bundle-fallback-clang.cmd"
-            fallback_wrapper.write_text(
-                f'@python "{fallback_driver}" %*\n', encoding="utf-8"
+            fallback_wrapper = windows_python_driver(
+                root / "native-bundle-fallback", clang, fallback_driver
             )
             fallback_env = env.copy()
             fallback_env["FREAK_CLANG"] = str(fallback_wrapper)
@@ -596,23 +673,27 @@ def main() -> int:
             percent_source.write_text('task main() { say "SAFE_WINDOWS_PATH"; }\n', encoding="utf-8")
             mock_linker = root / "ld.lld.exe"
             shutil.copy2(freak, mock_linker)
-            mock_clang = root / "mock-clang.cmd"
-            mock_clang.write_text(
-                "@echo off\n"
-                "setlocal DisableDelayedExpansion\n"
-                'if "%~1"=="--version" (echo clang mock-version& exit /b 0)\n'
-                'if "%~1"=="-dumpmachine" (echo x86_64-w64-windows-gnu& exit /b 0)\n'
-                f'if "%~1"=="-###" (echo "{mock_linker}" "-out:nul"& exit /b 0)\n'
-                ":scan\n"
-                'if "%~1"=="" exit /b 2\n'
-                'if "%~1"=="-o" goto output\n'
-                "shift\n"
-                "goto scan\n"
-                ":output\n"
-                "shift\n"
-                f'copy /y "{freak}" "%~1" >nul\n'
-                "exit /b %ERRORLEVEL%\n",
+            mock_linker_trace = json.dumps(str(mock_linker), ensure_ascii=False) + ' "-out:nul"'
+            mock_driver = root / "percent-path-clang.py"
+            mock_driver.write_text(
+                "import shutil, sys\n"
+                "args = sys.argv[1:]\n"
+                "if args == ['--version']:\n"
+                f"    sys.stdout.buffer.write({identical_version!r})\n"
+                "    raise SystemExit(0)\n"
+                "if args == ['-dumpmachine']:\n"
+                "    print('x86_64-w64-windows-gnu')\n"
+                "    raise SystemExit(0)\n"
+                "if args and args[0] == '-###':\n"
+                f"    print({mock_linker_trace!r})\n"
+                "    raise SystemExit(0)\n"
+                "if '-o' not in args or args.index('-o') + 1 == len(args):\n"
+                "    raise SystemExit(2)\n"
+                f"shutil.copy2({str(freak)!r}, args[args.index('-o') + 1])\n",
                 encoding="utf-8",
+            )
+            mock_clang = windows_python_driver(
+                root / "native-percent-path", real_clang, mock_driver
             )
             percent_env = env.copy()
             percent_env["FREAK_CLANG"] = str(mock_clang)
