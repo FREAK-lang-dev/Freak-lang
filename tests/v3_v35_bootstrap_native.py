@@ -1038,7 +1038,8 @@ def verify_windows_temp_owner(clang: Path, runtime: Path, root: Path, evidence: 
     source.write_text(WINDOWS_OWNER_PROBE, encoding='utf-8')
     runtime_before = {path.relative_to(runtime).as_posix(): digest(path)
                       for path in sorted(runtime.rglob('*')) if path.is_file()}
-    command = [str(clang), '-O0', str(source), '-I', str(runtime), '-lws2_32', '-ladvapi32', '-o', str(image)]
+    command = [str(clang), '-O0', str(source), str(runtime/'freak_llvm_runtime.c'),
+               '-I', str(runtime), '-lws2_32', '-ladvapi32', '-o', str(image)]
     def save():
         if evidence:
             evidence.with_suffix('.windows-owner.json').write_text(json.dumps(report, indent=2)+'\n')
