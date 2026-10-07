@@ -18,6 +18,7 @@ import tempfile
 import v3_word_foundation as foundation
 from v3_v35_hangar import probe_transpile, require_resource_conservation, task_source
 from v3_v35_package_sources import PROGRAM, package_probe_source
+from windows_private_fixture import WindowsPrivateFixture
 
 
 def extended_windows_path(path: str) -> str:
@@ -38,15 +39,29 @@ def assert_manifest_selection(actual: str, physical_manifest: Path) -> None:
     assert Path(reported).samefile(physical_manifest), (reported, physical_manifest)
 
 
-def run_gate(compiler: Path, clang: Path, payload: Path, root: Path) -> list[str]:
+def run_gate(compiler: Path, clang: Path, payload: Path, root: Path,
+             private_fixture: WindowsPrivateFixture | None = None) -> list[str]:
     repo = Path(__file__).resolve().parents[1]
     runtime = payload / "runtime"
     sources = (repo / "src/cli/package_sources.fk").read_text(encoding="utf-8")
     checks: list[str] = []
 
+    def save_progress() -> None:
+        (root / "report.json").write_text(json.dumps({"host": os.name, "checks": checks,
+            "gate_passed": False, "phase": "running",
+            "windows_private_fixture": private_fixture.report if private_fixture else None}, indent=2) + "\n")
+
+    def prepare_fresh(*directories: Path) -> None:
+        if private_fixture is not None:
+            private_fixture.claim_fresh_directories(*directories)
+        save_progress()
+
     def passed(name: str) -> None:
         checks.append(name)
         print("PASS", name, flush=True)
+        save_progress()
+
+    save_progress()
 
     def execute(binary: Path, *arguments: str, cwd: Path | None = None) -> str:
         result = foundation.run([str(binary), *arguments], cwd or root,
@@ -105,10 +120,14 @@ def run_gate(compiler: Path, clang: Path, payload: Path, root: Path) -> list[str
                                      generated=generated, backend=backend, binary=binary)
         physical = root / f"physical-{backend}-日本-Ω"
         nested = physical / "nested"
-        nested.mkdir(parents=True)
+        physical.mkdir()
+        prepare_fresh(physical)
+        nested.mkdir()
+        prepare_fresh(nested)
         manifest = physical / "hangar.toml"
         dependency = root / f"dep-{backend}-日本"
         dependency.mkdir()
+        prepare_fresh(dependency)
         (dependency / "hangar.toml").write_text('[project]\nname="dep"\nversion="1.0.0"\nkind="lib"\n[modules]\ncore="core.fk"\n[exports]\nvalue="core::value"\n', encoding="utf-8")
         (dependency / "core.fk").write_text('task value() -> int { give back 42 }\n', encoding="utf-8")
         manifest.write_text('[project]\nname="admission"\nversion="1.0.0"\nkind="app"\nentry="main.fk"\n'
@@ -118,6 +137,7 @@ def run_gate(compiler: Path, clang: Path, payload: Path, root: Path) -> list[str
         passed(f"{backend}:nearest-physical-unicode-project-and-local-dependency")
         standalone = root / f"standalone-{backend}"
         standalone.mkdir()
+        prepare_fresh(standalone)
         assert execute(binary, str(standalone / "main.fk"), "discover") == "standalone\n"
         assert not (standalone / ".freak").exists()
         passed(f"{backend}:standalone-walk-terminates-at-host-root")
@@ -172,8 +192,12 @@ def run_gate(compiler: Path, clang: Path, payload: Path, root: Path) -> list[str
     environment = os.environ.copy()
     environment.update({"FREAK_HOME": str(payload), "NO_COLOR": "1", "PATH": str(clang.parent) + os.pathsep + environment.get("PATH", "")})
     physical = root / "public-日本-Ω"
-    physical = physical.joinpath(*(["long-component-日本-Ω"] * 12))
-    physical.mkdir(parents=True)
+    physical.mkdir()
+    prepare_fresh(physical)
+    for _ in range(12):
+        physical = physical / "long-component-日本-Ω"
+        physical.mkdir()
+        prepare_fresh(physical)
     (physical / "main.fk").write_text('task main() { say "ADMITTED" }\n', encoding="utf-8")
     selected = physical / "main.fk"
     if os.name != "nt":
@@ -220,14 +244,19 @@ def main() -> int:
     parser.add_argument("--payload-home", type=Path, required=True)
     parser.add_argument("--probe-root", type=Path)
     args = parser.parse_args()
-    if args.probe_root:
-        args.probe_root.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(prefix="freak-project-admission-") as temporary:
+        if args.probe_root:
+            args.probe_root.mkdir(parents=True, exist_ok=False)
         root = args.probe_root.resolve() if args.probe_root else Path(temporary).resolve()
-        checks = run_gate(args.compiler.resolve(strict=True), args.clang.resolve(strict=True), args.payload_home.resolve(strict=True), root)
+        # Only this freshly exclusive Python fixture root is adopted. Token
+        # defaults and runtime-created cache/history/output directories remain
+        # outside this facade's explicitly named fixture setup.
+        private_fixture = WindowsPrivateFixture(root, root / "report.json")
+        checks = run_gate(args.compiler.resolve(strict=True), args.clang.resolve(strict=True), args.payload_home.resolve(strict=True), root, private_fixture)
         (root / "report.json").write_text(json.dumps({"host": os.name, "checks": checks,
             "package_sources_sha256": hashlib.sha256((Path(__file__).resolve().parents[1] / "src/cli/package_sources.fk").read_bytes()).hexdigest(),
-            "windows_filesystem_execution_claimed": os.name == "nt"}, indent=2) + "\n")
+            "windows_filesystem_execution_claimed": os.name == "nt", "gate_passed": True,
+            "phase": "complete", "windows_private_fixture": private_fixture.report}, indent=2) + "\n")
     return 0
 
 
