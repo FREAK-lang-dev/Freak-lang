@@ -218,6 +218,7 @@ WINDOWS_HARNESS = r'''
 extern int64_t freak_llvm_fs_rename_relative_new_checked(int64_t,int64_t,int64_t,int64_t);
 static const char *scenario="";static int active=0,directory_flushes=0,candidate_opens=0,candidate_closes=0,dispositions=0;
 static HANDLE candidate=INVALID_HANDLE_VALUE,delete_marked=INVALID_HANDLE_VALUE;
+static int inspection_opens=0,inspection_closes=0;static HANDLE inspection=INVALID_HANDLE_VALUE;
 static void require(int ok,const char *why) {if(!ok) {fprintf(stderr,"FAIL: %s (Win32 %lu)\n",why,GetLastError());exit(2);}}
 #ifdef USE_LLVM_ADAPTER
 #define W(s) ((int64_t)(intptr_t)(s))
@@ -282,9 +283,19 @@ FARPROC WINAPI freak_test_get_proc_address(HMODULE module,LPCSTR name) {
     return GetProcAddress(module,name);
 }
 HANDLE WINAPI freak_test_open_by_id(HANDLE parent,LPFILE_ID_DESCRIPTOR id,DWORD access,DWORD share,LPSECURITY_ATTRIBUTES security,DWORD flags){
-    require(id->Type==ExtendedFileIdType && id->dwSize==sizeof(*id) && access==(FILE_APPEND_DATA|FILE_READ_ATTRIBUTES|SYNCHRONIZE) && share==7 && !security && flags==(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT),"full identity/minimum access open");
-    if(is("open-error")){SetLastError(ERROR_ACCESS_DENIED);return INVALID_HANDLE_VALUE;}
-    candidate=OpenFileById(parent,id,access,share,security,flags);if(candidate!=INVALID_HANDLE_VALUE)candidate_opens++;return candidate;
+    int inspecting=access==(READ_CONTROL|FILE_READ_ATTRIBUTES|SYNCHRONIZE);
+    require(id && id->Type==ExtendedFileIdType && id->dwSize==sizeof(*id) &&
+        (inspecting || access==(FILE_APPEND_DATA|FILE_READ_ATTRIBUTES|SYNCHRONIZE)) && share==7 && !security &&
+        flags==(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT),"full identity/minimum access open");
+    /* Security inspections are not synchronization candidates or fault targets. */
+    require((inspecting ? inspection : candidate)==INVALID_HANDLE_VALUE,"one owned handle per access profile");
+    if(!inspecting && is("open-error")){SetLastError(ERROR_ACCESS_DENIED);return INVALID_HANDLE_VALUE;}
+    HANDLE opened=OpenFileById(parent,id,access,share,security,flags);DWORD error=GetLastError();
+    if(opened!=INVALID_HANDLE_VALUE){
+        if(inspecting){inspection=opened;inspection_opens++;}
+        else{candidate=opened;candidate_opens++;}
+    }
+    SetLastError(error);return opened;
 }
 BOOL WINAPI freak_test_information(HANDLE file,LPBY_HANDLE_FILE_INFORMATION info){
     BOOL ok=GetFileInformationByHandle(file,info);
@@ -316,6 +327,7 @@ NTSTATUS NTAPI freak_test_set_information(HANDLE file,PIO_STATUS_BLOCK io,PVOID 
 BOOL WINAPI freak_test_close(HANDLE file){
     DWORD error=GetLastError();BOOL ok=CloseHandle(file);
     if(ok && file==candidate){candidate_closes++;candidate=INVALID_HANDLE_VALUE;}
+    if(ok && file==inspection){inspection_closes++;inspection=INVALID_HANDLE_VALUE;}
     if(ok && file==delete_marked)delete_marked=INVALID_HANDLE_VALUE;
     SetLastError(error);return ok;
 }
@@ -360,9 +372,11 @@ int main(int argc,char **argv) {
     release(F(mkdir_relative_checked)(warm,W("child")),1,1);release(F(remove_temp_dir_checked)(warm),1,1);F(result_release)(warm);
     require(freak_fs_result_live()==0,"warmup ticket balance");
     require(candidate_opens==candidate_closes && candidate==INVALID_HANDLE_VALUE && delete_marked==INVALID_HANDLE_VALUE,"warmup owned handle balance before reset");require(GetProcessHandleCount(GetCurrentProcess(),&before),"warm handle baseline");
+    require(inspection_opens==inspection_closes && inspection==INVALID_HANDLE_VALUE,"warmup inspection handle balance before reset");
     printf("WARMUP_HANDLES %ld\n",(long)before-(long)cold);
     int64_t source=F(open_dir_ticket)(W(argv[1])),destination=F(open_dir_ticket)(W(argv[2]));require(F(result_ok)(source) && F(result_ok)(destination),"root admission");
     directory_flushes=candidate_opens=candidate_closes=dispositions=0;active=1;
+    inspection_opens=inspection_closes=0;
     int ordinary=!strcmp(scenario,"native") || !strcmp(scenario,"readonly-others") || !strcmp(scenario,"source-write") || !strcmp(scenario,"destination-write") || !strcmp(scenario,"write-dac") || !strcmp(scenario,"delete-child") || !strcmp(scenario,"null-dacl") || !strcmp(scenario,"missing-security-api") || !strcmp(scenario,"directory-fault");
     if(ordinary){
         int accepted=!strcmp(scenario,"native") || !strcmp(scenario,"readonly-others");int completed=accepted || !strcmp(scenario,"directory-fault");
@@ -381,6 +395,7 @@ int main(int argc,char **argv) {
         require(directory_flushes==0,"rejected support/identity never flushed");
     }
     require(candidate_opens==candidate_closes && candidate==INVALID_HANDLE_VALUE,"every sync candidate closed");
+    require(inspection_opens==inspection_closes && inspection==INVALID_HANDLE_VALUE,"every inspection handle closed");
     F(result_release)(source);F(result_release)(destination);require(freak_fs_result_live()==0,"result ownership");
     require(GetProcessHandleCount(GetCurrentProcess(),&after) && before==after,"tested-operation handle ownership");
     printf("WINDOWS_OK %d %d %d\n",directory_flushes,candidate_opens,candidate_closes);
