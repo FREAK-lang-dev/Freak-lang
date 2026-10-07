@@ -55,8 +55,11 @@ and HTTP server/request error getters own independent storage. Releasing,
 reusing or growing the source ticket cannot invalidate the returned word.
 Generic cloning of immutable literal words retains its existing sharing rule.
 Windows owned temporary directories explicitly select the effective caller as
-owner. Publication still requires caller-owned safe parents; existing parent
-ACL checks and the process's default-owner setting remain unchanged.
+owner and receive a protected, inheritable caller-only DACL at creation. The
+runtime verifies the held object's owner and DACL before returning it.
+Publication still requires caller-owned safe parents; generic directory
+creation, existing parent ACL checks and the process's default-owner setting
+remain unchanged.
 
 The HTTP profile is synchronous, bounded and one request per connection,
 defaulting to loopback with configurable framing/size/deadline limits. The

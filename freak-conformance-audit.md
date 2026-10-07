@@ -37,8 +37,11 @@ words that survive ticket release, reuse and table growth. Generic literal
 cloning keeps its existing sharing semantics. Focused C/LLVM and sanitizer
 proofs do not replace final current-head shipping and native-platform CI.
 Windows owned temporary creation explicitly selects the effective caller's
-owner SID while preserving inherited DACLs and strict publication-parent policy.
-Native verification must retain the original token default-owner context.
+owner SID and a protected, inheritable caller-only DACL, then verifies both on
+the held new object. Generic directory creation and strict publication-parent
+policy remain unchanged. Native verification must retain the original token
+default-owner context; Python fixtures claim only their explicitly fresh
+directories before public use.
 
 **V3.5 initial syntax checkpoint (2026-10-05):** native V3 statement lists
 accept semicolons, including a trailing separator and bare void return.
