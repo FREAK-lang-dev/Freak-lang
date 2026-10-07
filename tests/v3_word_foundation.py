@@ -768,12 +768,24 @@ def main() -> int:
             assert stdlib_run.stdout.strip().splitlines() == ["gogogo", "0", "4"]
             assert "ownership audit found" not in stdlib_run.stderr
 
+        # Reserved declarations fail project admission before type checking.
+        reserved = root / "word_foundation_reserved_shape.fk"
+        reserved.write_text(BOOTSTRAP_RESERVED_SHAPE_PROGRAM, encoding="utf-8")
+        reserved_checked = run([str(freak), "check", str(reserved)], repo)
+        reserved_output = reserved_checked.stdout + reserved_checked.stderr
+        assert reserved_checked.returncode != 0, reserved_output
+        assert "conflicts with a compiler builtin namespace" in reserved_output
+        assert not Path(str(reserved) + ".c").exists()
+        assert not Path(str(reserved) + ".ll").exists()
+
         negative = root / "word_foundation_negative.fk"
-        negative.write_text(NEGATIVE_PROGRAM, encoding="utf-8")
+        assert NEGATIVE_PROGRAM.startswith("shape word_builder {}\n\n"), NEGATIVE_PROGRAM
+        negative.write_text(
+            NEGATIVE_PROGRAM.removeprefix("shape word_builder {}\n\n"), encoding="utf-8"
+        )
         checked = run([str(freak), "check", str(negative)], repo)
         negative_output = checked.stdout + checked.stderr
         assert checked.returncode != 0, negative_output
-        assert "conflicts with a compiler builtin namespace" in negative_output
         assert "assignment operator '-=' does not accept word and word" in negative_output
         assert "method 'repeated' argument 1 expects int, got word" in negative_output
         assert "call to 'word_builder::append' argument 2 expects word, got int" in negative_output
