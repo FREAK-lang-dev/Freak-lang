@@ -21,10 +21,10 @@
       "stdout": "03_shapes_methods.stdout",
       "backends": ["c", "llvm"],
       "generated_contains": {
-        "c": ["freak_v3_shape_new", "__freak_user_Point_area"],
+        "c": ["freak_v3_shape_new", "__freak_user_pkg_2352fc2b88e11065a6fa4ab68ab77d1348b2783c23f2214a38d92b94aa0160a6_Point_area"],
         "llvm": [
           "call i64 @freak_v3_shape_new",
-          "@__freak_user_Point_area"
+          "@__freak_user_pkg_2352fc2b88e11065a6fa4ab68ab77d1348b2783c23f2214a38d92b94aa0160a6_Point_area"
         ]
       }
     },
@@ -52,7 +52,7 @@
       "backends": ["c", "llvm"],
       "generated_contains": {
         "llvm": [
-          "@__freak_user_Hero_summary",
+          "@__freak_user_pkg_2352fc2b88e11065a6fa4ab68ab77d1348b2783c23f2214a38d92b94aa0160a6_Hero_summary",
           "call i64 @freak_llvm_word_append_owned("
         ]
       }
