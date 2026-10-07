@@ -627,6 +627,478 @@ def failed(process: subprocess.CompletedProcess[bytes], output: Path, parent: Pa
         assert not list(parent.glob('.freak-v4-bootstrap*')), list(parent.iterdir())
 
 
+def windows_owner_require(condition: bool, phase: str, detail: object = None) -> None:
+    if not condition:
+        raise AssertionError(('Windows private-root ownership', phase, detail))
+
+
+def windows_private_root(root: Path, evidence: Path | None, report: dict | None = None,
+                         directory: Path | None = None) -> dict:
+    """Change only the newly exclusive fixture root, through one held handle.
+
+    Keep token defaults intact: an elevated token can name Administrators as
+    TokenOwner while the checked publication policy requires TokenUser.
+    """
+    import ctypes as c
+
+    kernel = c.WinDLL('kernel32.dll', use_last_error=True, winmode=0x800)
+    security = c.WinDLL('advapi32.dll', use_last_error=True, winmode=0x800)
+    pointer, dword, boolean = c.c_void_p, c.c_uint32, c.c_int
+    word = c.c_uint16
+    def api(library, name, result, *arguments):
+        function = getattr(library, name)
+        function.restype, function.argtypes = result, arguments
+        return function
+    close = api(kernel, 'CloseHandle', boolean, pointer)
+    current_process = api(kernel, 'GetCurrentProcess', pointer)
+    current_thread = api(kernel, 'GetCurrentThread', pointer)
+    local_free = api(kernel, 'LocalFree', pointer, pointer)
+    create_file = api(kernel, 'CreateFileW', pointer, c.c_wchar_p, dword, dword,
+                      pointer, dword, dword, pointer)
+    file_type = api(kernel, 'GetFileType', dword, pointer)
+    file_info = api(kernel, 'GetFileInformationByHandleEx', boolean,
+                    pointer, c.c_int, pointer, dword)
+    open_process = api(security, 'OpenProcessToken', boolean, pointer, dword, c.POINTER(pointer))
+    open_thread = api(security, 'OpenThreadToken', boolean, pointer, dword, boolean, c.POINTER(pointer))
+    token_info = api(security, 'GetTokenInformation', boolean,
+                     pointer, c.c_int, pointer, dword, c.POINTER(dword))
+    valid_sid = api(security, 'IsValidSid', boolean, pointer)
+    valid_acl = api(security, 'IsValidAcl', boolean, pointer)
+    initialize_acl = api(security, 'InitializeAcl', boolean, pointer, dword, dword)
+    add_ace = api(security, 'AddAccessAllowedAceEx', boolean, pointer, dword, dword, dword, pointer)
+    get_ace = api(security, 'GetAce', boolean, pointer, dword, c.POINTER(pointer))
+    get_security = api(security, 'GetSecurityInfo', dword, pointer, c.c_int, dword,
+                       c.POINTER(pointer), pointer, c.POINTER(pointer), pointer, c.POINTER(pointer))
+    set_security = api(security, 'SetSecurityInfo', dword, pointer, c.c_int, dword,
+                       pointer, pointer, pointer, pointer)
+    sd_length = api(security, 'GetSecurityDescriptorLength', dword, pointer)
+    sd_control = api(security, 'GetSecurityDescriptorControl', boolean,
+                     pointer, c.POINTER(word), c.POINTER(dword))
+    class FileId(c.Structure):
+        _fields_ = [('volume', c.c_uint64), ('identifier', c.c_ubyte * 16)]
+    class Attributes(c.Structure):
+        _fields_ = [('attributes', dword), ('reparse_tag', dword)]
+    class Acl(c.Structure):
+        _fields_ = [('revision', c.c_ubyte), ('reserved', c.c_ubyte),
+                    ('size', word), ('count', word), ('reserved2', word)]
+    class NativeString(c.Structure):
+        _fields_ = [('length', word), ('capacity', word), ('buffer', pointer)]
+    class NativeObject(c.Structure):
+        _fields_ = [('length', dword), ('root', pointer), ('name', c.POINTER(NativeString)),
+                    ('attributes', dword), ('security', pointer), ('quality', pointer)]
+    class NativeStatus(c.Union):
+        _fields_ = [('status', c.c_int32), ('pointer', pointer)]
+    class NativeIo(c.Structure):
+        _fields_ = [('value', NativeStatus), ('information', c.c_size_t)]
+    native_create = api(c.WinDLL('ntdll.dll', use_last_error=True, winmode=0x800), 'NtCreateFile', c.c_int32,
+                        c.POINTER(pointer), dword, c.POINTER(NativeObject), c.POINTER(NativeIo),
+                        pointer, dword, dword, dword, dword, pointer, dword)
+    initial = report is None
+    if initial:
+        report = {'status': 'running', 'scope': 'new exclusive fixture directories and native runtime temporary ownership',
+                  'token_defaults_modified': False, 'native_runtime_verified': False,
+                  'root': str(root), 'configured_directories': []}
+    def save():
+        if evidence:
+            evidence.parent.mkdir(parents=True, exist_ok=True)
+            evidence.with_suffix('.windows-owner.json').write_text(json.dumps(report, indent=2)+'\n')
+    def checked(ok, phase):
+        windows_owner_require(bool(ok), phase, c.get_last_error())
+    def sid_bytes(address, begin, length, phase):
+        windows_owner_require(address is not None and begin <= address <= begin+length-8, phase+' bounds')
+        count = c.string_at(address, 2)[1]
+        size = 8+4*count
+        windows_owner_require(count <= 15 and size <= begin+length-address, phase+' length')
+        checked(valid_sid(address), phase+' validity')
+        return c.string_at(address, size)
+    def token_sid(handle, information):
+        needed = dword()
+        minimum = c.sizeof(pointer)*(2 if information == 1 else 1)
+        c.set_last_error(0)
+        sized = token_info(handle, information, None, 0, c.byref(needed))
+        windows_owner_require(not sized and c.get_last_error() == 122 and
+                              minimum <= needed.value <= 1048576, 'token size',
+                              (information, sized, needed.value, c.get_last_error()))
+        capacity = needed.value
+        buffer = c.create_string_buffer(capacity)
+        checked(token_info(handle, information, buffer, capacity, c.byref(needed)), 'token query')
+        windows_owner_require(minimum <= needed.value <= capacity, 'token returned size')
+        address = pointer.from_buffer(buffer).value
+        windows_owner_require(address is not None and address >= c.addressof(buffer)+minimum, 'token SID after header')
+        return sid_bytes(address, c.addressof(buffer), needed.value, 'token SID')
+    def identity(handle):
+        attributes, identifier = Attributes(), FileId()
+        checked(file_info(handle, 9, c.byref(attributes), c.sizeof(attributes)), 'held attributes')
+        windows_owner_require(file_type(handle) == 1 and attributes.attributes & 0x10 and
+                              not attributes.attributes & 0x400, 'ordinary disk directory',
+                              (attributes.attributes, attributes.reparse_tag))
+        checked(file_info(handle, 18, c.byref(identifier), c.sizeof(identifier)), 'full held identity')
+        return {'volume': identifier.volume, 'file_id_hex': bytes(identifier.identifier).hex()}
+    def ownership(handle, expected_user=None):
+        owner, acl, descriptor = pointer(), pointer(), pointer()
+        error = get_security(handle, 1, 5, c.byref(owner), None, c.byref(acl), None, c.byref(descriptor))
+        windows_owner_require(error == 0 and descriptor.value is not None, 'held security query', error)
+        try:
+            size = sd_length(descriptor)
+            windows_owner_require(20 <= size <= 1048576, 'security descriptor size', size)
+            raw_owner = sid_bytes(owner.value, descriptor.value, size, 'root owner SID')
+            result = {'owner_sid_hex': raw_owner.hex()}
+            if expected_user is not None:
+                windows_owner_require(raw_owner == expected_user, 'root effective owner', result)
+                windows_owner_require(acl.value is not None and descriptor.value <= acl.value <= descriptor.value+size-8,
+                                      'DACL bounds')
+                header = Acl.from_address(acl.value)
+                windows_owner_require(8 <= header.size <= descriptor.value+size-acl.value and
+                                      header.revision == 2 and header.count == 1, 'one-user DACL header')
+                checked(valid_acl(acl), 'DACL validity')
+                ace = pointer()
+                checked(get_ace(acl, 0, c.byref(ace)), 'one-user ACE')
+                windows_owner_require(ace.value is not None and acl.value+8 <= ace.value <= acl.value+header.size-8,
+                                      'ACE bounds')
+                entry = c.string_at(ace.value, 8)
+                ace_size = int.from_bytes(entry[2:4], 'little')
+                windows_owner_require(entry[:2] == b'\x00\x03' and 16 <= ace_size <= acl.value+header.size-ace.value and
+                                      int.from_bytes(entry[4:8], 'little') == 0x1f01ff, 'inheritable user full-control ACE')
+                windows_owner_require(sid_bytes(ace.value+8, ace.value, ace_size, 'ACE SID') == expected_user,
+                                      'DACL effective user')
+                control, revision = word(), dword()
+                checked(sd_control(descriptor, c.byref(control), c.byref(revision)), 'DACL control')
+                windows_owner_require(control.value & 0x1000 and control.value & 4, 'protected present DACL', control.value)
+                result.update({'dacl_hex': c.string_at(acl, header.size).hex(), 'control': control.value,
+                               'protected_user_only_inheritable_dacl': True})
+            return result
+        finally:
+            windows_owner_require(local_free(descriptor) is None, 'security descriptor release')
+    process, effective = pointer(), pointer()
+    held = root_handle = None
+    directory_handles = []
+    try:
+        candidate = pointer()
+        checked(open_process(current_process(), 8, c.byref(candidate)), 'process token query handle')
+        windows_owner_require(candidate.value not in (None, pointer(-1).value), 'returned process token handle')
+        process = candidate
+        candidate = pointer()
+        if open_thread(current_thread(), 8, True, c.byref(candidate)):
+            windows_owner_require(candidate.value not in (None, pointer(-1).value), 'returned effective token handle')
+            effective = candidate
+        else:
+            windows_owner_require(c.get_last_error() == 1008, 'effective thread token', c.get_last_error())
+            effective = process
+        original = {'effective_user_sid_hex': token_sid(effective, 1).hex(),
+                    'effective_owner_sid_hex': token_sid(effective, 4).hex(),
+                    'process_owner_sid_hex': token_sid(process, 4).hex()}
+        if initial:
+            report['original_tokens'] = original
+        else:
+            windows_owner_require(original == report['original_tokens'], 'fixture token defaults remain original', original)
+        user = bytes.fromhex(original['effective_user_sid_hex'])
+        # TemporaryDirectory created this empty name exclusively. Adopt its
+        # ordinary directory once; all security changes use the held object.
+        held = create_file(str(root), 0xe0000 | 0xa0, 7, None, 3, 0x02000000 | 0x00200000, None)
+        root_handle = held
+        windows_owner_require(held not in (None, pointer(-1).value), 'open exclusive fixture root', c.get_last_error())
+        if not initial:
+            windows_owner_require(identity(held) == {key: report['root_after'][key] for key in ('volume', 'file_id_hex')},
+                                  'held fixture root identity continuity')
+            ownership(held, user)
+            if directory is None:
+                report['parent_tokens_after_native'] = original
+                return report
+            relative = directory.relative_to(root)
+            windows_owner_require(relative.parts and all(part not in ('', '.', '..') for part in relative.parts),
+                                  'new fixture directory within held root', str(relative))
+            for part in relative.parts:
+                raw = part.encode('utf-16-le')
+                windows_owner_require(0 < len(raw) <= 65532 and '\x00' not in part and '\\' not in part and '/' not in part,
+                                      'one native directory component', part)
+                buffer = c.create_string_buffer(raw+b'\x00\x00')
+                name = NativeString(len(raw), len(raw)+2, c.addressof(buffer))
+                objects = NativeObject(c.sizeof(NativeObject), held, c.pointer(name), 0x1040, None, None)
+                io, child = NativeIo(), pointer()
+                io.value.status = 0x103
+                status = native_create(c.byref(child), 0x1e00a0, c.byref(objects), c.byref(io), None,
+                                       0, 7, 1, 0x200021, None, 0)
+                if status == 0x103 or (status == 0 and io.value.status == 0x103):
+                    try:
+                        report['status'] = 'fail'
+                        report['nonfinal_native_directory_open'] = str(relative)
+                        save()
+                    finally:
+                        # Evidence failure must not unwind a pending native
+                        # request's IOSB, name, or handle storage either.
+                        os._exit(1)
+                if status == 0 and child.value not in (None, pointer(-1).value):
+                    directory_handles.append(child.value)
+                windows_owner_require(status == 0 and io.value.status == 0 and io.information == 1 and
+                                      child.value not in (None, pointer(-1).value),
+                                      'held no-reparse directory walk', (part, status, io.value.status, io.information))
+                held = child.value
+                identity(held)
+        before = identity(held)
+        record = {'relative': '.' if initial else str(relative), 'before': {**before, **ownership(held)}}
+        if initial:
+            report['root_before'] = record['before']
+        report['configured_directories'].append(record)
+        save()
+        sid = c.create_string_buffer(user)
+        acl = c.create_string_buffer(16+len(user))
+        checked(initialize_acl(acl, len(acl), 2), 'initialize user DACL')
+        checked(add_ace(acl, 2, 3, 0x1f01ff, sid), 'add inheritable user ACE')
+        error = set_security(held, 1, 0x80000005, sid, None, acl, None)
+        windows_owner_require(error == 0, 'set held root owner and protected DACL', error)
+        after = identity(held)
+        windows_owner_require(before == after, 'root identity after security assignment', (before, after))
+        record['after'] = {**after, **ownership(held, user)}
+        if initial:
+            report['root_after'] = record['after']
+        observed = {'effective_user_sid_hex': token_sid(effective, 1).hex(),
+                    'effective_owner_sid_hex': token_sid(effective, 4).hex(),
+                    'process_owner_sid_hex': token_sid(process, 4).hex()}
+        windows_owner_require(original == observed, 'unchanged original token defaults', observed)
+        record['token_defaults_unchanged'] = True
+        report['tokens_after_root_setup'] = observed
+        report['root_setup_verified'] = True
+        report['status'] = 'pass' if report['native_runtime_verified'] else 'root-ready'
+    except BaseException as error:
+        report['status'] = 'fail'
+        report['root_setup_failure'] = repr(error)
+        raise
+    finally:
+        cleanup_errors = []
+        for handle in reversed(directory_handles):
+            if not close(handle):
+                cleanup_errors.append(('fixture directory handle release', c.get_last_error()))
+        if root_handle not in (None, pointer(-1).value):
+            if not close(root_handle):
+                cleanup_errors.append(('root handle release', c.get_last_error()))
+        if effective.value and effective.value != process.value:
+            if not close(effective):
+                cleanup_errors.append(('effective token handle release', c.get_last_error()))
+        if process.value:
+            if not close(process):
+                cleanup_errors.append(('process token handle release', c.get_last_error()))
+        if cleanup_errors:
+            report['status'] = 'fail'
+            report['root_setup_cleanup_errors'] = cleanup_errors
+        save()
+        windows_owner_require(not cleanup_errors, 'all root setup handles released', cleanup_errors)
+    return report
+
+
+def windows_claim_fixture_directories(root: Path, directories: set[Path], evidence: Path | None, report: dict) -> None:
+    """Only explicitly new Python fixture directories, before public use.
+
+    Runtime-created directories are never normalized by this helper. The
+    native runtime ownership preflight must accept their actual ownership.
+    Names come from the copy inputs/lock, never a walk of mutable output names.
+    """
+    for current in sorted(directories, key=lambda path: (len(path.parts), str(path))):
+        windows_private_root(root, evidence, report, current)
+
+
+def windows_copied_fixture_directories(root: Path, copies: list[tuple[Path, Path]]) -> set[Path]:
+    directories = set()
+    for borrowed, destination in copies:
+        for source in (borrowed, *borrowed.rglob('*')):
+            if source.is_dir():
+                target = destination/source.relative_to(borrowed)
+                while target != root:
+                    target.relative_to(root)
+                    directories.add(target)
+                    target = target.parent
+    return directories
+
+
+WINDOWS_OWNER_PROBE = r'''
+/* Native child evidence over the exact installed runtime; no API interposition,
+   token mutation, privilege adjustment, or alternate ACL policy. */
+#define FREAK_RUNTIME_OWNERSHIP_AUDIT 1
+#define FREAK_C_RUNTIME_OWNERSHIP_AUDIT 1
+#include "freak_runtime.c"
+static void owner_require(bool ok,const char *phase) {
+    if (!ok) { fprintf(stderr,"WINDOWS_OWNER_FAIL %s error=%lu\n",phase,(unsigned long)GetLastError()); exit(2); }
+}
+typedef struct { DWORD size; union { DWORD aligned; BYTE bytes[SECURITY_MAX_SID_SIZE]; } sid; } owner_sid;
+typedef struct { owner_sid user,effective_owner,process_owner; } owner_tokens;
+static owner_sid owner_token_sid(HANDLE token,TOKEN_INFORMATION_CLASS information) {
+    DWORD size=0; SetLastError(0);
+    BOOL sized=GetTokenInformation(token,information,NULL,0,&size);
+    size_t minimum=information == TokenUser ? sizeof(TOKEN_USER) : sizeof(TOKEN_OWNER);
+    owner_require(!sized && GetLastError() == ERROR_INSUFFICIENT_BUFFER && size >= minimum && size <= 1048576,"token-size");
+    DWORD capacity=size; BYTE *buffer=malloc(capacity); owner_require(buffer != NULL,"token-allocation");
+    owner_require(GetTokenInformation(token,information,buffer,capacity,&size) && size >= minimum && size <= capacity,"token-query");
+    PSID pointer=information == TokenUser ? ((TOKEN_USER *)buffer)->User.Sid : ((TOKEN_OWNER *)buffer)->Owner;
+    uintptr_t begin=(uintptr_t)buffer,position=(uintptr_t)pointer;
+    owner_require(position >= begin+minimum && position-begin <= size && size-(position-begin) >= 8,"token-sid-bounds");
+    SID *sid=pointer; DWORD length=8+(DWORD)sid->SubAuthorityCount*4;
+    owner_require(sid->SubAuthorityCount <= SID_MAX_SUB_AUTHORITIES && length <= size-(position-begin) &&
+                  length <= SECURITY_MAX_SID_SIZE && IsValidSid(pointer),"token-sid-valid");
+    owner_sid result={0}; result.size=length; memcpy(result.sid.bytes,pointer,length); free(buffer); return result;
+}
+static owner_tokens owner_token_snapshot(void) {
+    HANDLE process=NULL,effective=NULL;
+    owner_require(OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&process),"process-token");
+    if (!OpenThreadToken(GetCurrentThread(),TOKEN_QUERY,TRUE,&effective)) {
+        owner_require(GetLastError() == ERROR_NO_TOKEN,"thread-token"); effective=process;
+    }
+    owner_tokens result={owner_token_sid(effective,TokenUser),owner_token_sid(effective,TokenOwner),owner_token_sid(process,TokenOwner)};
+    if (effective != process) owner_require(CloseHandle(effective),"thread-token-close");
+    owner_require(CloseHandle(process),"process-token-close"); return result;
+}
+static bool owner_same_sid(const owner_sid *a,const owner_sid *b) {
+    return a->size == b->size && !memcmp(a->sid.bytes,b->sid.bytes,a->size);
+}
+static void owner_unchanged(const owner_tokens *original) {
+    owner_tokens current=owner_token_snapshot();
+    owner_require(owner_same_sid(&original->user,&current.user) && owner_same_sid(&original->effective_owner,&current.effective_owner) &&
+                  owner_same_sid(&original->process_owner,&current.process_owner),"original-token-defaults-unchanged");
+}
+static bool owner_same_id(const FILE_ID_INFO *a,const FILE_ID_INFO *b) {
+    return a->VolumeSerialNumber == b->VolumeSerialNumber && !memcmp(a->FileId.Identifier,b->FileId.Identifier,16);
+}
+static FILE_ID_INFO owner_identity(HANDLE directory) {
+    FILE_ID_INFO identity; BY_HANDLE_FILE_INFORMATION attributes;
+    owner_require(GetFileInformationByHandle(directory,&attributes) && GetFileType(directory) == FILE_TYPE_DISK &&
+                  (attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && !(attributes.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT),"ordinary-held-directory");
+    owner_require(GetFileInformationByHandleEx(directory,FileIdInfo,&identity,sizeof(identity)),"full128-held-identity"); return identity;
+}
+static owner_sid owner_held_user(HANDLE directory,const owner_sid *user) {
+    FILE_ID_INFO before=owner_identity(directory);
+    freak_fs_windows_parent_diagnostic diagnostic={NULL,0,-1};
+    HANDLE inspected=freak_fs_anchor_reopen(directory,READ_CONTROL,&diagnostic);
+    owner_require(inspected != INVALID_HANDLE_VALUE,"held-owner-reopen");
+    FILE_ID_INFO reopened=owner_identity(inspected); owner_require(owner_same_id(&before,&reopened),"owner-inspection-full128-identity");
+    PSID owner=NULL; PSECURITY_DESCRIPTOR descriptor=NULL;
+    DWORD error=GetSecurityInfo(inspected,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION,&owner,NULL,NULL,NULL,&descriptor);
+    owner_require(error == ERROR_SUCCESS && descriptor != NULL && owner != NULL,"actual-held-owner-query");
+    DWORD size=GetSecurityDescriptorLength(descriptor); uintptr_t begin=(uintptr_t)descriptor,position=(uintptr_t)owner;
+    owner_require(size >= 20 && size <= 1048576 && position >= begin && position-begin <= size && size-(position-begin) >= 8,"actual-owner-bounds");
+    SID *sid=owner; DWORD length=8+(DWORD)sid->SubAuthorityCount*4;
+    owner_require(sid->SubAuthorityCount <= SID_MAX_SUB_AUTHORITIES && length <= size-(position-begin) &&
+                  IsValidSid(owner) && length == user->size && !memcmp(owner,user->sid.bytes,length),"actual-owner-is-effective-user");
+    owner_sid actual={0}; actual.size=length; memcpy(actual.sid.bytes,owner,length);
+    owner_require(LocalFree(descriptor) == NULL,"actual-owner-descriptor-release");
+    owner_require(CloseHandle(inspected),"owner-inspection-close");
+    FILE_ID_INFO after=owner_identity(directory); owner_require(owner_same_id(&before,&after),"actual-owner-held-identity-stable");
+    diagnostic=(freak_fs_windows_parent_diagnostic){NULL,0,-1};
+    owner_require(freak_fs_windows_parent_private(directory,&diagnostic) && diagnostic.owner_match == 1 &&
+                  diagnostic.phase && !strcmp(diagnostic.phase,"passed") && diagnostic.native_error == 0,"original-strict-parent-private");
+    return actual;
+}
+static void owner_hex(const BYTE *bytes,DWORD size) { for (DWORD i=0;i<size;i++) printf("%02x",bytes[i]); }
+static void owner_id_json(const FILE_ID_INFO *identity) {
+    printf("{\"volume\":%llu,\"file_id_hex\":\"",(unsigned long long)identity->VolumeSerialNumber);
+    owner_hex(identity->FileId.Identifier,16); printf("\"}");
+}
+static void owner_temp(const char *parent,const owner_tokens *original,bool llvm,bool emit) {
+    int64_t temp=llvm ? freak_llvm_fs_temp_dir((int64_t)(intptr_t)parent,(int64_t)(intptr_t)"native-owner-probe") :
+        freak_fs_temp_dir(freak_word_lit(parent),freak_word_lit("native-owner-probe"));
+    owner_require(freak_fs_result_ok(temp) && freak_fs_result_completed(temp),"native-temp-created");
+    freak_fs_ticket *ticket=freak_fs_ticket_require(temp);
+    owner_require(ticket->owns_temp && ticket->temp_active && ticket->has_directory,"native-owned-ticket");
+    FILE_ID_INFO before=owner_identity(ticket->directory); owner_sid actual=owner_held_user(ticket->directory,&original->user);
+    FILE_ID_INFO after=owner_identity(ticket->directory); owner_require(owner_same_id(&before,&after),"temp-full128-before-after");
+    owner_unchanged(original);
+    int64_t cleanup=llvm ? freak_llvm_fs_remove_temp_dir_checked(temp) : freak_fs_remove_temp_dir_checked(temp);
+    ticket=freak_fs_ticket_require(temp);
+    owner_require(freak_fs_result_ok(cleanup) && freak_fs_result_completed(cleanup) &&
+                  !ticket->temp_active && !ticket->has_directory,"native-owned-temp-checked-cleanup");
+    freak_fs_result_release(cleanup); freak_fs_result_release(temp);
+    owner_require(freak_fs_result_live() == 0,"native-temp-ticket-balance"); owner_unchanged(original);
+    if (emit) { printf("{\"adapter\":\"%s\",\"held_identity\":",llvm ? "llvm" : "c"); owner_id_json(&before);
+        printf(",\"held_identity_after\":"); owner_id_json(&after); printf(",\"owner_sid_hex\":\""); owner_hex(actual.sid.bytes,actual.size);
+        printf("\",\"held_owner_matches_effective_user\":true,\"strict_parent_private\":true,\"cleanup_completed\":true,\"live_tickets\":0}"); }
+}
+int main(void) {
+    freak_args_windows_prepare(); owner_require(freak_argc == 2,"arguments");
+    const char *parent=freak_argv[1]; owner_tokens original=owner_token_snapshot();
+    HANDLE root=freak_fs_anchor_root(parent); owner_require(root != INVALID_HANDLE_VALUE,"root-admission");
+    FILE_ID_INFO identity=owner_identity(root); owner_held_user(root,&original.user);
+    DWORD cold=0,warm=0,after=0;
+    owner_require(GetProcessHandleCount(GetCurrentProcess(),&cold),"cold-handle-count");
+    owner_temp(parent,&original,false,false); owner_temp(parent,&original,true,false);
+    owner_require(GetProcessHandleCount(GetCurrentProcess(),&warm),"warm-handle-count");
+    printf("{\"effective_user_sid_hex\":\""); owner_hex(original.user.sid.bytes,original.user.size);
+    printf("\",\"effective_owner_sid_hex\":\""); owner_hex(original.effective_owner.sid.bytes,original.effective_owner.size);
+    printf("\",\"process_owner_sid_hex\":\""); owner_hex(original.process_owner.sid.bytes,original.process_owner.size);
+    printf("\",\"default_owner_differs_from_user\":%s,\"root_identity\":",owner_same_sid(&original.user,&original.effective_owner) ? "false" : "true");
+    owner_id_json(&identity); printf(",\"cases\":["); owner_temp(parent,&original,false,true); printf(","); owner_temp(parent,&original,true,true);
+    owner_require(GetProcessHandleCount(GetCurrentProcess(),&after) && warm == after,"native-tested-handle-balance");
+    owner_unchanged(&original); FILE_ID_INFO final=owner_identity(root); owner_require(owner_same_id(&identity,&final),"root-full128-final-identity");
+    owner_require(CloseHandle(root),"root-close");
+    printf("],\"cold_handles\":%lu,\"warm_handles\":%lu,\"after_handles\":%lu,\"token_defaults_unchanged\":true,\"live_tickets\":0}\n",
+        (unsigned long)cold,(unsigned long)warm,(unsigned long)after); return 0;
+}
+'''
+
+
+def verify_windows_temp_owner(clang: Path, runtime: Path, root: Path, evidence: Path | None, report: dict) -> None:
+    """Bounded child proof; retain partial native output on any failure."""
+    source, image = root/'windows-owner-probe.c', root/'windows-owner-probe.exe'
+    source.write_text(WINDOWS_OWNER_PROBE, encoding='utf-8')
+    runtime_before = {path.relative_to(runtime).as_posix(): digest(path)
+                      for path in sorted(runtime.rglob('*')) if path.is_file()}
+    command = [str(clang), '-O0', str(source), '-I', str(runtime), '-lws2_32', '-ladvapi32', '-o', str(image)]
+    def save():
+        if evidence:
+            evidence.with_suffix('.windows-owner.json').write_text(json.dumps(report, indent=2)+'\n')
+    report['runtime_inventory'] = runtime_before
+    report['probe_source_sha256'] = digest(source)
+    report['clang_sha256'] = digest(clang)
+    report['pending_launch'] = {'phase': 'compile', 'argv': command, 'child_status_unknown': True}
+    save()
+    try:
+        built = subprocess.run(command, capture_output=True, timeout=90)
+        report['build'] = {'argv': command, 'returncode': built.returncode,
+                           'stdout_hex': built.stdout.hex(), 'stderr_hex': built.stderr.hex()}
+        report['pending_launch'] = None
+        save()
+        windows_owner_require(built.returncode == 0, 'native ownership probe build', report['build'])
+        invocation = [str(image), str(root)]
+        report['probe_image_sha256'] = digest(image)
+        report['pending_launch'] = {'phase': 'execute', 'argv': invocation, 'child_status_unknown': True}
+        save()
+        executed = subprocess.run(invocation, capture_output=True, timeout=30)
+        report['execution'] = {'argv': invocation, 'returncode': executed.returncode,
+                               'stdout_hex': executed.stdout.hex(), 'stderr_hex': executed.stderr.hex()}
+        report['pending_launch'] = None
+        save()
+        windows_owner_require(executed.returncode == 0 and not executed.stderr, 'native ownership probe execution', report['execution'])
+        native = json.loads(executed.stdout)
+        windows_owner_require({key: native[key] for key in report['original_tokens']} == report['original_tokens'],
+                              'native child retains original effective identity/default owner', native)
+        windows_owner_require(native['root_identity'] == {key: report['root_after'][key] for key in ('volume', 'file_id_hex')},
+                              'native child actual root identity', native)
+        windows_owner_require(native['token_defaults_unchanged'] and native['live_tickets'] == 0 and
+                              native['default_owner_differs_from_user'] ==
+                              (native['effective_user_sid_hex'] != native['effective_owner_sid_hex']) and
+                              native['warm_handles'] == native['after_handles'] and
+                              [case['adapter'] for case in native['cases']] == ['c', 'llvm'] and
+                              all(case['held_owner_matches_effective_user'] and case['strict_parent_private'] and
+                                  case['cleanup_completed'] and case['live_tickets'] == 0 and
+                                  case['held_identity'] == case['held_identity_after'] and
+                                  case['owner_sid_hex'] == native['effective_user_sid_hex'] for case in native['cases']),
+                              'native ownership and cleanup oracle', native)
+        windows_owner_require(not list(root.glob('native-owner-probe.freak-tmp-*')), 'native owned temp namespace cleanup')
+        windows_owner_require(runtime_before == {path.relative_to(runtime).as_posix(): digest(path)
+                                                for path in sorted(runtime.rglob('*')) if path.is_file()},
+                              'exact installed runtime remains unchanged')
+        windows_private_root(root, evidence, report)
+        report['native'] = native
+        report['native_runtime_verified'] = True
+        report['status'] = 'pass'
+    except BaseException as error:
+        report['status'] = 'fail'
+        if isinstance(error, subprocess.TimeoutExpired):
+            report['timed_out_launch'] = {'argv': error.cmd, 'timeout': error.timeout,
+                                          'stdout_hex': (error.stdout or b'').hex(),
+                                          'stderr_hex': (error.stderr or b'').hex()}
+        report['native_preflight_failure'] = repr(error)
+        raise
+    finally:
+        save()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('candidate', type=Path)
@@ -648,6 +1120,8 @@ def main() -> int:
     native_observation: dict | None = None
     with tempfile.TemporaryDirectory(prefix='freak-v35-bootstrap-') as temporary:
         root = Path(temporary).resolve()
+        if os.name == 'nt':
+            windows_owner = windows_private_root(root, args.evidence)
         # Hostile paths are real arguments, including quotes, Unicode and metacharacters.
         payload = root / "installed é 日本 ' $ &"
         shutil.copytree(repo / 'freakc/runtime', payload / 'runtime')
@@ -655,11 +1129,18 @@ def main() -> int:
         if vendor.exists():
             shutil.copytree(vendor, payload / 'runtime/third_party/llhttp', dirs_exist_ok=True)
         shutil.copytree(repo / 'std', payload / 'std')
+        if os.name == 'nt':
+            copied = [(repo/'freakc/runtime', payload/'runtime'), (repo/'std', payload/'std')]
+            if vendor.exists():
+                copied.append((vendor, payload/'runtime/third_party/llhttp'))
+            windows_claim_fixture_directories(root, windows_copied_fixture_directories(root, copied), args.evidence, windows_owner)
         installed = payload / ('freak.exe' if os.name == 'nt' else 'freak')
         shutil.copy2(candidate, installed)
         stable_hash = digest(installed)
         tools = root / 'native-tools'
         tools.mkdir()
+        if os.name == 'nt':
+            windows_claim_fixture_directories(root, {tools}, args.evidence, windows_owner)
         wrapper_source = root / 'native-wrapper.c'
         wrapper_source.write_text(WRAPPER, encoding='utf-8')
         wrapper = tools / ('clang-wrapper.exe' if os.name == 'nt' else "clang-wrapper é ' $ &")
@@ -675,13 +1156,26 @@ def main() -> int:
         # Keep SDK/system executable discovery but intercept every Python basename.
         env['PATH'] = str(tools) + os.pathsep + env.get('PATH', '')
         if os.name == 'nt':
+            verify_windows_temp_owner(clang, payload/'runtime', root, args.evidence, windows_owner)
             forwarder=verify_windows_forwarder(clang,wrapper,wrapper_source,root,env,args.evidence)
             clang_paths=verify_windows_clang_paths(clang,wrapper,root,env,args.evidence,forwarder)
             env['FREAK_BOOTSTRAP_NATIVE_WITNESS']=str(root/'staged-clang-witnesses.txt')
         selected = root / "source é 日本 ' $ &"
         copy_source(source, selected, records)
+        if os.name == 'nt':
+            source_directories = {selected}
+            for _, _, relative in records:
+                windows_owner_require(not Path(relative).is_absolute() and '..' not in Path(relative).parts,
+                                      'new copied source relative directory', relative)
+                parent = (selected/relative).parent
+                while parent != selected:
+                    source_directories.add(parent)
+                    parent = parent.parent
+            windows_claim_fixture_directories(root, source_directories, args.evidence, windows_owner)
         output_parent = root / ("preview é 日本 ' $ &" + ('\\' if os.name != 'nt' else ''))
         output_parent.mkdir()
+        if os.name == 'nt':
+            windows_claim_fixture_directories(root, {output_parent}, args.evidence, windows_owner)
         output = output_parent / 'bundle'
         result = bootstrap(installed, selected, output, env,
                            output_spelling=str(output_parent) + '//bundle' if os.name != 'nt' else None)
