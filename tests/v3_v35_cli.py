@@ -8,6 +8,7 @@ The supplied candidate and --repo payload must come from the same revision.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -34,7 +35,7 @@ ARGV_PROGRAM = '''task main() {
 }
 '''
 
-CLANG_WRAPPER = r'''#include <stdio.h>
+CLANG_WRAPPER_NARROW_BASELINE = r'''#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
@@ -70,6 +71,144 @@ int main(int argc, char **argv) {
 }
 '''
 
+
+CLANG_WRAPPER = r'''#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifdef _WIN32
+#include <process.h>
+#include <windows.h>
+#include <corecrt_startup.h>
+#include <stdint.h>
+#include <wchar.h>
+/* CRT spawn joins strings with spaces. Escape each receiving-CRT argument,
+   including argv[0], empty strings, embedded quotes and trailing backslashes. */
+static wchar_t *quote_spawn_argument(const wchar_t *argument) {
+    size_t length=wcslen(argument);
+    if(length>(SIZE_MAX/sizeof(wchar_t)-3)/2)return NULL;
+    wchar_t *quoted=calloc(length*2+3,sizeof(wchar_t));
+    if(!quoted)return NULL;
+    size_t used=0; quoted[used++]=L'"';
+    const wchar_t *cursor=argument;
+    while(*cursor) {
+        size_t slashes=0;
+        while(*cursor==L'\\'){slashes++;cursor++;}
+        size_t escaped=(*cursor==L'"'||!*cursor)?slashes*2:slashes;
+        for(size_t i=0;i<escaped;i++)quoted[used++]=L'\\';
+        if(*cursor==L'"')quoted[used++]=L'\\';
+        if(*cursor)quoted[used++]=*cursor++;
+    }
+    quoted[used++]=L'"';
+    return quoted;
+}
+static int forward_spawn(const wchar_t *compiler,int count,wchar_t **arguments) {
+#ifdef FREAK_V35_CLI_TEST_UNQUOTED_FORWARD
+    /* Isolate the old joining defect with UTF-16 unchanged. The separately
+       compiled original narrow wrapper covers its ASCII-only _spawnv hop. */
+    return (int)_wspawnv(_P_WAIT,compiler,(const wchar_t *const *)arguments);
+#else
+    if(count<1||(size_t)count>SIZE_MAX/sizeof(wchar_t *)-1)return 96;
+    wchar_t **quoted=calloc((size_t)count+1,sizeof(wchar_t *));
+    if(!quoted)return 96;
+    size_t command_length=0;
+    int result=96;
+    for(int i=0;i<count;i++) {
+        if(!arguments[i]||!(quoted[i]=quote_spawn_argument(arguments[i])))goto done;
+        size_t length=wcslen(quoted[i]);
+        size_t separator=i?1:0;
+        if(length>32766-separator||command_length>32766-separator-length)goto done;
+        command_length+=length+separator;
+    }
+    result=(int)_wspawnv(_P_WAIT,compiler,(const wchar_t *const *)quoted);
+done:
+    for(int i=0;i<count;i++)free(quoted[i]);
+    free(quoted);
+    return result;
+#endif
+}
+static wchar_t *wide_environment(const wchar_t *name) {
+    DWORD capacity=GetEnvironmentVariableW(name,NULL,0);
+    if(!capacity||capacity>32768)return NULL;
+    wchar_t *value=calloc(capacity,sizeof(wchar_t));
+    if(!value)return NULL;
+    DWORD copied=GetEnvironmentVariableW(name,value,capacity);
+    if(!copied||copied>=capacity){free(value);return NULL;}
+    return value;
+}
+#else
+#include <unistd.h>
+#endif
+int main(int argc, char **argv) {
+    const char *compiler = getenv("FREAK_V35_TEST_REAL_CLANG");
+    const char *version = getenv("FREAK_V35_TEST_VERSION");
+    if (!compiler || !version) return 90;
+    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+        puts(version);
+        return 0;
+    }
+    const char *log = getenv("FREAK_V35_TEST_CLANG_LOG");
+    if (log) {
+#ifdef _WIN32
+        wchar_t *wide_log = wide_environment(L"FREAK_V35_TEST_CLANG_LOG");
+        FILE *out = wide_log ? _wfopen(wide_log, L"ab") : NULL;
+        free(wide_log);
+#else
+        FILE *out = fopen(log, "ab");
+#endif
+        if (!out) return 91;
+        fputs("compile\n", out);
+        fclose(out);
+    }
+    const char *broken = getenv("FREAK_V35_TEST_BROKEN_CLANG");
+    if (broken && strcmp(broken, "1") == 0) return 42;
+#ifdef _WIN32
+    /* Keep the first hop's CRT parsing while recovering its Unicode values. */
+    if (_configure_wide_argv(_crt_argv_unexpanded_arguments) != 0) return 94;
+    int count = *__p___argc();
+    wchar_t **arguments = *__p___wargv();
+    if (count != argc || count < 1 || !arguments) return 95;
+    wchar_t *wide_compiler = wide_environment(L"FREAK_V35_TEST_REAL_CLANG");
+    if (!wide_compiler) return 90;
+    wchar_t *original_argv0 = arguments[0];
+    arguments[0] = wide_compiler;
+    int result = forward_spawn(wide_compiler, count, arguments);
+    arguments[0] = original_argv0;
+    free(wide_compiler);
+    return result;
+#else
+    argv[0] = (char *)compiler;
+    execv(compiler, argv);
+    perror("execv real Clang");
+    return 92;
+#endif
+}
+'''
+
+
+WINDOWS_FORWARD_RECEIVER = r'''#include <stdio.h>
+#include <stdlib.h>
+#include <corecrt_startup.h>
+#include <windows.h>
+int main(void) {
+    if(_configure_wide_argv(_crt_argv_unexpanded_arguments)!=0)return 90;
+    int count=*__p___argc(); wchar_t **arguments=*__p___wargv();
+    if(count<1||!arguments)return 91;
+    puts("FREAK-V35-CLI-FORWARD-ARGV-1");printf("%d\n",count);
+    for(int i=0;i<count;i++) {
+        if(!arguments[i])return 92;
+        int size=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,arguments[i],-1,NULL,0,NULL,NULL);
+        if(size<1)return 93;
+        unsigned char *bytes=malloc((size_t)size);
+        if(!bytes)return 94;
+        if(WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,arguments[i],-1,(char *)bytes,size,NULL,NULL)!=size){free(bytes);return 93;}
+        printf("%d:",size-1);
+        for(int j=0;j<size-1;j++)printf("%02x",bytes[j]);
+        putchar('\n');free(bytes);
+    }
+    if(fflush(stdout)!=0)return 95;
+    return 23;
+}
+'''
 
 def run(command: list[str], cwd: Path, env: dict[str, str], *,
         input_text: str | None = None, timeout: int = 180) -> subprocess.CompletedProcess[str]:
@@ -218,6 +357,81 @@ def check_run(freak: Path, root: Path, env: dict[str, str]) -> None:
               flush=True)
 
 
+def check_windows_forwarder(clang: Path, wrapper: Path, wrapper_source: Path,
+                            root: Path, env: dict[str, str]) -> None:
+    """Observe the actual CRT argv after each native test-wrapper second hop."""
+    receiver_source = root / "forward-receiver.c"
+    receiver_source.write_text(WINDOWS_FORWARD_RECEIVER, encoding="utf-8")
+    receiver = root / "receiver é 日本 🙂.exe"
+    wide_control = root / "unquoted wide forwarder.exe"
+    narrow_source = root / "original-narrow-forwarder.c"
+    narrow_source.write_text(CLANG_WRAPPER_NARROW_BASELINE, encoding="utf-8")
+    narrow_control = root / "original narrow forwarder.exe"
+    records = []
+
+    def observed(command: list[str], selected: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        result = run(command, root, selected)
+        records.append({"argv": command, "exit": result.returncode,
+                        "stdout": result.stdout, "stderr": result.stderr})
+        return result
+
+    for command in ([str(clang), str(receiver_source), "-o", str(receiver)],
+                    [str(clang), "-DFREAK_V35_CLI_TEST_UNQUOTED_FORWARD=1",
+                     str(wrapper_source), "-o", str(wide_control)],
+                    [str(clang), str(narrow_source), "-o", str(narrow_control)]):
+        built = observed(command, env)
+        assert built.returncode == 0, built.stdout + built.stderr
+
+    def arguments(result: subprocess.CompletedProcess[str]) -> list[bytes]:
+        assert result.returncode == 23 and result.stderr == "", records
+        lines = result.stdout.splitlines()
+        assert len(lines) >= 2 and lines[0] == "FREAK-V35-CLI-FORWARD-ARGV-1", records
+        count = int(lines[1])
+        assert count >= 1 and len(lines) == count + 2, records
+        values = []
+        for line in lines[2:]:
+            length, encoded = line.split(":", 1)
+            value = bytes.fromhex(encoded)
+            assert len(encoded) == int(length) * 2 and len(value) == int(length), records
+            values.append(value)
+        return values
+
+    forwarded = ["", "two words", "tab\there", "é日本🙂", '"quoted"', "tail\\",
+                 "two\\\\", 'slash\\"quote', "' $ & %PATH% ; |", "*?literal"]
+    selected = env.copy()
+    selected.update(FREAK_V35_TEST_REAL_CLANG=str(receiver),
+                    FREAK_V35_TEST_VERSION="forwarding witness")
+    selected.pop("FREAK_V35_TEST_BROKEN_CLANG", None)
+    selected.pop("FREAK_V35_TEST_CLANG_LOG", None)
+    expected = [value.encode("utf-8") for value in (str(receiver), *forwarded)]
+    fixed = arguments(observed([str(wrapper), *forwarded], selected))
+    assert fixed == expected, (fixed, expected, records)
+    unquoted_wide = arguments(observed([str(wide_control), *forwarded], selected))
+    assert unquoted_wide != expected, "unquoted wide spawn unexpectedly preserved every argument"
+
+    # A relative ASCII executable spelling keeps this exact old narrow-source
+    # control independent of the directory's Windows codepage or Unicode name.
+    ascii_receiver = root / "narrow receiver.exe"
+    shutil.copy2(receiver, ascii_receiver)
+    ascii_executable = r".\narrow receiver.exe"
+    ascii_arguments = [value for value in forwarded if value.isascii()]
+    selected["FREAK_V35_TEST_REAL_CLANG"] = ascii_executable
+    narrow_expected = [value.encode("ascii") for value in (ascii_executable, *ascii_arguments)]
+    unquoted_narrow = arguments(observed([str(narrow_control), *ascii_arguments], selected))
+    assert unquoted_narrow != narrow_expected, "original narrow spawn unexpectedly preserved every argument"
+    report = {"status": "pass", "scope": "native test-wrapper second-hop CRT argv including argv0",
+              "fixed_arguments_hex": [value.hex() for value in fixed],
+              "wide_joining_control_arguments_hex": [value.hex() for value in unquoted_wide],
+              "original_narrow_ascii_expected_hex": [value.hex() for value in narrow_expected],
+              "original_narrow_ascii_arguments_hex": [value.hex() for value in unquoted_narrow],
+              "sources_sha256": {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                                 for path in (receiver_source, wrapper_source, narrow_source)},
+              "binaries_sha256": {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                                  for path in (clang, receiver, wrapper, wide_control, narrow_control)},
+              "commands": records}
+    print("windows/forwarder: " + json.dumps(report, ensure_ascii=True), flush=True)
+
+
 def check_doctor(freak: Path, clang: Path, root: Path, env: dict[str, str]) -> None:
     source = root / "clang-wrapper.c"
     wrapper = root / ("clang wrapper.exe" if os.name == "nt" else "clang wrapper")
@@ -226,6 +440,8 @@ def check_doctor(freak: Path, clang: Path, root: Path, env: dict[str, str]) -> N
     assert built.returncode == 0, built.stdout + built.stderr
     if os.name != "nt":
         wrapper.chmod(0o700)
+    if os.name == "nt":
+        check_windows_forwarder(clang, wrapper, source, root, env)
 
     actual = run([str(freak), "doctor", "--json"], root, env)
     assert actual.returncode == 0, actual.stdout + actual.stderr
