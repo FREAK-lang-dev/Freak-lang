@@ -127,6 +127,15 @@ def legacy_filename_probe(compiler: Path, clang: Path, runtime: Path, root: Path
     report = {"host": os.name, "gate_passed": False, "processes": [],
               "windows_filesystem_execution_claimed": os.name == "nt",
               "unc_scope": "native Windows lexical conversion only; no network share is opened"}
+    manifest = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">\n'
+                '  <assemblyIdentity name="Freak.FilenameLongCwdWitness" version="1.0.0.0" type="win32" processorArchitecture="*"/>\n'
+                '  <application xmlns="urn:schemas-microsoft-com:asm.v3">\n'
+                '    <windowsSettings xmlns:ws2="http://schemas.microsoft.com/SMI/2016/WindowsSettings">\n'
+                '      <ws2:longPathAware>true</ws2:longPathAware>\n'
+                '    </windowsSettings>\n'
+                '  </application>\n'
+                '</assembly>\n')
     source = root / "filename-witness.c"
     source.write_text(r'''
 #ifdef _WIN32
@@ -198,6 +207,38 @@ static int failures(freak_word path) {
     }
     puts("allocation-and-resolution-failures:4:released"); return 0;
 }
+#ifdef FREAK_FILENAME_LONG_CWD_AWARE
+static int verify_long_cwd_manifest(void) {
+    static const char expected[] = FREAK_LONG_CWD_MANIFEST_LITERAL;
+    HMODULE image = GetModuleHandleW(NULL);
+    HRSRC resource = FindResourceW(image, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(24));
+    if (!resource) {
+        DWORD error = GetLastError();
+        fprintf(stderr, "FindResourceW manifest failed:error:%lu\n", (unsigned long)error);
+        return 0;
+    }
+    DWORD size = SizeofResource(image, resource);
+    HGLOBAL loaded = LoadResource(image, resource);
+    const void *bytes = loaded ? LockResource(loaded) : NULL;
+    if (!bytes || size != sizeof(expected) - 1 || memcmp(bytes, expected, size)) {
+        fprintf(stderr, "embedded manifest bytes differ:size:%lu\n", (unsigned long)size);
+        return 0;
+    }
+    wchar_t setting[16] = {0}; SIZE_T written = 0;
+    if (!QueryActCtxSettingsW(0, NULL,
+            L"http://schemas.microsoft.com/SMI/2016/WindowsSettings",
+            L"longPathAware", setting, 16, &written)) {
+        DWORD error = GetLastError();
+        fprintf(stderr, "QueryActCtxSettingsW longPathAware failed:error:%lu\n", (unsigned long)error);
+        return 0;
+    }
+    if (written < 4 || written >= 16 || wcscmp(setting, L"true")) {
+        fprintf(stderr, "active longPathAware setting differs:count:%zu\n", written);
+        return 0;
+    }
+    return 1;
+}
+#endif
 #endif
 int main(int count, char **arguments) {
     freak_argc = count; freak_argv = arguments;
@@ -216,8 +257,24 @@ int main(int count, char **arguments) {
         freak_word directory = freak_arg(4);
         if (!directory.length || directory.length > INT_MAX) return 76;
         wchar_t *wide = decode(directory); if (!wide) return 77;
+#ifdef FREAK_FILENAME_LONG_CWD_AWARE
+        if (!verify_long_cwd_manifest()) { free(wide); return 83; }
+        /* SetCurrentDirectoryW uses the application long-path opt-in. The
+           relative filename APIs below still use the runtime filename helper. */
+        wchar_t *qualified = wide;
+#else
         wchar_t *qualified = freak_fs_windows_filename(wide); if (!qualified) return 78;
-        int entered = SetCurrentDirectoryW(qualified); free(qualified);
+#endif
+        int entered = SetCurrentDirectoryW(qualified);
+        DWORD directory_error = entered ? ERROR_SUCCESS : GetLastError();
+        if (!entered) {
+            fprintf(stderr, "SetCurrentDirectoryW failed:error:%lu:input-utf16:%zu:",
+                    (unsigned long)directory_error, wcslen(qualified));
+            for (const wchar_t *cursor = qualified; *cursor; ++cursor)
+                fprintf(stderr, "%04x", (unsigned)*cursor);
+            fputc('\n', stderr);
+        }
+        free(qualified);
         if (!entered) return 79;
         DWORD capacity = GetCurrentDirectoryW(0, NULL);
         if (capacity <= MAX_PATH || capacity > 32767) return 80;
@@ -225,6 +282,9 @@ int main(int count, char **arguments) {
         DWORD written = GetCurrentDirectoryW(capacity, current);
         if (!written || written >= capacity) { free(current); return 82; }
         emit_wide("current-directory-utf16", current); free(current);
+#ifdef FREAK_FILENAME_LONG_CWD_AWARE
+        puts("long-cwd-manifest:embedded-exact:active-true");
+#endif
     }
     wchar_t *ordinary = decode(path); if (!ordinary) return 66;
     emit_wide("old-ordinary-utf16", ordinary);
@@ -276,7 +336,7 @@ int main(int count, char **arguments) {
 #endif
     puts("LEGACY_LONG_FILENAME_OK"); return 0;
 }
-''', encoding="ascii")
+'''.replace("FREAK_LONG_CWD_MANIFEST_LITERAL", json.dumps(manifest)), encoding="ascii")
     binary = root / ("filename-witness.exe" if os.name == "nt" else "filename-witness")
 
     def execute(command: list[str], cwd: Path = root) -> subprocess.CompletedProcess:
@@ -331,15 +391,47 @@ int main(int count, char **arguments) {
         normalized(long_unc, "\\\\?\\UNC\\" + long_unc[2:], False)
         if not str(root).startswith("\\\\?\\"):
             normalized(str(root) + "\\." * 150 + "\\short.txt", extended(root / "short.txt"), False)
-        # CreateProcessW rejects a long current directory. Enter it in the
-        # native witness after launching from the ordinary short fixture root.
-        relative = execute([str(binary), "files-long-cwd", "raw.data", "copy.data", extended(physical)])
+        # Current-directory APIs require application long-path opt-in. Keep
+        # every existing filename control on the original unmanifested image.
+        import winreg
+        registry_key = r"SYSTEM\CurrentControlSet\Control\FileSystem"
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, registry_key, 0, winreg.KEY_READ) as key:
+            registry_value, registry_type = winreg.QueryValueEx(key, "LongPathsEnabled")
+        report["windows_long_cwd_setup"] = {"registry_key": registry_key,
+            "registry_value": registry_value, "registry_type": registry_type,
+            "registry_mutated": False, "unmanifested_image": str(binary)}
+        (root / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+        assert registry_type == winreg.REG_DWORD and registry_value == 1, (registry_key, registry_type, registry_value)
+        manifest_path = root / "long-cwd.manifest"; manifest_path.write_bytes(manifest.encode("ascii"))
+        resource_source = root / "long-cwd.rc"
+        resource_source.write_bytes(b'1 24 "long-cwd.manifest"\n')
+        resource_object = root / "long-cwd-manifest.o"
+        windres = clang.parent / "llvm-windres.exe"
+        assert windres.is_file(), windres
+        execute([str(windres), "--no-preprocess", "-J", "rc", "-O", "coff", "-F", "pe-x86-64",
+                 "-i", resource_source.name, "-o", resource_object.name])
+        aware_binary = root / "filename-long-cwd.exe"
+        execute([str(clang), "-O0", "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1", "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1",
+                 "-DFREAK_FILENAME_LONG_CWD_AWARE=1", str(source), str(resource_object),
+                 "-I", str(runtime), "-o", str(aware_binary), "-lws2_32"])
+        report["windows_long_cwd_setup"].update({
+            "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            "resource_source_sha256": hashlib.sha256(resource_source.read_bytes()).hexdigest(),
+            "resource_object_sha256": hashlib.sha256(resource_object.read_bytes()).hexdigest(),
+            "aware_image": str(aware_binary),
+            "aware_image_sha256": hashlib.sha256(aware_binary.read_bytes()).hexdigest(),
+            "resource_compiler": str(windres),
+            "resource_compiler_sha256": hashlib.sha256(windres.read_bytes()).hexdigest()})
+        # Launch from the short root, then enter the full ordinary long Unicode
+        # directory. The same raw.data/copy.data operations remain relative.
+        relative = execute([str(aware_binary), "files-long-cwd", "raw.data", "copy.data", str(physical)])
         current_directories = []
         for directory in (str(physical), extended(physical)):
             units = directory.encode("utf-16-le")
             encoded = "".join(f"{int.from_bytes(units[index:index + 2], 'little'):04x}" for index in range(0, len(units), 2))
             current_directories.append(f"current-directory-utf16:{len(units) // 2}:{encoded}".encode())
         assert relative.stdout.replace(b"\r\n", b"\n").splitlines()[0] in current_directories, relative
+        assert relative.stdout.replace(b"\r\n", b"\n").splitlines().count(b"long-cwd-manifest:embedded-exact:active-true") == 1, relative
         assert relative.stdout.replace(b"\r\n", b"\n").endswith(b"LEGACY_LONG_FILENAME_OK\n") and not relative.stderr, relative
         assert raw.read_bytes() == b"A\0\xffB\r\n" and physical.is_dir() and not target.exists()
         execute([str(binary), "failures", str(raw)])
