@@ -1265,7 +1265,7 @@ int64_t freak_process_command_status(int64_t ticket) {
 int64_t freak_process_command_exit_code(int64_t ticket) { return freak_command_require(ticket)->exit_code; }
 int64_t freak_process_command_signal(int64_t ticket) { return freak_command_require(ticket)->signal_number; }
 freak_word freak_process_command_error(int64_t ticket) {
-    return freak_word_clone(freak_word_lit(freak_command_require(ticket)->error));
+    return freak_word_copy_cstr(freak_command_require(ticket)->error);
 }
 static freak_word freak_command_text(freak_command_capture *capture) {
     if (!freak_byte_buffer_utf8_valid(capture->data, capture->length))

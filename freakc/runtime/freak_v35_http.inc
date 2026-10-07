@@ -224,7 +224,7 @@ failed:
 }
 int64_t freak_http_server_open(int64_t port) { return freak_http_server_bind(freak_word_lit("127.0.0.1"),port,0); }
 int64_t freak_http_server_status(int64_t ticket) { freak_http_server *server=freak_http_require_server(ticket); return atomic_load_explicit(&server->stopping,memory_order_acquire)?1:server->status; }
-freak_word freak_http_server_error(int64_t ticket) { return freak_word_clone(freak_word_lit(freak_http_require_server(ticket)->error)); }
+freak_word freak_http_server_error(int64_t ticket) { return freak_word_copy_cstr(freak_http_require_server(ticket)->error); }
 int64_t freak_http_server_local_port(int64_t ticket) { return freak_http_require_server(ticket)->port; }
 static freak_http_server *freak_http_configurable(int64_t ticket) { freak_http_server *server=freak_http_require_server(ticket); if(server->active) freak_http_fail("cannot change options while a request is active"); return server; }
 void freak_http_server_set_limits(int64_t ticket,int64_t line,int64_t headers,int64_t count,int64_t body) {
@@ -463,7 +463,7 @@ int64_t freak_http_server_next_request(int64_t server_ticket) {
 }
 
 int64_t freak_http_server_request_status(int64_t ticket) { return freak_http_require_request(ticket)->status; }
-freak_word freak_http_server_request_error(int64_t ticket) { return freak_word_clone(freak_word_lit(freak_http_require_request(ticket)->error)); }
+freak_word freak_http_server_request_error(int64_t ticket) { return freak_word_copy_cstr(freak_http_require_request(ticket)->error); }
 static freak_http_request *freak_http_parsed(int64_t ticket) { freak_http_request *request=freak_http_require_request(ticket); if(!request->message_done || request->status) freak_http_fail("request metadata requires a successfully parsed request"); return request; }
 freak_word freak_http_server_request_method(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); return freak_http_word(request->method.data,request->method.length); }
 freak_word freak_http_server_request_target(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); return freak_http_word(request->target.data,request->target.length); }

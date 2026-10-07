@@ -1661,7 +1661,7 @@ freak_word freak_fs_result_word(int64_t ticket) {
     if (result->length) memcpy(copy,result->data,result->length);
     return freak_word_own(copy,result->length);
 }
-freak_word freak_fs_result_error(int64_t ticket) { return freak_word_clone(freak_word_lit(freak_fs_ticket_require(ticket)->error)); }
+freak_word freak_fs_result_error(int64_t ticket) { return freak_word_copy_cstr(freak_fs_ticket_require(ticket)->error); }
 int64_t freak_fs_result_bytes(int64_t ticket) {
     freak_fs_ticket *result = freak_fs_result_success(ticket);
     int64_t handle = freak_byte_buffer_with_capacity((int64_t)result->length);
@@ -1676,7 +1676,7 @@ int64_t freak_fs_result_count(int64_t ticket) { return (int64_t)freak_fs_result_
 freak_word freak_fs_result_entry(int64_t ticket,int64_t index) {
     freak_fs_ticket *result = freak_fs_result_success(ticket);
     if (index < 0 || (uint64_t)index >= result->entry_count) freak_command_fail("directory inventory index out of bounds");
-    return freak_word_clone(freak_word_lit(result->entries[index]));
+    return freak_word_copy_cstr(result->entries[index]);
 }
 void freak_fs_result_release(int64_t ticket) {
     freak_fs_ticket *result = freak_fs_ticket_require(ticket);

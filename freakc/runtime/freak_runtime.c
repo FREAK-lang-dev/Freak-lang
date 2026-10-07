@@ -880,6 +880,18 @@ freak_word freak_word_clone(freak_word source) {
     return freak_word_own(buf, source.length);
 }
 
+/* Ticket-owned strings are not literals: their storage may be cleared, moved,
+   or released independently of the returned word. Always copy these bytes,
+   including empty strings, into the caller's normal owned-word lifetime. */
+static freak_word freak_word_copy_cstr(const char* source) {
+    size_t length = strlen(source);
+    size_t size = freak_word_concat_required(length, 0, "word copy");
+    char* copy = (char*)malloc(size);
+    if (!copy) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    memcpy(copy, source, size);
+    return freak_word_own(copy, length);
+}
+
 /**
  * Replaces a word with an owned replacement, releasing the previous buffer when necessary.
  * @param slot Word to update.

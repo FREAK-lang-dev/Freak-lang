@@ -140,7 +140,7 @@ int64_t freak_json_document_new(void) {
 void freak_json_document_release(int64_t doc) { freak_json_dispose(freak_json_require(doc)); }
 int64_t freak_json_document_ok(int64_t doc) { return !freak_json_require(doc)->error[0]; }
 int64_t freak_json_document_error_position(int64_t doc) { return (int64_t)freak_json_require(doc)->error_position; }
-freak_word freak_json_document_error(int64_t doc) { return freak_word_clone(freak_word_lit(freak_json_require(doc)->error)); }
+freak_word freak_json_document_error(int64_t doc) { return freak_word_copy_cstr(freak_json_require(doc)->error); }
 int64_t freak_json_document_root(int64_t doc) {
     freak_json_document *d = freak_json_require(doc); return freak_json_view(d, d->root);
 }
