@@ -177,13 +177,51 @@ task package_sources_clear() -> void {
     package_source_manifest_hashes = array_new()
 }
 
+task package_path_byte_length(path: word) -> int {
+    -- Host separators and word substring/char_at offsets are bytes, including
+    -- when the path contains multi-byte UTF-8 components.
+    pilot bytes: ByteBuffer = ByteBuffer::with_capacity(path.length())
+    bytes.write_word(path)
+    pilot length = bytes.length()
+    bytes.release()
+    give back length
+}
+
+task package_path_root_length(path: word, windows: bool) -> int {
+    if not windows { if path.starts_with("/") { give back 1 } give back 0 }
+    pilot normalized = path.replace("\\", "/")
+    pilot length = package_path_byte_length(normalized)
+    pilot drive = 0
+    if normalized.starts_with("//?/") { drive = 4 }
+    if length >= drive + 3 and normalized.char_at(drive + 1) == ":" and normalized.char_at(drive + 2) == "/" { give back drive + 3 }
+    pilot start = 0
+    if normalized.starts_with("//?/UNC/") { start = 8 } else if normalized.starts_with("//") and drive == 0 { start = 2 }
+    if start != 0 {
+        pilot index = start
+        pilot separators = 0
+        repeat until index >= length {
+            if normalized.char_at(index) == "/" {
+                separators += 1
+                if separators == 2 { give back index + 1 }
+            }
+            index += 1
+        }
+        -- A UNC share root may omit its trailing separator. It must not be
+        -- shortened to a server-only name during enclosing-project discovery.
+        if separators == 1 { give back length }
+    }
+    if normalized.starts_with("/") { give back 1 }
+    give back 0
+}
+
 task package_parent_path(path: word) -> word {
     pilot windows = process::platform_is_windows()
-    pilot position = path.length() - 1
+    pilot floor = package_path_root_length(path, windows)
+    pilot position = package_path_byte_length(path) - 1
+    if floor > 0 and position < floor { give back path }
     repeat until position < 0 {
         if path.char_at(position) == "/" or (windows and path.char_at(position) == "\\") {
-            if position == 0 { give back "/" }
-            if windows and position == 2 and path.char_at(1) == ":" { give back path.substring(0, 3) }
+            if position < floor { give back path.substring(0, floor) }
             give back path.substring(0, position)
         }
         position -= 1
@@ -193,9 +231,10 @@ task package_parent_path(path: word) -> word {
 
 task package_leaf_path(path: word) -> word {
     pilot windows = process::platform_is_windows()
-    pilot position = path.length() - 1
+    pilot length = package_path_byte_length(path)
+    pilot position = length - 1
     repeat until position < 0 {
-        if path.char_at(position) == "/" or (windows and path.char_at(position) == "\\") { give back path.substring(position + 1, path.length() - position - 1) }
+        if path.char_at(position) == "/" or (windows and path.char_at(position) == "\\") { give back path.substring(position + 1, length - position - 1) }
         position -= 1
     }
     give back path
@@ -210,7 +249,7 @@ task package_directory_path(ticket: int) -> word {
 }
 
 task package_local_path(root: word, request: word) -> word {
-    if request == "" or request.length() > 4096 or request.contains("\n") or request.contains("\r") or request.contains("\t") {
+    if request == "" or package_path_byte_length(request) > 4096 or request.contains("\n") or request.contains("\r") or request.contains("\t") {
         hangar_graph_fail("invalid local package path")
         give back ""
     }
@@ -220,8 +259,8 @@ task package_local_path(root: word, request: word) -> word {
     if windows {
         source = source.replace("\\", "/")
         base = base.replace("\\", "/")
-        if source.starts_with("//?/UNC/") { source = "//" + source.substring(8, source.length() - 8) } else if source.starts_with("//?/") { source = source.substring(4, source.length() - 4) }
-        if base.starts_with("//?/UNC/") { base = "//" + base.substring(8, base.length() - 8) } else if base.starts_with("//?/") { base = base.substring(4, base.length() - 4) }
+        if source.starts_with("//?/UNC/") { source = "//" + source.substring(8, package_path_byte_length(source) - 8) } else if source.starts_with("//?/") { source = source.substring(4, package_path_byte_length(source) - 4) }
+        if base.starts_with("//?/UNC/") { base = "//" + base.substring(8, package_path_byte_length(base) - 8) } else if base.starts_with("//?/") { base = base.substring(4, package_path_byte_length(base) - 4) }
     } else if source.contains("\\") or source.contains(":") {
         hangar_graph_fail("local package path uses unsupported host syntax")
         give back ""
@@ -229,6 +268,7 @@ task package_local_path(root: word, request: word) -> word {
     pilot absolute = source.starts_with("/")
     if windows and source.length() >= 3 { if source.char_at(1) == ":" and source.char_at(2) == "/" { absolute = true } }
     if not absolute { source = base + "/" + source }
+    pilot source_length = package_path_byte_length(source)
     pilot prefix = "/"
     pilot start = 1
     pilot floor = 0
@@ -244,8 +284,8 @@ task package_local_path(root: word, request: word) -> word {
     pilot index = start
     pilot length = 0
     pilot valid = true
-    repeat until index > source.length() or not valid {
-        pilot boundary = index == source.length()
+    repeat until index > source_length or not valid {
+        pilot boundary = index == source_length
         if not boundary { boundary = source.char_at(index) == "/" }
         if boundary {
             if component == ".." {
@@ -693,6 +733,21 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
     give back valid
 }
 
+task package_initial_project_directory(path: word) -> int {
+    -- Preserve direct no-follow adoption, including Windows' held-component
+    -- long-path walk. Only a failed initial directory name may resolve a host
+    -- alias such as macOS /var, followed by the same strict adoption operation.
+    -- Neither the selected source leaf nor the manifest leaf is resolved here.
+    pilot directory = fs::open_dir_ticket(path)
+    if fs::result_ok(directory) { give back directory }
+    fs::result_release(directory)
+    pilot resolved = fs::canonical_path(path)
+    if not fs::result_ok(resolved) { give back resolved }
+    pilot physical = fs::result_word(resolved)
+    fs::result_release(resolved)
+    give back fs::open_dir_ticket(physical)
+}
+
 task package_prepare_project_sources(source: word) -> bool {
     if package_graph_ready { give back true }
     if package_source_option_manifest != "" { give back package_prepare_selected_manifest(package_source_option_manifest) }
@@ -701,7 +756,8 @@ task package_prepare_project_sources(source: word) -> bool {
     pilot parent = package_parent_path(source)
     pilot depth = 0
     repeat until depth >= 256 {
-        pilot directory = fs::open_dir_ticket(parent)
+        pilot directory = 0
+        if depth == 0 { directory = package_initial_project_directory(parent) } else { directory = fs::open_dir_ticket(parent) }
         if not fs::result_ok(directory) { hangar_graph_fail("cannot inspect source's enclosing project directory: " + fs::result_error(directory))
             fs::result_release(directory)
             give back false }
