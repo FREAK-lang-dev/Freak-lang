@@ -475,6 +475,7 @@ def probe_transpile(foundation, freak: Path | None, compiler: Path | None, repo:
 def tools_probe(compiler: Path | None, clang: Path, runtime: Path, root: Path,
                 freak: Path | None = None) -> None:
     """Model Windows PATH selection with native host files and argv witnesses."""
+    root = root.resolve(strict=True)
     import shutil
     import v3_word_foundation as foundation
     from v3_v35_package_sources import package_probe_source
