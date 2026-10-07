@@ -1858,7 +1858,12 @@ def audit_conformance(paths: List[Path]) -> int:
                 "task cli_run_clang_identity",
                 "task cli_run_linker_identity",
                 "task cli_run_file_sha256",
-                "certutil -hashfile",
+                "task cli_run_windows_file_sha256(path: word) -> word {",
+                "task cli_run_sha256_from_bytes(output: ByteBuffer) -> word {",
+                'hangar_native_tool_executable("certutil")',
+                'process::command_arg(command, "-hashfile")',
+                'process::command_arg(command, path)',
+                'process::command_arg(command, "SHA256")',
                 "sha256sum ",
                 "task cli_run_cache_record",
                 "fs::delete(cache_file)",
@@ -2059,6 +2064,14 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in needles:
             if needle not in source_text:
                 run_freshness_missing.append(f"{label}: {needle}")
+        if label == "run pipeline":
+            signature = "task cli_run_windows_file_sha256(path: word) -> word {"
+            if source_text.count(signature) == 1:
+                native_hash = source_text.split(signature, 1)[1].split("\ntask ", 1)[0]
+                if "process::exec_capture(" in native_hash:
+                    run_freshness_missing.append("run pipeline: Windows file hashing must use native argv")
+            else:
+                run_freshness_missing.append("run pipeline: native hash helper must be unambiguous")
         if label == "release payload" and (
             "Pre-compile runtime to .o" in source_text
             or "dist/freak/runtime/freak_runtime.o" in source_text
