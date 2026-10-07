@@ -21,6 +21,7 @@ SOURCE_ORDER = (
     "containers.fk",
     "layout.fk",
     "theme.fk",
+    "state.fk",
     "widgets.fk",
     "ui.fk",
 )
@@ -349,7 +350,8 @@ def check_calculator_example(freak: Path, compiler: str, repo: Path, runtime: Pa
                              root: Path, source_paths: list[Path], package: Path) -> None:
     # Drive the actual example's main loop. Only buttons/frame timing and the
     # rendered heading are instrumented; arithmetic/state logic is not copied.
-    text = "\n".join(path.read_text(encoding="utf-8") for path in source_paths)
+    flattened = flatten_package_sources(source_paths + [package / "examples/calculator.fk"])
+    text = "\n".join(flattened[:-1])
     for original, replacement in (
         ("cockpit_ui_begin_frame", "calculator_actual_begin_frame"),
         ("cockpit_widget_heading", "calculator_actual_heading"),
@@ -358,7 +360,7 @@ def check_calculator_example(freak: Path, compiler: str, repo: Path, runtime: Pa
     ):
         assert text.count("task " + original + "(") == 1
         text = text.replace("task " + original + "(", "task " + replacement + "(")
-    example = (package / "examples/calculator.fk").read_text(encoding="utf-8")
+    example = flattened[-1]
     source = root / "calculator_interaction.fk"
     source.write_text(FAKE_UI + "\n" + text.replace("ui::", "fake_ui_") + example + CALCULATOR_HARNESS,
                       encoding="utf-8")
@@ -388,8 +390,34 @@ def run(
     )
 
 
+def flatten_package_sources(paths: list[Path]) -> list[str]:
+    """Flatten included package modules while checking their explicit imports."""
+    modules = {path.stem: path.read_text(encoding="utf-8") for path in paths}
+    assert len(modules) == len(paths), "flattened module names must be unique"
+    declarations = {
+        module: set(re.findall(r"(?m)^(?:fixed[ \t]+)?(?:task|pilot)[ \t]+([A-Za-z_]\w*)", text))
+        for module, text in modules.items()
+    }
+    imports = re.compile(r"(?m)^use[ \t]+self::([A-Za-z_]\w*)::\{([^{}]*)\}[ \t]*(?:\n|$)")
+
+    def remove_import(match: re.Match[str]) -> str:
+        module, names = match.groups()
+        assert module in modules, ("imported module is not included", module)
+        assert re.fullmatch(r"\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*", names), names
+        for name in re.findall(r"[A-Za-z_]\w*", names):
+            assert name in declarations[module], ("imported declaration is missing", module, name)
+        return "\n" * match.group(0).count("\n")
+
+    flattened = []
+    for text in modules.values():
+        text = imports.sub(remove_import, text)
+        assert not re.search(r"(?m)^[ \t]*use[ \t]+self\b", text), "unsupported self import in flattened fixture"
+        flattened.append(text)
+    return flattened
+
+
 def aggregate(paths: list[Path], destination: Path, suffix: str = "") -> Path:
-    payload = b"\n".join(path.read_bytes() for path in paths)
+    payload = "\n".join(flatten_package_sources(paths)).encode("utf-8")
     if suffix:
         payload += b"\n" + suffix.encode("utf-8")
     destination.write_bytes(payload)
@@ -523,7 +551,7 @@ def main() -> int:
             return 0
 
         replay_source = root / "cockpit_replay.fk"
-        replay_source.write_text(FAKE_UI + "\n" + "\n".join(path.read_text(encoding="utf-8").replace("ui::", "fake_ui_") for path in source_paths) + REPLAY_PROGRAM, encoding="utf-8")
+        replay_source.write_text(FAKE_UI + "\n" + "\n".join(flatten_package_sources(source_paths)).replace("ui::", "fake_ui_") + REPLAY_PROGRAM, encoding="utf-8")
         for backend in ("c", "llvm"):
             generated, _ = foundation.transpile(freak=freak, repo=repo, source=replay_source, backend=backend)
             binary = root / f"cockpit_replay_{backend}{'.exe' if sys.platform == 'win32' else ''}"
