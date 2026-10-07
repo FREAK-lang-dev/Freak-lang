@@ -1212,7 +1212,7 @@ freak_result_word_word freak_fs_read_checked(freak_word path) {
     int descriptor = open(name, O_RDONLY | O_NONBLOCK);
 #endif
     free(name);
-    if (descriptor < 0) return freak_fs_read_checked_error("could not open source file");
+    if (descriptor < 0) return freak_fs_read_checked_error("cannot open file for reading");
 #ifdef _WIN32
     struct _stat64 metadata;
     bool regular = _fstat64(descriptor, &metadata) == 0 &&
