@@ -1,4 +1,8 @@
-"""Pure fixture tests: no Clang, linker, compiler or native child is launched."""
+"""Pure helper fixtures, plus an opt-in genuine Clang display-trace witness.
+
+FREAK_PROFILE_NATIVE_CLANG selects a real compiler image for bounded -###
+probes; the ordinary helper fixtures never launch a child.
+"""
 import json
 import os
 from pathlib import Path
@@ -305,7 +309,12 @@ class NativeLinkerAliasTrace(unittest.TestCase):
         self.assertEqual(resource.returncode, 0, resource.stdout + resource.stderr)
         self.assertTrue(Path(resource.stdout.strip()).is_dir())
         with tempfile.TemporaryDirectory(prefix="freak-real-linker-role-") as directory:
-            alias = Path(directory) / ("foo-ld.exe" if sys.platform == "win32" else "foo-ld")
+            spelling = "compiler é 日本 ' $ &"
+            if os.name != "nt":
+                spelling += ' quote " slash \\'
+            tools = Path(directory) / spelling
+            tools.mkdir()
+            alias = tools / ("foo-ld.exe" if sys.platform == "win32" else "foo-ld")
             shutil.copy2(clang, alias)
             trace = subprocess.run([str(alias), "-###", "-x", "c", os.devnull, "-o", os.devnull,
                                     "-resource-dir", resource.stdout.strip()], capture_output=True,
