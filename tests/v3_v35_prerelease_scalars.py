@@ -96,8 +96,9 @@ FAILURES = {
     'literal_negative_one': (f'say next({LOW}) / (-0001);', 'overflow', 'division'),
 }
 NEGATIVE = ('"a" < 1', '1 >= "a"', '"a" <= true', 'false > "a"')
-LOOP = ('task main() { pilot mut i = 0; pilot mut t = 0; '
-        'repeat until i >= 300000000 { t = t + i % 7; i += 1; } say t; }\n')
+LOOP = ('task main() {\n    pilot mut i = 0\n    pilot mut t = 0\n'
+        '    repeat until i >= 300000000 {\n        t = t + i % 7\n        i += 1\n'
+        '    }\n    say t\n}\n')
 
 
 def digest(path: Path) -> str:
