@@ -1,0 +1,16 @@
+[project]
+name = "sequence-service"
+version = "0.1.0"
+kind = "app"
+entry = "src/main.fk"
+readme = "README.md"
+license_file = "LICENSE"
+
+[modules]
+inputs = "src/inputs.fk"
+
+[tests]
+inputs = "tests/inputs_test.fk"
+
+[dependencies]
+sequences = { path = "../freak-sequences" }

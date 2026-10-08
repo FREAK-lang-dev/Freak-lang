@@ -1,0 +1,6 @@
+use left::{value as left_value}
+use right::{value as right_value}
+
+task main() {
+    say word_from_int(left_value() + right_value())
+}

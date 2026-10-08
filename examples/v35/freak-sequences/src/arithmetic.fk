@@ -1,0 +1,4 @@
+-- The application validates bounds; checked int arithmetic still guards faults.
+task arithmetic_value(start: int, step: int, index: int) -> int {
+    give back start + step * index
+}
