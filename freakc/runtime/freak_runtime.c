@@ -1125,7 +1125,7 @@ _Noreturn void freak_panic(freak_word msg) {
     exit(1);
 }
 
-static _Noreturn void freak_int_fail(const char *reason, const char *operation) {
+_Noreturn void freak_int_fail(const char *reason, const char *operation) {
     fprintf(stderr,"FREAK: integer %s in %s\n",reason,operation);
     exit(1);
 }
@@ -2262,9 +2262,12 @@ double freak_word_parse_num(freak_word w) {
 }
 
 int64_t freak_word_compare(freak_word a, freak_word b) {
-    int r = strcmp(a.data, b.data);
+    size_t shared = a.length < b.length ? a.length : b.length;
+    int r = shared ? memcmp(a.data, b.data, shared) : 0;
     if (r < 0) return -1;
     if (r > 0) return 1;
+    if (a.length < b.length) return -1;
+    if (a.length > b.length) return 1;
     return 0;
 }
 

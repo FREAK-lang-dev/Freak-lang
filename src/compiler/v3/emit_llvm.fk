@@ -10,6 +10,8 @@
 -- ===================== LLVM EMIT HELPERS =============================
 
 pilot llvm_current_return_semantic_type = "v"
+pilot llvm_integer_failure_reasons = ""
+pilot llvm_integer_failure_operations = ""
 
 task llvm_emit(s: word) -> void {
     fs::append(out_file, s)
@@ -151,6 +153,8 @@ task llvm_dbg_set_stmt_line(eid: word) -> void {
 }
 
 task llvm_dbg_begin_func(name: word, line_no: int) -> word {
+    llvm_integer_failure_reasons = ""
+    llvm_integer_failure_operations = ""
     -- LB10 minimal: emit a DISubprogram for this function, set the
     -- current scope so llvm_emit_line attaches `!dbg !N` to every
     -- instruction, and return the function-level attribute that
@@ -1279,6 +1283,70 @@ task llvm_emit_shape_ctor(val: word, left: word) -> word {
 
 -- ===================== BINOP EMIT ====================================
 
+task llvm_integer_message_ptr(message: word) -> word {
+    pilot size = word_from_int(message.length() + 1)
+    pilot name = message.replace(" ", "_")
+    give back "getelementptr inbounds ([" + size + " x i8], [" + size + " x i8]* @__freak_int_" + name + ", i64 0, i64 0)"
+}
+
+task llvm_emit_integer_guard(failed: word, reason: word, operation: word) -> void {
+    pilot edge = "integer.fail.edge." + word_from_int(temp_reg_counter)
+    pilot success = "integer.ok." + word_from_int(temp_reg_counter)
+    temp_reg_counter += 1
+    if llvm_integer_failure_reasons != "" {
+        llvm_integer_failure_reasons = llvm_integer_failure_reasons + ", "
+        llvm_integer_failure_operations = llvm_integer_failure_operations + ", "
+    }
+    llvm_integer_failure_reasons = llvm_integer_failure_reasons + "[ " + llvm_integer_message_ptr(reason) + ", %" + edge + " ]"
+    llvm_integer_failure_operations = llvm_integer_failure_operations + "[ " + llvm_integer_message_ptr(operation) + ", %" + edge + " ]"
+    llvm_emit_line("    br i1 " + failed + ", label %" + edge + ", label %" + success + ", !prof !\{!\"branch_weights\", i32 1, i32 1048575\}")
+    llvm_emit_line(edge + ":")
+    llvm_emit_line("    br label %integer.fail")
+    llvm_emit_line(success + ":")
+}
+
+task llvm_emit_integer_failure_block() -> void {
+    if llvm_integer_failure_reasons == "" { give back }
+    llvm_emit_line("integer.fail:")
+    llvm_emit_line("    %integer.reason = phi i8* " + llvm_integer_failure_reasons)
+    llvm_emit_line("    %integer.operation = phi i8* " + llvm_integer_failure_operations)
+    llvm_emit_line("    call void @freak_int_fail(i8* %integer.reason, i8* %integer.operation)")
+    llvm_emit_line("    unreachable")
+}
+
+task llvm_emit_checked_integer(l_reg: word, r_reg: word, res_reg: word, operation: word, rhs: word) -> void {
+    pilot symbol = v35_integer_arithmetic_symbol(operation)
+    pilot opcode = "add"
+    pilot diagnostic = "addition"
+    if symbol == "freak_int_sub_checked" { opcode = "sub" diagnostic = "subtraction" }
+    if symbol == "freak_int_mul_checked" { opcode = "mul" diagnostic = "multiplication" }
+    if operation == "neg" { opcode = "sub" diagnostic = "negation" }
+    if symbol == "freak_int_div_checked" or symbol == "freak_int_rem_checked" {
+        opcode = "sdiv" diagnostic = "division"
+        if symbol == "freak_int_rem_checked" { opcode = "srem" diagnostic = "remainder" }
+        if not v35_integer_divisor_is_safe(rhs) {
+            pilot zero = next_reg()
+            llvm_emit_line("    " + zero + " = icmp eq i64 " + r_reg + ", 0")
+            llvm_emit_integer_guard(zero, "division by zero", diagnostic)
+            pilot minimum = next_reg()
+            pilot minus_one = next_reg()
+            pilot overflow = next_reg()
+            llvm_emit_line("    " + minimum + " = icmp eq i64 " + l_reg + ", -9223372036854775808")
+            llvm_emit_line("    " + minus_one + " = icmp eq i64 " + r_reg + ", -1")
+            llvm_emit_line("    " + overflow + " = and i1 " + minimum + ", " + minus_one)
+            llvm_emit_integer_guard(overflow, "overflow", diagnostic)
+        }
+        llvm_emit_line("    " + res_reg + " = " + opcode + " i64 " + l_reg + ", " + r_reg)
+        give back
+    }
+    pilot pair = next_reg()
+    pilot overflow = next_reg()
+    llvm_emit_line("    " + pair + " = call \{i64, i1\} @llvm.s" + opcode + ".with.overflow.i64(i64 " + l_reg + ", i64 " + r_reg + ")")
+    llvm_emit_line("    " + res_reg + " = extractvalue \{i64, i1\} " + pair + ", 0")
+    llvm_emit_line("    " + overflow + " = extractvalue \{i64, i1\} " + pair + ", 1")
+    llvm_emit_integer_guard(overflow, "overflow", diagnostic)
+}
+
 task llvm_emit_short_circuit(val: word, left: word, right: word) -> word {
     pilot left_reg = llvm_emit_expr(left)
     pilot left_bool = next_reg()
@@ -1324,7 +1392,18 @@ task llvm_emit_short_circuit(val: word, left: word, right: word) -> word {
 task llvm_emit_binop(val: word, left: word, right: word, id: word) -> word {
     if val == "and" or val == "or" { give back llvm_emit_short_circuit(val, left, right) }
     pilot l_reg = llvm_emit_expr(left)
+    pilot word_order = (val == "<" or val == ">" or val == "<=" or val == ">=") and llvm_infer_expr_type(left).starts_with("w")
+    if word_order and not llvm_word_expr_is_owned_temporary(left) {
+        pilot snapshot = next_reg()
+        llvm_emit_line("    " + snapshot + " = call i64 @freak_llvm_word_clone(i64 " + l_reg + ")")
+        l_reg = snapshot
+    }
     pilot r_reg = llvm_emit_expr(right)
+    if word_order and not llvm_word_expr_is_owned_temporary(right) {
+        pilot snapshot = next_reg()
+        llvm_emit_line("    " + snapshot + " = call i64 @freak_llvm_word_clone(i64 " + r_reg + ")")
+        r_reg = snapshot
+    }
     pilot res_reg = next_reg()
     pilot is_num_op = llvm_is_num_expr(left) or llvm_is_num_expr(right)
 
@@ -1341,12 +1420,12 @@ task llvm_emit_binop(val: word, left: word, right: word, id: word) -> word {
     if val == ">=" { give back llvm_emit_icmp(l_reg, r_reg, res_reg, left, right, is_num_op, "sge", "oge") }
     if val == "NAKAMA" {
         pilot t1 = next_reg()
-        llvm_emit_line("    " + t1 + " = call i64 @freak_int_add_checked(i64 " + l_reg + ", i64 " + r_reg + ")")
+        llvm_emit_checked_integer(l_reg, r_reg, t1, "+", "")
         pilot t2 = next_reg()
-        llvm_emit_line("    " + t2 + " = call i64 @freak_int_mul_checked(i64 " + l_reg + ", i64 " + r_reg + ")")
+        llvm_emit_checked_integer(l_reg, r_reg, t2, "*", "")
         pilot t3 = next_reg()
-        llvm_emit_line("    " + t3 + " = call i64 @freak_int_div_checked(i64 " + t2 + ", i64 10)")
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_int_add_checked(i64 " + t1 + ", i64 " + t3 + ")")
+        llvm_emit_line("    " + t3 + " = sdiv i64 " + t2 + ", 10")
+        llvm_emit_checked_integer(t1, t3, res_reg, "+", "")
         give back res_reg
     }
     give back res_reg
@@ -1386,7 +1465,7 @@ task llvm_emit_add(l_reg: word, r_reg: word, res_reg: word, left: word, right: w
         llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
         give back res_reg
     }
-    llvm_emit_line("    " + res_reg + " = call i64 @freak_int_add_checked(i64 " + l_reg + ", i64 " + r_reg + ")")
+    llvm_emit_checked_integer(l_reg, r_reg, res_reg, "+", right)
     give back res_reg
 }
 
@@ -1399,7 +1478,7 @@ task llvm_emit_arith(l_reg: word, r_reg: word, res_reg: word, left: word, right:
         llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
         give back res_reg
     }
-    llvm_emit_line("    " + res_reg + " = call i64 @" + v35_integer_arithmetic_symbol(int_op) + "(i64 " + l_reg + ", i64 " + r_reg + ")")
+    llvm_emit_checked_integer(l_reg, r_reg, res_reg, int_op, right)
     give back res_reg
 }
 
@@ -1423,6 +1502,16 @@ task llvm_emit_cmp(l_reg: word, r_reg: word, res_reg: word, left: word, right: w
 }
 
 task llvm_emit_icmp(l_reg: word, r_reg: word, res_reg: word, left: word, right: word, is_num_op: bool, int_cmp: word, float_cmp: word) -> word {
+    if llvm_infer_expr_type(left).starts_with("w") {
+        pilot ordering = next_reg()
+        pilot compared = next_reg()
+        llvm_emit_line("    " + ordering + " = call i64 @freak_llvm_word_compare(i64 " + l_reg + ", i64 " + r_reg + ")")
+        llvm_emit_line("    " + compared + " = icmp " + int_cmp + " i64 " + ordering + ", 0")
+        llvm_emit_line("    " + res_reg + " = zext i1 " + compared + " to i64")
+        llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + l_reg + ", i64 0)")
+        llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + r_reg + ", i64 0)")
+        give back res_reg
+    }
     if is_num_op {
         pilot ld = llvm_numeric_to_double(l_reg, left)
         pilot rd = llvm_numeric_to_double(r_reg, right)
@@ -1455,10 +1544,9 @@ task llvm_emit_unaryop(val: word, left: word) -> word {
         llvm_emit_line("    " + cmp_reg + " = icmp eq i64 " + op_reg + ", 0")
         llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
     }
-    if val == "-" { llvm_emit_line("    " + res_reg + " = call i64 @freak_int_neg_checked(i64 " + op_reg + ")") }
-    if val == "PLUS ULTRA" { llvm_emit_line("    " + res_reg + " = call i64 @freak_int_mul_checked(i64 " + op_reg + ", i64 2)") }
-    if val == "FINAL FORM" { llvm_emit_line("    " + res_reg + " = call i64 @freak_int_mul_checked(i64 " + op_reg + ", i64 " + op_reg + ")") }
-    if val == "TSUNDERE" { llvm_emit_line("    " + res_reg + " = call i64 @freak_int_neg_checked(i64 " + op_reg + ")") }
+    if val == "-" or val == "TSUNDERE" { llvm_emit_checked_integer("0", op_reg, res_reg, "neg", "") }
+    if val == "PLUS ULTRA" { llvm_emit_checked_integer(op_reg, "2", res_reg, "*", "") }
+    if val == "FINAL FORM" { llvm_emit_checked_integer(op_reg, op_reg, res_reg, "*", "") }
     give back res_reg
 }
 
@@ -2512,7 +2600,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
             } else if element_type == "w" {
                 llvm_emit_line("    " + stored + " = call i64 @freak_llvm_word_concat(i64 " + previous + ", i64 " + value + ")")
             } else {
-                llvm_emit_line("    " + stored + " = call i64 @" + v35_integer_arithmetic_symbol(name_w) + "(i64 " + previous + ", i64 " + value + ")")
+                llvm_emit_checked_integer(previous, value, stored, name_w, rhs_w)
             }
         }
         llvm_emit_line("    call void @freak_v3_array_set(i64 " + receiver + ", i64 " + offset + ", i64 " + stored + ")")
@@ -2615,7 +2703,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         } else if field_type == "w" {
             llvm_emit_line("    " + op_reg + " = call i64 @freak_llvm_word_concat(i64 " + cur_reg + ", i64 " + rhs_reg + ")")
         } else {
-            llvm_emit_line("    " + op_reg + " = call i64 @" + v35_integer_arithmetic_symbol(name_w) + "(i64 " + cur_reg + ", i64 " + rhs_reg + ")")
+            llvm_emit_checked_integer(cur_reg, rhs_reg, op_reg, name_w, rhs_w)
         }
         llvm_emit_line("    call void @freak_v3_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + op_reg + ")")
         if field_type == "w" {
@@ -2731,7 +2819,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         if name_w == "%=" { float_op = "frem" }
         op_reg = llvm_emit_num_compound_bits(load_reg, reg, rhs_w, float_op)
     } else {
-        llvm_emit_line("    " + op_reg + " = call i64 @" + v35_integer_arithmetic_symbol(name_w) + "(i64 " + load_reg + ", i64 " + reg + ")")
+        llvm_emit_checked_integer(load_reg, reg, op_reg, name_w, rhs_w)
     }
     llvm_emit_line("    store i64 " + op_reg + ", i64* " + var_ptr)
 }
@@ -2895,6 +2983,7 @@ task llvm_emit_task(eid: word) -> void {
     llvm_emit_current_word_param_cleanup("")
     if is_void { llvm_emit_line("    ret void") }
     else { llvm_emit_line("    ret i64 0") }
+    llvm_emit_integer_failure_block()
     llvm_emit_line("\}")
     llvm_emit_line("")
     llvm_dbg_current_scope_id = 0
@@ -2904,6 +2993,18 @@ task llvm_emit_task(eid: word) -> void {
 -- ===================== RUNTIME DECLARATIONS ==========================
 
 task llvm_emit_runtime_decls() -> void {
+    llvm_emit_line("declare void @freak_int_fail(i8*, i8*) cold noreturn")
+    llvm_emit_line("declare \{i64, i1\} @llvm.sadd.with.overflow.i64(i64, i64)")
+    llvm_emit_line("declare \{i64, i1\} @llvm.ssub.with.overflow.i64(i64, i64)")
+    llvm_emit_line("declare \{i64, i1\} @llvm.smul.with.overflow.i64(i64, i64)")
+    llvm_emit_line("@__freak_int_overflow = private unnamed_addr constant [9 x i8] c\"overflow\\00\"")
+    llvm_emit_line("@__freak_int_division_by_zero = private unnamed_addr constant [17 x i8] c\"division by zero\\00\"")
+    llvm_emit_line("@__freak_int_addition = private unnamed_addr constant [9 x i8] c\"addition\\00\"")
+    llvm_emit_line("@__freak_int_subtraction = private unnamed_addr constant [12 x i8] c\"subtraction\\00\"")
+    llvm_emit_line("@__freak_int_multiplication = private unnamed_addr constant [15 x i8] c\"multiplication\\00\"")
+    llvm_emit_line("@__freak_int_division = private unnamed_addr constant [9 x i8] c\"division\\00\"")
+    llvm_emit_line("@__freak_int_remainder = private unnamed_addr constant [10 x i8] c\"remainder\\00\"")
+    llvm_emit_line("@__freak_int_negation = private unnamed_addr constant [9 x i8] c\"negation\\00\"")
     llvm_emit_line("declare i64 @freak_llvm_fs_read_native(i64)")
     llvm_emit_line("declare void @freak_llvm_fs_write_native(i64, i64)")
     llvm_emit_line("declare void @freak_llvm_fs_append_native(i64, i64)")
@@ -3431,6 +3532,7 @@ task emit_llvm_program() -> void {
             i += 1
         }
         llvm_emit_line("    ret void")
+        llvm_emit_integer_failure_block()
         llvm_emit_line("\}")
         llvm_emit_line("")
         llvm_dbg_current_scope_id = 0
@@ -3466,6 +3568,7 @@ task emit_llvm_program() -> void {
             i += 1
         }
         llvm_emit_line("    ret void")
+        llvm_emit_integer_failure_block()
         llvm_emit_line("\}")
         llvm_dbg_current_scope_id = 0
         llvm_dbg_current_line = 0
