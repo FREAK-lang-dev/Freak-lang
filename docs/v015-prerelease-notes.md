@@ -41,6 +41,10 @@ These are component gates; provisional producer reuse remains explicitly
 labelled, and full bootstrap, syntax, platform and release gates stay separate.
 
 The frozen V4 bootstrap source profile remains separate from current V4
-development syntax. Current V4 HIR and MIR snapshots advance to v12 and v10
+development syntax. Development V4 now supports condition-first bool loops
+with `while condition` and `repeat while condition`, including existing
+break, continue, cleanup and early-return rules. Counted-loop parity and
+ungrouped multiline condition continuation remain separate work.
+Current V4 HIR and MIR snapshots advance to v12 and v10
 to retain binding modifiers; older snapshots must be rebuilt. This PR does
 not tag or publish a release.
