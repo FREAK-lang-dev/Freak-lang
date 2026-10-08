@@ -14,6 +14,7 @@ import sys
 import time
 
 import v3_word_foundation as foundation
+from v4_locked_source import materialize
 
 
 def digest(path: Path) -> str:
@@ -65,9 +66,10 @@ def main() -> int:
         cli = foundation.build_fresh_cli(clang=str(clang), repo=repo, root=build,
                                          runtime_root=repo / "freakc/runtime")
         report["cli_sha256"] = digest(cli)
+        frozen_source, report["locked_source_profile"] = materialize(repo, output / "locked-source-checkout")
         command = [sys.executable, "-B", "-u", str(repo / "tests/v3_v35_bootstrap_native.py"),
                    str(cli), "--clang", str(clang), "--repo", str(repo),
-                   "--git-checkout", str(repo / "src/compiler/v4"),
+                   "--source", str(frozen_source), "--git-checkout", str(frozen_source),
                    "--evidence", str(output / "public-contracts.json")]
         print("Verifying installed public locked V4 command", flush=True)
         result = subprocess.run(command, cwd=output, timeout=900)

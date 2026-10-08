@@ -260,6 +260,7 @@ jobs:
         shell: bash
         run: |
           python -B -u tests/test_v3_build_profiles_helpers.py
+          python -B -u tests/test_v3_v35_bootstrap_native_helpers.py
           python -B -u tests/test_v3_performance_process_state.py
           python -B -u tests/test_v3_performance_platform_helpers.py
           python -B -u tests/v3_std_marker_transport.py
@@ -570,6 +571,7 @@ jobs:
         shell: bash
         run: |
           python -B -u tests/test_v3_build_profiles_helpers.py
+          python -B -u tests/test_v3_v35_bootstrap_native_helpers.py
           python -B -u tests/test_v3_performance_process_state.py
           python -B -u tests/test_v3_performance_platform_helpers.py
           python -B -u tests/v3_std_marker_transport.py
