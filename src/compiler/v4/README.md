@@ -454,8 +454,10 @@ once at the expanded-AST-to-HIR boundary, stored and snapshotted by `freak_hir`,
 and consumed by `freak_ty` without reconstructing the declaration from token
 ranges. A harness guard rejects any return of alias-target token scraping in TY.
 The next bounded boundary covers task-local declaration annotations. `freak_hir`
-stores each `pilot` / task-local `fixed pilot` statement span, normalized surface
-type, and exact type span; `freak_ty` exposes and canonicalizes those semantic
+stores each `pilot`, `pilot mut`, task-local `fixed pilot`, and `grounded pilot`
+statement span, normalized surface type, and exact type span. HIR and MIR keep
+the declaration span anchored at `pilot`; the authored immutability prefix is
+a separate MIR fact. `freak_ty` exposes and canonicalizes those semantic
 facts; and `freak_mir_build` consumes them in `v4_mir_lower_pilot_stmt` without
 calling `v4_ty_type_text` (directly or through
 `v4_mir_compact_type_text`) to rediscover the declared type. This includes

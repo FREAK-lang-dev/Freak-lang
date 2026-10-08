@@ -10775,6 +10775,9 @@ EXECUTABLE_SMOKES = [
             "local-annotation-bad-message=invalid local annotation type",
             "local-annotation-bad-help=Meiya lifetime debt: maybe expects 1 generic arguments in local declaration hold but received 2",
             "local-annotation-bad-stmt-span-stable=true",
+            "local-annotation-prefix-task=passed",
+            "local-annotation-prefix-impl=passed",
+            "local-annotation-prefix-restored=passed",
         ],
     },
     {
