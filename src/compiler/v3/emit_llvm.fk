@@ -1310,7 +1310,7 @@ task llvm_emit_integer_failure_block() -> void {
     llvm_emit_line("integer.fail:")
     llvm_emit_line("    %integer.reason = phi i8* " + llvm_integer_failure_reasons)
     llvm_emit_line("    %integer.operation = phi i8* " + llvm_integer_failure_operations)
-    llvm_emit_line("    call void @freak_int_fail(i8* %integer.reason, i8* %integer.operation)")
+    llvm_emit_line("    call void @__freak_int_fail(i8* %integer.reason, i8* %integer.operation)")
     llvm_emit_line("    unreachable")
 }
 
@@ -2993,7 +2993,7 @@ task llvm_emit_task(eid: word) -> void {
 -- ===================== RUNTIME DECLARATIONS ==========================
 
 task llvm_emit_runtime_decls() -> void {
-    llvm_emit_line("declare void @freak_int_fail(i8*, i8*) cold noreturn")
+    llvm_emit_line("declare void @__freak_int_fail(i8*, i8*) cold noreturn")
     llvm_emit_line("declare \{i64, i1\} @llvm.sadd.with.overflow.i64(i64, i64)")
     llvm_emit_line("declare \{i64, i1\} @llvm.ssub.with.overflow.i64(i64, i64)")
     llvm_emit_line("declare \{i64, i1\} @llvm.smul.with.overflow.i64(i64, i64)")

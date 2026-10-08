@@ -1125,9 +1125,13 @@ _Noreturn void freak_panic(freak_word msg) {
     exit(1);
 }
 
-_Noreturn void freak_int_fail(const char *reason, const char *operation) {
+static _Noreturn void freak_int_fail(const char *reason, const char *operation) {
     fprintf(stderr,"FREAK: integer %s in %s\n",reason,operation);
     exit(1);
+}
+
+_Noreturn void __freak_int_fail(const char *reason, const char *operation) {
+    freak_int_fail(reason, operation);
 }
 
 int64_t freak_int_add_checked(int64_t a, int64_t b) {
