@@ -34,6 +34,33 @@ task v4_restore_resource_capacity() -> int {
     give back count
 }
 
+-- The fixture owns this finished comparison plan. Its immutable module text
+-- has already been checked; release its private children before the omitted
+-- MIR owner control, while keeping sealed module A alive throughout.
+task v4_restore_resource_release_finished_codegen(codegen: int) -> void {
+    array_release(v4_codegen_llvm_decl_names_handle(codegen))
+    array_release(v4_codegen_llvm_decl_symbols_handle(codegen))
+    array_release(v4_codegen_llvm_decl_links_handle(codegen))
+    array_release(v4_codegen_llvm_decl_abis_handle(codegen))
+    array_release(v4_codegen_llvm_decl_ccs_handle(codegen))
+    array_release(v4_codegen_llvm_decl_returns_handle(codegen))
+    array_release(v4_codegen_llvm_decl_params_handle(codegen))
+    array_release(v4_codegen_llvm_decl_lines_handle(codegen))
+    array_release(v4_codegen_llvm_call_bodies_handle(codegen))
+    array_release(v4_codegen_llvm_call_names_handle(codegen))
+    array_release(v4_codegen_llvm_call_symbols_handle(codegen))
+    array_release(v4_codegen_llvm_call_links_handle(codegen))
+    array_release(v4_codegen_llvm_call_abis_handle(codegen))
+    array_release(v4_codegen_llvm_call_ccs_handle(codegen))
+    array_release(v4_codegen_llvm_call_returns_handle(codegen))
+    array_release(v4_codegen_llvm_call_exprs_handle(codegen))
+    array_release(v4_codegen_llvm_call_lines_handle(codegen))
+    array_release(v4_codegen_llvm_body_names_handle(codegen))
+    array_release(v4_codegen_llvm_body_symbols_handle(codegen))
+    array_release(v4_codegen_llvm_body_lines_handle(codegen))
+    array_release(v4_codegen_llvm_diags_handle(codegen))
+}
+
 task v4_restore_resource_replace(line: word, field: int, value: word) -> word {
     pilot parts = array_new()
     pilot index = 0
@@ -178,10 +205,33 @@ task v4_restore_resource_run() -> void {
     v4_restore_resource_assert(body_failure and file_failure and replacement_failure and v4_mir_file_count() == 1 and v4_mir_body_count(mir) == before_bodies and v4_mir_snapshot() == payload and v4_restore_resource_capacity() == capacity, "failed owner allocation makes no progress or partial facts")
     pilot fresh = v4_codegen_llvm_lower_owned_mir(v4_mir_file_id(mir), mir)
     v4_restore_resource_assert(v4_codegen_llvm_module_text(fresh, target) == module_a and v4_codegen_llvm_module_text(sealed, target) == module_a, "fresh sealing and immutable A survive restore")
+    v4_restore_resource_release_finished_codegen(fresh)
+    v4_restore_resource_assert(v4_codegen_llvm_module_text(sealed, target) == module_a, "finished comparison cleanup keeps sealed A")
     pilot omitted = v4_mir_file_new(v4_mir_file_id(mir), v4_mir_ty_id(mir))
     pilot omitted_names = v4_mir_names_handle(omitted)
     pilot omitted_index = v4_mir_body_lookup_index_handle(omitted)
+    v4_restore_resource_assert(omitted == 1 and omitted_names >= 0 and omitted_index >= 0 and v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1"), "omitted owner and validator have scratch headroom")
+    pilot omitted_snapshot = v4_mir_snapshot()
+    pilot replaced_names = v4_mir_names_handle(mir)
+    pilot replaced_index = v4_mir_body_lookup_index_handle(mir)
+    pilot omitted_generation = v4_session_semantic_restore_generation()
+    pilot omitted_query_generation = v4_query_generation()
+    capacity = v4_restore_resource_capacity()
+    held = array_new()
+    v4_restore_resource_assert(held >= 0, "omitted validation pressure reservation")
+    exhausted = false
+    repeat until exhausted {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(held, word_from_int(handle)) }
+    }
+    pilot omitted_rejected = v4_mir_snapshot_restore(payload)
+    index = 0
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+    v4_restore_resource_assert(omitted_rejected.starts_with("mir-snapshot-restore ok=0 reason=validation-failed") and v4_mir_file_count() == 2 and v4_mir_body_count(mir) == 13 and v4_mir_names_handle(mir) == replaced_names and v4_mir_body_lookup_index_handle(mir) == replaced_index and v4_mir_names_handle(omitted) == omitted_names and v4_mir_body_lookup_index_handle(omitted) == omitted_index and v4_session_semantic_restore_generation() == omitted_generation and v4_query_generation() == omitted_query_generation and v4_source_revision(v4_mir_file_id(mir)) == source_revision and v4_mir_snapshot() == omitted_snapshot and v4_restore_resource_capacity() == capacity, "scratch exhaustion preserves both owners and recovers capacity")
+    v4_restore_resource_assert(v4_codegen_llvm_module_text(sealed, target) == module_a, "scratch pressure keeps sealed A")
     v4_restore_resource_assert(omitted == 1 and v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_file_count() == 2 and v4_mir_names_handle(omitted) == omitted_names and v4_mir_body_lookup_index_handle(omitted) == omitted_index, "omitted owner lifetime preserved")
+    v4_restore_resource_assert(v4_codegen_llvm_module_text(sealed, target) == module_a, "omitted owner restore keeps sealed A")
     say "mir-restore-resource failed-growth-closed=true maximal-gap-ids-closed=true source-equivalent=true fresh-sealing=true sealed-A-stable=true omitted-file-preserved=true"
 }
 v4_restore_resource_run()
