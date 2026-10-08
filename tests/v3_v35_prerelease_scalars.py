@@ -44,6 +44,11 @@ ORDER_EXPECTED = ''.join(
     str(compare(left.encode(), right.encode(), operator)).lower() + '\n'
     for left, right in PAIRS for operator in OPERATORS)
 POSITIVE = {
+    'unused_ordinary_scalar_externs': (
+        'extern task freak_int_fail(a: int, b: int) -> void\n'
+        + ''.join(f'extern task freak_int_{op}_inline(a: int, b: int) -> void\n' for op in ('add', 'sub', 'mul', 'div', 'rem'))
+        + 'extern task freak_int_neg_inline(value: int) -> void\n'
+        'task main() { say 1 + 2; }', '3\n'),
     'word_byte_order': (ORDER_PROGRAM, ORDER_EXPECTED),
     'word_temporaries_once': (
         'pilot mut ticks = 0\n'
@@ -189,6 +194,14 @@ def main() -> int:
                 assert rejected.returncode != 0 and 'does not accept' in rejected.stdout + rejected.stderr, rejected
                 assert not artifact.exists(), 'stale mixed-word artifact survived'
                 evidence['contracts'].append((backend, 'frontend', index))
+            source = root / f'{backend}_unused_reserved_fail_extern.fk'
+            source.write_text('extern task __freak_int_fail(a: int, b: int) -> void\ntask main() { say 1; }\n')
+            artifact = Path(str(source) + suffix)
+            artifact.write_text('stale reserved helper output')
+            rejected = run([str(compiler), str(source), '--' + backend], root)
+            assert rejected.returncode != 0 and 'reserved' in rejected.stdout + rejected.stderr, rejected
+            assert not artifact.exists(), 'stale reserved helper artifact survived'
+            evidence['contracts'].append((backend, 'frontend', 'unused_reserved_fail_extern'))
             for optimization in args.optimization or ['O0', 'O2', 'O3']:
                 objects = []
                 for unit in ('freak_runtime.c', 'freak_llvm_runtime.c'):

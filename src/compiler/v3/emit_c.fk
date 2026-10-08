@@ -1254,7 +1254,7 @@ task v35_integer_divisor_is_safe(expr_id: word) -> bool {
 }
 
 task c_integer_arithmetic_symbol(operation: word) -> word {
-    give back v35_integer_arithmetic_symbol(operation).replace("_checked", "_inline")
+    give back "__" + v35_integer_arithmetic_symbol(operation).replace("_checked", "_inline")
 }
 
 task emit_c_integer_result(operation: word, left: word, right: word, rhs: word) -> void {
@@ -1358,9 +1358,9 @@ task emit_c_binop(expr_id: word, val: word, left: word, right: word) -> void {
     if val == "NAKAMA" {
         emit("(\{ int64_t __freak_nakama_left = ") emit_expr(left) emit_line(";")
         emit("int64_t __freak_nakama_right = ") emit_expr(right) emit_line(";")
-        emit_line("int64_t __freak_nakama_sum = freak_int_add_inline(__freak_nakama_left, __freak_nakama_right);")
-        emit_line("int64_t __freak_nakama_product = freak_int_mul_inline(__freak_nakama_left, __freak_nakama_right);")
-        emit("freak_int_add_inline(__freak_nakama_sum, (__freak_nakama_product / 10)); \})")
+        emit_line("int64_t __freak_nakama_sum = __freak_int_add_inline(__freak_nakama_left, __freak_nakama_right);")
+        emit_line("int64_t __freak_nakama_product = __freak_int_mul_inline(__freak_nakama_left, __freak_nakama_right);")
+        emit("__freak_int_add_inline(__freak_nakama_sum, (__freak_nakama_product / 10)); \})")
         give back
     }
     -- Default: generic binary operator
@@ -1375,9 +1375,9 @@ task emit_c_unaryop(val: word, left: word) -> void {
     if val == "-" and tc_literal_is_minimum(word_to_int(left)) { emit("INT64_MIN") give back }
     if (val == "-" or val == "PLUS ULTRA" or val == "FINAL FORM" or val == "TSUNDERE") and emt_expr_type_code(left) == "i" {
         emit("(\{ int64_t __freak_checked_value = ") emit_expr(left) emit_line(";")
-        if val == "PLUS ULTRA" { emit("freak_int_mul_inline(__freak_checked_value, 2); \})") }
-        else if val == "FINAL FORM" { emit("freak_int_mul_inline(__freak_checked_value, __freak_checked_value); \})") }
-        else { emit("freak_int_neg_inline(__freak_checked_value); \})") }
+        if val == "PLUS ULTRA" { emit("__freak_int_mul_inline(__freak_checked_value, 2); \})") }
+        else if val == "FINAL FORM" { emit("__freak_int_mul_inline(__freak_checked_value, __freak_checked_value); \})") }
+        else { emit("__freak_int_neg_inline(__freak_checked_value); \})") }
         give back
     }
     if val == "not" { emit("(!") emit_expr(left) emit(")") give back }
