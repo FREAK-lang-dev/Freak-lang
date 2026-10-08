@@ -109,7 +109,8 @@ static void probe_handle_dump(void) {
             puts("}");
         }
     }
-    printf("{\"type\":\"handle_diagnostic_summary\",\"snapshot_completed\":%s,\"all_types_known\":%s,\"snapshot_overflow\":%s,\"snapshot_count\":%zu,\"handle_limit\":%d,\"snapshot_limit\":%d,\"process_information_class\":51,\"object_information_class\":2,\"object_names_queried\":false,\"handles_opened_or_duplicated_by_snapshot\":false,\"identity_scope\":\"process table handle value/type/access; reuse can hide object replacement\",\"production_result_adjusted\":false}\n",
+    printf("{\"type\":\"handle_diagnostic_summary\",\"snapshot_completed\":%s,\"all_types_known\":%s,\"snapshot_overflow\":%s,\"snapshot_count\":%zu,\"handle_limit\":%d,\"snapshot_limit\":%d,\"process_information_class\":51,\"object_information_class\":2,\"object_names_queried\":false,\"handles_opened_or_duplicated_by_snapshot\":false,\"identity_scope\":\"process table handle value/type/access; reuse can hide object replacement\",\"production_result_adjusted\":false,\"profile_mode\":\"%s\"}\n",
         complete?"true":"false",all_types?"true":"false",probe_handle_capture_overflow?"true":"false",
-        probe_handle_capture_count,PROBE_HANDLE_LIMIT,PROBE_SNAPSHOT_LIMIT);
+        probe_handle_capture_count,PROBE_HANDLE_LIMIT,PROBE_SNAPSHOT_LIMIT,
+        probe_no_privilege_lookup?"profile_no_privilege_lookup":"full");
 }

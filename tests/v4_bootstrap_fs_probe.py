@@ -36,11 +36,19 @@ def handle_accounting(rows: list[dict], original_summary: dict) -> dict:
     summaries = [row for row in rows if row["type"] == "handle_diagnostic_summary"]
     assert len(summaries) == 1
     summary = summaries[0]
+    profile_mode = summary.get("profile_mode", "full")
+    assert profile_mode in {"full", "profile_no_privilege_lookup"}
     assert summary["process_information_class"] == 51 and summary["object_information_class"] == 2
     assert summary["object_names_queried"] is False
     assert summary["handles_opened_or_duplicated_by_snapshot"] is False
     assert summary["production_result_adjusted"] is False
     events = [row for row in rows if row["type"] == "native"]
+    if profile_mode == "profile_no_privilege_lookup":
+        assert not any(row["api"] == "LookupPrivilegeValueW" for row in events)
+        for token in (row for row in rows if row["type"] == "token"):
+            assert token["profile_mode"] == profile_mode and token["privilege_name_lookup_skipped"] is True
+            assert token["privilege_names_known"] is False
+            assert token["backup_enabled"] is token["restore_enabled"] is None
     assert [row["trace_ordinal"] for row in events] == list(range(len(events)))
     for event in events:
         assert event["owner_scope"] in {"production", "observer_profile", "observer_alternative", "observer_sync"}
@@ -149,7 +157,7 @@ def handle_accounting(rows: list[dict], original_summary: dict) -> dict:
                                 view["count_after_types"] == view["snapshot_handles"] for view in views)
     boundary_counts_match = (views[0]["count_before_query"] == original_summary["resources_before"] and
                              final[0]["count_before_query"] == original_summary["resources_after"])
-    return {"native_summary": summary, "snapshots": views,
+    return {"native_summary": summary, "profile_mode": profile_mode, "snapshots": views,
             "phase_intervals": [interval(before, after) for before, after in zip(views, views[1:])],
             "cold_to_released": interval(views[0], final[0]),
             "query_repeat_control": interval(final[0], views[-1]),
@@ -162,6 +170,25 @@ def handle_accounting(rows: list[dict], original_summary: dict) -> dict:
             "production_contract_passed": original_summary["production_contract_passed"],
             "production_result_adjusted": False,
             "attribution_limit": "Type and table identities identify observed additions. Untraced ownership remains unknown; equal handle/type/access values can conceal reuse. Diagnostic query counts are retained, never subtracted from the original cold oracle."}
+
+
+def resource_scope_comparison(report: dict) -> dict:
+    groups = {"original_observer": report["runs"],
+              "full_profile_handle_diagnostic": report["handle_diagnostics"]["runs"],
+              "profile_no_privilege_lookup_handle_diagnostic": report["handle_diagnostics"]["no_privilege_lookup_runs"]}
+    scopes = {}
+    for name, runs in groups.items():
+        scopes[name] = []
+        for run in runs:
+            summary = run["summary"]
+            before, after = summary["resources_before"], summary["resources_after"]
+            scopes[name].append({"control": run["control"], "resources_before": before,
+                                 "resources_after": after, "resource_delta": after - before if before >= 0 and after >= 0 else None,
+                                 "resources_balanced": summary["resources_balanced"],
+                                 "production_contract_passed": summary["production_contract_passed"]})
+    return {"scopes": scopes, "original_production_contract_passed": report["production_contract_passed"],
+            "production_result_adjusted": False,
+            "scope": "Each row is a separate fresh process with its actual cold resource oracle. The no-privilege-lookup mode skips only optional observer name enrichment; production filesystem, ACL, identity and native barriers stay active. No count warming or subtraction."}
 
 
 def observations(result: subprocess.CompletedProcess, control: bool) -> dict:
@@ -253,6 +280,8 @@ def main() -> int:
     parser.add_argument("--windows-sdk", type=Path)
     parser.add_argument("--windows-handle-diagnostics", action="store_true",
                         help="Run additional native Windows handle snapshots after all original cold runs")
+    parser.add_argument("--windows-no-privilege-lookup", action="store_true",
+                        help="Add fresh-process handle controls that skip optional observer privilege-name lookup")
     args = parser.parse_args()
     clang = Path(shutil.which(args.clang) or args.clang).resolve(strict=True)
     work = (args.work or Path(tempfile.mkdtemp(prefix="freak-v4-fs-probe-"))).resolve()
@@ -265,6 +294,8 @@ def main() -> int:
         parser.error("this narrow sanitizer proof requires Linux")
     if args.windows_handle_diagnostics and sys.platform != "win32":
         parser.error("--windows-handle-diagnostics requires actual native Windows execution")
+    if args.windows_no_privilege_lookup and not args.windows_handle_diagnostics:
+        parser.error("--windows-no-privilege-lookup requires --windows-handle-diagnostics")
     frozen = work / "frozen-source"
     runtime = ROOT / "freakc/runtime"
     mappings = [(runtime_file(runtime,name), frozen / "freakc/runtime" / name)
@@ -282,24 +313,30 @@ def main() -> int:
               "inputs": inputs, "clang": {"path": str(clang), "sha256": sha(clang)},
               "commands": [], "runs": []}
     report["handle_diagnostics"] = {"requested": args.windows_handle_diagnostics, "runs": [],
+                                    "no_privilege_lookup_requested": args.windows_no_privilege_lookup,
+                                    "no_privilege_lookup_runs": [],
                                     "snapshot_completed": False,
+                                    "no_privilege_lookup_snapshot_completed": False,
                                     "scope": "Additional diagnostic processes; original three cold runs and production result are retained unchanged."}
     env = dict(os.environ, ASAN_OPTIONS="detect_leaks=1:halt_on_error=1",
                UBSAN_OPTIONS="halt_on_error=1")
     env.pop("FREAK_FS_PROBE_CONTROL", None)
     env.pop("FREAK_FS_PROBE_HANDLE_DIAGNOSTICS", None)
+    env.pop("FREAK_FS_PROBE_NO_PRIVILEGE_LOOKUP", None)
 
     def run(command: list[str], label: str, control: bool = False,
-            handle_diagnostics: bool = False) -> subprocess.CompletedProcess:
+            handle_diagnostics: bool = False, no_privilege_lookup: bool = False) -> subprocess.CompletedProcess:
         result = subprocess.run(command, capture_output=True, timeout=90,
                                 env=dict(env, **({"FREAK_FS_PROBE_CONTROL": "existing"} if control else {}),
-                                         **({"FREAK_FS_PROBE_HANDLE_DIAGNOSTICS": "1"} if handle_diagnostics else {})))
+                                         **({"FREAK_FS_PROBE_HANDLE_DIAGNOSTICS": "1"} if handle_diagnostics else {}),
+                                         **({"FREAK_FS_PROBE_NO_PRIVILEGE_LOOKUP": "1"} if no_privilege_lookup else {})))
         report["commands"].append({"label": label, "command": command, "exit": result.returncode,
                                    "stdout": result.stdout.decode(errors="replace"),
                                    "stderr": result.stderr.decode(errors="replace")})
         if handle_diagnostics:
             report["commands"][-1].update(stdout_hex=result.stdout.hex(), stderr_hex=result.stderr.hex(),
-                                          handle_diagnostics=True)
+                                          handle_diagnostics=True,
+                                          profile_mode="profile_no_privilege_lookup" if no_privilege_lookup else "full")
         return result
 
     try:
@@ -333,18 +370,26 @@ def main() -> int:
         assert data["unreached_phases"] == ["cleanup_temp", "mkdir_runtime", "open_missing_runtime"]
         data["control"] = "missing_parent"; report["runs"].append(data)
         if args.windows_handle_diagnostics:
-            for control in (False, True, "missing_parent"):
-                target = parent / "absent parent" if control == "missing_parent" else parent
-                label = "native-handle-" + ("missing-parent" if control == "missing_parent" else
-                                            "existing-control" if control else "probe")
-                result = run([str(executable), str(target)], label, control is True, True)
-                data = observations(result, control is True)
-                data["control"] = control
-                data["handle_accounting"] = handle_accounting(data["observations"], data["summary"])
-                report["handle_diagnostics"]["runs"].append(data)
+            for no_privilege_lookup in (False, True) if args.windows_no_privilege_lookup else (False,):
+                mode = "profile_no_privilege_lookup" if no_privilege_lookup else "full"
+                group = "no_privilege_lookup_runs" if no_privilege_lookup else "runs"
+                for control in (False, True, "missing_parent"):
+                    target = parent / "absent parent" if control == "missing_parent" else parent
+                    label = "native-handle-" + ("no-privilege-lookup-" if no_privilege_lookup else "") + (
+                        "missing-parent" if control == "missing_parent" else "existing-control" if control else "probe")
+                    result = run([str(executable), str(target)], label, control is True, True, no_privilege_lookup)
+                    data = observations(result, control is True)
+                    data["control"] = control
+                    data["handle_accounting"] = handle_accounting(data["observations"], data["summary"])
+                    assert data["handle_accounting"]["profile_mode"] == mode
+                    report["handle_diagnostics"][group].append(data)
             report["handle_diagnostics"]["snapshot_completed"] = all(
                 data["handle_accounting"]["native_summary"]["snapshot_completed"]
                 for data in report["handle_diagnostics"]["runs"])
+            if args.windows_no_privilege_lookup:
+                report["handle_diagnostics"]["no_privilege_lookup_snapshot_completed"] = all(
+                    data["handle_accounting"]["native_summary"]["snapshot_completed"]
+                    for data in report["handle_diagnostics"]["no_privilege_lookup_runs"])
         if args.windows_sdk:
             cross = [str(clang), "--target=x86_64-w64-windows-gnu",
                      f"--sysroot={args.windows_sdk.resolve()}", *strict]
@@ -363,6 +408,7 @@ def main() -> int:
         report["error"] = repr(error)
         raise
     finally:
+        report["resource_scope_comparison"] = resource_scope_comparison(report)
         report_path = args.report or work / "report.json"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf8")

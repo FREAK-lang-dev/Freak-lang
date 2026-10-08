@@ -5,7 +5,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from v4_bootstrap_fs_probe import handle_accounting
+from v4_bootstrap_fs_probe import handle_accounting, resource_scope_comparison
 
 
 def identity(ordinal, handle, kind="Event"):
@@ -119,6 +119,49 @@ class HandleAccountingTests(unittest.TestCase):
         self.assertEqual(len(result["owning_acquisitions"]), 1)
         self.assertEqual(result["owning_acquisitions"][0]["close_trace_ordinal"], 1)
         self.assertEqual(result["unclosed_traced_acquisitions"], [])
+
+    def test_no_privilege_lookup_mode_requires_unknown_name_facts(self):
+        rows = evidence([snapshot(0, "cold_entry", [4]),
+                         snapshot(1, "after_release_tickets", [4]),
+                         snapshot(2, "query_repeat_after_release", [4])])
+        rows[-1]["profile_mode"] = "profile_no_privilege_lookup"
+        token = {"type": "token", "profile_mode": "profile_no_privilege_lookup",
+                 "privilege_name_lookup_skipped": True, "privilege_names_known": False,
+                 "privileges_known": True, "backup_enabled": None, "restore_enabled": None}
+        rows.append(token)
+        summary = {"resources_before": 1, "resources_after": 1, "production_contract_passed": True}
+        result = handle_accounting(rows, summary)
+        self.assertEqual(result["profile_mode"], "profile_no_privilege_lookup")
+        self.assertEqual(result["cold_to_released"]["added"], [])
+        bad = deepcopy(rows)
+        bad[-1]["backup_enabled"] = False
+        with self.assertRaises(AssertionError):
+            handle_accounting(bad, summary)
+        bad = deepcopy(rows)
+        bad.insert(0, event(0, "LookupPrivilegeValueW"))
+        for row in bad:
+            if row["type"] == "handle_snapshot" and row["ordinal"] > 0:
+                row["trace_events_seen"] = 1
+        with self.assertRaises(AssertionError):
+            handle_accounting(bad, summary)
+
+    def test_scope_comparison_preserves_original_false_and_all_raw_counts(self):
+        def run(after, passed):
+            return {"control": False, "summary": {"resources_before": 50,
+                    "resources_after": after, "resources_balanced": after == 50,
+                    "production_contract_passed": passed}}
+        report = {"production_contract_passed": False, "runs": [run(64, False)],
+                  "handle_diagnostics": {"runs": [run(64, False)],
+                                         "no_privilege_lookup_runs": [run(50, True)]}}
+        original = deepcopy(report)
+        result = resource_scope_comparison(report)
+        scopes = result["scopes"]
+        self.assertEqual(scopes["original_observer"][0]["resource_delta"], 14)
+        self.assertEqual(scopes["full_profile_handle_diagnostic"][0]["resources_after"], 64)
+        self.assertEqual(scopes["profile_no_privilege_lookup_handle_diagnostic"][0]["resource_delta"], 0)
+        self.assertFalse(result["original_production_contract_passed"])
+        self.assertFalse(result["production_result_adjusted"])
+        self.assertEqual(report, original)
 
 
 if __name__ == "__main__":
