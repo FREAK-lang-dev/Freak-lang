@@ -1236,7 +1236,7 @@ def main() -> int:
                 save_clang_observations(args.evidence,forwarder,clang_paths,staged_witnesses,
                                         failed=git_result.returncode!=0,native=native_observation)
             assert git_result.returncode == 0, (git_result.returncode, git_result.stdout[-4000:], git_result.stderr[-4000:])
-            git_report = json.loads((git_output / 'bootstrap-report.json').read_text())
+            git_report = json.loads((git_output / 'bootstrap-report.json').read_text(encoding='utf-8'))
             if os.name == 'nt':
                 native_observation['git_checkout_bootstrap']['report']=git_report
                 save_clang_observations(args.evidence,forwarder,clang_paths,staged_witnesses,
