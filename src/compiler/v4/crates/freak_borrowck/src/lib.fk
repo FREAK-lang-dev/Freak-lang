@@ -2274,6 +2274,23 @@ task v4_borrowck_check_fixed_bindings(borrow_id: int, result_id: int, mir_id: in
                 v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
                 conflicts += 1
             }
+        } else if kind == v4_mir_rvalue_call {
+            -- MutCallable invocation grants mutable access to the callee's
+            -- storage. Resolve its binding identity, including projections,
+            -- rather than inferring a declaration from the displayed path.
+            pilot callee = v4_borrowck_call_callee_rvalue(mir_id, body_id, value_id)
+            if callee >= 0 {
+                pilot callee_ty = v4_mir_rvalue_ty(mir_id, body_id, callee)
+                if v4_ty_is_closure_type(callee_ty) and v4_ty_closure_doctrine(callee_ty) == v4_ty_closure_mut_callable {
+                    pilot prefix = v4_borrowck_binding_prefix_for_rvalue(mir_id, body_id, callee)
+                    if prefix != "" {
+                        pilot span = v4_mir_rvalue_span(mir_id, body_id, value_id)
+                        v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, prefix + " cannot be modified", "an immutable binding cannot grant a mutable closure call"))
+                        v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                        conflicts += 1
+                    }
+                }
+            }
         }
         value_id += 1
     }
