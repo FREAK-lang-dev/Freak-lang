@@ -492,18 +492,45 @@ def is_linker_name(name: str) -> bool:
     return lower in exact or lower.endswith("-ld") or lower.endswith("-ld.exe")
 
 
+def clang_display_token(line: str) -> tuple[str, str] | None:
+    """Decode one Clang display token and retain its immediate argument tail."""
+    line = line.lstrip(" \t")
+    if not line:
+        return "", ""
+    quoted = line.startswith('"')
+    index = 1 if quoted else 0
+    token: list[str] = []
+    while index < len(line):
+        ch = line[index]
+        if quoted and ch == '"':
+            if index + 1 < len(line) and line[index + 1] not in " \t":
+                return None
+            return "".join(token), line[index + 1:]
+        if not quoted and ch in " \t":
+            return "".join(token), line[index + 1:]
+        if quoted and ch == "\\":
+            index += 1
+            if index >= len(line) or line[index] not in '\\"$':
+                return None
+            ch = line[index]
+        elif not quoted and ch == '"':
+            return None
+        token.append(ch)
+        index += 1
+    if quoted:
+        return None
+    return "".join(token), ""
+
+
 def linker_from_trace(output: str) -> Path:
     for raw_line in output.splitlines():
-        line = raw_line.strip()
-        if not line:
+        executable = clang_display_token(raw_line)
+        if executable is None:
             continue
-        if line.startswith('"'):
-            end = line.find('"', 1)
-            if end < 0:
-                continue
-            token = line[1:end].replace("\\\\", "\\")
-        else:
-            token = line.split(maxsplit=1)[0]
+        token, tail = executable
+        argument = clang_display_token(tail)
+        if argument is None or argument[0] in {"-cc1", "-cc1as"}:
+            continue
         candidate = Path(token)
         if not is_linker_name(candidate.name):
             continue

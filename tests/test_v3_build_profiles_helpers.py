@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import runpy
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -29,6 +30,63 @@ class ControlledLinkerHelpers(unittest.TestCase):
             found = profiles.linker_from_trace(f' "{alias}" "-o" "output"\n')
         self.assertEqual(found, alias.absolute())
         self.assertEqual(found.name, "ld")
+
+    def test_linker_named_compiler_frontends_are_skipped(self):
+        compiler = self.root / "foo-ld"
+        linker = self.root / "ld"
+        compiler.write_bytes(b"compiler fixture")
+        linker.write_bytes(b"linker fixture")
+        for role in ("-cc1", "-cc1as"):
+            for argument in (role, f'"{role}"'):
+                with self.subTest(role=role, argument=argument):
+                    trace = f' "{compiler}" {argument} "input.c"\n "{linker}" "-o" "output"\n'
+                    self.assertEqual(profiles.linker_from_trace(trace), linker.absolute())
+        # Role is the immediate argument, not arbitrary later linker text.
+        self.assertEqual(profiles.linker_from_trace(f'"{linker}" "-o" "-cc1"\n'), linker.absolute())
+
+    def test_clang_display_escapes_preserve_the_exact_linker_path(self):
+        spelling = 'SDK dollar $ é 日本'
+        if os.name != "nt":
+            spelling += ' quote " slash \\'
+        directory = self.root / spelling
+        directory.mkdir()
+        linker = directory / "ld"
+        linker.write_bytes(b"escaped linker fixture")
+        displayed = str(linker).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+        self.assertEqual(profiles.linker_from_trace(f' "{displayed}" "-o" "output"\n'), linker.absolute())
+
+    def test_windows_display_tokens_decode_without_shell_interpretation(self):
+        spelling = 'C:\\SDK quote " dollar $ é 日本\\ld.exe'
+        displayed = spelling.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+        self.assertEqual(profiles.clang_display_token(f' "{displayed}" "-o"'), (spelling, ' "-o"'))
+        self.assertEqual(profiles.clang_display_token('ld\t-cc1'), ("ld", "-cc1"))
+
+    def test_malformed_display_tokens_never_select_an_existing_prefix(self):
+        rejected = self.root / "foo-ld"
+        linker = self.root / "ld"
+        rejected.write_bytes(b"must not select")
+        linker.write_bytes(b"valid linker")
+        malformed = (
+            f'"{rejected}"suffix "-o" "output"',
+            f'"{rejected}\\"',
+            f'"{rejected}',
+            f'{rejected}" "-o" "output"',
+            f'"{rejected}" "\\q"',
+            f'"{rejected}" "-cc1',
+            f'"{rejected}" "-cc1"suffix',
+        )
+        # An unknown escape can also spell an existing host path on POSIX.
+        if os.name != "nt":
+            escaped = self.root / r"bad\q"
+            escaped.mkdir()
+            (escaped / "ld").write_bytes(b"must not select unknown escape")
+            malformed += (f'"{escaped / "ld"}" "-o" "output"',)
+        for line in malformed:
+            with self.subTest(line=line):
+                self.assertEqual(profiles.linker_from_trace(line + f'\n"{linker}" "-o" "output"\n'),
+                                 linker.absolute())
+                with self.assertRaisesRegex(AssertionError, "did not expose a linker command"):
+                    profiles.linker_from_trace(line + "\n")
 
     def test_controlled_roles_forward_or_copy_without_relocating_posix_binary(self):
         for platform, names in (("linux", ("ld", "ld.lld")),
@@ -236,6 +294,30 @@ class ControlledLinkerHelpers(unittest.TestCase):
                     self.assertEqual(launch.call_args.args[0], [str(real_clang), *args, *overrides])
                     self.assertEqual(launch.call_args.kwargs["env"]["PATH"], str(origin) + os.pathsep + "preserved-path")
                     self.assertEqual(json.loads(log.read_text()), args)
+
+
+@unittest.skipUnless(os.environ.get("FREAK_PROFILE_NATIVE_CLANG"), "set FREAK_PROFILE_NATIVE_CLANG for the real driver trace witness")
+class NativeLinkerAliasTrace(unittest.TestCase):
+    def test_genuine_compiler_alias_foo_ld_selects_the_later_linker(self):
+        clang = Path(os.environ["FREAK_PROFILE_NATIVE_CLANG"]).absolute()
+        resource = subprocess.run([str(clang), "-print-resource-dir"], capture_output=True,
+                                  text=True, encoding="utf-8", timeout=30, check=False)
+        self.assertEqual(resource.returncode, 0, resource.stdout + resource.stderr)
+        self.assertTrue(Path(resource.stdout.strip()).is_dir())
+        with tempfile.TemporaryDirectory(prefix="freak-real-linker-role-") as directory:
+            alias = Path(directory) / ("foo-ld.exe" if sys.platform == "win32" else "foo-ld")
+            shutil.copy2(clang, alias)
+            trace = subprocess.run([str(alias), "-###", "-x", "c", os.devnull, "-o", os.devnull,
+                                    "-resource-dir", resource.stdout.strip()], capture_output=True,
+                                   text=True, encoding="utf-8", timeout=30, check=False)
+            self.assertEqual(trace.returncode, 0, trace.stdout + trace.stderr)
+            output = trace.stdout + trace.stderr
+            displayed = str(alias).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+            self.assertIn(f'"{displayed}" "-cc1"', output)
+            selected = profiles.linker_from_trace(output)
+            self.assertNotEqual(selected, alias)
+            self.assertTrue(selected.is_file())
+            self.assertEqual(profiles.trace_linker(str(alias), ["-resource-dir", resource.stdout.strip()]), selected)
 
 
 if __name__ == "__main__":
