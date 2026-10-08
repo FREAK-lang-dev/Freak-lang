@@ -23,7 +23,7 @@ task freakc_v3_main() -> void {
             say "  --c                Use C backend"
             say "  --opt=N            Optimization level 0-3 (default: 2)"
             say "  --target=TRIPLE    Cross-compile target triple"
-            say "  --strict-borrow    Enforce ownership + mutability (Bible §4.1)"
+            say "  --strict-borrow    Enforce Phase-1 ownership and move checks (Bible §4.1)"
             say "  --bootstrap-compat=v4-host-bootstrap-v1  Select the explicit V4 host profile"
             say "  --version, -V      Show version"
             say "  --help, -h         Show this help"
@@ -94,7 +94,7 @@ task freakc_v3_main() -> void {
 
     pilot src = fs::read(input_file)
     if src == "" {
-        say "Error: source has no usable task main() entry (empty or unreadable file)."
+        say "Error: source has no usable task main() entry or script statements (empty or unreadable file): " + input_file
         process::exit(1)
     }
 

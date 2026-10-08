@@ -6,8 +6,9 @@
 -- parser.fk skips this entire pass.
 --
 -- v1 scope:
---   * `pilot x = e`        → immutable binding. Reassign is an error.
---   * `pilot mut x = e`    → mutable binding.   Reassign is fine.
+--   * `pilot x = e`        → mutable binding, including under strict borrow.
+--   * `pilot mut x = e`    → silent synonym of pilot.
+--   * fixed/grounded pilot → immutable bindings, checked on every invocation.
 --   * Move types (word, shape values, etc.): the binding moves on use,
 --     subsequent uses are use-after-move.
 --   * Copy types (int, num, bool, char, tiny, float, float32): unmoved.
@@ -2037,6 +2038,16 @@ task tc_literal_is_minimum(operand_id: int) -> bool {
     give back array_get(ast_expr_kinds, operand_id) == EXPR_INT and array_get(ast_expr_vals, operand_id) == "9223372036854775808"
 }
 
+task tc_diag_mutable_list_root(expr_id: int, line: int, source_file: word) -> void {
+    pilot mode = tc_assignment_root_mode(expr_id)
+    pilot message = "indexed assignment requires a mutable list binding"
+    if mode == "fixed" or mode == "grounded" {
+        tc_diag_code("E0004", mode + " pilot cannot be modified; " + message, line, source_file)
+    } else {
+        tc_diag(message, line, source_file)
+    }
+}
+
 task tc_validate_expr(expr_id: int, line: int) -> void {
     if expr_id < 0 { give back }
     -- Expression IDs are unique across tasks and lexical scopes. Record the
@@ -2107,7 +2118,7 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         } else if receiver_type != "" {
             tc_validate_type_args("method '" + val + "'", right, tc_builtin_method_params(receiver_type, val), line, source_file)
             if tc_is_list(receiver_type) and (val == "push" or val == "pop" or val == "clear" or val == "reserve") and not tc_list_root_mutable(word_to_int(left)) {
-                tc_diag("indexed assignment requires a mutable list binding; declare it with pilot mut", line, source_file)
+                tc_diag_mutable_list_root(word_to_int(left), line, source_file)
             }
         } else {
             tc_diag_unknown_method_receiver(val, line, source_file)
@@ -2867,7 +2878,9 @@ task tc_dependency_walk_expr(expr_id: int, local_names: int, local_types: int, l
         if not tc_dependency_has_local(local_names, local_count, val) {
             pilot dependency_index = tc_global_index(val)
             if dependency_index >= global_index and global_index >= 0 {
-                tc_diag("global initializer for '" + global_name + "' depends on global '" + val + "' before it is initialized", tc_expr_diag_line(expr_id, 1), tc_expr_diag_file(expr_id, input_file))
+                pilot context = "global initializer for '" + global_name + "'"
+                if global_name == "" { context = "script statement" }
+                tc_diag(context + " depends on global '" + val + "' before it is initialized", tc_expr_diag_line(expr_id, 1), tc_expr_diag_file(expr_id, input_file))
             }
         }
         give back
@@ -3114,6 +3127,27 @@ task tc_validate_global_initializer_dependencies(expr_id: int, global_index: int
     array_release(visited)
 }
 
+task tc_validate_script_dependencies(stmt_id: int, initialized_globals: int) -> void {
+    if initialized_globals >= tc_global_count { give back }
+    pilot visited = array_new()
+    repeat tc_callable_count times { array_push(visited, "0") }
+    tc_dependency_pending_calls = array_new()
+    pilot local_names = array_new()
+    pilot local_types = array_new()
+    tc_dependency_walk_stmt(stmt_id, local_names, local_types, 0, initialized_globals, "", visited)
+    pilot pending_index = 0
+    repeat until pending_index >= array_len(tc_dependency_pending_calls) {
+        pilot entry = word_to_int(array_get(tc_dependency_pending_calls, pending_index))
+        tc_dependency_scan_callable(entry, initialized_globals, "", visited)
+        pending_index += 1
+    }
+    array_release(local_names)
+    array_release(local_types)
+    array_release(tc_dependency_pending_calls)
+    tc_dependency_pending_calls = 0
+    array_release(visited)
+}
+
 task tc_validate_stmt(stmt_id: int) -> void {
     if stmt_id < 0 { give back }
     pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
@@ -3164,8 +3198,9 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot right_id = word_to_int(array_get(ast_stmt_bodies, stmt_id))
         tc_validate_expr(left_id, line)
         tc_validate_expr(right_id, line)
-        if tc_assignment_root_mode(left_id) == "fixed" {
-            tc_diag_code("E0004", "fixed binding cannot be modified", line, source_file)
+        pilot root_mode = tc_assignment_root_mode(left_id)
+        if root_mode == "fixed" or root_mode == "grounded" {
+            tc_diag_code("E0004", root_mode + " pilot cannot be modified", line, source_file)
         }
         if array_get(ast_expr_kinds, left_id) == EXPR_IDENT {
             pilot name: word = array_get(ast_expr_vals, left_id)
@@ -3184,7 +3219,7 @@ task tc_validate_stmt(stmt_id: int) -> void {
             give back
         }
         if array_get(ast_expr_kinds, left_id) == EXPR_INDEX and not tc_list_root_mutable(left_id) {
-            tc_diag("indexed assignment requires a mutable list binding; declare it with pilot mut", line, source_file)
+            tc_diag_mutable_list_root(left_id, line, source_file)
         }
         pilot left_type = tc_expr_type(left_id)
         pilot right_type = tc_expr_type(right_id)
@@ -3331,6 +3366,8 @@ task tc_validate_stmt(stmt_id: int) -> void {
     if kind == STMT_FOR {
         pilot saved_count = tc_local_count
         pilot saved_scope = tc_local_scope_start
+        pilot saved_direct_top = tc_direct_top_stmt
+        tc_direct_top_stmt = false
         tc_local_scope_start = tc_local_count
         pilot initializer = word_to_int(array_get(ast_stmt_else_bodies, stmt_id))
         tc_validate_stmt(initializer)
@@ -3350,6 +3387,7 @@ task tc_validate_stmt(stmt_id: int) -> void {
         tc_loop_depth -= 1
         tc_local_count = saved_count
         tc_local_scope_start = saved_scope
+        tc_direct_top_stmt = saved_direct_top
         give back
     }
     if kind == STMT_REPEAT {
@@ -3459,8 +3497,17 @@ task tc_run_program() -> void {
         }
         i += 1
     }
-    if not v35_bootstrap_compat and tc_callable_entry("main") < 0 {
-        tc_diag_code("E0005", "program requires a usable task main() entry", source_map_local_line(1), source_map_file(1))
+    pilot has_main = tc_callable_entry("main") >= 0
+    pilot has_script_statement = false
+    i = 0
+    repeat top_count times {
+        pilot sid = word_to_int(array_get(ast_top_stmts, i))
+        pilot kind: word = array_get(ast_stmt_kinds, sid)
+        if kind != STMT_TASK and kind != STMT_PILOT and kind != STMT_SHAPE and kind != STMT_IMPL and kind != STMT_EXTERN { has_script_statement = true }
+        i += 1
+    }
+    if not v35_bootstrap_compat and not has_main and not has_script_statement {
+        tc_diag_code("E0005", "program requires a usable task main() entry or executable script statements", 1, input_file)
     }
     i = 0
     -- Global initialization is emitted strictly in source order. Infer each
@@ -3476,8 +3523,9 @@ task tc_run_program() -> void {
             if binding_type == "" { binding_type = tc_expr_type(expr) }
             pilot global_name: word = array_get(ast_stmt_names, sid)
             pilot callable = tc_callable_entry(global_name)
-            if array_get(ast_pilot_is_mut, sid) == "fixed" and callable >= 0 and not array_get(tc_callable_extras, callable).starts_with("impl:") {
-                tc_diag("fixed binding '" + global_name + "' conflicts with a callable in the value namespace", word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+            pilot binding_mode: word = array_get(ast_pilot_is_mut, sid)
+            if (binding_mode == "fixed" or binding_mode == "grounded") and callable >= 0 and not array_get(tc_callable_extras, callable).starts_with("impl:") {
+                tc_diag(binding_mode + " binding '" + global_name + "' conflicts with a callable in the value namespace", word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
             }
             if tc_global_seen(global_name) {
                 tc_diag("duplicate top-level binding '" + global_name + "'", word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
@@ -3489,6 +3537,7 @@ task tc_run_program() -> void {
         i += 1
     }
     i = 0
+    pilot initialized_globals = 0
     repeat top_count times {
         pilot sid = word_to_int(array_get(ast_top_stmts, i))
         pilot kind: word = array_get(ast_stmt_kinds, sid)
@@ -3507,7 +3556,7 @@ task tc_run_program() -> void {
             tc_current_task_name = ""
             tc_current_return_type = ""
         } else {
-            if not v35_bootstrap_compat and kind != STMT_PILOT and kind != STMT_SHAPE and kind != STMT_IMPL and kind != STMT_EXTERN {
+            if not v35_bootstrap_compat and has_main and kind != STMT_PILOT and kind != STMT_SHAPE and kind != STMT_IMPL and kind != STMT_EXTERN {
                 tc_diag("executable statement at top level is unsupported; place it inside task main()", word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
             }
             tc_reset_locals()
@@ -3517,8 +3566,14 @@ task tc_run_program() -> void {
             tc_direct_top_stmt = true
             if kind == STMT_PILOT {
                 tc_global_visibility_count = tc_global_index(array_get(ast_stmt_names, sid))
+            } else if not has_main {
+                tc_global_visibility_count = initialized_globals
             }
             tc_validate_stmt(sid)
+            if not has_main and not v35_bootstrap_compat and kind != STMT_PILOT and kind != STMT_SHAPE and kind != STMT_IMPL and kind != STMT_EXTERN {
+                tc_validate_script_dependencies(sid, initialized_globals)
+            }
+            if kind == STMT_PILOT { initialized_globals += 1 }
             tc_global_visibility_count = 0 - 1
             tc_direct_top_stmt = false
         }

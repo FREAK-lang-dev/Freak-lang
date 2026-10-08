@@ -257,7 +257,7 @@ NEGATIVE = {
     "transferred_version": 'pilot v = "1:2:3::"\n pilot n = ver_minor(v)\n say v',
     "transferred_json": 'pilot s = "[1]"\n pilot h = json_parse(s)\n say s',
     "transferred_vector": 'pilot v = math3d_vec3(1.0,2.0,3.0)\n pilot n = math3d_magnitude3(v)\n say v.x',
-    "immutable_local": 'pilot n = 0\n n = 1\n say n',
+    "immutable_local": 'fixed pilot n = 0\n n = 1\n say n',
 }
 
 
@@ -312,7 +312,8 @@ def main() -> None:
             generated = Path(str(negative) + (".c" if backend == "c" else ".ll"))
             generated.write_text("stale output sentinel")
             p = run([args.compiler, negative, "--" + backend, "--strict-borrow"], "reject-" + name + "-" + backend)
-            if not p.returncode or b"borrowck" not in p.stdout or generated.exists():
+            diagnostic = b"fixed pilot cannot be modified" if name == "immutable_local" else b"borrowck"
+            if not p.returncode or diagnostic not in p.stdout or generated.exists():
                 raise AssertionError(f"strict rejection lost for {name} {backend}")
             report["cases"].append({"backend": backend, "case": name, "rejected": True})
 

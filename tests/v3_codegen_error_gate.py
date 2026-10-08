@@ -1067,6 +1067,7 @@ def main() -> int:
                 rejected = run(freak, repo, source, "transpile", flag)
                 assert_rejected(rejected, f"{backend} {name}")
                 assert diagnostic in rejected.stdout + rejected.stderr
+                assert str(source) in rejected.stdout + rejected.stderr
                 assert_outputs_absent((artifact,), f"{backend} {name}")
                 if direct_compiler is not None:
                     seed_stale_outputs(artifact)

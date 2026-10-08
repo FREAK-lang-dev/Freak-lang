@@ -15,6 +15,14 @@ from v3_v35_language import require_ok
 
 PROFILE = '--bootstrap-compat=v4-host-bootstrap-v1'
 POSITIVE = {
+    'script_order': ('say "booting"; pilot n = 4; say n', 'booting\n4\n', 0, False),
+    'script_assign': ('pilot n = 1; n += 2; say n', '3\n', 0, False),
+    'script_call': ('task hello() { say "hello"; } hello()', 'hello\n', 0, False),
+    'script_initialized_task_global': ('task read_later() -> int { give back later; } pilot later = 4; say read_later()', '4\n', 0, False),
+    'script_nested_local_shadow': ('if true { pilot later = 5; say later; } pilot later = 4; say later', '5\n4\n', 0, False),
+    'script_for_header_shadow': ('pilot n = 4; task read_n() -> int { give back n; } for (pilot n = read_n(); n < 5; n += 1) { say n; }', '4\n', 0, False),
+    'script_loop': ('pilot n = 0; repeat 3 times { n += 1; } say n', '3\n', 0, False),
+    'give_back_identifiers': ('task main() { pilot give = 3; pilot back = 1; say give + back; }', '4\n', 0, False),
     'void_entry': ('task main() { say "entry"; }', 'entry\n', 0, False),
     'int_entry': ('task main() -> int { say "entry"; give back 7; }', 'entry\n', 7, False),
     'ordered_globals': ('pilot first = 3\npilot second = first + 1\ntask main() { say second; }', '4\n', 0, False),
@@ -26,6 +34,12 @@ NEGATIVE = {
     'missing_entry': ('task helper() {}', 'program requires a usable task main() entry'),
     'wrong_case': ('task Main() {}', 'program requires a usable task main() entry'),
     'empty': ('', 'no usable task main() entry'),
+    'declarations_only': ('pilot n = 1; shape Box { x: int } task helper() {}', 'program requires a usable task main() entry'),
+    'script_forward_global': ('say later; pilot later = 4', "unknown binding 'later'"),
+    'script_task_forward_global': ('task read_later() -> int { give back later; } say read_later(); pilot later = 4', "script statement depends on global 'later' before it is initialized"),
+    'script_transitive_forward_global': ('task read_later() -> int { give back later; } task relay() -> int { give back read_later(); } if true { say relay(); } pilot later = 4', "script statement depends on global 'later' before it is initialized"),
+    'split_return': ('task main() { give\nback 1; }', 'bare value is not a statement'),
+    'reverse_split_return': ('task main() { back\ngive 1; }', 'bare value is not a statement'),
     'comments_only': ('-- comment only\n', 'program requires a usable task main() entry'),
     'entry_parameter': ('task main(value: int) {}', 'main must not declare parameters'),
     'entry_return': ('task main() -> word { give back "word"; }', 'main must return void or int'),
@@ -33,7 +47,6 @@ NEGATIVE = {
     'root_say': ('say "skipped"\ntask main() {}', 'executable statement at top level is unsupported'),
     'root_call': ('task helper() {}\nhelper()\ntask main() {}', 'executable statement at top level is unsupported'),
     'root_assignment': ('pilot value = 1\nvalue = 2\ntask main() {}', 'executable statement at top level is unsupported'),
-    'root_only': ('say "root"', 'program requires a usable task main() entry'),
     'stray_number': ('task main() { say 1 2; }', 'bare value is not a statement'),
     'stray_word': ('task main() { say "a" "b"; }', 'bare value is not a statement'),
     'stray_name': ('task main() { pilot value = 1; value; }', 'bare value is not a statement'),
@@ -75,12 +88,19 @@ def main() -> int:
                 inventory.append((backend, 'frontend', name))
             # A matching bootstrap filename conveys no compatibility authority.
             source = root / 'freak_driver.fk'
-            source.write_text(POSITIVE['bootstrap_root_entry'][0])
+            source.write_text(POSITIVE['bootstrap_root_and_main'][0])
             result = run([str(compiler), str(source), '--' + backend], root)
-            assert result.returncode != 0 and 'program requires a usable task main() entry' in result.stdout + result.stderr
+            assert result.returncode != 0 and 'executable statement at top level is unsupported' in result.stdout + result.stderr
             assert not Path(str(source) + suffix).exists()
             inventory.append((backend, 'frontend', 'filename_has_no_authority'))
             for optimization in optimizations:
+                objects = []
+                for unit in ('freak_runtime.c', 'freak_llvm_runtime.c'):
+                    if backend == 'c' and unit == 'freak_llvm_runtime.c':
+                        continue
+                    obj = root / f'{backend}_{optimization}_{unit}.o'
+                    require_ok(run([args.clang, '-' + optimization, *flags, '-c', str(runtime / unit), '-o', str(obj)], root), 'entry runtime ' + unit)
+                    objects.append(str(obj))
                 for name, (program, expected, status, profile) in POSITIVE.items():
                     source = root / f'{optimization}_{name}_{backend}.fk'
                     source.write_text(program + '\n')
@@ -91,10 +111,7 @@ def main() -> int:
                         command.append('--strict-borrow')
                     require_ok(run(command, root), 'entry emission ' + name)
                     binary = root / f'{optimization}_{name}_{backend}'
-                    units = [str(runtime / 'freak_runtime.c')]
-                    if backend == 'llvm':
-                        units.append(str(runtime / 'freak_llvm_runtime.c'))
-                    require_ok(run([args.clang, '-' + optimization, *flags, str(source) + suffix, *units, *link_flags, '-o', str(binary)], root), 'entry link ' + name)
+                    require_ok(run([args.clang, '-' + optimization, *flags, str(source) + suffix, *objects, *link_flags, '-o', str(binary)], root), 'entry link ' + name)
                     result = run([str(binary)], root, env=sanitizer_env())
                     assert result.returncode == status and result.stdout == expected and not result.stderr, (backend, optimization, name, result)
                     inventory.append((backend, optimization, name))

@@ -154,12 +154,25 @@ task try_consume_word(target: word) -> bool {
     give back false
 }
 
+-- Contextual binding/return pairs cannot consume a newline or comment.
+task try_consume_same_line_word(target: word) -> bool {
+    pilot saved_pos = lex_pos
+    pilot saved_col = lex_col
+    repeat until lex_cur_ch() != " " and lex_cur_ch() != "\t" { lex_advance() }
+    pilot value = ""
+    repeat until not is_alnum_ext(lex_cur_ch()) { value = value + lex_advance() }
+    if value.to_lower() == target.to_lower() { give back true }
+    lex_pos = saved_pos
+    lex_col = saved_col
+    give back false
+}
+
 task lex_ident_token_type(value: word) -> word {
     pilot lower = value.to_lower()
     if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "impl" or lower == "doctrine" or lower == "launch" or lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "break" or lower == "continue" or lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" or lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "sadly" or lower == "deus_ex_machina" or lower == "isekai" or lower == "eventually" or lower == "and" or lower == "or" or lower == "not" or lower == "nakama" or lower == "tsundere" or lower == "extern" {
         give back TOK_KW
     }
-    if lower == "while" or lower == "give" or lower == "back" { give back TOK_KW }
+    if lower == "while" { give back TOK_KW }
     if lower == "true" or lower == "false" or lower == "yes" or lower == "no" or lower == "hai" or lower == "iie" {
         give back TOK_BOOL
     }
@@ -181,7 +194,10 @@ task lex_ident() -> void {
     pilot lower = res.to_lower()
     -- Multi-word keywords
     if lower == "give" {
-        if try_consume_word("back") { push_token(TOK_KW, "give back") give back }
+        if try_consume_same_line_word("back") { push_token(TOK_KW, "give back") give back }
+    }
+    if lower == "grounded" {
+        if try_consume_same_line_word("pilot") { push_token(TOK_KW, "grounded pilot") give back }
     }
     if lower == "or" {
         if try_consume_word("else") { push_token(TOK_KW, "or else") give back }

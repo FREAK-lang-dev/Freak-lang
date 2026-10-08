@@ -712,8 +712,11 @@ task parse_stmt() -> int {
     }
 
     -- The fixed marker is enforced by the always-on semantic checker.
-    if match_tok(TOK_KW, "fixed") {
-        if not match_tok(TOK_KW, "pilot") {
+    if ttype == TOK_KW and (tval == "fixed" or tval == "grounded pilot") {
+        advance_tok()
+        pilot binding_mode = "fixed"
+        if tval == "grounded pilot" { binding_mode = "grounded" }
+        if binding_mode == "fixed" and not match_tok(TOK_KW, "pilot") {
             diag_error("expected 'pilot' after 'fixed'", "")
         }
         pilot fname = parser_take_ident("fixed binding name")
@@ -725,13 +728,13 @@ task parse_stmt() -> int {
         expect_tok(TOK_PUNCT, "=")
         pilot fexpr_id = parse_expr()
         pilot fixed_id = alloc_stmt(STMT_PILOT, fname, word_from_int(fexpr_id), "", "", ftype_ann, "", "", stmt_line)
-        array_set(ast_pilot_is_mut, fixed_id, "fixed")
+        array_set(ast_pilot_is_mut, fixed_id, binding_mode)
         give back fixed_id
     }
 
     -- pilot [mut] name = expr
     if match_tok(TOK_KW, "pilot") {
-        pilot is_mut = false
+        pilot is_mut = true
         if match_tok(TOK_KW, "mut") { is_mut = true }
         pilot name = parser_take_ident("binding name")
         pilot type_ann = ""

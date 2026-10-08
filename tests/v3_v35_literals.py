@@ -18,6 +18,9 @@ POSITIVE = {
  'json_literal': (r'''task main() { say "{\"guess\":2}"; say "{key: value}"; say "{}"; }''', '{"guess":2}\n{key: value}\n{}\n'),
  'backslash_before_interpolation': (r'''task main() { pilot number = 7; say "\\{number}"; say "\x7Bnumber\x7D"; }''', '\\7\n{number}\n'),
  'field_interpolation': ('''shape Person { age: int, name: word } task main() { pilot person = Person { age: 7, name: "owner" + " word" }; say "{person.age}:{person.name}"; }''', '7:owner word\n'),
+ 'grounded_context': ('task grounded() -> int { give back 7; } task main() { pilot grounded = 2; grounded += 1; say grounded; if true { grounded pilot x = 4; say x; } }', '3\n4\n'),
+ 'grounded_root': ('grounded pilot value = 4; task main() { say value; }', '4\n'),
+ 'default_mutability': ('task main() { pilot x = 1; x += 2; pilot mut y = 3; y = 4; pilot xs: List<int> = [1]; xs[0] = 2; say x + y + xs[0]; }', '9\n'),
  'fixed_read_and_shadow': ('''fixed pilot value = 4
 shape Box { value: int }
 fixed pilot box = Box { value: 7 }
@@ -39,13 +42,17 @@ NEGATIVE = {
  'spaced_interpolation': ('''task main() { pilot x = 2; say "{ x }"; }''', 'unsupported interpolation expression'),
  'unclosed_interpolation': ('''task main() { pilot x = 2; say "{x"; }''', 'unterminated interpolation expression'),
  'reserved_interpolation': ('''task main() { say "{true}"; }''', 'unsupported interpolation expression'),
- 'fixed_scalar': ('''task main() { fixed pilot x = 1; x = 2; }''', 'fixed binding cannot be modified'),
- 'fixed_compound': ('''task main() { fixed pilot x = 1; x += 2; }''', 'fixed binding cannot be modified'),
+ 'fixed_scalar': ('''task main() { fixed pilot x = 1; x = 2; }''', 'fixed pilot cannot be modified'),
+ 'fixed_compound': ('''task main() { fixed pilot x = 1; x += 2; }''', 'fixed pilot cannot be modified'),
  'fixed_global': ('''fixed pilot x = 1
-task main() { x += 2; }''', 'fixed binding cannot be modified'),
- 'fixed_field': ('''shape Box { value: int } task main() { fixed pilot box = Box { value: 1 }; box.value = 2; }''', 'fixed binding cannot be modified'),
- 'fixed_nested_field': ('''shape Inner { value: int } shape Outer { inner: Inner } task main() { fixed pilot box = Outer { inner: Inner { value: 1 } }; box.inner.value += 2; }''', 'fixed binding cannot be modified'),
- 'fixed_list': ('''task main() { fixed pilot values: List<int> = [1]; values[0] = 2; }''', 'fixed binding cannot be modified'),
+task main() { x += 2; }''', 'fixed pilot cannot be modified'),
+ 'fixed_field': ('''shape Box { value: int } task main() { fixed pilot box = Box { value: 1 }; box.value = 2; }''', 'fixed pilot cannot be modified'),
+ 'fixed_nested_field': ('''shape Inner { value: int } shape Outer { inner: Inner } task main() { fixed pilot box = Outer { inner: Inner { value: 1 } }; box.inner.value += 2; }''', 'fixed pilot cannot be modified'),
+ 'fixed_list': ('''task main() { fixed pilot values: List<int> = [1]; values[0] = 2; }''', 'fixed pilot cannot be modified'),
+ 'fixed_list_push': ('''task main() { fixed pilot values: List<int> = [1]; values.push(2); }''', 'fixed pilot cannot be modified'),
+ 'fixed_list_pop': ('''task main() { fixed pilot values: List<int> = [1]; say values.pop(); }''', 'fixed pilot cannot be modified'),
+ 'fixed_list_clear': ('''task main() { fixed pilot values: List<int> = [1]; values.clear(); }''', 'fixed pilot cannot be modified'),
+ 'fixed_list_reserve': ('''task main() { fixed pilot values: List<int> = [1]; values.reserve(8); }''', 'fixed pilot cannot be modified'),
  'when_integer_duplicate': ('''task main() { when 1 { 1 -> say "first"; 01 -> say "second"; }; }''', 'when arm duplicates'),
  'when_negative_zero': ('''task main() { when 0 { 0 -> say "first"; -0 -> say "second"; }; }''', 'when arm duplicates'),
  'when_bool_alias': ('''task main() { when true { true -> say "first"; HaI -> say "second"; }; }''', 'when arm duplicates'),
@@ -60,6 +67,10 @@ task main() { x += 2; }''', 'fixed binding cannot be modified'),
  'when_after_wildcard': ('''task main() { when 1 { _ -> say "first"; 1 -> say "second"; }; }''', "when arm is unreachable after '_'"),
  'when_repeated_wildcard': ('''task main() { when 1 { _ -> say "first"; _ -> say "second"; }; }''', "when arm is unreachable after '_'"),
 }
+# Both immutable spellings reject the same write forms in strict/default modes.
+for name, (program, diagnostic) in tuple(NEGATIVE.items()):
+ if name.startswith('fixed_'):
+  NEGATIVE[name.replace('fixed_', 'grounded_', 1)] = (program.replace('fixed pilot', 'grounded pilot'), diagnostic.replace('fixed pilot', 'grounded pilot'))
 
 
 def main() -> int:
