@@ -314,6 +314,11 @@ task cli_run_linker_identity(clang_cmd: word, lto: word, cross: word) -> word {
     if digest == "" { give back CLI_RUN_UNHASHABLE + ":linker-digest:" + resolved }
     pilot version = cli_run_tool_version(resolved, true)
     if version == "" { give back CLI_RUN_UNHASHABLE + ":linker-version:" + linker_cmd }
+    -- GNU coreutils link can shadow the Windows linker after PATH fallback.
+    -- Its hash and version identify a file-link utility, not a native linker.
+    if version.to_lower().contains("gnu coreutils") {
+        give back CLI_RUN_UNHASHABLE + ":linker-not-linker:" + resolved
+    }
     give back "target=" + clang_target + "|command=" + linker_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + version
 }
 

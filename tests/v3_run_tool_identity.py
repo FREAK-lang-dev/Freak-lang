@@ -97,6 +97,9 @@ int main(int argc, char **argv) {
     if (version && !strcmp(mode.data, "both")) {
         fputs("native linker stdout version\n", stdout); fputs("native linker stderr diagnostic\n", stderr); return 64;
     }
+    if (version && !strcmp(mode.data, "coreutils")) {
+        fputs("link (GNU coreutils) 9.7\n", stdout); return 0;
+    }
     freak_word trace_mode = freak_process_env(freak_word_lit("FREAK_TOOL_TRACE_MODE"));
     if (!linker && !strcmp(first.data, "-###") && trace_mode.length) {
         freak_word trace = freak_process_env(freak_word_lit("FREAK_TOOL_TRACE"));
@@ -588,7 +591,7 @@ def main() -> int:
                 for mode in ("nonzero", "empty", "invalid", "nul", "signal"):
                     bad = env | {"FREAK_TOOL_CLANG_VERSION": mode}
                     invoke(backend, hit=None, supplied=bad)
-                for mode in ("empty", "invalid", "nul", "signal"):
+                for mode in ("empty", "invalid", "nul", "signal", "coreutils"):
                     invoke(backend, hit=None, supplied=env | {"FREAK_TOOL_LINKER_VERSION": mode})
                 for mode in ("empty", "nonzero", "invalid", "nul"):
                     invoke(backend, hit=None, supplied=env | {"FREAK_TOOL_TARGET_MODE": mode})
