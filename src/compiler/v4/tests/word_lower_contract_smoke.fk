@@ -51,19 +51,19 @@ task v4_lower_contract_run() -> void {
     pilot module = v4_codegen_llvm_module_text(sealed, target)
     v4_lower_contract_assert(module != "" and v4_codegen_llvm_native_module_error(sealed) == "", "initial seal")
     pilot payload = v4_mir_snapshot()
-    v4_lower_contract_assert(payload.starts_with("mir-snapshot|format=freak-mir-snapshot-v9|") and payload.ends_with("end|freak-mir-snapshot-v9") and v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1"), "v9 wire")
+    v4_lower_contract_assert(payload.starts_with("mir-snapshot|format=freak-mir-snapshot-v10|") and payload.ends_with("end|freak-mir-snapshot-v10") and v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1"), "v9 wire")
     if mode == "restore" {
         v4_lower_contract_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "detached restore")
         v4_lower_contract_assert(v4_codegen_llvm_module_text(sealed, target) == module, "old seal survives restore")
         pilot restored = v4_codegen_llvm_lower_owned_mir(0, mir)
         v4_lower_contract_assert(v4_codegen_llvm_module_text(restored, target) == module and v4_codegen_llvm_native_module_error(restored) == "", "fresh restored module exact")
     } else if mode == "old-version" {
-        pilot old = payload.replace("freak-mir-snapshot-v9", "freak-mir-snapshot-v6")
-        v4_lower_contract_assert(old != payload and old.starts_with("mir-snapshot|format=freak-mir-snapshot-v6|") and old.ends_with("end|freak-mir-snapshot-v6") and not old.contains("freak-mir-snapshot-v9"), "reached v6 wire forgery")
+        pilot old = payload.replace("freak-mir-snapshot-v10", "freak-mir-snapshot-v6")
+        v4_lower_contract_assert(old != payload and old.starts_with("mir-snapshot|format=freak-mir-snapshot-v6|") and old.ends_with("end|freak-mir-snapshot-v6") and not old.contains("freak-mir-snapshot-v10"), "reached v6 wire forgery")
         v4_lower_contract_assert(v4_mir_snapshot_restore(old).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == payload, "v6 atomically rejected")
     } else if mode == "old-v7" {
-        pilot old = payload.replace("freak-mir-snapshot-v9", "freak-mir-snapshot-v7")
-        v4_lower_contract_assert(old != payload and old.starts_with("mir-snapshot|format=freak-mir-snapshot-v7|") and old.ends_with("end|freak-mir-snapshot-v7") and not old.contains("freak-mir-snapshot-v9"), "reached v7 wire forgery")
+        pilot old = payload.replace("freak-mir-snapshot-v10", "freak-mir-snapshot-v7")
+        v4_lower_contract_assert(old != payload and old.starts_with("mir-snapshot|format=freak-mir-snapshot-v7|") and old.ends_with("end|freak-mir-snapshot-v7") and not old.contains("freak-mir-snapshot-v10"), "reached v7 wire forgery")
         v4_lower_contract_assert(v4_mir_snapshot_restore(old).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == payload, "v7 atomically rejected")
     } else if mode == "live" {
         pilot rv = 0

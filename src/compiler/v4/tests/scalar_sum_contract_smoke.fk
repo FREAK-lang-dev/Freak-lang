@@ -34,7 +34,7 @@ task v4_sum_contract_old_version(payload: word) -> word {
     pilot row = 0
     repeat until row >= v4_mir_snapshot_line_count(payload) {
         pilot line = v4_mir_snapshot_line(payload, row)
-        if row == 0 { line = "mir-snapshot|format=freak-mir-snapshot-v8|" + v4_slice(line, "mir-snapshot|format=freak-mir-snapshot-v9|".length(), line.length()) }
+        if row == 0 { line = "mir-snapshot|format=freak-mir-snapshot-v8|" + v4_slice(line, "mir-snapshot|format=freak-mir-snapshot-v10|".length(), line.length()) }
         if row + 1 == v4_mir_snapshot_line_count(payload) { line = "end|freak-mir-snapshot-v8" }
         if row > 0 { array_push(parts, "\n") }
         array_push(parts, line)
@@ -53,7 +53,7 @@ task v4_sum_contract_run() -> void {
     pilot module = v4_codegen_llvm_module_text(sealed, target)
     v4_sum_contract_assert(module != "" and v4_codegen_llvm_native_module_error(sealed) == "", "baseline module sealed")
     pilot payload = v4_mir_snapshot()
-    v4_sum_contract_assert(payload.starts_with("mir-snapshot|format=freak-mir-snapshot-v9|") and payload.ends_with("end|freak-mir-snapshot-v9"), "exact current version")
+    v4_sum_contract_assert(payload.starts_with("mir-snapshot|format=freak-mir-snapshot-v10|") and payload.ends_with("end|freak-mir-snapshot-v10"), "exact current version")
     if mode == "0" {
         v4_sum_contract_assert(v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "current detached restore")
         v4_sum_contract_assert(v4_mir_snapshot() == payload and v4_codegen_llvm_module_text(sealed, target) == module, "wire and old module exact")

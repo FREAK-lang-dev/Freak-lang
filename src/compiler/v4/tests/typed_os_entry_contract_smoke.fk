@@ -146,7 +146,7 @@ task v4_typed_os_contract_run() -> void {
         v4_typed_os_contract_assert(module.contains("%freak_maybe_int = type {" + " i1, i64 " + "}") and module.contains("%freak_result_word_word = type {" + " i1, i64 " + "}"), "distinct internal carriers")
     }
     pilot snapshot = v4_mir_snapshot()
-    v4_typed_os_contract_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v9|") and snapshot.ends_with("end|freak-mir-snapshot-v9"), "v9 wire")
+    v4_typed_os_contract_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v10|") and snapshot.ends_with("end|freak-mir-snapshot-v10"), "v9 wire")
     if mode == "identity" or mode == "op" or mode == "result" or mode == "abi" or mode == "arity" or mode == "loan-kind" or mode == "loan-type" {
         pilot forged = v4_typed_os_contract_forge(snapshot, mode, identity)
         v4_typed_os_contract_assert(forged != snapshot and v4_mir_snapshot_restore(forged).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == snapshot, "detached forgery atomically rejected")

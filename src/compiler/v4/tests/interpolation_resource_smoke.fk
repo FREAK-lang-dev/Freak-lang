@@ -217,7 +217,7 @@ task v4_interp_resource_run() -> void {
     }
     v4_interp_resource_assert(v4_interp_resource_available() == capacity, "literal decoder scratch conserved")
 
-    v4_interp_resource_assert(v4_hir_snapshot_restore_with_queries(payload.replace("freak-hir-snapshot-v11", "freak-hir-snapshot-v10")).starts_with("hir-snapshot-restore ok=0"), "old version rejected before queries")
+    v4_interp_resource_assert(v4_hir_snapshot_restore_with_queries(payload.replace("freak-hir-snapshot-v12", "freak-hir-snapshot-v10")).starts_with("hir-snapshot-restore ok=0"), "old version rejected before queries")
     v4_interp_resource_assert(v4_hir_snapshot_restore_with_queries(corrupt).starts_with("hir-snapshot-restore ok=0"), "late malformed child rejected")
     v4_interp_resource_assert(v4_hir_snapshot() == payload and v4_hir_revision(hir) == revision and v4_session_semantic_restore_generation() == generation and v4_source_revision(file) == source_revision and v4_source_text(file) == source and v4_interp_resource_queries() == queries, "late malformed all facts atomic")
     v4_interp_resource_assert(v4_hir_word_plans_handle(hir) == original_plan and array_len(original_plan) > 0, "malformed rejection preserves live plan identity")
