@@ -1,0 +1,39 @@
+-- Decimal-only input with an explicit invalid sentinel outside the accepted
+-- request range. Never turn a failed parse into a successful zero value.
+task bounded_integer(text: word) -> int {
+    if text == "" or text.length() > 8 { give back 2147483648 }
+    pilot mut index = 0
+    pilot mut sign = 1
+    if text.char_at(0) == "-" { sign = -1 index = 1 }
+    if index == text.length() { give back 2147483648 }
+    pilot mut value = 0
+    repeat until index >= text.length() {
+        pilot digit = text.char_at(index)
+        -- contains consumes its Word argument; retain digit for conversion.
+        if not "0123456789".contains(digit + "") { give back 2147483648 }
+        value = value * 10 + word_to_int(digit)
+        if value > 1000000 { give back 2147483648 }
+        index += 1
+    }
+    give back value * sign
+}
+
+task query_value(query: word, key: word) -> word {
+    pilot mut index = 0
+    pilot mut start = 0
+    pilot mut found = false
+    pilot mut value = ""
+    repeat until index > query.length() {
+        if index == query.length() or query.char_at(index) == "&" {
+            pilot pair = query.substring(start, index - start)
+            if pair.starts_with(key + "=") {
+                if found { give back "invalid duplicate" }
+                value = pair.substring(key.length() + 1, pair.length() - key.length() - 1)
+                found = true
+            }
+            start = index + 1
+        }
+        index += 1
+    }
+    give back value
+}

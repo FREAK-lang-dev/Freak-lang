@@ -1,0 +1,118 @@
+use std::http_server::{http_bind, http_server_status, http_server_error, http_local_port, http_set_limits, http_set_timeouts, http_next_request, http_request_status, http_request_method, http_request_path, http_request_query, http_request_body, http_response_status, http_response_header, http_send_text, http_send_bytes, http_send_json, http_request_release, http_stop, http_close}
+use std::json_document::{json_document_parse_bytes, json_document_ok, json_document_root, json_document_kind, json_document_object_get, json_document_number_text, json_document_new, json_document_make_object, json_document_make_array, json_document_make_number, json_document_array_append, json_document_object_insert, json_document_set_root, json_document_release}
+use sequences::{arithmetic_value}
+use self::inputs::{bounded_integer, query_value}
+
+task send_error(request: int, status: int, message: word) -> void {
+    http_response_status(request, status)
+    http_send_text(request, message)
+}
+
+task send_sequence(request: int, start: int, step: int, count: int) -> void {
+    if start == 2147483648 or step == 2147483648 or count < 1 or count > 256 {
+        send_error(request, 422, "start/step must be integers in [-1000000,1000000]; count must be 1..256")
+        give back
+    }
+    pilot document = json_document_new()
+    pilot root = json_document_make_object(document)
+    pilot values = json_document_make_array(document)
+    for each index in 0..count {
+        pilot value = arithmetic_value(start, step, index)
+        pilot node = json_document_make_number(document, word_from_int(value))
+        json_document_array_append(document, values, node)
+    }
+    json_document_object_insert(document, root, "values", values)
+    json_document_set_root(document, root)
+    if json_document_ok(document) == 0 { send_error(request, 503, "response allocation failed") }
+    else { http_send_json(request, document) }
+    json_document_release(document)
+}
+
+task numeric_field(document: int, root: int, key: word) -> int {
+    pilot field = json_document_object_get(document, root, key)
+    if json_document_kind(document, field) != 3 { give back 2147483648 }
+    give back bounded_integer(json_document_number_text(document, field))
+}
+
+task serve_one(request: int) -> void {
+    pilot method = http_request_method(request)
+    pilot path = http_request_path(request)
+    if path == "/echo" {
+        if method == "POST" {
+            http_response_header(request, "Content-Type", "application/octet-stream")
+            -- The facade consumes and releases the independent body owner.
+            http_send_bytes(request, http_request_body(request))
+        } else {
+            http_response_header(request, "Allow", "POST")
+            send_error(request, 405, "method not allowed")
+        }
+        give back
+    }
+    if path == "/health" {
+        if method == "GET" or method == "HEAD" { http_send_text(request, "healthy") }
+        else { http_response_header(request, "Allow", "GET, HEAD") send_error(request, 405, "method not allowed") }
+        give back
+    }
+    if path != "/sequences/arithmetic" { send_error(request, 404, "missing") give back }
+    if method == "GET" or method == "HEAD" {
+        pilot query = http_request_query(request)
+        pilot start = bounded_integer(query_value(query + "", "start"))
+        pilot step = bounded_integer(query_value(query + "", "step"))
+        pilot count = bounded_integer(query_value(query, "count"))
+        send_sequence(request, start, step, count)
+        give back
+    }
+    if method != "POST" {
+        http_response_header(request, "Allow", "GET, HEAD, POST")
+        send_error(request, 405, "method not allowed")
+        give back
+    }
+    -- The ordinary facade consumes this independent body owner and releases it.
+    pilot document = json_document_parse_bytes(http_request_body(request))
+    if json_document_ok(document) == 0 { send_error(request, 400, "invalid JSON") }
+    else {
+        pilot root = json_document_root(document)
+        if json_document_kind(document, root) != 6 { send_error(request, 422, "body must be an object") }
+        else {
+            send_sequence(request, numeric_field(document, root, "start"), numeric_field(document, root, "step"), numeric_field(document, root, "count"))
+        }
+    }
+    json_document_release(document)
+}
+
+task main() {
+    pilot mut limit = 0
+    if process::args_count() != 1 {
+        if process::args_count() != 3 or process::arg(1) != "--requests" {
+            say "usage: sequence-service [--requests 1..4096]"
+            process::exit(2)
+        }
+        limit = bounded_integer(process::arg(2))
+        if limit < 1 or limit > 4096 { say "--requests must be 1..4096" process::exit(2) }
+    }
+    pilot mut port = 8080
+    pilot configured = process::env("FREAK_HTTP_PORT")
+    if configured != "" {
+        port = bounded_integer(configured)
+        if port < 0 or port > 65535 { say "FREAK_HTTP_PORT must be 0..65535" process::exit(2) }
+    }
+    -- Explicit loopback-only profile. No forwarded/header value controls bind.
+    pilot server = http_bind("127.0.0.1", port, 0)
+    if http_server_status(server) != 0 { say http_server_error(server) http_close(server) process::exit(1) }
+    -- This fixture bounds memory and sequential slow-peer blocking.
+    http_set_limits(server, 8192, 16384, 32, 8192)
+    http_set_timeouts(server, 1000, 1000, 250)
+    say "HTTP http://127.0.0.1:" + word_from_int(http_local_port(server))
+    pilot mut count = 0
+    pilot mut finished = false
+    repeat until finished {
+        pilot request = http_next_request(server)
+        if http_request_status(request) == 0 { serve_one(request) }
+        if http_request_status(request) == 503 { finished = true }
+        http_request_release(request)
+        count += 1
+        if limit != 0 and count >= limit { finished = true }
+    }
+    http_stop(server)
+    http_close(server)
+}

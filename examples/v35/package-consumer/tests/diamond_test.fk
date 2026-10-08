@@ -1,0 +1,9 @@
+use std::test::{test_assert_int}
+use left::{value as left_value}
+use right::{value as right_value}
+
+task main() {
+    test_assert_int("left public export", 21, left_value())
+    test_assert_int("right public export", 21, right_value())
+    test_assert_int("diamond sum", 42, left_value() + right_value())
+}
