@@ -235,6 +235,9 @@ in v7 and validates their relation
 to bindings, body ranges and closed builtin IDs before publication. The
 focused semantic fixture covers shadowing, ordered consume/lend events,
 atomic snapshot rejection and exhaustion recovery at 64 MiB/1,024 handles.
+Parameters and receivers share the callable's outer declaration scope:
+redeclaring them there is rejected for scalar and word values. Nested blocks
+may shadow them; leaving the block restores the original binding identity.
 Three authored native programs exercise embedded NUL, moves, reassignment,
 branch/loop exits and temporary returns under ASan/UBSan and both ownership
 audits. Checked scratch-allocation failure and recursive-input admission now
@@ -517,6 +520,8 @@ and completeness are checked before any restore mutation. A packed per-file
 array adds one child handle. The final field preserves the written `fixed pilot`
 or `grounded pilot` prefix. Initializer text, inference, evaluation, cycles,
 and mismatch diagnostic locations remain unchanged and may still use syntax.
+Root constant navigation retains the full declaration range; its exact HIR
+name span remains a separate fact.
 The seventh bounded boundary covers route/variant declaration facts. HIR stores
 the original declaration form, ordered case names and name/segment spans,
 payload presence independently of field count, and ordered payload-field names,
