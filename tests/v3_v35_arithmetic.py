@@ -73,6 +73,28 @@ FATAL = {
     'num_upper': ('say (9223372036854775808.0).to_int();', 'num to int conversion out of range'),
     'num_below_lower': ('say (-9223372036854777856.0).to_int();', 'num to int conversion out of range'),
 }
+EXACT_INTEGER_FATAL = {
+    'add_high': ('overflow', 'addition'),
+    'subtract_low': ('overflow', 'subtraction'),
+    'multiply_high': ('overflow', 'multiplication'),
+    'divide_zero': ('division by zero', 'division'),
+    'remainder_zero': ('division by zero', 'remainder'),
+    'divide_minimum': ('overflow', 'division'),
+    'remainder_minimum': ('overflow', 'remainder'),
+    'negate_minimum': ('overflow', 'negation'),
+    'tsundere_minimum': ('overflow', 'negation'),
+    'plus_ultra': ('overflow', 'multiplication'),
+    'final_form': ('overflow', 'multiplication'),
+    'nakama_sum': ('overflow', 'addition'),
+    'nakama_product': ('overflow', 'multiplication'),
+    'compound_add': ('overflow', 'addition'),
+    'compound_subtract': ('overflow', 'subtraction'),
+    'compound_multiply': ('overflow', 'multiplication'),
+    'compound_divide': ('overflow', 'division'),
+    'compound_remainder': ('overflow', 'remainder'),
+    'array_compound': ('overflow', 'addition'),
+    'field_compound': ('overflow', 'addition'),
+}
 NEGATIVE = {
     'positive_oversized': f'say {HIGH + 1};',
     'negative_oversized': f'say {LOW - 1};',
@@ -145,6 +167,9 @@ def main() -> int:
                     require_ok(run([args.clang, '-' + optimization, *flags, str(sources[(backend, name)]), *objects, *link_flags, '-o', str(binary)], root), 'fatal link ' + name)
                     executed = run([str(binary)], root, env=sanitizer_env())
                     assert executed.returncode > 0 and diagnostic in executed.stderr and executed.stdout == '', (backend, optimization, name, executed)
+                    if name in EXACT_INTEGER_FATAL:
+                        reason, operation = EXACT_INTEGER_FATAL[name]
+                        assert executed.returncode == 1 and executed.stderr == f'FREAK: integer {reason} in {operation}\n', (backend, optimization, name, executed)
                     assert 'runtime error:' not in executed.stderr and 'Sanitizer' not in executed.stderr, (backend, optimization, name, executed)
                     inventory.append((backend, optimization, name))
                 print(f'PASS {backend} {optimization}: {len(LEGAL)} bigint oracle results, {len(POSITIVE)} positive and {len(FATAL)} controlled failures', flush=True)

@@ -306,14 +306,60 @@ freak_word freak_ask(freak_word prompt);
 /* Print message to stderr and exit(1). */
 _Noreturn void freak_panic(freak_word msg);
 
-/* Defined signed-integer arithmetic. C and LLVM call the same scalar ABI;
-   overflow and division/remainder by zero diagnose on stderr and exit 1. */
+/* Defined signed-integer arithmetic. Keep the legacy helper ABI for callers;
+   generated C inlines the successful path and shares this cold diagnostic. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((cold, noreturn))
+#endif
+_Noreturn void freak_int_fail(const char *reason, const char *operation);
 int64_t freak_int_add_checked(int64_t a, int64_t b);
 int64_t freak_int_sub_checked(int64_t a, int64_t b);
 int64_t freak_int_mul_checked(int64_t a, int64_t b);
 int64_t freak_int_div_checked(int64_t a, int64_t b);
 int64_t freak_int_rem_checked(int64_t a, int64_t b);
 int64_t freak_int_neg_checked(int64_t value);
+
+#if defined(__GNUC__) || defined(__clang__)
+#define FREAK_INT_INLINE static inline __attribute__((always_inline))
+FREAK_INT_INLINE int64_t freak_int_add_inline(int64_t a, int64_t b) {
+    int64_t result;
+    if (__builtin_add_overflow(a, b, &result)) freak_int_fail("overflow", "addition");
+    return result;
+}
+FREAK_INT_INLINE int64_t freak_int_sub_inline(int64_t a, int64_t b) {
+    int64_t result;
+    if (__builtin_sub_overflow(a, b, &result)) freak_int_fail("overflow", "subtraction");
+    return result;
+}
+FREAK_INT_INLINE int64_t freak_int_mul_inline(int64_t a, int64_t b) {
+    int64_t result;
+    if (__builtin_mul_overflow(a, b, &result)) freak_int_fail("overflow", "multiplication");
+    return result;
+}
+FREAK_INT_INLINE int64_t freak_int_div_inline(int64_t a, int64_t b) {
+    if (b == 0) freak_int_fail("division by zero", "division");
+    if (a == INT64_MIN && b == -1) freak_int_fail("overflow", "division");
+    return a / b;
+}
+FREAK_INT_INLINE int64_t freak_int_rem_inline(int64_t a, int64_t b) {
+    if (b == 0) freak_int_fail("division by zero", "remainder");
+    if (a == INT64_MIN && b == -1) freak_int_fail("overflow", "remainder");
+    return a % b;
+}
+FREAK_INT_INLINE int64_t freak_int_neg_inline(int64_t value) {
+    int64_t result;
+    if (__builtin_sub_overflow((int64_t)0, value, &result)) freak_int_fail("overflow", "negation");
+    return result;
+}
+#undef FREAK_INT_INLINE
+#else
+#define freak_int_add_inline freak_int_add_checked
+#define freak_int_sub_inline freak_int_sub_checked
+#define freak_int_mul_inline freak_int_mul_checked
+#define freak_int_div_inline freak_int_div_checked
+#define freak_int_rem_inline freak_int_rem_checked
+#define freak_int_neg_inline freak_int_neg_checked
+#endif
 
 /* ------------------------------------------------------------------ */
 /*  std::fs — file I/O                                                */

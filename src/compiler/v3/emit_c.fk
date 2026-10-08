@@ -358,7 +358,11 @@ task emit_c_projection_assign(lhs: word, rhs: word, op: word) -> void {
     emit_c_value_decl(rhs, "__freak_rhs")
     if op != "=" {
         if code == "w" { emit_line("freak_word __freak_new = freak_word_concat(__freak_old, __freak_rhs);") }
-        else if code == "i" { emit_line("int64_t __freak_new = " + v35_integer_arithmetic_symbol(op) + "(__freak_old, __freak_rhs);") }
+        else if code == "i" {
+            emit("int64_t __freak_new = ")
+            emit_c_integer_result(op, "__freak_old", "__freak_rhs", rhs)
+            emit_line(";")
+        }
         else { emit_line(c_value_type(code) + " __freak_new = __freak_old " + op.char_at(0) + " __freak_rhs;") }
     }
     pilot value = "__freak_rhs"
@@ -1232,17 +1236,45 @@ task c_expr_has_projection(id: int) -> bool {
     give back false
 }
 
-task emit_c_checked_integer_binary(symbol: word, left: word, right: word) -> void {
+task v35_integer_divisor_is_safe(expr_id: word) -> bool {
+    if expr_id == "" { give back false }
+    pilot id = word_to_int(expr_id)
+    pilot kind: word = array_get(ast_expr_kinds, id)
+    pilot negative = false
+    if kind == EXPR_UNARYOP and array_get(ast_expr_vals, id) == "-" {
+        negative = true
+        id = word_to_int(array_get(ast_expr_lefts, id))
+        kind = array_get(ast_expr_kinds, id)
+    }
+    if kind != EXPR_INT { give back false }
+    pilot value: word = array_get(ast_expr_vals, id)
+    if value == "0" { give back false }
+    if negative and value == "1" { give back false }
+    give back true
+}
+
+task c_integer_arithmetic_symbol(operation: word) -> word {
+    give back v35_integer_arithmetic_symbol(operation).replace("_checked", "_inline")
+}
+
+task emit_c_integer_result(operation: word, left: word, right: word, rhs: word) -> void {
+    if (operation == "/" or operation == "%" or operation == "/=" or operation == "%=") and v35_integer_divisor_is_safe(rhs) {
+        emit("(" + left + " " + operation.char_at(0) + " " + right + ")")
+    } else { emit(c_integer_arithmetic_symbol(operation) + "(" + left + ", " + right + ")") }
+}
+
+task emit_c_checked_integer_binary(operation: word, left: word, right: word) -> void {
     -- Sequence and capture operands once, including calls with side effects.
     emit("(\{ int64_t __freak_checked_left = ") emit_expr(left) emit_line(";")
     emit("int64_t __freak_checked_right = ") emit_expr(right) emit_line(";")
-    emit(symbol + "(__freak_checked_left, __freak_checked_right); \})")
+    emit_c_integer_result(operation, "__freak_checked_left", "__freak_checked_right", right)
+    emit("; \})")
 }
 
 task emit_c_binop(expr_id: word, val: word, left: word, right: word) -> void {
     pilot integer_symbol = v35_integer_arithmetic_symbol(val)
     if integer_symbol != "" and emt_expr_type_code(expr_id) == "i" {
-        emit_c_checked_integer_binary(integer_symbol, left, right)
+        emit_c_checked_integer_binary(val, left, right)
         give back
     }
     if val == "+" {
@@ -1295,6 +1327,18 @@ task emit_c_binop(expr_id: word, val: word, left: word, right: word) -> void {
         emit(")")
         give back
     }
+    if (val == "<" or val == ">" or val == "<=" or val == ">=") and emt_expr_type_code(left) == "w" {
+        -- Capture both words before comparing; own snapshots also survive an
+        -- RHS call replacing a global used by the LHS.
+        emit("(\{ ")
+        emit_c_value_decl(left, "__freak_order_left")
+        emit_c_value_decl(right, "__freak_order_right")
+        emit_line("bool __freak_order_result = freak_word_compare(__freak_order_left, __freak_order_right) " + val + " 0;")
+        emit_c_word_drop(left, "__freak_order_left")
+        emit_c_word_drop(right, "__freak_order_right")
+        emit("__freak_order_result; \})")
+        give back
+    }
     if val == "and" {
         emit("(")
         emit_expr(left)
@@ -1314,9 +1358,9 @@ task emit_c_binop(expr_id: word, val: word, left: word, right: word) -> void {
     if val == "NAKAMA" {
         emit("(\{ int64_t __freak_nakama_left = ") emit_expr(left) emit_line(";")
         emit("int64_t __freak_nakama_right = ") emit_expr(right) emit_line(";")
-        emit_line("int64_t __freak_nakama_sum = freak_int_add_checked(__freak_nakama_left, __freak_nakama_right);")
-        emit_line("int64_t __freak_nakama_product = freak_int_mul_checked(__freak_nakama_left, __freak_nakama_right);")
-        emit("freak_int_add_checked(__freak_nakama_sum, freak_int_div_checked(__freak_nakama_product, 10)); \})")
+        emit_line("int64_t __freak_nakama_sum = freak_int_add_inline(__freak_nakama_left, __freak_nakama_right);")
+        emit_line("int64_t __freak_nakama_product = freak_int_mul_inline(__freak_nakama_left, __freak_nakama_right);")
+        emit("freak_int_add_inline(__freak_nakama_sum, (__freak_nakama_product / 10)); \})")
         give back
     }
     -- Default: generic binary operator
@@ -1331,9 +1375,9 @@ task emit_c_unaryop(val: word, left: word) -> void {
     if val == "-" and tc_literal_is_minimum(word_to_int(left)) { emit("INT64_MIN") give back }
     if (val == "-" or val == "PLUS ULTRA" or val == "FINAL FORM" or val == "TSUNDERE") and emt_expr_type_code(left) == "i" {
         emit("(\{ int64_t __freak_checked_value = ") emit_expr(left) emit_line(";")
-        if val == "PLUS ULTRA" { emit("freak_int_mul_checked(__freak_checked_value, 2); \})") }
-        else if val == "FINAL FORM" { emit("freak_int_mul_checked(__freak_checked_value, __freak_checked_value); \})") }
-        else { emit("freak_int_neg_checked(__freak_checked_value); \})") }
+        if val == "PLUS ULTRA" { emit("freak_int_mul_inline(__freak_checked_value, 2); \})") }
+        else if val == "FINAL FORM" { emit("freak_int_mul_inline(__freak_checked_value, __freak_checked_value); \})") }
+        else { emit("freak_int_neg_inline(__freak_checked_value); \})") }
         give back
     }
     if val == "not" { emit("(!") emit_expr(left) emit(")") give back }
@@ -1725,7 +1769,9 @@ task emit_stmt(eid: word) -> void {
             emit("\{ int64_t __freak_compound_old = ") emit_expr(expr_id_w) emit_line(";")
             emit("int64_t __freak_compound_rhs = ") emit_expr(rhs_w) emit_line(";")
             emit_expr(expr_id_w)
-            emit_line(" = " + v35_integer_arithmetic_symbol(op_w) + "(__freak_compound_old, __freak_compound_rhs); \}")
+            emit(" = ")
+            emit_c_integer_result(op_w, "__freak_compound_old", "__freak_compound_rhs", rhs_w)
+            emit_line("; \}")
             give back
         }
         emit_expr(expr_id_w)
@@ -2255,14 +2301,14 @@ task emit_c_program() -> void {
     emt_reset_local_types()
     tc_reset_locals()
 
-    -- Ordinary programs initialize globals in source order. The explicit
-    -- bootstrap profile additionally executes root statements in that order.
+    -- Script programs execute root statements in source order. Programs with
+    -- main initialize globals; the bootstrap profile may also run statements.
     i = 0
     repeat top_count times {
         pilot cur_id: word = array_get(ast_top_stmts, i)
         pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
         if kind == STMT_PILOT { emit_global_init(cur_id) }
-        else if v35_bootstrap_compat and kind != STMT_TASK and kind != STMT_SHAPE and kind != STMT_IMPL and kind != STMT_EXTERN { emit_stmt(cur_id) }
+        else if (not has_user_main or v35_bootstrap_compat) and kind != STMT_TASK and kind != STMT_SHAPE and kind != STMT_IMPL and kind != STMT_EXTERN { emit_stmt(cur_id) }
         i += 1
     }
     emit_line("\}")
