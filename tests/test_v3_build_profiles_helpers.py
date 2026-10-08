@@ -1,7 +1,8 @@
 """Pure helper fixtures, plus an opt-in genuine Clang display-trace witness.
 
-FREAK_PROFILE_NATIVE_CLANG selects a real compiler image for bounded -###
-probes; the ordinary helper fixtures never launch a child.
+FREAK_PROFILE_NATIVE_CLANG selects the native compiler; the witness aliases
+its actual driver image for bounded -### probes. Ordinary fixtures never
+launch a child.
 """
 import json
 import os
@@ -20,6 +21,51 @@ import v3_build_profiles as profiles
 
 def display_token(value):
     return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
+
+
+def native_clang_probe(clang, *arguments):
+    completed = subprocess.run([str(clang), *arguments], capture_output=True,
+                               text=True, encoding="utf-8", timeout=30, check=False)
+    assert completed.returncode == 0, (clang, completed.returncode,
+                                       completed.stdout, completed.stderr)
+    return completed.stdout, completed.stderr
+
+
+def native_clang_frontend(output):
+    frontends = []
+    for line in output.splitlines():
+        executable = profiles.clang_display_token(line)
+        if executable is None:
+            continue
+        argument = profiles.clang_display_token(executable[1])
+        if argument is not None and argument[0] == "-cc1":
+            frontends.append(executable[0])
+    assert len(frontends) == 1, ("expected one Clang frontend image", output)
+    image = Path(frontends[0])
+    assert image.is_absolute() and image.is_file(), ("invalid Clang frontend image", image, output)
+    return image
+
+
+def native_clang_driver(clang, resource_dir):
+    if sys.platform != "darwin":
+        return clang
+    # Apple /usr/bin/clang can dispatch by argv[0], so its foo-ld alias would
+    # request an unrelated developer tool. Ask the configured compiler itself
+    # for the frontend image; never select another installation from PATH.
+    arguments = ("-###", "-x", "c", os.devnull, "-o", os.devnull,
+                 "-resource-dir", resource_dir)
+    selected = "".join(native_clang_probe(clang, *arguments))
+    image = native_clang_frontend(selected)
+    reported, _ = native_clang_probe(image, "-print-resource-dir")
+    actual_resource = Path(reported.strip())
+    assert actual_resource.is_absolute() and actual_resource.is_dir(), (image, reported)
+    assert actual_resource.samefile(resource_dir), ("Clang resource directory changed", clang,
+                                                  image, resource_dir, actual_resource)
+    direct = "".join(native_clang_probe(image, *arguments))
+    assert native_clang_frontend(direct).samefile(image), ("Clang frontend image changed", image, direct)
+    assert profiles.linker_from_trace(direct) == profiles.linker_from_trace(selected), (
+        "Clang linker selection changed", clang, image, selected, direct)
+    return image
 
 
 def stage_native_clang_alias(clang, alias):
@@ -263,7 +309,106 @@ class ControlledLinkerHelpers(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 stage_native_clang_alias(clang, alias)
         self.assertEqual(copy.call_args_list[0].args, (clang, alias))
-        self.assertEqual(copy.call_args_list[1].args, (dll, alias.parent / dll.name))
+        self.assertEqual(copy.call_args_list[1].args, (dll.resolve(), alias.parent / dll.name))
+
+    def clang_dispatch_fixture(self):
+        configured = self.root / "selected developer dispatcher"
+        configured.write_bytes(b"configured dispatcher")
+        origin = self.root / "selected SDK é 日本 ' $"
+        origin.mkdir()
+        image = origin / "clang"
+        image.write_bytes(b"selected driver image")
+        other = self.root / "unselected clang"
+        other.write_bytes(b"another compiler")
+        linker = origin / "ld"
+        linker.write_bytes(b"selected linker")
+        resource = origin / "resources"
+        resource.mkdir()
+        trace = f'{display_token(image)} "-cc1" "input.c"\n{display_token(linker)} "-o" "output"\n'
+        return configured, image, other, linker, resource, trace
+
+    def test_macos_dispatcher_uses_its_own_frontend_and_resource_identity(self):
+        configured, image, _, _, resource, trace = self.clang_dispatch_fixture()
+        replies = [subprocess.CompletedProcess([], 0, "", trace),
+                   subprocess.CompletedProcess([], 0, str(resource) + "\n", ""),
+                   subprocess.CompletedProcess([], 0, "", trace)]
+        with patch.object(sys, "platform", "darwin"), patch.object(subprocess, "run", side_effect=replies) as launch:
+            self.assertEqual(native_clang_driver(configured, str(resource)), image)
+        commands = [call.args[0] for call in launch.call_args_list]
+        self.assertEqual(commands[0], [str(configured), "-###", "-x", "c", os.devnull,
+                                       "-o", os.devnull, "-resource-dir", str(resource)])
+        self.assertEqual(commands[1], [str(image), "-print-resource-dir"])
+        self.assertEqual(commands[2], [str(image), *commands[0][1:]])
+        for call in launch.call_args_list:
+            self.assertEqual(call.kwargs["timeout"], 30)
+            self.assertFalse(call.kwargs["check"])
+        self.assertEqual(configured.read_bytes(), b"configured dispatcher")
+        self.assertEqual(image.read_bytes(), b"selected driver image")
+
+    def test_macos_dispatcher_rejects_unusable_or_ambiguous_frontend_images(self):
+        configured, image, other, linker, resource, trace = self.clang_dispatch_fixture()
+        invalid = ("", f'{display_token(image)} "-cc1as"\n',
+                   '"clang" "-cc1"\n',
+                   f'{display_token(self.root / "absent clang")} "-cc1"\n',
+                   f'{display_token(resource)} "-cc1"\n',
+                   trace + f'{display_token(other)} "-cc1"\n',
+                   f'{display_token(image)}suffix "-cc1"\n',
+                   f'{display_token(linker)} "-o" "-cc1"\n')
+        for output in invalid:
+            with self.subTest(output=output), patch.object(sys, "platform", "darwin"), patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", output)) as launch:
+                with self.assertRaises(AssertionError):
+                    native_clang_driver(configured, str(resource))
+                self.assertEqual(launch.call_count, 1)
+
+    def test_macos_dispatcher_rejects_different_or_invalid_resource_directory(self):
+        configured, _, _, _, resource, trace = self.clang_dispatch_fixture()
+        other_resource = self.root / "another toolchain resources"
+        other_resource.mkdir()
+        for reported in ("", "relative-resource", str(self.root / "absent resource"), str(other_resource)):
+            replies = [subprocess.CompletedProcess([], 0, "", trace),
+                       subprocess.CompletedProcess([], 0, reported + "\n", "")]
+            with self.subTest(reported=reported), patch.object(sys, "platform", "darwin"), patch.object(subprocess, "run", side_effect=replies) as launch:
+                with self.assertRaises(AssertionError):
+                    native_clang_driver(configured, str(resource))
+                self.assertEqual(launch.call_count, 2)
+
+    def test_macos_dispatcher_rejects_redirected_image_or_changed_linker(self):
+        configured, image, other, linker, resource, trace = self.clang_dispatch_fixture()
+        other_linker = self.root / "ld"
+        other_linker.write_bytes(b"unselected linker")
+        invalid = (f'{display_token(other)} "-cc1"\n{display_token(linker)} "-o"\n',
+                   f'{display_token(image)} "-cc1"\n{display_token(other_linker)} "-o"\n')
+        for direct in invalid:
+            replies = [subprocess.CompletedProcess([], 0, "", trace),
+                       subprocess.CompletedProcess([], 0, str(resource) + "\n", ""),
+                       subprocess.CompletedProcess([], 0, "", direct)]
+            with self.subTest(direct=direct), patch.object(sys, "platform", "darwin"), patch.object(subprocess, "run", side_effect=replies) as launch:
+                with self.assertRaises(AssertionError):
+                    native_clang_driver(configured, str(resource))
+                self.assertEqual(launch.call_count, 3)
+
+    def test_macos_configured_probe_failure_keeps_both_streams_and_path(self):
+        configured, image, _, _, resource, trace = self.clang_dispatch_fixture()
+        for failure_at in range(3):
+            # Each probe can fail independently; no later probe is attempted.
+            replies = [subprocess.CompletedProcess([], 0, "", trace),
+                       subprocess.CompletedProcess([], 0, str(resource) + "\n", ""),
+                       subprocess.CompletedProcess([], 0, "", trace)]
+            replies[failure_at] = subprocess.CompletedProcess([], 72, "selected SDK output", "driver lookup failed")
+            with self.subTest(failure_at=failure_at), patch.object(sys, "platform", "darwin"), patch.object(subprocess, "run", side_effect=replies) as launch:
+                with self.assertRaises(AssertionError) as failed:
+                    native_clang_driver(configured, str(resource))
+                self.assertIn("selected SDK output", str(failed.exception))
+                self.assertIn("driver lookup failed", str(failed.exception))
+                self.assertIn(str(configured if failure_at == 0 else image), str(failed.exception))
+                self.assertEqual(launch.call_count, failure_at + 1)
+
+    def test_non_macos_driver_selection_keeps_the_configured_image_without_probe(self):
+        configured = self.root / "clang.exe"
+        configured.write_bytes(b"configured compiler")
+        for platform in ("linux", "win32"):
+            with self.subTest(platform=platform), patch.object(sys, "platform", platform):
+                self.assertEqual(native_clang_driver(configured, "unused resources"), configured)
 
     def test_ignored_override_still_fails(self):
         for platform, name in (("linux", "ld"), ("darwin", "ld"), ("win32", "link.exe")):
@@ -368,6 +513,7 @@ class NativeLinkerAliasTrace(unittest.TestCase):
                                   text=True, encoding="utf-8", timeout=30, check=False)
         self.assertEqual(resource.returncode, 0, resource.stdout + resource.stderr)
         self.assertTrue(Path(resource.stdout.strip()).is_dir())
+        image = native_clang_driver(clang, resource.stdout.strip())
         with tempfile.TemporaryDirectory(prefix="freak-real-linker-role-") as directory:
             spelling = "compiler é 日本 ' $ &"
             if os.name != "nt":
@@ -375,7 +521,7 @@ class NativeLinkerAliasTrace(unittest.TestCase):
             tools = Path(directory) / spelling
             tools.mkdir()
             alias = tools / ("foo-ld.exe" if sys.platform == "win32" else "foo-ld")
-            flags = [*stage_native_clang_alias(clang, alias), "-resource-dir", resource.stdout.strip()]
+            flags = [*stage_native_clang_alias(image, alias), "-resource-dir", resource.stdout.strip()]
             trace = subprocess.run([str(alias), "-###", "-x", "c", os.devnull, "-o", os.devnull,
                                     *flags], capture_output=True,
                                    text=True, encoding="utf-8", timeout=30, check=False)
