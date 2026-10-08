@@ -22,6 +22,22 @@ def display_token(value):
     return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
 
 
+def stage_native_clang_alias(clang, alias):
+    """Keep loader dependencies while exposing a genuine compiler alias."""
+    if sys.platform == "win32":
+        # Windows copies need the selected image's adjacent DLLs; symlinks may
+        # require privileges that the native test runner does not have.
+        shutil.copy2(clang, alias)
+        for companion in clang.resolve().parent.iterdir():
+            if companion.is_file() and companion.suffix.lower() == ".dll":
+                shutil.copy2(companion, alias.parent / companion.name)
+        return []
+    # Resolving executable-relative shared libraries must keep the original
+    # image location. Clang still prints argv[0] with this driver flag.
+    alias.symlink_to(clang)
+    return ["-no-canonical-prefixes"]
+
+
 class ControlledLinkerHelpers(unittest.TestCase):
     def setUp(self):
         guard = patch.object(subprocess, "run", side_effect=AssertionError("unexpected child process"))
@@ -209,6 +225,46 @@ class ControlledLinkerHelpers(unittest.TestCase):
                 profiles.stage_msvc_linker_dependencies(actual, destination)
             copy.assert_called_once_with(companion, private / companion.name)
 
+    def test_native_clang_windows_alias_preserves_only_selected_adjacent_dlls(self):
+        origin = self.root / "selected compiler"
+        origin.mkdir()
+        clang = origin / "clang.exe"
+        clang.write_bytes(b"selected compiler image")
+        companions = {"LLVM.dll": b"selected LLVM", "libclang-cpp.DLL": b"selected Clang"}
+        for name, contents in companions.items():
+            (origin / name).write_bytes(contents)
+        for name in ("clang-cl.exe", "LLVM.dll.bak", "notes.txt"):
+            (origin / name).write_bytes(b"unrelated tool")
+        nested = origin / "other architecture"
+        nested.mkdir()
+        (nested / "LLVM.dll").write_bytes(b"wrong architecture")
+        (origin / "directory.dll").mkdir()
+        (self.root / "external.dll").write_bytes(b"unselected compiler")
+        private = self.root / "private compiler"
+        private.mkdir()
+        alias = private / "foo-ld.exe"
+        with patch.object(sys, "platform", "win32"):
+            self.assertEqual(stage_native_clang_alias(clang, alias), [])
+        self.assertEqual({path.name for path in private.iterdir()}, {alias.name, *companions})
+        self.assertEqual(alias.read_bytes(), clang.read_bytes())
+        for name, contents in companions.items():
+            self.assertEqual((private / name).read_bytes(), contents)
+            self.assertEqual((origin / name).read_bytes(), contents)
+
+    def test_native_clang_configured_alias_copy_failure_propagates(self):
+        origin = self.root / "compiler"
+        origin.mkdir()
+        clang = origin / "clang.exe"
+        clang.write_bytes(b"compiler")
+        dll = origin / "LLVM.dll"
+        dll.write_bytes(b"private dependency")
+        alias = self.root / "foo-ld.exe"
+        with patch.object(sys, "platform", "win32"), patch.object(shutil, "copy2", side_effect=[None, PermissionError("fixture")]) as copy:
+            with self.assertRaises(PermissionError):
+                stage_native_clang_alias(clang, alias)
+        self.assertEqual(copy.call_args_list[0].args, (clang, alias))
+        self.assertEqual(copy.call_args_list[1].args, (dll, alias.parent / dll.name))
+
     def test_ignored_override_still_fails(self):
         for platform, name in (("linux", "ld"), ("darwin", "ld"), ("win32", "link.exe")):
             with self.subTest(platform=platform):
@@ -319,9 +375,9 @@ class NativeLinkerAliasTrace(unittest.TestCase):
             tools = Path(directory) / spelling
             tools.mkdir()
             alias = tools / ("foo-ld.exe" if sys.platform == "win32" else "foo-ld")
-            shutil.copy2(clang, alias)
+            flags = [*stage_native_clang_alias(clang, alias), "-resource-dir", resource.stdout.strip()]
             trace = subprocess.run([str(alias), "-###", "-x", "c", os.devnull, "-o", os.devnull,
-                                    "-resource-dir", resource.stdout.strip()], capture_output=True,
+                                    *flags], capture_output=True,
                                    text=True, encoding="utf-8", timeout=30, check=False)
             self.assertEqual(trace.returncode, 0, trace.stdout + trace.stderr)
             output = trace.stdout + trace.stderr
@@ -329,7 +385,7 @@ class NativeLinkerAliasTrace(unittest.TestCase):
             selected = profiles.linker_from_trace(output)
             self.assertNotEqual(selected, alias)
             self.assertTrue(selected.is_file())
-            self.assertEqual(profiles.trace_linker(str(alias), ["-resource-dir", resource.stdout.strip()]), selected)
+            self.assertEqual(profiles.trace_linker(str(alias), flags), selected)
 
 
 if __name__ == "__main__":
