@@ -5280,6 +5280,7 @@ task v4_mir_closure_local_decl_name_token(stream_id: int, token_id: int, body_en
     pilot pilot_token = token_id
     pilot modifier = v4_lex_token_syntax_value(stream_id, token_id)
     if modifier == "fixed" or modifier == "grounded" {
+        if modifier == "grounded" and not v4_parse_is_fixed_pilot_keyword(stream_id, token_id) { give back -1 }
         pilot_token = v4_mir_next_nontrivia(stream_id, token_id + 1, body_end)
         pilot trivia = token_id + 1
         repeat until trivia >= pilot_token {
@@ -9147,7 +9148,7 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
         give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end, "")
     } else if first_val == "fixed" or first_val == "grounded" {
         pilot maybe_pilot = v4_mir_skip_trivia(stream_id, first + 1)
-        if maybe_pilot < stmt_end and v4_lex_token_syntax_value(stream_id, maybe_pilot) == "pilot" {
+        if maybe_pilot < stmt_end and v4_parse_is_fixed_pilot_keyword(stream_id, first) {
             give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, maybe_pilot, stmt_end, first_val + " pilot")
         } else {
             give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)

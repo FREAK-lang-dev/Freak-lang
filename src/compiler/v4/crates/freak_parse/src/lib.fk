@@ -471,6 +471,21 @@ task v4_parse_is_fixed_pilot_keyword(stream_id: int, token_id: int) -> bool {
         give back false
     }
     pilot pilot_token = v4_parse_skip_trivia(stream_id, token_id + 1)
+    -- Contextual grounded agrees with V3: only spaces/tabs join the pair.
+    -- Keep fixed's established all-trivia lookahead and recovery unchanged.
+    if modifier == "grounded" {
+        pilot trivia = token_id + 1
+        repeat until trivia >= pilot_token {
+            pilot text = v4_lex_token_value(stream_id, trivia)
+            pilot offset = 0
+            repeat until offset >= text.length() {
+                pilot ch = text.char_at(offset)
+                if ch != " " and ch != "\t" { give back false }
+                offset += 1
+            }
+            trivia += 1
+        }
+    }
     if pilot_token < 0 or pilot_token >= v4_lex_token_count(stream_id) {
         give back false
     }
