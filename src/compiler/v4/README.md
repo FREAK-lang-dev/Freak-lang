@@ -463,6 +463,11 @@ calling `v4_ty_type_text` (directly or through
 `v4_mir_compact_type_text`) to rediscover the declared type. This includes
 tuple and fixed-array annotations used by tuple/list destructuring. MIR build
 preserves ordinary task generic scope when resolving those annotations.
+Contextual `grounded pilot` permits only spaces or tabs between its words.
+Parser, HIR local discovery, MIR statement lowering and closure capture scanning
+share that predicate; LF, CRLF, bare CR and comments do not fuse declarations.
+Ordinary identifiers named `grounded` retain their declaration and annotation
+identity. The established `fixed` trivia and recovery behavior is unchanged.
 Concrete impl methods read the same stored HIR facts through an exact synthetic
 method identity and source-offset bridge, without adding ordinary task signature
 rows. Method boundary discovery retains the existing nonordinary signature

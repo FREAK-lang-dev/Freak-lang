@@ -21,7 +21,8 @@ separate release preparation and publication gates complete.
 Scripts without `main` run again; an empty or declaration-only program still
 fails, with its entry diagnostic naming the user file. Standalone `give` and
 `back` are identifiers; only the same-line `give back` pair is a return keyword.
-`grounded pilot` is a contextual synonym of `fixed pilot`. Ordinary `pilot`
+`grounded pilot` is a contextual synonym of `fixed pilot`, joined only by spaces
+or tabs; line breaks, bare CR and comments do not join the pair. Ordinary `pilot`
 bindings are mutable, including under `--strict-borrow`; `pilot mut` remains a
 silent synonym. Words support bytewise UTF-8 ordering without locale rules.
 Checked integer arithmetic uses inline fast paths while retaining controlled

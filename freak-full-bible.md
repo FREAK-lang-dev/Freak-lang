@@ -126,7 +126,9 @@ pilot x: word = "hello"
 - Semicolons optional everywhere
 - Mutable by default
 - Immutable binding: `fixed pilot x = 42` or `grounded pilot x = 42` — cannot be reassigned
-- `grounded` is contextual only before `pilot`; it remains a usable name elsewhere.
+- `grounded` is contextual only before `pilot`, with spaces or tabs between the
+  words. LF, CRLF, bare CR and comments do not join the pair. It remains a usable
+  name elsewhere.
 - Mutation diagnostics preserve the written spelling: `fixed pilot cannot be modified` or `grounded pilot cannot be modified`.
 - `pilot mut` is a silent synonym of `pilot`, including under `--strict-borrow`.
 
