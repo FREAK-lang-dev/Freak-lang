@@ -400,7 +400,9 @@ class ControlledLinkerHelpers(unittest.TestCase):
                     native_clang_driver(configured, str(resource))
                 self.assertIn("selected SDK output", str(failed.exception))
                 self.assertIn("driver lookup failed", str(failed.exception))
-                self.assertIn(str(configured if failure_at == 0 else image), str(failed.exception))
+                self.assertEqual(failed.exception.args,
+                                 ((configured if failure_at == 0 else image, 72,
+                                   "selected SDK output", "driver lookup failed"),))
                 self.assertEqual(launch.call_count, failure_at + 1)
 
     def test_non_macos_driver_selection_keeps_the_configured_image_without_probe(self):
@@ -520,6 +522,9 @@ class NativeLinkerAliasTrace(unittest.TestCase):
                 spelling += ' quote " slash \\'
             tools = Path(directory) / spelling
             tools.mkdir()
+            if sys.platform == "win32":
+                # Clang expands existing 8.3 directories in its frontend trace.
+                tools = tools.resolve(strict=True)
             alias = tools / ("foo-ld.exe" if sys.platform == "win32" else "foo-ld")
             flags = [*stage_native_clang_alias(image, alias), "-resource-dir", resource.stdout.strip()]
             trace = subprocess.run([str(alias), "-###", "-x", "c", os.devnull, "-o", os.devnull,
