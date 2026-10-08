@@ -430,6 +430,8 @@ def main() -> None:
         'duplicate-private-task': ('task api() -> int { give back 4 }\ntask api() -> int { give back 5 }\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 6),
         'dependency-source-import': ('\n\nuse rogue::{helper}\ntask api() -> int { give back 4 }\n', 'use left::{api}\ntask main() {}\n', 'undeclared direct dependency', 'left/src/core.fk', 3, 5),
         'extern-export': ('extern task api() -> int\n', 'use left::{api}\ntask main() {}\n', 'extern declarations are unsupported', 'left/src/core.fk', 1, 13),
+        'fixed-before-extern': ('fixed pilot api: int = 4\nextern task api() -> int\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 13),
+        'extern-before-fixed': ('extern task api() -> int\nfixed pilot api: int = 4\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 13),
     }
     for case, (library, source, message, relative, line, column) in mutations.items():
         root = work / f'negative-{case}'
@@ -444,6 +446,9 @@ def main() -> None:
             location = f'{root / relative}:{line}:{column}'.encode()
             if result.returncode == 0 or message.encode() not in log or location not in log:
                 raise RuntimeError(f'{case}/{backend} missing original source rejection {location!r}: {log!r}')
+            if case in ('fixed-before-extern', 'extern-before-fixed'):
+                if b'extern declarations are unsupported' not in log or (work / f'negative-{case}-{backend}').exists():
+                    raise RuntimeError(f'{case}/{backend} weakened active extern rejection or emitted output: {log!r}')
             records.append({'case': case, 'backend': backend, 'status': 'rejected', 'file': str(root / relative), 'line': line, 'column': column})
     # A dependency export can admit a callable without accidentally exposing
     # its same-spelled legacy ordinary global as an imported value.
@@ -575,27 +580,39 @@ def main() -> None:
             if result.returncode:
                 raise RuntimeError(f'extern {case}/{backend} source type rejected: {result.stdout + result.stderr!r}')
             records.append({'case': 'extern-' + case, 'backend': backend, 'status': 'accepted'})
-    # Supported unused export headers carry type/value namespace facts without
-    # loading or emitting unused module bodies; extern headers are unsupported.
-    for declarations, accepted in (
-        ('shape Shared { value: int }\ntask Shared() -> int { give back 5 }\n', True),
-        ('fixed pilot Shared: int = 4\ntask Shared() -> int { give back 5 }\n', False),
+    # Unused export headers collect extern value names only for collisions;
+    # externs are never exports and unused bodies stay outside parsing/emission.
+    for case, declarations, accepted, message, line, column in (
+        ('type-value-export', 'shape Shared { value: int }\ntask Shared() -> int { give back 5 }\n', True, '', 0, 0),
+        ('fixed-callable-collision', 'fixed pilot Shared: int = 4\ntask Shared() -> int { give back 5 }\n', False, 'duplicate module declaration', 2, 6),
+        ('callable-fixed-collision', 'task Shared() -> int { give back 5 }\nfixed pilot Shared: int = 4\n', False, 'duplicate module declaration', 2, 13),
+        ('fixed-extern-collision', 'fixed pilot Shared: int = 4\nextern task Shared() -> int\n', False, 'duplicate module declaration', 2, 13),
+        ('extern-fixed-collision', 'extern task Shared() -> int\nfixed pilot Shared: int = 4\n', False, 'duplicate module declaration', 2, 13),
+        ('unsupported-extern-export', 'extern task Shared() -> int\n', False, 'missing or unsupported manifest export', 1, 1),
+        ('type-extern-export', 'shape Shared { value: int }\nextern task Shared() -> int\n', True, '', 0, 0),
+        ('private-body', 'fixed pilot Shared: int = 4\nextern task unused_private_extern_should_not_emit() -> int\n'
+                         'task unused_private_body_should_not_emit() { pilot = }\n', True, '', 0, 0),
     ):
-        root = work / f'unused-namespace-{accepted}'
+        root = work / f'unused-namespace-{case}'
         source_app, _ = fixture(root)
         manifest = root / 'left/hangar.toml'
         manifest.write_text(manifest.read_text().replace('[modules]\n', '[modules]\nother = "src/other.fk"\n').replace('[exports]\n', '[exports]\nshared = "other::Shared"\n'))
         (root / 'left/src/other.fk').write_text(declarations)
         for backend in ('c', 'llvm'):
-            result = run([str(probe), str(source_app), str(source_app / 'src/main.fk'), backend, str(work / f'unused-namespace-{accepted}-{backend}')], cwd=unrelated, env=env)
+            generated = work / f'unused-namespace-{case}-{backend}'
+            result = run([str(probe), str(source_app), str(source_app / 'src/main.fk'), backend, str(generated)], cwd=unrelated, env=env)
             log = result.stdout + result.stderr
-            (work / f'unused-namespace-{accepted}-{backend}.log').write_bytes(log)
+            (work / f'unused-namespace-{case}-{backend}.log').write_bytes(log)
             if accepted:
                 if result.returncode or b'BINDING_OK' not in result.stdout:
-                    raise RuntimeError(f'{backend} unused type/value export incorrectly rejected: {log!r}')
-            elif result.returncode == 0 or b'duplicate module declaration' not in log:
-                raise RuntimeError(f'{backend} unused fixed/callable collision accepted: {log!r}')
-            records.append({'case': 'unused-type-value-export' if accepted else 'unused-fixed-callable-collision', 'backend': backend, 'status': 'accepted' if accepted else 'rejected'})
+                    raise RuntimeError(f'{backend} unused {case} incorrectly rejected: {log!r}')
+                if case == 'private-body' and b'unused_private_' in generated.read_bytes():
+                    raise RuntimeError(f'{backend} emitted an unused private body or extern')
+            else:
+                location = f'{root / "left/src/other.fk"}:{line}:{column}'.encode()
+                if result.returncode == 0 or message.encode() not in log or location not in log or generated.exists():
+                    raise RuntimeError(f'{backend} unused {case} missing original source rejection {location!r}: {log!r}')
+            records.append({'case': 'unused-' + case, 'backend': backend, 'status': 'accepted' if accepted else 'rejected'})
     for count in (1, 2):
         invalid = 'task lexical_probe() { say "' + 'before\\x00after' * count + '" }\n'
         loaded = work / f'lexical-count-{count}.fk'

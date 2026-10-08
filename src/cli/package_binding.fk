@@ -358,7 +358,12 @@ task pb_verify_unloaded_exports() -> void {
                     pilot val = pb_value(i) pilot kind = pb_kind(i)
                     if depth == 0 and kind == TOK_KW {
                         pilot name = "" pilot declaration_kind = "" pilot name_token = i + 1
-                        if val == "task" and pb_value(i - 1) != "extern" and pb_value(i + 2) == "(" { name = pb_value(i + 1) declaration_kind = STMT_TASK }
+                        if val == "task" and pb_value(i + 2) == "(" {
+                            name = pb_value(i + 1) declaration_kind = STMT_TASK
+                            -- Unsupported externs still reserve value names;
+                            -- collecting the header never admits their bodies.
+                            if pb_value(i - 1) == "extern" { declaration_kind = STMT_EXTERN }
+                        }
                         if val == "shape" and pb_value(i + 2) == "{" { name = pb_value(i + 1) declaration_kind = STMT_SHAPE }
                         if val == "fixed" and pb_value(i + 1) == "pilot" { name = pb_value(i + 2) declaration_kind = STMT_PILOT name_token = i + 2 }
                         if name != "" {
@@ -383,7 +388,10 @@ task pb_verify_unloaded_exports() -> void {
                 }
                 pilot found = false record = 0
                 repeat until record >= array_len(pb_surface_keys) {
-                    if array_get(pb_surface_keys, record) == cache_key and array_get(pb_surface_names, record) == symbol and array_get(pb_surface_supported, record) != "0" { found = true }
+                    if array_get(pb_surface_keys, record) == cache_key and array_get(pb_surface_names, record) == symbol {
+                        pilot declaration_kind = array_get(pb_surface_supported, record)
+                        if declaration_kind == STMT_TASK or declaration_kind == STMT_PILOT or declaration_kind == STMT_SHAPE { found = true }
+                    }
                     record += 1
                 }
                 if not found {
