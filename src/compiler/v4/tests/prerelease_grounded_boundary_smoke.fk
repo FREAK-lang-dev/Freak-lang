@@ -47,7 +47,7 @@ task v4_prerelease_boundary_run() -> void {
     pilot source = v4_prerelease_boundary_source(prefix, mode)
     pilot stream = v4_lex_text(0, source)
     pilot modifier = 0
-    pilot paired = mode == "space" or mode == "tab" or mode == "mixed" or mode == "diagnostic" or mode == "restore"
+    pilot paired: bool = mode == "space" or mode == "tab" or mode == "mixed" or mode == "diagnostic" or mode == "restore"
     if prefix == "fixed" and mode != "block-comment" { paired = true }
     if prefix == "local-pair" or prefix == "closure" {
         pilot seen = 0
@@ -88,7 +88,7 @@ task v4_prerelease_boundary_run() -> void {
     pilot ty = v4_ty_lower_resolve(0, resolve)
     pilot mir = v4_mir_lower_ty(0, ty)
     pilot errors = 0
-    pilot root = prefix == "fixed" or prefix == "grounded"
+    pilot root: bool = prefix == "fixed" or prefix == "grounded"
     if root {
         if mode == "lf" or mode == "crlf" or mode == "line-comment" {
             errors = 2
