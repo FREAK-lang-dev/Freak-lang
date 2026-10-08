@@ -5273,17 +5273,25 @@ task v4_mir_closure_occurrence_is_mutated(mir_id: int, body_id: int, stream_id: 
 }
 
 task v4_mir_closure_local_decl_name_token(stream_id: int, token_id: int, body_end: int) -> int {
-    if token_id < 0 or token_id >= body_end or v4_lex_token_syntax_value(stream_id, token_id) != "pilot" {
-        give back 0 - 1
+    if token_id < 0 or token_id >= body_end { give back -1 }
+    pilot pilot_token = token_id
+    pilot modifier = v4_lex_token_syntax_value(stream_id, token_id)
+    if modifier == "fixed" or modifier == "grounded" {
+        pilot_token = v4_mir_next_nontrivia(stream_id, token_id + 1, body_end)
+        pilot trivia = token_id + 1
+        repeat until trivia >= pilot_token {
+            if v4_lex_token_type(stream_id, trivia) == v4_tok_trivia and v4_lex_token_value(stream_id, trivia) == "\n" { give back -1 }
+            trivia += 1
+        }
     }
-    pilot name_token = v4_mir_next_nontrivia(stream_id, token_id + 1, body_end)
-    if name_token >= body_end {
-        give back 0 - 1
+    if pilot_token >= body_end or v4_lex_token_syntax_value(stream_id, pilot_token) != "pilot" { give back -1 }
+    pilot name_token = v4_mir_next_nontrivia(stream_id, pilot_token + 1, body_end)
+    if name_token < body_end and v4_lex_token_syntax_value(stream_id, name_token) == "mut" {
+        name_token = v4_mir_next_nontrivia(stream_id, name_token + 1, body_end)
     }
+    if name_token >= body_end { give back -1 }
     pilot token_type = v4_lex_token_type(stream_id, name_token)
-    if token_type != v4_tok_ident and token_type != v4_tok_keyword {
-        give back 0 - 1
-    }
+    if token_type != v4_tok_ident and token_type != v4_tok_keyword { give back -1 }
     give back name_token
 }
 
