@@ -39,6 +39,7 @@ static int probe_overflow;
 static const char *probe_phase = "startup";
 static const char *probe_owner = "production";
 static int probe_handle_diagnostics;
+static int probe_no_privilege_lookup;
 static void probe_handle_snapshot(const char *phase);
 static long probe_process_count(void) {
     DWORD count = 0;
@@ -601,17 +602,26 @@ static void probe_profile(HANDLE directory) {
     typedef BOOL (WINAPI *lookup_fn)(LPCWSTR,LPCWSTR,PLUID);
     open_fn open_token = security ? (open_fn)(void *)probe_address(security,"OpenProcessToken") : NULL;
     info_fn info = security ? (info_fn)(void *)probe_address(security,"GetTokenInformation") : NULL;
-    lookup_fn lookup = security ? (lookup_fn)(void *)probe_address(security,"LookupPrivilegeValueW") : NULL;
+    lookup_fn lookup = security && !probe_no_privilege_lookup ?
+        (lookup_fn)(void *)probe_address(security,"LookupPrivilegeValueW") : NULL;
     HANDLE token = NULL; TOKEN_ELEVATION elevation = {0}; DWORD needed = 0;
     int elevation_known = 0, privileges_known = 0, backup = 0, restore = 0;
     unsigned long error = GetLastError();
-    if (open_token && info && lookup && open_token(GetCurrentProcess(),TOKEN_QUERY,&token)) {
+    if (open_token && info && (lookup || probe_no_privilege_lookup) && open_token(GetCurrentProcess(),TOKEN_QUERY,&token)) {
         elevation_known = info(token,TokenElevation,&elevation,sizeof(elevation),&needed) != 0;
         union { TOKEN_PRIVILEGES aligned; unsigned char bytes[4096]; } storage;
         privileges_known = info(token,TokenPrivileges,storage.bytes,sizeof(storage.bytes),&needed) != 0;
         error = GetLastError();
         LUID backup_id, restore_id;
-        if (privileges_known && lookup(NULL,L"SeBackupPrivilege",&backup_id) && lookup(NULL,L"SeRestorePrivilege",&restore_id)) {
+        if (probe_no_privilege_lookup) {
+            /* Keep the actual token query, but do not initialize privilege-name
+               lookup machinery before the first production GetSecurityInfo.
+               Skipped name enrichment makes enabled-name facts unknown. */
+            TOKEN_PRIVILEGES *privileges = (TOKEN_PRIVILEGES *)storage.bytes;
+            if (privileges_known && privileges->PrivilegeCount >
+                (sizeof(storage.bytes)-offsetof(TOKEN_PRIVILEGES,Privileges))/sizeof(LUID_AND_ATTRIBUTES))
+                privileges_known = 0;
+        } else if (privileges_known && lookup(NULL,L"SeBackupPrivilege",&backup_id) && lookup(NULL,L"SeRestorePrivilege",&restore_id)) {
             TOKEN_PRIVILEGES *privileges = (TOKEN_PRIVILEGES *)storage.bytes;
             if (privileges->PrivilegeCount <= (sizeof(storage.bytes)-offsetof(TOKEN_PRIVILEGES,Privileges))/sizeof(LUID_AND_ATTRIBUTES))
                 for (DWORD i=0;i<privileges->PrivilegeCount;i++) {
@@ -624,9 +634,14 @@ static void probe_profile(HANDLE directory) {
             else privileges_known = 0;
         } else privileges_known = 0;
     } else error = GetLastError();
-    printf("{\"type\":\"token\",\"elevation_known\":%s,\"elevated\":%s,\"privileges_known\":%s,\"backup_enabled\":%s,\"restore_enabled\":%s,\"native_error\":%lu}\n",
-        elevation_known?"true":"false",elevation.TokenIsElevated?"true":"false",
-        privileges_known?"true":"false",backup?"true":"false",restore?"true":"false",error);
+    if (probe_no_privilege_lookup) {
+        printf("{\"type\":\"token\",\"elevation_known\":%s,\"elevated\":%s,\"privileges_known\":%s,\"backup_enabled\":null,\"restore_enabled\":null,\"native_error\":%lu,\"profile_mode\":\"profile_no_privilege_lookup\",\"privilege_name_lookup_skipped\":true,\"privilege_names_known\":false}\n",
+            elevation_known?"true":"false",elevation.TokenIsElevated?"true":"false",privileges_known?"true":"false",error);
+    } else {
+        printf("{\"type\":\"token\",\"elevation_known\":%s,\"elevated\":%s,\"privileges_known\":%s,\"backup_enabled\":%s,\"restore_enabled\":%s,\"native_error\":%lu}\n",
+            elevation_known?"true":"false",elevation.TokenIsElevated?"true":"false",
+            privileges_known?"true":"false",backup?"true":"false",restore?"true":"false",error);
+    }
     if (token) { if (probe_handle_diagnostics) probe_close(token); else CloseHandle(token); }
     if (security) probe_free_library(security);
     probe_owner=original_owner;
@@ -686,6 +701,8 @@ int main(int argc, char **argv) {
 #ifdef _WIN32
     const char *diagnostics=getenv("FREAK_FS_PROBE_HANDLE_DIAGNOSTICS");
     probe_handle_diagnostics=diagnostics && !strcmp(diagnostics,"1");
+    const char *no_privilege_lookup=getenv("FREAK_FS_PROBE_NO_PRIVILEGE_LOOKUP");
+    probe_no_privilege_lookup=probe_handle_diagnostics && no_privilege_lookup && !strcmp(no_privilege_lookup,"1");
 #endif
     long before = probe_resources();
 #ifdef _WIN32
