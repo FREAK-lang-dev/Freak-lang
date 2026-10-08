@@ -1972,7 +1972,7 @@ task tc_validate_binop(op: word, left_id: int, right_id: int, line: int, source_
     } else if op == "==" or op == "!=" {
         valid = tc_types_equality_compatible(left_type, right_type)
     } else if op == "<" or op == ">" or op == "<=" or op == ">=" {
-        valid = tc_is_numeric(left_type) and tc_is_numeric(right_type)
+        valid = (tc_is_numeric(left_type) and tc_is_numeric(right_type)) or (left_type == "word" and right_type == "word")
     }
     if not valid {
         tc_diag("operator '" + op + "' does not accept " + left_type + " and " + right_type, line, source_file)
