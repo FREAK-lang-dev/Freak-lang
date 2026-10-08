@@ -293,9 +293,9 @@ task v4_local_annotation_prefix_run() -> void {
     body_src = body_src + "    pilot mut explicit: int = 9\n"
     body_src = body_src + "    fixed pilot (first, second): (int,int) = (1, 2)\n"
     body_src = body_src + "    give back fixed_mark\n"
-    pilot src = "task anchored(param: int) -> char {\n" + body_src + "}\n"
-    src = src + "shape Anchor { hp: int }\nimpl Anchor {\n"
-    src = src + "task anchored(self, param: int) -> char {\n" + body_src + "}\n}\n"
+    pilot src = "task anchored(param: int) -> char " + chr(123) + "\n" + body_src + chr(125) + "\n"
+    src = src + "shape Anchor " + chr(123) + " hp: int " + chr(125) + "\nimpl Anchor " + chr(123) + "\n"
+    src = src + "task anchored(self, param: int) -> char " + chr(123) + "\n" + body_src + chr(125) + "\n" + chr(125) + "\n"
     pilot stream = v4_lex_text(2, src)
     pilot tree = v4_parse_stream(2, stream)
     pilot hir = v4_hir_lower_tree(2, tree)
