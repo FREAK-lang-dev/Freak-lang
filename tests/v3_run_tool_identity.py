@@ -49,6 +49,35 @@ static FILE *open_log(freak_word name) {
     return fopen(name.data, "ab");
 #endif
 }
+static void log_completion(int64_t command, int64_t state, int forwarded_exit,
+                           int64_t elapsed_ns, freak_word image) {
+    freak_word name = freak_process_env(freak_word_lit("FREAK_TOOL_COMPLETION_LOG"));
+    if (!name.length) return;
+    FILE *file = open_log(name);
+    if (!file) { fputs("recorder completion log could not be opened\n", stderr); return; }
+    fputs("{\"schema\":\"freak.tool-forward-completion.v1\",\"image\":", file);
+    json_word(file, image);
+    fprintf(file, ",\"caller_pid\":%llu,\"forwarded_child_pid\":", (unsigned long long)freak_process_pid());
+#ifdef _WIN32
+    fputs("null,\"pid_scope\":\"recorder caller; native child PID not retained by Windows command record\"", file);
+#else
+    fprintf(file, "%lld,\"pid_scope\":\"recorder caller and observed POSIX forwarded child; zero means no child was forked\"",
+            (long long)freak_command_require(command)->pid);
+#endif
+    fprintf(file, ",\"argv\":[");
+    for (size_t i = 0; i < freak_command_require(command)->argc; ++i) {
+        if (i) fputc(',', file);
+        json_word(file, freak_word_lit(freak_command_require(command)->argv[i]));
+    }
+    fprintf(file, "],\"state\":%lld,\"exit_code\":%lld,\"signal\":%lld,\"forwarded_exit\":%d,\"elapsed_ms\":%lld,\"error\":",
+            (long long)state, (long long)freak_process_command_exit_code(command),
+            (long long)freak_process_command_signal(command), forwarded_exit,
+            (long long)(elapsed_ns / 1000000));
+    freak_word error = freak_process_command_error(command);
+    json_word(file, error); freak_word_release_owned(&error);
+    fputs(",\"capture_scope\":\"inherited streams; outer CLI owns raw capture\"}\n", file);
+    if (fclose(file)) fputs("recorder completion log could not be closed\n", stderr);
+}
 int main(int argc, char **argv) {
     freak_argc = argc; freak_argv = argv;
     freak_word image = freak_process_executable_path();
@@ -76,8 +105,10 @@ int main(int argc, char **argv) {
         int64_t command = freak_process_command_new(probe);
         freak_process_command_arg(command, freak_word_lit("--version"));
         freak_process_command_env(command, freak_word_lit("FREAK_TOOL_PROBE_EXECUTABLE"), freak_word_lit(""));
+        int64_t started = freak_time_monotonic_ns();
         int64_t state = freak_process_command_run_inherit(command, 0);
         int code = state == 2 ? (int)freak_process_command_exit_code(command) : 94;
+        log_completion(command, state, code, freak_time_monotonic_ns() - started, image);
         freak_process_command_release(command); return code;
     }
     const char *leaf = image.data;
@@ -115,8 +146,10 @@ int main(int argc, char **argv) {
         flag = freak_process_env(freak_word_lit("FREAK_TOOL_LINKER_FLAG2"));
         if (flag.length) freak_process_command_arg(command, flag);
     }
+    int64_t started = freak_time_monotonic_ns();
     int64_t state = freak_process_command_run_inherit(command, 0);
     int code = state == 2 ? (int)freak_process_command_exit_code(command) : 94;
+    log_completion(command, state, code, freak_time_monotonic_ns() - started, image);
     freak_process_command_release(command);
     if ((version || target) && !strcmp(mode.data, "nonzero")) return 91;
     return code;
@@ -264,10 +297,12 @@ def main() -> int:
     def run(argv: list[str], cwd: Path, env: dict[str, str], *, timeout: int = 120) -> tuple[int, str]:
         result = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, timeout=timeout, check=False)
         report["commands"].append({"argv": argv, "cwd": str(cwd), "returncode": result.returncode,
-                                   "identity_environment": {key: value for key, value in env.items() if key in {"FREAK_CLANG", "FREAK_HOME", "PATH"} or key.startswith("FREAK_TOOL_")},
+                                   "identity_environment": {key: value for key, value in env.items() if key in {"FREAK_CLANG", "FREAK_HOME", "PATH", "FREAK_RUN_TOOL_DIAGNOSTICS"} or key.startswith("FREAK_TOOL_")},
                                    "stdout_hex": result.stdout.hex(), "stderr_hex": result.stderr.hex()})
         if env.get("FREAK_TOOL_LOG") and Path(env["FREAK_TOOL_LOG"]).is_file():
             report["native_tool_entries"] = [json.loads(line) for line in Path(env["FREAK_TOOL_LOG"]).read_text(encoding="utf-8").splitlines()]
+        if env.get("FREAK_TOOL_COMPLETION_LOG") and Path(env["FREAK_TOOL_COMPLETION_LOG"]).is_file():
+            report["native_tool_completions"] = [json.loads(line) for line in Path(env["FREAK_TOOL_COMPLETION_LOG"]).read_text(encoding="utf-8").splitlines()]
         return result.returncode, ANSI.sub("", (result.stdout + result.stderr).decode("utf-8", "replace"))
 
     try:
@@ -341,7 +376,8 @@ def main() -> int:
             shutil.copy2(recorder, linker)
             env.update(FREAK_TOOL_LOG=str(root / "tool-log.jsonl"), FREAK_TOOL_REAL_CLANG=str(real_clang),
                        FREAK_TOOL_REAL_LINKER=str(real_linker), FREAK_TOOL_LINKER_NAME=real_linker.name,
-                       FREAK_TOOL_LINKER_VERSION="stderr")
+                       FREAK_TOOL_LINKER_VERSION="stderr", FREAK_TOOL_COMPLETION_LOG=str(root / "tool-completions.jsonl"),
+                       FREAK_RUN_TOOL_DIAGNOSTICS="1")
             if os.name == "nt" and real_linker.name.lower() in {"link.exe", "lld-link.exe"}:
                 env["FREAK_TOOL_LINKER_FLAG"] = "-B" + str(linker_dir)
                 env["FREAK_TOOL_LINKER_FLAG2"] = "-fuse-ld=" + ("link.exe" if real_linker.name.lower() == "link.exe" else "lld-link")

@@ -298,12 +298,67 @@ task cli_run_clang_identity(clang_cmd: word) -> word {
     give back "command=" + clang_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + version
 }
 
+task cli_run_clang_target(clang_cmd: word) -> word {
+    -- Keep the strict target probe's argv, limits and stdout acceptance. Its
+    -- command must remain live until a rejected probe's evidence is retained.
+    pilot command = process::command_new(clang_cmd)
+    process::command_arg(command, "-dumpmachine")
+    cli_tool_capture_problem = ""
+    pilot started = time::monotonic_ns()
+    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot elapsed = (time::monotonic_ns() - started) / 1000000
+    pilot exit_code = process::command_exit_code(command)
+    pilot signal_number = process::command_signal(command)
+    pilot error = process::command_error(command)
+    pilot text = ""
+    pilot text_status = -1
+    if state == 2 and exit_code == 0 {
+        pilot bytes: ByteBuffer = process::command_stdout_bytes(command)
+        text = bytes.to_word()
+        text_status = bytes.status()
+        bytes.release()
+        if text_status != 0 {
+            text = ""
+            cli_tool_capture_problem = "tool probe emitted bytes that are not NUL-free UTF-8"
+        }
+    } else {
+        if state == 2 {
+            cli_tool_capture_problem = "tool probe exited with status " + word_from_int(exit_code)
+        } else {
+            cli_tool_capture_problem = "tool probe failed with process status " + word_from_int(state)
+        }
+        if error != "" { cli_tool_capture_problem = cli_tool_capture_problem + ": " + error }
+    }
+    pilot target = cli_first_line(text).trim()
+    pilot problem = cli_tool_capture_problem
+    if target == "" {
+        if problem == "" { problem = "tool probe returned an empty target" }
+        say "  " + C_DIM + "Selected compiler target probe failed: " + problem + C_RESET
+    }
+    if process::env("FREAK_RUN_TOOL_DIAGNOSTICS") == "1" {
+        -- These are fresh copies of immutable captures, independent of the
+        -- stdout text view above. Retain positive completions as well so a
+        -- later trace failure cannot be mistaken for a rejected target.
+        pilot output: ByteBuffer = process::command_stdout_bytes(command)
+        pilot errors: ByteBuffer = process::command_stderr_bytes(command)
+        pilot output_status = output.status()
+        pilot error_status = errors.status()
+        pilot accepted = "false"
+        if target != "" { accepted = "true" }
+        pilot receipt = "FREAK_RUN_TARGET_PROBE {\"schema\":\"freak.run-target-probe.v1\",\"executable\":\"" + cli_test_json_escape(clang_cmd) + "\",\"caller_pid\":" + word_from_int(process::pid()) + ",\"child_pid\":null"
+        receipt = receipt + ",\"state\":" + word_from_int(state) + ",\"exit_code\":" + word_from_int(exit_code) + ",\"signal\":" + word_from_int(signal_number) + ",\"elapsed_ms\":" + word_from_int(elapsed) + ",\"accepted\":" + accepted + ",\"target\":\"" + cli_test_json_escape(target) + "\""
+        receipt = receipt + ",\"error\":\"" + cli_test_json_escape(error) + "\",\"problem\":\"" + cli_test_json_escape(problem) + "\",\"stdout_buffer_status\":" + word_from_int(output_status) + ",\"stderr_buffer_status\":" + word_from_int(error_status) + ",\"stdout_text_status\":" + word_from_int(text_status)
+        receipt = receipt + ",\"stdout_hex\":\"" + cli_test_bytes_hex(output) + "\",\"stderr_hex\":\"" + cli_test_bytes_hex(errors) + "\",\"pid_scope\":\"CLI caller; child PID unavailable through public command API\",\"stdout_text_status_scope\":\"-1 means strict text conversion was not attempted\"}"
+        say receipt
+    }
+    process::command_release(command)
+    give back target
+}
+
 task cli_run_linker_identity(clang_cmd: word, lto: word, cross: word) -> word {
     pilot clang_target = cross
     if clang_target == "" {
-        pilot command = process::command_new(clang_cmd)
-        process::command_arg(command, "-dumpmachine")
-        clang_target = cli_first_line(cli_tool_capture(command, false)).trim()
+        clang_target = cli_run_clang_target(clang_cmd)
     }
     if clang_target == "" { give back CLI_RUN_UNHASHABLE + ":clang-target" }
     pilot linker_cmd = cli_selected_linker_executable(clang_cmd, lto, cross)
