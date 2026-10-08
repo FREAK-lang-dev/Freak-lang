@@ -165,8 +165,12 @@ def test_summary(process: subprocess.CompletedProcess[bytes], *, passed: bool,
         assert case['run']['exit_code'] == 7, case
         assert bytes.fromhex(case['run']['stdout_hex']) == b'preserved child output\n', case
     elif kind == 'timeout':
+        assert case['status'] == case['run']['status'] == 'timed_out', case
         assert case['run']['process_status'] == 5 and case['run']['timed_out'], case
-        assert case['run']['exit_code'] is None, case
+        assert case['run']['exit_code'] is None and case['run']['signal'] is None, case
+        built = case['build']
+        assert built['status'] == 'passed' and built['process_status'] == 2, case
+        assert built['exit_code'] == 0 and built['signal'] is None and not built['timed_out'], case
     elif kind == 'compile':
         assert case['status'] == 'build_failed' and case['run'] is None, case
         assert case['build']['exit_code'] != 0, case
@@ -215,8 +219,13 @@ def main() -> int:
     assert candidate == home / ('freak.exe' if os.name == 'nt' else 'freak'), 'use the extracted archive CLI'
     assert not home.is_relative_to(repo), 'payload must be outside the source checkout'
     report_path = args.report.resolve()
+    logs = (report_path.parent / (report_path.stem + '-logs')).resolve()
+    protected = (repo, home, archive, clang, Path(__file__).resolve(strict=True))
+    for output in (report_path, logs):
+        assert not any(output == path or output.is_relative_to(path) or path.is_relative_to(output)
+                       for path in protected), 'report/log output overlaps a protected input: ' + str(output)
+    # Validate both destinations before creating a directory or writing a report.
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    logs = report_path.parent / (report_path.stem + '-logs')
     logs.mkdir(exist_ok=False)
     fixtures_source = repo / 'examples/v35'
     before = inventory(fixtures_source)
