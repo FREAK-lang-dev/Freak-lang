@@ -1,0 +1,117 @@
+-- One source pipeline per process. Root projection addressing remains a named
+-- conservative Meiya/native boundary, separate from binding immutability.
+task v4_prerelease_root_projection_assert(condition: bool, label: word) -> void {
+    if not condition { panic("prerelease root projection: " + label) }
+}
+
+task v4_prerelease_root_projection_source(argument: word) -> word {
+    pilot prefix = "fixed pilot"
+    pilot mode = argument.substring(6, argument.length())
+    if argument.starts_with("grounded-") { prefix = "grounded pilot"; mode = argument.substring(9, argument.length()) }
+    pilot decl = prefix + " ROOT: Box = Box " + chr(123) + " hp: 1 " + chr(125) + "\n"
+    pilot body = "give back ROOT.hp\n"
+    if mode == "direct-read" { decl = prefix + " ROOT: int = 1\n"; body = "give back ROOT\n" }
+    if mode == "index-read" or mode == "index-write" or mode == "index-lend-mut" { decl = prefix + " ROOT: [int; 2] = [1; 2]\n"; body = "give back ROOT[0]\n" }
+    if mode == "tuple-read" { decl = prefix + " ROOT: (int, int) = (1, 2)\n"; body = "give back ROOT.0\n" }
+    if mode == "direct-write" { decl = prefix + " ROOT: int = 1\n"; body = "ROOT = 2\n give back 0\n" }
+    if mode == "field-write" { body = "ROOT.hp = 2\n give back 0\n" }
+    if mode == "field-compound" { body = "ROOT.hp += 2\n give back 0\n" }
+    if mode == "index-write" { body = "ROOT[0] = 2\n give back 0\n" }
+    if mode == "field-lend-mut" { body = "pilot loan = lend mut ROOT.hp\n give back 0\n" }
+    if mode == "index-lend-mut" { body = "pilot loan = lend mut ROOT[0]\n give back 0\n" }
+    if mode == "direct-lend-mut" { decl = prefix + " ROOT: int = 1\n"; body = "pilot loan = lend mut ROOT\n give back 0\n" }
+    if mode == "field-lend" { body = "pilot loan = lend ROOT.hp\n give back 0\n" }
+    if mode == "shadow-read" { body = "pilot ROOT = Box " + chr(123) + " hp: 2 " + chr(125) + "\n give back ROOT.hp\n" }
+    if mode == "shadow-write" { body = "pilot ROOT = Box " + chr(123) + " hp: 2 " + chr(125) + "\n ROOT.hp = 3\n give back ROOT.hp\n" }
+    if mode == "shadow-fixed-write" {
+        pilot other = "grounded pilot"
+        if prefix == "grounded pilot" { other = "fixed pilot" }
+        body = other + " ROOT = Box " + chr(123) + " hp: 2 " + chr(125) + "\n ROOT.hp = 3\n give back 0\n"
+    }
+    if mode == "after-shadow-read" or mode == "after-shadow-write" {
+        body = "if true " + chr(123) + " pilot ROOT = Box " + chr(123) + " hp: 2 " + chr(125) + "\n ROOT.hp = 3\n " + chr(125) + "\n give back ROOT.hp\n"
+        if mode == "after-shadow-write" { body = body.replace("give back ROOT.hp", "ROOT.hp = 4\n give back 0") }
+    }
+    if mode == "index-root-read" {
+        decl = prefix + " ROOT: int = 0\n"
+        body = "pilot values: [int; 2] = [1, 2]\n values[ROOT] = 3\n give back values[0]\n"
+    }
+    pilot extra_shape = ""
+    if mode == "field-chain-read" or mode == "field-chain-write" {
+        extra_shape = "shape Nest " + chr(123) + " item: Box " + chr(125) + "\n"
+        decl = prefix + " ROOT: Nest = Nest " + chr(123) + " item: Box " + chr(123) + " hp: 1 " + chr(125) + " " + chr(125) + "\n"
+        body = "give back ROOT.item.hp\n"
+        if mode == "field-chain-write" { body = "ROOT.item.hp = 2\n give back 0\n" }
+    }
+    pilot source = "shape Box " + chr(123) + " hp: int " + chr(125) + "\n" + extra_shape + decl + "task main() -> int " + chr(123) + "\n" + body + chr(125) + "\n"
+    give back source
+}
+
+task v4_prerelease_root_projection_run() -> void {
+    pilot argument = process::arg(1)
+    pilot mode = argument.substring(6, argument.length())
+    pilot prefix = "fixed pilot"
+    if argument.starts_with("grounded-") { prefix = "grounded pilot"; mode = argument.substring(9, argument.length()) }
+    pilot source = v4_prerelease_root_projection_source(argument)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    v4_prerelease_root_projection_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) == 0, "source reaches MIR cleanly " + argument)
+    pilot mutation: bool = mode == "direct-write" or mode == "field-write" or mode == "field-compound" or mode == "index-write" or mode == "direct-lend-mut" or mode == "field-lend-mut" or mode == "index-lend-mut" or mode == "shadow-fixed-write" or mode == "after-shadow-write" or mode == "field-chain-write"
+    pilot expected_prefix = prefix
+    if mode == "shadow-fixed-write" {
+        expected_prefix = "grounded pilot"
+        if prefix == "grounded pilot" { expected_prefix = "fixed pilot" }
+    }
+    pilot immutable = 0
+    pilot address_boundary = 0
+    pilot idx = 0
+    repeat until idx >= v4_borrowck_diag_count(borrow) {
+        pilot message = v4_diag_message(v4_borrowck_diag(borrow, idx))
+        if message == "fixed pilot cannot be modified" or message == "grounded pilot cannot be modified" {
+            v4_prerelease_root_projection_assert(message == expected_prefix + " cannot be modified", "declaration spelling and shadow identity " + argument)
+            immutable += 1
+        }
+        if message == "Meiya cannot prove the place address plan within available resources" { address_boundary += 1 }
+        idx += 1
+    }
+    pilot expected_immutable = 0
+    if mutation { expected_immutable = 1 }
+    v4_prerelease_root_projection_assert(immutable == expected_immutable, "only actual mutation diagnoses immutability " + argument)
+    pilot projected_boundary: bool = mode == "field-read" or mode == "index-read" or mode == "tuple-read" or mode == "field-write" or mode == "field-compound" or mode == "index-write" or mode == "field-lend-mut" or mode == "index-lend-mut" or mode == "field-lend" or mode == "after-shadow-read" or mode == "after-shadow-write" or mode == "field-chain-read" or mode == "field-chain-write"
+    pilot expected_address = 0
+    if projected_boundary { expected_address = 1 }
+    v4_prerelease_root_projection_assert(address_boundary == expected_address, "existing root address boundary stays explicit " + argument)
+    pilot expected_mir = 0
+    if mutation and mode != "shadow-fixed-write" { expected_mir = 1 }
+    v4_prerelease_root_projection_assert(v4_mir_diag_count(mir) == expected_mir, "MIR diagnostics distinguish read and mutation " + argument)
+    pilot expected_borrow = expected_immutable + expected_address
+    -- A direct root symbol is still outside the named-place lend boundary.
+    if mode == "direct-lend-mut" { expected_borrow += 1 }
+    v4_prerelease_root_projection_assert(v4_borrowck_diag_count(borrow) == expected_borrow, "all conservative diagnostics accounted for " + argument)
+    if mode.starts_with("shadow-") or mode.starts_with("after-shadow-") {
+        v4_prerelease_root_projection_assert(v4_mir_body_local_count(mir, 0) == 1 and v4_mir_find_local(mir, 0, "ROOT") == 0, "shadow retains local binding ID " + argument)
+        pilot local_prefix = ""
+        if mode == "shadow-fixed-write" { local_prefix = expected_prefix }
+        v4_prerelease_root_projection_assert(v4_mir_local_binding_prefix(mir, 0, 0) == local_prefix, "root prefix does not leak into visible local " + argument)
+    }
+    pilot snapshot = v4_mir_snapshot()
+    v4_prerelease_root_projection_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "snapshot remains valid " + argument)
+    v4_prerelease_root_projection_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot, "snapshot restores exact root/local facts " + argument)
+    pilot restored = v4_borrowck_check_mir(0, mir)
+    v4_prerelease_root_projection_assert(v4_borrowck_diag_count(restored) == expected_borrow, "restored diagnostics agree " + argument)
+    if projected_boundary and not mutation {
+        pilot codegen = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+        pilot expected_native = "native rvalue not yet supported: UsePlace"
+        -- The earlier branch-local shape construction seals the first error.
+        if mode == "after-shadow-read" { expected_native = "native rvalue not yet supported: Construct" }
+        v4_prerelease_root_projection_assert(v4_codegen_llvm_native_module_error(codegen) == expected_native and v4_codegen_llvm_module_text(codegen, target) == "", "root projection emits no unsupported native module " + argument)
+    }
+    say "prerelease-root-projection " + argument + "=passed"
+}
+v4_prerelease_root_projection_run()
