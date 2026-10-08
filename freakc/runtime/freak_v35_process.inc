@@ -719,7 +719,8 @@ enum freak_command_launch_stage {
     FREAK_COMMAND_LAUNCH_TERMINAL,
     FREAK_COMMAND_LAUNCH_STDOUT,
     FREAK_COMMAND_LAUNCH_STDERR,
-    FREAK_COMMAND_LAUNCH_EXECVE
+    FREAK_COMMAND_LAUNCH_EXECVE,
+    FREAK_COMMAND_LAUNCH_GUARDIAN_READY
 };
 typedef struct {
     int32_t error;
@@ -736,12 +737,14 @@ static const char *freak_command_launch_stage_name(uint32_t stage) {
         case FREAK_COMMAND_LAUNCH_STDOUT: return "stdout";
         case FREAK_COMMAND_LAUNCH_STDERR: return "stderr";
         case FREAK_COMMAND_LAUNCH_EXECVE: return "execve";
+        case FREAK_COMMAND_LAUNCH_GUARDIAN_READY: return "guardian-ready";
         default: return NULL;
     }
 }
 
 static bool freak_command_posix_spawn(freak_command_record *command) {
     int output[2] = {-1, -1}, errors[2] = {-1, -1}, execution[2] = {-1, -1}, guardian[2] = {-1, -1};
+    int startup[2] = {-1, -1};
     int *descriptors = NULL; size_t descriptor_count = 0;
     char **environment = NULL, **executables = NULL;
     bool family_locked = false;
@@ -755,7 +758,8 @@ static bool freak_command_posix_spawn(freak_command_record *command) {
         if (owner >= 0) command->terminal_owner = owner;
     }
     if ((!command->inherited && (!freak_command_pipe(output) || !freak_command_pipe(errors))) ||
-            !freak_command_pipe(execution) || !freak_command_pipe(guardian)) goto failed;
+            !freak_command_pipe(execution) || !freak_command_pipe(guardian) ||
+            !freak_command_pipe(startup)) goto failed;
     if (!command->inherited && (fcntl(output[0], F_SETFL, O_NONBLOCK) < 0 ||
             fcntl(errors[0], F_SETFL, O_NONBLOCK) < 0)) goto failed;
     descriptors = freak_command_open_descriptors(&descriptor_count);
@@ -768,9 +772,22 @@ static bool freak_command_posix_spawn(freak_command_record *command) {
     if (pid < 0) goto failed;
     if (pid == 0) {
         close(execution[0]);
+        close(startup[1]);
         int failure = 0;
-        uint32_t stage = FREAK_COMMAND_LAUNCH_SETPGID;
-        if (setpgid(0, 0) != 0) failure = errno;
+        uint32_t stage = FREAK_COMMAND_LAUNCH_GUARDIAN_READY;
+        /* Keep the primary alive and pre-exec until the parent has established
+           its process group and a guardian that pins that group's identity.
+           Closing the owner before readiness yields EOF, never permission to
+           execute application code without a guardian. */
+        unsigned char ready = 0;
+        ssize_t received;
+        do { received = read(startup[0], &ready, 1); } while (received < 0 && errno == EINTR);
+        if (received != 1 || ready != 1) failure = received < 0 ? errno : EIO;
+        close(startup[0]);
+        if (!failure) {
+            stage = FREAK_COMMAND_LAUNCH_SETPGID;
+            if (setpgid(0, 0) != 0) failure = errno;
+        }
         if (!failure) {
             stage = FREAK_COMMAND_LAUNCH_FAMILY_FD;
             if (fcntl(command->family_fd, F_SETFD, 0) < 0) failure = errno;
@@ -816,21 +833,60 @@ static bool freak_command_posix_spawn(freak_command_record *command) {
     command->pid = pid;
     command->child_live = true;
     freak_commands_children++;
-    (void)setpgid(pid, pid);
+    if (setpgid(pid, pid) < 0) {
+        int failure = errno;
+        /* No group exists yet. Closing readiness makes the pre-exec child
+           abort via EOF while our execution reader still admits its small
+           failure record. An external reaper may already have consumed it;
+           never signal an unguarded numeric PID that could have been reused. */
+        freak_command_close_pipe(&startup[0]);
+        freak_command_close_pipe(&startup[1]);
+        while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+        command->child_live = false; freak_commands_children--; errno = failure;
+        goto failed;
+    }
     freak_command_family_member *member = freak_command_family_find(command->family, command->family_token);
     member->group = pid;
     pid_t guardian_pid = fork();
     if (guardian_pid == 0) freak_command_guardian(command, guardian[0], descriptors, descriptor_count);
     if (guardian_pid < 0 || setpgid(guardian_pid, pid) < 0) {
         int failure = errno;
-        if (guardian_pid > 0) { (void)kill(guardian_pid, SIGKILL); while (waitpid(guardian_pid, NULL, 0) < 0 && errno == EINTR) {} }
+        /* The blocked primary still pins the group while cancellation runs.
+           EOF must not let it exit and be externally reaped before signalling.
+           A not-yet-joined guardian receives owner EOF and exits or cancels its
+           own group; never signal its unguarded numeric PID after join fails. */
         freak_command_family_stop_locked(command);
+        freak_command_close_pipe(&startup[0]);
+        freak_command_close_pipe(&startup[1]);
+        freak_command_close_pipe(&guardian[0]);
+        freak_command_close_pipe(&guardian[1]);
         freak_command_family_unlock(command); family_locked = false;
         while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+        if (guardian_pid > 0) while (waitpid(guardian_pid, NULL, 0) < 0 && errno == EINTR) {}
         command->child_live = false; freak_commands_children--; errno = failure;
         goto failed;
     }
     command->guardian_pid = guardian_pid; command->guardian_live = true; freak_commands_children++;
+    /* Retain our read endpoint through this bounded one-byte write. Even if
+       the primary was killed or rejected readiness, the pipe still has a
+       reader, so releasing it cannot deliver SIGPIPE to the owning process. */
+    unsigned char ready = 1;
+    ssize_t sent;
+    do { sent = write(startup[1], &ready, 1); } while (sent < 0 && errno == EINTR);
+    if (sent != 1) {
+        int failure = sent < 0 ? errno : EIO;
+        freak_command_family_stop_locked(command);
+        freak_command_close_pipe(&startup[0]);
+        freak_command_close_pipe(&startup[1]);
+        freak_command_family_unlock(command); family_locked = false;
+        while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+        while (waitpid(guardian_pid, NULL, 0) < 0 && errno == EINTR) {}
+        command->child_live = false; command->guardian_live = false;
+        freak_commands_children -= 2; errno = failure;
+        goto failed;
+    }
+    freak_command_close_pipe(&startup[0]);
+    freak_command_close_pipe(&startup[1]);
     command->guardian_write = guardian[1]; guardian[1] = -1;
     freak_command_close_pipe(&guardian[0]);
     free(descriptors); descriptors = NULL;
@@ -890,6 +946,7 @@ failed:
         freak_command_free_environment(environment); freak_command_free_environment(executables);
         for (int index = 0; index < 2; index++) {
             freak_command_close_pipe(&output[index]); freak_command_close_pipe(&errors[index]); freak_command_close_pipe(&execution[index]); freak_command_close_pipe(&guardian[index]);
+            freak_command_close_pipe(&startup[index]);
         }
         freak_command_family_close(command); freak_command_terminal_restore(command); return false;
     }
@@ -901,6 +958,7 @@ failed:
         freak_command_close_pipe(&output[index]);
         freak_command_close_pipe(&errors[index]);
         freak_command_close_pipe(&execution[index]); freak_command_close_pipe(&guardian[index]);
+        freak_command_close_pipe(&startup[index]);
     }
     freak_command_family_close(command);
     freak_command_terminal_restore(command);
