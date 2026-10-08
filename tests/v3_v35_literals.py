@@ -93,13 +93,15 @@ def main() -> int:
     if unit=='freak_llvm_runtime.c' and backend=='c': continue
     obj=root/f'{backend}_{unit}.o'; require_ok(run([args.clang,*flags,'-c',str(runtime/unit),'-o',str(obj)],root),'literal runtime'); objects.append(str(obj))
    for name,(program,expected) in POSITIVE.items():
-    source=root/f'{name}_{backend}.fk';source.write_text(program+'\n')
+    source=root/f'{name}_{backend}.fk';source.write_text(program+'\n', encoding='utf-8')
     require_ok(run([str(compiler),str(source),'--'+backend,'--strict-borrow'],root),'literal emission '+name)
     binary=root/f'{name}_{backend}';require_ok(run([args.clang,*flags,str(source)+suffix,*objects,*link_flags,'-o',str(binary)],root),'literal link '+name)
-    result=subprocess.run([str(binary)],cwd=root,env=sanitizer_env(),capture_output=True);assert result.returncode==0 and result.stdout==expected.encode() and not result.stderr,(backend,name,result)
+    expected_bytes = expected.encode('utf-8')
+    if os.name == 'nt': expected_bytes = expected_bytes.replace(b'\n', b'\r\n')
+    result=subprocess.run([str(binary)],cwd=root,env=sanitizer_env(),capture_output=True);assert result.returncode==0 and result.stdout==expected_bytes and not result.stderr,(backend,name,result)
    for strict in (False,True):
     for name,(program,diagnostic) in NEGATIVE.items():
-     source=root/f'{name}_{backend}_{strict}.fk';source.write_text(program+'\n');artifact=Path(str(source)+suffix);artifact.write_text('stale artifact')
+     source=root/f'{name}_{backend}_{strict}.fk';source.write_text(program+'\n', encoding='utf-8');artifact=Path(str(source)+suffix);artifact.write_text('stale artifact', encoding='utf-8')
      command=[str(compiler),str(source),'--'+backend]
      if strict:command.append('--strict-borrow')
      result=run(command,root);assert result.returncode!=0 and diagnostic in result.stdout and not artifact.exists(),(backend,strict,name,result)
