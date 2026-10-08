@@ -125,7 +125,7 @@ def check_installer_contracts(repo: Path) -> None:
     ):
         assert needle in manifest_text, f"distribution manifest missing {needle}"
     for needle in (
-        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"',
+        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v7"',
         "task cli_run_clang_identity",
         "task cli_run_windows_file_sha256(path: word) -> word {",
         "task cli_run_sha256_from_bytes(output: ByteBuffer) -> word {",
