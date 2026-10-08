@@ -127,7 +127,9 @@ def main() -> int:
     assert clang, "clang required"
     suffix = ".exe" if sys.platform == "win32" else ""
     with tempfile.TemporaryDirectory(prefix="freak-word-length-") as tmp:
-        root = Path(tmp)
+        # The positive payload fixture needs a physical parent for anchored
+        # stdlib reads when the host temporary directory is a symlink.
+        root = Path(tmp).resolve(strict=True)
         freak = args.freak.resolve() if args.freak else foundation.build_fresh_cli(
             clang=clang, repo=repo, root=root, runtime_root=runtime)
         env = foundation.sanitizer_env()
