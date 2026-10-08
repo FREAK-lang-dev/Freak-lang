@@ -1,6 +1,6 @@
 -- Detached v11 extern-return facts, atomic rejection, and bounded handle reuse.
 task v4_extern_return_snapshot_header(files: int, items: int, owners: int, members: int) -> word {
-    give back "hir-snapshot|format=freak-hir-snapshot-v11|files=" + word_from_int(files) + "|items=" + word_from_int(items) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=" + word_from_int(owners) + "|extern-returns=" + word_from_int(members) + "|word-owners=0|word-literals=0|word-pieces=0|word-path-parts=0|diagnostics=0"
+    give back "hir-snapshot|format=freak-hir-snapshot-v12|files=" + word_from_int(files) + "|items=" + word_from_int(items) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=" + word_from_int(owners) + "|extern-returns=" + word_from_int(members) + "|word-owners=0|word-literals=0|word-pieces=0|word-path-parts=0|diagnostics=0"
 }
 
 task v4_extern_return_snapshot_payload() -> word {
@@ -14,7 +14,7 @@ task v4_extern_return_snapshot_payload() -> word {
     out = out + "\nhir-extern-return|0|0|1||" + none + "|0|31@35:45"
     out = out + "\nhir-extern-return|0|0|2||31@56:58|0|31@50:65"
     out = out + "\nhir-extern-return|0|0|3||31@72:74|1|31@70:90"
-    give back out + "\nend|freak-hir-snapshot-v11"
+    give back out + "\nend|freak-hir-snapshot-v12"
 }
 
 task v4_extern_return_snapshot_reverse(payload: word) -> word {
@@ -85,7 +85,7 @@ task v4_extern_return_snapshot_large(owners_per_file: int, members_per_owner: in
         }
         file += 1
     }
-    array_push(parts, "\nend|freak-hir-snapshot-v11")
+    array_push(parts, "\nend|freak-hir-snapshot-v12")
     give back word_join(parts)
 }
 
@@ -123,7 +123,7 @@ task v4_extern_return_snapshot_run() -> void {
     pilot before = v4_hir_snapshot()
     say "extern-return-snapshot-reordered=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_extern_member_count(0, 0) == 4 and v4_hir_extern_member_return_surface_type(0, 0, 0) == "int" and v4_hir_extern_member_return_span(0, 0, 0) == "31@20:23" and v4_hir_extern_member_span(0, 0, 0) == "31@10:30")
     say "extern-return-snapshot-empty-quoted=" + word_from_bool(v4_hir_extern_member_count(0, 1) == 0 and v4_hir_extern_member_return_surface_type(0, 0, 1) == "" and v4_hir_extern_member_return_span(0, 0, 1) == V4_NO_SPAN and v4_hir_extern_member_return_surface_type(0, 0, 2) == "" and v4_hir_extern_member_return_span(0, 0, 2) == "31@56:58" and not v4_hir_extern_member_return_has_arrow_fallback(0, 0, 2) and v4_hir_extern_member_return_has_arrow_fallback(0, 0, 3))
-    say "extern-return-snapshot-version-width=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("freak-hir-snapshot-v11", "freak-hir-snapshot-v10"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|1|0", "hir-extern-return-owner|0|1|0|extra"), before) and v4_extern_return_snapshot_rejected(payload.replace("31@10:30\n", "31@10:30|extra\n"), before))
+    say "extern-return-snapshot-version-width=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("freak-hir-snapshot-v12", "freak-hir-snapshot-v10"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|1|0", "hir-extern-return-owner|0|1|0|extra"), before) and v4_extern_return_snapshot_rejected(payload.replace("31@10:30\n", "31@10:30|extra\n"), before))
     say "extern-return-snapshot-canonical-identity=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|0|", "hir-extern-return-owner|00|0|"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return|0|0|1|", "hir-extern-return|0|0|01|"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|0|4", "hir-extern-return-owner|0|0|999999999999999999999"), before))
     say "extern-return-snapshot-orphan-duplicate=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|1|0", "hir-extern-return-owner|99|1|0"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return|0|0|1|", "hir-extern-return|0|9|1|"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return|0|0|1|", "hir-extern-return|0|0|0|"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|1|0", "hir-extern-return-owner|0|0|0"), before))
     say "extern-return-snapshot-complete-counts=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("extern-return-owners=2", "extern-return-owners=1"), before) and v4_extern_return_snapshot_rejected(payload.replace("extern-returns=4", "extern-returns=3"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|0|4", "hir-extern-return-owner|0|0|3"), before) and v4_extern_return_snapshot_rejected(payload.replace("\nhir-extern-return-owner|0|1|0", "").replace("extern-return-owners=2", "extern-return-owners=1"), before))

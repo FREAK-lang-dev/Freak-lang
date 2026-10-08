@@ -230,7 +230,7 @@ lender calls currently require an explicit `lend` of a named place. Borrowed
 returns, externally supplied words, callback word contracts and native
 aggregate fields remain unsupported.
 
-The current MIR snapshot v9 preserves the lexical statement scopes introduced
+The current MIR snapshot v10 preserves the lexical statement scopes introduced
 in v7 and validates their relation
 to bindings, body ranges and closed builtin IDs before publication. The
 focused semantic fixture covers shadowing, ordered consume/lend events,
@@ -260,7 +260,7 @@ bootstrap compatibility mode; strict language mode remains the default.
 
 Expanded-AST-to-HIR lowering decodes each word once into a packed plan. Literal
 pieces retain sized UTF-8/NUL bytes; `IDENT(.IDENT)*` display pieces retain exact
-component spans. Unmatched or non-path braces remain literal. HIR snapshot v11
+component spans. Unmatched or non-path braces remain literal. HIR snapshot v12
 adds four closed record families and rejects v10 payloads. TY exposes the stored
 plan, and MIR resolves the actual visible binding before lowering borrowed word
 and int/num/bool display through balanced owned concatenation.
@@ -470,7 +470,7 @@ that exact set and prevents local declaration lowering from returning to it.
 The third bounded boundary covers declared returns on ordinary top-level tasks.
 `freak_hir` stores one closed `explicit` / `implicit-block` / `arrow` record per
 task, including normalized surface type and exact contained span only for an
-explicit `-> T`; HIR snapshot v11 validates that vocabulary, task-only ownership,
+explicit `-> T`; HIR snapshot v12 validates that vocabulary, task-only ownership,
 canonical spans, contiguous slots, and declared counts before restore. TY reads
 explicit return types and spans only through those HIR facts. Arrow inference,
 implicit block returns, and non-ordinary impl/doctrine signatures remain
@@ -480,7 +480,7 @@ ordered parameter-count record per task, including zero, plus normalized name,
 `value` / `lend` / `lend mut` mode, optional named lifetime, surface type, and
 their exact contained spans. TY's public ordinary-task parameter APIs consume
 only those records; MIR build uses the semantic segment span and editor
-definitions use the semantic name span. HIR snapshot v11 validates exact record
+definitions use the semantic name span. HIR snapshot v12 validates exact record
 widths, Task-only ownership, contiguous ordinals and counts, identifier and
 mode vocabulary, source ordering, and atomic restore. Parameter snapshot linkage
 uses four passes over the shared native line index, seventeen released scratch
@@ -497,7 +497,7 @@ canonicalization. Missing-colon and empty-type recovery still reports unknown
 with the full segment as its type span; quoted recovery tokens retain their
 actual token spans even when their normalized text is empty. Unclosed bodies
 expose zero fields.
-HIR snapshot v11 adds a count owner even for empty Shapes and dense field records;
+HIR snapshot v12 adds a count owner even for empty Shapes and dense field records;
 validation rejects mismatched counts, noncanonical identities, wrong owners, and
 invalid span ordering before restoration, while allowing shuffled wire records.
 Three per-file arrays hold starts, counts, and packed field values. Validation
@@ -510,11 +510,12 @@ declared surface type and exact type/name spans once during construction; TY
 reads those slots without tokens or lazy reconstruction. Surface text retains
 the parser's existing non-trivia concatenation, including recovery behavior:
 missing `=` yields no declared type, while a quoted empty type can retain a real
-span. Missing names retain the existing item-span fallback. HIR snapshot v11
-requires one six-field `hir-const-annotation` record for every Const, including
+span. Missing names retain the existing item-span fallback. HIR snapshot v12
+requires one seven-field `hir-const-annotation` record for every Const, including
 inferred and malformed declarations; canonical owners, contained spans, counts,
 and completeness are checked before any restore mutation. A packed per-file
-array adds one child handle. Initializer text, inference, evaluation, cycles,
+array adds one child handle. The final field preserves the written `fixed pilot`
+or `grounded pilot` prefix. Initializer text, inference, evaluation, cycles,
 and mismatch diagnostic locations remain unchanged and may still use syntax.
 The seventh bounded boundary covers route/variant declaration facts. HIR stores
 the original declaration form, ordered case names and name/segment spans,
@@ -525,7 +526,7 @@ lookups use stored name spans; token-at-cursor discovery is still syntax-facing.
 Empty payloads remain distinct from fieldless cases. Duplicate names preserve
 source ordinals and first-match lookup; quoted-empty and malformed fields retain
 their existing recovery text and spans. Unclosed bodies expose zero cases.
-HIR snapshot v11 requires a five-field `hir-route-owner` for every Route, a
+HIR snapshot v12 requires a five-field `hir-route-owner` for every Route, a
 nine-field `hir-route-case` for every case, and ten-field `hir-route-field`
 records. Validation reconciles the three declared totals, dense ownership and
 ordinals, source order, canonical form/payload flags, and nested same-file spans
@@ -558,7 +559,7 @@ Missing declarations remain unknown, not implicit `void`; empty quoted types
 may retain their declaration span. The separately named arrow-recovery helper
 can infer the existing arrow expression only when the stored flag permits it;
 it cannot reconstruct a declared type. Parameters, ABI options, attributes and
-callback semantics are unchanged. HIR snapshot v11 requires one four-field
+callback semantics are unchanged. HIR snapshot v12 requires one four-field
 `hir-extern-return-owner` per Extern (including empty owners), eight-field
 `hir-extern-return` records with dense ordinals, canonical flags/counts and
 same-file contained spans. Validation and capacity preflight precede mutation.
@@ -788,7 +789,7 @@ Fixed-layout editor facts, MIR/borrowck snapshots, restore, and
 source-change invalidation use the existing query families and 00-Unit
 protocols; no aggregate-specific LSP endpoint or snapshot section is added.
 Declaration-order aggregate children were introduced in snapshot v7. Current
-restore requires `freak-mir-snapshot-v9`; v4 through v8 are rejected rather than
+restore requires `freak-mir-snapshot-v10`; v4 through v9 are rejected rather than
 reinterpreted. Component restore, 00-Unit restore, and the
 standalone `workspace/mirSnapshotRestore` path each start a fresh borrowck
 provenance scratch generation. The query smoke proves `A -> B -> restore A` with
@@ -923,7 +924,7 @@ parsing, bounding bootstrap word-scanning work on malformed records.
 
 `freak_mir` owns the persistent Built-MIR representation: stable file/body and
 node identities, CFG/local/place/rvalue storage, validation, diagnostics, and
-the byte-stable MIR snapshot v9 protocol. `freak_mir_build` is the stateless
+the byte-stable MIR snapshot v10 protocol. `freak_mir_build` is the stateless
 construction policy layer over HIR and TY. It keeps only request-scoped loop,
 scope, and trust-lowering scratch and preserves `v4_mir_lower_ty` as the public
 driver entrypoint. Meiya, codegen, query, and snapshot code consume the
@@ -1023,7 +1024,7 @@ packed route declaration arrays, two packed extern-return arrays, and one packed
 Cold initialization owns 45 outer handles;
 each new file owns 42 child handles, and both failure cleanup and slot reuse
 cover the complete set. The wire
-format is v11: semantic lookup
+format is v12: semantic lookup
 indexes are rebuilt from validated stored facts,
 not serialized as additional authority. Annotation ordinals preserve physical
 record order within each item; a separate sorted offset index supports exact
@@ -1160,7 +1161,7 @@ unit-section|<section-name>|<escaped-checkpoint-identity>|<escaped-section-paylo
 end|freak-00-unit-snapshot-v3
 ```
 
-The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v11 validation requires canonical alias-target, local-annotation, ordinary-task declared-return/parameter, Const, shape-field, and route-case/field spans; exact child ownership/slot identity; closed return-form and parameter-mode vocabularies; exact declared counts; and validation-before-mutation restore. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
+The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v12 validation requires canonical alias-target, local-annotation, ordinary-task declared-return/parameter, Const, shape-field, and route-case/field spans; exact child ownership/slot identity; closed return-form and parameter-mode vocabularies; exact declared counts; and validation-before-mutation restore. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
 
 Standalone component restore accepts structurally validated, detached records;
 it does not authenticate the payload or prove that its file/expansion IDs match

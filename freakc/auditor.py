@@ -2543,7 +2543,7 @@ def audit_conformance(paths: List[Path]) -> int:
     lower_missing: List[str] = []
     lower_contracts = (
         ("src/compiler/v4/crates/freak_mir/src/lib.fk",
-         ('pilot v4_mir_snapshot_format = "freak-mir-snapshot-v9"',
+         ('pilot v4_mir_snapshot_format = "freak-mir-snapshot-v10"',
           'if kind == "to_lower" { give back 119 }')),
         ("src/compiler/v4/crates/freak_ty/src/lib.fk",
          ('if kind == "to_lower" { give back v4_ty_word }',
@@ -3148,7 +3148,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if v4_hir_task_return.exists():
         hir_src = v4_hir_task_return.read_text(encoding="utf-8")
         for needle in (
-            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v12"',
             'pilot v4_hir_task_return_explicit = "explicit"',
             'pilot v4_hir_task_return_implicit_block = "implicit-block"',
             'pilot v4_hir_task_return_arrow = "arrow"',
@@ -3224,7 +3224,7 @@ def audit_conformance(paths: List[Path]) -> int:
             v4_task_return_readme,
             (
                 "The third bounded boundary covers declared returns on ordinary top-level tasks.",
-                "HIR snapshot v11 validates that vocabulary",
+                "HIR snapshot v12 validates that vocabulary",
             ),
         ),
         (
@@ -3245,7 +3245,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 task return HIR boundary",
         not task_return_boundary_missing,
-        "HIR v11 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
+        "HIR v12 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
     )
     if task_return_boundary_missing:
         failures.append(
@@ -3266,7 +3266,7 @@ def audit_conformance(paths: List[Path]) -> int:
             v4_hir_task_param,
             "freak_hir",
             (
-                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
+                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v12"',
                 'pilot v4_hir_task_param_mode_value = "value"',
                 'pilot v4_hir_task_param_mode_lend = "lend"',
                 'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -3326,7 +3326,7 @@ def audit_conformance(paths: List[Path]) -> int:
             if needle not in harness_src:
                 task_param_boundary_missing.append(f"check_v4.py: {needle}")
     for doc_path, needles in (
-        (v4_task_return_readme, ("The fourth", "ordinary-task parameter APIs", "HIR snapshot v11 validates exact record")),
+        (v4_task_return_readme, ("The fourth", "ordinary-task parameter APIs", "HIR snapshot v12 validates exact record")),
         (audit_doc, ("Ordinary-task parameters are likewise stored", "Impl/doctrine/extern parameter signatures")),
     ):
         if not doc_path.exists():
@@ -3339,7 +3339,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 task parameter HIR boundary",
         not task_param_boundary_missing,
-        "HIR v11 + TY/MIR/editor adapters + smoke + docs wired" if not task_param_boundary_missing else f"{len(task_param_boundary_missing)} gap(s)",
+        "HIR v12 + TY/MIR/editor adapters + smoke + docs wired" if not task_param_boundary_missing else f"{len(task_param_boundary_missing)} gap(s)",
     )
     if task_param_boundary_missing:
         failures.append(
@@ -3384,7 +3384,7 @@ def audit_conformance(paths: List[Path]) -> int:
         source = path.read_text(encoding="utf-8") if path.exists() else ""
         shape_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
     add("V4 shape field HIR boundary", not shape_missing,
-        "HIR v11 + storage adapters + executable probes wired" if not shape_missing else f"{len(shape_missing)} gap(s)")
+        "HIR v12 + storage adapters + executable probes wired" if not shape_missing else f"{len(shape_missing)} gap(s)")
     if shape_missing:
         failures.append("V4 shape field HIR boundary regressed: " + "; ".join(shape_missing))
 
@@ -3403,7 +3403,7 @@ def audit_conformance(paths: List[Path]) -> int:
     const_missing.extend(_hir_lookup_probe_errors(
         shape_tests / "const_snapshot_smoke.fk", shape_harness,
         tuple("const-snapshot-" + label for label in (
-            "v11-reordered", "inferred-quoted", "old-version-atomic", "extra-field-atomic",
+            "v12-reordered", "inferred-quoted", "old-version-atomic", "extra-field-atomic",
             "noncanonical-id-atomic", "sparse-owner-atomic", "sparse-item-atomic",
             "duplicate-item-atomic", "header-count-atomic", "owner-kind-atomic",
             "inferred-record-required", "name-span-canonical", "name-span-owner",
@@ -3421,7 +3421,7 @@ def audit_conformance(paths: List[Path]) -> int:
         source = path.read_text(encoding="utf-8") if path.exists() else ""
         const_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
     add("V4 root Const HIR boundary", not const_missing,
-        "HIR v11 + storage adapters + executable probes wired" if not const_missing else f"{len(const_missing)} gap(s)")
+        "HIR v12 + storage adapters + executable probes wired" if not const_missing else f"{len(const_missing)} gap(s)")
     if const_missing:
         failures.append("V4 root Const HIR boundary regressed: " + "; ".join(const_missing))
 
@@ -3460,7 +3460,7 @@ def audit_conformance(paths: List[Path]) -> int:
         source = path.read_text(encoding="utf-8") if path.exists() else ""
         route_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
     add("V4 route declaration HIR boundary", not route_missing,
-        "HIR v11 + TY/editor storage adapters + executable probes wired" if not route_missing else f"{len(route_missing)} gap(s)")
+        "HIR v12 + TY/editor storage adapters + executable probes wired" if not route_missing else f"{len(route_missing)} gap(s)")
     if route_missing:
         failures.append("V4 route declaration HIR boundary regressed: " + "; ".join(route_missing))
 
@@ -3468,7 +3468,7 @@ def audit_conformance(paths: List[Path]) -> int:
     extern_return_missing = _hir_extern_return_probe_errors(shape_tests, shape_harness)
     for path, markers in (
         (v4_hir_task_param, (
-            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v12"',
             "task v4_hir_extern_member_return_surface_type(",
             "task v4_hir_extern_member_return_span(",
             "task v4_hir_extern_member_return_has_arrow_fallback(",
@@ -3491,7 +3491,7 @@ def audit_conformance(paths: List[Path]) -> int:
         source = path.read_text(encoding="utf-8") if path.exists() else ""
         extern_return_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
     add("V4 extern-member return HIR boundary", not extern_return_missing,
-        "HIR v11 + declared readers + guarded recovery + executable probes wired"
+        "HIR v12 + declared readers + guarded recovery + executable probes wired"
         if not extern_return_missing else f"{len(extern_return_missing)} gap(s)")
     if extern_return_missing:
         failures.append("V4 extern-member return HIR boundary regressed: " + "; ".join(extern_return_missing))
