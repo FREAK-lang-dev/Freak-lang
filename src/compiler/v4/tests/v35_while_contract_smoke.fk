@@ -1,0 +1,148 @@
+-- Each process builds one source so independent errors do not exhaust arenas.
+task v35_while_contract_assert(condition: bool, label: word) -> void {
+    if not condition { panic("v35-while-contract " + label) }
+}
+
+task v35_while_contract_source(mode: int) -> word {
+    pilot open = chr(123)
+    pilot close = chr(125)
+    if mode == 0 { give back "task main() -> int " + open + " pilot sessions = 0; while sessions < 2 " + open + " sessions += 1 " + close + "repeat while sessions < 3 " + open + " sessions += 1 " + close + "repeat until sessions >= 4 " + open + " sessions += 1 " + close + "give back sessions " + close + "\n" }
+    if mode == 1 { give back "task main() -> int " + open + " while 1 " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 2 { give back "task main() -> int " + open + " repeat while 1 " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 3 { give back "task main() -> int " + open + " while " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 4 { give back "task main() -> int " + open + " repeat while " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 5 { give back "task main() -> int " + open + " while true; give back 0 " + close + "\n" }
+    if mode == 6 { give back "task while() -> int " + open + " give back 0 " + close + "\n" }
+    if mode == 7 { give back "task main() -> int " + open + " pilot while = 0; give back 0 " + close + "\n" }
+    if mode == 8 { give back "task main() -> int " + open + " pilot callback = launch(while: int) -> int => while; give back 0 " + close + "\n" }
+    if mode == 9 { give back "shape Reserved " + open + " while: int " + close + "\n" }
+    if mode == 10 { give back "use std::fs as while\n" }
+    if mode == 11 { give back "task main() -> int " + open + " for each while in [1] " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 12 { give back "task reserved(while: int) -> int " + open + " give back 0 " + close + "\n" }
+    if mode == 13 { give back "task main() -> int " + open + " pilot sessions = 1; give back sessions " + close + "\n" }
+    if mode >= 14 and mode <= 20 { give back v35_while_contract_source(mode - 8).replace("while", "While") }
+    if mode == 21 { give back "task main() -> int " + open + " pilot lower = \"while\"; pilot upper = \"While\"; while lower == \"while\" " + open + " break " + close + "repeat while upper == \"While\" " + open + " break " + close + "give back 0 " + close + "\n" }
+    if mode == 22 { give back "task main() -> int " + open + " while true times " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 23 { give back "task main() -> int " + open + " repeat while true with index " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 24 { give back "task main() -> int " + open + " while true; if true " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 25 { give back "task main() -> int " + open + " repeat while true\nif true " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 26 { give back "task main() -> int " + open + " pilot sessions = 0; while false\n" + open + close + "sessions += 1; repeat while false\n" + open + close + "sessions += 2; give back sessions " + close + "\n" }
+    if mode == 27 { give back "task main() -> int " + open + " while (false or false)\n" + open + close + "give back 0 " + close + "\n" }
+    if mode == 28 { give back "task main() -> int " + open + " while \"bad\" " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 29 { give back "shape While " + open + " value: int " + close + "\n" }
+    if mode == 30 { give back "fixed pilot While = 0\n" }
+    if mode == 31 { give back "grounded pilot While = 0\n" }
+    if mode == 32 { give back "shape Entry " + open + " value: int " + close + "\ntask main() -> int " + open + " pilot entry = Entry" + open + "value: 1" + close + "; give back entry.While " + close + "\n" }
+    if mode == 33 { give back "task main() -> int " + open + " pilot (While, other) = (1, 2); give back other " + close + "\n" }
+    if mode == 34 { give back "task main() -> int " + open + " While false " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 35 { give back v35_while_contract_source(26).replace("\n", "\r\n") }
+    if mode == 36 { give back v35_while_contract_source(26).replace("\n", "\r") }
+    if mode == 37 { give back "task forbidden() -> bool " + open + " panic(\"blocked\"); give back false " + close + "\ntask main() -> int " + open + " while false and forbidden() " + open + close + "give back 0 " + close + "\n" }
+    panic("unknown v35 while contract case")
+    give back ""
+}
+
+task v35_while_contract_run(mode: int) -> void {
+    pilot source = v35_while_contract_source(mode)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    v35_while_contract_assert(v4_lex_is_keyword_word("while") and not v4_lex_is_keyword_word("While"), "exact keyword spelling")
+    if (mode >= 6 and mode <= 12) or (mode >= 14 and mode <= 20) or (mode >= 29 and mode <= 34) {
+        pilot found = false
+        pilot expected_name = "while"
+        if mode >= 14 { expected_name = "While" }
+        pilot row = 0
+        repeat until row >= v4_parse_diag_count(tree) {
+            pilot diag = v4_parse_diag(tree, row)
+            if v4_diag_message(diag) == "while is a reserved keyword" {
+                pilot span = v4_diag_span(diag)
+                v35_while_contract_assert(v4_slice(source, v4_span_start(span), v4_span_end(span)) == expected_name, "reserved diagnostic original token span")
+                found = true
+            }
+            row += 1
+        }
+        v35_while_contract_assert(found, "reserved source name rejected")
+        if mode >= 14 {
+            pilot rejected_hir = v4_hir_lower_tree(0, tree)
+            pilot rejected_resolve = v4_resolve_lower_hir(0, rejected_hir)
+            pilot rejected_ty = v4_ty_lower_resolve(0, rejected_resolve)
+            pilot rejected_mir = v4_mir_lower_ty(0, rejected_ty)
+            pilot rejected_codegen = v4_codegen_llvm_lower_owned_mir(0, rejected_mir)
+            v35_while_contract_assert(v4_codegen_llvm_native_module_error(rejected_codegen) != "" and v4_codegen_llvm_module_text(rejected_codegen, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "reserved declaration cannot emit a native module")
+        }
+        say "v35-while-contract case=" + word_from_int(mode) + " reserved=true span=true"
+        give back
+    }
+
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    if (mode >= 1 and mode <= 5) or mode == 22 or mode == 23 or mode == 24 or mode == 25 or mode == 28 {
+        pilot expected = "while condition must be bool"
+        if mode == 3 or mode == 4 { expected = "while loop requires a condition" }
+        if mode == 5 or mode == 24 or mode == 25 { expected = "while loop requires a body" }
+        if mode == 22 or mode == 23 { expected = "unsupported while condition" }
+        pilot found = false
+        pilot row = 0
+        repeat until row >= v4_mir_diag_count(mir) {
+            if v4_diag_message(v4_mir_diag(mir, row)) == expected { found = true }
+            row += 1
+        }
+        v35_while_contract_assert(found, "specific while diagnostic")
+        if mode == 24 or mode == 25 {
+            pilot branch_count = 0
+            pilot body = v4_mir_lookup_body_name(mir, "main")
+            row = 0
+            repeat until row >= v4_mir_body_stmt_count(mir, body) {
+                if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_branch { branch_count += 1 }
+                row += 1
+            }
+            v35_while_contract_assert(branch_count == 1, "malformed heading preserves following conditional")
+        }
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "invalid program has no native module")
+        say "v35-while-contract case=" + word_from_int(mode) + " rejected=true diagnostic=" + expected + " module=false"
+        give back
+    }
+
+    v35_while_contract_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) == 0, "clean frontend")
+    if mode == 37 {
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(rejected) == "native panic unwind is not yet supported; use --panic=abort", "existing panic policy remains conservative")
+        v35_while_contract_assert(v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "conservative policy has no module")
+        say "v35-while-contract case=37 frontend=true panic-policy=conservative module=false"
+        give back
+    }
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    pilot row = 0
+    pilot positive = 0
+    pilot inverted = 0
+    repeat until row >= v4_mir_body_stmt_count(mir, body) {
+        if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_loop {
+            pilot block = v4_mir_body_block(mir, body, v4_mir_stmt_block(mir, body, row))
+            pilot text = v4_mir_block_condition(block)
+            pilot target = "body#" + word_from_int(v4_mir_block_target(block))
+            if text.starts_with("while ") {
+                v35_while_contract_assert(v4_mir_stmt_rhs(mir, body, row).starts_with(target + " "), "true condition enters while body")
+                positive += 1
+            }
+            if text.starts_with("until ") {
+                v35_while_contract_assert(v4_mir_stmt_rhs(mir, body, row).ends_with("exit#" + word_from_int(v4_mir_block_target(block))), "true condition exits until body")
+                inverted += 1
+            }
+        }
+        row += 1
+    }
+    if mode == 0 { v35_while_contract_assert(positive == 2 and inverted == 1, "both while forms and preserved until") }
+    if mode == 13 { v35_while_contract_assert(positive == 0 and inverted == 0, "existing keyword local compatible") }
+    if mode == 21 or mode == 26 or mode == 35 or mode == 36 { v35_while_contract_assert(positive == 2 and inverted == 0, "quoted names or separated bodies remain valid") }
+    if mode == 27 { v35_while_contract_assert(positive == 1 and inverted == 0, "grouped condition separated body") }
+    pilot snapshot = v4_mir_snapshot()
+    v35_while_contract_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot, "snapshot roundtrip")
+    say "v35-while-contract case=" + word_from_int(mode) + " frontend=true positive=" + word_from_int(positive) + " inverted=" + word_from_int(inverted) + " restore=true"
+}
+
+pilot v35_while_contract_mode = 0
+if process::args_count() > 1 { v35_while_contract_mode = word_to_int(process::arg(1)) }
+v35_while_contract_run(v35_while_contract_mode)
