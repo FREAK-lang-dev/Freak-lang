@@ -390,11 +390,10 @@ def check_strict_transpile_compatibility(
     source = root / "strict-transpile.fk"
     source.write_text(
         "task main() -> int {\n"
-        "    pilot counter = 0\n"
+        "    fixed pilot counter = 0\n"
         "    counter = counter + 1\n"
         "    give back counter\n"
-        "}\n"
-        "main()\n",
+        "}\n",
         encoding="utf-8",
     )
     generated = Path(str(source) + ".c")
