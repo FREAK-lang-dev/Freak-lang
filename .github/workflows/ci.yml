@@ -290,6 +290,24 @@ jobs:
           --clang "$(command -v clang)" --backend both
           --evidence "$RUNNER_TEMP/v35-run-graph-freshness.json"
 
+      - name: Test - V3 legacy Hangar lock preservation
+        shell: bash
+        run: >-
+          python -B -u tests/v3_v35_hangar_lock_preservation.py
+          --freak ./build/freak$EXT --hangar ./build/hangar$EXT
+          --clang "$(command -v clang)"
+          --probe-root "$RUNNER_TEMP/v35-hangar-preservation"
+
+      - name: Upload Hangar preservation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v35-hangar-preservation-${{ runner.os }}
+          path: |
+            ${{ runner.temp }}/v35-hangar-preservation/receipt.json
+            ${{ runner.temp }}/v35-hangar-preservation/*.raw
+          if-no-files-found: ignore
+
       - name: Test - V3 install, doctor, and upgrade
         shell: bash
         run: python -u tests/v3_install_doctor_upgrade.py ./build/freak$EXT
@@ -621,6 +639,24 @@ jobs:
           python -B -u tests/v3_v35_run_freshness.py ./build/freak$EXT
           --clang "$(command -v clang)" --backend both
           --evidence "$RUNNER_TEMP/v35-run-graph-freshness.json"
+
+      - name: Test - V3 legacy Hangar lock preservation
+        shell: bash
+        run: >-
+          python -B -u tests/v3_v35_hangar_lock_preservation.py
+          --freak ./build/freak$EXT --hangar ./build/hangar$EXT
+          --clang "$(command -v clang)"
+          --probe-root "$RUNNER_TEMP/v35-hangar-preservation"
+
+      - name: Upload Hangar preservation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v35-hangar-preservation-${{ runner.os }}
+          path: |
+            ${{ runner.temp }}/v35-hangar-preservation/receipt.json
+            ${{ runner.temp }}/v35-hangar-preservation/*.raw
+          if-no-files-found: ignore
 
   windows-test-suites-b:
     needs: windows-bootstrap-build

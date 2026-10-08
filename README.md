@@ -330,6 +330,12 @@ package-name = { git = "https://example.com/owner/package.git", version = "lates
 
 Dependencies live in `hangar_modules/`. The layout is deliberately minimal.
 
+In the 0.15.0 development candidate, package-aware builds also produce a
+schema-v2 graph lock. Legacy `hangar add`, `install`, `update`, `remove`, `audit`
+and `outdated` refuse these locks before changing project state. They also
+refuse malformed or unreadable existing locks. Valid legacy locks remain
+supported. Graph-aware Hangar install/update commands are still pending.
+
 ---
 
 ## COCKPIT — V3 Procedural UI

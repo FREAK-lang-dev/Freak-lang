@@ -33,6 +33,12 @@ Editing a transitive dependency rebuilds the program, and invalid locked or
 frozen inputs fail before cached execution. Source edits detected during a
 build abort execution and leave no fresh cache record.
 
+Legacy Hangar commands now refuse schema-v2 graph locks, unknown schemas and
+malformed or unreadable existing locks before fetching, editing manifests,
+removing installed packages or reporting an audit result. Valid legacy locks
+and `hangar install freak` remain supported. Graph-aware public Hangar commands
+remain a separate prerelease requirement.
+
 The permanent `examples/v35` projects provide a pure library, diamond package
 consumer and bounded HTTP/JSON service. `tests/v3_v35_acceptance.py` checks a
 supplied extracted archive through public commands on C and LLVM, including
