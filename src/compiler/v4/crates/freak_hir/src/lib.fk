@@ -1181,12 +1181,17 @@ task v4_hir_token_starts_statement(stream_id: int, token_id: int, item_start: in
     give back v4_hir_has_newline_between(stream_id, previous, token_id)
 }
 
+-- HIR source view keeps construction consumers behind the expansion facade.
+task v4_hir_stream_is_fixed_pilot_keyword(stream_id: int, token_id: int) -> bool {
+    give back v4_expand_stream_is_fixed_pilot_keyword(stream_id, token_id)
+}
+
 task v4_hir_pilot_starts_local_decl(stream_id: int, pilot_token: int, item_start: int) -> bool {
     if v4_hir_token_starts_statement(stream_id, pilot_token, item_start) {
         give back true
     }
     pilot previous = v4_hir_previous_nontrivia(stream_id, pilot_token - 1, item_start)
-    if previous < item_start or not v4_parse_is_fixed_pilot_keyword(stream_id, previous) {
+    if previous < item_start or not v4_hir_stream_is_fixed_pilot_keyword(stream_id, previous) {
         give back false
     }
     give back v4_hir_token_starts_statement(stream_id, previous, item_start)

@@ -177,6 +177,11 @@ task v4_expand_stream_id(expansion_id: int) -> int {
     give back v4_parse_stream_id(v4_expand_parse_tree_id(expansion_id))
 }
 
+-- Transitional source view; parser owns the contextual keyword boundary.
+task v4_expand_stream_is_fixed_pilot_keyword(stream_id: int, token_id: int) -> bool {
+    give back v4_parse_is_fixed_pilot_keyword(stream_id, token_id)
+}
+
 task v4_expand_node_count(expansion_id: int) -> int {
     give back v4_parse_node_count(v4_expand_parse_tree_id(expansion_id))
 }
