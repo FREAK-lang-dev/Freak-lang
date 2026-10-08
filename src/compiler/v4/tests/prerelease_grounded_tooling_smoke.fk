@@ -1,0 +1,65 @@
+-- Authoritative authored spelling survives edits, exact ranges and restoration.
+task v4_prerelease_tooling_assert(condition: bool, label: word) -> void {
+    if not condition { panic("prerelease grounded tooling: " + label) }
+}
+
+task v4_prerelease_tooling_token(stream: int, name: word, occurrence: int) -> int {
+    pilot idx = 0
+    pilot seen = 0
+    repeat until idx >= v4_lex_token_count(stream) {
+        if v4_lex_token_type(stream, idx) == v4_tok_ident and v4_lex_token_value(stream, idx) == name {
+            if seen == occurrence { give back idx }
+            seen += 1
+        }
+        idx += 1
+    }
+    give back -1
+}
+
+task v4_prerelease_tooling_run() -> void {
+    pilot mode = process::arg(1)
+    pilot path = "prerelease-grounded-tooling.fk"
+    pilot source = "grounded pilot ROOT: int = 42\ntask main() -> int " + chr(123) + " give back ROOT " + chr(125) + "\n"
+    if mode == "local" { source = "task main() -> int " + chr(123) + " grounded pilot grounded: int = 42\n give back grounded " + chr(125) + "\n" }
+    pilot name = "ROOT"
+    pilot use_ordinal = 1
+    if mode == "local" { name = "grounded"; use_ordinal = 2 }
+    pilot stream = v4_lex_text_cached(path, source)
+    pilot use_token = v4_prerelease_tooling_token(stream, name, use_ordinal)
+    v4_prerelease_tooling_assert(use_token >= 0, "actual use token")
+    pilot offset = v4_span_start(v4_lex_token_span(stream, use_token))
+    pilot hover = v4_hover_text_cached(path, source, offset)
+    pilot definition = v4_definition_at_text_cached(path, source, offset)
+    pilot declaration = v4_prerelease_tooling_token(stream, name, 0)
+    if mode == "local" { declaration = v4_prerelease_tooling_token(stream, name, 1) }
+    v4_prerelease_tooling_assert(v4_definition_at_found(definition) == 1 and v4_definition_at_span(definition) == v4_lex_token_span(stream, declaration), "exact declaration name range")
+    if mode == "local" {
+        v4_prerelease_tooling_assert(v4_hover_kind(hover) == "Local" and v4_hover_type(hover) == "int", "contextual name retains local facts")
+        pilot modifier = v4_prerelease_tooling_token(stream, "grounded", 0)
+        v4_prerelease_tooling_assert(v4_lex_token_type(stream, modifier) == v4_tok_ident, "grounded remains an identifier")
+    } else {
+        v4_prerelease_tooling_assert(v4_hover_type(hover) == "grounded pilot ROOT: int", "authored root spelling")
+        pilot hir = v4_hir_text_cached(path, source)
+        v4_prerelease_tooling_assert(v4_hir_const_binding_prefix(hir, 0) == "grounded pilot", "HIR owns root prefix")
+        if mode == "edit" {
+            pilot edited = source.replace("grounded pilot", "fixed pilot")
+            pilot fresh_stream = v4_lex_text_cached(path, edited)
+            pilot fresh_offset = v4_span_start(v4_lex_token_span(fresh_stream, v4_prerelease_tooling_token(fresh_stream, "ROOT", 1)))
+            pilot fresh = v4_hover_text_cached(path, edited, fresh_offset)
+            v4_prerelease_tooling_assert(fresh != hover and v4_hover_type(fresh) == "fixed pilot ROOT: int" and v4_hover_type(hover) == "grounded pilot ROOT: int", "source edit invalidates current fact and preserves old fact")
+        } else if mode == "restore" {
+            pilot snapshot = v4_hir_snapshot()
+            v4_prerelease_tooling_assert(v4_hir_snapshot_restore(snapshot).starts_with("hir-snapshot-restore ok=1") and v4_hir_const_binding_prefix(hir, 0) == "grounded pilot", "detached HIR restores exact root spelling")
+            v4_prerelease_tooling_assert(v4_hir_snapshot() == snapshot, "HIR snapshot exact")
+            pilot old = snapshot.replace("freak-hir-snapshot-v12", "freak-hir-snapshot-v11")
+            v4_prerelease_tooling_assert(v4_hir_snapshot_restore(old).starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == snapshot, "old HIR format rejected atomically")
+            pilot invalid = snapshot.replace("|grounded pilot\n", "|mutable pilot\n")
+            v4_prerelease_tooling_assert(invalid != snapshot and v4_hir_snapshot_restore(invalid).starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == snapshot, "invalid prefix rejected atomically")
+            v4_prerelease_tooling_assert(v4_hir_snapshot_restore_with_queries(snapshot).starts_with("hir-snapshot-restore ok=1"), "official restore invalidation facade")
+            pilot fresh = v4_hover_text_cached(path, source, offset)
+            v4_prerelease_tooling_assert(fresh != hover and v4_hover_type(fresh) == "grounded pilot ROOT: int" and v4_hover_type(hover) == "grounded pilot ROOT: int", "cold and retained hover agree")
+        } else { panic("unknown grounded tooling mode") }
+    }
+    say "prerelease-grounded-tooling " + mode + "=passed"
+}
+v4_prerelease_tooling_run()

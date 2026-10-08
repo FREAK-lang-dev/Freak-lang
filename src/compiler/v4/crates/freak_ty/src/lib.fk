@@ -682,6 +682,13 @@ task v4_ty_signature_source_display(ty_id: int, sig_id: int) -> word {
     give back array_get(v4_ty_displays_handle(ty_id), sig_id)
 }
 
+task v4_ty_const_binding_prefix(ty_id: int, sig_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot prefix = v4_hir_const_binding_prefix(hir_id, v4_ty_signature_hir_item(ty_id, sig_id))
+    if prefix == "grounded pilot" { give back prefix }
+    give back "fixed pilot"
+}
+
 task v4_ty_signature_display(ty_id: int, sig_id: int) -> word {
     if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
         give back ""
@@ -693,7 +700,7 @@ task v4_ty_signature_display(ty_id: int, sig_id: int) -> word {
             pilot inferred_ty: word = v4_ty_const_value_type_for_sig(ty_id, sig_id)
             if inferred_ty != v4_ty_unknown {
                 pilot sig_name: word = array_get(v4_ty_names_handle(ty_id), sig_id)
-                give back "fixed pilot " + sig_name + ": " + inferred_ty
+                give back v4_ty_const_binding_prefix(ty_id, sig_id) + " " + sig_name + ": " + inferred_ty
             }
         }
     }
@@ -6234,6 +6241,7 @@ task v4_ty_const_equals_token(ty_id: int, sig_id: int) -> int {
         give back 0 - 1
     }
     pilot fixed_token = v4_ty_find_token_value(stream_id, start_token, end_token, "fixed")
+    if fixed_token < 0 { fixed_token = v4_ty_find_token_value(stream_id, start_token, end_token, "grounded") }
     if fixed_token < 0 {
         give back 0 - 1
     }
@@ -7677,7 +7685,7 @@ task v4_ty_validate_const_cycles(ty_id: int) -> void {
             if cycle_path != "" {
                 pilot const_name = v4_ty_signature_name(ty_id, sig_id)
                 pilot span = v4_ty_const_name_span(ty_id, sig_id)
-                v4_ty_add_error_diag(ty_id, span, "Yuuko constant loop: fixed pilot " + const_name + " depends on itself via " + v4_ty_alias_cycle_chain_display(cycle_path), "break the constant cycle with a literal or a const task boundary")
+                v4_ty_add_error_diag(ty_id, span, "Yuuko constant loop: " + v4_ty_const_binding_prefix(ty_id, sig_id) + " " + const_name + " depends on itself via " + v4_ty_alias_cycle_chain_display(cycle_path), "break the constant cycle with a literal or a const task boundary")
             }
         }
         sig_id += 1
@@ -7703,7 +7711,7 @@ task v4_ty_validate_const_initializers(ty_id: int) -> void {
                     pilot init_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, sig_id, stream_id, init_start, init_end, const_name)
                     if init_ty != v4_ty_unknown and not v4_ty_types_compatible_in_signature(ty_id, sig_id, declared_ty, init_ty) {
                         pilot span = v4_ty_span_from_tokens(stream_id, init_start, init_end)
-                        v4_ty_add_error_diag(ty_id, span, "constant initializer type mismatch", "fixed pilot " + const_name + " expects " + declared_ty + " but got " + init_ty)
+                        v4_ty_add_error_diag(ty_id, span, "constant initializer type mismatch", v4_ty_const_binding_prefix(ty_id, sig_id) + " " + const_name + " expects " + declared_ty + " but got " + init_ty)
                     }
                 }
             }
@@ -9518,9 +9526,9 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, symbol_def
     if symbol_kind == v4_hir_const {
         pilot const_ty = v4_hir_const_type(hir_id, hir_item)
         if const_ty != "" {
-            give back "fixed pilot " + symbol_name + ": " + const_ty
+            give back v4_hir_const_binding_prefix(hir_id, hir_item) + " " + symbol_name + ": " + const_ty
         }
-        give back "fixed pilot " + symbol_name
+        give back v4_hir_const_binding_prefix(hir_id, hir_item) + " " + symbol_name
     }
     if symbol_kind == v4_hir_shape {
         give back "shape " + symbol_name + generic_text
