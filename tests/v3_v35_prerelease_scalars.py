@@ -170,10 +170,14 @@ def main() -> int:
             generated = {}
             for name, (program, _) in programs.items():
                 source = root / f'{backend}_{name}.fk'
-                source.write_text(program + '\n')
+                source.write_text(program + '\n', encoding='utf-8')
+                if name == 'word_byte_order':
+                    fixture_bytes = source.read_bytes().replace(b'\r\n', b'\n')
+                    assert fixture_bytes == (program + '\n').encode('utf-8'), (
+                        'Word ordering fixture must reach the compiler as UTF-8')
                 checked([str(compiler), str(source), '--' + backend, '--strict-borrow'], 'emit ' + name)
                 artifact = Path(str(source) + suffix)
-                text = artifact.read_text()
+                text = artifact.read_text(encoding='utf-8')
                 if backend == 'llvm':
                     assert not re.search(r'call i64 @freak_int_\w+_checked\(', text), (name, 'out-of-line checked arithmetic')
                     for function in re.findall(r'define .*?\n\}', text, flags=re.S):
@@ -187,17 +191,17 @@ def main() -> int:
                 generated[name] = artifact
             for index, expression in enumerate(NEGATIVE):
                 source = root / f'{backend}_mixed_word_{index}.fk'
-                source.write_text('task main() { say ' + expression + '; }\n')
+                source.write_text('task main() { say ' + expression + '; }\n', encoding='utf-8')
                 artifact = Path(str(source) + suffix)
-                artifact.write_text('stale scalar output')
+                artifact.write_text('stale scalar output', encoding='utf-8')
                 rejected = run([str(compiler), str(source), '--' + backend], root)
                 assert rejected.returncode != 0 and 'does not accept' in rejected.stdout + rejected.stderr, rejected
                 assert not artifact.exists(), 'stale mixed-word artifact survived'
                 evidence['contracts'].append((backend, 'frontend', index))
             source = root / f'{backend}_unused_reserved_fail_extern.fk'
-            source.write_text('extern task __freak_int_fail(a: int, b: int) -> void\ntask main() { say 1; }\n')
+            source.write_text('extern task __freak_int_fail(a: int, b: int) -> void\ntask main() { say 1; }\n', encoding='utf-8')
             artifact = Path(str(source) + suffix)
-            artifact.write_text('stale reserved helper output')
+            artifact.write_text('stale reserved helper output', encoding='utf-8')
             rejected = run([str(compiler), str(source), '--' + backend], root)
             assert rejected.returncode != 0 and 'reserved' in rejected.stdout + rejected.stderr, rejected
             assert not artifact.exists(), 'stale reserved helper artifact survived'
@@ -229,7 +233,7 @@ def main() -> int:
                 candidate = candidate.resolve(strict=True)
                 candidate_runtime = {'before': args.before_runtime, 'after': runtime, 'v0.14.2': args.legacy_runtime}[label].resolve(strict=True)
                 source = root / f'performance_{backend}_{label}.fk'
-                source.write_text(LOOP)
+                source.write_text(LOOP, encoding='utf-8')
                 checked([str(candidate), str(source), '--' + backend], 'performance emit ' + label)
                 binary = root / f'performance_{backend}_{label}'
                 units = [str(candidate_runtime / 'freak_runtime.c')]
@@ -262,7 +266,7 @@ def main() -> int:
             print(f"PERFORMANCE {backend}: before={timings['before']['median_seconds']:.3f}s after={timings['after']['median_seconds']:.3f}s v0.14.2={timings['v0.14.2']['median_seconds']:.3f}s ratio={timings['after_over_v0.14.2']:.3f}", flush=True)
     report = args.report or root / 'report.json'
     report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(json.dumps(evidence, indent=2) + '\n')
+    report.write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
     for backend, timings in evidence['performance'].items():
         assert timings['after_over_v0.14.2'] <= 1.5, (backend, timings)
     print(f"V3.5 prerelease scalars: PASS ({len(evidence['contracts'])} contracts); evidence: {report}", flush=True)
