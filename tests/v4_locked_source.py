@@ -5,6 +5,8 @@ import hashlib
 from pathlib import Path
 import subprocess
 
+from windows_private_fixture import WindowsPrivateFixture
+
 
 def materialize(repo: Path, checkout: Path) -> tuple[Path, dict]:
     """Read pinned source blobs from Git and independently verify profile bytes."""
@@ -15,11 +17,17 @@ def materialize(repo: Path, checkout: Path) -> tuple[Path, dict]:
     pin = lines[1].split()[1]
     records = [line.split(' ', 2) for line in lines[2:] if line]
     assert len(records) == 28
-    subprocess.run(['git', 'init', str(checkout)], check=True, capture_output=True, timeout=30)
-    common = subprocess.check_output(['git', 'rev-parse', '--git-common-dir'], cwd=repo, timeout=30).decode().strip()
-    objects = (repo / common / 'objects').resolve(strict=True)
-    (checkout / '.git/objects/info/alternates').write_text(objects.as_posix() + '\n', encoding='utf-8')
-    subprocess.run(['git', 'update-ref', 'HEAD', pin], cwd=checkout, check=True, capture_output=True, timeout=30)
+    checkout.mkdir(parents=True, exist_ok=False)
+    private = WindowsPrivateFixture(checkout)
+    # Let the host's Git create its shared-object path spelling. The fresh
+    # checkout and git directory must be caller-owned on native Windows too.
+    cloned = subprocess.run(['git', 'clone', '--shared', '--no-checkout', str(repo), str(checkout)],
+                            capture_output=True, timeout=30)
+    assert cloned.returncode == 0, (cloned.args, cloned.stdout, cloned.stderr)
+    private.claim_fresh_directories(checkout / '.git')
+    selected = subprocess.run(['git', 'update-ref', '--no-deref', 'HEAD', pin], cwd=checkout,
+                              capture_output=True, timeout=30)
+    assert selected.returncode == 0, (selected.args, selected.stdout, selected.stderr)
     source = checkout / 'src/compiler/v4'
     inventory = []
     for role, expected, relative in records:
