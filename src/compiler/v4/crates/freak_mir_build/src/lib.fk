@@ -7263,7 +7263,7 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
     give back after_block
 }
 
-task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, pilot_token: int, stmt_end: int, binding_prefix: word, binding_start: int) -> int {
+task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, pilot_token: int, stmt_end: int, binding_prefix: word) -> int {
     pilot pattern_start = v4_mir_skip_trivia(stream_id, pilot_token + 1)
     if pattern_start < stmt_end and v4_lex_token_syntax_value(stream_id, pattern_start) == "mut" { pattern_start = v4_mir_skip_trivia(stream_id, pattern_start + 1) }
     if pattern_start >= stmt_end {
@@ -7293,7 +7293,9 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     }
 
     pilot pattern = v4_mir_pattern_trim(v4_mir_pattern_text(stream_id, pattern_start, pattern_end))
-    pilot stmt_span = v4_mir_span_from_tokens(stream_id, binding_start, stmt_end)
+    -- HIR annotations and both TY lookup bridges use the pilot token as the
+    -- declaration identity. Keep the authored modifier in binding_prefix.
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, pilot_token, stmt_end)
     if v4_ty_is_known(declared_ty) {
         if not v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), stmt_span, declared_ty, "invalid local annotation type", "local declaration " + pattern) {
             declared_ty = v4_ty_unknown
@@ -9111,11 +9113,11 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
     if first_val == "say" and v4_lex_token_type(stream_id, first) == v4_tok_keyword {
         give back v4_mir_lower_say_literal_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "pilot" {
-        give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end, "", first)
+        give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end, "")
     } else if first_val == "fixed" or first_val == "grounded" {
         pilot maybe_pilot = v4_mir_skip_trivia(stream_id, first + 1)
         if maybe_pilot < stmt_end and v4_lex_token_syntax_value(stream_id, maybe_pilot) == "pilot" {
-            give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, maybe_pilot, stmt_end, first_val + " pilot", first)
+            give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, maybe_pilot, stmt_end, first_val + " pilot")
         } else {
             give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
         }

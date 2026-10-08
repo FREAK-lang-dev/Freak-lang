@@ -241,3 +241,90 @@ repeat until v4_local_annotation_schema_mode_id >= array_len(v4_local_annotation
 say "local-annotation-schema-variants-rejected=" + v4_local_annotation_bool(v4_local_annotation_schema_rejected)
 say "local-annotation-schema-variants-atomic=" + v4_local_annotation_bool(v4_local_annotation_schema_atomic)
 v4_local_annotation_run_bad_case()
+
+-- Modified and ordinary declarations share the canonical pilot anchor. The
+-- authored immutability prefix remains a separate MIR fact, including after
+-- HIR restoration and through the synthetic impl-method TY bridge.
+task v4_local_annotation_prefix_assert(condition: bool, label: word) -> void {
+    if not condition { panic("local annotation anchor: " + label) }
+}
+
+task v4_local_annotation_prefix_local(src: word, hir: int, item: int, ty: int, sig: int, mir: int, body: int, name: word, prefix: word, annotation_ty: word, local_ty: word) -> void {
+    pilot local = v4_mir_find_local(mir, body, name)
+    v4_local_annotation_prefix_assert(local >= 0, "local identity " + name)
+    pilot span = v4_mir_local_span(mir, body, local)
+    pilot offset = v4_span_start(span)
+    pilot annotation = v4_hir_local_annotation_at_offset(hir, item, offset)
+    v4_local_annotation_prefix_assert(annotation >= 0, "exact annotation identity " + name)
+    v4_local_annotation_prefix_assert(v4_hir_local_annotation_stmt_span(hir, item, annotation) == span, "complete HIR/MIR span " + name)
+    v4_local_annotation_prefix_assert(v4_slice(src, offset, offset + 5) == "pilot", "canonical pilot anchor " + name)
+    v4_local_annotation_prefix_assert(v4_hir_local_annotation_type(hir, item, annotation) == annotation_ty, "stored annotation " + name)
+    pilot type_span = v4_hir_local_annotation_type_span(hir, item, annotation)
+    v4_local_annotation_prefix_assert(v4_slice(src, v4_span_start(type_span), v4_span_end(type_span)) == annotation_ty, "independent type span " + name)
+    v4_local_annotation_prefix_assert(v4_mir_local_ty(mir, body, local) == local_ty, "local type " + name)
+    v4_local_annotation_prefix_assert(v4_mir_local_binding_prefix(mir, body, local) == prefix, "authored prefix " + name)
+    v4_local_annotation_prefix_assert(v4_hir_local_annotation_at_offset(hir, item, offset + 1) == -1, "interior offset rejected " + name)
+    if prefix != "" {
+        pilot modifier_offset = offset - (prefix.length() - 5)
+        v4_local_annotation_prefix_assert(v4_hir_local_annotation_at_offset(hir, item, modifier_offset) == -1, "modifier is not annotation identity " + name)
+    }
+    if sig >= 0 {
+        v4_local_annotation_prefix_assert(v4_ty_signature_local_annotation_at_offset(ty, sig, offset) == annotation, "signature identity " + name)
+        v4_local_annotation_prefix_assert(v4_ty_signature_local_annotation_type(ty, sig, annotation) == annotation_ty, "signature type " + name)
+    } else {
+        v4_local_annotation_prefix_assert(v4_ty_impl_local_annotation_type_at_offset(ty, v4_mir_body_def(mir, body), offset) == annotation_ty, "impl type bridge " + name)
+    }
+}
+
+task v4_local_annotation_prefix_body(src: word, hir: int, item: int, ty: int, sig: int, mir: int, body: int) -> void {
+    v4_local_annotation_prefix_assert(v4_hir_local_annotation_count(hir, item) == 5, "five owned annotations")
+    v4_local_annotation_prefix_local(src, hir, item, ty, sig, mir, body, "fixed_mark", "fixed pilot", "char", "char")
+    v4_local_annotation_prefix_local(src, hir, item, ty, sig, mir, body, "grounded_mark", "grounded pilot", "char", "char")
+    v4_local_annotation_prefix_local(src, hir, item, ty, sig, mir, body, "ordinary", "", "int", "int")
+    v4_local_annotation_prefix_local(src, hir, item, ty, sig, mir, body, "explicit", "", "int", "int")
+    v4_local_annotation_prefix_local(src, hir, item, ty, sig, mir, body, "first", "fixed pilot", "(int,int)", "int")
+    v4_local_annotation_prefix_local(src, hir, item, ty, sig, mir, body, "second", "fixed pilot", "(int,int)", "int")
+}
+
+task v4_local_annotation_prefix_run() -> void {
+    pilot body_src = "    fixed pilot fixed_mark: char = 'A'\n"
+    body_src = body_src + "    grounded pilot grounded_mark: char = 'B'\n"
+    body_src = body_src + "    pilot ordinary: int = 7\n"
+    body_src = body_src + "    pilot mut explicit: int = 9\n"
+    body_src = body_src + "    fixed pilot (first, second): (int,int) = (1, 2)\n"
+    body_src = body_src + "    give back fixed_mark\n"
+    pilot src = "task anchored(param: int) -> char {\n" + body_src + "}\n"
+    src = src + "shape Anchor { hp: int }\nimpl Anchor {\n"
+    src = src + "task anchored(self, param: int) -> char {\n" + body_src + "}\n}\n"
+    pilot stream = v4_lex_text(2, src)
+    pilot tree = v4_parse_stream(2, stream)
+    pilot hir = v4_hir_lower_tree(2, tree)
+    pilot resolve_id = v4_resolve_lower_hir(2, hir)
+    pilot ty = v4_ty_lower_resolve(2, resolve_id)
+    pilot mir = v4_mir_lower_ty(2, ty)
+    pilot borrow = v4_borrowck_check_mir(2, mir)
+    v4_local_annotation_prefix_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve_id) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_borrowck_diag_count(borrow) == 0, "clean task and impl declarations")
+    pilot def_id = v4_resolve_def_for_name(resolve_id, "anchored")
+    pilot sig = v4_ty_lookup_signature(ty, def_id)
+    pilot item = v4_ty_signature_hir_item(ty, sig)
+    pilot body = v4_mir_lookup_body(mir, def_id)
+    v4_local_annotation_prefix_body(src, hir, item, ty, sig, mir, body)
+    say "local-annotation-prefix-task=passed"
+    pilot impl_item = 0
+    repeat until impl_item >= v4_hir_item_count(hir) or v4_hir_item_kind(hir, impl_item) == v4_hir_impl { impl_item += 1 }
+    pilot impl_def = v4_ty_impl_method_def(ty, impl_item, 0)
+    pilot impl_body = v4_mir_lookup_body(mir, impl_def)
+    v4_local_annotation_prefix_body(src, hir, impl_item, ty, -1, mir, impl_body)
+    pilot task_local = v4_mir_find_local(mir, body, "fixed_mark")
+    pilot task_offset = v4_span_start(v4_mir_local_span(mir, body, task_local))
+    v4_local_annotation_prefix_assert(v4_ty_impl_local_annotation_type_at_offset(ty, impl_def, task_offset) == v4_ty_unknown, "foreign callable annotation rejected")
+    say "local-annotation-prefix-impl=passed"
+    pilot snapshot = v4_hir_snapshot()
+    pilot restored = v4_hir_snapshot_restore(snapshot)
+    v4_local_annotation_prefix_assert(restored.starts_with("hir-snapshot-restore ok=1"), "HIR restore")
+    v4_local_annotation_prefix_body(src, hir, item, ty, sig, mir, body)
+    v4_local_annotation_prefix_body(src, hir, impl_item, ty, -1, mir, impl_body)
+    say "local-annotation-prefix-restored=passed"
+}
+
+v4_local_annotation_prefix_run()
