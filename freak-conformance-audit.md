@@ -30,7 +30,7 @@ native example and a separate zero-pass, nested-control and short-circuit
 example, including exact restored LLVM modules and native output. Counted
 forms, ungrouped multiline condition continuation, general backend parity and
 release/platform acceptance remain separate gates. The frozen bootstrap pin
-and its 28-source inventory remain unchanged.
+and its 28-row inventory remain unchanged.
 
 **V3 source binding and ticket-word correctness (2026-10-07):** source package
 binding distinguishes declaration roles and preserves source diagnostic names.
