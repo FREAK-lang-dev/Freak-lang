@@ -524,6 +524,10 @@ or `grounded pilot` prefix. Initializer text, inference, evaluation, cycles,
 and mismatch diagnostic locations remain unchanged and may still use syntax.
 Root constant navigation retains the full declaration range; its exact HIR
 name span remains a separate fact.
+Root-constant mutation checks belong to assignment and mutable-lend lowering.
+Constructing a place for a field, tuple-slot or indexed read does not itself
+modify the root. Root projected storage still has conservative Meiya address
+and native-codegen boundaries; this check does not introduce root storage.
 The seventh bounded boundary covers route/variant declaration facts. HIR stores
 the original declaration form, ordered case names and name/segment spans,
 payload presence independently of field count, and ordered payload-field names,
@@ -591,6 +595,12 @@ order and nested block scope, excludes member-name tokens, and treats only
 live through the closure holder's final reachable use, recognizes assignment
 and resolved `lend mut self`/Shared mutable receiver calls, requires exclusive
 access for mutable captures, and consumes OneShot closures on call. Closure
+invocation also respects the callee's binding: invoking a stored `MutCallable`
+through a `fixed pilot` or `grounded pilot` reports the written prefix.
+Meiya follows the callee's declaration identity through projections
+and restored MIR; mutable shadows retain their own permission. Read-only
+and OneShot calls keep their existing borrow and move rules. The registered
+prerelease closure-binding smoke covers fresh and restored callees. Closure
 effect summaries do not exist yet, so MIR rejects mutable closure writes into
 captured storage whose type may retain a lend instead of silently losing the
 installed loan at invocation. Closure parameter editor facts likewise exclude
