@@ -18,6 +18,10 @@ from unittest.mock import patch
 import v3_build_profiles as profiles
 
 
+def display_token(value):
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
+
+
 class ControlledLinkerHelpers(unittest.TestCase):
     def setUp(self):
         guard = patch.object(subprocess, "run", side_effect=AssertionError("unexpected child process"))
@@ -31,7 +35,7 @@ class ControlledLinkerHelpers(unittest.TestCase):
         alias = self.root / "ld"
         alias.write_bytes(b"linker fixture")
         with patch.object(Path, "resolve", side_effect=AssertionError("alias resolved away")):
-            found = profiles.linker_from_trace(f' "{alias}" "-o" "output"\n')
+            found = profiles.linker_from_trace(f' {display_token(alias)} "-o" "output"\n')
         self.assertEqual(found, alias.absolute())
         self.assertEqual(found.name, "ld")
 
@@ -43,10 +47,10 @@ class ControlledLinkerHelpers(unittest.TestCase):
         for role in ("-cc1", "-cc1as"):
             for argument in (role, f'"{role}"'):
                 with self.subTest(role=role, argument=argument):
-                    trace = f' "{compiler}" {argument} "input.c"\n "{linker}" "-o" "output"\n'
+                    trace = f' {display_token(compiler)} {argument} "input.c"\n {display_token(linker)} "-o" "output"\n'
                     self.assertEqual(profiles.linker_from_trace(trace), linker.absolute())
         # Role is the immediate argument, not arbitrary later linker text.
-        self.assertEqual(profiles.linker_from_trace(f'"{linker}" "-o" "-cc1"\n'), linker.absolute())
+        self.assertEqual(profiles.linker_from_trace(f'{display_token(linker)} "-o" "-cc1"\n'), linker.absolute())
 
     def test_clang_display_escapes_preserve_the_exact_linker_path(self):
         spelling = 'SDK dollar $ é 日本'
@@ -56,8 +60,7 @@ class ControlledLinkerHelpers(unittest.TestCase):
         directory.mkdir()
         linker = directory / "ld"
         linker.write_bytes(b"escaped linker fixture")
-        displayed = str(linker).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
-        self.assertEqual(profiles.linker_from_trace(f' "{displayed}" "-o" "output"\n'), linker.absolute())
+        self.assertEqual(profiles.linker_from_trace(f' {display_token(linker)} "-o" "output"\n'), linker.absolute())
 
     def test_windows_display_tokens_decode_without_shell_interpretation(self):
         spelling = 'C:\\SDK quote " dollar $ é 日本\\ld.exe'
@@ -70,14 +73,15 @@ class ControlledLinkerHelpers(unittest.TestCase):
         linker = self.root / "ld"
         rejected.write_bytes(b"must not select")
         linker.write_bytes(b"valid linker")
+        displayed = display_token(rejected)
         malformed = (
-            f'"{rejected}"suffix "-o" "output"',
-            f'"{rejected}\\"',
-            f'"{rejected}',
+            f'{displayed}suffix "-o" "output"',
+            displayed[:-1] + '\\"',
+            displayed[:-1],
             f'{rejected}" "-o" "output"',
-            f'"{rejected}" "\\q"',
-            f'"{rejected}" "-cc1',
-            f'"{rejected}" "-cc1"suffix',
+            f'{displayed} "\\q"',
+            f'{displayed} "-cc1',
+            f'{displayed} "-cc1"suffix',
         )
         # An unknown escape can also spell an existing host path on POSIX.
         if os.name != "nt":
@@ -87,7 +91,7 @@ class ControlledLinkerHelpers(unittest.TestCase):
             malformed += (f'"{escaped / "ld"}" "-o" "output"',)
         for line in malformed:
             with self.subTest(line=line):
-                self.assertEqual(profiles.linker_from_trace(line + f'\n"{linker}" "-o" "output"\n'),
+                self.assertEqual(profiles.linker_from_trace(line + f'\n{display_token(linker)} "-o" "output"\n'),
                                  linker.absolute())
                 with self.assertRaisesRegex(AssertionError, "did not expose a linker command"):
                     profiles.linker_from_trace(line + "\n")
@@ -229,7 +233,7 @@ class ControlledLinkerHelpers(unittest.TestCase):
                     self.assertNotEqual(flavor, "link")  # Avoid VS's special discovery branch.
                     self.assertEqual(Path(flavor).name, flavor)  # Never an absolute -fuse-ld path.
                     traced = selected.with_suffix("") if name == "lld-link.exe" else selected
-                    self.assertEqual(profiles.linker_from_trace(f'"{traced}" "-out:unused"\n'),
+                    self.assertEqual(profiles.linker_from_trace(f'{display_token(traced)} "-out:unused"\n'),
                                      selected.absolute())
             # MinGW uses generic GetLinkerPath, not the MSVC basename protocol.
             mingw = private / "ld.lld.exe"
@@ -263,7 +267,7 @@ class ControlledLinkerHelpers(unittest.TestCase):
                 origin.mkdir()
                 with patch.object(sys, "platform", platform):
                     overrides = profiles.linker_override_arguments(selected)
-                    result = subprocess.CompletedProcess([], 0, f'"{selected}" "-o" "unused"\n', "")
+                    result = subprocess.CompletedProcess([], 0, f'{display_token(selected)} "-o" "unused"\n', "")
                     with patch.object(subprocess, "run", return_value=result) as launch:
                         self.assertEqual(profiles.trace_linker(str(real_clang), flags, linker_path=selected,
                                                               original_dir=origin), selected.absolute())
@@ -321,8 +325,7 @@ class NativeLinkerAliasTrace(unittest.TestCase):
                                    text=True, encoding="utf-8", timeout=30, check=False)
             self.assertEqual(trace.returncode, 0, trace.stdout + trace.stderr)
             output = trace.stdout + trace.stderr
-            displayed = str(alias).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
-            self.assertIn(f'"{displayed}" "-cc1"', output)
+            self.assertIn(f'{display_token(alias)} "-cc1"', output)
             selected = profiles.linker_from_trace(output)
             self.assertNotEqual(selected, alias)
             self.assertTrue(selected.is_file())
