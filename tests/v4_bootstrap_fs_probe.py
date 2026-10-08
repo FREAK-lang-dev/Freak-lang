@@ -85,7 +85,7 @@ def handle_accounting(rows: list[dict], original_summary: dict) -> dict:
             return event["handle"]
         if event["api"] == "NtCreateFile" and event["result"] == 0 and event["io_valid"] and event["io_status"] == 0:
             return event["other_handle"]
-        if event["api"] in {"ReOpenFile", "OpenFileById", "DuplicateHandle", "OpenProcessToken", "OpenThreadToken"} and event["result"] == 1:
+        if event["api"] in {"ReOpenFile", "OpenFileById", "DuplicateHandle", "OpenProcessToken", "OpenThreadToken"} and event["result"] != 0:
             return event["other_handle"]
         return None
 
@@ -106,7 +106,7 @@ def handle_accounting(rows: list[dict], original_summary: dict) -> dict:
                     overwritten.append({"previous": active[handle], "replacement": record})
                 active[handle] = record
                 acquisitions.append(record)
-            if event["api"] == "CloseHandle" and event["result"] == 1:
+            if event["api"] == "CloseHandle" and event["result"] != 0:
                 record = active.pop(event["handle"], None)
                 if record is not None:
                     record["close_trace_ordinal"] = position
