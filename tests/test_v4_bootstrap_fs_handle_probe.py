@@ -106,6 +106,20 @@ class HandleAccountingTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             handle_accounting(bad, summary)
 
+    def test_native_bool_success_accepts_every_nonzero_value(self):
+        events = [event(0, "DuplicateHandle", handle=4, other=8, before=1, after=2),
+                  event(1, "CloseHandle", handle=8, before=2, after=1)]
+        for row in events:
+            row["result"] = 2
+        rows = evidence([snapshot(0, "cold_entry", [4]),
+                         snapshot(1, "after_release_tickets", [4], 2),
+                         snapshot(2, "query_repeat_after_release", [4], 2)], events)
+        result = handle_accounting(rows, {"resources_before": 1, "resources_after": 1,
+                                         "production_contract_passed": True})
+        self.assertEqual(len(result["owning_acquisitions"]), 1)
+        self.assertEqual(result["owning_acquisitions"][0]["close_trace_ordinal"], 1)
+        self.assertEqual(result["unclosed_traced_acquisitions"], [])
+
 
 if __name__ == "__main__":
     unittest.main()
