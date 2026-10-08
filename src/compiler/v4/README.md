@@ -466,6 +466,8 @@ preserves ordinary task generic scope when resolving those annotations.
 Contextual `grounded pilot` permits only spaces or tabs between its words.
 Parser, HIR local discovery, MIR statement lowering and closure capture scanning
 share that predicate; LF, CRLF, bare CR and comments do not fuse declarations.
+Construction readers reach the parser-owned predicate through expansion and HIR
+source views, preserving the existing direct parser-access guards.
 Ordinary identifiers named `grounded` retain their declaration and annotation
 identity. The established `fixed` trivia and recovery behavior is unchanged.
 Concrete impl methods read the same stored HIR facts through an exact synthetic
