@@ -74,7 +74,16 @@ literal POSIX backslash filenames. Both platform suites retain every applicable
 assertion. The second Git-checkout build saves its complete output, status and
 executable identities in a separate artifact before verification assertions.
 
-The official V4 crates and LLVM driver retain their pinned source bytes.
+The locked bootstrap source artifact retains the original official V4 crates
+and LLVM driver's pinned bytes. Current development crates may subsequently
+change, including the contextual `grounded pilot` slice; that does not repin
+the bootstrap. Select an actual frozen source directory with `--source`.
+`tests/v4_locked_source.py` materializes its 23 source/entry files from the
+declared Git commit and verifies them against the original lock, then adds the
+unchanged profile metadata with their own locked hashes. The native CI gate
+passes that directory for both byte-inventory and local Git-object verification,
+while building the CLI and runtime from the current PR. Modified development
+sources presented as the frozen profile are still rejected.
 Historical Linux comparisons of the word optimization used 480 identical source
 inputs and produced byte-identical stdout, stderr and status
 against a freshly Python-built compiler of the same revision: 54 modules and

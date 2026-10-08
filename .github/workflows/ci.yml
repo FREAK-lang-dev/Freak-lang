@@ -156,6 +156,13 @@ jobs:
         shell: bash
         run: python -u tests/v3_v35_language.py --compiler ./build/freakc_v3_stage2$EXT
 
+      - name: V3.5 prerelease language and scalar contracts
+        shell: bash
+        run: |
+          python -B -u tests/v3_v35_entry.py --compiler ./build/freakc_v3_stage2$EXT --optimization O2
+          python -B -u tests/v3_v35_literals.py --compiler ./build/freakc_v3_stage2$EXT --optimization 2
+          python -B -u tests/v3_v35_prerelease_scalars.py --compiler ./build/freakc_v3_stage2$EXT --optimization O2
+
       - name: V3.5 truthful Hangar failures
         shell: bash
         run: |
@@ -466,6 +473,13 @@ jobs:
       - name: V3.5 native statement separators
         shell: bash
         run: python -u tests/v3_v35_language.py --compiler ./build/freakc_v3_stage2$EXT
+
+      - name: V3.5 prerelease language and scalar contracts
+        shell: bash
+        run: |
+          python -B -u tests/v3_v35_entry.py --compiler ./build/freakc_v3_stage2$EXT --optimization O2
+          python -B -u tests/v3_v35_literals.py --compiler ./build/freakc_v3_stage2$EXT --optimization 2
+          python -B -u tests/v3_v35_prerelease_scalars.py --compiler ./build/freakc_v3_stage2$EXT --optimization O2
 
       - name: V3.5 truthful Hangar failures
         shell: bash
