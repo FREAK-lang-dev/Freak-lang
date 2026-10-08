@@ -1,0 +1,160 @@
+-- One source pipeline per process checks contextual boundaries without arena reuse.
+task v4_prerelease_boundary_assert(condition: bool, label: word) -> void {
+    if not condition { panic("prerelease grounded boundary: " + label) }
+}
+
+task v4_prerelease_boundary_gap(mode: word) -> word {
+    if mode == "space" or mode == "diagnostic" or mode == "restore" { give back " " }
+    if mode == "tab" { give back "\t" }
+    if mode == "mixed" { give back " \t  " }
+    if mode == "lf" { give back "\n" }
+    if mode == "crlf" { give back "\r\n" }
+    if mode == "cr" { give back "\r" }
+    if mode == "line-comment" { give back " -- context\n" }
+    -- C-style block comments are not FREAK trivia; this is a rejection control.
+    if mode == "block-comment" { give back " /* context */ " }
+    panic("unknown boundary gap " + mode)
+    give back ""
+}
+
+task v4_prerelease_boundary_source(prefix: word, mode: word) -> word {
+    if prefix == "local" {
+        pilot declarations = "pilot grounded: int = 1\n say grounded\n pilot next: int = 2\n"
+        if mode.starts_with("untyped-") { declarations = "pilot grounded = 1\n say grounded\n pilot next = 2\n" }
+        pilot source = "task main() -> int " + chr(123) + "\n " + declarations + " grounded += next\n give back grounded\n" + chr(125) + "\n"
+        if mode.ends_with("crlf") { source = source.replace("\n", "\r\n") }
+        give back source
+    }
+    if prefix == "local-pair" {
+        give back "task main() -> int " + chr(123) + "\n pilot grounded = 3\n grounded" + v4_prerelease_boundary_gap(mode) + "pilot next: int = 1\n give back next\n" + chr(125) + "\n"
+    }
+    if prefix == "closure" {
+        give back "task main() -> int " + chr(123) + "\n pilot grounded = 3\n pilot cb = |_| " + chr(123) + " grounded" + v4_prerelease_boundary_gap(mode) + "pilot inner: int = 2; grounded " + chr(125) + "\n give back grounded\n" + chr(125) + "\n"
+    }
+    pilot initializer = "1"
+    if mode == "diagnostic" { initializer = "true" }
+    give back prefix + v4_prerelease_boundary_gap(mode) + "pilot ROOT: int = " + initializer + "\ntask main() -> int " + chr(123) + " give back ROOT " + chr(125) + "\n"
+}
+
+task v4_prerelease_boundary_diag(ty: int, idx: int, message: word, help: word) -> void {
+    v4_prerelease_boundary_assert(v4_diag_message(v4_ty_diag(ty, idx)) == message and v4_diag_help(v4_ty_diag(ty, idx)) == help, "exact TY diagnostic " + word_from_int(idx))
+}
+
+task v4_prerelease_boundary_run() -> void {
+    pilot prefix = process::arg(1)
+    pilot mode = process::arg(2)
+    v4_prerelease_boundary_assert(prefix == "fixed" or prefix == "grounded" or prefix == "local" or prefix == "local-pair" or prefix == "closure", "known source family")
+    pilot source = v4_prerelease_boundary_source(prefix, mode)
+    pilot stream = v4_lex_text(0, source)
+    pilot modifier = 0
+    pilot paired = mode == "space" or mode == "tab" or mode == "mixed" or mode == "diagnostic" or mode == "restore"
+    if prefix == "fixed" and mode != "block-comment" { paired = true }
+    if prefix == "local-pair" or prefix == "closure" {
+        pilot seen = 0
+        modifier = -1
+        pilot idx = 0
+        repeat until idx >= v4_lex_token_count(stream) {
+            if v4_lex_token_syntax_value(stream, idx) == "grounded" {
+                if seen == 1 { modifier = idx }
+                seen += 1
+            }
+            idx += 1
+        }
+        v4_prerelease_boundary_assert(modifier >= 0, "contextual modifier token")
+    }
+    if prefix == "local" {
+        pilot idx = 0
+        repeat until idx >= v4_lex_token_count(stream) {
+            if v4_lex_token_syntax_value(stream, idx) == "grounded" {
+                v4_prerelease_boundary_assert(not v4_parse_is_fixed_pilot_keyword(stream, idx), "ordinary grounded identifier is not contextual")
+            }
+            idx += 1
+        }
+    } else {
+        v4_prerelease_boundary_assert(v4_parse_is_fixed_pilot_keyword(stream, modifier) == paired, "exact contextual lookahead")
+        if prefix == "closure" {
+            pilot name_token = v4_mir_closure_local_decl_name_token(stream, modifier, v4_lex_token_count(stream))
+            if paired {
+                v4_prerelease_boundary_assert(name_token >= 0 and v4_lex_token_syntax_value(stream, name_token) == "inner", "closure local has exact declared name")
+            } else {
+                v4_prerelease_boundary_assert(name_token == -1, "closure capture scanner does not fuse the pair")
+            }
+        }
+    }
+    v4_prerelease_boundary_assert(not v4_parse_is_fixed_pilot_keyword(stream, -1) and not v4_parse_is_fixed_pilot_keyword(stream, v4_lex_token_count(stream)), "invalid token boundaries stay readonly")
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot errors = 0
+    pilot root = prefix == "fixed" or prefix == "grounded"
+    if root {
+        if mode == "lf" or mode == "crlf" or mode == "line-comment" {
+            errors = 2
+            if prefix == "fixed" { errors = 3 }
+        }
+        if mode == "block-comment" or (mode == "cr" and prefix == "grounded") { errors = 1 }
+    }
+    v4_prerelease_boundary_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == errors and v4_hir_diag_count(hir) == errors and v4_resolve_diag_count(resolve) == errors, "exact lexer/parse/HIR/resolve counts")
+    pilot type_errors = errors
+    if mode == "diagnostic" { type_errors = 1 }
+    pilot mir_errors = type_errors
+    if prefix == "closure" and mode == "cr" { mir_errors = 1 }
+    v4_prerelease_boundary_assert(v4_ty_diag_count(ty) == type_errors and v4_mir_diag_count(mir) == mir_errors, "exact TY/MIR counts")
+    if prefix == "closure" and mode == "cr" {
+        v4_prerelease_boundary_assert(v4_diag_message(v4_mir_diag(mir, 0)) == "Meiya keeps this closure capture immutable" and v4_diag_help(v4_mir_diag(mir, 0)) == "use a mut closure when grounded must be changed through the closure environment", "non-declaration keeps the real closure capture diagnostic")
+    }
+    if prefix == "local" or prefix == "local-pair" or prefix == "closure" {
+        pilot annotations = 1
+        if prefix == "local" {
+            annotations = 2
+            if mode.starts_with("untyped-") { annotations = 0 }
+        }
+        if (prefix == "local-pair" and mode == "block-comment") or mode == "cr" { annotations = 0 }
+        v4_prerelease_boundary_assert(v4_hir_local_annotation_count(hir, 0) == annotations, "HIR publishes only independent declaration annotations")
+    }
+    if root and errors == 0 {
+        v4_prerelease_boundary_assert(v4_hir_item_count(hir) == 2 and v4_hir_item_kind(hir, 0) == v4_hir_const and v4_hir_item_name(hir, 0) == "ROOT" and v4_hir_const_binding_prefix(hir, 0) == prefix + " pilot", "root retains exact authored prefix")
+        pilot sig = v4_ty_const_signature_id_for_name(ty, "ROOT")
+        v4_prerelease_boundary_assert(sig >= 0 and v4_ty_const_binding_prefix(ty, sig) == prefix + " pilot", "TY prefix agrees with HIR")
+        if mode == "diagnostic" {
+            v4_prerelease_boundary_diag(ty, 0, "constant initializer type mismatch", prefix + " pilot ROOT expects int but got bool")
+        }
+        if mode == "restore" {
+            pilot snapshot = v4_hir_snapshot()
+            v4_prerelease_boundary_assert(v4_hir_snapshot_restore(snapshot).starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_hir_const_binding_prefix(hir, 0) == prefix + " pilot", "authored HIR snapshot restores exactly")
+            pilot old = snapshot.replace("freak-hir-snapshot-v12", "freak-hir-snapshot-v11")
+            v4_prerelease_boundary_assert(v4_hir_snapshot_restore(old).starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == snapshot, "old format rejected atomically")
+        }
+    }
+    if root and errors > 0 {
+        if prefix == "grounded" or mode == "block-comment" {
+            v4_prerelease_boundary_diag(ty, 0, "unexpected token at top level", prefix)
+            pilot idx = 0
+            repeat until idx >= v4_hir_item_count(hir) {
+                v4_prerelease_boundary_assert(v4_hir_item_kind(hir, idx) != v4_hir_const, "rejected pair publishes no Const")
+                idx += 1
+            }
+            if errors == 2 { v4_prerelease_boundary_diag(ty, 1, "unexpected token at top level", "pilot") }
+        } else {
+            -- These existing fixed recovery diagnostics remain deliberately exact.
+            v4_prerelease_boundary_diag(ty, 0, "incomplete syntax node", "expected name after fixed pilot")
+            v4_prerelease_boundary_diag(ty, 1, "incomplete syntax node", "expected = in fixed pilot")
+            v4_prerelease_boundary_diag(ty, 2, "unexpected token at top level", "pilot")
+            v4_prerelease_boundary_assert(v4_hir_item_kind(hir, 0) == v4_hir_const and v4_hir_const_binding_prefix(hir, 0) == "fixed pilot", "fixed recovered Const is preserved")
+        }
+    }
+    if prefix == "local" or prefix == "local-pair" {
+        pilot locals = 2
+        if prefix == "local-pair" and (mode == "cr" or mode == "block-comment") { locals = 1 }
+        v4_prerelease_boundary_assert(v4_mir_body_count(mir) == 1 and v4_mir_body_local_count(mir, 0) == locals and v4_mir_local_name(mir, 0, 0) == "grounded" and v4_mir_local_binding_prefix(mir, 0, 0) == "", "ordinary grounded retains mutable declaration identity")
+        if locals == 2 {
+            pilot expected_prefix = ""
+            if prefix == "local-pair" and paired { expected_prefix = "grounded pilot" }
+            v4_prerelease_boundary_assert(v4_mir_local_name(mir, 0, 1) == "next" and v4_mir_local_binding_prefix(mir, 0, 1) == expected_prefix, "second local has exact independent binding identity")
+        }
+    }
+    say "prerelease-grounded-boundary " + prefix + "-" + mode + "=passed"
+}
+v4_prerelease_boundary_run()
