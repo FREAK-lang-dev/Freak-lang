@@ -1,0 +1,5 @@
+use demo::{greet}
+
+task main() {
+    say greet("consumer")
+}

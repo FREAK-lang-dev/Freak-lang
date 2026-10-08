@@ -1,0 +1,34 @@
+# Ordered LLVM preview runtime sources, followed by every shipped include,
+# marker, and vendor attribution needed by the private runtime snapshot.
+source freak_llvm_runtime.c
+source freak_v4_word_runtime.c
+source freak_v4_numeric_runtime.c
+source freak_v4_unicode_runtime.c
+source freak_v4_system_runtime.c
+source freak_v4_panic_runtime.c
+source freak_runtime.c
+header freak_runtime.h
+header freak_v4_word_runtime.h
+header freak_v4_numeric_runtime.h
+header freak_v4_unicode_runtime.h
+header freak_v4_unicode_lower_tables.h
+header freak_v4_system_runtime.h
+header freak_v4_panic_runtime.h
+header freak_v35_process.inc
+header freak_v35_fs.inc
+header freak_v35_json.inc
+header freak_v35_http.inc
+header third_party/llhttp/freak_amalgamation.inc
+header third_party/llhttp/include/llhttp.h
+header third_party/llhttp/src/llhttp.h
+header third_party/llhttp/src/api.c
+header third_party/llhttp/src/http.c
+header third_party/llhttp/src/llhttp.c
+asset third_party/llhttp/LICENSE
+asset third_party/llhttp/LICENSE-MIT
+asset third_party/llhttp/UPSTREAM.json
+asset third_party/llhttp/README.freak.md
+asset third_party/llhttp/PATCHES.md
+asset third_party/llhttp/SHA256SUMS
+marker freak_abi
+marker freak_runtime_api

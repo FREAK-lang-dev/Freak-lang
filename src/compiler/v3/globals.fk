@@ -78,6 +78,9 @@ pilot STMT_EVENTUALLY = "15"
 pilot STMT_EXTERN = "16"
 pilot STMT_IMPL = "17"
 pilot STMT_FOREACH = "18"
+pilot STMT_RANGE = "19"
+pilot STMT_FOR = "20"
+pilot STMT_CHECK_RESULT = "21"
 
 pilot ast_stmt_kinds = 0
 pilot ast_stmt_names = 0
@@ -103,6 +106,8 @@ pilot ast_pilot_is_mut = 0
 -- Off by default; enabled via --strict-borrow on the CLI.
 
 pilot strict_borrow = false
+-- Explicit host-bootstrap compatibility; ordinary compilation stays strict.
+pilot v35_bootstrap_compat = false
 
 -- Symbol table (parallel arrays, scope-stack discipline).
 -- bc_sym_kinds: "copy" | "owned"
@@ -115,6 +120,12 @@ pilot bc_sym_scopes = 0
 pilot bc_sym_lines  = 0
 pilot bc_sym_count  = 0
 pilot bc_scope_depth = 0
+pilot bc_loop_active = false
+pilot bc_loop_outer_count = 0
+pilot bc_loop_exit_states = ""
+pilot bc_loop_backedge_states = ""
+pilot bc_loop_backedge_seen = false
+pilot bc_backedge_rechecking = false
 
 -- Always-on V3 semantic checking state.  These tables and context scalars are
 -- reset for every compilation before any emitter is allowed to run.
@@ -125,6 +136,9 @@ pilot tc_global_visibility_count = 0 - 1
 pilot tc_dependency_pending_calls = 0
 pilot tc_local_names = 0
 pilot tc_local_types = 0
+-- Semantic types recorded while each expression's lexical scope is active.
+-- The later ownership pass consumes these facts after local tables reset.
+pilot tc_checked_expr_types = 0
 pilot tc_local_mut = 0
 pilot tc_global_mut = 0
 pilot tc_local_count = 0
@@ -165,6 +179,15 @@ pilot parse_idx = 1
 pilot tok_total = 0
 pilot parse_error_count = 0
 pilot error_count = 0
+pilot diag_fact_codes = 0
+pilot diag_fact_messages = 0
+pilot diag_fact_hints = 0
+pilot diag_fact_files = 0
+pilot diag_fact_lines = 0
+pilot diag_fact_columns = 0
+pilot diag_fact_source_indexes = 0
+pilot diag_source_paths = 0
+pilot diag_source_contents = 0
 pilot next_expr_id = 0
 pilot next_stmt_id = 0
 pilot bc_current_source_file = ""
@@ -238,6 +261,7 @@ pilot diagnostic_source = ""
 pilot source_map_paths = 0
 pilot source_map_starts = 0
 pilot source_map_ends = 0
+pilot source_map_contents = 0
 pilot source_map_count = 0
 pilot source_map_next_line = 1
 pilot source_map_initialized = false

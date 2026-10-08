@@ -17,6 +17,9 @@ import io
 import json
 import os
 import shutil
+import stat
+import ctypes
+import tempfile
 import sys
 import zipfile
 from pathlib import Path
@@ -315,11 +318,12 @@ def hangar_add(project_dir: Path, pkg_name: str, repo: str,
     deps = data.setdefault("dependencies", {})
 
     deps[pkg_name] = {"git": repo, "version": version}
+    result = _install_one(project_dir, pkg_name, deps[pkg_name])
+    if result != 0:
+        return result
     _write_manifest(project_dir, data)
     print(f"  Added {pkg_name} ({repo} @ {version})")
-
-    # Also install it
-    return _install_one(project_dir, pkg_name, deps[pkg_name])
+    return 0
 
 
 def hangar_remove(project_dir: Path, pkg_name: str) -> int:
@@ -368,12 +372,50 @@ def hangar_install(project_dir: Path) -> int:
     return 0
 
 
+def _publish_initial_directory(staged: Path, destination: Path) -> None:
+    """Atomically publish a new tree without replacing any existing path."""
+    if sys.platform == "win32":
+        # Windows rename rejects every existing destination.
+        os.rename(staged, destination)
+        return
+    libc = ctypes.CDLL(None, use_errno=True)
+    source = os.fsencode(staged)
+    target = os.fsencode(destination)
+    if sys.platform.startswith("linux") and hasattr(libc, "renameat2"):
+        operation = libc.renameat2
+        operation.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        operation.restype = ctypes.c_int
+        code = operation(-100, source, -100, target, 1)  # AT_FDCWD, RENAME_NOREPLACE
+    elif sys.platform == "darwin" and hasattr(libc, "renamex_np"):
+        operation = libc.renamex_np
+        operation.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        operation.restype = ctypes.c_int
+        code = operation(source, target, 4)  # RENAME_EXCL
+    else:
+        raise OSError("atomic initial package publication is unavailable on this host")
+    if code != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(destination))
+
+
 def _install_one(project_dir: Path, name: str, info: Dict[str, str]) -> int:
     """Download and extract a single package."""
+    if not name or len(name) > 64 or not name[0].isascii() or not name[0].isalpha() or any(not ch.isascii() or not (ch.isalnum() or ch in "_-") for ch in name):
+        print(f"  Invalid package name: {name}", file=sys.stderr)
+        return 1
     modules_dir = project_dir / "hangar_modules"
-    modules_dir.mkdir(exist_ok=True)
+    try:
+        modules_dir.mkdir(exist_ok=True)
+        if not stat.S_ISDIR(modules_dir.lstat().st_mode):
+            raise ValueError("package store must be an ordinary directory")
+    except (OSError, ValueError) as error:
+        print(f"  Cannot open package store: {error}", file=sys.stderr)
+        return 1
     pkg_dir = modules_dir / name
 
+    if os.path.lexists(pkg_dir):
+        print(f"  Cannot safely replace {name}: transactional package publication is not available yet.", file=sys.stderr)
+        return 1
     repo = info.get("git", "")
     version = info.get("version", "latest")
 
@@ -397,62 +439,53 @@ def _install_one(project_dir: Path, name: str, info: Dict[str, str]) -> int:
     except URLError as e:
         # Check if it's a network issue or the repo doesn't exist
         print(f"  Could not fetch {name}: {e}", file=sys.stderr)
-        print(f"  Creating stub module for offline development...", file=sys.stderr)
-        _create_stub_module(pkg_dir, name)
-        return 0
+        return 1
     except Exception as e:
         print(f"  Could not fetch {name}: {e}", file=sys.stderr)
-        _create_stub_module(pkg_dir, name)
-        return 0
+        return 1
 
-    # Extract zip
+    # A unique owned stage prevents an interrupted/invalid archive from
+    # poisoning the dependency path or blocking a later successful retry.
     try:
-        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-            # Find .fk files in the archive
-            fk_files = [n for n in zf.namelist() if n.endswith(".fk")]
-            if not fk_files:
-                # Extract everything (might have src/ subfolder)
-                fk_files = zf.namelist()
-
-            if pkg_dir.exists():
-                shutil.rmtree(pkg_dir)
-            pkg_dir.mkdir(parents=True)
-
-            for fk in fk_files:
-                # Extract to flat structure, stripping top-level dir
-                parts = fk.split("/")
-                if len(parts) > 1:
-                    # Skip the top-level directory name from GitHub
-                    local_path = pkg_dir / "/".join(parts[1:])
-                else:
-                    local_path = pkg_dir / fk
-
-                if fk.endswith("/"):
-                    local_path.mkdir(parents=True, exist_ok=True)
-                else:
-                    local_path.parent.mkdir(parents=True, exist_ok=True)
-                    local_path.write_bytes(zf.read(fk))
-
+        with tempfile.TemporaryDirectory(prefix=".hangar-stage-", dir=modules_dir) as temporary:
+            staged = Path(temporary) / "package"
+            staged.mkdir()
+            with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+                entries = zf.infolist()
+                if not any(item.filename.endswith(".fk") for item in entries):
+                    raise ValueError("package archive contains no FREAK source")
+                for item in entries:
+                    parts = item.filename.split("/")
+                    if (item.filename.startswith("/") or "\\" in item.filename or
+                            any(part in (".", "..") or ":" in part for part in parts)):
+                        raise ValueError("unsafe path in package archive")
+                    mode = item.external_attr >> 16
+                    if stat.S_ISLNK(mode) or (stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR)):
+                        raise ValueError("unsupported file kind in package archive")
+                    # GitHub archives have one enclosing repository directory.
+                    relative = parts[1:] if len(parts) > 1 else parts
+                    relative = [part for part in relative if part]
+                    if not relative:
+                        continue
+                    local_path = staged.joinpath(*relative)
+                    if item.is_dir():
+                        local_path.mkdir(parents=True, exist_ok=True)
+                    else:
+                        local_path.parent.mkdir(parents=True, exist_ok=True)
+                        local_path.write_bytes(zf.read(item))
+            manifest = _read_manifest(staged)
+            if not isinstance(manifest.get("project"), dict) or not manifest["project"].get("name") or not manifest["project"].get("version"):
+                raise ValueError("package manifest requires project name and version")
+            # Existing trees remain outside this compatibility slice's supported
+            # publication contract. Never remove them as an error recovery step.
+            if os.path.lexists(pkg_dir):
+                raise FileExistsError("dependency path appeared during fetch")
+            _publish_initial_directory(staged, pkg_dir)
         print(f"  Installed {name} -> hangar_modules/{name}/")
         return 0
     except Exception as e:
-        print(f"  Failed to extract {name}: {e}", file=sys.stderr)
-        _create_stub_module(pkg_dir, name)
-        return 0
-
-
-def _create_stub_module(pkg_dir: Path, name: str) -> None:
-    """Create a stub module for offline development."""
-    if pkg_dir.exists():
-        shutil.rmtree(pkg_dir)
-    pkg_dir.mkdir(parents=True)
-    stub = pkg_dir / f"{name}.fk"
-    stub.write_text(
-        f"-- {name} (stub module — install with 'freak hangar install')\n"
-        f"-- This stub was created because the package could not be downloaded.\n\n",
-        encoding="utf-8",
-    )
-    print(f"  Created stub: hangar_modules/{name}/{name}.fk")
+        print(f"  Failed to install {name}: {e}", file=sys.stderr)
+        return 1
 
 
 # ── Module resolution ───────────────────────────────────────────────

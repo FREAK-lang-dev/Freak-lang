@@ -531,7 +531,7 @@ def main() -> int:
     test_env.pop(MISSING_NAME, None)
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-system-runtime-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve(strict=True)
         freak = (
             args.freak.resolve() if args.freak is not None
             else foundation.build_fresh_cli(

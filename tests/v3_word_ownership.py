@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -85,6 +86,64 @@ task main() {
     scoped = "released"
 }
 """
+
+# Ordinary user-task parameters retain the Phase-1 owning/move contract under
+# --strict-borrow (Bible sections 1.12 and 4). The C observer optimization only
+# removes a physical copy; it does not change that source contract. Preserve the
+# original default-mode PROGRAM above. V3 has no word.clone() method; its
+# existing repeated-route positive uses text + "" to make an owned temporary.
+STRICT_PROGRAM = PROGRAM.replace("        observe(observed)\n", '        observe(observed + "")\n')
+assert STRICT_PROGRAM != PROGRAM
+assert STRICT_PROGRAM.replace('observe(observed + "")', "observe(observed)") == PROGRAM
+
+STRICT_REUSE_PROGRAM = """task observe(value: word) -> int {
+    give back value.length()
+}
+
+task main() {
+    pilot owner: word = "own" + "er é🙂"
+    repeat 128 times {
+        if owner.length() != 12 { process::exit(2) }
+        if not owner.contains("é🙂") { process::exit(3) }
+        if word_concat(owner, "!") != "owner é🙂!" { process::exit(4) }
+        if observe(owner + "") != 12 { process::exit(5) }
+    }
+    say owner
+}
+"""
+
+STRICT_MOVE_NEGATIVES = {
+    "ordinary_observer_moves": """task observe(value: word) { pilot length = value.length() }
+task main() {
+    pilot owner: word = "own" + "er"
+    observe(owner)
+    say owner
+}
+""",
+    "ordinary_observer_moves_on_backedge": """task observe(value: word) { pilot length = value.length() }
+task main() {
+    pilot owner: word = "own" + "er"
+    repeat 2 times { observe(owner) }
+}
+""",
+    "builtin_cannot_borrow_moved_owner": """task main() {
+    pilot owner: word = "own" + "er"
+    pilot alias: word = owner
+    say owner.length()
+    say alias
+}
+""",
+}
+
+# pb_prefix(-1, "@entry") hashes these exact UTF-8 bytes for standalone files.
+# C/LLVM keep the owning user-task ABI and mangle the bound identity, including
+# bound shape receivers. Main is the binding contract's explicit exception.
+STANDALONE_PREFIX = "pkg_" + hashlib.sha256(b"standalone\n@entry").hexdigest() + "_"
+
+
+def user_symbol(name: str) -> str:
+    return "__freak_user_" + (name if name == "main" else STANDALONE_PREFIX + name)
+
 
 AGGREGATE_PROGRAM = """task store(items: int, value: word) {
     array_push(items, value)
@@ -264,6 +323,19 @@ CONCAT_TEMP_PROGRAM = """task main() {
     ("discard" + "ed") + ("temp" + "orary")
 }
 """
+
+# The shipped STMT_EXPR contract admits calls and methods, as exercised by
+# v3_v35_entry.py. Keep the exact legacy bare-concat source as a negative input;
+# wrap only that expression in a valid call returning the same owned word.
+DISCARDED_CONCAT = '("discard" + "ed") + ("temp" + "orary")'
+DISCARDED_RETURN_PROGRAM = (
+    "task keep_concat(value: word) -> word { give back value }\n\n"
+    + CONCAT_TEMP_PROGRAM.replace("    " + DISCARDED_CONCAT + "\n", "    keep_concat(" + DISCARDED_CONCAT + ")\n")
+)
+assert DISCARDED_RETURN_PROGRAM.split("\n\n", 1)[1].replace(
+    "keep_concat(" + DISCARDED_CONCAT + ")", DISCARDED_CONCAT
+) == CONCAT_TEMP_PROGRAM
+
 
 METHOD_SHAPE_PROGRAM = """shape Counter {
     value: int
@@ -515,6 +587,12 @@ task main() {
 }
 """
 
+PANIC_CONTROL_PROGRAM = """task main() {
+    panic("word ownership control")
+    say "unreachable"
+}
+"""
+
 UI_ABI_PROGRAM = """task draw_probe() {
     ui::stroke_rect(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
     ui::draw_line(11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
@@ -529,6 +607,13 @@ WRAPPER_EXTERN_TOP_LEVEL_PROGRAM = """extern task freak_main() -> void
 
 say "top wrapper"
 """
+
+# V3 entry checking rejects executable root statements and requires main.
+# Keep the no-main legacy source above for a negative control, and change only
+# the executable say's placement in the valid native collision probe.
+WRAPPER_EXTERN_MAIN_PROGRAM = WRAPPER_EXTERN_TOP_LEVEL_PROGRAM.replace(
+    'say "top wrapper"', 'task main() { say "top wrapper" }'
+)
 
 WRAPPER_EXTERN_INIT_PROGRAM = """extern task freak_init_globals() -> void
 
@@ -613,6 +698,10 @@ TOP_LEVEL_GLOBAL_PROGRAM = """pilot top_level: word = "top" + "level"
 say top_level
 """
 
+TOP_LEVEL_GLOBAL_MAIN_PROGRAM = TOP_LEVEL_GLOBAL_PROGRAM.replace(
+    "say top_level", "task main() { say top_level }"
+)
+
 WHEN_LIFETIME_PROGRAM = """task return_from_when() -> word {
     when "ret" + "urn" {
         "return" -> give back "matched"
@@ -687,6 +776,7 @@ def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> sub
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         errors="replace",
         timeout=180,
         check=False,
@@ -820,13 +910,15 @@ def main() -> int:
             "}\n"
         )
         cases = (
-            ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "arg", "shadow", "global", "inner", "outer", "outer!"], ("c", "llvm")),
+            ("readonly", PROGRAM, [], ["done", "xy", "call", "arg", "shadow", "global", "inner", "outer", "outer!"], ("c", "llvm")),
+            ("strict", STRICT_PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "arg", "shadow", "global", "inner", "outer", "outer!"], ("c", "llvm")),
+            ("strict_reuse", STRICT_REUSE_PROGRAM, ["--strict-borrow"], ["owner é🙂"], ("c", "llvm")),
             ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"], ("c", "llvm")),
             ("global_call", GLOBAL_CALL_PROGRAM, [], ["local", "global"], ("c", "llvm")),
             ("return_shadow", RETURN_SHADOW_PROGRAM, [], ["local", "inner", "global"], ("c", "llvm")),
             ("shadow_copy", SHADOW_COPY_PROGRAM, [], ["global", "param", "42", "true"], ("c", "llvm")),
             ("method_return", METHOD_RETURN_PROGRAM, [], ["ab", "trim"], ("c", "llvm")),
-            ("concat_temp", CONCAT_TEMP_PROGRAM, [], ["left7righttail"], ("c", "llvm")),
+            ("concat_temp", DISCARDED_RETURN_PROGRAM, [], ["left7righttail"], ("c", "llvm")),
             ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join", "literal"], ("c", "llvm")),
             ("fs_list", fs_list_program, [], ["true"], ("c", "llvm")),
             ("tcp_owned", tcp_program, [], ["recv"], ("c",)),
@@ -839,13 +931,14 @@ def main() -> int:
             ("numeric_shape", NUMERIC_SHAPE_PROGRAM, [], ["2", "3", "6", "5", "7", "14", "12.5", "6.25"], ("c", "llvm")),
             ("numeric_unary", NUMERIC_UNARY_PROGRAM, [], ["-1.5"], ("c", "llvm")),
             ("short_circuit", SHORT_CIRCUIT_PROGRAM, [], ["false", "true", "false", "true", "0"], ("c", "llvm")),
+            ("panic_control", PANIC_CONTROL_PROGRAM, [], [], ("c", "llvm")),
             ("ui_abi", UI_ABI_PROGRAM, [], ["ui abi"], ("c", "llvm")),
-            ("wrapper_extern_top_level", WRAPPER_EXTERN_TOP_LEVEL_PROGRAM, [], ["top wrapper"], ("c", "llvm")),
+            ("wrapper_extern_top_level", WRAPPER_EXTERN_MAIN_PROGRAM, [], ["top wrapper"], ("c", "llvm")),
             ("wrapper_extern_init", WRAPPER_EXTERN_INIT_PROGRAM, [], ["init wrapper"], ("c", "llvm")),
             ("loop_evaluation", LOOP_EVALUATION_PROGRAM, [], ["1", "1", "2", "1", "0", "5"], ("c", "llvm")),
             ("when_collision", WHEN_COLLISION_PROGRAM, [], ["sentinel"], ("c", "llvm")),
             ("when_stack", WHEN_STACK_PROGRAM, [], ["250000"], ("c", "llvm")),
-            ("top_level_global", TOP_LEVEL_GLOBAL_PROGRAM, [], ["toplevel"], ("c", "llvm")),
+            ("top_level_global", TOP_LEVEL_GLOBAL_MAIN_PROGRAM, [], ["toplevel"], ("c", "llvm")),
             ("when_lifetime", WHEN_LIFETIME_PROGRAM, [], ["word", "num", "mixed", "matched"], ("c", "llvm")),
             ("predicate_ownership", PREDICATE_OWNERSHIP_PROGRAM, [], ["if", "2", "1"], ("c", "llvm")),
         )
@@ -871,6 +964,8 @@ def main() -> int:
                 if backend == "c":
                     assert "freak_word_release_owned" in generated_text, case_name
                     if case_name not in {
+                        "strict_reuse",
+                        "panic_control",
                         "lexical_lifetime",
                         "borrowed_temp",
                         "numeric_word",
@@ -890,15 +985,30 @@ def main() -> int:
                         "predicate_ownership",
                     }:
                         assert "freak_word_replace_owned" in generated_text, case_name
-                    if case_name == "strict":
+                    if case_name in {"readonly", "strict"}:
                         assert re.search(r"freak_word_clone\(__freak_local_\d+\)", generated_text)
                         assert re.search(r"freak_word __freak_call_arg_0 = freak_word_clone\(__freak_local_\d+\);", generated_text)
-                        assert "__freak_user_identity(__freak_call_arg_0)" in generated_text
-                        assert "__freak_user_observe(__freak_call_arg_0)" in generated_text
+                        assert user_symbol("identity") + "(__freak_call_arg_0)" in generated_text
+                        assert user_symbol("observe") + "(__freak_call_arg_0)" in generated_text
                         assert "freak_word __freak_call_arg_0 = freak_word_concat_consuming(" in generated_text
-                        assert "__freak_user_observe_shadow(__freak_call_arg_0)" in generated_text
+                        assert user_symbol("observe_shadow") + "(__freak_call_arg_0)" in generated_text
                         assert re.search(r"__freak_global_\d+ = freak_word_clone\(__freak_global_\d+\)", generated_text)
                         assert "freak_word_release_owned(&__freak_param_0)" in generated_text
+                        direct_observer = (
+                            r"freak_word __freak_call_arg_0 = __freak_local_\d+;\s+"
+                            r"__freak_call_arg_0\.heap = false;\s+"
+                            + re.escape(user_symbol("observe")) + r"\(__freak_call_arg_0\);"
+                        )
+                        if case_name == "readonly":
+                            assert re.search(direct_observer, generated_text)
+                        else:
+                            assert not re.search(direct_observer, generated_text)
+                            assert re.search(
+                                r'freak_word __freak_call_arg_0 = freak_word_concat_consuming\('
+                                r'__freak_local_\d+, freak_word_lit\(""\), false, true\);\s+'
+                                + re.escape(user_symbol("observe")) + r"\(__freak_call_arg_0\);",
+                                generated_text,
+                            )
                     elif case_name == "aggregate":
                         assert re.search(r"freak_array_push_owned\(__freak_local_\d+, freak_word_clone\(__freak_local_\d+\)\)", generated_text)
                         assert re.search(r"freak_array_set_owned\(__freak_local_\d+, 0, freak_word_concat_consuming\(", generated_text)
@@ -910,18 +1020,20 @@ def main() -> int:
                         assert "freak_array_get" in generated_text
                     elif case_name == "global_call":
                         assert re.search(r"freak_word __freak_call_arg_0 = freak_word_clone\(__freak_global_\d+\);", generated_text)
-                        assert "__freak_user_observe(__freak_call_arg_0)" in generated_text
+                        assert user_symbol("observe") + "(__freak_call_arg_0)" in generated_text
                     elif case_name == "global_return":
                         assert re.search(r"__freak_return_value = freak_word_clone\(__freak_global_\d+\)", generated_text)
                     elif case_name == "return_shadow":
-                        assert "__freak_user_return_local_shadow" in generated_text
-                        assert "__freak_user_return_param_shadow" in generated_text
+                        assert user_symbol("return_local_shadow") in generated_text
+                        assert user_symbol("return_param_shadow") in generated_text
                     elif case_name == "shadow_copy":
                         assert re.search(r"__freak_return_value = __freak_global_\d+;", generated_text)
                         assert "freak_word_release_owned(&__freak_say_value)" in generated_text
                         assert "freak_word_release_owned(&__freak_discarded_word)" in generated_text
                     elif case_name == "concat_temp":
                         assert generated_text.count("freak_word_concat_consuming") >= 4
+                        assert user_symbol("keep_concat") + "(__freak_call_arg_0)" in generated_text
+                        assert "freak_word_release_owned(&__freak_discarded_word)" in generated_text
                     elif case_name == "tcp_owned":
                         assert "freak_tcp_recv(" in generated_text
                         assert "freak_tcp_recv_all(" in generated_text
@@ -962,8 +1074,9 @@ def main() -> int:
                         assert re.search(r"freak_ui_draw_line\([^;]+, 20\)", generated_text)
                     elif case_name == "wrapper_extern_top_level":
                         assert "extern void freak_main(void);" in generated_text
-                        assert "void __freak_generated_top_level(void) {" in generated_text
-                        assert "    __freak_generated_top_level();" in generated_text
+                        assert "void __freak_generated_init_globals(void) {" in generated_text
+                        assert "void __freak_user_main(void) {" in generated_text
+                        assert generated_text.index("    __freak_generated_init_globals();") < generated_text.index("    __freak_user_main();")
                         assert not re.search(r"(?m)^void freak_main\(void\) \{", generated_text)
                     elif case_name == "wrapper_extern_init":
                         assert "extern void freak_init_globals(void);" in generated_text
@@ -975,6 +1088,17 @@ def main() -> int:
                         assert "__freak_arc_limit_" in generated_text
                     elif case_name == "when_collision":
                         assert "sentinel" in generated_text
+                    elif case_name == "top_level_global":
+                        owner = re.search(
+                            r'(__freak_global_\d+) = freak_word_concat_consuming\('
+                            r'freak_word_lit\("top"\), freak_word_lit\("level"\), true, true\);',
+                            generated_text,
+                        )
+                        assert owner, generated_text
+                        initialize = generated_text.index("    __freak_generated_init_globals();")
+                        user_main = generated_text.index("    __freak_user_main();")
+                        release = generated_text.index("freak_word_release_owned(&" + owner.group(1) + ");")
+                        assert initialize < user_main < release
                     elif case_name == "when_lifetime":
                         assert "freak_word_eq(__freak_when_target_" in generated_text
                         assert "freak_word_release_owned(&__freak_when_target_" in generated_text
@@ -983,6 +1107,7 @@ def main() -> int:
                     assert "@freak_llvm_word_clone" in generated_text
                     if case_name == "concat_temp":
                         assert generated_text.count("@freak_llvm_word_release_replaced") >= 4
+                        assert "call i64 @" + user_symbol("keep_concat") + "(" in generated_text
                     elif case_name == "lexical_lifetime":
                         assert generated_text.count("@freak_llvm_word_release_replaced") >= 8
                         assert "return.dead." in generated_text
@@ -1005,7 +1130,7 @@ def main() -> int:
                     elif case_name == "numeric_shape":
                         assert generated_text.count("sitofp i64") >= 4
                         assert "call i64 @echo_num" in generated_text
-                        assert "call i64 @__freak_user_Gauge_plus" in generated_text
+                        assert "call i64 @" + user_symbol("Gauge_plus") in generated_text
                         assert generated_text.count("call void @freak_v3_shape_set") + generated_text.count("call void @freak_v3_shape_init") >= 5
                         assert "fadd double" in generated_text
                         assert "fmul double" in generated_text
@@ -1025,8 +1150,9 @@ def main() -> int:
                         assert "declare void @freak_llvm_ui_draw_line(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)" in generated_text
                     elif case_name == "wrapper_extern_top_level":
                         assert "declare void @freak_main()" in generated_text
-                        assert "define void @__freak_generated_top_level()" in generated_text
-                        assert "call void @__freak_generated_top_level()" in generated_text
+                        assert "define void @__freak_generated_init_globals()" in generated_text
+                        assert "define void @__freak_user_main()" in generated_text
+                        assert generated_text.index("    call void @__freak_generated_init_globals()") < generated_text.index("    call void @__freak_user_main()")
                         assert "define void @freak_main()" not in generated_text
                     elif case_name == "wrapper_extern_init":
                         assert "declare void @freak_init_globals()" in generated_text
@@ -1042,6 +1168,18 @@ def main() -> int:
                     elif case_name == "when_stack":
                         assert "%when_target_v" not in generated_text
                         assert "call void @freak_llvm_word_release_replaced(i64 %t" in generated_text
+                    elif case_name == "top_level_global":
+                        owner = "@g_" + STANDALONE_PREFIX + "top_level"
+                        assert owner + " = global i64 0" in generated_text
+                        initialize = generated_text.index("    call void @__freak_generated_init_globals()")
+                        user_main = generated_text.index("    call void @__freak_user_main()")
+                        release = re.search(
+                            r"(%t\d+) = load i64, i64\* " + re.escape(owner)
+                            + r"[^\n]*\n\s+call void @freak_llvm_word_release_replaced\(i64 \1, i64 0\)",
+                            generated_text,
+                        )
+                        assert release, generated_text
+                        assert initialize < user_main < release.start()
                     elif case_name == "when_lifetime":
                         assert "@freak_llvm_word_eq" in generated_text
                         assert "fcmp oeq double" in generated_text
@@ -1064,15 +1202,6 @@ def main() -> int:
                         encoding="utf-8",
                     )
                     command.append(str(extern_probe))
-                if case_name == "short_circuit" and backend == "llvm":
-                    panic_probe = root / "llvm_panic_probe.c"
-                    panic_probe.write_text(
-                        "#include <stdint.h>\n"
-                        "#include <stdlib.h>\n"
-                        "void freak_llvm_panic(int64_t message) { (void)message; abort(); }\n",
-                        encoding="utf-8",
-                    )
-                    command.append(str(panic_probe))
                 if sys.platform != "win32":
                     command.extend(["-fsanitize=address", "-fno-omit-frame-pointer"])
                 if backend == "llvm":
@@ -1100,15 +1229,57 @@ def main() -> int:
                     sanitizer_env["ASAN_OPTIONS"] += ":detect_leaks=1"
                     sanitizer_env["LSAN_OPTIONS"] = "exitcode=23"
                 executed = run([str(binary)], root, sanitizer_env)
-                expected_exit = 17 if case_name == "numeric_context" else 0
+                expected_exit = 17 if case_name == "numeric_context" else (1 if case_name == "panic_control" else 0)
                 assert executed.returncode == expected_exit, executed.stdout + executed.stderr
                 assert executed.stdout.strip().splitlines() == expected_output, executed.stdout
+                if case_name == "panic_control":
+                    assert executed.stderr == "PANIC: word ownership control\n", executed.stderr
                 assert "LeakSanitizer" not in executed.stderr
                 assert "ownership audit found" not in executed.stderr
 
         tcp_server.join(timeout=30)
         assert not tcp_server.is_alive(), "TCP ownership probe server did not finish"
         assert not tcp_server_failures, tcp_server_failures
+
+        # A physically read-only C callee is still an ordinary owning source
+        # call. Check direct reuse, the loop backedge, and borrowing an already
+        # moved word. A failed compile must also remove a stale backend artifact.
+        for name, program in STRICT_MOVE_NEGATIVES.items():
+            source = root / f"strict_{name}.fk"
+            source.write_text(program, encoding="utf-8")
+            for backend, suffix in (("c", ".c"), ("llvm", ".ll")):
+                generated = Path(str(source) + suffix)
+                generated.write_text("stale artifact", encoding="utf-8")
+                rejected = run([str(freak), "transpile", str(source), "--" + backend, "--strict-borrow"], repo)
+                diagnostics = rejected.stdout + rejected.stderr
+                assert rejected.returncode != 0, diagnostics
+                assert "no longer belongs to you" in diagnostics, diagnostics
+                assert "'owner'" in diagnostics, diagnostics
+                assert str(source) in diagnostics, diagnostics
+                assert "code generation skipped" in diagnostics, diagnostics
+                assert not generated.exists(), generated
+
+        # Retain the three exact legacy inputs rejected by the supported V3
+        # statement/entry grammar, including stale-artifact removal on failure.
+        for name, program, messages in (
+            ("bare_concat", CONCAT_TEMP_PROGRAM, ("bare value is not a statement",)),
+            ("no_main_wrapper", WRAPPER_EXTERN_TOP_LEVEL_PROGRAM,
+             ("program requires a usable task main() entry", "executable statement at top level is unsupported")),
+            ("no_main_global", TOP_LEVEL_GLOBAL_PROGRAM,
+             ("program requires a usable task main() entry", "executable statement at top level is unsupported")),
+        ):
+            source = root / (name + ".fk")
+            source.write_text(program, encoding="utf-8")
+            for backend, suffix in (("c", ".c"), ("llvm", ".ll")):
+                generated = Path(str(source) + suffix)
+                generated.write_text("stale artifact", encoding="utf-8")
+                rejected = run([str(freak), "transpile", str(source), "--" + backend], repo)
+                diagnostics = rejected.stdout + rejected.stderr
+                assert rejected.returncode != 0, diagnostics
+                assert all(message in diagnostics for message in messages), diagnostics
+                assert str(source) in diagnostics, diagnostics
+                assert "code generation skipped" in diagnostics, diagnostics
+                assert not generated.exists(), generated
 
         # Negative controls prove both deterministic runtime audits reject one
         # deliberately retained allocation, including on Windows where LSan is

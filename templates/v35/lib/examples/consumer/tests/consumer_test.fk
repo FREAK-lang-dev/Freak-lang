@@ -1,0 +1,6 @@
+use std::test::{test_assert_word}
+use demo::{greet}
+
+task main() {
+    test_assert_word("dependency export", "Hello, consumer!", greet("consumer"))
+}

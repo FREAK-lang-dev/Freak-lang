@@ -225,6 +225,15 @@ def sanitizer_environment(sanitize):
 
 
 def literal_assignment(path, name):
+    # Read frozen declarative inventories without executing the candidate.
+    if name == "CRATE_ORDER" and path.name == "check_v4.py":
+        rows = (path.parent / "bootstrap-sources.manifest").read_text().splitlines()
+        return tuple(row.split("/")[1] for row in rows if row and not row.startswith("#"))
+    if name in {"SOURCE_NAMES", "HEADER_NAMES"} and path.name == "v4_native_runtime.py":
+        manifest = path.parent.parent / "src/compiler/v4/native-runtime.manifest"
+        role = "source" if name == "SOURCE_NAMES" else "header"
+        rows = tuple(raw.split(" ") for raw in manifest.read_text().splitlines() if raw and not raw.startswith("#"))
+        return tuple(value for kind, value in rows if kind == role and not value.startswith("third_party/"))
     tree = ast.parse(path.read_bytes())
     rows = [node.value for node in tree.body if isinstance(node, ast.Assign)
             and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)]
@@ -239,6 +248,8 @@ def source_names():
     names = ["tests/v4_word_bounds_codegen.py", "tests/test_v4_word_bounds_codegen.py",
              "tests/v4_checked_numeric_codegen.py", "src/compiler/v4/tests/word_bounds_execute_smoke.fk",
              "src/compiler/v4/check_v4.py", "src/compiler/v4/build_v4.py",
+             "src/compiler/v4/bootstrap-sources.manifest", "src/compiler/v4/native-runtime.manifest",
+             *(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "third_party/llhttp").rglob("*")) if path.is_file()),
              *("src/compiler/v4/crates/" + name + "/src/lib.fk" for name in crates),
              *("freakc/runtime/" + name for kind in ("SOURCE_NAMES", "HEADER_NAMES")
                for name in literal_assignment(inventory, kind)),

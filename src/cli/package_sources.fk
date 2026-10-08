@@ -1,0 +1,1379 @@
+-- Source admission and immutable source-only graph publication. Package roots
+-- are held directory tickets; diagnostic paths never authorize reads/cleanup.
+pilot package_source_roots = 0
+pilot package_source_original_roots = 0
+pilot package_source_origins = 0
+pilot package_source_tickets = 0
+pilot package_source_original_tickets = 0
+pilot package_source_physical_keys = 0
+pilot package_source_original_owned = 0
+pilot package_source_git_prefixes = 0
+pilot package_git_repository_keys = 0
+pilot package_git_repository_tickets = 0
+pilot package_git_resolved_selectors = 0
+pilot package_git_resolved_commits = 0
+pilot package_source_kinds = 0
+pilot package_source_commits = 0
+pilot package_source_hashes = 0
+pilot package_source_manifest_files = 0
+pilot package_source_manifest_hashes = 0
+pilot package_graph_snapshot_path = ""
+pilot package_graph_manifest_path = ""
+pilot package_graph_ready = false
+pilot package_graph_no_manifest = false
+pilot package_snapshot_override = ""
+pilot package_source_option_manifest = ""
+pilot package_source_option_snapshot = ""
+pilot package_source_option_locked = false
+pilot package_source_option_offline = false
+pilot package_source_option_frozen = false
+
+task package_configure_source_options(manifest: word, snapshot: word, locked: bool, offline: bool, frozen: bool) -> void {
+    package_source_option_manifest = manifest
+    package_source_option_snapshot = snapshot
+    package_source_option_locked = locked
+    package_source_option_offline = offline
+    package_source_option_frozen = frozen
+}
+
+task package_prepare_selected_manifest(manifest: word) -> bool {
+    if package_source_option_snapshot != "" { give back package_load_graph_snapshot(package_source_option_snapshot, manifest, true) }
+    give back package_prepare_graph(manifest, package_source_option_locked, package_source_option_offline, package_source_option_frozen, "")
+}
+
+pilot package_preparation_private = 0
+pilot package_preparation_operation = 0
+pilot package_preparation_store = 0
+pilot package_preparation_snapshots = 0
+
+task package_preparation_release() -> void {
+    if package_git_repository_tickets != 0 {
+        pilot index = 0
+        repeat until index >= array_len(package_git_repository_tickets) {
+            pilot ticket = word_to_int(array_get(package_git_repository_tickets, index))
+            if ticket != 0 { package_discard_temp(ticket) array_set(package_git_repository_tickets, index, "0") }
+            index += 1
+        }
+    }
+    if package_preparation_snapshots != 0 { fs::result_release(package_preparation_snapshots) }
+    if package_preparation_store != 0 { fs::result_release(package_preparation_store) }
+    if package_preparation_operation != 0 { fs::result_release(package_preparation_operation) }
+    if package_preparation_private != 0 { fs::result_release(package_preparation_private) }
+    package_preparation_private = 0
+    package_preparation_operation = 0
+    package_preparation_store = 0
+    package_preparation_snapshots = 0
+}
+
+task package_finish_git_staging() -> bool {
+    pilot valid = true
+    pilot index = 0
+    repeat until index >= array_len(package_git_repository_tickets) {
+        pilot ticket = word_to_int(array_get(package_git_repository_tickets, index))
+        if ticket != 0 {
+            pilot removed = fs::remove_temp_dir_checked(ticket)
+            pilot complete = fs::result_ok(removed)
+            if not complete { hangar_graph_fail("cannot durably clean owned Git repository before graph commit: " + fs::result_error(removed)) valid = false }
+            if complete or fs::result_completed(removed) { fs::result_release(ticket) array_set(package_git_repository_tickets, index, "0") }
+            fs::result_release(removed)
+        }
+        index += 1
+    }
+    index = 0
+    repeat until index >= hangar_graph_count {
+        if array_get(package_source_original_owned, index) == "true" {
+            pilot ticket = word_to_int(array_get(package_source_original_tickets, index))
+            pilot removed = fs::remove_temp_dir_checked(ticket)
+            pilot complete = fs::result_ok(removed)
+            if not complete { hangar_graph_fail("cannot durably clean owned raw Git inputs before graph commit: " + fs::result_error(removed)) valid = false }
+            if complete or fs::result_completed(removed) {
+                fs::result_release(ticket)
+                array_set(package_source_original_tickets, index, "0")
+                array_set(package_source_original_owned, index, "false")
+            }
+            fs::result_release(removed)
+        }
+        index += 1
+    }
+    give back valid
+}
+
+
+task package_sources_release() -> void {
+    package_preparation_release()
+    if package_source_roots != 0 {
+        pilot index = 0
+        repeat until index >= array_len(package_source_tickets) {
+            pilot ticket = word_to_int(array_get(package_source_tickets, index))
+            if ticket != 0 { fs::result_release(ticket) }
+            pilot original = word_to_int(array_get(package_source_original_tickets, index))
+            if original != 0 {
+                if array_get(package_source_original_owned, index) == "true" { hangar_checked_fs(fs::remove_temp_dir_checked(original), "Could not clean owned raw Git inputs") }
+                fs::result_release(original)
+            }
+            index += 1
+        }
+        array_release(package_source_roots)
+        array_release(package_source_original_roots)
+        array_release(package_source_origins)
+        array_release(package_source_tickets)
+        array_release(package_source_original_tickets)
+        array_release(package_source_physical_keys)
+        array_release(package_source_original_owned)
+        array_release(package_source_git_prefixes)
+        array_release(package_git_repository_keys)
+        array_release(package_git_repository_tickets)
+        array_release(package_git_resolved_selectors)
+        array_release(package_git_resolved_commits)
+        array_release(package_source_kinds)
+        array_release(package_source_commits)
+        array_release(package_source_hashes)
+        array_release(package_source_manifest_files)
+        array_release(package_source_manifest_hashes)
+    }
+    package_source_roots = 0
+    package_source_original_roots = 0
+    package_source_origins = 0
+    package_source_tickets = 0
+    package_source_original_tickets = 0
+    package_source_physical_keys = 0
+    package_source_original_owned = 0
+    package_source_git_prefixes = 0
+    package_git_repository_keys = 0
+    package_git_repository_tickets = 0
+    package_git_resolved_selectors = 0
+    package_git_resolved_commits = 0
+    package_source_kinds = 0
+    package_source_commits = 0
+    package_source_hashes = 0
+    package_source_manifest_files = 0
+    package_source_manifest_hashes = 0
+    package_graph_snapshot_path = ""
+    package_graph_manifest_path = ""
+    package_graph_ready = false
+    package_graph_no_manifest = false
+}
+
+task package_sources_clear() -> void {
+    package_sources_release()
+    hangar_graph_clear()
+    package_inputs_clear()
+    package_source_roots = array_new()
+    package_source_original_roots = array_new()
+    package_source_origins = array_new()
+    package_source_tickets = array_new()
+    package_source_original_tickets = array_new()
+    package_source_physical_keys = array_new()
+    package_source_original_owned = array_new()
+    package_source_git_prefixes = array_new()
+    package_git_repository_keys = array_new()
+    package_git_repository_tickets = array_new()
+    package_git_resolved_selectors = array_new()
+    package_git_resolved_commits = array_new()
+    package_source_kinds = array_new()
+    package_source_commits = array_new()
+    package_source_hashes = array_new()
+    package_source_manifest_files = array_new()
+    package_source_manifest_hashes = array_new()
+}
+
+task package_path_byte_length(path: word) -> int {
+    -- Host separators and word substring/char_at offsets are bytes, including
+    -- when the path contains multi-byte UTF-8 components.
+    pilot bytes: ByteBuffer = ByteBuffer::with_capacity(path.length())
+    bytes.write_word(path)
+    pilot length = bytes.length()
+    bytes.release()
+    give back length
+}
+
+task package_path_root_length(path: word, windows: bool) -> int {
+    if not windows { if path.starts_with("/") { give back 1 } give back 0 }
+    pilot normalized = path.replace("\\", "/")
+    pilot length = package_path_byte_length(normalized)
+    pilot drive = 0
+    if normalized.starts_with("//?/") { drive = 4 }
+    if length >= drive + 3 and normalized.char_at(drive + 1) == ":" and normalized.char_at(drive + 2) == "/" { give back drive + 3 }
+    pilot start = 0
+    if normalized.starts_with("//?/UNC/") { start = 8 } else if normalized.starts_with("//") and drive == 0 { start = 2 }
+    if start != 0 {
+        pilot index = start
+        pilot separators = 0
+        repeat until index >= length {
+            if normalized.char_at(index) == "/" {
+                separators += 1
+                if separators == 2 { give back index + 1 }
+            }
+            index += 1
+        }
+        -- A UNC share root may omit its trailing separator. It must not be
+        -- shortened to a server-only name during enclosing-project discovery.
+        if separators == 1 { give back length }
+    }
+    if normalized.starts_with("/") { give back 1 }
+    give back 0
+}
+
+task package_parent_path(path: word) -> word {
+    pilot windows = process::platform_is_windows()
+    pilot floor = package_path_root_length(path, windows)
+    pilot position = package_path_byte_length(path) - 1
+    if floor > 0 and position < floor { give back path }
+    repeat until position < 0 {
+        if path.char_at(position) == "/" or (windows and path.char_at(position) == "\\") {
+            if position < floor { give back path.substring(0, floor) }
+            give back path.substring(0, position)
+        }
+        position -= 1
+    }
+    give back "."
+}
+
+task package_leaf_path(path: word) -> word {
+    pilot windows = process::platform_is_windows()
+    pilot length = package_path_byte_length(path)
+    pilot position = length - 1
+    repeat until position < 0 {
+        if path.char_at(position) == "/" or (windows and path.char_at(position) == "\\") { give back path.substring(position + 1, length - position - 1) }
+        position -= 1
+    }
+    give back path
+}
+
+task package_directory_path(ticket: int) -> word {
+    pilot canonical = fs::directory_path_ticket(ticket)
+    pilot path = ""
+    if fs::result_ok(canonical) { path = fs::result_word(canonical) } else { hangar_graph_fail("cannot identify held package root: " + fs::result_error(canonical)) }
+    fs::result_release(canonical)
+    give back path
+}
+
+task package_local_path(root: word, request: word) -> word {
+    if request == "" or package_path_byte_length(request) > 4096 or request.contains("\n") or request.contains("\r") or request.contains("\t") {
+        hangar_graph_fail("invalid local package path")
+        give back ""
+    }
+    pilot windows = process::platform_is_windows()
+    pilot source = request
+    pilot base = root
+    if windows {
+        source = source.replace("\\", "/")
+        base = base.replace("\\", "/")
+        if source.starts_with("//?/UNC/") { source = "//" + source.substring(8, package_path_byte_length(source) - 8) } else if source.starts_with("//?/") { source = source.substring(4, package_path_byte_length(source) - 4) }
+        if base.starts_with("//?/UNC/") { base = "//" + base.substring(8, package_path_byte_length(base) - 8) } else if base.starts_with("//?/") { base = base.substring(4, package_path_byte_length(base) - 4) }
+    } else if source.contains("\\") or source.contains(":") {
+        hangar_graph_fail("local package path uses unsupported host syntax")
+        give back ""
+    }
+    pilot absolute = source.starts_with("/")
+    if windows and source.length() >= 3 { if source.char_at(1) == ":" and source.char_at(2) == "/" { absolute = true } }
+    if not absolute { source = base + "/" + source }
+    pilot source_length = package_path_byte_length(source)
+    pilot prefix = "/"
+    pilot start = 1
+    pilot floor = 0
+    if windows and source.starts_with("//") { prefix = "//"
+        start = 2
+        floor = 2 } else if windows and source.length() >= 3 and source.char_at(1) == ":" and source.char_at(2) == "/" { prefix = source.substring(0, 3)
+        start = 3 } else if not source.starts_with("/") {
+        hangar_graph_fail("local package path must resolve to an absolute host path")
+        give back ""
+    }
+    pilot pieces = array_new()
+    pilot component = ""
+    pilot index = start
+    pilot length = 0
+    pilot valid = true
+    repeat until index > source_length or not valid {
+        pilot boundary = index == source_length
+        if not boundary { boundary = source.char_at(index) == "/" }
+        if boundary {
+            if component == ".." {
+                if length <= floor { hangar_graph_fail("local package path escapes its filesystem root")
+                    valid = false } else { length -= 1 }
+            } else if component != "" and component != "." {
+                if (windows and (component.contains(":") or component.ends_with(".") or component.ends_with(" "))) or length >= 256 {
+                    hangar_graph_fail("local package path has unsafe components or exceeds its depth limit")
+                    valid = false
+                } else {
+                    if length < array_len(pieces) { array_set(pieces, length, component) } else { array_push(pieces, component) }
+                    length += 1
+                }
+            }
+            component = ""
+        } else { component = component + source.char_at(index) }
+        index += 1
+    }
+    pilot out = prefix
+    index = 0
+    repeat until index >= length {
+        if index > 0 { out = out + "/" }
+        out = out + array_get(pieces, index)
+        index += 1
+    }
+    array_release(pieces)
+    if not valid { give back "" }
+    give back out
+}
+
+task package_private_directory(parent: int, name: word) -> int {
+    pilot directory = fs::open_relative_dir_ticket(parent, name)
+    if fs::result_ok(directory) { give back directory }
+    pilot absent = fs::result_missing(directory)
+    pilot detail = fs::result_error(directory)
+    fs::result_release(directory)
+    if not absent { hangar_graph_fail("cannot open private package directory " + name + ": " + detail) give back 0 }
+    directory = fs::mkdir_relative_checked(parent, name)
+    if not fs::result_ok(directory) { hangar_graph_fail("cannot create private package directory " + name + ": " + fs::result_error(directory))
+        fs::result_release(directory)
+        give back 0 }
+    give back directory
+}
+
+task package_source_register(node: int, ticket: int, root: word, kind: word, commit: word, manifest_file: word, manifest_hash: word) -> void {
+    array_push(package_source_roots, root)
+    array_push(package_source_original_roots, root)
+    array_push(package_source_origins, root)
+    array_push(package_source_tickets, "0")
+    array_push(package_source_original_tickets, word_from_int(ticket))
+    array_push(package_source_kinds, kind)
+    array_push(package_source_commits, commit)
+    array_push(package_source_hashes, "")
+    array_push(package_source_manifest_files, manifest_file)
+    array_push(package_source_manifest_hashes, manifest_hash)
+    array_push(package_source_physical_keys, "")
+    array_push(package_source_original_owned, "false")
+    array_push(package_source_git_prefixes, "")
+}
+
+task package_admit_local(path: word, manifest_file: word, request_path: word) -> int {
+    pilot directory = fs::open_dir_ticket(path)
+    if not fs::result_ok(directory) { hangar_graph_fail("cannot open local package " + request_path + ": " + fs::result_error(directory))
+        fs::result_release(directory)
+        give back 0 - 1 }
+    give back package_admit_local_ticket(directory, manifest_file, request_path)
+}
+
+task package_admit_local_ticket(directory: int, manifest_file: word, request_path: word) -> int {
+    pilot root = package_directory_path(directory)
+    if root == "" { fs::result_release(directory) give back 0 - 1 }
+    pilot physical = fs::directory_identity_ticket(directory)
+    if not fs::result_ok(physical) { hangar_graph_fail("cannot identify physical local package root: " + fs::result_error(physical))
+        fs::result_release(physical)
+        fs::result_release(directory)
+        give back 0 - 1 }
+    pilot physical_key = fs::result_word(physical)
+    fs::result_release(physical)
+    pilot identity = "local:" + root
+    pilot known = hangar_graph_find_identity(identity)
+    if known >= 0 {
+        if array_get(package_source_physical_keys, known) != physical_key { hangar_graph_fail("local package root was replaced during graph admission: " + request_path)
+            known = 0 - 1 }
+        fs::result_release(directory)
+        give back known
+    }
+    pilot previous = 0
+    repeat until previous >= array_len(package_source_physical_keys) {
+        if array_get(package_source_kinds, previous) == "local" and array_get(package_source_physical_keys, previous) == physical_key {
+            fs::result_release(directory)
+            give back previous
+        }
+        previous += 1
+    }
+    pilot manifest = fs::read_relative_bytes_limit_ticket(directory, manifest_file, hangar_graph_manifest_limit)
+    if not fs::result_ok(manifest) { hangar_graph_fail("cannot read local package manifest " + request_path + ": " + fs::result_error(manifest))
+        fs::result_release(manifest)
+        fs::result_release(directory)
+        give back 0 - 1 }
+    pilot bytes: ByteBuffer = fs::result_bytes(manifest)
+    fs::result_release(manifest)
+    pilot hash = fs::sha256_bytes(bytes)
+    pilot content = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    if request_path == "root" and package_manifest_candidate_active {
+        if hash != package_manifest_candidate_before { hangar_graph_fail("original manifest changed before candidate graph admission") valid = false } else {
+            content = package_manifest_candidate_text
+            bytes = ByteBuffer::new()
+            bytes.write_word(content)
+            hash = fs::sha256_bytes(bytes)
+            bytes.release()
+        }
+    }
+    if not valid { hangar_graph_fail("package manifest must be UTF-8 text without NUL: " + request_path)
+        fs::result_release(directory)
+        give back 0 - 1 }
+    pilot node = hangar_graph_add_manifest(identity, package_join_host(root, manifest_file), content, request_path)
+    if node < 0 { fs::result_release(directory) give back 0 - 1 }
+    package_source_register(node, directory, root, "local", "", manifest_file, hash)
+    array_set(package_source_physical_keys, node, physical_key)
+    -- Empty [tests] disables fallback discovery too. Preserve this admission
+    -- fact independently of whichever child TOML document is parsed next.
+    if toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), "tests") {
+        array_push(hangar_graph_fact_nodes, word_from_int(node))
+        array_push(hangar_graph_fact_keys, "__package.tests_declared")
+        array_push(hangar_graph_fact_values, "true")
+    }
+    give back node
+}
+
+task package_verify_recorded_inputs(node: int, directory: int) -> bool {
+    pilot index = 0
+    repeat until index >= array_len(package_input_paths) {
+        if word_to_int(array_get(package_input_nodes, index)) == node {
+            pilot relative = array_get(package_input_paths, index)
+            pilot expected = word_to_int(array_get(package_input_lengths, index))
+            pilot read = fs::read_relative_bytes_limit_ticket(directory, relative, expected)
+            if not fs::result_ok(read) { hangar_graph_fail("immutable source input is missing, unsafe or changed: " + relative + ": " + fs::result_error(read))
+                fs::result_release(read)
+                give back false }
+            pilot bytes: ByteBuffer = fs::result_bytes(read)
+            fs::result_release(read)
+            pilot valid = bytes.length() == expected and fs::sha256_bytes(bytes) == array_get(package_input_hashes, index)
+            bytes.release()
+            if not valid { hangar_graph_fail("immutable source input digest changed: " + relative) give back false }
+        }
+        index += 1
+    }
+    give back true
+}
+
+task package_publish_source_node(node: int, store: int, store_path: word) -> bool {
+    pilot original = word_to_int(array_get(package_source_original_tickets, node))
+    pilot stage = fs::temp_dir(store_path, ".input-")
+    if not fs::result_ok(stage) { hangar_graph_fail("cannot create private source staging: " + fs::result_error(stage))
+        fs::result_release(stage)
+        give back false }
+    pilot expected_tree = array_get(package_source_hashes, node)
+    pilot hash = package_hash_declared_inputs_rooted(node, original, array_get(package_source_manifest_files, node), stage)
+    if array_get(package_source_kinds, node) == "git" and expected_tree != "" and hash != "" and hash != expected_tree { hangar_graph_fail("Git raw input tree disagrees with locked canonical integrity: " + array_get(hangar_graph_request_paths, node))
+        hash = "" }
+    if hash == "" {
+        hangar_checked_fs(fs::remove_temp_dir_checked(stage), "Could not clean owned source staging")
+        fs::result_release(stage)
+        give back false
+    }
+    pilot published = fs::publish_temp_dir_checked(stage, store, hash)
+    pilot complete = fs::result_ok(published)
+    pilot completed = fs::result_completed(published)
+    pilot detail = fs::result_error(published)
+    fs::result_release(published)
+    pilot cached = 0
+    if complete {
+        cached = stage
+    } else if not completed {
+        -- Concurrent complete content-addressed objects may be reused only
+        -- after every recorded input has been verified through held handles.
+        cached = fs::open_relative_dir_ticket(store, hash)
+        if fs::result_ok(cached) {
+            complete = package_verify_recorded_inputs(node, cached)
+        } else { fs::result_release(cached)
+            cached = 0 }
+        hangar_checked_fs(fs::remove_temp_dir_checked(stage), "Could not clean owned source staging")
+        fs::result_release(stage)
+    } else {
+        -- A completed-but-unsynced publication remains owned by its carrier.
+        hangar_checked_fs(fs::remove_temp_dir_checked(stage), "Could not roll back owned source publication")
+        fs::result_release(stage)
+    }
+    if not complete {
+        if cached != 0 { fs::result_release(cached) }
+        hangar_graph_fail("cannot publish immutable source input tree: " + detail)
+        give back false
+    }
+    array_set(package_source_tickets, node, word_from_int(cached))
+    array_set(package_source_roots, node, package_join_host(store_path, hash))
+    array_set(package_source_hashes, node, hash)
+    give back true
+}
+
+task package_open_snapshot_source_node(node: int, store: int, store_path: word) -> bool {
+    pilot original = word_to_int(array_get(package_source_original_tickets, node))
+    pilot hash = package_hash_declared_inputs_rooted(node, original, array_get(package_source_manifest_files, node), 0)
+    if hash == "" { give back false }
+    pilot expected = package_lock_field("node." + word_from_int(node) + ".tree_sha256")
+    if hash != expected { hangar_graph_fail("frozen source input tree changed: " + array_get(hangar_graph_request_paths, node)) give back false }
+    pilot cached = fs::open_relative_dir_ticket(store, hash)
+    if not fs::result_ok(cached) { hangar_graph_fail("immutable snapshot source cache is missing or unsafe: " + fs::result_error(cached))
+        fs::result_release(cached)
+        give back false }
+    if not package_verify_recorded_inputs(node, cached) { fs::result_release(cached) give back false }
+    array_set(package_source_tickets, node, word_from_int(cached))
+    array_set(package_source_roots, node, package_join_host(store_path, hash))
+    array_set(package_source_hashes, node, hash)
+    give back true
+}
+
+task package_read_graph_source(node: int, relative: word) -> word {
+    if not package_graph_ready or node < 0 or node >= hangar_graph_count or not hangar_graph_relative_file(relative) {
+        hangar_graph_fail("compiler source requires a prepared graph and declared relative .fk path: " + relative)
+        give back ""
+    }
+    pilot record = 0 - 1
+    pilot index = 0
+    repeat until index >= array_len(package_input_paths) {
+        if word_to_int(array_get(package_input_nodes, index)) == node and array_get(package_input_paths, index) == relative {
+            pilot role = array_get(package_input_roles, index)
+            if role == "source" or role == "test" { record = index }
+        }
+        index += 1
+    }
+    if record < 0 { hangar_graph_fail("compiler source is absent from declared immutable input inventory: " + relative) give back "" }
+    pilot directory = word_to_int(array_get(package_source_tickets, node))
+    pilot expected = word_to_int(array_get(package_input_lengths, record))
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, relative, expected)
+    if not fs::result_ok(read) { hangar_graph_fail("cannot read bounded immutable compiler source: " + relative + ": " + fs::result_error(read))
+        fs::result_release(read)
+        give back "" }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    if bytes.length() != expected or fs::sha256_bytes(bytes) != array_get(package_input_hashes, record) {
+        hangar_graph_fail("immutable compiler source changed after graph preparation: " + relative)
+        bytes.release()
+        give back ""
+    }
+    pilot source = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    if not valid { hangar_graph_fail("compiler source must be UTF-8 text without NUL: " + relative) give back "" }
+    give back source
+}
+
+task package_lock_matches_graph(frozen: bool) -> bool {
+    if word_to_int(package_lock_field("lock.node_count")) != hangar_graph_count or word_to_int(package_lock_field("lock.edge_count")) != hangar_graph_edge_count or word_to_int(package_lock_field("lock.fact_count")) != array_len(hangar_graph_fact_keys) or ((frozen) and word_to_int(package_lock_field("lock.file_count")) != array_len(package_input_paths)) {
+        hangar_graph_fail("locked graph structure changed; run hangar update explicitly")
+        give back false
+    }
+    pilot index = 0
+    repeat until index >= hangar_graph_count {
+        pilot prefix = "node." + word_from_int(index) + "."
+        if package_lock_field(prefix + "name") != array_get(hangar_graph_names, index) or package_lock_field(prefix + "version") != array_get(hangar_graph_versions, index) or package_lock_field(prefix + "identity") != array_get(hangar_graph_identities, index) or package_lock_field(prefix + "origin") != array_get(package_source_origins, index) or package_lock_field(prefix + "kind") != array_get(package_source_kinds, index) or package_lock_field(prefix + "commit") != array_get(package_source_commits, index) or package_lock_field(prefix + "manifest_sha256") != array_get(package_source_manifest_hashes, index) {
+            hangar_graph_fail("locked package identity or manifest changed: " + array_get(hangar_graph_request_paths, index))
+            give back false
+        }
+        if frozen or array_get(package_source_kinds, index) == "git" {
+            if package_lock_field(prefix + "tree_sha256") != array_get(package_source_hashes, index) { hangar_graph_fail("frozen source input tree changed: " + array_get(hangar_graph_request_paths, index)) give back false }
+        }
+        index += 1
+    }
+    index = 0
+    repeat until index >= hangar_graph_edge_count {
+        pilot prefix = "edge." + word_from_int(index) + "."
+        pilot kind = array_get(hangar_graph_edge_kinds, index)
+        if kind == "path" { kind = "local" }
+        if package_lock_field(prefix + "parent") != array_get(hangar_graph_edge_parents, index) or package_lock_field(prefix + "target") != array_get(hangar_graph_edge_targets, index) or package_lock_field(prefix + "alias") != array_get(hangar_graph_edge_aliases, index) or package_lock_field(prefix + "kind") != kind or package_lock_field(prefix + "source") != array_get(hangar_graph_edge_sources, index) or package_lock_field(prefix + "revision") != array_get(hangar_graph_edge_revisions, index) or package_lock_field(prefix + "version") != array_get(hangar_graph_edge_versions, index) {
+            hangar_graph_fail("locked dependency edge changed: " + array_get(hangar_graph_edge_aliases, index))
+            give back false
+        }
+        index += 1
+    }
+    index = 0
+    repeat until index >= array_len(hangar_graph_fact_keys) {
+        pilot prefix = "fact." + word_from_int(index) + "."
+        if package_lock_field(prefix + "node") != array_get(hangar_graph_fact_nodes, index) or package_lock_field(prefix + "key") != array_get(hangar_graph_fact_keys, index) or package_lock_field(prefix + "value") != array_get(hangar_graph_fact_values, index) { hangar_graph_fail("locked manifest facts disagree with admitted source manifests") give back false }
+        index += 1
+    }
+    if frozen {
+        index = 0
+        repeat until index >= array_len(package_input_paths) {
+            pilot prefix = "file." + word_from_int(index) + "."
+            if package_lock_field(prefix + "node") != array_get(package_input_nodes, index) or package_lock_field(prefix + "path") != array_get(package_input_paths, index) or package_lock_field(prefix + "sha256") != array_get(package_input_hashes, index) or package_lock_field(prefix + "length") != array_get(package_input_lengths, index) or package_lock_field(prefix + "role") != array_get(package_input_roles, index) { hangar_graph_fail("immutable snapshot input inventory disagrees with admitted source bytes") give back false }
+            index += 1
+        }
+    }
+    give back true
+}
+
+task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool, frozen: bool, update_name: word) -> bool {
+    package_sources_clear()
+    package_lock_release()
+    pilot manifest_file = package_leaf_path(manifest_path)
+    if not package_input_allowed(manifest_file) { hangar_graph_fail("invalid package manifest filename") give back false }
+    pilot project = fs::open_dir_ticket(package_parent_path(manifest_path))
+    if not fs::result_ok(project) { hangar_graph_fail("cannot anchor project directory: " + fs::result_error(project))
+        fs::result_release(project)
+        give back false }
+    pilot snapshot_reader = package_snapshot_override != ""
+    pilot private = 0
+    if snapshot_reader {
+        private = fs::open_relative_dir_ticket(project, ".freak")
+        if not fs::result_ok(private) { hangar_graph_fail("immutable snapshot requires an existing safe private cache: " + fs::result_error(private))
+            fs::result_release(private)
+            fs::result_release(project)
+            give back false }
+    } else { private = package_private_directory(project, ".freak") }
+    if private == 0 { fs::result_release(project) give back false }
+    package_preparation_private = private
+    if not snapshot_reader {
+        pilot operation = fs::lock_dir_ticket(private, "graph.lock")
+        if not fs::result_ok(operation) { hangar_graph_fail("graph preparation is active or private cache lock is unavailable: " + fs::result_error(operation))
+            fs::result_release(operation)
+            fs::result_release(project)
+            give back false }
+        package_preparation_operation = operation
+        if not package_recover_transaction(project, private) { fs::result_release(project) give back false }
+    }
+    pilot root = package_admit_local_ticket(project, manifest_file, "root")
+    if root != 0 { give back false }
+    package_graph_manifest_path = package_join_host(array_get(package_source_original_roots, 0), manifest_file)
+    pilot lock = 0
+    if package_snapshot_override == "" { lock = fs::read_relative_bytes_limit_ticket(project, "hangar.lock", 67108864) } else {
+        pilot snapshot_root = fs::open_dir_ticket(package_parent_path(package_snapshot_override))
+        if not fs::result_ok(snapshot_root) { hangar_graph_fail("cannot anchor graph snapshot: " + fs::result_error(snapshot_root))
+            fs::result_release(snapshot_root)
+            give back false }
+        lock = fs::read_relative_bytes_limit_ticket(snapshot_root, package_leaf_path(package_snapshot_override), 67108864)
+        fs::result_release(snapshot_root)
+    }
+    pilot malformed_lock = false
+    pilot had_lock = fs::result_ok(lock)
+    pilot previous_lock_hash = ""
+    if had_lock {
+        pilot bytes: ByteBuffer = fs::result_bytes(lock)
+        previous_lock_hash = fs::sha256_bytes(bytes)
+        pilot content = bytes.to_word()
+        pilot text = bytes.status() == 0
+        bytes.release()
+        if not text or not package_lock_parse(content) { malformed_lock = true
+            hangar_graph_fail("invalid or legacy hangar.lock; explicitly regenerate with hangar update: " + package_lock_error) }
+    } else if not fs::result_missing(lock) { hangar_graph_fail("cannot read hangar.lock: " + fs::result_error(lock)) }
+    fs::result_release(lock)
+    if hangar_graph_error != "" {
+        if update_name == "" or not malformed_lock { give back false }
+        -- Explicit update is the deliberate migration path, never a build's
+        -- silent repair. The old on-disk lock remains until graph completion.
+        hangar_graph_error = ""
+        package_lock_release()
+        had_lock = false
+    }
+    if (locked or frozen) and not had_lock { hangar_graph_fail("locked/frozen graph requires a valid existing lock v2") give back false }
+    if (locked or frozen) and package_lock_field("lock.manifest_sha256") != array_get(package_source_manifest_hashes, 0) { hangar_graph_fail("locked root manifest fingerprint changed; run hangar update explicitly") give back false }
+    pilot edge = 0
+    repeat until edge >= hangar_graph_edge_count {
+        pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
+        pilot alias = array_get(hangar_graph_edge_aliases, edge)
+        pilot request = array_get(hangar_graph_request_paths, parent) + " -> " + alias
+        pilot target = 0 - 1
+        if array_get(hangar_graph_edge_kinds, edge) == "path" {
+            if array_get(package_source_kinds, parent) == "git" { target = package_admit_git_path(edge, offline) } else {
+                pilot path = package_local_path(array_get(package_source_original_roots, parent), array_get(hangar_graph_edge_sources, edge))
+                if path == "" { give back false }
+                target = package_admit_local(path, "hangar.toml", request)
+            }
+        } else {
+            target = package_admit_git(edge, offline, update_name)
+        }
+        if target < 0 or not hangar_graph_link(edge, target) { give back false }
+        edge += 1
+    }
+    if not hangar_graph_complete(0) { give back false }
+    pilot store = 0
+    if snapshot_reader {
+        store = fs::open_relative_dir_ticket(private, "store")
+        if not fs::result_ok(store) { hangar_graph_fail("immutable snapshot requires an existing safe source store: " + fs::result_error(store))
+            fs::result_release(store)
+            give back false }
+    } else { store = package_private_directory(private, "store") }
+    package_preparation_store = store
+    pilot snapshots = 0
+    if not snapshot_reader { snapshots = package_private_directory(private, "graphs") }
+    package_preparation_snapshots = snapshots
+    pilot valid = store != 0 and (snapshot_reader or snapshots != 0)
+    pilot store_path = ""
+    if valid { store_path = package_directory_path(store)
+        valid = store_path != "" }
+    pilot index = 0
+    repeat until index >= hangar_graph_count or not valid {
+        if snapshot_reader { valid = package_open_snapshot_source_node(index, store, store_path) } else { valid = package_publish_source_node(index, store, store_path) }
+        index += 1
+    }
+    if valid and (locked or frozen) { valid = package_lock_matches_graph(frozen) }
+    if valid and not snapshot_reader { valid = package_finish_git_staging() }
+    if valid and not snapshot_reader {
+        index = 0
+        repeat until index >= hangar_graph_count or not valid {
+            if array_get(package_source_kinds, index) == "git" { valid = package_publish_git_index(index) }
+            index += 1
+        }
+    }
+    if valid and snapshot_reader { package_graph_snapshot_path = package_snapshot_override }
+    if valid and not snapshot_reader {
+        package_graph_ready = true
+        pilot content = package_lock_render()
+        if content == "" { valid = false } else {
+            pilot bytes: ByteBuffer = ByteBuffer::new()
+            bytes.write_word(content)
+            pilot identity = fs::sha256_bytes(bytes)
+            pilot recorded = fs::read_relative_bytes_limit_ticket(snapshots, identity + ".lock", bytes.length())
+            if fs::result_ok(recorded) {
+                pilot existing: ByteBuffer = fs::result_bytes(recorded)
+                valid = existing.length() == bytes.length() and fs::sha256_bytes(existing) == identity
+                existing.release()
+                if not valid { hangar_graph_fail("existing immutable graph snapshot is corrupt; refusing replacement") }
+                fs::result_release(recorded)
+            } else {
+                pilot absent = fs::result_missing(recorded)
+                if not absent { hangar_graph_fail("cannot verify existing immutable graph snapshot: " + fs::result_error(recorded)) }
+                fs::result_release(recorded)
+                valid = absent
+                if valid { valid = package_transaction_checked(fs::write_relative_bytes_checked(snapshots, identity + ".lock", bytes), "immutable graph snapshot publication failed") }
+            }
+            if valid {
+                package_graph_snapshot_path = package_join_host(package_directory_path(snapshots), identity + ".lock")
+                if not locked and not frozen {
+                    pilot expected_manifest = array_get(package_source_manifest_hashes, 0)
+                    if package_manifest_candidate_active { expected_manifest = package_manifest_candidate_before }
+                    valid = package_commit_transaction(project, private, manifest_file, array_get(hangar_graph_contents, 0), content, expected_manifest, previous_lock_hash)
+                }
+            }
+            bytes.release()
+        }
+    }
+    package_graph_ready = valid
+    give back valid
+}
+
+task package_initial_project_directory(path: word) -> int {
+    -- Preserve direct no-follow adoption, including Windows' held-component
+    -- long-path walk. Only a failed initial directory name may resolve a host
+    -- alias such as macOS /var, followed by the same strict adoption operation.
+    -- Neither the selected source leaf nor the manifest leaf is resolved here.
+    pilot directory = fs::open_dir_ticket(path)
+    if fs::result_ok(directory) { give back directory }
+    fs::result_release(directory)
+    pilot resolved = fs::canonical_path(path)
+    if not fs::result_ok(resolved) { give back resolved }
+    pilot physical = fs::result_word(resolved)
+    fs::result_release(resolved)
+    give back fs::open_dir_ticket(physical)
+}
+
+task package_prepare_project_sources(source: word) -> bool {
+    if package_graph_ready { give back true }
+    if package_source_option_manifest != "" { give back package_prepare_selected_manifest(package_source_option_manifest) }
+    package_graph_no_manifest = false
+    hangar_graph_error = ""
+    pilot parent = package_parent_path(source)
+    pilot depth = 0
+    repeat until depth >= 256 {
+        pilot directory = 0
+        if depth == 0 { directory = package_initial_project_directory(parent) } else { directory = fs::open_dir_ticket(parent) }
+        if not fs::result_ok(directory) { hangar_graph_fail("cannot inspect source's enclosing project directory: " + fs::result_error(directory))
+            fs::result_release(directory)
+            give back false }
+        pilot canonical = package_directory_path(directory)
+        if canonical == "" { fs::result_release(directory) give back false }
+        pilot manifest = fs::read_relative_bytes_limit_ticket(directory, "hangar.toml", hangar_graph_manifest_limit)
+        pilot found = fs::result_ok(manifest)
+        pilot missing = fs::result_missing(manifest)
+        if not found and not missing { hangar_graph_fail("cannot read enclosing package manifest: " + fs::result_error(manifest)) }
+        fs::result_release(manifest)
+        fs::result_release(directory)
+        if found { give back package_prepare_selected_manifest(package_join_host(canonical, "hangar.toml")) }
+        if not missing { give back false }
+        pilot next = package_parent_path(canonical)
+        if next == canonical {
+            if package_source_option_locked or package_source_option_offline or package_source_option_frozen or package_source_option_snapshot != "" { hangar_graph_fail("requested graph mode requires an enclosing or explicit package manifest") give back false }
+            package_graph_no_manifest = true
+            give back true
+        }
+        parent = next
+        depth += 1
+    }
+    hangar_graph_fail("enclosing project discovery exceeds its directory depth limit")
+    give back false
+}
+
+task package_load_graph_snapshot(snapshot_path: word, manifest_path: word, frozen: bool) -> bool {
+    -- A child snapshot always describes immutable inputs, even if the caller
+    -- omitted a redundant --frozen flag. No refresh or mutable-label lookup.
+    if not package_relative_file(package_leaf_path(snapshot_path)) { hangar_graph_fail("invalid immutable graph snapshot filename") give back false }
+    package_snapshot_override = snapshot_path
+    pilot valid = package_prepare_graph(manifest_path, true, true, true, "")
+    package_snapshot_override = ""
+    give back valid
+}
+
+
+task package_prepare_graph(manifest_path: word, locked: bool, offline: bool, frozen: bool, update_name: word) -> bool {
+    if (locked or frozen) and update_name != "" { hangar_graph_fail("explicit update cannot be combined with locked/frozen graph mode") give back false }
+    pilot valid = package_prepare_graph_impl(manifest_path, locked, offline, frozen, update_name)
+    package_preparation_release()
+    give back valid
+}
+
+task package_prepare_manifest_change(manifest_path: word, candidate: word, before_sha: word, locked: bool, offline: bool, frozen: bool, update_name: word) -> bool {
+    if locked or frozen { hangar_graph_fail("manifest changes cannot be combined with locked/frozen mode") give back false }
+    if not package_lock_hex(before_sha + "", 64) { hangar_graph_fail("candidate manifest requires the original generation fingerprint") give back false }
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(candidate)
+    pilot admitted = bytes.length() <= hangar_graph_manifest_limit
+    bytes.release()
+    if not admitted { hangar_graph_fail("candidate manifest exceeds the manifest byte limit") give back false }
+    package_manifest_candidate_active = true
+    package_manifest_candidate_text = candidate
+    package_manifest_candidate_before = before_sha
+    pilot valid = package_prepare_graph(manifest_path, false, offline, false, update_name)
+    package_manifest_candidate_active = false
+    package_manifest_candidate_text = ""
+    package_manifest_candidate_before = ""
+    give back valid
+}
+
+-- Git checkout transforms, attributes, hooks and native scripts are never a
+-- package source authority. Only bounded raw objects at an exact commit are.
+task package_git_url(source: word) -> word {
+    if not hangar_valid_git_source(source) { hangar_graph_fail("unsupported or invalid Git package source") give back "" }
+    if not source.starts_with("https://") {
+        if source.starts_with("../") or source.contains("/../") or source.starts_with("./") { hangar_graph_fail("invalid Git owner/repository source") give back "" }
+        pilot url = "https://github.com/" + source
+        if not url.ends_with(".git") { url = url + ".git" }
+        give back url
+    }
+    if source.contains(" ") or source.contains("\\") or source.contains("?") or source.contains("#") { hangar_graph_fail("Git HTTPS source must have a plain credential-free repository path") give back "" }
+    pilot slash = 8
+    repeat until slash >= source.length() or source.char_at(slash) == "/" { slash += 1 }
+    if slash == 8 or slash >= source.length() - 1 { hangar_graph_fail("Git HTTPS source requires a host and repository path") give back "" }
+    pilot host = source.substring(8, slash - 8).to_lower()
+    pilot index = 0
+    repeat until index >= host.length() {
+        if not "abcdefghijklmnopqrstuvwxyz0123456789.-:[]".contains(host.char_at(index)) { hangar_graph_fail("Git HTTPS source has an invalid authority") give back "" }
+        index += 1
+    }
+    pilot path = source.substring(slash, source.length() - slash)
+    if path.ends_with("/") { path = path.substring(0, path.length() - 1) }
+    if path.contains("/../") or path.contains("/./") or path.ends_with("/..") or path.ends_with("/.") { hangar_graph_fail("Git HTTPS source has ambiguous path components") give back "" }
+    give back "https://" + host + path
+}
+
+task package_git_command(root: word) -> int {
+    pilot command = hangar_git_command()
+    if command == 0 {
+        hangar_graph_fail("native git.exe was not found on PATH")
+        give back 0
+    }
+    process::command_env(command, "GIT_LITERAL_PATHSPECS", "1")
+    process::command_cwd(command, root)
+    give back command
+}
+
+task package_git_capture(command: int, limit: int) -> ByteBuffer {
+    pilot status = process::command_run(command, 30000, limit, 65536)
+    pilot success = false
+    if status == 2 { success = process::command_exit_code(command) == 0 }
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    if success {
+        bytes.release()
+        bytes = process::command_stdout_bytes(command)
+    } else {
+        pilot code = 0 - 1
+        if status == 2 { code = process::command_exit_code(command) }
+        pilot diagnostic: ByteBuffer = process::command_stderr_bytes(command)
+        pilot message = diagnostic.to_word()
+        if diagnostic.status() != 0 { message = "[binary or invalid UTF-8 tool output omitted]" }
+        diagnostic.release()
+        hangar_graph_fail("Git object operation failed (process status " + word_from_int(status) + ", exit " + word_from_int(code) + "): " + process::command_error(command) + message)
+    }
+    process::command_release(command)
+    give back bytes
+}
+
+task package_git_one_record(bytes: ByteBuffer) -> word {
+    if bytes.length() == 0 { give back "" }
+    pilot record: ByteBuffer = ByteBuffer::new()
+    bytes.seek(0)
+    pilot closed = false
+    repeat until bytes.remaining() == 0 or closed {
+        pilot byte = bytes.read_byte()
+        if byte == 0 { closed = true } else { record.write_byte(byte) }
+    }
+    pilot text = record.to_word()
+    pilot valid = record.status() == 0 and closed and bytes.remaining() == 0
+    record.release()
+    if not valid { hangar_graph_fail("Git tree entry must be one complete UTF-8/NUL-framed record") give back "" }
+    give back text
+}
+
+task package_git_entry_mode(record: word, expected: word) -> word {
+    if record == "" { give back "" }
+    pilot tab = 0
+    repeat until tab >= record.length() or record.char_at(tab) == "\t" { tab += 1 }
+    if tab >= record.length() or record.substring(tab + 1, record.length() - tab - 1) != expected {
+        hangar_graph_fail("Git object inventory does not identify the exact requested logical path")
+        give back ""
+    }
+    pilot mode = record.substring(0, 6)
+    pilot kind = "blob"
+    if mode == "040000" { kind = "tree" } else if mode == "160000" { kind = "commit" }
+    pilot prefix = mode + " " + kind + " "
+    if not record.starts_with(prefix) { hangar_graph_fail("Git object inventory has invalid type metadata") give back "" }
+    pilot hash = record.substring(prefix.length(), tab - prefix.length())
+    if not package_lock_hex(hash, 40) and not package_lock_hex(hash, 64) { hangar_graph_fail("Git object inventory has an invalid object identity") give back "" }
+    give back mode
+}
+
+task package_git_mode(root: word, commit: word, path: word) -> word {
+    pilot command = package_git_command(root)
+    if command == 0 { give back "" }
+    process::command_arg(command, "ls-tree")
+    process::command_arg(command, "-z")
+    process::command_arg(command, "--full-tree")
+    process::command_arg(command, commit)
+    process::command_arg(command, "--")
+    process::command_arg(command, path)
+    pilot bytes: ByteBuffer = package_git_capture(command, 65536)
+    pilot record = package_git_one_record(bytes)
+    bytes.release()
+    if hangar_graph_error != "" { give back "" }
+    give back package_git_entry_mode(record, path)
+}
+
+task package_git_regular_path(root: word, commit: word, path: word) -> bool {
+    if not package_input_allowed(path) { hangar_graph_fail("unsafe Git declared input path: " + path) give back false }
+    pilot index = 0
+    pilot prefix = ""
+    repeat until index >= path.length() {
+        if path.char_at(index) == "/" {
+            if package_git_mode(root, commit, prefix) != "040000" { hangar_graph_fail("Git source path contains a missing directory, symlink or submodule: " + path) give back false }
+        }
+        prefix = prefix + path.char_at(index)
+        index += 1
+    }
+    pilot mode = package_git_mode(root, commit, path)
+    if mode != "100644" and mode != "100755" { hangar_graph_fail("Git source input must be an ordinary blob, not a symlink/submodule: " + path) give back false }
+    give back true
+}
+
+task package_git_blob(root: word, commit: word, path: word, limit: int) -> ByteBuffer {
+    if not package_git_regular_path(root, commit, path) { give back ByteBuffer::new() }
+    pilot command = package_git_command(root)
+    if command == 0 { give back ByteBuffer::new() }
+    process::command_arg(command, "show")
+    process::command_arg(command, commit + ":" + path)
+    give back package_git_capture(command, limit)
+}
+
+task package_git_default_tests(node: int, root: word, commit: word, package_prefix: word) -> bool {
+    pilot declared = hangar_graph_fact(node, "__package.tests_declared") == "true"
+    pilot index = 0
+    repeat until index >= array_len(package_pending_roles) {
+        if array_get(package_pending_roles, index) == "test" { declared = true }
+        index += 1
+    }
+    if declared { give back true }
+    pilot tests_path = package_git_object_path(package_prefix, "tests")
+    pilot mode = package_git_mode(root, commit, tests_path)
+    if hangar_graph_error != "" { give back false }
+    if mode == "" { give back true }
+    if mode != "040000" { hangar_graph_fail("Git fallback tests/ must be an ordinary tree, not a symlink/submodule") give back false }
+    pilot command = package_git_command(root)
+    if command == 0 { give back false }
+    process::command_arg(command, "ls-tree")
+    process::command_arg(command, "-z")
+    process::command_arg(command, commit + ":" + tests_path)
+    pilot bytes: ByteBuffer = package_git_capture(command, 2097152)
+    pilot record: ByteBuffer = ByteBuffer::new()
+    bytes.seek(0)
+    pilot count = 0
+    pilot valid = hangar_graph_error == ""
+    repeat until bytes.remaining() == 0 or not valid {
+        pilot byte = bytes.read_byte()
+        if byte != 0 { record.write_byte(byte) } else {
+            pilot text = record.to_word()
+            if record.status() != 0 { hangar_graph_fail("Git fallback tests contain invalid UTF-8 names")
+                valid = false } else {
+                pilot tab = 0
+                repeat until tab >= text.length() or text.char_at(tab) == "\t" { tab += 1 }
+                if tab >= text.length() { hangar_graph_fail("Git fallback tests inventory has a malformed record")
+                    valid = false } else {
+                    pilot name = text.substring(tab + 1, text.length() - tab - 1)
+                    if name.ends_with("_test.fk") {
+                        count += 1
+                        if count > 256 { hangar_graph_fail("Git fallback tests exceed the supported limit of 256")
+                            valid = false } else if not package_input_add("tests/" + name, "test") { valid = false }
+                    }
+                }
+            }
+            record.release()
+            record = ByteBuffer::new()
+        }
+    }
+    if record.length() != 0 { hangar_graph_fail("Git tree inventory is incomplete") valid = false }
+    record.release()
+    bytes.release()
+    give back valid
+}
+
+task package_git_pin(edge: int) -> int {
+    if not package_lock_valid { give back 0 - 1 }
+    pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
+    pilot identity = array_get(hangar_graph_identities, parent)
+    pilot kind = array_get(hangar_graph_edge_kinds, edge)
+    if kind == "path" { kind = "local" }
+    pilot index = 0
+    repeat until index >= word_to_int(package_lock_field("lock.edge_count")) {
+        pilot prefix = "edge." + word_from_int(index) + "."
+        pilot old_parent = package_lock_field(prefix + "parent")
+        if package_lock_field("node." + old_parent + ".identity") == identity and package_lock_field(prefix + "alias") == array_get(hangar_graph_edge_aliases, edge) and package_lock_field(prefix + "kind") == kind and package_lock_field(prefix + "source") == array_get(hangar_graph_edge_sources, edge) and package_lock_field(prefix + "revision") == array_get(hangar_graph_edge_revisions, edge) and package_lock_field(prefix + "version") == array_get(hangar_graph_edge_versions, edge) { give back word_to_int(package_lock_field(prefix + "target")) }
+        index += 1
+    }
+    give back 0 - 1
+}
+
+task package_admit_git_cached(url: word, commit: word, package_prefix: word, tree: word, manifest_hash: word, request: word) -> int {
+    pilot store = fs::open_relative_dir_ticket(package_preparation_private, "store")
+    if not fs::result_ok(store) {
+        if not fs::result_missing(store) { hangar_graph_fail("Git cache store is unsafe or unavailable: " + fs::result_error(store)) }
+        fs::result_release(store)
+        give back 0 - 1
+    }
+    pilot directory = fs::open_relative_dir_ticket(store, tree)
+    fs::result_release(store)
+    if not fs::result_ok(directory) {
+        if not fs::result_missing(directory) { hangar_graph_fail("Git cache tree is unsafe or unavailable: " + fs::result_error(directory)) }
+        fs::result_release(directory)
+        give back 0 - 1
+    }
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, "hangar.toml", hangar_graph_manifest_limit)
+    if not fs::result_ok(read) { hangar_graph_fail("cached Git manifest is missing or unsafe: " + fs::result_error(read))
+        fs::result_release(read)
+        fs::result_release(directory)
+        give back 0 - 1 }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot hash = fs::sha256_bytes(bytes)
+    pilot text = bytes.to_word()
+    pilot valid = bytes.status() == 0 and hash == manifest_hash
+    bytes.release()
+    if not valid { hangar_graph_fail("cached Git manifest bytes disagree with the resolved lock")
+        fs::result_release(directory)
+        give back 0 - 1 }
+    pilot identity = package_git_identity(url, commit, package_prefix)
+    pilot node = hangar_graph_add_manifest(identity, identity.substring(4, identity.length() - 4) + ":hangar.toml", text, request)
+    if node < 0 { fs::result_release(directory) give back 0 - 1 }
+    package_source_register(node, directory, package_directory_path(directory), "git", commit, "hangar.toml", hash)
+    array_set(package_source_origins, node, url)
+    array_set(package_source_original_roots, node, identity.substring(4, identity.length() - 4))
+    array_set(package_source_git_prefixes, node, package_prefix)
+    array_set(package_source_hashes, node, tree)
+    if toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), "tests") {
+        array_push(hangar_graph_fact_nodes, word_from_int(node))
+        array_push(hangar_graph_fact_keys, "__package.tests_declared")
+        array_push(hangar_graph_fact_values, "true")
+    }
+    give back node
+}
+
+task package_discard_temp(ticket: int) -> void {
+    hangar_checked_fs(fs::remove_temp_dir_checked(ticket), "Could not clean owned Git staging")
+    fs::result_release(ticket)
+}
+
+task package_admit_git(edge: int, offline: bool, update_name: word) -> int {
+    pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
+    pilot alias = array_get(hangar_graph_edge_aliases, edge)
+    pilot request = array_get(hangar_graph_request_paths, parent) + " -> " + alias
+    pilot url = package_git_url(array_get(hangar_graph_edge_sources, edge))
+    if url == "" { give back 0 - 1 }
+    pilot pin = package_git_pin(edge)
+    pilot update = update_name == "*" or update_name == alias
+    if pin >= 0 { if update_name == package_lock_field("node." + word_from_int(pin) + ".name") { update = true } }
+    pilot commit = ""
+    pilot expected_tree = ""
+    pilot expected_manifest = ""
+    if pin >= 0 and not update {
+        pilot prefix = "node." + word_from_int(pin) + "."
+        if package_lock_field(prefix + "origin") != url { hangar_graph_fail("locked Git origin disagrees with declared source: " + request) give back 0 - 1 }
+        commit = package_lock_field(prefix + "commit")
+        expected_tree = package_lock_field(prefix + "tree_sha256")
+        expected_manifest = package_lock_field(prefix + "manifest_sha256")
+    }
+    pilot revision = array_get(hangar_graph_edge_revisions, edge)
+    if revision == "" or revision == "latest" or revision == "*" { revision = "HEAD" }
+    if commit == "" {
+        if package_lock_hex(revision, 40) or package_lock_hex(revision, 64) { commit = revision } else if not update {
+            hangar_graph_fail("unlocked mutable Git revision requires explicit hangar install/add/update: " + request)
+            give back 0 - 1
+        }
+    }
+    if not hangar_valid_revision(revision) { hangar_graph_fail("invalid Git revision: " + request) give back 0 - 1 }
+    if commit == "" {
+        pilot selector = url + "\n" + revision
+        pilot index = 0
+        repeat until index >= array_len(package_git_resolved_selectors) {
+            if array_get(package_git_resolved_selectors, index) == selector { commit = array_get(package_git_resolved_commits, index) }
+            index += 1
+        }
+    }
+    give back package_admit_git_resolved(url, commit, revision, "", expected_tree, expected_manifest, request, offline)
+}
+
+task package_git_identity(url: word, commit: word, prefix: word) -> word {
+    pilot identity = "git:" + url + "@" + commit
+    if prefix != "" { identity = identity + ":" + prefix }
+    give back identity
+}
+
+task package_git_object_path(prefix: word, relative: word) -> word {
+    if prefix == "" { give back relative }
+    give back prefix + "/" + relative
+}
+
+task package_git_index_name(url: word, commit: word, prefix: word) -> word {
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word("FREAK-git-source-index-v2\n" + url + "\n" + commit + "\n" + prefix + "\n")
+    pilot name = fs::sha256_bytes(bytes) + ".toml"
+    bytes.release()
+    give back name
+}
+
+task package_read_git_index(url: word, commit: word, prefix: word) -> int {
+    pilot directory = fs::open_relative_dir_ticket(package_preparation_private, "git-index")
+    if not fs::result_ok(directory) {
+        if not fs::result_missing(directory) { hangar_graph_fail("Git source index directory is unsafe or unavailable: " + fs::result_error(directory)) }
+        fs::result_release(directory)
+        give back 0
+    }
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, package_git_index_name(url, commit, prefix), 16384)
+    fs::result_release(directory)
+    if not fs::result_ok(read) {
+        if not fs::result_missing(read) { hangar_graph_fail("Git source index is unsafe or unavailable: " + fs::result_error(read)) }
+        fs::result_release(read)
+        give back 0
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot content = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    pilot requester = ""
+    if toml_keys_arr != 0 { requester = toml_render() }
+    pilot record = array_new()
+    if not valid or not toml_parse(content) { valid = false } else {
+        valid = toml_count == 8 and array_len(toml_sections_arr) == 0 and toml_get("schema") == "1" and toml_get("profile") == "source-only-v2" and toml_get("origin") == url and toml_get("commit") == commit and toml_get("prefix") == prefix and toml_get("manifest_file") == "hangar.toml" and package_lock_hex(toml_get("tree_sha256"), 64) and package_lock_hex(toml_get("manifest_sha256"), 64)
+        pilot index = 0
+        repeat until index >= toml_count {
+            pilot bare = array_get(toml_keys_arr, index) == "schema"
+            if bare != (array_get(toml_types_arr, index) == "bare") { valid = false }
+            index += 1
+        }
+        if valid { array_push(record, toml_get("tree_sha256")) array_push(record, toml_get("manifest_sha256")) }
+    }
+    if requester == "" { toml_clear() } else { toml_parse(requester) }
+    if not valid { hangar_graph_fail("Git source index metadata is corrupt or disagrees with its exact repository/commit/subdirectory identity")
+        array_release(record)
+        give back 0 }
+    give back record
+}
+
+task package_publish_git_index(node: int) -> bool {
+    pilot url = array_get(package_source_origins, node)
+    pilot commit = array_get(package_source_commits, node)
+    pilot prefix = array_get(package_source_git_prefixes, node)
+    pilot tree = array_get(package_source_hashes, node)
+    pilot manifest = array_get(package_source_manifest_hashes, node)
+    pilot existing = package_read_git_index(url, commit, prefix)
+    if existing != 0 {
+        pilot valid = array_get(existing, 0) == tree and array_get(existing, 1) == manifest
+        array_release(existing)
+        if not valid { hangar_graph_fail("existing Git source index disagrees with canonical raw-object input integrity; refusing replacement") }
+        give back valid
+    }
+    if hangar_graph_error != "" { give back false }
+    pilot directory = package_private_directory(package_preparation_private, "git-index")
+    if directory == 0 { give back false }
+    pilot builder = word_builder::new()
+    package_lock_line(builder, "schema", "1", true)
+    package_lock_line(builder, "profile", "source-only-v2", false)
+    package_lock_line(builder, "origin", url, false)
+    package_lock_line(builder, "commit", commit, false)
+    package_lock_line(builder, "prefix", prefix, false)
+    package_lock_line(builder, "tree_sha256", tree, false)
+    package_lock_line(builder, "manifest_sha256", manifest, false)
+    package_lock_line(builder, "manifest_file", "hangar.toml", false)
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(word_builder::finish(builder))
+    pilot valid = package_transaction_checked(fs::write_relative_bytes_checked(directory, package_git_index_name(url, commit, prefix), bytes), "exact Git source index publication failed")
+    bytes.release()
+    fs::result_release(directory)
+    give back valid
+}
+
+task package_admit_git_path(edge: int, offline: bool) -> int {
+    pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
+    pilot request = array_get(hangar_graph_request_paths, parent) + " -> " + array_get(hangar_graph_edge_aliases, edge)
+    pilot source = array_get(hangar_graph_edge_sources, edge)
+    if source.starts_with("/") or source.contains(":") or source.contains("\\") { hangar_graph_fail("Git path dependency must stay within its commit repository: " + request) give back 0 - 1 }
+    pilot normalized = package_local_path("/" + array_get(package_source_git_prefixes, parent), source)
+    if normalized == "" { give back 0 - 1 }
+    pilot prefix = normalized.substring(1, normalized.length() - 1)
+    if prefix != "" and not package_input_allowed(prefix) { hangar_graph_fail("unsafe Git package subdirectory: " + request) give back 0 - 1 }
+    pilot url = array_get(package_source_origins, parent)
+    pilot commit = array_get(package_source_commits, parent)
+    pilot tree = ""
+    pilot manifest = ""
+    pilot pin = package_git_pin(edge)
+    if pin >= 0 {
+        pilot node = "node." + word_from_int(pin) + "."
+        if package_lock_field(node + "identity") != package_git_identity(url, commit, prefix) or package_lock_field(node + "origin") != url or package_lock_field(node + "commit") != commit { hangar_graph_fail("Git path dependency disagrees with its parent's resolved commit: " + request) give back 0 - 1 }
+        tree = package_lock_field(node + "tree_sha256")
+        manifest = package_lock_field(node + "manifest_sha256")
+    }
+    give back package_admit_git_resolved(url, commit, commit, prefix, tree, manifest, request, offline)
+}
+
+task package_admit_git_resolved(url: word, requested_commit: word, revision: word, package_prefix: word, locked_tree: word, locked_manifest: word, request: word, offline: bool) -> int {
+    pilot commit = requested_commit
+    pilot expected_tree = locked_tree
+    pilot expected_manifest = locked_manifest
+    if commit != "" {
+        pilot known = hangar_graph_find_identity(package_git_identity(url, commit, package_prefix))
+        if known >= 0 { give back known }
+        if expected_tree == "" {
+            pilot indexed = package_read_git_index(url, commit, package_prefix)
+            if indexed != 0 {
+                expected_tree = array_get(indexed, 0)
+                expected_manifest = array_get(indexed, 1)
+                array_release(indexed)
+            }
+            if hangar_graph_error != "" { give back 0 - 1 }
+        }
+    }
+    if expected_tree != "" {
+        pilot cached = package_admit_git_cached(url, commit, package_prefix, expected_tree, expected_manifest, request)
+        if cached >= 0 { give back cached }
+        if hangar_graph_error != "" { give back 0 - 1 }
+    }
+    if offline { hangar_graph_fail("offline Git cache miss for exact resolved source: " + request + " at " + commit) give back 0 - 1 }
+    pilot private_path = package_directory_path(package_preparation_private)
+    if private_path == "" { give back 0 - 1 }
+    pilot repository = 0
+    if commit != "" {
+        pilot key = url + "@" + commit
+        pilot index = 0
+        repeat until index >= array_len(package_git_repository_keys) {
+            if array_get(package_git_repository_keys, index) == key { repository = word_to_int(array_get(package_git_repository_tickets, index)) }
+            index += 1
+        }
+    }
+    if repository == 0 { repository = package_fetch_git_repository(url, commit, revision, request, private_path) }
+    if repository == 0 { give back 0 - 1 }
+    pilot repository_path = fs::result_word(repository)
+    pilot key = ""
+    pilot index = 0
+    repeat until index >= array_len(package_git_repository_tickets) {
+        if word_to_int(array_get(package_git_repository_tickets, index)) == repository { key = array_get(package_git_repository_keys, index) }
+        index += 1
+    }
+    commit = key.substring(url.length() + 1, key.length() - url.length() - 1)
+    pilot identity = package_git_identity(url, commit, package_prefix)
+    pilot known = hangar_graph_find_identity(identity)
+    if known >= 0 { give back known }
+    pilot output: ByteBuffer = package_git_blob(repository_path, commit, package_git_object_path(package_prefix, "hangar.toml"), hangar_graph_manifest_limit)
+    if hangar_graph_error != "" { output.release() give back 0 - 1 }
+    pilot manifest_hash = fs::sha256_bytes(output)
+    pilot text = output.to_word()
+    pilot valid = output.status() == 0
+    output.release()
+    if not valid { hangar_graph_fail("Git manifest must be UTF-8 text without NUL: " + request) give back 0 - 1 }
+    if expected_manifest != "" and expected_manifest != manifest_hash { hangar_graph_fail("Git raw manifest bytes disagree with locked integrity: " + request) give back 0 - 1 }
+    pilot raw = fs::temp_dir(private_path, ".git-input-")
+    if not fs::result_ok(raw) { hangar_graph_fail("cannot create owned raw Git input staging: " + fs::result_error(raw))
+        fs::result_release(raw)
+        give back 0 - 1 }
+    pilot node = hangar_graph_add_manifest(identity, identity.substring(4, identity.length() - 4) + ":hangar.toml", text, request)
+    if node < 0 { package_discard_temp(raw) give back 0 - 1 }
+    package_source_register(node, raw, fs::result_word(raw), "git", commit, "hangar.toml", manifest_hash)
+    array_set(package_source_origins, node, url)
+    array_set(package_source_original_roots, node, identity.substring(4, identity.length() - 4))
+    array_set(package_source_git_prefixes, node, package_prefix)
+    array_set(package_source_original_owned, node, "true")
+    array_set(package_source_hashes, node, expected_tree)
+    if toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), "tests") {
+        array_push(hangar_graph_fact_nodes, word_from_int(node))
+        array_push(hangar_graph_fact_keys, "__package.tests_declared")
+        array_push(hangar_graph_fact_values, "true")
+    }
+    valid = package_collect_declared_inputs(node, "hangar.toml")
+    if valid { valid = package_git_default_tests(node, repository_path, commit, package_prefix) }
+    pilot created = array_new()
+    index = 0
+    repeat until index >= array_len(package_pending_paths) or not valid {
+        pilot path = array_get(package_pending_paths, index)
+        output = package_git_blob(repository_path, commit, package_git_object_path(package_prefix, path), package_input_file_limit)
+        if hangar_graph_error != "" { valid = false } else {
+            valid = package_stage_input_parents(raw, path + "", created)
+            if valid { valid = package_input_write_result(fs::write_relative_bytes_checked(raw, path, output), "cannot write anchored raw Git input") }
+        }
+        output.release()
+        index += 1
+    }
+    array_release(created)
+    if not valid { give back 0 - 1 }
+    give back node
+}
+
+task package_fetch_git_repository(url: word, commit: word, revision: word, request: word, private_path: word) -> int {
+    pilot repository = fs::temp_dir(private_path, ".git-fetch-")
+    if not fs::result_ok(repository) { hangar_graph_fail("cannot create owned Git object staging: " + fs::result_error(repository))
+        fs::result_release(repository)
+        give back 0 }
+    pilot repository_path = fs::result_word(repository)
+    pilot command = package_git_command(repository_path)
+    if command == 0 { package_discard_temp(repository) give back 0 }
+    process::command_arg(command, "init")
+    process::command_arg(command, "--bare")
+    process::command_arg(command, "--quiet")
+    process::command_arg(command, "--template=")
+    pilot output: ByteBuffer = package_git_capture(command, 65536)
+    output.release()
+    if hangar_graph_error == "" {
+        command = package_git_command(repository_path)
+        if command == 0 { package_discard_temp(repository) give back 0 }
+        process::command_arg(command, "fetch")
+        process::command_arg(command, "--depth=1")
+        process::command_arg(command, "--no-tags")
+        process::command_arg(command, "--no-recurse-submodules")
+        process::command_arg(command, "--quiet")
+        process::command_arg(command, "--")
+        process::command_arg(command, url)
+        if commit != "" { process::command_arg(command, commit) } else { process::command_arg(command, revision) }
+        output = package_git_capture(command, 65536)
+        output.release()
+    }
+    if hangar_graph_error != "" { package_discard_temp(repository) give back 0 }
+    command = package_git_command(repository_path)
+    if command == 0 { package_discard_temp(repository) give back 0 }
+    process::command_arg(command, "rev-parse")
+    process::command_arg(command, "--verify")
+    process::command_arg(command, "FETCH_HEAD^0")
+    output = package_git_capture(command, 65536)
+    pilot resolved = output.to_word().trim().to_lower()
+    pilot valid = output.status() == 0 and (package_lock_hex(resolved, 40) or package_lock_hex(resolved, 64))
+    output.release()
+    if not valid or (commit != "" and commit != resolved) { hangar_graph_fail("Git fetch did not resolve the requested exact commit: " + request)
+        package_discard_temp(repository)
+        give back 0 }
+    array_push(package_git_repository_keys, url + "@" + resolved)
+    array_push(package_git_repository_tickets, word_from_int(repository))
+    array_push(package_git_resolved_selectors, url + "\n" + revision)
+    array_push(package_git_resolved_commits, resolved)
+    give back repository
+}
+
+
+task package_release_graph() -> void {
+    package_sources_release()
+    package_inputs_release()
+    hangar_graph_release()
+    package_lock_release()
+    toml_release()
+    package_source_option_manifest = ""
+    package_source_option_snapshot = ""
+    package_source_option_locked = false
+    package_source_option_offline = false
+    package_source_option_frozen = false
+    package_manifest_candidate_active = false
+    package_manifest_candidate_text = ""
+    package_manifest_candidate_before = ""
+}

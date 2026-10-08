@@ -1,0 +1,7 @@
+use std::test::{test_assert_word}
+use self::greet::{greet}
+
+task main() {
+    test_assert_word("greeting", "Hello, FREAK!", greet("FREAK"))
+    test_assert_word("empty parameter", "Hello, !", greet(""))
+}

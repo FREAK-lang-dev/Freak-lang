@@ -1,8 +1,10 @@
 pilot name = "Takeru"
 pilot power = 9001
-say "Hello from FREAK! "
-say name
-say " has power "
-say word_from_int(power)
-say "."
 
+task main() {
+    say "Hello from FREAK! "
+    say name
+    say " has power "
+    say word_from_int(power)
+    say "."
+}

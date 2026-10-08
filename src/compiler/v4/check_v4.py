@@ -18,30 +18,15 @@ from functools import lru_cache
 from pathlib import Path
 
 
-CRATE_ORDER = [
-    "freak_span",
-    "freak_diag",
-    "freak_macro_api",
-    "freak_arena",
-    "freak_intern",
-    "freak_session",
-    "freak_target",
-    "freak_lex",
-    "freak_parse",
-    "freak_expand",
-    "freak_hir",
-    "freak_resolve",
-    "freak_ty",
-    "freak_mir",
-    "freak_mir_build",
-    "freak_borrowck",
-    "freak_codegen_llvm",
-    "freak_query",
-    "freak_driver",
-    "freak_editor",
-    "freak_snapshot",
-    "freak_lsp",
-]
+BOOTSTRAP_SOURCE_PATHS = tuple(
+    (Path(__file__).resolve().parent / "bootstrap-sources.manifest")
+    .read_text(encoding="utf-8").splitlines()
+)
+if (not BOOTSTRAP_SOURCE_PATHS or len(set(BOOTSTRAP_SOURCE_PATHS)) != len(BOOTSTRAP_SOURCE_PATHS)
+        or any(not re.fullmatch(r"crates/freak_[a-z_]+/src/lib\.fk", path)
+               for path in BOOTSTRAP_SOURCE_PATHS)):
+    raise RuntimeError("invalid authoritative V4 bootstrap source inventory")
+CRATE_ORDER = [Path(path).parts[1] for path in BOOTSTRAP_SOURCE_PATHS]
 
 
 def repo_root() -> Path:
@@ -16081,6 +16066,7 @@ def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
         + index_body
         + "\n}\n"
         + r'''
+task main() {
 say "Alternative".substring(3, 5)
 pilot empty_lines = v4_hir_snapshot_index_lines("")
 pilot empty_ok = empty_lines >= 0 and array_len(empty_lines) == 0
@@ -16111,6 +16097,7 @@ if empty_ok and small_ok and large_ok {
     say "llvm-hir-line-index=ok"
 } else {
     say "llvm-hir-line-index=failed"
+}
 }
 '''
     )
@@ -16578,7 +16565,7 @@ def smoke_execution_cases(smokes: list[dict[str, object]]):
         if not isinstance(cases, list) or not cases:
             raise ValueError("runtime_cases must be a nonempty list")
         for index, case in enumerate(cases):
-            if not isinstance(case, dict) or case.keys() - {"argv", "expect", "llvm_programs"}:
+            if not isinstance(case, dict) or case.keys() - {"argv", "expect", "llvm_programs", "llvm_abort_messages"}:
                 raise ValueError("runtime case may only select arguments and expected execution")
             expanded = {key: value for key, value in smoke.items() if key != "runtime_cases"}
             expanded.update(case)
@@ -16706,7 +16693,13 @@ def check_executable_smokes(
                     [str(native_path)], label=f"LLVM module execute: {name}",
                     timeout_seconds=10, memory_limit_mb=128,
                 )
-                if native.returncode != exit_code or native.stdout != expected_native_stdout(stdout) or native.stderr:
+                abort_message = smoke.get("llvm_abort_messages", {}).get(name)
+                if abort_message is not None:
+                    from tests.v4_panic_runtime import assert_exact_abort
+                    byte_result = subprocess.CompletedProcess(
+                        native.args, native.returncode, native.stdout.encode("utf-8"), native.stderr.encode("utf-8"))
+                    assert_exact_abort(byte_result, ("PANIC: " + abort_message + "\n").encode("utf-8"))
+                elif native.returncode != exit_code or native.stdout != expected_native_stdout(stdout) or native.stderr:
                     raise RuntimeError(f"LLVM module execution failed: {name} expected={exit_code} actual={native.returncode}\n{native.stdout}{native.stderr}")
                 print(f"LLVM module execution: {name} exit={exit_code}")
         if smoke.get("llvm_build_checks"):

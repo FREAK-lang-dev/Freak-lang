@@ -1,0 +1,1065 @@
+-- Package binding consumes an already validated immutable source graph. Source
+-- text is never rewritten: imports are checked as tokens and names are bound in
+-- the parsed AST, where locals, members and interpolation are distinct nodes.
+pilot cli_project_source_error = ""
+pilot pb_units = 0
+pilot pb_modules = 0
+pilot pb_paths = 0
+pilot pb_sources = 0
+pilot pb_prefixes = 0
+pilot pb_order = 0
+pilot pb_colors = 0
+pilot pb_import_units = 0
+pilot pb_import_names = 0
+pilot pb_import_targets = 0
+pilot pb_import_symbols = 0
+pilot pb_import_nodes = 0
+pilot pb_import_modules = 0
+pilot pb_import_files = 0
+pilot pb_import_lines = 0
+pilot pb_import_cols = 0
+pilot pb_decl_units = 0
+pilot pb_decl_names = 0
+pilot pb_decl_kinds = 0
+pilot pb_decl_generated = 0
+pilot pb_decl_stmts = 0
+pilot pb_fixed_units = 0
+pilot pb_fixed_names = 0
+pilot pb_locals = 0
+pilot pb_local_count = 0
+pilot pb_entry_unit = 0 - 1
+pilot pb_scan_end = 0
+pilot pb_active = false
+pilot pb_std_selectors = ""
+pilot pb_surface_keys = 0
+pilot pb_surface_names = 0
+pilot pb_surface_supported = 0
+
+task cli_project_binding_release() -> void {
+    tc_diag_labels_clear()
+    if pb_units != 0 {
+        array_release(pb_units) array_release(pb_modules) array_release(pb_paths)
+        array_release(pb_sources) array_release(pb_prefixes) array_release(pb_order)
+        array_release(pb_colors) array_release(pb_import_units) array_release(pb_import_names)
+        array_release(pb_import_targets) array_release(pb_import_symbols) array_release(pb_import_nodes) array_release(pb_import_modules)
+        array_release(pb_import_files) array_release(pb_import_lines) array_release(pb_import_cols)
+        array_release(pb_decl_units) array_release(pb_decl_names) array_release(pb_decl_kinds)
+        array_release(pb_decl_generated) array_release(pb_decl_stmts)
+        array_release(pb_fixed_units) array_release(pb_fixed_names) array_release(pb_locals)
+        array_release(pb_surface_keys) array_release(pb_surface_names) array_release(pb_surface_supported)
+    }
+    pb_units = 0 pb_modules = 0 pb_paths = 0 pb_sources = 0 pb_prefixes = 0 pb_order = 0 pb_colors = 0 pb_import_units = 0 pb_import_names = 0 pb_import_targets = 0 pb_import_symbols = 0 pb_import_nodes = 0 pb_import_modules = 0 pb_import_files = 0 pb_import_lines = 0 pb_import_cols = 0 pb_decl_units = 0 pb_decl_names = 0 pb_decl_kinds = 0 pb_decl_generated = 0 pb_decl_stmts = 0 pb_fixed_units = 0 pb_fixed_names = 0 pb_locals = 0 pb_surface_keys = 0 pb_surface_names = 0 pb_surface_supported = 0
+    pb_active = false
+}
+
+task pb_reset() -> void {
+    cli_project_binding_release()
+    pb_units = array_new() pb_modules = array_new() pb_paths = array_new()
+    pb_sources = array_new() pb_prefixes = array_new() pb_order = array_new()
+    pb_colors = array_new() pb_import_units = array_new() pb_import_names = array_new()
+    pb_import_targets = array_new() pb_import_symbols = array_new() pb_import_nodes = array_new() pb_import_modules = array_new()
+    pb_import_files = array_new() pb_import_lines = array_new() pb_import_cols = array_new()
+    pb_decl_units = array_new() pb_decl_names = array_new() pb_decl_kinds = array_new()
+    pb_decl_generated = array_new() pb_decl_stmts = array_new()
+    pb_fixed_units = array_new() pb_fixed_names = array_new() pb_locals = array_new()
+    pb_surface_keys = array_new() pb_surface_names = array_new() pb_surface_supported = array_new()
+    pb_local_count = 0 pb_entry_unit = 0 - 1 pb_active = true
+    cli_project_source_error = ""
+    pb_std_selectors = ""
+}
+
+task pb_fail(message: word) -> void {
+    if cli_project_source_error == "" { cli_project_source_error = message }
+}
+
+task pb_find(text: word, needle: word) -> int {
+    pilot i = 0
+    repeat until i + needle.length() > text.length() {
+        if text.substring(i, needle.length()) == needle { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task pb_value(index: int) -> word {
+    if index < 0 or index >= tokens_count { give back "" }
+    give back array_get(tok_vals, index)
+}
+
+task pb_kind(index: int) -> word {
+    if index < 0 or index >= tokens_count { give back TOK_EOF }
+    give back array_get(tok_types, index)
+}
+
+task pb_token_error(index: int, message: word) -> void {
+    if index >= tokens_count { index = tokens_count - 1 }
+    if index < 0 { index = 0 }
+    pb_fail(message)
+    diag_error_at(message, "declare a direct dependency and a supported manifest export",
+        array_get(tok_origin_files, index), word_to_int(array_get(tok_origin_lines, index)),
+        word_to_int(array_get(tok_cols, index)))
+}
+
+task pb_import_error(index: int, message: word) -> void {
+    pb_fail(message)
+    diag_error_at(message, "", array_get(pb_import_files, index), word_to_int(array_get(pb_import_lines, index)), word_to_int(array_get(pb_import_cols, index)))
+}
+
+task pb_path_unit(path: word) -> int {
+    pilot i = 0
+    repeat until i >= array_len(pb_paths) {
+        if array_get(pb_paths, i) == path { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task pb_prefix(node: int, module: word) -> word {
+    pilot identity = "standalone"
+    if node >= 0 { identity = array_get(hangar_graph_identities, node) }
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(identity + "\n" + module)
+    pilot digest = fs::sha256_bytes(bytes)
+    bytes.release()
+    give back "pkg_" + digest + "_"
+}
+
+task pb_add_unit(node: int, module: word, relative: word, path: word, source: word) -> int {
+    pilot i = 0
+    repeat until i >= array_len(pb_units) {
+        if array_get(pb_units, i) == word_from_int(node) and array_get(pb_modules, i) == module { give back i }
+        if array_get(pb_paths, i) == path { pb_fail("one source path cannot define two module identities: " + path) give back 0 - 1 }
+        i += 1
+    }
+    if array_len(pb_units) >= 4096 { pb_fail("package source closure exceeds 4096 modules") give back 0 - 1 }
+    array_push(pb_units, word_from_int(node)) array_push(pb_modules, module)
+    array_push(pb_paths, path) array_push(pb_sources, source)
+    array_push(pb_prefixes, pb_prefix(node, module)) array_push(pb_colors, "0")
+    give back array_len(pb_units) - 1
+}
+
+task pb_load_module(node: int, module: word) -> int {
+    pilot i = 0
+    repeat until i >= array_len(pb_units) {
+        if array_get(pb_units, i) == word_from_int(node) and array_get(pb_modules, i) == module { give back i }
+        i += 1
+    }
+    pilot relative = hangar_graph_fact(node, "modules." + module)
+    if relative == "" { pb_fail("undeclared source module '" + module + "'") give back 0 - 1 }
+    pilot source = package_read_graph_source(node, relative)
+    if hangar_graph_error != "" { pb_fail(hangar_graph_error) give back 0 - 1 }
+    pilot path = package_join_host(array_get(package_source_original_roots, node), relative)
+    give back pb_add_unit(node, module, relative, path, source)
+}
+
+task pb_edge(requester: int, alias: word) -> int {
+    pilot i = 0
+    repeat until i >= hangar_graph_edge_count {
+        if word_to_int(array_get(hangar_graph_edge_parents, i)) == requester and array_get(hangar_graph_edge_aliases, i) == alias {
+            give back word_to_int(array_get(hangar_graph_edge_targets, i))
+        }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task pb_export(node: int, public: word) -> word {
+    give back hangar_graph_fact(node, "exports." + public)
+}
+
+task pb_export_unit(node: int, public: word) -> int {
+    pilot target = pb_export(node, public)
+    pilot split = pb_find(target, "::")
+    if split <= 0 { pb_fail("missing public export '" + public + "'") give back 0 - 1 }
+    give back pb_load_module(node, target.substring(0, split))
+}
+
+task pb_export_symbol(node: int, public: word) -> word {
+    pilot target = pb_export(node, public)
+    pilot split = pb_find(target, "::")
+    if split <= 0 { give back "" }
+    give back target.substring(split + 2, target.length() - split - 2)
+}
+
+task pb_import(unit: int, name: word, target: int, symbol: word, node: int, token: int, module: word) -> void {
+    pilot i = 0
+    repeat until i >= array_len(pb_import_units) {
+        -- Selected imports are checked after declaration kinds are known.
+        -- Module aliases occupy their own namespace.
+        if word_to_int(array_get(pb_import_units, i)) == unit and array_get(pb_import_names, i) == name and target == 0 - 2 and array_get(pb_import_targets, i) == "-2" {
+            pb_token_error(token, "duplicate import alias '" + name + "'") give back
+        }
+        i += 1
+    }
+    array_push(pb_import_units, word_from_int(unit)) array_push(pb_import_names, name)
+    array_push(pb_import_targets, word_from_int(target)) array_push(pb_import_symbols, symbol)
+    array_push(pb_import_nodes, word_from_int(node)) array_push(pb_import_modules, module)
+    array_push(pb_import_files, array_get(tok_origin_files, token))
+    array_push(pb_import_lines, array_get(tok_origin_lines, token)) array_push(pb_import_cols, array_get(tok_cols, token))
+}
+
+task pb_std_module(module: word) -> bool {
+    give back module == "math" or module == "string" or module == "convert" or module == "algorithm" or module == "json" or module == "json_document" or module == "version" or module == "test" or module == "math3d" or module == "zip" or module == "ui" or module == "http" or module == "http_server"
+}
+
+-- Return the first token after a complete import. A newline is not a parser
+-- delimiter, so this consumes the supported grammar exactly, never a whole line.
+task pb_parse_use(unit: int, start: int, collect: bool) -> void {
+    pilot i = start + 1
+    pb_scan_end = i
+    if pb_kind(i) != TOK_IDENT { pb_token_error(start, "use requires a declared package alias") give back }
+    pilot alias = pb_value(i) i += 1
+    pilot requester = word_to_int(array_get(pb_units, unit))
+    pilot target_node = 0 - 1
+    pilot internal_module = ""
+    pilot standard = false
+    if (alias == "std" or alias == "self") and requester >= 0 and pb_edge(requester, alias) >= 0 {
+        pb_token_error(start + 1, "dependency alias conflicts with reserved module namespace '" + alias + "'") give back
+    }
+    if alias == "std" {
+        standard = true
+        if pb_value(i) != "::" { pb_token_error(i, "std import requires a declared module") give back }
+        i += 1 internal_module = pb_value(i) i += 1
+        if not pb_std_module(internal_module) { pb_token_error(start, "unsupported standard module '" + internal_module + "'") give back }
+        if collect { pb_std_selectors = pb_std_selectors + "use std::" + internal_module + "\n" }
+    } else if alias == "self" {
+        if requester < 0 or pb_value(i) != "::" { pb_token_error(start, "self import requires a project module") give back }
+        i += 1 internal_module = pb_value(i) i += 1
+        target_node = requester
+    } else {
+        if requester >= 0 { target_node = pb_edge(requester, alias) }
+        if target_node < 0 { pb_token_error(start + 1, "undeclared direct dependency '" + alias + "'") give back }
+    }
+    if pb_value(i) != "::" {
+        -- Standard modules retain their existing ambient public names. A
+        -- module-only import still validates the exact admitted module name.
+        if standard { pb_scan_end = i give back }
+        if internal_module != "" { pb_token_error(start, "module import requires an explicit selected symbol list") give back }
+        pilot namespace = alias
+        if pb_value(i) == "as" {
+            i += 1 namespace = pb_value(i)
+            if pb_kind(i) != TOK_IDENT { pb_token_error(i, "namespace alias must be an identifier") give back }
+            i += 1
+        }
+        if collect {
+            pb_import(unit, namespace, 0 - 2, "", target_node, start, "")
+            pilot fact = 0
+            repeat until fact >= array_len(hangar_graph_fact_keys) {
+                if word_to_int(array_get(hangar_graph_fact_nodes, fact)) == target_node and array_get(hangar_graph_fact_keys, fact).starts_with("exports.") {
+                    pb_export_unit(target_node, array_get(hangar_graph_fact_keys, fact).substring(8, array_get(hangar_graph_fact_keys, fact).length() - 8))
+                }
+                fact += 1
+            }
+        }
+        pb_scan_end = i give back
+    }
+    i += 1
+    if pb_value(i) != "{" { pb_token_error(i, "import requires \{symbol, symbol as alias\}") give back }
+    i += 1
+    pilot finished = false
+    pilot count = 0
+    repeat until finished or i >= tokens_count {
+        if pb_value(i) == "}" { i += 1 finished = true }
+        else {
+            pilot symbol_token = i
+            pilot public = pb_value(i)
+            if pb_kind(i) != TOK_IDENT { pb_token_error(i, "imported symbol must be an identifier") give back }
+            i += 1
+            pilot local = public
+            if pb_value(i) == "as" {
+                i += 1 local = pb_value(i)
+                if pb_kind(i) != TOK_IDENT { pb_token_error(i, "import alias must be an identifier") give back }
+                i += 1
+            }
+            if collect {
+                pilot target_unit = 0 - 1
+                pilot target_symbol = public
+                if not standard {
+                    if internal_module != "" { target_unit = pb_load_module(target_node, internal_module) }
+                    else { target_unit = pb_export_unit(target_node, public) target_symbol = pb_export_symbol(target_node, public) }
+                    if target_unit < 0 { pb_token_error(symbol_token, cli_project_source_error) give back }
+                }
+                pb_import(unit, local, target_unit, target_symbol, target_node, symbol_token, internal_module)
+            }
+            count += 1
+            if pb_value(i) == "," { i += 1 }
+            else if pb_value(i) != "}" { pb_token_error(i, "expected ',' or '}' in import") give back }
+        }
+    }
+    if not finished or count == 0 { pb_token_error(start, "import must select at least one symbol and close '}'") }
+    pb_scan_end = i
+}
+
+task pb_scan_source(unit: int) -> void {
+    tok_types = array_new() tok_vals = array_new() tok_lines = array_new()
+    tok_cols = array_new() tok_origin_files = array_new() tok_origin_lines = array_new()
+    source_map_reset()
+    source_map_register(array_get(pb_paths, unit), array_get(pb_sources, unit))
+    pilot previous_errors = error_count
+    tokenize(array_get(pb_sources, unit))
+    if error_count > previous_errors { pb_fail(word_from_int(error_count - previous_errors) + " syntax error(s): lexically invalid source module: " + array_get(pb_paths, unit)) }
+    pilot i = 0 pilot depth = 0
+    repeat until i >= tokens_count - 1 or cli_project_source_error != "" {
+        pilot val = pb_value(i)
+        pilot kind = pb_kind(i)
+        if kind == TOK_KW and val == "use" {
+            if depth != 0 { pb_token_error(i, "use declarations are valid only at module scope") }
+            else { pb_parse_use(unit, i, true) i = pb_scan_end - 1 }
+        } else if kind == TOK_KW and val == "fixed" and depth == 0 {
+            if pb_value(i + 1) == "pilot" {
+                array_push(pb_fixed_units, word_from_int(unit)) array_push(pb_fixed_names, pb_value(i + 2))
+            }
+        }
+        if kind == TOK_PUNCT and val == "{" { depth += 1 }
+        if kind == TOK_PUNCT and val == "}" { depth -= 1 }
+        i += 1
+    }
+    array_release(tok_types) array_release(tok_vals) array_release(tok_lines)
+    array_release(tok_cols) array_release(tok_origin_files) array_release(tok_origin_lines)
+    tok_types = 0 tok_vals = 0 tok_lines = 0 tok_cols = 0 tok_origin_files = 0 tok_origin_lines = 0
+}
+
+task pb_verify_unloaded_exports() -> void {
+    pilot fact = 0
+    repeat until fact >= array_len(hangar_graph_fact_keys) or cli_project_source_error != "" {
+        pilot key = array_get(hangar_graph_fact_keys, fact)
+        if key.starts_with("exports.") {
+            pilot node = word_to_int(array_get(hangar_graph_fact_nodes, fact))
+            pilot spec = array_get(hangar_graph_fact_values, fact)
+            pilot split = pb_find(spec, "::")
+            pilot module = spec.substring(0, split)
+            pilot symbol = spec.substring(split + 2, spec.length() - split - 2)
+            pilot loaded = false pilot unit = 0
+            repeat until unit >= array_len(pb_units) {
+                if word_to_int(array_get(pb_units, unit)) == node and array_get(pb_modules, unit) == module { loaded = true }
+                unit += 1
+            }
+            if not loaded {
+                pilot cache_key = word_from_int(node) + "::" + module
+                pilot cached = false pilot record = 0
+                repeat until record >= array_len(pb_surface_keys) {
+                    if array_get(pb_surface_keys, record) == cache_key { cached = true }
+                    record += 1
+                }
+                pilot relative = hangar_graph_fact(node, "modules." + module)
+                pilot path = package_join_host(array_get(package_source_original_roots, node), relative)
+                if not cached {
+                pilot source = package_read_graph_source(node, relative)
+                if hangar_graph_error != "" { pb_fail(hangar_graph_error) give back }
+                array_push(pb_surface_keys, cache_key) array_push(pb_surface_names, "") array_push(pb_surface_supported, "0")
+                tok_types = array_new() tok_vals = array_new() tok_lines = array_new()
+                tok_cols = array_new() tok_origin_files = array_new() tok_origin_lines = array_new()
+                source_map_reset() source_map_register(path, source)
+                pilot previous_errors = error_count
+                tokenize(source)
+                if error_count > previous_errors { pb_fail(word_from_int(error_count - previous_errors) + " syntax error(s): lexically invalid exported source module: " + path) }
+                pilot i = 0 pilot depth = 0
+                repeat until i >= tokens_count - 1 {
+                    pilot val = pb_value(i) pilot kind = pb_kind(i)
+                    if depth == 0 and kind == TOK_KW {
+                        pilot name = "" pilot declaration_kind = "" pilot name_token = i + 1
+                        if val == "task" and pb_value(i - 1) != "extern" and pb_value(i + 2) == "(" { name = pb_value(i + 1) declaration_kind = STMT_TASK }
+                        if val == "shape" and pb_value(i + 2) == "{" { name = pb_value(i + 1) declaration_kind = STMT_SHAPE }
+                        if val == "fixed" and pb_value(i + 1) == "pilot" { name = pb_value(i + 2) declaration_kind = STMT_PILOT name_token = i + 2 }
+                        if name != "" {
+                            record = 0
+                            repeat until record >= array_len(pb_surface_keys) {
+                                if array_get(pb_surface_keys, record) == cache_key and array_get(pb_surface_names, record) == name {
+                                    pilot prior_kind = array_get(pb_surface_supported, record)
+                                    if (declaration_kind == STMT_SHAPE and prior_kind == STMT_SHAPE) or (declaration_kind != STMT_SHAPE and prior_kind != STMT_SHAPE) { pb_token_error(name_token, "duplicate module declaration '" + name + "'") }
+                                }
+                                record += 1
+                            }
+                            array_push(pb_surface_keys, cache_key) array_push(pb_surface_names, name) array_push(pb_surface_supported, declaration_kind)
+                        }
+                    }
+                    if kind == TOK_PUNCT and val == "{" { depth += 1 }
+                    if kind == TOK_PUNCT and val == "}" { depth -= 1 }
+                    i += 1
+                }
+                array_release(tok_types) array_release(tok_vals) array_release(tok_lines)
+                array_release(tok_cols) array_release(tok_origin_files) array_release(tok_origin_lines)
+                tok_types = 0 tok_vals = 0 tok_lines = 0 tok_cols = 0 tok_origin_files = 0 tok_origin_lines = 0
+                }
+                pilot found = false record = 0
+                repeat until record >= array_len(pb_surface_keys) {
+                    if array_get(pb_surface_keys, record) == cache_key and array_get(pb_surface_names, record) == symbol and array_get(pb_surface_supported, record) != "0" { found = true }
+                    record += 1
+                }
+                if not found {
+                    pilot message = "missing or unsupported manifest export '" + key.substring(8, key.length() - 8) + "'"
+                    pb_fail(message) diag_error_at(message, "export must name an ordinary task, fixed pilot, or shape", path, 1, 1)
+                }
+            }
+        }
+        fact += 1
+    }
+}
+
+task pb_visit(unit: int, depth: int) -> void {
+    if depth > 64 { pb_fail("source module import depth exceeds 64") give back }
+    pilot color = array_get(pb_colors, unit)
+    if color == "2" { give back }
+    if color == "1" { pb_fail("source module import cycle at " + array_get(pb_paths, unit)) give back }
+    array_set(pb_colors, unit, "1")
+    pilot i = 0
+    repeat until i >= array_len(pb_import_units) {
+        if word_to_int(array_get(pb_import_units, i)) == unit {
+            pilot target = word_to_int(array_get(pb_import_targets, i))
+            if target >= 0 { pb_visit(target, depth + 1) }
+            else if target == 0 - 2 {
+                pilot node = array_get(pb_import_nodes, i)
+                pilot j = 0
+                repeat until j >= array_len(pb_units) {
+                    if array_get(pb_units, j) == node { pb_visit(j, depth + 1) }
+                    j += 1
+                }
+            }
+        }
+        i += 1
+    }
+    array_set(pb_colors, unit, "2") array_push(pb_order, word_from_int(unit))
+}
+
+task cli_load_project_source(src: word, source: word, target: word) -> word {
+    pb_reset()
+    pilot node = 0 - 1 pilot module = "@entry" pilot relative = src
+    if hangar_graph_count > 0 {
+        node = 0
+        pilot original = array_get(package_source_original_roots, 0)
+        pilot resolved = fs::canonical_path(src)
+        if not fs::result_ok(resolved) { pb_fail("cannot resolve selected project source") fs::result_release(resolved) give back "" }
+        pilot canonical = fs::result_word(resolved) fs::result_release(resolved)
+        relative = ""
+        pilot entry = hangar_graph_fact(0, "project.entry")
+        if package_join_host(original, entry) == canonical { relative = entry }
+        pilot i = 0
+        repeat until i >= array_len(hangar_graph_fact_keys) {
+            if array_get(hangar_graph_fact_nodes, i) == "0" {
+                pilot key = array_get(hangar_graph_fact_keys, i)
+                pilot path = array_get(hangar_graph_fact_values, i)
+                if (key.starts_with("modules.") or key.starts_with("tests.")) and package_join_host(original, path) == canonical {
+                    relative = path
+                    if key.starts_with("modules.") { module = key.substring(8, key.length() - 8) }
+                    else { module = "@test/" + key.substring(6, key.length() - 6) }
+                }
+            }
+            i += 1
+        }
+        -- Native test discovery records admitted fallback files in the same
+        -- immutable input inventory even when the manifest has no [tests].
+        if relative == "" {
+            i = 0
+            repeat until i >= array_len(package_input_paths) {
+                pilot path = array_get(package_input_paths, i)
+                if array_get(package_input_nodes, i) == "0" and array_get(package_input_roles, i) == "test" and package_join_host(original, path) == canonical {
+                    relative = path module = "@test/" + path
+                }
+                i += 1
+            }
+        }
+        if relative == "" { pb_fail("selected source is not declared by project.entry, modules, or tests") give back "" }
+        source = package_read_graph_source(0, relative)
+        if hangar_graph_error != "" { pb_fail(hangar_graph_error) give back "" }
+        src = package_join_host(original, relative)
+    }
+    pb_entry_unit = pb_add_unit(node, module, relative, src, source)
+    pilot cursor = 0
+    repeat until cursor >= array_len(pb_units) or cli_project_source_error != "" {
+        pb_scan_source(cursor) cursor += 1
+    }
+    pb_verify_unloaded_exports()
+    if cli_project_source_error != "" { give back "" }
+    pb_visit(pb_entry_unit, 0)
+    if cli_project_source_error != "" { give back "" }
+    pilot merged = "" cursor = 0
+    repeat until cursor >= array_len(pb_order) {
+        merged = merged + array_get(pb_sources, word_to_int(array_get(pb_order, cursor))) + "\n"
+        cursor += 1
+    }
+    source_map_reset()
+    -- The legacy standard loader receives selectors produced by real import
+    -- tokens; strings and comments cannot request optional modules.
+    pilot bound_source = cli_load_std(pb_std_selectors, target)
+    cursor = 0
+    repeat until cursor >= array_len(pb_order) {
+        pilot unit = word_to_int(array_get(pb_order, cursor))
+        source_map_register(array_get(pb_paths, unit), array_get(pb_sources, unit))
+        bound_source = bound_source + array_get(pb_sources, unit) + "\n"
+        cursor += 1
+    }
+    source_line_offset = 0 diagnostic_source = bound_source
+    give back bound_source
+}
+
+task cli_project_bind_tokens() -> bool {
+    if not pb_active { give back true }
+    pilot keep = array_new() pilot i = 0
+    repeat until i >= tokens_count {
+        if pb_kind(i) == TOK_KW and pb_value(i) == "use" {
+            pilot unit = pb_path_unit(array_get(tok_origin_files, i))
+            if unit < 0 { pb_token_error(i, "imports in trusted standard payload are unsupported") break }
+            pb_parse_use(unit, i, false)
+            if cli_project_source_error != "" { break }
+            i = pb_scan_end
+        } else { array_push(keep, word_from_int(i)) i += 1 }
+    }
+    if cli_project_source_error == "" {
+        i = 0
+        repeat until i >= array_len(keep) {
+            pilot from = word_to_int(array_get(keep, i))
+            array_set(tok_types, i, pb_kind(from)) array_set(tok_vals, i, pb_value(from))
+            array_set(tok_lines, i, array_get(tok_lines, from)) array_set(tok_cols, i, array_get(tok_cols, from))
+            array_set(tok_origin_files, i, array_get(tok_origin_files, from)) array_set(tok_origin_lines, i, array_get(tok_origin_lines, from))
+            i += 1
+        }
+        tokens_count = array_len(keep)
+    }
+    array_release(keep)
+    -- Constructors may use an exported alias or a forward declared shape.
+    -- Only the recognition predicate is needed during parse; the exact nominal
+    -- field registry is rebuilt from bound declarations before type checking.
+    i = 0
+    repeat until i >= tokens_count - 1 {
+        if pb_kind(i) == TOK_KW and pb_value(i) == "shape" { register_shape(pb_value(i + 1), "") }
+        i += 1
+    }
+    i = 0
+    repeat until i >= array_len(pb_import_names) {
+        pilot target = word_to_int(array_get(pb_import_targets, i))
+        if target >= 0 or target == 0 - 1 {
+            pilot j = 0
+            repeat until j >= tokens_count - 1 {
+                if pb_value(j) == "shape" and pb_kind(j) == TOK_KW and pb_path_unit(array_get(tok_origin_files, j)) == target and pb_value(j + 1) == array_get(pb_import_symbols, i) {
+                    register_shape(array_get(pb_import_names, i), "")
+                }
+                j += 1
+            }
+        } else if target == 0 - 2 {
+            pilot node = word_to_int(array_get(pb_import_nodes, i))
+            pilot j = 0
+            repeat until j >= array_len(hangar_graph_fact_keys) {
+                pilot key = array_get(hangar_graph_fact_keys, j)
+                if word_to_int(array_get(hangar_graph_fact_nodes, j)) == node and key.starts_with("exports.") {
+                    pilot public = key.substring(8, key.length() - 8)
+                    pilot spec = pb_export(node, public) pilot split = pb_find(spec, "::")
+                    pilot symbol = spec.substring(split + 2, spec.length() - split - 2)
+                    pilot module = spec.substring(0, split)
+                    pilot t = 0
+                    repeat until t >= tokens_count - 1 {
+                        pilot owner = pb_path_unit(array_get(tok_origin_files, t))
+                        if owner >= 0 and word_to_int(array_get(pb_units, owner)) == node and array_get(pb_modules, owner) == module and pb_value(t) == "shape" and pb_kind(t) == TOK_KW and pb_value(t + 1) == symbol {
+                            register_shape(array_get(pb_import_names, i) + "::" + public, "")
+                        }
+                        t += 1
+                    }
+                }
+                j += 1
+            }
+        }
+        i += 1
+    }
+    give back cli_project_source_error == ""
+}
+
+-- V3 separately indexes globals and callables. Preserve that existing contract
+-- while keeping nominal types separate and tasks/externs in one callable set.
+task pb_kind_matches(actual: word, wanted: word) -> bool {
+    if wanted == STMT_TASK { give back actual == STMT_TASK or actual == STMT_EXTERN }
+    if wanted == STMT_EXTERN { give back actual == STMT_TASK or actual == STMT_EXTERN }
+    give back actual == wanted
+}
+
+task pb_decl(unit: int, name: word, kind: word) -> int {
+    pilot i = 0
+    repeat until i >= array_len(pb_decl_units) {
+        if word_to_int(array_get(pb_decl_units, i)) == unit and array_get(pb_decl_names, i) == name and pb_kind_matches(array_get(pb_decl_kinds, i), kind) { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task pb_fixed_callable_collision(unit: int, name: word, kind: word, stmt: int) -> bool {
+    if kind == STMT_PILOT and array_get(ast_pilot_is_mut, stmt) == "fixed" {
+        pilot callable = pb_decl(unit, name, STMT_TASK)
+        if callable < 0 { give back false }
+        give back not array_get(ast_stmt_extras, word_to_int(array_get(pb_decl_stmts, callable))).starts_with("impl:")
+    }
+    if (kind == STMT_TASK or kind == STMT_EXTERN) and not array_get(ast_stmt_extras, stmt).starts_with("impl:") {
+        pilot binding = pb_decl(unit, name, STMT_PILOT)
+        if binding >= 0 { give back array_get(ast_pilot_is_mut, word_to_int(array_get(pb_decl_stmts, binding))) == "fixed" }
+    }
+    give back false
+}
+
+task pb_origin_error(file: word, line: int, name: word, message: word) -> void {
+    pilot token = 0
+    pilot initial = name
+    pilot split = pb_find(name, "::")
+    if split >= 0 { initial = name.substring(0, split) }
+    repeat until token >= tokens_count {
+        if array_get(tok_origin_files, token) == file and word_to_int(array_get(tok_origin_lines, token)) == line and pb_value(token) == initial {
+            pb_token_error(token, message) give back
+        }
+        token += 1
+    }
+    pb_fail(message) diag_error_at(message, "", file, line, 1)
+}
+
+task pb_call_error(expr: int, name: word, message: word) -> void {
+    pilot file = array_get(ast_expr_files, expr)
+    pilot line = word_to_int(array_get(ast_expr_lines, expr))
+    pilot token = 0 pilot matches = 0 pilot column = 1
+    repeat until token + 1 >= tokens_count {
+        if array_get(tok_origin_files, token) == file and word_to_int(array_get(tok_origin_lines, token)) == line and pb_value(token) == name and pb_value(token + 1) == "(" and pb_value(token - 1) != "task" and pb_value(token - 1) != "extern" and pb_value(token - 1) != "." and pb_value(token - 1) != "::" {
+            matches += 1 column = word_to_int(array_get(tok_cols, token))
+        }
+        token += 1
+    }
+    -- V3 preserves AST expression origins by file and line. Only a unique
+    -- matching call token proves a column; ambiguous calls use that line.
+    if matches != 1 { column = 1 }
+    pb_fail(message) diag_error_at(message, "", file, line, column)
+}
+
+task pb_stmt_error(stmt: int, name: word, message: word) -> void {
+    pb_origin_error(array_get(ast_stmt_files, stmt), word_to_int(array_get(ast_stmt_lines, stmt)), name, message)
+}
+
+task pb_exportable(declaration: int) -> bool {
+    if declaration < 0 { give back false }
+    pilot kind = array_get(pb_decl_kinds, declaration)
+    if kind == STMT_TASK {
+        pilot stmt = word_to_int(array_get(pb_decl_stmts, declaration))
+        give back not array_get(ast_stmt_extras, stmt).starts_with("impl:")
+    }
+    if kind == STMT_SHAPE { give back true }
+    if kind != STMT_PILOT { give back false }
+    pilot stmt = word_to_int(array_get(pb_decl_stmts, declaration))
+    give back array_get(ast_pilot_is_mut, stmt) == "fixed"
+}
+
+task pb_import_supported_decl(unit: int, target: int, name: word, kind: word) -> int {
+    pilot declaration = pb_decl(target, name, kind)
+    if declaration < 0 { give back declaration }
+    if target >= 0 and word_to_int(array_get(pb_units, target)) != word_to_int(array_get(pb_units, unit)) and not pb_exportable(declaration) { give back 0 - 1 }
+    give back declaration
+}
+
+task pb_std_decl_origin(declaration: int, suffix: word) -> bool {
+    if declaration < 0 { give back true }
+    pilot origin = array_get(ast_stmt_files, word_to_int(array_get(pb_decl_stmts, declaration)))
+    give back origin.replace("\\", "/").ends_with(suffix)
+}
+
+task pb_import_decl(unit: int, name: word, kind: word) -> int {
+    pilot split = pb_find(name, "::")
+    pilot alias = name
+    pilot public = ""
+    if split >= 0 { alias = name.substring(0, split) public = name.substring(split + 2, name.length() - split - 2) }
+    pilot i = 0
+    repeat until i >= array_len(pb_import_units) {
+        if word_to_int(array_get(pb_import_units, i)) == unit and array_get(pb_import_names, i) == alias {
+            pilot target = word_to_int(array_get(pb_import_targets, i))
+            if target == 0 - 2 and public != "" {
+                pilot node = word_to_int(array_get(pb_import_nodes, i))
+                pilot spec = pb_export(node, public)
+                pilot separator = pb_find(spec, "::")
+                if separator <= 0 { give back 0 - 1 }
+                pilot module = spec.substring(0, separator)
+                pilot j = 0
+                repeat until j >= array_len(pb_units) {
+                    if word_to_int(array_get(pb_units, j)) == node and array_get(pb_modules, j) == module { give back pb_import_supported_decl(unit, j, spec.substring(separator + 2, spec.length() - separator - 2), kind) }
+                    j += 1
+                }
+            } else if target >= 0 and public == "" {
+                pilot declaration = pb_import_supported_decl(unit, target, array_get(pb_import_symbols, i), kind)
+                if declaration >= 0 { give back declaration }
+            } else if target == 0 - 1 and public == "" {
+                pilot declaration = pb_decl(0 - 1, array_get(pb_import_symbols, i), kind)
+                if declaration >= 0 { give back declaration }
+            }
+        }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task pb_is_local(name: word) -> bool {
+    pilot i = pb_local_count - 1
+    repeat until i < 0 { if array_get(pb_locals, i) == name { give back true } i -= 1 }
+    give back false
+}
+
+task pb_local(name: word) -> void {
+    if pb_local_count < array_len(pb_locals) { array_set(pb_locals, pb_local_count, name) }
+    else { array_push(pb_locals, name) }
+    pb_local_count += 1
+}
+
+task pb_resolve(unit: int, name: word, kind: word, local: bool) -> word {
+    if local and pb_is_local(name) { give back name }
+    pilot declaration = pb_decl(unit, name, kind)
+    if declaration < 0 { declaration = pb_import_decl(unit, name, kind) }
+    if declaration >= 0 { give back array_get(pb_decl_generated, declaration) }
+    pilot split = pb_find(name, "::")
+    if split > 0 {
+        pilot owner = name.substring(0, split)
+        pilot owner_decl = pb_decl(unit, owner, STMT_SHAPE)
+        if owner_decl < 0 { owner_decl = pb_import_decl(unit, owner, STMT_SHAPE) }
+        if owner_decl >= 0 and array_get(pb_decl_kinds, owner_decl) == STMT_SHAPE {
+            give back array_get(pb_decl_generated, owner_decl) + name.substring(split, name.length() - split)
+        }
+    }
+    give back name
+}
+
+-- Flattened declarations are compiler identities, not source-level imports.
+-- Check the original spelling against exact recorded identities only after
+-- normal source declaration/import resolution has failed in this context.
+task pb_missing_generated_access(unit: int, name: word, kind: word) -> bool {
+    if unit < 0 { give back false }
+    if pb_decl(unit, name, kind) >= 0 or pb_import_decl(unit, name, kind) >= 0 { give back false }
+    pilot owner = name
+    pilot split = pb_find(name, "::")
+    if split > 0 {
+        owner = name.substring(0, split)
+        if pb_decl(unit, owner, STMT_SHAPE) >= 0 or pb_import_decl(unit, owner, STMT_SHAPE) >= 0 { give back false }
+    }
+    pilot i = 0
+    repeat until i >= array_len(pb_decl_generated) {
+        if word_to_int(array_get(pb_decl_units, i)) >= 0 and (array_get(pb_decl_generated, i) == name or (split > 0 and array_get(pb_decl_kinds, i) == STMT_SHAPE and array_get(pb_decl_generated, i) == owner)) { give back true }
+        i += 1
+    }
+    give back false
+}
+
+task pb_type(unit: int, name: word) -> word {
+    if name.starts_with("List<") and name.ends_with(">") {
+        give back "List<" + pb_type(unit, name.substring(5, name.length() - 6)) + ">"
+    }
+    pilot declaration = pb_decl(unit, name, STMT_SHAPE)
+    if declaration < 0 { declaration = pb_import_decl(unit, name, STMT_SHAPE) }
+    if declaration >= 0 and array_get(pb_decl_kinds, declaration) == STMT_SHAPE { give back array_get(pb_decl_generated, declaration) }
+    give back name
+}
+
+task pb_type_at(unit: int, name: word, stmt: int) -> word {
+    if name.starts_with("List<") and name.ends_with(">") {
+        give back "List<" + pb_type_at(unit, name.substring(5, name.length() - 6), stmt) + ">"
+    }
+    if pb_missing_generated_access(unit, name, STMT_SHAPE) {
+        pb_stmt_error(stmt, name, "missing or unimported type '" + name + "'")
+    }
+    give back pb_type(unit, name)
+}
+
+task pb_typed_fields(unit: int, fields: word, stmt: int) -> word {
+    pilot bound_source = "" pilot i = 0
+    repeat until i >= tc_arg_count(fields) {
+        if i > 0 { bound_source = bound_source + "," }
+        bound_source = bound_source + tc_param_name_at(fields, i) + ":" + pb_type_at(unit, tc_param_type_at(fields, i), stmt)
+        i += 1
+    }
+    give back bound_source
+}
+
+task pb_bind_args(unit: int, args: word) -> void {
+    pilot i = 0
+    repeat until i >= tc_arg_count(args) { pb_bind_expr(unit, tc_arg_at(args, i)) i += 1 }
+}
+
+-- A known value declaration cannot be rebound accidentally to an ambient
+-- standard symbol when its requested value/call context is unavailable.
+-- Types and module aliases occupy separate namespaces. Ordinary root globals
+-- retain V3's demonstrated legacy contextual callable lookup.
+task pb_wrong_value_context(unit: int, name: word, kind: word) -> bool {
+    if pb_find(name, "::") >= 0 { give back false }
+    if pb_decl(unit, name, kind) >= 0 or pb_import_decl(unit, name, kind) >= 0 { give back false }
+    if kind == STMT_TASK {
+        pilot binding = pb_decl(unit, name, STMT_PILOT)
+        if binding >= 0 and array_get(ast_pilot_is_mut, word_to_int(array_get(pb_decl_stmts, binding))) == "fixed" { give back true }
+    } else {
+        pilot callable = pb_decl(unit, name, STMT_TASK)
+        if callable >= 0 and not array_get(ast_stmt_extras, word_to_int(array_get(pb_decl_stmts, callable))).starts_with("impl:") { give back true }
+    }
+    pilot i = 0
+    repeat until i >= array_len(pb_import_units) {
+        if word_to_int(array_get(pb_import_units, i)) == unit and array_get(pb_import_names, i) == name and array_get(pb_import_targets, i) != "-2" {
+            pilot target = word_to_int(array_get(pb_import_targets, i))
+            pilot symbol = array_get(pb_import_symbols, i)
+            if kind == STMT_TASK {
+                if pb_import_supported_decl(unit, target, symbol, STMT_PILOT) >= 0 { give back true }
+            } else if pb_import_supported_decl(unit, target, symbol, STMT_TASK) >= 0 { give back true }
+        }
+        i += 1
+    }
+    give back false
+}
+
+task pb_bind_expr(unit: int, expr: int) -> void {
+    if expr < 0 { give back }
+    pilot kind = array_get(ast_expr_kinds, expr)
+    pilot value = array_get(ast_expr_vals, expr)
+    pilot left = array_get(ast_expr_lefts, expr)
+    pilot right = array_get(ast_expr_rights, expr)
+    if kind == EXPR_IDENT or kind == EXPR_CALL {
+        pilot bound = value
+        if value.starts_with("shape::ctor::") {
+            pilot source_type = value.substring(13, value.length() - 13)
+            if pb_missing_generated_access(unit, source_type, STMT_SHAPE) {
+                pb_origin_error(array_get(ast_expr_files, expr), word_to_int(array_get(ast_expr_lines, expr)), source_type, "missing or unimported type '" + source_type + "'")
+            }
+            bound = "shape::ctor::" + pb_type(unit, source_type)
+        }
+        else if kind == EXPR_CALL and pb_is_local(value) {
+            pb_call_error(expr, value, "unknown callable '" + value + "': local value shadows this name")
+        } else {
+            pilot declaration_kind = STMT_TASK
+            if kind == EXPR_IDENT { declaration_kind = STMT_PILOT }
+            if not pb_is_local(value) and pb_missing_generated_access(unit, value, declaration_kind) {
+                pilot message = "missing or unimported declaration '" + value + "'"
+                if kind == EXPR_CALL { pb_call_error(expr, value, message) }
+                else { pb_origin_error(array_get(ast_expr_files, expr), word_to_int(array_get(ast_expr_lines, expr)), value, message) }
+            }
+            bound = pb_resolve(unit, value, declaration_kind, kind == EXPR_IDENT)
+        }
+        array_set(ast_expr_vals, expr, bound)
+        if unit >= 0 and bound == value and not pb_is_local(value) {
+            pilot declaration_kind = STMT_TASK
+            if kind == EXPR_IDENT { declaration_kind = STMT_PILOT }
+            if pb_wrong_value_context(unit, value, declaration_kind) {
+                pilot label = "callable"
+                if kind == EXPR_IDENT { label = "binding" }
+                pilot message = "unknown " + label + " '" + value + "': value declaration does not support this context"
+                if kind == EXPR_CALL { pb_call_error(expr, value, message) }
+                else { pb_origin_error(array_get(ast_expr_files, expr), word_to_int(array_get(ast_expr_lines, expr)), value, message) }
+            }
+            -- A raw qualified package reference may never fall through to a
+            -- flattened global or an unrelated dependency's callable.
+            pilot split = pb_find(value, "::")
+            if split >= 0 and not value.starts_with("shape::ctor::") {
+                pilot owner = value.substring(0, split)
+                pilot trusted_shape = pb_decl(0 - 1, owner, STMT_SHAPE)
+                pilot shape_owner = trusted_shape >= 0 and array_get(pb_decl_kinds, trusted_shape) == STMT_SHAPE
+                if pb_namespace_declared(unit, owner) or (not tc_reserved_builtin_call(value) and owner != "List" and not shape_owner) {
+                    pilot label = "callable"
+                    if kind == EXPR_IDENT { label = "binding" }
+                    pb_origin_error(array_get(ast_expr_files, expr), word_to_int(array_get(ast_expr_lines, expr)), value, "unknown " + label + " '" + value + "': missing or unimported public export")
+                }
+            }
+        }
+        if kind == EXPR_CALL { pb_bind_args(unit, left) }
+    } else if kind == EXPR_METHOD { pb_bind_expr(unit, word_to_int(left)) pb_bind_args(unit, right) }
+    else if kind == EXPR_FIELD or kind == EXPR_UNARYOP { pb_bind_expr(unit, word_to_int(left)) }
+    else if kind == EXPR_BINOP or kind == EXPR_INDEX { pb_bind_expr(unit, word_to_int(left)) pb_bind_expr(unit, word_to_int(right)) }
+    else if kind == EXPR_ARRAY_LIT or kind == EXPR_INTERP { pb_bind_args(unit, left) }
+}
+
+task pb_namespace_declared(unit: int, alias: word) -> bool {
+    pilot i = 0
+    repeat until i >= array_len(pb_import_units) {
+        if word_to_int(array_get(pb_import_units, i)) == unit and array_get(pb_import_names, i) == alias and array_get(pb_import_targets, i) == "-2" { give back true }
+        i += 1
+    }
+    give back false
+}
+
+task pb_bind_block(unit: int, body: word) -> void {
+    pilot saved = pb_local_count
+    pilot i = 0
+    repeat until i >= tc_arg_count(body) { pb_bind_stmt(unit, tc_arg_at(body, i), false) i += 1 }
+    pb_local_count = saved
+}
+
+task pb_bind_stmt(unit: int, stmt: int, top: bool) -> void {
+    if stmt < 0 { give back }
+    pilot kind = array_get(ast_stmt_kinds, stmt)
+    pilot name = array_get(ast_stmt_names, stmt)
+    pilot expr = array_get(ast_stmt_exprs, stmt)
+    pilot body = array_get(ast_stmt_bodies, stmt)
+    pilot otherwise = array_get(ast_stmt_else_bodies, stmt)
+    pilot extra = array_get(ast_stmt_extras, stmt)
+    pilot saved = pb_local_count
+    if kind == STMT_TASK or kind == STMT_EXTERN {
+        pilot params = array_get(ast_task_params, stmt)
+        array_set(ast_task_params, stmt, pb_typed_fields(unit, params, stmt))
+        array_set(ast_task_returns, stmt, pb_type_at(unit, array_get(ast_task_returns, stmt), stmt))
+        if kind == STMT_TASK {
+            pilot i = 0
+            repeat until i >= tc_arg_count(params) { pb_local(tc_param_name_at(params, i)) i += 1 }
+            pb_bind_block(unit, body) pb_local_count = saved
+        }
+    } else if kind == STMT_PILOT {
+        pb_bind_expr(unit, word_to_int(expr))
+        array_set(ast_stmt_extras, stmt, pb_type_at(unit, extra, stmt))
+        if not top { pb_local(name) }
+    } else if kind == STMT_SHAPE { array_set(ast_stmt_extras, stmt, pb_typed_fields(unit, extra, stmt)) }
+    else if kind == STMT_IMPL {
+        array_set(ast_stmt_names, stmt, pb_type_at(unit, name, stmt))
+        array_set(ast_stmt_extras, stmt, pb_type_at(unit, extra, stmt))
+    } else if kind == STMT_FOR {
+        pb_bind_stmt(unit, word_to_int(otherwise), false)
+        pb_bind_expr(unit, word_to_int(expr))
+        pb_bind_stmt(unit, word_to_int(extra), false)
+        pb_bind_block(unit, body) pb_local_count = saved
+    } else if kind == STMT_CHECK_RESULT {
+        pb_bind_expr(unit, word_to_int(expr))
+        pb_local(array_get(ast_task_params, stmt)) pb_bind_block(unit, body) pb_local_count = saved
+        pb_local(array_get(ast_task_returns, stmt)) pb_bind_block(unit, otherwise) pb_local_count = saved
+    } else if kind == STMT_WHEN {
+        pb_bind_expr(unit, word_to_int(expr))
+        pilot i = 0
+        repeat until i >= tc_arg_count(body) {
+            pilot item = tc_list_item(body, i) pilot split = pb_find(item, ":")
+            pb_bind_expr(unit, word_to_int(item.substring(0, split)))
+            pb_bind_stmt(unit, word_to_int(item.substring(split + 1, item.length() - split - 1)), false)
+            pb_local_count = saved i += 1
+        }
+    } else {
+        if expr != "" { pb_bind_expr(unit, word_to_int(expr)) }
+        if kind == STMT_ASSIGN { pb_bind_expr(unit, word_to_int(body)) }
+        else if kind == STMT_RANGE {
+            pb_bind_expr(unit, word_to_int(otherwise)) pb_bind_expr(unit, word_to_int(extra))
+            pb_local(name) pb_bind_block(unit, body) pb_local_count = saved
+        } else if kind == STMT_FOREACH { pb_local(name) pb_bind_block(unit, body) pb_local_count = saved }
+        else if kind == STMT_REPEAT {
+            pilot binder = extra
+            if binder != "" { pb_local(binder) }
+            pb_bind_block(unit, body) pb_local_count = saved
+        } else if kind == STMT_TRAINING_ARC { pb_bind_expr(unit, word_to_int(extra)) pb_bind_block(unit, body) }
+        else if kind == STMT_IF { pb_bind_block(unit, body) pb_bind_block(unit, otherwise) }
+        else if kind == STMT_BLOCK or kind == STMT_EVENTUALLY { pb_bind_block(unit, body) }
+    }
+}
+
+task cli_project_bind_ast() -> bool {
+    if not pb_active { give back true }
+    pilot i = 0
+    repeat until i >= array_len(ast_top_stmts) {
+        pilot stmt = word_to_int(array_get(ast_top_stmts, i))
+        pilot unit = pb_path_unit(array_get(ast_stmt_files, stmt))
+        pilot kind = array_get(ast_stmt_kinds, stmt)
+        pilot name = array_get(ast_stmt_names, stmt)
+        if unit >= 0 and kind == STMT_SHAPE {
+            if tc_is_scalar(name) or name == "void" or name == "CheckedReadResult" { pb_stmt_error(stmt, name, "shape name '" + name + "' conflicts with a built-in type") }
+            if tc_reserved_builtin_namespace_owner(name) { pb_stmt_error(stmt, name, "shape name '" + name + "' conflicts with a compiler builtin namespace") }
+        }
+        if unit >= 0 and (kind == STMT_TASK or kind == STMT_EXTERN) {
+            if tc_reserved_builtin_call(name) or (kind == STMT_EXTERN and name == "freak_internal_delete_file_checked") { pb_stmt_error(stmt, name, "callable '" + name + "' conflicts with a compiler builtin") }
+            if kind == STMT_TASK and tc_internal_runtime_task_name(name) and not tc_internal_runtime_source(array_get(ast_stmt_files, stmt)) { pb_stmt_error(stmt, name, "callable '" + name + "' conflicts with a compiler builtin") }
+        }
+        if kind == STMT_TASK or kind == STMT_PILOT or kind == STMT_SHAPE or kind == STMT_EXTERN {
+            if unit >= 0 and word_to_int(array_get(pb_units, unit)) >= 0 and kind == STMT_EXTERN { pb_stmt_error(stmt, name, "extern declarations are unsupported in package modules") }
+            pilot duplicate = pb_decl(unit, name, kind) >= 0
+            if duplicate or pb_fixed_callable_collision(unit, name, kind, stmt) {
+                pilot message = "duplicate module declaration '" + name + "'"
+                if duplicate and unit >= 0 and word_to_int(array_get(pb_units, unit)) < 0 {
+                    if kind == STMT_PILOT { message = "duplicate top-level binding '" + name + "'" }
+                    if kind == STMT_TASK or kind == STMT_EXTERN { message = "callable '" + name + "' conflicts with another task or extern declaration" }
+                    if kind == STMT_SHAPE { message = "duplicate shape declaration '" + name + "'" }
+                }
+                pb_stmt_error(stmt, name, message)
+            }
+            pilot generated = name
+            if unit >= 0 {
+                generated = array_get(pb_prefixes, unit) + name
+                if kind == STMT_EXTERN { generated = name }
+                if unit == pb_entry_unit and name == "main" and kind == STMT_TASK { generated = "main" }
+                if array_get(ast_stmt_extras, stmt).starts_with("impl:") {
+                    pilot owner = array_get(ast_stmt_extras, stmt).substring(5, array_get(ast_stmt_extras, stmt).length() - 5)
+                    generated = pb_type(unit, owner) + name.substring(owner.length(), name.length() - owner.length())
+                }
+            }
+            array_push(pb_decl_units, word_from_int(unit)) array_push(pb_decl_names, name)
+            array_push(pb_decl_kinds, kind) array_push(pb_decl_generated, generated) array_push(pb_decl_stmts, word_from_int(stmt))
+            tc_diag_label_add(generated, name)
+        }
+        i += 1
+    }
+    -- Resolve selected import namespaces only after all declaration headers exist.
+    -- A selected name may carry both a type and a value; a non-exportable
+    -- sibling cannot widen a dependency's public surface.
+    i = 0
+    repeat until i >= array_len(pb_import_units) {
+        pilot unit = word_to_int(array_get(pb_import_units, i))
+        pilot target = word_to_int(array_get(pb_import_targets, i))
+        if target != 0 - 2 {
+            pilot symbol = array_get(pb_import_symbols, i)
+            pilot local = array_get(pb_import_names, i)
+            pilot type_decl = pb_import_supported_decl(unit, target, symbol, STMT_SHAPE)
+            pilot pilot_decl = pb_import_supported_decl(unit, target, symbol, STMT_PILOT)
+            pilot call_decl = pb_import_supported_decl(unit, target, symbol, STMT_TASK)
+            if type_decl < 0 and pilot_decl < 0 and call_decl < 0 {
+                pb_import_error(i, "missing or unsupported exported declaration '" + local + "'")
+            }
+            if target == 0 - 1 {
+                pilot expected = "/" + array_get(pb_import_modules, i) + ".fk"
+                if array_get(pb_import_modules, i) == "ui" { expected = "/ui/window.fk" }
+                if not pb_std_decl_origin(type_decl, expected) or not pb_std_decl_origin(pilot_decl, expected) or not pb_std_decl_origin(call_decl, expected) {
+                    pb_import_error(i, "symbol '" + local + "' is not declared by the selected standard module")
+                }
+            }
+            if (type_decl >= 0 and pb_decl(unit, local, STMT_SHAPE) >= 0) or ((pilot_decl >= 0 or call_decl >= 0) and (pb_decl(unit, local, STMT_PILOT) >= 0 or pb_decl(unit, local, STMT_TASK) >= 0)) {
+                pb_import_error(i, "import alias conflicts with module declaration '" + local + "'")
+            }
+            pilot prior = 0
+            repeat until prior >= i {
+                if array_get(pb_import_units, prior) == word_from_int(unit) and array_get(pb_import_names, prior) == local and array_get(pb_import_targets, prior) != "-2" {
+                    pilot prior_target = word_to_int(array_get(pb_import_targets, prior))
+                    pilot prior_symbol = array_get(pb_import_symbols, prior)
+                    pilot prior_type = pb_import_supported_decl(unit, prior_target, prior_symbol, STMT_SHAPE)
+                    pilot prior_pilot = pb_import_supported_decl(unit, prior_target, prior_symbol, STMT_PILOT)
+                    pilot prior_call = pb_import_supported_decl(unit, prior_target, prior_symbol, STMT_TASK)
+                    if (type_decl >= 0 and prior_type >= 0) or ((pilot_decl >= 0 or call_decl >= 0) and (prior_pilot >= 0 or prior_call >= 0)) {
+                        pb_import_error(i, "duplicate import alias '" + local + "'")
+                    }
+                }
+                prior += 1
+            }
+        }
+        i += 1
+    }
+    -- Validate every manifest export whose module belongs to this source closure.
+    i = 0
+    repeat until i >= array_len(hangar_graph_fact_keys) {
+        pilot key = array_get(hangar_graph_fact_keys, i)
+        if key.starts_with("exports.") {
+            pilot node = word_to_int(array_get(hangar_graph_fact_nodes, i))
+            pilot spec = array_get(hangar_graph_fact_values, i) pilot split = pb_find(spec, "::")
+            pilot module = spec.substring(0, split) pilot symbol = spec.substring(split + 2, spec.length() - split - 2)
+            pilot j = 0
+            repeat until j >= array_len(pb_units) {
+                if word_to_int(array_get(pb_units, j)) == node and array_get(pb_modules, j) == module {
+                    if not pb_exportable(pb_decl(j, symbol, STMT_SHAPE)) and not pb_exportable(pb_decl(j, symbol, STMT_PILOT)) and not pb_exportable(pb_decl(j, symbol, STMT_TASK)) { pb_origin_error(array_get(pb_paths, j), 1, symbol, "missing or unsupported manifest export '" + key.substring(8, key.length() - 8) + "'") }
+                }
+                j += 1
+            }
+        }
+        i += 1
+    }
+    i = 0
+    repeat until i >= array_len(pb_decl_stmts) {
+        pilot stmt = word_to_int(array_get(pb_decl_stmts, i))
+        array_set(ast_stmt_names, stmt, array_get(pb_decl_generated, i))
+        pilot extra = array_get(ast_stmt_extras, stmt)
+        if extra.starts_with("impl:") { array_set(ast_stmt_extras, stmt, "impl:" + pb_type(word_to_int(array_get(pb_decl_units, i)), extra.substring(5, extra.length() - 5))) }
+        i += 1
+    }
+    i = 0
+    repeat until i >= array_len(ast_top_stmts) {
+        pilot stmt = word_to_int(array_get(ast_top_stmts, i))
+        pb_local_count = 0
+        pb_bind_stmt(pb_path_unit(array_get(ast_stmt_files, stmt)), stmt, true)
+        i += 1
+    }
+    array_release(shape_registry_names) array_release(shape_registry_fields)
+    shape_registry_names = array_new() shape_registry_fields = array_new() shape_registry_count = 0
+    i = 0
+    repeat until i >= array_len(ast_top_stmts) {
+        pilot stmt = word_to_int(array_get(ast_top_stmts, i))
+        if array_get(ast_stmt_kinds, stmt) == STMT_SHAPE { register_shape(array_get(ast_stmt_names, stmt), array_get(ast_stmt_extras, stmt)) }
+        i += 1
+    }
+    give back cli_project_source_error == ""
+}

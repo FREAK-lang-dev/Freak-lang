@@ -10,12 +10,12 @@
 task array_sort_int(handle: int) -> void {
     pilot alen = array_len(handle)
     if alen <= 1 { give back }
-    pilot si = 1
+    pilot mut si = 1
     repeat until si >= alen {
         pilot key_w: word = array_get(handle, si)
         pilot key = word_to_int(key_w)
-        pilot sj = si - 1
-        pilot sorted = false
+        pilot mut sj = si - 1
+        pilot mut sorted = false
         repeat until sj < 0 or sorted {
             pilot cw: word = array_get(handle, sj)
             pilot cv = word_to_int(cw)
@@ -35,14 +35,14 @@ task array_sort_int(handle: int) -> void {
 task array_sort_word(handle: int) -> void {
     pilot alen = array_len(handle)
     if alen <= 1 { give back }
-    pilot si = 1
+    pilot mut si = 1
     repeat until si >= alen {
         pilot key_w: word = array_get(handle, si)
-        pilot sj = si - 1
-        pilot sorted = false
+        pilot mut sj = si - 1
+        pilot mut sorted = false
         repeat until sj < 0 or sorted {
             pilot cw: word = array_get(handle, sj)
-            if freak_word_compare(cw, key_w) > 0 {
+            if freak_word_compare(cw + "", key_w + "") > 0 {
                 array_set(handle, sj + 1, cw)
                 sj -= 1
             } else {
@@ -60,8 +60,8 @@ extern task freak_word_compare(a: word, b: word) -> int
 
 -- Binary search on a sorted integer array. Returns index or -1.
 task array_binary_search_int(handle: int, target: int) -> int {
-    pilot lo = 0
-    pilot hi = array_len(handle) - 1
+    pilot mut lo = 0
+    pilot mut hi = array_len(handle) - 1
     repeat until lo > hi {
         pilot range = hi - lo
         pilot half = range / 2
@@ -81,7 +81,7 @@ task array_binary_search_int(handle: int, target: int) -> int {
 -- Linear search in an array. Returns index or -1.
 task array_find(handle: int, target: word) -> int {
     pilot alen = array_len(handle)
-    pilot fi = 0
+    pilot mut fi = 0
     repeat alen times {
         pilot fw: word = array_get(handle, fi)
         if fw == target { give back fi }
@@ -99,8 +99,8 @@ task array_contains(handle: int, target: word) -> bool {
 task array_reverse(handle: int) -> void {
     pilot alen = array_len(handle)
     if alen <= 1 { give back }
-    pilot lo = 0
-    pilot hi = alen - 1
+    pilot mut lo = 0
+    pilot mut hi = alen - 1
     repeat until lo >= hi {
         pilot tmp: word = array_get(handle, lo)
         pilot hw: word = array_get(handle, hi)
@@ -115,7 +115,7 @@ task array_reverse(handle: int) -> void {
 task array_copy(handle: int) -> int {
     pilot new_arr = array_new()
     pilot alen = array_len(handle)
-    pilot ci = 0
+    pilot mut ci = 0
     repeat alen times {
         pilot cw: word = array_get(handle, ci)
         array_push(new_arr, cw)
@@ -128,8 +128,8 @@ task array_copy(handle: int) -> int {
 task array_join(handle: int, sep: word) -> word {
     pilot alen = array_len(handle)
     if alen == 0 { give back "" }
-    pilot aj_out: word = array_get(handle, 0)
-    pilot ji = 1
+    pilot mut aj_out: word = array_get(handle, 0)
+    pilot mut ji = 1
     repeat until ji >= alen {
         pilot jw: word = array_get(handle, ji)
         aj_out = aj_out + sep + jw
@@ -141,8 +141,8 @@ task array_join(handle: int, sep: word) -> word {
 -- Count occurrences of a value in an array.
 task array_count(handle: int, target: word) -> int {
     pilot alen = array_len(handle)
-    pilot cnt = 0
-    pilot ci = 0
+    pilot mut cnt = 0
+    pilot mut ci = 0
     repeat alen times {
         pilot cw: word = array_get(handle, ci)
         if cw == target { cnt += 1 }
@@ -155,8 +155,8 @@ task array_count(handle: int, target: word) -> int {
 task array_unique(handle: int) -> int {
     pilot alen = array_len(handle)
     if alen <= 1 { give back alen }
-    pilot write_idx = 1
-    pilot ri = 1
+    pilot mut write_idx = 1
+    pilot mut ri = 1
     repeat until ri >= alen {
         pilot cur: word = array_get(handle, ri)
         pilot prev: word = array_get(handle, ri - 1)
@@ -172,8 +172,8 @@ task array_unique(handle: int) -> int {
 -- Sum all integer values in an array.
 task array_sum_int(handle: int) -> int {
     pilot alen = array_len(handle)
-    pilot total = 0
-    pilot si = 0
+    pilot mut total = 0
+    pilot mut si = 0
     repeat alen times {
         pilot sw: word = array_get(handle, si)
         total += word_to_int(sw)
@@ -187,8 +187,8 @@ task array_max_int(handle: int) -> int {
     pilot alen = array_len(handle)
     if alen == 0 { give back 0 }
     pilot mw: word = array_get(handle, 0)
-    pilot mx = word_to_int(mw)
-    pilot mi = 1
+    pilot mut mx = word_to_int(mw)
+    pilot mut mi = 1
     repeat until mi >= alen {
         pilot cw: word = array_get(handle, mi)
         pilot cv = word_to_int(cw)
@@ -203,8 +203,8 @@ task array_min_int(handle: int) -> int {
     pilot alen = array_len(handle)
     if alen == 0 { give back 0 }
     pilot mw: word = array_get(handle, 0)
-    pilot mn = word_to_int(mw)
-    pilot mi = 1
+    pilot mut mn = word_to_int(mw)
+    pilot mut mi = 1
     repeat until mi >= alen {
         pilot cw: word = array_get(handle, mi)
         pilot cv = word_to_int(cw)

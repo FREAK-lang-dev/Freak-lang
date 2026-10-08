@@ -14,12 +14,14 @@ task is_even(n: int) -> bool {
     give back n % 2 == 0
 }
 
-greet("Takeru")
-say word_from_int(add(3, 4))
-say word_from_int(multiply(6, 7))
-if is_even(8) {
-    say "even"
-}
-if not is_even(9) {
-    say "odd"
+task main() {
+    greet("Takeru")
+    say word_from_int(add(3, 4))
+    say word_from_int(multiply(6, 7))
+    if is_even(8) {
+        say "even"
+    }
+    if not is_even(9) {
+        say "odd"
+    }
 }

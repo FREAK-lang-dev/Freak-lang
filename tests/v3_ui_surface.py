@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import subprocess
@@ -64,6 +65,82 @@ def output(result: subprocess.CompletedProcess[str]) -> str:
         str: The concatenated standard output and standard error.
     """
     return result.stdout + result.stderr
+
+
+def generated_canvas_body(generated: str, method: str) -> str:
+    """Select the exact standalone Canvas method, not injected std functions."""
+    digest = hashlib.sha256(b"standalone\n@entry").hexdigest()
+    symbol = "__freak_user_pkg_" + digest + "_Canvas_" + method
+    ignored = r"""/\*[\s\S]*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'"""
+    masked = re.sub(
+        ignored,
+        lambda match: re.sub(r"[^\n]", " ", match.group()),
+        generated,
+    )
+    definitions = list(re.finditer(
+        r"^void " + re.escape(symbol) + r"\([^\n]*\) \{", masked, re.MULTILINE
+    ))
+    assert len(definitions) == 1, f"expected one C definition of {symbol}"
+    start = definitions[0].end()
+    depth = 1
+    for index in range(start, len(masked)):
+        depth += (masked[index] == "{") - (masked[index] == "}")
+        if depth == 0:
+            return masked[start:index]
+    raise AssertionError(f"unterminated C definition of {symbol}")
+
+
+def c_call_arguments(body: str, symbol: str) -> list[str]:
+    """Split one exact call while retaining nested C statement expressions."""
+    calls = list(re.finditer(r"\b" + re.escape(symbol) + r"\(", body))
+    assert len(calls) == 1, f"expected one call to {symbol}"
+    start = calls[0].end()
+    stack = ["("]
+    arguments = []
+    for index in range(start, len(body)):
+        char = body[index]
+        if char in "([{":
+            stack.append(char)
+        elif char in ")]}":
+            assert stack[-1] == {")": "(", "]": "[", "}": "{"}[char]
+            stack.pop()
+            if not stack:
+                arguments.append(body[start:index].strip())
+                return arguments
+        elif char == "," and len(stack) == 1:
+            arguments.append(body[start:index].strip())
+            start = index + 1
+    raise AssertionError(f"unterminated call to {symbol}")
+
+
+def assert_checked_ui_conversions(generated: str) -> None:
+    """Check each Rect/Vec2 conversion at its source-selected UI argument."""
+    # std/ui/window.fk: Rect x/y/w/h, circle center x/y, line from/to x/y.
+    methods = {
+        "fill_rect": (9, ((1, 0), (1, 1), (1, 2), (1, 3))),
+        "stroke_rect": (10, ((1, 0), (1, 1), (1, 2), (1, 3))),
+        "fill_circle": (8, ((1, 0), (1, 1))),
+        "draw_line": (10, ((1, 0), (1, 1), (2, 0), (2, 1))),
+    }
+    for method, (arity, fields) in methods.items():
+        body = generated_canvas_body(generated, method)
+        assert body.count("freak_num_to_int_checked(") == len(fields), method
+        arguments = c_call_arguments(body, "freak_ui_" + method)
+        assert len(arguments) == arity, (method, arguments)
+        for argument, (receiver, field) in zip(arguments[1:], fields):
+            assert argument.startswith("freak_num_to_int_checked("), (method, argument)
+            assert argument.endswith(")"), (method, argument)
+            assert argument.count("freak_num_to_int_checked(") == 1, (method, argument)
+            assert argument.count(
+                f"freak_v3_shape_retain(__freak_param_guard_{receiver})"
+            ) == 1, (method, argument)
+            assert argument.count(f"int64_t __freak_index = {field};") == 1, (
+                method, argument
+            )
+            assert argument.count(
+                "double __freak_value = freak_v3_bits_num("
+                "freak_v3_shape_get(__freak_recv, __freak_index));"
+            ) == 1, (method, argument)
 
 
 def main() -> int:
@@ -135,7 +212,7 @@ def main() -> int:
             generated_by_backend[backend] = generated_path.read_text(encoding="utf-8")
 
         generated_c = generated_by_backend["c"]
-        assert generated_c.count("((int64_t)(") >= 10
+        assert_checked_ui_conversions(generated_c)
         for call in ("fill_rect", "stroke_rect", "fill_circle", "draw_line"):
             assert f"freak_ui_{call}" in generated_c
 

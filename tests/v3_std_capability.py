@@ -123,7 +123,7 @@ def main() -> int:
     clang = os.environ.get("FREAK_CLANG") or shutil.which("clang")
     assert clang, "Clang is required"
     with tempfile.TemporaryDirectory(prefix="freak-v3-std-capability-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve(strict=True)
         freak = args.freak.resolve() if args.freak else foundation.build_fresh_cli(
             clang=clang, repo=repo, root=root, runtime_root=runtime)
         payload_name = "selected %FREAK_STD_DECOY% & quote ' payload"
@@ -135,6 +135,7 @@ def main() -> int:
         payload = root / payload_name
         shutil.copytree(runtime, payload / "runtime")
         shutil.copytree(repo / "std", payload / "std")
+        shutil.copytree(repo / "templates/v35", payload / "templates/v35")
         marker = payload / "std/freak_std_api"
         expected = marker.read_bytes()
         expected_text = expected.decode("utf-8").strip()
@@ -161,8 +162,8 @@ def main() -> int:
         for backend in ("--c", "--llvm"):
             warm = root / f"warm{backend}.fk"
             cold = root / f"cold{backend}.fk"
-            warm.write_text('say "STD_API_EXECUTED"\n', encoding="utf-8")
-            cold.write_text('say "STD_API_COLD_EXECUTED"\n', encoding="utf-8")
+            warm.write_text('task main() { say "STD_API_EXECUTED" }\n', encoding="utf-8")
+            cold.write_text('task main() { say "STD_API_COLD_EXECUTED" }\n', encoding="utf-8")
             binary = warm.with_suffix(".exe" if sys.platform == "win32" else "")
             proof = Path(str(binary) + ".freak-run-cache")
             for attempt in range(2):

@@ -1,0 +1,49 @@
+-- One output contract for the bootstrap probe and installed native preview.
+-- A zero tool exit is insufficient: diagnostics and the module frame must agree.
+extern task freak_process_platform_is_windows() -> bool
+
+pilot mut preview_protocol_error = ""
+
+task preview_protocol_fail(message: word) -> bool {
+    if preview_protocol_error == "" { preview_protocol_error = message }
+    give back false
+}
+
+task preview_protocol_line(text: word, start: int) -> word {
+    pilot mut index = start
+    repeat until index >= text.length() or text.char_at(index) == "\n" { index += 1 }
+    give back text.substring(start, index - start)
+}
+
+task preview_protocol_module(output: word) -> word {
+    preview_protocol_error = ""
+    pilot mut index = 0
+    pilot mut module_start = -1
+    pilot mut markers = 0
+    pilot mut success_frames = 0
+    pilot mut rejected = false
+    repeat until index >= output.length() {
+        pilot mut line = preview_protocol_line(output, index)
+        index += line.length() + 1
+        -- Accept the native CRT's line delimiter while preserving module bytes
+        -- and calculating offsets from the original captured line length.
+        if line.ends_with("\r") { line = line.substring(0, line.length() - 1) }
+        if line == "@@V4-MODULE" { if success_frames != 1 { rejected = true }
+            markers += 1
+            module_start = index }
+        if line == "v4-errors=0" { success_frames += 1
+            if markers != 0 { rejected = true } }
+        if line.starts_with("v4-errors=") and line != "v4-errors=0" { rejected = true }
+        if line.starts_with("v4-aborted-after=") or line.starts_with("v4-source-read-error=") or line.starts_with("v4-native-contract-error=") or line == "v4-module-rejected" { rejected = true }
+    }
+    if rejected or success_frames != 1 or markers != 1 or module_start < 0 or module_start >= output.length() {
+        preview_protocol_fail("V4 compiler did not produce one successful LLVM module")
+        give back ""
+    }
+    pilot module = output.substring(module_start, output.length() - module_start)
+    if not module.starts_with("target triple = \"") or not module.contains("define i32 @main(i32 %argc, ptr %argv)") {
+        preview_protocol_fail("V4 compiler module is missing its native target/main contract")
+        give back ""
+    }
+    give back module
+}

@@ -1,3 +1,17 @@
+#ifdef _WIN32
+/* FileIdInfo preserves the full 128-bit held-file identity. LLVM-MinGW's
+   default targets Windows 7, which hides that Windows 8 SDK interface. */
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
+#elif _WIN32_WINNT < 0x0602
+#error "FREAK checked filesystem requires _WIN32_WINNT >= 0x0602 (Windows 8)"
+#endif
+#endif
+#ifdef __APPLE__
+/* Checked directory walks require Darwin's real no-follow and BSD locking
+   interfaces even when the shared runtime also requests POSIX declarations. */
+#define _DARWIN_C_SOURCE 1
+#endif
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
 #endif
@@ -12,6 +26,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <time.h>
+#include <wchar.h>
 #include <math.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -21,6 +36,7 @@
 #include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
 #include <windows.h>
+#include <corecrt_startup.h>
 #include <io.h>
 #include <direct.h>
 #else
@@ -28,7 +44,12 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <poll.h>
+#include <signal.h>
 #define _strdup strdup
+#endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
 #endif
 
 static int64_t freak_normalize_process_status(int status) {
@@ -46,15 +67,172 @@ static int64_t freak_normalize_process_status(int status) {
 int freak_argc = 0;
 char** freak_argv = NULL;
 
+#ifdef _WIN32
+/* Generated C seeds still assign the narrow CRT argv directly. Decode the
+   UCRT's own wide argument vector at first access, preserving its quote and
+   wildcard rules. CRT-like borrowed views remain valid through exit callbacks;
+   the bounded, reachable snapshot is reclaimed by the OS at process teardown. */
+static INIT_ONCE freak_args_windows_once = INIT_ONCE_STATIC_INIT;
+static char **freak_args_windows_snapshot = NULL;
+static int freak_args_windows_count = 0;
+
+static void freak_args_windows_free(char **arguments, int count) {
+    if (!arguments) return;
+    for (int i = 0; i < count; ++i) free(arguments[i]);
+    free(arguments);
+}
+
+static _Noreturn void freak_args_windows_fail(char **staged, int count,
+                                             const char *reason) {
+    freak_args_windows_free(staged, count);
+    fprintf(stderr, "FREAK: %s\n", reason);
+    fflush(stderr);
+    /* This initializer has not published a usable argument snapshot. User
+       exit callbacks could reenter INIT_ONCE and wait on this same thread. */
+    _Exit(1);
+}
+
+static BOOL CALLBACK freak_args_windows_initialize(PINIT_ONCE once, PVOID parameter,
+                                                   PVOID *context) {
+    (void)once; (void)parameter; (void)context;
+    if (_configure_wide_argv(_crt_argv_unexpanded_arguments) != 0)
+        freak_args_windows_fail(NULL, 0, "could not decode Unicode argument vector");
+    int count = __argc;
+    wchar_t **wide = __wargv;
+    if (count < 1 || !wide || (size_t)count > SIZE_MAX / sizeof(char *) - 1)
+        freak_args_windows_fail(NULL, 0, "invalid Unicode argument vector");
+    char **staged = calloc((size_t)count + 1, sizeof(char *));
+    if (!staged) freak_args_windows_fail(NULL, 0, "out of memory decoding arguments");
+    for (int i = 0; i < count; ++i) {
+        int length = wide[i] ? WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+            wide[i], -1, NULL, 0, NULL, NULL) : 0;
+        if (length < 1)
+            freak_args_windows_fail(staged, count, "argument is not valid Unicode");
+        staged[i] = malloc((size_t)length);
+        if (!staged[i])
+            freak_args_windows_fail(staged, count, "out of memory decoding arguments");
+        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide[i], -1,
+                               staged[i], length, NULL, NULL) != length)
+            freak_args_windows_fail(staged, count, "could not encode Unicode argument");
+    }
+    freak_args_windows_snapshot = staged;
+    freak_args_windows_count = count;
+    freak_argc = freak_args_windows_count;
+    freak_argv = freak_args_windows_snapshot;
+    return TRUE;
+}
+
+static void freak_args_windows_prepare(void) {
+    if (!InitOnceExecuteOnce(&freak_args_windows_once,
+                            freak_args_windows_initialize, NULL, NULL))
+        freak_args_windows_fail(NULL, 0, "could not initialize Unicode arguments");
+}
+#endif
+
 int64_t freak_args_count(void) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     return (int64_t)freak_argc;
 }
 
 freak_word freak_arg(int64_t index) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     if (index < 0 || index >= freak_argc) {
         freak_panic(freak_word_lit("Argument index out of bounds"));
     }
     return freak_word_lit(freak_argv[index]);
+}
+
+bool freak_process_platform_is_windows(void) {
+#ifdef _WIN32
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool freak_process_stdout_is_terminal(void) {
+#ifdef _WIN32
+    int descriptor=_fileno(stdout);
+    if (descriptor < 0) return false;
+    intptr_t raw=_get_osfhandle(descriptor);
+    if (raw == -1 || raw == -2) return false;
+    DWORD mode=0;
+    return GetConsoleMode((HANDLE)raw,&mode) != 0;
+#else
+    return isatty(fileno(stdout)) != 0;
+#endif
+}
+
+freak_word freak_process_platform_name(void) {
+#ifdef _WIN32
+    return freak_word_lit("windows");
+#elif defined(__APPLE__)
+    return freak_word_lit("macos");
+#elif defined(__linux__)
+    return freak_word_lit("linux");
+#else
+    return freak_word_lit("unknown");
+#endif
+}
+
+freak_word freak_process_executable_path(void) {
+#ifdef _WIN32
+    DWORD capacity = 256;
+    while (capacity <= 1048576) {
+        wchar_t *wide = malloc((size_t)capacity * sizeof(*wide));
+        if (!wide) freak_panic(freak_word_lit("out of memory resolving executable"));
+        DWORD length = GetModuleFileNameW(NULL, wide, capacity);
+        if (length && length < capacity) {
+            int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide,
+                    (int)length, NULL, 0, NULL, NULL);
+            if (!bytes) { free(wide); return freak_word_lit(""); }
+            char *path = malloc((size_t)bytes + 1);
+            if (!path) { free(wide); freak_panic(freak_word_lit("out of memory resolving executable")); }
+            if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide,
+                    (int)length, path, bytes, NULL, NULL) != bytes) {
+                free(path); free(wide); return freak_word_lit("");
+            }
+            free(wide); path[bytes] = '\0';
+            return freak_word_own(path, (size_t)bytes);
+        }
+        free(wide);
+        if (!length) return freak_word_lit("");
+        capacity *= 2;
+    }
+    return freak_word_lit("");
+#elif defined(__APPLE__)
+    uint32_t capacity = 0;
+    (void)_NSGetExecutablePath(NULL, &capacity);
+    if (!capacity || capacity > 1048576) return freak_word_lit("");
+    char *path = malloc(capacity);
+    if (!path) freak_panic(freak_word_lit("out of memory resolving executable"));
+    if (_NSGetExecutablePath(path, &capacity) != 0) { free(path); return freak_word_lit(""); }
+    char *resolved = realpath(path, NULL);
+    free(path);
+    if (!resolved) return freak_word_lit("");
+    return freak_word_own(resolved, strlen(resolved));
+#elif defined(__linux__)
+    size_t capacity = 256;
+    while (capacity <= 1048576) {
+        char *path = malloc(capacity + 1);
+        if (!path) freak_panic(freak_word_lit("out of memory resolving executable"));
+        ssize_t length = readlink("/proc/self/exe", path, capacity);
+        if (length >= 0 && (size_t)length < capacity) {
+            path[length] = '\0';
+            return freak_word_own(path, (size_t)length);
+        }
+        free(path);
+        if (length < 0) return freak_word_lit("");
+        capacity *= 2;
+    }
+    return freak_word_lit("");
+#else
+    return freak_word_lit("");
+#endif
 }
 
 /* ------------------------------------------------------------------ */
@@ -702,6 +880,18 @@ freak_word freak_word_clone(freak_word source) {
     return freak_word_own(buf, source.length);
 }
 
+/* Ticket-owned strings are not literals: their storage may be cleared, moved,
+   or released independently of the returned word. Always copy these bytes,
+   including empty strings, into the caller's normal owned-word lifetime. */
+static freak_word freak_word_copy_cstr(const char* source) {
+    size_t length = strlen(source);
+    size_t size = freak_word_concat_required(length, 0, "word copy");
+    char* copy = (char*)malloc(size);
+    if (!copy) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    memcpy(copy, source, size);
+    return freak_word_own(copy, length);
+}
+
 /**
  * Replaces a word with an owned replacement, releasing the previous buffer when necessary.
  * @param slot Word to update.
@@ -935,26 +1125,106 @@ _Noreturn void freak_panic(freak_word msg) {
     exit(1);
 }
 
+static _Noreturn void freak_int_fail(const char *reason, const char *operation) {
+    fprintf(stderr,"FREAK: integer %s in %s\n",reason,operation);
+    exit(1);
+}
+
+int64_t freak_int_add_checked(int64_t a, int64_t b) {
+    if ((b > 0 && a > INT64_MAX - b) || (b < 0 && a < INT64_MIN - b))
+        freak_int_fail("overflow","addition");
+    return a + b;
+}
+int64_t freak_int_sub_checked(int64_t a, int64_t b) {
+    if ((b > 0 && a < INT64_MIN + b) || (b < 0 && a > INT64_MAX + b))
+        freak_int_fail("overflow","subtraction");
+    return a - b;
+}
+int64_t freak_int_mul_checked(int64_t a, int64_t b) {
+    /* Every admission division has a nonzero divisor and cannot be MIN/-1. */
+    if ((a > 0 && ((b > 0 && a > INT64_MAX / b) || (b < 0 && b < INT64_MIN / a))) ||
+        (a < 0 && ((b > 0 && a < INT64_MIN / b) || (b < 0 && a < INT64_MAX / b))))
+        freak_int_fail("overflow","multiplication");
+    return a * b;
+}
+int64_t freak_int_div_checked(int64_t a, int64_t b) {
+    if (b == 0) freak_int_fail("division by zero","division");
+    if (a == INT64_MIN && b == -1) freak_int_fail("overflow","division");
+    return a / b;
+}
+int64_t freak_int_rem_checked(int64_t a, int64_t b) {
+    if (b == 0) freak_int_fail("division by zero","remainder");
+    if (a == INT64_MIN && b == -1) freak_int_fail("overflow","remainder");
+    return a % b;
+}
+int64_t freak_int_neg_checked(int64_t value) {
+    if (value == INT64_MIN) freak_int_fail("overflow","negation");
+    return -value;
+}
+
+int64_t freak_num_to_int_checked(double value) {
+    /* INT64_MAX rounds to 2^63 as a double; the upper limit is exclusive. */
+    if (!isfinite(value) || value < -0x1p63 || value >= 0x1p63) {
+        fprintf(stderr, "FREAK: num to int conversion out of range\n");
+        exit(1);
+    }
+    return (int64_t)value;
+}
+
 /* ------------------------------------------------------------------ */
 /*  std::fs — file I/O                                                */
 /* ------------------------------------------------------------------ */
 
+#ifdef _WIN32
+/* Consume a decoded filename. Keep ordinary short and explicitly qualified
+   caller spellings intact; only a long ordinary absolute result needs the
+   extended namespace. GetFullPathNameW resolves names without opening them,
+   so caller-selected source links retain the CRT's existing follow behavior. */
+static wchar_t *freak_fs_windows_filename(wchar_t *name) {
+    if (!name) return NULL;
+    if (wcsncmp(name, L"\\\\?\\", 4) == 0 || wcsncmp(name, L"\\\\.\\", 4) == 0)
+        return name;
+    wchar_t short_absolute[MAX_PATH];
+    DWORD count = GetFullPathNameW(name, MAX_PATH, short_absolute, NULL);
+    if (count && count < MAX_PATH && wcslen(name) < MAX_PATH) return name;
+    if (!count || count > 32768) {
+        free(name); errno = count ? ENAMETOOLONG : EINVAL; return NULL;
+    }
+    DWORD capacity = count < MAX_PATH ? count + 1 : count;
+    wchar_t *absolute = malloc((size_t)capacity * sizeof(*absolute));
+    if (!absolute) { free(name); errno = ENOMEM; return NULL; }
+    DWORD written = GetFullPathNameW(name, capacity, absolute, NULL);
+    free(name);
+    if (!written || written >= capacity) { free(absolute); errno = EINVAL; return NULL; }
+    for (wchar_t *cursor = absolute; *cursor; ++cursor)
+        if (*cursor == L'/') *cursor = L'\\';
+    if (wcsncmp(absolute, L"\\\\?\\", 4) == 0) return absolute;
+    const wchar_t *tail = absolute;
+    const wchar_t *prefix = L"\\\\?\\";
+    if (absolute[0] == L'\\' && absolute[1] == L'\\') {
+        prefix = L"\\\\?\\UNC\\"; tail += 2;
+    } else if (!absolute[0] || absolute[1] != L':' || absolute[2] != L'\\') {
+        free(absolute); errno = EINVAL; return NULL;
+    }
+    size_t prefix_length = wcslen(prefix), length = wcslen(tail);
+    if (length > 32766 - prefix_length) { free(absolute); errno = ENAMETOOLONG; return NULL; }
+    wchar_t *extended = malloc((prefix_length + length + 1) * sizeof(*extended));
+    if (!extended) { free(absolute); errno = ENOMEM; return NULL; }
+    memcpy(extended, prefix, prefix_length * sizeof(*extended));
+    memcpy(extended + prefix_length, tail, (length + 1) * sizeof(*extended));
+    free(absolute);
+    return extended;
+}
+#endif
+
 freak_word freak_fs_read(freak_word path) {
-    const char* p = freak_word_to_cstr(path);
-    FILE* f = fopen(p, "rb");
-    if (!f) {
-        fprintf(stderr, "FREAK: cannot open file '%s': %s\n", p, strerror(errno));
+    freak_result_word_word result = freak_fs_read_checked(path);
+    if (!result.is_ok) {
+        fprintf(stderr,"FREAK: cannot read complete file: %.*s\n",
+                (int)result.data.err_val.length,result.data.err_val.data);
         exit(1);
     }
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char* buf = (char*)malloc((size_t)size + 1);
-    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); fclose(f); exit(1); }
-    size_t read = fread(buf, 1, (size_t)size, f);
-    fclose(f);
-    buf[read] = '\0';
-    return freak_word_own(buf, read);
+    return result.data.ok_val;
 }
 
 static freak_result_word_word freak_fs_read_checked_error(const char* message) {
@@ -973,13 +1243,20 @@ freak_result_word_word freak_fs_read_checked(freak_word path) {
     memcpy(name, path.data, path.length);
     name[path.length] = '\0';
 #ifdef _WIN32
-    int descriptor = _open(name, _O_RDONLY | _O_BINARY);
+    int wide_count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, NULL, 0);
+    wchar_t *wide_name = wide_count ? malloc((size_t)wide_count * sizeof(*wide_name)) : NULL;
+    int descriptor = -1;
+    if (wide_name && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, wide_name, wide_count)) {
+        wide_name = freak_fs_windows_filename(wide_name);
+        if (wide_name) descriptor = _wopen(wide_name, _O_RDONLY | _O_BINARY);
+    }
+    free(wide_name);
 #else
     /* Nonblocking open lets us reject a FIFO before it can wait for a writer. */
     int descriptor = open(name, O_RDONLY | O_NONBLOCK);
 #endif
     free(name);
-    if (descriptor < 0) return freak_fs_read_checked_error("could not open source file");
+    if (descriptor < 0) return freak_fs_read_checked_error("cannot open file for reading");
 #ifdef _WIN32
     struct _stat64 metadata;
     bool regular = _fstat64(descriptor, &metadata) == 0 &&
@@ -1038,26 +1315,74 @@ freak_result_word_word freak_fs_read_checked(freak_word path) {
     return result;
 }
 
+static bool freak_system_utf8_valid(const char* text, size_t length);
+
+int64_t freak_fs_fopen_checked(freak_word path, freak_word mode) {
+    if (!path.data || !path.length || path.length >= SIZE_MAX ||
+        memchr(path.data, 0, path.length) || !mode.data || !mode.length ||
+        mode.length >= SIZE_MAX || memchr(mode.data, 0, mode.length) ||
+        !freak_system_utf8_valid(path.data, path.length) ||
+        !freak_system_utf8_valid(mode.data, mode.length)) {
+        errno = EINVAL;
+        return 0;
+    }
+    char *name = malloc(path.length + 1);
+    char *flags = malloc(mode.length + 1);
+    if (!name || !flags) { free(name); free(flags); errno = ENOMEM; return 0; }
+    memcpy(name, path.data, path.length); name[path.length] = 0;
+    memcpy(flags, mode.data, mode.length); flags[mode.length] = 0;
+    FILE *stream = NULL;
+#ifdef _WIN32
+    if (path.length <= INT_MAX && mode.length <= INT_MAX) {
+        int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, NULL, 0);
+        int m = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, flags, -1, NULL, 0);
+        wchar_t *wide_name = n ? malloc((size_t)n * sizeof(*wide_name)) : NULL;
+        wchar_t *wide_flags = m ? malloc((size_t)m * sizeof(*wide_flags)) : NULL;
+        if (wide_name && wide_flags &&
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, wide_name, n) &&
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, flags, -1, wide_flags, m)) {
+            wide_name = freak_fs_windows_filename(wide_name);
+            if (wide_name) stream = _wfopen(wide_name, wide_flags);
+        }
+        else errno = EINVAL;
+        free(wide_name); free(wide_flags);
+    } else errno = EINVAL;
+#else
+    stream = fopen(name, flags);
+#endif
+    int saved_errno = errno;
+    free(name); free(flags); errno = saved_errno;
+    return (int64_t)(intptr_t)stream;
+}
+
 void freak_fs_write(freak_word path, freak_word content) {
     const char* p = freak_word_to_cstr(path);
-    FILE* f = fopen(p, "wb");
+    FILE* f = (FILE*)(intptr_t)freak_fs_fopen_checked(path, freak_word_lit("wb"));
     if (!f) {
         fprintf(stderr, "FREAK: cannot write file '%s': %s\n", p, strerror(errno));
         exit(1);
     }
-    fwrite(content.data, 1, content.length, f);
-    fclose(f);
+    bool complete = fwrite(content.data, 1, content.length, f) == content.length && !ferror(f);
+    if (fclose(f) != 0) complete = false;
+    if (!complete) {
+        fprintf(stderr,"FREAK: could not complete file write '%s'\n",p);
+        exit(1);
+    }
 }
 
 void freak_fs_append(freak_word path, freak_word content) {
     const char* p = freak_word_to_cstr(path);
-    FILE* f = fopen(p, "ab");
+    FILE* f = (FILE*)(intptr_t)freak_fs_fopen_checked(path, freak_word_lit("ab"));
     if (!f) {
         fprintf(stderr, "FREAK: cannot append file '%s': %s\n", p, strerror(errno));
         exit(1);
     }
-    fwrite(content.data, 1, content.length, f);
-    fclose(f);
+    bool complete = fwrite(content.data, 1, content.length, f) == content.length && !ferror(f);
+    if (fclose(f) != 0) complete = false;
+    if (!complete) {
+        fprintf(stderr,"FREAK: could not complete file write '%s'\n",p);
+        exit(1);
+    }
 }
 
 /**
@@ -1067,11 +1392,24 @@ void freak_fs_append(freak_word path, freak_word content) {
  * @return `true` if the path exists, `false` otherwise.
  */
 bool freak_fs_exists(freak_word path) {
-    const char* p = freak_word_to_cstr(path);
+    if (!path.data || !path.length || path.length == SIZE_MAX || memchr(path.data,0,path.length) ||
+        !freak_system_utf8_valid(path.data,path.length)) return false;
 #ifdef _WIN32
-    return _access(p, 0) == 0;
+    if (path.length > INT_MAX) return false;
+    int count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.data,(int)path.length,NULL,0);
+    if (!count) return false;
+    wchar_t *wide=malloc(((size_t)count+1)*sizeof(wchar_t));
+    if (!wide) return false;
+    bool exists=false;
+    if (MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.data,(int)path.length,wide,count) == count) {
+        wide[count]=0; wide=freak_fs_windows_filename(wide);
+        if (wide) exists=_waccess(wide,0) == 0;
+    }
+    free(wide); return exists;
 #else
-    return access(p, F_OK) == 0;
+    char *name=malloc(path.length+1); if (!name) return false;
+    memcpy(name,path.data,path.length); name[path.length]=0;
+    bool exists=access(name,F_OK) == 0; free(name); return exists;
 #endif
 }
 
@@ -1079,12 +1417,11 @@ bool freak_fs_exists(freak_word path) {
  * Checks whether a filesystem path exists.
  * Universal-ABI bridge for the pure-FREAK LLVM runtime. access/_access also
  * recognizes directories, preserving fail-closed stale-artifact checks.
- * @param path Null-terminated path string encoded as an integer.
+ * @param path Borrowed sized LLVM word (or a null-terminated literal).
  * @return 1 if the path exists, 0 otherwise.
  */
 int64_t freak_path_exists(int64_t path) {
-    const char* value = (const char*)(intptr_t)path;
-    return freak_fs_exists(freak_word_lit(value)) ? 1 : 0;
+    return freak_fs_exists(freak_llvm_word_view(path)) ? 1 : 0;
 }
 
 /**
@@ -1094,11 +1431,23 @@ int64_t freak_path_exists(int64_t path) {
  * @return true if removed or already absent; false on another removal error.
  */
 bool freak_fs_delete(freak_word path) {
-    const char* p = freak_word_to_cstr(path);
+    if (!path.data || !path.length || path.length == SIZE_MAX || memchr(path.data,0,path.length) ||
+        !freak_system_utf8_valid(path.data,path.length)) return false;
 #ifdef _WIN32
-    int result = _unlink(p); /* file-only: never consume an artifact directory */
+    if (path.length > INT_MAX) return false;
+    int count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.data,(int)path.length,NULL,0);
+    if (!count) return false;
+    wchar_t *wide=malloc(((size_t)count+1)*sizeof(wchar_t));if (!wide) return false;
+    if (MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.data,(int)path.length,wide,count) != count) { free(wide); return false; }
+    wide[count]=0;
+    wide=freak_fs_windows_filename(wide); if (!wide) return false;
+    int result=_wunlink(wide); /* file-only: never consume an artifact directory */
+    int error=errno; free(wide); errno=error;
 #else
-    int result = unlink(p);  /* file-only: never consume an artifact directory */
+    char *name=malloc(path.length+1);if (!name) return false;
+    memcpy(name,path.data,path.length);name[path.length]=0;
+    int result=unlink(name); /* file-only: never consume an artifact directory */
+    int error=errno;free(name);errno=error;
 #endif
     return result == 0 || errno == ENOENT;
 }
@@ -1615,6 +1964,18 @@ freak_word freak_word_char_at(freak_word w, int64_t index) {
     out.char_count = 1;
     out.heap = false;
     return out;
+}
+
+freak_word freak_word_index_checked(freak_word w, int64_t index) {
+    if (index < 0 || (uint64_t)index >= w.length || !w.data) {
+        fprintf(stderr, "FREAK: word index out of range\n");
+        exit(1);
+    }
+    char *byte = (char *)malloc(2);
+    if (!byte) freak_panic(freak_word_lit("out of memory indexing word"));
+    byte[0] = w.data[index];
+    byte[1] = '\0';
+    return freak_word_own(byte, 1);
 }
 
 static int64_t freak_stable_checksum_bytes(const unsigned char* data, size_t len) {
@@ -2197,6 +2558,9 @@ freak_word freak_process_env(freak_word name) {
 }
 
 void* freak_process_args(void) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     return (void*)freak_argv;
 }
 
@@ -2464,8 +2828,13 @@ void freak_enable_ansi(void) {
 
 void freak_llvm_setup_args(int64_t argc, int64_t argv) {
     freak_enable_ansi();
+#ifdef _WIN32
+    (void)argc; (void)argv;
+    freak_args_windows_prepare();
+#else
     freak_argc = (int)argc;
     freak_argv = (char**)argv;
+#endif
 }
 
 #include <stdio.h>
@@ -2883,6 +3252,14 @@ int64_t freak_llvm_word_char_at(int64_t a, int64_t idx) {
     return (int64_t)value.data;
 }
 
+int64_t freak_llvm_word_index_checked(int64_t word, int64_t index) {
+    return freak_llvm_word_take(freak_word_index_checked(freak_llvm_word_view(word), index));
+}
+
+int64_t freak_llvm_process_executable_path(void) {
+    return freak_llvm_word_take(freak_process_executable_path());
+}
+
 int64_t freak_llvm_word_substring(int64_t a, int64_t start, int64_t len) {
     return freak_llvm_word_take(freak_word_substring(freak_llvm_word_view(a), start, len));
 }
@@ -2969,10 +3346,16 @@ int64_t freak_llvm_ask(int64_t prompt) {
 }
 
 int64_t freak_process_args_count(void) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     return (int64_t)freak_argc;
 }
 
 freak_word freak_process_arg(int64_t index) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     if (index < 0 || index >= freak_argc) {
         return freak_word_lit("");
     }
@@ -2980,10 +3363,16 @@ freak_word freak_process_arg(int64_t index) {
 }
 
 int64_t freak_llvm_process_args_count(void) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     return (int64_t)freak_argc;
 }
 
 int64_t freak_llvm_process_arg(int64_t index) {
+#ifdef _WIN32
+    freak_args_windows_prepare();
+#endif
     if (index < 0 || index >= freak_argc) {
         return freak_llvm_word_adopt((int64_t)_strdup(""));
     }
@@ -3013,8 +3402,8 @@ static int64_t freak_word_builder_table_capacity = 0;
 static int64_t freak_word_builder_free_head = -1;
 static size_t freak_word_builder_live_count = 0;
 
-#define FREAK_HANDLE_DOMAIN_MASK UINT64_C(0x6000000000000000)
-#define FREAK_HANDLE_GENERATION_MAX UINT32_C(0x1fffffff)
+#define FREAK_HANDLE_DOMAIN_MASK UINT64_C(0xf000000000000000)
+#define FREAK_HANDLE_GENERATION_MAX UINT32_C(0x0fffffff)
 #define FREAK_ARRAY_HANDLE_DOMAIN UINT64_C(0x0000000000000000)
 #define FREAK_WORD_BUILDER_HANDLE_DOMAIN UINT64_C(0x2000000000000000)
 #define FREAK_WORD_BUILDER_GENERATION_MAX FREAK_HANDLE_GENERATION_MAX
@@ -3398,7 +3787,7 @@ static int64_t freak_byte_buffer_table_capacity = 0;
 static int64_t freak_byte_buffer_free_head = -1;
 static size_t freak_byte_buffer_live_count = 0;
 
-#define FREAK_BYTE_BUFFER_DOMAIN_MASK UINT64_C(0xe000000000000000)
+#define FREAK_BYTE_BUFFER_DOMAIN_MASK UINT64_C(0xf000000000000000)
 #define FREAK_BYTE_BUFFER_HANDLE_DOMAIN UINT64_C(0x8000000000000000)
 #define FREAK_BYTE_BUFFER_GENERATION_MAX FREAK_HANDLE_GENERATION_MAX
 
@@ -4351,7 +4740,7 @@ static int64_t freak_tcp_socket_table_capacity = 0;
 static int64_t freak_tcp_socket_free_head = -1;
 static size_t freak_tcp_socket_live_count = 0;
 
-#define FREAK_TCP_SOCKET_DOMAIN_MASK UINT64_C(0xe000000000000000)
+#define FREAK_TCP_SOCKET_DOMAIN_MASK UINT64_C(0xf000000000000000)
 #define FREAK_TCP_SOCKET_HANDLE_DOMAIN UINT64_C(0xc000000000000000)
 #define FREAK_TCP_SOCKET_GENERATION_MAX FREAK_HANDLE_GENERATION_MAX
 
@@ -5376,3 +5765,9 @@ double freak_v3_bits_num(int64_t value) { double number; memcpy(&number, &value,
 int64_t freak_v3_live_arrays(void) { return freak_v3_arrays_live; }
 int64_t freak_v3_live_shapes(void) { return freak_v3_shapes_live; }
 int64_t freak_v3_live_words(void) { return freak_v3_words_live; }
+
+/* Shares the word and ByteBuffer owners above; not a second runtime. */
+#include "freak_v35_process.inc"
+#include "freak_v35_fs.inc"
+#include "freak_v35_json.inc"
+#include "freak_v35_http.inc"

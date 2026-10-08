@@ -1,0 +1,173 @@
+name: Locked V4 bootstrap
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  LLVM_MINGW_VERSION: "20260616"
+  LLVM_MINGW_SHA256: "b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35"
+  FREAK_V4_CI_CLANG: clang
+
+jobs:
+  native-public-bootstrap:
+    name: Locked V4 public bootstrap (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Clang (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Install pinned GNU-targeting LLVM-MinGW (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64.zip"
+          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$env:LLVM_MINGW_VERSION/llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64.zip"
+          Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $env:LLVM_MINGW_SHA256) {
+            throw "LLVM-MinGW checksum mismatch: expected $env:LLVM_MINGW_SHA256, got $actual"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP -Force
+          $bin = Join-Path $env:RUNNER_TEMP "llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64\bin"
+          $clangPath = Join-Path $bin "clang.exe"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "FREAK_V4_CI_CLANG=$clangPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $clangPath --version
+          $triple = & $clangPath -dumpmachine
+          if ($LASTEXITCODE -ne 0 -or $triple -notmatch '^x86_64-.*windows-gnu$') {
+            throw "Locked V4 bootstrap requires the GNU Windows host profile: $triple"
+          }
+      - name: Checked source runtime platform and fault regressions
+        run: >
+          python -B -u tests/v4_bootstrap_runtime_ci.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --report "${{ runner.temp }}/freak-v4-runtime-ci.json"
+      - name: Verify POSIX failed launch diagnostics (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          python -B -u tests/v3_v35_process_launch_diagnostic_native.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}" --sanitize
+          --report "${{ runner.temp }}/freak-v4-posix-launch-diagnostic.json"
+      - name: Verify POSIX failed launch diagnostics (macOS)
+        if: runner.os == 'macOS'
+        run: >
+          python -B -u tests/v3_v35_process_launch_diagnostic_native.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --report "${{ runner.temp }}/freak-v4-posix-launch-diagnostic.json"
+      - name: Verify ticket word ownership (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          python -B -u tests/v3_v35_ticket_word_ownership_native.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}" --sanitize
+          --report "${{ runner.temp }}/freak-v4-ticket-word-ownership.json"
+      - name: Verify ticket word ownership (macOS and Windows)
+        if: runner.os != 'Linux'
+        run: >
+          python -B -u tests/v3_v35_ticket_word_ownership_native.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --report "${{ runner.temp }}/freak-v4-ticket-word-ownership.json"
+      - name: Verify Windows owned-temp failure controls (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          python -B -u tests/v3_v35_windows_temp_owner.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}" --sanitize
+          --evidence "${{ runner.temp }}/freak-v4-windows-temp-owner.json"
+      - name: Observe native Windows bootstrap directory operations
+        if: runner.os == 'Windows'
+        run: >
+          python -B -u tests/v4_bootstrap_fs_probe.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --report "${{ runner.temp }}/freak-v4-bootstrap-fs-probe.json"
+      - name: Reconstruct CLI and verify installed public locked bootstrap
+        run: >
+          python -B -u tests/v3_v4_bootstrap_ci.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --output "${{ runner.temp }}/freak-v4-locked-bootstrap"
+      - name: Verify native Windows checked filesystem barriers
+        if: runner.os == 'Windows'
+        run: >
+          python -B -u tests/v3_v35_windows_fs.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --optimization 0 --optimization 2 --optimization 3
+          --report "${{ runner.temp }}/freak-v4-windows-fs.json"
+      - name: Verify native project-directory admission
+        shell: bash
+        env:
+          FREAK_PROJECT_WORK: ${{ runner.temp }}/freak-v4-project-admission
+          FREAK_PROJECT_STAGE2: ${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction/freakc_stage2
+        run: |
+          python -B -u - <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+          work = Path(os.environ['FREAK_PROJECT_WORK'])
+          payload = work / 'payload'
+          payload.mkdir(parents=True, exist_ok=False)
+          rows = 0
+          for line in Path('packaging/distribution-files.manifest').read_text(encoding='utf-8').splitlines():
+              if not line or line.startswith('#'):
+                  continue
+              source, destination = line.split('|')
+              target = payload / destination
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, target)
+              rows += 1
+          assert rows == 72
+          compiler = os.environ['FREAK_PROJECT_STAGE2'] + ('.exe' if os.name == 'nt' else '')
+          clang = shutil.which(os.environ['FREAK_V4_CI_CLANG']) or os.environ['FREAK_V4_CI_CLANG']
+          subprocess.run([sys.executable, '-B', '-u', 'tests/v3_v35_project_admission.py',
+                          '--compiler', compiler, '--clang', clang,
+                          '--payload-home', str(payload), '--probe-root', str(work / 'probes')], check=True)
+          PY
+      - name: Verify native word-call ownership and copied bytes (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          python -B -u tests/v3_v4_word_call_borrowing.py
+          --compiler "${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction/freakc_stage2"
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --sanitize --optimization O2
+          --report "${{ runner.temp }}/freak-v4-word-call-ownership.json"
+      - name: Verify bounded C emission and write failures (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          python -B -u tests/v3_v35_c_emit_batch.py
+          --compiler "${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction/freakc_stage2"
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --optimization O2 --sanitize
+          --output "${{ runner.temp }}/freak-v4-c-emission"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: locked-v4-bootstrap-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction.json
+            ${{ runner.temp }}/freak-v4-locked-bootstrap/public-contracts*.json
+            ${{ runner.temp }}/freak-v4-runtime-ci.json
+            ${{ runner.temp }}/freak-v4-posix-launch-diagnostic.json
+            ${{ runner.temp }}/freak-v4-ticket-word-ownership.json
+            ${{ runner.temp }}/freak-v4-windows-temp-owner.json
+            ${{ runner.temp }}/freak-v4-project-admission/probes/report.json
+            ${{ runner.temp }}/freak-v4-word-call-ownership.json
+            ${{ runner.temp }}/freak-v4-c-emission/gate.json
+            ${{ runner.temp }}/freak-v4-bootstrap-fs-probe.json
+            ${{ runner.temp }}/freak-v4-windows-fs.json
+          if-no-files-found: warn

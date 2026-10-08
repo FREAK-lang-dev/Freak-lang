@@ -20,6 +20,10 @@ import sys
 import types
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from freakc.v4_native_runtime import RUNTIME_FILE_NAMES, runtime_file
+
 OPTS = (0, 2, 3)
 SCOPE = "private fs void/outslot helper prerequisite; no typed fs204 admission"
 OWNED_NAMES = ("tests/v4_fs_read_bridge_probe.c", "tests/v4_fs_read_bridge.py",
@@ -28,10 +32,10 @@ OWNED_NAMES = ("tests/v4_fs_read_bridge_probe.c", "tests/v4_fs_read_bridge.py",
 SUPPORT_NAME = "tests/v4_c_integer_runtime.py"
 SUPPORT_SHA = "1fe37e9bf8f33c72193e85cfa87ffef78ed29bc0663ff447acd35a42f6fbd8e2"
 GUARD_NAME = "src/compiler/v4/check_v4.py"
-SOURCE_NAMES = (*OWNED_NAMES, "freakc/runtime/freak_runtime.c", "freakc/runtime/freak_runtime.h",
-                "freakc/runtime/freak_v4_word_runtime.c", "freakc/runtime/freak_v4_word_runtime.h",
-                "freakc/runtime/freak_v4_system_runtime.c", "freakc/runtime/freak_v4_system_runtime.h",
-                SUPPORT_NAME, GUARD_NAME)
+INVENTORY_NAMES = ("src/compiler/v4/native-runtime.manifest", "freakc/v4_native_runtime.py")
+RUNTIME_SOURCE_NAMES = tuple(runtime_file(ROOT / "freakc/runtime", name).relative_to(ROOT).as_posix()
+                             for name in RUNTIME_FILE_NAMES)
+SOURCE_NAMES = (*OWNED_NAMES, *RUNTIME_SOURCE_NAMES, *INVENTORY_NAMES, SUPPORT_NAME, GUARD_NAME)
 VECTOR_PATH = ROOT / "tests/v4_fs_read_bridge_vectors.json"
 COUNTS = {"linux": 55, "darwin": 55, "win32": 57}
 CAPABILITIES = ("asan-heap", "ubsan-overflow", "ubsan-division")

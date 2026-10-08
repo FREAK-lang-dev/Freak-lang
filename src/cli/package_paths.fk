@@ -1,0 +1,99 @@
+-- Shared project/package source admission. The logical manifest path is kept
+-- separate from the host's canonical identity; Unicode and case are preserved.
+-- This path policy does not execute package code or discover undeclared files.
+
+task package_join_host(root: word, relative: word) -> word {
+    -- Extended Win32 paths deliberately bypass slash normalization. Preserve
+    -- their long/UNC identity and use the native separator when appending.
+    if process::platform_is_windows() and root.starts_with("\\\\?\\") {
+        if root.ends_with("\\") { give back root + relative.replace("/", "\\") }
+        give back root + "\\" + relative.replace("/", "\\")
+    }
+    if root.ends_with("/") { give back root + relative }
+    give back root + "/" + relative
+}
+
+task package_relative_file(path: word) -> bool {
+    if path == "" or path.length() > 4096 or path.starts_with("/") or path.ends_with("/") or path.contains("\\") or path.contains(":") { give back false }
+    if path.starts_with("../") or path.contains("/../") or path.ends_with("/..") or path == ".." { give back false }
+    if path.starts_with("./") or path.contains("/./") or path.ends_with("/.") or path == "." { give back false }
+    if path.contains("//") or path.contains("\n") or path.contains("\r") or path.contains("\t") { give back false }
+    give back true
+}
+
+task package_checked_source(root: word, relative: word) -> word {
+    if not hangar_graph_relative_file(relative) {
+        hangar_graph_fail("source must declare a contained relative .fk path: " + relative)
+        give back ""
+    }
+    give back package_checked_file(root, relative)
+}
+
+task package_checked_file(root: word, relative: word) -> word {
+    if not package_relative_file(relative) {
+        hangar_graph_fail("file must declare a contained relative path: " + relative)
+        give back ""
+    }
+    pilot root_info = fs::stat_checked(root)
+    pilot directory = fs::result_ok(root_info) and fs::result_kind(root_info) == 2
+    fs::result_release(root_info)
+    if not directory {
+        hangar_graph_fail("source root must be an ordinary directory: " + root)
+        give back ""
+    }
+    pilot root_ticket = fs::canonical_path(root)
+    if not fs::result_ok(root_ticket) {
+        hangar_graph_fail("cannot resolve source root " + root + ": " + fs::result_error(root_ticket))
+        fs::result_release(root_ticket)
+        give back ""
+    }
+    pilot canonical_root = fs::result_word(root_ticket)
+    fs::result_release(root_ticket)
+    pilot root_key = canonical_root
+    if process::platform_is_windows() { root_key = root_key.replace("\\", "/") }
+    pilot prefix = root_key
+    if not prefix.ends_with("/") { prefix = prefix + "/" }
+    pilot current = canonical_root
+    pilot component = ""
+    pilot index = 0
+    repeat until index > relative.length() {
+        pilot boundary = index == relative.length()
+        if not boundary { boundary = relative.char_at(index) == "/" }
+        if boundary {
+            if component == "" or component == "." or component == ".." {
+                hangar_graph_fail("invalid source path component: " + relative)
+                give back ""
+            }
+            current = package_join_host(current, component)
+            pilot info = fs::stat_checked(current)
+            pilot admitted = fs::result_ok(info)
+            pilot kind = 0
+            if admitted { kind = fs::result_kind(info) }
+            pilot final_component = index == relative.length()
+            if final_component { admitted = admitted and kind == 1 } else { admitted = admitted and kind == 2 }
+            fs::result_release(info)
+            if not admitted {
+                hangar_graph_fail("source component is missing, a symlink, or an unsupported file kind: " + current)
+                give back ""
+            }
+            pilot canonical_ticket = fs::canonical_path(current)
+            if not fs::result_ok(canonical_ticket) {
+                hangar_graph_fail("cannot resolve source component " + current + ": " + fs::result_error(canonical_ticket))
+                fs::result_release(canonical_ticket)
+                give back ""
+            }
+            pilot canonical = fs::result_word(canonical_ticket)
+            fs::result_release(canonical_ticket)
+            pilot canonical_key = canonical
+            if process::platform_is_windows() { canonical_key = canonical_key.replace("\\", "/") }
+            if not canonical_key.starts_with(prefix) {
+                hangar_graph_fail("source component escapes its declared package root: " + current)
+                give back ""
+            }
+            current = canonical
+            component = ""
+        } else { component = component + relative.char_at(index) }
+        index += 1
+    }
+    give back current
+}

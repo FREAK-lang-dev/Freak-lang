@@ -210,8 +210,20 @@ class ControlledLinkerHelpers(unittest.TestCase):
                     self.assertEqual(trace_args[-len(overrides)-2:-len(overrides)], flags)
                     self.assertTrue(launch.call_args.kwargs["env"]["PATH"].startswith(str(origin) + os.pathsep))
                     self.assertEqual(launch.call_args.kwargs["timeout"], 30)
-                    _, log = profiles.write_recorder(case, str(real_clang))
                     recorder = case / "record_clang.py"
+                    # Model the native builder boundary; this pure test executes
+                    # the recorder script, never a Windows launcher or compiler.
+                    native_wrapper = case / "native-profile-recorder" / "record-clang.exe"
+                    with patch.object(profiles, "windows_python_driver", return_value=native_wrapper) as build:
+                        wrapper, log = profiles.write_recorder(case, str(real_clang))
+                    if platform == "win32":
+                        build.assert_called_once_with(native_wrapper.parent, str(real_clang), recorder)
+                        self.assertEqual(wrapper, native_wrapper)
+                        self.assertFalse(wrapper.exists())  # No modeled bytes are claimed as a PE.
+                    else:
+                        build.assert_not_called()
+                        self.assertEqual(wrapper, case / "record-clang")
+                        self.assertTrue(wrapper.is_file())
                     environment = {"FREAK_PROFILE_REAL_CLANG": str(real_clang),
                                    "FREAK_PROFILE_CLANG_LOG": str(log),
                                    "FREAK_PROFILE_LINKER_OVERRIDE": json.dumps(overrides),

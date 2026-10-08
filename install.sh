@@ -219,8 +219,9 @@ STAGE_DIR="$TMPDIR_INSTALL/stage"
 STAGE_BIN="$STAGE_DIR/bin"
 STAGE_RUNTIME="$STAGE_DIR/runtime"
 STAGE_STD="$STAGE_DIR/std"
+STAGE_TEMPLATES="$STAGE_DIR/templates"
 STAGE_MANIFEST="$STAGE_DIR/distribution-files.manifest"
-mkdir -p "$STAGE_BIN" "$STAGE_RUNTIME" "$STAGE_STD"
+mkdir -p "$STAGE_BIN" "$STAGE_RUNTIME" "$STAGE_STD" "$STAGE_TEMPLATES"
 
 fetch_file() {
     local url="$1"
@@ -304,36 +305,80 @@ write_legacy_v014_manifest() {
 validate_manifest_entry() {
     local source="$1"
     local destination="$2"
+    local expected=""
+    local LC_ALL=C
     case "$source" in
-        /*|[A-Za-z]:*|*\\*|..|../*|*/../*|*/..|./*|*/./*|*/.|*//* )
+        ''|/*|*/|*:*|*\\*|*'|'*|..|../*|*/../*|*/..|./*|*/./*|*/.|*//*|*./*|*.|*' '/*|*' '|*[[:cntrl:]]* )
             err "Unsafe distribution source in manifest: $source" ;;
     esac
     case "$destination" in
-        /*|[A-Za-z]:*|*\\*|..|../*|*/../*|*/..|./*|*/./*|*/.|*//* )
+        ''|/*|*/|*:*|*\\*|*'|'*|..|../*|*/../*|*/..|./*|*/./*|*/.|*//*|*./*|*.|*' '/*|*' '|*[[:cntrl:]]* )
             err "Unsafe distribution destination in manifest: $destination" ;;
     esac
     case "$source" in
-        freakc/runtime/*|std/*) ;;
+        freakc/runtime/*) expected="runtime/${source#freakc/runtime/}" ;;
+        std/*|templates/v35/*) expected="$source" ;;
+        third_party/llhttp/*) expected="runtime/$source" ;;
+        src/compiler/v4/native-runtime.manifest) expected="runtime/v4-native.manifest" ;;
         *) err "Unsafe distribution source in manifest: $source" ;;
     esac
-    case "$destination" in
-        runtime/*|std/*) ;;
-        *) err "Unsafe distribution destination in manifest: $destination" ;;
-    esac
+    [ "$destination" = "$expected" ] || err "Unsafe distribution source/destination mapping: $source|$destination"
+}
+
+validate_manifest() {
+    [ -s "$STAGE_MANIFEST" ] || err "Staged distribution manifest is missing"
+    local line source destination nul_probe key prior
+    local destinations=()
+    # Bash otherwise silently drops NUL bytes while reading text lines.
+    if IFS= read -r -d '' nul_probe < "$STAGE_MANIFEST"; then
+        err "Unsafe distribution manifest contains a NUL byte"
+    fi
+    # Normalize only the record ending before splitting. This accepts CRLF
+    # blank records while preserving CR bytes inside source/destination fields.
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        if [ -z "$line" ] || [[ "$line" == \#* ]]; then continue; fi
+        case "$line" in
+            *'|'*) source=${line%%|*}; destination=${line#*|} ;;
+            *) err "Malformed distribution manifest entry: $line" ;;
+        esac
+        [ -n "$destination" ] || err "Malformed distribution manifest entry: $source"
+        validate_manifest_entry "$source" "$destination"
+        # Reject aliases on case-insensitive distribution filesystems, and
+        # files whose path would also have to be another row's directory.
+        key=$(printf '%s' "$destination" | LC_ALL=C tr 'A-Z' 'a-z')
+        for prior in ${destinations[@]+"${destinations[@]}"}; do
+            if [[ "$key" == "$prior" || "$key" == "$prior/"* || "$prior" == "$key/"* ]]; then
+                err "Unsafe distribution destination collision: $destination"
+            fi
+        done
+        destinations+=("$key")
+    done < "$STAGE_MANIFEST"
+    [ "${#destinations[@]}" -gt 0 ] || err "Staged distribution manifest has no payload entries"
+}
+
+assert_no_payload_symlinks() {
+    local link
+    link=$(find "$1" -type l -print -quit)
+    [ -z "$link" ] || err "Unsafe distribution payload symlink: $link"
 }
 
 validate_stage() {
-    [ -s "$STAGE_BIN/freak" ] || err "Staged compiler is missing"
-    [ -s "$STAGE_BIN/hangar" ] || err "Staged Hangar is missing"
-    [ -s "$STAGE_MANIFEST" ] || err "Staged distribution manifest is missing"
-    local source destination
-    while IFS='|' read -r source destination || [ -n "$source$destination" ]; do
-        source=${source%$'\r'}
-        destination=${destination%$'\r'}
-        if [ -z "$source" ] || [[ "$source" == \#* ]]; then continue; fi
+    assert_no_payload_symlinks "$STAGE_DIR"
+    [ -f "$STAGE_BIN/freak" ] && [ -s "$STAGE_BIN/freak" ] || err "Staged compiler is missing"
+    [ -f "$STAGE_BIN/hangar" ] && [ -s "$STAGE_BIN/hangar" ] || err "Staged Hangar is missing"
+    validate_manifest
+    local line source destination
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        if [ -z "$line" ] || [[ "$line" == \#* ]]; then continue; fi
+        case "$line" in
+            *'|'*) source=${line%%|*}; destination=${line#*|} ;;
+            *) err "Malformed distribution manifest entry: $line" ;;
+        esac
         [ -n "$destination" ] || err "Malformed distribution manifest entry: $source"
         validate_manifest_entry "$source" "$destination"
-        [ -s "$STAGE_DIR/$destination" ] || err "Staged payload is missing $destination"
+        [ -f "$STAGE_DIR/$destination" ] && [ -s "$STAGE_DIR/$destination" ] || err "Staged payload is missing $destination"
     done < "$STAGE_MANIFEST"
 }
 
@@ -345,11 +390,15 @@ stage_fallback_payload() {
     verify_downloaded_asset "$STAGE_BIN/hangar" "hangar-${PLATFORM}-${ARCH_TAG}"
     fetch_file "$RAW_BASE/packaging/distribution-files.manifest" "$STAGE_MANIFEST"
     verify_downloaded_asset "$STAGE_MANIFEST" "raw/packaging/distribution-files.manifest"
-    local source destination
-    while IFS='|' read -r source destination || [ -n "$source$destination" ]; do
-        source=${source%$'\r'}
-        destination=${destination%$'\r'}
-        if [ -z "$source" ] || [[ "$source" == \#* ]]; then continue; fi
+    validate_manifest
+    local line source destination
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        if [ -z "$line" ] || [[ "$line" == \#* ]]; then continue; fi
+        case "$line" in
+            *'|'*) source=${line%%|*}; destination=${line#*|} ;;
+            *) err "Malformed distribution manifest entry: $line" ;;
+        esac
         [ -n "$destination" ] || err "Malformed distribution manifest entry: $source"
         validate_manifest_entry "$source" "$destination"
         mkdir -p "$(dirname "$STAGE_DIR/$destination")"
@@ -540,7 +589,7 @@ restore_previous_payload() {
     if truthy "${FREAK_INSTALL_TEST_FAIL_RESTORE:-0}"; then
         return 1
     fi
-    for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/distribution-files.manifest"; do
+    for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/templates" "$INSTALL_DIR/distribution-files.manifest"; do
         backup="$BACKUP_ROOT/${live#"$INSTALL_DIR/"}"
         if [ -e "$backup" ]; then
             if ! rm -rf -- "$live"; then restore_failed=1; continue; fi
@@ -642,11 +691,15 @@ if [ "$ARCHIVE_OK" = true ]; then
         stage_fallback_payload
     else
         [ -d "$TMPDIR_INSTALL/freak" ] || err "Distribution archive has no freak/ root"
+        assert_no_payload_symlinks "$TMPDIR_INSTALL/freak"
         cp "$TMPDIR_INSTALL/freak/bin/freak" "$STAGE_BIN/freak"
         [ -s "$TMPDIR_INSTALL/freak/bin/hangar" ] || err "Distribution archive is missing Hangar"
         cp "$TMPDIR_INSTALL/freak/bin/hangar" "$STAGE_BIN/hangar"
         cp -R "$TMPDIR_INSTALL/freak/runtime/." "$STAGE_RUNTIME/"
         cp -R "$TMPDIR_INSTALL/freak/std/." "$STAGE_STD/"
+        if [ -d "$TMPDIR_INSTALL/freak/templates" ]; then
+            cp -R "$TMPDIR_INSTALL/freak/templates/." "$STAGE_TEMPLATES/"
+        fi
         if [ -s "$TMPDIR_INSTALL/freak/distribution-files.manifest" ]; then
             cp "$TMPDIR_INSTALL/freak/distribution-files.manifest" "$STAGE_MANIFEST"
         elif [ "$LEGACY_V014_ARCHIVE" = true ]; then
@@ -669,17 +722,18 @@ if ! BACKUP_ROOT=$(mktemp -d "$INSTALL_DIR/.freak-backup-XXXXXX"); then
     rm -rf -- "$APPLY_ROOT"
     err "Could not create the destination rollback directory"
 fi
-mkdir -p "$APPLY_ROOT/bin" "$APPLY_ROOT/runtime" "$APPLY_ROOT/std" "$BACKUP_ROOT/bin"
+mkdir -p "$APPLY_ROOT/bin" "$APPLY_ROOT/runtime" "$APPLY_ROOT/std" "$APPLY_ROOT/templates" "$BACKUP_ROOT/bin"
 install -m 755 "$STAGE_BIN/freak" "$APPLY_ROOT/bin/freak"
 install -m 755 "$STAGE_BIN/hangar" "$APPLY_ROOT/bin/hangar"
 cp -R "$STAGE_RUNTIME/." "$APPLY_ROOT/runtime/"
 cp -R "$STAGE_STD/." "$APPLY_ROOT/std/"
+cp -R "$STAGE_TEMPLATES/." "$APPLY_ROOT/templates/"
 cp "$STAGE_MANIFEST" "$APPLY_ROOT/distribution-files.manifest"
 mkdir -p "$BIN_DIR"
 
 apply_failed=0
 TRANSACTION_ACTIVE=1
-for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/distribution-files.manifest"; do
+for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/templates" "$INSTALL_DIR/distribution-files.manifest"; do
     if ! backup_live_path "$live"; then apply_failed=1; break; fi
 done
 if [ "$apply_failed" -eq 0 ] && truthy "${FREAK_INSTALL_TEST_PAUSE_AFTER_BACKUP:-0}"; then
@@ -695,6 +749,7 @@ if [ "$apply_failed" -eq 0 ] && truthy "${FREAK_INSTALL_TEST_FAIL_APPLY:-0}"; th
     apply_failed=1
 fi
 if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/std" "$INSTALL_DIR/std" || apply_failed=1; fi
+if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/templates" "$INSTALL_DIR/templates" || apply_failed=1; fi
 if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/distribution-files.manifest" "$INSTALL_DIR/distribution-files.manifest" || apply_failed=1; fi
 if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/bin/freak" "$BIN_DIR/freak" || apply_failed=1; fi
 if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/bin/hangar" "$BIN_DIR/hangar" || apply_failed=1; fi

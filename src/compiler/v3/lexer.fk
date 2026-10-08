@@ -106,7 +106,9 @@ task lex_number() -> void {
     pilot dot_count = 0
     repeat until fin {
         pilot c = lex_cur_ch()
-        if is_numeric(c) or c == "." {
+        if c == "." and lex_ch_at(1) == "." {
+            fin = true
+        } else if is_numeric(c) or c == "." {
             if c == "." { dot_count += 1 }
             res = res + c
             lex_advance()
@@ -116,7 +118,8 @@ task lex_number() -> void {
     }
     push_token(TOK_NUM, res)
     if dot_count > 1 {
-        diag_error_at(
+        diag_error_at_code(
+            "E0007",
             "malformed numeric literal '" + res + "'",
             "a numeric literal may contain only one decimal point",
             source_map_file(cur_tok_line),
@@ -156,6 +159,7 @@ task lex_ident_token_type(value: word) -> word {
     if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "impl" or lower == "doctrine" or lower == "launch" or lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "break" or lower == "continue" or lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" or lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "sadly" or lower == "deus_ex_machina" or lower == "isekai" or lower == "eventually" or lower == "and" or lower == "or" or lower == "not" or lower == "nakama" or lower == "tsundere" or lower == "extern" {
         give back TOK_KW
     }
+    if lower == "while" or lower == "give" or lower == "back" { give back TOK_KW }
     if lower == "true" or lower == "false" or lower == "yes" or lower == "no" or lower == "hai" or lower == "iie" {
         give back TOK_BOOL
     }
@@ -220,6 +224,8 @@ task lex_string() -> void {
         } else if c == "" {
             fin = true
         } else if c == "\\" {
+            pilot escape_line = lex_line
+            pilot escape_column = lex_col - 1
             pilot esc = lex_advance()
             if esc == "n" { res = res + "\n" }
             else if esc == "r" { res = res + "\r" }
@@ -251,7 +257,20 @@ task lex_string() -> void {
                     )
                     res = res + "\\x"
                 }
-            } else { res = res + esc }
+            } else if esc == "\"" { res = res + esc }
+            else if esc == "\\" { res = res + "\\" + "x5C" }
+            else if esc == "{" { res = res + "\\" + "x7B" }
+            else if esc == "}" { res = res + "\\" + "x7D" }
+            else {
+                diag_error_at(
+                    "unknown string escape",
+                    "use n, r, t, quote, backslash, a brace, or x with two hexadecimal digits",
+                    source_map_file(escape_line),
+                    source_map_local_line(escape_line),
+                    escape_column
+                )
+                res = res + esc
+            }
         } else {
             res = res + c
         }
@@ -321,6 +340,12 @@ task tokenize(source: word) -> void {
                 lex_string()
             } else if c == "=" or c == "+" or c == "-" or c == "*" or c == "/" or c == "<" or c == ">" or c == "!" or c == ":" or c == "|" or c == "%" or c == "@" or c == "?" {
                 lex_operators()
+            } else if c == "." and lex_ch_at(1) == "." {
+                lex_advance()
+                lex_advance()
+                pilot range_token = ".."
+                if lex_cur_ch() == "=" { lex_advance() range_token = "..=" }
+                push_token(TOK_PUNCT, range_token)
             } else if c == "{" or c == "}" or c == "(" or c == ")" or c == "[" or c == "]" or c == "," or c == "." {
                 push_token(TOK_PUNCT, c)
                 lex_advance()

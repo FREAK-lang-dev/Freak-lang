@@ -90,23 +90,9 @@ jobs:
         run: |
           mkdir -p build
           rm -f build/freakc_cli.fk
-          cat std/version.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/globals.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/helpers.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/lexer.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/parser.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/checker.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/emit_c.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/emit_llvm.fk >> build/freakc_cli.fk
-          cat src/cli/version.fk >> build/freakc_cli.fk
-          cat src/cli/toml.fk >> build/freakc_cli.fk
-          cat src/cli/lockfile.fk >> build/freakc_cli.fk
-          cat src/cli/build.fk >> build/freakc_cli.fk
-          cat src/cli/run.fk >> build/freakc_cli.fk
-          cat src/cli/hangar.fk >> build/freakc_cli.fk
-          cat src/cli/doctor.fk >> build/freakc_cli.fk
-          cat src/cli/audit.fk >> build/freakc_cli.fk
-          cat src/cli/main.fk >> build/freakc_cli.fk
+          while IFS= read -r source; do
+            cat "$source" >> build/freakc_cli.fk
+          done < packaging/cli-sources.manifest
           ./build/freakc_v3_stage2$EXT build/freakc_cli.fk --c
           clang -o build/freak$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           # Create hangar binary (BusyBox pattern)
@@ -166,6 +152,23 @@ jobs:
         shell: bash
         run: python -u tests/v3_legacy_golden.py ./build/freak$EXT
 
+      - name: V3.5 native statement separators
+        shell: bash
+        run: python -u tests/v3_v35_language.py --compiler ./build/freakc_v3_stage2$EXT
+
+      - name: V3.5 truthful Hangar failures
+        shell: bash
+        run: |
+          python -u tests/v3_v35_hangar.py --freak ./build/freak$EXT \
+            --hangar ./build/hangar$EXT --clang "$(command -v clang)"
+
+      - name: V3.5 process and CLI contracts
+        shell: bash
+        run: |
+          python -u tests/v3_v35_process_builtins.py --compiler ./build/freakc_v3_stage2$EXT
+          python -u tests/v3_v35_process.py --clang "$(command -v clang)"
+          python -u tests/v3_v35_cli.py ./build/freak$EXT --clang "$(command -v clang)"
+
       - name: V3 frozen UI surface
         shell: bash
         run: python -u tests/v3_ui_surface.py ./build/freak$EXT
@@ -179,7 +182,7 @@ jobs:
           with open("doctor.json", "r", encoding="utf-8") as handle:
               doc = json.load(handle)
           assert doc["schema"] == "freak.doctor.v1"
-          assert doc["checks"]["stdlib"]["modules_expected"] == 11
+          assert doc["checks"]["stdlib"]["modules_expected"] == 15
           assert "clang" in doc["checks"]
           PY
 
@@ -240,6 +243,18 @@ jobs:
       - name: Test - V3 run freshness and installer cleanup
         shell: bash
         run: python -u tests/v3_run_freshness.py ./build/freak$EXT
+
+      - name: Test - V3 run tool identity
+        shell: bash
+        run: python -B -u tests/v3_run_tool_identity.py --freak ./build/freak$EXT --json run-tool-identity.json
+
+      - name: Retain V3 run tool identity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-tool-identity-${{ matrix.os }}
+          path: run-tool-identity.json
+          if-no-files-found: ignore
 
       - name: Test - V3 platform helper regressions
         shell: bash
@@ -343,23 +358,9 @@ jobs:
         run: |
           mkdir -p build
           rm -f build/freakc_cli.fk
-          cat std/version.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/globals.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/helpers.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/lexer.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/parser.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/checker.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/emit_c.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/emit_llvm.fk >> build/freakc_cli.fk
-          cat src/cli/version.fk >> build/freakc_cli.fk
-          cat src/cli/toml.fk >> build/freakc_cli.fk
-          cat src/cli/lockfile.fk >> build/freakc_cli.fk
-          cat src/cli/build.fk >> build/freakc_cli.fk
-          cat src/cli/run.fk >> build/freakc_cli.fk
-          cat src/cli/hangar.fk >> build/freakc_cli.fk
-          cat src/cli/doctor.fk >> build/freakc_cli.fk
-          cat src/cli/audit.fk >> build/freakc_cli.fk
-          cat src/cli/main.fk >> build/freakc_cli.fk
+          while IFS= read -r source; do
+            cat "$source" >> build/freakc_cli.fk
+          done < packaging/cli-sources.manifest
           ./build/freakc_v3_stage2$EXT build/freakc_cli.fk --c
           clang -o build/freak$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           # Create hangar binary (BusyBox pattern)
@@ -461,6 +462,23 @@ jobs:
         shell: bash
         run: python -u tests/v3_legacy_golden.py ./build/freak$EXT
 
+      - name: V3.5 native statement separators
+        shell: bash
+        run: python -u tests/v3_v35_language.py --compiler ./build/freakc_v3_stage2$EXT
+
+      - name: V3.5 truthful Hangar failures
+        shell: bash
+        run: |
+          python -u tests/v3_v35_hangar.py --freak ./build/freak$EXT \
+            --hangar ./build/hangar$EXT --clang "$(command -v clang)"
+
+      - name: V3.5 process and CLI contracts
+        shell: bash
+        run: |
+          python -u tests/v3_v35_process_builtins.py --compiler ./build/freakc_v3_stage2$EXT
+          python -u tests/v3_v35_process.py --clang "$(command -v clang)"
+          python -u tests/v3_v35_cli.py ./build/freak$EXT --clang "$(command -v clang)"
+
       - name: V3 frozen UI surface
         shell: bash
         run: python -u tests/v3_ui_surface.py ./build/freak$EXT
@@ -474,7 +492,7 @@ jobs:
           with open("doctor.json", "r", encoding="utf-8") as handle:
               doc = json.load(handle)
           assert doc["schema"] == "freak.doctor.v1"
-          assert doc["checks"]["stdlib"]["modules_expected"] == 11
+          assert doc["checks"]["stdlib"]["modules_expected"] == 15
           assert "clang" in doc["checks"]
           PY
 
@@ -535,6 +553,18 @@ jobs:
       - name: Test - V3 run freshness and installer cleanup
         shell: bash
         run: python -u tests/v3_run_freshness.py ./build/freak$EXT
+
+      - name: Test - V3 run tool identity
+        shell: bash
+        run: python -B -u tests/v3_run_tool_identity.py --freak ./build/freak$EXT --json run-tool-identity.json
+
+      - name: Retain V3 run tool identity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-tool-identity-windows
+          path: run-tool-identity.json
+          if-no-files-found: ignore
 
       - name: Test - V3 platform helper regressions
         shell: bash

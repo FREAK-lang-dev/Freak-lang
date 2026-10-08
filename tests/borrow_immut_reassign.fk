@@ -8,5 +8,3 @@ task main() -> int {
     say "counter = " + word_from_int(counter)
     give back 0
 }
-
-main()

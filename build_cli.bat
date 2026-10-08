@@ -13,20 +13,14 @@ for %%F in (build\freakc_cli.fk build\freakc_cli.fk.c build\freakc_v3_stage1.fk 
     if errorlevel 1 exit /b 1
 )
 
-rem Standard library
-call :append_source std\version.fk build\freakc_cli.fk new
+rem One ordered source inventory drives local and CI CLI reconstruction.
+call :require_file packaging\cli-sources.manifest "CLI source inventory"
 if errorlevel 1 exit /b 1
-
-rem V3 Compiler internals
-for %%F in (src\compiler\v3\globals.fk src\compiler\v3\helpers.fk src\compiler\v3\lexer.fk src\compiler\v3\parser.fk src\compiler\v3\checker.fk src\compiler\v3\emit_c.fk src\compiler\v3\emit_llvm.fk) do (
-    call :append_source "%%F" build\freakc_cli.fk append
+set "freak_cli_append_mode=new"
+for /f "usebackq delims=" %%F in ("packaging\cli-sources.manifest") do (
+    call :append_source "%%F" build\freakc_cli.fk !freak_cli_append_mode!
     if errorlevel 1 exit /b 1
-)
-
-rem CLI modules (dependencies before dependents, main last)
-for %%F in (src\cli\version.fk src\cli\toml.fk src\cli\lockfile.fk src\cli\build.fk src\cli\run.fk src\cli\hangar.fk src\cli\doctor.fk src\cli\audit.fk src\cli\main.fk) do (
-    call :append_source "%%F" build\freakc_cli.fk append
-    if errorlevel 1 exit /b 1
+    set "freak_cli_append_mode=append"
 )
 
 echo [Stage 2] Building fresh V3 stage1 + stage2 compilers...

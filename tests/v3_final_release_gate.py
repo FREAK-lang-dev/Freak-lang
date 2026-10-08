@@ -104,8 +104,12 @@ def manifest_entries(repo: Path) -> list[tuple[Path, str]]:
             assert destination == "runtime/" + source_text.removeprefix(
                 "freakc/runtime/"
             ), (source_text, destination)
+        elif source_text.startswith("third_party/llhttp/"):
+            assert destination == "runtime/" + source_text, (source_text, destination)
+        elif source_text == "src/compiler/v4/native-runtime.manifest":
+            assert destination == "runtime/v4-native.manifest", (source_text, destination)
         else:
-            assert source_text.startswith("std/"), source_text
+            assert source_text.startswith(("std/", "templates/v35/")), source_text
             assert destination == source_text, (source_text, destination)
         source = (repo / source_text).resolve()
         source.relative_to(repo.resolve())
@@ -569,7 +573,9 @@ def assert_exact_installed_discovery(
     assert "compile, link, and execution work" in doctor.stdout
 
     hello = hostile / "installed_hello.fk"
-    hello.write_text('say "FINAL_RELEASE_INSTALLED_OK"\n', encoding="utf-8")
+    hello.write_text(
+        'task main() { say "FINAL_RELEASE_INSTALLED_OK" }\n', encoding="utf-8"
+    )
     built = run([str(freak), "build", str(hello)], hostile, env, timeout=300)
     require_ok(built, "installed compiler build")
     if sys.platform == "win32":
@@ -594,7 +600,7 @@ def assert_installed_abi_mismatch(
     Verify that installed runtime and standard-library ABI mismatches fail closed for C and LLVM builds and are reported by Doctor.
     """
     source = root / "abi_mismatch.fk"
-    source.write_text('say "must not compile"\n', encoding="utf-8")
+    source.write_text('task main() { say "must not compile" }\n', encoding="utf-8")
     binary = source.with_suffix(".exe" if sys.platform == "win32" else "")
     outputs = (
         Path(str(source) + ".c"),
@@ -889,7 +895,7 @@ def main() -> int:
     base_env = os.environ.copy()
     base_env["NO_COLOR"] = "1"
     with tempfile.TemporaryDirectory(prefix="freak-v3-final-release-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve(strict=True)
         assert_archive_safety_controls(root)
         archive = supplied_archive or create_release_archive(
             repo=repo,

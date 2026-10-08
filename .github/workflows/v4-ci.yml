@@ -49,25 +49,9 @@ jobs:
           "$root/freakc_seed" "$root/freakc_v3.fk" --c
           clang -o "$root/freakc_stage2" "$root/freakc_v3.fk.c" \
             freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O0 -lm
-          cat \
-            std/version.fk \
-            src/compiler/v3/globals.fk \
-            src/compiler/v3/helpers.fk \
-            src/compiler/v3/lexer.fk \
-            src/compiler/v3/parser.fk \
-            src/compiler/v3/checker.fk \
-            src/compiler/v3/emit_c.fk \
-            src/compiler/v3/emit_llvm.fk \
-            src/cli/version.fk \
-            src/cli/toml.fk \
-            src/cli/lockfile.fk \
-            src/cli/build.fk \
-            src/cli/run.fk \
-            src/cli/hangar.fk \
-            src/cli/doctor.fk \
-            src/cli/audit.fk \
-            src/cli/main.fk \
-            > "$root/freakc_cli.fk"
+          while IFS= read -r source; do
+            cat "$source" >> "$root/freakc_cli.fk"
+          done < packaging/cli-sources.manifest
           "$root/freakc_stage2" "$root/freakc_cli.fk" --c
           clang -o "$root/freak" "$root/freakc_cli.fk.c" \
             freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O0 -lm

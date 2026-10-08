@@ -184,7 +184,13 @@ freak doctor --json   # passive machine-readable report for editors and scripts
 freak doctor --fix    # install/repair dependencies and the distribution payload
 ```
 
-`freak doctor` verifies that Clang can parse the platform's standard C headers, link a native executable, and run it; a working `clang --version` alone is rejected. It also checks optional LLD, all required runtime/UI files, all 11 shipped stdlib modules, and a complete FREAK compile-link-execute probe. It exits nonzero when required checks fail and removes its probe artifacts. `--json` keeps the additive `freak.doctor.v1` schema, uses a unique system-temporary toolchain probe, and reports exact missing files without installing or repairing anything.
+`freak doctor` verifies that Clang can parse the platform's standard C headers, link a native executable, and run it; a working `clang --version` alone is rejected. It also checks optional LLD, all required runtime/UI files, all 15 shipped stdlib modules, and a complete FREAK compile-link-execute probe. It exits nonzero when required checks fail and removes its probe artifacts. `--json` keeps the additive `freak.doctor.v1` schema, uses a unique system-temporary toolchain probe, and reports exact missing files without installing or repairing anything.
+
+The LLVM profile requires upstream Clang 15 or later, or Apple Clang 15 or
+later, plus a working native SDK and linker. Doctor reports the selected
+executable, recognized vendor/version, minimum, and the real probe result.
+`FREAK_CLANG` selects one executable path; a missing explicit selection fails
+instead of substituting a different compiler.
 
 `freak upgrade` remains the supported upgrade command. Current clients route it through the staged tagged installer. Windows keeps `.next` binaries plus a durable `.freak-upgrade-pending` marker, waits for the invoking installer process to exit, then hash-verifies and swaps both binaries as one rollback-capable transaction; Doctor reports the pending state and builds refuse to mix the old compiler with the newly staged payload. A failed attempt retains recovery state for retry. The immutable v0.14.0 updater predates recursive payloads and deferred self-replacement: on Linux/macOS, run `freak upgrade` once for the retained standalone-binary hop and again with the new client to install the complete payload; on Windows, bootstrap once with the PowerShell installer above, then use `freak upgrade` normally. Package-manager installs should likewise refresh through their manager or the installer so `FREAK_HOME` stays aligned.
 
@@ -203,6 +209,16 @@ Compile and run:
 ```bash
 freak run hello.fk
 ```
+
+Pass program arguments after `--`, with compiler options before it:
+
+```bash
+freak run hello.fk --llvm -- "Ada Lovelace" ""
+```
+
+Arguments remain literal, including spaces, empty values, Unicode and shell
+metacharacters. The program inherits terminal input and output; its exit status
+is returned by `freak run`.
 
 `freak run` reuses the adjacent `.freak-run-cache` sidecar only when the
 source, loaded standard library, resolved compiler executable/toolchain,

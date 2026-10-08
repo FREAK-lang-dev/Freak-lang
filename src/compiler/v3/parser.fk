@@ -169,7 +169,22 @@ task parser_alloc_interp_path(path: word, origin_file: word, origin_line: word) 
     give back expr_id
 }
 
-task parser_alloc_string_expr(value: word, origin_file: word, origin_line: word) -> int {
+task parser_interp_expression_like(body: word) -> bool {
+    -- Object/JSON-like brace text has an established literal contract.
+    if body.contains(":") { give back false }
+    pilot text = body.trim()
+    if text == "" { give back false }
+    pilot first = text.char_at(0)
+    give back is_alphabetic(first) or is_numeric(first) or first == "(" or first == "+" or first == "-" or first == "!"
+}
+
+task parser_interp_unclosed_expression_like(body: word) -> bool {
+    if not parser_interp_expression_like(body) { give back false }
+    if parser_interp_path_valid(body.trim()) { give back true }
+    give back body.contains("(") or body.contains("+") or body.contains("-") or body.contains("*") or body.contains("/") or body.contains("=")
+}
+
+task parser_alloc_string_expr(value: word, origin_file: word, origin_line: word, origin_column: int) -> int {
     pilot segments = ""
     pilot literal = ""
     pilot has_path = false
@@ -192,10 +207,16 @@ task parser_alloc_string_expr(value: word, origin_file: word, origin_line: word)
                     has_path = true
                     i = close + 1
                 } else {
+                    if parser_interp_expression_like(body) {
+                        diag_error_at("unsupported interpolation expression", "use a binding or field path, or escape literal braces", origin_file, word_to_int(origin_line), origin_column)
+                    }
                     literal = literal + value.substring(i, close - i + 1)
                     i = close + 1
                 }
             } else {
+                if parser_interp_unclosed_expression_like(value.substring(i + 1, value.length() - i - 1)) {
+                    diag_error_at("unterminated interpolation expression", "close the field path or escape the literal brace", origin_file, word_to_int(origin_line), origin_column)
+                }
                 literal = literal + c
                 i += 1
             }
@@ -212,11 +233,20 @@ task parser_alloc_string_expr(value: word, origin_file: word, origin_line: word)
     give back alloc_expr_at(EXPR_INTERP, "", segments, "", origin_file, origin_line)
 }
 
+task parser_decimal_integer(spelling: word) -> word {
+    pilot start = 0
+    repeat until start + 1 >= spelling.length() or spelling.char_at(start) != "0" {
+        start += 1
+    }
+    give back spelling.substring(start, spelling.length() - start)
+}
+
 task parse_primary() -> int {
     pilot ttype = cur_tok_type()
     pilot tval = cur_tok_val()
     pilot expr_file = current_source_file()
     pilot expr_line = current_source_line()
+    pilot expr_column = current_source_col()
 
     if ttype == TOK_EOF or ttype == "" {
         diag_error("expected an expression, found end of file", "complete the expression")
@@ -233,22 +263,33 @@ task parse_primary() -> int {
             nci += 1
         }
         if is_float { give back alloc_expr_at(EXPR_FLOAT, tval, "", "", expr_file, expr_line) }
-        give back alloc_expr_at(EXPR_INT, tval, "", "", expr_file, expr_line)
+        give back alloc_expr_at(EXPR_INT, parser_decimal_integer(tval), "", "", expr_file, expr_line)
     }
     if ttype == TOK_STR {
         advance_tok()
-        give back parser_alloc_string_expr(tval, expr_file, expr_line)
+        give back parser_alloc_string_expr(tval, expr_file, expr_line, expr_column)
     }
     if ttype == TOK_BOOL {
         advance_tok()
-        give back alloc_expr_at(EXPR_BOOL, tval, "", "", expr_file, expr_line)
+        pilot truth = tval.to_lower()
+        if truth == "true" or truth == "yes" or truth == "hai" { truth = "true" }
+        else { truth = "false" }
+        give back alloc_expr_at(EXPR_BOOL, truth, "", "", expr_file, expr_line)
     }
     if ttype == TOK_IDENT {
         advance_tok()
 
         -- Namespace: foo::bar
         if match_tok(TOK_PUNCT, "::") {
-            pilot ntval = parser_take_ident("namespace segment after '::'")
+            pilot ntval = ""
+            -- The checked status operation is a reserved arm keyword only
+            -- outside this frozen builtin namespace.
+            if tval == "json_document" and cur_tok_type() == TOK_KW and cur_tok_val() == "ok" {
+                ntval = cur_tok_val()
+                advance_tok()
+            } else {
+                ntval = parser_take_ident("namespace segment after '::'")
+            }
             if ntval != "" {
                 tval = tval + "::" + ntval
             }
@@ -596,6 +637,14 @@ task parse_expr() -> int {
 
 -- ===================== BLOCK + STATEMENT PARSING =====================
 
+-- Separators belong to statement lists, not expression parsing. In
+-- particular, keep header semicolons available to counted-loop parsing.
+task parser_skip_statement_separators() -> void {
+    repeat until cur_tok_type() != TOK_PUNCT or cur_tok_val() != ";" {
+        advance_tok()
+    }
+}
+
 task parse_block() -> word {
     pilot opener_file = current_source_file()
     pilot opener_line = word_to_int(current_source_line())
@@ -605,6 +654,7 @@ task parse_block() -> word {
     pilot block = ""
     pilot fin = false
     pilot is_first = true
+    parser_skip_statement_separators()
     if match_tok(TOK_PUNCT, "}") { fin = true }
     repeat until fin {
         if cur_tok_type() == TOK_EOF or cur_tok_type() == "" {
@@ -618,6 +668,7 @@ task parse_block() -> word {
             } else {
                 block = block + "," + word_from_int(stmt_id)
             }
+            parser_skip_statement_separators()
             if match_tok(TOK_PUNCT, "}") { fin = true }
         }
     }
@@ -660,10 +711,7 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_EVENTUALLY, "", "", ev_body, "", "", "", "", stmt_line)
     }
 
-    -- fixed pilot name = expr  (immutable binding; treated identically to
-    --                            `pilot` here since the v3 emitter doesn't
-    --                            track mutability — the type checker will
-    --                            eventually enforce the `fixed` half.)
+    -- The fixed marker is enforced by the always-on semantic checker.
     if match_tok(TOK_KW, "fixed") {
         if not match_tok(TOK_KW, "pilot") {
             diag_error("expected 'pilot' after 'fixed'", "")
@@ -676,7 +724,9 @@ task parse_stmt() -> int {
         }
         expect_tok(TOK_PUNCT, "=")
         pilot fexpr_id = parse_expr()
-        give back alloc_stmt(STMT_PILOT, fname, word_from_int(fexpr_id), "", "", ftype_ann, "", "", stmt_line)
+        pilot fixed_id = alloc_stmt(STMT_PILOT, fname, word_from_int(fexpr_id), "", "", ftype_ann, "", "", stmt_line)
+        array_set(ast_pilot_is_mut, fixed_id, "fixed")
+        give back fixed_id
     }
 
     -- pilot [mut] name = expr
@@ -699,7 +749,7 @@ task parse_stmt() -> int {
     -- give back expr
     if match_tok(TOK_KW, "give back") {
         pilot expr_id = 0 - 1
-        if cur_tok_type() != TOK_PUNCT or cur_tok_val() != "}" {
+        if cur_tok_type() != TOK_PUNCT or (cur_tok_val() != "}" and cur_tok_val() != ";") {
             expr_id = parse_expr()
         }
         give back alloc_stmt(STMT_GIVE_BACK, "", word_from_int(expr_id), "", "", "", "", "", stmt_line)
@@ -709,8 +759,36 @@ task parse_stmt() -> int {
         pilot binder = parser_take_ident("iteration binding")
         expect_tok(TOK_KW, "in")
         pilot receiver = parse_expr()
+        if cur_tok_type() == TOK_PUNCT and (cur_tok_val() == ".." or cur_tok_val() == "..=") {
+            pilot inclusive = cur_tok_val()
+            advance_tok()
+            pilot upper = parse_expr()
+            pilot step = alloc_expr(EXPR_INT, "1", "", "")
+            if cur_tok_type() == TOK_IDENT and cur_tok_val() == "step" { advance_tok() step = parse_expr() }
+            pilot body = parse_block()
+            give back alloc_stmt(STMT_RANGE, binder, word_from_int(receiver), body, word_from_int(upper), word_from_int(step), inclusive, "", stmt_line)
+        }
         pilot body = parse_block()
         give back alloc_stmt(STMT_FOREACH, binder, word_from_int(receiver), body, "", "", "", "", stmt_line)
+    }
+
+    -- break / continue
+    if match_tok(TOK_KW, "for") {
+        expect_tok(TOK_PUNCT, "(")
+        pilot valid_initializer = cur_tok_type() == TOK_KW and cur_tok_val() == "pilot"
+        if not valid_initializer { diag_error("counted for initializer must start with pilot", "") }
+        pilot initializer = parse_stmt()
+        if array_get(ast_stmt_kinds, initializer) != STMT_PILOT { diag_error("counted for initializer must be a pilot binding", "") }
+        if valid_initializer { array_set(ast_pilot_is_mut, initializer, "1") }
+        expect_tok(TOK_PUNCT, ";")
+        pilot condition = parse_expr()
+        expect_tok(TOK_PUNCT, ";")
+        pilot step = parse_stmt()
+        pilot step_kind: word = array_get(ast_stmt_kinds, step)
+        if step_kind != STMT_ASSIGN and step_kind != STMT_EXPR { diag_error("counted for step must be an assignment or expression", "") }
+        expect_tok(TOK_PUNCT, ")")
+        pilot body = parse_block()
+        give back alloc_stmt(STMT_FOR, "", word_from_int(condition), body, word_from_int(initializer), word_from_int(step), "", "", stmt_line)
     }
 
     -- break / continue
@@ -737,17 +815,31 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_IF, "", word_from_int(expr_id), body_id, else_body, "", "", "", stmt_line)
     }
 
-    -- repeat until cond { body }  /  repeat N times { body }
+    -- Both spellings use the same pretest loop and positive condition.
+    if match_tok(TOK_KW, "while") {
+        pilot expr_id = parse_expr()
+        pilot body_id = parse_block()
+        give back alloc_stmt(STMT_REPEAT, "while", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
+    }
+
+    -- repeat until/while cond { body }  /  repeat N times { body }
     if match_tok(TOK_KW, "repeat") {
         if match_tok(TOK_KW, "until") {
             pilot expr_id = parse_expr()
             pilot body_id = parse_block()
             give back alloc_stmt(STMT_REPEAT, "until", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
         }
+        if match_tok(TOK_KW, "while") {
+            pilot expr_id = parse_expr()
+            pilot body_id = parse_block()
+            give back alloc_stmt(STMT_REPEAT, "while", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
+        }
         pilot expr_id = parse_expr()
         expect_tok(TOK_KW, "times")
+        pilot binder = ""
+        if cur_tok_type() == TOK_IDENT and cur_tok_val() == "with" { advance_tok() binder = parser_take_ident("repeat iteration binding") }
         pilot body_id = parse_block()
-        give back alloc_stmt(STMT_REPEAT, "times", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
+        give back alloc_stmt(STMT_REPEAT, "times", word_from_int(expr_id), body_id, "", binder, "", "", stmt_line)
     }
 
     -- training arc until cond max N sessions { body }
@@ -759,6 +851,11 @@ task parse_stmt() -> int {
         expect_tok(TOK_KW, "sessions")
         pilot body_id = parse_block()
         give back alloc_stmt(STMT_TRAINING_ARC, "", word_from_int(cond_id), body_id, "", word_from_int(max_id), "", "", stmt_line)
+    }
+
+    if match_tok(TOK_KW, "check") {
+        expect_tok(TOK_KW, "result")
+        give back parse_check_result()
     }
 
     -- when expr { val -> stmt, ... }
@@ -958,6 +1055,49 @@ task parse_impl() -> int {
     give back alloc_stmt(STMT_IMPL, impl_name, "", "", "", doctrine_name, "", "", stmt_line)
 }
 
+-- The v3.5 result slice is closed to the checked file-read carrier. Each arm
+-- introduces one owned word in its own block; both alternatives are required.
+task parse_check_result() -> int {
+    pilot stmt_line = current_source_location()
+    pilot target = parse_expr()
+    expect_tok(TOK_PUNCT, "{")
+    pilot ok_name = ""
+    pilot err_name = ""
+    pilot ok_body = ""
+    pilot err_body = ""
+    pilot finished = false
+    repeat until finished {
+        parser_skip_statement_separators()
+        if match_tok(TOK_PUNCT, "}") { finished = true }
+        else if parser_at_eof() {
+            diag_error("unclosed check result block", "expected '}'")
+            finished = true
+        } else {
+            pilot arm = cur_tok_val()
+            if not match_tok(TOK_KW, "ok") and not match_tok(TOK_KW, "err") {
+                diag_error("check result arm must be ok or err", "")
+                advance_tok()
+            }
+            expect_tok(TOK_PUNCT, "(")
+            pilot binder = parser_take_ident("check result arm binding")
+            expect_tok(TOK_PUNCT, ")")
+            expect_tok(TOK_PUNCT, "->")
+            pilot body = parse_block()
+            if arm == "ok" {
+                if ok_name != "" { diag_error("duplicate ok arm in check result", "") }
+                ok_name = binder
+                ok_body = body
+            } else if arm == "err" {
+                if err_name != "" { diag_error("duplicate err arm in check result", "") }
+                err_name = binder
+                err_body = body
+            }
+        }
+    }
+    if ok_name == "" or err_name == "" { diag_error("check result requires exactly one ok arm and one err arm", "") }
+    give back alloc_stmt(STMT_CHECK_RESULT, "", word_from_int(target), ok_body, err_body, "", ok_name, err_name, stmt_line)
+}
+
 task parse_when() -> int {
     pilot stmt_line = current_source_location()
     pilot target_id = parse_expr()
@@ -969,6 +1109,7 @@ task parse_when() -> int {
     pilot fin = false
     pilot is_first = true
     repeat until fin {
+        parser_skip_statement_separators()
         if match_tok(TOK_PUNCT, "}") {
             fin = true
         } else if parser_at_eof() {
@@ -990,6 +1131,7 @@ task parse_when() -> int {
             } else {
                 cases_str = cases_str + "," + case_str
             }
+            parser_skip_statement_separators()
         }
     }
     give back alloc_stmt(STMT_WHEN, "", word_from_int(target_id), cases_str, "", "", "", "", stmt_line)
@@ -1058,6 +1200,7 @@ task parse_program() -> void {
     parse_error_count = 0
     pilot pfin = false
     repeat until pfin {
+        parser_skip_statement_separators()
         if cur_tok_type() == TOK_EOF or cur_tok_type() == "" {
             pfin = true
         } else if parse_error_count > 100 {

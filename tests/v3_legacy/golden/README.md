@@ -13,10 +13,10 @@ and backend-local generated-code markers:
 |---|---|---|
 | `01_core` | C, LLVM | typed primitive bindings, integer arithmetic, booleans, and output |
 | `02_control_tasks` | C, LLVM | task calls, repetition, branching, `when`, and `training arc` |
-| `03_shapes_methods` | LLVM | real shape construction, field reads, and instance-method execution |
+| `03_shapes_methods` | C, LLVM | real shape construction, field reads, and instance-method execution |
 | `04_words_stdlib` | C, LLVM | word method calls plus deterministic math and string stdlib calls |
 | `05_interpolation` | C, LLVM | scalar/path interpolation in direct, stored, and returned words |
-| `06_shape_interpolation` | LLVM | dotted shape and `self` interpolation with method execution |
+| `06_shape_interpolation` | C, LLVM | dotted shape and `self` interpolation with method execution |
 
 Run the corpus with an explicit real V3 CLI:
 

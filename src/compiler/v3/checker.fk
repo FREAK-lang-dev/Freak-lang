@@ -38,11 +38,35 @@ task bc_is_copy_type(type_ann: word) -> bool {
     give back false
 }
 
--- Best-effort kind classification when the binding has no type annotation.
--- Conservative: if the RHS is a literal primitive, "copy"; otherwise "owned".
+-- These legacy resource constructors expose int signatures without Copy
+-- ownership. Keep their inferred owners distinct from ordinary scalar results.
+task bc_legacy_owned_handle_factory(name: word) -> bool {
+    if name == "word_builder::new" or name == "word_builder::with_capacity" { give back true }
+    if name == "array_new" { give back true }
+    if name == "tcp::socket_connect" or name == "tcp::socket_listen" or name == "tcp::socket_accept" { give back true }
+    if name == "tcp::connect" or name == "tcp_connect" { give back true }
+    give back name == "ui::create_window"
+}
+
+-- Preserve inferred owner provenance before the semantic pass's scalar facts.
+-- Unknown facts retain the conservative owned fallback.
 task bc_classify_rhs(expr_id: int) -> word {
     if expr_id < 0 { give back "owned" }
     pilot k: word = array_get(ast_expr_kinds, expr_id)
+    if k == EXPR_IDENT {
+        pilot source_symbol = bc_lookup_idx(array_get(ast_expr_vals, expr_id))
+        if source_symbol >= 0 and array_get(bc_sym_kinds, source_symbol) != "copy" {
+            give back array_get(bc_sym_kinds, source_symbol)
+        }
+    }
+    if k == EXPR_CALL and bc_legacy_owned_handle_factory(array_get(ast_expr_vals, expr_id)) {
+        give back "owned"
+    }
+    if expr_id < array_len(tc_checked_expr_types) {
+        pilot checked_type: word = array_get(tc_checked_expr_types, expr_id)
+        if bc_is_copy_type(checked_type) { give back "copy" }
+        if checked_type == "ByteBuffer" { give back "byte_buffer" }
+    }
     if k == EXPR_INT   { give back "copy" }
     if k == EXPR_FLOAT { give back "copy" }
     if k == EXPR_BOOL  { give back "copy" }
@@ -57,7 +81,7 @@ task bc_classify_rhs(expr_id: int) -> word {
         if call_name == "ByteBuffer::new" or call_name == "ByteBuffer::with_capacity" {
             give back "byte_buffer"
         }
-        if tc_task_return_type(call_name) == "ByteBuffer" { give back "byte_buffer" }
+        if tc_task_return_type(call_name) == "ByteBuffer" or tc_builtin_call_type(call_name) == "ByteBuffer" { give back "byte_buffer" }
     }
     if k == EXPR_METHOD and array_get(ast_expr_vals, expr_id) == "slice" {
         pilot receiver = word_to_int(array_get(ast_expr_lefts, expr_id))
@@ -88,7 +112,7 @@ task bc_expr_is_byte_buffer(expr_id: int) -> bool {
     }
     if kind == EXPR_CALL {
         if val == "ByteBuffer::new" or val == "ByteBuffer::with_capacity" { give back true }
-        give back tc_task_return_type(val) == "ByteBuffer"
+        give back tc_task_return_type(val) == "ByteBuffer" or tc_builtin_call_type(val) == "ByteBuffer"
     }
     if kind == EXPR_METHOD and val == "slice" {
         give back bc_expr_is_byte_buffer(word_to_int(array_get(ast_expr_lefts, expr_id)))
@@ -147,11 +171,220 @@ task bc_leave_scope() -> void {
     bc_scope_depth = prev
 }
 
+-- Branches begin with the same outer owners. Only routes that continue
+-- contribute moves to the join; a returned route cannot poison its sibling.
+task bc_capture_states(count: int) -> word {
+    pilot states = ""
+    pilot index = 0
+    repeat count times {
+        if array_get(bc_sym_state, index) == "moved" { states = states + "1" }
+        else { states = states + "0" }
+        index += 1
+    }
+    give back states
+}
+
+task bc_restore_states(states: word, count: int) -> void {
+    pilot index = 0
+    repeat count times {
+        pilot state = "live"
+        if states.char_at(index) == "1" { state = "moved" }
+        array_set(bc_sym_state, index, state)
+        index += 1
+    }
+}
+
+-- Fallthrough is distinct from task return: break/continue leave this block
+-- but retain states at the enclosing loop boundary.
+task bc_block_falls_through(block: word) -> bool {
+    pilot index = 0
+    repeat tc_arg_count(block) times {
+        pilot statement = tc_list_item(block, index)
+        if statement != "" and not bc_stmt_falls_through(word_to_int(statement)) { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task bc_stmt_falls_through(stmt_id: int) -> bool {
+    if stmt_id < 0 { give back true }
+    pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
+    if kind == STMT_GIVE_BACK or kind == STMT_BREAK or kind == STMT_CONTINUE { give back false }
+    if kind == STMT_EXPR and tc_expr_is_terminal(word_to_int(array_get(ast_stmt_exprs, stmt_id))) { give back false }
+    if kind == STMT_BLOCK or kind == STMT_EVENTUALLY { give back bc_block_falls_through(array_get(ast_stmt_bodies, stmt_id)) }
+    if kind == STMT_IF or kind == STMT_CHECK_RESULT {
+        give back bc_block_falls_through(array_get(ast_stmt_bodies, stmt_id)) or bc_block_falls_through(array_get(ast_stmt_else_bodies, stmt_id))
+    }
+    if kind == STMT_WHEN {
+        pilot cases: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot wildcard = false
+        pilot index = 0
+        repeat tc_arg_count(cases) times {
+            pilot item = tc_list_item(cases, index)
+            if tc_case_expr_part(item) == "-1" { wildcard = true }
+            pilot statement = tc_case_stmt_part(item)
+            if statement == "" or bc_stmt_falls_through(word_to_int(statement)) { give back true }
+            index += 1
+        }
+        give back not wildcard
+    }
+    give back true
+}
+
+task bc_at_most_one_iteration(expr_id: int) -> bool {
+    if expr_id < 0 { give back false }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    if kind == EXPR_INT { give back word_to_int(array_get(ast_expr_vals, expr_id)) <= 1 }
+    if kind == EXPR_UNARYOP and array_get(ast_expr_vals, expr_id) == "-" and array_get(ast_expr_kinds, word_to_int(array_get(ast_expr_lefts, expr_id))) == EXPR_INT { give back true }
+    give back false
+}
+
+-- Loop exits retain owner states before later body/step reinitialization.
+-- The initial state also contributes: an ordinary loop may execute zero times.
+task bc_union_states(left: word, right: word, count: int) -> word {
+    pilot states = ""
+    pilot index = 0
+    repeat count times {
+        if left.char_at(index) == "1" or right.char_at(index) == "1" { states = states + "1" }
+        else { states = states + "0" }
+        index += 1
+    }
+    give back states
+}
+
+task bc_record_loop_exit() -> void {
+    if not bc_loop_active { give back }
+    bc_loop_exit_states = bc_union_states(bc_loop_exit_states, bc_capture_states(bc_loop_outer_count), bc_loop_outer_count)
+}
+
+task bc_record_loop_backedge() -> void {
+    if not bc_loop_active { give back }
+    pilot states = bc_capture_states(bc_loop_outer_count)
+    if bc_loop_backedge_seen { bc_loop_backedge_states = bc_union_states(bc_loop_backedge_states, states, bc_loop_outer_count) }
+    else { bc_loop_backedge_states = states }
+    bc_loop_backedge_seen = true
+}
+
+task bc_walk_loop_route(body: word, binder: word, binder_kind: word, line: int, step_id: int) -> void {
+    bc_enter_scope()
+    if binder != "" { bc_push_sym(binder, binder_kind, "0", line) }
+    bc_walk_block(body)
+    bc_leave_scope()
+    if bc_block_falls_through(body) { bc_record_loop_backedge() }
+    if step_id >= 0 and bc_loop_backedge_seen {
+        bc_restore_states(bc_loop_backedge_states, bc_loop_outer_count)
+        bc_walk_stmt(step_id)
+        if bc_stmt_falls_through(step_id) { bc_loop_backedge_states = bc_capture_states(bc_loop_outer_count) }
+        else { bc_loop_backedge_seen = false }
+    }
+}
+
+task bc_walk_loop(body: word, binder: word, binder_kind: word, line: int, step_id: int, recheck_expr: int, repeats: bool) -> void {
+    pilot saved_active = bc_loop_active
+    pilot saved_count = bc_loop_outer_count
+    pilot saved_exits = bc_loop_exit_states
+    pilot saved_backedges = bc_loop_backedge_states
+    pilot saved_seen = bc_loop_backedge_seen
+    pilot outer_count = bc_sym_count
+    bc_loop_active = true
+    bc_loop_outer_count = outer_count
+    bc_loop_exit_states = bc_capture_states(outer_count)
+    bc_loop_backedge_states = ""
+    bc_loop_backedge_seen = false
+    bc_walk_loop_route(body, binder, binder_kind, line, step_id)
+    pilot first_backedges = bc_loop_backedge_states
+    pilot first_seen = bc_loop_backedge_seen
+    if repeats and first_seen and not bc_backedge_rechecking {
+        -- One conservative repeated-route check, not fixed-point inference.
+        -- Nested loops already receive their own first-pass check; suppress
+        -- nested rechecks in this pass to keep traversal bounded by depth.
+        bc_restore_states(first_backedges, outer_count)
+        bc_loop_backedge_states = ""
+        bc_loop_backedge_seen = false
+        bc_backedge_rechecking = true
+        if recheck_expr >= 0 {
+            bc_walk_expr(recheck_expr, false, line)
+            bc_record_loop_exit()
+        }
+        bc_walk_loop_route(body, binder, binder_kind, line, step_id)
+        bc_backedge_rechecking = false
+    }
+    pilot states = bc_loop_exit_states
+    if first_seen { states = bc_union_states(states, first_backedges, outer_count) }
+    if bc_loop_backedge_seen { states = bc_union_states(states, bc_loop_backedge_states, outer_count) }
+    bc_restore_states(states, outer_count)
+    bc_loop_active = saved_active
+    bc_loop_outer_count = saved_count
+    bc_loop_exit_states = saved_exits
+    bc_loop_backedge_states = saved_backedges
+    bc_loop_backedge_seen = saved_seen
+}
+
+task bc_walk_branches(then_body: word, else_body: word, then_name: word, else_name: word, line: int) -> void {
+    pilot outer_count = bc_sym_count
+    pilot initial_states = bc_capture_states(outer_count)
+    bc_enter_scope()
+    if then_name != "" { bc_push_sym(then_name, "owned", "0", line) }
+    bc_walk_block(then_body)
+    bc_leave_scope()
+    pilot then_states = bc_capture_states(outer_count)
+    bc_restore_states(initial_states, outer_count)
+    bc_enter_scope()
+    if else_name != "" { bc_push_sym(else_name, "owned", "0", line) }
+    bc_walk_block(else_body)
+    bc_leave_scope()
+    pilot else_states = bc_capture_states(outer_count)
+    pilot then_terminal = not bc_block_falls_through(then_body)
+    pilot else_terminal = not bc_block_falls_through(else_body)
+    pilot index = 0
+    repeat outer_count times {
+        pilot moved = false
+        if not then_terminal and then_states.char_at(index) == "1" { moved = true }
+        if not else_terminal and else_states.char_at(index) == "1" { moved = true }
+        pilot state = "live"
+        if moved { state = "moved" }
+        array_set(bc_sym_state, index, state)
+        index += 1
+    }
+}
+
+-- Each when arm begins with the same owners, like an if branch. A missing
+-- wildcard keeps the no-match route; function-terminal arms do not join.
+task bc_walk_when(cases: word, line: int) -> void {
+    pilot outer_count = bc_sym_count
+    pilot initial_states = bc_capture_states(outer_count)
+    pilot joined_states = initial_states
+    pilot joined = false
+    pilot wildcard = false
+    pilot index = 0
+    repeat tc_arg_count(cases) times {
+        pilot item = tc_list_item(cases, index)
+        if tc_case_expr_part(item) == "-1" { wildcard = true }
+        pilot statement = tc_case_stmt_part(item)
+        bc_restore_states(initial_states, outer_count)
+        bc_enter_scope()
+        if statement != "" { bc_walk_stmt(word_to_int(statement)) }
+        bc_leave_scope()
+        if statement != "" and bc_stmt_falls_through(word_to_int(statement)) {
+            pilot states = bc_capture_states(outer_count)
+            if joined { joined_states = bc_union_states(joined_states, states, outer_count) }
+            else { joined_states = states joined = true }
+        }
+        index += 1
+    }
+    if not wildcard {
+        if joined { joined_states = bc_union_states(joined_states, initial_states, outer_count) }
+        else { joined_states = initial_states joined = true }
+    }
+    if joined { bc_restore_states(joined_states, outer_count) }
+    else { bc_restore_states(initial_states, outer_count) }
+}
+
 -- ---------- Diagnostic emission -------------------------------------
 -- The borrow checker runs after parsing, so diagnostics use the current
 -- statement's stored source provenance rather than the exhausted token cursor.
 
-task bc_diag(msg: word, name: word, line: int) -> void {
+task bc_diag_code(code: word, msg: word, name: word, line: int) -> void {
     error_count += 1
     if line <= 0 { line = 1 }
     pilot source_file = bc_current_source_file
@@ -159,6 +392,7 @@ task bc_diag(msg: word, name: word, line: int) -> void {
     pilot at_name: word = ""
     if name != "" { at_name = " '" + name + "'" }
     pilot line_word = word_from_int(line)
+    diag_record_fact(code, msg + at_name, "", source_file, line, 1)
     say "\x1b[1;31mborrowck\x1b[0m: " + msg + at_name + " (line " + line_word + ")"
     say " --> " + source_file + ":" + line_word + ":1"
     say line_word + " | " + get_file_source_line(source_file, line)
@@ -167,11 +401,13 @@ task bc_diag(msg: word, name: word, line: int) -> void {
 
 -- Anime-voiced canonical messages from Bible §4.1, §4.2.
 task bc_err_use_after_move(name: word, line: int) -> void {
-    bc_diag("Shirogane. You gave this away. It no longer belongs to you.", name, line)
+    bc_diag_code("E0003", "Shirogane. You gave this away. It no longer belongs to you.", name, line)
 }
 
+task bc_diag(msg: word, name: word, line: int) -> void { bc_diag_code("", msg, name, line) }
+
 task bc_err_assign_immut(name: word, line: int) -> void {
-    bc_diag("This binding was sworn to silence. It cannot be reassigned.", name, line)
+    bc_diag_code("E0004", "This binding was sworn to silence. It cannot be reassigned.", name, line)
 }
 
 -- ---------- Expression walk -----------------------------------------
@@ -284,6 +520,10 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
 }
 
 task bc_builtin_consumes_handle(name: word) -> bool {
+    if name == "http_server::close" or name == "http_server::request_release" { give back true }
+    if name == "json_document::release" { give back true }
+    if name == "fs::result_release" { give back true }
+    if name == "process::command_release" { give back true }
     give back name == "word_builder::finish" or name == "word_builder::discard" or name == "word_join" or name == "array_release" or name == "tcp::socket_close" or name == "tcp::close" or name == "tcp_close" or name == "ui::destroy_window"
 }
 
@@ -410,29 +650,42 @@ task bc_walk_stmt(stmt_id: int) -> void {
         give back
     }
 
+    if kind == STMT_CHECK_RESULT {
+        bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
+        bc_walk_branches(array_get(ast_stmt_bodies, stmt_id), array_get(ast_stmt_else_bodies, stmt_id), array_get(ast_task_params, stmt_id), array_get(ast_task_returns, stmt_id), line)
+        give back
+    }
     if kind == STMT_IF {
         pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
         pilot then_w: word = array_get(ast_stmt_bodies, stmt_id)
         pilot else_w: word = array_get(ast_stmt_else_bodies, stmt_id)
         bc_walk_expr(word_to_int(cond_w), false, line)
-        bc_enter_scope()
-        bc_walk_block(then_w)
-        bc_leave_scope()
-        if else_w != "" {
-            bc_enter_scope()
-            bc_walk_block(else_w)
-            bc_leave_scope()
-        }
+        bc_walk_branches(then_w, else_w, "", "", line)
         give back
     }
 
     if kind == STMT_FOREACH {
         bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
-        bc_enter_scope()
         pilot binder_kind = "owned"
         if bc_is_copy_type(array_get(ast_stmt_extras, stmt_id)) { binder_kind = "copy" }
-        bc_push_sym(array_get(ast_stmt_names, stmt_id), binder_kind, "0", line)
-        bc_walk_block(array_get(ast_stmt_bodies, stmt_id))
+        pilot iterator_expr = word_to_int(array_get(ast_stmt_exprs, stmt_id))
+        pilot iterator_recheck = 0 - 1
+        if array_get(ast_expr_kinds, iterator_expr) == EXPR_IDENT { iterator_recheck = iterator_expr }
+        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), array_get(ast_stmt_names, stmt_id), binder_kind, line, 0 - 1, iterator_recheck, true)
+        give back
+    }
+    if kind == STMT_RANGE {
+        bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
+        bc_walk_expr(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)), false, line)
+        bc_walk_expr(word_to_int(array_get(ast_stmt_extras, stmt_id)), false, line)
+        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), array_get(ast_stmt_names, stmt_id), "copy", line, 0 - 1, 0 - 1, true)
+        give back
+    }
+    if kind == STMT_FOR {
+        bc_enter_scope()
+        bc_walk_stmt(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)))
+        bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
+        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), "", "", line, word_to_int(array_get(ast_stmt_extras, stmt_id)), word_to_int(array_get(ast_stmt_exprs, stmt_id)), true)
         bc_leave_scope()
         give back
     }
@@ -440,19 +693,23 @@ task bc_walk_stmt(stmt_id: int) -> void {
         pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
         pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
         bc_walk_expr(word_to_int(cond_w), false, line)
-        bc_enter_scope()
-        bc_walk_block(body_w)
-        bc_leave_scope()
+        pilot binder: word = array_get(ast_stmt_extras, stmt_id)
+        pilot recheck_expr = 0 - 1
+        pilot form: word = array_get(ast_stmt_names, stmt_id)
+        pilot repeats = true
+        if form == "while" or form == "until" { recheck_expr = word_to_int(cond_w) }
+        else { repeats = not bc_at_most_one_iteration(word_to_int(cond_w)) }
+        bc_walk_loop(body_w, binder, "copy", line, 0 - 1, recheck_expr, repeats)
         give back
     }
 
     if kind == STMT_TRAINING_ARC {
         pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
         pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot maximum: word = array_get(ast_stmt_extras, stmt_id)
+        if maximum != "" { bc_walk_expr(word_to_int(maximum), false, line) }
         bc_walk_expr(word_to_int(cond_w), false, line)
-        bc_enter_scope()
-        bc_walk_block(body_w)
-        bc_leave_scope()
+        bc_walk_loop(body_w, "", "", line, 0 - 1, word_to_int(cond_w), not bc_at_most_one_iteration(word_to_int(maximum)))
         give back
     }
 
@@ -484,10 +741,14 @@ task bc_walk_stmt(stmt_id: int) -> void {
     }
 
     if kind == STMT_SHAPE        { give back }
-    if kind == STMT_BREAK        { give back }
-    if kind == STMT_CONTINUE     { give back }
+    if kind == STMT_BREAK { bc_record_loop_exit() give back }
+    if kind == STMT_CONTINUE { bc_record_loop_backedge() give back }
     if kind == STMT_EXTERN       { give back }
-    if kind == STMT_WHEN         { give back }
+    if kind == STMT_WHEN {
+        bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
+        bc_walk_when(array_get(ast_stmt_bodies, stmt_id), line)
+        give back
+    }
 }
 
 -- Walk a comma-separated list of stmt ids, in order.
@@ -499,7 +760,11 @@ task bc_walk_block(block_str: word) -> void {
     repeat n times {
         pilot c: word = block_str.char_at(i)
         if c == "," {
-            if cur != "" { bc_walk_stmt(word_to_int(cur)) }
+            if cur != "" {
+                pilot statement = word_to_int(cur)
+                bc_walk_stmt(statement)
+                if not bc_stmt_falls_through(statement) { give back }
+            }
             cur = ""
         } else {
             cur = cur + c
@@ -568,6 +833,7 @@ task tc_is_list(type_name: word) -> bool {
 }
 
 task tc_is_known_value_type(type_name: word) -> bool {
+    if type_name == "CheckedReadResult" { give back false }
     pilot element = tc_list_element(type_name)
     if element != "" { give back tc_is_scalar(element) or is_shape_name(element) }
     give back tc_is_scalar(type_name) or type_name == "ByteBuffer" or is_shape_name(type_name)
@@ -581,6 +847,7 @@ task tc_is_known_return_type(type_name: word) -> bool {
 -- but never silently narrows num to int. "any" and "scalar" are checker-only
 -- builtin signature markers and cannot be written as source types.
 task tc_type_assignable(destination: word, source: word) -> bool {
+    if source == "CheckedReadResult" or destination == "CheckedReadResult" { give back false }
     if destination == "any" { give back source != "" and source != "void" }
     if destination == "scalar" { give back tc_is_scalar(source) }
     if destination == "word-array" { give back source == "int" or source == "List<word>" }
@@ -590,6 +857,7 @@ task tc_type_assignable(destination: word, source: word) -> bool {
 }
 
 task tc_types_equality_compatible(left_type: word, right_type: word) -> bool {
+    if left_type == "CheckedReadResult" or right_type == "CheckedReadResult" { give back false }
     if left_type == "" or right_type == "" { give back false }
     if left_type == right_type { give back true }
     give back tc_is_numeric(left_type) and tc_is_numeric(right_type)
@@ -684,6 +952,15 @@ task tc_reset_locals() -> void {
 task tc_local_in_current_scope(name: word) -> bool {
     pilot i = tc_local_count - 1
     repeat until i < tc_local_scope_start {
+        if array_get(tc_local_names, i) == name { give back true }
+        i -= 1
+    }
+    give back false
+}
+
+task tc_local_binding_seen(name: word) -> bool {
+    pilot i = tc_local_count - 1
+    repeat until i < 0 {
         if array_get(tc_local_names, i) == name { give back true }
         i -= 1
     }
@@ -805,6 +1082,8 @@ task tc_namespace_owner(name: word) -> word {
 -- user `shape math` (for example) from being accepted as nominal dispatch and
 -- then silently lowered to math::sqrt instead.
 task tc_reserved_builtin_namespace_owner(name: word) -> bool {
+    if name == "http_server" { give back true }
+    if name == "json_document" { give back true }
     give back name == "ByteBuffer" or name == "List" or name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui" or name == "word_builder"
 }
 
@@ -851,7 +1130,155 @@ task tc_task_return_shape(task_name: word) -> word {
     give back ""
 }
 
+task tc_profile_helper_allowed(name: word) -> bool {
+    if not v35_bootstrap_compat { give back false }
+    if name != "chr" and name != "word_to_num" { give back false }
+    -- Explicit source task signatures retain ordinary resolution precedence.
+    give back tc_callable_entry(name) < 0
+}
+
 task tc_builtin_call_type(name: word) -> word {
+    if name == "process::platform_name" { give back "word" }
+    if name == "process::stdout_is_terminal" { give back "bool" }
+    if name == "process::platform_is_windows" { give back "bool" }
+    if name == "process::executable_path" { give back "word" }
+    if name == "http_server::open" { give back "int" }
+    if name == "http_server::bind" { give back "int" }
+    if name == "http_server::status" { give back "int" }
+    if name == "http_server::error" { give back "word" }
+    if name == "http_server::local_port" { give back "int" }
+    if name == "http_server::set_limits" { give back "void" }
+    if name == "http_server::set_timeouts" { give back "void" }
+    if name == "http_server::set_chunk_limits" { give back "void" }
+    if name == "http_server::stop" { give back "void" }
+    if name == "http_server::close" { give back "void" }
+    if name == "http_server::next_request" { give back "int" }
+    if name == "http_server::request_status" { give back "int" }
+    if name == "http_server::request_error" { give back "word" }
+    if name == "http_server::request_method" { give back "word" }
+    if name == "http_server::request_target" { give back "word" }
+    if name == "http_server::request_path" { give back "word" }
+    if name == "http_server::request_query" { give back "word" }
+    if name == "http_server::request_header_count" { give back "int" }
+    if name == "http_server::request_header_name" { give back "word" }
+    if name == "http_server::request_header_value" { give back "word" }
+    if name == "http_server::request_header_value_bytes" { give back "ByteBuffer" }
+    if name == "http_server::request_header_is_trailer" { give back "int" }
+    if name == "http_server::request_header_find" { give back "int" }
+    if name == "http_server::request_body" { give back "ByteBuffer" }
+    if name == "http_server::response_status" { give back "int" }
+    if name == "http_server::response_header" { give back "int" }
+    if name == "http_server::send_bytes" { give back "int" }
+    if name == "http_server::send_text" { give back "int" }
+    if name == "http_server::request_release" { give back "void" }
+    if name == "http_server::live_servers" { give back "int" }
+    if name == "http_server::live_requests" { give back "int" }
+    if name == "http_server::live_sockets" { give back "int" }
+    if name == "http_server::retained_bytes" { give back "int" }
+    if name == "fs::set_mode_relative_checked" { give back "int" }
+    if name == "fs::rename_relative_new_checked" { give back "int" }
+    if name == "fs::directory_identity_ticket" { give back "int" }
+    if name == "fs::open_dir_ticket" { give back "int" }
+    if name == "fs::read_bytes_limit_ticket" { give back "int" }
+    if name == "fs::read_relative_ticket" { give back "int" }
+    if name == "fs::read_source_relative_ticket" { give back "int" }
+    if name == "fs::read_relative_bytes_ticket" { give back "int" }
+    if name == "fs::read_relative_bytes_limit_ticket" { give back "int" }
+    if name == "fs::write_relative_bytes_checked" { give back "int" }
+    if name == "fs::remove_temp_dir_checked" { give back "int" }
+    if name == "fs::publish_temp_dir_checked" { give back "int" }
+    if name == "fs::result_completed" { give back "bool" }
+    if name == "fs::lock_dir_ticket" { give back "int" }
+    if name == "fs::remove_relative_file_checked" { give back "int" }
+    if name == "fs::mkdir_relative_checked" { give back "int" }
+    if name == "fs::open_relative_dir_ticket" { give back "int" }
+    if name == "fs::list_dir_ticket" { give back "int" }
+    if name == "fs::result_missing" { give back "bool" }
+    if name == "fs::directory_path_ticket" { give back "int" }
+    -- Measured V4 host helpers are admitted solely by the explicit profile.
+    if tc_profile_helper_allowed(name) and name == "chr" { give back "word" }
+    if tc_profile_helper_allowed(name) and name == "word_to_num" { give back "num" }
+    if name == "json_document::new" { give back "int" }
+    if name == "json_document::parse" { give back "int" }
+    if name == "json_document::parse_bytes" { give back "int" }
+    if name == "json_document::ok" { give back "int" }
+    if name == "json_document::error" { give back "word" }
+    if name == "json_document::error_position" { give back "int" }
+    if name == "json_document::root" { give back "int" }
+    if name == "json_document::set_root" { give back "int" }
+    if name == "json_document::release" { give back "void" }
+    if name == "json_document::kind" { give back "int" }
+    if name == "json_document::count" { give back "int" }
+    if name == "json_document::array_get" { give back "int" }
+    if name == "json_document::object_get" { give back "int" }
+    if name == "json_document::object_get_bytes" { give back "int" }
+    if name == "json_document::object_key_bytes" { give back "ByteBuffer" }
+    if name == "json_document::bool_value" { give back "int" }
+    if name == "json_document::number_text" { give back "word" }
+    if name == "json_document::string_word" { give back "word" }
+    if name == "json_document::string_bytes" { give back "ByteBuffer" }
+    if name == "json_document::make_null" { give back "int" }
+    if name == "json_document::make_bool" { give back "int" }
+    if name == "json_document::make_number" { give back "int" }
+    if name == "json_document::make_string" { give back "int" }
+    if name == "json_document::make_string_bytes" { give back "int" }
+    if name == "json_document::make_array" { give back "int" }
+    if name == "json_document::make_object" { give back "int" }
+    if name == "json_document::array_append" { give back "int" }
+    if name == "json_document::object_insert" { give back "int" }
+    if name == "json_document::object_insert_bytes" { give back "int" }
+    if name == "json_document::serialize_word" { give back "word" }
+    if name == "json_document::serialize_bytes" { give back "ByteBuffer" }
+    if name == "time::sleep" { give back "void" }
+    if name == "fs::read_checked" { give back "CheckedReadResult" }
+    if name == "process::command_poll" { give back "int" }
+    if name == "fs::rename_new_checked" { give back "int" }
+    if name == "fs::read_ticket" { give back "int" }
+    if name == "fs::read_bytes_ticket" { give back "int" }
+    if name == "fs::read_source_ticket" { give back "int" }
+    if name == "fs::write_checked" { give back "int" }
+    if name == "fs::write_bytes_checked" { give back "int" }
+    if name == "fs::append_checked" { give back "int" }
+    if name == "fs::rename_checked" { give back "int" }
+    if name == "fs::mkdir_checked" { give back "int" }
+    if name == "fs::remove_checked" { give back "int" }
+    if name == "fs::rmdir_checked" { give back "int" }
+    if name == "fs::exclusive_create" { give back "int" }
+    if name == "fs::temp_dir" { give back "int" }
+    if name == "fs::canonical_path" { give back "int" }
+    if name == "fs::stat_checked" { give back "int" }
+    if name == "fs::list_dir_checked" { give back "int" }
+    if name == "fs::result_ok" { give back "bool" }
+    if name == "fs::result_word" { give back "word" }
+    if name == "fs::result_error" { give back "word" }
+    if name == "fs::result_bytes" { give back "ByteBuffer" }
+    if name == "fs::result_kind" { give back "int" }
+    if name == "fs::result_size" { give back "int" }
+    if name == "fs::result_mode" { give back "int" }
+    if name == "fs::result_count" { give back "int" }
+    if name == "fs::result_entry" { give back "word" }
+    if name == "fs::result_release" { give back "void" }
+    if name == "fs::sha256_bytes" { give back "word" }
+    if name == "process::command_new" { give back "int" }
+    if name == "process::command_arg" { give back "void" }
+    if name == "process::command_cwd" { give back "void" }
+    if name == "process::command_env" { give back "void" }
+    if name == "process::command_unset_env" { give back "void" }
+    if name == "process::command_spawn" { give back "int" }
+    if name == "process::command_run" { give back "int" }
+    if name == "process::command_spawn_inherit" { give back "int" }
+    if name == "process::command_run_inherit" { give back "int" }
+    if name == "process::command_wait" { give back "int" }
+    if name == "process::command_status" { give back "int" }
+    if name == "process::command_exit_code" { give back "int" }
+    if name == "process::command_signal" { give back "int" }
+    if name == "process::command_terminate" { give back "void" }
+    if name == "process::command_release" { give back "void" }
+    if name == "process::command_error" { give back "word" }
+    if name == "process::command_stdout" { give back "word" }
+    if name == "process::command_stderr" { give back "word" }
+    if name == "process::command_stdout_bytes" { give back "ByteBuffer" }
+    if name == "process::command_stderr_bytes" { give back "ByteBuffer" }
     if name == "ByteBuffer::new" or name == "ByteBuffer::with_capacity" { give back "ByteBuffer" }
     if name == "word_from_int" or name == "word_from_bool" or name == "word_concat" or name == "word_join" or name == "char_to_word" { give back "word" }
     if name == "word_builder::finish" { give back "word" }
@@ -890,6 +1317,146 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "process::platform_name" { give back "" }
+    if name == "process::stdout_is_terminal" { give back "" }
+    if name == "process::platform_is_windows" { give back "" }
+    if name == "process::executable_path" { give back "" }
+    if name == "http_server::open" { give back "int" }
+    if name == "http_server::bind" { give back "word,int,int" }
+    if name == "http_server::status" { give back "int" }
+    if name == "http_server::error" { give back "int" }
+    if name == "http_server::local_port" { give back "int" }
+    if name == "http_server::set_limits" { give back "int,int,int,int,int" }
+    if name == "http_server::set_timeouts" { give back "int,int,int,int" }
+    if name == "http_server::set_chunk_limits" { give back "int,int,int" }
+    if name == "http_server::stop" { give back "int" }
+    if name == "http_server::close" { give back "int" }
+    if name == "http_server::next_request" { give back "int" }
+    if name == "http_server::request_status" { give back "int" }
+    if name == "http_server::request_error" { give back "int" }
+    if name == "http_server::request_method" { give back "int" }
+    if name == "http_server::request_target" { give back "int" }
+    if name == "http_server::request_path" { give back "int" }
+    if name == "http_server::request_query" { give back "int" }
+    if name == "http_server::request_header_count" { give back "int" }
+    if name == "http_server::request_header_name" { give back "int,int" }
+    if name == "http_server::request_header_value" { give back "int,int" }
+    if name == "http_server::request_header_value_bytes" { give back "int,int" }
+    if name == "http_server::request_header_is_trailer" { give back "int,int" }
+    if name == "http_server::request_header_find" { give back "int,word,int" }
+    if name == "http_server::request_body" { give back "int" }
+    if name == "http_server::response_status" { give back "int,int" }
+    if name == "http_server::response_header" { give back "int,word,word" }
+    if name == "http_server::send_bytes" { give back "int,ByteBuffer" }
+    if name == "http_server::send_text" { give back "int,word" }
+    if name == "http_server::request_release" { give back "int" }
+    if name == "http_server::live_servers" { give back "" }
+    if name == "http_server::live_requests" { give back "" }
+    if name == "http_server::live_sockets" { give back "" }
+    if name == "http_server::retained_bytes" { give back "" }
+    if name == "fs::set_mode_relative_checked" { give back "int,word,int" }
+    if name == "fs::rename_relative_new_checked" { give back "int,word,int,word" }
+    if name == "fs::directory_identity_ticket" { give back "int" }
+    if name == "fs::open_dir_ticket" { give back "word" }
+    if name == "fs::read_bytes_limit_ticket" { give back "word,int" }
+    if name == "fs::read_relative_ticket" { give back "int,word" }
+    if name == "fs::read_source_relative_ticket" { give back "int,word" }
+    if name == "fs::read_relative_bytes_ticket" { give back "int,word" }
+    if name == "fs::read_relative_bytes_limit_ticket" { give back "int,word,int" }
+    if name == "fs::write_relative_bytes_checked" { give back "int,word,ByteBuffer" }
+    if name == "fs::remove_temp_dir_checked" { give back "int" }
+    if name == "fs::publish_temp_dir_checked" { give back "int,int,word" }
+    if name == "fs::result_completed" { give back "int" }
+    if name == "fs::lock_dir_ticket" { give back "int,word" }
+    if name == "fs::remove_relative_file_checked" { give back "int,word" }
+    if name == "fs::mkdir_relative_checked" { give back "int,word" }
+    if name == "fs::open_relative_dir_ticket" { give back "int,word" }
+    if name == "fs::list_dir_ticket" { give back "int" }
+    if name == "fs::result_missing" { give back "int" }
+    if name == "fs::directory_path_ticket" { give back "int" }
+    if tc_profile_helper_allowed(name) and name == "chr" { give back "int" }
+    if tc_profile_helper_allowed(name) and name == "word_to_num" { give back "word" }
+    if name == "json_document::new" { give back "" }
+    if name == "json_document::parse" { give back "word" }
+    if name == "json_document::parse_bytes" { give back "ByteBuffer" }
+    if name == "json_document::ok" { give back "int" }
+    if name == "json_document::error" { give back "int" }
+    if name == "json_document::error_position" { give back "int" }
+    if name == "json_document::root" { give back "int" }
+    if name == "json_document::set_root" { give back "int,int" }
+    if name == "json_document::release" { give back "int" }
+    if name == "json_document::kind" { give back "int,int" }
+    if name == "json_document::count" { give back "int,int" }
+    if name == "json_document::array_get" { give back "int,int,int" }
+    if name == "json_document::object_get" { give back "int,int,word" }
+    if name == "json_document::object_get_bytes" { give back "int,int,ByteBuffer" }
+    if name == "json_document::object_key_bytes" { give back "int,int,int" }
+    if name == "json_document::bool_value" { give back "int,int" }
+    if name == "json_document::number_text" { give back "int,int" }
+    if name == "json_document::string_word" { give back "int,int" }
+    if name == "json_document::string_bytes" { give back "int,int" }
+    if name == "json_document::make_null" { give back "int" }
+    if name == "json_document::make_bool" { give back "int,int" }
+    if name == "json_document::make_number" { give back "int,word" }
+    if name == "json_document::make_string" { give back "int,word" }
+    if name == "json_document::make_string_bytes" { give back "int,ByteBuffer" }
+    if name == "json_document::make_array" { give back "int" }
+    if name == "json_document::make_object" { give back "int" }
+    if name == "json_document::array_append" { give back "int,int,int" }
+    if name == "json_document::object_insert" { give back "int,int,word,int" }
+    if name == "json_document::object_insert_bytes" { give back "int,int,ByteBuffer,int" }
+    if name == "json_document::serialize_word" { give back "int" }
+    if name == "json_document::serialize_bytes" { give back "int" }
+    if name == "time::sleep" { give back "int" }
+    if name == "fs::read_checked" { give back "word" }
+    if name == "process::command_poll" { give back "int" }
+    if name == "fs::rename_new_checked" { give back "word,word" }
+    if name == "fs::read_ticket" { give back "word" }
+    if name == "fs::read_bytes_ticket" { give back "word" }
+    if name == "fs::read_source_ticket" { give back "word" }
+    if name == "fs::write_checked" { give back "word,word" }
+    if name == "fs::write_bytes_checked" { give back "word,ByteBuffer" }
+    if name == "fs::append_checked" { give back "word,word" }
+    if name == "fs::rename_checked" { give back "word,word" }
+    if name == "fs::mkdir_checked" { give back "word" }
+    if name == "fs::remove_checked" { give back "word" }
+    if name == "fs::rmdir_checked" { give back "word" }
+    if name == "fs::exclusive_create" { give back "word,word" }
+    if name == "fs::temp_dir" { give back "word,word" }
+    if name == "fs::canonical_path" { give back "word" }
+    if name == "fs::stat_checked" { give back "word" }
+    if name == "fs::list_dir_checked" { give back "word" }
+    if name == "fs::result_ok" { give back "int" }
+    if name == "fs::result_word" { give back "int" }
+    if name == "fs::result_error" { give back "int" }
+    if name == "fs::result_bytes" { give back "int" }
+    if name == "fs::result_kind" { give back "int" }
+    if name == "fs::result_size" { give back "int" }
+    if name == "fs::result_mode" { give back "int" }
+    if name == "fs::result_count" { give back "int" }
+    if name == "fs::result_entry" { give back "int,int" }
+    if name == "fs::result_release" { give back "int" }
+    if name == "fs::sha256_bytes" { give back "ByteBuffer" }
+    if name == "process::command_new" { give back "word" }
+    if name == "process::command_arg" { give back "int,word" }
+    if name == "process::command_cwd" { give back "int,word" }
+    if name == "process::command_env" { give back "int,word,word" }
+    if name == "process::command_unset_env" { give back "int,word" }
+    if name == "process::command_spawn" { give back "int,int,int,int" }
+    if name == "process::command_run" { give back "int,int,int,int" }
+    if name == "process::command_spawn_inherit" { give back "int,int" }
+    if name == "process::command_run_inherit" { give back "int,int" }
+    if name == "process::command_wait" { give back "int" }
+    if name == "process::command_status" { give back "int" }
+    if name == "process::command_exit_code" { give back "int" }
+    if name == "process::command_signal" { give back "int" }
+    if name == "process::command_terminate" { give back "int" }
+    if name == "process::command_release" { give back "int" }
+    if name == "process::command_error" { give back "int" }
+    if name == "process::command_stdout" { give back "int" }
+    if name == "process::command_stderr" { give back "int" }
+    if name == "process::command_stdout_bytes" { give back "int" }
+    if name == "process::command_stderr_bytes" { give back "int" }
     if name == "ByteBuffer::new" { give back "" }
     if name == "ByteBuffer::with_capacity" { give back "int" }
     if name == "say" { give back "scalar" }
@@ -959,6 +1526,8 @@ task tc_internal_runtime_task_name(name: word) -> bool {
 }
 
 task tc_reserved_builtin_call(name: word) -> bool {
+    -- Bootstrap aliases are fallback helpers, never reserved source tasks.
+    if v35_bootstrap_compat and (name == "chr" or name == "word_to_num") { give back false }
     give back tc_builtin_call_type(name) != "" or name == "process::args" or name == "List::filled" or name == "List::new" or name == "List::with_capacity"
 }
 
@@ -1157,13 +1726,65 @@ task tc_has_impl_method(shape_name: word, method_name: word) -> bool {
     give back entry >= 0 and array_get(tc_callable_extras, entry) == "impl:" + shape_name and tc_callable_is_instance(entry)
 }
 
-task tc_diag(message: word, line: int, source_file: word) -> void {
+-- Binding supplies an exact source-name map for diagnostics. This is display
+-- metadata only: nominal type comparison and emitted symbols retain identities.
+pilot tc_diag_generated_names = 0
+pilot tc_diag_source_names = 0
+
+task tc_diag_labels_clear() -> void {
+    if tc_diag_generated_names != 0 {
+        array_release(tc_diag_generated_names) array_release(tc_diag_source_names)
+    }
+    tc_diag_generated_names = 0 tc_diag_source_names = 0
+}
+
+task tc_diag_label_add(generated: word, source: word) -> void {
+    if generated == source { give back }
+    if tc_diag_generated_names == 0 {
+        tc_diag_generated_names = array_new() tc_diag_source_names = array_new()
+    }
+    array_push(tc_diag_generated_names, generated) array_push(tc_diag_source_names, source)
+}
+
+task tc_diag_source_name(name: word) -> word {
+    if tc_diag_generated_names == 0 { give back name }
+    pilot i = 0
+    repeat until i >= array_len(tc_diag_generated_names) {
+        if array_get(tc_diag_generated_names, i) == name { give back array_get(tc_diag_source_names, i) }
+        i += 1
+    }
+    give back name
+}
+
+task tc_diag_display(message: word) -> word {
+    if tc_diag_generated_names == 0 { give back message }
+    -- char_at uses byte positions and returns an empty word beyond storage.
+    -- Count those positions directly so Unicode prose is preserved, while the
+    -- historical compiler seed needs only its existing word operations.
+    pilot length = 0
+    repeat until message.char_at(length) == "" { length += 1 }
+    pilot displayed = "" pilot i = 0
+    repeat until i >= length {
+        pilot start = i
+        if is_alnum_ext(message.substring(i, 1)) {
+            repeat until i >= length or not is_alnum_ext(message.substring(i, 1)) { i += 1 }
+            displayed = displayed + tc_diag_source_name(message.substring(start, i - start))
+        } else { displayed = displayed + message.substring(i, 1) i += 1 }
+    }
+    give back displayed
+}
+
+task tc_diag_code(code: word, message: word, line: int, source_file: word) -> void {
+    message = tc_diag_display(message)
+    diag_record_fact(code, message, "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: " + message + " (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
     say word_from_int(line) + " | " + get_file_source_line(source_file, line)
     say "  | ^"
 }
+
+task tc_diag(message: word, line: int, source_file: word) -> void { tc_diag_code("", message, line, source_file) }
 
 task tc_expr_diag_line(expr_id: int, fallback: int) -> int {
     if expr_id >= 0 and expr_id < array_len(ast_expr_lines) {
@@ -1182,6 +1803,8 @@ task tc_expr_diag_file(expr_id: int, fallback: word) -> word {
 }
 
 task tc_diag_member(shape_name: word, member_kind: word, member_name: word, line: int, source_file: word) -> void {
+    shape_name = tc_diag_source_name(shape_name)
+    diag_record_fact("E0002", "shape '" + shape_name + "' has no " + member_kind + " '" + member_name + "' (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: shape '" + shape_name + "' has no " + member_kind + " '" + member_name + "' (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1190,6 +1813,7 @@ task tc_diag_member(shape_name: word, member_kind: word, member_name: word, line
 }
 
 task tc_diag_non_shape_field(line: int, source_file: word) -> void {
+    diag_record_fact("E0002", "non-shape value has no fields (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: non-shape value has no fields (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1198,6 +1822,7 @@ task tc_diag_non_shape_field(line: int, source_file: word) -> void {
 }
 
 task tc_diag_unknown_field_receiver(field_name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0002", "cannot resolve the receiver type for field '" + field_name + "' (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: cannot resolve the receiver type for field '" + field_name + "' (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1206,6 +1831,7 @@ task tc_diag_unknown_field_receiver(field_name: word, line: int, source_file: wo
 }
 
 task tc_diag_unknown_method_receiver(method_name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0002", "cannot resolve the receiver type for method '" + method_name + "' (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: cannot resolve the receiver type for method '" + method_name + "' (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1214,6 +1840,7 @@ task tc_diag_unknown_method_receiver(method_name: word, line: int, source_file: 
 }
 
 task tc_diag_non_shape_method(method_name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "non-shape value has no method '" + method_name + "' (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: non-shape value has no method '" + method_name + "' (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1222,6 +1849,7 @@ task tc_diag_non_shape_method(method_name: word, line: int, source_file: word) -
 }
 
 task tc_diag_method_arity(method_name: word, expected: int, actual: int, line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "method '" + method_name + "' expects " + word_from_int(expected) + " argument(s), got " + word_from_int(actual) + " (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: method '" + method_name + "' expects " + word_from_int(expected) + " argument(s), got " + word_from_int(actual) + " (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1230,6 +1858,7 @@ task tc_diag_method_arity(method_name: word, expected: int, actual: int, line: i
 }
 
 task tc_diag_reserved_extern(name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "extern symbol '" + name + "' uses the compiler-reserved '__freak_' prefix", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: extern symbol '" + name + "' uses the compiler-reserved '__freak_' prefix"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1238,6 +1867,7 @@ task tc_diag_reserved_extern(name: word, line: int, source_file: word) -> void {
 }
 
 task tc_diag_builtin_callable(name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "callable '" + name + "' conflicts with a compiler builtin", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: callable '" + name + "' conflicts with a compiler builtin"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1246,6 +1876,7 @@ task tc_diag_builtin_callable(name: word, line: int, source_file: word) -> void 
 }
 
 task tc_diag_process_args_v3(line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "process::args() has no List<word> ABI in V3; use process::args_count() and process::arg(index)", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: process::args() has no List<word> ABI in V3; use process::args_count() and process::arg(index)"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1254,6 +1885,7 @@ task tc_diag_process_args_v3(line: int, source_file: word) -> void {
 }
 
 task tc_diag_duplicate_callable(name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "callable '" + name + "' conflicts with another task or extern declaration", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: callable '" + name + "' conflicts with another task or extern declaration"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1265,7 +1897,9 @@ task tc_validate_args(args: word, line: int) -> void {
     pilot count = tc_arg_count(args)
     pilot i = 0
     repeat count times {
-        tc_validate_expr(tc_arg_at(args, i), line)
+        pilot argument_id = tc_arg_at(args, i)
+        tc_validate_expr(argument_id, line)
+        if tc_expr_type(argument_id) == "CheckedReadResult" { tc_diag("checked read result cannot be passed or stored; use check result", tc_expr_diag_line(argument_id, line), tc_expr_diag_file(argument_id, input_file)) }
         i += 1
     }
 }
@@ -1274,7 +1908,7 @@ task tc_validate_type_args(label: word, args: word, expected_types: word, line: 
     pilot actual_count = tc_arg_count(args)
     pilot expected_count = tc_arg_count(expected_types)
     if actual_count != expected_count {
-        tc_diag(label + " expects " + word_from_int(expected_count) + " argument(s), got " + word_from_int(actual_count), line, source_file)
+        tc_diag_code("E0005", label + " expects " + word_from_int(expected_count) + " argument(s), got " + word_from_int(actual_count), line, source_file)
     }
     pilot common = actual_count
     if expected_count < common { common = expected_count }
@@ -1284,9 +1918,9 @@ task tc_validate_type_args(label: word, args: word, expected_types: word, line: 
         pilot actual_type = tc_expr_type(actual_id)
         pilot expected_type = tc_list_item(expected_types, i)
         if actual_type == "" {
-            tc_diag(label + " argument " + word_from_int(i + 1) + " has an unresolved type", tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
+            tc_diag_code("E0002", label + " argument " + word_from_int(i + 1) + " has an unresolved type", tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
         } else if not tc_type_assignable(expected_type, actual_type) {
-            tc_diag(label + " argument " + word_from_int(i + 1) + " expects " + expected_type + ", got " + actual_type, tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
+            tc_diag_code("E0002", label + " argument " + word_from_int(i + 1) + " expects " + expected_type + ", got " + actual_type, tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
         }
         i += 1
     }
@@ -1297,7 +1931,7 @@ task tc_validate_param_args(label: word, args: word, params: word, offset: int, 
     pilot expected_count = tc_arg_count(params) - offset
     if expected_count < 0 { expected_count = 0 }
     if actual_count != expected_count {
-        tc_diag(label + " expects " + word_from_int(expected_count) + " argument(s), got " + word_from_int(actual_count), line, source_file)
+        tc_diag_code("E0005", label + " expects " + word_from_int(expected_count) + " argument(s), got " + word_from_int(actual_count), line, source_file)
     }
     pilot common = actual_count
     if expected_count < common { common = expected_count }
@@ -1313,9 +1947,9 @@ task tc_validate_param_args(label: word, args: word, params: word, offset: int, 
         pilot compatible = tc_type_assignable(expected_type, actual_type)
         if raw_i64_abi { compatible = tc_type_assignable("any", actual_type) }
         if actual_type == "" {
-            tc_diag(label + " argument " + word_from_int(i + 1) + " has an unresolved type", tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
+            tc_diag_code("E0002", label + " argument " + word_from_int(i + 1) + " has an unresolved type", tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
         } else if expected_type != "" and not compatible {
-            tc_diag(label + " argument " + word_from_int(i + 1) + " expects " + expected_type + ", got " + actual_type, tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
+            tc_diag_code("E0002", label + " argument " + word_from_int(i + 1) + " expects " + expected_type + ", got " + actual_type, tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
         }
         i += 1
     }
@@ -1360,7 +1994,7 @@ task tc_validate_interp_path(expr_id: int, line: int, source_file: word) -> word
     pilot val: word = array_get(ast_expr_vals, expr_id)
     if kind == EXPR_IDENT {
         if not tc_has_binding(val) {
-            tc_diag("unknown interpolation binding '" + val + "'", line, source_file)
+            tc_diag_code("E0001", "unknown interpolation binding '" + val + "'", line, source_file)
             give back ""
         }
         give back tc_lookup_type(val)
@@ -1383,8 +2017,35 @@ task tc_validate_interp_path(expr_id: int, line: int, source_file: word) -> word
     give back ""
 }
 
+task tc_integer_literal_legal(spelling: word) -> bool {
+    pilot limit = "9223372036854775807"
+    if spelling.length() < limit.length() { give back true }
+    if spelling.length() > limit.length() { give back false }
+    pilot index = 0
+    repeat limit.length() times {
+        pilot digit = word_to_int(spelling.char_at(index))
+        pilot limit_digit = word_to_int(limit.char_at(index))
+        if digit < limit_digit { give back true }
+        if digit > limit_digit { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task tc_literal_is_minimum(operand_id: int) -> bool {
+    if operand_id < 0 { give back false }
+    give back array_get(ast_expr_kinds, operand_id) == EXPR_INT and array_get(ast_expr_vals, operand_id) == "9223372036854775808"
+}
+
 task tc_validate_expr(expr_id: int, line: int) -> void {
     if expr_id < 0 { give back }
+    -- Expression IDs are unique across tasks and lexical scopes. Record the
+    -- authoritative type now; recomputing after tc_reset_locals loses inferred
+    -- identifiers, method receivers and projections used by strict borrowing.
+    repeat until array_len(tc_checked_expr_types) > expr_id {
+        array_push(tc_checked_expr_types, "")
+    }
+    array_set(tc_checked_expr_types, expr_id, tc_expr_type(expr_id))
     pilot source_file = input_file
     if expr_id < array_len(ast_expr_lines) {
         pilot origin_line = word_to_int(array_get(ast_expr_lines, expr_id))
@@ -1395,6 +2056,12 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
     pilot val: word = array_get(ast_expr_vals, expr_id)
     pilot left: word = array_get(ast_expr_lefts, expr_id)
     pilot right: word = array_get(ast_expr_rights, expr_id)
+    if kind == EXPR_INT {
+        if not tc_integer_literal_legal(val) {
+            tc_diag_code("E0008", "integer literal is outside the signed 64-bit range", line, source_file)
+        }
+        give back
+    }
     if kind == EXPR_INTERP {
         pilot segment_count = tc_arg_count(left)
         pilot segment_index = 0
@@ -1411,7 +2078,7 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         give back
     }
     if kind == EXPR_IDENT {
-        if not tc_has_binding(val) { tc_diag("unknown binding '" + val + "'", line, source_file) }
+        if not tc_has_binding(val) { tc_diag_code("E0001", "unknown binding '" + val + "'", line, source_file) }
         give back
     }
     if kind == EXPR_FIELD {
@@ -1491,6 +2158,10 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
             }
             give back
         }
+        if tc_local_binding_seen(val) {
+            tc_diag_code("E0005", "unknown callable '" + val + "': local value shadows this name", line, source_file)
+            give back
+        }
         if val == "process::args" {
             tc_diag_process_args_v3(line, source_file)
             give back
@@ -1506,7 +2177,7 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         } else if tc_builtin_call_type(val) != "" {
             tc_validate_type_args("call to '" + val + "'", left, tc_builtin_call_params(val), line, source_file)
         } else {
-            tc_diag("unknown callable '" + val + "'", line, source_file)
+            tc_diag_code("E0005", "unknown callable '" + val + "'", line, source_file)
         }
         give back
     }
@@ -1535,6 +2206,13 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
     }
     if kind == EXPR_UNARYOP {
         pilot operand_id = word_to_int(left)
+        -- The minus sign admits the signed minimum spelling; its positive
+        -- magnitude is never a standalone int value or a negation operand.
+        if val == "-" and tc_literal_is_minimum(operand_id) {
+            array_set(tc_checked_expr_types, operand_id, "int")
+            tc_validate_unary(val, operand_id, line, source_file)
+            give back
+        }
         tc_validate_expr(operand_id, line)
         tc_validate_unary(val, operand_id, line, source_file)
         give back
@@ -1547,7 +2225,7 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         pilot base_type = tc_expr_type(base_id)
         pilot index_type = tc_expr_type(index_id)
         if base_type != "" and base_type != "word" and not tc_is_list(base_type) { tc_diag("indexing requires a List or word value", tc_expr_diag_line(base_id, line), tc_expr_diag_file(base_id, source_file)) }
-        if index_type != "" and index_type != "int" { tc_diag("index must have type int, got " + index_type, tc_expr_diag_line(index_id, line), tc_expr_diag_file(index_id, source_file)) }
+        if index_type != "" and index_type != "int" { tc_diag_code("E0002", "index must have type int, got " + index_type, tc_expr_diag_line(index_id, line), tc_expr_diag_file(index_id, source_file)) }
     }
 }
 
@@ -1652,7 +2330,7 @@ task tc_validate_shape_signature(stmt_id: int) -> void {
     pilot fields: word = array_get(ast_stmt_extras, stmt_id)
     pilot line = word_to_int(array_get(ast_stmt_lines, stmt_id))
     pilot source_file: word = array_get(ast_stmt_files, stmt_id)
-    if tc_is_scalar(shape_name) or shape_name == "void" {
+    if tc_is_scalar(shape_name) or shape_name == "void" or shape_name == "CheckedReadResult" {
         tc_diag("shape name '" + shape_name + "' conflicts with a built-in type", line, source_file)
     }
     if tc_reserved_builtin_namespace_owner(shape_name) {
@@ -1715,12 +2393,50 @@ task tc_expr_is_terminal(expr_id: int) -> bool {
     give back name == "panic" or name == "process::exit"
 }
 
+-- Loop exits leave their surrounding body even if unreachable returns follow.
+-- Nested loops establish a new control target and do not exit this body.
+task tc_block_may_exit_loop(block: word) -> bool {
+    pilot count = tc_arg_count(block)
+    pilot index = 0
+    repeat count times {
+        pilot statement = word_to_int(tc_list_item(block, index))
+        if tc_stmt_may_exit_loop(statement) { give back true }
+        if tc_stmt_definitely_returns(statement) { give back false }
+        index += 1
+    }
+    give back false
+}
+
+task tc_stmt_may_exit_loop(stmt_id: int) -> bool {
+    if stmt_id < 0 { give back false }
+    pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
+    if kind == STMT_BREAK or kind == STMT_CONTINUE { give back true }
+    if kind == STMT_BLOCK or kind == STMT_EVENTUALLY { give back tc_block_may_exit_loop(array_get(ast_stmt_bodies, stmt_id)) }
+    if kind == STMT_IF or kind == STMT_CHECK_RESULT {
+        give back tc_block_may_exit_loop(array_get(ast_stmt_bodies, stmt_id)) or tc_block_may_exit_loop(array_get(ast_stmt_else_bodies, stmt_id))
+    }
+    if kind == STMT_WHEN {
+        pilot cases: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot index = 0
+        repeat tc_arg_count(cases) times {
+            pilot statement = tc_case_stmt_part(tc_list_item(cases, index))
+            if statement != "" and tc_stmt_may_exit_loop(word_to_int(statement)) { give back true }
+            index += 1
+        }
+    }
+    give back false
+}
+
 task tc_block_definitely_returns(block: word) -> bool {
     pilot count = tc_arg_count(block)
     pilot i = 0
     repeat count times {
         pilot stmt_text = tc_list_item(block, i)
-        if stmt_text != "" and tc_stmt_definitely_returns(word_to_int(stmt_text)) { give back true }
+        if stmt_text != "" {
+            pilot statement = word_to_int(stmt_text)
+            if tc_stmt_may_exit_loop(statement) { give back false }
+            if tc_stmt_definitely_returns(statement) { give back true }
+        }
         i += 1
     }
     give back false
@@ -1752,6 +2468,7 @@ task tc_stmt_definitely_returns(stmt_id: int) -> bool {
         pilot else_body: word = array_get(ast_stmt_else_bodies, stmt_id)
         give back else_body != "" and tc_block_definitely_returns(array_get(ast_stmt_bodies, stmt_id)) and tc_block_definitely_returns(else_body)
     }
+    if kind == STMT_CHECK_RESULT { give back tc_block_definitely_returns(array_get(ast_stmt_bodies, stmt_id)) and tc_block_definitely_returns(array_get(ast_stmt_else_bodies, stmt_id)) }
     if kind == STMT_WHEN { give back tc_when_definitely_returns(array_get(ast_stmt_bodies, stmt_id)) }
     give back false
 }
@@ -1769,8 +2486,86 @@ task tc_when_case_is_literal(expr_id: int) -> bool {
     give back false
 }
 
+task tc_when_integer_key(expr_id: int) -> word {
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    if kind == EXPR_UNARYOP {
+        pilot magnitude: word = array_get(ast_expr_vals, word_to_int(array_get(ast_expr_lefts, expr_id)))
+        if magnitude == "0" { give back "0" }
+        give back "-" + magnitude
+    }
+    give back array_get(ast_expr_vals, expr_id)
+}
+
+task tc_when_numeric_value(expr_id: int) -> num {
+    if array_get(ast_expr_kinds, expr_id) == EXPR_UNARYOP {
+        pilot magnitude: word = array_get(ast_expr_vals, word_to_int(array_get(ast_expr_lefts, expr_id)))
+        give back 0.0 - magnitude.parse_num()
+    }
+    pilot spelling: word = array_get(ast_expr_vals, expr_id)
+    give back spelling.parse_num()
+}
+
+task tc_when_hex_value(digit: word) -> int {
+    if is_numeric(digit) { give back digit.parse_int() }
+    pilot lower = digit.to_lower()
+    if lower == "a" { give back 10 }
+    if lower == "b" { give back 11 }
+    if lower == "c" { give back 12 }
+    if lower == "d" { give back 13 }
+    if lower == "e" { give back 14 }
+    give back 15
+}
+
+-- Literal escape decoding compares emitted bytes, including non-UTF8 bytes.
+-- This static byte table uses only syntax understood by the original seed.
+pilot tc_when_byte_values: word = "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x2A\x2B\x2C\x2D\x2E\x2F\x30\x31\x32\x33\x34\x35\x36\x37\x38\x39\x3A\x3B\x3C\x3D\x3E\x3F\x40\x41\x42\x43\x44\x45\x46\x47\x48\x49\x4A\x4B\x4C\x4D\x4E\x4F\x50\x51\x52\x53\x54\x55\x56\x57\x58\x59\x5A\x5B\x5C\x5D\x5E\x5F\x60\x61\x62\x63\x64\x65\x66\x67\x68\x69\x6A\x6B\x6C\x6D\x6E\x6F\x70\x71\x72\x73\x74\x75\x76\x77\x78\x79\x7A\x7B\x7C\x7D\x7E\x7F\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8A\x8B\x8C\x8D\x8E\x8F\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9A\x9B\x9C\x9D\x9E\x9F\xA0\xA1\xA2\xA3\xA4\xA5\xA6\xA7\xA8\xA9\xAA\xAB\xAC\xAD\xAE\xAF\xB0\xB1\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA\xBB\xBC\xBD\xBE\xBF\xC0\xC1\xC2\xC3\xC4\xC5\xC6\xC7\xC8\xC9\xCA\xCB\xCC\xCD\xCE\xCF\xD0\xD1\xD2\xD3\xD4\xD5\xD6\xD7\xD8\xD9\xDA\xDB\xDC\xDD\xDE\xDF\xE0\xE1\xE2\xE3\xE4\xE5\xE6\xE7\xE8\xE9\xEA\xEB\xEC\xED\xEE\xEF\xF0\xF1\xF2\xF3\xF4\xF5\xF6\xF7\xF8\xF9\xFA\xFB\xFC\xFD\xFE\xFF"
+
+task tc_when_word_key(value: word) -> word {
+    pilot key = ""
+    pilot index = 0
+    repeat until index >= value.length() {
+        pilot character = value.char_at(index)
+        if character == "\\" and index + 3 < value.length() and value.char_at(index + 1) == "x" {
+            pilot byte_value = tc_when_hex_value(value.char_at(index + 2)) * 16 + tc_when_hex_value(value.char_at(index + 3))
+            key = key + tc_when_byte_values.char_at(byte_value - 1)
+            index += 4
+        } else {
+            key = key + character
+            index += 1
+        }
+    }
+    give back key
+}
+
+task tc_when_case_shadowed(previous: int, current: int, target_type: word) -> bool {
+    if not tc_when_case_is_literal(previous) or not tc_when_case_is_literal(current) { give back false }
+    pilot previous_type = tc_expr_type(previous)
+    pilot current_type = tc_expr_type(current)
+    if previous_type == "word" and current_type == "word" {
+        give back tc_when_word_key(array_get(ast_expr_vals, previous)) == tc_when_word_key(array_get(ast_expr_vals, current))
+    }
+    if previous_type == "bool" and current_type == "bool" {
+        pilot previous_truth: word = array_get(ast_expr_vals, previous)
+        pilot current_truth: word = array_get(ast_expr_vals, current)
+        give back previous_truth == current_truth
+    }
+    if not tc_is_numeric(previous_type) or not tc_is_numeric(current_type) { give back false }
+    if previous_type == "int" and current_type == "int" and target_type != "num" {
+        give back tc_when_integer_key(previous) == tc_when_integer_key(current)
+    }
+    pilot previous_number = tc_when_numeric_value(previous)
+    pilot current_number = tc_when_numeric_value(current)
+    if target_type == "int" and previous_type == "int" and current_type == "num" {
+        -- A large float equality bucket can match several integer values;
+        -- an earlier exact integer condition covers only one of them.
+        if previous_number >= 9007199254740992.0 or previous_number <= -9007199254740992.0 { give back false }
+    }
+    give back previous_number == current_number
+}
+
 task tc_validate_when_cases(cases: word, target_type: word, line: int, source_file: word) -> void {
     pilot count = tc_arg_count(cases)
+    pilot wildcard_seen = false
     pilot i = 0
     repeat count times {
         pilot item = tc_list_item(cases, i)
@@ -1783,6 +2578,8 @@ task tc_validate_when_cases(cases: word, target_type: word, line: int, source_fi
         tc_direct_top_stmt = false
         pilot case_line = line
         if stmt_text != "" { case_line = word_to_int(array_get(ast_stmt_lines, word_to_int(stmt_text))) }
+        if wildcard_seen { tc_diag("when arm is unreachable after '_'", case_line, source_file) }
+        if case_expr == "-1" { wildcard_seen = true }
         if case_expr != "" and case_expr != "-1" {
             pilot case_id = word_to_int(case_expr)
             tc_validate_expr(case_id, case_line)
@@ -1794,6 +2591,14 @@ task tc_validate_when_cases(cases: word, target_type: word, line: int, source_fi
             }
             if target_type != "" and case_type != "" and not tc_types_equality_compatible(target_type, case_type) {
                 tc_diag("when case type " + case_type + " does not match target type " + target_type, case_line, case_file)
+            }
+            pilot previous_index = 0
+            repeat i times {
+                pilot previous_expr = tc_case_expr_part(tc_list_item(cases, previous_index))
+                if previous_expr != "" and previous_expr != "-1" and tc_when_case_shadowed(word_to_int(previous_expr), case_id, target_type) {
+                    tc_diag("when arm duplicates or is shadowed by an earlier literal", case_line, case_file)
+                }
+                previous_index += 1
             }
         }
         if stmt_text != "" { tc_validate_stmt(word_to_int(stmt_text)) }
@@ -1853,6 +2658,25 @@ task tc_list_root_mutable(expr_id: int) -> bool {
         i -= 1
     }
     give back false
+}
+
+task tc_assignment_root_mode(expr_id: int) -> word {
+    if expr_id < 0 { give back "" }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    if kind == EXPR_FIELD or kind == EXPR_INDEX { give back tc_assignment_root_mode(word_to_int(array_get(ast_expr_lefts, expr_id))) }
+    if kind != EXPR_IDENT { give back "" }
+    pilot name: word = array_get(ast_expr_vals, expr_id)
+    pilot index = tc_local_count - 1
+    repeat until index < 0 {
+        if array_get(tc_local_names, index) == name { give back array_get(tc_local_mut, index) }
+        index -= 1
+    }
+    index = tc_global_count - 1
+    repeat until index < 0 {
+        if array_get(tc_global_names, index) == name { give back array_get(tc_global_mut, index) }
+        index -= 1
+    }
+    give back ""
 }
 
 task tc_expr_is_lvalue(expr_id: int) -> bool {
@@ -2114,6 +2938,14 @@ task tc_dependency_walk_stmt(stmt_id: int, local_names: int, local_types: int, l
         tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
         give back local_count
     }
+    if kind == STMT_CHECK_RESULT {
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
+        pilot ok_count = tc_dependency_set_local(local_names, local_types, local_count, array_get(ast_task_params, stmt_id), "word")
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, ok_count, global_index, global_name, visited)
+        pilot err_count = tc_dependency_set_local(local_names, local_types, local_count, array_get(ast_task_returns, stmt_id), "word")
+        tc_dependency_walk_block(array_get(ast_stmt_else_bodies, stmt_id), local_names, local_types, err_count, global_index, global_name, visited)
+        give back local_count
+    }
     if kind == STMT_IF {
         tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
         tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
@@ -2128,9 +2960,27 @@ task tc_dependency_walk_stmt(stmt_id: int, local_names: int, local_types: int, l
         tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, body_count, global_index, global_name, visited)
         give back local_count
     }
+    if kind == STMT_RANGE {
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_expr(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_expr(word_to_int(array_get(ast_stmt_extras, stmt_id)), local_names, local_types, local_count, global_index, global_name, visited)
+        pilot body_count = tc_dependency_set_local(local_names, local_types, local_count, array_get(ast_stmt_names, stmt_id), "int")
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, body_count, global_index, global_name, visited)
+        give back local_count
+    }
+    if kind == STMT_FOR {
+        pilot header_count = tc_dependency_walk_stmt(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, header_count, global_index, global_name, visited)
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, header_count, global_index, global_name, visited)
+        tc_dependency_walk_stmt(word_to_int(array_get(ast_stmt_extras, stmt_id)), local_names, local_types, header_count, global_index, global_name, visited)
+        give back local_count
+    }
     if kind == STMT_REPEAT {
         tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
-        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
+        pilot body_count = local_count
+        pilot binder: word = array_get(ast_stmt_extras, stmt_id)
+        if binder != "" { body_count = tc_dependency_set_local(local_names, local_types, local_count, binder, "int") }
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, body_count, global_index, global_name, visited)
         give back local_count
     }
     if kind == STMT_TRAINING_ARC {
@@ -2290,13 +3140,18 @@ task tc_validate_stmt(stmt_id: int) -> void {
         if expr_kind == EXPR_ARRAY_LIT and tc_arg_count(array_get(ast_expr_lefts, expr_id)) == 0 and tc_is_list(binding_type) { is_empty_list_init = true }
         if expr_kind == EXPR_CALL and (expr_val == "List::new" or expr_val == "List::with_capacity") and tc_is_list(binding_type) { is_empty_list_init = true }
         if is_empty_list_init { value_type = binding_type }
+        if value_type == "CheckedReadResult" {
+            if type_ann != "" or expr_kind != EXPR_CALL or expr_val != "fs::read_checked" or tc_direct_top_stmt {
+                tc_diag("checked read result requires an inferred local initialized by fs::read_checked; aliases, annotations and global storage are unsupported", line, source_file)
+            }
+        }
         if binding_type == "" { binding_type = value_type }
         else if not tc_is_known_value_type(binding_type) {
             tc_diag("binding '" + binding_name + "' has unknown or non-value type '" + binding_type + "'", line, source_file)
         } else if is_empty_list_init and not tc_is_scalar(tc_list_element(binding_type)) and not is_shape_name(tc_list_element(binding_type)) {
             tc_diag("unsupported list element type '" + tc_list_element(binding_type) + "'", tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file))
         } else if value_type != "" and not tc_type_assignable(binding_type, value_type) {
-            tc_diag("cannot initialize " + binding_type + " binding '" + binding_name + "' with " + value_type, tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file))
+            tc_diag_code("E0002", "cannot initialize " + binding_type + " binding '" + binding_name + "' with " + value_type, tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file))
         }
         if binding_type == "" { tc_diag("cannot infer a value type for binding '" + binding_name + "'", tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file)) }
         if value_type == "void" { tc_diag("binding initializer cannot have type void", tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file)) }
@@ -2309,6 +3164,21 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot right_id = word_to_int(array_get(ast_stmt_bodies, stmt_id))
         tc_validate_expr(left_id, line)
         tc_validate_expr(right_id, line)
+        if tc_assignment_root_mode(left_id) == "fixed" {
+            tc_diag_code("E0004", "fixed binding cannot be modified", line, source_file)
+        }
+        if array_get(ast_expr_kinds, left_id) == EXPR_IDENT {
+            pilot name: word = array_get(ast_expr_vals, left_id)
+            pilot index = tc_local_count - 1
+            pilot found = false
+            repeat until index < 0 or found {
+                if array_get(tc_local_names, index) == name {
+                    if array_get(tc_local_mut, index) == "loop" { tc_diag_code("E0004", "iteration binding '" + name + "' is immutable", line, source_file) }
+                    found = true
+                }
+                index -= 1
+            }
+        }
         if not tc_expr_is_lvalue(left_id) {
             tc_diag("assignment target is not an assignable binding, shape field, or list element", line, source_file)
             give back
@@ -2319,6 +3189,7 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot left_type = tc_expr_type(left_id)
         pilot right_type = tc_expr_type(right_id)
         pilot op: word = array_get(ast_stmt_names, stmt_id)
+        if left_type == "CheckedReadResult" or right_type == "CheckedReadResult" { tc_diag("checked read result cannot be reassigned or stored; use check result", line, source_file) }
         if op == "=" {
             pilot rhs_kind: word = array_get(ast_expr_kinds, right_id)
             pilot rhs_val: word = array_get(ast_expr_vals, right_id)
@@ -2328,13 +3199,13 @@ task tc_validate_stmt(stmt_id: int) -> void {
             -- it where the destination is a word list; anything else would
             -- silently install wrongly-kind storage.
             if rhs_untyped_empty and left_type != "" and not (tc_is_list(left_type) and tc_list_element(left_type) == "word") {
-                tc_diag("cannot assign " + rhs_val + "() to " + left_type + " without a known element type", tc_expr_diag_line(right_id, line), tc_expr_diag_file(right_id, source_file))
+                tc_diag_code("E0002", "cannot assign " + rhs_val + "() to " + left_type + " without a known element type", tc_expr_diag_line(right_id, line), tc_expr_diag_file(right_id, source_file))
             }
         }
         if left_type != "" and right_type != "" {
             if op == "=" {
                 if not tc_type_assignable(left_type, right_type) {
-                    tc_diag("cannot assign " + right_type + " to " + left_type, tc_expr_diag_line(right_id, line), tc_expr_diag_file(right_id, source_file))
+                    tc_diag_code("E0002", "cannot assign " + right_type + " to " + left_type, tc_expr_diag_line(right_id, line), tc_expr_diag_file(right_id, source_file))
                 }
             } else {
                 pilot result_type = tc_compound_result_type(op, left_type, right_type)
@@ -2376,14 +3247,37 @@ task tc_validate_stmt(stmt_id: int) -> void {
         give back
     }
     if kind == STMT_EXPR {
-        tc_validate_expr(word_to_int(expr), line)
+        pilot discarded_id = word_to_int(expr)
+        tc_validate_expr(discarded_id, line)
+        pilot discarded_kind: word = array_get(ast_expr_kinds, discarded_id)
+        if discarded_kind != EXPR_CALL and discarded_kind != EXPR_METHOD {
+            tc_diag("bare value is not a statement; use it in say, give back, a binding or a call", tc_expr_diag_line(discarded_id, line), tc_expr_diag_file(discarded_id, source_file))
+        }
+        if tc_expr_type(discarded_id) == "CheckedReadResult" and array_get(ast_expr_kinds, discarded_id) != EXPR_CALL { tc_diag("checked read result may be inspected only with check result", line, source_file) }
+        give back
+    }
+    if kind == STMT_CHECK_RESULT {
+        pilot target_id = word_to_int(expr)
+        tc_validate_expr(target_id, line)
+        if tc_expr_type(target_id) != "CheckedReadResult" { tc_diag("check result target must be a checked read result", line, source_file) }
+        pilot saved_count = tc_local_count
+        pilot saved_scope = tc_local_scope_start
+        tc_local_scope_start = saved_count
+        tc_set_local(array_get(ast_task_params, stmt_id), "word")
+        tc_validate_task_body(array_get(ast_stmt_bodies, stmt_id))
+        tc_local_count = saved_count
+        tc_local_scope_start = saved_count
+        tc_set_local(array_get(ast_task_returns, stmt_id), "word")
+        tc_validate_task_body(array_get(ast_stmt_else_bodies, stmt_id))
+        tc_local_count = saved_count
+        tc_local_scope_start = saved_scope
         give back
     }
     if kind == STMT_IF {
         pilot condition_id = word_to_int(expr)
         tc_validate_expr(condition_id, line)
         pilot condition_type = tc_expr_type(condition_id)
-        if condition_type != "" and condition_type != "bool" { tc_diag("if condition must have type bool, got " + condition_type, tc_expr_diag_line(condition_id, line), tc_expr_diag_file(condition_id, source_file)) }
+        if condition_type != "" and condition_type != "bool" { tc_diag_code("E0002", "if condition must have type bool, got " + condition_type, tc_expr_diag_line(condition_id, line), tc_expr_diag_file(condition_id, source_file)) }
         tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
         tc_validate_block(array_get(ast_stmt_else_bodies, stmt_id))
         give back
@@ -2408,18 +3302,76 @@ task tc_validate_stmt(stmt_id: int) -> void {
         tc_local_scope_start = saved_scope
         give back
     }
+    if kind == STMT_RANGE {
+        pilot lower_id = word_to_int(expr)
+        pilot upper_id = word_to_int(array_get(ast_stmt_else_bodies, stmt_id))
+        pilot step_id = word_to_int(array_get(ast_stmt_extras, stmt_id))
+        tc_validate_expr(lower_id, line)
+        tc_validate_expr(upper_id, line)
+        tc_validate_expr(step_id, line)
+        pilot args = expr + "," + array_get(ast_stmt_else_bodies, stmt_id) + "," + array_get(ast_stmt_extras, stmt_id)
+        tc_validate_type_args("range bounds and step", args, "int,int,int", line, source_file)
+        pilot step_kind: word = array_get(ast_expr_kinds, step_id)
+        pilot step_val: word = array_get(ast_expr_vals, step_id)
+        if (step_kind == EXPR_INT and word_to_int(step_val) <= 0) or (step_kind == EXPR_UNARYOP and step_val == "-" and array_get(ast_expr_kinds, word_to_int(array_get(ast_expr_lefts, step_id))) == EXPR_INT) {
+            tc_diag("range step must be positive", line, source_file)
+        }
+        pilot saved_count = tc_local_count
+        pilot saved_scope = tc_local_scope_start
+        tc_local_scope_start = tc_local_count
+        tc_set_local(array_get(ast_stmt_names, stmt_id), "int")
+        array_set(tc_local_mut, tc_local_count - 1, "loop")
+        tc_loop_depth += 1
+        tc_validate_task_body(array_get(ast_stmt_bodies, stmt_id))
+        tc_loop_depth -= 1
+        tc_local_count = saved_count
+        tc_local_scope_start = saved_scope
+        give back
+    }
+    if kind == STMT_FOR {
+        pilot saved_count = tc_local_count
+        pilot saved_scope = tc_local_scope_start
+        tc_local_scope_start = tc_local_count
+        pilot initializer = word_to_int(array_get(ast_stmt_else_bodies, stmt_id))
+        tc_validate_stmt(initializer)
+        if tc_expr_type(word_to_int(array_get(ast_stmt_exprs, initializer))) != "int" or (array_get(ast_stmt_extras, initializer) != "" and array_get(ast_stmt_extras, initializer) != "int") { tc_diag("counted for initializer must have type int", line, source_file) }
+        pilot condition_id = word_to_int(expr)
+        tc_validate_expr(condition_id, line)
+        pilot condition_type = tc_expr_type(condition_id)
+        if condition_type != "" and condition_type != "bool" { tc_diag("counted for condition must have type bool, got " + condition_type, line, source_file) }
+        tc_loop_depth += 1
+        tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
+        pilot step_id = word_to_int(array_get(ast_stmt_extras, stmt_id))
+        tc_validate_stmt(step_id)
+        pilot step_type = tc_expr_type(word_to_int(array_get(ast_stmt_exprs, step_id)))
+        if array_get(ast_stmt_kinds, step_id) == STMT_ASSIGN {
+            if step_type != "int" or tc_expr_type(word_to_int(array_get(ast_stmt_bodies, step_id))) != "int" { tc_diag("counted for assignment step must have type int", line, source_file) }
+        } else if step_type != "int" and step_type != "void" { tc_diag("counted for expression step must have type int or void", line, source_file) }
+        tc_loop_depth -= 1
+        tc_local_count = saved_count
+        tc_local_scope_start = saved_scope
+        give back
+    }
     if kind == STMT_REPEAT {
         pilot repeat_id = word_to_int(expr)
         tc_validate_expr(repeat_id, line)
         pilot repeat_type = tc_expr_type(repeat_id)
-        if array_get(ast_stmt_names, stmt_id) == "until" {
-            if repeat_type != "" and repeat_type != "bool" { tc_diag("repeat until condition must have type bool, got " + repeat_type, tc_expr_diag_line(repeat_id, line), tc_expr_diag_file(repeat_id, source_file)) }
+        pilot repeat_form: word = array_get(ast_stmt_names, stmt_id)
+        if repeat_form == "until" or repeat_form == "while" {
+            if repeat_type != "" and repeat_type != "bool" { tc_diag("repeat " + repeat_form + " condition must have type bool, got " + repeat_type, tc_expr_diag_line(repeat_id, line), tc_expr_diag_file(repeat_id, source_file)) }
         } else if repeat_type != "" and repeat_type != "int" {
             tc_diag("repeat count must have type int, got " + repeat_type, tc_expr_diag_line(repeat_id, line), tc_expr_diag_file(repeat_id, source_file))
         }
+        pilot saved_count = tc_local_count
+        pilot saved_scope = tc_local_scope_start
+        tc_local_scope_start = tc_local_count
+        pilot binder: word = array_get(ast_stmt_extras, stmt_id)
+        if binder != "" { tc_set_local(binder, "int") array_set(tc_local_mut, tc_local_count - 1, "loop") }
         tc_loop_depth += 1
-        tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
+        tc_validate_task_body(array_get(ast_stmt_bodies, stmt_id))
         tc_loop_depth -= 1
+        tc_local_count = saved_count
+        tc_local_scope_start = saved_scope
         give back
     }
     if kind == STMT_TRAINING_ARC {
@@ -2507,6 +3459,9 @@ task tc_run_program() -> void {
         }
         i += 1
     }
+    if not v35_bootstrap_compat and tc_callable_entry("main") < 0 {
+        tc_diag_code("E0005", "program requires a usable task main() entry", source_map_local_line(1), source_map_file(1))
+    }
     i = 0
     -- Global initialization is emitted strictly in source order. Infer each
     -- binding from earlier globals only; accepting a later reference here
@@ -2520,6 +3475,10 @@ task tc_run_program() -> void {
             pilot binding_type = type_ann
             if binding_type == "" { binding_type = tc_expr_type(expr) }
             pilot global_name: word = array_get(ast_stmt_names, sid)
+            pilot callable = tc_callable_entry(global_name)
+            if array_get(ast_pilot_is_mut, sid) == "fixed" and callable >= 0 and not array_get(tc_callable_extras, callable).starts_with("impl:") {
+                tc_diag("fixed binding '" + global_name + "' conflicts with a callable in the value namespace", word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+            }
             if tc_global_seen(global_name) {
                 tc_diag("duplicate top-level binding '" + global_name + "'", word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
             } else {
@@ -2548,6 +3507,9 @@ task tc_run_program() -> void {
             tc_current_task_name = ""
             tc_current_return_type = ""
         } else {
+            if not v35_bootstrap_compat and kind != STMT_PILOT and kind != STMT_SHAPE and kind != STMT_IMPL and kind != STMT_EXTERN {
+                tc_diag("executable statement at top level is unsupported; place it inside task main()", word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+            }
             tc_reset_locals()
             tc_current_task_name = ""
             tc_current_return_type = ""
@@ -2567,6 +3529,12 @@ task tc_run_program() -> void {
 -- ---------- Top-level entry -----------------------------------------
 
 task bc_run_program() -> void {
+    bc_loop_active = false
+    bc_loop_outer_count = 0
+    bc_loop_exit_states = ""
+    bc_loop_backedge_states = ""
+    bc_loop_backedge_seen = false
+    bc_backedge_rechecking = false
     bc_sym_count = 0
     bc_scope_depth = 0
     pilot top_count = array_len(ast_top_stmts)

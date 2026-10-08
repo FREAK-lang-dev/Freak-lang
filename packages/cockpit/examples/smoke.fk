@@ -1,3 +1,36 @@
+use self::containers::{
+    cockpit_words_new,
+    cockpit_words_push,
+    cockpit_words_release
+}
+use self::layout::{
+    cockpit_layout_capacity,
+    cockpit_layout_release
+}
+use self::state::{
+    cockpit_fail,
+    cockpit_ui_request_close,
+    cockpit_ui_should_close
+}
+use self::theme::{
+    cockpit_theme_release,
+    cockpit_theme_terminal
+}
+use self::ui::{
+    cockpit_ui_begin_frame,
+    cockpit_ui_close,
+    cockpit_ui_end_frame,
+    cockpit_ui_open
+}
+use self::widgets::{
+    cockpit_widget_button,
+    cockpit_widget_checkbox,
+    cockpit_widget_heading,
+    cockpit_widget_input,
+    cockpit_widget_progress,
+    cockpit_widget_tabs
+}
+
 -- Bounded COCKPIT V3 smoke. It always destroys its one window and handles.
 
 task main() {

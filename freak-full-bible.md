@@ -157,8 +157,14 @@ connect(host: "localhost", port: 8080, timeout: 30)
 - `say` — print keyword (always available, no import)
 - String path interpolation: `{path}` inside double-quoted strings, where a
   path is an identifier followed by zero or more `.field` hops. The path must
-  resolve to `word`, `int`, `num`, or `bool`. Matched brace bodies that are not
-  paths, and unmatched braces, remain literal text.
+  resolve to `word`, `int`, `num`, or `bool`. Unsupported expression-like
+  bodies are errors: after trimming whitespace, a matched non-path body that
+  starts with an identifier/keyword, digit, `(`, `+`, `-`, or `!` is rejected
+  unless it contains `:` (object/JSON-like literal text). An unclosed such body
+  is rejected when its trimmed text is a valid path or it contains one of `(`,
+  `+`, `-`, `*`, `/`, `=`. Other unmatched braces, empty braces and other
+  non-expression brace text remain literal. Use `\{` and `\}` to
+  spell literal braces, for example `"\{score + 1\}"`.
 - `{}` and `done` are identical block delimiters
 
 ### 1.3 Types — Primitive
@@ -346,6 +352,13 @@ Rules:
 
 ### 1.7 Control Flow
 
+Statements in a program or block may be separated by a newline or `;`.
+A semicolon may also trail the last statement on a line or before `}`.
+Newline-separated programs retain their meaning; separators do not create
+expression statements. A semicolon ends a bare `give back` in a void task,
+while semicolons inside strings or comments are ordinary data. The separator
+is not an operator or a replacement for argument/collection commas.
+
 ```
 -- if/else
 if x > 10 { say "big" }
@@ -378,6 +391,16 @@ repeat 5 times { do_thing() }
 -- repeat until
 repeat until condition { do_thing() }
 
+-- condition-first loops: both spellings run while the condition is true
+repeat while condition { do_thing() }
+while condition { do_thing() }
+
+-- experimental V3.5 counted forms
+for each i in 0..10 { say i }
+for each i in 0..=10 step 2 { say i }
+repeat 10 times with i { say i }
+for (pilot i = 0; i < 10; i += 1) { say i }
+
 -- training arc: loop guaranteed to eventually terminate
 training arc until power >= 9000 max 100 sessions {
     practice()
@@ -393,6 +416,25 @@ for each item in list {
     process(item)
 }
 ```
+
+The condition of `repeat while` and `while` must be `bool`; it is tested
+before every pass, including the first. They share the existing loop rules
+for `break`, `continue`, lexical cleanup and early return.
+
+The three V3.5 counted forms are experimental. Range bounds, an explicit
+positive `int` step and a repeat count are evaluated once in source order.
+`a..b` excludes `b`; `a..=b` includes it. Empty and backwards ranges run
+zero times. Range and repeat indices are fresh immutable `int` bindings,
+scoped to the body; a same-named outer binding is restored after the loop.
+Invalid constant steps fail compilation and nonpositive dynamic steps fail
+controllably at runtime. An inclusive range ending at the largest `int`
+finishes without overflowing its internal increment.
+
+The initial C-style form accepts an `int` `pilot` initializer, a `bool`
+condition, and an assignment or `int`/`void` expression step. Its initializer
+is mutable and local to the header and body; `fixed pilot` is rejected.
+`continue` executes the step, while `break` skips it. A `num` bound, count
+or step is a type error. `with` and `step` remain contextual identifiers.
 
 ### 1.8 Closures and Lambdas
 
@@ -2278,7 +2320,7 @@ class TokenType(Enum):
     GIVE_BACK / BREAK / CONTINUE
 
     # Control flow
-    IF / ELSE / WHEN / REPEAT / TIMES / UNTIL / DONE / FOR_KW / EACH
+    IF / ELSE / WHEN / REPEAT / TIMES / UNTIL / WHILE / DONE / FOR_KW / EACH
 
     # Error handling
     CHECK / RESULT_KW / GOT / NOBODY / SOME / OK / ERR / OR_ELSE
@@ -2301,7 +2343,7 @@ class TokenType(Enum):
 
     # Delimiters
     LBRACE / RBRACE / LPAREN / RPAREN / LBRACKET / RBRACKET
-    COMMA / COLON / SEMICOLON / DOT / DOT_DOT / ELLIPSIS
+    COMMA / COLON / SEMICOLON / DOT / DOT_DOT / DOT_DOT_EQ / ELLIPSIS
     COLON_COLON / PIPE_SINGLE / AT
 
     # Assignment
@@ -2312,6 +2354,11 @@ class TokenType(Enum):
 ```
 
 ### 8.2 Multi-Word Tokens (lex greedily)
+
+V3.5 reserves `while`, increasing its reserved-word inventory from 54 to 55.
+This is a breaking change for older programs using `while` as an identifier.
+`repeat while` uses the same reserved `while` token. Counted-loop `with` and
+`step` are contextual words and do not enlarge that inventory.
 
 ```
 give back / or else / trust me / for each / training arc

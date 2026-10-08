@@ -1,0 +1,6 @@
+task main() -> int {
+    pilot step = 0
+    for each i in 0..3 step step { say i }
+    say "unreachable"
+    give back 0
+}

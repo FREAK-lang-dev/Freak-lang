@@ -1858,7 +1858,12 @@ def audit_conformance(paths: List[Path]) -> int:
                 "task cli_run_clang_identity",
                 "task cli_run_linker_identity",
                 "task cli_run_file_sha256",
-                "certutil -hashfile",
+                "task cli_run_windows_file_sha256(path: word) -> word {",
+                "task cli_run_sha256_from_bytes(output: ByteBuffer) -> word {",
+                'hangar_native_tool_executable("certutil")',
+                'process::command_arg(command, "-hashfile")',
+                'process::command_arg(command, path)',
+                'process::command_arg(command, "SHA256")',
                 "sha256sum ",
                 "task cli_run_cache_record",
                 "fs::delete(cache_file)",
@@ -2059,6 +2064,14 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in needles:
             if needle not in source_text:
                 run_freshness_missing.append(f"{label}: {needle}")
+        if label == "run pipeline":
+            signature = "task cli_run_windows_file_sha256(path: word) -> word {"
+            if source_text.count(signature) == 1:
+                native_hash = source_text.split(signature, 1)[1].split("\ntask ", 1)[0]
+                if "process::exec_capture(" in native_hash:
+                    run_freshness_missing.append("run pipeline: Windows file hashing must use native argv")
+            else:
+                run_freshness_missing.append("run pipeline: native hash helper must be unambiguous")
         if label == "release payload" and (
             "Pre-compile runtime to .o" in source_text
             or "dist/freak/runtime/freak_runtime.o" in source_text
@@ -2085,20 +2098,24 @@ def audit_conformance(paths: List[Path]) -> int:
         )
 
     # Check 6c: V3 freezes path interpolation as an ordinary owned word
-    # expression. Non-path brace bodies are literal compatibility text.
+    # expression. Stronger FIX-05 rejects expression-like non-path bodies;
+    # escaped braces and non-expression text retain their literal contract.
     interpolation_missing: List[str] = []
     interpolation_sources = {
         "bible": (
             bible,
-            ("String path interpolation", "`{path}`", "remain literal text"),
+            ("String path interpolation", "`{path}`", "Unsupported expression-like",
+             "object/JSON-like literal text", "Use `\\{` and `\\}`"),
         ),
         "audit": (
             audit_doc,
-            ("String path interpolation", "IDENT(.IDENT)*", "tests/v3_interpolation.py"),
+            ("String path interpolation", "IDENT(.IDENT)*", "tests/v3_interpolation.py",
+             "Stronger FIX-05", "does not establish V4 interpolation parity"),
         ),
         "parser": (
             repo / "src" / "compiler" / "v3" / "parser.fk",
-            ("parser_interp_path_valid", "lex_ident_token_type", "EXPR_INTERP"),
+            ("parser_interp_path_valid", "lex_ident_token_type", "EXPR_INTERP",
+             "unsupported interpolation expression", "unterminated interpolation expression"),
         ),
         "checker": (
             repo / "src" / "compiler" / "v3" / "checker.fk",
@@ -2114,7 +2131,8 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "focused gate": (
             repo / "tests" / "v3_interpolation.py",
-            ("LITERAL_PROGRAM", "NEGATIVE_PROGRAMS", "detect_leaks=1"),
+            ("LITERAL_PROGRAM", "NEGATIVE_PROGRAMS", "detect_leaks=1",
+             "SYNTAX_PROGRAMS", "syntax_error=name in SYNTAX_PROGRAMS"),
         ),
         "preservation manifest": (
             repo / "tests" / "v3_legacy" / "golden" / "cases.json",
@@ -2236,14 +2254,14 @@ def audit_conformance(paths: List[Path]) -> int:
                 or normalized_source.startswith("/")
                 or (len(normalized_source) >= 2 and normalized_source[0].isalpha() and normalized_source[1] == ":")
                 or any(part in ("", ".", "..") for part in source_parts)
-                or not normalized_source.startswith(("freakc/runtime/", "std/"))
+                or not normalized_source.startswith(("freakc/runtime/", "std/", "third_party/llhttp/", "templates/v35/", "src/compiler/v4/native-runtime.manifest"))
             )
             destination_unsafe = (
                 destination != destination.strip()
                 or normalized_destination.startswith("/")
                 or (len(normalized_destination) >= 2 and normalized_destination[0].isalpha() and normalized_destination[1] == ":")
                 or any(part in ("", ".", "..") for part in destination_parts)
-                or not normalized_destination.startswith(("runtime/", "std/"))
+                or not normalized_destination.startswith(("runtime/", "std/", "templates/v35/"))
             )
             if source_unsafe or destination_unsafe:
                 distribution_missing.append(f"unsafe manifest entry: {line}")
@@ -2270,6 +2288,10 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freakc/runtime/freak_runtime.c",
                 "freakc/runtime/freak_runtime.h",
                 "freakc/runtime/freak_llvm_runtime.c",
+                "freakc/runtime/freak_v35_process.inc",
+                "freakc/runtime/freak_v35_fs.inc",
+                "freakc/runtime/freak_v35_json.inc",
+                "freakc/runtime/freak_v35_http.inc",
                 "freakc/runtime/ui/win32_backend.c",
                 "freakc/runtime/ui/freak_ui_platform.h",
                 "freakc/runtime/freak_abi",
@@ -2278,6 +2300,15 @@ def audit_conformance(paths: List[Path]) -> int:
                 "std/freak_std_api",
             }
         )
+        expected_sources.update(path.relative_to(repo).as_posix()
+                                for path in (repo / "third_party" / "llhttp").rglob("*")
+                                if path.is_file())
+        expected_sources.update(path.relative_to(repo).as_posix() for path in (repo / "templates/v35").rglob("*") if path.is_file())
+        expected_sources.add("src/compiler/v4/native-runtime.manifest")
+        for raw in (repo / "src/compiler/v4/native-runtime.manifest").read_text().splitlines():
+            if raw and not raw.startswith("#"):
+                _, name = raw.split(" ")
+                expected_sources.add(name if name.startswith("third_party/") else "freakc/runtime/" + name)
         for missing_source in sorted(expected_sources - manifest_sources):
             distribution_missing.append(
                 f"required file absent from manifest: {missing_source}"
@@ -2318,8 +2349,8 @@ def audit_conformance(paths: List[Path]) -> int:
         "doctor": (
             repo / "src" / "cli" / "doctor.fk",
             (
-                "modules_expected\\\": 11",
-                "files_expected\\\": 7",
+                "modules_expected\\\": 15",
+                "files_expected\\\": 35",
                 "FREAK_V3_ABI",
                 "FREAK_V3_RUNTIME_API",
                 "runtime_api",
@@ -2328,7 +2359,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 "ui/window.fk",
                 'process::env("TMPDIR")',
                 "cli_doctor_remove_temp_parent",
-                "probe_run_exit == 0",
+                "run_status == 2 and process::command_exit_code(probe_command) == 0",
+                "cli_find_clang_executable()",
                 "compile, link, and execution work",
                 "-> int",
             ),

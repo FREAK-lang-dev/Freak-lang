@@ -957,18 +957,87 @@ class PureGateTests(unittest.TestCase):
     def prepare_fake_tree(self, base):
         original = base / "original"; original.mkdir()
         names = [*gate.OWNED_NAMES, gate.SUPPORT_NAME, gate.GUARD_NAME,
+                 gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST,
                  *("src/compiler/v4/crates/" + crate + "/src/lib.fk" for crate in gate.CRATES),
                  *("freakc/runtime/" + name for name in (*gate.RUNTIME_SOURCES, *gate.RUNTIME_HEADERS)),
-                 "freakc/__main__.py"]
+                 *gate.RUNTIME_VENDOR_HEADERS, "freakc/__main__.py", gate.RUNTIME_INVENTORY_READER]
+        real_metadata = (gate.SUPPORT_NAME, gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST, gate.RUNTIME_INVENTORY_READER)
         for name in names:
             path = original / name; path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes((gate.ROOT / gate.SUPPORT_NAME).read_bytes() if name == gate.SUPPORT_NAME else b"inert source-only metadata\n")
+            path.write_bytes((gate.ROOT / name).read_bytes() if name in real_metadata else b"inert source-only metadata\n")
         compiler = base / "fake-clang"; compiler.write_bytes(b"non-executable fake compiler\n")
         work = base / "work"; work.mkdir()
         frozen = work / "frozen-source"
         for name in names:
             path = frozen / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes((original / name).read_bytes())
         return original, compiler.resolve(), work, frozen, names
+
+    def test_authoritative_manifest_inputs_preserve_exact_order(self):
+        names = gate.source_names()
+        self.assertEqual(gate.runtime_input_names(gate.ROOT),
+                         tuple("freakc/runtime/" + name for name in (*gate.RUNTIME_SOURCES, *gate.RUNTIME_HEADERS)) + gate.RUNTIME_VENDOR_HEADERS)
+        self.assertEqual(tuple((gate.ROOT / gate.BOOTSTRAP_MANIFEST).read_text().splitlines()),
+                         tuple("crates/" + crate + "/src/lib.fk" for crate in gate.CRATES))
+        self.assertEqual((len(gate.CRATES), len(gate.RUNTIME_SOURCES), len(gate.RUNTIME_HEADERS), len(gate.RUNTIME_VENDOR_HEADERS)), (22, 7, 11, 6))
+        for name in (gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST, gate.RUNTIME_INVENTORY_READER, *gate.RUNTIME_VENDOR_HEADERS):
+            self.assertIn(name, names)
+        self.assertNotIn("v4_typed_os_inventory", sys.modules)
+
+    def test_source_closure_rejects_physical_and_persisted_input_mutations(self):
+        with tempfile.TemporaryDirectory() as temp:
+            original, compiler, work, frozen, names = self.prepare_fake_tree(Path(temp).resolve())
+            with patch.object(gate, "ROOT", original):
+                sources = gate.source_hashes(); report = {"source_hashes": sources}
+                gate.validate_source_closure(report, frozen)
+                declared = (gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST, *gate.runtime_input_names(original))
+                for name in declared:
+                    for root in (original, frozen):
+                        path = root / name; saved = path.read_bytes()
+                        try:
+                            path.write_bytes(saved + b"\n# changed proof input\n")
+                            with self.subTest(name=name, root=root.name), self.assertRaises((RuntimeError, ValueError)):
+                                gate.validate_source_closure(report, frozen)
+                        finally: path.write_bytes(saved)
+                    missing = dict(sources); del missing[name]
+                    with self.subTest(name=name, mutation="omitted"), self.assertRaises(RuntimeError):
+                        gate.validate_source_closure({"source_hashes": missing}, frozen)
+                    forged = dict(sources); forged[name] = "0" * 64
+                    with self.subTest(name=name, mutation="forged"), self.assertRaises(RuntimeError):
+                        gate.validate_source_closure({"source_hashes": forged}, frozen)
+                with self.assertRaisesRegex(RuntimeError, "ordered"):
+                    gate.validate_source_closure({"source_hashes": dict(reversed(list(sources.items())))}, frozen)
+                for manifest in (gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST):
+                    path = frozen / manifest; saved = path.read_bytes()
+                    try:
+                        lines = saved.splitlines(keepends=True)
+                        if manifest == gate.RUNTIME_MANIFEST:
+                            first = next(i for i, line in enumerate(lines) if line.startswith(b"source "))
+                        else: first = 0
+                        lines[first], lines[first + 1] = lines[first + 1], lines[first]
+                        path.write_bytes(b"".join(lines))
+                        with self.subTest(manifest=manifest), self.assertRaisesRegex(RuntimeError, "ordered"):
+                            gate.source_names(frozen)
+                    finally: path.write_bytes(saved)
+
+    def test_actual_first_job_rejects_every_manifest_runtime_input_drift(self):
+        with tempfile.TemporaryDirectory() as temp:
+            original, compiler, work, frozen, names = self.prepare_fake_tree(Path(temp).resolve())
+            with patch.object(gate, "ROOT", original):
+                supports = tuple(gate.load_support(frozen, names, role) for role in ("native", "compiler", "bootstrap"))
+                report = {"source_hashes": gate.source_hashes(), "compiler": {"selected": str(compiler), "path": str(compiler), "sha256": gate.sha(compiler)}}
+                declared = (gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST, *gate.runtime_input_names(original))
+                # The actual Pins/check body must reject before the checker is
+                # loaded, before its first process guard can run.
+                for name in declared:
+                    for root in (original, frozen):
+                        path = root / name; saved = path.read_bytes()
+                        try:
+                            path.write_bytes(saved + b"\n# changed proof input\n")
+                            with self.subTest(name=name, root=root.name), patch.object(gate, "create_fixtures", return_value={}), patch.object(gate, "load_checks", side_effect=AssertionError("first job reached")) as load:
+                                with self.assertRaises((supports[0].GateError, RuntimeError, ValueError)):
+                                    gate.run_gate(compiler, work, frozen, copy.deepcopy(report), supports)
+                                load.assert_not_called()
+                        finally: path.write_bytes(saved)
 
     def simulate(self, host, sanitize):
         with tempfile.TemporaryDirectory() as temp:

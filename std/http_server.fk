@@ -1,0 +1,63 @@
+-- Bounded synchronous HTTP/1 transport. The application owns routing.
+-- Default bind is 127.0.0.1; non-loopback requires explicit opt-in with http_bind.
+-- One active request per server; release it before the next accept.
+-- Headers retain repeats and trailer identity. Paths/query remain encoded;
+-- validate/decode them in the application without collapsing duplicate values.
+-- Request words and ByteBuffers are independent owners; release ByteBuffers.
+-- Ordinary http_send_bytes consumes its ByteBuffer. The namespace builtin
+-- http_server::send_bytes borrows it; its caller keeps release responsibility.
+-- Release every request, including failed parses. The floor already sends an
+-- error response and closes malformed/oversized/timed-out connections.
+-- Responses own framing: Connection: close, encoded-byte Content-Length,
+-- HEAD without a body, 204 without Content-Length/body, 304 without a body.
+-- stop is checked between polls of at most 50ms during accept/read/write; close after blocked
+-- next_request has returned. Arbitrary handler code cannot be preempted.
+-- Defaults: line 8192, headers 32768, count 100, body 1048576 bytes; header 5000ms,
+-- body 15000ms, idle 2000ms; aggregate chunk-size/extension wire 4096, trailers 8192 bytes.
+-- Strict llhttp: Host/framing ambiguity rejected, chunked supported;
+-- CONNECT, upgrades, non-identity content coding and other transfer codings fail.
+-- V3 has no closures/task values: dispatch in the caller's loop with when/if.
+
+task http_open(port: int) -> int { give back http_server::open(port) }
+task http_bind(address: word, port: int, allow_non_loopback: int) -> int { give back http_server::bind(address, port, allow_non_loopback) }
+task http_server_status(server: int) -> int { give back http_server::status(server) }
+task http_server_error(server: int) -> word { give back http_server::error(server) }
+task http_local_port(server: int) -> int { give back http_server::local_port(server) }
+task http_set_limits(server: int, line: int, headers: int, count: int, body: int) -> void { http_server::set_limits(server, line, headers, count, body) }
+task http_set_timeouts(server: int, headers_ms: int, body_ms: int, idle_ms: int) -> void { http_server::set_timeouts(server, headers_ms, body_ms, idle_ms) }
+task http_set_chunk_limits(server: int, metadata: int, trailers: int) -> void { http_server::set_chunk_limits(server, metadata, trailers) }
+task http_stop(server: int) -> void { http_server::stop(server) }
+task http_close(server: int) -> void { http_server::close(server) }
+task http_next_request(server: int) -> int { give back http_server::next_request(server) }
+task http_request_status(request: int) -> int { give back http_server::request_status(request) }
+task http_request_error(request: int) -> word { give back http_server::request_error(request) }
+task http_request_method(request: int) -> word { give back http_server::request_method(request) }
+task http_request_target(request: int) -> word { give back http_server::request_target(request) }
+task http_request_path(request: int) -> word { give back http_server::request_path(request) }
+task http_request_query(request: int) -> word { give back http_server::request_query(request) }
+task http_header_count(request: int) -> int { give back http_server::request_header_count(request) }
+task http_header_name(request: int, index: int) -> word { give back http_server::request_header_name(request, index) }
+task http_header_value(request: int, index: int) -> word { give back http_server::request_header_value(request, index) }
+task http_header_value_bytes(request: int, index: int) -> ByteBuffer { give back http_server::request_header_value_bytes(request, index) }
+task http_header_is_trailer(request: int, index: int) -> int { give back http_server::request_header_is_trailer(request, index) }
+task http_header_find(request: int, name: word, start: int) -> int { give back http_server::request_header_find(request, name, start) }
+task http_request_body(request: int) -> ByteBuffer { give back http_server::request_body(request) }
+task http_response_status(request: int, status: int) -> int { give back http_server::response_status(request, status) }
+task http_response_header(request: int, name: word, value: word) -> int { give back http_server::response_header(request, name, value) }
+task http_send_bytes(request: int, body: ByteBuffer) -> int {
+    pilot sent = http_server::send_bytes(request, body)
+    body.release()
+    give back sent
+}
+task http_send_text(request: int, body: word) -> int { give back http_server::send_text(request, body) }
+task http_request_release(request: int) -> void { http_server::request_release(request) }
+task http_send_json(request: int, document: int) -> int {
+    if json_document::ok(document) == 0 { give back 0 }
+    pilot body: ByteBuffer = json_document::serialize_bytes(document)
+    pilot mut sent = 0
+    if http_server::response_header(request, "Content-Type", "application/json") == 1 {
+        sent = http_server::send_bytes(request, body)
+    }
+    body.release()
+    give back sent
+}

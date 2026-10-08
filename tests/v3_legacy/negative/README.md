@@ -1,7 +1,8 @@
 # V3 negative corpus
 
-These sources are intentionally invalid. They are permanent regression inputs
-for the shipping V3 frontend's truthful-failure contract:
+These sources record rejection regressions for the registered shipping V3
+frontend paths. The forward-constructor case is rejected only by the direct
+stage compiler, as documented below. Registered rejection paths verify:
 
 - `freak check` reports a counted diagnostic, exits nonzero, and never prints
   `PASSED`;
@@ -25,8 +26,16 @@ forward references and transitive user/impl task dependencies, integer-only
 remainder/compound assignment rules, and integer geometry across all raw UI
 drawing calls. Shape operator-doctrine
 syntax remains fail-closed because V3 does not lower those operators; call the
-proven instance method explicitly. Shape constructors remain declaration-order
-dependent, and compiler-internal `shape::alloc/get/set` spellings are not
+proven instance method explicitly. The direct stage compiler's shape constructor
+parser remains declaration-order dependent. The public CLI package binder
+discovers shape headers before parsing bodies, matching the resolution phases
+in Bible §17.4, and accepts forward-declared shape constructors. The unchanged
+`forward_shape_constructor.fk` fixture retains its direct C/LLVM parse-error
+oracle and artifact-cleanup checks. Its explicit `public_cli: false` metadata
+records this front-door distinction; the public gate instead checks acceptance,
+both emitters, and native C/LLVM execution of the same forward constructor with
+a field-value oracle of `1`. The harness permits no other public CLI exception.
+Compiler-internal `shape::alloc/get/set` spellings are not
 source builtins. V3 `fs::delete(path)` is the public file-only deletion API on
 both backends: it returns `true` after a successful unlink or when the file was
 already absent, and `false` on an unlink failure. Compiler/CLI derived-artifact
@@ -35,7 +44,9 @@ cleanup checks that result and fails closed.
 `manifest.json` is the inventory and diagnostic oracle. Its schema is
 `freak-v3-negative-corpus-v1`. Each entry records a unique case name, failure
 kind, local `.fk` file, a stable case-insensitive diagnostic fragment, optional
-CLI flags, and whether the standalone stage compiler must also reject it.
+CLI flags, and whether the standalone stage compiler must also reject it. The
+optional boolean `public_cli` defaults to `true` and selects public rejection
+coverage; its sole documented exception above retains direct-stage coverage.
 
 `tests/v3_codegen_error_gate.py` validates that every `.fk` file is listed,
 copies each source to an owned temporary directory, and runs all artifact-

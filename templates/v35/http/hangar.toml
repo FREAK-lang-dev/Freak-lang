@@ -1,0 +1,18 @@
+[project]
+name = "@@NAME@@"
+version = "0.1.0"
+kind = "app"
+entry = "src/main.fk"
+readme = "README.md"
+license_file = "LICENSE"
+
+[modules]
+routes = "src/routes.fk"
+
+[exports]
+hello = "routes::hello"
+
+[tests]
+routes = "tests/routes_test.fk"
+
+[dependencies]

@@ -1,0 +1,66 @@
+-- Strict, document-scoped RFC 8259 JSON; old std/json remains compatible.
+-- The owner is an int document ticket. Release it exactly once with
+-- json_document_release; all borrowed node tickets become invalid immediately.
+-- Never copy ownership to another lifetime. Words and ByteBuffers returned by
+-- getters are independent owned copies and survive document release.
+-- Facade ByteBuffer arguments transfer ownership and are released after use.
+-- Use json_document::* builtins for borrowed buffer inputs, or pass an owned
+-- buffer.slice(0, buffer.length()) to preserve the original caller buffer.
+-- kind: 0 missing, 1 null, 2 bool, 3 numeric text, 4 string, 5 array, 6 object.
+-- Check kind before a typed getter: wrong type, foreign/stale views, and text
+-- getters for NUL strings stop with a runtime error; string_bytes preserves NUL.
+-- Parse and construction errors stay on the document (ok == 0); they print
+-- nothing. error_position is a zero-based source byte offset (construction: 0).
+-- Policy: reject duplicate keys and BOM; strict UTF-8 and paired \u surrogates.
+-- Fixed profile: input/total decoded text 1048576 bytes, depth 128, nodes 65536,
+-- string 262144 bytes, number 1024 bytes, serialized output 8388608 bytes.
+-- Constructors preserve numeric text; children must be attached once and
+-- cycles are rejected. Set an unattached root before serializing.
+
+task json_document_new() -> int { give back json_document::new() }
+task json_document_parse(source: word) -> int { give back json_document::parse(source) }
+task json_document_parse_bytes(source: ByteBuffer) -> int {
+    pilot outcome = json_document::parse_bytes(source)
+    source.release()
+    give back outcome
+}
+task json_document_ok(doc: int) -> int { give back json_document::ok(doc) }
+task json_document_error(doc: int) -> word { give back json_document::error(doc) }
+task json_document_error_position(doc: int) -> int { give back json_document::error_position(doc) }
+task json_document_root(doc: int) -> int { give back json_document::root(doc) }
+task json_document_set_root(doc: int, node: int) -> int { give back json_document::set_root(doc, node) }
+task json_document_release(doc: int) -> void { json_document::release(doc) }
+task json_document_kind(doc: int, node: int) -> int { give back json_document::kind(doc, node) }
+task json_document_count(doc: int, node: int) -> int { give back json_document::count(doc, node) }
+task json_document_array_get(doc: int, node: int, index: int) -> int { give back json_document::array_get(doc, node, index) }
+task json_document_object_get(doc: int, node: int, key: word) -> int { give back json_document::object_get(doc, node, key) }
+task json_document_object_get_bytes(doc: int, node: int, key: ByteBuffer) -> int {
+    pilot outcome = json_document::object_get_bytes(doc, node, key)
+    key.release()
+    give back outcome
+}
+task json_document_object_key_bytes(doc: int, node: int, index: int) -> ByteBuffer { give back json_document::object_key_bytes(doc, node, index) }
+task json_document_bool_value(doc: int, node: int) -> int { give back json_document::bool_value(doc, node) }
+task json_document_number_text(doc: int, node: int) -> word { give back json_document::number_text(doc, node) }
+task json_document_string_word(doc: int, node: int) -> word { give back json_document::string_word(doc, node) }
+task json_document_string_bytes(doc: int, node: int) -> ByteBuffer { give back json_document::string_bytes(doc, node) }
+task json_document_make_null(doc: int) -> int { give back json_document::make_null(doc) }
+task json_document_make_bool(doc: int, value: int) -> int { give back json_document::make_bool(doc, value) }
+task json_document_make_number(doc: int, value: word) -> int { give back json_document::make_number(doc, value) }
+task json_document_make_string(doc: int, value: word) -> int { give back json_document::make_string(doc, value) }
+task json_document_make_string_bytes(doc: int, value: ByteBuffer) -> int {
+    pilot outcome = json_document::make_string_bytes(doc, value)
+    value.release()
+    give back outcome
+}
+task json_document_make_array(doc: int) -> int { give back json_document::make_array(doc) }
+task json_document_make_object(doc: int) -> int { give back json_document::make_object(doc) }
+task json_document_array_append(doc: int, array: int, child: int) -> int { give back json_document::array_append(doc, array, child) }
+task json_document_object_insert(doc: int, object: int, key: word, child: int) -> int { give back json_document::object_insert(doc, object, key, child) }
+task json_document_object_insert_bytes(doc: int, object: int, key: ByteBuffer, child: int) -> int {
+    pilot outcome = json_document::object_insert_bytes(doc, object, key, child)
+    key.release()
+    give back outcome
+}
+task json_document_serialize_word(doc: int) -> word { give back json_document::serialize_word(doc) }
+task json_document_serialize_bytes(doc: int) -> ByteBuffer { give back json_document::serialize_bytes(doc) }

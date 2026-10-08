@@ -1,7 +1,9 @@
 pilot answer: int = 6 * 7
 pilot enabled: bool = true
 
-say "core"
-say word_from_int(answer)
-say word_from_bool(enabled)
-say word_from_int((answer - 2) / 5)
+task main() {
+    say "core"
+    say word_from_int(answer)
+    say word_from_bool(enabled)
+    say word_from_int((answer - 2) / 5)
+}

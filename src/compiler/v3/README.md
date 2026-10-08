@@ -27,6 +27,12 @@ performance, ABI integrity, reproducibility, and release validation. New
 syntax, new semantics, new type-system concepts, and backports of the V4
 query/IR architecture belong in Maverick instead.
 
+The [V3.5 bootstrap/ecosystem decision](../../../docs/decision-v35-bootstrap-ecosystem.md)
+records a bounded exception for the closed promised syntax list, demonstrated
+bootstrap gaps, source-package binding and additive runtime/tooling APIs.
+Its implementation and installed-artifact verification remain separate from
+the historical preservation and release evidence described below.
+
 ## Architecture
 
 V3 still compiles one flattened FREAK translation unit. Its modularity is a

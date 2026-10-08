@@ -306,6 +306,15 @@ freak_word freak_ask(freak_word prompt);
 /* Print message to stderr and exit(1). */
 _Noreturn void freak_panic(freak_word msg);
 
+/* Defined signed-integer arithmetic. C and LLVM call the same scalar ABI;
+   overflow and division/remainder by zero diagnose on stderr and exit 1. */
+int64_t freak_int_add_checked(int64_t a, int64_t b);
+int64_t freak_int_sub_checked(int64_t a, int64_t b);
+int64_t freak_int_mul_checked(int64_t a, int64_t b);
+int64_t freak_int_div_checked(int64_t a, int64_t b);
+int64_t freak_int_rem_checked(int64_t a, int64_t b);
+int64_t freak_int_neg_checked(int64_t value);
+
 /* ------------------------------------------------------------------ */
 /*  std::fs — file I/O                                                */
 /* ------------------------------------------------------------------ */
@@ -315,6 +324,8 @@ freak_word freak_fs_read(freak_word path);
 
 /* Write word contents to a file. Panics on failure. */
 void freak_fs_write(freak_word path, freak_word content);
+/* Sized UTF-8 paths, including Windows native wide-file opening. */
+int64_t freak_fs_fopen_checked(freak_word path, freak_word mode);
 
 /* Append word contents to a file. Creates if not exists. Panics on failure. */
 void freak_fs_append(freak_word path, freak_word content);
@@ -325,6 +336,11 @@ bool fs_exists(freak_word path);
 bool fs_delete(freak_word path);
 
 bool freak_fs_exists(freak_word path);
+int64_t freak_llvm_fs_read_native(int64_t path);
+void freak_llvm_fs_write_native(int64_t path,int64_t content);
+void freak_llvm_fs_append_native(int64_t path,int64_t content);
+int64_t freak_llvm_fs_exists_native(int64_t path);
+int64_t freak_llvm_fs_delete_native(int64_t path);
 int64_t freak_path_exists(int64_t path);
 bool freak_fs_delete(freak_word path);
 void freak_fs_make_dir(freak_word path);
@@ -347,6 +363,7 @@ int64_t freak_pow_int(int64_t base, int64_t exp);
 int64_t freak_time_now_ms(void);
 int64_t freak_time_monotonic_ns(void);
 void    freak_time_sleep(int64_t ms);
+void    freak_llvm_time_sleep(int64_t ms);
 
 /* ------------------------------------------------------------------ */
 /*  std::math                                                         */
@@ -413,6 +430,74 @@ FREAK_RESULT_DECL(bool,       freak_word, bool_word);
    legacy freak_fs_read word/panic ABI unchanged. */
 freak_result_word_word freak_fs_read_checked(freak_word path);
 
+/* V3.5 checked filesystem result tickets. Ordinary I/O failures are owned
+   results without stdout/stderr noise. Text reads require NUL-free UTF-8;
+   binary reads/writes use ByteBuffer. Getter words/buffers are independent
+   owners; release invalidates every alias of the result ticket. Stat and
+   directory inventory do not follow the final symlink/reparse point. Strict
+   public reads have a 64 MiB limit; read_source_ticket preserves the separate
+   compiler-source helper contract. Writes fsync a sibling before publication,
+   preserve existing POSIX permission bits, and synchronize parent directories
+   on POSIX. A synchronization error can follow visible publication and is
+   reported distinctly. rename_new_checked never replaces a destination; an
+   unsupported atomic no-replace primitive fails explicitly. */
+int64_t freak_fs_read_ticket(freak_word path);
+int64_t freak_fs_read_bytes_ticket(freak_word path);
+int64_t freak_fs_read_source_ticket(freak_word path);
+int64_t freak_fs_write_checked(freak_word path, freak_word contents);
+int64_t freak_fs_write_bytes_checked(freak_word path, int64_t contents);
+int64_t freak_fs_append_checked(freak_word path, freak_word contents);
+int64_t freak_fs_rename_checked(freak_word source, freak_word destination);
+int64_t freak_fs_rename_new_checked(freak_word source, freak_word destination);
+int64_t freak_fs_mkdir_checked(freak_word path);
+int64_t freak_fs_remove_checked(freak_word path);
+int64_t freak_fs_rmdir_checked(freak_word path);
+int64_t freak_fs_exclusive_create(freak_word path, freak_word contents);
+int64_t freak_fs_temp_dir(freak_word parent, freak_word prefix);
+int64_t freak_fs_canonical_path(freak_word path);
+int64_t freak_fs_stat_checked(freak_word path);
+int64_t freak_fs_list_dir_checked(freak_word path);
+bool freak_fs_result_ok(int64_t ticket);
+freak_word freak_fs_result_word(int64_t ticket);
+freak_word freak_fs_result_error(int64_t ticket);
+int64_t freak_fs_result_bytes(int64_t ticket);
+int64_t freak_fs_result_kind(int64_t ticket);
+int64_t freak_fs_result_size(int64_t ticket);
+int64_t freak_fs_result_mode(int64_t ticket);
+int64_t freak_fs_result_count(int64_t ticket);
+freak_word freak_fs_result_entry(int64_t ticket, int64_t index);
+void freak_fs_result_release(int64_t ticket);
+int64_t freak_fs_result_live(void);
+freak_word freak_fs_sha256_bytes(int64_t buffer);
+
+int64_t freak_llvm_fs_read_ticket(int64_t path);
+int64_t freak_llvm_fs_read_bytes_ticket(int64_t path);
+int64_t freak_llvm_fs_read_source_ticket(int64_t path);
+int64_t freak_llvm_fs_write_checked(int64_t path, int64_t contents);
+int64_t freak_llvm_fs_write_bytes_checked(int64_t path, int64_t contents);
+int64_t freak_llvm_fs_append_checked(int64_t path, int64_t contents);
+int64_t freak_llvm_fs_rename_checked(int64_t source, int64_t destination);
+int64_t freak_llvm_fs_rename_new_checked(int64_t source, int64_t destination);
+int64_t freak_llvm_fs_mkdir_checked(int64_t path);
+int64_t freak_llvm_fs_remove_checked(int64_t path);
+int64_t freak_llvm_fs_rmdir_checked(int64_t path);
+int64_t freak_llvm_fs_exclusive_create(int64_t path, int64_t contents);
+int64_t freak_llvm_fs_temp_dir(int64_t parent, int64_t prefix);
+int64_t freak_llvm_fs_canonical_path(int64_t path);
+int64_t freak_llvm_fs_stat_checked(int64_t path);
+int64_t freak_llvm_fs_list_dir_checked(int64_t path);
+int64_t freak_llvm_fs_result_ok(int64_t ticket);
+int64_t freak_llvm_fs_result_word(int64_t ticket);
+int64_t freak_llvm_fs_result_error(int64_t ticket);
+int64_t freak_llvm_fs_result_bytes(int64_t ticket);
+int64_t freak_llvm_fs_result_kind(int64_t ticket);
+int64_t freak_llvm_fs_result_size(int64_t ticket);
+int64_t freak_llvm_fs_result_mode(int64_t ticket);
+int64_t freak_llvm_fs_result_count(int64_t ticket);
+int64_t freak_llvm_fs_result_entry(int64_t ticket, int64_t index);
+void freak_llvm_fs_result_release(int64_t ticket);
+int64_t freak_llvm_fs_sha256_bytes(int64_t buffer);
+
 /* ------------------------------------------------------------------ */
 /*  String methods                                                    */
 /* ------------------------------------------------------------------ */
@@ -437,6 +522,20 @@ freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s);
 
 /* Get character at index (0-based) as a single-char word. */
 freak_word freak_word_char_at(freak_word w, int64_t index);
+/* Bracket indexing is checked and returns an independent sized byte-word. */
+freak_word freak_word_index_checked(freak_word w, int64_t index);
+int64_t freak_llvm_word_index_checked(int64_t word, int64_t index);
+int64_t freak_num_to_int_checked(double value);
+int64_t freak_ferror(int64_t file);
+/* Native image location, independent of argv[0] and the current directory.
+   Returns an empty word if the host cannot provide a location. */
+freak_word freak_process_executable_path(void);
+bool freak_process_platform_is_windows(void);
+bool freak_process_stdout_is_terminal(void);
+int64_t freak_llvm_process_stdout_is_terminal(void);
+freak_word freak_process_platform_name(void);
+int64_t freak_llvm_process_platform_name(void);
+int64_t freak_llvm_process_executable_path(void);
 
 /* Stable, allocation-free FNV-1a checksum for persisted compiler data. */
 int64_t freak_word_checksum(freak_word w);
@@ -469,6 +568,7 @@ freak_word freak_word_substring(freak_word w, int64_t start, int64_t len);
 /* Conversions from word to number. */
 int64_t freak_word_to_int(freak_word w);
 int64_t freak_word_compare(freak_word a, freak_word b);
+int64_t freak_llvm_word_compare(int64_t left,int64_t right);
 double  freak_word_to_num(freak_word w);
 double  freak_parse_num(freak_word w);
 freak_word freak_format_num(double n);
@@ -537,6 +637,74 @@ freak_word freak_process_exec_capture(freak_word cmd);
 /* process handle methods */
 int64_t freak_process_wait(freak_process_handle p);
 bool freak_process_kill(freak_process_handle p);
+
+/* V3.5 shell-free command tickets. Configure once, then spawn/wait or run.
+   timeout_ms == 0 disables the deadline. Capture limits count raw bytes per
+   stream. wait drains one command; poll performs one bounded nonblocking
+   service tick. A scheduler must poll every live command so their pipes and
+   absolute spawn-time deadlines progress. Poll/status report RUNNING until
+   captures are drained and the direct child reaped. Inherited variants preserve
+   the caller's standard handles. Release cancels and reaps a running tree.
+   All getters borrow the ticket; word/ByteBuffer getters return fresh owners.
+   Tickets are generation checked and cannot be substituted for other handles.
+   APIs are sequential; concurrent mutation of one ticket is unsupported. */
+enum {
+    FREAK_COMMAND_READY = 0, FREAK_COMMAND_RUNNING = 1,
+    FREAK_COMMAND_EXITED = 2, FREAK_COMMAND_SPAWN_FAILED = 3,
+    FREAK_COMMAND_SIGNALED = 4, FREAK_COMMAND_TIMED_OUT = 5,
+    FREAK_COMMAND_OUTPUT_LIMIT = 6, FREAK_COMMAND_CANCELLED = 7,
+    FREAK_COMMAND_IO_ERROR = 8
+};
+int64_t freak_process_command_new(freak_word executable);
+void freak_process_command_arg(int64_t ticket, freak_word argument);
+void freak_process_command_cwd(int64_t ticket, freak_word directory);
+void freak_process_command_env(int64_t ticket, freak_word name, freak_word value);
+void freak_process_command_unset_env(int64_t ticket, freak_word name);
+int64_t freak_process_command_spawn(int64_t ticket, int64_t timeout_ms,
+                                    int64_t stdout_limit, int64_t stderr_limit);
+int64_t freak_process_command_run(int64_t ticket, int64_t timeout_ms,
+                                  int64_t stdout_limit, int64_t stderr_limit);
+int64_t freak_process_command_spawn_inherit(int64_t ticket, int64_t timeout_ms);
+int64_t freak_process_command_run_inherit(int64_t ticket, int64_t timeout_ms);
+int64_t freak_process_command_wait(int64_t ticket);
+int64_t freak_process_command_poll(int64_t ticket);
+void freak_process_command_terminate(int64_t ticket);
+int64_t freak_process_command_status(int64_t ticket);
+int64_t freak_process_command_exit_code(int64_t ticket);
+int64_t freak_process_command_signal(int64_t ticket);
+freak_word freak_process_command_error(int64_t ticket);
+freak_word freak_process_command_stdout(int64_t ticket);
+freak_word freak_process_command_stderr(int64_t ticket);
+int64_t freak_process_command_stdout_bytes(int64_t ticket);
+int64_t freak_process_command_stderr_bytes(int64_t ticket);
+void freak_process_command_release(int64_t ticket);
+int64_t freak_process_command_live(void);
+int64_t freak_process_command_children(void);
+int64_t freak_process_command_retained_bytes(void);
+
+int64_t freak_llvm_process_command_new(int64_t executable);
+void freak_llvm_process_command_arg(int64_t ticket, int64_t argument);
+void freak_llvm_process_command_cwd(int64_t ticket, int64_t directory);
+void freak_llvm_process_command_env(int64_t ticket, int64_t name, int64_t value);
+void freak_llvm_process_command_unset_env(int64_t ticket, int64_t name);
+int64_t freak_llvm_process_command_spawn(int64_t ticket, int64_t timeout_ms,
+                                         int64_t stdout_limit, int64_t stderr_limit);
+int64_t freak_llvm_process_command_run(int64_t ticket, int64_t timeout_ms,
+                                       int64_t stdout_limit, int64_t stderr_limit);
+int64_t freak_llvm_process_command_spawn_inherit(int64_t ticket, int64_t timeout_ms);
+int64_t freak_llvm_process_command_run_inherit(int64_t ticket, int64_t timeout_ms);
+int64_t freak_llvm_process_command_wait(int64_t ticket);
+int64_t freak_llvm_process_command_poll(int64_t ticket);
+void freak_llvm_process_command_terminate(int64_t ticket);
+int64_t freak_llvm_process_command_status(int64_t ticket);
+int64_t freak_llvm_process_command_exit_code(int64_t ticket);
+int64_t freak_llvm_process_command_signal(int64_t ticket);
+int64_t freak_llvm_process_command_error(int64_t ticket);
+int64_t freak_llvm_process_command_stdout(int64_t ticket);
+int64_t freak_llvm_process_command_stderr(int64_t ticket);
+int64_t freak_llvm_process_command_stdout_bytes(int64_t ticket);
+int64_t freak_llvm_process_command_stderr_bytes(int64_t ticket);
+void freak_llvm_process_command_release(int64_t ticket);
 
 /* ------------------------------------------------------------------ */
 /*  std::thread                                                       */
@@ -707,3 +875,145 @@ int64_t freak_ui_draw_text_word(int64_t handle, freak_word text, int64_t x, int6
 int64_t freak_ui_get_width(int64_t handle);
 int64_t freak_ui_get_height(int64_t handle);
 int64_t freak_ui_measure_text_word(freak_word text, int64_t font_size, int64_t bold, int64_t italic);
+
+/* Strict document-scoped JSON. Node views borrow their document owner. */
+int64_t freak_json_document_new(void);
+int64_t freak_json_document_parse(freak_word source);
+int64_t freak_json_document_parse_bytes(int64_t source);
+int64_t freak_json_document_ok(int64_t doc);
+freak_word freak_json_document_error(int64_t doc);
+int64_t freak_json_document_error_position(int64_t doc);
+int64_t freak_json_document_root(int64_t doc);
+int64_t freak_json_document_set_root(int64_t doc, int64_t node);
+void freak_json_document_release(int64_t doc);
+int64_t freak_json_document_kind(int64_t doc, int64_t node);
+int64_t freak_json_document_count(int64_t doc, int64_t node);
+int64_t freak_json_document_array_get(int64_t doc, int64_t node, int64_t index);
+int64_t freak_json_document_object_get(int64_t doc, int64_t node, freak_word key);
+int64_t freak_json_document_object_get_bytes(int64_t doc, int64_t node, int64_t key);
+int64_t freak_json_document_object_key_bytes(int64_t doc, int64_t node, int64_t index);
+int64_t freak_json_document_bool_value(int64_t doc, int64_t node);
+freak_word freak_json_document_number_text(int64_t doc, int64_t node);
+freak_word freak_json_document_string_word(int64_t doc, int64_t node);
+int64_t freak_json_document_string_bytes(int64_t doc, int64_t node);
+int64_t freak_json_document_make_null(int64_t doc);
+int64_t freak_json_document_make_bool(int64_t doc, int64_t value);
+int64_t freak_json_document_make_number(int64_t doc, freak_word value);
+int64_t freak_json_document_make_string(int64_t doc, freak_word value);
+int64_t freak_json_document_make_string_bytes(int64_t doc, int64_t value);
+int64_t freak_json_document_make_array(int64_t doc);
+int64_t freak_json_document_make_object(int64_t doc);
+int64_t freak_json_document_array_append(int64_t doc, int64_t array, int64_t child);
+int64_t freak_json_document_object_insert(int64_t doc, int64_t object, freak_word key, int64_t child);
+int64_t freak_json_document_object_insert_bytes(int64_t doc, int64_t object, int64_t key, int64_t child);
+freak_word freak_json_document_serialize_word(int64_t doc);
+int64_t freak_json_document_serialize_bytes(int64_t doc);
+
+/* Directory anchors and owned staging results; scalar LLVM adapters share owners. */
+int64_t freak_fs_open_dir_ticket(freak_word);
+int64_t freak_fs_read_bytes_limit_ticket(freak_word,int64_t);
+int64_t freak_fs_read_relative_ticket(int64_t,freak_word);
+int64_t freak_fs_read_source_relative_ticket(int64_t,freak_word);
+int64_t freak_fs_read_relative_bytes_ticket(int64_t,freak_word);
+int64_t freak_fs_read_relative_bytes_limit_ticket(int64_t,freak_word,int64_t);
+int64_t freak_fs_write_relative_bytes_checked(int64_t,freak_word,int64_t);
+int64_t freak_fs_set_mode_relative_checked(int64_t,freak_word,int64_t);
+int64_t freak_fs_rename_relative_new_checked(int64_t,freak_word,int64_t,freak_word);
+int64_t freak_fs_remove_temp_dir_checked(int64_t);
+int64_t freak_fs_publish_temp_dir_checked(int64_t,int64_t,freak_word);
+bool freak_fs_result_completed(int64_t);
+int64_t freak_fs_lock_dir_ticket(int64_t,freak_word);
+int64_t freak_fs_remove_relative_file_checked(int64_t,freak_word);
+int64_t freak_fs_mkdir_relative_checked(int64_t,freak_word);
+int64_t freak_fs_open_relative_dir_ticket(int64_t,freak_word);
+int64_t freak_fs_list_dir_ticket(int64_t);
+bool freak_fs_result_missing(int64_t);
+int64_t freak_fs_directory_path_ticket(int64_t);
+int64_t freak_fs_directory_identity_ticket(int64_t);
+int64_t freak_llvm_fs_open_dir_ticket(int64_t);
+int64_t freak_llvm_fs_read_bytes_limit_ticket(int64_t,int64_t);
+int64_t freak_llvm_fs_read_relative_ticket(int64_t,int64_t);
+int64_t freak_llvm_fs_read_source_relative_ticket(int64_t,int64_t);
+int64_t freak_llvm_fs_read_relative_bytes_ticket(int64_t,int64_t);
+int64_t freak_llvm_fs_read_relative_bytes_limit_ticket(int64_t,int64_t,int64_t);
+int64_t freak_llvm_fs_write_relative_bytes_checked(int64_t,int64_t,int64_t);
+int64_t freak_llvm_fs_set_mode_relative_checked(int64_t,int64_t,int64_t);
+int64_t freak_llvm_fs_remove_temp_dir_checked(int64_t);
+int64_t freak_llvm_fs_publish_temp_dir_checked(int64_t,int64_t,int64_t);
+int64_t freak_llvm_fs_result_completed(int64_t);
+int64_t freak_llvm_fs_lock_dir_ticket(int64_t,int64_t);
+int64_t freak_llvm_fs_remove_relative_file_checked(int64_t,int64_t);
+int64_t freak_llvm_fs_mkdir_relative_checked(int64_t,int64_t);
+int64_t freak_llvm_fs_open_relative_dir_ticket(int64_t,int64_t);
+int64_t freak_llvm_fs_list_dir_ticket(int64_t);
+int64_t freak_llvm_fs_result_missing(int64_t);
+int64_t freak_llvm_fs_directory_path_ticket(int64_t);
+int64_t freak_llvm_fs_directory_identity_ticket(int64_t);
+
+/* HTTP floor scalar ABI; getter words and ByteBuffers are independent owners. */
+int64_t freak_http_server_open(int64_t port);
+int64_t freak_llvm_http_server_open(int64_t port);
+int64_t freak_http_server_bind(freak_word address, int64_t port, int64_t allow_non_loopback);
+int64_t freak_llvm_http_server_bind(int64_t address, int64_t port, int64_t allow_non_loopback);
+int64_t freak_http_server_status(int64_t server);
+int64_t freak_llvm_http_server_status(int64_t server);
+freak_word freak_http_server_error(int64_t server);
+int64_t freak_llvm_http_server_error(int64_t server);
+int64_t freak_http_server_local_port(int64_t server);
+int64_t freak_llvm_http_server_local_port(int64_t server);
+void freak_http_server_set_limits(int64_t server, int64_t line_bytes, int64_t header_bytes, int64_t header_count, int64_t body_bytes);
+void freak_llvm_http_server_set_limits(int64_t server, int64_t line_bytes, int64_t header_bytes, int64_t header_count, int64_t body_bytes);
+void freak_http_server_set_timeouts(int64_t server, int64_t header_ms, int64_t body_ms, int64_t idle_ms);
+void freak_llvm_http_server_set_timeouts(int64_t server, int64_t header_ms, int64_t body_ms, int64_t idle_ms);
+void freak_http_server_set_chunk_limits(int64_t server, int64_t chunk_metadata_bytes, int64_t trailer_bytes);
+void freak_llvm_http_server_set_chunk_limits(int64_t server, int64_t chunk_metadata_bytes, int64_t trailer_bytes);
+void freak_http_server_stop(int64_t server);
+void freak_llvm_http_server_stop(int64_t server);
+void freak_http_server_close(int64_t server);
+void freak_llvm_http_server_close(int64_t server);
+int64_t freak_http_server_next_request(int64_t server);
+int64_t freak_llvm_http_server_next_request(int64_t server);
+int64_t freak_http_server_request_status(int64_t request);
+int64_t freak_llvm_http_server_request_status(int64_t request);
+freak_word freak_http_server_request_error(int64_t request);
+int64_t freak_llvm_http_server_request_error(int64_t request);
+freak_word freak_http_server_request_method(int64_t request);
+int64_t freak_llvm_http_server_request_method(int64_t request);
+freak_word freak_http_server_request_target(int64_t request);
+int64_t freak_llvm_http_server_request_target(int64_t request);
+freak_word freak_http_server_request_path(int64_t request);
+int64_t freak_llvm_http_server_request_path(int64_t request);
+freak_word freak_http_server_request_query(int64_t request);
+int64_t freak_llvm_http_server_request_query(int64_t request);
+int64_t freak_http_server_request_header_count(int64_t request);
+int64_t freak_llvm_http_server_request_header_count(int64_t request);
+freak_word freak_http_server_request_header_name(int64_t request, int64_t index);
+int64_t freak_llvm_http_server_request_header_name(int64_t request, int64_t index);
+freak_word freak_http_server_request_header_value(int64_t request, int64_t index);
+int64_t freak_llvm_http_server_request_header_value(int64_t request, int64_t index);
+int64_t freak_http_server_request_header_value_bytes(int64_t request, int64_t index);
+int64_t freak_llvm_http_server_request_header_value_bytes(int64_t request, int64_t index);
+int64_t freak_http_server_request_header_is_trailer(int64_t request, int64_t index);
+int64_t freak_llvm_http_server_request_header_is_trailer(int64_t request, int64_t index);
+int64_t freak_http_server_request_header_find(int64_t request, freak_word name, int64_t start);
+int64_t freak_llvm_http_server_request_header_find(int64_t request, int64_t name, int64_t start);
+int64_t freak_http_server_request_body(int64_t request);
+int64_t freak_llvm_http_server_request_body(int64_t request);
+int64_t freak_http_server_response_status(int64_t request, int64_t status);
+int64_t freak_llvm_http_server_response_status(int64_t request, int64_t status);
+int64_t freak_http_server_response_header(int64_t request, freak_word name, freak_word value);
+int64_t freak_llvm_http_server_response_header(int64_t request, int64_t name, int64_t value);
+int64_t freak_http_server_send_bytes(int64_t request, int64_t body);
+int64_t freak_llvm_http_server_send_bytes(int64_t request, int64_t body);
+int64_t freak_http_server_send_text(int64_t request, freak_word body);
+int64_t freak_llvm_http_server_send_text(int64_t request, int64_t body);
+void freak_http_server_request_release(int64_t request);
+void freak_llvm_http_server_request_release(int64_t request);
+int64_t freak_http_server_live_servers(void);
+int64_t freak_llvm_http_server_live_servers(void);
+int64_t freak_http_server_live_requests(void);
+int64_t freak_llvm_http_server_live_requests(void);
+int64_t freak_http_server_live_sockets(void);
+int64_t freak_llvm_http_server_live_sockets(void);
+int64_t freak_http_server_retained_bytes(void);
+int64_t freak_llvm_http_server_retained_bytes(void);

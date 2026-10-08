@@ -14,5 +14,3 @@ task main() -> int {
     say name   -- ERROR: name was moved into greet()
     give back 0
 }
-
-main()

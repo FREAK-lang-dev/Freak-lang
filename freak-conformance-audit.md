@@ -7,6 +7,81 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**Locked V4 bootstrap baseline (2026-10-05):** the current native bootstrap
+pins the unchanged official V4 sources at `b43127c4`. Earlier V3.5 V4
+counted/while language checkpoints below describe the local experiment through
+`b8c5e99`; those additions are deferred and are not part of the current locked
+V4 source baseline. The native V3 syntax fixes remain present. This draft
+checkpoint does not claim wider P0 completion or platform/release readiness.
+The four experimental V4 loop fixtures and their full executable expectations
+are retained under `src/compiler/v4/tests/deferred/v35-loops`; they require the
+matching semantic implementation before joining the active positive gates.
+
+**V3 source binding and ticket-word correctness (2026-10-07):** source package
+binding distinguishes declaration roles and preserves source diagnostic names.
+Fixed root value/callable collisions and calls through lexical non-callable
+values are rejected by both CLI binding and the direct V3 checker. Generated
+private names do not provide source-level access to package declarations.
+Supported unloaded task/fixed/shape export headers remain narrower than full
+validation of unused unsupported declarations; package externs are unsupported.
+Original names retain builtin type/namespace/callable reservations before
+flattening. The public CLI supports forward shape constructors through header
+registration; the legacy direct parser's order limitation remains separately
+verified alongside public C/LLVM construction and field access.
+The established V3 non-fixed root pilot/task contextual lookup remains a legacy
+compatibility boundary, without a new namespace or bootstrap-flag exception.
+The normative V4 value namespace and mutable-root prohibition in bible §17.4
+remain unchanged; full V4 namespace/root-constant conformance stays partial.
+Six filesystem/process/JSON/HTTP ticket getters now return independently owned
+words that survive ticket release, reuse and table growth. Generic literal
+cloning keeps its existing sharing semantics. Focused C/LLVM and sanitizer
+proofs do not replace final current-head shipping and native-platform CI.
+Windows owned temporary creation explicitly selects the effective caller's
+owner SID and a protected, inheritable caller-only DACL, then verifies both on
+the held new object. Generic directory creation and strict publication-parent
+policy remain unchanged. Native verification must retain the original token
+default-owner context; Python fixtures claim only their explicitly fresh
+directories before public use.
+
+**V3.5 initial syntax checkpoint (2026-10-05):** native V3 statement lists
+accept semicolons, including a trailing separator and bare void return.
+`tests/v3_v35_language.py` checks twelve positive/negative C/LLVM cases against
+a freshly reconstructed native compiler, including exact diagnostic columns
+and stale-output rejection. Newline behavior remains covered. This checkpoint
+does not establish the new counted/while forms, checked-result bootstrap,
+scoped packages, installed-archive/platform acceptance or a new release.
+
+**V3.5 process/CLI checkpoint (2026-10-05):** both native backends expose
+bounded shell-free command tickets with distinct spawn/exit/signal/timeout and
+capture-limit states, tree cleanup and owned byte captures. The direct runtime
+gate covers O0/O2/O3 and sanitizer controls; the native CLI gate covers literal
+argv, cache reuse, child exit status, piped and controlling-terminal input,
+and Ctrl-C. Doctor recognizes the declared Clang-15 floor and requires a real
+compile/link/execute probe, preserving an explicit missing tool selection.
+Windows/macOS/ARM archive evidence and final current-head review remain pending.
+
+**V3.5 native loop checkpoint (2026-10-05):** the C and LLVM emitters
+implement both condition-first spellings and all three experimental counted
+forms. The fresh compiler gate covers 70 syntax/semantic/error cases at O2;
+an O0 two-million-iteration regression checks constant stack use for the
+repeat index. It includes scoped indices, single-evaluated bounds, continued
+C-style steps, owned early exits and the inclusive maximum-int boundary.
+The reviewed semicolon-at-`when`-arm defect is fixed. The V4 while parity
+gate passes fourteen isolated frontend, span, error and snapshot cases plus
+native LLVM execution covering pretests, owned early return, nesting and
+break/continue. The V4 counted gate passes 29 isolated frontend, type, scope,
+Meiya and snapshot contracts plus five native LLVM programs. Native cases cover
+single-evaluated bounds, inclusive maximum-int termination, continued C-style
+steps, owned early exits, and an exact controlled panic for a dynamic nonpositive
+range step. Explicit scalar local identities are validated on snapshot restore.
+Review regressions cover comparisons inside grouped range bounds, a body brace
+on the following line, and unconditional break/return without executing a step.
+Counted construction compacts disconnected epilogues after checking header
+diagnostics, so an invalid unreachable step still fails compilation.
+Fixed-array projection steps are covered through MIR and restore; native
+fixed-aggregate lowering remains an existing V4 limitation. The counted forms
+remain experimental. Final optimization/platform matrices and installed-archive
+proofs remain pending.
 **V4 checked integer lowering checkpoint (2026-10-05):** signed-int64 `+`,
 `-`, `*` use LLVM overflow intrinsics in internal alwaysinline wrappers. The
 failure path reuses the original checked helper and exact diagnostic/exit;
@@ -238,7 +313,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | `task name(...) -> type { ... }` | ✅ | ✅ | Core feature. V4 stores ordinary top-level tasks as closed `explicit` / `implicit-block` / `arrow` HIR return-form facts; an explicit `-> T` carries normalized surface text and its exact span through HIR snapshot v11, and TY consumes that declared type/span without token reconstruction. Ordinary-task parameters are likewise stored as ordered HIR name/mode/lifetime/type contracts with exact spans; TY, MIR build, Meiya, and editor consumers use those semantic facts. Impl/doctrine/extern parameter signatures, arrow inference, implicit block returns, other MIR body families, and backend behavior retain their existing semantics and remain separately bounded. |
 | `give back` return keyword | ✅ | ✅ | |
 | `say` print keyword always available | ✅ | ✅ | |
-| String path interpolation `"{path}"` | ✅ | ✅ | Self-hosted V3 lowers resolved `IDENT(.IDENT)*` paths in every word-expression context on C and LLVM; non-path brace bodies remain literal. Executable evidence: [tests/v3_interpolation.py](tests/v3_interpolation.py) and [tests/v3_legacy_golden.py](tests/v3_legacy_golden.py). |
+| String path interpolation `"{path}"` | ✅ V3 | ✅ V3 | Self-hosted V3 lowers resolved `IDENT(.IDENT)*` paths in every word-expression context on C and LLVM. Stronger FIX-05 rejects unsupported expression-like matched bodies. An unclosed such body is rejected if its trimmed text is a valid path or it contains `(`, `+`, `-`, `*`, `/`, or `=`; other unmatched braces remain literal. Escaped braces preserve literal text, including the original literal corpus. Empty/object/JSON-like and other non-expression brace text remain literal. Executable evidence: [tests/v3_interpolation.py](tests/v3_interpolation.py), [tests/v3_v35_literals.py](tests/v3_v35_literals.py), and [tests/v3_legacy_golden.py](tests/v3_legacy_golden.py). This evidence does not establish V4 interpolation parity. |
 | Arrow shorthand `task square(x) => x*x` | ✅ | ✅ | parsed and emitted |
 | `done` synonym for `}` | ✅ | ✅ | |
 | Named parameters at call site `connect(host: "x", port: 80)` | ⚠️ | 📖 V4 | V4 lowers named call-site arguments for task calls, generic calls, instance methods, associated methods, and extern/callback calls, with unknown/duplicate/missing/positional-after-named diagnostics plus editor completion/definition facts; production backend parity still expands |

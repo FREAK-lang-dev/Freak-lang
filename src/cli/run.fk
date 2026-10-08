@@ -26,6 +26,12 @@ task cli_run_sha256_from_output(output: word) -> word {
         if not at_end { ch = output.char_at(oi) }
         if ch == " " or ch == "\t" or ch == "\r" or ch == "\n" {
             if cli_run_valid_sha256(token) { give back token.to_lower() }
+            -- GNU-compatible hash tools mark escaped filenames by prefixing
+            -- the digest with one backslash. The digest bytes stay unchanged.
+            if token.length() == 65 and token.starts_with("\\") {
+                pilot digest = token.substring(1, 64)
+                if cli_run_valid_sha256(digest) { give back digest.to_lower() }
+            }
             token = ""
         } else {
             token = token + ch
@@ -35,11 +41,79 @@ task cli_run_sha256_from_output(output: word) -> word {
     give back ""
 }
 
+task cli_run_sha256_from_bytes(output: ByteBuffer) -> word {
+    -- Certutil headers use the active Windows code page. Validate only the
+    -- complete ASCII digest line without converting localized bytes to word.
+    if output.status() != 0 { give back "" }
+    output.seek(0)
+    pilot digest = ""
+    pilot token = ""
+    pilot valid_line = true
+    pilot overlong = false
+    pilot complete_line = false
+    repeat until output.remaining() == 0 {
+        pilot value = output.read_byte()
+        if value == 0 { give back "" }
+        if value == 10 {
+            if valid_line and token != "" {
+                if overlong or not cli_run_valid_sha256(token) { give back "" }
+                if digest != "" { give back "" }
+                digest = token.to_lower()
+            }
+            token = ""
+            valid_line = true
+            overlong = false
+            complete_line = true
+        } else {
+            complete_line = false
+            if value != 9 and value != 13 and value != 32 {
+                if value < 128 and "0123456789abcdefABCDEF".contains(char_to_word(value)) {
+                    if token.length() < 64 { token = token + char_to_word(value) }
+                    else { overlong = true }
+                } else { valid_line = false }
+            }
+        }
+    }
+    if not complete_line or output.status() != 0 { give back "" }
+    give back digest
+}
+
+task cli_run_windows_file_sha256(path: word) -> word {
+    pilot executable = hangar_native_tool_executable("certutil")
+    if executable == "" { give back "" }
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "-hashfile")
+    process::command_arg(command, path)
+    process::command_arg(command, "SHA256")
+    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot digest = ""
+    if state == 2 and process::command_exit_code(command) == 0 {
+        pilot output: ByteBuffer = process::command_stdout_bytes(command)
+        pilot errors: ByteBuffer = process::command_stderr_bytes(command)
+        if output.status() == 0 and errors.status() == 0 {
+            -- Diagnostics may use a non-UTF8 locale; embedded NUL is still
+            -- malformed tool output and must not admit a freshness proof.
+            pilot clean_errors = true
+            errors.seek(0)
+            repeat until errors.remaining() == 0 {
+                if errors.read_byte() == 0 { clean_errors = false }
+            }
+            if clean_errors and errors.status() == 0 {
+                digest = cli_run_sha256_from_bytes(output)
+            }
+        }
+        output.release()
+        errors.release()
+    }
+    process::command_release(command)
+    give back digest
+}
+
 task cli_run_file_sha256(path: word) -> word {
     if path == "" or not fs::exists(path) { give back "" }
     pilot output = ""
     if cli_is_windows() {
-        output = process::exec_capture("certutil -hashfile " + cli_quote_cmd_path(path) + " SHA256 2>nul")
+        give back cli_run_windows_file_sha256(path)
     } else {
         output = process::exec_capture("sha256sum " + cli_quote_cmd_path(path) + " 2>/dev/null")
         if cli_run_sha256_from_output(output) == "" {
@@ -65,7 +139,8 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     pilot runtime_dir: word = cli_find_runtime_dir()
     pilot std_dir: word = cli_find_std_dir()
     pilot pending_marker: word = cli_pending_upgrade_marker()
-    pilot clang_cmd = cli_find_clang_command()
+    -- Tool identity uses the same raw executable selected for native argv.
+    pilot clang_cmd = cli_find_clang_executable()
     pilot link_plan = cli_runtime_link_plan(runtime_dir, lto, cross)
     pilot strict_label = "0"
     if strict_borrow { strict_label = "1" }
@@ -84,6 +159,23 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.c")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.h")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_llvm_runtime.c")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_process.inc")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_fs.inc")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_json.inc")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_http.inc")
+        -- Match freak_v35_http.inc's __has_include selection. The same
+        -- amalgamation compiles these headers and C sources into the runtime.
+        pilot http_vendor = runtime_dir + "/../../third_party/llhttp"
+        if fs::exists(runtime_dir + "/third_party/llhttp/freak_amalgamation.inc") {
+            http_vendor = runtime_dir + "/third_party/llhttp"
+        }
+        material = material + "|http-vendor=" + http_vendor
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/freak_amalgamation.inc")
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/include/llhttp.h")
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/src/api.c")
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/src/http.c")
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/src/llhttp.c")
+        material = material + "|" + cli_run_file_fingerprint(http_vendor + "/src/llhttp.h")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.o")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_llvm_runtime.o")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.obj")
@@ -103,18 +195,96 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
 
 task cli_run_resolve_program(command: word) -> word {
     if command == "" { give back "" }
-    pilot clean_cmd = command.replace("\"", "")
     pilot resolved = ""
-    if fs::exists(clean_cmd) {
-        resolved = clean_cmd
-    } else if cli_is_windows() and fs::exists(clean_cmd + ".exe") {
-        resolved = clean_cmd + ".exe"
+    -- POSIX argv searches PATH for a slash-free name, even when a same-named
+    -- file exists in the working directory. Only literal paths bypass lookup.
+    if (cli_is_windows() or command.contains("/")) and fs::exists(command) {
+        resolved = command
+    } else if cli_is_windows() and fs::exists(command + ".exe") {
+        resolved = command + ".exe"
     } else if cli_is_windows() {
-        resolved = cli_first_line(process::exec_capture("where " + cli_quote_cmd_path(clean_cmd) + " 2>nul"))
+        resolved = cli_first_line(process::exec_capture("where " + cli_quote_cmd_path(command) + " 2>nul"))
     } else {
-        resolved = cli_first_line(process::exec_capture("command -v " + cli_quote_cmd_path(clean_cmd) + " 2>/dev/null"))
+        if command.contains("/") { give back "" }
+        -- The argv runtime defaults an absent PATH to /bin:/usr/bin. A shell
+        -- may invent a different default; preserve an explicitly empty PATH.
+        pilot search_path = process::env("PATH")
+        if search_path == "" {
+            -- V3's scalar env read cannot distinguish empty from absent.
+            -- Probe presence through native argv; never guess after a failed
+            -- utility launch or a malformed/concurrently changed response.
+            pilot presence = process::command_new("/usr/bin/printenv")
+            process::command_arg(presence, "PATH")
+            pilot state = process::command_run(presence, 10000, 65536, 65536)
+            pilot exit_code = process::command_exit_code(presence)
+            pilot valid = false
+            if state == 2 {
+                pilot output: ByteBuffer = process::command_stdout_bytes(presence)
+                pilot errors: ByteBuffer = process::command_stderr_bytes(presence)
+                pilot text = output.to_word()
+                pilot diagnostic = errors.to_word()
+                if output.status() == 0 and errors.status() == 0 and diagnostic == "" {
+                    if exit_code == 0 and text == "\n" { valid = true }
+                    if exit_code == 1 and text == "" {
+                        search_path = "/bin:/usr/bin"
+                        valid = true
+                    }
+                }
+                output.release()
+                errors.release()
+            }
+            process::command_release(presence)
+            if not valid { give back "" }
+        }
+        -- Match native execve's PATH order without shell builtin precedence.
+        -- Empty entries denote cwd. Keep the slash in the resolved candidate
+        -- so its identity probe cannot search later PATH entries.
+        pilot directory = ""
+        pilot pi = 0
+        repeat until pi > search_path.length() {
+            pilot at_end = pi == search_path.length()
+            pilot ch = ":"
+            if not at_end { ch = search_path.char_at(pi) }
+            if ch == ":" {
+                pilot candidate = "./" + command
+                if directory != "" { candidate = directory + "/" + command }
+                pilot quoted = cli_quote_cmd_path(candidate)
+                if process::exec("test -f " + quoted + " && test -x " + quoted) == 0 {
+                    give back candidate
+                }
+                directory = ""
+            } else {
+                directory = directory + ch
+            }
+            pi += 1
+        }
     }
-    give back resolved.trim()
+    give back resolved
+}
+
+task cli_run_tool_version(executable: word, allow_nonzero: bool) -> word {
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "--version")
+    -- Some native linkers (including Apple ld) report an unsupported-option
+    -- diagnostic with a normal nonzero exit. Preserve that version identity
+    -- while keeping the probe bounded and entirely in argv.
+    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot exit_code = process::command_exit_code(command)
+    pilot version = ""
+    if state == 2 and (allow_nonzero or exit_code == 0) {
+        pilot output: ByteBuffer = process::command_stdout_bytes(command)
+        pilot errors: ByteBuffer = process::command_stderr_bytes(command)
+        pilot text = output.to_word()
+        pilot diagnostic = errors.to_word()
+        if output.status() == 0 and errors.status() == 0 {
+            if text == "" { text = diagnostic }
+            version = cli_first_line(text)
+        }
+        output.release()
+        errors.release()
+    }
+    process::command_release(command)
+    give back version
 }
 
 task cli_run_clang_identity(clang_cmd: word) -> word {
@@ -123,19 +293,87 @@ task cli_run_clang_identity(clang_cmd: word) -> word {
     if resolved == "" { give back CLI_RUN_UNHASHABLE + ":clang-resolution:" + clang_cmd }
     pilot digest = cli_run_file_sha256(resolved)
     if digest == "" { give back CLI_RUN_UNHASHABLE + ":clang-digest:" + resolved }
-    give back "command=" + clang_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + cli_clang_version_line(clang_cmd)
+    pilot version = cli_run_tool_version(resolved, false)
+    if version == "" { give back CLI_RUN_UNHASHABLE + ":clang-version:" + clang_cmd }
+    give back "command=" + clang_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + version
+}
+
+task cli_run_clang_target(clang_cmd: word) -> word {
+    -- Keep the strict target probe's argv, limits and stdout acceptance. Its
+    -- command must remain live until a rejected probe's evidence is retained.
+    pilot command = process::command_new(clang_cmd)
+    process::command_arg(command, "-dumpmachine")
+    cli_tool_capture_problem = ""
+    pilot started = time::monotonic_ns()
+    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot elapsed = (time::monotonic_ns() - started) / 1000000
+    pilot exit_code = process::command_exit_code(command)
+    pilot signal_number = process::command_signal(command)
+    pilot error = process::command_error(command)
+    pilot text = ""
+    pilot text_status = -1
+    if state == 2 and exit_code == 0 {
+        pilot bytes: ByteBuffer = process::command_stdout_bytes(command)
+        text = bytes.to_word()
+        text_status = bytes.status()
+        bytes.release()
+        if text_status != 0 {
+            text = ""
+            cli_tool_capture_problem = "tool probe emitted bytes that are not NUL-free UTF-8"
+        }
+    } else {
+        if state == 2 {
+            cli_tool_capture_problem = "tool probe exited with status " + word_from_int(exit_code)
+        } else {
+            cli_tool_capture_problem = "tool probe failed with process status " + word_from_int(state)
+        }
+        if error != "" { cli_tool_capture_problem = cli_tool_capture_problem + ": " + error }
+    }
+    pilot target = cli_first_line(text).trim()
+    pilot problem = cli_tool_capture_problem
+    if target == "" {
+        if problem == "" { problem = "tool probe returned an empty target" }
+        say "  " + C_DIM + "Selected compiler target probe failed: " + problem + C_RESET
+    }
+    if process::env("FREAK_RUN_TOOL_DIAGNOSTICS") == "1" {
+        -- These are fresh copies of immutable captures, independent of the
+        -- stdout text view above. Retain positive completions as well so a
+        -- later trace failure cannot be mistaken for a rejected target.
+        pilot output: ByteBuffer = process::command_stdout_bytes(command)
+        pilot errors: ByteBuffer = process::command_stderr_bytes(command)
+        pilot output_status = output.status()
+        pilot error_status = errors.status()
+        pilot accepted = "false"
+        if target != "" { accepted = "true" }
+        pilot receipt = "FREAK_RUN_TARGET_PROBE {\"schema\":\"freak.run-target-probe.v1\",\"executable\":\"" + cli_test_json_escape(clang_cmd) + "\",\"caller_pid\":" + word_from_int(process::pid()) + ",\"child_pid\":null"
+        receipt = receipt + ",\"state\":" + word_from_int(state) + ",\"exit_code\":" + word_from_int(exit_code) + ",\"signal\":" + word_from_int(signal_number) + ",\"elapsed_ms\":" + word_from_int(elapsed) + ",\"accepted\":" + accepted + ",\"target\":\"" + cli_test_json_escape(target) + "\""
+        receipt = receipt + ",\"error\":\"" + cli_test_json_escape(error) + "\",\"problem\":\"" + cli_test_json_escape(problem) + "\",\"stdout_buffer_status\":" + word_from_int(output_status) + ",\"stderr_buffer_status\":" + word_from_int(error_status) + ",\"stdout_text_status\":" + word_from_int(text_status)
+        receipt = receipt + ",\"stdout_hex\":\"" + cli_test_bytes_hex(output) + "\",\"stderr_hex\":\"" + cli_test_bytes_hex(errors) + "\",\"pid_scope\":\"CLI caller; child PID unavailable through public command API\",\"stdout_text_status_scope\":\"-1 means strict text conversion was not attempted\"}"
+        say receipt
+    }
+    process::command_release(command)
+    give back target
 }
 
 task cli_run_linker_identity(clang_cmd: word, lto: word, cross: word) -> word {
-    pilot clang_target = cli_clang_target_triple(clang_cmd, cross)
+    pilot clang_target = cross
+    if clang_target == "" {
+        clang_target = cli_run_clang_target(clang_cmd)
+    }
     if clang_target == "" { give back CLI_RUN_UNHASHABLE + ":clang-target" }
-    pilot linker_cmd = cli_selected_linker_command(clang_cmd, lto, cross)
+    pilot linker_cmd = cli_selected_linker_executable(clang_cmd, lto, cross)
     if linker_cmd == "" { give back CLI_RUN_UNHASHABLE + ":linker-trace" }
     pilot resolved = cli_run_resolve_program(linker_cmd)
     if resolved == "" { give back CLI_RUN_UNHASHABLE + ":linker-resolution:" + linker_cmd }
     pilot digest = cli_run_file_sha256(resolved)
     if digest == "" { give back CLI_RUN_UNHASHABLE + ":linker-digest:" + resolved }
-    pilot version = cli_first_line(process::exec_capture(cli_shell_command_prefix(linker_cmd) + " --version 2>&1"))
+    pilot version = cli_run_tool_version(resolved, true)
+    if version == "" { give back CLI_RUN_UNHASHABLE + ":linker-version:" + linker_cmd }
+    -- GNU coreutils link can shadow the Windows linker after PATH fallback.
+    -- Its hash and version identify a file-link utility, not a native linker.
+    if version.to_lower().contains("gnu coreutils") {
+        give back CLI_RUN_UNHASHABLE + ":linker-not-linker:" + resolved
+    }
     give back "target=" + clang_target + "|command=" + linker_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + version
 }
 
@@ -145,7 +383,32 @@ task cli_run_cache_record(fingerprint: word, binary: word) -> word {
     give back fingerprint + "|artifact=" + artifact
 }
 
-task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, runtime_policy: word, runtime_stats: word, cross: word) -> int {
+task cli_run_program(run_path: word, program_arg_start: int) -> int {
+    -- Program arguments are independent argv entries. Never render them as
+    -- shell text: empty words and metacharacters must reach the child intact.
+    pilot command = process::command_new(run_path)
+    pilot arg_index = program_arg_start
+    pilot arg_count = process::args_count()
+    repeat until arg_index >= arg_count {
+        process::command_arg(command, process::arg(arg_index))
+        arg_index += 1
+    }
+    -- User programs inherit the terminal and have no CLI-imposed deadline.
+    pilot status = process::command_run_inherit(command, 0)
+    pilot run_code = 1
+    if status == 2 {
+        run_code = process::command_exit_code(command)
+    } else if status == 4 {
+        run_code = 128 + process::command_signal(command)
+    } else {
+        pilot error = process::command_error(command)
+        say "  " + C_BRED + SYM_CROSS + " RUN FAILED" + C_RESET + " " + error
+    }
+    process::command_release(command)
+    give back run_code
+}
+
+task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, runtime_policy: word, runtime_stats: word, cross: word, program_arg_start: int) -> int {
     -- Cross-compiled binaries cannot run on this host. Refuse before any
     -- build artifact or cache entry changes; freak build stays the
     -- cross-compile path.
@@ -233,13 +496,12 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
     if cli_is_windows() {
         run_path = run_path.replace("/", "\\")
     } else if not run_path.contains("/") {
-        -- POSIX shells do not search the current directory. A source passed
+        -- POSIX executable lookup does not search the current directory. A source passed
         -- as `hello.fk` produces `hello`, which must be launched as `./hello`.
         run_path = "./" + run_path
     }
-    pilot run_cmd: word = cli_shell_command_prefix(cli_quote_cmd_path(run_path))
     pilot run_start = time::now_ms()
-    pilot run_code = process::exec(run_cmd)
+    pilot run_code = cli_run_program(run_path, program_arg_start)
     pilot run_elapsed = time::now_ms() - run_start
     say ""
     if run_code != 0 {
