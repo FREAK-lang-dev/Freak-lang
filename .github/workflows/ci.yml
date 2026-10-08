@@ -267,12 +267,12 @@ jobs:
         shell: bash
         run: |
           python -B -u - <<'PY'
-          import os, runpy, shutil
+          import os, shutil, subprocess, sys
           clang = shutil.which("clang")
           if clang is None:
               raise SystemExit("native Clang alias witness requires clang")
           os.environ["FREAK_PROFILE_NATIVE_CLANG"] = clang
-          runpy.run_path("tests/test_v3_build_profiles_helpers.py", run_name="__main__")
+          subprocess.run([sys.executable, "-B", "-u", "tests/test_v3_build_profiles_helpers.py"], check=True)
           PY
           python -B -u tests/test_v3_v35_bootstrap_native_helpers.py
           python -B -u tests/test_v3_performance_process_state.py
@@ -592,12 +592,12 @@ jobs:
         shell: bash
         run: |
           python -B -u - <<'PY'
-          import os, runpy, shutil
+          import os, shutil, subprocess, sys
           clang = shutil.which("clang")
           if clang is None:
               raise SystemExit("native Clang alias witness requires clang")
           os.environ["FREAK_PROFILE_NATIVE_CLANG"] = clang
-          runpy.run_path("tests/test_v3_build_profiles_helpers.py", run_name="__main__")
+          subprocess.run([sys.executable, "-B", "-u", "tests/test_v3_build_profiles_helpers.py"], check=True)
           PY
           python -B -u tests/test_v3_v35_bootstrap_native_helpers.py
           python -B -u tests/test_v3_performance_process_state.py
