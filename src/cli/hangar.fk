@@ -19,6 +19,18 @@ task hangar_arg(idx: int) -> word {
     give back process::arg(idx - hangar_arg_offset)
 }
 
+-- Legacy commands cannot interpret or rewrite graph locks. Admission happens
+-- before manifest edits, fetching, verification claims or working-tree removal.
+task hangar_legacy_lock_ready(project_dir: word) -> bool {
+    lock_load(project_dir + "/hangar.lock")
+    if lock_error != "" {
+        say "  Hangar legacy command refused hangar.lock: " + lock_error
+        say "  Existing project state was preserved; graph-aware Hangar commands are required for lock v2."
+        give back false
+    }
+    give back true
+}
+
 task hangar_init(project_dir: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) {
@@ -71,6 +83,7 @@ task hangar_init(project_dir: word) -> int {
 }
 
 task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int {
+    if not hangar_legacy_lock_ready(project_dir) { give back 1 }
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
         say "  No hangar.toml found. Run 'hangar init' first."
@@ -93,7 +106,6 @@ task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int
         give back 1
     }
     pilot lockfile = project_dir + "/hangar.lock"
-    lock_load(lockfile)
     pilot install_res = hangar_install_one(project_dir, pkg_name, repo, ver)
     if install_res != 0 { give back install_res }
 
@@ -108,6 +120,7 @@ task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int
 }
 
 task hangar_remove(project_dir: word, pkg_name: word) -> int {
+    if not hangar_legacy_lock_ready(project_dir) { give back 1 }
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
         say "  No hangar.toml found. Run 'hangar init' first."
@@ -134,8 +147,7 @@ task hangar_remove(project_dir: word, pkg_name: word) -> int {
 
     -- Remove from lockfile if present
     pilot lockfile = project_dir + "/hangar.lock"
-    if fs::exists(lockfile) {
-        lock_load(lockfile)
+    if lock_loaded {
         lock_remove_entry(pkg_name)
         lock_write(lockfile)
     }
@@ -327,6 +339,7 @@ task resolve_collect_transitive(project_dir: word, pkg_name: word, depth: int) -
 -- ===================== HANGAR INSTALL ================================
 
 task hangar_install(project_dir: word) -> int {
+    if not hangar_legacy_lock_ready(project_dir) { give back 1 }
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
         say "  No hangar.toml found. Run 'hangar init' first."
@@ -346,7 +359,7 @@ task hangar_install(project_dir: word) -> int {
 
     -- Check for existing lockfile
     pilot lockfile = project_dir + "/hangar.lock"
-    pilot has_lockfile = lock_load(lockfile)
+    pilot has_lockfile = lock_loaded
     if has_lockfile {
         say C_DIM + "  >> " + C_RESET + "Using versions from hangar.lock"
     }
@@ -457,6 +470,7 @@ task hangar_install(project_dir: word) -> int {
 -- ===================== HANGAR UPDATE =================================
 
 task hangar_update(project_dir: word, pkg_name: word) -> int {
+    if not hangar_legacy_lock_ready(project_dir) { give back 1 }
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
         say "  No hangar.toml found. Run 'hangar init' first."
@@ -492,8 +506,7 @@ task hangar_update(project_dir: word, pkg_name: word) -> int {
 
         say C_DIM + "  >> " + C_RESET + "Updating " + C_BWHITE + pkg_name + C_RESET + "..."
 
-        -- Load existing lockfile to preserve other entries
-        lock_load(lockfile)
+        -- Preflight already admitted the existing legacy generation.
 
         -- Preserve the prior entry until a replacement has validated.
         pilot ires = hangar_install_one(project_dir, pkg_name, git_val, ver_val)
@@ -1421,6 +1434,7 @@ task hangar_install_freak_v014_legacy_protocol() -> int {
 -- ===================== OUTDATED CHECK ================================
 
 task hangar_outdated(project_dir: word) -> int {
+    if not hangar_legacy_lock_ready(project_dir) { give back 1 }
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
         say "  No hangar.toml found. Run 'hangar init' first."
@@ -1703,6 +1717,7 @@ task hangar_verify_package(pkg_name: word, pkg_dir: word, expected_sha256: word)
 }
 
 task hangar_audit(project_dir: word, fix_mode: bool) -> int {
+    if not hangar_legacy_lock_ready(project_dir) { give back 1 }
     say ""
     say C_BMAGENTA + "  HANGAR AUDIT" + C_RESET
     say ""
@@ -1718,7 +1733,7 @@ task hangar_audit(project_dir: word, fix_mode: bool) -> int {
         give back 1
     }
     pilot lockfile = project_dir + "/hangar.lock"
-    pilot has_lock = lock_load(lockfile)
+    pilot has_lock = lock_loaded
 
     if has_lock == false {
         say "  No hangar.lock found. Run 'hangar install' first."

@@ -117,10 +117,10 @@ task lock_write(path: word) -> void {
         pilot sha256: word = array_get(lock_pkg_sha256s, i)
 
         out = out + "[[package]]\n"
-        out = out + "name    = \"" + name + "\"\n"
-        out = out + "version = \"" + version + "\"\n"
-        out = out + "source  = \"" + source + "\"\n"
-        out = out + "sha256  = \"" + sha256 + "\"\n"
+        out = out + "name    = " + toml_quote(name) + "\n"
+        out = out + "version = " + toml_quote(version) + "\n"
+        out = out + "source  = " + toml_quote(source) + "\n"
+        out = out + "sha256  = " + toml_quote(sha256) + "\n"
         out = out + "\n"
         i += 1
     }
@@ -130,115 +130,81 @@ task lock_write(path: word) -> void {
 
 -- ===================== LOCKFILE PARSING ==============================
 
-task lock_parse(content: word) -> void {
+-- Admission is deliberately legacy-only. A rejected existing graph is never
+-- an absent generation; public callers must check lock_error before effects.
+pilot lock_error = ""
+pilot lock_loaded = false
+
+task lock_fail(detail: word) -> bool {
+    lock_error = detail
     lock_clear()
-
-    -- Parse [[package]] entries from lockfile content
-    -- Each entry has: name, version, source, sha256
-    pilot pos = 0
-    pilot clen = content.length()
-    pilot cur_name = ""
-    pilot cur_version = ""
-    pilot cur_source = ""
-    pilot cur_sha256 = ""
-    pilot in_package = false
-
-    repeat until pos >= clen {
-        pilot line: word = toml_get_line(content, pos)
-        pos = toml_line_end(content, pos)
-
-        pilot trimmed: word = line.trim()
-
-        if trimmed == "" {
-            -- Empty line: if we have a complete package entry, save it
-            if in_package and cur_name != "" {
-                lock_add_entry(cur_name, cur_version, cur_source, cur_sha256)
-                cur_name = ""
-                cur_version = ""
-                cur_source = ""
-                cur_sha256 = ""
-                in_package = false
-            }
-        } else if trimmed.starts_with("#") {
-            -- Skip comments
-        } else if trimmed == "[[package]]" {
-            -- Save previous entry if any
-            if in_package and cur_name != "" {
-                lock_add_entry(cur_name, cur_version, cur_source, cur_sha256)
-            }
-            cur_name = ""
-            cur_version = ""
-            cur_source = ""
-            cur_sha256 = ""
-            in_package = true
-        } else if in_package and trimmed.contains("=") {
-            -- Parse key = "value" within a [[package]] block
-            pilot kv_key: word = lock_parse_key(trimmed)
-            pilot kv_val: word = lock_parse_val(trimmed)
-            if kv_key == "name" {
-                cur_name = kv_val
-            } else if kv_key == "version" {
-                cur_version = kv_val
-            } else if kv_key == "source" {
-                cur_source = kv_val
-            } else if kv_key == "sha256" {
-                cur_sha256 = kv_val
-            }
-        }
-    }
-
-    -- Don't forget the last entry
-    if in_package and cur_name != "" {
-        lock_add_entry(cur_name, cur_version, cur_source, cur_sha256)
-    }
+    give back false
 }
 
-task lock_parse_key(line: word) -> word {
-    -- Extract key from "key    = \"value\""
-    pilot key = ""
-    pilot i = 0
-    pilot llen = line.length()
-    repeat until i >= llen {
-        pilot c: word = line.char_at(i)
-        if c == " " or c == "\t" or c == "=" {
-            if key != "" {
-                give back key
-            }
-        } else {
-            key = key + c
-        }
-        i += 1
+task lock_legacy_entry(name: word, version: word, source: word, checksum: word) -> bool {
+    if not hangar_valid_package_name(name) or version == "" or source == "" {
+        give back lock_fail("partial legacy package entry: name, version and source are required")
     }
-    give back key
-}
-
-task lock_parse_val(line: word) -> word {
-    -- Extract value from "key    = \"value\""
-    -- Find the = sign first, then extract quoted value
-    pilot found_eq = false
-    pilot i = 0
-    pilot llen = line.length()
-    repeat until i >= llen {
-        pilot c: word = line.char_at(i)
-        if c == "=" {
-            found_eq = true
-        } else if found_eq and c == "\"" {
-            -- Start of quoted value
-            pilot val = ""
+    if lock_has(name) { give back lock_fail("duplicate legacy package name") }
+    if checksum != "" {
+        if checksum.length() != 64 { give back lock_fail("invalid legacy SHA-256") }
+        pilot i = 0
+        repeat until i >= 64 {
+            if not "0123456789abcdefABCDEF".contains(checksum.char_at(i)) { give back lock_fail("invalid legacy SHA-256") }
             i += 1
-            repeat until i >= llen {
-                pilot vc: word = line.char_at(i)
-                if vc == "\"" {
-                    give back val
-                }
-                val = val + vc
-                i += 1
-            }
-            give back val
         }
-        i += 1
     }
-    give back ""
+    lock_add_entry(name, version, source, checksum)
+    give back true
+}
+
+task lock_parse(content: word) -> bool {
+    lock_clear()
+    lock_error = ""
+    if content == "" { give back lock_fail("empty lock document") }
+    pilot pos = 0
+    pilot name = ""
+    pilot version = ""
+    pilot source = ""
+    pilot checksum = ""
+    pilot seen = ""
+    pilot in_package = false
+    pilot saved_error = toml_error
+    toml_error = ""
+    repeat until pos >= content.length() {
+        pilot line = toml_get_line(content, pos)
+        pos = toml_line_end(content, pos)
+        if line.length() > 8192 { toml_error = saved_error give back lock_fail("legacy lock line exceeds byte limit") }
+        pilot trimmed = toml_strip_comment(line)
+        if toml_error != "" { toml_error = saved_error give back lock_fail("malformed quoted legacy value") }
+        if trimmed == "[[package]]" {
+            if in_package and not lock_legacy_entry(name, version, source, checksum) { toml_error = saved_error give back false }
+            if lock_pkg_count >= 1024 { toml_error = saved_error give back lock_fail("legacy package count exceeds limit") }
+            name = ""
+            version = ""
+            source = ""
+            checksum = ""
+            seen = ""
+            in_package = true
+        } else if trimmed != "" {
+            if not in_package { toml_error = saved_error give back lock_fail("unsupported lock schema; expected legacy [[package]] records") }
+            pilot eq = toml_find_equals(trimmed)
+            if eq <= 0 { toml_error = saved_error give back lock_fail("malformed legacy package field") }
+            pilot key = trimmed.substring(0, eq).trim()
+            if key != "name" and key != "version" and key != "source" and key != "sha256" { toml_error = saved_error give back lock_fail("unknown legacy package field") }
+            pilot token = "|" + key + "|"
+            if seen.contains(token) { toml_error = saved_error give back lock_fail("duplicate legacy package field") }
+            seen = seen + token
+            pilot raw = trimmed.substring(eq + 1, trimmed.length()).trim()
+            if not raw.starts_with("\"") and not raw.starts_with("'") { toml_error = saved_error give back lock_fail("legacy package fields must be quoted strings") }
+            pilot value = toml_unquote(raw)
+            if toml_error != "" or value.contains("\n") or value.contains("\r") or value.contains("\t") { toml_error = saved_error give back lock_fail("malformed quoted legacy value") }
+            if key == "name" { name = value } else if key == "version" { version = value } else if key == "source" { source = value } else { checksum = value }
+        }
+    }
+    toml_error = saved_error
+    if in_package and not lock_legacy_entry(name, version, source, checksum) { give back false }
+    give back true
 }
 
 -- ===================== LOCKFILE LOADING ==============================
@@ -256,14 +222,34 @@ task lock_get_sha256(name: word) -> word {
 }
 
 task lock_load(path: word) -> bool {
-    -- Load lockfile from disk. Returns true if loaded successfully.
-    if fs::exists(path) == false {
+    lock_clear()
+    lock_error = ""
+    lock_loaded = false
+    pilot directory = fs::open_dir_ticket(package_parent_path(path))
+    if not fs::result_ok(directory) {
+        lock_error = "cannot anchor legacy lock directory: " + fs::result_error(directory)
+        fs::result_release(directory)
         give back false
     }
-    pilot content: word = fs::read(path)
-    if content == "" {
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, package_leaf_path(path), 1048576)
+    fs::result_release(directory)
+    if not fs::result_ok(read) {
+        if not fs::result_missing(read) { lock_error = "cannot read legacy lock: " + fs::result_error(read) }
+        fs::result_release(read)
         give back false
     }
-    lock_parse(content)
-    give back true
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot content = bytes.to_word()
+    pilot text = bytes.status() == 0
+    pilot index = 0
+    repeat until index >= bytes.length() {
+        pilot byte = bytes.read_byte()
+        if byte == 127 or (byte < 32 and byte != 9 and byte != 10 and byte != 13) { text = false }
+        index += 1
+    }
+    bytes.release()
+    if not text { give back lock_fail("legacy lock must be UTF-8 text without NUL") }
+    lock_loaded = lock_parse(content)
+    give back lock_loaded
 }
