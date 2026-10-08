@@ -283,6 +283,13 @@ jobs:
         shell: bash
         run: python -u tests/v3_build_profiles.py ./build/freak$EXT
 
+      - name: Test - V3 package graph run freshness
+        shell: bash
+        run: >-
+          python -B -u tests/v3_v35_run_freshness.py ./build/freak$EXT
+          --clang "$(command -v clang)" --backend both
+          --evidence "$RUNNER_TEMP/v35-run-graph-freshness.json"
+
       - name: Test - V3 install, doctor, and upgrade
         shell: bash
         run: python -u tests/v3_install_doctor_upgrade.py ./build/freak$EXT
@@ -607,6 +614,13 @@ jobs:
       - name: Test - V3 build profiles and LTO
         shell: bash
         run: python -u tests/v3_build_profiles.py ./build/freak$EXT
+
+      - name: Test - V3 package graph run freshness
+        shell: bash
+        run: >-
+          python -B -u tests/v3_v35_run_freshness.py ./build/freak$EXT
+          --clang "$(command -v clang)" --backend both
+          --evidence "$RUNNER_TEMP/v35-run-graph-freshness.json"
 
   windows-test-suites-b:
     needs: windows-bootstrap-build
