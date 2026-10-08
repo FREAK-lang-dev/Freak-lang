@@ -293,6 +293,7 @@ class PureGateTests(unittest.TestCase):
             leaves = {"v4_lex_token_count":lambda stream:2,
                       "v4_lex_token_type":lambda stream, index:"Keyword",
                       "v4_lex_token_value":lambda stream, index:tokens[index],
+                      "v4_lex_token_syntax_value":lambda stream, index:tokens[index],
                       "v4_parse_skip_trivia":lambda stream, index:index}
             fixed = source_task_ast(Parser, parse_source, "v4_parse_is_fixed_pilot_keyword")
             self.assertTrue(evaluate_source_branch(fixed, [0, 0], leaves, constants))
@@ -301,6 +302,14 @@ class PureGateTests(unittest.TestCase):
             self.assertEqual(evaluate_source_branch(keyword, [0, 0], leaves, constants), "fixed pilot")
             kind = source_task_ast(Parser, parse_source, "v4_parse_kind_for_keyword")
             self.assertEqual(evaluate_source_branch(kind, ["fixed pilot"], {}, constants), "ConstDecl")
+            tokens = ["grounded", "pilot"]
+            leaves["v4_lex_token_type"] = lambda stream, index:"Ident" if index == 0 else "Keyword"
+            self.assertTrue(evaluate_source_branch(fixed, [0, 0], leaves, constants))
+            self.assertEqual(evaluate_source_branch(keyword, [0, 0], leaves, constants), "grounded pilot")
+            self.assertEqual(evaluate_source_branch(kind, ["grounded pilot"], {}, constants), "ConstDecl")
+            tokens = ["grounded", "value"]
+            self.assertFalse(evaluate_source_branch(fixed, [0, 0], leaves, constants))
+            self.assertEqual(evaluate_source_branch(keyword, [0, 0], leaves, constants), "grounded")
             hir_kind = source_task_ast(Parser, hir_source, "v4_hir_kind_from_parse")
             constants.update({"v4_node_"+key:key for key in ("task", "shape", "route", "alias")})
             self.assertEqual(evaluate_source_branch(hir_kind, ["ConstDecl"], {}, constants), "Const")

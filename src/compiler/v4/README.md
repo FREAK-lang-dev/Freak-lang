@@ -244,8 +244,8 @@ The dedicated generated-word gate is `python tests/v4_owned_word_codegen.py`.
 
 The W4 `.to_lower()` method borrows its receiver and returns a fresh owned
 word using Unicode 17 default lowercase, including contextual FinalSigma.
-Closed identity 119 was introduced in MIR snapshot v7 and remains in v8.
-Restore accepts v8; earlier versions reject atomically.
+Closed identity 119 was introduced in MIR snapshot v7 and remains in v10.
+Restore accepts v10; earlier versions reject atomically.
 The dedicated `python tests/v4_word_lower_codegen.py` gate checks exact Unicode
 and embedded NUL output at O0/O2/O3 with both ownership audits and mandatory
 ASan/UBSan; `--plain` supplies additional platform evidence. Its 54 focused
