@@ -6,6 +6,19 @@ This directory is the implementation home for Maverick (00-unit), the V4 compile
 
 Bootstrap status: complete for the executable 00-Unit architecture slice. This proves the modular, query-backed V4 shape and its tooling protocols; it is not yet a full V3 replacement.
 
+Development V4 also accepts `while condition` and `repeat while condition`.
+Both test a bool before every pass and use the existing loop rules for
+`break`, `continue`, cleanup and early return. Parse owns reserved keyword and
+declaration-name validation; `freak_mir_build` constructs the positive loop
+condition using the existing repeat-until MIR representation with opposite
+polarity. Persistent MIR facts and snapshot formats remain unchanged.
+The two active `v35_while_*` fixtures cover 38 isolated frontend/restoration
+contracts and two actual LLVM programs, including zero passes, nested control
+and short-circuit conditions. Run their gate with
+`python src/compiler/v4/check_v4.py --smoke v35_while_contract --smoke v35_native_while_execute`.
+Counted forms and ungrouped multiline condition continuation remain separate;
+the frozen bootstrap source pin is unchanged.
+
 ## Bootstrap Completion Marker
 
 The **Bootstrap V4** finish line is considered met when all of the following remain true in the tree:

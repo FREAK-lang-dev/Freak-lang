@@ -13,9 +13,24 @@ counted/while language checkpoints below describe the local experiment through
 `b8c5e99`; those additions are deferred and are not part of the current locked
 V4 source baseline. The native V3 syntax fixes remain present. This draft
 checkpoint does not claim wider P0 completion or platform/release readiness.
-The four experimental V4 loop fixtures and their full executable expectations
-are retained under `src/compiler/v4/tests/deferred/v35-loops`; they require the
-matching semantic implementation before joining the active positive gates.
+The four historical experimental V4 loop fixtures and their full executable
+expectations remain under `src/compiler/v4/tests/deferred/v35-loops`. The
+development while slice below has separate active fixtures; the counted forms
+still require their matching semantic implementation.
+
+**Development V4 while slice (2026-10-08):** `while condition` and
+`repeat while condition` share condition-first bool checking and the existing
+loop CFG, cleanup, break, continue and early-return rules. Lex/Parse own keyword
+and declaration-name validation; Built-MIR construction owns the positive
+condition branch and reuses the existing repeat-until representation with
+opposite polarity. No snapshot format or compiler ownership boundary changes.
+The active `v35_while_contract_smoke.fk` covers 38 isolated frontend/MIR and
+restoration contracts. `v35_native_while_execute_smoke.fk` covers the preserved
+native example and a separate zero-pass, nested-control and short-circuit
+example, including exact restored LLVM modules and native output. Counted
+forms, ungrouped multiline condition continuation, general backend parity and
+release/platform acceptance remain separate gates. The frozen bootstrap pin
+and its 28-source inventory remain unchanged.
 
 **V3 source binding and ticket-word correctness (2026-10-07):** source package
 binding distinguishes declaration roles and preserves source diagnostic names.
@@ -389,6 +404,7 @@ parity. This does not claim native C UI support or general collection fields.
 | `for each item in list` | ⚠️ | 📖 V4 | The phrase is lexed, but shipping V3 has no executable `for each` statement path. |
 | `repeat N times` | ✅ | ✅ | |
 | `repeat until condition` | ✅ | ✅ | |
+| `while condition` / `repeat while condition` | ✅ V3; ⚠️ V4 | ✅ V3; 📖 V4 | Development V4 supports condition-first bool loops through existing loop CFG and snapshot contracts. Active frontend/restoration and LLVM execution fixtures cover the bounded slice; counted loops and ungrouped multiline condition continuation remain separate. Sources: [bible §1.7](freak-full-bible.md#L410); [Parse keyword validation](src/compiler/v4/crates/freak_parse/src/lib.fk#L1771); [while contracts](src/compiler/v4/tests/v35_while_contract_smoke.fk#L1); [native while execution](src/compiler/v4/tests/v35_native_while_execute_smoke.fk#L1). |
 | `training arc until cond max N sessions` | ✅ | ✅ | V4 Built-MIR owns the counter, condition-first/re-evaluated cap and shared `continue` increment. Eighteen training programs pass O0/O2/O3 with native ownership and sanitizer controls; an admitted `sessions` local no longer obscures the heading suffix. V3 native evaluates its cap once, an explicit parity difference. |
 | `training arc with growth` variant | ⚠️ | 📖 V4 | V4 MIR enforces condition-subject mutation for local and projected places; full production backend parity still pending |
 | `prob_when expr { >= 0.9 -> ... }` | ❌ | 📖 V4 | not parsed |

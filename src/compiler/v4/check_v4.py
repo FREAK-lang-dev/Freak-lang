@@ -130,6 +130,8 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "mir_restore_resource_smoke.fk",
         "prerelease_grounded_binding_smoke.fk",
         "prerelease_grounded_boundary_smoke.fk",
+        "v35_while_contract_smoke.fk",
+        "v35_native_while_execute_smoke.fk",
         "prerelease_closure_binding_smoke.fk",
         "prerelease_root_const_projection_smoke.fk",
         "interpolation_hir_smoke.fk",
@@ -12736,6 +12738,96 @@ EXECUTABLE_SMOKES = [
                         'expect': ['prerelease-grounded-boundary closure-cr=passed']},
                        {'argv': ['closure', 'line-comment'],
                         'expect': ['prerelease-grounded-boundary closure-line-comment=passed']}]},
+    {'name': 'V3.5 while frontend contracts',
+     'fixture': 'v35_while_contract_smoke.fk',
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'memory_limit_mb': 64,
+     'expect': ['v35-while-contract case=0 frontend=true positive=2 inverted=1 restore=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['v35-while-contract case=0 frontend=true positive=2 inverted=1 '
+                                   'restore=true']},
+                       {'argv': ['1'],
+                        'expect': ['v35-while-contract case=1 rejected=true diagnostic=while condition must '
+                                   'be bool module=false']},
+                       {'argv': ['2'],
+                        'expect': ['v35-while-contract case=2 rejected=true diagnostic=while condition must '
+                                   'be bool module=false']},
+                       {'argv': ['3'],
+                        'expect': ['v35-while-contract case=3 rejected=true diagnostic=while loop requires '
+                                   'a condition module=false']},
+                       {'argv': ['4'],
+                        'expect': ['v35-while-contract case=4 rejected=true diagnostic=while loop requires '
+                                   'a condition module=false']},
+                       {'argv': ['5'],
+                        'expect': ['v35-while-contract case=5 rejected=true diagnostic=while loop requires '
+                                   'a body module=false']},
+                       {'argv': ['6'], 'expect': ['v35-while-contract case=6 reserved=true span=true']},
+                       {'argv': ['7'], 'expect': ['v35-while-contract case=7 reserved=true span=true']},
+                       {'argv': ['8'], 'expect': ['v35-while-contract case=8 reserved=true span=true']},
+                       {'argv': ['9'], 'expect': ['v35-while-contract case=9 reserved=true span=true']},
+                       {'argv': ['10'], 'expect': ['v35-while-contract case=10 reserved=true span=true']},
+                       {'argv': ['11'], 'expect': ['v35-while-contract case=11 reserved=true span=true']},
+                       {'argv': ['12'], 'expect': ['v35-while-contract case=12 reserved=true span=true']},
+                       {'argv': ['13'],
+                        'expect': ['v35-while-contract case=13 frontend=true positive=0 inverted=0 '
+                                   'restore=true']},
+                       {'argv': ['14'], 'expect': ['v35-while-contract case=14 reserved=true span=true']},
+                       {'argv': ['15'], 'expect': ['v35-while-contract case=15 reserved=true span=true']},
+                       {'argv': ['16'], 'expect': ['v35-while-contract case=16 reserved=true span=true']},
+                       {'argv': ['17'], 'expect': ['v35-while-contract case=17 reserved=true span=true']},
+                       {'argv': ['18'], 'expect': ['v35-while-contract case=18 reserved=true span=true']},
+                       {'argv': ['19'], 'expect': ['v35-while-contract case=19 reserved=true span=true']},
+                       {'argv': ['20'], 'expect': ['v35-while-contract case=20 reserved=true span=true']},
+                       {'argv': ['21'],
+                        'expect': ['v35-while-contract case=21 frontend=true positive=2 inverted=0 '
+                                   'restore=true']},
+                       {'argv': ['22'],
+                        'expect': ['v35-while-contract case=22 rejected=true diagnostic=unsupported while '
+                                   'condition module=false']},
+                       {'argv': ['23'],
+                        'expect': ['v35-while-contract case=23 rejected=true diagnostic=unsupported while '
+                                   'condition module=false']},
+                       {'argv': ['24'],
+                        'expect': ['v35-while-contract case=24 rejected=true diagnostic=while loop requires '
+                                   'a body module=false']},
+                       {'argv': ['25'],
+                        'expect': ['v35-while-contract case=25 rejected=true diagnostic=while loop requires '
+                                   'a body module=false']},
+                       {'argv': ['26'],
+                        'expect': ['v35-while-contract case=26 frontend=true positive=2 inverted=0 '
+                                   'restore=true']},
+                       {'argv': ['27'],
+                        'expect': ['v35-while-contract case=27 frontend=true positive=1 inverted=0 '
+                                   'restore=true']},
+                       {'argv': ['28'],
+                        'expect': ['v35-while-contract case=28 rejected=true diagnostic=while condition '
+                                   'must be bool module=false']},
+                       {'argv': ['29'], 'expect': ['v35-while-contract case=29 reserved=true span=true']},
+                       {'argv': ['30'], 'expect': ['v35-while-contract case=30 reserved=true span=true']},
+                       {'argv': ['31'], 'expect': ['v35-while-contract case=31 reserved=true span=true']},
+                       {'argv': ['32'], 'expect': ['v35-while-contract case=32 reserved=true span=true']},
+                       {'argv': ['33'], 'expect': ['v35-while-contract case=33 reserved=true span=true']},
+                       {'argv': ['34'], 'expect': ['v35-while-contract case=34 reserved=true span=true']},
+                       {'argv': ['35'],
+                        'expect': ['v35-while-contract case=35 frontend=true positive=2 inverted=0 '
+                                   'restore=true']},
+                       {'argv': ['36'],
+                        'expect': ['v35-while-contract case=36 frontend=true positive=2 inverted=0 '
+                                   'restore=true']},
+                       {'argv': ['37'],
+                        'expect': ['v35-while-contract case=37 frontend=true panic-policy=conservative '
+                                   'module=false']}]},
+    {'name': 'V3.5 while native execution',
+     'fixture': 'v35_native_while_execute_smoke.fk',
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'memory_limit_mb': 64,
+     'expect': ['v35-while-execute diagnostics=0 owned=true native=true restore=true module-exact=true'],
+     'runtime_cases': [{'llvm_programs': [['v35_while_native.fk',
+                                           42,
+                                           'tick\ntick\ntick\ntick\nv35-while-ok\n']]},
+                       {'llvm_programs': [['v35_while_edges_native.fk', 42, 'v35-while-edges-ok\n']]}]},
 ]
 
 if str(ROOT) not in sys.path:
@@ -15001,6 +15093,8 @@ def check_snapshot_inventories() -> None:
             "mir_restore_resource_smoke.fk",
             "prerelease_grounded_binding_smoke.fk",
             "prerelease_grounded_boundary_smoke.fk",
+            "v35_while_contract_smoke.fk",
+            "v35_native_while_execute_smoke.fk",
             "prerelease_closure_binding_smoke.fk",
             "prerelease_root_const_projection_smoke.fk",
             "interpolation_hir_smoke.fk",
