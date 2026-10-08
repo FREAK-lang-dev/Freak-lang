@@ -23,6 +23,14 @@ task v4_prerelease_binding_source(mode: word) -> word {
     if mode == "shadow-fixed" {
         body = "pilot value = 1\n if true " + chr(123) + " grounded pilot value = 2\n value = 3\n " + chr(125) + "\n value = 4\n give back value\n"
     }
+    if mode.starts_with("closure-context-") {
+        pilot closure_mode = ""
+        if mode == "closure-context-mut" or mode == "closure-context-write" { closure_mode = "mut " }
+        pilot inner_body = "grounded pilot inner = 2; inner"
+        if mode == "closure-context-read" { inner_body = "grounded pilot inner = 2; grounded" }
+        if mode == "closure-context-write" { inner_body = "grounded pilot inner = 2; grounded += 1" }
+        body = "fixed pilot grounded = 1\n pilot cb = " + closure_mode + "|_| " + chr(123) + " " + inner_body + " " + chr(125) + "\n give back grounded\n"
+    }
     if mode == "same-scope" { body = "pilot value = 1\n grounded pilot value = 2\n give back value\n" }
     pilot source = "shape Box " + chr(123) + " hp: int " + chr(125) + "\n"
     if mode.ends_with("root") {
@@ -37,8 +45,133 @@ task v4_prerelease_binding_source(mode: word) -> word {
     give back source + "task main() -> int " + chr(123) + "\n " + body + chr(125) + "\n"
 }
 
+task v4_prerelease_binding_release_pressure(held: int) -> void {
+    pilot idx = 0
+    repeat until idx >= array_len(held) {
+        pilot handle = word_to_int(array_get(held, idx))
+        if handle >= 0 { array_release(handle) }
+        idx += 1
+    }
+    array_release(held)
+}
+
+task v4_prerelease_binding_pressure(free_handles: int) -> int {
+    pilot held = array_new()
+    v4_prerelease_binding_assert(held >= 0, "pressure owner")
+    pilot pressure_done = false
+    repeat until pressure_done {
+        pilot handle = array_new()
+        if handle < 0 { pressure_done = true } else { array_push(held, word_from_int(handle)) }
+    }
+    v4_prerelease_binding_assert(array_len(held) >= free_handles, "pressure capacity")
+    pilot idx = array_len(held) - free_handles
+    repeat until idx >= array_len(held) {
+        array_release(word_to_int(array_get(held, idx)))
+        array_set(held, idx, "-1")
+        idx += 1
+    }
+    give back held
+}
+
+task v4_prerelease_binding_available_handles(held: int) -> int {
+    pilot first = array_len(held)
+    pilot pressure_done = false
+    repeat until pressure_done {
+        pilot handle = array_new()
+        if handle < 0 { pressure_done = true } else { array_push(held, word_from_int(handle)) }
+    }
+    pilot available = array_len(held) - first
+    pilot idx = first
+    repeat until idx >= array_len(held) {
+        array_release(word_to_int(array_get(held, idx)))
+        array_set(held, idx, "-1")
+        idx += 1
+    }
+    give back available
+}
+
+task v4_prerelease_binding_direct_resource() -> void {
+    pilot source = v4_prerelease_binding_source("happy")
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    v4_prerelease_binding_assert(v4_mir_file_count() == 1 and v4_mir_body_count(mir) == 1 and v4_mir_diag_count(mir) == 0, "single-owner resource baseline")
+    pilot snapshot = v4_mir_snapshot()
+    pilot raw_defs = v4_mir_defs_handle(mir)
+    pilot raw_names = v4_mir_body_local_names_handle(mir, 0)
+    pilot raw_prefixes = v4_mir_body_local_binding_prefixes_handle(mir, 0)
+    pilot before_files = v4_mir_file_count()
+    pilot before_bodies = v4_mir_body_count(mir)
+    -- Old 35-per-file accounting admitted this 70-plus-reservation budget,
+    -- then published the first 36-handle file before the second allocation failed.
+    pilot held = v4_prerelease_binding_pressure(71)
+    pilot file_failure = v4_mir_restore_file_slot(before_files + 1, 0, ty) == 0
+    pilot file_identity_kept: bool = v4_mir_file_count() == before_files and v4_mir_body_count(mir) == before_bodies and v4_mir_defs_handle(mir) == raw_defs and v4_mir_body_local_names_handle(mir, 0) == raw_names and v4_mir_body_local_binding_prefixes_handle(mir, 0) == raw_prefixes and v4_prerelease_binding_available_handles(held) == 71
+    v4_prerelease_binding_release_pressure(held)
+    v4_prerelease_binding_assert(file_failure and file_identity_kept and v4_mir_snapshot() == snapshot, "scarce sparse direct file admission is atomic")
+    -- Old 31-per-body accounting similarly admitted 62-plus-reservation,
+    -- publishing one body before the second needed its thirty-second handle.
+    held = v4_prerelease_binding_pressure(63)
+    pilot body_failure = v4_mir_restore_body_slot(mir, before_bodies + 1, "resource-sparse", "resource-sparse", "") == 0
+    pilot body_identity_kept: bool = v4_mir_file_count() == before_files and v4_mir_body_count(mir) == before_bodies and v4_mir_defs_handle(mir) == raw_defs and v4_mir_body_local_names_handle(mir, 0) == raw_names and v4_mir_body_local_binding_prefixes_handle(mir, 0) == raw_prefixes and v4_prerelease_binding_available_handles(held) == 63
+    v4_prerelease_binding_release_pressure(held)
+    v4_prerelease_binding_assert(body_failure and body_identity_kept and v4_mir_snapshot() == snapshot, "scarce sparse direct body admission is atomic")
+    pilot file_overflow = v4_mir_restore_file_slot(before_files + 256204778801521550, 0, ty) == 0
+    pilot body_overflow = v4_mir_restore_body_slot(mir, before_bodies + 288230376151711743, "", "", "") == 0
+    v4_prerelease_binding_assert(file_overflow and body_overflow and v4_mir_file_count() == before_files and v4_mir_body_count(mir) == before_bodies and v4_mir_snapshot() == snapshot, "new multiplication bounds reject before publication")
+    say "prerelease-binding direct-resource=passed"
+}
+
+task v4_prerelease_binding_const_header(mode: word) -> void {
+    pilot prefix = "fixed pilot"
+    if mode.ends_with("grounded") { prefix = "grounded pilot" }
+    pilot source = prefix + " fixed: int = true\n"
+    if mode.starts_with("const-field-") {
+        source = "shape Box " + chr(123) + " fixed: int " + chr(125) + "\n" + prefix + " ROOT: Box = Box " + chr(123) + " fixed: true " + chr(125) + "\n"
+    }
+    if mode.starts_with("const-infer-") { source = prefix + " fixed = 2\n" }
+    if mode.starts_with("const-cycle-") { source = prefix + " fixed = NEXT + 1\n" + prefix + " NEXT = fixed + 1\n" }
+    source = source + "task main() -> int " + chr(123) + " give back 0 " + chr(125) + "\n"
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    v4_prerelease_binding_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) == 0, "constant source reaches TY cleanly " + mode)
+    pilot found = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_ty_diag_count(ty) {
+        pilot diag = v4_ty_diag(ty, diag_id)
+        pilot message = v4_diag_message(diag)
+        if mode.starts_with("const-header-") and message == "constant initializer type mismatch" {
+            v4_prerelease_binding_assert(v4_diag_help(diag) == prefix + " fixed expects int but got bool", "constant diagnostic retains authored prefix")
+            found += 1
+        }
+        if mode.starts_with("const-field-") and message == "shape field type mismatch" {
+            v4_prerelease_binding_assert(v4_diag_help(diag) == "Box.fixed expects int but got bool", "constant field diagnostic retains field identity")
+            found += 1
+        }
+        if mode.starts_with("const-cycle-") and message.starts_with("Yuuko constant loop: " + prefix) { found += 1 }
+        diag_id += 1
+    }
+    if mode.starts_with("const-infer-") {
+        pilot sig = v4_ty_const_signature_id_for_name(ty, "fixed")
+        v4_prerelease_binding_assert(v4_ty_diag_count(ty) == 0 and sig >= 0 and v4_ty_const_value_type_for_sig(ty, sig) == "int", "constant inference with keyword name")
+    } else if mode.starts_with("const-cycle-") {
+        v4_prerelease_binding_assert(found == 2 and v4_ty_diag_count(ty) == 2, "both constant cycle owners diagnosed")
+    } else {
+        v4_prerelease_binding_assert(found == 1 and v4_ty_diag_count(ty) == 1, "constant initializer cannot skip type checking " + mode)
+    }
+    say "prerelease-binding " + mode + "=passed"
+}
+
 task v4_prerelease_binding_run() -> void {
     pilot mode = process::arg(1)
+    if mode == "direct-resource" { v4_prerelease_binding_direct_resource(); give back }
+    if mode.starts_with("const-") { v4_prerelease_binding_const_header(mode); give back }
     pilot source = v4_prerelease_binding_source(mode)
     pilot stream = v4_lex_text(0, source)
     pilot tree = v4_parse_stream(0, stream)
@@ -50,7 +183,7 @@ task v4_prerelease_binding_run() -> void {
     if mode != "mutable-root" {
         v4_prerelease_binding_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) == 0, "source reaches immutability check cleanly " + mode)
     }
-    pilot expected_clean: bool = mode == "happy" or mode == "contextual" or mode == "callable" or mode == "shadow-mutable"
+    pilot expected_clean: bool = mode == "happy" or mode == "contextual" or mode == "callable" or mode == "shadow-mutable" or mode == "closure-context-normal" or mode == "closure-context-mut" or mode == "closure-context-read"
     pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_borrowck_diag_count(borrow)
     if expected_clean { v4_prerelease_binding_assert(total == 0, "clean source " + mode) }
     if mode == "mutable-root" { v4_prerelease_binding_assert(v4_parse_diag_count(tree) > 0, "V4 mutable root remains forbidden") }
@@ -65,6 +198,24 @@ task v4_prerelease_binding_run() -> void {
             diag_id += 1
         }
         v4_prerelease_binding_assert(found, "authored immutable diagnostic " + mode)
+    }
+    if mode.starts_with("closure-context-") {
+        pilot captures = 0
+        pilot body = 0
+        repeat until body >= v4_mir_body_count(mir) {
+            pilot value = 0
+            repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+                pilot kind = v4_mir_rvalue_kind(mir, body, value)
+                if kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut {
+                    if v4_mir_rvalue_text(mir, body, value) == "grounded" { captures += 1 }
+                }
+                value += 1
+            }
+            body += 1
+        }
+        pilot expected_captures = 0
+        if mode == "closure-context-read" or mode == "closure-context-write" { expected_captures = 1 }
+        v4_prerelease_binding_assert(captures == expected_captures, "contextual modifier and real reference remain distinct")
     }
     pilot body = 0
     repeat until body >= v4_mir_body_count(mir) {

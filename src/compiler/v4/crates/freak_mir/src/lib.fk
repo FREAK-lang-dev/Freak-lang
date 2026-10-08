@@ -3951,12 +3951,12 @@ task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
     if v4_mir_ready == 0 { give back 0 }
     pilot fresh = mir_id >= array_len(v4_mir_files)
     if not v4_mir_restore_building {
-        pilot needed = 35 - v4_mir_restore_raw_handle_count(mir_id)
+        pilot needed = 36 - v4_mir_restore_raw_handle_count(mir_id)
         if fresh {
             pilot missing_before_last = mir_id - array_len(v4_mir_files)
-            -- floor(INT64_MAX / 35), checked before addition and multiply.
-            if missing_before_last >= 263524915338707880 { give back 0 }
-            needed = 35 * (missing_before_last + 1)
+            -- floor(INT64_MAX / 36), checked before addition and multiply.
+            if missing_before_last >= 256204778801521550 { give back 0 }
+            needed = 36 * (missing_before_last + 1)
         }
         if not v4_mir_restore_reserve_needed(needed) { give back 0 }
     }
@@ -4029,9 +4029,9 @@ task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name
         pilot needed = 0
         if fresh {
             pilot missing_before_last = body_id - v4_mir_body_count(mir_id)
-            -- floor(INT64_MAX / 31), checked before addition and multiply.
-            if missing_before_last >= 297528130221121800 { give back 0 }
-            needed = 31 * (missing_before_last + 1)
+            -- floor(INT64_MAX / 32), checked before addition and multiply.
+            if missing_before_last >= 288230376151711743 { give back 0 }
+            needed = 32 * (missing_before_last + 1)
         }
         if not v4_mir_restore_reserve_needed(needed) { give back 0 }
     }
