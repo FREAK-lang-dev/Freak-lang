@@ -748,7 +748,7 @@ completion remain open.
 | `use module::*` glob import | ⚠️ | 📖 V4 | |
 | `hangar.toml` schema (project, dependencies, build mode) | ✅ | ✅ | [src/cli/toml.fk](src/cli/toml.fk) |
 | `hangar init` | ✅ | ✅ | [src/cli/hangar.fk](src/cli/hangar.fk) |
-| `hangar add`, `hangar remove`, `hangar install` | ✅ | ✅ | |
+| `hangar add`, `hangar remove`, `hangar install` | ✅ legacy; ⚠️ graph-v2 | ✅ legacy; 📖 graph adapter | Legacy commands refuse graph-v2, unknown, malformed or unreadable locks before effects. The graph-aware public adapter remains pending. Sources: [entry admission](src/cli/hangar.fk#L24); [bounded legacy reader](src/cli/lockfile.fk#L224); [native preservation controls](tests/v3_v35_hangar_lock_preservation.py#L1). |
 | `hangar search [q]` | ❌ | 📖 V4 | no registry to search |
 | `hangar version` (semver bump) | ✅ | ✅ | |
 | `hangar install freak` (download compiler) | ✅ | ✅ | |

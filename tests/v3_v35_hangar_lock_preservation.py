@@ -20,6 +20,9 @@ import tempfile
 import time
 import tomllib
 
+from v3_final_release_gate import manifest_entries
+from windows_private_fixture import WindowsPrivateFixture
+
 REPO = Path(__file__).resolve().parents[1]
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 PREFIX = "  Hangar legacy command refused hangar.lock: "
@@ -101,9 +104,11 @@ class Recorder:
         return child.returncode, ANSI.sub("", (stdout + stderr).decode("utf-8", "replace"))
 
 
-def fixtures(root: Path, clang: Path, recorder: Recorder, env: dict) -> Path:
+def fixtures(root: Path, clang: Path, recorder: Recorder, env: dict,
+             private: WindowsPrivateFixture) -> Path:
     tools = root / "tools"
     tools.mkdir()
+    private.claim_fresh_directories(tools)
     source = tools / "git-attempt.c"
     source.write_text(r'''#include <stdio.h>
 #include <stdlib.h>
@@ -125,7 +130,7 @@ int main(void) {
     return git
 
 
-def project(root: Path, lock: bytes | None) -> None:
+def project(root: Path, lock: bytes | None, private: WindowsPrivateFixture) -> None:
     root.mkdir()
     (root / "hangar.toml").write_text(
         '[project]\nname = "preservation"\nversion = "0.1.0"\n'
@@ -139,6 +144,7 @@ def project(root: Path, lock: bytes | None) -> None:
     (installed / "hangar.toml").write_text('[project]\nname = "left"\nversion = "0.1.0"\n')
     (root / "previous-build").write_bytes(b"previous compiled output\x00")
     (root / "previous-build.freak-run-cache").write_bytes(b"previous cache proof\n")
+    private.claim_fresh_directories(root, root / "hangar_modules", installed)
 
 
 def rejected(root: Path, invocation: tuple[str, Path, list[str]], recorder: Recorder,
@@ -160,14 +166,27 @@ def rejected(root: Path, invocation: tuple[str, Path, list[str]], recorder: Reco
     print(f"native:{name}:{label}:preserved:{len(COMMANDS)}", flush=True)
 
 
-def execute(args, root: Path, recorder: Recorder, receipt: dict) -> None:
+def execute(args, root: Path, recorder: Recorder, receipt: dict,
+            private: WindowsPrivateFixture) -> None:
     freak = args.freak.resolve(strict=True)
     hangar = args.hangar.resolve(strict=True)
     clang = args.clang.resolve(strict=True)
-    home = args.freak_home.resolve(strict=True)
+    if args.freak_home:
+        home = args.freak_home.resolve(strict=True)
+    else:
+        home = root / "payload"
+        for source, relative in manifest_entries(REPO):
+            destination = home / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+        # Every directory in this walk was just created from immutable inputs.
+        # Runtime-created graph/output directories are never normalized here.
+        private.claim_fresh_directories(home, *(path for path in home.rglob("*") if path.is_dir()))
+    receipt["payload_inputs"] = {path.relative_to(home).as_posix(): sha(path)
+                                 for path in home.rglob("*") if path.is_file()}
     env = os.environ.copy()
     env.update(NO_COLOR="1", FREAK_HOME=str(home), FREAK_CLANG=str(clang))
-    git = fixtures(root, clang, recorder, env)
+    git = fixtures(root, clang, recorder, env, private)
     report = root / "git-attempts.raw"
     report.write_bytes(b"")
     report.chmod(0o666)
@@ -181,7 +200,11 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict) -> None:
     report.write_bytes(b"")
     invocations = [("freak", freak, ["hangar"]), ("standalone", hangar, [])]
     diamond = root / "diamond"
-    shutil.copytree(REPO / "examples/v35/package-consumer", diamond)
+    source_project = REPO / "examples/v35/package-consumer"
+    copied_directories = tuple(path.relative_to(source_project)
+                               for path in source_project.rglob("*") if path.is_dir())
+    shutil.copytree(source_project, diamond)
+    private.claim_fresh_directories(diamond, *(diamond / path for path in copied_directories))
     manifest = diamond / "hangar.toml"
     manifest.write_text(manifest.read_text().replace('left = { path = "left" }',
                                                   'left = { path = "left", version = "0.1.0" }'))
@@ -195,7 +218,9 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict) -> None:
     assert graph["lock"]["edge_count"] == 4, graph["lock"]
     (diamond / "previous-build.freak-run-cache").write_bytes(b"retained cache proof\n")
     installed = diamond / "hangar_modules" / "left"
-    installed.mkdir(parents=True)
+    installed.parent.mkdir()
+    installed.mkdir()
+    private.claim_fresh_directories(installed.parent, installed)
     (installed / "owned-source.fk").write_text("-- retained working tree\n")
     receipt["genuine_v2"] = {"schema": 2, "nodes": 4, "edges": 4,
                              "lock_sha256": sha(diamond / "hangar.lock"),
@@ -225,16 +250,16 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict) -> None:
     for invocation in invocations:
         for label, (contents, expected) in cases.items():
             cwd = root / f"{invocation[0]}-{label}"
-            project(cwd, contents)
+            project(cwd, contents, private)
             rejected(cwd, invocation, recorder, env, report, expected, label)
         cwd = root / f"{invocation[0]}-non-file"
-        project(cwd, None)
+        project(cwd, None, private)
         (cwd / "hangar.lock").mkdir()
         (cwd / "hangar.lock" / "retained").write_bytes(b"not a lock file")
         rejected(cwd, invocation, recorder, env, report, "cannot read legacy lock:", "non-file")
         if os.name != "nt":
             cwd = root / f"{invocation[0]}-unreadable"
-            project(cwd, LEGACY.encode())
+            project(cwd, LEGACY.encode(), private)
             lock = cwd / "hangar.lock"
             handle = os.open(lock, os.O_RDONLY)
             try:
@@ -250,10 +275,11 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict) -> None:
                                 ("quoted-source", (LEGACY.replace('"owner/left"', "'owner/left#literal'") +
                                  '[[package]]\nname = "keeper"\nversion = "0.1.0"\nsource = "owner/\\\"quoted\\\""\n').encode())):
             cwd = root / f"{invocation[0]}-{label}"
-            project(cwd, contents)
+            project(cwd, contents, private)
             if label == "quoted-source":
                 keeper = cwd / "hangar_modules" / "keeper"
                 keeper.mkdir()
+                private.claim_fresh_directories(keeper)
                 (keeper / "keeper.fk").write_text("-- retained second legacy package\n")
             before = snapshot(cwd)
             code, output = recorder.run([str(invocation[1]), *invocation[2], "audit"], cwd, env,
@@ -296,18 +322,23 @@ def main() -> int:
     parser.add_argument("--freak", type=Path, required=True)
     parser.add_argument("--hangar", type=Path, required=True)
     parser.add_argument("--clang", type=Path, required=True)
-    parser.add_argument("--freak-home", type=Path, required=True)
+    parser.add_argument("--freak-home", type=Path,
+                        help="existing test payload; otherwise stage the current distribution manifest")
     parser.add_argument("--probe-root", type=Path)
     args = parser.parse_args()
     if args.probe_root:
         root = args.probe_root.resolve()
-        for protected in (REPO, args.freak.resolve(), args.hangar.resolve(), args.clang.resolve(), args.freak_home.resolve()):
+        protected_inputs = [REPO, args.freak.resolve(), args.hangar.resolve(), args.clang.resolve()]
+        if args.freak_home:
+            protected_inputs.append(args.freak_home.resolve())
+        for protected in protected_inputs:
             assert root != protected and root not in protected.parents and protected not in root.parents, (root, protected)
         root.mkdir(parents=True, exist_ok=False)
         context = None
     else:
         context = tempfile.TemporaryDirectory(prefix="freak-hangar-preservation-")
         root = Path(context.name)
+    private = WindowsPrivateFixture(root)
     # POSIX permission-denial controls may execute as an unprivileged child.
     root.chmod(0o755)
     recorder = Recorder(root)
@@ -319,10 +350,11 @@ def main() -> int:
                "images": {str(path.resolve()): sha(path.resolve()) for path in (args.freak, args.hangar, args.clang)},
                "commands": recorder.records, "qualification": "native component gate; no full release or graph-aware Hangar claim"}
     try:
-        execute(args, root, recorder, receipt)
+        execute(args, root, recorder, receipt, private)
         after = {name: sha(REPO / name) for name in names}
         assert before == after, "source changed during native acceptance"
-        receipt.update(status="PASS", inputs_after=after, inputs_unchanged=True)
+        receipt.update(status="PASS", inputs_after=after, inputs_unchanged=True,
+                       windows_fixture=private.report)
         print("Native Hangar lock preservation: PASS", flush=True)
     except BaseException as error:
         receipt.update(status="FAIL", error=repr(error))
