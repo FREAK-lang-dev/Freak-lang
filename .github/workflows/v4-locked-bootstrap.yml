@@ -95,6 +95,7 @@ jobs:
           python -B -u tests/v4_bootstrap_fs_probe.py
           --clang "${{ env.FREAK_V4_CI_CLANG }}"
           --windows-handle-diagnostics
+          --windows-no-privilege-lookup
           --work "${{ runner.temp }}/freak-v4-bootstrap-fs-probe-work"
           --report "${{ runner.temp }}/freak-v4-bootstrap-fs-probe.json"
       - name: Reconstruct CLI and verify installed public locked bootstrap

@@ -94,7 +94,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 
 | Sub-section | v0.14.0 status |
 |---|---|
-| §1.1 Variables | ✅ Implemented (note: `pilot mut` only matters under `--strict-borrow`) |
+| §1.1 Variables | ✅ Implemented (note: `pilot mut` is a silent synonym of mutable-by-default `pilot`) |
 | §1.2 Functions | ✅ Implemented — V4 also carries named call-site arguments through task, generic, instance-method, associated-method, editor, and diagnostic query slices |
 | §1.3 Primitive types | ⚠️ Partial — `num`/`int`/`word`/`bool`/`void` ship in production; V4 also carries `uint`/`tiny`/`char`/`big`/`float`/`float32`/`never`, `[T;N]`, tuple, and raw-pointer type forms through TY/MIR smokes, with scalar LLVM type plans for primitive carriers; full runtime/backend semantics still expand |
 | §1.4 Compound types (`maybe<T>`, `result<T,E>`) | ✅ Implemented |
@@ -125,7 +125,21 @@ pilot x: word = "hello"
 - Type annotation optional — inferred from value
 - Semicolons optional everywhere
 - Mutable by default
-- Immutable binding: `fixed pilot x = 42` — cannot be reassigned
+- Immutable binding: `fixed pilot x = 42` or `grounded pilot x = 42` — cannot be reassigned
+- `grounded` is contextual only before `pilot`; it remains a usable name elsewhere.
+- Mutation diagnostics preserve the written spelling: `fixed pilot cannot be modified` or `grounded pilot cannot be modified`.
+- `pilot mut` is a silent synonym of `pilot`, including under `--strict-borrow`.
+
+**V3 program entries:** a script without `task main()` runs executable root
+statements and binding initializers in source order. A program with `main` may
+contain root declarations but rejects executable root statements. Empty,
+comment-only and declaration-only programs without `main` fail at the user
+entry path. The explicit V4 host bootstrap compatibility profile is unchanged.
+
+**Word ordering:** `<`, `>`, `<=` and `>=` compare two Words by unsigned UTF-8
+bytes and return `bool`. A shorter prefix sorts first; uppercase ASCII sorts
+before lowercase. Embedded NUL bytes participate in ordering. Comparison is
+not locale-aware; mixed Word/numeric ordering is a type error.
 
 ### 1.2 Functions
 
@@ -643,7 +657,7 @@ Rules:
 > ordered cases, payload presence, and payload-field names, surface types, and
 > exact spans. TY and editor declaration readers consume these stored facts;
 > generic substitution, alias canonicalization, and recovery behavior are
-> unchanged. HIR v11 snapshots validate complete owner/case/field records before
+> unchanged. HIR v12 snapshots validate complete owner/case/field records before
 > atomic restore. Discriminant token ranges come from stored HIR case spans;
 > evaluation and constructor/pattern syntax remain
 > separately syntax-facing. This ownership change does not define a new layout
@@ -720,7 +734,7 @@ Rules:
 **Shipping V3 dynamic lists:** literals infer `List<T>` for `int`, `num`,
 `bool`, `word`, and concrete owned shapes. Mixed numeric elements widen to
 `num`; incompatible elements are diagnosed. V3 implements checked indexing,
-indexed assignment through a `pilot mut` root, `.length()`, `.capacity()`,
+indexed assignment through a mutable `pilot` root, `.length()`, `.capacity()`,
 `.reserve(n)`, `.clear()`, `.push(value)`, `.pop()`,
 `List::filled(value, count)`, `List::new()`, `List::with_capacity(n)`, and
 `for each item in values` on LLVM and C. A context-typed empty literal
@@ -729,7 +743,7 @@ indexed assignment through a `pilot mut` root, `.length()`, `.capacity()`,
 `List<T>` pilot annotation; an unannotated empty literal defaults to
 `List<word>`, while an unannotated `List::new()` / `List::with_capacity(n)`
 is rejected as uninferred. Mutating methods (`.push()`, `.pop()`,
-`.clear()`, `.reserve()`) require the same `pilot mut` root as indexed
+`.clear()`, `.reserve()`) require the same mutable `pilot` root as indexed
 assignment. Popped words and shapes transfer ownership to the caller and
 cleared elements release owned storage, so native word/shape counters
 return to zero on ordinary exits.
@@ -1085,8 +1099,10 @@ pilot all = tracker.report()
 the rest is V4.
 
 > **What ships in v0.13.x (Phase-1):**
-> - `pilot x = ...` is immutable; `pilot mut x = ...` opts into reassignment.
->   Reassign without `mut` produces *"This binding was sworn to silence."*
+> - `pilot x = ...` is mutable, with `pilot mut` accepted as a silent synonym.
+>   `fixed pilot` and contextual `grounded pilot` are immutable in every mode.
+>   Strict borrow checking retains its move/loan checks without requiring `mut`
+>   for ordinary reassignment.
 > - Single-owner moves for `word`, `List<...>`, `Map<...>`, and user
 >   shapes. Use after move produces *"Shirogane. You gave this away."*
 > - Primitives are Copy: `int`, `num`, `bool`, `tiny`, `char`, `float`,
@@ -3106,7 +3122,7 @@ Rules:
 
 > V4 ownership status: declared extern-member return surface types and exact
 > spans are stored in HIR and consumed by direct and synthetic TY signatures,
-> diagnostics and editor displays. HIR v11 snapshots validate complete ordered
+> diagnostics and editor displays. HIR v12 snapshots validate complete ordered
 > extern-return owner/member facts before atomic restoration. Missing returns
 > remain unknown; the existing arrow-expression recovery is explicitly gated
 > by its stored HIR flag. Optional semicolon separators terminate extern-member

@@ -9,6 +9,16 @@ used by the pinned V4 compiler, the three promised counted-loop forms, and both
 `repeat while` and `while`. It also permits reproduced V3 correctness repairs,
 resolved source-package binding, and additive public runtime/tooling APIs.
 
+The prerelease follow-up authorized on 2026-10-08 also includes script-style
+entries, contextual `grounded pilot`, mutable-by-default pilots under strict
+borrow checking, unsigned UTF-8 byte ordering for Words, and inline checked
+integer arithmetic. These are bounded language decisions, with the same
+ownership, evaluation-order and controlled-failure contracts on both backends.
+`pilot mut` is a silent synonym of `pilot`; fixed and grounded bindings retain
+the written modifier in mutation diagnostics. V4 mutable root bindings remain
+forbidden. The frozen V4 bootstrap profile remains at `b43127c4`; current V4
+development syntax is verified separately from that immutable source artifact.
+
 The baseline and initial V4 input are pinned to
 `8ffb389508b8a8f37455ad83b4813062b3d11c2f`. The source order remains derived
 from the existing compiler inventories. Compiler-private bootstrap helpers
@@ -23,15 +33,16 @@ the parser or checker. Scoped source packages remain required: a unique-prefix
 bundle is a narrower delivery profile, not completion of the all-P0 goal.
 
 Source binding resolves declarations by their type or value role, preserves
-nominal type identity, and displays source names in diagnostics. Fixed root
-pilots and ordinary task/extern declarations share value-name collision checks
+nominal type identity, and displays source names in diagnostics. Fixed and
+grounded root pilots and ordinary task/extern declarations share value-name collision checks
 where those declarations are admitted. A lexical local value shadows a callable;
 calling a non-callable value fails before emission. Source references cannot
 gain access through generated private names. Package extern declarations remain
-unsupported. Unloaded export headers validate the supported task/fixed/shape
-surface; they do not promise validation of every unused unsupported declaration.
-The unused extern-collision boundary is tracked in
-[issue #151](https://github.com/FREAK-lang-dev/Freak-lang/issues/151).
+unsupported. Unloaded export headers validate the supported task/immutable-pilot/shape
+surface and retain unsupported extern names solely for value-name collision
+checks. This closes the unused extern-collision case in
+[issue #151](https://github.com/FREAK-lang-dev/Freak-lang/issues/151), without
+admitting extern exports or validating unused private bodies.
 Original source names retain builtin type, namespace and callable reservations
 before package name generation, including the established trusted-runtime and
 bootstrap-profile allowances.
@@ -69,6 +80,11 @@ the floor through public APIs without replacing his work.
 
 The stronger FIX-05 failure oracle governs unusable entry, stray expressions,
 skipped root statements, invalid interpolation and invalid word indexing.
+An ordinary script without `task main()` executes its root statements and
+binding initializers in source order. A program with `task main()` rejects
+executable root statements instead of skipping them. Empty, comment-only and
+declaration-only files without an entry still fail, at the user's entry path.
+The explicit bootstrap compatibility profile retains its existing behavior.
 Invalid indexing must fail controllably on both backends; valid LLVM indexing
 matches C's word-valued result. Continued silent legacy filesystem failure is
 not repaired merely by introducing another checked API. Reproductions against
