@@ -20,49 +20,96 @@
 #include <windows.h>
 #include <winternl.h>
 #include <winioctl.h>
+#include <aclapi.h>
 
 typedef struct {
-    const char *api, *phase;
+    const char *api, *phase, *owner;
     uint64_t handle, other, access, flags, share, disposition, options;
     int64_t result, io_status;
     uint64_t io_information, volume, length;
     DWORD error, attributes, device_type, descriptor_type, descriptor_size;
     unsigned char identity[16], descriptor_id[16];
     int has_identity, has_io, has_device, has_descriptor;
+    long handles_before, handles_after;
+    int has_handle_counts;
 } probe_event;
 static probe_event probe_events[512];
 static size_t probe_event_count;
 static int probe_overflow;
 static const char *probe_phase = "startup";
+static const char *probe_owner = "production";
+static int probe_handle_diagnostics;
+static void probe_handle_snapshot(const char *phase);
+static long probe_process_count(void) {
+    DWORD count = 0;
+    return GetProcessHandleCount(GetCurrentProcess(), &count) ? (long)count : -1;
+}
 static _Noreturn void probe_nonfinal(const char *api,LONG status);
 static probe_event *probe_record(const char *api, int64_t result, DWORD error, HANDLE handle) {
     if (probe_event_count == sizeof(probe_events) / sizeof(*probe_events)) {
         probe_overflow = 1; return NULL;
     }
     probe_event *event = &probe_events[probe_event_count++];
-    event->api = api; event->phase = probe_phase; event->result = result;
+    event->api = api; event->phase = probe_phase; event->owner = probe_owner; event->result = result;
     event->error = error; event->handle = (uintptr_t)handle;
     return event;
 }
+static void probe_record_counts(probe_event *event, long before) {
+    if (event && probe_handle_diagnostics) {
+        event->has_handle_counts = 1; event->handles_before = before;
+        event->handles_after = probe_process_count();
+        /* Retain the new table immediately after a multi-handle API delta.
+           The snapshot's own count brackets report any observer side effect. */
+        if (before>=0 && event->handles_after-before>1) probe_handle_snapshot(event->api);
+    }
+}
+static long probe_before_counts(void) {
+    if (!probe_handle_diagnostics) return -1;
+    DWORD error=GetLastError(); long before=probe_process_count();
+    SetLastError(error); return before;
+}
+static HMODULE WINAPI probe_load_library(LPCWSTR name, HANDLE file, DWORD flags) {
+    if (!probe_handle_diagnostics) return LoadLibraryExW(name, file, flags);
+    DWORD original_error = GetLastError(); long before = probe_process_count();
+    SetLastError(original_error);
+    HMODULE result = LoadLibraryExW(name, file, flags); DWORD error = GetLastError();
+    probe_event *event = probe_record("LoadLibraryExW", result != NULL, error, NULL);
+    if (event) { event->other = (uintptr_t)result; event->flags = flags; }
+    probe_record_counts(event, before); SetLastError(error); return result;
+}
+static BOOL WINAPI probe_free_library(HMODULE module) {
+    if (!probe_handle_diagnostics) return FreeLibrary(module);
+    DWORD original_error = GetLastError(); long before = probe_process_count();
+    SetLastError(original_error);
+    BOOL result = FreeLibrary(module); DWORD error = GetLastError();
+    probe_event *event = probe_record("FreeLibrary", result, error, NULL);
+    if (event) event->other = (uintptr_t)module;
+    probe_record_counts(event, before); SetLastError(error); return result;
+}
 static HANDLE WINAPI probe_create(LPCWSTR name, DWORD access, DWORD share,
         LPSECURITY_ATTRIBUTES security, DWORD disposition, DWORD flags, HANDLE template_file) {
+    long before=probe_before_counts();
     HANDLE result = CreateFileW(name, access, share, security, disposition, flags, template_file);
     DWORD error = GetLastError();
     probe_event *event = probe_record("CreateFileW", result != INVALID_HANDLE_VALUE, error, result);
     if (event) { event->access = access; event->share = share;
         event->disposition = disposition; event->flags = flags; }
+    probe_record_counts(event,before);
     SetLastError(error); return result;
 }
 static HANDLE WINAPI probe_reopen(HANDLE original, DWORD access, DWORD share, DWORD flags) {
+    long before=probe_before_counts();
     HANDLE result = ReOpenFile(original, access, share, flags);
     DWORD error = GetLastError();
     probe_event *event = probe_record("ReOpenFile", result != INVALID_HANDLE_VALUE, error, original);
     if (event) { event->other = (uintptr_t)result; event->access = access;
         event->share = share; event->flags = flags; }
+    probe_record_counts(event,before);
     SetLastError(error); return result;
 }
 static HANDLE WINAPI probe_open_by_id(HANDLE volume, LPFILE_ID_DESCRIPTOR descriptor,
         DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security, DWORD flags) {
+    long before=probe_before_counts();
     FILE_ID_DESCRIPTOR requested;
     int extended = descriptor && descriptor->dwSize >= sizeof(*descriptor) && descriptor->Type == ExtendedFileIdType;
     if (extended) requested = *descriptor;
@@ -78,21 +125,26 @@ static HANDLE WINAPI probe_open_by_id(HANDLE volume, LPFILE_ID_DESCRIPTOR descri
             memcpy(event->descriptor_id, requested.ExtendedFileId.Identifier, sizeof(event->descriptor_id));
         }
     }
+    probe_record_counts(event,before);
     SetLastError(error); return result;
 }
 static BOOL WINAPI probe_flush(HANDLE handle) {
+    long before=probe_before_counts();
     BOOL result = FlushFileBuffers(handle); DWORD error = GetLastError();
-    probe_record("FlushFileBuffers", result, error, handle);
+    probe_record_counts(probe_record("FlushFileBuffers", result, error, handle),before);
     SetLastError(error); return result;
 }
 static BOOL WINAPI probe_information(HANDLE handle, LPBY_HANDLE_FILE_INFORMATION information) {
+    long before=probe_before_counts();
     BOOL result = GetFileInformationByHandle(handle, information); DWORD error = GetLastError();
     probe_event *event = probe_record("GetFileInformationByHandle", result, error, handle);
     if (event && result) event->attributes = information->dwFileAttributes;
+    probe_record_counts(event,before);
     SetLastError(error); return result;
 }
 static BOOL WINAPI probe_information_ex(HANDLE handle, FILE_INFO_BY_HANDLE_CLASS kind,
                                         LPVOID information, DWORD length) {
+    long before=probe_before_counts();
     BOOL result = GetFileInformationByHandleEx(handle, kind, information, length);
     DWORD error = GetLastError();
     probe_event *event = probe_record("GetFileInformationByHandleEx", result, error, handle);
@@ -104,25 +156,30 @@ static BOOL WINAPI probe_information_ex(HANDLE handle, FILE_INFO_BY_HANDLE_CLASS
             event->has_identity = 1;
         }
     }
+    probe_record_counts(event,before);
     SetLastError(error); return result;
 }
 static DWORD WINAPI probe_file_type(HANDLE handle) {
+    long before=probe_before_counts();
     DWORD result = GetFileType(handle), error = GetLastError();
-    probe_record("GetFileType", result, error, handle);
+    probe_record_counts(probe_record("GetFileType", result, error, handle),before);
     SetLastError(error); return result;
 }
 static BOOL WINAPI probe_close(HANDLE handle) {
+    long before=probe_before_counts();
     BOOL result = CloseHandle(handle); DWORD error = GetLastError();
-    probe_record("CloseHandle", result, error, handle);
+    probe_record_counts(probe_record("CloseHandle", result, error, handle),before);
     SetLastError(error); return result;
 }
 static BOOL WINAPI probe_duplicate(HANDLE source_process, HANDLE source,
         HANDLE target_process, LPHANDLE target, DWORD access, BOOL inherit, DWORD options) {
+    long before=probe_before_counts();
     BOOL result = DuplicateHandle(source_process,source,target_process,target,access,inherit,options);
     DWORD error = GetLastError();
     probe_event *event = probe_record("DuplicateHandle",result,error,source);
     if (event) { event->access=access; event->options=options;
         if (result) event->other=(uintptr_t)*target; }
+    probe_record_counts(event,before);
     SetLastError(error); return result;
 }
 static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name);
@@ -136,6 +193,8 @@ static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name);
 #define CloseHandle probe_close
 #define DuplicateHandle probe_duplicate
 #define GetProcAddress probe_address
+#define LoadLibraryExW probe_load_library
+#define FreeLibrary probe_free_library
 #endif
 #include "../freakc/runtime/freak_runtime.c"
 #ifdef _WIN32
@@ -149,6 +208,8 @@ static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name);
 #undef CloseHandle
 #undef DuplicateHandle
 #undef GetProcAddress
+#undef LoadLibraryExW
+#undef FreeLibrary
 
 /* Use the production resolver's exact existing native ABI type. This changes
    only the returned function pointer; all native calls and arguments remain. */
@@ -157,10 +218,66 @@ typedef LONG (NTAPI *probe_flush_ex_fn)(HANDLE,ULONG,PVOID,ULONG,freak_fs_nt_io 
 typedef LONG (NTAPI *probe_query_volume_fn)(HANDLE,freak_fs_nt_io *,PVOID,ULONG,ULONG);
 static probe_flush_ex_fn probe_flush_ex_real;
 static probe_query_volume_fn probe_query_volume_real;
+typedef BOOL (WINAPI *probe_open_process_token_fn)(HANDLE,DWORD,PHANDLE);
+typedef BOOL (WINAPI *probe_open_thread_token_fn)(HANDLE,DWORD,BOOL,PHANDLE);
+typedef BOOL (WINAPI *probe_token_information_fn)(HANDLE,TOKEN_INFORMATION_CLASS,LPVOID,DWORD,PDWORD);
+typedef DWORD (WINAPI *probe_security_information_fn)(HANDLE,SE_OBJECT_TYPE,SECURITY_INFORMATION,
+                                                      PSID *,PSID *,PACL *,PACL *,PSECURITY_DESCRIPTOR *);
+typedef BOOL (WINAPI *probe_lookup_privilege_fn)(LPCWSTR,LPCWSTR,PLUID);
+static probe_open_process_token_fn probe_open_process_token_real;
+static probe_open_thread_token_fn probe_open_thread_token_real;
+static probe_token_information_fn probe_token_information_real;
+static probe_security_information_fn probe_security_information_real;
+static probe_lookup_privilege_fn probe_lookup_privilege_real;
+/* These hooks call the exact resolved API once and preserve LastError. Count
+   brackets expose lazy library/API effects without attributing them to tokens. */
+static BOOL WINAPI probe_open_process_token(HANDLE process,DWORD access,PHANDLE token) {
+    DWORD original_error = GetLastError(); long before = probe_process_count();
+    SetLastError(original_error);
+    BOOL result = probe_open_process_token_real(process,access,token); DWORD error = GetLastError();
+    probe_event *event = probe_record("OpenProcessToken",result,error,process);
+    if (event) { event->access = access; if (result) event->other = (uintptr_t)*token; }
+    probe_record_counts(event,before); SetLastError(error); return result;
+}
+static BOOL WINAPI probe_open_thread_token(HANDLE thread,DWORD access,BOOL self,PHANDLE token) {
+    DWORD original_error = GetLastError(); long before = probe_process_count();
+    SetLastError(original_error);
+    BOOL result = probe_open_thread_token_real(thread,access,self,token); DWORD error = GetLastError();
+    probe_event *event = probe_record("OpenThreadToken",result,error,thread);
+    if (event) { event->access = access; event->flags = self; if (result) event->other = (uintptr_t)*token; }
+    probe_record_counts(event,before); SetLastError(error); return result;
+}
+static BOOL WINAPI probe_token_information(HANDLE token,TOKEN_INFORMATION_CLASS kind,
+                                          LPVOID information,DWORD length,PDWORD needed) {
+    DWORD original_error = GetLastError(); long before = probe_process_count();
+    SetLastError(original_error);
+    BOOL result = probe_token_information_real(token,kind,information,length,needed); DWORD error = GetLastError();
+    probe_event *event = probe_record("GetTokenInformation",result,error,token);
+    if (event) { event->flags = kind; event->length = length; }
+    probe_record_counts(event,before); SetLastError(error); return result;
+}
+static DWORD WINAPI probe_security_information(HANDLE handle,SE_OBJECT_TYPE kind,SECURITY_INFORMATION information,
+        PSID *owner,PSID *group,PACL *dacl,PACL *sacl,PSECURITY_DESCRIPTOR *descriptor) {
+    DWORD original_error = GetLastError(); long before = probe_process_count();
+    SetLastError(original_error);
+    DWORD result = probe_security_information_real(handle,kind,information,owner,group,dacl,sacl,descriptor);
+    DWORD error = GetLastError();
+    probe_event *event = probe_record("GetSecurityInfo",result,error,handle);
+    if (event) { event->flags = kind; event->access = information; }
+    probe_record_counts(event,before); SetLastError(error); return result;
+}
+static BOOL WINAPI probe_lookup_privilege(LPCWSTR system,LPCWSTR name,PLUID luid) {
+    DWORD original_error = GetLastError(); long before = probe_process_count();
+    SetLastError(original_error);
+    BOOL result = probe_lookup_privilege_real(system,name,luid); DWORD error = GetLastError();
+    probe_record_counts(probe_record("LookupPrivilegeValueW",result,error,NULL),before);
+    SetLastError(error); return result;
+}
 static LONG NTAPI probe_nt_create(PHANDLE handle, ACCESS_MASK access,
         freak_fs_nt_object *object, freak_fs_nt_io *io, PLARGE_INTEGER allocation,
         ULONG attributes, ULONG share, ULONG disposition, ULONG options,
         PVOID ea, ULONG ea_length) {
+    long before=probe_before_counts();
     LONG status = probe_nt_real(handle, access, object, io, allocation, attributes,
                                share, disposition, options, ea, ea_length);
     DWORD error = GetLastError();
@@ -175,6 +292,7 @@ static LONG NTAPI probe_nt_create(PHANDLE handle, ACCESS_MASK access,
         /* A failure/pending return need not complete IO_STATUS_BLOCK; never
            read indeterminate bytes or label a pending operation complete. */
     }
+    probe_record_counts(event,before);
     if (status==0x103 || (status==0 &&
         (io->value.status==INT32_MIN || io->value.status==0x103)))
         probe_nonfinal("NtCreateFile",status);
@@ -182,6 +300,7 @@ static LONG NTAPI probe_nt_create(PHANDLE handle, ACCESS_MASK access,
 }
 static LONG NTAPI probe_nt_flush_ex(HANDLE handle, ULONG flags, PVOID parameters,
         ULONG length, freak_fs_nt_io *io) {
+    long before=probe_before_counts();
     /* NTSTATUS and a successful completed IOSB are separate observations.
        Failure/pending returns do not authorize reading caller output. */
     LONG status = probe_flush_ex_real(handle, flags, parameters, length, io);
@@ -194,6 +313,7 @@ static LONG NTAPI probe_nt_flush_ex(HANDLE handle, ULONG flags, PVOID parameters
             event->io_information = io->information;
         }
     }
+    probe_record_counts(event,before);
     if (status == 0x103 || (status == 0 && io &&
         (io->value.status == INT32_MIN || io->value.status == 0x103)))
         probe_nonfinal("NtFlushBuffersFileEx", status);
@@ -201,6 +321,7 @@ static LONG NTAPI probe_nt_flush_ex(HANDLE handle, ULONG flags, PVOID parameters
 }
 static LONG NTAPI probe_nt_query_volume(HANDLE handle, freak_fs_nt_io *io,
         PVOID information, ULONG length, ULONG kind) {
+    long before=probe_before_counts();
     LONG status = probe_query_volume_real(handle, io, information, length, kind);
     DWORD error = GetLastError();
     probe_event *event = probe_record("NtQueryVolumeInformationFile", status, error, handle);
@@ -218,6 +339,7 @@ static LONG NTAPI probe_nt_query_volume(HANDLE handle, freak_fs_nt_io *io,
             }
         }
     }
+    probe_record_counts(event,before);
     if (status == 0x103 || (status == 0 && io &&
         (io->value.status == INT32_MIN || io->value.status == 0x103)))
         probe_nonfinal("NtQueryVolumeInformationFile", status);
@@ -235,6 +357,21 @@ static FARPROC WINAPI probe_address(HMODULE module, LPCSTR name) {
         } else if (!strcmp(name, "NtQueryVolumeInformationFile")) {
             probe_query_volume_real = (probe_query_volume_fn)(void *)result;
             result = (FARPROC)(void *)probe_nt_query_volume;
+        } else if (probe_handle_diagnostics && !strcmp(name,"OpenProcessToken")) {
+            probe_open_process_token_real = (probe_open_process_token_fn)(void *)result;
+            result = (FARPROC)(void *)probe_open_process_token;
+        } else if (probe_handle_diagnostics && !strcmp(name,"OpenThreadToken")) {
+            probe_open_thread_token_real = (probe_open_thread_token_fn)(void *)result;
+            result = (FARPROC)(void *)probe_open_thread_token;
+        } else if (probe_handle_diagnostics && !strcmp(name,"GetTokenInformation")) {
+            probe_token_information_real = (probe_token_information_fn)(void *)result;
+            result = (FARPROC)(void *)probe_token_information;
+        } else if (probe_handle_diagnostics && !strcmp(name,"GetSecurityInfo")) {
+            probe_security_information_real = (probe_security_information_fn)(void *)result;
+            result = (FARPROC)(void *)probe_security_information;
+        } else if (probe_handle_diagnostics && !strcmp(name,"LookupPrivilegeValueW")) {
+            probe_lookup_privilege_real = (probe_lookup_privilege_fn)(void *)result;
+            result = (FARPROC)(void *)probe_lookup_privilege;
         }
     }
     SetLastError(error); return result;
@@ -268,8 +405,7 @@ static unsigned long probe_native_error(void) {
 }
 static long probe_resources(void) {
 #ifdef _WIN32
-    DWORD count = 0;
-    return GetProcessHandleCount(GetCurrentProcess(), &count) ? (long)count : -1;
+    return probe_process_count();
 #else
     DIR *scan = opendir("/dev/fd"); if (!scan) return -1;
     long count = -1; struct dirent *entry;
@@ -278,9 +414,11 @@ static long probe_resources(void) {
 #endif
 }
 #ifdef _WIN32
+#include "native_bootstrap_fs_handle_probe.inc"
 static void probe_checkpoint(const char *name) {
     DWORD error = GetLastError();
     long count = probe_resources();
+    probe_handle_snapshot(name);
     printf("{\"type\":\"resource_checkpoint\",\"phase\":"); probe_string(name);
     printf(",\"process_handles\":%ld}\n",count);
     SetLastError(error);
@@ -335,6 +473,8 @@ static void probe_alternative_flush(const char *method,HANDLE reference,HANDLE c
     SetLastError(original_error);
 }
 static void probe_alternatives(HANDLE parent,HANDLE temp) {
+    const char *original_owner=probe_owner;
+    probe_owner="observer_alternative";
     probe_phase="alternative_held_temp";
     probe_alternative_flush("held_writable_temp",temp,temp,0,0,0);
     probe_phase="alternative_duplicate_temp";
@@ -344,7 +484,7 @@ static void probe_alternatives(HANDLE parent,HANDLE temp) {
     if (!copied) copy=INVALID_HANDLE_VALUE;
     probe_alternative_flush("duplicate_same_access_temp",temp,copy,0,1,error);
     freak_fs_anchor_close(copy);
-    if (parent==INVALID_HANDLE_VALUE) return;
+    if (parent==INVALID_HANDLE_VALUE) { probe_owner=original_owner; return; }
     ACCESS_MASK rights[]={FILE_APPEND_DATA,FILE_WRITE_DATA};
     const char *reopens[]={"reopen_parent_append","reopen_parent_write"};
     const char *empties[]={"nt_empty_parent_append","nt_empty_parent_write"};
@@ -396,11 +536,18 @@ static void probe_alternatives(HANDLE parent,HANDLE temp) {
         probe_alternative_flush(by_ids[i],parent,by_id,access,identity_known,error);
         freak_fs_anchor_close(by_id);
     }
+    probe_owner=original_owner;
 }
 static void probe_profile(HANDLE directory) {
+    const char *original_owner=probe_owner;
+    probe_owner="observer_profile";
     WCHAR filesystem[128] = {0}; DWORD serial = 0, maximum = 0, flags = 0;
+    long volume_before=probe_before_counts();
     BOOL volume_ok = GetVolumeInformationByHandleW(directory, NULL, 0, &serial,
         &maximum, &flags, filesystem, 128); DWORD volume_error = GetLastError();
+    if (probe_handle_diagnostics) probe_record_counts(
+        probe_record("GetVolumeInformationByHandleW",volume_ok,volume_error,directory),volume_before);
+    SetLastError(volume_error);
     char name[512] = {0};
     if (volume_ok) WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, filesystem, -1,
                                      name, sizeof(name), NULL, NULL);
@@ -416,6 +563,7 @@ static void probe_profile(HANDLE directory) {
     query_fn query=(query_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtQueryVolumeInformationFile");
     IO_STATUS_BLOCK io; memset(&io,0,sizeof(io)); io.Status=INT32_MIN; io.Information=UINTPTR_MAX;
     FILE_FS_DEVICE_INFORMATION device; memset(&device,0xff,sizeof(device));
+    long query_before=probe_before_counts();
     NTSTATUS status=query ? query(directory,&io,&device,sizeof(device),FileFsDeviceInformation) : INT32_MIN;
     DWORD query_error=GetLastError();
     int completed=query && status==0 && io.Status==0 && io.Information>=sizeof(device) && io.Information!=UINTPTR_MAX;
@@ -424,6 +572,7 @@ static void probe_profile(HANDLE directory) {
         if (event) { event->flags=FileFsDeviceInformation;
             if (completed) { event->has_io=1; event->io_status=io.Status; event->io_information=io.Information;
                 event->attributes=device.Characteristics; } }
+        probe_record_counts(event,query_before);
     }
     printf("{\"type\":\"device_profile\",\"query_available\":%s,\"information_class\":4,\"ntstatus\":",
         query?"true":"false");
@@ -446,13 +595,13 @@ static void probe_profile(HANDLE directory) {
         probe_nonfinal("NtQueryVolumeInformationFile",status);
     /* Public SDK types/declarations, resolved from the actual system module;
        this observational profile does not add a product linker dependency. */
-    HMODULE security = LoadLibraryExW(L"advapi32.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    HMODULE security = probe_load_library(L"advapi32.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
     typedef BOOL (WINAPI *open_fn)(HANDLE,DWORD,PHANDLE);
     typedef BOOL (WINAPI *info_fn)(HANDLE,TOKEN_INFORMATION_CLASS,LPVOID,DWORD,PDWORD);
     typedef BOOL (WINAPI *lookup_fn)(LPCWSTR,LPCWSTR,PLUID);
-    open_fn open_token = security ? (open_fn)(void *)GetProcAddress(security,"OpenProcessToken") : NULL;
-    info_fn info = security ? (info_fn)(void *)GetProcAddress(security,"GetTokenInformation") : NULL;
-    lookup_fn lookup = security ? (lookup_fn)(void *)GetProcAddress(security,"LookupPrivilegeValueW") : NULL;
+    open_fn open_token = security ? (open_fn)(void *)probe_address(security,"OpenProcessToken") : NULL;
+    info_fn info = security ? (info_fn)(void *)probe_address(security,"GetTokenInformation") : NULL;
+    lookup_fn lookup = security ? (lookup_fn)(void *)probe_address(security,"LookupPrivilegeValueW") : NULL;
     HANDLE token = NULL; TOKEN_ELEVATION elevation = {0}; DWORD needed = 0;
     int elevation_known = 0, privileges_known = 0, backup = 0, restore = 0;
     unsigned long error = GetLastError();
@@ -478,7 +627,9 @@ static void probe_profile(HANDLE directory) {
     printf("{\"type\":\"token\",\"elevation_known\":%s,\"elevated\":%s,\"privileges_known\":%s,\"backup_enabled\":%s,\"restore_enabled\":%s,\"native_error\":%lu}\n",
         elevation_known?"true":"false",elevation.TokenIsElevated?"true":"false",
         privileges_known?"true":"false",backup?"true":"false",restore?"true":"false",error);
-    if (token) CloseHandle(token); if (security) FreeLibrary(security);
+    if (token) { if (probe_handle_diagnostics) probe_close(token); else CloseHandle(token); }
+    if (security) probe_free_library(security);
+    probe_owner=original_owner;
 }
 static void probe_dump_events(void) {
     for (size_t i=0;i<probe_event_count;i++) {
@@ -499,7 +650,16 @@ static void probe_dump_events(void) {
             event->has_descriptor?"true":"false",(unsigned long)event->descriptor_type,
             (unsigned long)event->descriptor_size);
         for (size_t j=0;j<sizeof(event->descriptor_id);j++) printf("%02x",event->descriptor_id[j]);
-        puts("\"}");
+        putchar('"');
+        if (probe_handle_diagnostics) {
+            printf(",\"trace_ordinal\":%zu",i);
+            printf(",\"owner_scope\":"); probe_string(event->owner);
+            printf(",\"handle_counts_valid\":%s,\"handles_before\":",event->has_handle_counts?"true":"false");
+            if (event->has_handle_counts) printf("%ld",event->handles_before); else printf("null");
+            printf(",\"handles_after\":");
+            if (event->has_handle_counts) printf("%ld",event->handles_after); else printf("null");
+        }
+        puts("}");
     }
 }
 static _Noreturn void probe_nonfinal(const char *api,LONG status) {
@@ -523,7 +683,14 @@ int main(int argc, char **argv) {
     freak_word parent = freak_process_arg(1);
     int passed = 1, cleanup_completed = 0;
     int64_t initial_tickets = freak_fs_result_live();
+#ifdef _WIN32
+    const char *diagnostics=getenv("FREAK_FS_PROBE_HANDLE_DIAGNOSTICS");
+    probe_handle_diagnostics=diagnostics && !strcmp(diagnostics,"1");
+#endif
     long before = probe_resources();
+#ifdef _WIN32
+    probe_handle_snapshot("cold_entry");
+#endif
     PROBE_PHASE("open_parent");
     int64_t root = freak_fs_open_dir_ticket(parent);
     probe_ticket("open_parent",root,probe_native_error());
@@ -561,6 +728,7 @@ int main(int argc, char **argv) {
         freak_fs_result_release(made);
 #ifdef _WIN32
         probe_checkpoint("after_mkdir");
+        probe_owner="observer_sync";
         /* The admitted parent itself came through NtCreateFile component
            walks. Compare an actual CreateFileW handle of the same identity;
            these observations never decide or repair the production contract. */
@@ -592,6 +760,7 @@ int main(int argc, char **argv) {
         probe_alternatives(freak_fs_result_ok(root) ? freak_fs_ticket_require(root)->directory : INVALID_HANDLE_VALUE,
                            freak_fs_ticket_require(temp)->directory);
         probe_checkpoint("after_alternatives");
+        probe_owner="production";
 #endif
         PROBE_PHASE("cleanup_temp");
         int64_t removed = freak_fs_remove_temp_dir_checked(temp);
@@ -608,7 +777,12 @@ int main(int argc, char **argv) {
     int64_t after_tickets = freak_fs_result_live();
     long after = probe_resources();
 #ifdef _WIN32
+    probe_handle_snapshot("after_release_tickets");
+    /* No production operation separates these captures: query/type effects
+       and concurrent handle changes remain visible as a negative control. */
+    probe_handle_snapshot("query_repeat_after_release");
     probe_dump_events();
+    probe_handle_dump();
     passed &= !probe_overflow;
     int overflow = probe_overflow;
 #else
