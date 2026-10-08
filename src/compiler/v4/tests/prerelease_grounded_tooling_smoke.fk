@@ -32,24 +32,33 @@ task v4_prerelease_tooling_run() -> void {
     pilot definition = v4_definition_at_text_cached(path, source, offset)
     pilot declaration = v4_prerelease_tooling_token(stream, name, 0)
     if mode == "local" { declaration = v4_prerelease_tooling_token(stream, name, 1) }
-    v4_prerelease_tooling_assert(v4_definition_at_found(definition) == 1 and v4_definition_at_span(definition) == v4_lex_token_span(stream, declaration), "exact declaration name range")
+    v4_prerelease_tooling_assert(v4_definition_at_found(definition) == 1, "definition found")
     if mode == "local" {
+        v4_prerelease_tooling_assert(v4_definition_at_span(definition) == v4_lex_token_span(stream, declaration), "exact local declaration name range")
         v4_prerelease_tooling_assert(v4_hover_kind(hover) == "Local" and v4_hover_type(hover) == "int", "contextual name retains local facts")
         pilot modifier = v4_prerelease_tooling_token(stream, "grounded", 0)
         v4_prerelease_tooling_assert(v4_lex_token_type(stream, modifier) == v4_tok_ident, "grounded remains an identifier")
     } else {
         v4_prerelease_tooling_assert(v4_hover_type(hover) == "grounded pilot ROOT: int", "authored root spelling")
         pilot hir = v4_hir_text_cached(path, source)
-        v4_prerelease_tooling_assert(v4_hir_const_binding_prefix(hir, 0) == "grounded pilot", "HIR owns root prefix")
+        pilot declaration_span = v4_lex_token_span(stream, declaration)
+        pilot item_span = v4_hir_item_span(hir, 0)
+        v4_prerelease_tooling_assert(v4_definition_at_span(definition) == item_span, "root navigation retains whole declaration range")
+        v4_prerelease_tooling_assert(v4_hir_const_binding_prefix(hir, 0) == "grounded pilot" and v4_hir_const_name_span(hir, 0) == declaration_span, "HIR owns exact root prefix and name range")
         if mode == "edit" {
             pilot edited = source.replace("grounded pilot", "fixed pilot")
             pilot fresh_stream = v4_lex_text_cached(path, edited)
             pilot fresh_offset = v4_span_start(v4_lex_token_span(fresh_stream, v4_prerelease_tooling_token(fresh_stream, "ROOT", 1)))
             pilot fresh = v4_hover_text_cached(path, edited, fresh_offset)
             v4_prerelease_tooling_assert(fresh != hover and v4_hover_type(fresh) == "fixed pilot ROOT: int" and v4_hover_type(hover) == "grounded pilot ROOT: int", "source edit invalidates current fact and preserves old fact")
+            pilot fresh_hir = v4_hir_text_cached(path, edited)
+            pilot fresh_definition = v4_definition_at_text_cached(path, edited, fresh_offset)
+            pilot fresh_declaration = v4_lex_token_span(fresh_stream, v4_prerelease_tooling_token(fresh_stream, "ROOT", 0))
+            v4_prerelease_tooling_assert(fresh_definition != definition and v4_definition_at_found(fresh_definition) == 1 and v4_definition_at_span(fresh_definition) == v4_hir_item_span(fresh_hir, 0) and v4_definition_at_span(definition) == item_span, "edit preserves current and retained whole-constant navigation")
+            v4_prerelease_tooling_assert(v4_hir_const_binding_prefix(fresh_hir, 0) == "fixed pilot" and v4_hir_const_name_span(fresh_hir, 0) == fresh_declaration and v4_hir_const_binding_prefix(hir, 0) == "grounded pilot" and v4_hir_const_name_span(hir, 0) == declaration_span, "edit keeps exact authored facts for both generations")
         } else if mode == "restore" {
             pilot snapshot = v4_hir_snapshot()
-            v4_prerelease_tooling_assert(v4_hir_snapshot_restore(snapshot).starts_with("hir-snapshot-restore ok=1") and v4_hir_const_binding_prefix(hir, 0) == "grounded pilot", "detached HIR restores exact root spelling")
+            v4_prerelease_tooling_assert(v4_hir_snapshot_restore(snapshot).starts_with("hir-snapshot-restore ok=1") and v4_hir_const_binding_prefix(hir, 0) == "grounded pilot" and v4_hir_const_name_span(hir, 0) == declaration_span and v4_hir_item_span(hir, 0) == item_span, "detached HIR restores exact root spelling and ranges")
             v4_prerelease_tooling_assert(v4_hir_snapshot() == snapshot, "HIR snapshot exact")
             pilot old = snapshot.replace("freak-hir-snapshot-v12", "freak-hir-snapshot-v11")
             v4_prerelease_tooling_assert(v4_hir_snapshot_restore(old).starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == snapshot, "old HIR format rejected atomically")
@@ -58,6 +67,10 @@ task v4_prerelease_tooling_run() -> void {
             v4_prerelease_tooling_assert(v4_hir_snapshot_restore_with_queries(snapshot).starts_with("hir-snapshot-restore ok=1"), "official restore invalidation facade")
             pilot fresh = v4_hover_text_cached(path, source, offset)
             v4_prerelease_tooling_assert(fresh != hover and v4_hover_type(fresh) == "grounded pilot ROOT: int" and v4_hover_type(hover) == "grounded pilot ROOT: int", "cold and retained hover agree")
+            pilot fresh_hir = v4_hir_text_cached(path, source)
+            pilot fresh_definition = v4_definition_at_text_cached(path, source, offset)
+            v4_prerelease_tooling_assert(fresh_definition != definition and v4_definition_at_found(fresh_definition) == 1 and v4_definition_at_span(fresh_definition) == v4_hir_item_span(fresh_hir, 0) and v4_definition_at_span(definition) == item_span, "cold and retained whole-constant navigation agree")
+            v4_prerelease_tooling_assert(v4_hir_const_binding_prefix(fresh_hir, 0) == "grounded pilot" and v4_hir_const_name_span(fresh_hir, 0) == declaration_span, "cold HIR retains exact prefix and name range")
         } else { panic("unknown grounded tooling mode") }
     }
     say "prerelease-grounded-tooling " + mode + "=passed"
