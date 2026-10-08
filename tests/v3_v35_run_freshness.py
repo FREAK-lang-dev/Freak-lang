@@ -52,6 +52,24 @@ def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def evidence_targets(evidence: Path, protected: tuple[Path, ...]) -> tuple[Path, Path]:
+    """Reject output/input overlap before creating directories or receipts."""
+    outputs = (evidence.absolute(), evidence.absolute().parent / (evidence.stem + '-raw'))
+    inputs = tuple(path.resolve(strict=True) for path in protected)
+    selected = []
+    for output in outputs:
+        physical = output.resolve()
+        for source in inputs:
+            if physical == source or physical.is_relative_to(source) or source.is_relative_to(physical):
+                raise ValueError(f'evidence output overlaps protected input: {output}')
+        # A fresh artifact also prevents overwriting an external hardlink to a
+        # protected file and keeps earlier success/failure receipts intact.
+        if output.exists() or output.is_symlink() or physical.exists():
+            raise ValueError(f'evidence output must be fresh: {output}')
+        selected.append(physical)
+    return selected[0], selected[1]
+
+
 def fixture(root: Path, private: WindowsPrivateFixture) -> dict[str, Path]:
     for name in ('app', 'bridge', 'core'):
         (root / name / 'src').mkdir(parents=True)
@@ -82,9 +100,8 @@ def main() -> int:
     parser.add_argument('--evidence', type=Path, required=True)
     args = parser.parse_args()
     freak, clang, repo = args.freak.resolve(strict=True), args.clang.absolute(), args.repo.resolve(strict=True)
-    evidence = args.evidence.absolute()
+    evidence, raw = evidence_targets(args.evidence, (repo, freak, clang, Path(__file__)))
     evidence.parent.mkdir(parents=True, exist_ok=True)
-    raw = evidence.parent / (evidence.stem + '-raw')
     raw.mkdir()
     inputs = {str(freak): sha(freak), str(clang): sha(clang), str(Path(__file__).resolve()): sha(Path(__file__).resolve())}
     report = {'status': 'RUNNING', 'host': sys.platform, 'inputs_before': inputs, 'commands': [], 'checks': []}
@@ -153,14 +170,14 @@ def main() -> int:
                     return {path.relative_to(graph_root).as_posix(): {'sha256': sha(path), 'bytes_hex': path.read_bytes().hex()}
                             for path in selected}
 
-                def invoke(label: str, value: int | None, hit: bool | None, flags: tuple[str, ...] = (), active: dict[str, str] = env, source: Path | None = None) -> None:
+                def invoke(label: str, value: int | None, hit: bool | None, flags: tuple[str, ...] = (), active: dict[str, str] = env, source: Path | None = None, rejection: bytes = b'RUN ABORTED') -> None:
                     before = source_vector()
                     selected = [str(source)] if source is not None else []
                     code, output = run(f'{backend}:{label}', [str(freak), 'run', *selected, f'--{backend}', '--opt=0', '--strict-borrow', *flags], app, active)
                     report['commands'][-1]['sources_before'] = before
                     report['commands'][-1]['sources_after'] = source_vector()
                     if value is None:
-                        assert code != 0 and b'PKG_RUN=' not in output and b'RUNNING' not in output and b'run cache hit' not in output, output
+                        assert code == 1 and rejection in output and b'PKG_RUN=' not in output and b'RUNNING' not in output and b'run cache hit' not in output, output
                     else:
                         assert code == 0 and re.findall(rb'^PKG_RUN=(\d+)$', output, re.M) == [str(value).encode()], output
                         assert (b'run cache hit' in output) is hit, output
@@ -197,7 +214,7 @@ def main() -> int:
                 invoke('declared-source-removed-from-manifest', 69, False)
                 original_core = files['transitive'].read_bytes()
                 files['transitive'].write_text('task value() -> int { give back true }\n', encoding='utf-8')
-                invoke('invalid-dependency-rebuild', None, None)
+                invoke('invalid-dependency-rebuild', None, None, rejection=b'type/borrow error(s) -- code generation skipped')
                 assert not cache.exists(), 'failed rebuild retained a cache proof'
                 files['transitive'].write_bytes(original_core)
                 invoke('failed-rebuild-recovery', 69, False)
