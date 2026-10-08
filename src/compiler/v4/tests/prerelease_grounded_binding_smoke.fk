@@ -1,0 +1,92 @@
+-- One source pipeline per process keeps the semantic matrix within arena limits.
+task v4_prerelease_binding_assert(condition: bool, label: word) -> void {
+    if not condition { panic("prerelease binding: " + label) }
+}
+
+task v4_prerelease_binding_source(mode: word) -> word {
+    pilot prefix = "fixed pilot"
+    if mode.starts_with("grounded-") { prefix = "grounded pilot" }
+    pilot body = prefix + " value: int = 1\n value = 2\n give back value\n"
+    if mode.ends_with("compound") { body = prefix + " value: int = 1\n value += 2\n give back value\n" }
+    if mode.ends_with("field") { body = prefix + " value = Box " + chr(123) + " hp: 1 " + chr(125) + "\n value.hp = 2\n give back 0\n" }
+    if mode.ends_with("index") { body = prefix + " value: [int; 2] = [1, 2]\n value[0] = 3\n give back 0\n" }
+    if mode.ends_with("borrow") { body = prefix + " value: int = 1\n pilot loan = lend mut value\n give back 0\n" }
+    if mode.ends_with("closure") { body = prefix + " value: int = 1\n pilot change = mut |_| " + chr(123) + " value += 1 " + chr(125) + "\n give back 0\n" }
+    if mode.ends_with("destructure") { body = prefix + " (value, other) = (1, 2)\n value = 3\n give back 0\n" }
+    if mode == "happy" {
+        body = "pilot value = 1\n value += 2\n pilot mut explicit = 3\n explicit = 4\n fixed pilot first = 5\n grounded pilot second = 6\n give back value + explicit + first + second\n"
+    }
+    if mode == "contextual" { body = "pilot grounded = 40\n grounded += 2\n give back grounded\n" }
+    if mode == "shadow-mutable" {
+        body = "fixed pilot value = 1\n if true " + chr(123) + " pilot value = 2\n value = 3\n " + chr(125) + "\n give back value\n"
+    }
+    if mode == "shadow-fixed" {
+        body = "pilot value = 1\n if true " + chr(123) + " grounded pilot value = 2\n value = 3\n " + chr(125) + "\n value = 4\n give back value\n"
+    }
+    if mode == "same-scope" { body = "pilot value = 1\n grounded pilot value = 2\n give back value\n" }
+    pilot source = "shape Box " + chr(123) + " hp: int " + chr(125) + "\n"
+    if mode.ends_with("root") {
+        if mode == "mutable-root" { prefix = "pilot" }
+        source = source + prefix + " ROOT: int = 1\n"
+        body = "ROOT = 2\n give back ROOT\n"
+    }
+    if mode == "callable" {
+        source = source + "task grounded() -> int " + chr(123) + " give back 42 " + chr(125) + "\n"
+        body = "give back grounded()\n"
+    }
+    give back source + "task main() -> int " + chr(123) + "\n " + body + chr(125) + "\n"
+}
+
+task v4_prerelease_binding_run() -> void {
+    pilot mode = process::arg(1)
+    pilot source = v4_prerelease_binding_source(mode)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    if mode != "mutable-root" {
+        v4_prerelease_binding_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) == 0, "source reaches immutability check cleanly " + mode)
+    }
+    pilot expected_clean: bool = mode == "happy" or mode == "contextual" or mode == "callable" or mode == "shadow-mutable"
+    pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_borrowck_diag_count(borrow)
+    if expected_clean { v4_prerelease_binding_assert(total == 0, "clean source " + mode) }
+    if mode == "mutable-root" { v4_prerelease_binding_assert(v4_parse_diag_count(tree) > 0, "V4 mutable root remains forbidden") }
+    if mode == "same-scope" { v4_prerelease_binding_assert(v4_mir_diag_count(mir) > 0, "duplicate binding remains forbidden") }
+    pilot prefix = "fixed pilot"
+    if mode.starts_with("grounded-") or mode == "shadow-fixed" { prefix = "grounded pilot" }
+    if not expected_clean and mode != "mutable-root" and mode != "same-scope" {
+        pilot found = false
+        pilot diag_id = 0
+        repeat until diag_id >= v4_borrowck_diag_count(borrow) {
+            if v4_diag_message(v4_borrowck_diag(borrow, diag_id)) == prefix + " cannot be modified" { found = true }
+            diag_id += 1
+        }
+        v4_prerelease_binding_assert(found, "authored immutable diagnostic " + mode)
+    }
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        pilot local = 0
+        repeat until local >= v4_mir_body_local_count(mir, body) {
+            if v4_mir_local_binding_prefix(mir, body, local) != "" {
+                v4_prerelease_binding_assert(v4_mir_local_mode(mir, body, local) == v4_ty_param_mode_value, "binding fact does not change ownership mode")
+            }
+            local += 1
+        }
+        body += 1
+    }
+    if mode != "mutable-root" {
+        pilot snapshot = v4_mir_snapshot()
+        v4_prerelease_binding_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "valid persisted binding fact")
+        v4_prerelease_binding_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "binding fact restores")
+        v4_prerelease_binding_assert(v4_mir_snapshot() == snapshot, "restored binding snapshot exact")
+        pilot restored = v4_borrowck_check_mir(0, mir)
+        v4_prerelease_binding_assert(v4_borrowck_diag_count(restored) == v4_borrowck_diag_count(borrow), "restored immutability analysis agrees")
+        pilot old = snapshot.replace("freak-mir-snapshot-v10", "freak-mir-snapshot-v9")
+        v4_prerelease_binding_assert(v4_mir_snapshot_restore_component(old).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == snapshot, "old format rejected atomically")
+    }
+    say "prerelease-binding " + mode + "=passed"
+}
+v4_prerelease_binding_run()

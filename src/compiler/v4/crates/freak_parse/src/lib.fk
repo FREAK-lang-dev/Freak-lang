@@ -466,7 +466,8 @@ task v4_parse_is_fixed_pilot_keyword(stream_id: int, token_id: int) -> bool {
     if token_id < 0 or token_id >= v4_lex_token_count(stream_id) {
         give back false
     }
-    if v4_lex_token_type(stream_id, token_id) != v4_tok_keyword or v4_lex_token_value(stream_id, token_id) != "fixed" {
+    pilot modifier = v4_lex_token_syntax_value(stream_id, token_id)
+    if modifier != "fixed" and modifier != "grounded" {
         give back false
     }
     pilot pilot_token = v4_parse_skip_trivia(stream_id, token_id + 1)
@@ -478,7 +479,7 @@ task v4_parse_is_fixed_pilot_keyword(stream_id: int, token_id: int) -> bool {
 
 task v4_parse_top_keyword_text(stream_id: int, token_id: int) -> word {
     if v4_parse_is_fixed_pilot_keyword(stream_id, token_id) {
-        give back "fixed pilot"
+        give back v4_lex_token_syntax_value(stream_id, token_id) + " pilot"
     }
     if token_id < 0 or token_id >= v4_lex_token_count(stream_id) {
         give back ""
@@ -492,7 +493,7 @@ task v4_parse_kind_for_keyword(value: word) -> word {
     if value == "route" { give back v4_node_route }
     if value == "variant" { give back v4_node_route }
     if value == "alias" { give back v4_node_alias }
-    if value == "fixed pilot" { give back v4_node_const }
+    if (value == "fixed pilot" or value == "grounded pilot") { give back v4_node_const }
     if value == "impl" { give back v4_node_impl }
     if value == "doctrine" { give back v4_node_doctrine }
     if value == "use" { give back v4_node_use }
@@ -501,7 +502,7 @@ task v4_parse_kind_for_keyword(value: word) -> word {
 }
 
 task v4_parse_keyword_requires_name(value: word) -> bool {
-    give back value == "task" or value == "shape" or value == "route" or value == "variant" or value == "alias" or value == "fixed pilot" or value == "impl" or value == "doctrine"
+    give back value == "task" or value == "shape" or value == "route" or value == "variant" or value == "alias" or (value == "fixed pilot" or value == "grounded pilot") or value == "impl" or value == "doctrine"
 }
 
 task v4_parse_keyword_requires_body(value: word) -> bool {
@@ -1683,7 +1684,7 @@ task v4_parse_parse_top_item(tree_id: int, stream_id: int, token_id: int, root_i
     pilot item_span = v4_parse_make_span(stream_id, token_id, end_token)
     pilot name_value = ""
 
-    if keyword == "fixed pilot" {
+    if (keyword == "fixed pilot" or keyword == "grounded pilot") {
         pilot pilot_token = v4_parse_skip_trivia(stream_id, token_id + 1)
         name_value = v4_parse_const_name_from_tokens(stream_id, pilot_token + 1, end_token)
     } else if v4_parse_keyword_requires_name(keyword) {
@@ -1715,11 +1716,11 @@ task v4_parse_parse_top_item(tree_id: int, stream_id: int, token_id: int, root_i
         } else if v4_parse_alias_target_from_tokens(stream_id, token_id + 1, end_token) == "" {
             v4_parse_add_incomplete(tree_id, item_node, item_span, "expected target type after =")
         }
-    } else if keyword == "fixed pilot" {
+    } else if (keyword == "fixed pilot" or keyword == "grounded pilot") {
         pilot pilot_token = v4_parse_skip_trivia(stream_id, token_id + 1)
         pilot const_start = pilot_token + 1
         if v4_parse_find_top_level_token(stream_id, const_start, end_token, "=") < 0 {
-            v4_parse_add_incomplete(tree_id, item_node, item_span, "expected = in fixed pilot")
+            v4_parse_add_incomplete(tree_id, item_node, item_span, "expected = in " + keyword)
         } else if v4_parse_const_init_from_tokens(stream_id, const_start, end_token) == "" {
             v4_parse_add_incomplete(tree_id, item_node, item_span, "expected constant initializer after =")
         }
@@ -1764,7 +1765,7 @@ task v4_parse_stream(file_id: int, stream_id: int) -> int {
 
         if tok_type == v4_tok_symbol and tok_value == "@" {
             idx = v4_parse_parse_attribute(tree_id, stream_id, idx, root_id)
-        } else if tok_type == v4_tok_keyword and (v4_parse_is_top_keyword(tok_value) or v4_parse_is_fixed_pilot_keyword(stream_id, idx)) {
+        } else if (tok_type == v4_tok_keyword and v4_parse_is_top_keyword(tok_value)) or v4_parse_is_fixed_pilot_keyword(stream_id, idx) {
             idx = v4_parse_parse_top_item(tree_id, stream_id, idx, root_id)
         } else if tok_type == v4_tok_unknown {
             idx = v4_parse_parse_error(tree_id, stream_id, idx, root_id)

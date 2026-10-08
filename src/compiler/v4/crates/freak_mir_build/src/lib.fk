@@ -6011,6 +6011,10 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
             -- scalar compound reads that later become canonical UseLocal.
             give back v4_mir_add_place(mir_id, body_id, v4_mir_place_local, local_name, local_id, local_name, 0 - 1, place_span, v4_mir_local_ty(mir_id, body_id, local_id))
         }
+        pilot const_sig = v4_ty_const_signature_id_for_name(v4_mir_ty_id(mir_id), local_name)
+        if const_sig >= 0 {
+            v4_mir_add_type_error(mir_id, place_span, v4_ty_const_binding_prefix(v4_mir_ty_id(mir_id), const_sig) + " cannot be modified", local_name + " is a root constant")
+        }
     }
 
     give back v4_mir_add_place(mir_id, body_id, v4_mir_place_unknown, place_text, 0 - 1, "", 0 - 1, place_span, v4_ty_unknown)
@@ -7251,7 +7255,7 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
     give back after_block
 }
 
-task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, pilot_token: int, stmt_end: int) -> int {
+task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, pilot_token: int, stmt_end: int, binding_prefix: word, binding_start: int) -> int {
     pilot pattern_start = v4_mir_skip_trivia(stream_id, pilot_token + 1)
     if pattern_start < stmt_end and v4_lex_token_syntax_value(stream_id, pattern_start) == "mut" { pattern_start = v4_mir_skip_trivia(stream_id, pattern_start + 1) }
     if pattern_start >= stmt_end {
@@ -7281,7 +7285,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     }
 
     pilot pattern = v4_mir_pattern_trim(v4_mir_pattern_text(stream_id, pattern_start, pattern_end))
-    pilot stmt_span = v4_mir_span_from_tokens(stream_id, pilot_token, stmt_end)
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, binding_start, stmt_end)
     if v4_ty_is_known(declared_ty) {
         if not v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), stmt_span, declared_ty, "invalid local annotation type", "local declaration " + pattern) {
             declared_ty = v4_ty_unknown
@@ -7301,7 +7305,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         pilot duplicate_local: bool = prior_local >= 0
         pilot binding_ty = inferred_ty
         if inferred_ty == v4_ty_never and v4_ty_is_known(declared_ty) { binding_ty = declared_ty }
-        if duplicate_local and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), binding_ty) {
+        if duplicate_local {
             duplicate_local = v4_mir_local_scope_span(mir_id, body_id, prior_local) == v4_mir_current_scope_span(stmt_span)
         }
         if duplicate_local {
@@ -7329,6 +7333,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
             }
         }
         pilot local_id = v4_mir_add_local_at_scope(mir_id, body_id, pattern, local_ty, stmt_span, v4_mir_current_scope_span(stmt_span))
+        v4_mir_set_local_binding_prefix(mir_id, body_id, local_id, binding_prefix)
         pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, pattern, local_id, pattern, 0 - 1, stmt_span, local_ty)
         pilot value_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, rvalue_id)
         if v4_mir_control_block_is_terminal(mir_id, body_id, value_block) { give back value_block }
@@ -7370,7 +7375,12 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         pilot value_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, rvalue_id)
         if v4_mir_control_block_is_terminal(mir_id, body_id, value_block) { give back value_block }
         v4_mir_build_add_scoped_stmt(mir_id, body_id, value_block, v4_mir_stmt_local, temp_name, rhs, stmt_span, temp_place, rvalue_id)
+        pilot binding_first = v4_mir_body_local_count(mir_id, body_id)
         v4_mir_lower_destructure_pattern(mir_id, body_id, value_block, stmt_span, destructure_kind, pattern, temp_place, source_ty)
+        repeat until binding_first >= v4_mir_body_local_count(mir_id, body_id) {
+            v4_mir_set_local_binding_prefix(mir_id, body_id, binding_first, binding_prefix)
+            binding_first += 1
+        }
         give back value_block
     }
 
@@ -9090,11 +9100,11 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
     if first_val == "say" and v4_lex_token_type(stream_id, first) == v4_tok_keyword {
         give back v4_mir_lower_say_literal_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "pilot" {
-        give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
-    } else if first_val == "fixed" {
+        give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end, "", first)
+    } else if first_val == "fixed" or first_val == "grounded" {
         pilot maybe_pilot = v4_mir_skip_trivia(stream_id, first + 1)
         if maybe_pilot < stmt_end and v4_lex_token_syntax_value(stream_id, maybe_pilot) == "pilot" {
-            give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, maybe_pilot, stmt_end)
+            give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, maybe_pilot, stmt_end, first_val + " pilot", first)
         } else {
             give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
         }

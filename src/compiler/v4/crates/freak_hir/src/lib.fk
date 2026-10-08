@@ -17,7 +17,7 @@ pilot v4_hir_import = "Import"
 pilot v4_hir_extern = "Extern"
 pilot v4_hir_attribute = "Attribute"
 pilot v4_hir_error = "Error"
-pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"
+pilot v4_hir_snapshot_format = "freak-hir-snapshot-v12"
 pilot v4_hir_extern_return_owner_values = 0
 pilot v4_hir_extern_return_values = 0
 pilot v4_hir_route_owner_values = 0
@@ -1186,7 +1186,7 @@ task v4_hir_pilot_starts_local_decl(stream_id: int, pilot_token: int, item_start
         give back true
     }
     pilot previous = v4_hir_previous_nontrivia(stream_id, pilot_token - 1, item_start)
-    if previous < item_start or v4_lex_token_syntax_value(stream_id, previous) != "fixed" {
+    if previous < item_start or (v4_lex_token_syntax_value(stream_id, previous) != "fixed" and v4_lex_token_syntax_value(stream_id, previous) != "grounded") {
         give back false
     }
     give back v4_hir_token_starts_statement(stream_id, previous, item_start)
@@ -1307,19 +1307,19 @@ task v4_hir_const_annotation_values_handle(hir_id: int) -> int {
 
 task v4_hir_const_annotation_value(hir_id: int, item_id: int, column: int) -> word {
     if not v4_hir_file_exists(hir_id) or item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
-        if column == 0 { give back "" }
+        if column == 0 or column == 3 { give back "" }
         give back V4_NO_SPAN
     }
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_const {
-        if column == 0 { give back "" }
+        if column == 0 or column == 3 { give back "" }
         give back V4_NO_SPAN
     }
     pilot values = v4_hir_const_annotation_values_handle(hir_id)
-    if item_id * 3 + column >= array_len(values) {
-        if column == 0 { give back "" }
+    if item_id * 4 + column >= array_len(values) {
+        if column == 0 or column == 3 { give back "" }
         give back V4_NO_SPAN
     }
-    give back array_get(values, item_id * 3 + column)
+    give back array_get(values, item_id * 4 + column)
 }
 
 task v4_hir_const_type_span(hir_id: int, item_id: int) -> word {
@@ -1330,17 +1330,23 @@ task v4_hir_const_name_span(hir_id: int, item_id: int) -> word {
     give back v4_hir_const_annotation_value(hir_id, item_id, 2)
 }
 
-task v4_hir_store_const_annotation(hir_id: int, item_id: int, surface: word, type_span: word, name_span: word) -> void {
+task v4_hir_store_const_annotation(hir_id: int, item_id: int, surface: word, type_span: word, name_span: word, prefix: word) -> void {
     v4_hir_bump_revision(hir_id)
     pilot values = v4_hir_const_annotation_values_handle(hir_id)
-    repeat until array_len(values) > item_id * 3 + 2 {
+    repeat until array_len(values) > item_id * 4 + 3 {
         array_push(values, "")
         array_push(values, V4_NO_SPAN)
         array_push(values, V4_NO_SPAN)
+        array_push(values, "")
     }
-    array_set(values, item_id * 3, surface)
-    array_set(values, item_id * 3 + 1, type_span)
-    array_set(values, item_id * 3 + 2, name_span)
+    array_set(values, item_id * 4, surface)
+    array_set(values, item_id * 4 + 1, type_span)
+    array_set(values, item_id * 4 + 2, name_span)
+    array_set(values, item_id * 4 + 3, prefix)
+}
+
+task v4_hir_const_binding_prefix(hir_id: int, item_id: int) -> word {
+    give back v4_hir_const_annotation_value(hir_id, item_id, 3)
 }
 
 task v4_hir_lower_const_annotation(hir_id: int, item_id: int) -> void {
@@ -1350,6 +1356,7 @@ task v4_hir_lower_const_annotation(hir_id: int, item_id: int) -> void {
     pilot surface = v4_expand_const_type(expansion, node)
     pilot type_span = v4_expand_const_type_span(expansion, node)
     pilot name_span = V4_NO_SPAN
+    pilot prefix = "fixed pilot"
     pilot stream = v4_hir_item_stream_id(hir_id)
     if stream >= 0 {
         -- Preserve the prior TY name-span lookup and whole-item recovery.
@@ -1360,8 +1367,9 @@ task v4_hir_lower_const_annotation(hir_id: int, item_id: int) -> void {
         if first >= 0 and last > first {
             name_span = v4_hir_span_from_tokens(stream, first, last)
             pilot fixed_token = first
-            repeat until fixed_token >= last or v4_lex_token_syntax_value(stream, fixed_token) == "fixed" { fixed_token += 1 }
+            repeat until fixed_token >= last or v4_lex_token_syntax_value(stream, fixed_token) == "fixed" or v4_lex_token_syntax_value(stream, fixed_token) == "grounded" { fixed_token += 1 }
             if fixed_token < last {
+                prefix = v4_lex_token_syntax_value(stream, fixed_token) + " pilot"
                 pilot pilot_token = v4_hir_skip_trivia(stream, fixed_token + 1, last)
                 if pilot_token < last and v4_lex_token_syntax_value(stream, pilot_token) == "pilot" {
                     pilot name_token = v4_hir_skip_trivia(stream, pilot_token + 1, last)
@@ -1370,7 +1378,7 @@ task v4_hir_lower_const_annotation(hir_id: int, item_id: int) -> void {
             }
         }
     }
-    v4_hir_store_const_annotation(hir_id, item_id, surface, type_span, name_span)
+    v4_hir_store_const_annotation(hir_id, item_id, surface, type_span, name_span, prefix)
 }
 
 task v4_hir_const_annotation_total() -> int {
@@ -1388,12 +1396,14 @@ task v4_hir_const_annotation_total() -> int {
 }
 
 task v4_hir_snapshot_const_annotation_line(hir_id: int, item_id: int) -> word {
-    give back "hir-const-annotation|" + word_from_int(hir_id) + "|" + word_from_int(item_id) + "|" + v4_hir_snapshot_escape(v4_hir_const_type(hir_id, item_id)) + "|" + v4_hir_snapshot_escape(v4_hir_const_type_span(hir_id, item_id)) + "|" + v4_hir_snapshot_escape(v4_hir_const_name_span(hir_id, item_id))
+    give back "hir-const-annotation|" + word_from_int(hir_id) + "|" + word_from_int(item_id) + "|" + v4_hir_snapshot_escape(v4_hir_const_type(hir_id, item_id)) + "|" + v4_hir_snapshot_escape(v4_hir_const_type_span(hir_id, item_id)) + "|" + v4_hir_snapshot_escape(v4_hir_const_name_span(hir_id, item_id)) + "|" + v4_hir_snapshot_escape(v4_hir_const_binding_prefix(hir_id, item_id))
 }
 
 task v4_hir_snapshot_const_annotation_is_valid(line: word) -> bool {
-    if v4_hir_snapshot_field_count(line) != 6 { give back false }
+    if v4_hir_snapshot_field_count(line) != 7 { give back false }
     if not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 1)) or not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 2)) { give back false }
+    pilot prefix = v4_hir_snapshot_field(line, 6)
+    if prefix != "fixed pilot" and prefix != "grounded pilot" { give back false }
     pilot surface = v4_hir_snapshot_field(line, 3)
     pilot type_span = v4_hir_snapshot_field(line, 4)
     pilot name_span = v4_hir_snapshot_field(line, 5)
@@ -1519,7 +1529,7 @@ task v4_hir_restore_const_annotation_records(records: int) -> void {
     repeat until idx >= array_len(records) {
         pilot line: word = array_get(records, idx)
         if line.starts_with("hir-const-annotation|") {
-            v4_hir_store_const_annotation(word_to_int(v4_hir_snapshot_field_raw(line, 1)), word_to_int(v4_hir_snapshot_field_raw(line, 2)), v4_hir_snapshot_field(line, 3), v4_hir_snapshot_field(line, 4), v4_hir_snapshot_field(line, 5))
+            v4_hir_store_const_annotation(word_to_int(v4_hir_snapshot_field_raw(line, 1)), word_to_int(v4_hir_snapshot_field_raw(line, 2)), v4_hir_snapshot_field(line, 3), v4_hir_snapshot_field(line, 4), v4_hir_snapshot_field(line, 5), v4_hir_snapshot_field(line, 6))
         }
         idx += 1
     }
@@ -2284,7 +2294,7 @@ task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "hir-route-owner" { give back 5 }
     if kind == "hir-route-case" { give back 9 }
     if kind == "hir-route-field" { give back 10 }
-    if kind == "hir-const-annotation" { give back 6 }
+    if kind == "hir-const-annotation" { give back 7 }
     if kind == "hir-shape-owner" { give back 4 }
     if kind == "hir-shape-field" { give back 9 }
     if kind == "hir-snapshot" {

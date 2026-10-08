@@ -105,7 +105,7 @@ pilot v4_mir_place_index = "Index"
 pilot v4_mir_place_deref = "Deref"
 pilot v4_mir_place_return = "Return"
 pilot v4_mir_place_unknown = "Unknown"
-pilot v4_mir_snapshot_format = "freak-mir-snapshot-v9"
+pilot v4_mir_snapshot_format = "freak-mir-snapshot-v10"
 pilot v4_mir_sum_visit_budget = 0
 
 pilot v4_mir_files = 0
@@ -117,6 +117,7 @@ pilot v4_mir_body_blocks = 0
 pilot v4_mir_body_local_names = 0
 pilot v4_mir_body_local_tys = 0
 pilot v4_mir_body_local_modes = 0
+pilot v4_mir_body_local_binding_prefixes = 0
 pilot v4_mir_body_local_spans = 0
 pilot v4_mir_body_local_scope_spans = 0
 pilot v4_mir_body_stmt_kinds = 0
@@ -175,6 +176,7 @@ task v4_mir_init() -> void {
         v4_mir_body_local_names = array_new()
         v4_mir_body_local_tys = array_new()
         v4_mir_body_local_modes = array_new()
+        v4_mir_body_local_binding_prefixes = array_new()
         v4_mir_body_local_spans = array_new()
         v4_mir_body_local_scope_spans = array_new()
         v4_mir_body_stmt_kinds = array_new()
@@ -203,7 +205,7 @@ task v4_mir_init() -> void {
         v4_mir_body_rvalue_args = array_new()
         v4_mir_body_rvalue_builtin_methods = array_new()
         v4_mir_diags = array_new()
-        if v4_mir_files < 0 or v4_mir_tys < 0 or v4_mir_body_defs < 0 or v4_mir_body_names < 0 or v4_mir_body_sigs < 0 or v4_mir_body_blocks < 0 or v4_mir_body_local_names < 0 or v4_mir_body_local_tys < 0 or v4_mir_body_local_modes < 0 or v4_mir_body_local_spans < 0 or v4_mir_body_local_scope_spans < 0 or v4_mir_body_stmt_kinds < 0 or v4_mir_body_stmt_lhs < 0 or v4_mir_body_stmt_rhs < 0 or v4_mir_body_stmt_spans < 0 or v4_mir_body_stmt_scope_spans < 0 or v4_mir_body_stmt_blocks < 0 or v4_mir_body_stmt_places < 0 or v4_mir_body_stmt_rvalues < 0 or v4_mir_body_place_kinds < 0 or v4_mir_body_place_texts < 0 or v4_mir_body_place_bases < 0 or v4_mir_body_place_fields < 0 or v4_mir_body_place_indices < 0 or v4_mir_body_place_spans < 0 or v4_mir_body_place_tys < 0 or v4_mir_body_rvalue_kinds < 0 or v4_mir_body_rvalue_texts < 0 or v4_mir_body_rvalue_ops < 0 or v4_mir_body_rvalue_lhs < 0 or v4_mir_body_rvalue_rhs < 0 or v4_mir_body_rvalue_spans < 0 or v4_mir_body_rvalue_tys < 0 or v4_mir_body_rvalue_abis < 0 or v4_mir_body_rvalue_args < 0 or v4_mir_body_rvalue_builtin_methods < 0 or v4_mir_diags < 0 {
+        if v4_mir_files < 0 or v4_mir_tys < 0 or v4_mir_body_defs < 0 or v4_mir_body_names < 0 or v4_mir_body_sigs < 0 or v4_mir_body_blocks < 0 or v4_mir_body_local_names < 0 or v4_mir_body_local_tys < 0 or v4_mir_body_local_modes < 0 or v4_mir_body_local_binding_prefixes < 0 or v4_mir_body_local_spans < 0 or v4_mir_body_local_scope_spans < 0 or v4_mir_body_stmt_kinds < 0 or v4_mir_body_stmt_lhs < 0 or v4_mir_body_stmt_rhs < 0 or v4_mir_body_stmt_spans < 0 or v4_mir_body_stmt_scope_spans < 0 or v4_mir_body_stmt_blocks < 0 or v4_mir_body_stmt_places < 0 or v4_mir_body_stmt_rvalues < 0 or v4_mir_body_place_kinds < 0 or v4_mir_body_place_texts < 0 or v4_mir_body_place_bases < 0 or v4_mir_body_place_fields < 0 or v4_mir_body_place_indices < 0 or v4_mir_body_place_spans < 0 or v4_mir_body_place_tys < 0 or v4_mir_body_rvalue_kinds < 0 or v4_mir_body_rvalue_texts < 0 or v4_mir_body_rvalue_ops < 0 or v4_mir_body_rvalue_lhs < 0 or v4_mir_body_rvalue_rhs < 0 or v4_mir_body_rvalue_spans < 0 or v4_mir_body_rvalue_tys < 0 or v4_mir_body_rvalue_abis < 0 or v4_mir_body_rvalue_args < 0 or v4_mir_body_rvalue_builtin_methods < 0 or v4_mir_diags < 0 {
             array_release(v4_mir_files)
             v4_mir_files = -1
             array_release(v4_mir_tys)
@@ -221,7 +223,9 @@ task v4_mir_init() -> void {
             array_release(v4_mir_body_local_tys)
             v4_mir_body_local_tys = -1
             array_release(v4_mir_body_local_modes)
+            array_release(v4_mir_body_local_binding_prefixes)
             v4_mir_body_local_modes = -1
+            v4_mir_body_local_binding_prefixes = -1
             array_release(v4_mir_body_local_spans)
             v4_mir_body_local_spans = -1
             array_release(v4_mir_body_local_scope_spans)
@@ -296,6 +300,7 @@ task v4_mir_file_new(file_id: int, ty_id: int) -> int {
     pilot new_v4_mir_body_local_names = array_new()
     pilot new_v4_mir_body_local_tys = array_new()
     pilot new_v4_mir_body_local_modes = array_new()
+    pilot new_v4_mir_body_local_binding_prefixes = array_new()
     pilot new_v4_mir_body_local_spans = array_new()
     pilot new_v4_mir_body_local_scope_spans = array_new()
     pilot new_v4_mir_body_stmt_kinds = array_new()
@@ -324,7 +329,7 @@ task v4_mir_file_new(file_id: int, ty_id: int) -> int {
     pilot new_v4_mir_body_rvalue_args = array_new()
     pilot new_v4_mir_body_rvalue_builtin_methods = array_new()
     pilot new_v4_mir_diags = array_new()
-    if new_v4_mir_body_defs < 0 or new_v4_mir_body_names < 0 or new_v4_mir_body_sigs < 0 or new_v4_mir_body_blocks < 0 or new_v4_mir_body_local_names < 0 or new_v4_mir_body_local_tys < 0 or new_v4_mir_body_local_modes < 0 or new_v4_mir_body_local_spans < 0 or new_v4_mir_body_local_scope_spans < 0 or new_v4_mir_body_stmt_kinds < 0 or new_v4_mir_body_stmt_lhs < 0 or new_v4_mir_body_stmt_rhs < 0 or new_v4_mir_body_stmt_spans < 0 or new_v4_mir_body_stmt_scope_spans < 0 or new_v4_mir_body_stmt_blocks < 0 or new_v4_mir_body_stmt_places < 0 or new_v4_mir_body_stmt_rvalues < 0 or new_v4_mir_body_place_kinds < 0 or new_v4_mir_body_place_texts < 0 or new_v4_mir_body_place_bases < 0 or new_v4_mir_body_place_fields < 0 or new_v4_mir_body_place_indices < 0 or new_v4_mir_body_place_spans < 0 or new_v4_mir_body_place_tys < 0 or new_v4_mir_body_rvalue_kinds < 0 or new_v4_mir_body_rvalue_texts < 0 or new_v4_mir_body_rvalue_ops < 0 or new_v4_mir_body_rvalue_lhs < 0 or new_v4_mir_body_rvalue_rhs < 0 or new_v4_mir_body_rvalue_spans < 0 or new_v4_mir_body_rvalue_tys < 0 or new_v4_mir_body_rvalue_abis < 0 or new_v4_mir_body_rvalue_args < 0 or new_v4_mir_body_rvalue_builtin_methods < 0 or new_v4_mir_diags < 0 {
+    if new_v4_mir_body_defs < 0 or new_v4_mir_body_names < 0 or new_v4_mir_body_sigs < 0 or new_v4_mir_body_blocks < 0 or new_v4_mir_body_local_names < 0 or new_v4_mir_body_local_tys < 0 or new_v4_mir_body_local_modes < 0 or new_v4_mir_body_local_binding_prefixes < 0 or new_v4_mir_body_local_spans < 0 or new_v4_mir_body_local_scope_spans < 0 or new_v4_mir_body_stmt_kinds < 0 or new_v4_mir_body_stmt_lhs < 0 or new_v4_mir_body_stmt_rhs < 0 or new_v4_mir_body_stmt_spans < 0 or new_v4_mir_body_stmt_scope_spans < 0 or new_v4_mir_body_stmt_blocks < 0 or new_v4_mir_body_stmt_places < 0 or new_v4_mir_body_stmt_rvalues < 0 or new_v4_mir_body_place_kinds < 0 or new_v4_mir_body_place_texts < 0 or new_v4_mir_body_place_bases < 0 or new_v4_mir_body_place_fields < 0 or new_v4_mir_body_place_indices < 0 or new_v4_mir_body_place_spans < 0 or new_v4_mir_body_place_tys < 0 or new_v4_mir_body_rvalue_kinds < 0 or new_v4_mir_body_rvalue_texts < 0 or new_v4_mir_body_rvalue_ops < 0 or new_v4_mir_body_rvalue_lhs < 0 or new_v4_mir_body_rvalue_rhs < 0 or new_v4_mir_body_rvalue_spans < 0 or new_v4_mir_body_rvalue_tys < 0 or new_v4_mir_body_rvalue_abis < 0 or new_v4_mir_body_rvalue_args < 0 or new_v4_mir_body_rvalue_builtin_methods < 0 or new_v4_mir_diags < 0 {
         array_release(new_v4_mir_body_defs)
         array_release(new_v4_mir_body_names)
         array_release(new_v4_mir_body_sigs)
@@ -332,6 +337,7 @@ task v4_mir_file_new(file_id: int, ty_id: int) -> int {
         array_release(new_v4_mir_body_local_names)
         array_release(new_v4_mir_body_local_tys)
         array_release(new_v4_mir_body_local_modes)
+        array_release(new_v4_mir_body_local_binding_prefixes)
         array_release(new_v4_mir_body_local_spans)
         array_release(new_v4_mir_body_local_scope_spans)
         array_release(new_v4_mir_body_stmt_kinds)
@@ -371,6 +377,7 @@ task v4_mir_file_new(file_id: int, ty_id: int) -> int {
     array_push(v4_mir_body_local_names, word_from_int(new_v4_mir_body_local_names))
     array_push(v4_mir_body_local_tys, word_from_int(new_v4_mir_body_local_tys))
     array_push(v4_mir_body_local_modes, word_from_int(new_v4_mir_body_local_modes))
+    array_push(v4_mir_body_local_binding_prefixes, word_from_int(new_v4_mir_body_local_binding_prefixes))
     array_push(v4_mir_body_local_spans, word_from_int(new_v4_mir_body_local_spans))
     array_push(v4_mir_body_local_scope_spans, word_from_int(new_v4_mir_body_local_scope_spans))
     array_push(v4_mir_body_stmt_kinds, word_from_int(new_v4_mir_body_stmt_kinds))
@@ -914,6 +921,10 @@ task v4_mir_local_modes_index_handle(mir_id: int) -> int {
     give back word_to_int(array_get(v4_mir_body_local_modes, mir_id))
 }
 
+task v4_mir_local_binding_prefixes_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_local_binding_prefixes, mir_id))
+}
+
 
 task v4_mir_local_spans_index_handle(mir_id: int) -> int {
     give back word_to_int(array_get(v4_mir_body_local_spans, mir_id))
@@ -1088,6 +1099,10 @@ task v4_mir_body_local_modes_handle(mir_id: int, body_id: int) -> int {
     give back word_to_int(array_get(v4_mir_local_modes_index_handle(mir_id), body_id))
 }
 
+task v4_mir_body_local_binding_prefixes_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_local_binding_prefixes_index_handle(mir_id), body_id))
+}
+
 task v4_mir_body_local_spans_handle(mir_id: int, body_id: int) -> int {
     give back word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body_id))
 }
@@ -1222,6 +1237,34 @@ task v4_mir_local_name(mir_id: int, body_id: int, local_id: int) -> word {
 
 task v4_mir_local_ty(mir_id: int, body_id: int, local_id: int) -> word {
     give back array_get(v4_mir_body_local_tys_handle(mir_id, body_id), local_id)
+}
+
+-- Binding immutability is independent of ownership/passing mode. These
+-- authored prefixes survive snapshot restoration and declaration-ID compaction.
+task v4_mir_binding_prefix_is_valid(prefix: word) -> bool {
+    give back prefix == "" or prefix == "fixed pilot" or prefix == "grounded pilot"
+}
+
+task v4_mir_local_binding_prefix(mir_id: int, body_id: int, local_id: int) -> word {
+    if local_id < 0 or local_id >= v4_mir_body_local_count(mir_id, body_id) { give back "" }
+    give back array_get(v4_mir_body_local_binding_prefixes_handle(mir_id, body_id), local_id)
+}
+
+task v4_mir_set_local_binding_prefix(mir_id: int, body_id: int, local_id: int, prefix: word) -> void {
+    if local_id < 0 or local_id >= v4_mir_body_local_count(mir_id, body_id) { give back }
+    array_set(v4_mir_body_local_binding_prefixes_handle(mir_id, body_id), local_id, prefix)
+}
+
+task v4_mir_place_binding_local(mir_id: int, body_id: int, place_id: int) -> int {
+    pilot remaining = v4_mir_body_place_count(mir_id, body_id)
+    repeat until place_id < 0 or place_id >= v4_mir_body_place_count(mir_id, body_id) or remaining <= 0 {
+        pilot kind = v4_mir_place_kind(mir_id, body_id, place_id)
+        if kind == v4_mir_place_local { give back v4_mir_place_base(mir_id, body_id, place_id) }
+        if kind != v4_mir_place_field and kind != v4_mir_place_index { give back -1 }
+        place_id = v4_mir_place_base(mir_id, body_id, place_id)
+        remaining -= 1
+    }
+    give back -1
 }
 
 task v4_mir_local_mode(mir_id: int, body_id: int, local_id: int) -> word {
@@ -1910,6 +1953,7 @@ task v4_mir_add_local_at_scope(mir_id: int, body_id: int, local_name: word, loca
     array_push(v4_mir_body_local_names_handle(mir_id, body_id), local_name)
     array_push(v4_mir_body_local_tys_handle(mir_id, body_id), local_ty)
     array_push(v4_mir_body_local_modes_handle(mir_id, body_id), v4_ty_param_mode_value)
+    array_push(v4_mir_body_local_binding_prefixes_handle(mir_id, body_id), "")
     array_push(v4_mir_body_local_spans_handle(mir_id, body_id), span)
     array_push(v4_mir_body_local_scope_spans_handle(mir_id, body_id), scope_span)
     give back local_id
@@ -1936,6 +1980,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     pilot local_names_handle = array_new()
     pilot local_tys_handle = array_new()
     pilot local_modes_handle = array_new()
+    pilot local_binding_prefixes_handle = array_new()
     pilot local_spans_handle = array_new()
     pilot local_scope_spans_handle = array_new()
     pilot stmt_kinds_handle = array_new()
@@ -1963,11 +2008,12 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     pilot rvalue_abis_handle = array_new()
     pilot rvalue_args_handle = array_new()
     pilot rvalue_builtin_methods_handle = array_new()
-    if blocks_handle < 0 or local_names_handle < 0 or local_tys_handle < 0 or local_modes_handle < 0 or local_spans_handle < 0 or local_scope_spans_handle < 0 or stmt_kinds_handle < 0 or stmt_lhs_handle < 0 or stmt_rhs_handle < 0 or stmt_spans_handle < 0 or stmt_scope_spans_handle < 0 or stmt_blocks_handle < 0 or stmt_places_handle < 0 or stmt_rvalues_handle < 0 or place_kinds_handle < 0 or place_texts_handle < 0 or place_bases_handle < 0 or place_fields_handle < 0 or place_indices_handle < 0 or place_spans_handle < 0 or place_tys_handle < 0 or rvalue_kinds_handle < 0 or rvalue_texts_handle < 0 or rvalue_ops_handle < 0 or rvalue_lhs_handle < 0 or rvalue_rhs_handle < 0 or rvalue_spans_handle < 0 or rvalue_tys_handle < 0 or rvalue_abis_handle < 0 or rvalue_args_handle < 0 or rvalue_builtin_methods_handle < 0 {
+    if blocks_handle < 0 or local_names_handle < 0 or local_tys_handle < 0 or local_modes_handle < 0 or local_binding_prefixes_handle < 0 or local_spans_handle < 0 or local_scope_spans_handle < 0 or stmt_kinds_handle < 0 or stmt_lhs_handle < 0 or stmt_rhs_handle < 0 or stmt_spans_handle < 0 or stmt_scope_spans_handle < 0 or stmt_blocks_handle < 0 or stmt_places_handle < 0 or stmt_rvalues_handle < 0 or place_kinds_handle < 0 or place_texts_handle < 0 or place_bases_handle < 0 or place_fields_handle < 0 or place_indices_handle < 0 or place_spans_handle < 0 or place_tys_handle < 0 or rvalue_kinds_handle < 0 or rvalue_texts_handle < 0 or rvalue_ops_handle < 0 or rvalue_lhs_handle < 0 or rvalue_rhs_handle < 0 or rvalue_spans_handle < 0 or rvalue_tys_handle < 0 or rvalue_abis_handle < 0 or rvalue_args_handle < 0 or rvalue_builtin_methods_handle < 0 {
         array_release(blocks_handle)
         array_release(local_names_handle)
         array_release(local_tys_handle)
         array_release(local_modes_handle)
+        array_release(local_binding_prefixes_handle)
         array_release(local_spans_handle)
         array_release(local_scope_spans_handle)
         array_release(stmt_kinds_handle)
@@ -2007,6 +2053,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     array_push(v4_mir_local_names_index_handle(mir_id), word_from_int(local_names_handle))
     array_push(v4_mir_local_tys_index_handle(mir_id), word_from_int(local_tys_handle))
     array_push(v4_mir_local_modes_index_handle(mir_id), word_from_int(local_modes_handle))
+    array_push(v4_mir_local_binding_prefixes_index_handle(mir_id), word_from_int(local_binding_prefixes_handle))
     array_push(v4_mir_local_spans_index_handle(mir_id), word_from_int(local_spans_handle))
     array_push(v4_mir_local_scope_spans_index_handle(mir_id), word_from_int(local_scope_spans_handle))
     array_push(v4_mir_stmt_kinds_index_handle(mir_id), word_from_int(stmt_kinds_handle))
@@ -2986,6 +3033,7 @@ task v4_mir_snapshot_local_line(mir_id: int, body_id: int, local_id: int) -> wor
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_mode(mir_id, body_id, local_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_span(mir_id, body_id, local_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_scope_span(mir_id, body_id, local_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_binding_prefix(mir_id, body_id, local_id))
     give back out
 }
 
@@ -3122,7 +3170,7 @@ task v4_mir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "mir" { give back 6 }
     if kind == "mir-body" { give back 11 }
     if kind == "mir-block" { give back 5 }
-    if kind == "mir-local" { give back 9 }
+    if kind == "mir-local" { give back 10 }
     if kind == "mir-stmt" { give back 12 }
     if kind == "mir-place" { give back 11 }
     if kind == "mir-rvalue" { give back 14 }
@@ -3140,6 +3188,7 @@ task v4_mir_snapshot_record_is_valid(line: word) -> bool {
     if v4_mir_snapshot_field_count(line) != expected {
         give back false
     }
+    if kind == "mir-local" and not v4_mir_binding_prefix_is_valid(v4_mir_snapshot_field(line, 9)) { give back false }
     give back true
 }
 
@@ -3712,6 +3761,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if word_to_int(raw_child_id) != body_locals { malformed += 1 }
                 if body_phase > 2 { malformed += 1 }
                 pilot local_scope = v4_mir_snapshot_field(line, 8)
+                if not v4_mir_binding_prefix_is_valid(v4_mir_snapshot_field(line, 9)) { malformed += 1 }
                 pilot local_span = v4_mir_snapshot_field(line, 7)
                 pilot local_ty = v4_mir_snapshot_field(line, 5)
                 if v4_mir_snapshot_field(line, 6) == "$control-diagnostic" { malformed += 1 }
@@ -3934,6 +3984,7 @@ task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
         array_set(v4_mir_body_local_names, mir_id, word_from_int(array_new()))
         array_set(v4_mir_body_local_tys, mir_id, word_from_int(array_new()))
         array_set(v4_mir_body_local_modes, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_local_binding_prefixes, mir_id, word_from_int(array_new()))
         array_set(v4_mir_body_local_spans, mir_id, word_from_int(array_new()))
         array_set(v4_mir_body_local_scope_spans, mir_id, word_from_int(array_new()))
         array_set(v4_mir_body_stmt_kinds, mir_id, word_from_int(array_new()))
@@ -3964,7 +4015,7 @@ task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
         array_set(v4_mir_diags, mir_id, word_from_int(array_new()))
     }
     if not v4_mir_restore_building { v4_mir_lookup_file_ensure(mir_id) }
-    if word_to_int(array_get(v4_mir_body_defs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_names, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_sigs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_blocks, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_names, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_tys, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_modes, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_scope_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_kinds, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_lhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_rhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_scope_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_blocks, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_places, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_rvalues, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_kinds, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_texts, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_bases, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_fields, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_indices, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_tys, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_kinds, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_texts, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_ops, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_lhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_rhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_tys, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_abis, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_args, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_builtin_methods, mir_id)) < 0 or word_to_int(array_get(v4_mir_diags, mir_id)) < 0 { give back 0 }
+    if word_to_int(array_get(v4_mir_body_defs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_names, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_sigs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_blocks, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_names, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_tys, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_modes, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_binding_prefixes, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_scope_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_kinds, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_lhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_rhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_scope_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_blocks, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_places, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_rvalues, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_kinds, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_texts, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_bases, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_fields, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_indices, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_tys, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_kinds, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_texts, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_ops, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_lhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_rhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_tys, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_abis, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_args, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_builtin_methods, mir_id)) < 0 or word_to_int(array_get(v4_mir_diags, mir_id)) < 0 { give back 0 }
     give back 1
 }
 
@@ -4008,6 +4059,7 @@ task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name
         array_set(v4_mir_local_names_index_handle(mir_id), body_id, word_from_int(array_new()))
         array_set(v4_mir_local_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
         array_set(v4_mir_local_modes_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_local_binding_prefixes_index_handle(mir_id), body_id, word_from_int(array_new()))
         array_set(v4_mir_local_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
         array_set(v4_mir_local_scope_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
         array_set(v4_mir_stmt_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
@@ -4036,7 +4088,7 @@ task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name
         array_set(v4_mir_rvalue_args_index_handle(mir_id), body_id, word_from_int(array_new()))
         array_set(v4_mir_rvalue_builtin_methods_index_handle(mir_id), body_id, word_from_int(array_new()))
     }
-    if word_to_int(array_get(v4_mir_blocks_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_names_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_tys_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_modes_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_scope_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_kinds_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_lhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_rhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_scope_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_blocks_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_places_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_rvalues_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_kinds_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_texts_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_bases_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_fields_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_indices_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_tys_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_kinds_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_texts_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_ops_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_lhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_rhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_tys_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_abis_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_args_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_builtin_methods_index_handle(mir_id), body_id)) < 0 { give back 0 }
+    if word_to_int(array_get(v4_mir_blocks_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_names_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_tys_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_modes_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_binding_prefixes_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_scope_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_kinds_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_lhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_rhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_scope_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_blocks_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_places_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_rvalues_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_kinds_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_texts_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_bases_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_fields_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_indices_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_tys_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_kinds_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_texts_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_ops_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_lhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_rhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_tys_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_abis_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_args_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_builtin_methods_index_handle(mir_id), body_id)) < 0 { give back 0 }
     give back 1
 }
 
@@ -4073,24 +4125,27 @@ task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_n
     if local_mode == "" {
         local_mode = v4_ty_param_mode_value
     }
-    if v4_mir_body_local_spans_handle(mir_id, body_id) < 0 or v4_mir_body_local_scope_spans_handle(mir_id, body_id) < 0 or v4_mir_body_local_names_handle(mir_id, body_id) < 0 or v4_mir_body_local_modes_handle(mir_id, body_id) < 0 or v4_mir_body_local_tys_handle(mir_id, body_id) < 0 { give back 0 }
+    if v4_mir_body_local_spans_handle(mir_id, body_id) < 0 or v4_mir_body_local_scope_spans_handle(mir_id, body_id) < 0 or v4_mir_body_local_names_handle(mir_id, body_id) < 0 or v4_mir_body_local_modes_handle(mir_id, body_id) < 0 or v4_mir_body_local_binding_prefixes_handle(mir_id, body_id) < 0 or v4_mir_body_local_tys_handle(mir_id, body_id) < 0 { give back 0 }
     repeat until v4_mir_body_local_count(mir_id, body_id) > local_id {
         pilot previous = v4_mir_body_local_count(mir_id, body_id)
         array_push(v4_mir_body_local_names_handle(mir_id, body_id), "")
         array_push(v4_mir_body_local_tys_handle(mir_id, body_id), v4_ty_unknown)
         array_push(v4_mir_body_local_modes_handle(mir_id, body_id), v4_ty_param_mode_value)
+        array_push(v4_mir_body_local_binding_prefixes_handle(mir_id, body_id), "")
         array_push(v4_mir_body_local_spans_handle(mir_id, body_id), V4_NO_SPAN)
         array_push(v4_mir_body_local_scope_spans_handle(mir_id, body_id), V4_NO_SPAN)
         if v4_mir_body_local_count(mir_id, body_id) <= previous { give back 0 }
         if array_len(v4_mir_body_local_names_handle(mir_id, body_id)) != previous + 1 { give back 0 }
         if array_len(v4_mir_body_local_tys_handle(mir_id, body_id)) != previous + 1 { give back 0 }
         if array_len(v4_mir_body_local_modes_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_local_binding_prefixes_handle(mir_id, body_id)) != previous + 1 { give back 0 }
         if array_len(v4_mir_body_local_spans_handle(mir_id, body_id)) != previous + 1 { give back 0 }
         if array_len(v4_mir_body_local_scope_spans_handle(mir_id, body_id)) != previous + 1 { give back 0 }
     }
     array_set(v4_mir_body_local_names_handle(mir_id, body_id), local_id, local_name)
     array_set(v4_mir_body_local_tys_handle(mir_id, body_id), local_id, local_ty)
     array_set(v4_mir_body_local_modes_handle(mir_id, body_id), local_id, local_mode)
+    array_set(v4_mir_body_local_binding_prefixes_handle(mir_id, body_id), local_id, "")
     array_set(v4_mir_body_local_spans_handle(mir_id, body_id), local_id, span)
     array_set(v4_mir_body_local_scope_spans_handle(mir_id, body_id), local_id, scope_span)
     give back 1
@@ -4290,7 +4345,9 @@ task v4_mir_snapshot_restore_local_line(line: word) -> int {
     pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
     pilot body_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
     pilot local_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
-    give back v4_mir_restore_local_slot(mir_id, body_id, local_id, v4_mir_snapshot_field(line, 4), v4_mir_snapshot_field(line, 5), v4_mir_snapshot_field(line, 6), v4_mir_snapshot_field(line, 7), v4_mir_snapshot_field(line, 8))
+    pilot restored = v4_mir_restore_local_slot(mir_id, body_id, local_id, v4_mir_snapshot_field(line, 4), v4_mir_snapshot_field(line, 5), v4_mir_snapshot_field(line, 6), v4_mir_snapshot_field(line, 7), v4_mir_snapshot_field(line, 8))
+    if restored == 1 { v4_mir_set_local_binding_prefix(mir_id, body_id, local_id, v4_mir_snapshot_field(line, 9)) }
+    give back restored
 }
 
 task v4_mir_snapshot_restore_stmt_line(line: word) -> int {
@@ -4816,7 +4873,9 @@ task v4_mir_restore_release_body_raw(mir_id: int, body_id: int) -> void {
     array_release(word_to_int(array_get(v4_mir_local_tys_index_handle(mir_id), body_id)))
     array_set(v4_mir_local_tys_index_handle(mir_id), body_id, "-1")
     array_release(word_to_int(array_get(v4_mir_local_modes_index_handle(mir_id), body_id)))
+    array_release(word_to_int(array_get(v4_mir_local_binding_prefixes_index_handle(mir_id), body_id)))
     array_set(v4_mir_local_modes_index_handle(mir_id), body_id, "-1")
+    array_set(v4_mir_local_binding_prefixes_index_handle(mir_id), body_id, "-1")
     array_release(word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body_id)))
     array_set(v4_mir_local_spans_index_handle(mir_id), body_id, "-1")
     array_release(word_to_int(array_get(v4_mir_local_scope_spans_index_handle(mir_id), body_id)))
@@ -4893,7 +4952,9 @@ task v4_mir_restore_release_file_raw(mir_id: int) -> void {
     array_release(word_to_int(array_get(v4_mir_body_local_tys, mir_id)))
     array_set(v4_mir_body_local_tys, mir_id, "-1")
     array_release(word_to_int(array_get(v4_mir_body_local_modes, mir_id)))
+    array_release(word_to_int(array_get(v4_mir_body_local_binding_prefixes, mir_id)))
     array_set(v4_mir_body_local_modes, mir_id, "-1")
+    array_set(v4_mir_body_local_binding_prefixes, mir_id, "-1")
     array_release(word_to_int(array_get(v4_mir_body_local_spans, mir_id)))
     array_set(v4_mir_body_local_spans, mir_id, "-1")
     array_release(word_to_int(array_get(v4_mir_body_local_scope_spans, mir_id)))
@@ -4962,6 +5023,7 @@ task v4_mir_restore_raw_handle_count(mir_id: int) -> int {
     if word_to_int(array_get(v4_mir_body_local_names, mir_id)) >= 0 { total += 1 }
     if word_to_int(array_get(v4_mir_body_local_tys, mir_id)) >= 0 { total += 1 }
     if word_to_int(array_get(v4_mir_body_local_modes, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_local_binding_prefixes, mir_id)) >= 0 { total += 1 }
     if word_to_int(array_get(v4_mir_body_local_spans, mir_id)) >= 0 { total += 1 }
     if word_to_int(array_get(v4_mir_body_local_scope_spans, mir_id)) >= 0 { total += 1 }
     if word_to_int(array_get(v4_mir_body_stmt_kinds, mir_id)) >= 0 { total += 1 }
@@ -4996,6 +5058,7 @@ task v4_mir_restore_raw_handle_count(mir_id: int) -> int {
         if word_to_int(array_get(v4_mir_local_names_index_handle(mir_id), body)) >= 0 { total += 1 }
         if word_to_int(array_get(v4_mir_local_tys_index_handle(mir_id), body)) >= 0 { total += 1 }
         if word_to_int(array_get(v4_mir_local_modes_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_local_binding_prefixes_index_handle(mir_id), body)) >= 0 { total += 1 }
         if word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body)) >= 0 { total += 1 }
         if word_to_int(array_get(v4_mir_local_scope_spans_index_handle(mir_id), body)) >= 0 { total += 1 }
         if word_to_int(array_get(v4_mir_stmt_kinds_index_handle(mir_id), body)) >= 0 { total += 1 }
@@ -5038,9 +5101,9 @@ task v4_mir_restore_handles_available(records: int) -> bool {
         pilot line: word = array_get(records, index)
         pilot kind = v4_mir_snapshot_field_raw(line, 0)
         if kind == "mir" {
-            required += 35
+            required += 36
             reclaimable += v4_mir_restore_raw_handle_count(word_to_int(v4_mir_snapshot_field_raw(line, 1)))
-        } else if kind == "mir-body" { required += 31 }
+        } else if kind == "mir-body" { required += 32 }
         index += 1
     }
     give back v4_mir_restore_reserve_needed(required - reclaimable)
@@ -5400,9 +5463,11 @@ task v4_mir_control_plan_preflight(mir: int) -> word {
     pilot body = 0
     pilot error = ""
     repeat until body >= v4_mir_body_count(mir) or error != "" {
+        if array_len(v4_mir_body_local_binding_prefixes_handle(mir, body)) != v4_mir_body_local_count(mir, body) { error = "missing source binding prefixes" }
         pilot local = 0
         repeat until local >= v4_mir_body_local_count(mir, body) or error != "" {
             if v4_mir_local_mode(mir, body, local) == "$control-diagnostic" { error = "unpublished source control binding" }
+            if not v4_mir_binding_prefix_is_valid(v4_mir_local_binding_prefix(mir, body, local)) { error = "invalid source binding prefix" }
             local += 1
         }
         if error == "" { error = v4_mir_control_live_cfg_error(mir, body) }
@@ -5763,9 +5828,10 @@ task v4_mir_compact_body_rvalue_roots(mir: int, body: int) -> word {
     pilot staged_local_names = array_new()
     pilot staged_local_tys = array_new()
     pilot staged_local_modes = array_new()
+    pilot staged_local_binding_prefixes = array_new()
     pilot staged_local_spans = array_new()
     pilot staged_local_scope_spans = array_new()
-    if staged_rvalue_kinds < 0 or staged_rvalue_texts < 0 or staged_rvalue_ops < 0 or staged_rvalue_lhs < 0 or staged_rvalue_rhs < 0 or staged_rvalue_spans < 0 or staged_rvalue_tys < 0 or staged_rvalue_abis < 0 or staged_rvalue_args < 0 or staged_rvalue_builtin_methods < 0 or staged_place_kinds < 0 or staged_place_texts < 0 or staged_place_bases < 0 or staged_place_fields < 0 or staged_place_indices < 0 or staged_place_spans < 0 or staged_place_tys < 0 or staged_stmt_places < 0 or staged_stmt_rvalues < 0 or staged_stmt_kinds < 0 or staged_stmt_lhs < 0 or staged_stmt_rhs < 0 or staged_stmt_spans < 0 or staged_stmt_scope_spans < 0 or staged_stmt_blocks < 0 or staged_blocks < 0 or staged_local_names < 0 or staged_local_tys < 0 or staged_local_modes < 0 or staged_local_spans < 0 or staged_local_scope_spans < 0 { error = "source control compaction scratch exhausted" }
+    if staged_rvalue_kinds < 0 or staged_rvalue_texts < 0 or staged_rvalue_ops < 0 or staged_rvalue_lhs < 0 or staged_rvalue_rhs < 0 or staged_rvalue_spans < 0 or staged_rvalue_tys < 0 or staged_rvalue_abis < 0 or staged_rvalue_args < 0 or staged_rvalue_builtin_methods < 0 or staged_place_kinds < 0 or staged_place_texts < 0 or staged_place_bases < 0 or staged_place_fields < 0 or staged_place_indices < 0 or staged_place_spans < 0 or staged_place_tys < 0 or staged_stmt_places < 0 or staged_stmt_rvalues < 0 or staged_stmt_kinds < 0 or staged_stmt_lhs < 0 or staged_stmt_rhs < 0 or staged_stmt_spans < 0 or staged_stmt_scope_spans < 0 or staged_stmt_blocks < 0 or staged_blocks < 0 or staged_local_names < 0 or staged_local_tys < 0 or staged_local_modes < 0 or staged_local_binding_prefixes < 0 or staged_local_spans < 0 or staged_local_scope_spans < 0 { error = "source control compaction scratch exhausted" }
     index = 0
     repeat until index >= value_count or error != "" {
         if v4_mir_compact_ref(value_map, index) >= 0 {
@@ -5863,6 +5929,7 @@ task v4_mir_compact_body_rvalue_roots(mir: int, body: int) -> word {
             if not v4_mir_control_checked_push(staged_local_names, array_get(v4_mir_body_local_names_handle(mir, body), index)) { error = "source control compaction scratch exhausted" }
             if not v4_mir_control_checked_push(staged_local_tys, array_get(v4_mir_body_local_tys_handle(mir, body), index)) { error = "source control compaction scratch exhausted" }
             if not v4_mir_control_checked_push(staged_local_modes, array_get(v4_mir_body_local_modes_handle(mir, body), index)) { error = "source control compaction scratch exhausted" }
+            if not v4_mir_control_checked_push(staged_local_binding_prefixes, array_get(v4_mir_body_local_binding_prefixes_handle(mir, body), index)) { error = "source control compaction scratch exhausted" }
             if not v4_mir_control_checked_push(staged_local_spans, array_get(v4_mir_body_local_spans_handle(mir, body), index)) { error = "source control compaction scratch exhausted" }
             if not v4_mir_control_checked_push(staged_local_scope_spans, array_get(v4_mir_body_local_scope_spans_handle(mir, body), index)) { error = "source control compaction scratch exhausted" }
         }
@@ -5901,6 +5968,7 @@ task v4_mir_compact_body_rvalue_roots(mir: int, body: int) -> word {
     if array_len(staged_local_names) != kept_locals { error = "source control compaction scratch exhausted" }
     if array_len(staged_local_tys) != kept_locals { error = "source control compaction scratch exhausted" }
     if array_len(staged_local_modes) != kept_locals { error = "source control compaction scratch exhausted" }
+    if array_len(staged_local_binding_prefixes) != kept_locals { error = "source control compaction scratch exhausted" }
     if array_len(staged_local_spans) != kept_locals { error = "source control compaction scratch exhausted" }
     if array_len(staged_local_scope_spans) != kept_locals { error = "source control compaction scratch exhausted" }
     if error != "" {
@@ -5933,6 +6001,7 @@ task v4_mir_compact_body_rvalue_roots(mir: int, body: int) -> word {
         array_release(staged_local_names)
         array_release(staged_local_tys)
         array_release(staged_local_modes)
+        array_release(staged_local_binding_prefixes)
         array_release(staged_local_spans)
         array_release(staged_local_scope_spans)
         give back error
@@ -5967,6 +6036,7 @@ task v4_mir_compact_body_rvalue_roots(mir: int, body: int) -> word {
     pilot old_local_names = v4_mir_body_local_names_handle(mir, body)
     pilot old_local_tys = v4_mir_body_local_tys_handle(mir, body)
     pilot old_local_modes = v4_mir_body_local_modes_handle(mir, body)
+    pilot old_local_binding_prefixes = v4_mir_body_local_binding_prefixes_handle(mir, body)
     pilot old_local_spans = v4_mir_body_local_spans_handle(mir, body)
     pilot old_local_scope_spans = v4_mir_body_local_scope_spans_handle(mir, body)
     array_set(v4_mir_rvalue_kinds_index_handle(mir), body, word_from_int(staged_rvalue_kinds))
@@ -5998,6 +6068,7 @@ task v4_mir_compact_body_rvalue_roots(mir: int, body: int) -> word {
     array_set(v4_mir_local_names_index_handle(mir), body, word_from_int(staged_local_names))
     array_set(v4_mir_local_tys_index_handle(mir), body, word_from_int(staged_local_tys))
     array_set(v4_mir_local_modes_index_handle(mir), body, word_from_int(staged_local_modes))
+    array_set(v4_mir_local_binding_prefixes_index_handle(mir), body, word_from_int(staged_local_binding_prefixes))
     array_set(v4_mir_local_spans_index_handle(mir), body, word_from_int(staged_local_spans))
     array_set(v4_mir_local_scope_spans_index_handle(mir), body, word_from_int(staged_local_scope_spans))
     array_release(old_rvalue_kinds)
@@ -6029,6 +6100,7 @@ task v4_mir_compact_body_rvalue_roots(mir: int, body: int) -> word {
     array_release(old_local_names)
     array_release(old_local_tys)
     array_release(old_local_modes)
+    array_release(old_local_binding_prefixes)
     array_release(old_local_spans)
     array_release(old_local_scope_spans)
     v4_mir_invalidate_block_stmt_index(mir, body)
