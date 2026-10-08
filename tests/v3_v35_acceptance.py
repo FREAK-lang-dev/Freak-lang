@@ -224,6 +224,7 @@ def main() -> int:
     for output in (report_path, logs):
         assert not any(output == path or output.is_relative_to(path) or path.is_relative_to(output)
                        for path in protected), 'report/log output overlaps a protected input: ' + str(output)
+    assert not report_path.exists() and not logs.exists(), 'report and log outputs must be fresh'
     # Validate both destinations before creating a directory or writing a report.
     report_path.parent.mkdir(parents=True, exist_ok=True)
     logs.mkdir(exist_ok=False)
@@ -488,7 +489,8 @@ def main() -> int:
         unchanged = all(report[key] for key in ('fixture_inputs_unchanged', 'payload_inputs_unchanged', 'candidate_unchanged', 'archive_unchanged'))
         if not unchanged:
             report['status'] = 'FAIL'
-        report_path.write_text(json.dumps(report, indent=2) + '\n')
+        with report_path.open('x', encoding='utf-8') as output:
+            output.write(json.dumps(report, indent=2) + '\n')
         assert unchanged, 'immutable inputs changed during acceptance'
     print(json.dumps({key: report[key] for key in ('status', 'stories', 'backends', 'elapsed_seconds')}))
     return 0
