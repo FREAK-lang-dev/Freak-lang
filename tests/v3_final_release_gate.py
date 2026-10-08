@@ -895,7 +895,7 @@ def main() -> int:
     base_env = os.environ.copy()
     base_env["NO_COLOR"] = "1"
     with tempfile.TemporaryDirectory(prefix="freak-v3-final-release-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve(strict=True)
         assert_archive_safety_controls(root)
         archive = supplied_archive or create_release_archive(
             repo=repo,
