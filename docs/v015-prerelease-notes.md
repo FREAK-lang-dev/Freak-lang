@@ -28,6 +28,18 @@ silent synonym. Words support bytewise UTF-8 ordering without locale rules.
 Checked integer arithmetic uses inline fast paths while retaining controlled
 failure and evaluation order.
 
+Cached `freak run` now revalidates the declared package graph before reuse.
+Editing a transitive dependency rebuilds the program, and invalid locked or
+frozen inputs fail before cached execution. Source edits detected during a
+build abort execution and leave no fresh cache record.
+
+The permanent `examples/v35` projects provide a pure library, diamond package
+consumer and bounded HTTP/JSON service. `tests/v3_v35_acceptance.py` checks a
+supplied extracted archive through public commands on C and LLVM, including
+strict response framing, project-test failures and transitive cache freshness.
+These are component gates; provisional producer reuse remains explicitly
+labelled, and full bootstrap, syntax, platform and release gates stay separate.
+
 The frozen V4 bootstrap source profile remains separate from current V4
 development syntax. Current V4 HIR and MIR snapshots advance to v12 and v10
 to retain binding modifiers; older snapshots must be rebuilt. This PR does
