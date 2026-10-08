@@ -147,7 +147,7 @@ def main() -> int:
         previous = seed
         generated_hashes: list[str] = []
         generations: list[Path] = []
-        for generation in range(1, 4):
+        for generation in range(1, 5):
             emitted = Path(str(aggregate) + ".c")
             emitted.unlink(missing_ok=True)
             run([str(previous), str(aggregate), "--c"], root, env)
@@ -159,7 +159,7 @@ def main() -> int:
             shutil.copyfile(emitted, generation_c)
             generations.append(generation_c)
             generated_hashes.append(digest(generation_c))
-            if generation <= 2:
+            if generation <= 3:
                 compiler = root / f"freakc-stage{generation}{executable_suffix}"
                 run(
                     [
@@ -179,13 +179,18 @@ def main() -> int:
             "V3 self-host fixed point failed: generation 2 and generation 3 "
             f"differ ({generated_hashes[1]} != {generated_hashes[2]})"
         )
+        assert generations[2].read_bytes() == generations[3].read_bytes(), (
+            "V3 self-host fixed point failed: generation 3 and generation 4 "
+            f"differ ({generated_hashes[2]} != {generated_hashes[3]})"
+        )
 
     after = repository_fingerprint(repo)
     assert after == before, "V3 fixed-point reconstruction modified tracked repository files"
     print(f"V3 generation 1 C: {generated_hashes[0]}")
     print(f"V3 generation 2 C: {generated_hashes[1]}")
     print(f"V3 generation 3 C: {generated_hashes[2]}")
-    print("V3 self-host fixed point: PASS (generation 2 == generation 3)")
+    print(f"V3 generation 4 C: {generated_hashes[3]}")
+    print("V3 self-host fixed point: PASS (generation 2 == generation 3 == generation 4)")
     return 0
 
 

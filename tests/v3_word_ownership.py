@@ -608,9 +608,7 @@ WRAPPER_EXTERN_TOP_LEVEL_PROGRAM = """extern task freak_main() -> void
 say "top wrapper"
 """
 
-# V3 entry checking rejects executable root statements and requires main.
-# Keep the no-main legacy source above for a negative control, and change only
-# the executable say's placement in the valid native collision probe.
+# Both scripts and explicit entries retain the wrapper collision contract.
 WRAPPER_EXTERN_MAIN_PROGRAM = WRAPPER_EXTERN_TOP_LEVEL_PROGRAM.replace(
     'say "top wrapper"', 'task main() { say "top wrapper" }'
 )
@@ -910,6 +908,8 @@ def main() -> int:
             "}\n"
         )
         cases = (
+            ("script_wrapper", WRAPPER_EXTERN_TOP_LEVEL_PROGRAM, [], ["top wrapper"], ("c", "llvm")),
+            ("script_global", TOP_LEVEL_GLOBAL_PROGRAM, [], ["toplevel"], ("c", "llvm")),
             ("readonly", PROGRAM, [], ["done", "xy", "call", "arg", "shadow", "global", "inner", "outer", "outer!"], ("c", "llvm")),
             ("strict", STRICT_PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "arg", "shadow", "global", "inner", "outer", "outer!"], ("c", "llvm")),
             ("strict_reuse", STRICT_REUSE_PROGRAM, ["--strict-borrow"], ["owner é🙂"], ("c", "llvm")),
@@ -1259,14 +1259,10 @@ def main() -> int:
                 assert "code generation skipped" in diagnostics, diagnostics
                 assert not generated.exists(), generated
 
-        # Retain the three exact legacy inputs rejected by the supported V3
-        # statement/entry grammar, including stale-artifact removal on failure.
+        # Bare expressions still fail; the exact legacy scripts above now run
+        # under the same ownership audits as the explicit-entry programs.
         for name, program, messages in (
             ("bare_concat", CONCAT_TEMP_PROGRAM, ("bare value is not a statement",)),
-            ("no_main_wrapper", WRAPPER_EXTERN_TOP_LEVEL_PROGRAM,
-             ("program requires a usable task main() entry", "executable statement at top level is unsupported")),
-            ("no_main_global", TOP_LEVEL_GLOBAL_PROGRAM,
-             ("program requires a usable task main() entry", "executable statement at top level is unsupported")),
         ):
             source = root / (name + ".fk")
             source.write_text(program, encoding="utf-8")

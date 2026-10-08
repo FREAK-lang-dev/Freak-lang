@@ -2,7 +2,7 @@
 -- Keep the user statement beyond the prepended-stdlib line clamp.
 
 task main() -> int {
-    pilot name: word = "Maverick"
+    fixed pilot name: word = "Maverick"
     name = "Meiya"
     give back 0
 }
