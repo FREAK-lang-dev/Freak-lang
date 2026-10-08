@@ -168,10 +168,83 @@ task v4_prerelease_binding_const_header(mode: word) -> void {
     say "prerelease-binding " + mode + "=passed"
 }
 
+task v4_prerelease_binding_parameter(mode: word) -> void {
+    pilot prefix = "pilot"
+    if mode.ends_with("explicit") { prefix = "pilot mut" }
+    if mode.ends_with("fixed") { prefix = "fixed pilot" }
+    if mode.ends_with("grounded") { prefix = "grounded pilot" }
+    pilot nested: bool = mode.starts_with("param-task-inner-") or mode.starts_with("param-method-inner-") or mode.starts_with("param-word-inner-")
+    pilot duplicate_inner = mode.ends_with("duplicate")
+    pilot word_param = mode.starts_with("param-word-")
+    pilot method = mode.starts_with("param-method-")
+    pilot local_name = "value"
+    if mode.starts_with("param-method-self-") { local_name = "self" }
+    pilot literal = "2"
+    if word_param { literal = "\"owned\"" }
+    pilot declarations = prefix + " " + local_name + " = " + literal + "\n"
+    if nested and (prefix == "pilot" or prefix == "pilot mut") {
+        declarations = declarations + local_name + " = " + literal + "\n"
+    }
+    if duplicate_inner { declarations = declarations + "grounded pilot " + local_name + " = " + literal + "\n" }
+    if nested { declarations = "if true " + chr(123) + "\n" + declarations + chr(125) + "\n" }
+    pilot body = declarations + "give back " + local_name + "\n"
+    if local_name == "self" { body = declarations + "give back 0\n" }
+    if word_param { body = declarations + "say value\n give back 0\n" }
+    pilot source = "task probe(value: int) -> int " + chr(123) + "\n" + body + chr(125) + "\n"
+    if word_param {
+        pilot loan_mode = ""
+        if nested { loan_mode = "lend " }
+        source = "task probe(" + loan_mode + "value: word) -> int " + chr(123) + "\n" + body + chr(125) + "\n"
+    }
+    if method {
+        source = "shape Box " + chr(123) + " hp: int " + chr(125) + "\n impl Box " + chr(123) + " task probe(self, value: int) -> int " + chr(123) + "\n" + body + chr(125) + "\n" + chr(125) + "\n"
+    }
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    v4_prerelease_binding_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) == 0 and v4_mir_body_count(mir) == 1, "parameter source reaches MIR cleanly " + mode)
+    pilot named = 0
+    pilot local = 0
+    repeat until local >= v4_mir_body_local_count(mir, 0) {
+        if v4_mir_local_name(mir, 0, local) == local_name { named += 1 }
+        local += 1
+    }
+    pilot expected_locals = 1
+    if nested { expected_locals = 2 }
+    v4_prerelease_binding_assert(named == expected_locals, "parameter declarations publish the expected local identities " + mode)
+    if not nested or duplicate_inner {
+        v4_prerelease_binding_assert(v4_mir_diag_count(mir) == 1 and v4_diag_message(v4_mir_diag(mir, 0)) == "duplicate local declaration" and v4_diag_help(v4_mir_diag(mir, 0)) == local_name + " already exists in this scope", "same-scope parameter duplicate rejected " + mode)
+    } else {
+        pilot borrow = v4_borrowck_check_mir(0, mir)
+        v4_prerelease_binding_assert(v4_mir_diag_count(mir) == 0 and v4_borrowck_diag_count(borrow) == 0, "nested parameter shadow remains legal " + mode)
+    }
+    pilot parameter = 0
+    if method and local_name != "self" { parameter = 1 }
+    pilot expected_mode = v4_ty_param_mode_value
+    if word_param and nested { expected_mode = v4_ty_param_mode_lend }
+    v4_prerelease_binding_assert(v4_mir_local_mode(mir, 0, parameter) == expected_mode and v4_mir_local_binding_prefix(mir, 0, parameter) == "", "parameter ownership facts remain intact " + mode)
+    if local_name != "self" {
+        pilot found_outer_use = false
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir, 0) {
+            if v4_mir_rvalue_kind(mir, 0, value) == v4_mir_rvalue_use_local and v4_mir_rvalue_text(mir, 0, value) == local_name and v4_mir_rvalue_local_id(mir, 0, value) == parameter {
+                found_outer_use = true
+            }
+            value += 1
+        }
+        v4_prerelease_binding_assert(found_outer_use, "post-block use resolves the original parameter identity " + mode)
+    }
+    say "prerelease-binding " + mode + "=passed"
+}
+
 task v4_prerelease_binding_run() -> void {
     pilot mode = process::arg(1)
     if mode == "direct-resource" { v4_prerelease_binding_direct_resource(); give back }
     if mode.starts_with("const-") { v4_prerelease_binding_const_header(mode); give back }
+    if mode.starts_with("param-") { v4_prerelease_binding_parameter(mode); give back }
     pilot source = v4_prerelease_binding_source(mode)
     pilot stream = v4_lex_text(0, source)
     pilot tree = v4_parse_stream(0, stream)

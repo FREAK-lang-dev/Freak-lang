@@ -7314,7 +7314,10 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         pilot binding_ty = inferred_ty
         if inferred_ty == v4_ty_never and v4_ty_is_known(declared_ty) { binding_ty = declared_ty }
         if duplicate_local {
-            duplicate_local = v4_mir_local_scope_span(mir_id, body_id, prior_local) == v4_mir_current_scope_span(stmt_span)
+            pilot current_scope = v4_mir_current_scope_span(stmt_span)
+            duplicate_local = v4_mir_local_scope_span(mir_id, body_id, prior_local) == current_scope or v4_mir_scope_depth == 1
+            -- Parameters retain the whole callable span for visibility and
+            -- ownership, but share its outer body scope for declarations.
         }
         if duplicate_local {
             v4_mir_add_type_error(mir_id, stmt_span, "duplicate local declaration", pattern + " already exists in this scope")
