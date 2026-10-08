@@ -309,6 +309,8 @@ task pb_scan_source(unit: int) -> void {
             if pb_value(i + 1) == "pilot" {
                 array_push(pb_fixed_units, word_from_int(unit)) array_push(pb_fixed_names, pb_value(i + 2))
             }
+        } else if kind == TOK_KW and val == "grounded pilot" and depth == 0 {
+            array_push(pb_fixed_units, word_from_int(unit)) array_push(pb_fixed_names, pb_value(i + 1))
         }
         if kind == TOK_PUNCT and val == "{" { depth += 1 }
         if kind == TOK_PUNCT and val == "}" { depth -= 1 }
@@ -366,6 +368,7 @@ task pb_verify_unloaded_exports() -> void {
                         }
                         if val == "shape" and pb_value(i + 2) == "{" { name = pb_value(i + 1) declaration_kind = STMT_SHAPE }
                         if val == "fixed" and pb_value(i + 1) == "pilot" { name = pb_value(i + 2) declaration_kind = STMT_PILOT name_token = i + 2 }
+                        if val == "grounded pilot" { name = pb_value(i + 1) declaration_kind = STMT_PILOT }
                         if name != "" {
                             record = 0
                             repeat until record >= array_len(pb_surface_keys) {
@@ -396,7 +399,7 @@ task pb_verify_unloaded_exports() -> void {
                 }
                 if not found {
                     pilot message = "missing or unsupported manifest export '" + key.substring(8, key.length() - 8) + "'"
-                    pb_fail(message) diag_error_at(message, "export must name an ordinary task, fixed pilot, or shape", path, 1, 1)
+                    pb_fail(message) diag_error_at(message, "export must name an ordinary task, fixed pilot, grounded pilot, or shape", path, 1, 1)
                 }
             }
         }
@@ -587,15 +590,19 @@ task pb_decl(unit: int, name: word, kind: word) -> int {
     give back 0 - 1
 }
 
+task pb_immutable_binding_mode(mode: word) -> bool {
+    give back mode == "fixed" or mode == "grounded"
+}
+
 task pb_fixed_callable_collision(unit: int, name: word, kind: word, stmt: int) -> bool {
-    if kind == STMT_PILOT and array_get(ast_pilot_is_mut, stmt) == "fixed" {
+    if kind == STMT_PILOT and pb_immutable_binding_mode(array_get(ast_pilot_is_mut, stmt)) {
         pilot callable = pb_decl(unit, name, STMT_TASK)
         if callable < 0 { give back false }
         give back not array_get(ast_stmt_extras, word_to_int(array_get(pb_decl_stmts, callable))).starts_with("impl:")
     }
     if (kind == STMT_TASK or kind == STMT_EXTERN) and not array_get(ast_stmt_extras, stmt).starts_with("impl:") {
         pilot binding = pb_decl(unit, name, STMT_PILOT)
-        if binding >= 0 { give back array_get(ast_pilot_is_mut, word_to_int(array_get(pb_decl_stmts, binding))) == "fixed" }
+        if binding >= 0 { give back pb_immutable_binding_mode(array_get(ast_pilot_is_mut, word_to_int(array_get(pb_decl_stmts, binding)))) }
     }
     give back false
 }
@@ -644,7 +651,7 @@ task pb_exportable(declaration: int) -> bool {
     if kind == STMT_SHAPE { give back true }
     if kind != STMT_PILOT { give back false }
     pilot stmt = word_to_int(array_get(pb_decl_stmts, declaration))
-    give back array_get(ast_pilot_is_mut, stmt) == "fixed"
+    give back pb_immutable_binding_mode(array_get(ast_pilot_is_mut, stmt))
 }
 
 task pb_import_supported_decl(unit: int, target: int, name: word, kind: word) -> int {
@@ -786,7 +793,7 @@ task pb_wrong_value_context(unit: int, name: word, kind: word) -> bool {
     if pb_decl(unit, name, kind) >= 0 or pb_import_decl(unit, name, kind) >= 0 { give back false }
     if kind == STMT_TASK {
         pilot binding = pb_decl(unit, name, STMT_PILOT)
-        if binding >= 0 and array_get(ast_pilot_is_mut, word_to_int(array_get(pb_decl_stmts, binding))) == "fixed" { give back true }
+        if binding >= 0 and pb_immutable_binding_mode(array_get(ast_pilot_is_mut, word_to_int(array_get(pb_decl_stmts, binding)))) { give back true }
     } else {
         pilot callable = pb_decl(unit, name, STMT_TASK)
         if callable >= 0 and not array_get(ast_stmt_extras, word_to_int(array_get(pb_decl_stmts, callable))).starts_with("impl:") { give back true }

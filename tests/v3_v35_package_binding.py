@@ -325,6 +325,9 @@ def main() -> None:
         'shape-and-global': (
             'shape Shared { value: int }\nfixed pilot Shared: int = 11\n'
             'task main() { pilot item: Shared = Shared { value: Shared } say item.value say Shared }\n', '11\n11\n'),
+        'grounded-import-and-contextual-name': (
+            'use left::{seed}\ngrounded pilot grounded: int = 7\n'
+            'task main() { say seed say grounded }\n', '11\n7\n'),
         'import-type-and-call': (
             'use left::{Point as Shared, api as Shared}\n'
             'task main() { pilot item: Shared = Shared { value: 7 } say item.read() say Shared() }\n', '7\n14\n'),
@@ -357,6 +360,9 @@ def main() -> None:
     for case, (source, expected) in namespace_cases.items():
         root = work / f'namespace-{case}'
         source_app, _ = fixture(root)
+        if case == 'grounded-import-and-contextual-name':
+            library = root / 'left/src/core.fk'
+            library.write_text(library.read_text().replace('fixed pilot seed', 'grounded pilot seed'))
         file = source_app / 'src/main.fk'
         file.write_text(source)
         for backend in ('c', 'llvm'):
@@ -391,8 +397,10 @@ def main() -> None:
         'call-only-is-not-value': ('use left::{api as Only}\ntask main() { say Only }\n', "unknown binding 'Only'", 2, 19),
         'fixed-import-cannot-use-ambient-call': ('use left::{seed as std_abs}\ntask main() { say std_abs(-2) }\n', "unknown callable 'std_abs'", 2, 19),
         'fixed-local-cannot-use-ambient-call': ('fixed pilot std_abs: int = 7\ntask main() { say std_abs(-2) }\n', "unknown callable 'std_abs'", 2, 19),
+        'grounded-local-cannot-use-ambient-call': ('grounded pilot std_abs: int = 7\ntask main() { say std_abs(-2) }\n', "unknown callable 'std_abs'", 2, 19),
         'local-shadows-selected-call': ('use left::{api as measure}\ntask main() { pilot measure: int = 7 say measure() }\n', "unknown callable 'measure': local value shadows this name", 2, 42),
         'fixed-local-shadows-selected-call': ('use left::{api as measure}\ntask main() { fixed pilot measure: int = 7 say measure() }\n', "unknown callable 'measure': local value shadows this name", 2, 48),
+        'grounded-local-shadows-selected-call': ('use left::{api as measure}\ntask main() { grounded pilot measure: int = 7 say measure() }\n', "unknown callable 'measure': local value shadows this name", 2, 51),
         'parameter-shadows-selected-call': ('use left::{api as measure}\ntask consume(measure: int) { say measure() }\ntask main() {}\n', "unknown callable 'measure': local value shadows this name", 2, 34),
         'outer-local-shadows-selected-call': ('use left::{api as measure}\ntask main() { pilot measure: int = 7 { say measure() } }\n', "unknown callable 'measure': local value shadows this name", 2, 44),
         'multiple-shadowed-calls': ('use left::{api as measure}\ntask main() { pilot measure: int = 7 say measure() say measure() }\n', "unknown callable 'measure': local value shadows this name", 2, 1),
@@ -432,6 +440,10 @@ def main() -> None:
         'extern-export': ('extern task api() -> int\n', 'use left::{api}\ntask main() {}\n', 'extern declarations are unsupported', 'left/src/core.fk', 1, 13),
         'fixed-before-extern': ('fixed pilot api: int = 4\nextern task api() -> int\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 13),
         'extern-before-fixed': ('extern task api() -> int\nfixed pilot api: int = 4\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 13),
+        'grounded-before-call': ('grounded pilot api: int = 4\ntask api() -> int { give back 5 }\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 6),
+        'call-before-grounded': ('task api() -> int { give back 5 }\ngrounded pilot api: int = 4\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 16),
+        'grounded-before-extern': ('grounded pilot api: int = 4\nextern task api() -> int\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 13),
+        'extern-before-grounded': ('extern task api() -> int\ngrounded pilot api: int = 4\n', 'use left::{api}\ntask main() {}\n', 'duplicate module declaration', 'left/src/core.fk', 2, 16),
     }
     for case, (library, source, message, relative, line, column) in mutations.items():
         root = work / f'negative-{case}'
@@ -446,7 +458,7 @@ def main() -> None:
             location = f'{root / relative}:{line}:{column}'.encode()
             if result.returncode == 0 or message.encode() not in log or location not in log:
                 raise RuntimeError(f'{case}/{backend} missing original source rejection {location!r}: {log!r}')
-            if case in ('fixed-before-extern', 'extern-before-fixed'):
+            if case in ('fixed-before-extern', 'extern-before-fixed', 'grounded-before-extern', 'extern-before-grounded'):
                 if b'extern declarations are unsupported' not in log or (work / f'negative-{case}-{backend}').exists():
                     raise RuntimeError(f'{case}/{backend} weakened active extern rejection or emitted output: {log!r}')
             records.append({'case': case, 'backend': backend, 'status': 'rejected', 'file': str(root / relative), 'line': line, 'column': column})
@@ -588,10 +600,17 @@ def main() -> None:
         ('callable-fixed-collision', 'task Shared() -> int { give back 5 }\nfixed pilot Shared: int = 4\n', False, 'duplicate module declaration', 2, 13),
         ('fixed-extern-collision', 'fixed pilot Shared: int = 4\nextern task Shared() -> int\n', False, 'duplicate module declaration', 2, 13),
         ('extern-fixed-collision', 'extern task Shared() -> int\nfixed pilot Shared: int = 4\n', False, 'duplicate module declaration', 2, 13),
+        ('grounded-callable-collision', 'grounded pilot Shared: int = 4\ntask Shared() -> int { give back 5 }\n', False, 'duplicate module declaration', 2, 6),
+        ('callable-grounded-collision', 'task Shared() -> int { give back 5 }\ngrounded pilot Shared: int = 4\n', False, 'duplicate module declaration', 2, 16),
+        ('grounded-extern-collision', 'grounded pilot Shared: int = 4\nextern task Shared() -> int\n', False, 'duplicate module declaration', 2, 13),
+        ('extern-grounded-collision', 'extern task Shared() -> int\ngrounded pilot Shared: int = 4\n', False, 'duplicate module declaration', 2, 16),
         ('unsupported-extern-export', 'extern task Shared() -> int\n', False, 'missing or unsupported manifest export', 1, 1),
         ('type-extern-export', 'shape Shared { value: int }\nextern task Shared() -> int\n', True, '', 0, 0),
+        ('type-grounded-export', 'shape Shared { value: int }\ngrounded pilot Shared: int = 4\n', True, '', 0, 0),
         ('private-body', 'fixed pilot Shared: int = 4\nextern task unused_private_extern_should_not_emit() -> int\n'
                          'task unused_private_body_should_not_emit() { pilot = }\n', True, '', 0, 0),
+        ('grounded-private-body', 'grounded pilot Shared: int = 4\nextern task unused_private_extern_should_not_emit() -> int\n'
+                                  'task unused_private_body_should_not_emit() { pilot = }\n', True, '', 0, 0),
     ):
         root = work / f'unused-namespace-{case}'
         source_app, _ = fixture(root)
@@ -606,7 +625,7 @@ def main() -> None:
             if accepted:
                 if result.returncode or b'BINDING_OK' not in result.stdout:
                     raise RuntimeError(f'{backend} unused {case} incorrectly rejected: {log!r}')
-                if case == 'private-body' and b'unused_private_' in generated.read_bytes():
+                if case.endswith('private-body') and b'unused_private_' in generated.read_bytes():
                     raise RuntimeError(f'{backend} emitted an unused private body or extern')
             else:
                 location = f'{root / "left/src/other.fk"}:{line}:{column}'.encode()
