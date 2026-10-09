@@ -301,7 +301,41 @@ def main() -> int:
                 invoke('lock-byte-restore', 69, False)
                 snapshot = app / '.freak/graphs' / (hashlib.sha256(lock.read_bytes()).hexdigest() + '.lock')
                 selected = ('--graph-snapshot=' + str(snapshot),)
+                snapshot_artifact, snapshot_sidecar = binary.read_bytes(), cache.read_bytes()
                 invoke('immutable-snapshot-cache-hit', 69, True, selected)
+                assert binary.read_bytes() == snapshot_artifact and cache.read_bytes() == snapshot_sidecar
+                # These names select the same parent and identically spelled
+                # leaf. Case-folded leaves and hardlink aliases are not an
+                # equivalence claim of the held-parent path contract.
+                aliases = [('snapshot-relative-cache-hit', str(snapshot.relative_to(app)))]
+                if os.name == 'nt':
+                    absolute = str(snapshot)
+                    if absolute.startswith('\\\\?\\'):
+                        extended = absolute
+                    elif absolute.startswith('\\\\'):
+                        extended = '\\\\?\\UNC\\' + absolute[2:]
+                    else:
+                        extended = '\\\\?\\' + absolute
+                    aliases.extend((('snapshot-forward-slash-cache-hit', snapshot.as_posix()),
+                                    ('snapshot-extended-native-cache-hit', extended)))
+                for label, alias in aliases:
+                    invoke(label, 69, True, ('--graph-snapshot=' + alias,))
+                    assert binary.read_bytes() == snapshot_artifact and cache.read_bytes() == snapshot_sidecar
+
+                # Equal bytes at a different admitted parent remain a distinct
+                # snapshot authority. A digest-only key would wrongly hit here.
+                copy_root = root / f'snapshot copy {backend} é 日本'
+                copy_root.mkdir()
+                private.claim_fresh_directories(copy_root)
+                snapshot_copy = copy_root / snapshot.name
+                snapshot_copy.write_bytes(snapshot.read_bytes())
+                assert snapshot_copy.read_bytes() == snapshot.read_bytes()
+                copied = ('--graph-snapshot=' + str(snapshot_copy),)
+                invoke('distinct-snapshot-copy-cache-miss', 69, False, copied)
+                copied_artifact, copied_sidecar = binary.read_bytes(), cache.read_bytes()
+                invoke('distinct-snapshot-copy-cache-hit', 69, True, copied)
+                assert binary.read_bytes() == copied_artifact and cache.read_bytes() == copied_sidecar
+                invoke('original-snapshot-after-copy-cache-miss', 69, False, selected)
                 files['transitive'].write_text('task value() -> int { give back 23 }\n', encoding='utf-8')
                 invoke('snapshot-live-source-change-before-cache', None, None, selected)
                 files['transitive'].write_bytes(original_core)
