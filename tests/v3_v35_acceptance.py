@@ -9,6 +9,7 @@ separate gates. A provisional archive requires explicit opt-in and stays labeled
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import hashlib
 import json
 import os
@@ -20,6 +21,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -69,8 +71,9 @@ def archive_payload(archive: Path) -> dict[str, bytes]:
 
 
 def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
-                prefix: Path, records: list[dict], expected: int = 0,
-                timeout: float = 180) -> subprocess.CompletedProcess[bytes]:
+                prefix: Path, records: list[dict], expected: int | None = 0,
+                timeout: float = 180, preexec_fn: Callable[[], None] | None = None,
+                on_record: Callable[[dict], None] | None = None) -> subprocess.CompletedProcess[bytes]:
     """Retain the original timeout and partial channels after bounded cleanup."""
     began = time.monotonic()
     record = {'case': label, 'argv': command, 'cwd': str(cwd), 'expected': expected,
@@ -78,10 +81,22 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
     records.append(record)
     stdout = stderr = b''
     child = None
+    recording_error = None
     try:
+        if on_record is not None:
+            on_record(record)
         child = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE, start_new_session=os.name != 'nt')
+                                 stderr=subprocess.PIPE, start_new_session=os.name != 'nt',
+                                 preexec_fn=preexec_fn)
         record.update(pid=child.pid, process_tree='taskkill /T' if os.name == 'nt' else 'owned process group')
+        if on_record is not None:
+            try:
+                on_record(record)
+            except Exception as error:
+                # The child exists now. Finish bounded capture/cleanup before
+                # propagating a checkpoint failure.
+                recording_error = error
+                record.setdefault('recording_errors', []).append(repr(error))
         try:
             stdout, stderr = child.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as original:
@@ -139,7 +154,18 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
                       elapsed_seconds=time.monotonic() - began,
                       stdout_sha256=hashlib.sha256(stdout).hexdigest(),
                       stderr_sha256=hashlib.sha256(stderr).hexdigest())
-    assert child.returncode == expected, (label, child.returncode, stdout[-4000:], stderr[-4000:])
+        if on_record is not None:
+            original_error = sys.exc_info()[1]
+            try:
+                on_record(record)
+            except Exception as error:
+                if original_error is None:
+                    raise
+                record.setdefault('recording_errors', []).append(repr(error))
+    if recording_error is not None:
+        raise recording_error
+    if expected is not None:
+        assert child.returncode == expected, (label, child.returncode, stdout[-4000:], stderr[-4000:])
     return subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
 
 

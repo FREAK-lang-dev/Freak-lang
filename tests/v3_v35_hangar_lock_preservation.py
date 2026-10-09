@@ -13,7 +13,6 @@ import os
 from pathlib import Path
 import re
 import shutil
-import signal
 import stat
 import subprocess
 import tempfile
@@ -21,6 +20,7 @@ import time
 import tomllib
 
 from v3_final_release_gate import manifest_entries
+from v3_v35_acceptance import run_command
 from windows_private_fixture import WindowsPrivateFixture
 
 REPO = Path(__file__).resolve().parents[1]
@@ -69,39 +69,38 @@ class Recorder:
         self.root = root
         self.records = []
 
+    def checkpoint(self):
+        target = self.root / "command-records.json"
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"runner_pid": os.getpid(), "commands": self.records}, indent=2) + "\n")
+        temporary.replace(target)
+
     def run(self, argv: list[str], cwd: Path, env: dict, label: str,
             timeout: int = 60, demote: bool = False) -> tuple[int, str]:
         index = len(self.records)
-        record = {"label": label, "argv": argv, "cwd": str(cwd),
-                  "timeout_seconds": timeout, "started_ns": time.time_ns(),
-                  "demote_to_uid_65534": demote}
-        self.records.append(record)
+        began = time.time_ns()
+        prefix = self.root / f"{index:03d}-command"
 
         def unprivileged():
             os.setgroups([])
             os.setgid(65534)
             os.setuid(65534)
 
-        child = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE, start_new_session=os.name != "nt",
-                                 preexec_fn=unprivileged if demote else None)
-        record["pid"] = child.pid
-        try:
-            stdout, stderr = child.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            if os.name == "nt":
-                child.kill()
-            else:
-                os.killpg(child.pid, signal.SIGKILL)
-            stdout, stderr = child.communicate()
-            record["timed_out"] = True
-        record.update(exit_code=child.returncode, finished_ns=time.time_ns())
-        for stream, data in (("stdout", stdout), ("stderr", stderr)):
-            path = self.root / f"{index:03d}-{stream}.raw"
-            path.write_bytes(data)
-            record[stream] = {"path": str(path), "bytes": len(data), "sha256": sha(path)}
-        assert not record.get("timed_out"), record
-        return child.returncode, ANSI.sub("", (stdout + stderr).decode("utf-8", "replace"))
+        def retain(record):
+            record.update(label=label, started_ns=began, demote_to_uid_65534=demote)
+            if "returncode" in record:
+                record.update(exit_code=record["returncode"], finished_ns=time.time_ns())
+                for stream in ("stdout", "stderr"):
+                    data = prefix.with_suffix("." + stream).read_bytes()
+                    path = self.root / f"{index:03d}-{stream}.raw"
+                    path.write_bytes(data)
+                    record[stream] = {"path": str(path), "bytes": len(data), "sha256": sha(path)}
+            self.checkpoint()
+
+        result = run_command(argv, cwd=cwd, env=env, label=label, prefix=prefix,
+                             records=self.records, expected=None, timeout=timeout,
+                             preexec_fn=unprivileged if demote else None, on_record=retain)
+        return result.returncode, ANSI.sub("", (result.stdout + result.stderr).decode("utf-8", "replace"))
 
 
 def fixtures(root: Path, clang: Path, recorder: Recorder, env: dict,

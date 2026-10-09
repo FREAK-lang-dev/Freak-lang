@@ -114,6 +114,93 @@ class AcceptanceHelpers(unittest.TestCase):
             self.assertEqual((root / 'spawn.stdout').read_bytes(), b'')
             self.assertEqual((root / 'spawn.stderr').read_bytes(), b'')
 
+    def test_checkpoint_failure_does_not_replace_original_timeout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            primary = subprocess.TimeoutExpired(['inert'], .5, output=b'first')
+            child = Mock(pid=42, returncode=-9)
+            child.communicate.side_effect = [primary, (b'retained', b'error')]
+            child.poll.return_value = -9
+            records = []
+            def checkpoint(record):
+                if record.get('timed_out'):
+                    raise OSError('checkpoint write failed')
+            with patch.object(acceptance.os, 'killpg', create=True), \
+                    patch.object(acceptance.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')), \
+                    patch.object(acceptance.subprocess, 'Popen', return_value=child):
+                with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    acceptance.run_command(['inert'], cwd=root, env={}, label='checkpoint',
+                                           prefix=root / 'checkpoint', records=records, timeout=.5,
+                                           on_record=checkpoint)
+            self.assertIs(caught.exception, primary)
+            self.assertEqual((root / 'checkpoint.stdout').read_bytes(), b'retained')
+            self.assertEqual(records[0]['recording_errors'], ["OSError('checkpoint write failed')"])
+
+    def test_pid_checkpoint_failure_finishes_child_before_raising(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            records = []
+            def checkpoint(record):
+                if 'pid' in record and 'returncode' not in record:
+                    raise OSError('PID checkpoint write failed')
+            with self.assertRaisesRegex(OSError, 'PID checkpoint write failed'):
+                acceptance.run_command(
+                    [sys.executable, '-c', 'import time; time.sleep(.05); print("completed", flush=True)'],
+                    cwd=root, env=os.environ.copy(), label='pid-checkpoint',
+                    prefix=root / 'pid-checkpoint', records=records, timeout=2, on_record=checkpoint)
+            self.assertEqual(records[0]['returncode'], 0)
+            self.assertEqual((root / 'pid-checkpoint.stdout').read_bytes(), b'completed' + os.linesep.encode())
+            self.assertEqual(records[0]['recording_errors'], ["OSError('PID checkpoint write failed')"])
+
+    def test_hangar_recorder_retains_adverse_exit_and_spawn_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            recorder = preservation.Recorder(root)
+            status, output = recorder.run(
+                [sys.executable, '-c', 'import sys; print("out"); print("err", file=sys.stderr); sys.exit(7)'],
+                root, os.environ.copy(), 'adverse-exit')
+            self.assertEqual(status, 7)
+            self.assertIn('out', output)
+            self.assertIn('err', output)
+            self.assertEqual((root / '000-stdout.raw').read_bytes(), b'out' + os.linesep.encode())
+            self.assertEqual((root / '000-stderr.raw').read_bytes(), b'err' + os.linesep.encode())
+            with self.assertRaises(FileNotFoundError):
+                recorder.run([str(root / 'absent')], root, {}, 'failed-spawn')
+            checkpoint = json.loads((root / 'command-records.json').read_text())
+            self.assertEqual(len(checkpoint['commands']), 2)
+            self.assertEqual(checkpoint['commands'][0]['label'], 'adverse-exit')
+            self.assertEqual(checkpoint['commands'][0]['exit_code'], 7)
+            self.assertIsNone(checkpoint['commands'][1]['exit_code'])
+            self.assertEqual((root / '001-stdout.raw').read_bytes(), b'')
+            self.assertEqual((root / '001-stderr.raw').read_bytes(), b'')
+
+    def test_hangar_windows_timeout_retains_original_cause_and_partial_channels(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            recorder = preservation.Recorder(root)
+            primary = subprocess.TimeoutExpired(['inert'], .5, output=b'first', stderr=b'error')
+            secondary = subprocess.TimeoutExpired(['inert'], 10, output=b'first later', stderr=b'error later')
+            child = Mock(pid=42, returncode=0, stdout=io.BytesIO(), stderr=io.BytesIO())
+            child.communicate.side_effect = [primary, secondary]
+            child.poll.return_value = 0
+            cleanup = subprocess.CompletedProcess([], 1, b'', b'absent parent')
+            with patch.object(acceptance, 'os', SimpleNamespace(name='nt')), \
+                    patch.object(acceptance.subprocess, 'Popen', return_value=child), \
+                    patch.object(acceptance.subprocess, 'run', return_value=cleanup) as taskkill:
+                with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    recorder.run(['inert'], root, {}, 'inherited-pipe', timeout=.5)
+            self.assertIs(caught.exception, primary)
+            self.assertEqual([call.kwargs['timeout'] for call in child.communicate.call_args_list], [.5, 10])
+            self.assertEqual(taskkill.call_args.args[0], ['taskkill', '/PID', '42', '/T', '/F'])
+            self.assertEqual((root / '000-stdout.raw').read_bytes(), b'first later')
+            self.assertEqual((root / '000-stderr.raw').read_bytes(), b'error later')
+            record = json.loads((root / 'command-records.json').read_text())['commands'][0]
+            self.assertTrue(record['timed_out'])
+            self.assertEqual(record['cleanup_errors'], ['taskkill did not confirm tree termination',
+                                                       'recovery communicate exceeded 10 seconds'])
+            self.assertEqual(record['stdout']['sha256'], preservation.sha(root / '000-stdout.raw'))
+
     def test_windows_secondary_recovery_does_not_wait_on_active_pipe_reader(self):
         # Isolate the lock countermodel so a regression cannot hang this suite.
         code = textwrap.dedent('''
