@@ -12,11 +12,15 @@ Both test a bool before every pass and use the existing loop rules for
 declaration-name validation; `freak_mir_build` constructs the positive loop
 condition using the existing repeat-until MIR representation with opposite
 polarity. Persistent MIR facts and snapshot formats remain unchanged.
-The active `v35_while_contract_smoke.fk` and
-`v35_native_while_execute_smoke.fk` fixtures cover 38 isolated
-frontend/restoration contracts and two actual LLVM programs, including zero
-passes, nested control and short-circuit conditions. Run their gate with
-`python src/compiler/v4/check_v4.py --smoke v35_while_contract --smoke v35_native_while_execute`.
+The active `v35_while_contract_smoke.fk` covers 82 isolated frontend/MIR and
+restoration contracts, including exact lowercase keywords and constructor
+payload braces in loop headers. `v35_native_while_execute_smoke.fk` covers two
+actual LLVM programs with zero passes, nested control and short-circuit
+conditions. `v35_native_while_casing_execute_smoke.fk` adds three actual LLVM
+programs with case-preserving scalar task, alias and local names. Aggregate
+constructors and global values retain their existing native lowering limits.
+Run their gate with
+`python src/compiler/v4/check_v4.py --smoke v35_while_contract --smoke v35_native_while_execute --smoke v35_native_while_casing_execute`.
 Counted forms and ungrouped multiline condition continuation remain separate;
 the frozen bootstrap source pin is unchanged.
 
