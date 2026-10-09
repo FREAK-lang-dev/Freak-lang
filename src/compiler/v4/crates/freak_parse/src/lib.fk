@@ -687,7 +687,7 @@ task v4_parse_item_name_text(stream_id: int, start_token: int, end_token: int, k
             if idx >= end_token {
                 -- name boundary reached
             } else if tok_type == v4_tok_ident or tok_type == v4_tok_keyword {
-                if val.to_lower() == "while" { give back "" }
+                if val == "while" { give back "" }
                 last_name = idx
             } else if val == "::" {
                 -- keep walking the path
@@ -743,7 +743,7 @@ task v4_parse_use_alias_from_tokens(stream_id: int, start_token: int, end_token:
     }
     pilot alias_type = v4_lex_token_type(stream_id, alias_token)
     if alias_type == v4_tok_ident or alias_type == v4_tok_keyword {
-        if v4_lex_token_value(stream_id, alias_token).to_lower() == "while" { give back "" }
+        if v4_lex_token_value(stream_id, alias_token) == "while" { give back "" }
         give back v4_lex_token_value(stream_id, alias_token)
     }
     give back ""
@@ -1583,7 +1583,7 @@ task v4_parse_closure_param_name_from_tokens(stream_id: int, start_token: int, e
     if token_type != v4_tok_ident and token_type != v4_tok_keyword {
         give back ""
     }
-    if v4_lex_token_value(stream_id, first).to_lower() == "while" { give back "" }
+    if v4_lex_token_value(stream_id, first) == "while" { give back "" }
     give back v4_lex_token_value(stream_id, first)
 }
 
@@ -1766,7 +1766,7 @@ task v4_parse_parse_error(tree_id: int, stream_id: int, token_id: int, root_id: 
 
 -- Preserve historically admitted keyword-shaped names, but the newly reserved
 -- while spelling is only syntax at a statement boundary or after repeat.
--- Its case variants remain identifiers lexically, but V3 reserves those names.
+-- Its case variants remain ordinary identifiers throughout the V4 frontend.
 -- Scan complete bodies too: fields and pattern bindings are not parse nodes.
 task v4_parse_validate_while_keyword_uses(tree_id: int, stream_id: int) -> void {
     pilot idx = 0
@@ -1779,7 +1779,7 @@ task v4_parse_validate_while_keyword_uses(tree_id: int, stream_id: int) -> void 
             if v4_lex_token_value(stream_id, idx) == "\n" { statement_boundary = true }
         } else if token_type != v4_tok_eof {
             pilot value = v4_lex_token_syntax_value(stream_id, idx)
-            if (token_type == v4_tok_keyword or token_type == v4_tok_ident) and value.to_lower() == "while" {
+            if (token_type == v4_tok_keyword or token_type == v4_tok_ident) and value == "while" {
                 pilot next = v4_parse_skip_trivia(stream_id, idx + 1)
                 pilot next_value = v4_lex_token_syntax_value(stream_id, next)
                 pilot loop_heading: bool = value == "while" and (statement_boundary or previous == "repeat")

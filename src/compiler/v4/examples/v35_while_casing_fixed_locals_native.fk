@@ -1,0 +1,7 @@
+task main() -> int {
+    fixed pilot While = 20
+    grounded pilot WHILE = 22
+    if While + WHILE != 42 { give back 1 }
+    say "v35-while-casing-fixed-locals-ok"
+    give back 42
+}
