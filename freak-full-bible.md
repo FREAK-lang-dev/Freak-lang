@@ -444,6 +444,12 @@ from the body braces; supported Boolean comparisons can therefore use those
 constructors. Frontend/MIR and snapshot acceptance does not extend existing
 aggregate-constructor or global-value native lowering limits.
 
+Development V4 closes a completed `when` or `check route` join when every
+arm terminates. Following source is still checked for name, type, ownership
+and coverage errors. A live fallthrough keeps its continuation, and nested
+`break`/`continue` edges keep their loop targets. This construction rule does
+not relax live CFG validation or snapshot admission.
+
 The three V3.5 counted forms are experimental. Range bounds, an explicit
 positive `int` step and a repeat count are evaluated once in source order.
 `a..b` excludes `b`; `a..=b` includes it. Empty and backwards ranges run

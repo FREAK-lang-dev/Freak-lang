@@ -56,6 +56,10 @@ with Boolean comparison coverage in frontend/MIR/snapshots and separate
 native scalar casing/alias/local controls. Aggregate constructors and global
 native values retain their existing lowering limits. Counted-loop parity and
 ungrouped multiline condition continuation remain separate work.
+Completed V4 `when`/`check route` arms now close detached terminal joins while
+following source still receives genuine diagnostics. Live fallthrough, loop
+targets and strict snapshot checks remain covered; aggregate native lowering
+is unchanged.
 Current V4 HIR and MIR snapshots advance to v12 and v10
 to retain binding modifiers; older snapshots must be rebuilt. This PR does
 not tag or publish a release.

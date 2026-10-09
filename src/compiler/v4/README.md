@@ -349,6 +349,21 @@ tail statements, quoted tokens, nested branches and malformed-header recovery.
 The strict live, detached snapshot and native CFG validators remain active.
 Other source forms retain their existing statement-boundary behavior.
 
+Completed `when` and `check route` arms now use the same checked join closure.
+All-terminal arms remove the detached public join while following source
+continues through private diagnostic checking. Real fallthrough, nested loop
+targets, coverage, ownership and strict snapshot admission remain active.
+`v35_when_terminal_contract_smoke.fk` registers 51 isolated semantic contracts
+and three scalar LLVM/native examples under the generated fixture's original
+64-MiB/60-second/1024-handle ceiling. The native helper retains its existing
+128-MiB/10-second execution limits. Aggregate frontend/snapshot acceptance does
+not extend aggregate native lowering; semicolon-separated arms retain their
+existing syntax boundary.
+
+```powershell
+python -B -u src/compiler/v4/check_v4.py --smoke v35_when_terminal_contract
+```
+
 The two compiler fixtures have 33 process-isolated contracts under the
 original 60-second/64-MiB/1024-handle limits. The native gate runs 26 programs
 at O0/O2/O3, seven adverse contracts and both ownership audits. Default mode
