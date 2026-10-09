@@ -83,8 +83,128 @@ task v35_while_contract_source(mode: int) -> word {
     if mode == 79 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Flag" + open + "value: false" + close + "; while false or other == Flag" + open + "value: false" + close + " " + open + " break " + close + "; give back 42 " + close + "\n" }
     if mode == 80 { give back "task main() -> int " + open + " pilot callback = launch(While: int) -> int => While; give back 42 " + close + "\n" }
     if mode == 81 { give back "task main() -> int " + open + " pilot callback = launch(WHILE: int) -> int => WHILE; give back 42 " + close + "\n" }
+    if mode == 82 { give back "route Result " + open + " while " + open + " value: int " + close + " / Ok " + close + "\ntask main() -> int " + open + " give back 42 " + close + "\n" }
+    if mode == 83 { give back "route Result " + open + " while / Ok " + close + "\ntask main() -> int " + open + " give back 42 " + close + "\n" }
+    if mode == 84 { give back "route Result " + open + " Ok " + open + " row: [int;2] " + close + "\nwhile " + open + " value: int " + close + " / Done " + close + "\ntask main() -> int " + open + " give back 42 " + close + "\n" }
+    if mode == 85 { give back v35_while_contract_source(82).replace("route Result", "variant Result") }
+    if mode == 86 { give back v35_while_contract_source(83).replace("route Result", "variant Result") }
+    if mode == 87 { give back "route Result " + open + "\nOk\nwhile\nDone\n" + close + "\ntask main() -> int " + open + " give back 42 " + close + "\n" }
+    if mode == 88 { give back "route Result " + open + " Key " + open + " row: [int;2], while: int " + close + " / Ok " + close + "\ntask main() -> int " + open + " give back 42 " + close + "\n" }
+    if mode == 89 { give back "route Result " + open + " while " + open + " while: int " + close + " / Ok " + close + "\ntask main() -> int " + open + " give back 42 " + close + "\n" }
+    if mode == 90 { give back "route Result " + open + " Key " + open + " value: while " + close + " / Ok " + close + "\ntask main() -> int " + open + " give back 42 " + close + "\n" }
+    if mode == 91 { give back "route Result " + open + " while " + open + " value: int " + close + " / Ok\n" }
+    if mode == 92 { give back v35_while_contract_source(82).replace("while", "While") }
+    if mode == 93 { give back v35_while_contract_source(82).replace("while", "WHILE") }
+    if mode == 94 { give back v35_while_contract_source(82).replace("while", "wHiLe") }
+    if mode == 95 { give back "route Result " + open + " While / WHILE / wHiLe " + close + "\ntask main() -> int " + open + " give back 42 " + close + "\n" }
+    if mode == 96 { give back "variant Result " + open + "\n-- while " + open + " /\nWhile " + open + " row: [int;2] " + close + "\nWHILE " + open + " While: (int,bool) " + close + "\nwHiLe " + open + " wHiLe: word " + close + "\n" + close + "\ntask main() -> int " + open + " pilot text = \"while\"; while text == \"while\" " + open + " break " + close + "; repeat while false " + open + close + "; give back 42 " + close + "\n" }
+    if mode == 97 { give back "route Result " + open + " While = 4 / 2, WHILE, wHiLe " + close + "\ntask wHiLe(While: int) -> int " + open + " give back While " + close + "\ntask main() -> int " + open + " pilot WHILE = false; while WHILE " + open + " break " + close + "; give back wHiLe(42) " + close + "\n" }
     panic("unknown v35 while contract case")
     give back ""
+}
+
+-- Appended route contracts keep all original modes 0--81 and their assertions.
+-- One process owns one source pipeline; editor readers use those actual TY/HIR
+-- facts rather than starting another cached document compilation.
+task v35_while_contract_route_run(mode: int, source: word, stream: int, tree: int) -> void {
+    v35_while_contract_assert(v4_lex_diag_count(stream) == 0, "route source has no lexical errors")
+    pilot reserved = 0
+    pilot previous_span = V4_NO_SPAN
+    pilot row = 0
+    repeat until row >= v4_parse_diag_count(tree) {
+        pilot diag = v4_parse_diag(tree, row)
+        if v4_diag_message(diag) == "while is a reserved keyword" {
+            pilot span = v4_diag_span(diag)
+            v35_while_contract_assert(v4_diag_severity(diag) == v4_diag_error and v4_diag_help(diag) == "choose another name for this binding or member", "route reservation retains targeted PAR error")
+            v35_while_contract_assert(v4_span_file(span) == "0" and v4_slice(source, v4_span_start(span), v4_span_end(span)) == "while" and span != previous_span, "route reservation diagnoses exact distinct identifier spans")
+            previous_span = span
+            reserved += 1
+        }
+        row += 1
+    }
+    pilot expected_reserved = 0
+    if mode <= 91 { expected_reserved = 1 }
+    if mode == 89 { expected_reserved = 2 }
+    v35_while_contract_assert(reserved == expected_reserved, "route names, fields and types diagnosed once; casing and literals preserved")
+    pilot parse_snapshot = v4_parse_snapshot()
+    v35_while_contract_assert(v4_parse_snapshot_restore(parse_snapshot).starts_with("parse-snapshot-restore ok=1") and v4_parse_snapshot() == parse_snapshot, "route parser nodes and exact diagnostic spans roundtrip")
+
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot route_item = 0 - 1
+    pilot following_task = false
+    pilot item = 0
+    repeat until item >= v4_hir_item_count(hir) {
+        if v4_hir_item_kind(hir, item) == v4_hir_route and v4_hir_item_name(hir, item) == "Result" { route_item = item }
+        if v4_hir_item_kind(hir, item) == v4_hir_task and v4_hir_item_name(hir, item) == "main" { following_task = true }
+        item += 1
+    }
+    v35_while_contract_assert(route_item >= 0 and (following_task or mode == 91), "route rejection retains recognized declaration and following task")
+    pilot hir_snapshot = v4_hir_snapshot()
+    v35_while_contract_assert(v4_hir_snapshot_restore(hir_snapshot).starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == hir_snapshot, "route HIR facts and inherited diagnostics roundtrip")
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    if mode <= 91 {
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "reserved route declaration cannot emit native module")
+        say "v35-while-contract case=" + word_from_int(mode) + " route-reserved=true count=" + word_from_int(reserved) + " span=true recovery=true snapshot=true module=false"
+        give back
+    }
+
+    v35_while_contract_assert(v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) == 0, "case-preserving route has clean frontend")
+    pilot sig = v4_ty_route_signature_id_for_name(ty, "Result")
+    pilot count = 2
+    if mode >= 95 { count = 3 }
+    v35_while_contract_assert(sig >= 0 and v4_hir_route_case_count(hir, route_item) == count and v4_ty_route_case_count(ty, sig) == count, "actual HIR and TY ordered case inventory")
+    v35_while_contract_assert(v4_hir_route_is_variant(hir, route_item) == (mode == 96), "declaration form preserved")
+    pilot case_id = 0
+    repeat until case_id >= count {
+        pilot expected_name = "While"
+        if mode == 93 or (mode >= 95 and case_id == 1) { expected_name = "WHILE" }
+        if mode == 94 or (mode >= 95 and case_id == 2) { expected_name = "wHiLe" }
+        if mode <= 94 and case_id == 1 { expected_name = "Ok" }
+        pilot name_span = v4_hir_route_case_name_span(hir, route_item, case_id)
+        pilot name_token = v4_parse_first_token_at_or_after(stream, v4_span_start(name_span))
+        v35_while_contract_assert(v4_hir_route_case_name(hir, route_item, case_id) == expected_name and v4_slice(source, v4_span_start(name_span), v4_span_end(name_span)) == expected_name, "ordered case name and original span retain exact spelling")
+        v35_while_contract_assert(v4_lex_token_type(stream, name_token) == v4_tok_ident and v4_editor_route_case_decl_id_at_token(ty, sig, stream, name_token, expected_name) == case_id and v4_editor_route_case_name_span(ty, sig, expected_name) == name_span, "editor declaration lookup consumes actual case identity and span")
+        pilot payload: bool = (mode <= 94 and case_id == 0) or mode == 96
+        v35_while_contract_assert(v4_hir_route_case_has_payload(hir, route_item, case_id) == payload, "payload presence remains exact")
+        if payload {
+            pilot expected_field = "value"
+            pilot expected_type = "int"
+            if mode == 96 {
+                if case_id == 0 { expected_field = "row"; expected_type = "[int;2]" }
+                if case_id == 1 { expected_field = "While"; expected_type = "(int,bool)" }
+                if case_id == 2 { expected_field = "wHiLe"; expected_type = "word" }
+            }
+            pilot field_span = v4_hir_route_case_field_name_span(hir, route_item, case_id, 0)
+            pilot field_token = v4_parse_first_token_at_or_after(stream, v4_span_start(field_span))
+            v35_while_contract_assert(v4_hir_route_case_field_count(hir, route_item, case_id) == 1 and v4_hir_route_case_field_name(hir, route_item, case_id, 0) == expected_field and v4_hir_route_case_field_surface_type(hir, route_item, case_id, 0) == expected_type, "nested payload type and case-preserving field facts retained")
+            v35_while_contract_assert(v4_editor_route_field_decl_case_name_at_token(ty, sig, stream, field_token, expected_field) == expected_name and v4_editor_route_field_name_span(ty, sig, expected_name, expected_field) == field_span, "editor payload field identity and span remain exact")
+        }
+        case_id += 1
+    }
+    if mode == 97 { v35_while_contract_assert(v4_ty_route_case_explicit_discriminant_text(ty, "Result", "While") == "4/2" and v4_ty_route_case_discriminant_value(ty, "Result", "While") == "2", "slash remains discriminant division") }
+    pilot positive = 0
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        row = 0
+        repeat until row >= v4_mir_body_stmt_count(mir, body) {
+            if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_loop {
+                pilot block = v4_mir_body_block(mir, body, v4_mir_stmt_block(mir, body, row))
+                if v4_mir_block_condition(block).starts_with("while ") { positive += 1 }
+            }
+            row += 1
+        }
+        body += 1
+    }
+    pilot expected_loops = 0
+    if mode == 96 { expected_loops = 2 }
+    if mode == 97 { expected_loops = 1 }
+    v35_while_contract_assert(positive == expected_loops, "adjacent real while and repeat while loops remain loops")
+    pilot mir_snapshot = v4_mir_snapshot()
+    v35_while_contract_assert(v4_mir_snapshot_restore_component(mir_snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == mir_snapshot, "case-preserving route MIR roundtrip")
+    say "v35-while-contract case=" + word_from_int(mode) + " route-casing=true cases=" + word_from_int(count) + " loops=" + word_from_int(positive) + " editor=true snapshot=true"
 }
 
 task v35_while_contract_run(mode: int) -> void {
@@ -92,6 +212,10 @@ task v35_while_contract_run(mode: int) -> void {
     pilot stream = v4_lex_text(0, source)
     pilot tree = v4_parse_stream(0, stream)
     v35_while_contract_assert(v4_lex_is_keyword_word("while") and not v4_lex_is_keyword_word("While") and not v4_lex_is_keyword_word("WHILE") and not v4_lex_is_keyword_word("wHiLe"), "exact keyword spelling")
+    if mode >= 82 and mode <= 97 {
+        v35_while_contract_route_run(mode, source, stream, tree)
+        give back
+    }
     if mode == 49 or mode == 50 or mode == 80 or mode == 81 {
         pilot expected_name = "While"
         if mode == 50 or mode == 81 { expected_name = "WHILE" }
