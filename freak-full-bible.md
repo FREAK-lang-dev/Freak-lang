@@ -439,6 +439,8 @@ for `break`, `continue`, lexical cleanup and early return.
 
 In current development V4, only exact lowercase `while` is reserved.
 `While` and `WHILE` remain identifiers in supported declaration positions.
+This reservation includes route/variant case names and nested payload fields
+and types; quoted tokens and comments remain literal contents.
 Loop headers distinguish a known shape/route constructor's payload braces
 from the body braces; supported Boolean comparisons can therefore use those
 constructors. Frontend/MIR and snapshot acceptance does not extend existing

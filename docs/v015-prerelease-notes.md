@@ -38,6 +38,16 @@ malformed or unreadable existing locks before fetching, editing manifests,
 removing installed packages or reporting an audit result. Valid legacy locks
 and `hangar install freak` remain supported. Graph-aware public Hangar commands
 remain a separate prerelease requirement.
+Legacy mutations also validate the manifest before creating private writer
+files, and version changes use the same writer lock. A failed repair or hash
+command preserves the locked checksum. Libarchive integrity archives omit the
+gzip clock header; legacy hashes remain platform-specific and mismatches are
+still rejected. Fresh native and platform verification is pending.
+
+Graph-run cache keys use the admitted snapshot parent's canonical path, so
+implicit and explicit aliases of the same selected snapshot can reuse the
+cache on Windows. Different parent directories remain distinct. New alias
+and cache-artifact preservation controls await current-source native checks.
 
 The permanent `examples/v35` projects provide a pure library, diamond package
 consumer and bounded HTTP/JSON service. `tests/v3_v35_acceptance.py` checks a
@@ -51,6 +61,8 @@ development syntax. Development V4 now supports condition-first bool loops
 with `while condition` and `repeat while condition`, including existing
 break, continue, cleanup and early-return rules. Only exact lowercase `while`
 is reserved; supported names such as `While` and `WHILE` are preserved.
+Route/variant cases, fields and types follow that reservation, with 16 added
+frontend, recovery, editor and snapshot controls awaiting native verification.
 Loop headers now distinguish known constructor payload braces from the body,
 with Boolean comparison coverage in frontend/MIR/snapshots and separate
 native scalar casing/alias/local controls. Aggregate constructors and global
