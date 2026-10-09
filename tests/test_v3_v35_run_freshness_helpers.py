@@ -138,6 +138,24 @@ class RunFreshnessHelpers(unittest.TestCase):
             with self.subTest(malformed=malformed):
                 self.assertEqual(freshness.run_result_values(malformed), [])
 
+    def test_direct_snapshot_result_requires_one_exact_native_line(self):
+        for expected in (b'PKG_RUN=72\n', b'PKG_RUN=72\r\n'):
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                report, raw, save, _ = self.setup_recorder(root)
+                argv = [sys.executable, '-c', f'import sys; sys.stdout.buffer.write({expected!r})']
+                code, output = freshness.run_freshness_command('snapshot-result', argv, root, os.environ.copy(),
+                                                              report=report, raw=raw, save=save, timeout=3)
+                self.assertEqual(code, 0)
+                self.assertTrue(freshness.exact_run_result(output, 72))
+                self.assert_raw(self.record(root), 'stdout', expected)
+                self.assert_raw(self.record(root), 'stderr', b'')
+        for malformed in (b'PKG_RUN=72', b'PKG_RUN=72\r', b'PKG_RUN=720\n',
+                          b'PKG_RUN=72\r\n\r\n', b'prefix PKG_RUN=72\n',
+                          b'PKG_RUN=72\nPKG_RUN=72\n', b'PKG_RUN=72\r\r\n'):
+            with self.subTest(malformed=malformed):
+                self.assertFalse(freshness.exact_run_result(malformed, 72))
+
     def test_live_timeout_retains_original_exception_partial_channels_and_pid(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

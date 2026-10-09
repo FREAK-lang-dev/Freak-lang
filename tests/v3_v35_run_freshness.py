@@ -58,6 +58,11 @@ def run_result_values(output: bytes) -> list[bytes]:
     return re.findall(rb'^PKG_RUN=(\d+)\r?$', output, re.M)
 
 
+def exact_run_result(output: bytes, value: int) -> bool:
+    marker = f'PKG_RUN={value}'.encode()
+    return output in (marker + b'\n', marker + b'\r\n')
+
+
 def evidence_targets(evidence: Path, protected: tuple[Path, ...]) -> tuple[Path, Path]:
     """Reject output/input overlap before creating directories or receipts."""
     outputs = (evidence.absolute(), evidence.absolute().parent / (evidence.stem + '-raw'))
@@ -317,7 +322,7 @@ def main() -> int:
                 assert files['transitive'].read_bytes() == mutate['FREAK_FRESHNESS_BODY'].encode()
                 assert Path(racing['FREAK_FRESHNESS_LOG']).read_bytes() == b'native mutation completed\n'
                 code, output = run(f'{backend}:immutable-build-snapshot-control', [str(binary)], root, env)
-                assert code == 0 and output == b'PKG_RUN=72\n', output
+                assert code == 0 and exact_run_result(output, 72), output
                 invoke('racing-build-recovery', 75, False, active=racing)
                 invoke('recovered-cache-hit', 75, True, active=racing)
 
