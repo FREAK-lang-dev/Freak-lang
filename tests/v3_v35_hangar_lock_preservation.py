@@ -299,6 +299,38 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
             assert report.read_bytes() == b"", output
             print(f"native:{invocation[0]}:{label}:legacy-success", flush=True)
 
+        # Let the native compatibility hasher establish the platform-specific
+        # archive checksum. Case normalization must not trigger a reinstall.
+        cwd = root / f"{invocation[0]}-checksum-case"
+        project(cwd, (LEGACY + 'sha256 = ""\n').encode(), private)
+        code, output = recorder.run([str(invocation[1]), *invocation[2], "audit", "--fix"],
+                                    cwd, env, f"{invocation[0]}:checksum:seed")
+        assert code == 0 and "Computed SHA-256:" in output, output
+        canonical = (cwd / "hangar.lock").read_bytes()
+        digest = tomllib.loads(canonical.decode())["package"][0]["sha256"]
+        assert re.fullmatch("[0-9a-f]{64}", digest), digest
+        assert any(character in "abcdef" for character in digest), digest
+        variants = (("lower", digest), ("upper", digest.upper()),
+                    ("mixed", "".join(character.upper() if index % 2 else character
+                                       for index, character in enumerate(digest))))
+        for label, checksum in variants:
+            (cwd / "hangar.lock").write_bytes(canonical.replace(digest.encode(), checksum.encode()))
+            before = snapshot(cwd)
+            code, output = recorder.run([str(invocation[1]), *invocation[2], "audit"],
+                                        cwd, env, f"{invocation[0]}:checksum:{label}:audit")
+            assert code == 0 and "ALL CLEAR" in output and "1 packages verified" in output, output
+            assert "INTEGRITY FAILURE" not in output and "Reinstalling" not in output, output
+            assert snapshot(cwd) == before and report.read_bytes() == b"", output
+            code, output = recorder.run([str(invocation[1]), *invocation[2], "audit", "--fix"],
+                                        cwd, env, f"{invocation[0]}:checksum:{label}:audit-fix")
+            assert code == 0 and "ALL CLEAR" in output and "1 packages verified" in output, output
+            assert "INTEGRITY FAILURE" not in output and "Reinstalling" not in output, output
+            after = snapshot(cwd)
+            assert {key: value for key, value in after.items() if key != "hangar.lock"} == {
+                key: value for key, value in before.items() if key != "hangar.lock"}, output
+            assert (cwd / "hangar.lock").read_bytes() == canonical and report.read_bytes() == b"", output
+        print(f"native:{invocation[0]}:checksum-case:legacy-success", flush=True)
+
         # Explicit toolchain bootstrap does not use the project's lock. A
         # controlled local installer exits 23 and records actual execution.
         marker = root / f"{invocation[0]}-toolchain-marker"
@@ -334,10 +366,9 @@ def main() -> int:
         for protected in protected_inputs:
             assert root != protected and root not in protected.parents and protected not in root.parents, (root, protected)
         root.mkdir(parents=True, exist_ok=False)
-        context = None
     else:
-        context = tempfile.TemporaryDirectory(prefix="freak-hangar-preservation-")
-        root = Path(context.name)
+        # Retain raw commands and failed receipts from local default runs too.
+        root = Path(tempfile.mkdtemp(prefix="freak-hangar-preservation-"))
     private = WindowsPrivateFixture(root)
     # POSIX permission-denial controls may execute as an unprivileged child.
     root.chmod(0o755)
@@ -360,9 +391,9 @@ def main() -> int:
         receipt.update(status="FAIL", error=repr(error))
         raise
     finally:
-        (root / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
-        if context:
-            context.cleanup()
+        receipt_path = root / "receipt.json"
+        receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+        print(f"Hangar preservation evidence: {receipt_path}", flush=True)
     return 0
 
 

@@ -154,7 +154,7 @@ task lock_legacy_entry(name: word, version: word, source: word, checksum: word) 
             i += 1
         }
     }
-    lock_add_entry(name, version, source, checksum)
+    lock_add_entry(name, version, source, checksum.to_lower())
     give back true
 }
 

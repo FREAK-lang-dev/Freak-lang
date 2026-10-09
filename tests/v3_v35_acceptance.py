@@ -15,7 +15,9 @@ import os
 from pathlib import Path, PurePosixPath
 import queue
 import re
+import select
 import shutil
+import signal
 import socket
 import subprocess
 import tarfile
@@ -66,23 +68,126 @@ def archive_payload(archive: Path) -> dict[str, bytes]:
     return files
 
 
+def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
+                prefix: Path, records: list[dict], expected: int = 0,
+                timeout: float = 180) -> subprocess.CompletedProcess[bytes]:
+    """Retain the original timeout and partial channels after bounded cleanup."""
+    began = time.monotonic()
+    record = {'case': label, 'argv': command, 'cwd': str(cwd), 'expected': expected,
+              'timeout_seconds': timeout}
+    records.append(record)
+    stdout = stderr = b''
+    child = None
+    try:
+        child = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, start_new_session=os.name != 'nt')
+        record.update(pid=child.pid, process_tree='taskkill /T' if os.name == 'nt' else 'owned process group')
+        try:
+            stdout, stderr = child.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as original:
+            record['timed_out'] = True
+            stdout, stderr = original.output or b'', original.stderr or b''
+            cleanup_errors = []
+            try:
+                if os.name == 'nt':
+                    cleanup = subprocess.run(['taskkill', '/PID', str(child.pid), '/T', '/F'],
+                                             capture_output=True, timeout=10)
+                    record['tree_cleanup'] = {'returncode': cleanup.returncode,
+                                              'stdout_hex': cleanup.stdout.hex(),
+                                              'stderr_hex': cleanup.stderr.hex()}
+                    if cleanup.returncode != 0:
+                        cleanup_errors.append('taskkill did not confirm tree termination')
+                else:
+                    os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except Exception as error:
+                cleanup_errors.append(repr(error))
+            try:
+                if child.poll() is None:
+                    child.kill()
+                stdout, stderr = child.communicate(timeout=10)
+            except subprocess.TimeoutExpired as recovery:
+                # communicate's partial bytes include the earlier capture.
+                stdout = recovery.output if recovery.output is not None else stdout
+                stderr = recovery.stderr if recovery.stderr is not None else stderr
+                cleanup_errors.append('recovery communicate exceeded 10 seconds')
+                if os.name != 'nt':
+                    for stream in (child.stdout, child.stderr):
+                        if stream is not None:
+                            stream.close()
+                else:
+                    # Windows communicate uses daemon readers. A descendant
+                    # may still hold the write end when taskkill fails; close
+                    # would wait on the active reader's BufferedReader lock.
+                    # The readers retain their streams until EOF. Keep this
+                    # recovery bounded and report the failed cleanup above.
+                    record['reader_cleanup'] = 'deferred until inherited pipes reach EOF'
+                try:
+                    child.wait(timeout=5)
+                except Exception as error:
+                    cleanup_errors.append(repr(error))
+            except Exception as error:
+                cleanup_errors.append(repr(error))
+            record['cleanup_errors'] = cleanup_errors
+            original.output, original.stderr = stdout, stderr
+            raise
+    finally:
+        prefix.with_suffix('.stdout').write_bytes(stdout)
+        prefix.with_suffix('.stderr').write_bytes(stderr)
+        record.update(returncode=child.returncode if child is not None else None,
+                      elapsed_seconds=time.monotonic() - began,
+                      stdout_sha256=hashlib.sha256(stdout).hexdigest(),
+                      stderr_sha256=hashlib.sha256(stderr).hexdigest())
+    assert child.returncode == expected, (label, child.returncode, stdout[-4000:], stderr[-4000:])
+    return subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
+
+
+ABSOLUTE_TRICKLE_WIRE = b'GET /sequences/arithmetic HTTP/1.1\r\nHost: trickle'
+ABSOLUTE_TRICKLE_CUTS = tuple(range(1, 33))
+ABSOLUTE_TRICKLE_DELAY = 0.1
+
+
+def assert_absolute_header_deadline(elapsed: float) -> None:
+    assert 0.8 <= elapsed < 2, ('absolute header deadline', elapsed)
+
+
 def request(port: int, wire: bytes, *, head: bool = False,
             cuts: tuple[int, ...] = (), end_stream: bool = False,
             delay: float = 0, transcript: Path | None = None,
             ) -> tuple[int, dict[bytes, bytes], bytes, bytes, str]:
     response = bytearray()
     termination = 'incomplete'
+    start = 0
     try:
         with socket.create_connection(('127.0.0.1', port), timeout=10) as peer:
             peer.settimeout(10)
             start = 0
             for end in (*cuts, len(wire)):
                 assert start <= end <= len(wire)
-                peer.sendall(wire[start:end])
+                try:
+                    peer.sendall(wire[start:end])
+                except (BrokenPipeError, ConnectionResetError):
+                    termination = 'send-reset'
+                    break
                 start = end
                 if delay and start < len(wire):
-                    time.sleep(delay)
-            if end_stream:
+                    # A complete early refusal ends the trickle immediately;
+                    # do not measure the sender's remaining sleep schedule.
+                    readable, _, _ = select.select([peer], [], [], delay)
+                    if readable:
+                        try:
+                            part = peer.recv(65536)
+                        except ConnectionResetError:
+                            termination = 'reset'
+                            break
+                        if not part:
+                            termination = 'eof'
+                            break
+                        response.extend(part)
+                        assert len(response) <= 1048576, 'unbounded response'
+                        break
+            if end_stream and start == len(wire):
                 peer.shutdown(socket.SHUT_WR)
             while True:
                 try:
@@ -101,7 +206,7 @@ def request(port: int, wire: bytes, *, head: bool = False,
         if transcript is not None:
             transcript.with_suffix('.request').write_bytes(wire)
             transcript.with_suffix('.response').write_bytes(response)
-            transcript.with_suffix('.transport.json').write_text(json.dumps({'termination': termination, 'response_bytes': len(response)}) + '\n')
+            transcript.with_suffix('.transport.json').write_text(json.dumps({'termination': termination, 'response_bytes': len(response), 'request_bytes_sent_lower_bound': start}) + '\n')
     header, boundary, body = bytes(response).partition(b'\r\n\r\n')
     assert boundary, response
     lines = header.split(b'\r\n')
@@ -251,27 +356,8 @@ def main() -> int:
             timeout: int = 180) -> subprocess.CompletedProcess[bytes]:
         serial = len(report['commands']) + 1
         prefix = logs / f'{serial:03}-{label}'
-        began = time.monotonic()
-        child = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        try:
-            stdout, stderr = child.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            child.kill()
-            stdout, stderr = child.communicate(timeout=10)
-            prefix.with_suffix('.stdout').write_bytes(stdout)
-            prefix.with_suffix('.stderr').write_bytes(stderr)
-            report['commands'].append({'case': label, 'argv': command, 'cwd': str(cwd),
-                                       'pid': child.pid, 'returncode': child.returncode, 'timed_out': True})
-            raise
-        prefix.with_suffix('.stdout').write_bytes(stdout)
-        prefix.with_suffix('.stderr').write_bytes(stderr)
-        report['commands'].append({'case': label, 'argv': command, 'cwd': str(cwd), 'pid': child.pid,
-                                   'returncode': child.returncode, 'expected': expected,
-                                   'elapsed_seconds': time.monotonic() - began,
-                                   'stdout_sha256': hashlib.sha256(stdout).hexdigest(),
-                                   'stderr_sha256': hashlib.sha256(stderr).hexdigest()})
-        assert child.returncode == expected, (label, child.returncode, stdout[-4000:], stderr[-4000:])
-        return subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
+        return run_command(command, cwd=cwd, env=env, label=label, prefix=prefix,
+                           records=report['commands'], expected=expected, timeout=timeout)
 
     try:
         files = archive_payload(archive)
@@ -403,7 +489,10 @@ def main() -> int:
                     adverse = [
                         ('premature-body', echo_header + b'8\r\n\r\na', 400, {'end_stream': True}),
                         ('idle-peer', b'', 408, {}),
-                        ('absolute-trickle', b'GET /', 408, {'cuts': (1, 2, 3, 4), 'delay': 0.22}),
+                        # An idle-only model takes at least 3.45 seconds;
+                        # the absolute 1-second deadline must respond below 2.
+                        ('absolute-trickle', ABSOLUTE_TRICKLE_WIRE, 408,
+                         {'cuts': ABSOLUTE_TRICKLE_CUTS, 'delay': ABSOLUTE_TRICKLE_DELAY}),
                     ]
                     total = len(controls) + len(adverse) + args.soak
                     child = subprocess.Popen([str(binary), '--requests', str(total)], cwd=unrelated, env=dict(env, FREAK_HTTP_PORT='0'), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -440,7 +529,7 @@ def main() -> int:
                                                  'response_sha256': hashlib.sha256(raw).hexdigest()})
                             assert status == expected, (label, status, expected, body)
                             if label == 'absolute-trickle':
-                                assert 0.8 <= elapsed < 2, ('absolute header deadline', elapsed)
+                                assert_absolute_header_deadline(elapsed)
                         for index in range(args.soak):
                             status, _, body, raw, termination = request(port, controls[4][0])
                             soak_digest.update(raw)

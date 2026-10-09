@@ -275,6 +275,7 @@ jobs:
           subprocess.run([sys.executable, "-B", "-u", "tests/test_v3_build_profiles_helpers.py"], check=True)
           PY
           python -B -u tests/test_v3_v35_bootstrap_native_helpers.py
+          python -B -u tests/test_v3_v35_acceptance_helpers.py
           python -B -u tests/test_v3_performance_process_state.py
           python -B -u tests/test_v3_performance_platform_helpers.py
           python -B -u tests/v3_std_marker_transport.py
@@ -287,15 +288,25 @@ jobs:
         shell: bash
         run: >-
           python -B -u tests/v3_v35_run_freshness.py ./build/freak$EXT
-          --clang "$(command -v clang)" --backend both
+          --clang "$(command -v "clang$EXT")" --backend both
           --evidence "$RUNNER_TEMP/v35-run-graph-freshness.json"
+
+      - name: Upload graph freshness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v35-run-graph-freshness-${{ runner.os }}
+          path: |
+            ${{ runner.temp }}/v35-run-graph-freshness.json
+            ${{ runner.temp }}/v35-run-graph-freshness-raw/*.raw
+          if-no-files-found: ignore
 
       - name: Test - V3 legacy Hangar lock preservation
         shell: bash
         run: >-
           python -B -u tests/v3_v35_hangar_lock_preservation.py
           --freak ./build/freak$EXT --hangar ./build/hangar$EXT
-          --clang "$(command -v clang)"
+          --clang "$(command -v "clang$EXT")"
           --probe-root "$RUNNER_TEMP/v35-hangar-preservation"
 
       - name: Upload Hangar preservation evidence
@@ -625,6 +636,7 @@ jobs:
           subprocess.run([sys.executable, "-B", "-u", "tests/test_v3_build_profiles_helpers.py"], check=True)
           PY
           python -B -u tests/test_v3_v35_bootstrap_native_helpers.py
+          python -B -u tests/test_v3_v35_acceptance_helpers.py
           python -B -u tests/test_v3_performance_process_state.py
           python -B -u tests/test_v3_performance_platform_helpers.py
           python -B -u tests/v3_std_marker_transport.py
@@ -637,15 +649,25 @@ jobs:
         shell: bash
         run: >-
           python -B -u tests/v3_v35_run_freshness.py ./build/freak$EXT
-          --clang "$(command -v clang)" --backend both
+          --clang "$(command -v "clang$EXT")" --backend both
           --evidence "$RUNNER_TEMP/v35-run-graph-freshness.json"
+
+      - name: Upload graph freshness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v35-run-graph-freshness-${{ runner.os }}
+          path: |
+            ${{ runner.temp }}/v35-run-graph-freshness.json
+            ${{ runner.temp }}/v35-run-graph-freshness-raw/*.raw
+          if-no-files-found: ignore
 
       - name: Test - V3 legacy Hangar lock preservation
         shell: bash
         run: >-
           python -B -u tests/v3_v35_hangar_lock_preservation.py
           --freak ./build/freak$EXT --hangar ./build/hangar$EXT
-          --clang "$(command -v clang)"
+          --clang "$(command -v "clang$EXT")"
           --probe-root "$RUNNER_TEMP/v35-hangar-preservation"
 
       - name: Upload Hangar preservation evidence
