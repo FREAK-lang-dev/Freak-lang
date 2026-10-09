@@ -119,6 +119,25 @@ class RunFreshnessHelpers(unittest.TestCase):
             self.assert_raw(record, 'stdout', b'')
             self.assert_raw(record, 'stderr', b'')
 
+    def test_native_result_line_endings_preserve_raw_and_exact_values(self):
+        for ending in (b'\n', b'\r\n'):
+            with self.subTest(ending=ending), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                report, raw, save, _ = self.setup_recorder(root)
+                expected = b'BUILD SUCCESSFUL' + ending + b'PKG_RUN=42' + ending + ending + b'OK DONE' + ending
+                argv = [sys.executable, '-c', f'import sys; sys.stdout.buffer.write({expected!r})']
+                code, output = freshness.run_freshness_command('native-result', argv, root, os.environ.copy(),
+                                                              report=report, raw=raw, save=save, timeout=3)
+                self.assertEqual(code, 0)
+                self.assertEqual(freshness.run_result_values(output), [b'42'])
+                self.assert_raw(self.record(root), 'stdout', expected)
+        self.assertEqual(freshness.run_result_values(b'PKG_RUN=42\r\nPKG_RUN=42\n'), [b'42', b'42'])
+        self.assertEqual(freshness.run_result_values(b'PKG_RUN=420\r\n'), [b'420'])
+        for malformed in (b'xPKG_RUN=42\r\n', b'PKG_RUN=42 trailing\r\n',
+                          b'PKG_RUN=42\r\r\n', b'PKG_RUN=-42\r\n', b'PKG_RUN=\r\n'):
+            with self.subTest(malformed=malformed):
+                self.assertEqual(freshness.run_result_values(malformed), [])
+
     def test_live_timeout_retains_original_exception_partial_channels_and_pid(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

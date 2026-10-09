@@ -53,6 +53,11 @@ def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def run_result_values(output: bytes) -> list[bytes]:
+    """Read exact result lines with native LF or CRLF transport endings."""
+    return re.findall(rb'^PKG_RUN=(\d+)\r?$', output, re.M)
+
+
 def evidence_targets(evidence: Path, protected: tuple[Path, ...]) -> tuple[Path, Path]:
     """Reject output/input overlap before creating directories or receipts."""
     outputs = (evidence.absolute(), evidence.absolute().parent / (evidence.stem + '-raw'))
@@ -225,7 +230,7 @@ def main() -> int:
                     if value is None:
                         assert code == 1 and rejection in output and b'PKG_RUN=' not in output and b'RUNNING' not in output and b'run cache hit' not in output, output
                     else:
-                        assert code == 0 and re.findall(rb'^PKG_RUN=(\d+)$', output, re.M) == [str(value).encode()], output
+                        assert code == 0 and run_result_values(output) == [str(value).encode()], output
                         assert (b'run cache hit' in output) is hit, output
                     report['checks'].append(f'{backend}:{label}')
                     report['commands'][-1]['live_sources'] = {name: sha(path) if path.exists() else None for name, path in files.items()}
