@@ -445,8 +445,9 @@ constructors. Frontend/MIR and snapshot acceptance does not extend existing
 aggregate-constructor or global-value native lowering limits.
 
 Development V4 closes a completed `when` or `check route` join when every
-arm terminates. Following source is still checked for name, type, ownership
-and coverage errors. A live fallthrough keeps its continuation, and nested
+arm terminates. Following source retains name, type, call, pattern and coverage
+diagnostics; ownership checks remain active on the published graph.
+A live fallthrough keeps its continuation, and nested
 `break`/`continue` edges keep their loop targets. This construction rule does
 not relax live CFG validation or snapshot admission.
 
