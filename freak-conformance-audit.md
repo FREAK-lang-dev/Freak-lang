@@ -24,12 +24,19 @@ loop CFG, cleanup, break, continue and early-return rules. Lex/Parse own keyword
 and declaration-name validation; Built-MIR construction owns the positive
 condition branch and reuses the existing repeat-until representation with
 opposite polarity. No snapshot format or compiler ownership boundary changes.
-The active `v35_while_contract_smoke.fk` covers 38 isolated frontend/MIR and
-restoration contracts. `v35_native_while_execute_smoke.fk` covers the preserved
-native example and a separate zero-pass, nested-control and short-circuit
-example, including exact restored LLVM modules and native output. Counted
-forms, ungrouped multiline condition continuation, general backend parity and
-release/platform acceptance remain separate gates. The frozen bootstrap pin
+The active `v35_while_contract_smoke.fk` covers 82 isolated frontend/MIR and
+restoration contracts. Only exact lowercase `while` is reserved; names such as
+`While` and `WHILE` keep their spelling in supported declaration positions.
+Loop-header scanning distinguishes registered constructor payload braces from
+the loop body, including supported Boolean comparisons against constructors.
+The existing two native examples retain their zero-pass, nested-control and
+short-circuit checks. `v35_native_while_casing_execute_smoke.fk` adds three
+actual native programs covering task/local/parameter names, aliases, and
+fixed/grounded locals, with exact restored LLVM modules and output. Aggregate
+constructor and global-value native lowering retain their existing limits;
+two launch-spelling cases are explicitly parser-only. Counted forms, ungrouped
+multiline condition continuation, general backend parity and release/platform
+acceptance remain separate gates. The frozen bootstrap pin
 and its 28-row inventory remain unchanged.
 
 **V3 source binding and ticket-word correctness (2026-10-07):** source package

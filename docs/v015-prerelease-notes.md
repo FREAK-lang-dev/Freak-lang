@@ -49,7 +49,12 @@ labelled, and full bootstrap, syntax, platform and release gates stay separate.
 The frozen V4 bootstrap source profile remains separate from current V4
 development syntax. Development V4 now supports condition-first bool loops
 with `while condition` and `repeat while condition`, including existing
-break, continue, cleanup and early-return rules. Counted-loop parity and
+break, continue, cleanup and early-return rules. Only exact lowercase `while`
+is reserved; supported names such as `While` and `WHILE` are preserved.
+Loop headers now distinguish known constructor payload braces from the body,
+with Boolean comparison coverage in frontend/MIR/snapshots and separate
+native scalar casing/alias/local controls. Aggregate constructors and global
+native values retain their existing lowering limits. Counted-loop parity and
 ungrouped multiline condition continuation remain separate work.
 Current V4 HIR and MIR snapshots advance to v12 and v10
 to retain binding modifiers; older snapshots must be rebuilt. This PR does
