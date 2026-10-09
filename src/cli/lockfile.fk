@@ -145,6 +145,8 @@ task lock_legacy_entry(name: word, version: word, source: word, checksum: word) 
     if not hangar_valid_package_name(name) or version == "" or source == "" {
         give back lock_fail("partial legacy package entry: name, version and source are required")
     }
+    if not hangar_valid_revision(version) { give back lock_fail("invalid legacy Git revision") }
+    if not hangar_valid_git_source(source) { give back lock_fail("invalid legacy Git source") }
     if lock_has(name) { give back lock_fail("duplicate legacy package name") }
     if checksum != "" {
         if checksum.length() != 64 { give back lock_fail("invalid legacy SHA-256") }
@@ -231,8 +233,17 @@ task lock_load(path: word) -> bool {
         fs::result_release(directory)
         give back false
     }
-    pilot read = fs::read_relative_bytes_limit_ticket(directory, package_leaf_path(path), 1048576)
+    pilot loaded = lock_load_ticket(directory, package_leaf_path(path))
     fs::result_release(directory)
+    give back loaded
+}
+
+-- Writers re-admit through the project anchor while graph.lock is held.
+task lock_load_ticket(directory: int, name: word) -> bool {
+    lock_clear()
+    lock_error = ""
+    lock_loaded = false
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, name, 1048576)
     if not fs::result_ok(read) {
         if not fs::result_missing(read) { lock_error = "cannot read legacy lock: " + fs::result_error(read) }
         fs::result_release(read)

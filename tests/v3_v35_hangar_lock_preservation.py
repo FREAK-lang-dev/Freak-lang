@@ -7,6 +7,7 @@ before effects; this gate does not claim graph-aware install/update support.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -28,6 +29,12 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 PREFIX = "  Hangar legacy command refused hangar.lock: "
 SUFFIX = ("  Existing project state was preserved; graph-aware Hangar commands "
           "are required for lock v2.\n")
+WRITER_PREFIX = "  Hangar legacy writer refused project graph: "
+WRITERS = (
+    ("add", "missing", "https://example.invalid/missing"),
+    ("install",), ("update",), ("update", "left"),
+    ("remove", "left"), ("audit", "--fix"),
+)
 COMMANDS = (
     ("add", "missing", "https://example.invalid/missing"),
     ("install",), ("update",), ("update", "left"),
@@ -62,6 +69,16 @@ def snapshot(root: Path, readable_handles: dict[Path, int] | None = None) -> dic
                 digest = sha(path)
             result[relative] = ["file", info.st_size, stat.S_IMODE(info.st_mode), digest]
     return result
+
+
+def comparison_output(stdout: bytes, stderr: bytes) -> str:
+    """Compare LF/CRLF transport after raw channels have been retained.
+
+    Normalize each channel separately so a CR/LF split across channels cannot
+    manufacture a normalized line ending. Preserve lone CR and all other text.
+    """
+    transported = stdout.replace(b"\r\n", b"\n") + stderr.replace(b"\r\n", b"\n")
+    return ANSI.sub("", transported.decode("utf-8", "replace"))
 
 
 class Recorder:
@@ -100,7 +117,7 @@ class Recorder:
         result = run_command(argv, cwd=cwd, env=env, label=label, prefix=prefix,
                              records=self.records, expected=None, timeout=timeout,
                              preexec_fn=unprivileged if demote else None, on_record=retain)
-        return result.returncode, ANSI.sub("", (result.stdout + result.stderr).decode("utf-8", "replace"))
+        return result.returncode, comparison_output(result.stdout, result.stderr)
 
 
 def fixtures(root: Path, clang: Path, recorder: Recorder, env: dict,
@@ -163,6 +180,82 @@ def rejected(root: Path, invocation: tuple[str, Path, list[str]], recorder: Reco
         assert snapshot(root, readable_handles) == before, (label, args, "project generation changed")
         assert report.read_bytes() == b"", (label, args, "Git was attempted")
     print(f"native:{name}:{label}:preserved:{len(COMMANDS)}", flush=True)
+
+
+@contextlib.contextmanager
+def held_graph_lock(path: Path):
+    # The runtime creates the lock file first, with its checked ownership.
+    # POSIX uses the same flock. On Windows the live read/write handle conflicts
+    # with the runtime's exclusive NtCreateFile share mode; byte locks do not.
+    with path.open("rb+") as handle:
+        if os.name != "nt":
+            import fcntl
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+
+
+def writer_controls(root: Path, invocation: tuple[str, Path, list[str]],
+                    recorder: Recorder, env: dict, report: Path,
+                    private: WindowsPrivateFixture) -> None:
+    name, binary, prefix = invocation
+    cwd = root / f"{name}-writer-lock"
+    project(cwd, LEGACY.encode(), private)
+    original = snapshot(cwd)
+    # A real early body return seeds the native owned private directory/file.
+    code, output = recorder.run([str(binary), *prefix, "remove", "absent"], cwd, env,
+                                f"{name}:writer:seed-native-lock")
+    assert code == 1 and "Package 'absent' is not in hangar.toml" in output, output
+    assert "ownership audit" not in output and report.read_bytes() == b"", output
+    seeded = snapshot(cwd)
+    assert set(seeded) - set(original) == {".freak", ".freak/graph.lock"}, seeded
+    assert {key: seeded[key] for key in original} == original
+    graph = cwd / ".freak/graph.lock"
+    assert graph.is_file() and graph.read_bytes() == b""
+    with held_graph_lock(graph):
+        before = snapshot(cwd)
+        for index, command in enumerate(WRITERS):
+            code, output = recorder.run([str(binary), *prefix, *command], cwd, env,
+                                        f"{name}:writer:held:{index}")
+            assert code == 1 and output == (WRITER_PREFIX + "cannot hold graph.lock: " +
+                "directory transaction lock is held or not a private regular file\n"), (command, output)
+            assert snapshot(cwd) == before and report.read_bytes() == b"", (command, output)
+        for command in (("audit",), ("outdated",)):
+            code, output = recorder.run([str(binary), *prefix, *command], cwd, env,
+                                        f"{name}:writer:held-read-only:{command[0]}")
+            assert code == 0 and WRITER_PREFIX not in output and "ownership audit" not in output, output
+            assert snapshot(cwd) == before and report.read_bytes() == b"", output
+    # Presence alone does not exclude writers; an existing free lock is usable.
+    code, output = recorder.run([str(binary), *prefix, "audit", "--fix"], cwd, env,
+                                f"{name}:writer:free-existing-lock")
+    assert code == 0 and "Computed SHA-256:" in output and "ownership audit" not in output, output
+    assert report.read_bytes() == b"" and graph.read_bytes() == b""
+    with held_graph_lock(graph):
+        pass
+
+    # Refuse retained journals under the held lock without trying recovery.
+    marker = cwd / ".freak/transaction.marker"
+    marker.write_bytes(b"retained graph transaction, deliberately uninterpreted\n")
+    backup = cwd / ".freak/transaction.manifest.before"
+    backup.write_bytes(b"retained manifest before image\n")
+    before = snapshot(cwd)
+    for index, command in enumerate(WRITERS):
+        code, output = recorder.run([str(binary), *prefix, *command], cwd, env,
+                                    f"{name}:writer:pending-journal:{index}")
+        assert code == 1 and output == (WRITER_PREFIX +
+            "pending or unreadable graph transaction.marker; graph-aware recovery is required\n"), (command, output)
+        assert snapshot(cwd) == before and report.read_bytes() == b"", (command, output)
+    # A non-file marker must also fail closed and retain its contents.
+    marker.unlink()
+    marker.mkdir()
+    private.claim_fresh_directories(marker)
+    (marker / "retained").write_bytes(b"not a journal file\n")
+    before = snapshot(cwd)
+    code, output = recorder.run([str(binary), *prefix, "remove", "left"], cwd, env,
+                                f"{name}:writer:non-file-journal")
+    assert code == 1 and output == (WRITER_PREFIX +
+        "pending or unreadable graph transaction.marker; graph-aware recovery is required\n"), output
+    assert snapshot(cwd) == before and report.read_bytes() == b"", output
+    print(f"native:{name}:writer:common-held-lock-and-journal:preserved", flush=True)
 
 
 def execute(args, root: Path, recorder: Recorder, receipt: dict,
@@ -246,10 +339,26 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
         "oversize": (b"#" + b"x" * 1048576, "cannot read legacy lock:"),
     }
     receipt["rejected_formats"] = list(cases)
+    # These are additional controls, leaving every prior format control intact.
+    right = '[[package]]\nname = "right"\nversion = "0.1.0"\nsource = "owner/right"\n'
+    git_fields = {
+        "invalid-revision": (LEGACY.replace('"0.1.0"', '"--unsafe"').encode(), "invalid legacy Git revision"),
+        "invalid-source": (LEGACY.replace('"owner/left"', '"owner/left#literal"').encode(), "invalid legacy Git source"),
+        "second-invalid-revision": ((LEGACY + right.replace('"0.1.0"', '"--unsafe"')).encode(), "invalid legacy Git revision"),
+        "second-invalid-source": ((LEGACY + right.replace('"owner/right"', '"owner/right#literal"')).encode(), "invalid legacy Git source"),
+    }
+    receipt["rejected_git_fields"] = list(git_fields)
     for invocation in invocations:
-        for label, (contents, expected) in cases.items():
+        for label, (contents, expected) in (*cases.items(), *git_fields.items()):
             cwd = root / f"{invocation[0]}-{label}"
             project(cwd, contents, private)
+            if label.startswith("second-invalid-"):
+                # No first package is present. If admission is late, installation
+                # reaches the Git witness before the malformed second record.
+                shutil.rmtree(cwd / "hangar_modules/left")
+                manifest = cwd / "hangar.toml"
+                manifest.write_text(manifest.read_text() +
+                    'right = { git = "owner/right", version = "0.1.0" }\n')
             rejected(cwd, invocation, recorder, env, report, expected, label)
         cwd = root / f"{invocation[0]}-non-file"
         project(cwd, None, private)
@@ -271,8 +380,8 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
         for label, contents in (("empty-generation", b"# Generated empty legacy generation\n\n"),
                                 ("optional-checksum", LEGACY.encode()),
                                 ("empty-checksum", (LEGACY + 'sha256 = ""\n').encode()),
-                                ("quoted-source", (LEGACY.replace('"owner/left"', "'owner/left#literal'") +
-                                 '[[package]]\nname = "keeper"\nversion = "0.1.0"\nsource = "owner/\\\"quoted\\\""\n').encode())):
+                                ("quoted-source", (LEGACY.replace('"owner/left"', "'https://example.invalid/owner/left#literal'") +
+                                 '[[package]]\nname = "keeper"\nversion = "0.1.0"\nsource = "https://example.invalid/owner/\\\"quoted\\\"#literal"\n').encode())):
             cwd = root / f"{invocation[0]}-{label}"
             project(cwd, contents, private)
             if label == "quoted-source":
@@ -291,7 +400,7 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
             assert "left" not in tomllib.loads((cwd / "hangar.toml").read_text()).get("dependencies", {})
             assert not (cwd / "hangar_modules" / "left").exists()
             packages = tomllib.loads((cwd / "hangar.lock").read_text()).get("package", [])
-            assert packages == ([{"name": "keeper", "version": "0.1.0", "source": 'owner/"quoted"', "sha256": ""}]
+            assert packages == ([{"name": "keeper", "version": "0.1.0", "source": 'https://example.invalid/owner/"quoted"#literal', "sha256": ""}]
                                 if label == "quoted-source" else []), packages
             if label == "quoted-source":
                 assert (cwd / "hangar_modules/keeper/keeper.fk").read_text() == "-- retained second legacy package\n"
@@ -329,6 +438,8 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
                 key: value for key, value in before.items() if key != "hangar.lock"}, output
             assert (cwd / "hangar.lock").read_bytes() == canonical and report.read_bytes() == b"", output
         print(f"native:{invocation[0]}:checksum-case:legacy-success", flush=True)
+
+        writer_controls(root, invocation, recorder, env, report, private)
 
         # Explicit toolchain bootstrap does not use the project's lock. A
         # controlled local installer exits 23 and records actual execution.

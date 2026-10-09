@@ -23,12 +23,79 @@ task hangar_arg(idx: int) -> word {
 -- before manifest edits, fetching, verification claims or working-tree removal.
 task hangar_legacy_lock_ready(project_dir: word) -> bool {
     lock_load(project_dir + "/hangar.lock")
+    give back hangar_legacy_lock_admitted()
+}
+
+task hangar_legacy_lock_admitted() -> bool {
     if lock_error != "" {
         say "  Hangar legacy command refused hangar.lock: " + lock_error
         say "  Existing project state was preserved; graph-aware Hangar commands are required for lock v2."
         give back false
     }
     give back true
+}
+
+task hangar_legacy_writer_refused(detail: word) -> int {
+    say "  Hangar legacy writer refused project graph: " + detail
+    give back 1
+}
+
+-- All legacy writers use the graph transaction's checked private directory
+-- and OS lock. Keep every ticket local, and release after the admitted body
+-- returns, including its early error paths. Read-only commands do not enter.
+task hangar_legacy_write(project_dir: word, operation: word, pkg_name: word, repo: word, ver: word) -> int {
+    -- Reject an invalid existing generation before creating private files.
+    if not hangar_legacy_lock_ready(project_dir) { give back 1 }
+    pilot project = fs::open_dir_ticket(project_dir)
+    if not fs::result_ok(project) {
+        pilot detail = fs::result_error(project)
+        fs::result_release(project)
+        give back hangar_legacy_writer_refused("cannot anchor project: " + detail)
+    }
+    hangar_graph_error = ""
+    pilot private = package_private_directory(project, ".freak")
+    if private == 0 {
+        fs::result_release(project)
+        give back hangar_legacy_writer_refused(hangar_graph_error)
+    }
+    pilot held = fs::lock_dir_ticket(private, "graph.lock")
+    if not fs::result_ok(held) {
+        pilot detail = fs::result_error(held)
+        fs::result_release(held)
+        fs::result_release(private)
+        fs::result_release(project)
+        give back hangar_legacy_writer_refused("cannot hold graph.lock: " + detail)
+    }
+
+    -- The early read is not authority for a writer: re-read under the lock.
+    lock_load_ticket(project, "hangar.lock")
+    if not hangar_legacy_lock_admitted() {
+        fs::result_release(held)
+        fs::result_release(private)
+        fs::result_release(project)
+        give back 1
+    }
+    -- Only graph-aware recovery can interpret a retained transaction journal.
+    pilot marker = fs::read_relative_bytes_limit_ticket(private, "transaction.marker", 8192)
+    pilot pending = not fs::result_missing(marker)
+    fs::result_release(marker)
+    if pending {
+        fs::result_release(held)
+        fs::result_release(private)
+        fs::result_release(project)
+        give back hangar_legacy_writer_refused("pending or unreadable graph transaction.marker; graph-aware recovery is required")
+    }
+
+    pilot writer_code = 1
+    if operation == "add" { writer_code = hangar_add_admitted(project_dir, pkg_name, repo, ver) }
+    else if operation == "remove" { writer_code = hangar_remove_admitted(project_dir, pkg_name) }
+    else if operation == "install" { writer_code = hangar_install_admitted(project_dir) }
+    else if operation == "update" { writer_code = hangar_update_admitted(project_dir, pkg_name) }
+    else if operation == "audit-fix" { writer_code = hangar_audit_admitted(project_dir, true) }
+    fs::result_release(held)
+    fs::result_release(private)
+    fs::result_release(project)
+    give back writer_code
 }
 
 task hangar_init(project_dir: word) -> int {
@@ -83,7 +150,10 @@ task hangar_init(project_dir: word) -> int {
 }
 
 task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int {
-    if not hangar_legacy_lock_ready(project_dir) { give back 1 }
+    give back hangar_legacy_write(project_dir, "add", pkg_name, repo, ver)
+}
+
+task hangar_add_admitted(project_dir: word, pkg_name: word, repo: word, ver: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
         say "  No hangar.toml found. Run 'hangar init' first."
@@ -120,7 +190,10 @@ task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int
 }
 
 task hangar_remove(project_dir: word, pkg_name: word) -> int {
-    if not hangar_legacy_lock_ready(project_dir) { give back 1 }
+    give back hangar_legacy_write(project_dir, "remove", pkg_name, "", "")
+}
+
+task hangar_remove_admitted(project_dir: word, pkg_name: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
         say "  No hangar.toml found. Run 'hangar init' first."
@@ -339,7 +412,10 @@ task resolve_collect_transitive(project_dir: word, pkg_name: word, depth: int) -
 -- ===================== HANGAR INSTALL ================================
 
 task hangar_install(project_dir: word) -> int {
-    if not hangar_legacy_lock_ready(project_dir) { give back 1 }
+    give back hangar_legacy_write(project_dir, "install", "", "", "")
+}
+
+task hangar_install_admitted(project_dir: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
         say "  No hangar.toml found. Run 'hangar init' first."
@@ -470,7 +546,10 @@ task hangar_install(project_dir: word) -> int {
 -- ===================== HANGAR UPDATE =================================
 
 task hangar_update(project_dir: word, pkg_name: word) -> int {
-    if not hangar_legacy_lock_ready(project_dir) { give back 1 }
+    give back hangar_legacy_write(project_dir, "update", pkg_name, "", "")
+}
+
+task hangar_update_admitted(project_dir: word, pkg_name: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
         say "  No hangar.toml found. Run 'hangar init' first."
@@ -1717,7 +1796,12 @@ task hangar_verify_package(pkg_name: word, pkg_dir: word, expected_sha256: word)
 }
 
 task hangar_audit(project_dir: word, fix_mode: bool) -> int {
+    if fix_mode { give back hangar_legacy_write(project_dir, "audit-fix", "", "", "") }
     if not hangar_legacy_lock_ready(project_dir) { give back 1 }
+    give back hangar_audit_admitted(project_dir, false)
+}
+
+task hangar_audit_admitted(project_dir: word, fix_mode: bool) -> int {
     say ""
     say C_BMAGENTA + "  HANGAR AUDIT" + C_RESET
     say ""
