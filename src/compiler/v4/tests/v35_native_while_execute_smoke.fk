@@ -1,0 +1,42 @@
+-- One native source per process exercises while through the ownership seal.
+task v35_while_execute_assert(condition: bool, label: word) -> void {
+    if not condition { panic("v35-while-execute " + label) }
+}
+
+task v35_while_execute_run() -> void {
+    pilot source = fs::read(process::arg(1))
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    pilot codegen = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_borrowck_diag_count(borrow) + v4_codegen_llvm_diag_count(codegen)
+    if total != 0 {
+        say "v35-while-execute errors lex=" + word_from_int(v4_lex_diag_count(stream)) + " parse=" + word_from_int(v4_parse_diag_count(tree)) + " hir=" + word_from_int(v4_hir_diag_count(hir)) + " resolve=" + word_from_int(v4_resolve_diag_count(resolve)) + " ty=" + word_from_int(v4_ty_diag_count(ty)) + " mir=" + word_from_int(v4_mir_diag_count(mir)) + " borrow=" + word_from_int(v4_borrowck_diag_count(borrow)) + " codegen=" + word_from_int(v4_codegen_llvm_diag_count(codegen))
+        pilot row = 0
+        repeat until row >= v4_mir_diag_count(mir) { say v4_diag_message(v4_mir_diag(mir, row)); row += 1 }
+        row = 0
+        repeat until row >= v4_borrowck_diag_count(borrow) { say v4_diag_message(v4_borrowck_diag(borrow, row)); row += 1 }
+        say v4_codegen_llvm_native_module_error(codegen)
+    }
+    v35_while_execute_assert(total == 0, "clean frontend and ownership")
+    if total == 0 and v4_codegen_llvm_native_module_error(codegen) != "" { say v4_codegen_llvm_native_module_error(codegen) }
+    v35_while_execute_assert(v4_codegen_llvm_native_module_error(codegen) == "", "native contract")
+    pilot target = v4_target_spec_new(process::arg(2))
+    pilot before = v4_codegen_llvm_module_text(codegen, target)
+    v35_while_execute_assert(before != "", "nonempty module")
+    pilot snapshot = v4_mir_snapshot()
+    v35_while_execute_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "valid snapshot")
+    v35_while_execute_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "restored snapshot")
+    pilot restored = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v35_while_execute_assert(v4_codegen_llvm_module_text(restored, target) == before and v4_codegen_llvm_native_module_error(restored) == "", "restored module exact")
+    say "v35-while-execute diagnostics=0 owned=true native=true restore=true module-exact=true"
+    say "@@LLVM-MODULE-BEGIN"
+    say v4_codegen_llvm_module_text(restored, target)
+    say "@@LLVM-MODULE-END"
+}
+
+v35_while_execute_run()

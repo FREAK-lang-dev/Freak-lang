@@ -437,6 +437,20 @@ The condition of `repeat while` and `while` must be `bool`; it is tested
 before every pass, including the first. They share the existing loop rules
 for `break`, `continue`, lexical cleanup and early return.
 
+In current development V4, only exact lowercase `while` is reserved.
+`While` and `WHILE` remain identifiers in supported declaration positions.
+Loop headers distinguish a known shape/route constructor's payload braces
+from the body braces; supported Boolean comparisons can therefore use those
+constructors. Frontend/MIR and snapshot acceptance does not extend existing
+aggregate-constructor or global-value native lowering limits.
+
+Development V4 closes a completed `when` or `check route` join when every
+arm terminates. Following source retains name, type, call, pattern and coverage
+diagnostics; ownership checks remain active on the published graph.
+A live fallthrough keeps its continuation, and nested
+`break`/`continue` edges keep their loop targets. This construction rule does
+not relax live CFG validation or snapshot admission.
+
 The three V3.5 counted forms are experimental. Range bounds, an explicit
 positive `int` step and a repeat count are evaluated once in source order.
 `a..b` excludes `b`; `a..=b` includes it. Empty and backwards ranges run

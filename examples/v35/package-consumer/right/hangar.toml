@@ -1,0 +1,15 @@
+[project]
+name = "diamond-right"
+version = "0.1.0"
+kind = "lib"
+readme = "README.md"
+license_file = "LICENSE"
+
+[modules]
+value = "src/value.fk"
+
+[exports]
+value = "value::value"
+
+[dependencies]
+core = { path = "../core" }

@@ -1,0 +1,15 @@
+task named() -> int {
+    when 42 { bound -> give back bound }
+    say "dead named tail"
+    give back 99
+}
+task nested() -> int {
+    when 42 { outer -> { when outer { inner -> give back inner }; give back 99 } }
+    say "dead nested tail"
+    give back 99
+}
+task main() -> int {
+    if named() != 42 or nested() != 42 { give back 1 }
+    say "when-terminal-return-ok"
+    give back 42
+}

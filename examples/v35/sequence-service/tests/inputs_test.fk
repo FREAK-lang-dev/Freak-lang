@@ -1,0 +1,14 @@
+use std::test::{test_assert_int, test_assert_word}
+use self::inputs::{bounded_integer, query_value}
+use sequences::{arithmetic_value}
+
+task main() {
+    test_assert_int("negative decimal", -7, bounded_integer("-7"))
+    test_assert_int("maximum", 1000000, bounded_integer("1000000"))
+    test_assert_int("not zero on parse failure", 2147483648, bounded_integer("bad"))
+    test_assert_int("reject exponent", 2147483648, bounded_integer("1e3"))
+    test_assert_int("reject oversized", 2147483648, bounded_integer("1000001"))
+    test_assert_word("exact query", "3", query_value("start=2&step=3&count=5", "step"))
+    test_assert_word("duplicate query", "invalid duplicate", query_value("step=2&step=3", "step"))
+    test_assert_int("public package result", 14, arithmetic_value(2, 3, 4))
+}

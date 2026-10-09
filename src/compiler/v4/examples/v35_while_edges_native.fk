@@ -1,0 +1,34 @@
+task v35_while_edges_forbidden() -> bool {
+    say "unexpected-short-circuit"
+    give back false
+}
+
+task v35_while_edges_break() -> int {
+    pilot kept = "kept"
+    pilot count = 0
+    repeat while count < 3 {
+        pilot temporary = "temporary"
+        count += 1
+        if temporary.length() == 9 { break }
+    }count += 1
+    if kept.length() != 4 { give back 1 }
+    give back count
+}
+
+task v35_while_edges_boolean() -> int {
+    pilot count = 0
+    while false and v35_while_edges_forbidden() { count += 100 }
+    repeat while true or v35_while_edges_forbidden() { count += 1; break }
+    while (count < 3 and (true or v35_while_edges_forbidden()))
+    { count += 1 }
+    repeat while false or (count < 4 and true)
+    { count += 1 }
+    give back count
+}
+
+task main() -> int {
+    if v35_while_edges_break() != 2 { give back 1 }
+    if v35_while_edges_boolean() != 4 { give back 2 }
+    say "v35-while-edges-ok"
+    give back 42
+}

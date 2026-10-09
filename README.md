@@ -221,9 +221,13 @@ metacharacters. The program inherits terminal input and output; its exit status
 is returned by `freak run`.
 
 `freak run` reuses the adjacent `.freak-run-cache` sidecar only when the
-source, loaded standard library, resolved compiler executable/toolchain,
-backend flags, runtime inputs, and output-binary fingerprint still match. It
-revalidates that proof immediately before launch. Concurrent commands targeting
+bound source and loaded standard library, complete declared package graph,
+admitted lock/snapshot, resolved compiler executable/toolchain, backend flags,
+runtime inputs, and output-binary fingerprint still match. It validates graph
+options before consulting the cache and revalidates live inputs after a build
+and immediately before launch. Ordinary graph admission may normalize lock
+formatting; locked mode preserves and hashes the selected lock bytes.
+Concurrent commands targeting
 the same output are not serialized; use distinct outputs or avoid overlapping
 runs when another process may replace the binary after that final check.
 
@@ -325,6 +329,12 @@ package-name = { git = "https://example.com/owner/package.git", version = "lates
 ```
 
 Dependencies live in `hangar_modules/`. The layout is deliberately minimal.
+
+In the 0.15.0 development candidate, package-aware builds also produce a
+schema-v2 graph lock. Legacy `hangar add`, `install`, `update`, `remove`, `audit`
+and `outdated` refuse these locks before changing project state. They also
+refuse malformed or unreadable existing locks. Valid legacy locks remain
+supported. Graph-aware Hangar install/update commands are still pending.
 
 ---
 

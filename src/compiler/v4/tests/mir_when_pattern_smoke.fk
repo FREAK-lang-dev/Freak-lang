@@ -64,7 +64,8 @@ task v4_mir_when_pattern_bad_sequence_arity_source() -> word {
     give back src
 }
 
-task v4_mir_when_pattern_bad_duplicate_source() -> word {
+-- Identical names in different when arms belong to independent binding scopes.
+task v4_mir_when_pattern_independent_arm_bindings_source() -> word {
     pilot src = "task bad(pair: (int,int)) -> int {\n"
     src = src + "    when pair {\n"
     src = src + "        (7, left) -> give back 1\n"
@@ -225,16 +226,14 @@ say "when-pattern-bad-sequence-arity-diagnostics=" + word_from_int(v4_mir_diag_c
 say "when-pattern-bad-sequence-arity-message=" + v4_diag_message(v4_mir_diag(v4_mir_when_pattern_bad_sequence_arity_mir, 0))
 say "when-pattern-bad-sequence-arity-help=" + v4_diag_help(v4_mir_diag(v4_mir_when_pattern_bad_sequence_arity_mir, 0))
 
-pilot v4_mir_when_pattern_bad_duplicate_stream = v4_lex_text(5, v4_mir_when_pattern_bad_duplicate_source())
-pilot v4_mir_when_pattern_bad_duplicate_tree = v4_parse_stream(5, v4_mir_when_pattern_bad_duplicate_stream)
-pilot v4_mir_when_pattern_bad_duplicate_hir = v4_hir_lower_tree(5, v4_mir_when_pattern_bad_duplicate_tree)
-pilot v4_mir_when_pattern_bad_duplicate_resolve = v4_resolve_lower_hir(5, v4_mir_when_pattern_bad_duplicate_hir)
-pilot v4_mir_when_pattern_bad_duplicate_ty = v4_ty_lower_resolve(5, v4_mir_when_pattern_bad_duplicate_resolve)
-pilot v4_mir_when_pattern_bad_duplicate_mir = v4_mir_lower_ty(5, v4_mir_when_pattern_bad_duplicate_ty)
+pilot v4_mir_when_pattern_independent_arm_bindings_stream = v4_lex_text(5, v4_mir_when_pattern_independent_arm_bindings_source())
+pilot v4_mir_when_pattern_independent_arm_bindings_tree = v4_parse_stream(5, v4_mir_when_pattern_independent_arm_bindings_stream)
+pilot v4_mir_when_pattern_independent_arm_bindings_hir = v4_hir_lower_tree(5, v4_mir_when_pattern_independent_arm_bindings_tree)
+pilot v4_mir_when_pattern_independent_arm_bindings_resolve = v4_resolve_lower_hir(5, v4_mir_when_pattern_independent_arm_bindings_hir)
+pilot v4_mir_when_pattern_independent_arm_bindings_ty = v4_ty_lower_resolve(5, v4_mir_when_pattern_independent_arm_bindings_resolve)
+pilot v4_mir_when_pattern_independent_arm_bindings_mir = v4_mir_lower_ty(5, v4_mir_when_pattern_independent_arm_bindings_ty)
 
-say "when-pattern-bad-duplicate-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_when_pattern_bad_duplicate_mir))
-say "when-pattern-bad-duplicate-message=" + v4_diag_message(v4_mir_diag(v4_mir_when_pattern_bad_duplicate_mir, 0))
-say "when-pattern-bad-duplicate-help=" + v4_diag_help(v4_mir_diag(v4_mir_when_pattern_bad_duplicate_mir, 0))
+say "when-pattern-independent-arm-bindings-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_when_pattern_independent_arm_bindings_mir))
 
 pilot v4_mir_when_pattern_bad_type_stream = v4_lex_text(6, v4_mir_when_pattern_bad_type_source())
 pilot v4_mir_when_pattern_bad_type_tree = v4_parse_stream(6, v4_mir_when_pattern_bad_type_stream)

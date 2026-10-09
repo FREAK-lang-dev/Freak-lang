@@ -6,6 +6,24 @@ This directory is the implementation home for Maverick (00-unit), the V4 compile
 
 Bootstrap status: complete for the executable 00-Unit architecture slice. This proves the modular, query-backed V4 shape and its tooling protocols; it is not yet a full V3 replacement.
 
+Development V4 also accepts `while condition` and `repeat while condition`.
+Both test a bool before every pass and use the existing loop rules for
+`break`, `continue`, cleanup and early return. Parse owns reserved keyword and
+declaration-name validation; `freak_mir_build` constructs the positive loop
+condition using the existing repeat-until MIR representation with opposite
+polarity. Persistent MIR facts and snapshot formats remain unchanged.
+The active `v35_while_contract_smoke.fk` covers 82 isolated frontend/MIR and
+restoration contracts, including exact lowercase keywords and constructor
+payload braces in loop headers. `v35_native_while_execute_smoke.fk` covers two
+actual LLVM programs with zero passes, nested control and short-circuit
+conditions. `v35_native_while_casing_execute_smoke.fk` adds three actual LLVM
+programs with case-preserving scalar task, alias and local names. Aggregate
+constructors and global values retain their existing native lowering limits.
+Run their gate with
+`python src/compiler/v4/check_v4.py --smoke v35_while_contract --smoke v35_native_while_execute --smoke v35_native_while_casing_execute`.
+Counted forms and ungrouped multiline condition continuation remain separate;
+the frozen bootstrap source pin is unchanged.
+
 ## Bootstrap Completion Marker
 
 The **Bootstrap V4** finish line is considered met when all of the following remain true in the tree:
@@ -330,6 +348,24 @@ diagnostic continuation. Conditional statement ranges also preserve same-line
 tail statements, quoted tokens, nested branches and malformed-header recovery.
 The strict live, detached snapshot and native CFG validators remain active.
 Other source forms retain their existing statement-boundary behavior.
+
+Completed `when` and `check route` arms close joins using paths reachable from
+the dispatch block. A detached duplicate or covered arm cannot keep an otherwise
+terminal continuation executable. Following source retains private diagnostic
+checking and ordinary declaration metadata without executable initializers.
+Real fallthrough, nested loop targets, coverage, ownership and strict snapshot
+admission remain active; malformed construction or scratch failure conservatively
+keeps the continuation live.
+`v35_when_terminal_contract_smoke.fk` registers 77 isolated semantic contracts
+and three scalar LLVM/native examples under the generated fixture's original
+64-MiB/60-second/1024-handle ceiling. The native helper retains its existing
+128-MiB/10-second execution limits. Aggregate frontend/snapshot acceptance does
+not extend aggregate native lowering; semicolon-separated arms retain their
+existing syntax boundary.
+
+```powershell
+python -B -u src/compiler/v4/check_v4.py --smoke v35_when_terminal_contract
+```
 
 The two compiler fixtures have 33 process-isolated contracts under the
 original 60-second/64-MiB/1024-handle limits. The native gate runs 26 programs

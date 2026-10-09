@@ -1,0 +1,14 @@
+[project]
+name = "package-consumer"
+version = "0.1.0"
+kind = "app"
+entry = "src/main.fk"
+readme = "README.md"
+license_file = "LICENSE"
+
+[tests]
+diamond = "tests/diamond_test.fk"
+
+[dependencies]
+left = { path = "left" }
+right = { path = "right" }

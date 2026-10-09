@@ -1,0 +1,320 @@
+-- Each process builds one source so independent errors do not exhaust arenas.
+task v35_while_contract_assert(condition: bool, label: word) -> void {
+    if not condition { panic("v35-while-contract " + label) }
+}
+
+task v35_while_contract_source(mode: int) -> word {
+    pilot open = chr(123)
+    pilot close = chr(125)
+    if mode == 0 { give back "task main() -> int " + open + " pilot sessions = 0; while sessions < 2 " + open + " sessions += 1 " + close + "repeat while sessions < 3 " + open + " sessions += 1 " + close + "repeat until sessions >= 4 " + open + " sessions += 1 " + close + "give back sessions " + close + "\n" }
+    if mode == 1 { give back "task main() -> int " + open + " while 1 " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 2 { give back "task main() -> int " + open + " repeat while 1 " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 3 { give back "task main() -> int " + open + " while " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 4 { give back "task main() -> int " + open + " repeat while " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 5 { give back "task main() -> int " + open + " while true; give back 0 " + close + "\n" }
+    if mode == 6 { give back "task while() -> int " + open + " give back 0 " + close + "\n" }
+    if mode == 7 { give back "task main() -> int " + open + " pilot while = 0; give back 0 " + close + "\n" }
+    if mode == 8 { give back "task main() -> int " + open + " pilot callback = launch(while: int) -> int => while; give back 0 " + close + "\n" }
+    if mode == 9 { give back "shape Reserved " + open + " while: int " + close + "\n" }
+    if mode == 10 { give back "use std::fs as while\n" }
+    if mode == 11 { give back "task main() -> int " + open + " for each while in [1] " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 12 { give back "task reserved(while: int) -> int " + open + " give back 0 " + close + "\n" }
+    if mode == 13 { give back "task main() -> int " + open + " pilot sessions = 1; give back sessions " + close + "\n" }
+    -- Keep the original negative declaration sites, now with the reserved lowercase spelling.
+    if mode >= 14 and mode <= 20 { give back v35_while_contract_source(mode - 8) }
+    if mode == 21 { give back "task main() -> int " + open + " pilot lower = \"while\"; pilot upper = \"While\"; while lower == \"while\" " + open + " break " + close + "repeat while upper == \"While\" " + open + " break " + close + "give back 0 " + close + "\n" }
+    if mode == 22 { give back "task main() -> int " + open + " while true times " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 23 { give back "task main() -> int " + open + " repeat while true with index " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 24 { give back "task main() -> int " + open + " while true; if true " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 25 { give back "task main() -> int " + open + " repeat while true\nif true " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 26 { give back "task main() -> int " + open + " pilot sessions = 0; while false\n" + open + close + "sessions += 1; repeat while false\n" + open + close + "sessions += 2; give back sessions " + close + "\n" }
+    if mode == 27 { give back "task main() -> int " + open + " while (false or false)\n" + open + close + "give back 0 " + close + "\n" }
+    if mode == 28 { give back "task main() -> int " + open + " while \"bad\" " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 29 { give back "shape while " + open + " value: int " + close + "\n" }
+    if mode == 30 { give back "fixed pilot while = 0\n" }
+    if mode == 31 { give back "grounded pilot while = 0\n" }
+    if mode == 32 { give back "shape Entry " + open + " value: int " + close + "\ntask main() -> int " + open + " pilot entry = Entry" + open + "value: 1" + close + "; give back entry.while " + close + "\n" }
+    if mode == 33 { give back "task main() -> int " + open + " pilot (while, other) = (1, 2); give back other " + close + "\n" }
+    if mode == 34 { give back "task main() -> int " + open + " While false " + open + close + "; give back 0 " + close + "\n" }
+    if mode == 35 { give back v35_while_contract_source(26).replace("\n", "\r\n") }
+    if mode == 36 { give back v35_while_contract_source(26).replace("\n", "\r") }
+    if mode == 37 { give back "task forbidden() -> bool " + open + " panic(\"blocked\"); give back false " + close + "\ntask main() -> int " + open + " while false and forbidden() " + open + close + "give back 0 " + close + "\n" }
+    if mode == 38 { give back "task While() -> int " + open + " give back 42 " + close + "\ntask main() -> int " + open + " give back While() " + close + "\n" }
+    if mode == 39 { give back "task WHILE() -> int " + open + " give back 42 " + close + "\ntask main() -> int " + open + " give back WHILE() " + close + "\n" }
+    if mode == 40 { give back "task main() -> int " + open + " pilot While = 42; give back While " + close + "\n" }
+    if mode == 41 { give back "task main() -> int " + open + " pilot WHILE = false; while WHILE " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 42 { give back "shape While " + open + " value: int " + close + "\ntask main() -> int " + open + " pilot entry = While" + open + "value: 42" + close + "; give back entry.value " + close + "\n" }
+    if mode == 43 { give back "shape WHILE " + open + " value: int " + close + "\ntask main() -> int " + open + " pilot entry = WHILE" + open + "value: 42" + close + "; give back entry.value " + close + "\n" }
+    if mode == 44 { give back "shape Entry " + open + " While: int, WHILE: int " + close + "\ntask main() -> int " + open + " pilot entry = Entry" + open + "While: 20, WHILE: 22" + close + "; give back entry.While + entry.WHILE " + close + "\n" }
+    if mode == 45 { give back "use std::fs as While\ntask main() -> int " + open + " give back 42 " + close + "\n" }
+    if mode == 46 { give back "use std::fs as WHILE\ntask main() -> int " + open + " give back 42 " + close + "\n" }
+    if mode == 47 { give back "task answer(While: int) -> int " + open + " give back While " + close + "\ntask main() -> int " + open + " give back answer(42) " + close + "\n" }
+    if mode == 48 { give back "task answer(WHILE: int) -> int " + open + " give back WHILE " + close + "\ntask main() -> int " + open + " give back answer(42) " + close + "\n" }
+    if mode == 49 { give back "task main() -> int " + open + " pilot callback = |While: int| => While; give back 42 " + close + "\n" }
+    if mode == 50 { give back "task main() -> int " + open + " pilot callback = |WHILE: int| => WHILE; give back 42 " + close + "\n" }
+    if mode == 51 { give back "task main() -> int " + open + " pilot total = 0; for each While in [20, 22] " + open + " total += While " + close + "; give back total " + close + "\n" }
+    if mode == 52 { give back "task main() -> int " + open + " pilot total = 0; for each WHILE in [20, 22] " + open + " total += WHILE " + close + "; give back total " + close + "\n" }
+    if mode == 53 { give back "task main() -> int " + open + " pilot (While, WHILE) = (20, 22); give back While + WHILE " + close + "\n" }
+    if mode == 54 { give back "task main() -> int " + open + " pilot answer = 0; when 42 " + open + " While -> answer = While " + close + "; give back answer " + close + "\n" }
+    if mode == 55 { give back "task main() -> int " + open + " pilot answer = 0; when 42 " + open + " WHILE -> answer = WHILE " + close + "; give back answer " + close + "\n" }
+    if mode == 56 { give back "alias While = int\ntask answer(value: While) -> int " + open + " give back value " + close + "\ntask main() -> int " + open + " give back answer(42) " + close + "\n" }
+    if mode == 57 { give back "alias WHILE = int\ntask answer(value: WHILE) -> int " + open + " give back value " + close + "\ntask main() -> int " + open + " give back answer(42) " + close + "\n" }
+    if mode == 58 { give back "fixed pilot While = 42\ntask main() -> int " + open + " give back While " + close + "\n" }
+    if mode == 59 { give back "grounded pilot WHILE = 42\ntask main() -> int " + open + " give back WHILE " + close + "\n" }
+    if mode == 60 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Flag" + open + "value: false" + close + "; pilot same = other == Flag" + open + "value: false" + close + "; give back 42 " + close + "\n" }
+    if mode == 61 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Flag" + open + "value: false" + close + "; while other == Flag" + open + "value: false" + close + " " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 62 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Flag" + open + "value: false" + close + "; repeat while other == Flag" + open + "value: false" + close + " " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 63 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " while (Flag" + open + "value: false" + close + ") == Flag" + open + "value: false" + close + " " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 64 { give back "shape Flag " + open + " value: bool " + close + "\nshape Nested " + open + " flag: Flag, row: [int;2] " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Nested " + open + " task equals(self, other: Nested) -> bool " + open + " give back false " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Nested" + open + "flag: Flag" + open + "value: false" + close + ", row: [1,2]" + close + "; while (other == Nested" + open + "flag: Flag" + open + "value: false" + close + ", row: [1,2]" + close + ") " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 65 { give back "route Event " + open + " Key " + open + " value: bool " + close + " " + close + "\ntask accepts(event: Event) -> bool " + open + " give back false " + close + "\ntask main() -> int " + open + " while accepts(Event::Key" + open + "value: false" + close + ") " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 66 { give back "route Event " + open + " Key " + open + " value: bool " + close + " " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Event " + open + " task equals(self, other: Event) -> bool " + open + " give back false " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Event::Key" + open + "value: false" + close + "; while other == Event::Key" + open + "value: false" + close + " " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 67 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Flag" + open + "value: false" + close + "; while other == Flag\n" + open + "value: false" + close + "\n" + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 68 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Flag" + open + "value: false" + close + "; while other == Flag" + open + "value: false" + close + "\nif true " + open + " " + close + "; give back 42 " + close + "\n" }
+    if mode == 69 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Flag" + open + "value: false" + close + "; while other == Flag" + open + "value: false" + close + "; if true " + open + " " + close + "; give back 42 " + close + "\n" }
+    if mode == 70 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Flag" + open + "value: false" + close + "; while other == Flag" + open + "value: 1" + close + " " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 71 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Flag" + open + "value: false" + close + "; while other == Flag" + open + "missing: false" + close + " " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 72 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " while Flag" + open + "value: false" + close + " " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 73 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " while Flag" + open + "value: false" + close + ".value " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 74 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " while Flag" + open + "value: false == Flag" + open + "value: false" + close + " " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 75 { give back "task main() -> int " + open + " while ([false) " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 76 { give back "task main() -> int " + open + " WHILE false " + open + " " + close + "; give back 42 " + close + "\n" }
+    if mode == 77 { give back "task wHiLe(wHiLe: int) -> int " + open + " give back wHiLe " + close + "\ntask main() -> int " + open + " give back wHiLe(42) " + close + "\n" }
+    if mode == 78 { give back "shape Empty " + open + " " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Empty " + open + " task equals(self, other: Empty) -> bool " + open + " give back false " + close + " " + close + "\ntask main() -> int " + open + " while (Empty" + open + close + ") == Empty" + open + close + " " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 79 { give back "shape Flag " + open + " value: bool " + close + "\ndoctrine Eq " + open + " task equals(self, other: Self) -> bool " + close + "\nimpl Eq for Flag " + open + " task equals(self, other: Flag) -> bool " + open + " give back self.value == other.value " + close + " " + close + "\ntask main() -> int " + open + " pilot other = Flag" + open + "value: false" + close + "; while false or other == Flag" + open + "value: false" + close + " " + open + " break " + close + "; give back 42 " + close + "\n" }
+    if mode == 80 { give back "task main() -> int " + open + " pilot callback = launch(While: int) -> int => While; give back 42 " + close + "\n" }
+    if mode == 81 { give back "task main() -> int " + open + " pilot callback = launch(WHILE: int) -> int => WHILE; give back 42 " + close + "\n" }
+    panic("unknown v35 while contract case")
+    give back ""
+}
+
+task v35_while_contract_run(mode: int) -> void {
+    pilot source = v35_while_contract_source(mode)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    v35_while_contract_assert(v4_lex_is_keyword_word("while") and not v4_lex_is_keyword_word("While") and not v4_lex_is_keyword_word("WHILE") and not v4_lex_is_keyword_word("wHiLe"), "exact keyword spelling")
+    if mode == 49 or mode == 50 or mode == 80 or mode == 81 {
+        pilot expected_name = "While"
+        if mode == 50 or mode == 81 { expected_name = "WHILE" }
+        pilot parameters = 0
+        pilot node = 0
+        repeat until node >= v4_parse_node_count(tree) {
+            if v4_parse_node_kind(tree, node) == v4_node_closure_param {
+                v35_while_contract_assert(v4_parse_node_value(tree, node) == expected_name, "closure parameter retains exact spelling")
+                parameters += 1
+            }
+            node += 1
+        }
+        if mode == 80 or mode == 81 {
+            -- V4 closure nodes use pipe syntax. Retain the launch-shaped sample
+            -- as an unsupported grammar control, including exact identifier
+            -- admission, without claiming that launch has closure metadata.
+            pilot found_name = false
+            pilot token = 0
+            repeat until token >= v4_lex_token_count(stream) {
+                if v4_lex_token_value(stream, token) == expected_name and v4_lex_token_type(stream, token) == v4_tok_ident {
+                    pilot next = v4_parse_skip_trivia(stream, token + 1)
+                    if v4_lex_token_syntax_value(stream, next) == ":" {
+                        v35_while_contract_assert(v4_parse_closure_param_name_from_tokens(stream, token, next) == expected_name, "parameter name helper retains exact spelling")
+                        found_name = true
+                    }
+                }
+                token += 1
+            }
+            v35_while_contract_assert(parameters == 0 and found_name and v4_parse_diag_count(tree) == 0, "launch spelling admitted without unsupported closure metadata")
+        } else {
+            v35_while_contract_assert(parameters == 1 and v4_parse_diag_count(tree) == 0, "noncanonical closure parameter admitted")
+        }
+    }
+    if (mode >= 6 and mode <= 12) or (mode >= 14 and mode <= 20) or (mode >= 29 and mode <= 33) {
+        pilot found = false
+        pilot expected_name = "while"
+        pilot row = 0
+        repeat until row >= v4_parse_diag_count(tree) {
+            pilot diag = v4_parse_diag(tree, row)
+            if v4_diag_message(diag) == "while is a reserved keyword" {
+                pilot span = v4_diag_span(diag)
+                v35_while_contract_assert(v4_slice(source, v4_span_start(span), v4_span_end(span)) == expected_name, "reserved diagnostic original token span")
+                found = true
+            }
+            row += 1
+        }
+        v35_while_contract_assert(found, "reserved source name rejected")
+        if mode >= 14 {
+            pilot rejected_hir = v4_hir_lower_tree(0, tree)
+            pilot rejected_resolve = v4_resolve_lower_hir(0, rejected_hir)
+            pilot rejected_ty = v4_ty_lower_resolve(0, rejected_resolve)
+            pilot rejected_mir = v4_mir_lower_ty(0, rejected_ty)
+            pilot rejected_codegen = v4_codegen_llvm_lower_owned_mir(0, rejected_mir)
+            v35_while_contract_assert(v4_codegen_llvm_native_module_error(rejected_codegen) != "" and v4_codegen_llvm_module_text(rejected_codegen, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "reserved declaration cannot emit a native module")
+        }
+        say "v35-while-contract case=" + word_from_int(mode) + " reserved=true span=true"
+        give back
+    }
+
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    if mode == 34 or mode == 76 or mode == 74 or mode == 75 {
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "malformed or noncanonical heading cannot emit")
+        if mode == 34 or mode == 76 {
+            pilot row = 0
+            repeat until row >= v4_parse_diag_count(tree) {
+                v35_while_contract_assert(v4_diag_message(v4_parse_diag(tree, row)) != "while is a reserved keyword", "noncanonical loop word remains an identifier")
+                row += 1
+            }
+        }
+        say "v35-while-contract case=" + word_from_int(mode) + " heading-rejected=true module=false"
+        give back
+    }
+    if (mode >= 1 and mode <= 5) or mode == 22 or mode == 23 or mode == 24 or mode == 25 or mode == 28 or (mode >= 68 and mode <= 73) {
+        pilot expected = "while condition must be bool"
+        if mode == 3 or mode == 4 { expected = "while loop requires a condition" }
+        if mode == 5 or mode == 24 or mode == 25 or mode == 68 or mode == 69 { expected = "while loop requires a body" }
+        if mode == 22 or mode == 23 or mode == 73 { expected = "unsupported while condition" }
+        if mode == 70 { expected = "shape field type mismatch" }
+        if mode == 71 { expected = "unknown shape field" }
+        pilot found = false
+        pilot row = 0
+        repeat until row >= v4_mir_diag_count(mir) {
+            if v4_diag_message(v4_mir_diag(mir, row)) == expected { found = true }
+            row += 1
+        }
+        v35_while_contract_assert(found, "specific while diagnostic")
+        if mode == 24 or mode == 25 or mode == 68 or mode == 69 {
+            pilot branch_count = 0
+            pilot body = v4_mir_lookup_body_name(mir, "main")
+            row = 0
+            repeat until row >= v4_mir_body_stmt_count(mir, body) {
+                if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_branch { branch_count += 1 }
+                row += 1
+            }
+            v35_while_contract_assert(branch_count == 1, "malformed heading preserves following conditional")
+        }
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "invalid program has no native module")
+        say "v35-while-contract case=" + word_from_int(mode) + " rejected=true diagnostic=" + expected + " module=false"
+        give back
+    }
+
+    if v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) != 0 {
+        pilot diagnostic_lex = 0
+        repeat until diagnostic_lex >= v4_lex_diag_count(stream) { say "v35-while-contract lex " + v4_diag_message(v4_lex_diag(stream, diagnostic_lex)); diagnostic_lex += 1 }
+        pilot diagnostic_parse = 0
+        repeat until diagnostic_parse >= v4_parse_diag_count(tree) { say "v35-while-contract parse " + v4_diag_message(v4_parse_diag(tree, diagnostic_parse)); diagnostic_parse += 1 }
+        pilot diagnostic_hir = 0
+        repeat until diagnostic_hir >= v4_hir_diag_count(hir) { say "v35-while-contract hir " + v4_diag_message(v4_hir_diag(hir, diagnostic_hir)); diagnostic_hir += 1 }
+        pilot diagnostic_resolve = 0
+        repeat until diagnostic_resolve >= v4_resolve_diag_count(resolve) { say "v35-while-contract resolve " + v4_diag_message(v4_resolve_diag(resolve, diagnostic_resolve)); diagnostic_resolve += 1 }
+        pilot diagnostic_ty = 0
+        repeat until diagnostic_ty >= v4_ty_diag_count(ty) { say "v35-while-contract ty " + v4_diag_message(v4_ty_diag(ty, diagnostic_ty)); diagnostic_ty += 1 }
+        pilot diagnostic_mir = 0
+        repeat until diagnostic_mir >= v4_mir_diag_count(mir) { say "v35-while-contract mir " + v4_diag_message(v4_mir_diag(mir, diagnostic_mir)); diagnostic_mir += 1 }
+    }
+    v35_while_contract_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) == 0, "clean frontend")
+    if (mode >= 38 and mode <= 59) or mode == 77 or mode == 80 or mode == 81 {
+        v35_while_contract_assert(v4_mir_pattern_is_simple_local("While") and v4_mir_pattern_is_simple_local("WHILE") and not v4_mir_pattern_is_simple_local("while"), "exact pattern binding spelling")
+        pilot token = 0
+        pilot seen_name = false
+        repeat until token >= v4_lex_token_count(stream) {
+            pilot name = v4_lex_token_value(stream, token)
+            if name == "While" or name == "WHILE" or name == "wHiLe" {
+                v35_while_contract_assert(v4_lex_token_type(stream, token) == v4_tok_ident, "case-preserving name token")
+                seen_name = true
+            }
+            token += 1
+        }
+        v35_while_contract_assert(seen_name, "positive case contains a noncanonical identifier")
+    }
+    if mode == 37 {
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(rejected) == "native panic unwind is not yet supported; use --panic=abort", "existing panic policy remains conservative")
+        v35_while_contract_assert(v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "conservative policy has no module")
+        say "v35-while-contract case=37 frontend=true panic-policy=conservative module=false"
+        give back
+    }
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    if mode == 60 {
+        pilot same = v4_mir_find_local(mir, body, "same")
+        v35_while_contract_assert(same >= 0 and v4_mir_local_ty(mir, body, same) == v4_ty_bool, "existing constructor equality initializer is bool")
+        pilot same_value = -1
+        pilot same_row = 0
+        repeat until same_row >= v4_mir_body_stmt_count(mir, body) {
+            if v4_mir_stmt_lhs(mir, body, same_row) == "same" { same_value = v4_mir_stmt_rvalue(mir, body, same_row) }
+            same_row += 1
+        }
+        v35_while_contract_assert(same_value >= 0 and v4_mir_rvalue_ty(mir, body, same_value) == v4_ty_bool and v4_mir_rvalue_kind(mir, body, same_value) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, same_value) == "Flag.equals", "existing constructor equality initializer is a resolved bool Eq call")
+    }
+    pilot row = 0
+    pilot positive = 0
+    pilot inverted = 0
+    repeat until row >= v4_mir_body_stmt_count(mir, body) {
+        if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_loop {
+            pilot block = v4_mir_body_block(mir, body, v4_mir_stmt_block(mir, body, row))
+            pilot text = v4_mir_block_condition(block)
+            pilot target = "body#" + word_from_int(v4_mir_block_target(block))
+            if (mode >= 61 and mode <= 67) or mode == 78 or mode == 79 {
+                pilot condition_value = v4_mir_stmt_rvalue(mir, body, row)
+                v35_while_contract_assert(v4_mir_rvalue_ty(mir, body, condition_value) == v4_ty_bool, "complete constructor header retains a typed bool condition")
+                if mode != 79 {
+                    v35_while_contract_assert(v4_mir_rvalue_kind(mir, body, condition_value) == v4_mir_rvalue_call, "constructor condition has an actual resolved call")
+                    if mode != 65 { v35_while_contract_assert(v4_mir_rvalue_op(mir, body, condition_value).ends_with(".equals"), "constructor equality uses the declared Eq overload") }
+                }
+            }
+            if text.starts_with("while ") {
+                v35_while_contract_assert(v4_mir_stmt_rhs(mir, body, row).starts_with(target + " "), "true condition enters while body")
+                positive += 1
+            }
+            if text.starts_with("until ") {
+                v35_while_contract_assert(v4_mir_stmt_rhs(mir, body, row).ends_with("exit#" + word_from_int(v4_mir_block_target(block))), "true condition exits until body")
+                inverted += 1
+            }
+        }
+        row += 1
+    }
+    if mode == 0 { v35_while_contract_assert(positive == 2 and inverted == 1, "both while forms and preserved until") }
+    if mode == 13 { v35_while_contract_assert(positive == 0 and inverted == 0, "existing keyword local compatible") }
+    if mode == 21 or mode == 26 or mode == 35 or mode == 36 { v35_while_contract_assert(positive == 2 and inverted == 0, "quoted names or separated bodies remain valid") }
+    if mode == 27 { v35_while_contract_assert(positive == 1 and inverted == 0, "grouped condition separated body") }
+    if mode == 41 { v35_while_contract_assert(positive == 1 and inverted == 0, "uppercase local is a bool condition") }
+    if (mode >= 61 and mode <= 67) or mode == 78 or mode == 79 { v35_while_contract_assert(positive == 1 and inverted == 0, "complete constructor condition owns the following body") }
+    if mode == 60 { v35_while_contract_assert(positive == 0 and inverted == 0, "constructor Boolean expression initializer baseline") }
+    pilot snapshot = v4_mir_snapshot()
+    v35_while_contract_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot, "snapshot roundtrip")
+    if (mode >= 38 and mode <= 41) or mode == 45 or mode == 46 or mode == 47 or mode == 48 or mode == 56 or mode == 57 or mode == 77 {
+        pilot emitted = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot module = v4_codegen_llvm_module_text(emitted, v4_target_spec_new("x86_64-unknown-linux-gnu"))
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(emitted) == "" and module != "", "scalar names retain native module support")
+        v35_while_contract_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "native name module snapshot restore")
+        pilot restored = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(restored) == "" and v4_codegen_llvm_module_text(restored, v4_target_spec_new("x86_64-unknown-linux-gnu")) == module, "native name module exact after restore")
+    }
+    if mode == 58 or mode == 59 {
+        pilot emitted = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot error = v4_codegen_llvm_native_module_error(emitted)
+        pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+        v35_while_contract_assert(error != "" and v4_codegen_llvm_module_text(emitted, target) == "", "scalar global native boundary remains conservative")
+        v35_while_contract_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "global boundary snapshot restore")
+        pilot restored = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(restored) == error and v4_codegen_llvm_module_text(restored, target) == "", "scalar global native boundary exact after restore")
+        say "v35-while-contract case=" + word_from_int(mode) + " frontend=true positive=0 inverted=0 restore=true native-boundary=scalar-global module=false"
+        give back
+    }
+    if mode == 80 or mode == 81 {
+        -- Casing-only parser control for legacy launch-shaped source. The
+        -- shared snapshot roundtrip above is an invariance check, not a claim
+        -- that this unsupported expression has an executable MIR lowering.
+        say "v35-while-contract case=" + word_from_int(mode) + " launch-spelling=true scope=parser snapshot=true"
+        give back
+    }
+    if mode == 49 or mode == 50 or (mode >= 60 and mode <= 67) or mode == 78 or mode == 79 {
+        pilot bounded = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(bounded) != "" and v4_codegen_llvm_module_text(bounded, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "aggregate native boundary stays conservative")
+    }
+    say "v35-while-contract case=" + word_from_int(mode) + " frontend=true positive=" + word_from_int(positive) + " inverted=" + word_from_int(inverted) + " restore=true"
+}
+
+pilot v35_while_contract_mode = 0
+if process::args_count() > 1 { v35_while_contract_mode = word_to_int(process::arg(1)) }
+v35_while_contract_run(v35_while_contract_mode)

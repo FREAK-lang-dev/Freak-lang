@@ -225,6 +225,9 @@ class SayErrOracles(unittest.TestCase):
                 gate.validate_report(evidence, not plain)
                 self.assertEqual(len(evidence["programs"]), 9)
                 self.assertEqual(len(evidence["controls"]), 6 if plain else 8)
+                identity = [row for row in commands if row[1] == "clang identity"]
+                self.assertEqual(len(identity), 1)
+                self.assertEqual(identity[0][2], {"timeout": 10, "memory": 128})
                 emits = [row for row in commands if row[1].startswith("emit case")]
                 self.assertEqual(len(emits), 3)
                 self.assertTrue(all(row[2] == {} for row in emits))  # Runner defaults are the 64MiB/60s SDK gate.
