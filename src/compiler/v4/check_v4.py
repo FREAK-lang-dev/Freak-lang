@@ -12760,6 +12760,7 @@ EXECUTABLE_SMOKES = [
      'fixture': 'v35_while_contract_smoke.fk',
      'expect_mode': 'line',
      'expect_unique': True,
+     'expect_stderr_empty': True,
      'memory_limit_mb': 64,
      'expect': ['v35-while-contract case=0 frontend=true positive=2 inverted=1 restore=true'],
      'runtime_cases': [{'argv': ['0'],
@@ -12985,6 +12986,7 @@ EXECUTABLE_SMOKES = [
      'fixture': 'v35_native_while_execute_smoke.fk',
      'expect_mode': 'line',
      'expect_unique': True,
+     'expect_stderr_empty': True,
      'memory_limit_mb': 64,
      'expect': ['v35-while-execute diagnostics=0 owned=true native=true restore=true module-exact=true'],
      'runtime_cases': [{'llvm_programs': [['v35_while_native.fk',
@@ -12995,6 +12997,7 @@ EXECUTABLE_SMOKES = [
      'fixture': 'v35_native_while_casing_execute_smoke.fk',
      'expect_mode': 'line',
      'expect_unique': True,
+     'expect_stderr_empty': True,
      'memory_limit_mb': 64,
      'expect': ['v35-while-casing-execute diagnostics=0 owned=true native=true restore=true '
                 'module-exact=true'],

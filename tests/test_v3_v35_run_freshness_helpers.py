@@ -216,6 +216,7 @@ class RunFreshnessHelpers(unittest.TestCase):
                     try:
                         os.killpg(report['commands'][0]['pid'], signal.SIGKILL)
                     except ProcessLookupError:
+                        # The owned group exited before this final test cleanup.
                         pass
                     assert_stopped(descendant)
 
