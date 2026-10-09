@@ -8776,7 +8776,7 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
             v4_mir_add_type_error(mir_id, stmt_span, "non-exhaustive check route", "missing " + missing_cases)
         }
     }
-    give back after_block
+    give back v4_mir_build_close_check_join(mir_id, body_id, after_block)
 }
 
 task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, only_token: int, stmt_end: int) -> int {
@@ -9035,7 +9035,7 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
             v4_mir_add_type_error(mir_id, stmt_span, "non-exhaustive route when", "missing " + missing_cases)
         }
     }
-    give back after_block
+    give back v4_mir_build_close_check_join(mir_id, body_id, after_block)
 }
 
 task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> int {

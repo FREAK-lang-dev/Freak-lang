@@ -55,20 +55,17 @@ task v4_route_terminal_run() -> void {
         row += 1
     }
     if mode == "0" or mode == "1" or mode == "6" {
-        v4_route_terminal_assert(v4_mir_diag_count(mir) == 0 and branches == 1 and orphan >= 0, "only first case retains a branch")
-        pilot incoming = 0
+        v4_route_terminal_assert(v4_mir_diag_count(mir) == 0 and branches == 1 and orphan < 0, "terminal graph compacts the final unmatched block")
         row = 0
         repeat until row >= v4_mir_body_block_count(mir, body) {
-            pilot record = v4_mir_body_block(mir, body, row)
-            if v4_mir_block_target(record) == orphan or v4_mir_block_else_target(record) == orphan { incoming += 1 }
+            if row > 0 { v4_route_terminal_assert(v4_mir_body_block_predecessor_count(mir, body, row) > 0, "compacted terminal blocks have real incoming edges") }
             row += 1
         }
-        v4_route_terminal_assert(incoming == 0, "final unmatched block is detached")
     }
     if mode == "2" { v4_route_terminal_assert(branches == 1 and orphan < 0 and v4_route_terminal_has_diag(mir, missing_message), "missing case stays conditional and diagnosed") }
     if mode == "3" { v4_route_terminal_assert(branches == 2 and orphan < 0 and v4_route_terminal_has_diag(mir, missing_message), "refutable payload does not prove coverage") }
     if mode == "4" { v4_route_terminal_assert(branches == 2 and orphan < 0 and v4_route_terminal_has_diag(mir, "unknown route pattern field") and v4_route_terminal_has_diag(mir, missing_message), "final pattern is checked before publication") }
-    if mode == "5" { v4_route_terminal_assert(branches == 1 and orphan >= 0 and v4_route_terminal_has_diag(mir, duplicate_message), "duplicate arm diagnostic survives") }
+    if mode == "5" { v4_route_terminal_assert(branches == 1 and orphan < 0 and v4_route_terminal_has_diag(mir, duplicate_message), "duplicate arm diagnostic survives terminal compaction") }
     if mode == "0" or mode == "1" or mode == "6" {
         pilot borrow = v4_borrowck_check_mir(0, mir)
         pilot result_id = v4_borrowck_lookup_result(borrow, v4_mir_body_def(mir, body))
@@ -86,6 +83,9 @@ task v4_route_terminal_run() -> void {
         pilot entry_else = v4_mir_block_else_target(entry)
         pilot entry_condition = v4_mir_block_condition(entry)
         v4_route_terminal_assert(v4_mir_block_terminator(entry) == v4_mir_term_if and entry_else >= 0 and entry_condition != "", "original conditional entry")
+        orphan = v4_mir_add_block(mir, body, v4_mir_term_unreachable, -1, -1, orphan_reason)
+        v4_mir_set_body_block(mir, body, orphan, v4_mir_block_with_scope(v4_mir_body_block(mir, body, orphan), entry_scope))
+        v4_route_terminal_assert(orphan >= 0 and v4_mir_body_block_predecessor_count(mir, body, orphan) == 0 and v4_mir_body_stmt_count_for_block(mir, body, orphan) == 0, "setup-proven public empty endpoint after source compaction")
         pilot hostile_entry = v4_mir_block_with_scope(v4_mir_block_new_full(0, v4_mir_term_if, orphan, entry_else, entry_condition), entry_scope)
         v4_mir_set_body_block(mir, body, 0, hostile_entry)
         pilot malformed = v4_mir_snapshot()

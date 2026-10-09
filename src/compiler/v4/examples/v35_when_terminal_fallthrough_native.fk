@@ -1,0 +1,17 @@
+task choose(value: int) -> int {
+    pilot answer = 0
+    when value {
+        7 -> give back 7
+        _ -> answer = 42
+    }
+    give back answer
+}
+task unmatched(value: int) -> int {
+    when value { 7 -> give back 7 }
+    give back 42
+}
+task main() -> int {
+    if choose(7) != 7 or choose(0) != 42 or unmatched(7) != 7 or unmatched(0) != 42 { give back 1 }
+    say "when-terminal-fallthrough-ok"
+    give back 42
+}

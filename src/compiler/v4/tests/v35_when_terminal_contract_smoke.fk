@@ -1,0 +1,278 @@
+-- Exhaustive terminal when arms close only the completed zero-predecessor join.
+-- Every numbered case runs in a separate process under the registered bounds.
+task v35_when_terminal_assert(condition: bool, label: word) -> void {
+    if not condition { panic("when-terminal " + label) }
+}
+task v35_when_terminal_source(case_id: int) -> word {
+    -- 0: named-catchall-tail
+    if case_id == 0 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " bound -> give back bound " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 1: underscore-dead-call-local
+    if case_id == 1 { give back "task target(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\ntask main() -> int " + chr(123) + " when 42 " + chr(123) + " _ -> give back 42 " + chr(125) + "; target(99); pilot hidden = 99; give back 99 " + chr(125) + "\n" }
+    -- 2: named-catchall-no-tail
+    if case_id == 2 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " bound -> give back bound " + chr(125) + " " + chr(125) + "\n" }
+    -- 3: literal-returning-catchall
+    if case_id == 3 { give back "task main() -> int " + chr(123) + " when 7 " + chr(123) + " 7 -> give back 42\n_ -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 4: nested-terminal-if
+    if case_id == 4 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " bound -> " + chr(123) + " if bound > 0 " + chr(123) + " give back bound " + chr(125) + " else " + chr(123) + " give back 1 " + chr(125) + " " + chr(125) + " " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 5: nested-terminal-when
+    if case_id == 5 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " outer -> " + chr(123) + " when outer " + chr(123) + " inner -> give back inner " + chr(125) + "; give back 99 " + chr(125) + " " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 6: nested-terminal-check
+    if case_id == 6 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " bound -> " + chr(123) + " pilot value: maybe<int> = some(bound); check value " + chr(123) + " got number -> " + chr(123) + " give back number " + chr(125) + " nobody -> " + chr(123) + " give back 1 " + chr(125) + " " + chr(125) + " " + chr(125) + " " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 7: exhaustive-fieldless-route
+    if case_id == 7 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " when value " + chr(123) + " Outcome::Pass -> give back 42\nOutcome::Fail -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 8: exhaustive-payload-route
+    if case_id == 8 { give back "route Event " + chr(123) + " Key " + chr(123) + " code: int " + chr(125) + "\nClosed " + chr(125) + "\ntask score(value: Event) -> int " + chr(123) + " when value " + chr(123) + " Event::Key " + chr(123) + " code " + chr(125) + " -> give back code\nEvent::Closed -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 9: route-parameter-alias
+    if case_id == 9 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\nalias Result = Outcome\ntask score(value: Result) -> int " + chr(123) + " when value " + chr(123) + " Outcome::Pass -> give back 42\nOutcome::Fail -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 10: catchall-fallthrough
+    if case_id == 10 { give back "task main() -> int " + chr(123) + " pilot answer = 0; when 7 " + chr(123) + " bound -> answer = 42 " + chr(125) + "; give back answer " + chr(125) + "\n" }
+    -- 11: mixed-return-fallthrough
+    if case_id == 11 { give back "task main() -> int " + chr(123) + " pilot answer = 0; when 0 " + chr(123) + " 7 -> give back 1\n_ -> answer = 42 " + chr(125) + "; give back answer " + chr(125) + "\n" }
+    -- 12: integer-unmatched-edge
+    if case_id == 12 { give back "task main() -> int " + chr(123) + " when 0 " + chr(123) + " 7 -> give back 1 " + chr(125) + "; give back 42 " + chr(125) + "\n" }
+    -- 13: empty-arm-unmatched-edge
+    if case_id == 13 { give back "task main() -> int " + chr(123) + " when 0 " + chr(123) + " " + chr(125) + "; give back 42 " + chr(125) + "\n" }
+    -- 14: boolean-arms-retain-unmatched-edge
+    if case_id == 14 { give back "task main() -> int " + chr(123) + " pilot flag = false; when flag " + chr(123) + " true -> give back 1\nfalse -> give back 2 " + chr(125) + "; give back 42 " + chr(125) + "\n" }
+    -- 15: exhaustive-route-fallthrough
+    if case_id == 15 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " pilot answer = 0; when value " + chr(123) + " Outcome::Pass -> give back 1\nOutcome::Fail -> answer = 42 " + chr(125) + "; give back answer " + chr(125) + "\n" }
+    -- 16: loop-continue-break
+    if case_id == 16 { give back "task main() -> int " + chr(123) + " pilot count = 0; while count < 2 " + chr(123) + " count += 1; when count " + chr(123) + " 1 -> continue\n_ -> break " + chr(125) + "; give back 99 " + chr(125) + "; give back 42 " + chr(125) + "\n" }
+    -- 17: loop-return
+    if case_id == 17 { give back "task main() -> int " + chr(123) + " while true " + chr(123) + " when 42 " + chr(123) + " bound -> give back bound " + chr(125) + "; give back 99 " + chr(125) + "; give back 0 " + chr(125) + "\n" }
+    -- 18: jump-fallthrough-mixture
+    if case_id == 18 { give back "task main() -> int " + chr(123) + " pilot count = 0; pilot answer = 0; while count < 2 " + chr(123) + " count += 1; when count " + chr(123) + " bound -> " + chr(123) + " if bound == 1 " + chr(123) + " continue " + chr(125) + " else " + chr(123) + " answer = 42 " + chr(125) + " " + chr(125) + " " + chr(125) + "; answer += 0 " + chr(125) + "; give back answer " + chr(125) + "\n" }
+    -- 19: nested-loop-target
+    if case_id == 19 { give back "task main() -> int " + chr(123) + " pilot count = 0; while count < 2 " + chr(123) + " while true " + chr(123) + " when 1 " + chr(123) + " _ -> break " + chr(125) + "; give back 99 " + chr(125) + "; count += 1 " + chr(125) + "; give back count + 40 " + chr(125) + "\n" }
+    -- 20: independent-arm-bindings
+    if case_id == 20 { give back "task score(pair: (int,int)) -> int " + chr(123) + " when pair " + chr(123) + " (7, left) -> give back 1\n(9, left) -> give back 2\n_ -> give back 0 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 21: valid-global-in-dead-tail
+    if case_id == 21 { give back "fixed pilot fallback: int = 99\ntask main() -> int " + chr(123) + " when 42 " + chr(123) + " _ -> give back 42 " + chr(125) + "; give back fallback " + chr(125) + "\n" }
+    -- 22: nested-terminal-when-if
+    if case_id == 22 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " bound -> " + chr(123) + " if bound > 0 " + chr(123) + " when bound " + chr(123) + " held -> give back held " + chr(125) + "; give back 99 " + chr(125) + " else " + chr(123) + " give back 1 " + chr(125) + " " + chr(125) + " " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 23: valid-dead-local-checked
+    if case_id == 23 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " _ -> give back 42 " + chr(125) + "; pilot hidden: int = 99; give back hidden " + chr(125) + "\n" }
+    -- 24: valid-dead-call-checked
+    if case_id == 24 { give back "task target(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\ntask main() -> int " + chr(123) + " when 42 " + chr(123) + " _ -> give back 42 " + chr(125) + "; target(99); give back 99 " + chr(125) + "\n" }
+    -- 30: dead-missing-name
+    if case_id == 30 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " _ -> give back 42 " + chr(125) + "; pilot hidden = missing; give back 99 " + chr(125) + "\n" }
+    -- 31: dead-out-of-scope-arm-binding
+    if case_id == 31 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " bound -> give back bound " + chr(125) + "; give back bound " + chr(125) + "\n" }
+    -- 32: dead-wrong-local-type
+    if case_id == 32 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " _ -> give back 42 " + chr(125) + "; pilot invalid: int = \"oops\"; give back 99 " + chr(125) + "\n" }
+    -- 33: dead-wrong-call-argument
+    if case_id == 33 { give back "task target(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\ntask main() -> int " + chr(123) + " when 42 " + chr(123) + " _ -> give back 42 " + chr(125) + "; target(\"oops\"); give back 99 " + chr(125) + "\n" }
+    -- 34: nonexhaustive-missing-return
+    if case_id == 34 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " 7 -> give back 1 " + chr(125) + " " + chr(125) + "\n" }
+    -- 35: route-missing-case
+    if case_id == 35 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " when value " + chr(123) + " Outcome::Pass -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 36: duplicate-route-case
+    if case_id == 36 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " when value " + chr(123) + " Outcome::Pass -> give back 1\nOutcome::Pass -> give back 2\nOutcome::Fail -> give back 0 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 37: arm-after-catchall
+    if case_id == 37 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " _ -> give back 42\n7 -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 38: pattern-type-mismatch
+    if case_id == 38 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " true -> give back 1\n_ -> give back 42 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 39: nested-dead-missing-name
+    if case_id == 39 { give back "task main() -> int " + chr(123) + " when 42 " + chr(123) + " _ -> give back 42 " + chr(125) + "; if true " + chr(123) + " pilot hidden = missing " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 40: dead-wrong-call-next-line
+    if case_id == 40 { give back "task target(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\ntask main() -> int " + chr(123) + "\nwhen 42 " + chr(123) + " _ -> give back 42 " + chr(125) + "\ntarget(\"oops\")\ngive back 99\n" + chr(125) + "\n" }
+    -- 50: hostile-restored-control
+    if case_id == 50 { give back "task main() -> int " + chr(123) + " when 7 " + chr(123) + " 7 -> give back 42\n_ -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 41: check-route-dead-missing-name
+    if case_id == 41 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " check route value " + chr(123) + " Outcome::Pass -> give back 42\nOutcome::Fail -> give back 1 " + chr(125) + "; pilot hidden = missing; give back 99 " + chr(125) + "\n" }
+    -- 42: check-route-dead-wrong-local-type
+    if case_id == 42 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " check route value " + chr(123) + " Outcome::Pass -> give back 42\nOutcome::Fail -> give back 1 " + chr(125) + "; pilot hidden: int = \"oops\"; give back 99 " + chr(125) + "\n" }
+    -- 43: check-route-missing-case-real-fallback
+    if case_id == 43 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " check route value " + chr(123) + " Outcome::Pass -> give back 42 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 44: check-route-duplicate-case
+    if case_id == 44 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " check route value " + chr(123) + " Outcome::Pass -> give back 42\nOutcome::Pass -> give back 1\nOutcome::Fail -> give back 0 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 45: check-route-unknown-payload-pattern-field
+    if case_id == 45 { give back "route Event " + chr(123) + " Key " + chr(123) + " code: int " + chr(125) + "\nClosed " + chr(125) + "\ntask score(value: Event) -> int " + chr(123) + " check route value " + chr(123) + " Event::Key " + chr(123) + " missing " + chr(125) + " -> give back 1\n_ -> give back 0 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 46: check-route-dead-wrong-call-argument
+    if case_id == 46 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask target(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " check route value " + chr(123) + " Outcome::Pass -> give back 42\nOutcome::Fail -> give back 1 " + chr(125) + "; target(\"oops\"); give back 99 " + chr(125) + "\n" }
+    -- 47: check-route-dead-out-of-scope-payload-binder
+    if case_id == 47 { give back "route Event " + chr(123) + " Key " + chr(123) + " code: int " + chr(125) + "\nClosed " + chr(125) + "\ntask score(value: Event) -> int " + chr(123) + " check route value " + chr(123) + " Event::Key " + chr(123) + " code " + chr(125) + " -> give back code\nEvent::Closed -> give back 1 " + chr(125) + "; give back code " + chr(125) + "\n" }
+    -- 51: check-route-exhaustive-terminal-tail
+    if case_id == 51 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " check route value " + chr(123) + " Outcome::Pass -> give back 42\nOutcome::Fail -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 52: check-route-exhaustive-terminal-no-tail
+    if case_id == 52 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " check route value " + chr(123) + " Outcome::Pass -> give back 42\nOutcome::Fail -> give back 1 " + chr(125) + " " + chr(125) + "\n" }
+    -- 53: check-route-exhaustive-live-fallthrough
+    if case_id == 53 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " pilot answer = 0; check route value " + chr(123) + " Outcome::Pass -> give back 1\nOutcome::Fail -> answer = 42 " + chr(125) + "; give back answer " + chr(125) + "\n" }
+    -- 54: check-route-exhaustive-payload-terminal-tail
+    if case_id == 54 { give back "route Event " + chr(123) + " Key " + chr(123) + " code: int " + chr(125) + "\nClosed " + chr(125) + "\ntask score(value: Event) -> int " + chr(123) + " check route value " + chr(123) + " Event::Key " + chr(123) + " code " + chr(125) + " -> give back code\nEvent::Closed -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 55: check-route-exhaustive-alias-terminal-tail
+    if case_id == 55 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\nalias Result = Outcome\ntask score(value: Result) -> int " + chr(123) + " check route value " + chr(123) + " Outcome::Pass -> give back 42\nOutcome::Fail -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 56: when-containing-terminal-check-route
+    if case_id == 56 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " when 42 " + chr(123) + " _ -> " + chr(123) + " check route value " + chr(123) + " Outcome::Pass -> give back 42\nOutcome::Fail -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + " " + chr(125) + "; give back 99 " + chr(125) + "\n" }
+    -- 57: check-route-loop-continue-break
+    if case_id == 57 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " pilot count = 0; while count < 2 " + chr(123) + " count += 1; check route value " + chr(123) + " Outcome::Pass -> continue\nOutcome::Fail -> break " + chr(125) + "; give back 99 " + chr(125) + "; give back count " + chr(125) + "\n" }
+    panic("unknown when-terminal case")
+    give back ""
+}
+
+task v35_when_terminal_has_return(mir: int, body: int, text: word) -> bool {
+    pilot statement = 0
+    repeat until statement >= v4_mir_body_stmt_count(mir, body) {
+        if v4_mir_stmt_kind(mir, body, statement) == v4_mir_stmt_return and v4_mir_stmt_rhs(mir, body, statement) == text { give back true }
+        statement += 1
+    }
+    give back false
+}
+
+task v35_when_terminal_check_graph(mir: int, body: int) -> void {
+    v35_when_terminal_assert(not v4_mir_build_body_has_closed_check_join(mir, body), "private join markers removed")
+    pilot block = 1
+    repeat until block >= v4_mir_body_block_count(mir, body) {
+        pilot record = v4_mir_body_block(mir, body, block)
+        pilot public_route_sentinel: bool = v4_mir_body_stmt_count_for_block(mir, body, block) == 0 and v4_mir_block_terminator(record) == v4_mir_term_unreachable and v4_mir_block_target(record) == -1 and v4_mir_block_else_target(record) == -1 and (v4_mir_block_part(record, 4) == "exhaustive route when" or v4_mir_block_part(record, 4) == "exhaustive check route")
+        v35_when_terminal_assert(v4_mir_body_block_predecessor_count(mir, body, block) > 0 or public_route_sentinel, "published non-entry block has real incoming edge or exact empty public route sentinel")
+        block += 1
+    }
+    pilot local = 0
+    repeat until local >= v4_mir_body_local_count(mir, body) {
+        v35_when_terminal_assert(v4_mir_local_mode(mir, body, local) != "$control-diagnostic", "diagnostic local removed")
+        local += 1
+    }
+    pilot statement = 0
+    repeat until statement >= v4_mir_body_stmt_count(mir, body) {
+        if v4_mir_stmt_kind(mir, body, statement) == v4_mir_stmt_branch {
+            pilot record = v4_mir_body_block(mir, body, v4_mir_stmt_block(mir, body, statement))
+            pilot display = v4_mir_stmt_rhs(mir, body, statement)
+            if display.starts_with("arm#") {
+                v35_when_terminal_assert(display == "arm#" + word_from_int(v4_mir_block_target(record)) + " next#" + word_from_int(v4_mir_block_else_target(record)), "when branch displays match actual remapped CFG edges")
+            }
+        }
+        statement += 1
+    }
+    v35_when_terminal_assert(not v35_when_terminal_has_return(mir, body, "99") and not v35_when_terminal_has_return(mir, body, "fallback"), "dead continuation returns removed")
+}
+
+task v35_when_terminal_run(case_id: int, target_name: word, emit: bool) -> void {
+    pilot source = ""
+    if case_id >= 60 { source = fs::read(process::arg(2)) } else { source = v35_when_terminal_source(case_id) }
+    pilot previous_depth = v4_mir_check_arm_depth
+    v4_mir_check_arm_depth = 7
+    pilot mir = v4_mir_text_cached("when-terminal.fk", source)
+    v35_when_terminal_assert(v4_mir_check_arm_depth == 7 and v4_mir_control_diagnostic_depth == 0, "caller check-arm context restored and diagnostic scope closed")
+    v4_mir_check_arm_depth = previous_depth
+    pilot ty = v4_mir_ty_id(mir)
+    pilot resolve = v4_ty_resolve_id(ty)
+    pilot hir = v4_resolve_hir_id(resolve)
+    pilot tree = v4_hir_tree_id(hir)
+    pilot stream = v4_parse_stream_id(tree)
+    v35_when_terminal_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0, "clean pre-MIR frontend")
+    pilot expected = ""
+    if case_id == 30 or case_id == 31 or case_id == 39 or case_id == 41 or case_id == 47 { expected = "unknown name in unreachable source" }
+    if case_id == 32 or case_id == 42 { expected = "local declaration type mismatch" }
+    if case_id == 33 or case_id == 40 or case_id == 46 { expected = "call argument type mismatch" }
+    if case_id == 34 { expected = "missing return" }
+    if case_id == 35 { expected = "non-exhaustive route when" }
+    if case_id == 36 or case_id == 37 { expected = "unreachable when arm" }
+    if case_id == 38 { expected = "when arm pattern type mismatch" }
+    if case_id == 43 { expected = "non-exhaustive check route" }
+    if case_id == 44 { expected = "unreachable check route arm" }
+    if case_id == 45 { expected = "unknown route pattern field" }
+    if v4_mir_diag_count(mir) != 0 {
+        pilot diagnostic = 0
+        repeat until diagnostic >= v4_mir_diag_count(mir) {
+            pilot row = v4_mir_diag(mir, diagnostic)
+            say "when-terminal MIR diagnostic=" + v4_diag_message(row) + " span=" + v4_diag_span(row) + " help=" + v4_diag_help(row)
+            diagnostic += 1
+        }
+    }
+    pilot target = v4_target_spec_new(target_name)
+    if expected != "" {
+        v35_when_terminal_assert(v4_mir_diag_count(mir) == 1 and v4_diag_message(v4_mir_diag(mir, 0)) == expected, "one exact preserved source diagnostic")
+        pilot row = v4_mir_diag(mir, 0)
+        if case_id == 30 or case_id == 31 or case_id == 39 or case_id == 41 or case_id == 47 {
+            pilot name = "missing"
+            if case_id == 31 { name = "bound" }
+            if case_id == 47 { name = "code" }
+            pilot span = v4_diag_span(row)
+            v35_when_terminal_assert(v4_slice(source, v4_span_start(span), v4_span_end(span)) == name and v4_diag_help(row) == "Meiya cannot find " + name + " in this scope", "dead name exact span and help")
+            pilot body = v4_mir_lookup_body_name(mir, "main")
+            if case_id == 41 or case_id == 47 { body = v4_mir_lookup_body_name(mir, "score") }
+            v35_when_terminal_assert(body >= 0, "actual diagnostic source body")
+            v35_when_terminal_assert(v4_mir_find_local_visible_at(mir, body, name, v4_span_start(span)) < 0 and v4_resolve_lookup_any(resolve, name) < 0, "real out-of-scope local and missing global facts")
+        }
+        if case_id == 35 { v35_when_terminal_assert(v4_diag_help(row) == "missing Outcome::Fail", "route missing case retained") }
+        if case_id == 36 { v35_when_terminal_assert(v4_diag_help(row) == "Outcome::Pass was already covered by an earlier arm", "duplicate route case retained") }
+        if case_id == 37 { v35_when_terminal_assert(v4_diag_help(row) == "an earlier arm already matches every remaining value", "catchall unreachable arm retained") }
+        if case_id == 38 { v35_when_terminal_assert(v4_diag_help(row) == "scrutinee is int but pattern is bool", "pattern mismatch retained") }
+        if case_id == 43 { v35_when_terminal_assert(v4_diag_help(row) == "missing Outcome::Fail", "check route missing case retained") }
+        if case_id == 44 { v35_when_terminal_assert(v4_diag_help(row) == "Outcome::Pass was already covered by an earlier arm", "check route duplicate case retained") }
+        if case_id == 45 { v35_when_terminal_assert(v4_diag_help(row) == "Event::Key has no field missing", "check route pattern field error retained") }
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_when_terminal_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, target) == "", "invalid source cannot publish native module")
+        say "when-terminal case=" + word_from_int(case_id) + " diagnostic=true exact=true module=false"
+        give back
+    }
+    v35_when_terminal_assert(v4_mir_diag_count(mir) == 0, "clean supported MIR")
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        v35_when_terminal_check_graph(mir, body)
+        body += 1
+    }
+    if case_id == 12 or case_id == 13 or case_id == 14 {
+        body = v4_mir_lookup_body_name(mir, "main")
+        v35_when_terminal_assert(v35_when_terminal_has_return(mir, body, "42"), "real unmatched continuation retained")
+    }
+    if case_id == 53 {
+        body = v4_mir_lookup_body_name(mir, "score")
+        v35_when_terminal_assert(body >= 0 and v35_when_terminal_has_return(mir, body, "answer"), "check route real fallthrough continuation retained")
+    }
+    if case_id == 21 {
+        v35_when_terminal_assert(v4_resolve_lookup_any(resolve, "fallback") >= 0 and v4_mir_symbol_value_type(mir, "fallback") == v4_ty_int, "valid global still checked in dead source")
+    }
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    v35_when_terminal_assert(v4_borrowck_diag_count(borrow) == 0, "real Meiya cleanliness")
+    pilot sealed = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot module = v4_codegen_llvm_module_text(sealed, target)
+    pilot frontend_only: bool = case_id == 7 or case_id == 8 or case_id == 9 or case_id == 15 or case_id == 20 or (case_id >= 51 and case_id <= 57)
+    if not frontend_only {
+        if v4_codegen_llvm_native_module_error(sealed) != "" { say "when-terminal native-error=" + v4_codegen_llvm_native_module_error(sealed) }
+        v35_when_terminal_assert(v4_codegen_llvm_native_module_error(sealed) == "" and v4_codegen_llvm_diag_count(sealed) == 0 and module != "", "supported scalar owned native module")
+    } else {
+        v35_when_terminal_assert(v4_codegen_llvm_native_module_error(sealed) != "" and module == "", "unsupported aggregate native boundary cannot publish")
+    }
+    pilot payload = v4_mir_snapshot()
+    v35_when_terminal_assert(not payload.contains("$closed-check-continuation") and not payload.contains("$control-diagnostic") and v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1"), "marker-free canonical snapshot")
+    v35_when_terminal_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload, "canonical restore exact")
+    v35_when_terminal_assert(v4_codegen_llvm_module_text(sealed, target) == module, "old seal remains exact")
+    pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v35_when_terminal_assert(v4_codegen_llvm_native_module_error(fresh) == v4_codegen_llvm_native_module_error(sealed) and v4_codegen_llvm_module_text(fresh, target) == module, "restored owned module or conservative boundary exact")
+    if case_id == 50 {
+        body = v4_mir_lookup_body_name(mir, "main")
+        pilot record = v4_mir_body_block(mir, body, 0)
+        v35_when_terminal_assert(v4_mir_block_terminator(record) == v4_mir_term_if, "real when branch selected")
+        pilot orphan = v4_mir_add_block(mir, body, v4_mir_term_unreachable, -1, -1, "")
+        v4_mir_set_body_block(mir, body, 0, v4_mir_block_new_full(0, v4_mir_term_if, orphan, v4_mir_block_else_target(record), v4_mir_block_part(record, 4)))
+        pilot forged = v4_mir_snapshot()
+        v35_when_terminal_assert(v4_mir_body_block_predecessor_count(mir, body, orphan) == 1 and v4_mir_body_stmt_count_for_block(mir, body, orphan) == 0, "real reachable empty endpoint forged")
+        v35_when_terminal_assert(v4_mir_control_plan_preflight(mir) == "native reachable unreachable block has no checked terminal call", "live endpoint stays strict")
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_when_terminal_assert(v4_codegen_llvm_native_module_error(rejected) == "native reachable unreachable block has no checked terminal call" and v4_codegen_llvm_module_text(rejected, target) == "" and v4_codegen_llvm_module_text(sealed, target) == module, "hostile live module refused and old seal retained")
+        v35_when_terminal_assert(v4_mir_snapshot_restore(forged).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == forged, "hostile restore atomic refusal")
+        v4_mir_set_body_block(mir, body, orphan, v4_mir_block_new_full(orphan, v4_mir_term_unreachable, -1, -1, "$closed-check-continuation"))
+        pilot private_forged = v4_mir_snapshot()
+        v35_when_terminal_assert(v4_mir_snapshot_restore(private_forged).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == private_forged, "private builder marker from snapshot is not authorized")
+        v35_when_terminal_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload, "canonical recovery exact")
+        fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_when_terminal_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module, "recovered fresh module exact")
+        say "when-terminal case=50 graph=true Meiya=true snapshot=true hostile=true recovered=true old-seal=true"
+        give back
+    }
+    say "when-terminal case=" + word_from_int(case_id) + " graph=true Meiya=true snapshot=true module-exact=true"
+    if emit { say "@@LLVM-MODULE-BEGIN"; say module; say "@@LLVM-MODULE-END" }
+}
+pilot v35_when_case = word_to_int(process::arg(1))
+pilot v35_when_target = "x86_64-unknown-linux-gnu"
+pilot v35_when_emit = false
+if v35_when_case >= 60 {
+    v35_when_target = process::arg(3)
+    v35_when_emit = true
+} else {
+    if process::args_count() > 2 { v35_when_target = process::arg(2) }
+    if process::args_count() > 3 { v35_when_emit = process::arg(3) == "--emit" }
+}
+v35_when_terminal_run(v35_when_case, v35_when_target, v35_when_emit)
