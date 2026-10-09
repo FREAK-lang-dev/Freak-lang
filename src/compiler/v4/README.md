@@ -12,9 +12,11 @@ Both test a bool before every pass and use the existing loop rules for
 declaration-name validation; `freak_mir_build` constructs the positive loop
 condition using the existing repeat-until MIR representation with opposite
 polarity. Persistent MIR facts and snapshot formats remain unchanged.
-The active `v35_while_contract_smoke.fk` covers 82 isolated frontend/MIR and
-restoration contracts, including exact lowercase keywords and constructor
-payload braces in loop headers. `v35_native_while_execute_smoke.fk` covers two
+The active `v35_while_contract_smoke.fk` registers 98 isolated frontend/MIR and
+restoration contracts: the original 82 plus 16 route/variant name, recovery,
+editor and snapshot cases awaiting fresh native execution. Coverage includes
+exact lowercase keywords and constructor payload braces in loop headers.
+`v35_native_while_execute_smoke.fk` covers two
 actual LLVM programs with zero passes, nested control and short-circuit
 conditions. `v35_native_while_casing_execute_smoke.fk` adds three actual LLVM
 programs with case-preserving scalar task, alias and local names. Aggregate
