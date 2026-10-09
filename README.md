@@ -478,29 +478,32 @@ Not actually a module. The official FREAK-developer snack. Serves one compiler. 
 
 ## Testing
 
-In a source checkout, the native CLI exposes a development shim that runs the
-Python bootstrap regression harness over `tests/suite/test_*.fk`:
+The installed native CLI builds and runs each source file declared in the
+project's `[tests]` table as a separate native program. Tests use the same
+immutable package graph and selected backend as project builds.
 
 ```bash
-freak test
+freak test --locked --offline
+freak test --c --locked --offline
+freak test --json --jobs=2 --timeout-ms=30000
 ```
 
-Sample output:
+Declare test names and relative source paths in `hangar.toml`:
 
-```
-Found 14 test(s).
-  PASS  test_arithmetic.fk
-  PASS  test_boolean.fk
-  PASS  test_loops.fk
-  ...
-==================================================
-  14 passed, 0 failed, 0 skipped / 14 total
-==================================================
+```toml
+[tests]
+arithmetic = "tests/arithmetic_test.fk"
 ```
 
-(14 `test_*.fk` cases ship; none carry SKIP directives, so a healthy tree reports 14 passed.)
+Each test file supplies an ordinary `task main()` and can use assertions such
+as `std::test::test_assert_int`. Build errors, failed assertions, spawn errors,
+signals and timeouts produce failed test results and a nonzero command status.
+Reports retain test-name order; `--json` selects structured results.
 
-> The bible describes a richer in-language test framework — `test "name" { expect X to be Y }` blocks, `@nakige` test annotations, vibes ratings on output. That ships with V4. Today, add a `test_*.fk` case under `tests/suite/` and run `freak test` from the repository checkout. The shim and Python bootstrap compiler are not included in standalone release archives; use `tests/v3_legacy_golden.py` for the preserved self-hosted V3 corpus.
+The source checkout also has a separate Python regression harness:
+`python -u tests/suite/run_tests.py`. It is a development tool and is not
+required by installed native project tests. The richer test-block and
+annotation framework described in the bible remains development V4 work.
 
 ---
 
@@ -543,7 +546,7 @@ on sharp edges.
 | Self-hosting compiler (V3) | ⚠️ Shipping self-hosted — actively hardened, not stable |
 | LLVM IR backend (default) | ✅ Complete |
 | C backend (`--c`) | ⚠️ Portability target — scalar/control/word, typed lists, and owned shapes execute on C and LLVM; native UI parity remains separate |
-| Native CLI (`freak build`/`run`/`check`/`transpile`) | ✅ Complete; `freak test` is a source-checkout Python shim |
+| Native CLI (`freak build`/`run`/`check`/`transpile`/`test`) | ✅ Native project tests use the selected backend and immutable package graph |
 | Hangar package manager | ✅ Complete |
 | Cross-compilation (`--target=`) | ✅ Complete |
 | Optimization levels (`--opt=0..3`) | ✅ Complete |
