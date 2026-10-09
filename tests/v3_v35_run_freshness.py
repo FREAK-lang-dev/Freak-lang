@@ -15,6 +15,7 @@ import tempfile
 import time
 
 from windows_private_fixture import WindowsPrivateFixture
+from v3_v35_acceptance import run_command as bounded_run
 
 ANSI = re.compile(rb'\x1b\[[0-9;]*m')
 MUTATOR = r'''
@@ -91,6 +92,69 @@ def fixture(root: Path, private: WindowsPrivateFixture) -> dict[str, Path]:
     return files
 
 
+def run_freshness_command(label: str, argv: list[str], cwd: Path, env: dict[str, str],
+                          *, report: dict, raw: Path, save, timeout: float = 120) -> tuple[int, bytes]:
+    """Keep freshness evidence fields while sharing bounded child-tree capture."""
+    ordinal = len(report['commands']) + 1
+    prefix = raw / f'{ordinal:03d}'
+    started_ns = time.time_ns()
+    environment = {key: env.get(key) for key in
+                   ('FREAK_HOME', 'FREAK_CLANG', 'FREAK_FRESHNESS_EDIT', 'FREAK_FRESHNESS_BODY')}
+
+    def checkpoint(record: dict) -> None:
+        record.setdefault('started_ns', started_ns)
+        record.setdefault('environment', environment)
+        recording_error = None
+        if 'returncode' in record:
+            record.setdefault('finished_ns', time.time_ns())
+            for channel in ('stdout', 'stderr'):
+                path = raw / f'{ordinal:03d}-{channel}.raw'
+                retained = record.get('raw_files', {}).get(channel, {})
+                metadata = {'path': str(path), 'sha256': record[channel + '_sha256'],
+                            'bytes': None if 'pid' in record else 0, 'written': False}
+                record[channel] = metadata
+                if retained.get('written'):
+                    try:
+                        data = Path(retained['path']).read_bytes()
+                        metadata['bytes'] = len(data)
+                        path.write_bytes(data)
+                        metadata['written'] = True
+                    except Exception as error:
+                        metadata['error'] = repr(error)
+                        record.setdefault('recording_errors', []).append(repr(error))
+                        if recording_error is None:
+                            recording_error = error
+                else:
+                    metadata['error'] = retained.get('error', 'raw channel was not retained')
+        try:
+            save()
+        except Exception as error:
+            if recording_error is None:
+                recording_error = error
+        if recording_error is not None:
+            raise recording_error
+
+    try:
+        result = bounded_run(argv, cwd=cwd, env=env, label=label, prefix=prefix,
+                             records=report['commands'], expected=None, timeout=timeout,
+                             on_record=checkpoint)
+        return result.returncode, ANSI.sub(b'', result.stdout + result.stderr)
+    except BaseException as error:
+        if len(report['commands']) >= ordinal:
+            record = report['commands'][ordinal - 1]
+            record['error'] = repr(error)
+            if isinstance(error, subprocess.TimeoutExpired):
+                # Bytes remain knowable even if evidence storage itself failed.
+                for channel, data in (('stdout', error.output), ('stderr', error.stderr)):
+                    if data is not None and channel in record:
+                        record[channel]['bytes'] = len(data)
+            try:
+                save()
+            except Exception as recording_error:
+                record.setdefault('recording_errors', []).append(repr(recording_error))
+        raise
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('freak', type=Path, help='fresh exact-source native CLI; never reconstructed here')
@@ -110,26 +174,8 @@ def main() -> int:
         evidence.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
 
     def run(label: str, argv: list[str], cwd: Path, env: dict[str, str], timeout: int = 120) -> tuple[int, bytes]:
-        record = {'case': label, 'argv': argv, 'cwd': str(cwd), 'started_ns': time.time_ns(),
-                  'environment': {key: env.get(key) for key in ('FREAK_HOME', 'FREAK_CLANG', 'FREAK_FRESHNESS_EDIT', 'FREAK_FRESHNESS_BODY')}}
-        report['commands'].append(record)
-        process = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        record['pid'] = process.pid
-        save()
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            stdout, stderr = process.communicate()
-            record['timed_out'] = True
-        record.update(returncode=process.returncode, finished_ns=time.time_ns())
-        for stream, contents in (('stdout', stdout), ('stderr', stderr)):
-            path = raw / f'{len(report["commands"]):03d}-{stream}.raw'
-            path.write_bytes(contents)
-            record[stream] = {'path': str(path), 'sha256': sha(path), 'bytes': len(contents)}
-        save()
-        assert not record.get('timed_out'), record
-        return process.returncode, ANSI.sub(b'', stdout + stderr)
+        return run_freshness_command(label, argv, cwd, env, report=report,
+                                     raw=raw, save=save, timeout=timeout)
 
     try:
         with tempfile.TemporaryDirectory(prefix='freak-run-graph-freshness-') as temporary:
