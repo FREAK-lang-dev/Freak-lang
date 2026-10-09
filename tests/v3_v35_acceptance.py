@@ -148,22 +148,39 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
             original.output, original.stderr = stdout, stderr
             raise
     finally:
-        prefix.with_suffix('.stdout').write_bytes(stdout)
-        prefix.with_suffix('.stderr').write_bytes(stderr)
+        original_error = sys.exc_info()[1]
         record.update(returncode=child.returncode if child is not None else None,
                       elapsed_seconds=time.monotonic() - began,
                       stdout_sha256=hashlib.sha256(stdout).hexdigest(),
                       stderr_sha256=hashlib.sha256(stderr).hexdigest())
+        record['raw_files'] = {}
+        for channel, data in (('stdout', stdout), ('stderr', stderr)):
+            path = prefix.with_suffix('.' + channel)
+            retained = {'path': str(path), 'written': False}
+            record['raw_files'][channel] = retained
+            try:
+                path.write_bytes(data)
+                retained['written'] = True
+            except Exception as error:
+                # Attempt the other channel and terminal checkpoint even when
+                # evidence storage fails. Keep the first operation/setup cause.
+                retained['error'] = repr(error)
+                record.setdefault('recording_errors', []).append(repr(error))
+                if recording_error is None:
+                    recording_error = error
+        if original_error is not None or recording_error is not None:
+            record['error'] = repr(original_error if original_error is not None else recording_error)
         if on_record is not None:
-            original_error = sys.exc_info()[1]
             try:
                 on_record(record)
             except Exception as error:
-                if original_error is None:
-                    raise
                 record.setdefault('recording_errors', []).append(repr(error))
-    if recording_error is not None:
-        raise recording_error
+                if recording_error is None:
+                    recording_error = error
+                if original_error is None:
+                    record['error'] = repr(recording_error)
+        if original_error is None and recording_error is not None:
+            raise recording_error
     if expected is not None:
         assert child.returncode == expected, (label, child.returncode, stdout[-4000:], stderr[-4000:])
     return subprocess.CompletedProcess(command, child.returncode, stdout, stderr)

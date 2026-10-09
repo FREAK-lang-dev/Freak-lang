@@ -152,6 +152,77 @@ class AcceptanceHelpers(unittest.TestCase):
             self.assertEqual((root / 'pid-checkpoint.stdout').read_bytes(), b'completed' + os.linesep.encode())
             self.assertEqual(records[0]['recording_errors'], ["OSError('PID checkpoint write failed')"])
 
+    def test_raw_write_failure_preserves_timeout_and_attempts_both_channels(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            records, checkpoints, attempts = [], [], []
+            write_bytes = Path.write_bytes
+            def fail_stdout(path, data):
+                attempts.append(path.name)
+                if path.name == 'raw-timeout.stdout':
+                    raise OSError('stdout evidence unavailable')
+                return write_bytes(path, data)
+            code = ('import sys,time; print("partial",flush=True); '
+                    'print("error",file=sys.stderr,flush=True); time.sleep(60)')
+            with patch.object(Path, 'write_bytes', fail_stdout):
+                with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    acceptance.run_command([sys.executable, '-c', code], cwd=root,
+                                           env=os.environ.copy(), label='raw-timeout',
+                                           prefix=root / 'raw-timeout', records=records,
+                                           timeout=.5, on_record=lambda record: checkpoints.append(dict(record)))
+            self.assertEqual(attempts, ['raw-timeout.stdout', 'raw-timeout.stderr'])
+            self.assertEqual(caught.exception.output, b'partial' + os.linesep.encode())
+            self.assertEqual((root / 'raw-timeout.stderr').read_bytes(), caught.exception.stderr)
+            self.assertTrue(records[0]['timed_out'])
+            self.assertIsNotNone(records[0]['returncode'])
+            self.assertIn('elapsed_seconds', checkpoints[-1])
+            self.assertEqual(records[0]['recording_errors'], ["OSError('stdout evidence unavailable')"])
+            self.assertFalse(records[0]['raw_files']['stdout']['written'])
+            self.assertTrue(records[0]['raw_files']['stderr']['written'])
+
+    def test_raw_write_failures_after_success_keep_first_error_and_terminal_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            records, checkpoints, attempts = [], [], []
+            errors = [OSError('stdout unavailable'), OSError('stderr unavailable')]
+            def fail_write(path, data):
+                attempts.append(path.name)
+                raise errors[len(attempts) - 1]
+            with patch.object(Path, 'write_bytes', fail_write):
+                with self.assertRaises(OSError) as caught:
+                    acceptance.run_command([sys.executable, '-c', 'print("done")'], cwd=root,
+                                           env=os.environ.copy(), label='raw-success',
+                                           prefix=root / 'raw-success', records=records,
+                                           on_record=lambda record: checkpoints.append(dict(record)))
+            self.assertIs(caught.exception, errors[0])
+            self.assertEqual(attempts, ['raw-success.stdout', 'raw-success.stderr'])
+            self.assertEqual(records[0]['returncode'], 0)
+            self.assertEqual(checkpoints[-1]['returncode'], 0)
+            self.assertEqual(records[0]['recording_errors'], [repr(error) for error in errors])
+            self.assertTrue(all(not item['written'] for item in records[0]['raw_files'].values()))
+
+    def test_raw_write_failure_does_not_replace_pid_checkpoint_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            records, attempts = [], []
+            primary = OSError('PID checkpoint unavailable')
+            def checkpoint(record):
+                if 'pid' in record and 'returncode' not in record:
+                    raise primary
+            def fail_write(path, data):
+                attempts.append(path.name)
+                raise OSError('raw evidence unavailable')
+            with patch.object(Path, 'write_bytes', fail_write):
+                with self.assertRaises(OSError) as caught:
+                    acceptance.run_command([sys.executable, '-c', 'print("done")'], cwd=root,
+                                           env=os.environ.copy(), label='raw-pid',
+                                           prefix=root / 'raw-pid', records=records, on_record=checkpoint)
+            self.assertIs(caught.exception, primary)
+            self.assertEqual(attempts, ['raw-pid.stdout', 'raw-pid.stderr'])
+            self.assertEqual(records[0]['returncode'], 0)
+            self.assertEqual(records[0]['recording_errors'][0], repr(primary))
+            self.assertEqual(len(records[0]['recording_errors']), 3)
+
     def test_hangar_recorder_retains_adverse_exit_and_spawn_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
