@@ -1,7 +1,68 @@
+task v35_when_terminal_extra_source(case_id: int) -> word {
+    if case_id == 70 { give back "task score(value: int) -> int " + chr(123) + "\n when value " + chr(123) + "\n _ -> give back 42\n 7 -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n " + chr(125) + "\n give back missing_tail\n" + chr(125) + "\n" }
+    if case_id == 71 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n check route value " + chr(123) + "\n _ -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n " + chr(125) + "\n give back missing_tail\n" + chr(125) + "\n" }
+    if case_id == 72 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n when value " + chr(123) + "\n Pass -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n Fail -> give back 1\n " + chr(125) + "\n give back missing_tail\n" + chr(125) + "\n" }
+    if case_id == 73 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n check route value " + chr(123) + "\n Pass -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n Fail -> give back 1\n " + chr(125) + "\n give back missing_tail\n" + chr(125) + "\n" }
+    if case_id == 74 { give back "task score(value: int) -> int " + chr(123) + "\n when value " + chr(123) + "\n _ -> give back 42\n 7 -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n " + chr(125) + "\n pilot invalid: int = \"oops\"\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 75 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n check route value " + chr(123) + "\n _ -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n " + chr(125) + "\n pilot invalid: int = \"oops\"\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 76 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n when value " + chr(123) + "\n Pass -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n Fail -> give back 1\n " + chr(125) + "\n pilot invalid: int = \"oops\"\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 77 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n check route value " + chr(123) + "\n Pass -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n Fail -> give back 1\n " + chr(125) + "\n pilot invalid: int = \"oops\"\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 78 { give back "task target(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\ntask score(value: int) -> int " + chr(123) + "\n when value " + chr(123) + "\n _ -> give back 42\n 7 -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n " + chr(125) + "\n target(\"oops\")\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 79 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask target(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n check route value " + chr(123) + "\n _ -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n " + chr(125) + "\n target(\"oops\")\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 80 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask target(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n when value " + chr(123) + "\n Pass -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n Fail -> give back 1\n " + chr(125) + "\n target(\"oops\")\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 81 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask target(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n check route value " + chr(123) + "\n Pass -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n Fail -> give back 1\n " + chr(125) + "\n target(\"oops\")\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 82 { give back "task score(value: int) -> int " + chr(123) + "\n when value " + chr(123) + "\n _ -> give back 42\n 7 -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n " + chr(125) + "\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 83 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n check route value " + chr(123) + "\n _ -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n " + chr(125) + "\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 84 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n when value " + chr(123) + "\n Pass -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n Fail -> give back 1\n " + chr(125) + "\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 85 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n check route value " + chr(123) + "\n Pass -> give back 42\n Pass -> " + chr(123) + " pilot ignored = 0 " + chr(125) + "\n Fail -> give back 1\n " + chr(125) + "\n give back 99\n" + chr(125) + "\n" }
+    if case_id == 86 { give back "task main() -> int " + chr(123) + "\n pilot answer = 0\n when 42 " + chr(123) + "\n 42 -> " + chr(123) + " answer = 42 " + chr(125) + "\n " + chr(125) + "\n give back answer\n" + chr(125) + "\n" }
+    if case_id == 87 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n pilot answer = 0\n check route value " + chr(123) + "\n Pass -> " + chr(123) + " answer = 42 " + chr(125) + "\n Fail -> give back 1\n " + chr(125) + "\n give back answer\n" + chr(125) + "\n" }
+    if case_id == 88 { give back "task main() -> int " + chr(123) + "\n pilot answer = 0\n pilot count = 0\n while count < 2 " + chr(123) + "\n count += 1\n when count " + chr(123) + "\n 1 -> " + chr(123) + " answer += 21 " + chr(125) + "\n " + chr(125) + "\n answer += 0\n " + chr(125) + "\n give back answer\n" + chr(125) + "\n" }
+    if case_id == 89 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + "\n pilot answer = 0\n pilot count = 0\n while count < 2 " + chr(123) + "\n check route value " + chr(123) + "\n Pass -> " + chr(123) + " answer += 21 " + chr(125) + "\n Fail -> " + chr(123) + " answer += 0 " + chr(125) + "\n " + chr(125) + "\n count += 1\n " + chr(125) + "\n give back answer\n" + chr(125) + "\n" }
+    if case_id == 90 { give back "route Event " + chr(123) + "\n Key " + chr(123) + " code: int " + chr(125) + "\n Closed\n" + chr(125) + "\ntask score(value: Event) -> int " + chr(123) + "\n pilot answer = 42\n when value " + chr(123) + "\n Event::Key " + chr(123) + " code: 7 " + chr(125) + " -> give back 7\n Event::Closed -> give back 0\n " + chr(125) + "\n give back answer\n" + chr(125) + "\n" }
+    if case_id == 91 { give back "route Event " + chr(123) + "\n Key " + chr(123) + " code: int " + chr(125) + "\n Closed\n" + chr(125) + "\ntask score(value: Event) -> int " + chr(123) + "\n pilot answer = 42\n check route value " + chr(123) + "\n Event::Key " + chr(123) + " code: 7 " + chr(125) + " -> give back 7\n Event::Closed -> give back 0\n " + chr(125) + "\n give back answer\n" + chr(125) + "\n" }
+    if case_id == 92 { give back "task main() -> int " + chr(123) + "\n pilot flag = false\n if flag " + chr(123) + " give back 1 " + chr(125) + " else " + chr(123) + "\n pilot answer = 0\n when 7 " + chr(123) + "\n _ -> " + chr(123) + " answer = 42 " + chr(125) + "\n " + chr(125) + "\n give back answer\n " + chr(125) + "\n" + chr(125) + "\n" }
+    if case_id == 93 { give back "route Outcome " + chr(123) + "\n Pass / Fail\n" + chr(125) + "\ntask score(flag: bool, value: Outcome) -> int " + chr(123) + "\n if flag " + chr(123) + " give back 1 " + chr(125) + " else " + chr(123) + "\n pilot answer = 0\n check route value " + chr(123) + "\n Pass -> " + chr(123) + " answer = 42 " + chr(125) + "\n Fail -> " + chr(123) + " answer = 1 " + chr(125) + "\n " + chr(125) + "\n give back answer\n " + chr(125) + "\n" + chr(125) + "\n" }
+    if case_id == 94 { give back "task main() -> int " + chr(123) + "\n pilot flag = false\n pilot other = false\n if flag " + chr(123) + " give back 1 " + chr(125) + " else if other " + chr(123) + " give back 3 " + chr(125) + " else " + chr(123) + "\n pilot answer = 0\n when 42 " + chr(123) + "\n _ -> " + chr(123) + " answer = 42 " + chr(125) + "\n " + chr(125) + "\n give back answer\n " + chr(125) + "\n" + chr(125) + "\n" }
+    if case_id == 95 { give back "task main() -> int " + chr(123) + "\n pilot count = 0\n pilot answer = 0\n while count < 2 " + chr(123) + "\n count += 1\n if count < 0 " + chr(123) + " continue " + chr(125) + " else " + chr(123) + "\n when count " + chr(123) + "\n _ -> " + chr(123) + " answer += 21 " + chr(125) + "\n " + chr(125) + "\n answer += 0\n " + chr(125) + "\n " + chr(125) + "\n give back answer\n" + chr(125) + "\n" }
+    panic("unknown extra dispatch case")
+    give back ""
+}
+task v35_when_terminal_extra_diagnostics(case_id: int) -> word {
+    if case_id == 70 { give back "unreachable when arm|an earlier arm already matches every remaining value|0@66:92|unknown name in unreachable source|Meiya cannot find missing_tail in this scope|0@107:119" }
+    if case_id == 71 { give back "unreachable check route arm|earlier arms already cover every Outcome case|0@108:137|unknown name in unreachable source|Meiya cannot find missing_tail in this scope|0@152:164" }
+    if case_id == 72 { give back "unreachable when arm|Outcome::Pass was already covered by an earlier arm|0@104:133|unknown name in unreachable source|Meiya cannot find missing_tail in this scope|0@169:181" }
+    if case_id == 73 { give back "unreachable check route arm|Outcome::Pass was already covered by an earlier arm|0@111:140|unknown name in unreachable source|Meiya cannot find missing_tail in this scope|0@176:188" }
+    if case_id == 74 { give back "unreachable when arm|an earlier arm already matches every remaining value|0@66:92|local declaration type mismatch|invalid expects int but got word|0@97:124" }
+    if case_id == 75 { give back "unreachable check route arm|earlier arms already cover every Outcome case|0@108:137|local declaration type mismatch|invalid expects int but got word|0@142:169" }
+    if case_id == 76 { give back "unreachable when arm|Outcome::Pass was already covered by an earlier arm|0@104:133|local declaration type mismatch|invalid expects int but got word|0@159:186" }
+    if case_id == 77 { give back "unreachable check route arm|Outcome::Pass was already covered by an earlier arm|0@111:140|local declaration type mismatch|invalid expects int but got word|0@166:193" }
+    if case_id == 78 { give back "unreachable when arm|an earlier arm already matches every remaining value|0@117:143|call argument type mismatch|target argument 1 expects int but got word|0@148:162" }
+    if case_id == 79 { give back "unreachable check route arm|earlier arms already cover every Outcome case|0@159:188|call argument type mismatch|target argument 1 expects int but got word|0@193:207" }
+    if case_id == 80 { give back "unreachable when arm|Outcome::Pass was already covered by an earlier arm|0@155:184|call argument type mismatch|target argument 1 expects int but got word|0@210:224" }
+    if case_id == 81 { give back "unreachable check route arm|Outcome::Pass was already covered by an earlier arm|0@162:191|call argument type mismatch|target argument 1 expects int but got word|0@217:231" }
+    if case_id == 82 { give back "unreachable when arm|an earlier arm already matches every remaining value|0@66:92|||" }
+    if case_id == 83 { give back "unreachable check route arm|earlier arms already cover every Outcome case|0@108:137|||" }
+    if case_id == 84 { give back "unreachable when arm|Outcome::Pass was already covered by an earlier arm|0@104:133|||" }
+    if case_id == 85 { give back "unreachable check route arm|Outcome::Pass was already covered by an earlier arm|0@111:140|||" }
+    if case_id == 90 { give back "non-exhaustive route when|missing Event::Key|0@97:181|||" }
+    if case_id == 91 { give back "non-exhaustive check route|missing Event::Key|0@97:188|||" }
+    give back ""
+}
+
 -- Exhaustive terminal when arms close only the completed zero-predecessor join.
 -- Every numbered case runs in a separate process under the registered bounds.
 task v35_when_terminal_assert(condition: bool, label: word) -> void {
     if not condition { panic("when-terminal " + label) }
+}
+task v35_when_terminal_find_text(text: word, needle: word, start: int) -> int {
+    if needle.length() == 0 or start < 0 { give back -1 }
+    pilot offset = start
+    repeat until offset + needle.length() > text.length() {
+        if v4_slice(text, offset, offset + needle.length()) == needle { give back offset }
+        offset += 1
+    }
+    give back -1
 }
 task v35_when_terminal_source(case_id: int) -> word {
     -- 0: named-catchall-tail
@@ -106,6 +167,7 @@ task v35_when_terminal_source(case_id: int) -> word {
     if case_id == 56 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " when 42 " + chr(123) + " _ -> " + chr(123) + " check route value " + chr(123) + " Outcome::Pass -> give back 42\nOutcome::Fail -> give back 1 " + chr(125) + "; give back 99 " + chr(125) + " " + chr(125) + "; give back 99 " + chr(125) + "\n" }
     -- 57: check-route-loop-continue-break
     if case_id == 57 { give back "route Outcome " + chr(123) + " Pass\nFail " + chr(125) + "\ntask score(value: Outcome) -> int " + chr(123) + " pilot count = 0; while count < 2 " + chr(123) + " count += 1; check route value " + chr(123) + " Outcome::Pass -> continue\nOutcome::Fail -> break " + chr(125) + "; give back 99 " + chr(125) + "; give back count " + chr(125) + "\n" }
+    if case_id >= 70 and case_id <= 95 { give back v35_when_terminal_extra_source(case_id) }
     panic("unknown when-terminal case")
     give back ""
 }
@@ -147,9 +209,107 @@ task v35_when_terminal_check_graph(mir: int, body: int) -> void {
     v35_when_terminal_assert(not v35_when_terminal_has_return(mir, body, "99") and not v35_when_terminal_has_return(mir, body, "fallback"), "dead continuation returns removed")
 }
 
+
+task v35_when_terminal_verify_extra_diagnostics(case_id: int, source: word, mir: int, target_name: word) -> void {
+    pilot expected = v35_when_terminal_extra_diagnostics(case_id)
+    pilot expected_count = 1
+    if case_id >= 70 and case_id <= 81 { expected_count = 2 }
+    v35_when_terminal_assert(v4_mir_diag_count(mir) == expected_count, "exact coverage and dead-source diagnostic inventory")
+    pilot coverage = v4_mir_diag(mir, 0)
+    v35_when_terminal_assert(v4_diag_message(coverage) == v4_mir_block_part(expected, 0) and v4_diag_help(coverage) == v4_mir_block_part(expected, 1) and v4_diag_span(coverage) == v4_mir_block_part(expected, 2), "coverage exact message span help once")
+    if expected_count == 2 {
+        pilot tail = v4_mir_diag(mir, 1)
+        v35_when_terminal_assert(v4_diag_message(tail) == v4_mir_block_part(expected, 3) and v4_diag_help(tail) == v4_mir_block_part(expected, 4) and v4_diag_span(tail) == v4_mir_block_part(expected, 5), "dead tail exact message span help once")
+    }
+    pilot ordinary_invalid_count = 0
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        v35_when_terminal_check_graph(mir, body)
+        v35_when_terminal_assert(not v35_when_terminal_has_return(mir, body, "missing_tail"), "unreachable missing-name return removed")
+        if case_id >= 70 and case_id <= 85 {
+            v35_when_terminal_assert(not v35_when_terminal_has_return(mir, body, "99"), "unreachable valid tail return removed")
+            pilot invalid = v4_mir_find_local(mir, body, "invalid")
+            pilot ignored = v4_mir_find_local(mir, body, "ignored")
+            if case_id >= 74 and case_id <= 77 and body == v4_mir_lookup_body_name(mir, "score") {
+                ordinary_invalid_count += 1
+                v35_when_terminal_assert(invalid >= 0 and invalid < v4_mir_body_local_count(mir, body), "ordinary diagnostic source local retained")
+                pilot authored_span = v4_mir_block_part(expected, 5)
+                pilot authored_scope = ""
+                if case_id == 74 { authored_scope = "0@30:140" }
+                if case_id == 75 { authored_scope = "0@65:185" }
+                if case_id == 76 { authored_scope = "0@65:202" }
+                if case_id == 77 { authored_scope = "0@65:209" }
+                v35_when_terminal_assert(v4_mir_local_ty(mir, body, invalid) == v4_ty_int and v4_mir_local_mode(mir, body, invalid) == "value" and v4_mir_local_span(mir, body, invalid) == authored_span and v4_mir_local_scope_span(mir, body, invalid) == authored_scope, "ordinary typed source metadata exact")
+                v35_when_terminal_assert(v4_slice(source, v4_span_start(authored_span), v4_span_end(authored_span)) == "pilot invalid: int = \"oops\"", "authored invalid declaration text retained")
+                pilot token_offset = v4_span_start(authored_span) + 6
+                pilot definition = v4_definition_at_text_cached("when-terminal.fk", source, token_offset)
+                v35_when_terminal_assert(v4_definition_at_found(definition) == 1 and v4_definition_at_name(definition) == "invalid" and v4_definition_at_kind(definition) == "Local" and v4_definition_at_span(definition) == "0@" + word_from_int(token_offset) + ":" + word_from_int(token_offset + 7), "real source editor local definition retained")
+                v35_when_terminal_assert(v4_definition_at_def(definition).ends_with("::Local::" + word_from_int(invalid) + "::invalid"), "source editor definition identifies actual retained local")
+            } else {
+                v35_when_terminal_assert(invalid == -1, "no unauthored invalid source local")
+            }
+            pilot local = 0
+            repeat until local >= v4_mir_body_local_count(mir, body) {
+                v35_when_terminal_assert(v4_mir_local_ty(mir, body, local) != v4_ty_never, "no public diagnostic Never local")
+                local += 1
+            }
+            pilot statement = 0
+            repeat until statement >= v4_mir_body_stmt_count(mir, body) {
+                v35_when_terminal_assert(v4_mir_stmt_lhs(mir, body, statement) != "invalid", "diagnostic source declaration has no executable initializer")
+                v35_when_terminal_assert(v4_mir_stmt_lhs(mir, body, statement) != "ignored", "detached arm source declaration has no executable initializer")
+                v35_when_terminal_assert(v4_mir_stmt_rhs(mir, body, statement) != "target(\"oops\")", "diagnostic-only invalid tail call removed")
+                statement += 1
+            }
+            pilot place = 0
+            repeat until place >= v4_mir_body_place_count(mir, body) {
+                if invalid >= 0 and v4_mir_place_kind(mir, body, place) == v4_mir_place_local {
+                    v35_when_terminal_assert(v4_mir_place_base(mir, body, place) != invalid, "ordinary source metadata has no executable local place")
+                }
+                if ignored >= 0 and v4_mir_place_kind(mir, body, place) == v4_mir_place_local {
+                    v35_when_terminal_assert(v4_mir_place_base(mir, body, place) != ignored, "detached arm metadata has no executable local place")
+                }
+                place += 1
+            }
+            pilot value = 0
+            repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+                v35_when_terminal_assert(v4_mir_rvalue_ty(mir, body, value) != v4_ty_never and v4_mir_rvalue_text(mir, body, value) != "99" and v4_mir_rvalue_text(mir, body, value) != "\"oops\"", "diagnostic tail value roots removed")
+                if invalid >= 0 and v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_use_local {
+                    v35_when_terminal_assert(v4_mir_rvalue_local_id(mir, body, value) != invalid, "ordinary source metadata has no executable value use")
+                }
+                if ignored >= 0 and v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_use_local {
+                    v35_when_terminal_assert(v4_mir_rvalue_local_id(mir, body, value) != ignored, "detached arm metadata has no executable value use")
+                }
+                value += 1
+            }
+        }
+        body += 1
+    }
+    if case_id >= 74 and case_id <= 77 { v35_when_terminal_assert(ordinary_invalid_count == 1, "one actual ordinary invalid source declaration") }
+    if case_id == 90 or case_id == 91 {
+        body = v4_mir_lookup_body_name(mir, "score")
+        v35_when_terminal_assert(body >= 0 and v35_when_terminal_has_return(mir, body, "answer"), "filtered route guard retains real unmatched tail")
+    }
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    v35_when_terminal_assert(v4_borrowck_diag_count(borrow) == expected_count, "real Meiya retains source diagnostics without extra ownership errors")
+    pilot diagnostic = 0
+    repeat until diagnostic >= expected_count {
+        pilot mir_row = v4_mir_diag(mir, diagnostic)
+        pilot borrow_row = v4_borrowck_diag(borrow, diagnostic)
+        v35_when_terminal_assert(v4_diag_message(mir_row) == v4_diag_message(borrow_row) and v4_diag_span(mir_row) == v4_diag_span(borrow_row) and v4_diag_help(mir_row) == v4_diag_help(borrow_row), "Meiya exact inherited diagnostic")
+        diagnostic += 1
+    }
+    pilot payload: word = v4_mir_snapshot()
+    v35_when_terminal_assert(v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1"), "compacted diagnostic graph snapshot valid")
+    v35_when_terminal_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload, "diagnostic source snapshot roundtrip exact")
+    pilot target = v4_target_spec_new(target_name)
+    pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v35_when_terminal_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, target) == "", "diagnosed source cannot publish a native module")
+    say "when-terminal case=" + word_from_int(case_id) + " diagnostic=true exact=true graph=true Meiya=true snapshot=true module=false"
+}
+
 task v35_when_terminal_run(case_id: int, target_name: word, emit: bool) -> void {
     pilot source = ""
-    if case_id >= 60 { source = fs::read(process::arg(2)) } else { source = v35_when_terminal_source(case_id) }
+    if case_id >= 60 and case_id <= 62 { source = fs::read(process::arg(2)) } else { source = v35_when_terminal_source(case_id) }
     pilot previous_depth = v4_mir_check_arm_depth
     v4_mir_check_arm_depth = 7
     pilot mir = v4_mir_text_cached("when-terminal.fk", source)
@@ -161,6 +321,10 @@ task v35_when_terminal_run(case_id: int, target_name: word, emit: bool) -> void 
     pilot tree = v4_hir_tree_id(hir)
     pilot stream = v4_parse_stream_id(tree)
     v35_when_terminal_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0, "clean pre-MIR frontend")
+    if (case_id >= 70 and case_id <= 85) or case_id == 90 or case_id == 91 {
+        v35_when_terminal_verify_extra_diagnostics(case_id, source, mir, target_name)
+        give back
+    }
     pilot expected = ""
     if case_id == 30 or case_id == 31 or case_id == 39 or case_id == 41 or case_id == 47 { expected = "unknown name in unreachable source" }
     if case_id == 32 or case_id == 42 { expected = "local declaration type mismatch" }
@@ -217,9 +381,28 @@ task v35_when_terminal_run(case_id: int, target_name: word, emit: bool) -> void 
         body = v4_mir_lookup_body_name(mir, "main")
         v35_when_terminal_assert(v35_when_terminal_has_return(mir, body, "42"), "real unmatched continuation retained")
     }
-    if case_id == 53 {
+    if case_id == 53 or (case_id >= 86 and case_id <= 89) or (case_id >= 92 and case_id <= 95) {
         body = v4_mir_lookup_body_name(mir, "score")
-        v35_when_terminal_assert(body >= 0 and v35_when_terminal_has_return(mir, body, "answer"), "check route real fallthrough continuation retained")
+        if case_id == 86 or case_id == 88 or case_id == 92 or case_id == 94 or case_id == 95 { body = v4_mir_lookup_body_name(mir, "main") }
+        v35_when_terminal_assert(body >= 0 and v35_when_terminal_has_return(mir, body, "answer"), "real fallthrough continuation retained")
+    }
+    if case_id >= 92 and case_id <= 95 {
+        pilot tail_start = v35_when_terminal_find_text(source, "give back answer", 0)
+        v35_when_terminal_assert(tail_start >= 0, "actual fallthrough tail source found")
+        pilot tail_offset = tail_start + 10
+        pilot found_tail: bool = false
+        pilot statement = 0
+        repeat until statement >= v4_mir_body_stmt_count(mir, body) {
+            if v4_mir_stmt_kind(mir, body, statement) == v4_mir_stmt_return and v4_mir_stmt_rhs(mir, body, statement) == "answer" {
+                pilot span = v4_mir_stmt_span(mir, body, statement)
+                if v4_span_start(span) <= tail_offset and tail_offset < v4_span_end(span) {
+                    found_tail = true
+                    v35_when_terminal_assert(v4_mir_rvalue_ty(mir, body, v4_mir_stmt_rvalue(mir, body, statement)) == v4_ty_int, "unwired outer construction tail retains typed value")
+                }
+            }
+            statement += 1
+        }
+        v35_when_terminal_assert(found_tail and v4_mir_find_local_visible_at(mir, body, "answer", tail_offset) >= 0, "unwired outer construction real tail source span and binding retained")
     }
     if case_id == 21 {
         v35_when_terminal_assert(v4_resolve_lookup_any(resolve, "fallback") >= 0 and v4_mir_symbol_value_type(mir, "fallback") == v4_ty_int, "valid global still checked in dead source")
@@ -228,7 +411,7 @@ task v35_when_terminal_run(case_id: int, target_name: word, emit: bool) -> void 
     v35_when_terminal_assert(v4_borrowck_diag_count(borrow) == 0, "real Meiya cleanliness")
     pilot sealed = v4_codegen_llvm_lower_owned_mir(0, mir)
     pilot module = v4_codegen_llvm_module_text(sealed, target)
-    pilot frontend_only: bool = case_id == 7 or case_id == 8 or case_id == 9 or case_id == 15 or case_id == 20 or (case_id >= 51 and case_id <= 57)
+    pilot frontend_only: bool = case_id == 7 or case_id == 8 or case_id == 9 or case_id == 15 or case_id == 20 or (case_id >= 51 and case_id <= 57) or case_id == 87 or case_id == 89 or case_id == 93
     if not frontend_only {
         if v4_codegen_llvm_native_module_error(sealed) != "" { say "when-terminal native-error=" + v4_codegen_llvm_native_module_error(sealed) }
         v35_when_terminal_assert(v4_codegen_llvm_native_module_error(sealed) == "" and v4_codegen_llvm_diag_count(sealed) == 0 and module != "", "supported scalar owned native module")
@@ -268,7 +451,7 @@ task v35_when_terminal_run(case_id: int, target_name: word, emit: bool) -> void 
 pilot v35_when_case = word_to_int(process::arg(1))
 pilot v35_when_target = "x86_64-unknown-linux-gnu"
 pilot v35_when_emit = false
-if v35_when_case >= 60 {
+if v35_when_case >= 60 and v35_when_case <= 62 {
     v35_when_target = process::arg(3)
     v35_when_emit = true
 } else {

@@ -209,8 +209,9 @@ say "check-route-bad-malformed-diagnostics=" + word_from_int(v4_mir_diag_count(v
 say "check-route-bad-malformed-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_route_bad_malformed_mir, 0))
 say "check-route-bad-malformed-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_route_bad_malformed_mir, 0))
 
--- Completing the route makes the final case unconditional. Keep the genuine
--- first condition and the detached unmatched block visible in the CFG.
+
+-- The final exhaustive case is unconditional. Completed terminal arms compact
+-- the dead join and unmatched sentinel; follow actual edges after remapping.
 task v4_mir_check_route_incoming_edges(mir_id: int, body_id: int, target: int) -> int {
     pilot count = 0
     pilot block = 0
@@ -236,24 +237,78 @@ task v4_mir_check_route_block_statement_count(mir_id: int, body_id: int, block: 
     give back count
 }
 
-pilot v4_mir_check_route_first_block = v4_mir_body_block(v4_mir_check_route_mir, v4_mir_check_route_score_body, 0)
-pilot v4_mir_check_route_final_block = v4_mir_body_block(v4_mir_check_route_mir, v4_mir_check_route_score_body, 3)
-pilot v4_mir_check_route_detached_block = v4_mir_body_block(v4_mir_check_route_mir, v4_mir_check_route_score_body, 5)
-pilot v4_mir_check_route_final_branch = v4_mir_check_route_find_stmt(v4_mir_check_route_mir, v4_mir_check_route_score_body, v4_mir_stmt_branch, "event == Event::Closed")
-say "check-route-first-term=" + v4_mir_block_terminator(v4_mir_check_route_first_block)
-say "check-route-first-true-target=" + word_from_int(v4_mir_block_target(v4_mir_check_route_first_block))
-say "check-route-first-false-target=" + word_from_int(v4_mir_block_else_target(v4_mir_check_route_first_block))
-say "check-route-first-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_check_route_mir, v4_mir_check_route_score_body, v4_mir_check_route_arm_stmt)
-say "check-route-final-term=" + v4_mir_block_terminator(v4_mir_check_route_final_block)
-say "check-route-final-target=" + word_from_int(v4_mir_block_target(v4_mir_check_route_final_block))
-say "check-route-final-else-target=" + word_from_int(v4_mir_block_else_target(v4_mir_check_route_final_block))
-say "check-route-final-condition=[" + v4_mir_block_condition(v4_mir_check_route_final_block) + "]"
-say "check-route-final-statements=" + word_from_int(v4_mir_check_route_block_statement_count(v4_mir_check_route_mir, v4_mir_check_route_score_body, 3))
-say "check-route-final-branch=" + word_from_int(v4_mir_check_route_final_branch)
-say "check-route-detached-term=" + v4_mir_block_terminator(v4_mir_check_route_detached_block)
-say "check-route-detached-target=" + word_from_int(v4_mir_block_target(v4_mir_check_route_detached_block))
-say "check-route-detached-else-target=" + word_from_int(v4_mir_block_else_target(v4_mir_check_route_detached_block))
-say "check-route-detached-condition=" + v4_mir_block_condition(v4_mir_check_route_detached_block)
-say "check-route-detached-statements=" + word_from_int(v4_mir_check_route_block_statement_count(v4_mir_check_route_mir, v4_mir_check_route_score_body, 5))
-say "check-route-detached-incoming=" + word_from_int(v4_mir_check_route_incoming_edges(v4_mir_check_route_mir, v4_mir_check_route_score_body, 5))
-say "check-route-cfg-error=[" + v4_mir_control_live_cfg_error(v4_mir_check_route_mir, v4_mir_check_route_score_body) + "]"
+
+task v4_mir_check_route_assert(condition: bool, label: word) -> void {
+    if not condition { panic("check-route " + label) }
+}
+task v4_mir_check_route_valid_block(mir: int, body: int, block: int) -> bool {
+    if body < 0 or body >= v4_mir_body_count(mir) { give back false }
+    give back block >= 0 and block < v4_mir_body_block_count(mir, body)
+}
+task v4_mir_check_route_return_is(mir: int, body: int, block: int, rhs: word) -> bool {
+    if not v4_mir_check_route_valid_block(mir, body, block) { give back false }
+    if v4_mir_block_terminator(v4_mir_body_block(mir, body, block)) != v4_mir_term_return { give back false }
+    pilot count = 0
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir, body) {
+        if v4_mir_stmt_block(mir, body, stmt) == block and v4_mir_stmt_kind(mir, body, stmt) == v4_mir_stmt_return {
+            if v4_mir_stmt_rhs(mir, body, stmt) != rhs { give back false }
+            count += 1
+        }
+        stmt += 1
+    }
+    give back count == 1
+}
+task v4_mir_check_route_verify_graph() -> void {
+    pilot mir = v4_mir_check_route_mir
+    pilot body = v4_mir_check_route_score_body
+    v4_mir_check_route_assert(body >= 0 and body < v4_mir_body_count(mir), "actual source body")
+    pilot count = v4_mir_body_block_count(mir, body)
+    v4_mir_check_route_assert(count == 4 and v4_mir_body_stmt_count(mir, body) == 6, "compacted block and statement inventory")
+    v4_mir_check_route_assert(not v4_mir_check_route_valid_block(mir, body, -1) and not v4_mir_check_route_valid_block(mir, body, count) and not v4_mir_check_route_valid_block(mir, -1, 0), "invalid IDs rejected before getters")
+    pilot first = v4_mir_body_block(mir, body, 0)
+    v4_mir_check_route_assert(v4_mir_block_terminator(first) == v4_mir_term_if, "first conditional remains")
+    pilot first_true = v4_mir_block_target(first)
+    pilot final_id = v4_mir_block_else_target(first)
+    v4_mir_check_route_assert(v4_mir_check_route_valid_block(mir, body, first_true) and v4_mir_check_route_valid_block(mir, body, final_id) and first_true != final_id, "actual first edges in range")
+    pilot final = v4_mir_body_block(mir, body, final_id)
+    pilot return_id = v4_mir_block_target(final)
+    v4_mir_check_route_assert(v4_mir_block_terminator(final) == v4_mir_term_goto and v4_mir_block_else_target(final) == -1 and v4_mir_block_condition(final) == "" and v4_mir_check_route_block_statement_count(mir, body, final_id) == 0, "final case unconditional and statement free")
+    v4_mir_check_route_assert(v4_mir_check_route_valid_block(mir, body, return_id) and return_id != final_id and return_id != first_true, "actual final edge in range")
+    v4_mir_check_route_assert(v4_mir_check_route_return_is(mir, body, first_true, "key_code") and v4_mir_check_route_return_is(mir, body, return_id, "0"), "both real path returns retained")
+    pilot final_branch = v4_mir_check_route_find_stmt(mir, body, v4_mir_stmt_branch, "event == Event::Closed")
+    v4_mir_check_route_assert(final_branch == -1, "covered final case has no condition")
+    v4_mir_check_route_assert(v4_mir_check_route_arm_stmt >= 0 and v4_mir_check_route_arm_stmt < v4_mir_body_stmt_count(mir, body), "real first branch statement")
+    v4_mir_check_route_assert(v4_mir_stmt_rhs(mir, body, v4_mir_check_route_arm_stmt) == "arm#" + word_from_int(first_true) + " next#" + word_from_int(final_id), "branch display matches remapped edges")
+    pilot sentinel_count = 0
+    pilot block = 0
+    repeat until block >= count {
+        pilot record = v4_mir_body_block(mir, body, block)
+        v4_mir_check_route_assert(v4_mir_snapshot_block_record_is_valid(record, block, count), "canonical actual block and target IDs")
+        if v4_mir_block_condition(record) == "exhaustive check route" {
+            v4_mir_check_route_assert(v4_mir_block_terminator(record) == v4_mir_term_unreachable and v4_mir_block_target(record) == -1 and v4_mir_block_else_target(record) == -1 and v4_mir_check_route_block_statement_count(mir, body, block) == 0, "only empty targetless public sentinel")
+            sentinel_count += 1
+        }
+        if block > 0 { v4_mir_check_route_assert(v4_mir_check_route_incoming_edges(mir, body, block) > 0, "no nonentry orphan") }
+        block += 1
+    }
+    v4_mir_check_route_assert(sentinel_count == 0 and not v4_mir_build_body_has_closed_check_join(mir, body), "unmatched sentinel and private join compacted")
+    v4_mir_check_route_assert(v4_mir_control_live_cfg_error(mir, body) == "", "published CFG clean")
+    say "check-route-blocks=" + word_from_int(count)
+    say "check-route-first-term=" + v4_mir_block_terminator(first)
+    say "check-route-first-true-target=" + word_from_int(first_true)
+    say "check-route-first-false-target=" + word_from_int(final_id)
+    say "check-route-first-branch-rhs=" + v4_mir_stmt_rhs(mir, body, v4_mir_check_route_arm_stmt)
+    say "check-route-final-term=" + v4_mir_block_terminator(final)
+    say "check-route-final-target=" + word_from_int(return_id)
+    say "check-route-final-else-target=" + word_from_int(v4_mir_block_else_target(final))
+    say "check-route-final-condition=[" + v4_mir_block_condition(final) + "]"
+    say "check-route-final-statements=" + word_from_int(v4_mir_check_route_block_statement_count(mir, body, final_id))
+    say "check-route-final-branch=" + word_from_int(final_branch)
+    say "check-route-ids-valid=true"
+    say "check-route-return-paths=true"
+    say "check-route-exhaustive-sentinels=" + word_from_int(sentinel_count)
+    say "check-route-no-orphans=true"
+    say "check-route-cfg-error=[" + v4_mir_control_live_cfg_error(mir, body) + "]"
+}
+v4_mir_check_route_verify_graph()

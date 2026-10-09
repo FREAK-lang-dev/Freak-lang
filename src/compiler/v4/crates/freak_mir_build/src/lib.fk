@@ -8776,7 +8776,7 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
             v4_mir_add_type_error(mir_id, stmt_span, "non-exhaustive check route", "missing " + missing_cases)
         }
     }
-    give back v4_mir_build_close_check_join(mir_id, body_id, after_block)
+    give back v4_mir_build_close_dispatch_join(mir_id, body_id, block_id, after_block)
 }
 
 task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, only_token: int, stmt_end: int) -> int {
@@ -9035,7 +9035,7 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
             v4_mir_add_type_error(mir_id, stmt_span, "non-exhaustive route when", "missing " + missing_cases)
         }
     }
-    give back v4_mir_build_close_check_join(mir_id, body_id, after_block)
+    give back v4_mir_build_close_dispatch_join(mir_id, body_id, block_id, after_block)
 }
 
 task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> int {
@@ -9549,6 +9549,59 @@ task v4_mir_build_add_scoped_block(mir_id: int, body_id: int, terminator: word, 
 -- it with checked construction compaction before MIR validation/publication.
 task v4_mir_build_close_check_join(mir_id: int, body_id: int, after_block: int) -> int {
     if v4_mir_body_block_predecessor_count(mir_id, body_id, after_block) == 0 {
+        v4_mir_set_body_block(mir_id, body_id, after_block, v4_mir_block_new_full(after_block, v4_mir_term_unreachable, -1, -1, "$closed-check-continuation"))
+    }
+    give back after_block
+}
+
+-- A diagnosed duplicate or covered dispatch arm is still lowered for source
+-- diagnostics, but its detached fallthrough edge cannot make the join live.
+-- Follow only dispatch-reachable construction edges: an outer ELSE may not
+-- be wired yet. A malformed graph or failed
+-- scratch allocation keeps the continuation live rather than proving it dead.
+task v4_mir_build_dispatch_join_has_path(mir_id: int, body_id: int, dispatch_block: int, after_block: int) -> bool {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if dispatch_block < 0 or dispatch_block >= block_count or after_block <= 0 or after_block >= block_count { give back true }
+    pilot marks = array_new()
+    pilot queue = array_new()
+    pilot checked: bool = marks >= 0 and queue >= 0
+    pilot block = 0
+    repeat until block >= block_count or not checked {
+        checked = v4_mir_control_checked_push(marks, "0")
+        block += 1
+    }
+    if checked { checked = v4_mir_compact_mark(marks, queue, dispatch_block) }
+    pilot cursor = 0
+    repeat until cursor >= array_len(queue) or not checked {
+        block = word_to_int(array_get(queue, cursor))
+        pilot record = v4_mir_body_block(mir_id, body_id, block)
+        checked = v4_mir_snapshot_block_record_is_valid(record, block, block_count)
+        if checked {
+            pilot term = v4_mir_block_terminator(record)
+            if term == v4_mir_term_goto or term == v4_mir_term_if {
+                checked = v4_mir_compact_mark(marks, queue, v4_mir_block_target(record))
+                if checked and term == v4_mir_term_if {
+                    checked = v4_mir_compact_mark(marks, queue, v4_mir_block_else_target(record))
+                }
+            }
+        }
+        cursor += 1
+    }
+    pilot live: bool = true
+    if checked {
+        pilot mark: word = array_get(marks, after_block)
+        live = mark == "1"
+    }
+    array_release(queue)
+    array_release(marks)
+    give back live
+}
+
+task v4_mir_build_close_dispatch_join(mir_id: int, body_id: int, dispatch_block: int, after_block: int) -> int {
+    if v4_mir_body_block_predecessor_count(mir_id, body_id, after_block) == 0 {
+        give back v4_mir_build_close_check_join(mir_id, body_id, after_block)
+    }
+    if not v4_mir_build_dispatch_join_has_path(mir_id, body_id, dispatch_block, after_block) {
         v4_mir_set_body_block(mir_id, body_id, after_block, v4_mir_block_new_full(after_block, v4_mir_term_unreachable, -1, -1, "$closed-check-continuation"))
     }
     give back after_block
