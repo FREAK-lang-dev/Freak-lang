@@ -115,6 +115,8 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
                 else:
                     os.killpg(child.pid, signal.SIGKILL)
             except ProcessLookupError:
+                # The owned group has already exited; bounded pipe capture and
+                # direct-child reaping still run below.
                 pass
             except Exception as error:
                 cleanup_errors.append(repr(error))
