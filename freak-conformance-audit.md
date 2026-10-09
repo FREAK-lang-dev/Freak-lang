@@ -26,8 +26,9 @@ condition branch and reuses the existing repeat-until representation with
 opposite polarity. No snapshot format or compiler ownership boundary changes.
 The active `v35_while_contract_smoke.fk` registers 98 isolated frontend/MIR and
 restoration contracts, retaining the original 82 and adding 16 route/variant
-name, recovery, editor and snapshot cases. The new cases await fresh native
-execution on this combined source. Only exact lowercase `while` is reserved; names such as
+name, recovery, editor and snapshot cases. All 98 pass the native fixture
+runner on Linux; current platform CI remains pending. Only exact lowercase
+`while` is reserved; names such as
 `While` and `WHILE` keep their spelling in supported declaration positions.
 The reservation includes route/variant cases and their nested fields and types;
 quoted tokens and comments retain their literal contents.

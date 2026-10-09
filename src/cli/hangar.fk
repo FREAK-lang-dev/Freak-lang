@@ -1940,6 +1940,10 @@ task hangar_audit_admitted(project_dir: word, fix_mode: bool) -> int {
                     array_set(lock_pkg_sha256s, i, new_hash2)
                     say C_DIM + "  >> " + C_RESET + "Computed SHA-256: " + new_hash2.substring(0, 16) + "..."
                     verified += 1
+                } else {
+                    issues += 1
+                    repair_failed = true
+                    say C_BRED + "  NOT REPAIRED" + C_RESET + " Could not compute hash for " + name + "; the locked checksum is unchanged."
                 }
             }
         }

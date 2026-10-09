@@ -564,6 +564,46 @@ def audit_hash_failure_controls(root: Path, invocation: tuple[str, Path, list[st
                                 f"{name}:integrity-failure:absent-checksum-compatibility")
     assert code == 0 and "UNVERIFIED" in output and "0 packages verified" in output, output
     assert snapshot(unverified) == before and failure_report.read_bytes() == b"" and report.read_bytes() == b""
+
+    # A requested checksum repair must fail if the checksum cannot be computed.
+    # Seed the writer's private lock first so each failed repair must preserve
+    # the complete project, including comments in the previously unhashed lock.
+    code, output = recorder.run([str(binary), *prefix, "remove", "absent"], unverified, env,
+                                f"{name}:unverified-fix:seed-native-lock")
+    assert code == 1 and "Package 'absent' is not in hangar.toml" in output, output
+    unverified_lock = unverified / "hangar.lock"
+    unverified_lock.write_bytes(unverified_lock.read_bytes() + b"# preserve unhashed lock on failed repair\n")
+    unverified_canonical = unverified_lock.read_bytes()
+    before = snapshot(unverified)
+    failures = [(kind, directory, None) for kind, directory in tools.items()]
+    failures.extend(("archive", tools["archive"], version) for version in ("unknown", "failed", "libarchive"))
+    for kind, directory, version in failures:
+        failure_report.write_bytes(b"")
+        failed_env = {**env, "PATH": str(directory) + os.pathsep + env["PATH"],
+                      "FREAK_HANGAR_INTEGRITY_REPORT": str(failure_report),
+                      "FREAK_HANGAR_INTEGRITY_KIND": kind}
+        if version is not None:
+            failed_env["FREAK_HANGAR_ARCHIVE_VERSION"] = version
+        code, output = recorder.run([str(binary), *prefix, "audit", "--fix"], unverified, failed_env,
+                                    f"{name}:unverified-fix:{kind}:{version or 'native-failure'}")
+        assert code == 1 and "Could not compute hash for left" in output and "NOT REPAIRED" in output, output
+        assert "ALL CLEAR" not in output and "Computed SHA-256:" not in output, output
+        expected_attempts = 0 if version in ("unknown", "failed") else 2 if kind == "hash" and os.name != "nt" else 1
+        assert failure_report.read_bytes() == f"attempted {kind} tool\n".encode() * expected_attempts
+        assert snapshot(unverified) == before and unverified_lock.read_bytes() == unverified_canonical and report.read_bytes() == b"", output
+        assert tomllib.loads(unverified_lock.read_text())["package"][0].get("sha256", "") == ""
+    code, output = recorder.run([str(binary), *prefix, "audit", "--fix"], unverified, env,
+                                f"{name}:unverified-fix:working-tools-recovery")
+    assert code == 0 and "Computed SHA-256:" in output and "1 packages verified" in output, output
+    assert re.fullmatch("[0-9a-f]{64}", tomllib.loads(unverified_lock.read_text())["package"][0]["sha256"])
+    after = snapshot(unverified)
+    assert {key: value for key, value in after.items() if key != "hangar.lock"} == {
+        key: value for key, value in before.items() if key != "hangar.lock"}, output
+    assert report.read_bytes() == b""
+    code, output = recorder.run([str(binary), *prefix, "audit"], unverified, env,
+                                f"{name}:unverified-fix:recovered-readonly")
+    assert code == 0 and "ALL CLEAR" in output and "1 packages verified" in output, output
+    assert snapshot(unverified) == after and report.read_bytes() == b"", output
     print(f"native:{name}:audit:failed-tools-never-claim-verification:preserved", flush=True)
 
 

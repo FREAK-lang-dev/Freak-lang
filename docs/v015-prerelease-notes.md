@@ -62,7 +62,8 @@ with `while condition` and `repeat while condition`, including existing
 break, continue, cleanup and early-return rules. Only exact lowercase `while`
 is reserved; supported names such as `While` and `WHILE` are preserved.
 Route/variant cases, fields and types follow that reservation, with 16 added
-frontend, recovery, editor and snapshot controls awaiting native verification.
+frontend, recovery, editor and snapshot controls verified by the native fixture
+runner on Linux. Current platform verification remains pending.
 Loop headers now distinguish known constructor payload braces from the body,
 with Boolean comparison coverage in frontend/MIR/snapshots and separate
 native scalar casing/alias/local controls. Aggregate constructors and global

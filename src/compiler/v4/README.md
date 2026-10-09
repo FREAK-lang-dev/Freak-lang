@@ -14,7 +14,8 @@ condition using the existing repeat-until MIR representation with opposite
 polarity. Persistent MIR facts and snapshot formats remain unchanged.
 The active `v35_while_contract_smoke.fk` registers 98 isolated frontend/MIR and
 restoration contracts: the original 82 plus 16 route/variant name, recovery,
-editor and snapshot cases awaiting fresh native execution. Coverage includes
+editor and snapshot cases. All 98 pass the native fixture runner on Linux;
+current platform CI remains pending. Coverage includes
 exact lowercase keywords and constructor payload braces in loop headers.
 `v35_native_while_execute_smoke.fk` covers two
 actual LLVM programs with zero passes, nested control and short-circuit
