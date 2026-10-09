@@ -472,7 +472,7 @@ Not actually a module. The official FREAK-developer snack. Serves one compiler. 
 
 > This is not a real module. It compiles in your mouth, not the compiler. Do not `use std::ramen;`.
 
-> The bible also describes `std::thread`, `std::anime`, `std::narrative`, `std::test`, `std::ffi`, `std::os`, `std::panic`, `std::regex`, `Shared<T>` / `Weak<T>` / `size_of<T>()`, and a few more. Those ship with V4 — see [freak-conformance-audit.md](freak-conformance-audit.md) §7 for the per-module status.
+> The bible also describes `std::thread`, `std::anime`, `std::narrative`, `std::ffi`, `std::os`, `std::panic`, `std::regex`, `Shared<T>` / `Weak<T>` / `size_of<T>()`, and a few more. Those ship with V4 — see [freak-conformance-audit.md](freak-conformance-audit.md) §7 for the per-module status. The ordinary `std::test` assertion helpers are available to native project tests; richer test blocks and annotations remain V4 work.
 
 ---
 

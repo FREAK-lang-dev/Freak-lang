@@ -27,7 +27,7 @@ opposite polarity. No snapshot format or compiler ownership boundary changes.
 The active `v35_while_contract_smoke.fk` registers 98 isolated frontend/MIR and
 restoration contracts, retaining the original 82 and adding 16 route/variant
 name, recovery, editor and snapshot cases. All 98 pass the native fixture
-runner on Linux; current platform CI remains pending. Only exact lowercase
+runner on Linux. Only exact lowercase
 `while` is reserved; names such as
 `While` and `WHILE` keep their spelling in supported declaration positions.
 The reservation includes route/variant cases and their nested fields and types;
@@ -309,8 +309,8 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 13 | Audit commands in native CLI | Python-only; `build/freak.exe` doesn't dispatch | 🟡 | 🛠 wire native CLI |
 | 14 | Error voices (Meiya/Yuuko/Sagiri/Kasumi/Takeru/Mana/Hayase/Sumika/00-Unit) | Mostly generic errors | 🟡 | 📖 V4 |
 | 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 has landed substantial section-16 work; per-landing breakdown lives in [§16 below](#§16-system-boundaries-ffi). Trust-me-gated raw pointer ops, runtime panic-catch in trampoline bodies, and deeper ABI coverage still expand | 🟡 | 📖 V4 |
-| 16 | Bible-promised stdlib (`std::thread`, `std::anime`, `std::narrative`, `std::test`) | Listed planned, no `.fk` files | 🔴 | 📖 confirm Planned |
-| 17 | `freak vibe`, `freak test` CLI subcommands | Not in native CLI | 🟡 | 📖 OR 🛠 (`freak test` shim possible) |
+| 16 | Bible-promised stdlib (`std::thread`, `std::anime`, `std::narrative`, richer `std::test` blocks) | These remain planned; ordinary `std::test` assertion helpers exist in current V3.5 development | 🔴 | 📖 V4 framework |
+| 17 | `freak vibe`, `freak test` CLI subcommands | Current V3.5 has native project tests; `freak vibe` and richer test blocks remain planned | 🟡 | 📖 V4 remainder |
 | 18 | Test coverage gap (~50% of bible has zero tests) | See Appendix B | 🟡 | Out of scope; surfaced |
 
 Bonus finding from Phase A baseline: **Python parser fails on ~30 files** (V3 self-hosting source, std/algorithm, std/runtime, math3d, several tests). Means Python (v1) and V3 compilers accept different language subsets — V3 is a superset that uses constructs (e.g. `give back` as a field name, certain bare statements) that v1 rejects. **Verdict: 📖 V4** — V3 is the compiler that conforms to bible; v1 is FREAK Lite.
@@ -795,7 +795,7 @@ completion remain open.
 | `thread::spawn`, `Atomic<T>` | ❌ | 📖 V4 | std::thread Planned per CLAUDE.md |
 | `std::anime` (mood/power/etc.) | ❌ | 📖 V4 | depends on §2 types |
 | `std::narrative` (death flags, foreshadow logs) | ❌ | 📖 V4 | depends on §5 enforcement |
-| `std::test` (`test "name" { expect ... to be ... }`) | ❌ | 📖 V4 | currently `tests/suite/run_tests.py` Python harness |
+| `std::test` | ⚠️ | 📖 V4 framework | Ordinary assertion helpers ship with current V3.5 native project tests. `test "name" { expect ... to be ... }` blocks remain planned; the Python regression harness is a separate developer tool. |
 | `Shared::new`, `Weak::upgrade`, `size_of<T>()` | ❌ | 📖 V4 | depends on §4 |
 | `std::ffi` C boundary types | ⚠️ | 📖 V4 | V4 normalizes core scalar aliases (`c_int`, `c_size`, `c_double`, `wchar`, etc.) through TY/codegen; target-width fidelity and the broader std::ffi surface still expand |
 | `std::http` (HTTP/1.1 client) | ✅ | ✅ | [std/http.fk](std/http.fk) |
@@ -910,7 +910,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | `freak transpile file.fk` | ✅ | ✅ | |
 | `freak doctor [--fix|--json]` | ✅ | ✅ | Complete runtime/UI and 11-module stdlib inventory, standard-header + native link/run Clang validation, optional dependency bootstrap, full FREAK compile-link-execute probe, exact passive JSON missing-file report, and nonzero required-failure status. |
 | `freak upgrade` | ✅ | ✅ | Tagged staged installer preserves the public command; POSIX tracks/reconciles recoverable rollback state, while Windows retains durable pending state and hash-verifies the deferred two-binary transaction after the invoking installer exits. Immutable v0.14.0 POSIX clients need a binary hop plus a second upgrade; immutable Windows clients bootstrap through `install.ps1`. |
-| `freak test` | ✅ | ✅ shim wraps `python tests/suite/run_tests.py` |
+| `freak test` | ✅ | ✅ | Installed native project runner for ordinary programs declared in `[tests]`, with existing `std::test` assertions; richer test blocks remain V4 work. The Python regression harness is a separate developer tool. |
 | `freak vibe file.fk` | ❌ | 📖 V4 (or remove) |
 | `freak audit-science` | ⚠️ | 🛠 wire native CLI | Python-only; native dispatch missing |
 | `freak audit-trust` | ⚠️ | 🛠 wire native CLI | same |
@@ -1056,7 +1056,7 @@ All cheap-win items below landed across commits `035b33e`–`b0a05f9` plus the v
 6. **Wire `audit-conformance` to native CLI** ✅ — same pattern.
 7. **Wire `Ord` operator doctrine** ✅ — Python emitter; V3 emitter still missing operator-overload codegen entirely (V4).
 8. **Index doctrine** ✅ — already wired in Python emitter (audit doc had a small inaccuracy at first pass). `IndexMut` deferred to V4 (lvalue-assignment rewrite).
-9. **Add `freak test` shim** ✅ — [src/cli/main.fk](src/cli/main.fk) wraps `python tests/suite/run_tests.py`.
+9. **Add `freak test` shim** ✅ — the v0.13.x implementation wrapped `python tests/suite/run_tests.py`. Current V3.5 development supersedes that shim with the native project runner in [src/cli/test.fk](src/cli/test.fk).
 10. **Fix the two SKIP'd suite tests** ✅ — `test_maybe.fk` (compound-literal cast) + `test_pipe.fk` (pipe desugaring + arity check). Suite at 14/14.
 11. **Restore winget manifest + dynamic release path** ✅ — `packaging/winget/manifests/F/FREAK/freak/0.13.2/` tracked; `release.yml` derives the path from `$VERSION`.
 12. **LB10 minimal DWARF** ✅ — line-tables-only debug info live in V3 emit_llvm.fk. Source-line backtraces work in gdb/lldb.
@@ -1083,9 +1083,9 @@ E. **§4 Borrow Checker** — split into:
 
 F. **§5 Anime Layer** — per-feature status; `foreshadow-audit`/`audit-miracles`/`audit-trust`/`audit-science` are ✅; everything else 📖 V4.
 
-G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`, `std::test`) as Planned. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`; `std::process` and `std::ui` partial).
+G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`) and richer test blocks as Planned. Ordinary `std::test` assertion helpers are available in current V3.5 development. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`; `std::process` and `std::ui` partial).
 
-H. **§13 CLI** — remove or V4-tag `freak vibe`, `--voice`, `--clearance`, `--build-mode`, `-o`. Add `audit-conformance` once Phase C lands.
+H. **§13 CLI** — keep `freak vibe`, `--voice`, `--clearance`, and `--build-mode` marked V4. Current V3.5 development supports build/run `-o`/`--output`; `audit-conformance` is implemented.
 
 I. **§14 Error Voices** — wholesale V4 tag.
 
@@ -1095,7 +1095,7 @@ K. **§17 Internals/IDE** — wholesale V4 tag.
 
 ### Out-of-scope (V4 work, surfaced for tracking)
 
-Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, `std::test`, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer allocation/freeing, broader layout-stability enforcement, panic infrastructure, IDE-grade tolerant parser.
+Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, richer `std::test` blocks, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer allocation/freeing, broader layout-stability enforcement, panic infrastructure, IDE-grade tolerant parser.
 
 ---
 

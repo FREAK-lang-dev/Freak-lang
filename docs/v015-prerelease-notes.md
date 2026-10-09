@@ -42,12 +42,13 @@ Legacy mutations also validate the manifest before creating private writer
 files, and version changes use the same writer lock. A failed repair or hash
 command preserves the locked checksum. Libarchive integrity archives omit the
 gzip clock header; legacy hashes remain platform-specific and mismatches are
-still rejected. Fresh native and platform verification is pending.
+still rejected. Both public entrypoints pass the native preservation controls
+on Linux, including failed archive/hash commands and checksum repair recovery.
 
 Graph-run cache keys use the admitted snapshot parent's canonical path, so
 implicit and explicit aliases of the same selected snapshot can reuse the
-cache on Windows. Different parent directories remain distinct. New alias
-and cache-artifact preservation controls await current-source native checks.
+cache on Windows. Different parent directories remain distinct. Alias and
+cache-artifact preservation controls pass with C and LLVM on Linux.
 
 The permanent `examples/v35` projects provide a pure library, diamond package
 consumer and bounded HTTP/JSON service. `tests/v3_v35_acceptance.py` checks a
@@ -63,7 +64,7 @@ break, continue, cleanup and early-return rules. Only exact lowercase `while`
 is reserved; supported names such as `While` and `WHILE` are preserved.
 Route/variant cases, fields and types follow that reservation, with 16 added
 frontend, recovery, editor and snapshot controls verified by the native fixture
-runner on Linux. Current platform verification remains pending.
+runner on Linux.
 Loop headers now distinguish known constructor payload braces from the body,
 with Boolean comparison coverage in frontend/MIR/snapshots and separate
 native scalar casing/alias/local controls. Aggregate constructors and global
