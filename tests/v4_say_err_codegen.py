@@ -162,7 +162,8 @@ def run_gate(args, report: dict) -> None:
         sources = fixture_sources(checks.read_text(fixture))
         target = build.host_target()
         report["target"] = target
-        identity = runner.run([args.clang, "--version"], "clang identity", timeout=10)
+        # Match the external Clang identity budget without changing compiler caps.
+        identity = runner.run([args.clang, "--version"], "clang identity", timeout=10, memory=128)
         require_compile(identity, "clang identity")
         if not identity.stdout.strip():
             raise GateError("Clang identity is empty")
