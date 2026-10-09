@@ -35,6 +35,7 @@ WRITERS = (
     ("install",), ("update",), ("update", "left"),
     ("remove", "left"), ("audit", "--fix"),
 )
+VERSION_BUMPS = ("patch", "minor", "major", "2.3.4")
 COMMANDS = (
     ("add", "missing", "https://example.invalid/missing"),
     ("install",), ("update",), ("update", "left"),
@@ -258,6 +259,356 @@ def writer_controls(root: Path, invocation: tuple[str, Path, list[str]],
     print(f"native:{name}:writer:common-held-lock-and-journal:preserved", flush=True)
 
 
+def writer_manifest_controls(root: Path, invocation: tuple[str, Path, list[str]],
+                             recorder: Recorder, env: dict, report: Path,
+                             private: WindowsPrivateFixture) -> None:
+    name, binary, prefix = invocation
+    cases = (
+        ("missing", None), ("empty", b""),
+        ("malformed", b'[project\nname = "preservation"\n'),
+        ("non-file", "directory"), ("nul", b'[project]\nname = "bad\x00name"\n'),
+        ("invalid-utf8", b'[project]\nname = "bad\xffname"\n'),
+        ("oversize", b"#" + b"x" * 1048576),
+    )
+    commands = (*WRITERS, *(("version", bump) for bump in VERSION_BUMPS))
+    for label, contents in cases:
+        cwd = root / f"{name}-writer-manifest-{label}"
+        project(cwd, LEGACY.encode(), private)
+        manifest = cwd / "hangar.toml"
+        if contents is None:
+            manifest.unlink()
+        elif contents == "directory":
+            manifest.unlink()
+            manifest.mkdir()
+            private.claim_fresh_directories(manifest)
+            (manifest / "retained").write_bytes(b"not a project manifest\n")
+        else:
+            manifest.write_bytes(contents)
+        before = snapshot(cwd)
+        for index, command in enumerate(commands):
+            code, output = recorder.run([str(binary), *prefix, *command], cwd, env,
+                                        f"{name}:writer-manifest:{label}:{index}")
+            assert code == 1, (label, command, code, output)
+            if label == "missing":
+                assert output == "  No hangar.toml found. Run 'hangar init' first.\n", output
+            elif label == "malformed":
+                assert output.startswith("  Invalid manifest ") and "unterminated table header" in output, output
+            else:
+                assert output.startswith(WRITER_PREFIX) and "project manifest" in output, output
+            assert snapshot(cwd) == before and report.read_bytes() == b"", (label, command, output)
+            assert not (cwd / ".freak").exists(), (label, command)
+    print(f"native:{name}:writer:manifest-before-private-files:preserved", flush=True)
+
+
+def writer_version_controls(root: Path, invocation: tuple[str, Path, list[str]],
+                            recorder: Recorder, env: dict, report: Path,
+                            private: WindowsPrivateFixture, diamond: Path) -> None:
+    name, binary, prefix = invocation
+    cwd = root / f"{name}-writer-version"
+    project(cwd, LEGACY.encode(), private)
+    before = snapshot(cwd)
+    code, output = recorder.run([str(binary), *prefix, "version"], cwd, env,
+                                f"{name}:version:display-without-private")
+    assert code == 0 and output == "  preservation v0.1.0\n", output
+    assert snapshot(cwd) == before and not (cwd / ".freak").exists() and report.read_bytes() == b""
+    code, output = recorder.run([str(binary), *prefix, "remove", "absent"], cwd, env,
+                                f"{name}:version:seed-native-lock")
+    assert code == 1 and "Package 'absent' is not in hangar.toml" in output, output
+    graph = cwd / ".freak/graph.lock"
+    assert graph.is_file() and graph.read_bytes() == b""
+    held_message = WRITER_PREFIX + "cannot hold graph.lock: directory transaction lock is held or not a private regular file\n"
+    with held_graph_lock(graph):
+        before = snapshot(cwd)
+        for bump in VERSION_BUMPS:
+            code, output = recorder.run([str(binary), *prefix, "version", bump], cwd, env,
+                                        f"{name}:version:held:{bump}")
+            assert code == 1 and output == held_message, output
+            assert snapshot(cwd) == before and report.read_bytes() == b"", output
+        code, output = recorder.run([str(binary), *prefix, "version"], cwd, env,
+                                    f"{name}:version:held-display")
+        assert code == 0 and output == "  preservation v0.1.0\n" and snapshot(cwd) == before, output
+    versions = ("0.1.1", "0.2.0", "1.0.0", "2.3.4")
+    for bump, expected in zip(VERSION_BUMPS, versions):
+        before = snapshot(cwd)
+        manifest_before = tomllib.loads((cwd / "hangar.toml").read_text())
+        code, output = recorder.run([str(binary), *prefix, "version", bump], cwd, env,
+                                    f"{name}:version:free:{bump}")
+        assert code == 0 and output.endswith(f" -> {expected}\n"), output
+        manifest_after = tomllib.loads((cwd / "hangar.toml").read_text())
+        manifest_before["project"]["version"] = expected
+        assert manifest_after == manifest_before, (manifest_before, manifest_after)
+        after = snapshot(cwd)
+        assert {key: value for key, value in after.items() if key != "hangar.toml"} == {
+            key: value for key, value in before.items() if key != "hangar.toml"}, output
+        assert graph.read_bytes() == b"" and report.read_bytes() == b""
+        with held_graph_lock(graph):
+            pass
+    marker = cwd / ".freak/transaction.marker"
+    marker.write_bytes(b"retained graph transaction\n")
+    (cwd / ".freak/transaction.manifest.before").write_bytes(b"retained before image\n")
+    before = snapshot(cwd)
+    pending_message = WRITER_PREFIX + "pending or unreadable graph transaction.marker; graph-aware recovery is required\n"
+    for bump in VERSION_BUMPS:
+        code, output = recorder.run([str(binary), *prefix, "version", bump], cwd, env,
+                                    f"{name}:version:pending:{bump}")
+        assert code == 1 and output == pending_message and snapshot(cwd) == before, output
+    code, output = recorder.run([str(binary), *prefix, "version"], cwd, env,
+                                f"{name}:version:pending-display")
+    assert code == 0 and output == "  preservation v2.3.4\n" and snapshot(cwd) == before, output
+    marker.unlink()
+    marker.mkdir()
+    private.claim_fresh_directories(marker)
+    (marker / "retained").write_bytes(b"not a journal file\n")
+    before = snapshot(cwd)
+    code, output = recorder.run([str(binary), *prefix, "version", "patch"], cwd, env,
+                                f"{name}:version:non-file-journal")
+    assert code == 1 and output == pending_message and snapshot(cwd) == before, output
+    before = snapshot(diamond)
+    for bump in VERSION_BUMPS:
+        code, output = recorder.run([str(binary), *prefix, "version", bump], diamond, env,
+                                    f"{name}:version:graph-v2:{bump}")
+        assert code == 1 and output == (PREFIX +
+            "unsupported lock schema; expected legacy [[package]] records\n" + SUFFIX), output
+        assert snapshot(diamond) == before and report.read_bytes() == b"", output
+    manifest = tomllib.loads((diamond / "hangar.toml").read_text())["project"]
+    code, output = recorder.run([str(binary), *prefix, "version"], diamond, env,
+                                f"{name}:version:graph-v2-display")
+    assert code == 0 and output == f"  {manifest['name']} v{manifest['version']}\n", output
+    assert snapshot(diamond) == before and report.read_bytes() == b"", output
+    print(f"native:{name}:writer:version-serialization-and-readonly:preserved", flush=True)
+
+
+def audit_failed_repair_controls(root: Path, invocation: tuple[str, Path, list[str]],
+                                 recorder: Recorder, env: dict, report: Path,
+                                 private: WindowsPrivateFixture) -> None:
+    name, binary, prefix = invocation
+    cwd = root / f"{name}-audit-failed-repair"
+    project(cwd, (LEGACY + 'sha256 = ""\n').encode(), private)
+    code, output = recorder.run([str(binary), *prefix, "audit", "--fix"], cwd, env,
+                                f"{name}:audit-repair:seed")
+    assert code == 0 and "Computed SHA-256:" in output, output
+    lock = cwd / "hangar.lock"
+    lock.write_bytes(lock.read_bytes() + b"# retained lock comment\n")
+    canonical = lock.read_bytes()
+    digest = tomllib.loads(canonical.decode())["package"][0]["sha256"]
+    assert re.fullmatch("[0-9a-f]{64}", digest), digest
+    before = snapshot(cwd)
+    code, output = recorder.run([str(binary), *prefix, "audit"], cwd, env,
+                                f"{name}:audit-repair:clean")
+    assert code == 0 and "ALL CLEAR" in output and "1 packages verified" in output, output
+    assert snapshot(cwd) == before and report.read_bytes() == b""
+    installed = cwd / "hangar_modules/left"
+    (installed / "left.fk").write_text("task value() -> int { give back 999 }\n-- tampered package\n")
+    before = snapshot(cwd)
+    for label, command in (("tampered", ("audit",)), ("failed", ("audit", "--fix")),
+                           ("failed-again", ("audit", "--fix")), ("still-tampered", ("audit",))):
+        code, output = recorder.run([str(binary), *prefix, *command], cwd, env,
+                                    f"{name}:audit-repair:{label}")
+        assert code == 1 and "INTEGRITY FAILURE" in output and "ALL CLEAR" not in output, output
+        if len(command) == 2:
+            assert "Cannot safely replace left" in output and "NOT REPAIRED" in output, output
+        assert snapshot(cwd) == before and lock.read_bytes() == canonical and report.read_bytes() == b"", output
+        assert tomllib.loads(lock.read_text())["package"][0]["sha256"] == digest
+    shutil.rmtree(installed)
+    failure_report = root / f"{name}-audit-repair-git-attempts.raw"
+    failure_report.write_bytes(b"")
+    failed_env = {**env, "FREAK_HANGAR_GIT_REPORT": str(failure_report)}
+    code, output = recorder.run([str(binary), *prefix, "audit", "--fix"], cwd, failed_env,
+                                f"{name}:audit-repair:missing-fetch-failure")
+    assert code == 1 and "Git package fetch failed" in output and "NOT REPAIRED" in output, output
+    assert "ALL CLEAR" not in output and lock.read_bytes() == canonical and not installed.exists(), output
+    assert failure_report.read_bytes() == b"attempted Git\n" and report.read_bytes() == b"", output
+    assert not tuple((cwd / "hangar_modules").glob(".hangar-stage-*")), "owned staging survived failed fetch"
+    before = snapshot(cwd)
+    code, output = recorder.run([str(binary), *prefix, "audit"], cwd, env,
+                                f"{name}:audit-repair:still-missing")
+    assert code == 1 and "MISSING" in output and "ALL CLEAR" not in output, output
+    assert snapshot(cwd) == before and lock.read_bytes() == canonical and report.read_bytes() == b""
+    print(f"native:{name}:audit:failed-repair-keeps-expected-hash:preserved", flush=True)
+
+
+def integrity_failure_tools(root: Path, clang: Path, recorder: Recorder, env: dict,
+                            private: WindowsPrivateFixture) -> dict[str, Path]:
+    tools = root / "integrity-tools"
+    tools.mkdir()
+    private.claim_fresh_directories(tools)
+    source = tools / "integrity-failure.c"
+    source.write_text(r'''#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "--version")) {
+        const char *version = getenv("FREAK_HANGAR_ARCHIVE_VERSION");
+        if (version && !strcmp(version, "failed")) {
+            fputs("injected archive version failure\n", stderr);
+            return 23;
+        }
+        puts(version && !strcmp(version, "unknown") ? "unsupported archive tool" :
+             version && !strcmp(version, "libarchive") ? "bsdtar 3.7.4 - libarchive 3.7.4" :
+             "tar (GNU tar) controlled archive witness");
+        return 0;
+    }
+    const char *version = getenv("FREAK_HANGAR_ARCHIVE_VERSION");
+    if (version && !strcmp(version, "libarchive")) {
+        int stable_option = 0;
+        for (int i = 1; i + 1 < argc; ++i) {
+            if (!strcmp(argv[i], "--options") && !strcmp(argv[i + 1], "gzip:!timestamp")) stable_option = 1;
+        }
+        if (!stable_option) {
+            fputs("required stable gzip option was not supplied\n", stderr);
+            return 32;
+        }
+    }
+    const char *report = getenv("FREAK_HANGAR_INTEGRITY_REPORT");
+    const char *kind = getenv("FREAK_HANGAR_INTEGRITY_KIND");
+    if (!report || !kind) return 29;
+    FILE *file = fopen(report, "ab");
+    if (!file) return 30;
+    fprintf(file, "attempted %s tool\n", kind);
+    if (fclose(file)) return 31;
+    fputs("injected integrity tool failure\n", stderr);
+    return 23;
+}
+''', encoding="ascii")
+    binary = tools / ("failure.exe" if os.name == "nt" else "failure")
+    code, output = recorder.run([str(clang), str(source), "-o", str(binary)], tools, env,
+                                "compile-native-integrity-failure-witness")
+    assert code == 0, output
+    report = root / "integrity-tool-positive.raw"
+    report.write_bytes(b"")
+    witness_env = {**env, "FREAK_HANGAR_INTEGRITY_REPORT": str(report),
+                   "FREAK_HANGAR_INTEGRITY_KIND": "archive"}
+    code, output = recorder.run([str(binary), "controlled-attempt"], root, witness_env,
+                                "native-integrity-failure-witness-positive-control")
+    assert code == 23 and output == "injected integrity tool failure\n", output
+    assert report.read_bytes() == b"attempted archive tool\n"
+    directories = {}
+    for kind, names in (("archive", ("tar",)),
+                        ("hash", ("certutil",) if os.name == "nt" else ("sha256sum", "shasum"))):
+        directory = tools / kind
+        directory.mkdir()
+        private.claim_fresh_directories(directory)
+        for name in names:
+            shutil.copy2(binary, directory / (name + ".exe" if os.name == "nt" else name))
+        directories[kind] = directory
+    return directories
+
+
+def audit_hash_failure_controls(root: Path, invocation: tuple[str, Path, list[str]],
+                               recorder: Recorder, env: dict, report: Path,
+                               private: WindowsPrivateFixture, tools: dict[str, Path]) -> None:
+    name, binary, prefix = invocation
+    cwd = root / f"{name}-audit-hash-failure"
+    project(cwd, (LEGACY + 'sha256 = ""\n').encode(), private)
+    code, output = recorder.run([str(binary), *prefix, "audit", "--fix"], cwd, env,
+                                f"{name}:integrity-failure:seed")
+    assert code == 0 and "Computed SHA-256:" in output, output
+    lock = cwd / "hangar.lock"
+    lock.write_bytes(lock.read_bytes() + b"# retain expected checksum on tool failure\n")
+    canonical = lock.read_bytes()
+    digest = tomllib.loads(canonical.decode())["package"][0]["sha256"]
+    assert re.fullmatch("[0-9a-f]{64}", digest)
+    before = snapshot(cwd)
+    for kind, directory in tools.items():
+        failure_report = root / f"{name}-integrity-{kind}-attempts.raw"
+        failed_env = {**env, "PATH": str(directory) + os.pathsep + env["PATH"],
+                      "FREAK_HANGAR_INTEGRITY_REPORT": str(failure_report),
+                      "FREAK_HANGAR_INTEGRITY_KIND": kind}
+        expected_attempts = 2 if kind == "hash" and os.name != "nt" else 1
+        for mode, command in (("readonly", ("audit",)), ("fix", ("audit", "--fix"))):
+            failure_report.write_bytes(b"")
+            code, output = recorder.run([str(binary), *prefix, *command], cwd, failed_env,
+                                        f"{name}:integrity-failure:{kind}:{mode}")
+            assert code == 1 and "Could not compute hash for left" in output, output
+            assert "ALL CLEAR" not in output and "  OK left" not in output, output
+            if mode == "fix":
+                assert "Cannot safely replace left" in output and "NOT REPAIRED" in output, output
+            assert failure_report.read_bytes() == (f"attempted {kind} tool\n".encode() * expected_attempts)
+            assert snapshot(cwd) == before and lock.read_bytes() == canonical and report.read_bytes() == b"", output
+            assert tomllib.loads(lock.read_text())["package"][0]["sha256"] == digest
+    # Unknown/failed capability queries must not invoke an archive. A known
+    # libarchive whose stable option fails must not retry without the option.
+    for version in ("unknown", "failed", "libarchive"):
+        failure_report = root / f"{name}-integrity-capability-{version}.raw"
+        failed_env = {**env, "PATH": str(tools["archive"]) + os.pathsep + env["PATH"],
+                      "FREAK_HANGAR_INTEGRITY_REPORT": str(failure_report),
+                      "FREAK_HANGAR_INTEGRITY_KIND": "archive",
+                      "FREAK_HANGAR_ARCHIVE_VERSION": version}
+        for mode, command in (("readonly", ("audit",)), ("fix", ("audit", "--fix"))):
+            failure_report.write_bytes(b"")
+            code, output = recorder.run([str(binary), *prefix, *command], cwd, failed_env,
+                                        f"{name}:integrity-capability:{version}:{mode}")
+            assert code == 1 and "Could not compute hash for left" in output, output
+            assert "ALL CLEAR" not in output and "  OK left" not in output, output
+            if version != "libarchive":
+                assert "cannot identify supported native tar capabilities" in output, output
+            if mode == "fix":
+                assert "Cannot safely replace left" in output and "NOT REPAIRED" in output, output
+            assert failure_report.read_bytes() == (b"attempted archive tool\n" if version == "libarchive" else b"")
+            assert snapshot(cwd) == before and lock.read_bytes() == canonical and report.read_bytes() == b"", output
+            assert tomllib.loads(lock.read_text())["package"][0]["sha256"] == digest
+    code, output = recorder.run([str(binary), *prefix, "audit"], cwd, env,
+                                f"{name}:integrity-failure:working-tools-recovery")
+    assert code == 0 and "ALL CLEAR" in output and "1 packages verified" in output, output
+    assert snapshot(cwd) == before and report.read_bytes() == b""
+    # A deliberately absent checksum remains UNVERIFIED without invoking tools.
+    unverified = root / f"{name}-audit-unverified-compatibility"
+    project(unverified, LEGACY.encode(), private)
+    failure_report = root / f"{name}-unverified-integrity-attempts.raw"
+    failure_report.write_bytes(b"")
+    failed_env = {**env, "PATH": str(tools["archive"]) + os.pathsep + env["PATH"],
+                  "FREAK_HANGAR_INTEGRITY_REPORT": str(failure_report),
+                  "FREAK_HANGAR_INTEGRITY_KIND": "archive"}
+    before = snapshot(unverified)
+    code, output = recorder.run([str(binary), *prefix, "audit"], unverified, failed_env,
+                                f"{name}:integrity-failure:absent-checksum-compatibility")
+    assert code == 0 and "UNVERIFIED" in output and "0 packages verified" in output, output
+    assert snapshot(unverified) == before and failure_report.read_bytes() == b"" and report.read_bytes() == b""
+    print(f"native:{name}:audit:failed-tools-never-claim-verification:preserved", flush=True)
+
+
+def audit_stable_hash_controls(root: Path, invocation: tuple[str, Path, list[str]],
+                               recorder: Recorder, env: dict, report: Path,
+                               private: WindowsPrivateFixture) -> None:
+    name, binary, prefix = invocation
+    cwd = root / f"{name}-audit-stable-archive"
+    project(cwd, (LEGACY + 'sha256 = ""\n').encode(), private)
+    code, output = recorder.run([str(binary), *prefix, "audit", "--fix"], cwd, env,
+                                f"{name}:integrity-stability:seed")
+    assert code == 0 and "Computed SHA-256:" in output, output
+    canonical = (cwd / "hangar.lock").read_bytes()
+    digest = tomllib.loads(canonical.decode())["package"][0]["sha256"]
+    assert re.fullmatch("[0-9a-f]{64}", digest)
+    before = snapshot(cwd)
+    proof = {"expected_sha256": digest, "delayed_audits": [], "atime_changes": []}
+    for label, command in (("across-second", ("audit",)),
+                           ("changed-atime", ("audit",)),
+                           ("across-second-fix", ("audit", "--fix"))):
+        if label == "changed-atime":
+            installed = cwd / "hangar_modules" / "left"
+            for path in (installed, *sorted(installed.rglob("*"))):
+                info = path.stat()
+                os.utime(path, ns=(info.st_atime_ns - 10_000_000_000, info.st_mtime_ns))
+                changed = path.stat()
+                assert changed.st_atime_ns != info.st_atime_ns and changed.st_mtime_ns == info.st_mtime_ns
+                proof["atime_changes"].append({"path": path.relative_to(cwd).as_posix(),
+                    "old_atime_ns": info.st_atime_ns, "new_atime_ns": changed.st_atime_ns,
+                    "unchanged_mtime_ns": changed.st_mtime_ns})
+            assert snapshot(cwd) == before, "atime control changed package bytes/kinds/modes"
+        began_ns = time.time_ns()
+        time.sleep(1.1)
+        code, output = recorder.run([str(binary), *prefix, *command], cwd, env,
+                                    f"{name}:integrity-stability:{label}")
+        finished_ns = time.time_ns()
+        assert finished_ns // 1_000_000_000 > began_ns // 1_000_000_000
+        assert code == 0 and "ALL CLEAR" in output and "1 packages verified" in output, output
+        assert "INTEGRITY FAILURE" not in output and "Reinstalling" not in output, output
+        assert snapshot(cwd) == before and (cwd / "hangar.lock").read_bytes() == canonical and report.read_bytes() == b"", output
+        proof["delayed_audits"].append({"label": label, "began_ns": began_ns, "finished_ns": finished_ns})
+    (recorder.root / f"{name}-integrity-stability-proof.json").write_text(json.dumps(proof, indent=2) + "\n")
+    print(f"native:{name}:audit:delayed-and-atime-hashes-stable:preserved", flush=True)
+
+
 def execute(args, root: Path, recorder: Recorder, receipt: dict,
             private: WindowsPrivateFixture) -> None:
     freak = args.freak.resolve(strict=True)
@@ -348,6 +699,7 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
         "second-invalid-source": ((LEGACY + right.replace('"owner/right"', '"owner/right#literal"')).encode(), "invalid legacy Git source"),
     }
     receipt["rejected_git_fields"] = list(git_fields)
+    integrity_tools = integrity_failure_tools(root, clang, recorder, env, private)
     for invocation in invocations:
         for label, (contents, expected) in (*cases.items(), *git_fields.items()):
             cwd = root / f"{invocation[0]}-{label}"
@@ -440,6 +792,11 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
         print(f"native:{invocation[0]}:checksum-case:legacy-success", flush=True)
 
         writer_controls(root, invocation, recorder, env, report, private)
+        writer_manifest_controls(root, invocation, recorder, env, report, private)
+        writer_version_controls(root, invocation, recorder, env, report, private, diamond)
+        audit_failed_repair_controls(root, invocation, recorder, env, report, private)
+        audit_hash_failure_controls(root, invocation, recorder, env, report, private, integrity_tools)
+        audit_stable_hash_controls(root, invocation, recorder, env, report, private)
 
         # Explicit toolchain bootstrap does not use the project's lock. A
         # controlled local installer exits 23 and records actual execution.

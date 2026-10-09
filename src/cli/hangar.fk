@@ -40,6 +40,34 @@ task hangar_legacy_writer_refused(detail: word) -> int {
     give back 1
 }
 
+-- Reuse the legacy TOML schema, but admit an ordinary bounded text manifest
+-- before any private writer files are created. A held writer re-reads it.
+task hangar_legacy_manifest_ready(project: int, project_dir: word) -> bool {
+    pilot read = fs::read_relative_bytes_limit_ticket(project, "hangar.toml", 1048576)
+    if not fs::result_ok(read) {
+        pilot missing = fs::result_missing(read)
+        pilot detail = fs::result_error(read)
+        fs::result_release(read)
+        if missing { say "  No hangar.toml found. Run 'hangar init' first." }
+        else { hangar_legacy_writer_refused("cannot read project manifest: " + detail) }
+        give back false
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot content = bytes.to_word()
+    pilot text = bytes.status() == 0
+    bytes.release()
+    if not text or content == "" {
+        hangar_legacy_writer_refused("project manifest must be nonempty UTF-8 text without NUL within its byte limit")
+        give back false
+    }
+    if not toml_parse(content) {
+        say "  Invalid manifest " + project_dir + "/hangar.toml:" + word_from_int(toml_error_line) + ": " + toml_error
+        give back false
+    }
+    give back true
+}
+
 -- All legacy writers use the graph transaction's checked private directory
 -- and OS lock. Keep every ticket local, and release after the admitted body
 -- returns, including its early error paths. Read-only commands do not enter.
@@ -51,6 +79,10 @@ task hangar_legacy_write(project_dir: word, operation: word, pkg_name: word, rep
         pilot detail = fs::result_error(project)
         fs::result_release(project)
         give back hangar_legacy_writer_refused("cannot anchor project: " + detail)
+    }
+    if not hangar_legacy_manifest_ready(project, project_dir) {
+        fs::result_release(project)
+        give back 1
     }
     hangar_graph_error = ""
     pilot private = package_private_directory(project, ".freak")
@@ -68,6 +100,12 @@ task hangar_legacy_write(project_dir: word, operation: word, pkg_name: word, rep
     }
 
     -- The early read is not authority for a writer: re-read under the lock.
+    if not hangar_legacy_manifest_ready(project, project_dir) {
+        fs::result_release(held)
+        fs::result_release(private)
+        fs::result_release(project)
+        give back 1
+    }
     lock_load_ticket(project, "hangar.lock")
     if not hangar_legacy_lock_admitted() {
         fs::result_release(held)
@@ -92,6 +130,7 @@ task hangar_legacy_write(project_dir: word, operation: word, pkg_name: word, rep
     else if operation == "install" { writer_code = hangar_install_admitted(project_dir) }
     else if operation == "update" { writer_code = hangar_update_admitted(project_dir, pkg_name) }
     else if operation == "audit-fix" { writer_code = hangar_audit_admitted(project_dir, true) }
+    else if operation == "version" { writer_code = hangar_version_admitted(project_dir, ver) }
     fs::result_release(held)
     fs::result_release(private)
     fs::result_release(project)
@@ -995,6 +1034,11 @@ task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word
 }
 
 task hangar_version_cmd(project_dir: word, bump: word) -> int {
+    if bump != "" { give back hangar_legacy_write(project_dir, "version", "", "", bump) }
+    give back hangar_version_admitted(project_dir, "")
+}
+
+task hangar_version_admitted(project_dir: word, bump: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
         say "  No hangar.toml found. Run 'hangar init' first."
@@ -1741,6 +1785,8 @@ task hangar_compute_sha256(path: word) -> word {
 task hangar_compute_dir_sha256(pkg_dir: word) -> word {
     -- Compatibility hash only. Lock v2 replaces archive metadata with the
     -- canonical path/kind/mode/length/bytes inventory before immutable publish.
+    -- Legacy archive hashes remain platform-specific. Libarchive's old gzip
+    -- clock headers were unstable; never accept a mismatch as a migration.
     -- The anchored filesystem API rejects parent traversal components.
     pilot temporary = fs::temp_dir(package_parent_path(pkg_dir), ".hangar-integrity-")
     if not fs::result_ok(temporary) {
@@ -1755,14 +1801,28 @@ task hangar_compute_dir_sha256(pkg_dir: word) -> word {
     if executable == "" {
         say "  Package integrity archive failed: native tar.exe was not found on PATH."
     } else {
-        pilot command = process::command_new(executable)
-        process::command_arg(command, "-czf")
-        process::command_arg(command, tmp_tar)
-        process::command_arg(command, "--exclude=.git")
-        process::command_arg(command, "-C")
-        process::command_arg(command, pkg_dir)
-        process::command_arg(command, ".")
-        code = hangar_command_result(command, "Package integrity archive")
+        pilot version_command = process::command_new(executable)
+        process::command_arg(version_command, "--version")
+        pilot archive_version = hangar_hash_output(version_command).to_lower()
+        pilot libarchive = archive_version.contains("bsdtar") or archive_version.contains("libarchive")
+        if libarchive or archive_version.contains("gnu tar") {
+            pilot command = process::command_new(executable)
+            process::command_arg(command, "-czf")
+            process::command_arg(command, tmp_tar)
+            process::command_arg(command, "--exclude=.git")
+            process::command_arg(command, "-C")
+            process::command_arg(command, pkg_dir)
+            process::command_arg(command, ".")
+            if libarchive {
+                -- Preserve the default archive format while removing only
+                -- gzip's wall-clock header. A rejected option fails closed.
+                process::command_arg(command, "--options")
+                process::command_arg(command, "gzip:!timestamp")
+            }
+            code = hangar_command_result(command, "Package integrity archive")
+        } else {
+            say "  Package integrity archive failed: cannot identify supported native tar capabilities."
+        }
     }
     pilot hash = ""
     if code == 0 { hash = hangar_compute_sha256(tmp_tar) }
@@ -1782,7 +1842,7 @@ task hangar_verify_package(pkg_name: word, pkg_dir: word, expected_sha256: word)
     pilot actual: word = hangar_compute_dir_sha256(pkg_dir)
     if actual == "" {
         say C_BYELLOW + "  WARNING" + C_RESET + " Could not compute hash for " + pkg_name
-        give back true
+        give back false
     }
 
     if actual == expected_sha256 {
@@ -1827,6 +1887,7 @@ task hangar_audit_admitted(project_dir: word, fix_mode: bool) -> int {
     pilot modules_dir = project_dir + "/hangar_modules"
     pilot issues = 0
     pilot verified = 0
+    pilot repair_failed = false
 
     -- Check each locked package
     pilot i = 0
@@ -1842,7 +1903,10 @@ task hangar_audit_admitted(project_dir: word, fix_mode: bool) -> int {
             if fix_mode {
                 say C_DIM + "  >> " + C_RESET + "Reinstalling " + name + "..."
                 pilot source: word = array_get(lock_pkg_sources, i)
-                hangar_install_one(project_dir, name, source, version)
+                if hangar_install_one(project_dir, name, source, version) != 0 {
+                    repair_failed = true
+                    say C_BRED + "  NOT REPAIRED" + C_RESET + " " + name + "; the locked checksum is unchanged."
+                }
             }
         } else if sha256 != "" {
             -- Verify integrity
@@ -1855,11 +1919,15 @@ task hangar_audit_admitted(project_dir: word, fix_mode: bool) -> int {
                 if fix_mode {
                     say C_DIM + "  >> " + C_RESET + "Reinstalling " + name + "..."
                     pilot source2: word = array_get(lock_pkg_sources, i)
-                    hangar_install_one(project_dir, name, source2, version)
-                    -- Recompute hash after reinstall
-                    pilot new_hash: word = hangar_compute_dir_sha256(pkg_dir)
-                    if new_hash != "" {
-                        array_set(lock_pkg_sha256s, i, new_hash)
+                    pilot reinstall_code = hangar_install_one(project_dir, name, source2, version)
+                    -- A failed replacement never authorizes the existing tree.
+                    if reinstall_code == 0 {
+                        pilot new_hash: word = hangar_compute_dir_sha256(pkg_dir)
+                        if new_hash != "" { array_set(lock_pkg_sha256s, i, new_hash) }
+                        else { repair_failed = true }
+                    } else {
+                        repair_failed = true
+                        say C_BRED + "  NOT REPAIRED" + C_RESET + " " + name + "; the locked checksum is unchanged."
                     }
                 }
             }
@@ -1879,7 +1947,7 @@ task hangar_audit_admitted(project_dir: word, fix_mode: bool) -> int {
         i += 1
     }
 
-    if fix_mode {
+    if fix_mode and not repair_failed {
         lock_write(lockfile)
     }
 
