@@ -368,7 +368,7 @@ class AcceptanceHelpers(unittest.TestCase):
         self.assertEqual(child.returncode, 0, stderr)
         self.assertIn(b'bounded recovery retained original timeout and raw output', stdout)
 
-    def deadline_model(self, absolute: bool) -> float:
+    def deadline_model(self, absolute: bool, *, observe_cadence: bool = False) -> float:
         listener = socket.socket()
         listener.bind(('127.0.0.1', 0))
         listener.listen(1)
@@ -413,18 +413,22 @@ class AcceptanceHelpers(unittest.TestCase):
             # model's sender avoids adding a new relative wait after every
             # delayed send. This cannot compensate for a host pause >0.25s.
             pacer = TricklePacer(acceptance.select.select, time.monotonic)
+            cadence = {} if observe_cadence else None
             with patch.object(acceptance.select, 'select', side_effect=pacer):
                 status, _, body, _, termination = acceptance.request(
                     port, acceptance.ABSOLUTE_TRICKLE_WIRE, cuts=acceptance.ABSOLUTE_TRICKLE_CUTS,
-                    delay=acceptance.ABSOLUTE_TRICKLE_DELAY)
+                    delay=acceptance.ABSOLUTE_TRICKLE_DELAY, trickle_cadence=cadence)
             elapsed = time.monotonic() - began
             print('HTTP deadline model: ' + json.dumps({'absolute': absolute,
                                                        'elapsed_seconds': elapsed,
                                                        'client_cadence': pacer.observations,
+                                                       'observed_cadence': cadence,
                                                        'server_observations': observations}))
             self.assertEqual((status, body), (408, b''))
             # A framed rejection can reset a connection with unread input.
             self.assertIn(termination, ('eof', 'reset'))
+            if observe_cadence:
+                self.observed_trickle_cadence = cadence
             return elapsed
         finally:
             thread.join(timeout=10)
@@ -655,6 +659,96 @@ class AcceptanceHelpers(unittest.TestCase):
             self.assertEqual(transcript.with_suffix('.response').read_bytes(), b'')
             self.assertEqual(json.loads(transcript.with_suffix('.transport.json').read_text()),
                              {'termination': 'incomplete', 'response_bytes': 0, 'request_bytes_sent_lower_bound': 0})
+
+    def test_observed_trickle_rejects_idle_stall_inside_absolute_window(self):
+        outer = self
+        class Transport:
+            def __init__(self, stall, stall_kind):
+                self.now = 0.0
+                self.stall = stall
+                self.stall_kind = stall_kind
+                self.sends = 0
+                self.waits = 0
+                self.replied = False
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def settimeout(self, seconds):
+                outer.assertEqual(seconds, 10)
+            def setsockopt(self, *args):
+                outer.assertEqual(args, (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1))
+            def sendall(self, data):
+                self.sends += 1
+                if self.sends == 9 and self.stall_kind == 'send':
+                    self.now += self.stall
+            def select(self, readers, writers, errors, seconds):
+                outer.assertEqual((readers, writers, errors, seconds), ([self], [], [], 0.1))
+                self.waits += 1
+                self.now += self.stall if self.waits == 9 and self.stall_kind == 'wait' else seconds
+                return ([self], [], []) if self.waits == 9 else ([], [], [])
+            def recv(self, limit):
+                outer.assertEqual(limit, 65536)
+                if self.replied:
+                    return b''
+                self.replied = True
+                return b'HTTP/1.1 408 Request Timeout\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'
+        for stall_kind, stall in (('wait', 0.1), ('wait', 0.249), ('wait', 0.25),
+                                  ('wait', 0.30), ('send', 0.30)):
+            with self.subTest(stall=stall, stall_kind=stall_kind), tempfile.TemporaryDirectory() as temporary:
+                peer = Transport(stall, stall_kind)
+                cadence = {}
+                transcript = Path(temporary) / 'stall'
+                with patch.object(acceptance.socket, 'create_connection', return_value=peer), \
+                        patch.object(acceptance.select, 'select', side_effect=peer.select), \
+                        patch.object(acceptance.time, 'monotonic_ns', side_effect=lambda: round(peer.now * 1_000_000_000)):
+                    status, _, body, _, termination = acceptance.request(
+                        1, acceptance.ABSOLUTE_TRICKLE_WIRE, cuts=acceptance.ABSOLUTE_TRICKLE_CUTS,
+                        delay=acceptance.ABSOLUTE_TRICKLE_DELAY, trickle_cadence=cadence,
+                        transcript=transcript)
+                self.assertEqual((status, body, termination), (408, b'', 'eof'))
+                # An idle-only refusal following a 0.30s sender stall used to
+                # satisfy this unchanged elapsed oracle at about 1.10 seconds.
+                acceptance.assert_absolute_header_deadline(peer.now)
+                retained = json.loads(transcript.with_suffix('.transport.json').read_text())
+                self.assertEqual(retained['trickle_cadence'], cadence)
+                self.assertEqual(len(cadence['sends']), 9)
+                if stall < 0.25:
+                    acceptance.assert_absolute_trickle_cadence(cadence)
+                else:
+                    with self.assertRaisesRegex(AssertionError, 'stalled trickle'):
+                        acceptance.assert_absolute_trickle_cadence(cadence)
+
+    def test_observed_absolute_trickle_admits_or_refuses_real_transport(self):
+        acceptance.assert_absolute_header_deadline(self.deadline_model(True, observe_cadence=True))
+        cadence = self.observed_trickle_cadence
+        completed = [0, *(row['completed_ns'] for row in cadence['sends']), cadence['first_response_ns']]
+        largest_gap = max(end - start for start, end in zip(completed, completed[1:]))
+        if largest_gap < 250_000_000:
+            acceptance.assert_absolute_trickle_cadence(cadence)
+        else:
+            # A paused real host is valid evidence that this control must be
+            # refused; it supplies no deadline PASS for the native service.
+            with self.assertRaisesRegex(AssertionError, 'stalled trickle'):
+                acceptance.assert_absolute_trickle_cadence(cadence)
+
+    def test_observed_trickle_rejects_blocked_send_and_invalid_evidence(self):
+        cadence = {'cuts': list(acceptance.ABSOLUTE_TRICKLE_CUTS),
+                   'delay_seconds': acceptance.ABSOLUTE_TRICKLE_DELAY,
+                   'wire_bytes': len(acceptance.ABSOLUTE_TRICKLE_WIRE),
+                   'sends': [{'start_byte': 0, 'end_byte': 1,
+                              'started_ns': 0, 'completed_ns': 100_000_000}],
+                   'first_response_ns': 200_000_000}
+        acceptance.assert_absolute_trickle_cadence(cadence)
+        for started, completed, response in ((0, 300_000_000, 400_000_000), (200_000_000, 100_000_000, 200_000_000),
+                                              (0, float('nan'), 200_000_000), (0, 100_000_000, None),
+                                              (0, 100_000_000, float('inf'))):
+            with self.subTest(started=started, completed=completed, response=response):
+                changed = {**cadence, 'sends': [{**cadence['sends'][0], 'started_ns': started,
+                                              'completed_ns': completed}],
+                           'first_response_ns': response}
+                with self.assertRaises(AssertionError):
+                    acceptance.assert_absolute_trickle_cadence(changed)
 
     def test_default_local_hangar_failure_keeps_receipt_and_raw_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:

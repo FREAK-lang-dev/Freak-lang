@@ -191,19 +191,49 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
 ABSOLUTE_TRICKLE_WIRE = b'GET /sequences/arithmetic HTTP/1.1\r\nHost: trickle'
 ABSOLUTE_TRICKLE_CUTS = tuple(range(1, 33))
 ABSOLUTE_TRICKLE_DELAY = 0.1
+ABSOLUTE_TRICKLE_IDLE_NS = 250_000_000
 
 
 def assert_absolute_header_deadline(elapsed: float) -> None:
     assert 0.8 <= elapsed < 2, ('absolute header deadline', elapsed)
 
 
+def assert_absolute_trickle_cadence(cadence: dict) -> None:
+    """A known sender stall cannot prove the absolute deadline rather than idle."""
+    assert cadence['cuts'] == list(ABSOLUTE_TRICKLE_CUTS)
+    assert cadence['delay_seconds'] == ABSOLUTE_TRICKLE_DELAY
+    assert cadence['wire_bytes'] == len(ABSOLUTE_TRICKLE_WIRE)
+    sends = cadence['sends']
+    assert 0 < len(sends) <= len(ABSOLUTE_TRICKLE_CUTS) + 1
+    previous = 0
+    start = 0
+    for row, end in zip(sends, (*ABSOLUTE_TRICKLE_CUTS, len(ABSOLUTE_TRICKLE_WIRE))):
+        began, completed = row['started_ns'], row['completed_ns']
+        assert type(began) is type(completed) is int
+        assert previous <= began <= completed
+        assert (row['start_byte'], row['end_byte']) == (start, end)
+        assert completed - previous < ABSOLUTE_TRICKLE_IDLE_NS, ('stalled trickle sender', cadence)
+        previous, start = completed, end
+    response = cadence['first_response_ns']
+    assert type(response) is int and response >= previous
+    assert response - previous < ABSOLUTE_TRICKLE_IDLE_NS, ('stalled trickle response wait', cadence)
+
+
 def request(port: int, wire: bytes, *, head: bool = False,
             cuts: tuple[int, ...] = (), end_stream: bool = False,
             delay: float = 0, transcript: Path | None = None,
+            trickle_cadence: dict | None = None,
             ) -> tuple[int, dict[bytes, bytes], bytes, bytes, str]:
     response = bytearray()
     termination = 'incomplete'
     start = 0
+    # These bounded client timestamps expose sender stalls; they do not claim
+    # kernel delivery or the server's receive time.
+    cadence_began = time.monotonic_ns() if trickle_cadence is not None else None
+    if trickle_cadence is not None:
+        assert not trickle_cadence
+        trickle_cadence.update(cuts=list(cuts), delay_seconds=delay, wire_bytes=len(wire),
+                               sends=[], first_response_ns=None)
     try:
         with socket.create_connection(('127.0.0.1', port), timeout=10) as peer:
             peer.settimeout(10)
@@ -212,11 +242,17 @@ def request(port: int, wire: bytes, *, head: bool = False,
             start = 0
             for end in (*cuts, len(wire)):
                 assert start <= end <= len(wire)
+                send_began = time.monotonic_ns() if trickle_cadence is not None else None
                 try:
                     peer.sendall(wire[start:end])
                 except (BrokenPipeError, ConnectionResetError):
                     termination = 'send-reset'
                     break
+                if trickle_cadence is not None:
+                    assert len(trickle_cadence['sends']) < 64, 'unbounded trickle observations'
+                    trickle_cadence['sends'].append({'start_byte': start, 'end_byte': end,
+                        'started_ns': send_began - cadence_began,
+                        'completed_ns': time.monotonic_ns() - cadence_began})
                 start = end
                 if delay and start < len(wire):
                     # A complete early refusal ends the trickle immediately;
@@ -232,6 +268,8 @@ def request(port: int, wire: bytes, *, head: bool = False,
                             termination = 'eof'
                             break
                         response.extend(part)
+                        if trickle_cadence is not None:
+                            trickle_cadence['first_response_ns'] = time.monotonic_ns() - cadence_began
                         assert len(response) <= 1048576, 'unbounded response'
                         break
             if end_stream and start == len(wire):
@@ -248,12 +286,17 @@ def request(port: int, wire: bytes, *, head: bool = False,
                     termination = 'eof'
                     break
                 response.extend(part)
+                if trickle_cadence is not None and trickle_cadence['first_response_ns'] is None:
+                    trickle_cadence['first_response_ns'] = time.monotonic_ns() - cadence_began
                 assert len(response) <= 1048576, 'unbounded response'
     finally:
         if transcript is not None:
             transcript.with_suffix('.request').write_bytes(wire)
             transcript.with_suffix('.response').write_bytes(response)
-            transcript.with_suffix('.transport.json').write_text(json.dumps({'termination': termination, 'response_bytes': len(response), 'request_bytes_sent_lower_bound': start}) + '\n')
+            transport = {'termination': termination, 'response_bytes': len(response), 'request_bytes_sent_lower_bound': start}
+            if trickle_cadence is not None:
+                transport['trickle_cadence'] = trickle_cadence
+            transcript.with_suffix('.transport.json').write_text(json.dumps(transport) + '\n')
     header, boundary, body = bytes(response).partition(b'\r\n\r\n')
     assert boundary, response
     lines = header.split(b'\r\n')
@@ -567,7 +610,9 @@ def main() -> int:
                                 assert body == oracle
                         for label, wire, expected, options in adverse:
                             began = time.monotonic()
-                            status, _, body, raw, termination = request(port, wire, transcript=logs / f'http-{backend}-{label}', **options)
+                            cadence = {} if label == 'absolute-trickle' else None
+                            status, _, body, raw, termination = request(port, wire, transcript=logs / f'http-{backend}-{label}',
+                                                                      trickle_cadence=cadence, **options)
                             elapsed = time.monotonic() - began
                             wire_records.append({'case': label, 'status': status, 'expected': expected,
                                                  'termination': termination,
@@ -576,6 +621,8 @@ def main() -> int:
                                                  'response_sha256': hashlib.sha256(raw).hexdigest()})
                             assert status == expected, (label, status, expected, body)
                             if label == 'absolute-trickle':
+                                wire_records[-1]['trickle_cadence'] = cadence
+                                assert_absolute_trickle_cadence(cadence)
                                 assert_absolute_header_deadline(elapsed)
                         for index in range(args.soak):
                             status, _, body, raw, termination = request(port, controls[4][0])
