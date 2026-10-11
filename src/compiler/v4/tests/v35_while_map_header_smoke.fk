@@ -1,0 +1,156 @@
+-- Process-isolated MIR/header contracts. Verification prepends the V4 crates.
+-- Inline aggregate indexing and map LLVM execution remain unsupported; these
+-- tests must not turn a correct body boundary into a claim of backend support.
+
+task v35_while_map_assert(condition: bool, label: word) -> void {
+    if not condition { panic("v35-while-map " + label) }
+}
+
+task v35_while_map_source(mode: int) -> word {
+    pilot prefix = "task main() -> int { pilot visits = 0; "
+    pilot body = ("{" + " visits += 1; break " + "}")
+    pilot suffix = " give back visits }"
+    pilot condition = ("{" + "\"go\": false" + "}" + "[\"go\"]")
+    pilot heading = "while "
+    if mode == 1 { condition = ("{" + "\"go\": true" + "}" + "[\"go\"]") }
+    if mode == 2 { heading = "repeat while "; condition = ("{" + "\"go\": true" + "}" + "[\"go\"]") }
+    if mode == 3 { condition = ("{" + " \"go\" \t: true " + "}" + " [ \"go\" ] -- header comment\n") }
+    if mode == 4 { heading = "while\n"; condition = ("{" + "\"go\": true" + "}" + "[\"go\"]") }
+    if mode == 5 { condition = ("{" + "\"go\": true" + "}" + "[\"go\"]\n") }
+    if mode == 6 { condition = ("{" + "\"outer\": " + "{" + "\"go\": true" + "}" + "}" + "[\"outer\"][\"go\"]") }
+    if mode == 7 { condition = ("{" + "(\"go\"): true" + "}" + "[\"go\"]") }
+    if mode == 8 { condition = ("not " + "{" + "\"go\": true" + "}" + "[\"go\"]") }
+    if mode == 9 { condition = ("false or " + "{" + "\"go\": true" + "}" + "[\"go\"]") }
+    if mode == 10 { condition = ("{" + "}" + "[\"go\"]") }
+    if mode == 11 { condition = ("{" + "\"go\":" + "}" + "[\"go\"]") }
+    if mode == 12 { condition = ("{" + "\"go\": true" + "}") }
+    if mode >= 13 and mode <= 16 {
+        pilot value = "false"
+        if mode >= 14 { value = "true" }
+        prefix = prefix + "pilot lookup = {\"go\": " + value + "}; "
+        condition = "lookup[\"go\"]"
+        if mode == 15 { heading = "repeat while " }
+        if mode == 16 {
+            prefix = ("task main() -> int " + "{" + " pilot visits = 0; pilot lookup = " + "{" + "\"outer\": " + "{" + "\"go\": true" + "}" + "}" + "; ")
+            condition = "lookup[\"outer\"][\"go\"]"
+        }
+    }
+    if mode == 17 {
+        prefix = ("shape Flag " + "{" + " value: bool " + "}" + " doctrine Eq " + "{" + " task equals(self, other: Self) -> bool " + "}" + " impl Eq for Flag " + "{" + " task equals(self, other: Flag) -> bool " + "{" + " give back self.value == other.value " + "}" + " " + "}" + " ") + prefix + ("pilot other = Flag " + "{" + "value: true" + "}" + "; ")
+        condition = ("other == Flag\n" + "{" + "value: false" + "}")
+    }
+    if mode == 18 { condition = "false"; body = ("{" + " pilot marker: bool = true; break " + "}") }
+    if mode == 19 { condition = ""; body = ("{" + " pilot marker: bool = true; break " + "}") }
+    if mode == 20 { give back prefix + ("while " + "{" + "\"go\": true" + "}" + "[\"go\"]; if true " + "{" + "}") + suffix }
+    if mode == 21 { give back prefix + ("while " + "{" + "\"go\": true" + "}" + "[\"go\"]\nif true " + "{" + "}") + suffix }
+    if mode == 22 { condition = ("{" + "\"go\": true, \"stop\": 1" + "}") }
+    if mode == 23 { give back prefix + ("repeat while " + "{" + "\"go\": true" + "}" + "[\"go\"]; if true " + "{" + "}") + suffix }
+    give back prefix + heading + condition + " " + body + suffix
+}
+
+task v35_while_map_has_diag(mir: int, message: word) -> bool {
+    pilot row = 0
+    repeat until row >= v4_mir_diag_count(mir) {
+        if v4_diag_message(v4_mir_diag(mir, row)) == message { give back true }
+        row += 1
+    }
+    give back false
+}
+
+task v35_while_map_run(mode: int) -> void {
+    v35_while_map_assert(mode >= 0 and mode < 24, "registered mode")
+    pilot source = v35_while_map_source(mode)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    v35_while_map_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) == 0, "header preserves frontend syntax")
+    pilot loop_token = v4_mir_find_token_value(stream, 0, v4_lex_token_count(stream), "while")
+    if mode == 2 or mode == 15 or mode == 23 { loop_token = v4_mir_prev_nontrivia(stream, loop_token - 1, 0) }
+    pilot open = v4_mir_loop_body_token(mir, stream, loop_token, v4_lex_token_count(stream))
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    v35_while_map_assert(body >= 0, "following main survives")
+    if mode == 20 or mode == 21 or mode == 23 {
+        v35_while_map_assert(open == -1 and v35_while_map_has_diag(mir, "while loop requires a body"), "incomplete map header cannot borrow following body")
+        pilot branches = 0
+        pilot row = 0
+        repeat until row >= v4_mir_body_stmt_count(mir, body) {
+            if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_branch { branches += 1 }
+            row += 1
+        }
+        v35_while_map_assert(branches == 1, "following conditional preserved")
+    } else {
+        v35_while_map_assert(open >= 0, "body found after complete header")
+        pilot close = v4_mir_find_matching_brace(stream, open, v4_lex_token_count(stream))
+        pilot expected_body = ("{" + " visits += 1; break " + "}")
+        if mode == 18 or mode == 19 { expected_body = ("{" + " pilot marker: bool = true; break " + "}") }
+        v35_while_map_assert(v4_slice(source, v4_span_start(v4_lex_token_span(stream, open)), v4_span_end(v4_lex_token_span(stream, close))) == expected_body, "exact original body span excludes map payload")
+        pilot loops = 0
+        pilot breaks = 0
+        pilot row = 0
+        repeat until row >= v4_mir_body_stmt_count(mir, body) {
+            if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_loop {
+                loops += 1
+                pilot block = v4_mir_body_block(mir, body, v4_mir_stmt_block(mir, body, row))
+                pilot rhs = v4_mir_stmt_rhs(mir, body, row)
+                v35_while_map_assert(v4_mir_block_terminator(block) == v4_mir_term_if and rhs.starts_with("body#" + word_from_int(v4_mir_block_target(block)) + " ") and rhs.ends_with("exit#" + word_from_int(v4_mir_block_else_target(block))), "condition true enters body and false exits")
+                if mode >= 13 and mode <= 18 {
+                    v35_while_map_assert(v4_mir_rvalue_ty(mir, body, v4_mir_stmt_rvalue(mir, body, row)) == v4_ty_bool, "supported condition has actual bool MIR")
+                }
+            }
+            if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_break {
+                breaks += 1
+                pilot block = v4_mir_body_block(mir, body, v4_mir_stmt_block(mir, body, row))
+                v35_while_map_assert(v4_mir_block_terminator(block) == v4_mir_term_goto and v4_mir_stmt_rhs(mir, body, row) == "exit#" + word_from_int(v4_mir_block_target(block)), "break terminates owned body at loop exit")
+            }
+            row += 1
+        }
+        if mode == 19 {
+            v35_while_map_assert(v35_while_map_has_diag(mir, "while loop requires a condition") and loops == 0, "typed body remains missing-condition diagnostic")
+        } else {
+            v35_while_map_assert(loops == 1 and breaks == 1 and not v35_while_map_has_diag(mir, "while loop requires a condition") and not v35_while_map_has_diag(mir, "break outside loop"), "one complete loop owns its break")
+        }
+        if mode <= 7 or mode == 10 or mode == 11 {
+            v35_while_map_assert(v35_while_map_has_diag(mir, "unsupported while condition"), "inline map indexing retains existing conservative type boundary")
+        }
+        if mode == 12 { v35_while_map_assert(v35_while_map_has_diag(mir, "while condition must be bool"), "bare typed map cannot be a bool condition") }
+        if mode == 22 { v35_while_map_assert(v35_while_map_has_diag(mir, "map value drift"), "whole map owns malformed entry diagnostic") }
+        if mode >= 13 and mode <= 18 {
+            v35_while_map_assert(v4_mir_diag_count(mir) == 0, "local map bool and adjacent constructors remain supported MIR")
+        }
+        if mode >= 13 and mode <= 16 {
+            pilot map_value = -1
+            row = 0
+            repeat until row >= v4_mir_body_stmt_count(mir, body) {
+                if v4_mir_stmt_lhs(mir, body, row) == "lookup" { map_value = v4_mir_stmt_rvalue(mir, body, row) }
+                row += 1
+            }
+            v35_while_map_assert(map_value >= 0 and v4_mir_rvalue_kind(mir, body, map_value) == v4_mir_rvalue_map and v4_mir_rvalue_aggregate_child_count(mir, body, map_value) == 2, "one keyed map value is retained")
+            pilot value = v4_mir_rvalue_aggregate_child(mir, body, map_value, 1)
+            if mode == 16 {
+                v35_while_map_assert(v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_map and v4_mir_rvalue_aggregate_child_count(mir, body, value) == 2, "nested map value is retained")
+                value = v4_mir_rvalue_aggregate_child(mir, body, value, 1)
+            }
+            pilot expected = "true"
+            if mode == 13 { expected = "false" }
+            -- Together with the typed condition/exit and terminal break edges,
+            -- these are zero-pass/one-pass CFG controls, not map LLVM execution.
+            v35_while_map_assert(v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_const_bool and v4_mir_rvalue_text(mir, body, value) == expected, "zero or one pass retains the actual bool map value")
+        }
+    }
+    pilot snapshot = v4_mir_snapshot()
+    v35_while_map_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot, "exact MIR restoration including diagnostics and source boundaries")
+    pilot generated = v4_codegen_llvm_lower_owned_mir(0, mir)
+    if mode != 18 {
+        v35_while_map_assert(v4_codegen_llvm_native_module_error(generated) != "" and v4_codegen_llvm_module_text(generated, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "aggregate or invalid native module remains refused")
+    } else {
+        v35_while_map_assert(v4_codegen_llvm_native_module_error(generated) == "" and v4_codegen_llvm_module_text(generated, v4_target_spec_new("x86_64-unknown-linux-gnu")) != "", "scalar body adjacency retains native module support")
+    }
+    say "v35-while-map case=" + word_from_int(mode) + " boundary=true cfg=true diagnostics=true restore=true native-scope=conservative"
+}
+
+pilot v35_while_map_mode = 0
+if process::args_count() > 1 { v35_while_map_mode = word_to_int(process::arg(1)) }
+v35_while_map_run(v35_while_map_mode)

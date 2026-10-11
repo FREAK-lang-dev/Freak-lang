@@ -35,6 +35,11 @@ The reservation includes route/variant cases and their nested fields and types;
 quoted tokens and comments retain their literal contents.
 Loop-header scanning distinguishes registered constructor payload braces from
 the loop body, including supported Boolean comparisons against constructors.
+The separate `v35_while_map_header_smoke.fk` registers 24 balanced-map header,
+body-span, malformed-header diagnostic, local-map Bool CFG and restoration
+contracts; their native fixture executions are pending. Inline map-literal
+indexing retains its existing unsupported type boundary, and these controls do
+not claim executable map LLVM lowering.
 The existing two native examples retain their zero-pass, nested-control and
 short-circuit checks. `v35_native_while_casing_execute_smoke.fk` adds three
 actual native programs covering task/local/parameter names, aliases, and

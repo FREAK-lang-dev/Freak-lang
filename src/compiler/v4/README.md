@@ -19,6 +19,12 @@ process-isolated native fixture executions on Linux. The added casing controls
 cover reservation and recovery; generic-type native lowering remains separate.
 Coverage includes
 exact lowercase keywords and constructor payload braces in loop headers.
+The separate `v35_while_map_header_smoke.fk` registers 24 map-header boundary,
+diagnostic, local-map Bool CFG and restoration contracts; native fixture
+verification for these additions is pending. Header scanning preserves balanced
+map payloads in operand positions. Inline map-literal indexing still has its
+existing type-lowering limit, and local-map Bool controls establish MIR facts,
+not successful map LLVM execution.
 `v35_native_while_execute_smoke.fk` covers two
 actual LLVM programs with zero passes, nested control and short-circuit
 conditions. `v35_native_while_casing_execute_smoke.fk` adds three actual LLVM

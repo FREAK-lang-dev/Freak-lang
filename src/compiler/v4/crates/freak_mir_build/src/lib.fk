@@ -9267,6 +9267,44 @@ task v4_mir_loop_brace_is_constructor(mir_id: int, stream_id: int, condition_sta
     give back false
 }
 
+-- A map has no constructor head. Only an operand position can own its brace:
+-- a completed bool/local condition followed by a typed declaration body must
+-- still select that body. Inspect balanced tokens without lowering expressions.
+task v4_mir_loop_brace_is_map(stream_id: int, condition_start: int, open_token: int, end_token: int) -> bool {
+    pilot previous = v4_mir_prev_nontrivia(stream_id, open_token - 1, condition_start)
+    pilot operand = previous < condition_start
+    if previous >= condition_start {
+        pilot value = v4_lex_token_syntax_value(stream_id, previous)
+        operand = v4_mir_unary_op_kind(value) != ""
+        pilot tier = 1
+        repeat until tier > 5 {
+            if v4_mir_binary_tier_matches(value, tier) { operand = true }
+            tier += 1
+        }
+    }
+    if not operand { give back false }
+    pilot close_token = v4_mir_find_matching_brace(stream_id, open_token, end_token)
+    if close_token >= end_token { give back false }
+    pilot first = v4_mir_next_nontrivia(stream_id, open_token + 1, close_token)
+    if first < close_token {
+        pilot kind = v4_lex_token_type(stream_id, first)
+        pilot value = v4_lex_token_syntax_value(stream_id, first)
+        pilot key = kind == v4_tok_ident or kind == v4_tok_string or kind == v4_tok_char or kind == v4_tok_int or kind == v4_tok_float or kind == v4_tok_bool
+        key = key or value == "(" or value == "[" or value == "{" or v4_mir_unary_op_kind(value) != ""
+        if not key { give back false }
+        if v4_mir_find_top_level_token(stream_id, first, close_token, ":") >= 0 { give back true }
+    }
+    -- Empty or malformed maps followed by an index remain expressions so the
+    -- ordinary map/index diagnostics own the whole header. A lone `while {}`
+    -- remains a missing-condition loop, rather than borrowing a later body.
+    pilot next = v4_mir_next_nontrivia(stream_id, close_token + 1, end_token)
+    give back next < end_token and v4_lex_token_syntax_value(stream_id, next) == "["
+}
+
+task v4_mir_loop_brace_is_header_expr(mir_id: int, stream_id: int, condition_start: int, open_token: int, end_token: int) -> bool {
+    give back v4_mir_loop_brace_is_map(stream_id, condition_start, open_token, end_token) or v4_mir_loop_brace_is_constructor(mir_id, stream_id, condition_start, open_token, end_token)
+}
+
 -- A loop body must follow its own header. Ignore nested expression braces and
 -- retain a brace immediately after a newline, without borrowing a later
 -- statement's body when the current heading is incomplete.
@@ -9290,7 +9328,7 @@ task v4_mir_loop_body_token(mir_id: int, stream_id: int, loop_token: int, end_to
             if depth == 0 and v4_lex_token_value(stream_id, idx) == "\n" {
                 pilot next = v4_mir_skip_trivia(stream_id, idx + 1)
                 if next < end_token and v4_lex_token_syntax_value(stream_id, next) == "{" {
-                    if while_mode and v4_mir_loop_brace_is_constructor(mir_id, stream_id, condition_start, next, end_token) {
+                    if while_mode and v4_mir_loop_brace_is_header_expr(mir_id, stream_id, condition_start, next, end_token) {
                         idx = v4_mir_find_matching_brace(stream_id, next, end_token)
                         skipped_constructor = true
                     } else {
@@ -9302,7 +9340,7 @@ task v4_mir_loop_body_token(mir_id: int, stream_id: int, loop_token: int, end_to
             }
         } else if token_type != v4_tok_string and token_type != v4_tok_char {
             if value == "{" and depth == 0 {
-                if while_mode and v4_mir_loop_brace_is_constructor(mir_id, stream_id, condition_start, idx, end_token) {
+                if while_mode and v4_mir_loop_brace_is_header_expr(mir_id, stream_id, condition_start, idx, end_token) {
                     idx = v4_mir_find_matching_brace(stream_id, idx, end_token)
                     skipped_constructor = true
                 } else {
