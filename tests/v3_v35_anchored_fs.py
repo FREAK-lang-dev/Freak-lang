@@ -457,6 +457,7 @@ def main() -> int:
                     if mode=='temp-swap': assert len(list(root.glob('owned*')))==2
                     records.append({'adapter':adapter,'optimization':opt,'case':mode,'status':'pass'})
                 locked=home/f'{adapter}-{opt}-lock'; locked.mkdir(mode=0o700)
+                private.claim_fresh_directories(locked)
                 holder=subprocess.Popen([str(exe),'lock-hold',str(locked)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
                 try:
                     assert holder.stdout and holder.stdout.readline()==b'LOCKED\n'
