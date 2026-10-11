@@ -31,6 +31,39 @@ def available_idle_input(peer: socket.socket) -> bytes | None:
         return None
 
 
+class TricklePacer:
+    """Keep this comparative model on its first completed send's schedule."""
+
+    def __init__(self, wait, clock):
+        self.wait = wait
+        self.clock = clock
+        self.anchor = None
+        self.fragments = 0
+        self.observations = []
+
+    def __call__(self, readers, writers, errors, seconds):
+        now = self.clock()
+        if self.anchor is None:
+            self.anchor = now
+        self.fragments += 1
+        due = self.anchor + self.fragments * seconds
+        effective = max(0, min(seconds, due - now))
+        row = {'fragment_index': self.fragments,
+               'send_completed_seconds': now - self.anchor,
+               'scheduled_wait_end_seconds': due - self.anchor,
+               'requested_seconds': seconds, 'effective_seconds': effective}
+        if len(self.observations) < 64:
+            self.observations.append(row)
+        try:
+            result = self.wait(readers, writers, errors, effective)
+        except BaseException as error:
+            row['error_type'] = type(error).__name__
+            raise
+        row['returned_seconds'] = self.clock() - self.anchor
+        row['readable'] = bool(result[0])
+        return result
+
+
 class AcceptanceHelpers(unittest.TestCase):
     def test_success_keeps_separate_raw_channels_and_exit(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -376,12 +409,18 @@ class AcceptanceHelpers(unittest.TestCase):
         thread.start()
         try:
             began = time.monotonic()
-            status, _, body, _, termination = acceptance.request(
-                port, acceptance.ABSOLUTE_TRICKLE_WIRE, cuts=acceptance.ABSOLUTE_TRICKLE_CUTS,
-                delay=acceptance.ABSOLUTE_TRICKLE_DELAY)
+            # The receiver still uses real absolute/idle clocks. Only this
+            # model's sender avoids adding a new relative wait after every
+            # delayed send. This cannot compensate for a host pause >0.25s.
+            pacer = TricklePacer(acceptance.select.select, time.monotonic)
+            with patch.object(acceptance.select, 'select', side_effect=pacer):
+                status, _, body, _, termination = acceptance.request(
+                    port, acceptance.ABSOLUTE_TRICKLE_WIRE, cuts=acceptance.ABSOLUTE_TRICKLE_CUTS,
+                    delay=acceptance.ABSOLUTE_TRICKLE_DELAY)
             elapsed = time.monotonic() - began
             print('HTTP deadline model: ' + json.dumps({'absolute': absolute,
                                                        'elapsed_seconds': elapsed,
+                                                       'client_cadence': pacer.observations,
                                                        'server_observations': observations}))
             self.assertEqual((status, body), (408, b''))
             # A framed rejection can reset a connection with unread input.
@@ -391,6 +430,120 @@ class AcceptanceHelpers(unittest.TestCase):
             thread.join(timeout=10)
             self.assertFalse(thread.is_alive())
             self.assertEqual(errors, [])
+
+    def test_trickle_pacer_removes_extra_wait_after_delayed_send(self):
+        clock = Mock(side_effect=[10, 10.14, 10.32, 10.32])
+        result = ([], [], [])
+        wait = Mock(return_value=result)
+        peer = object()
+        pacer = TricklePacer(wait, clock)
+        self.assertIs(pacer([peer], [], [], 0.1), result)
+        self.assertIs(pacer([peer], [], [], 0.1), result)
+        self.assertEqual(wait.call_args_list[0].args[:3], ([peer], [], []))
+        self.assertAlmostEqual(wait.call_args_list[0].args[3], 0.1)
+        self.assertEqual(wait.call_args_list[1].args, ([peer], [], [], 0))
+        self.assertEqual(len(pacer.observations), 2)
+        self.assertAlmostEqual(pacer.observations[1]['scheduled_wait_end_seconds'], 0.2)
+
+    def test_trickle_pacer_returns_early_readability_without_extra_wait(self):
+        peer = object()
+        result = ([peer], [], [])
+        wait = Mock(return_value=result)
+        pacer = TricklePacer(wait, Mock(return_value=10))
+        self.assertIs(pacer([peer], [], [], 0.1), result)
+        wait.assert_called_once()
+        self.assertEqual(pacer.observations[0]['returned_seconds'], 0)
+        self.assertTrue(pacer.observations[0]['readable'])
+
+    def test_trickle_pacer_preserves_original_wait_error(self):
+        primary = OSError('controlled select failure')
+        wait = Mock(side_effect=primary)
+        clock = Mock(return_value=10)
+        pacer = TricklePacer(wait, clock)
+        with self.assertRaises(OSError) as caught:
+            pacer([object()], [], [], 0.1)
+        self.assertIs(caught.exception, primary)
+        wait.assert_called_once()
+        clock.assert_called_once()
+        self.assertEqual(pacer.observations[0]['error_type'], 'OSError')
+
+    def test_trickle_pacer_scheduling_countermodel_preserves_idle_deadline(self):
+        # Inert scheduling costs, not a reproduction of Darwin's TCP stack.
+        class Transport:
+            def __init__(self, absolute, stall):
+                self.absolute, self.stall = absolute, stall
+                self.now = self.last = 0
+                self.expired = self.replied = False
+                self.waits = 0
+                self.sent, self.delivered = [], []
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def settimeout(self, seconds):
+                self_timeout.assertEqual(seconds, 10)
+            def setsockopt(self, *args):
+                self_timeout.assertEqual(args, (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1))
+            def deadline(self):
+                return 1 if self.absolute else self.last + 0.25
+            def sendall(self, data):
+                self.sent.append(data)
+                self.now += 0.06
+                if self.deadline() <= self.now:
+                    self.expired = True
+                if not self.expired:
+                    self.last = self.now
+                    self.delivered.append(data)
+            def select(self, readers, writers, errors, seconds):
+                self_timeout.assertEqual((readers, writers, errors), ([self], [], []))
+                self_timeout.assertTrue(0 <= seconds <= 0.1)
+                self.waits += 1
+                overhead = self.stall if self.waits == 13 else 0.04
+                if self.expired:
+                    self.now += overhead
+                    return [self], [], []
+                returned = self.now + seconds + overhead
+                if self.deadline() <= returned:
+                    self.now = self.deadline()
+                    self.expired = True
+                    return [self], [], []
+                self.now = returned
+                return [], [], []
+            def recv(self, limit):
+                self_timeout.assertEqual(limit, 65536)
+                if self.replied:
+                    return b''
+                if not self.expired:
+                    self.now = self.deadline()
+                    self.expired = True
+                self.replied = True
+                return b'HTTP/1.1 408 Request Timeout\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'
+        self_timeout = self
+        cuts = acceptance.ABSOLUTE_TRICKLE_CUTS
+        wire = acceptance.ABSOLUTE_TRICKLE_WIRE
+        pieces = [wire[start:end] for start, end in zip((0, *cuts), (*cuts, len(wire)))]
+        for absolute, paced, stall in ((False, False, 0.10), (False, True, 0.10),
+                                      (True, False, 0.10), (True, True, 0.10),
+                                      (False, True, 0.30)):
+            peer = Transport(absolute, stall)
+            wait = TricklePacer(peer.select, lambda: peer.now) if paced else peer.select
+            with patch.object(acceptance.socket, 'create_connection', return_value=peer), \
+                    patch.object(acceptance.select, 'select', side_effect=wait):
+                status, _, body, _, termination = acceptance.request(
+                    1, wire, cuts=cuts, delay=acceptance.ABSOLUTE_TRICKLE_DELAY)
+            self.assertEqual((status, body, termination), (408, b'', 'eof'))
+            self.assertEqual(peer.sent, pieces[:len(peer.sent)])
+            if absolute:
+                acceptance.assert_absolute_header_deadline(peer.now)
+            elif paced and stall == 0.10:
+                self.assertEqual(peer.delivered, pieces)
+                self.assertGreaterEqual(peer.now, 3.2)
+                with self.assertRaises(AssertionError):
+                    acceptance.assert_absolute_header_deadline(peer.now)
+            else:
+                # A real gap longer than0.25s still expires; no idle grace.
+                self.assertLess(peer.now, 3.2)
+                self.assertLess(len(peer.delivered), len(pieces))
 
     def test_idle_expiry_reads_queued_input_without_waiting(self):
         peer = Mock()
