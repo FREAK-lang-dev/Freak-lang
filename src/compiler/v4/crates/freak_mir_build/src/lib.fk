@@ -9289,7 +9289,7 @@ task v4_mir_loop_brace_is_map(stream_id: int, condition_start: int, open_token: 
     if first < close_token {
         pilot kind = v4_lex_token_type(stream_id, first)
         pilot value = v4_lex_token_syntax_value(stream_id, first)
-        pilot key = kind == v4_tok_ident or kind == v4_tok_string or kind == v4_tok_char or kind == v4_tok_int or kind == v4_tok_float or kind == v4_tok_bool
+        pilot key: bool = kind == v4_tok_ident or kind == v4_tok_string or kind == v4_tok_char or kind == v4_tok_int or kind == v4_tok_float or kind == v4_tok_bool
         key = key or value == "(" or value == "[" or value == "{" or v4_mir_unary_op_kind(value) != ""
         if not key { give back false }
         -- Only the first entry can identify this brace as a map. A later
