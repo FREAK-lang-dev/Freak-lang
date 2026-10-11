@@ -1445,7 +1445,8 @@ int64_t freak_fs_lock_dir_ticket(int64_t root_handle,freak_word lock_name) {
     free(name); return handle;
 }
 /* Initializers must own a newly created lock, not reopen retained writer state.
-   Keep the create-only descriptor/HANDLE held through the result's lifetime. */
+   Only acquisition grants rollback authority: a same-uid writer can open and
+   lock a create-only POSIX inode before its creator acquires flock. */
 int64_t freak_fs_abort_new_lock_checked(int64_t lock_handle);
 int64_t freak_fs_lock_dir_new_ticket(int64_t root_handle,freak_word lock_name) {
     int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
@@ -1471,17 +1472,14 @@ int64_t freak_fs_lock_dir_new_ticket(int64_t root_handle,freak_word lock_name) {
     bool locked=lock >= 0 && fstat(lock,&info) == 0 && S_ISREG(info.st_mode) && info.st_nlink == 1 &&
         info.st_uid == geteuid() && !(info.st_mode & 0077) && flock(lock,LOCK_EX | LOCK_NB) == 0;
 #endif
-    if (lock != FREAK_FS_INVALID_ANCHOR) {
+    if (locked) {
         freak_fs_ticket_data(result,name,strlen(name)); result->directory=lock;
         result->temp_parent=parent; result->owns_lock=result->owns_new_lock=true; result->kind=5;
-        if (!locked) {
-            int64_t removed=freak_fs_abort_new_lock_checked(handle);
-            bool clean=freak_fs_result_ok(removed); freak_fs_result_release(removed);
-            /* Allocating the rollback result may move the ticket table. */
-            result=freak_fs_ticket_require(handle);
-            freak_fs_ticket_error(result,clean ? "directory transaction lock could not be held privately" :
-                "directory transaction lock could not be held privately; owned rollback failed, recovery is required");
-        }
+    } else if (lock != FREAK_FS_INVALID_ANCHOR) {
+        /* Creation is not exclusive-lock ownership. Retain the named inode
+           for its possible holder; an unacquired ticket must never unlink it. */
+        freak_fs_anchor_close(lock); freak_fs_anchor_close(parent);
+        freak_fs_ticket_error(result,"directory transaction lock could not be held privately; created lock retained, recovery is required");
     } else {
         freak_fs_anchor_close(parent);
         freak_fs_ticket_error(result,"directory transaction lock already exists or could not be created privately");

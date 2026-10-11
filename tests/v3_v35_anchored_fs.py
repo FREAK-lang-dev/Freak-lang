@@ -99,11 +99,34 @@ static void exact(int64_t h,const char *bytes,size_t n) { require(F(result_ok)(h
 static int64_t buffer(const char *s) { int64_t b=freak_byte_buffer_new(); freak_byte_buffer_write_word(b,freak_word_lit(s)); require(b!=0,"buffer"); return b; }
 #ifdef TEST_INTERPOSE
 #include <stdarg.h>
+#include <sys/file.h>
+#include <sys/syscall.h>
+extern long syscall(long,...);
 extern int __real_openat(int,const char *,int,...);
 extern ssize_t __real_read(int,void *,size_t);
 extern int __real_fsync(int);
 static int exchange=0,grow=0,sync_fault=0; static size_t read_total=0,read_max=0;
 static char swap_path[8192],old_path[8192],outside_path[8192],grow_path[8192];
+static int lock_competition=0,competing_lock=-1;
+static char competing_path[8192]; static struct stat competing_identity;
+/* The test build renames flock at preprocessing time in every translation
+   unit. Use the real Linux syscall so separate open-file descriptions compete
+   deterministically, without threads, forks, or callback ticket allocation. */
+int freak_fs_test_flock(int descriptor,int operation) {
+    if (lock_competition) {
+        lock_competition=0;
+        require(operation==(LOCK_EX|LOCK_NB),"fresh opener requests exclusive nonblocking lock");
+        struct stat fresh; require(fstat(descriptor,&fresh)==0,"fresh opener inode");
+        competing_lock=open(competing_path,O_RDWR|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);
+        require(competing_lock>=0&&fstat(competing_lock,&competing_identity)==0&&
+            fresh.st_dev==competing_identity.st_dev&&fresh.st_ino==competing_identity.st_ino&&
+            competing_identity.st_uid==geteuid(),"separate contender opens the same owned fresh inode");
+        require(syscall(SYS_flock,competing_lock,LOCK_EX|LOCK_NB)==0,"contender acquires actual kernel lock first");
+        require(write(competing_lock,"retained contender",18)==18,"contender retains writer state");
+        require(fsync(competing_lock)==0,"contender writer state synchronized");
+    }
+    return (int)syscall(SYS_flock,descriptor,operation);
+}
 int __wrap_openat(int parent,const char *name,int flags,...) {
     va_list args; va_start(args,flags); mode_t mode=(flags&O_CREAT)?(mode_t)va_arg(args,int):0; va_end(args);
     int fd=__real_openat(parent,name,flags,mode);
@@ -139,6 +162,39 @@ int main(int argc,char **argv) {
     if(!strcmp(mode,"open-fails")) { failed(F(open_dir_ticket)(W(path))); return 0; }
     if(!strcmp(mode,"limit")) { failed(F(read_bytes_limit_ticket)(W(path),4096)); return 0; }
     int64_t d=F(open_dir_ticket)(W(path)); require(F(result_ok)(d),"anchor root");
+#ifdef TEST_INTERPOSE
+    if(!strcmp(mode,"new-lock-lost-flock")) {
+        int before=descriptors(); require(before>=0,"descriptor baseline available");
+        int length=snprintf(competing_path,sizeof(competing_path),"%s/competing.lock",path);
+        require(length>0&&(size_t)length<sizeof(competing_path),"contender path fits");
+        lock_competition=1;
+        int64_t refused=F(lock_dir_new_ticket)(d,W("competing.lock"));
+        require(!F(result_ok)(refused)&&!F(result_completed)(refused),"losing fresh opener has no held-lock authority");
+        require(!lock_competition&&competing_lock>=0,"scheduled contender acquired fresh inode");
+        require(descriptors()==before+1,"failed fresh opener closes its descriptor and retained parent");
+        struct stat named;
+        require(lstat(competing_path,&named)==0&&named.st_dev==competing_identity.st_dev&&
+            named.st_ino==competing_identity.st_ino&&named.st_nlink==1,"held contender inode stays named");
+        exact(F(read_relative_ticket)(d,W("competing.lock")),"retained contender",18);
+        freak_word error=freak_fs_result_error(refused);
+        require(strstr(error.data,"recovery is required")!=NULL,"failed acquisition reports retained recovery state");
+        freak_word_release_owned(&error);
+        int64_t aborted=F(abort_new_lock_checked)(refused);
+        require(!F(result_ok)(aborted)&&!F(result_completed)(aborted),"failed acquisition cannot abort contender lock");
+        F(result_release)(aborted); F(result_release)(refused);
+        failed(F(lock_dir_ticket)(d,W("competing.lock")));
+        require(lstat(competing_path,&named)==0&&named.st_dev==competing_identity.st_dev&&
+            named.st_ino==competing_identity.st_ino&&named.st_nlink==1,"third opener cannot replace held contender inode");
+        exact(F(read_relative_ticket)(d,W("competing.lock")),"retained contender",18);
+        require(close(competing_lock)==0,"contender descriptor released"); competing_lock=-1;
+        success(F(lock_dir_ticket)(d,W("competing.lock")));
+        require(lstat(competing_path,&named)==0&&named.st_dev==competing_identity.st_dev&&
+            named.st_ino==competing_identity.st_ino,"retry acquires retained original inode");
+        exact(F(read_relative_ticket)(d,W("competing.lock")),"retained contender",18);
+        require(descriptors()==before,"fresh loss and retry leave no descriptors");
+        F(result_release)(d); require(freak_fs_result_live()==0,"all tickets released"); return 0;
+    }
+#endif
     if(!strcmp(mode,"new-lock")) {
         int64_t lock=F(lock_dir_new_ticket)(d,W("fresh.lock"));
         require(F(result_ok)(lock)&&F(result_kind)(lock)==5,"fresh lock held by result");
@@ -424,12 +480,12 @@ def main() -> int:
             for adapter in ('c','llvm'):
                 exe=home/f'{adapter}-O{opt}{".exe" if os.name=="nt" else ""}'; command=[compiler,str(source),str(runtime/'freak_runtime.c'),str(runtime/'freak_llvm_runtime.c'),f'-I{runtime}',f'-O{opt}','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1',*flags,'-o',str(exe)]
                 if adapter=='llvm': command+=['-DUSE_LLVM_ADAPTER=1']
-                if sys.platform.startswith('linux'): command+=['-DTEST_INTERPOSE=1','-Wl,--wrap=openat','-Wl,--wrap=read','-Wl,--wrap=fsync']
+                if sys.platform.startswith('linux'): command+=['-DTEST_INTERPOSE=1','-Wl,--wrap=openat','-Wl,--wrap=read','-Wl,--wrap=fsync','-Dflock=freak_fs_test_flock']
                 built=subprocess.run(command,capture_output=True,timeout=90); assert built.returncode==0,built.stderr.decode(errors='replace')
                 modes=['smoke','binary','limit','held-identity','cleanup-depth','open-long-fails','temp-swap','cleanup-parent-race','cleanup-link','held-list-path'] if os.name!='nt' else ['smoke','binary','limit','held-identity','cleanup-depth','open-long-fails']
                 modes+=['new-lock','new-lock-late-empty','new-lock-late-nonempty']
                 modes+=['abort-new-lock','abort-foreign-lock','abort-foreign-directory','anchored-temp-parent','late-target-publication','new-lock-public-parent']
-                if sys.platform.startswith('linux'): modes+=['read-race','write-race','growth','fault-publish','fault-rename','cleanup-descendant-race']
+                if sys.platform.startswith('linux'): modes+=['read-race','write-race','growth','fault-publish','fault-rename','cleanup-descendant-race','new-lock-lost-flock']
                 for mode in modes+['foreign','stale','wrong-kind','open-fails']:
                     case=home/f'{adapter}-{opt}-{mode}'; case.mkdir(); root=case/'root'; root.mkdir(mode=0o700); (root/'sub').mkdir(); (root/'sub/value').write_bytes(b'owned'); (root/'raw').write_bytes(b'a\0\xffb'); (root/'marker').write_bytes(b'small')
                     outside=case/'outside'; outside.mkdir(); (outside/'value').write_bytes(b'outside-secret'); (outside/'secret').write_bytes(b'outside-secret')
@@ -450,6 +506,7 @@ def main() -> int:
                     if mode=='new-lock': assert (root/'fresh.lock').read_bytes()==b'' and not (case/'escape').exists() and not (root/'sub/escape').exists()
                     if mode=='new-lock-late-empty': assert (root/'late.lock').read_bytes()==b''
                     if mode=='new-lock-late-nonempty': assert (root/'late.lock').read_bytes()==b'retained writer state'
+                    if mode=='new-lock-lost-flock': assert (root/'competing.lock').read_bytes()==b'retained contender'
                     if mode=='abort-new-lock': assert not (root/'abort.lock').exists() and (root/'ordinary.lock').read_bytes()==b''
                     if mode=='abort-foreign-lock' and os.name!='nt': assert (root/'abort.lock').read_bytes()==b'foreign replacement' and (root/'owned.lock').read_bytes()==b''
                     if mode=='abort-foreign-directory' and os.name!='nt': assert (root/'abort.lock').is_dir() and (root/'owned.lock').read_bytes()==b''
