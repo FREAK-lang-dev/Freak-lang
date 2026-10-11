@@ -12,9 +12,11 @@ Both test a bool before every pass and use the existing loop rules for
 declaration-name validation; `freak_mir_build` constructs the positive loop
 condition using the existing repeat-until MIR representation with opposite
 polarity. Persistent MIR facts and snapshot formats remain unchanged.
-The active `v35_while_contract_smoke.fk` registers 98 isolated frontend/MIR and
-restoration contracts: the original 82 plus 16 route/variant name, recovery,
-editor and snapshot cases. All 98 pass the native fixture runner on Linux.
+The active `v35_while_contract_smoke.fk` registers 110 isolated frontend/MIR and
+restoration contracts: the original 98 plus twelve newline generic-type
+reservation, casing, diagnostic-span, recovery and snapshot cases. All 110 pass
+process-isolated native fixture executions on Linux. The added casing controls
+cover reservation and recovery; generic-type native lowering remains separate.
 Coverage includes
 exact lowercase keywords and constructor payload braces in loop headers.
 `v35_native_while_execute_smoke.fk` covers two

@@ -1775,7 +1775,7 @@ task v4_parse_parse_error(tree_id: int, stream_id: int, token_id: int, root_id: 
 task v4_parse_while_is_loop_heading(stream_id: int, token_id: int, statement_boundary: bool, previous: word) -> bool {
     pilot next = v4_parse_skip_trivia(stream_id, token_id + 1)
     pilot next_value = v4_lex_token_syntax_value(stream_id, next)
-    if next_value == ":" or next_value == "=" or next_value == "," or next_value == ")" or next_value == "}" or next_value == "]" or next_value == "." or next_value == "::" or next_value == "->" or next_value == "=>" or next_value == "in" {
+    if next_value == "<" or next_value == ">" or next_value == ":" or next_value == "=" or next_value == "," or next_value == ")" or next_value == "}" or next_value == "]" or next_value == "." or next_value == "::" or next_value == "->" or next_value == "=>" or next_value == "in" {
         give back false
     }
     give back statement_boundary or previous == "repeat"

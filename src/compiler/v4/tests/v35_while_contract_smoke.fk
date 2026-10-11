@@ -99,6 +99,18 @@ task v35_while_contract_source(mode: int) -> word {
     if mode == 95 { give back "route Result " + open + " While / WHILE / wHiLe " + close + "\ntask main() -> int " + open + " give back 42 " + close + "\n" }
     if mode == 96 { give back "variant Result " + open + "\n-- while " + open + " /\nWhile " + open + " row: [int;2] " + close + "\nWHILE " + open + " While: (int,bool) " + close + "\nwHiLe " + open + " wHiLe: word " + close + "\n" + close + "\ntask main() -> int " + open + " pilot text = \"while\"; while text == \"while\" " + open + " break " + close + "; repeat while false " + open + close + "; give back 42 " + close + "\n" }
     if mode == 97 { give back "route Result " + open + " While = 4 / 2, WHILE, wHiLe " + close + "\ntask wHiLe(While: int) -> int " + open + " give back While " + close + "\ntask main() -> int " + open + " pilot WHILE = false; while WHILE " + open + " break " + close + "; give back wHiLe(42) " + close + "\n" }
+    if mode == 98 { give back "shape S " + open + " value:\n while<int> " + close + "\ntask main() -> int " + open + " give back 0 " + close + "\n" }
+    if mode == 99 { give back v35_while_contract_source(98).replace("\n", "\r\n") }
+    if mode == 100 { give back v35_while_contract_source(98).replace("\n", "\r") }
+    if mode == 101 { give back "alias A =\n while<int>\ntask main() -> int " + open + " give back 0 " + close + "\n" }
+    if mode == 102 { give back "task value(input:\n while<int>) -> int " + open + " give back 0 " + close + "\ntask main() -> int " + open + " give back 0 " + close + "\n" }
+    if mode == 103 { give back v35_while_contract_source(98).replace("while", "While") }
+    if mode == 104 { give back v35_while_contract_source(98).replace("while", "wHiLe") }
+    if mode == 105 { give back "shape S " + open + " value: List<\n while> " + close + "\ntask main() -> int " + open + " give back 0 " + close + "\n" }
+    if mode == 106 { give back v35_while_contract_source(105).replace("\n", "\r\n") }
+    if mode == 107 { give back v35_while_contract_source(105).replace("\n", "\r") }
+    if mode == 108 { give back v35_while_contract_source(105).replace("while", "While") }
+    if mode == 109 { give back v35_while_contract_source(105).replace("while", "wHiLe") }
     panic("unknown v35 while contract case")
     give back ""
 }
@@ -207,11 +219,54 @@ task v35_while_contract_route_run(mode: int, source: word, stream: int, tree: in
     say "v35-while-contract case=" + word_from_int(mode) + " route-casing=true cases=" + word_from_int(count) + " loops=" + word_from_int(positive) + " editor=true snapshot=true"
 }
 
+-- A generic type after a newline cannot be a loop condition. Preserve exact
+-- reservation spans and recovery, including noncanonical identifier spellings.
+task v35_while_contract_generic_run(mode: int, source: word, stream: int, tree: int) -> void {
+    v35_while_contract_assert(v4_lex_diag_count(stream) == 0, "generic type source has no lexical errors")
+    pilot reserved = 0
+    pilot row = 0
+    repeat until row >= v4_parse_diag_count(tree) {
+        pilot diag = v4_parse_diag(tree, row)
+        if v4_diag_message(diag) == "while is a reserved keyword" {
+            pilot span = v4_diag_span(diag)
+            v35_while_contract_assert(v4_diag_severity(diag) == v4_diag_error and v4_diag_help(diag) == "choose another name for this binding or member", "generic type retains targeted reservation error")
+            v35_while_contract_assert(v4_span_file(span) == "0" and v4_slice(source, v4_span_start(span), v4_span_end(span)) == "while", "generic type reservation preserves exact token span")
+            reserved += 1
+        }
+        row += 1
+    }
+    pilot expected = 1
+    if mode == 103 or mode == 104 or mode >= 108 { expected = 0 }
+    v35_while_contract_assert(reserved == expected, "generic type diagnosed once and identifier casing preserved")
+    pilot snapshot = v4_parse_snapshot()
+    v35_while_contract_assert(v4_parse_snapshot_restore(snapshot).starts_with("parse-snapshot-restore ok=1") and v4_parse_snapshot() == snapshot, "generic type reservation snapshot roundtrip")
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot following_task = false
+    pilot item = 0
+    repeat until item >= v4_hir_item_count(hir) {
+        if v4_hir_item_kind(hir, item) == v4_hir_task and v4_hir_item_name(hir, item) == "main" { following_task = true }
+        item += 1
+    }
+    v35_while_contract_assert(following_task, "generic type rejection preserves following task")
+    if expected == 1 {
+        pilot resolve = v4_resolve_lower_hir(0, hir)
+        pilot ty = v4_ty_lower_resolve(0, resolve)
+        pilot mir = v4_mir_lower_ty(0, ty)
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "reserved generic type cannot emit native module")
+    }
+    say "v35-while-contract case=" + word_from_int(mode) + " generic-reserved=" + word_from_int(reserved) + " span=true recovery=true snapshot=true"
+}
+
 task v35_while_contract_run(mode: int) -> void {
     pilot source = v35_while_contract_source(mode)
     pilot stream = v4_lex_text(0, source)
     pilot tree = v4_parse_stream(0, stream)
     v35_while_contract_assert(v4_lex_is_keyword_word("while") and not v4_lex_is_keyword_word("While") and not v4_lex_is_keyword_word("WHILE") and not v4_lex_is_keyword_word("wHiLe"), "exact keyword spelling")
+    if mode >= 98 and mode <= 109 {
+        v35_while_contract_generic_run(mode, source, stream, tree)
+        give back
+    }
     if mode >= 82 and mode <= 97 {
         v35_while_contract_route_run(mode, source, stream, tree)
         give back
