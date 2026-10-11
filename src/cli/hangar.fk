@@ -1812,13 +1812,13 @@ task hangar_compute_dir_sha256(pkg_dir: word) -> word {
             process::command_arg(command, "--exclude=.git")
             process::command_arg(command, "-C")
             process::command_arg(command, pkg_dir)
-            process::command_arg(command, ".")
             if libarchive {
                 -- Preserve the default archive format while removing only
                 -- gzip's wall-clock header. A rejected option fails closed.
                 process::command_arg(command, "--options")
                 process::command_arg(command, "gzip:!timestamp")
             }
+            process::command_arg(command, ".")
             code = hangar_command_result(command, "Package integrity archive")
         } else {
             say "  Package integrity archive failed: cannot identify supported native tar capabilities."
