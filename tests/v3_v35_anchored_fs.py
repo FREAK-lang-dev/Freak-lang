@@ -27,6 +27,8 @@ HARNESS = r'''
 #include <errno.h>
 #ifdef _WIN32
 #include <windows.h>
+#include <io.h>
+#include <fcntl.h>
 #else
 #include <dirent.h>
 #include <unistd.h>
@@ -122,6 +124,9 @@ static void paths(const char *root,const char *outside) { snprintf(swap_path,siz
 static int descriptors(void) { DIR *d=opendir("/proc/self/fd"); if(!d)return -1; int n=0; while(readdir(d))n++; closedir(d);return n; }
 #endif
 int main(int argc,char **argv) {
+#ifdef _WIN32
+    require(_setmode(_fileno(stdout),_O_BINARY)!=-1,"binary stdout mode");
+#endif
     if(argc<3)return 90; const char *mode=argv[1],*path=argv[2];
     if(!strcmp(mode,"foreign")) { F(read_relative_ticket)((int64_t)UINT64_C(0x8000000100000001),W("x")); return 99; }
     if(!strcmp(mode,"stale")) { int64_t d=F(open_dir_ticket)(W(path)); F(result_release)(d); F(read_relative_ticket)(d,W("x")); return 99; }
@@ -460,7 +465,8 @@ def main() -> int:
                 private.claim_fresh_directories(locked)
                 holder=subprocess.Popen([str(exe),'lock-hold',str(locked)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
                 try:
-                    assert holder.stdout and holder.stdout.readline()==b'LOCKED\n'
+                    greeting=holder.stdout.readline(64) if holder.stdout else None
+                    assert holder.stdout and greeting==b'LOCKED\n',(adapter,opt,'lock-holder greeting',greeting,holder.poll())
                     contender=subprocess.run([str(exe),'lock-fails',str(locked)],capture_output=True,env=env,timeout=10)
                     assert contender.returncode==0,contender.stderr
                     holder.kill(); holder.communicate(timeout=10)
