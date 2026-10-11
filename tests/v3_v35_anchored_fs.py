@@ -373,7 +373,7 @@ int main(int argc,char **argv) {
 def windows_public_parent_acl(directory: Path) -> None:
     """Create an actual permissive Windows DACL for the negative probe only."""
     import ctypes
-    from ctypes import wintypes
+    import ctypes.wintypes as wintypes
     security=ctypes.WinDLL("advapi32",use_last_error=True)
     kernel=ctypes.WinDLL("kernel32",use_last_error=True)
     convert=security.ConvertStringSecurityDescriptorToSecurityDescriptorW

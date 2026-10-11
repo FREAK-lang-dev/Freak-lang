@@ -852,7 +852,7 @@ def init_effect_authority_controls(root: Path, invocation: tuple[str, Path, list
     if os.name == "nt":
         # A real permissive Windows DACL, never a POSIX permission shim.
         import ctypes
-        from ctypes import wintypes
+        import ctypes.wintypes as wintypes
         target = root / f"{name}-init-public-private-acl"
         target.mkdir()
         state = target / ".freak"
