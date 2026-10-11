@@ -377,6 +377,84 @@ class AcceptanceHelpers(unittest.TestCase):
         with self.assertRaises(AssertionError):
             acceptance.assert_absolute_header_deadline(elapsed)
 
+    def test_trickle_transport_avoids_delayed_ack_idle_refusal(self):
+        # Deterministic transport countermodel, not a Darwin TCP reproduction:
+        # an unacknowledged first byte queues later small writes for 0.3s.
+        # The idle-only receiver must see every 0.1s fragment before its 0.25s
+        # timer expires; TCP_NODELAY removes the queue without changing timing.
+        outer = self
+        class FragmentTransport:
+            def __init__(self):
+                self.now = self.last_received = 0.0
+                self.nodelay = False
+                self.sent = []
+                self.options = []
+                self.replied = False
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def settimeout(self, seconds):
+                outer.assertEqual(seconds, 10)
+            def setsockopt(self, level, option, value):
+                outer.assertEqual(self.sent, [])
+                outer.assertEqual((level, option, value), (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1))
+                self.options.append((level, option, value))
+                self.nodelay = bool(value)
+            def sendall(self, data):
+                self.sent.append(data)
+                if self.nodelay or len(self.sent) == 1 or self.now >= 0.3:
+                    self.last_received = self.now
+            def select(self, readers, writers, errors, seconds):
+                outer.assertEqual((readers, writers, errors), ([self], [], []))
+                outer.assertEqual(seconds, 0.1)
+                deadline = self.last_received + 0.25
+                if deadline <= self.now + seconds:
+                    self.now = deadline
+                    return [self], [], []
+                self.now += seconds
+                return [], [], []
+            def recv(self, limit):
+                outer.assertEqual(limit, 65536)
+                if self.replied:
+                    return b''
+                self.now = self.last_received + 0.25
+                self.replied = True
+                return b'HTTP/1.1 408 Request Timeout\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'
+        peer = FragmentTransport()
+        with patch.object(acceptance.socket, 'create_connection', return_value=peer), \
+                patch.object(acceptance.select, 'select', side_effect=peer.select):
+            status, _, body, _, termination = acceptance.request(
+                1, acceptance.ABSOLUTE_TRICKLE_WIRE, cuts=acceptance.ABSOLUTE_TRICKLE_CUTS,
+                delay=acceptance.ABSOLUTE_TRICKLE_DELAY)
+        self.assertEqual((status, body, termination), (408, b'', 'eof'))
+        self.assertGreaterEqual(peer.now, 3.2)
+        self.assertEqual(peer.options, [(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)])
+        self.assertEqual(peer.sent, [acceptance.ABSOLUTE_TRICKLE_WIRE[start:end]
+                                   for start, end in zip((0, *acceptance.ABSOLUTE_TRICKLE_CUTS),
+                                                         (*acceptance.ABSOLUTE_TRICKLE_CUTS, len(acceptance.ABSOLUTE_TRICKLE_WIRE)))])
+        with self.assertRaises(AssertionError):
+            acceptance.assert_absolute_header_deadline(peer.now)
+
+    def test_request_socket_option_failure_preserves_transport_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            transcript = Path(temporary) / 'option-failure'
+            primary = OSError('controlled TCP_NODELAY failure')
+            with patch.object(acceptance.socket, 'create_connection') as connect:
+                peer = connect.return_value.__enter__.return_value
+                peer.setsockopt.side_effect = primary
+                with self.assertRaises(OSError) as caught:
+                    acceptance.request(1, acceptance.ABSOLUTE_TRICKLE_WIRE,
+                                       cuts=acceptance.ABSOLUTE_TRICKLE_CUTS,
+                                       delay=acceptance.ABSOLUTE_TRICKLE_DELAY, transcript=transcript)
+                self.assertIs(caught.exception, primary)
+                peer.sendall.assert_not_called()
+                peer.setsockopt.assert_called_once_with(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.assertEqual(transcript.with_suffix('.request').read_bytes(), acceptance.ABSOLUTE_TRICKLE_WIRE)
+            self.assertEqual(transcript.with_suffix('.response').read_bytes(), b'')
+            self.assertEqual(json.loads(transcript.with_suffix('.transport.json').read_text()),
+                             {'termination': 'incomplete', 'response_bytes': 0, 'request_bytes_sent_lower_bound': 0})
+
     def test_default_local_hangar_failure_keeps_receipt_and_raw_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             outer = Path(temporary)

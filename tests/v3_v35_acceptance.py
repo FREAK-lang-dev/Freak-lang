@@ -207,6 +207,8 @@ def request(port: int, wire: bytes, *, head: bool = False,
     try:
         with socket.create_connection(('127.0.0.1', port), timeout=10) as peer:
             peer.settimeout(10)
+            # Timed header fragments must not wait for Nagle's delayed-ACK gate.
+            peer.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             start = 0
             for end in (*cuts, len(wire)):
                 assert start <= end <= len(wire)
