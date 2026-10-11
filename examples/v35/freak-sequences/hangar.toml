@@ -1,0 +1,17 @@
+[project]
+name = "freak-sequences"
+version = "0.1.0"
+kind = "lib"
+readme = "README.md"
+license_file = "LICENSE"
+
+[modules]
+arithmetic = "src/arithmetic.fk"
+
+[exports]
+arithmetic_value = "arithmetic::arithmetic_value"
+
+[tests]
+arithmetic = "tests/arithmetic_test.fk"
+
+[dependencies]

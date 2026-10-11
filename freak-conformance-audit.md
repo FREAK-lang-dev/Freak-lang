@@ -13,9 +13,44 @@ counted/while language checkpoints below describe the local experiment through
 `b8c5e99`; those additions are deferred and are not part of the current locked
 V4 source baseline. The native V3 syntax fixes remain present. This draft
 checkpoint does not claim wider P0 completion or platform/release readiness.
-The four experimental V4 loop fixtures and their full executable expectations
-are retained under `src/compiler/v4/tests/deferred/v35-loops`; they require the
-matching semantic implementation before joining the active positive gates.
+The four historical experimental V4 loop fixtures and their full executable
+expectations remain under `src/compiler/v4/tests/deferred/v35-loops`. The
+development while slice below has separate active fixtures; the counted forms
+still require their matching semantic implementation.
+
+**Development V4 while slice (2026-10-08):** `while condition` and
+`repeat while condition` share condition-first bool checking and the existing
+loop CFG, cleanup, break, continue and early-return rules. Lex/Parse own keyword
+and declaration-name validation; Built-MIR construction owns the positive
+condition branch and reuses the existing repeat-until representation with
+opposite polarity. No snapshot format or compiler ownership boundary changes.
+The active `v35_while_contract_smoke.fk` registers 110 isolated frontend/MIR and
+restoration contracts, retaining the original 98 and adding twelve newline
+generic-type reservation and casing cases. All 110 pass process-isolated native
+fixture executions on Linux. The added casing controls cover reservation and
+recovery; generic-type native lowering remains separate. Only exact lowercase
+`while` is reserved; names such as
+`While` and `WHILE` keep their spelling in supported declaration positions.
+The reservation includes route/variant cases and their nested fields and types;
+quoted tokens and comments retain their literal contents.
+Loop-header scanning distinguishes registered constructor payload braces from
+the loop body, including supported Boolean comparisons against constructors.
+The separate `v35_while_map_header_smoke.fk` registers 32 balanced-map header,
+body-span, malformed-header diagnostic, local-map Bool CFG and restoration
+contracts, including missing-condition assignment/call bodies with a typed
+declaration and a following conditional; their native fixture executions are
+pending. Inline map-literal
+indexing retains its existing unsupported type boundary, and these controls do
+not claim executable map LLVM lowering.
+The existing two native examples retain their zero-pass, nested-control and
+short-circuit checks. `v35_native_while_casing_execute_smoke.fk` adds three
+actual native programs covering task/local/parameter names, aliases, and
+fixed/grounded locals, with exact restored LLVM modules and output. Aggregate
+constructor and global-value native lowering retain their existing limits;
+two launch-spelling cases are explicitly parser-only. Counted forms, ungrouped
+multiline condition continuation, general backend parity and release/platform
+acceptance remain separate gates. The frozen bootstrap pin
+and its 28-row inventory remain unchanged.
 
 **V3 source binding and ticket-word correctness (2026-10-07):** source package
 binding distinguishes declaration roles and preserves source diagnostic names.
@@ -282,8 +317,8 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 13 | Audit commands in native CLI | Python-only; `build/freak.exe` doesn't dispatch | 🟡 | 🛠 wire native CLI |
 | 14 | Error voices (Meiya/Yuuko/Sagiri/Kasumi/Takeru/Mana/Hayase/Sumika/00-Unit) | Mostly generic errors | 🟡 | 📖 V4 |
 | 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 has landed substantial section-16 work; per-landing breakdown lives in [§16 below](#§16-system-boundaries-ffi). Trust-me-gated raw pointer ops, runtime panic-catch in trampoline bodies, and deeper ABI coverage still expand | 🟡 | 📖 V4 |
-| 16 | Bible-promised stdlib (`std::thread`, `std::anime`, `std::narrative`, `std::test`) | Listed planned, no `.fk` files | 🔴 | 📖 confirm Planned |
-| 17 | `freak vibe`, `freak test` CLI subcommands | Not in native CLI | 🟡 | 📖 OR 🛠 (`freak test` shim possible) |
+| 16 | Bible-promised stdlib (`std::thread`, `std::anime`, `std::narrative`, richer `std::test` blocks) | These remain planned; ordinary `std::test` assertion helpers exist in current V3.5 development | 🔴 | 📖 V4 framework |
+| 17 | `freak vibe`, `freak test` CLI subcommands | Current V3.5 has native project tests; `freak vibe` and richer test blocks remain planned | 🟡 | 📖 V4 remainder |
 | 18 | Test coverage gap (~50% of bible has zero tests) | See Appendix B | 🟡 | Out of scope; surfaced |
 
 Bonus finding from Phase A baseline: **Python parser fails on ~30 files** (V3 self-hosting source, std/algorithm, std/runtime, math3d, several tests). Means Python (v1) and V3 compilers accept different language subsets — V3 is a superset that uses constructs (e.g. `give back` as a field name, certain bare statements) that v1 rejects. **Verdict: 📖 V4** — V3 is the compiler that conforms to bible; v1 is FREAK Lite.
@@ -384,11 +419,12 @@ parity. This does not claim native C UI support or general collection fields.
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
 | `if`/`else` | ✅ | ✅ | V4 terminal else-if chains compact completed joins before publication; same-line following statements retain checking and execution. Closed native and hostile-snapshot contracts preserve strict CFG admission. |
-| `when` pattern matching with literal patterns | ⚠️ | 📖 V4 | V4 also lowers tuple, fixed-array, and route/variant payload patterns; production V3 remains narrower |
+| `when` pattern matching with literal patterns | ⚠️ | 📖 V4 | V4 also lowers tuple, fixed-array, and route/variant payload patterns; terminal `when`/`check route` joins compact before publication using dispatch-reachable paths, so detached duplicate or covered arms cannot keep following code executable. Following source retains diagnostics and ordinary declaration metadata without executable initializers. Live fallthrough, unwired outer branches, loop targets and strict snapshot admission are covered by 77 isolated contracts and three scalar LLVM/native programs; aggregate native lowering and production V3 remain narrower. |
 | `when` pattern destructuring `Variant::Case { field }` | ⚠️ | 📖 V4 | V4 carries payload destructuring, refutable-pattern checks, exhaustive route/variant `when`, and alias-backed duplicate/unreachable diagnostics; broader pattern ergonomics still expand |
 | `for each item in list` | ⚠️ | 📖 V4 | The phrase is lexed, but shipping V3 has no executable `for each` statement path. |
 | `repeat N times` | ✅ | ✅ | |
 | `repeat until condition` | ✅ | ✅ | |
+| `while condition` / `repeat while condition` | ✅ V3; ⚠️ V4 | ✅ V3; 📖 V4 | Development V4 supports condition-first bool loops through existing loop CFG and snapshot contracts. Active frontend/restoration and LLVM execution fixtures cover the bounded slice; counted loops and ungrouped multiline condition continuation remain separate. Sources: [bible §1.7](freak-full-bible.md#L410); [Parse keyword validation](src/compiler/v4/crates/freak_parse/src/lib.fk#L1771); [while contracts](src/compiler/v4/tests/v35_while_contract_smoke.fk#L1); [native while execution](src/compiler/v4/tests/v35_native_while_execute_smoke.fk#L1). |
 | `training arc until cond max N sessions` | ✅ | ✅ | V4 Built-MIR owns the counter, condition-first/re-evaluated cap and shared `continue` increment. Eighteen training programs pass O0/O2/O3 with native ownership and sanitizer controls; an admitted `sessions` local no longer obscures the heading suffix. V3 native evaluates its cap once, an explicit parity difference. |
 | `training arc with growth` variant | ⚠️ | 📖 V4 | V4 MIR enforces condition-subject mutation for local and projected places; full production backend parity still pending |
 | `prob_when expr { >= 0.9 -> ... }` | ❌ | 📖 V4 | not parsed |
@@ -732,7 +768,7 @@ completion remain open.
 | `use module::*` glob import | ⚠️ | 📖 V4 | |
 | `hangar.toml` schema (project, dependencies, build mode) | ✅ | ✅ | [src/cli/toml.fk](src/cli/toml.fk) |
 | `hangar init` | ✅ | ✅ | [src/cli/hangar.fk](src/cli/hangar.fk) |
-| `hangar add`, `hangar remove`, `hangar install` | ✅ | ✅ | |
+| `hangar add`, `hangar remove`, `hangar install` | ✅ legacy; ⚠️ graph-v2 | ✅ legacy; 📖 graph adapter | Legacy commands refuse graph-v2, unknown, malformed or unreadable locks before effects. The graph-aware public adapter remains pending. Sources: [entry admission](src/cli/hangar.fk#L24); [bounded legacy reader](src/cli/lockfile.fk#L242); [native preservation controls](tests/v3_v35_hangar_lock_preservation.py#L1). |
 | `hangar search [q]` | ❌ | 📖 V4 | no registry to search |
 | `hangar version` (semver bump) | ✅ | ✅ | |
 | `hangar install freak` (download compiler) | ✅ | ✅ | |
@@ -767,7 +803,7 @@ completion remain open.
 | `thread::spawn`, `Atomic<T>` | ❌ | 📖 V4 | std::thread Planned per CLAUDE.md |
 | `std::anime` (mood/power/etc.) | ❌ | 📖 V4 | depends on §2 types |
 | `std::narrative` (death flags, foreshadow logs) | ❌ | 📖 V4 | depends on §5 enforcement |
-| `std::test` (`test "name" { expect ... to be ... }`) | ❌ | 📖 V4 | currently `tests/suite/run_tests.py` Python harness |
+| `std::test` | ⚠️ | 📖 V4 framework | Ordinary assertion helpers ship with current V3.5 native project tests. `test "name" { expect ... to be ... }` blocks remain planned; the Python regression harness is a separate developer tool. |
 | `Shared::new`, `Weak::upgrade`, `size_of<T>()` | ❌ | 📖 V4 | depends on §4 |
 | `std::ffi` C boundary types | ⚠️ | 📖 V4 | V4 normalizes core scalar aliases (`c_int`, `c_size`, `c_double`, `wchar`, etc.) through TY/codegen; target-width fidelity and the broader std::ffi surface still expand |
 | `std::http` (HTTP/1.1 client) | ✅ | ✅ | [std/http.fk](std/http.fk) |
@@ -882,7 +918,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | `freak transpile file.fk` | ✅ | ✅ | |
 | `freak doctor [--fix|--json]` | ✅ | ✅ | Complete runtime/UI and 11-module stdlib inventory, standard-header + native link/run Clang validation, optional dependency bootstrap, full FREAK compile-link-execute probe, exact passive JSON missing-file report, and nonzero required-failure status. |
 | `freak upgrade` | ✅ | ✅ | Tagged staged installer preserves the public command; POSIX tracks/reconciles recoverable rollback state, while Windows retains durable pending state and hash-verifies the deferred two-binary transaction after the invoking installer exits. Immutable v0.14.0 POSIX clients need a binary hop plus a second upgrade; immutable Windows clients bootstrap through `install.ps1`. |
-| `freak test` | ✅ | ✅ shim wraps `python tests/suite/run_tests.py` |
+| `freak test` | ✅ | ✅ | Installed native project runner for ordinary programs declared in `[tests]`, with existing `std::test` assertions; richer test blocks remain V4 work. The Python regression harness is a separate developer tool. |
 | `freak vibe file.fk` | ❌ | 📖 V4 (or remove) |
 | `freak audit-science` | ⚠️ | 🛠 wire native CLI | Python-only; native dispatch missing |
 | `freak audit-trust` | ⚠️ | 🛠 wire native CLI | same |
@@ -1028,7 +1064,7 @@ All cheap-win items below landed across commits `035b33e`–`b0a05f9` plus the v
 6. **Wire `audit-conformance` to native CLI** ✅ — same pattern.
 7. **Wire `Ord` operator doctrine** ✅ — Python emitter; V3 emitter still missing operator-overload codegen entirely (V4).
 8. **Index doctrine** ✅ — already wired in Python emitter (audit doc had a small inaccuracy at first pass). `IndexMut` deferred to V4 (lvalue-assignment rewrite).
-9. **Add `freak test` shim** ✅ — [src/cli/main.fk](src/cli/main.fk) wraps `python tests/suite/run_tests.py`.
+9. **Add `freak test` shim** ✅ — the v0.13.x implementation wrapped `python tests/suite/run_tests.py`. Current V3.5 development supersedes that shim with the native project runner in [src/cli/test.fk](src/cli/test.fk).
 10. **Fix the two SKIP'd suite tests** ✅ — `test_maybe.fk` (compound-literal cast) + `test_pipe.fk` (pipe desugaring + arity check). Suite at 14/14.
 11. **Restore winget manifest + dynamic release path** ✅ — `packaging/winget/manifests/F/FREAK/freak/0.13.2/` tracked; `release.yml` derives the path from `$VERSION`.
 12. **LB10 minimal DWARF** ✅ — line-tables-only debug info live in V3 emit_llvm.fk. Source-line backtraces work in gdb/lldb.
@@ -1055,9 +1091,9 @@ E. **§4 Borrow Checker** — split into:
 
 F. **§5 Anime Layer** — per-feature status; `foreshadow-audit`/`audit-miracles`/`audit-trust`/`audit-science` are ✅; everything else 📖 V4.
 
-G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`, `std::test`) as Planned. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`; `std::process` and `std::ui` partial).
+G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`) and richer test blocks as Planned. Ordinary `std::test` assertion helpers are available in current V3.5 development. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`; `std::process` and `std::ui` partial).
 
-H. **§13 CLI** — remove or V4-tag `freak vibe`, `--voice`, `--clearance`, `--build-mode`, `-o`. Add `audit-conformance` once Phase C lands.
+H. **§13 CLI** — keep `freak vibe`, `--voice`, `--clearance`, and `--build-mode` marked V4. Current V3.5 development supports build/run `-o`/`--output`; `audit-conformance` is implemented.
 
 I. **§14 Error Voices** — wholesale V4 tag.
 
@@ -1067,7 +1103,7 @@ K. **§17 Internals/IDE** — wholesale V4 tag.
 
 ### Out-of-scope (V4 work, surfaced for tracking)
 
-Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, `std::test`, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer allocation/freeing, broader layout-stability enforcement, panic infrastructure, IDE-grade tolerant parser.
+Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, richer `std::test` blocks, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer allocation/freeing, broader layout-stability enforcement, panic infrastructure, IDE-grade tolerant parser.
 
 ---
 

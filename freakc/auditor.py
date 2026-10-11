@@ -1681,6 +1681,59 @@ def _hir_query_resource_errors(fixture: Path, harness: Path) -> List[str]:
     ))
 
 
+def _project_test_boundary_gaps(
+    repo: Path, cli_src: str, readme_text: str, bible_text: str,
+) -> List[str]:
+    """Guard the native project runner separately from the developer harness."""
+    contracts = {
+        "developer regression harness": ("tests/suite/run_tests.py", (
+            'print(_bold("FREAK Lite / Python Bootstrap Regression Test Suite"))',
+            "python -m freakc", "tests/v3_legacy_golden.py",
+        )),
+        "native project test runner": ("src/cli/test.fk", (
+            "task cli_test_command(", "task cli_test_project(",
+            "process::command_spawn(", "process::command_poll(",
+        )),
+        "CLI source manifest": ("packaging/cli-sources.manifest", (
+            "src/cli/test.fk",
+        )),
+        "distributed assertion helpers": ("packaging/distribution-files.manifest", (
+            "std/test.fk|std/test.fk",
+        )),
+        "assertion implementation": ("std/test.fk", (
+            "task test_assert(", "task test_assert_int(",
+            "task test_assert_word(", "process::exit(1)",
+        )),
+    }
+    gaps: List[str] = []
+    texts = {}
+    for label, (relative, needles) in contracts.items():
+        path = repo / relative
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        texts[label] = text
+        if not text or any(needle not in text for needle in needles):
+            gaps.append(label)
+    dispatch = ('if subcmd == "test" {',
+                "pilot test_exit = cli_test_command(args_cnt)",
+                "if test_exit != 0 { process::exit(test_exit) }")
+    if any(needle not in cli_src for needle in dispatch):
+        gaps.append("native CLI test dispatch and failure status")
+    if ('print(_bold("FREAK Compiler Regression Test Suite"))'
+            in texts["developer regression harness"]):
+        gaps.append("obsolete compiler-wide runtime banner")
+    readme_words = " ".join(readme_text.split())
+    if any(needle not in readme_words for needle in (
+            "installed native CLI", "[tests]", "std::test::test_assert_int",
+            "separate Python regression harness", "not required by installed native project tests",
+            "richer test-block")):
+        gaps.append("public native/developer test boundary")
+    if "current V3.5 development also provides installed native `freak test`" not in bible_text:
+        gaps.append("current bible native project test status")
+    if "freak test                    -- run all test blocks" in bible_text:
+        gaps.append("obsolete in-language test-block command claim")
+    return gaps
+
+
 def audit_conformance(paths: List[Path]) -> int:
     """
     Verify the selected v0.13.x baseline and promoted V4 contracts.
@@ -1853,7 +1906,7 @@ def audit_conformance(paths: List[Path]) -> int:
         "run pipeline": (
             repo / "src" / "cli" / "run.fk",
             (
-                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"',
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v7"',
                 "task cli_run_fingerprint",
                 "task cli_run_clang_identity",
                 "task cli_run_linker_identity",
@@ -2187,37 +2240,17 @@ def audit_conformance(paths: List[Path]) -> int:
         )
 
     lite_suite = repo / "tests" / "suite" / "run_tests.py"
-    lite_suite_text = (
-        lite_suite.read_text(encoding="utf-8") if lite_suite.exists() else ""
-    )
     bible_path = repo / "freak-full-bible.md"
     bible_text = (
         bible_path.read_text(encoding="utf-8") if bible_path.exists() else ""
     )
-    lite_suite_needles = (
-        'print(_bold("FREAK Lite / Python Bootstrap Regression Test Suite"))',
-        "python -m freakc",
-        "tests/v3_legacy_golden.py",
-        "`freak test` is a source-checkout Python shim",
-        "not embedded in release archives",
-        "Source-checkout shim — wraps `python tests/suite/run_tests.py`",
-        "source-checkout Python regression shim (not test blocks)",
+    lite_suite_missing = _project_test_boundary_gaps(
+        repo, cli_src, public_readme_text, bible_text,
     )
-    lite_suite_sources = (lite_suite_text, public_readme_text, bible_text)
-    lite_suite_missing = [
-        needle
-        for needle in lite_suite_needles
-        if not any(needle in source for source in lite_suite_sources)
-    ]
-    old_runtime_label = 'print(_bold("FREAK Compiler Regression Test Suite"))'
-    if old_runtime_label in lite_suite_text:
-        lite_suite_missing.append("obsolete compiler-wide runtime banner")
-    if "freak test                    -- run all test blocks" in bible_text:
-        lite_suite_missing.append("obsolete in-language test-block command claim")
     add(
         "V3/FREAK Lite test boundary",
         lite_suite.exists() and not lite_suite_missing,
-        "bootstrap runner labels itself and points to the V3 preservation gate"
+        "native project tests and distributed assertions; separate developer bootstrap harness"
         if not lite_suite_missing
         else f"{len(lite_suite_missing)} gap(s)",
     )

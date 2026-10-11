@@ -323,10 +323,26 @@ task package_private_directory(parent: int, name: word) -> int {
     pilot detail = fs::result_error(directory)
     fs::result_release(directory)
     if not absent { hangar_graph_fail("cannot open private package directory " + name + ": " + detail) give back 0 }
-    directory = fs::mkdir_relative_checked(parent, name)
+    -- An inherited Windows DACL need not be private. Create only our own
+    -- private temporary identity, then publish it without replacing a name.
+    directory = fs::temp_dir_ticket(parent, "hangar-private")
     if not fs::result_ok(directory) { hangar_graph_fail("cannot create private package directory " + name + ": " + fs::result_error(directory))
         fs::result_release(directory)
         give back 0 }
+    pilot publication = fs::publish_temp_dir_checked(directory, parent, name)
+    pilot published = fs::result_completed(publication)
+    pilot complete = fs::result_ok(publication)
+    if not complete { hangar_graph_fail("cannot publish private package directory " + name + ": " + fs::result_error(publication)) }
+    fs::result_release(publication)
+    if not complete {
+        if not published {
+            pilot cleanup = fs::remove_temp_dir_checked(directory)
+            if not fs::result_ok(cleanup) { hangar_graph_fail("owned private directory cleanup failed; recovery is required") }
+            fs::result_release(cleanup)
+        }
+        fs::result_release(directory)
+        give back 0
+    }
     give back directory
 }
 
@@ -617,11 +633,18 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
     if root != 0 { give back false }
     package_graph_manifest_path = package_join_host(array_get(package_source_original_roots, 0), manifest_file)
     pilot lock = 0
+    pilot selected_snapshot_path = ""
     if package_snapshot_override == "" { lock = fs::read_relative_bytes_limit_ticket(project, "hangar.lock", 67108864) } else {
         pilot snapshot_root = fs::open_dir_ticket(package_parent_path(package_snapshot_override))
         if not fs::result_ok(snapshot_root) { hangar_graph_fail("cannot anchor graph snapshot: " + fs::result_error(snapshot_root))
             fs::result_release(snapshot_root)
             give back false }
+        -- Match normal publication's held-parent identity, including native
+        -- Windows extended paths. Keep the admitted leaf spelling and the
+        -- same no-follow byte read; this does not fold case or hardlinks.
+        pilot snapshot_parent = package_directory_path(snapshot_root)
+        if snapshot_parent == "" { fs::result_release(snapshot_root) give back false }
+        selected_snapshot_path = package_join_host(snapshot_parent, package_leaf_path(package_snapshot_override))
         lock = fs::read_relative_bytes_limit_ticket(snapshot_root, package_leaf_path(package_snapshot_override), 67108864)
         fs::result_release(snapshot_root)
     }
@@ -696,7 +719,7 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
             index += 1
         }
     }
-    if valid and snapshot_reader { package_graph_snapshot_path = package_snapshot_override }
+    if valid and snapshot_reader { package_graph_snapshot_path = selected_snapshot_path }
     if valid and not snapshot_reader {
         package_graph_ready = true
         pilot content = package_lock_render()

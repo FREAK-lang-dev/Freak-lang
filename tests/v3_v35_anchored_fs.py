@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from windows_private_fixture import WindowsPrivateFixture
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,8 @@ HARNESS = r'''
 #include <errno.h>
 #ifdef _WIN32
 #include <windows.h>
+#include <io.h>
+#include <fcntl.h>
 #else
 #include <dirent.h>
 #include <unistd.h>
@@ -44,6 +47,9 @@ extern int64_t freak_fs_remove_temp_dir_checked(int64_t);
 extern int64_t freak_fs_publish_temp_dir_checked(int64_t,int64_t,freak_word);
 extern bool freak_fs_result_completed(int64_t);
 extern int64_t freak_fs_lock_dir_ticket(int64_t,freak_word);
+extern int64_t freak_fs_lock_dir_new_ticket(int64_t,freak_word);
+extern int64_t freak_fs_abort_new_lock_checked(int64_t);
+extern int64_t freak_fs_temp_dir_ticket(int64_t,freak_word);
 extern int64_t freak_fs_remove_relative_file_checked(int64_t,freak_word);
 extern int64_t freak_fs_mkdir_relative_checked(int64_t,freak_word);
 extern int64_t freak_fs_open_relative_dir_ticket(int64_t,freak_word);
@@ -62,6 +68,9 @@ extern int64_t freak_llvm_fs_remove_temp_dir_checked(int64_t);
 extern int64_t freak_llvm_fs_publish_temp_dir_checked(int64_t,int64_t,int64_t);
 extern int64_t freak_llvm_fs_result_completed(int64_t);
 extern int64_t freak_llvm_fs_lock_dir_ticket(int64_t,int64_t);
+extern int64_t freak_llvm_fs_lock_dir_new_ticket(int64_t,int64_t);
+extern int64_t freak_llvm_fs_abort_new_lock_checked(int64_t);
+extern int64_t freak_llvm_fs_temp_dir_ticket(int64_t,int64_t);
 extern int64_t freak_llvm_fs_remove_relative_file_checked(int64_t,int64_t);
 extern int64_t freak_llvm_fs_mkdir_relative_checked(int64_t,int64_t);
 extern int64_t freak_llvm_fs_open_relative_dir_ticket(int64_t,int64_t);
@@ -90,11 +99,34 @@ static void exact(int64_t h,const char *bytes,size_t n) { require(F(result_ok)(h
 static int64_t buffer(const char *s) { int64_t b=freak_byte_buffer_new(); freak_byte_buffer_write_word(b,freak_word_lit(s)); require(b!=0,"buffer"); return b; }
 #ifdef TEST_INTERPOSE
 #include <stdarg.h>
+#include <sys/file.h>
+#include <sys/syscall.h>
+extern long syscall(long,...);
 extern int __real_openat(int,const char *,int,...);
 extern ssize_t __real_read(int,void *,size_t);
 extern int __real_fsync(int);
 static int exchange=0,grow=0,sync_fault=0; static size_t read_total=0,read_max=0;
 static char swap_path[8192],old_path[8192],outside_path[8192],grow_path[8192];
+static int lock_competition=0,competing_lock=-1;
+static char competing_path[8192]; static struct stat competing_identity;
+/* The test build renames flock at preprocessing time in every translation
+   unit. Use the real Linux syscall so separate open-file descriptions compete
+   deterministically, without threads, forks, or callback ticket allocation. */
+int freak_fs_test_flock(int descriptor,int operation) {
+    if (lock_competition) {
+        lock_competition=0;
+        require(operation==(LOCK_EX|LOCK_NB),"fresh opener requests exclusive nonblocking lock");
+        struct stat fresh; require(fstat(descriptor,&fresh)==0,"fresh opener inode");
+        competing_lock=open(competing_path,O_RDWR|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);
+        require(competing_lock>=0&&fstat(competing_lock,&competing_identity)==0&&
+            fresh.st_dev==competing_identity.st_dev&&fresh.st_ino==competing_identity.st_ino&&
+            competing_identity.st_uid==geteuid(),"separate contender opens the same owned fresh inode");
+        require(syscall(SYS_flock,competing_lock,LOCK_EX|LOCK_NB)==0,"contender acquires actual kernel lock first");
+        require(write(competing_lock,"retained contender",18)==18,"contender retains writer state");
+        require(fsync(competing_lock)==0,"contender writer state synchronized");
+    }
+    return (int)syscall(SYS_flock,descriptor,operation);
+}
 int __wrap_openat(int parent,const char *name,int flags,...) {
     va_list args; va_start(args,flags); mode_t mode=(flags&O_CREAT)?(mode_t)va_arg(args,int):0; va_end(args);
     int fd=__real_openat(parent,name,flags,mode);
@@ -115,6 +147,9 @@ static void paths(const char *root,const char *outside) { snprintf(swap_path,siz
 static int descriptors(void) { DIR *d=opendir("/proc/self/fd"); if(!d)return -1; int n=0; while(readdir(d))n++; closedir(d);return n; }
 #endif
 int main(int argc,char **argv) {
+#ifdef _WIN32
+    require(_setmode(_fileno(stdout),_O_BINARY)!=-1,"binary stdout mode");
+#endif
     if(argc<3)return 90; const char *mode=argv[1],*path=argv[2];
     if(!strcmp(mode,"foreign")) { F(read_relative_ticket)((int64_t)UINT64_C(0x8000000100000001),W("x")); return 99; }
     if(!strcmp(mode,"stale")) { int64_t d=F(open_dir_ticket)(W(path)); F(result_release)(d); F(read_relative_ticket)(d,W("x")); return 99; }
@@ -127,6 +162,124 @@ int main(int argc,char **argv) {
     if(!strcmp(mode,"open-fails")) { failed(F(open_dir_ticket)(W(path))); return 0; }
     if(!strcmp(mode,"limit")) { failed(F(read_bytes_limit_ticket)(W(path),4096)); return 0; }
     int64_t d=F(open_dir_ticket)(W(path)); require(F(result_ok)(d),"anchor root");
+#ifdef TEST_INTERPOSE
+    if(!strcmp(mode,"new-lock-lost-flock")) {
+        int before=descriptors(); require(before>=0,"descriptor baseline available");
+        int length=snprintf(competing_path,sizeof(competing_path),"%s/competing.lock",path);
+        require(length>0&&(size_t)length<sizeof(competing_path),"contender path fits");
+        lock_competition=1;
+        int64_t refused=F(lock_dir_new_ticket)(d,W("competing.lock"));
+        require(!F(result_ok)(refused)&&!F(result_completed)(refused),"losing fresh opener has no held-lock authority");
+        require(!lock_competition&&competing_lock>=0,"scheduled contender acquired fresh inode");
+        require(descriptors()==before+1,"failed fresh opener closes its descriptor and retained parent");
+        struct stat named;
+        require(lstat(competing_path,&named)==0&&named.st_dev==competing_identity.st_dev&&
+            named.st_ino==competing_identity.st_ino&&named.st_nlink==1,"held contender inode stays named");
+        exact(F(read_relative_ticket)(d,W("competing.lock")),"retained contender",18);
+        freak_word error=freak_fs_result_error(refused);
+        require(strstr(error.data,"recovery is required")!=NULL,"failed acquisition reports retained recovery state");
+        freak_word_release_owned(&error);
+        int64_t aborted=F(abort_new_lock_checked)(refused);
+        require(!F(result_ok)(aborted)&&!F(result_completed)(aborted),"failed acquisition cannot abort contender lock");
+        F(result_release)(aborted); F(result_release)(refused);
+        failed(F(lock_dir_ticket)(d,W("competing.lock")));
+        require(lstat(competing_path,&named)==0&&named.st_dev==competing_identity.st_dev&&
+            named.st_ino==competing_identity.st_ino&&named.st_nlink==1,"third opener cannot replace held contender inode");
+        exact(F(read_relative_ticket)(d,W("competing.lock")),"retained contender",18);
+        require(close(competing_lock)==0,"contender descriptor released"); competing_lock=-1;
+        success(F(lock_dir_ticket)(d,W("competing.lock")));
+        require(lstat(competing_path,&named)==0&&named.st_dev==competing_identity.st_dev&&
+            named.st_ino==competing_identity.st_ino,"retry acquires retained original inode");
+        exact(F(read_relative_ticket)(d,W("competing.lock")),"retained contender",18);
+        require(descriptors()==before,"fresh loss and retry leave no descriptors");
+        F(result_release)(d); require(freak_fs_result_live()==0,"all tickets released"); return 0;
+    }
+#endif
+    if(!strcmp(mode,"new-lock")) {
+        int64_t lock=F(lock_dir_new_ticket)(d,W("fresh.lock"));
+        require(F(result_ok)(lock)&&F(result_kind)(lock)==5,"fresh lock held by result");
+        failed(F(lock_dir_new_ticket)(d,W("fresh.lock")));
+        failed(F(lock_dir_ticket)(d,W("fresh.lock"))); F(result_release)(lock);
+        failed(F(lock_dir_new_ticket)(d,W("fresh.lock")));
+        success(F(lock_dir_ticket)(d,W("fresh.lock")));
+        failed(F(lock_dir_new_ticket)(d,W("../escape")));
+        failed(F(lock_dir_new_ticket)(d,W("sub/escape")));
+        F(result_release)(d); return 0;
+    }
+    if(!strcmp(mode,"new-lock-late-empty")||!strcmp(mode,"new-lock-late-nonempty")) {
+        /* Deterministic foreign publication after anchoring, before admission.
+           The full init early-probe race has a separate source-flow control. */
+        const char *retained=!strcmp(mode,"new-lock-late-empty")?"":"retained writer state";
+        int64_t b=buffer(retained); success(F(write_relative_bytes_checked)(d,W("late.lock"),b)); freak_byte_buffer_release(b);
+        int64_t refused=F(lock_dir_new_ticket)(d,W("late.lock"));
+        require(!F(result_ok)(refused)&&!F(result_missing)(refused),"late retained lock is not init authority"); F(result_release)(refused);
+        exact(F(read_relative_ticket)(d,W("late.lock")),retained,strlen(retained));
+        success(F(lock_dir_ticket)(d,W("late.lock")));
+        exact(F(read_relative_ticket)(d,W("late.lock")),retained,strlen(retained));
+        F(result_release)(d); return 0;
+    }
+    if(!strcmp(mode,"abort-new-lock")) {
+        for(int i=0;i<2;i++) {
+            int64_t lock=F(lock_dir_new_ticket)(d,W("abort.lock")); require(F(result_ok)(lock),"fresh retry lock");
+            success(F(abort_new_lock_checked)(lock)); failed(F(abort_new_lock_checked)(lock)); F(result_release)(lock);
+            int64_t absent=F(read_relative_ticket)(d,W("abort.lock")); require(F(result_missing)(absent),"aborted own lock is absent"); F(result_release)(absent);
+        }
+        int64_t ordinary=F(lock_dir_ticket)(d,W("ordinary.lock")); require(F(result_ok)(ordinary),"ordinary retained lock");
+        failed(F(abort_new_lock_checked)(ordinary)); F(result_release)(ordinary);
+        exact(F(read_relative_ticket)(d,W("ordinary.lock")),"",0);
+        F(result_release)(d); return 0;
+    }
+    if(!strcmp(mode,"abort-foreign-lock")||!strcmp(mode,"abort-foreign-directory")) {
+        int64_t lock=F(lock_dir_new_ticket)(d,W("abort.lock")); require(F(result_ok)(lock),"captured fresh identity");
+#ifdef _WIN32
+        /* Zero sharing prevents a foreign path exchange while this HANDLE is
+           held; test that real Windows boundary instead of a POSIX shim. */
+        char from[8192],to[8192]; snprintf(from,sizeof(from),"%s/abort.lock",path); snprintf(to,sizeof(to),"%s/owned.lock",path);
+        require(!MoveFileA(from,to),"held fresh Windows lock cannot be exchanged"); success(F(abort_new_lock_checked)(lock));
+#else
+        char from[8192],to[8192]; snprintf(from,sizeof(from),"%s/abort.lock",path); snprintf(to,sizeof(to),"%s/owned.lock",path);
+        require(rename(from,to)==0,"retain captured original lock under another name");
+        if(!strcmp(mode,"abort-foreign-directory")) { success(F(mkdir_relative_checked)(d,W("abort.lock"))); }
+        else { int64_t b=buffer("foreign replacement"); success(F(write_relative_bytes_checked)(d,W("abort.lock"),b)); freak_byte_buffer_release(b); }
+        int64_t refused=F(abort_new_lock_checked)(lock); require(!F(result_ok)(refused)&&!F(result_completed)(refused),"foreign identity never removed");
+        exact(F(read_relative_ticket)(d,W("owned.lock")),"",0);
+        F(result_release)(refused);
+        if(!strcmp(mode,"abort-foreign-directory")) { int64_t foreign=F(open_relative_dir_ticket)(d,W("abort.lock")); require(F(result_ok)(foreign),"foreign directory restored"); F(result_release)(foreign); }
+        else exact(F(read_relative_ticket)(d,W("abort.lock")),"foreign replacement",19);
+#endif
+        F(result_release)(lock); F(result_release)(d); return 0;
+    }
+    if(!strcmp(mode,"anchored-temp-parent")) {
+#ifndef _WIN32
+        char old[8192]; snprintf(old,sizeof(old),"%s-owned",path); require(rename(path,old)==0&&mkdir(path,0700)==0,"replace admitted parent name");
+#endif
+        int64_t temp=F(temp_dir_ticket)(d,W("anchored")); require(F(result_ok)(temp),"create relative to captured parent");
+        int64_t b=buffer("anchored stage"); success(F(write_relative_bytes_checked)(temp,W("value"),b)); freak_byte_buffer_release(b);
+        exact(F(read_relative_ticket)(temp,W("value")),"anchored stage",14);
+        success(F(rename_relative_new_checked)(temp,W("value"),d,W("owned.manifest")));
+        exact(F(read_relative_ticket)(d,W("owned.manifest")),"anchored stage",14);
+        success(F(remove_temp_dir_checked)(temp)); F(result_release)(temp);
+        F(result_release)(d); return 0;
+    }
+    if(!strcmp(mode,"late-target-publication")) {
+        int64_t temp=F(temp_dir_ticket)(d,W("init")); require(F(result_ok)(temp),"private unpublished project");
+        int64_t b=buffer("owned staged manifest"); success(F(write_relative_bytes_checked)(temp,W("hangar.toml"),b)); freak_byte_buffer_release(b);
+        int64_t foreign=F(mkdir_relative_checked)(d,W("late-target")); require(F(result_ok)(foreign),"late competing target");
+        b=buffer("retained foreign generation"); success(F(write_relative_bytes_checked)(foreign,W("hangar.lock"),b)); freak_byte_buffer_release(b);
+        int64_t refused=F(publish_temp_dir_checked)(temp,d,W("late-target")); require(!F(result_ok)(refused)&&!F(result_completed)(refused),"late target wins without replacement"); F(result_release)(refused);
+        exact(F(read_relative_ticket)(foreign,W("hangar.lock")),"retained foreign generation",27);
+        int64_t missing=F(read_relative_ticket)(foreign,W("hangar.toml")); require(F(result_missing)(missing),"late target gets no owned manifest"); F(result_release)(missing);
+        exact(F(read_relative_ticket)(temp,W("hangar.toml")),"owned staged manifest",21);
+        success(F(remove_temp_dir_checked)(temp)); F(result_release)(temp); F(result_release)(foreign); F(result_release)(d); return 0;
+    }
+    if(!strcmp(mode,"new-lock-public-parent")) {
+#ifndef _WIN32
+        require(chmod(path,0777)==0,"make parent permissive");
+#endif
+        int64_t refused=F(lock_dir_new_ticket)(d,W("public.lock")); require(!F(result_ok)(refused),"permissive parent refused before lock creation"); F(result_release)(refused);
+        int64_t missing=F(read_relative_ticket)(d,W("public.lock")); require(F(result_missing)(missing),"no unauthorized public lock marker"); F(result_release)(missing);
+        F(result_release)(d); return 0;
+    }
     if(!strcmp(mode,"lock-hold")) {
         int64_t lock=F(lock_dir_ticket)(d,W("transaction.lock")); require(F(result_ok)(lock),"holder acquired"); puts("LOCKED"); fflush(stdout);
 #ifdef _WIN32
@@ -278,6 +431,27 @@ int main(int argc,char **argv) {
 '''
 
 
+def windows_public_parent_acl(directory: Path) -> None:
+    """Create an actual permissive Windows DACL for the negative probe only."""
+    import ctypes
+    import ctypes.wintypes as wintypes
+    security=ctypes.WinDLL("advapi32",use_last_error=True)
+    kernel=ctypes.WinDLL("kernel32",use_last_error=True)
+    convert=security.ConvertStringSecurityDescriptorToSecurityDescriptorW
+    convert.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,ctypes.POINTER(ctypes.c_void_p),ctypes.POINTER(wintypes.DWORD)]
+    convert.restype=wintypes.BOOL
+    apply=security.SetFileSecurityW
+    apply.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,ctypes.c_void_p]
+    apply.restype=wintypes.BOOL
+    kernel.LocalFree.argtypes=[ctypes.c_void_p];kernel.LocalFree.restype=ctypes.c_void_p
+    descriptor=ctypes.c_void_p()
+    assert convert("D:P(A;;FA;;;WD)",1,ctypes.byref(descriptor),None),ctypes.get_last_error()
+    try:
+        assert apply(str(directory),0x80000004,descriptor),ctypes.get_last_error()
+    finally:
+        kernel.LocalFree(descriptor)
+
+
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'))
@@ -292,7 +466,7 @@ def main() -> int:
     env=dict(os.environ,ASAN_OPTIONS='detect_leaks=1:halt_on_error=1',UBSAN_OPTIONS='halt_on_error=1')
     records=[]
     with tempfile.TemporaryDirectory(prefix='freak-anchor λ $ ') as tmp:
-        home=Path(tmp).resolve(); source=home/'harness.c'; source.write_text(HARNESS.replace('int main(', 'static int native_main(')+WINDOWS_ARGV_WRAPPER,encoding='utf8')
+        home=Path(tmp).resolve(); private=WindowsPrivateFixture(home); source=home/'harness.c'; source.write_text(HARNESS.replace('int main(', 'static int native_main(')+WINDOWS_ARGV_WRAPPER,encoding='utf8')
         if args.sanitize:
             control=home/'control.c'; control.write_text('#include <stdlib.h>\nint main(int n,char**v){volatile char*p=malloc(1);p[n+4]=1;free((void*)p);return 0;}\n')
             exe=home/'control'; subprocess.run([compiler,str(control),'-O0',*flags,'-o',str(exe)],check=True,capture_output=True)
@@ -306,13 +480,17 @@ def main() -> int:
             for adapter in ('c','llvm'):
                 exe=home/f'{adapter}-O{opt}{".exe" if os.name=="nt" else ""}'; command=[compiler,str(source),str(runtime/'freak_runtime.c'),str(runtime/'freak_llvm_runtime.c'),f'-I{runtime}',f'-O{opt}','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1',*flags,'-o',str(exe)]
                 if adapter=='llvm': command+=['-DUSE_LLVM_ADAPTER=1']
-                if sys.platform.startswith('linux'): command+=['-DTEST_INTERPOSE=1','-Wl,--wrap=openat','-Wl,--wrap=read','-Wl,--wrap=fsync']
+                if sys.platform.startswith('linux'): command+=['-DTEST_INTERPOSE=1','-Wl,--wrap=openat','-Wl,--wrap=read','-Wl,--wrap=fsync','-Dflock=freak_fs_test_flock']
                 built=subprocess.run(command,capture_output=True,timeout=90); assert built.returncode==0,built.stderr.decode(errors='replace')
                 modes=['smoke','binary','limit','held-identity','cleanup-depth','open-long-fails','temp-swap','cleanup-parent-race','cleanup-link','held-list-path'] if os.name!='nt' else ['smoke','binary','limit','held-identity','cleanup-depth','open-long-fails']
-                if sys.platform.startswith('linux'): modes+=['read-race','write-race','growth','fault-publish','fault-rename','cleanup-descendant-race']
+                modes+=['new-lock','new-lock-late-empty','new-lock-late-nonempty']
+                modes+=['abort-new-lock','abort-foreign-lock','abort-foreign-directory','anchored-temp-parent','late-target-publication','new-lock-public-parent']
+                if sys.platform.startswith('linux'): modes+=['read-race','write-race','growth','fault-publish','fault-rename','cleanup-descendant-race','new-lock-lost-flock']
                 for mode in modes+['foreign','stale','wrong-kind','open-fails']:
                     case=home/f'{adapter}-{opt}-{mode}'; case.mkdir(); root=case/'root'; root.mkdir(mode=0o700); (root/'sub').mkdir(); (root/'sub/value').write_bytes(b'owned'); (root/'raw').write_bytes(b'a\0\xffb'); (root/'marker').write_bytes(b'small')
                     outside=case/'outside'; outside.mkdir(); (outside/'value').write_bytes(b'outside-secret'); (outside/'secret').write_bytes(b'outside-secret')
+                    private.claim_fresh_directories(case, root, root/'sub', outside)
+                    if mode=='new-lock-public-parent' and os.name=='nt': windows_public_parent_acl(root)
                     if os.name!='nt':
                         (root/'link').symlink_to(outside,target_is_directory=True); (root/'file-link').symlink_to(outside/'secret'); (root/'dangling').symlink_to(case/'absent')
                         (root/'denied').mkdir(mode=0o000)
@@ -325,15 +503,27 @@ def main() -> int:
                     elif mode=='wrong-kind': assert result.returncode!=0 and b'directory ticket' in result.stderr,(mode,result.stderr)
                     else: assert result.returncode==0,(mode,result.stdout,result.stderr)
                     assert (outside/'value').read_bytes()==b'outside-secret' and (outside/'secret').read_bytes()==b'outside-secret'
+                    if mode=='new-lock': assert (root/'fresh.lock').read_bytes()==b'' and not (case/'escape').exists() and not (root/'sub/escape').exists()
+                    if mode=='new-lock-late-empty': assert (root/'late.lock').read_bytes()==b''
+                    if mode=='new-lock-late-nonempty': assert (root/'late.lock').read_bytes()==b'retained writer state'
+                    if mode=='new-lock-lost-flock': assert (root/'competing.lock').read_bytes()==b'retained contender'
+                    if mode=='abort-new-lock': assert not (root/'abort.lock').exists() and (root/'ordinary.lock').read_bytes()==b''
+                    if mode=='abort-foreign-lock' and os.name!='nt': assert (root/'abort.lock').read_bytes()==b'foreign replacement' and (root/'owned.lock').read_bytes()==b''
+                    if mode=='abort-foreign-directory' and os.name!='nt': assert (root/'abort.lock').is_dir() and (root/'owned.lock').read_bytes()==b''
+                    if mode=='anchored-temp-parent' and os.name!='nt': assert not tuple(root.iterdir()) and not tuple(case.glob('root-owned/anchored*')) and (case/'root-owned/owned.manifest').read_bytes()==b'anchored stage'
+                    if mode=='late-target-publication': assert (root/'late-target/hangar.lock').read_bytes()==b'retained foreign generation' and not (root/'late-target/hangar.toml').exists()
+                    if mode=='new-lock-public-parent': assert not (root/'public.lock').exists()
                     if mode=='write-race': assert (root/'old-sub/value').read_bytes()==b'changed'
                     if mode=='fault-publish': assert not (root/'published').exists()
                     if mode=='fault-rename': assert not (root/'from').exists() and (root/'to').read_bytes()==b'complete'
                     if mode=='temp-swap': assert len(list(root.glob('owned*')))==2
                     records.append({'adapter':adapter,'optimization':opt,'case':mode,'status':'pass'})
                 locked=home/f'{adapter}-{opt}-lock'; locked.mkdir(mode=0o700)
+                private.claim_fresh_directories(locked)
                 holder=subprocess.Popen([str(exe),'lock-hold',str(locked)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
                 try:
-                    assert holder.stdout and holder.stdout.readline()==b'LOCKED\n'
+                    greeting=holder.stdout.readline(64) if holder.stdout else None
+                    assert holder.stdout and greeting==b'LOCKED\n',(adapter,opt,'lock-holder greeting',greeting,holder.poll())
                     contender=subprocess.run([str(exe),'lock-fails',str(locked)],capture_output=True,env=env,timeout=10)
                     assert contender.returncode==0,contender.stderr
                     holder.kill(); holder.communicate(timeout=10)

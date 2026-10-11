@@ -452,7 +452,7 @@ task v4_lex_canonical_keyword_word(text_word: word) -> word {
     if lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "dyn" or lower == "break" or lower == "continue" {
         give back lower
     }
-    if lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" {
+    if lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "while" or lower == "done" or lower == "for" or lower == "each" {
         give back lower
     }
     if lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "or" {

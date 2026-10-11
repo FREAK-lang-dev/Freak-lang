@@ -1,0 +1,4 @@
+use core::{seed}
+
+task helper() -> int { give back 1 }
+task value() -> int { give back seed() + helper() }

@@ -179,3 +179,15 @@ say "alias-route-missing-check-help=" + v4_diag_help(v4_mir_diag(v4_mir_alias_ro
 say "alias-route-duplicate-check-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_alias_route_duplicate_check_mir))
 say "alias-route-duplicate-check-message=" + v4_diag_message(v4_mir_diag(v4_mir_alias_route_duplicate_check_mir, 0))
 say "alias-route-duplicate-check-help=" + v4_diag_help(v4_mir_diag(v4_mir_alias_route_duplicate_check_mir, 0))
+
+-- Preserve the genuine duplicate-arm source diagnostics after CFG compaction.
+task v4_mir_alias_route_verify_duplicates() -> void {
+    if v4_mir_diag_count(v4_mir_alias_route_duplicate_when_mir) != 1 or v4_mir_diag_count(v4_mir_alias_route_duplicate_check_mir) != 1 { panic("alias-route exact duplicate diagnostic inventory") }
+    pilot when_diag = v4_mir_diag(v4_mir_alias_route_duplicate_when_mir, 0)
+    pilot check_diag = v4_mir_diag(v4_mir_alias_route_duplicate_check_mir, 0)
+    if v4_diag_message(when_diag) != "unreachable when arm" or v4_diag_help(when_diag) != "Event::Key was already covered by an earlier arm" or v4_span_start(v4_diag_span(when_diag)) != 188 or v4_span_end(v4_diag_span(when_diag)) != 217 { panic("alias-route exact when duplicate message span help") }
+    if v4_diag_message(check_diag) != "unreachable check route arm" or v4_diag_help(check_diag) != "Event::Key was already covered by an earlier arm" or v4_span_start(v4_diag_span(check_diag)) != 195 or v4_span_end(v4_diag_span(check_diag)) != 224 { panic("alias-route exact check duplicate message span help") }
+    say "alias-route-duplicate-when-span=" + v4_diag_span(when_diag)
+    say "alias-route-duplicate-check-span=" + v4_diag_span(check_diag)
+}
+v4_mir_alias_route_verify_duplicates()

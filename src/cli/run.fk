@@ -4,7 +4,7 @@
 -- Handles: freshness check, build when needed, then execute the binary.
 -- ===================================================================
 
-pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"
+pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v7"
 pilot CLI_RUN_UNHASHABLE = "<unhashable>"
 
 task cli_run_valid_sha256(token: word) -> bool {
@@ -131,11 +131,40 @@ task cli_run_file_fingerprint(path: word) -> word {
     give back path + ":sha256=" + digest
 }
 
+task cli_run_word_sha256(material: word) -> word {
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(material)
+    pilot digest = ""
+    if bytes.status() == 0 { digest = fs::sha256_bytes(bytes) }
+    bytes.release()
+    give back digest
+}
+
 task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word, lto: word, runtime_policy: word, runtime_stats: word, cross: word) -> word {
-    pilot source: word = fs::read(src_file)
+    -- Every decision admits live inputs again, including locked/frozen modes.
+    -- Preserve the configured source options while discarding a prior graph:
+    -- an enclosing manifest removed during compilation must not leave nodes
+    -- from that manifest active in a later standalone-source admission.
+    cli_project_binding_release()
+    package_sources_release()
+    package_inputs_release()
+    hangar_graph_release()
+    package_lock_release()
+    pilot source: word = cli_prepare_source(src_file, target)
+    cli_project_binding_release()
     if source == "" { give back "" }
 
-    pilot std_source: word = cli_load_std(source, target)
+    -- Source binding loads the actual transitive modules and their requested
+    -- standard payload. The graph render also identifies every declared input
+    -- by its bounded raw-byte SHA-256, including unimported modules and tests.
+    pilot graph = "standalone"
+    if package_graph_ready {
+        graph = package_lock_render()
+        if graph == "" { give back "" }
+    }
+    pilot source_digest = cli_run_word_sha256(source)
+    pilot graph_digest = cli_run_word_sha256(graph)
+    if source_digest == "" or graph_digest == "" { give back "" }
     pilot runtime_dir: word = cli_find_runtime_dir()
     pilot std_dir: word = cli_find_std_dir()
     pilot pending_marker: word = cli_pending_upgrade_marker()
@@ -149,7 +178,11 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     material = material + "|cli=" + CLI_VERSION + "|compiler=" + FREAKC_VERSION
     material = material + "|self=" + cli_run_file_fingerprint(cli_executable_path())
     material = material + "|source=" + cli_run_file_fingerprint(src_file)
-    material = material + "|std=" + word_from_int(std_source.length()) + ":" + word_from_int(std_source.checksum())
+    material = material + "|bound-source=" + source_digest + "|graph=" + graph_digest
+    if package_graph_ready {
+        material = material + "|graph-lock=" + cli_run_file_fingerprint(package_join_host(package_parent_path(package_graph_manifest_path), "hangar.lock"))
+        material = material + "|graph-snapshot=" + cli_run_file_fingerprint(package_graph_snapshot_path)
+    }
     material = material + "|target=" + target + "|profile=" + profile + "|clang-opt=" + opt + "|lto=" + lto
     material = material + "|runtime-policy=" + runtime_policy + "|runtime-stats=" + runtime_stats + "|cross=" + cross + "|strict=" + strict_label
     material = material + "|clang=" + cli_run_clang_identity(clang_cmd)
@@ -190,7 +223,7 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     material = material + "|pending-upgrade=" + cli_run_file_fingerprint(pending_marker)
 
     if material.contains(CLI_RUN_UNHASHABLE) { give back "" }
-    give back word_from_int(material.checksum())
+    give back cli_run_word_sha256(material)
 }
 
 task cli_run_resolve_program(command: word) -> word {

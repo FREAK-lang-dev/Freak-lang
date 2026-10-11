@@ -5,6 +5,19 @@ shipping Hangar commands (`init`, `add`, `remove`, `install`, `update`,
 `outdated`, `version`, `audit`, `publish`); the registry web UI and search
 remain in progress per `hangar-expansion-plan.md`.
 
+Initialization preserves existing entries and publishes a new project without
+replacement. Initializing an existing project currently requires destination
+directories owned by the caller with no group/other write permission on POSIX,
+or a private write ACL on Windows. Support for ordinary writable destinations
+is tracked in [#164](https://github.com/FREAK-lang-dev/Freak-lang/issues/164).
+
+Legacy mutating commands hold the project graph lock and refuse unsupported
+locks or retained transaction journals. Keep the project directory in place
+while they run: their command bodies still use its pathname, so replacing the
+directory externally can redirect their effects. Carrying the held directory
+identity through every legacy effect is tracked in
+[#165](https://github.com/FREAK-lang-dev/Freak-lang/issues/165).
+
 ## 1. Layout of a package
 
 A package is a directory with a `hangar.toml` manifest at its root. The

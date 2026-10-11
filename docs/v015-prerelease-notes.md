@@ -28,7 +28,52 @@ silent synonym. Words support bytewise UTF-8 ordering without locale rules.
 Checked integer arithmetic uses inline fast paths while retaining controlled
 failure and evaluation order.
 
+Cached `freak run` now revalidates the declared package graph before reuse.
+Editing a transitive dependency rebuilds the program, and invalid locked or
+frozen inputs fail before cached execution. Source edits detected during a
+build abort execution and leave no fresh cache record.
+
+Legacy Hangar commands now refuse schema-v2 graph locks, unknown schemas and
+malformed or unreadable existing locks before fetching, editing manifests,
+removing installed packages or reporting an audit result. Valid legacy locks
+and `hangar install freak` remain supported. Graph-aware public Hangar commands
+remain a separate prerelease requirement.
+Legacy mutations also validate the manifest before creating private writer
+files, and version changes use the same writer lock. A failed repair or hash
+command preserves the locked checksum. Libarchive integrity archives omit the
+gzip clock header; legacy hashes remain platform-specific and mismatches are
+still rejected. Both public entrypoints pass the native preservation controls
+on Linux, including failed archive/hash commands and checksum repair recovery.
+
+Graph-run cache keys use the admitted snapshot parent's canonical path, so
+implicit and explicit aliases of the same selected snapshot can reuse the
+cache on Windows. Different parent directories remain distinct. Alias and
+cache-artifact preservation controls pass with C and LLVM on Linux.
+
+The permanent `examples/v35` projects provide a pure library, diamond package
+consumer and bounded HTTP/JSON service. `tests/v3_v35_acceptance.py` checks a
+supplied extracted archive through public commands on C and LLVM, including
+strict response framing, project-test failures and transitive cache freshness.
+These are component gates; provisional producer reuse remains explicitly
+labelled, and full bootstrap, syntax, platform and release gates stay separate.
+
 The frozen V4 bootstrap source profile remains separate from current V4
-development syntax. Current V4 HIR and MIR snapshots advance to v12 and v10
+development syntax. Development V4 now supports condition-first bool loops
+with `while condition` and `repeat while condition`, including existing
+break, continue, cleanup and early-return rules. Only exact lowercase `while`
+is reserved; supported names such as `While` and `WHILE` are preserved.
+Route/variant cases, fields and types follow that reservation, with 16 added
+frontend, recovery, editor and snapshot controls verified by the native fixture
+runner on Linux.
+Loop headers now distinguish known constructor payload braces from the body,
+with Boolean comparison coverage in frontend/MIR/snapshots and separate
+native scalar casing/alias/local controls. Aggregate constructors and global
+native values retain their existing lowering limits. Counted-loop parity and
+ungrouped multiline condition continuation remain separate work.
+Completed V4 `when`/`check route` arms now close detached terminal joins while
+following source still receives genuine diagnostics. Live fallthrough, loop
+targets and strict snapshot checks remain covered; aggregate native lowering
+is unchanged.
+Current V4 HIR and MIR snapshots advance to v12 and v10
 to retain binding modifiers; older snapshots must be rebuilt. This PR does
 not tag or publish a release.
