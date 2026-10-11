@@ -137,7 +137,115 @@ task hangar_legacy_write(project_dir: word, operation: word, pkg_name: word, rep
     give back writer_code
 }
 
+-- Init cannot reconstruct a retained generation from a missing manifest.
+-- Admit through the existing project anchor before creating any private files.
+task hangar_init_generation_ready(project: int, project_dir: word) -> bool {
+    pilot manifest = fs::read_relative_bytes_limit_ticket(project, "hangar.toml", 1048576)
+    pilot missing = fs::result_missing(manifest)
+    pilot readable = fs::result_ok(manifest)
+    pilot detail = fs::result_error(manifest)
+    fs::result_release(manifest)
+    if not missing {
+        if readable { say "  hangar.toml already exists in " + project_dir }
+        else { hangar_legacy_writer_refused("cannot admit init manifest: " + detail) }
+        give back false
+    }
+    lock_load_ticket(project, "hangar.lock")
+    if not hangar_legacy_lock_admitted() { give back false }
+    if lock_loaded {
+        hangar_legacy_writer_refused("existing hangar.lock without hangar.toml; graph-aware recovery is required")
+        give back false
+    }
+    give back true
+}
+
+-- Missing is the only admitted probe result: files, links, directories and
+-- unreadable entries all retain generation authority and must be preserved.
+task hangar_init_entry_missing(directory: int, name: word) -> bool {
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, name, 1)
+    pilot missing = fs::result_missing(read)
+    fs::result_release(read)
+    give back missing
+}
+
+task hangar_init_journal_ready(private: int) -> bool {
+    if not hangar_init_entry_missing(private, "transaction.marker") { give back false }
+    if not hangar_init_entry_missing(private, "transaction.manifest.before") { give back false }
+    if not hangar_init_entry_missing(private, "transaction.lock.before") { give back false }
+    give back true
+}
+
 task hangar_init(project_dir: word) -> int {
+    pilot project = fs::open_dir_ticket(project_dir)
+    if not fs::result_ok(project) {
+        pilot missing = fs::result_missing(project)
+        pilot detail = fs::result_error(project)
+        fs::result_release(project)
+        -- Genuinely absent targets retain the ordinary new-directory path.
+        if missing { give back hangar_init_admitted(project_dir) }
+        give back hangar_legacy_writer_refused("cannot anchor init target: " + detail)
+    }
+    if not hangar_init_generation_ready(project, project_dir) {
+        fs::result_release(project)
+        give back 1
+    }
+    pilot private = fs::open_relative_dir_ticket(project, ".freak")
+    if fs::result_ok(private) {
+        if not hangar_init_journal_ready(private) {
+            fs::result_release(private)
+            fs::result_release(project)
+            give back hangar_legacy_writer_refused("pending or unreadable graph transaction state; graph-aware recovery is required")
+        }
+        if not hangar_init_entry_missing(private, "graph.lock") {
+            fs::result_release(private)
+            fs::result_release(project)
+            give back hangar_legacy_writer_refused("existing graph.lock without hangar.toml; graph-aware recovery is required")
+        }
+    } else {
+        pilot missing = fs::result_missing(private)
+        pilot detail = fs::result_error(private)
+        fs::result_release(private)
+        if not missing {
+            fs::result_release(project)
+            give back hangar_legacy_writer_refused("cannot admit init private directory: " + detail)
+        }
+        hangar_graph_error = ""
+        private = package_private_directory(project, ".freak")
+        if private == 0 {
+            fs::result_release(project)
+            give back hangar_legacy_writer_refused(hangar_graph_error)
+        }
+    }
+    pilot held = fs::lock_dir_ticket(private, "graph.lock")
+    if not fs::result_ok(held) {
+        pilot detail = fs::result_error(held)
+        fs::result_release(held)
+        fs::result_release(private)
+        fs::result_release(project)
+        give back hangar_legacy_writer_refused("cannot hold graph.lock: " + detail)
+    }
+    -- Early absence is not writer authority. Re-admit the manifest, lock and
+    -- journal through the same anchors while the shared graph lock is held.
+    if not hangar_init_generation_ready(project, project_dir) {
+        fs::result_release(held)
+        fs::result_release(private)
+        fs::result_release(project)
+        give back 1
+    }
+    if not hangar_init_journal_ready(private) {
+        fs::result_release(held)
+        fs::result_release(private)
+        fs::result_release(project)
+        give back hangar_legacy_writer_refused("pending or unreadable graph transaction state; graph-aware recovery is required")
+    }
+    pilot code = hangar_init_admitted(project_dir)
+    fs::result_release(held)
+    fs::result_release(private)
+    fs::result_release(project)
+    give back code
+}
+
+task hangar_init_admitted(project_dir: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) {
         pilot msg = "  hangar.toml already exists in " + project_dir

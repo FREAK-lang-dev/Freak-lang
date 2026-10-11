@@ -649,6 +649,158 @@ def audit_stable_hash_controls(root: Path, invocation: tuple[str, Path, list[str
     print(f"native:{name}:audit:delayed-and-atime-hashes-stable:preserved", flush=True)
 
 
+def init_generation_controls(root: Path, invocation: tuple[str, Path, list[str]],
+                             recorder: Recorder, env: dict, report: Path,
+                             private: WindowsPrivateFixture, diamond: Path) -> None:
+    """Orphan generations must never be initialized or recovered implicitly."""
+    name, binary, prefix = invocation
+    cases = (
+        ("legacy-lock", "lock", LEGACY.encode()),
+        ("genuine-v2", "lock", (diamond / "hangar.lock").read_bytes()),
+        ("unsupported-lock", "lock", b"lock.schema = 99\n"),
+        ("empty-legacy-generation", "lock", b"# retained empty legacy generation\n"),
+        ("non-file-lock", "directory-lock", None),
+        ("empty-graph-lock", "graph", b""),
+        ("nonempty-graph-lock", "graph", b"retained writer state\x00"),
+        ("non-file-graph-lock", "directory-graph", None),
+        ("non-file-private", "private-file", None),
+        ("journal-marker", "journal", "transaction.marker"),
+        ("journal-manifest-before", "journal", "transaction.manifest.before"),
+        ("journal-lock-before", "journal", "transaction.lock.before"),
+        ("non-file-journal", "directory-journal", None),
+        ("non-file-manifest", "directory-manifest", None),
+    )
+
+    def decline(cwd: Path, label: str, *, command: list[str] | None = None,
+                demote: bool = False, readable_handles: dict[Path, int] | None = None):
+        before = snapshot(cwd, readable_handles)
+        code, output = recorder.run([str(binary), *prefix, *(command or ["init"])], cwd, env,
+                                    f"{name}:init-generation:{label}", demote=demote)
+        assert code == 1 and output.startswith((PREFIX, WRITER_PREFIX)), (label, code, output)
+        assert "INITIALIZED" not in output and "ownership audit" not in output, output
+        assert snapshot(cwd, readable_handles) == before and report.read_bytes() == b"", (label, output)
+
+    for label, kind, contents in cases:
+        cwd = root / f"{name}-init-generation-{label}"
+        project(cwd, None, private)
+        (cwd / "hangar.toml").unlink()
+        if kind == "lock":
+            (cwd / "hangar.lock").write_bytes(contents)
+        elif kind == "directory-lock":
+            (cwd / "hangar.lock").mkdir()
+            (cwd / "hangar.lock/retained").write_bytes(b"retained lock directory\n")
+        elif kind == "private-file":
+            (cwd / ".freak").write_bytes(b"not a private directory\n")
+        elif kind == "directory-manifest":
+            (cwd / "hangar.toml").mkdir()
+            (cwd / "hangar.toml/retained").write_bytes(b"retained manifest directory\n")
+        else:
+            state = cwd / ".freak"
+            state.mkdir(mode=0o700)
+            private.claim_fresh_directories(state)
+            if kind == "graph":
+                (state / "graph.lock").write_bytes(contents)
+                (state / "graph.lock").chmod(0o600)
+            elif kind == "directory-graph":
+                (state / "graph.lock").mkdir()
+                (state / "graph.lock/retained").write_bytes(b"retained graph lock directory\n")
+            elif kind == "journal":
+                (state / contents).write_bytes(b"retained graph transaction authority\n")
+            else:
+                assert kind == "directory-journal"
+                (state / "transaction.marker").mkdir()
+                (state / "transaction.marker/retained").write_bytes(b"retained journal directory\n")
+        decline(cwd, label)
+
+    # Use the runtime's own checked lock creation, then remove only the
+    # fixture's manifest. Held and free orphan graph locks both retain authority.
+    cwd = root / f"{name}-init-generation-held"
+    project(cwd, LEGACY.encode(), private)
+    code, output = recorder.run([str(binary), *prefix, "remove", "absent"], cwd, env,
+                                f"{name}:init-generation:seed-native-lock")
+    assert code == 1 and "Package 'absent' is not in hangar.toml" in output, output
+    assert "ownership audit" not in output and report.read_bytes() == b"", output
+    (cwd / "hangar.toml").unlink()
+    (cwd / "hangar.lock").unlink()
+    graph = cwd / ".freak/graph.lock"
+    assert graph.is_file() and graph.read_bytes() == b""
+    with held_graph_lock(graph):
+        decline(cwd, "concurrent-held-writer")
+    decline(cwd, "free-retained-writer")
+    with held_graph_lock(graph):
+        pass
+
+    # Preserve ordinary existing-empty and genuinely absent target behavior.
+    for label in ("existing-empty", "absent-target"):
+        parent = root / f"{name}-init-generation-{label}"
+        parent.mkdir()
+        private.claim_fresh_directories(parent)
+        target = parent / "fresh-project"
+        if label == "existing-empty":
+            target.mkdir()
+            private.claim_fresh_directories(target)
+        code, output = recorder.run([str(binary), *prefix, "init", "fresh-project"], parent, env,
+                                    f"{name}:init-generation:{label}")
+        assert code == 0 and "INITIALIZED" in output and "ownership audit" not in output, output
+        assert tomllib.loads((target / "hangar.toml").read_text()) == {
+            "project": {"name": "fresh-project", "version": "0.1.0"}}, output
+        assert (target / "src/main.fk").read_text() == (
+            '-- fresh-project -- a FREAK project\n\nsay "Hello from fresh-project!"\n')
+        assert (target / "hangar_modules").is_dir() and not (target / "hangar.lock").exists()
+        assert report.read_bytes() == b"" and not tuple(target.glob(".freak/transaction.*")), output
+        assert (target / ".freak/graph.lock").is_file() == (label == "existing-empty")
+        before = snapshot(target)
+        code, output = recorder.run([str(binary), *prefix, "init", "fresh-project"], parent, env,
+                                    f"{name}:init-generation:{label}:duplicate")
+        assert code == 1 and "hangar.toml already exists in fresh-project" in output, output
+        assert snapshot(target) == before and report.read_bytes() == b"", output
+
+    parent = root / f"{name}-init-generation-target-file"
+    parent.mkdir()
+    private.claim_fresh_directories(parent)
+    (parent / "target").write_bytes(b"retained non-directory target\n")
+    decline(parent, "target-file", command=["init", "target"])
+
+    if os.name != "nt":
+        # Real POSIX symlinks and permission-denial probes, not Windows shims.
+        for entry in ("lock", "manifest", "private", "graph"):
+            cwd = root / f"{name}-init-generation-symlink-{entry}"
+            project(cwd, None, private)
+            (cwd / "hangar.toml").unlink()
+            retained = cwd / "retained-target"
+            retained.write_bytes(b"retained link target\n")
+            destination = {"lock": cwd / "hangar.lock", "manifest": cwd / "hangar.toml",
+                           "private": cwd / ".freak", "graph": cwd / ".freak/graph.lock"}[entry]
+            if entry == "graph":
+                destination.parent.mkdir(mode=0o700)
+                private.claim_fresh_directories(destination.parent)
+            destination.symlink_to(retained)
+            decline(cwd, "symlink-" + entry)
+        parent = root / f"{name}-init-generation-target-symlink"
+        parent.mkdir()
+        target = parent / "retained-target"
+        target.mkdir()
+        private.claim_fresh_directories(parent, target)
+        (target / "retained").write_bytes(b"retained directory target\n")
+        (parent / "link").symlink_to(target, target_is_directory=True)
+        decline(parent, "target-symlink", command=["init", "link"])
+        for entry in ("hangar.lock", "hangar.toml"):
+            cwd = root / f"{name}-init-generation-unreadable-{entry}"
+            project(cwd, None, private)
+            (cwd / "hangar.toml").unlink()
+            denied = cwd / entry
+            denied.write_bytes(LEGACY.encode())
+            handle = os.open(denied, os.O_RDONLY)
+            try:
+                denied.chmod(0)
+                decline(cwd, "unreadable-" + entry, demote=os.geteuid() == 0,
+                        readable_handles={denied: handle})
+            finally:
+                os.close(handle)
+                denied.chmod(0o644)
+    print(f"native:{name}:init:orphan-generation-and-ordinary-targets:preserved", flush=True)
+
+
 def execute(args, root: Path, recorder: Recorder, receipt: dict,
             private: WindowsPrivateFixture) -> None:
     freak = args.freak.resolve(strict=True)
@@ -837,6 +989,7 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
         audit_failed_repair_controls(root, invocation, recorder, env, report, private)
         audit_hash_failure_controls(root, invocation, recorder, env, report, private, integrity_tools)
         audit_stable_hash_controls(root, invocation, recorder, env, report, private)
+        init_generation_controls(root, invocation, recorder, env, report, private, diamond)
 
         # Explicit toolchain bootstrap does not use the project's lock. A
         # controlled local installer exits 23 and records actual execution.
