@@ -45,6 +45,21 @@ task v35_while_map_source(mode: int) -> word {
     if mode == 21 { give back prefix + ("while " + "{" + "\"go\": true" + "}" + "[\"go\"]\nif true " + "{" + "}") + suffix }
     if mode == 22 { condition = ("{" + "\"go\": true, \"stop\": 1" + "}") }
     if mode == 23 { give back prefix + ("repeat while " + "{" + "\"go\": true" + "}" + "[\"go\"]; if true " + "{" + "}") + suffix }
+    if mode >= 24 and mode <= 29 {
+        condition = ""
+        body = ("{" + " visits += 1; pilot marker: bool = true; break " + "}")
+        if mode == 25 or mode == 29 {
+            prefix = ("task tick() -> void " + "{" + "}" + " ") + prefix
+            body = ("{" + " tick(); pilot marker: bool = true; break " + "}")
+        }
+        if mode == 26 { heading = "repeat while " }
+        if mode == 27 { condition = "not" }
+        if mode == 28 { heading = "while\n"; body = ("{" + " visits += 1\n pilot marker: bool = true; break " + "}") }
+        if mode == 29 { body = ("{" + " tick()\n pilot marker: bool = true; break " + "}") }
+        give back prefix + heading + condition + " " + body + (" if true " + "{" + "}") + suffix
+    }
+    if mode == 30 { condition = ("{" + "\"go\" -- first entry may span trivia\n : true" + "}" + "[\"go\"]") }
+    if mode == 31 { condition = "false"; body = ("{" + " visits += 1\n pilot marker: bool = true; break " + "}") }
     give back prefix + heading + condition + " " + body + suffix
 }
 
@@ -58,7 +73,7 @@ task v35_while_map_has_diag(mir: int, message: word) -> bool {
 }
 
 task v35_while_map_run(mode: int) -> void {
-    v35_while_map_assert(mode >= 0 and mode < 24, "registered mode")
+    v35_while_map_assert(mode >= 0 and mode < 32, "registered mode")
     pilot source = v35_while_map_source(mode)
     pilot stream = v4_lex_text(0, source)
     pilot tree = v4_parse_stream(0, stream)
@@ -68,7 +83,7 @@ task v35_while_map_run(mode: int) -> void {
     pilot mir = v4_mir_lower_ty(0, ty)
     v35_while_map_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) == 0, "header preserves frontend syntax")
     pilot loop_token = v4_mir_find_token_value(stream, 0, v4_lex_token_count(stream), "while")
-    if mode == 2 or mode == 15 or mode == 23 { loop_token = v4_mir_prev_nontrivia(stream, loop_token - 1, 0) }
+    if mode == 2 or mode == 15 or mode == 23 or mode == 26 { loop_token = v4_mir_prev_nontrivia(stream, loop_token - 1, 0) }
     pilot open = v4_mir_loop_body_token(mir, stream, loop_token, v4_lex_token_count(stream))
     pilot body = v4_mir_lookup_body_name(mir, "main")
     v35_while_map_assert(body >= 0, "following main survives")
@@ -86,6 +101,10 @@ task v35_while_map_run(mode: int) -> void {
         pilot close = v4_mir_find_matching_brace(stream, open, v4_lex_token_count(stream))
         pilot expected_body = ("{" + " visits += 1; break " + "}")
         if mode == 18 or mode == 19 { expected_body = ("{" + " pilot marker: bool = true; break " + "}") }
+        if mode == 24 or mode == 26 or mode == 27 { expected_body = ("{" + " visits += 1; pilot marker: bool = true; break " + "}") }
+        if mode == 25 { expected_body = ("{" + " tick(); pilot marker: bool = true; break " + "}") }
+        if mode == 28 or mode == 31 { expected_body = ("{" + " visits += 1\n pilot marker: bool = true; break " + "}") }
+        if mode == 29 { expected_body = ("{" + " tick()\n pilot marker: bool = true; break " + "}") }
         v35_while_map_assert(v4_slice(source, v4_span_start(v4_lex_token_span(stream, open)), v4_span_end(v4_lex_token_span(stream, close))) == expected_body, "exact original body span excludes map payload")
         pilot loops = 0
         pilot breaks = 0
@@ -107,12 +126,12 @@ task v35_while_map_run(mode: int) -> void {
             }
             row += 1
         }
-        if mode == 19 {
+        if mode == 19 or mode == 24 or mode == 25 or mode == 26 or mode == 28 or mode == 29 {
             v35_while_map_assert(v35_while_map_has_diag(mir, "while loop requires a condition") and loops == 0, "typed body remains missing-condition diagnostic")
         } else {
             v35_while_map_assert(loops == 1 and breaks == 1 and not v35_while_map_has_diag(mir, "while loop requires a condition") and not v35_while_map_has_diag(mir, "break outside loop"), "one complete loop owns its break")
         }
-        if mode <= 7 or mode == 10 or mode == 11 {
+        if mode <= 7 or mode == 10 or mode == 11 or mode == 27 or mode == 30 {
             v35_while_map_assert(v35_while_map_has_diag(mir, "unsupported while condition"), "inline map indexing retains existing conservative type boundary")
         }
         if mode == 12 { v35_while_map_assert(v35_while_map_has_diag(mir, "while condition must be bool"), "bare typed map cannot be a bool condition") }
@@ -120,6 +139,16 @@ task v35_while_map_run(mode: int) -> void {
         if mode >= 13 and mode <= 18 {
             v35_while_map_assert(v4_mir_diag_count(mir) == 0, "local map bool and adjacent constructors remain supported MIR")
         }
+        if mode >= 24 and mode <= 29 {
+            pilot branches = 0
+            row = 0
+            repeat until row >= v4_mir_body_stmt_count(mir, body) {
+                if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_branch { branches += 1 }
+                row += 1
+            }
+            v35_while_map_assert(branches == 1, "malformed header retains following conditional")
+        }
+        if mode == 31 { v35_while_map_assert(v4_mir_diag_count(mir) == 0, "completed scalar condition retains newline assignment body") }
         if mode >= 13 and mode <= 16 {
             pilot map_value = -1
             row = 0
@@ -143,7 +172,7 @@ task v35_while_map_run(mode: int) -> void {
     pilot snapshot = v4_mir_snapshot()
     v35_while_map_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot, "exact MIR restoration including diagnostics and source boundaries")
     pilot generated = v4_codegen_llvm_lower_owned_mir(0, mir)
-    if mode != 18 {
+    if mode != 18 and mode != 31 {
         v35_while_map_assert(v4_codegen_llvm_native_module_error(generated) != "" and v4_codegen_llvm_module_text(generated, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "aggregate or invalid native module remains refused")
     } else {
         v35_while_map_assert(v4_codegen_llvm_native_module_error(generated) == "" and v4_codegen_llvm_module_text(generated, v4_target_spec_new("x86_64-unknown-linux-gnu")) != "", "scalar body adjacency retains native module support")

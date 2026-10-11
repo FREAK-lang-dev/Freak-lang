@@ -9292,7 +9292,27 @@ task v4_mir_loop_brace_is_map(stream_id: int, condition_start: int, open_token: 
         pilot key = kind == v4_tok_ident or kind == v4_tok_string or kind == v4_tok_char or kind == v4_tok_int or kind == v4_tok_float or kind == v4_tok_bool
         key = key or value == "(" or value == "[" or value == "{" or v4_mir_unary_op_kind(value) != ""
         if not key { give back false }
-        if v4_mir_find_top_level_token(stream_id, first, close_token, ":") >= 0 { give back true }
+        -- Only the first entry can identify this brace as a map. A later
+        -- typed declaration cannot supply its colon across a body statement.
+        pilot idx = first
+        pilot depth = 0
+        repeat until idx >= close_token {
+            pilot token_kind = v4_lex_token_type(stream_id, idx)
+            if token_kind != v4_tok_trivia and token_kind != v4_tok_string and token_kind != v4_tok_char {
+                pilot token_value = v4_lex_token_syntax_value(stream_id, idx)
+                if depth == 0 {
+                    if token_value == ":" { give back true }
+                    if token_value == ";" or token_value == "," or v4_mir_assignment_operator(token_value) { give back false }
+                    if token_kind == v4_tok_keyword and token_value != "not" and token_value != "and" and token_value != "or" { give back false }
+                }
+                if token_value == "(" or token_value == "[" or token_value == "{" {
+                    depth += 1
+                } else if token_value == ")" or token_value == "]" or token_value == "}" {
+                    if depth > 0 { depth -= 1 }
+                }
+            }
+            idx += 1
+        }
     }
     -- Empty or malformed maps followed by an index remain expressions so the
     -- ordinary map/index diagnostics own the whole header. A lone `while {}`
