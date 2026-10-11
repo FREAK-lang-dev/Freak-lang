@@ -216,7 +216,8 @@ task hangar_init(project_dir: word) -> int {
             give back hangar_legacy_writer_refused(hangar_graph_error)
         }
     }
-    pilot held = fs::lock_dir_ticket(private, "graph.lock")
+    -- Atomic create-only admission closes publication after the absence probe.
+    pilot held = fs::lock_dir_new_ticket(private, "graph.lock")
     if not fs::result_ok(held) {
         pilot detail = fs::result_error(held)
         fs::result_release(held)
@@ -225,7 +226,7 @@ task hangar_init(project_dir: word) -> int {
         give back hangar_legacy_writer_refused("cannot hold graph.lock: " + detail)
     }
     -- Early absence is not writer authority. Re-admit the manifest, lock and
-    -- journal through the same anchors while the shared graph lock is held.
+    -- journal through the same anchors while our newly created graph lock is held.
     if not hangar_init_generation_ready(project, project_dir) {
         fs::result_release(held)
         fs::result_release(private)

@@ -44,6 +44,7 @@ extern int64_t freak_fs_remove_temp_dir_checked(int64_t);
 extern int64_t freak_fs_publish_temp_dir_checked(int64_t,int64_t,freak_word);
 extern bool freak_fs_result_completed(int64_t);
 extern int64_t freak_fs_lock_dir_ticket(int64_t,freak_word);
+extern int64_t freak_fs_lock_dir_new_ticket(int64_t,freak_word);
 extern int64_t freak_fs_remove_relative_file_checked(int64_t,freak_word);
 extern int64_t freak_fs_mkdir_relative_checked(int64_t,freak_word);
 extern int64_t freak_fs_open_relative_dir_ticket(int64_t,freak_word);
@@ -62,6 +63,7 @@ extern int64_t freak_llvm_fs_remove_temp_dir_checked(int64_t);
 extern int64_t freak_llvm_fs_publish_temp_dir_checked(int64_t,int64_t,int64_t);
 extern int64_t freak_llvm_fs_result_completed(int64_t);
 extern int64_t freak_llvm_fs_lock_dir_ticket(int64_t,int64_t);
+extern int64_t freak_llvm_fs_lock_dir_new_ticket(int64_t,int64_t);
 extern int64_t freak_llvm_fs_remove_relative_file_checked(int64_t,int64_t);
 extern int64_t freak_llvm_fs_mkdir_relative_checked(int64_t,int64_t);
 extern int64_t freak_llvm_fs_open_relative_dir_ticket(int64_t,int64_t);
@@ -127,6 +129,29 @@ int main(int argc,char **argv) {
     if(!strcmp(mode,"open-fails")) { failed(F(open_dir_ticket)(W(path))); return 0; }
     if(!strcmp(mode,"limit")) { failed(F(read_bytes_limit_ticket)(W(path),4096)); return 0; }
     int64_t d=F(open_dir_ticket)(W(path)); require(F(result_ok)(d),"anchor root");
+    if(!strcmp(mode,"new-lock")) {
+        int64_t lock=F(lock_dir_new_ticket)(d,W("fresh.lock"));
+        require(F(result_ok)(lock)&&F(result_kind)(lock)==5,"fresh lock held by result");
+        failed(F(lock_dir_new_ticket)(d,W("fresh.lock")));
+        failed(F(lock_dir_ticket)(d,W("fresh.lock"))); F(result_release)(lock);
+        failed(F(lock_dir_new_ticket)(d,W("fresh.lock")));
+        success(F(lock_dir_ticket)(d,W("fresh.lock")));
+        failed(F(lock_dir_new_ticket)(d,W("../escape")));
+        failed(F(lock_dir_new_ticket)(d,W("sub/escape")));
+        F(result_release)(d); return 0;
+    }
+    if(!strcmp(mode,"new-lock-late-empty")||!strcmp(mode,"new-lock-late-nonempty")) {
+        /* Deterministic foreign publication after anchoring, before admission.
+           The full init early-probe race has a separate source-flow control. */
+        const char *retained=!strcmp(mode,"new-lock-late-empty")?"":"retained writer state";
+        int64_t b=buffer(retained); success(F(write_relative_bytes_checked)(d,W("late.lock"),b)); freak_byte_buffer_release(b);
+        int64_t refused=F(lock_dir_new_ticket)(d,W("late.lock"));
+        require(!F(result_ok)(refused)&&!F(result_missing)(refused),"late retained lock is not init authority"); F(result_release)(refused);
+        exact(F(read_relative_ticket)(d,W("late.lock")),retained,strlen(retained));
+        success(F(lock_dir_ticket)(d,W("late.lock")));
+        exact(F(read_relative_ticket)(d,W("late.lock")),retained,strlen(retained));
+        F(result_release)(d); return 0;
+    }
     if(!strcmp(mode,"lock-hold")) {
         int64_t lock=F(lock_dir_ticket)(d,W("transaction.lock")); require(F(result_ok)(lock),"holder acquired"); puts("LOCKED"); fflush(stdout);
 #ifdef _WIN32
@@ -309,6 +334,7 @@ def main() -> int:
                 if sys.platform.startswith('linux'): command+=['-DTEST_INTERPOSE=1','-Wl,--wrap=openat','-Wl,--wrap=read','-Wl,--wrap=fsync']
                 built=subprocess.run(command,capture_output=True,timeout=90); assert built.returncode==0,built.stderr.decode(errors='replace')
                 modes=['smoke','binary','limit','held-identity','cleanup-depth','open-long-fails','temp-swap','cleanup-parent-race','cleanup-link','held-list-path'] if os.name!='nt' else ['smoke','binary','limit','held-identity','cleanup-depth','open-long-fails']
+                modes+=['new-lock','new-lock-late-empty','new-lock-late-nonempty']
                 if sys.platform.startswith('linux'): modes+=['read-race','write-race','growth','fault-publish','fault-rename','cleanup-descendant-race']
                 for mode in modes+['foreign','stale','wrong-kind','open-fails']:
                     case=home/f'{adapter}-{opt}-{mode}'; case.mkdir(); root=case/'root'; root.mkdir(mode=0o700); (root/'sub').mkdir(); (root/'sub/value').write_bytes(b'owned'); (root/'raw').write_bytes(b'a\0\xffb'); (root/'marker').write_bytes(b'small')
@@ -325,6 +351,9 @@ def main() -> int:
                     elif mode=='wrong-kind': assert result.returncode!=0 and b'directory ticket' in result.stderr,(mode,result.stderr)
                     else: assert result.returncode==0,(mode,result.stdout,result.stderr)
                     assert (outside/'value').read_bytes()==b'outside-secret' and (outside/'secret').read_bytes()==b'outside-secret'
+                    if mode=='new-lock': assert (root/'fresh.lock').read_bytes()==b'' and not (case/'escape').exists() and not (root/'sub/escape').exists()
+                    if mode=='new-lock-late-empty': assert (root/'late.lock').read_bytes()==b''
+                    if mode=='new-lock-late-nonempty': assert (root/'late.lock').read_bytes()==b'retained writer state'
                     if mode=='write-race': assert (root/'old-sub/value').read_bytes()==b'changed'
                     if mode=='fault-publish': assert not (root/'published').exists()
                     if mode=='fault-rename': assert not (root/'from').exists() and (root/'to').read_bytes()==b'complete'

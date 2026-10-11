@@ -1440,6 +1440,30 @@ int64_t freak_fs_lock_dir_ticket(int64_t root_handle,freak_word lock_name) {
     else { freak_fs_anchor_close(lock); freak_fs_ticket_error(result,"directory transaction lock is held or not a private regular file"); }
     free(name); return handle;
 }
+/* Initializers must own a newly created lock, not reopen retained writer state.
+   Keep the create-only descriptor/HANDLE held through the result's lifetime. */
+int64_t freak_fs_lock_dir_new_ticket(int64_t root_handle,freak_word lock_name) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+    char *name=freak_fs_checked_path(result,lock_name); if (!name) return handle;
+    if (!freak_fs_relative_valid(name,true)) { free(name); freak_fs_ticket_error(result,"directory lock name must be one safe component"); return handle; }
+#ifdef _WIN32
+    HANDLE lock=freak_fs_anchor_child_mode(root->directory,name,false,true,true,false,true);
+    bool locked=lock != INVALID_HANDLE_VALUE;
+#else
+    struct stat root_info;
+    if (fstat(root->directory,&root_info) != 0 || root_info.st_uid != geteuid() || (root_info.st_mode & 0077)) {
+        free(name); freak_fs_ticket_error(result,"directory transaction lock requires a private owned directory"); return handle;
+    }
+    int lock=openat(root->directory,name,O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC,0600);
+    struct stat info;
+    bool locked=lock >= 0 && fstat(lock,&info) == 0 && S_ISREG(info.st_mode) && info.st_nlink == 1 &&
+        info.st_uid == geteuid() && !(info.st_mode & 0077) && flock(lock,LOCK_EX | LOCK_NB) == 0;
+#endif
+    if (locked) { freak_fs_ticket_data(result,name,strlen(name)); result->directory=lock; result->owns_lock=true; result->kind=5; }
+    else { freak_fs_anchor_close(lock); freak_fs_ticket_error(result,"directory transaction lock already exists or could not be created privately"); }
+    free(name); return handle;
+}
 static char *freak_fs_anchor_join(const char *parent,const char *name) {
     size_t length=strlen(parent)+strlen(name)+2;
     char *full=freak_command_allocate(length,1);
@@ -2008,6 +2032,7 @@ int64_t freak_llvm_fs_remove_temp_dir_checked(int64_t temp) { return freak_fs_re
 int64_t freak_llvm_fs_publish_temp_dir_checked(int64_t temp,int64_t parent,int64_t path) { return freak_fs_publish_temp_dir_checked(temp,parent,freak_llvm_word_view(path)); }
 int64_t freak_llvm_fs_result_completed(int64_t result) { return freak_fs_result_completed(result) ? 1 : 0; }
 int64_t freak_llvm_fs_lock_dir_ticket(int64_t root,int64_t name) { return freak_fs_lock_dir_ticket(root,freak_llvm_word_view(name)); }
+int64_t freak_llvm_fs_lock_dir_new_ticket(int64_t root,int64_t name) { return freak_fs_lock_dir_new_ticket(root,freak_llvm_word_view(name)); }
 int64_t freak_llvm_fs_remove_relative_file_checked(int64_t root,int64_t path) { return freak_fs_remove_relative_file_checked(root,freak_llvm_word_view(path)); }
 int64_t freak_llvm_fs_mkdir_relative_checked(int64_t root,int64_t relative) { return freak_fs_mkdir_relative_checked(root,freak_llvm_word_view(relative)); }
 int64_t freak_llvm_fs_open_relative_dir_ticket(int64_t root,int64_t relative) { return freak_fs_open_relative_dir_ticket(root,freak_llvm_word_view(relative)); }

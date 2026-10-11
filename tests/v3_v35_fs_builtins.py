@@ -33,6 +33,7 @@ PROGRAM = '''task main() {
     pilot retained_publish = fs::publish_temp_dir_checked(held, held, "stage")
     pilot completed: bool = fs::result_completed(held)
     pilot locked = fs::lock_dir_ticket(held, "simple")
+    pilot fresh_locked = fs::lock_dir_new_ticket(held, "fresh")
     pilot relative_remove = fs::remove_relative_file_checked(held, "path")
     pilot relative_mkdir = fs::mkdir_relative_checked(held, "child")
     pilot child_dir = fs::open_relative_dir_ticket(held, "child")
@@ -86,6 +87,7 @@ OPERATIONS = (
     "publish_temp_dir_checked",
     "result_completed",
     "lock_dir_ticket",
+    "lock_dir_new_ticket",
     "remove_relative_file_checked",
     "mkdir_relative_checked",
     "open_relative_dir_ticket",
@@ -102,6 +104,17 @@ OPERATIONS = (
 )
 
 NEGATIVE = {
+    "new_lock_parent_type": (
+        'fs::lock_dir_new_ticket("parent", "fresh")',
+        "argument 1 expects int, got word", False,
+    ),
+    "new_lock_name_type": (
+        'fs::lock_dir_new_ticket(1, 2)',
+        "argument 2 expects word, got int", False,
+    ),
+    "new_lock_arity": (
+        'fs::lock_dir_new_ticket(1)', "expects 2 argument(s), got 1", False,
+    ),
     "held_mode_path_type": (
         'fs::set_mode_relative_checked(1, 2, 420)',
         "argument 2 expects word, got int", False,
