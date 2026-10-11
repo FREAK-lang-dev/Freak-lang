@@ -1191,6 +1191,8 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "fs::result_completed" { give back "bool" }
     if name == "fs::lock_dir_ticket" { give back "int" }
     if name == "fs::lock_dir_new_ticket" { give back "int" }
+    if name == "fs::abort_new_lock_checked" { give back "int" }
+    if name == "fs::temp_dir_ticket" { give back "int" }
     if name == "fs::remove_relative_file_checked" { give back "int" }
     if name == "fs::mkdir_relative_checked" { give back "int" }
     if name == "fs::open_relative_dir_ticket" { give back "int" }
@@ -1371,6 +1373,8 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "fs::result_completed" { give back "int" }
     if name == "fs::lock_dir_ticket" { give back "int,word" }
     if name == "fs::lock_dir_new_ticket" { give back "int,word" }
+    if name == "fs::abort_new_lock_checked" { give back "int" }
+    if name == "fs::temp_dir_ticket" { give back "int,word" }
     if name == "fs::remove_relative_file_checked" { give back "int,word" }
     if name == "fs::mkdir_relative_checked" { give back "int,word" }
     if name == "fs::open_relative_dir_ticket" { give back "int,word" }

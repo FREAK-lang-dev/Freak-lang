@@ -26,7 +26,7 @@ typedef struct {
     char **entries;
     size_t entry_count;
     uint32_t generation;
-    bool in_use, ok, source_text, completed, has_directory, owns_temp, temp_active, owns_lock, missing;
+    bool in_use, ok, source_text, completed, has_directory, owns_temp, temp_active, owns_lock, owns_new_lock, missing;
 #ifdef _WIN32
     HANDLE directory, temp_parent;
 #else
@@ -1442,28 +1442,116 @@ int64_t freak_fs_lock_dir_ticket(int64_t root_handle,freak_word lock_name) {
 }
 /* Initializers must own a newly created lock, not reopen retained writer state.
    Keep the create-only descriptor/HANDLE held through the result's lifetime. */
+int64_t freak_fs_abort_new_lock_checked(int64_t lock_handle);
 int64_t freak_fs_lock_dir_new_ticket(int64_t root_handle,freak_word lock_name) {
     int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
     freak_fs_ticket *root=freak_fs_directory_require(root_handle);
     char *name=freak_fs_checked_path(result,lock_name); if (!name) return handle;
     if (!freak_fs_relative_valid(name,true)) { free(name); freak_fs_ticket_error(result,"directory lock name must be one safe component"); return handle; }
+    freak_fs_anchor parent=freak_fs_anchor_dup(root->directory);
+    if (parent == FREAK_FS_INVALID_ANCHOR) { free(name); freak_fs_ticket_error(result,"could not retain newly created lock parent"); return handle; }
 #ifdef _WIN32
+    freak_fs_windows_parent_diagnostic diagnostic={"not-examined",0,-1};
+    if (!freak_fs_windows_parent_private(root->directory,&diagnostic)) {
+        freak_fs_anchor_close(parent); free(name); freak_fs_ticket_error(result,"directory transaction lock requires a private owned directory"); return handle;
+    }
     HANDLE lock=freak_fs_anchor_child_mode(root->directory,name,false,true,true,false,true);
     bool locked=lock != INVALID_HANDLE_VALUE;
 #else
     struct stat root_info;
     if (fstat(root->directory,&root_info) != 0 || root_info.st_uid != geteuid() || (root_info.st_mode & 0077)) {
-        free(name); freak_fs_ticket_error(result,"directory transaction lock requires a private owned directory"); return handle;
+        freak_fs_anchor_close(parent); free(name); freak_fs_ticket_error(result,"directory transaction lock requires a private owned directory"); return handle;
     }
     int lock=openat(root->directory,name,O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC,0600);
     struct stat info;
     bool locked=lock >= 0 && fstat(lock,&info) == 0 && S_ISREG(info.st_mode) && info.st_nlink == 1 &&
         info.st_uid == geteuid() && !(info.st_mode & 0077) && flock(lock,LOCK_EX | LOCK_NB) == 0;
 #endif
-    if (locked) { freak_fs_ticket_data(result,name,strlen(name)); result->directory=lock; result->owns_lock=true; result->kind=5; }
-    else { freak_fs_anchor_close(lock); freak_fs_ticket_error(result,"directory transaction lock already exists or could not be created privately"); }
+    if (lock != FREAK_FS_INVALID_ANCHOR) {
+        freak_fs_ticket_data(result,name,strlen(name)); result->directory=lock;
+        result->temp_parent=parent; result->owns_lock=result->owns_new_lock=true; result->kind=5;
+        if (!locked) {
+            int64_t removed=freak_fs_abort_new_lock_checked(handle);
+            bool clean=freak_fs_result_ok(removed); freak_fs_result_release(removed);
+            /* Allocating the rollback result may move the ticket table. */
+            result=freak_fs_ticket_require(handle);
+            freak_fs_ticket_error(result,clean ? "directory transaction lock could not be held privately" :
+                "directory transaction lock could not be held privately; owned rollback failed, recovery is required");
+        }
+    } else {
+        freak_fs_anchor_close(parent);
+        freak_fs_ticket_error(result,"directory transaction lock already exists or could not be created privately");
+    }
     free(name); return handle;
 }
+/* Abort only a fresh lock ticket. Windows deletes the captured HANDLE. POSIX
+   first quarantines a named entry in a newly created private directory, then
+   compares that entry with the captured descriptor before unlinking. A moved
+   foreign entry is restored without replacement, or retained for recovery.
+   As with owned temporary publication, another process with the same effective
+   uid must not mutate our private quarantine during this transaction: POSIX
+   provides no atomic conditional unlink-by-inode operation. */
+int64_t freak_fs_abort_new_lock_checked(int64_t lock_handle) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *lock=freak_fs_ticket_require(lock_handle);
+    if (!lock->owns_new_lock || !lock->owns_lock || lock->temp_active || lock->kind != 5 || !lock->data) {
+        freak_fs_ticket_error(result,"rollback requires a held newly created lock ticket"); return handle;
+    }
+#ifdef _WIN32
+    freak_fs_windows_parent_diagnostic diagnostic={"not-examined",0,-1};
+    if (!freak_fs_windows_parent_private(lock->temp_parent,&diagnostic)) {
+        freak_fs_ticket_error(result,"fresh lock rollback parent is not private; recovery is required"); return handle;
+    }
+    bool removed=freak_fs_anchor_delete_handle(lock->directory);
+    if (removed) { result->completed=true; lock->temp_active=true; freak_fs_anchor_close(lock->directory); lock->directory=FREAK_FS_INVALID_ANCHOR; lock->owns_lock=false; }
+    if (removed && freak_fs_anchor_sync(lock->temp_parent)) result->ok=true;
+    else freak_fs_ticket_error(result,removed ? "fresh lock rollback completed but synchronization failed" :
+        "could not remove captured fresh lock; recovery is required");
+#else
+    struct stat parent_info;
+    if (fstat(lock->temp_parent,&parent_info) != 0 || parent_info.st_uid != geteuid() || (parent_info.st_mode & 0077)) {
+        freak_fs_ticket_error(result,"fresh lock rollback parent is not private; recovery is required"); return handle;
+    }
+    char *quarantine=NULL; freak_fs_anchor directory=FREAK_FS_INVALID_ANCHOR;
+    for (int attempt=0;attempt<128;attempt++) {
+        free(quarantine); quarantine=freak_fs_temporary_name("lock-abort");
+        if (mkdirat(lock->temp_parent,quarantine,0700) == 0) {
+            directory=freak_fs_anchor_child(lock->temp_parent,quarantine,true,false,false); break;
+        }
+        if (errno != EEXIST) break;
+    }
+    bool moved=directory != FREAK_FS_INVALID_ANCHOR &&
+        freak_fs_anchor_rename(lock->temp_parent,(const char *)lock->data,directory,"held",false);
+    bool owned=false,removed=false,restored=false;
+    if (moved) {
+        freak_fs_anchor current=freak_fs_anchor_child(directory,"held",false,false,false);
+        owned=current != FREAK_FS_INVALID_ANCHOR && freak_fs_anchor_same(current,lock->directory);
+        freak_fs_anchor_close(current);
+        if (owned) removed=unlinkat(directory,"held",0) == 0;
+        else restored=freak_fs_anchor_rename(directory,"held",lock->temp_parent,(const char *)lock->data,false);
+    }
+    /* Never recursively clear a quarantine, and never consume a foreign entry.
+       Failed foreign restoration keeps the quarantine and both authorities. */
+    bool directory_synced=directory != FREAK_FS_INVALID_ANCHOR && freak_fs_anchor_sync(directory);
+    bool cleared=false;
+    if (directory_synced && (!moved || removed || restored)) {
+        freak_fs_anchor named=freak_fs_anchor_child(lock->temp_parent,quarantine,true,false,false);
+        bool same=named != FREAK_FS_INVALID_ANCHOR && freak_fs_anchor_same(named,directory);
+        freak_fs_anchor_close(named);
+        cleared=same && unlinkat(lock->temp_parent,quarantine,AT_REMOVEDIR) == 0;
+    }
+    if (removed) { result->completed=true; lock->temp_active=true; freak_fs_anchor_close(lock->directory); lock->directory=FREAK_FS_INVALID_ANCHOR; lock->owns_lock=false; }
+    bool synced=directory_synced && freak_fs_anchor_sync(lock->temp_parent);
+    if (removed && cleared && synced) result->ok=true;
+    else freak_fs_ticket_error(result,moved && !owned ?
+        (restored ? "fresh lock identity changed; foreign lock restored, recovery is required" :
+            "fresh lock identity changed; foreign lock retained in quarantine after restoration conflict, recovery is required") :
+        "could not complete exact fresh lock rollback; recovery is required");
+    freak_fs_anchor_close(directory); free(quarantine);
+#endif
+    return handle;
+}
+
 static char *freak_fs_anchor_join(const char *parent,const char *name) {
     size_t length=strlen(parent)+strlen(name)+2;
     char *full=freak_command_allocate(length,1);
@@ -1523,6 +1611,33 @@ int64_t freak_fs_temp_dir(freak_word parent,freak_word prefix) {
     if (!directory || !name) { free(directory); free(name); return handle; }
     if (!freak_fs_relative_valid(name,true) || strlen(name) > 128) { freak_fs_ticket_error(result,"temporary prefix must be a simple filename"); free(directory); free(name); return handle; }
     freak_fs_anchor owner=freak_fs_anchor_root(directory),child=FREAK_FS_INVALID_ANCHOR;
+    char *temporary=NULL;
+    if (owner != FREAK_FS_INVALID_ANCHOR) for (int i=0;i<128;i++) {
+        free(temporary); temporary=freak_fs_temporary_name(name);
+#ifdef _WIN32
+        bool retryable=false; child=freak_fs_windows_owned_temp(owner,temporary,&retryable);
+        if (child != FREAK_FS_INVALID_ANCHOR || !retryable) break;
+#else
+        child=freak_fs_anchor_child(owner,temporary,true,true,true); if (child != FREAK_FS_INVALID_ANCHOR) break;
+#endif
+    }
+    if (child == FREAK_FS_INVALID_ANCHOR) { freak_fs_anchor_close(owner); freak_fs_ticket_error(result,"could not exclusively create anchored temporary directory"); }
+    else {
+        char *full=freak_fs_anchor_join(directory,temporary);
+        freak_fs_ticket_data(result,full,strlen(full)); free(full);
+        result->directory=child; result->temp_parent=owner; result->temp_name=temporary; temporary=NULL;
+        result->has_directory=result->owns_temp=result->temp_active=result->completed=true; result->kind=2;
+    }
+    free(directory); free(name); free(temporary); return handle;
+}
+/* Owned staging relative to the exact admitted parent, never a path reopen. */
+int64_t freak_fs_temp_dir_ticket(int64_t parent_handle,freak_word prefix) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *parent=freak_fs_directory_require(parent_handle);
+    char *directory=freak_command_copy(freak_word_lit((const char *)parent->data),false),*name=freak_fs_checked_path(result,prefix);
+    if (!name) { free(directory); return handle; }
+    if (!freak_fs_relative_valid(name,true) || strlen(name) > 128) { freak_fs_ticket_error(result,"temporary prefix must be a simple filename"); free(directory); free(name); return handle; }
+    freak_fs_anchor owner=freak_fs_anchor_dup(parent->directory),child=FREAK_FS_INVALID_ANCHOR;
     char *temporary=NULL;
     if (owner != FREAK_FS_INVALID_ANCHOR) for (int i=0;i<128;i++) {
         free(temporary); temporary=freak_fs_temporary_name(name);
@@ -1956,9 +2071,9 @@ freak_word freak_fs_result_entry(int64_t ticket,int64_t index) {
 void freak_fs_result_release(int64_t ticket) {
     freak_fs_ticket *result = freak_fs_ticket_require(ticket);
     if (result->has_directory || result->owns_lock) freak_fs_anchor_close(result->directory);
-    if (result->owns_temp) freak_fs_anchor_close(result->temp_parent);
+    if (result->owns_temp || result->owns_new_lock) freak_fs_anchor_close(result->temp_parent);
     free(result->temp_name); result->temp_name = NULL;
-    result->has_directory = result->owns_temp = result->owns_lock = false;
+    result->has_directory = result->owns_temp = result->owns_lock = result->owns_new_lock = false;
     free(result->data);
     for (size_t index = 0; index < result->entry_count; index++) free(result->entries[index]);
     free(result->entries); result->data = NULL; result->entries = NULL;
@@ -2033,6 +2148,8 @@ int64_t freak_llvm_fs_publish_temp_dir_checked(int64_t temp,int64_t parent,int64
 int64_t freak_llvm_fs_result_completed(int64_t result) { return freak_fs_result_completed(result) ? 1 : 0; }
 int64_t freak_llvm_fs_lock_dir_ticket(int64_t root,int64_t name) { return freak_fs_lock_dir_ticket(root,freak_llvm_word_view(name)); }
 int64_t freak_llvm_fs_lock_dir_new_ticket(int64_t root,int64_t name) { return freak_fs_lock_dir_new_ticket(root,freak_llvm_word_view(name)); }
+int64_t freak_llvm_fs_abort_new_lock_checked(int64_t lock) { return freak_fs_abort_new_lock_checked(lock); }
+int64_t freak_llvm_fs_temp_dir_ticket(int64_t root,int64_t prefix) { return freak_fs_temp_dir_ticket(root,freak_llvm_word_view(prefix)); }
 int64_t freak_llvm_fs_remove_relative_file_checked(int64_t root,int64_t path) { return freak_fs_remove_relative_file_checked(root,freak_llvm_word_view(path)); }
 int64_t freak_llvm_fs_mkdir_relative_checked(int64_t root,int64_t relative) { return freak_fs_mkdir_relative_checked(root,freak_llvm_word_view(relative)); }
 int64_t freak_llvm_fs_open_relative_dir_ticket(int64_t root,int64_t relative) { return freak_fs_open_relative_dir_ticket(root,freak_llvm_word_view(relative)); }

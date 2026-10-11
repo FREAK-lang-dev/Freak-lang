@@ -175,14 +175,155 @@ task hangar_init_journal_ready(private: int) -> bool {
     give back true
 }
 
+-- Keep effects on admitted directory identities. New targets stay unpublished
+-- until complete; existing targets publish files without replacing entries.
+task hangar_init_checked(ticket: int, detail: word) -> bool {
+    pilot okay = fs::result_ok(ticket)
+    if not okay { hangar_legacy_writer_refused(detail + ": " + fs::result_error(ticket)) }
+    fs::result_release(ticket)
+    give back okay
+}
+
+task hangar_init_directory(project: int, name: word) -> int {
+    pilot directory = fs::open_relative_dir_ticket(project, name)
+    if fs::result_ok(directory) { give back directory }
+    pilot missing = fs::result_missing(directory)
+    pilot detail = fs::result_error(directory)
+    fs::result_release(directory)
+    if not missing { hangar_legacy_writer_refused("cannot anchor init directory " + name + ": " + detail) give back 0 }
+    directory = fs::temp_dir_ticket(project, "hangar-init-directory")
+    if not fs::result_ok(directory) {
+        hangar_legacy_writer_refused("cannot stage init directory: " + fs::result_error(directory))
+        fs::result_release(directory)
+        give back 0
+    }
+    pilot publication = fs::publish_temp_dir_checked(directory, project, name)
+    pilot published = fs::result_completed(publication)
+    pilot okay = hangar_init_checked(publication, "cannot publish init directory without replacement")
+    if not okay {
+        -- A completed publication retains authority and must not be cleared.
+        if not published { hangar_init_checked(fs::remove_temp_dir_checked(directory), "owned unpublished init directory cleanup") }
+        fs::result_release(directory)
+        give back 0
+    }
+    give back directory
+}
+
+task hangar_init_abort_lock(held: int) -> void {
+    hangar_init_checked(fs::abort_new_lock_checked(held), "owned init lock rollback; recovery is required on refusal")
+}
+
+task hangar_init_anchored(project: int, project_dir: word) -> int {
+    pilot project_name: word = hangar_basename(project_dir)
+    pilot stage = fs::temp_dir_ticket(project, "hangar-init-files")
+    if not fs::result_ok(stage) {
+        pilot detail = fs::result_error(stage)
+        fs::result_release(stage)
+        give back hangar_legacy_writer_refused("cannot stage init files: " + detail)
+    }
+    toml_clear()
+    toml_set("project.name", project_name)
+    toml_set("project.version", "0.1.0")
+    pilot manifest: ByteBuffer = ByteBuffer::new()
+    manifest.write_word(toml_render())
+    pilot complete = hangar_init_checked(fs::write_relative_bytes_checked(stage, "hangar.toml", manifest), "cannot stage init manifest")
+    manifest.release()
+    pilot source: ByteBuffer = ByteBuffer::new()
+    source.write_word("-- " + project_name + " -- a FREAK project\n\nsay \"Hello from " + project_name + "!\"\n")
+    if complete { complete = hangar_init_checked(fs::write_relative_bytes_checked(stage, "main.fk", source), "cannot stage init source") }
+    source.release()
+    pilot src = 0
+    pilot modules = 0
+    if complete { src = hangar_init_directory(project, "src") complete = src != 0 }
+    if complete {
+        -- Preserve every existing entry, including an unreadable one. The
+        -- create-only publication closes an entry appearing after this probe.
+        pilot existing = fs::read_relative_bytes_limit_ticket(src, "main.fk", 1)
+        pilot missing = fs::result_missing(existing)
+        fs::result_release(existing)
+        if missing { complete = hangar_init_checked(fs::rename_relative_new_checked(stage, "main.fk", src, "main.fk"), "cannot publish init source without replacement") }
+    }
+    if complete { modules = hangar_init_directory(project, "hangar_modules") complete = modules != 0 }
+    if complete { complete = hangar_init_generation_ready(project, project_dir) }
+    if complete { complete = hangar_init_checked(fs::rename_relative_new_checked(stage, "hangar.toml", project, "hangar.toml"), "cannot publish init manifest without replacement") }
+    if src != 0 { fs::result_release(src) }
+    if modules != 0 { fs::result_release(modules) }
+    pilot cleaned = hangar_init_checked(fs::remove_temp_dir_checked(stage), "owned unpublished init files cleanup")
+    fs::result_release(stage)
+    if not complete or not cleaned { give back 1 }
+    give back 0
+}
+
+task hangar_init_success(project_dir: word) -> void {
+    pilot project_name: word = hangar_basename(project_dir)
+    say ""
+    say C_BGREEN + "  INITIALIZED" + C_RESET + " " + C_BWHITE + project_name + C_RESET
+    say ""
+    say C_DIM + "    hangar.toml" + C_RESET
+    say C_DIM + "    src/main.fk" + C_RESET
+    say C_DIM + "    hangar_modules/" + C_RESET
+    say ""
+    pilot next_msg = C_DIM + "  Next: " + C_RESET + "cd " + project_dir + " && freak run src/main.fk"
+    say next_msg
+    say ""
+}
+
+task hangar_init_new(project_dir: word) -> int {
+    pilot parent_name = package_parent_path(project_dir)
+    pilot parent = fs::open_dir_ticket(parent_name)
+    if not fs::result_ok(parent) {
+        pilot detail = fs::result_error(parent)
+        fs::result_release(parent)
+        give back hangar_legacy_writer_refused("cannot anchor init parent: " + detail)
+    }
+    pilot stage = fs::temp_dir_ticket(parent, "hangar-init-project")
+    if not fs::result_ok(stage) {
+        pilot detail = fs::result_error(stage)
+        fs::result_release(stage)
+        fs::result_release(parent)
+        give back hangar_legacy_writer_refused("cannot stage new init target: " + detail)
+    }
+    pilot code = 1
+    pilot published = false
+    if hangar_init_generation_ready(stage, project_dir) {
+        code = hangar_init_anchored(stage, project_dir)
+        if code == 0 {
+            pilot publication = fs::publish_temp_dir_checked(stage, parent, hangar_basename(project_dir))
+            published = fs::result_completed(publication)
+            if not hangar_init_checked(publication, "cannot publish new init target without replacement") { code = 1 }
+        }
+    }
+    if not published {
+        if not hangar_init_checked(fs::remove_temp_dir_checked(stage), "owned unpublished project cleanup") { code = 1 }
+    }
+    fs::result_release(stage)
+    fs::result_release(parent)
+    if code == 0 { hangar_init_success(project_dir) }
+    give back code
+}
+
+task hangar_init_target_same(project: int, project_dir: word) -> bool {
+    pilot current = fs::open_dir_ticket(project_dir)
+    if not fs::result_ok(current) { fs::result_release(current) give back false }
+    pilot admitted = fs::directory_identity_ticket(project)
+    pilot observed = fs::directory_identity_ticket(current)
+    pilot same = false
+    if fs::result_ok(admitted) and fs::result_ok(observed) {
+        same = fs::result_word(admitted) == fs::result_word(observed)
+    }
+    fs::result_release(observed)
+    fs::result_release(admitted)
+    fs::result_release(current)
+    give back same
+}
+
 task hangar_init(project_dir: word) -> int {
     pilot project = fs::open_dir_ticket(project_dir)
     if not fs::result_ok(project) {
         pilot missing = fs::result_missing(project)
         pilot detail = fs::result_error(project)
         fs::result_release(project)
-        -- Genuinely absent targets retain the ordinary new-directory path.
-        if missing { give back hangar_init_admitted(project_dir) }
+        if missing { give back hangar_init_new(project_dir) }
         give back hangar_legacy_writer_refused("cannot anchor init target: " + detail)
     }
     if not hangar_init_generation_ready(project, project_dir) {
@@ -209,14 +350,9 @@ task hangar_init(project_dir: word) -> int {
             fs::result_release(project)
             give back hangar_legacy_writer_refused("cannot admit init private directory: " + detail)
         }
-        hangar_graph_error = ""
-        private = package_private_directory(project, ".freak")
-        if private == 0 {
-            fs::result_release(project)
-            give back hangar_legacy_writer_refused(hangar_graph_error)
-        }
+        private = hangar_init_directory(project, ".freak")
+        if private == 0 { fs::result_release(project) give back 1 }
     }
-    -- Atomic create-only admission closes publication after the absence probe.
     pilot held = fs::lock_dir_new_ticket(private, "graph.lock")
     if not fs::result_ok(held) {
         pilot detail = fs::result_error(held)
@@ -225,24 +361,30 @@ task hangar_init(project_dir: word) -> int {
         fs::result_release(project)
         give back hangar_legacy_writer_refused("cannot hold graph.lock: " + detail)
     }
-    -- Early absence is not writer authority. Re-admit the manifest, lock and
-    -- journal through the same anchors while our newly created graph lock is held.
     if not hangar_init_generation_ready(project, project_dir) {
+        hangar_init_abort_lock(held)
         fs::result_release(held)
         fs::result_release(private)
         fs::result_release(project)
         give back 1
     }
     if not hangar_init_journal_ready(private) {
+        hangar_init_abort_lock(held)
         fs::result_release(held)
         fs::result_release(private)
         fs::result_release(project)
         give back hangar_legacy_writer_refused("pending or unreadable graph transaction state; graph-aware recovery is required")
     }
-    pilot code = hangar_init_admitted(project_dir)
+    pilot code = 1
+    if hangar_init_target_same(project, project_dir) { code = hangar_init_anchored(project, project_dir) } else { hangar_legacy_writer_refused("init target identity changed; recovery is required") }
+    if code == 0 and not hangar_init_target_same(project, project_dir) {
+        code = hangar_legacy_writer_refused("init target identity changed during anchored publication; recovery is required")
+    }
+    if code != 0 { hangar_init_abort_lock(held) }
     fs::result_release(held)
     fs::result_release(private)
     fs::result_release(project)
+    if code == 0 { hangar_init_success(project_dir) }
     give back code
 }
 

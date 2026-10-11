@@ -801,6 +801,89 @@ def init_generation_controls(root: Path, invocation: tuple[str, Path, list[str]]
     print(f"native:{name}:init:orphan-generation-and-ordinary-targets:preserved", flush=True)
 
 
+def init_effect_authority_controls(root: Path, invocation: tuple[str, Path, list[str]],
+                                   recorder: Recorder, env: dict, report: Path,
+                                   private: WindowsPrivateFixture) -> None:
+    """Body refusal releases its own fresh lock; retained files stay exact."""
+    name, binary, prefix = invocation
+    parent = root / f"{name}-init-owned-rollback"
+    parent.mkdir()
+    target = parent / "fresh-project"
+    target.mkdir()
+    state = target / ".freak"
+    state.mkdir(mode=0o700)
+    private.claim_fresh_directories(parent, target, state)
+    (target / "src").write_bytes(b"foreign non-directory source entry\n")
+    before = snapshot(target)
+    code, output = recorder.run([str(binary), *prefix, "init", "fresh-project"], parent, env,
+                                f"{name}:init-authority:failed-body-rollback")
+    assert code == 1 and output.startswith(WRITER_PREFIX), output
+    assert "INITIALIZED" not in output and "ownership audit" not in output, output
+    assert snapshot(target) == before and report.read_bytes() == b"", output
+    assert not (state / "graph.lock").exists() and not tuple(state.glob("lock-abort*"))
+    (target / "src").unlink()
+    code, output = recorder.run([str(binary), *prefix, "init", "fresh-project"], parent, env,
+                                f"{name}:init-authority:retry-after-failure")
+    assert code == 0 and "INITIALIZED" in output and "ownership audit" not in output, output
+    assert tomllib.loads((target / "hangar.toml").read_text()) == {
+        "project": {"name": "fresh-project", "version": "0.1.0"}}, output
+    assert (target / "src/main.fk").read_bytes() == (
+        b'-- fresh-project -- a FREAK project\n\nsay "Hello from fresh-project!"\n')
+    assert report.read_bytes() == b"" and (state / "graph.lock").read_bytes() == b""
+
+    target = root / f"{name}-init-retained-nongraph-files"
+    target.mkdir()
+    source = target / "src"
+    source.mkdir()
+    modules = target / "hangar_modules"
+    modules.mkdir()
+    private.claim_fresh_directories(target, source, modules)
+    retained = b"retained source bytes\x00\xff\n"
+    (source / "main.fk").write_bytes(retained)
+    (modules / "retained").write_bytes(b"retained module\n")
+    old_source = snapshot(source)
+    old_modules = snapshot(modules)
+    code, output = recorder.run([str(binary), *prefix, "init"], target, env,
+                                f"{name}:init-authority:retained-nongraph-files")
+    assert code == 0 and "INITIALIZED" in output and "ownership audit" not in output, output
+    assert snapshot(source) == old_source and snapshot(modules) == old_modules
+    assert report.read_bytes() == b"" and (target / "hangar.toml").is_file()
+
+    if os.name == "nt":
+        # A real permissive Windows DACL, never a POSIX permission shim.
+        import ctypes
+        from ctypes import wintypes
+        target = root / f"{name}-init-public-private-acl"
+        target.mkdir()
+        state = target / ".freak"
+        state.mkdir()
+        private.claim_fresh_directories(target, state)
+        security = ctypes.WinDLL("advapi32", use_last_error=True)
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        convert = security.ConvertStringSecurityDescriptorToSecurityDescriptorW
+        convert.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.DWORD)]
+        convert.restype = wintypes.BOOL
+        apply = security.SetFileSecurityW
+        apply.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p]
+        apply.restype = wintypes.BOOL
+        kernel.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel.LocalFree.restype = ctypes.c_void_p
+        descriptor = ctypes.c_void_p()
+        assert convert("D:P(A;;FA;;;WD)", 1, ctypes.byref(descriptor), None), ctypes.get_last_error()
+        try:
+            assert apply(str(state), 0x80000004, descriptor), ctypes.get_last_error()
+        finally:
+            kernel.LocalFree(descriptor)
+        before = snapshot(target)
+        code, output = recorder.run([str(binary), *prefix, "init"], target, env,
+                                    f"{name}:init-authority:permissive-Windows-parent-ACL")
+        assert code == 1 and "private owned directory" in output, output
+        assert "INITIALIZED" not in output and "ownership audit" not in output, output
+        assert snapshot(target) == before and report.read_bytes() == b"", output
+        assert not (state / "graph.lock").exists()
+    print(f"native:{name}:init:owned-rollback-and-retained-files:preserved", flush=True)
+
+
 def execute(args, root: Path, recorder: Recorder, receipt: dict,
             private: WindowsPrivateFixture) -> None:
     freak = args.freak.resolve(strict=True)
@@ -990,6 +1073,7 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
         audit_hash_failure_controls(root, invocation, recorder, env, report, private, integrity_tools)
         audit_stable_hash_controls(root, invocation, recorder, env, report, private)
         init_generation_controls(root, invocation, recorder, env, report, private, diamond)
+        init_effect_authority_controls(root, invocation, recorder, env, report, private)
 
         # Explicit toolchain bootstrap does not use the project's lock. A
         # controlled local installer exits 23 and records actual execution.
