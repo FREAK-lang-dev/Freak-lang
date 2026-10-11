@@ -22,6 +22,15 @@ import v3_v35_acceptance as acceptance
 import v3_v35_hangar_lock_preservation as preservation
 
 
+def available_idle_input(peer: socket.socket) -> bytes | None:
+    """Read queued input before declaring an idle timeout after scheduling delay."""
+    peer.settimeout(0)
+    try:
+        return peer.recv(1024)
+    except BlockingIOError:
+        return None
+
+
 class AcceptanceHelpers(unittest.TestCase):
     def test_success_keeps_separate_raw_channels_and_exit(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -332,23 +341,35 @@ class AcceptanceHelpers(unittest.TestCase):
         listener.listen(1)
         port = listener.getsockname()[1]
         errors = []
+        observations = []
         def serve():
             try:
                 with listener, listener.accept()[0] as peer:
                     began = last = time.monotonic()
                     while True:
                         remaining = (began + 1 if absolute else last + 0.25) - time.monotonic()
-                        if remaining <= 0:
+                        # A delayed server thread can resume with fragments
+                        # already queued. Idle expiry must inspect that queue;
+                        # the absolute deadline still expires unconditionally.
+                        data = available_idle_input(peer) if remaining <= 0 and not absolute else None
+                        if remaining <= 0 and data is None:
+                            observations.append({'event': 'expired', 'seconds': time.monotonic() - began,
+                                                 'idle_seconds': time.monotonic() - last,
+                                                 'queued_bytes': None})
                             peer.sendall(b'HTTP/1.1 408 Request Timeout\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
                             return
-                        peer.settimeout(remaining)
-                        try:
-                            data = peer.recv(1024)
-                        except socket.timeout:
-                            continue
+                        if data is None:
+                            peer.settimeout(remaining)
+                            try:
+                                data = peer.recv(1024)
+                            except socket.timeout:
+                                continue
                         if not data:
                             raise AssertionError('client closed before model deadline')
                         last = time.monotonic()
+                        if len(observations) < 64:
+                            observations.append({'event': 'read', 'seconds': last - began,
+                                                 'bytes': len(data)})
             except BaseException as error:
                 errors.append(error)
         thread = threading.Thread(target=serve)
@@ -359,6 +380,9 @@ class AcceptanceHelpers(unittest.TestCase):
                 port, acceptance.ABSOLUTE_TRICKLE_WIRE, cuts=acceptance.ABSOLUTE_TRICKLE_CUTS,
                 delay=acceptance.ABSOLUTE_TRICKLE_DELAY)
             elapsed = time.monotonic() - began
+            print('HTTP deadline model: ' + json.dumps({'absolute': absolute,
+                                                       'elapsed_seconds': elapsed,
+                                                       'server_observations': observations}))
             self.assertEqual((status, body), (408, b''))
             # A framed rejection can reset a connection with unread input.
             self.assertIn(termination, ('eof', 'reset'))
@@ -367,6 +391,30 @@ class AcceptanceHelpers(unittest.TestCase):
             thread.join(timeout=10)
             self.assertFalse(thread.is_alive())
             self.assertEqual(errors, [])
+
+    def test_idle_expiry_reads_queued_input_without_waiting(self):
+        peer = Mock()
+        peer.recv.return_value = b'queued fragments'
+        self.assertEqual(available_idle_input(peer), b'queued fragments')
+        peer.settimeout.assert_called_once_with(0)
+        peer.recv.assert_called_once_with(1024)
+
+    def test_idle_expiry_with_empty_queue_remains_expired(self):
+        peer = Mock()
+        peer.recv.side_effect = BlockingIOError()
+        self.assertIsNone(available_idle_input(peer))
+        peer.settimeout.assert_called_once_with(0)
+        peer.recv.assert_called_once_with(1024)
+
+    def test_idle_expiry_preserves_eof_and_socket_error(self):
+        peer = Mock()
+        peer.recv.return_value = b''
+        self.assertEqual(available_idle_input(peer), b'')
+        primary = ConnectionResetError('peer reset')
+        peer.recv.side_effect = primary
+        with self.assertRaises(ConnectionResetError) as caught:
+            available_idle_input(peer)
+        self.assertIs(caught.exception, primary)
 
     def test_actual_absolute_deadline_model_passes(self):
         acceptance.assert_absolute_header_deadline(self.deadline_model(True))
