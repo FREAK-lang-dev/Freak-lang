@@ -755,6 +755,32 @@ def init_generation_controls(root: Path, invocation: tuple[str, Path, list[str]]
         assert code == 1 and "hangar.toml already exists in fresh-project" in output, output
         assert snapshot(target) == before and report.read_bytes() == b"", output
 
+    # Equivalent terminal directory spellings must select the same host leaf.
+    spellings = ["fresh-project/", "fresh-project///", "fresh-project/.",
+                 "fresh-project/./"]
+    if os.name == "nt":
+        spellings += ["fresh-project\\", "fresh-project\\."]
+    else:
+        spellings += ["literal\\project", "literal\\project/"]
+    for index, spelling in enumerate(spellings):
+        parent = root / f"{name}-init-target-spelling-{index}"
+        parent.mkdir()
+        private.claim_fresh_directories(parent)
+        leaf = "literal\\project" if spelling.startswith("literal") else "fresh-project"
+        target = parent / leaf
+        # Preserve the neighbor the old cosmetic basename would have selected.
+        neighbor = parent / "project"
+        neighbor.mkdir()
+        (neighbor / "retained").write_bytes(b"unrelated neighbor\x00\xff\n")
+        before_neighbor = snapshot(neighbor)
+        code, output = recorder.run([str(binary), *prefix, "init", spelling], parent, env,
+                                    f"{name}:init-authority:host-target-spelling:{index}")
+        assert code == 0 and "INITIALIZED" in output and "ownership audit" not in output, output
+        assert (target / "hangar.toml").is_file() and (target / "src/main.fk").is_file(), output
+        assert (target / "hangar_modules").is_dir() and not (target / "hangar.lock").exists()
+        assert snapshot(neighbor) == before_neighbor and report.read_bytes() == b"", output
+        assert set(entry.name for entry in parent.iterdir()) == {leaf, "project"}, output
+
     parent = root / f"{name}-init-generation-target-file"
     parent.mkdir()
     private.claim_fresh_directories(parent)
@@ -881,6 +907,32 @@ def init_effect_authority_controls(root: Path, invocation: tuple[str, Path, list
         assert "INITIALIZED" not in output and "ownership audit" not in output, output
         assert snapshot(target) == before and report.read_bytes() == b"", output
         assert not (state / "graph.lock").exists()
+        # The ordinary lock path must check the held parent before both create
+        # and reopen. Every legacy writer uses that same admission boundary.
+        for retained_lock in (False, True):
+            target = root / f"{name}-legacy-public-private-acl-{int(retained_lock)}"
+            target.mkdir()
+            state = target / ".freak"
+            state.mkdir()
+            private.claim_fresh_directories(target, state)
+            (target / "hangar.toml").write_text(
+                '[project]\nname = "private-parent"\nversion = "0.1.0"\n', encoding="utf-8")
+            if retained_lock:
+                (state / "graph.lock").write_bytes(b"retained ordinary lock\n")
+            descriptor = ctypes.c_void_p()
+            assert convert("D:P(A;;FA;;;WD)", 1, ctypes.byref(descriptor), None), ctypes.get_last_error()
+            try:
+                assert apply(str(state), 0x80000004, descriptor), ctypes.get_last_error()
+            finally:
+                kernel.LocalFree(descriptor)
+            before = snapshot(target)
+            for index, command in enumerate((*WRITERS, *(("version", bump) for bump in VERSION_BUMPS))):
+                code, output = recorder.run([str(binary), *prefix, *command], target, env,
+                                            f"{name}:legacy-authority:permissive-Windows-parent-ACL:{int(retained_lock)}:{index}")
+                assert code == 1 and output == (WRITER_PREFIX + "cannot hold graph.lock: "
+                    "directory transaction lock requires a private owned directory\n"), output
+                assert snapshot(target) == before and report.read_bytes() == b"", output
+                assert (state / "graph.lock").exists() == retained_lock
     print(f"native:{name}:init:owned-rollback-and-retained-files:preserved", flush=True)
 
 

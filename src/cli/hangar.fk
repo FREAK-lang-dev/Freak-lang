@@ -288,7 +288,7 @@ task hangar_init_new(project_dir: word) -> int {
     if hangar_init_generation_ready(stage, project_dir) {
         code = hangar_init_anchored(stage, project_dir)
         if code == 0 {
-            pilot publication = fs::publish_temp_dir_checked(stage, parent, hangar_basename(project_dir))
+            pilot publication = fs::publish_temp_dir_checked(stage, parent, package_leaf_path(project_dir))
             published = fs::result_completed(publication)
             if not hangar_init_checked(publication, "cannot publish new init target without replacement") { code = 1 }
         }
@@ -317,7 +317,30 @@ task hangar_init_target_same(project: int, project_dir: word) -> bool {
     give back same
 }
 
+-- Normalize only terminal directory separators and dot components. Backslash
+-- is a separator on Windows and an ordinary filename character on POSIX.
+-- Keep drive/UNC/root floors intact; cosmetic names never select destinations.
+task hangar_init_target_path(path: word) -> word {
+    pilot windows = process::platform_is_windows()
+    pilot floor = package_path_root_length(path, windows)
+    pilot length = package_path_byte_length(path)
+    repeat until length <= floor {
+        pilot last = path.char_at(length - 1)
+        if last == "/" or (windows and last == "\\") {
+            length -= 1
+        } else if last == "." and length > 1 {
+            pilot previous = path.char_at(length - 2)
+            if previous == "/" or (windows and previous == "\\") { length -= 1 } else { give back path.substring(0, length) }
+        } else { give back path.substring(0, length) }
+    }
+    give back path.substring(0, length)
+}
+
 task hangar_init(project_dir: word) -> int {
+    give back hangar_init_normalized(hangar_init_target_path(project_dir))
+}
+
+task hangar_init_normalized(project_dir: word) -> int {
     pilot project = fs::open_dir_ticket(project_dir)
     if not fs::result_ok(project) {
         pilot missing = fs::result_missing(project)
@@ -1188,16 +1211,11 @@ task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word
         fs::result_release(modules_ticket)
         give back 1
     }
-    pilot operation_directory = fs::open_relative_dir_ticket(modules_ticket, ".hangar-operations")
-    if not fs::result_ok(operation_directory) {
-        fs::result_release(operation_directory)
-        operation_directory = fs::mkdir_relative_checked(modules_ticket, ".hangar-operations")
-        if not fs::result_ok(operation_directory) {
-            say "  Could not create private package operation directory: " + fs::result_error(operation_directory)
-            fs::result_release(operation_directory)
-            fs::result_release(modules_ticket)
-            give back 1
-        }
+    pilot operation_directory = package_private_directory(modules_ticket, ".hangar-operations")
+    if operation_directory == 0 {
+        say "  Could not create private package operation directory: " + hangar_graph_error
+        fs::result_release(modules_ticket)
+        give back 1
     }
     -- The lock parent is a held private owned directory. File presence is only
     -- a namespace marker; a held OS lock is the authority and dies with us.

@@ -1422,6 +1422,10 @@ int64_t freak_fs_lock_dir_ticket(int64_t root_handle,freak_word lock_name) {
     char *name=freak_fs_checked_path(result,lock_name); if (!name) return handle;
     if (!freak_fs_relative_valid(name,true)) { free(name); freak_fs_ticket_error(result,"directory lock name must be one safe component"); return handle; }
 #ifdef _WIN32
+    freak_fs_windows_parent_diagnostic diagnostic={"not-examined",0,-1};
+    if (!freak_fs_windows_parent_private(root->directory,&diagnostic)) {
+        free(name); freak_fs_ticket_error(result,"directory transaction lock requires a private owned directory"); return handle;
+    }
     HANDLE lock=freak_fs_anchor_child_mode(root->directory,name,false,true,true,false,true);
     if (lock == INVALID_HANDLE_VALUE && (GetLastError() == ERROR_FILE_EXISTS || GetLastError() == ERROR_ALREADY_EXISTS))
         lock=freak_fs_anchor_child_mode(root->directory,name,false,false,true,false,true);

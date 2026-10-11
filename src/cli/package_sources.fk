@@ -323,10 +323,26 @@ task package_private_directory(parent: int, name: word) -> int {
     pilot detail = fs::result_error(directory)
     fs::result_release(directory)
     if not absent { hangar_graph_fail("cannot open private package directory " + name + ": " + detail) give back 0 }
-    directory = fs::mkdir_relative_checked(parent, name)
+    -- An inherited Windows DACL need not be private. Create only our own
+    -- private temporary identity, then publish it without replacing a name.
+    directory = fs::temp_dir_ticket(parent, "hangar-private")
     if not fs::result_ok(directory) { hangar_graph_fail("cannot create private package directory " + name + ": " + fs::result_error(directory))
         fs::result_release(directory)
         give back 0 }
+    pilot publication = fs::publish_temp_dir_checked(directory, parent, name)
+    pilot published = fs::result_completed(publication)
+    pilot complete = fs::result_ok(publication)
+    if not complete { hangar_graph_fail("cannot publish private package directory " + name + ": " + fs::result_error(publication)) }
+    fs::result_release(publication)
+    if not complete {
+        if not published {
+            pilot cleanup = fs::remove_temp_dir_checked(directory)
+            if not fs::result_ok(cleanup) { hangar_graph_fail("owned private directory cleanup failed; recovery is required") }
+            fs::result_release(cleanup)
+        }
+        fs::result_release(directory)
+        give back 0
+    }
     give back directory
 }
 
