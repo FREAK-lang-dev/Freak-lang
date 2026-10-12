@@ -18,6 +18,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Require tag, compiler, and package versions to agree
         run: python -u tools/release_version.py check --tag "${GITHUB_REF_NAME}"
+      - name: Require release notes for the tagged version
+        run: test -s "docs/releases/${GITHUB_REF_NAME}.md"
 
   editors:
     needs: version-invariant
@@ -302,7 +304,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: repo/docs/releases/${{ github.ref_name }}.md
+          generate_release_notes: false
           files: |
             artifacts/freak-linux-x64/freak-linux-x64
             artifacts/freak-linux-x64/hangar-linux-x64

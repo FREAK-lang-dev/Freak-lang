@@ -124,6 +124,20 @@ def check_version(version: str, tag: str | None = None) -> None:
         "README.md version badge differs from VERSION",
         errors,
     )
+    release_notes = ROOT / "docs" / "releases" / f"v{version}.md"
+    if release_notes.is_file():
+        notes_text = release_notes.read_text(encoding="utf-8")
+        require(notes_text.startswith(f"# FREAK {version}\n"),
+                "release notes title differs from VERSION", errors)
+        require(f"{version} development candidate" not in readme_text,
+                "README.md still calls the release a development candidate", errors)
+        prerelease_notes = ROOT / "docs" / "v015-prerelease-notes.md"
+        if prerelease_notes.is_file():
+            prerelease_text = prerelease_notes.read_text(encoding="utf-8")
+            require("historical" in prerelease_text.partition("\n")[0].lower(),
+                    "superseded prerelease notes must be marked historical", errors)
+            require("This is a draft for the future release" not in prerelease_text,
+                    "superseded prerelease notes still declare a future release", errors)
     claude_text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     require(
         f"current release **v{version}" in claude_text,
