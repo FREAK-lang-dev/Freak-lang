@@ -1,6 +1,7 @@
 name: Release 0.15.0 recovery
 
 # Execute the repaired workflow while retaining the original release tag/source.
+# Publication verifies its own draft by ID; the release listing lags creation.
 on:
   push:
     branches: [main]
