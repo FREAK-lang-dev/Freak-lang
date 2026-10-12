@@ -585,6 +585,25 @@ def main() -> int:
                 )
                 assert_absent([direct_artifact], f"direct {backend} {name}")
 
+        # Source binding lexes modules before transpilation. Its early failure
+        # must retain the usual build footer, original diagnostic and cleanup.
+        lexical = root / "unterminated_word.fk"
+        lexical.write_text('task main() {\n    say "oops\n}\n', encoding="utf-8")
+        for backend, flag, suffix in (("c", "--c", ".c"), ("llvm", "--llvm", ".ll")):
+            generated = Path(str(lexical) + suffix)
+            binary = binary_for(lexical)
+            generated.write_text("stale generated output", encoding="utf-8")
+            binary.write_text("stale executable", encoding="utf-8")
+            rejected = run([str(freak), "build", str(lexical), flag], repo, env)
+            output = rejected.stdout + rejected.stderr
+            assert rejected.returncode == 1, (backend, output)
+            assert "unterminated string literal" in output, (backend, output)
+            assert "Code generation skipped due to source admission errors." in output, (backend, output)
+            assert "BUILD FAILED" in output, (backend, output)
+            assert "/unterminated_word.fk:2:" in output.replace("\\", "/"), output
+            assert "^" in output, output
+            assert_absent([generated, binary], f"lexical {backend} build")
+
     print("V3 interpolation expression/backends/ownership gate: PASS")
     return 0
 

@@ -1982,6 +1982,10 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
         say "Package binding error: " + cli_project_source_error
         say "Code generation skipped due to source admission errors."
         cli_project_binding_release()
+        say ""
+        say "  " + C_BRED + SYM_SKULL + " BUILD FAILED" + C_RESET
+        say "  " + C_DIM + C_ITALIC + cli_fail_quote(time::now_ms()) + C_RESET
+        say ""
         give back ""
     }
 
