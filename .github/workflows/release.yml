@@ -3,27 +3,53 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      expected_source_commit:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
   LLVM_MINGW_VERSION: "20260616"
   LLVM_MINGW_SHA256: "b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35"
 
 jobs:
   version-invariant:
     runs-on: ubuntu-latest
+    outputs:
+      source_commit: ${{ steps.source.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
       - name: Require tag, compiler, and package versions to agree
-        run: python -u tools/release_version.py check --tag "${GITHUB_REF_NAME}"
+        run: python -u tools/release_version.py check --tag "${RELEASE_TAG}"
       - name: Require release notes for the tagged version
-        run: test -s "docs/releases/${GITHUB_REF_NAME}.md"
+        run: test -s "docs/releases/${RELEASE_TAG}.md"
+      - name: Bind all release jobs to the checked source commit
+        id: source
+        env:
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          selected_commit=$(git rev-parse HEAD)
+          if [[ -n "$EXPECTED_SOURCE_COMMIT" ]]; then
+            test "$selected_commit" = "$EXPECTED_SOURCE_COMMIT"
+          fi
+          echo "commit=$selected_commit" >> "$GITHUB_OUTPUT"
 
   editors:
     needs: version-invariant
     uses: ./.github/workflows/editor-packages.yml
+    with:
+      source_ref: ${{ needs.version-invariant.outputs.source_commit }}
 
   build:
     needs: version-invariant
@@ -47,6 +73,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-invariant.outputs.source_commit }}
 
       - name: Install Clang (Ubuntu)
         if: runner.os == 'Linux'
@@ -66,7 +94,9 @@ jobs:
           Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP -Force
           $bin = Join-Path $env:RUNNER_TEMP "llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64\bin"
           $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & (Join-Path $bin "clang.exe") --version
+          $clangPath = Join-Path $bin "clang.exe"
+          "FREAK_CLANG=$clangPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $clangPath --version
 
       - name: Set platform linker flags
         shell: bash
@@ -179,7 +209,7 @@ jobs:
           path: dist/
 
   publish:
-    needs: [build, editors]
+    needs: [version-invariant, build, editors]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -245,6 +275,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: repo
+          ref: ${{ needs.version-invariant.outputs.source_commit }}
 
       - name: Update packaging checksums
         run: |
@@ -261,7 +292,7 @@ jobs:
             fi
           done
           cd ..
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           sed -i "s/HOMEBREW_SHA256_MACOS_ARM64_PLACEHOLDER/$HASH_MACOS/g" repo/packaging/homebrew/freak.rb
           sed -i "s/HOMEBREW_SHA256_LINUX_X64_PLACEHOLDER/$HASH_LINUX_X64/g" repo/packaging/homebrew/freak.rb
           sed -i "s/HOMEBREW_SHA256_LINUX_ARM64_PLACEHOLDER/$HASH_LINUX_ARM64/g" repo/packaging/homebrew/freak.rb
@@ -304,7 +335,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: repo/docs/releases/${{ github.ref_name }}.md
+          tag_name: ${{ env.RELEASE_TAG }}
+          body_path: repo/docs/releases/${{ env.RELEASE_TAG }}.md
           generate_release_notes: false
           files: |
             artifacts/freak-linux-x64/freak-linux-x64
