@@ -26,12 +26,12 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "7780d357f3849fea3eabb4d41732ae6fa6c10bbd"
           python -u tools/release_version.py check --tag v0.15.0
-          release_record=$(gh api graphql \
+          can_publish=$(gh api graphql \
             -f query='query($repoOwner: String!, $repoName: String!) { repository(owner: $repoOwner, name: $repoName) { release(tagName: "v0.15.0") { id } } }' \
             -f repoOwner="${GITHUB_REPOSITORY%/*}" \
             -f repoName="${GITHUB_REPOSITORY#*/}" \
-            --jq '.data.repository.release')
-          test "$release_record" = "null"
+            --jq '.data.repository != null and .data.repository.release == null')
+          test "$can_publish" = "true"
   recover:
     needs: require-unpublished-tag
     permissions:
