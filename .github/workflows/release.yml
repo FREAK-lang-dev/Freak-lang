@@ -403,11 +403,26 @@ jobs:
                       raise RuntimeError(f"Unexpected {method} response status: {response.status}")
                   return json.load(response)
 
+          def require_source_tag():
+              ref_url = f"https://api.github.com/repos/{repo}/git/ref/tags/{urllib.parse.quote(tag, safe='')}"
+              target = request("GET", ref_url, None)["object"]
+              visited = set()
+              while target["type"] == "tag":
+                  if target["sha"] in visited:
+                      raise RuntimeError("Cyclic annotated tag response")
+                  visited.add(target["sha"])
+                  target = request("GET", f"https://api.github.com/repos/{repo}/git/tags/{target['sha']}", None)["object"]
+              if target["type"] != "commit" or target["sha"] != os.environ["SOURCE_COMMIT"]:
+                  raise RuntimeError("Release tag no longer matches the verified source commit")
+
           # POST creates a new release; it never updates one found by tag.
           # GitHub can allow duplicate drafts, so check for those explicitly too.
           # Keep our new release a draft until every upload has succeeded.
+          require_source_tag()
           release = request("POST", api_root, {
-              "tag_name": tag, "target_commitish": os.environ["SOURCE_COMMIT"],
+              # The verified tag already exists. Omit the unused target_commitish
+              # so token authorization resolves against the default branch.
+              "tag_name": tag,
               "name": tag, "body": notes, "draft": True, "prerelease": False,
           })
           release_id = release["id"]
@@ -445,6 +460,7 @@ jobs:
           # Recheck conflicts after uploads, then publish only the ID we created.
           # A concurrent publication error is fatal; never adopt or retry against its ID.
           require_sole_draft()
+          require_source_tag()
           published = request("PATCH", f"{api_root}/{release_id}", {"draft": False})
           if published["id"] != release_id or published["tag_name"] != tag or published["draft"] is not False:
               raise RuntimeError("Release did not become public")
