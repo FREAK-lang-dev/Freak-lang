@@ -31,6 +31,29 @@ def available_idle_input(peer: socket.socket) -> bytes | None:
         return None
 
 
+def send_model_deadline_response(peer: socket.socket) -> None:
+    """Flush the model's rejection before closing with unread trickle input."""
+    peer.sendall(b'HTTP/1.1 408 Request Timeout\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
+    peer.shutdown(socket.SHUT_WR)
+    # This bounds teardown only. The response and write-side EOF are already
+    # sent; neither the absolute/idle deadline nor the client's oracle changes.
+    finish = time.monotonic() + 1
+    drained = 0
+    while True:
+        remaining = finish - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError('deadline model teardown exceeded one second')
+        peer.settimeout(remaining)
+        try:
+            data = peer.recv(1024)
+        except ConnectionResetError:
+            return
+        if not data:
+            return
+        drained += len(data)
+        assert drained <= len(acceptance.ABSOLUTE_TRICKLE_WIRE), 'unbounded model teardown input'
+
+
 class TricklePacer:
     """Keep this comparative model on its first completed send's schedule."""
 
@@ -389,7 +412,7 @@ class AcceptanceHelpers(unittest.TestCase):
                             observations.append({'event': 'expired', 'seconds': time.monotonic() - began,
                                                  'idle_seconds': time.monotonic() - last,
                                                  'queued_bytes': None})
-                            peer.sendall(b'HTTP/1.1 408 Request Timeout\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
+                            send_model_deadline_response(peer)
                             return
                         if data is None:
                             peer.settimeout(remaining)
@@ -575,6 +598,49 @@ class AcceptanceHelpers(unittest.TestCase):
 
     def test_actual_absolute_deadline_model_passes(self):
         acceptance.assert_absolute_header_deadline(self.deadline_model(True))
+
+    def test_deadline_response_half_closes_before_draining_unread_input(self):
+        peer = Mock()
+        peer.recv.side_effect = [b'queued input', b'']
+        with patch.object(time, 'monotonic', side_effect=[10, 10.25, 10.5]):
+            send_model_deadline_response(peer)
+        self.assertEqual(peer.method_calls[0].args,
+                         (b'HTTP/1.1 408 Request Timeout\r\nConnection: close\r\nContent-Length: 0\r\n\r\n',))
+        self.assertEqual(peer.method_calls[1].args, (socket.SHUT_WR,))
+        self.assertEqual([call[0] for call in peer.method_calls],
+                         ['sendall', 'shutdown', 'settimeout', 'recv', 'settimeout', 'recv'])
+        self.assertEqual(peer.settimeout.call_args_list[0].args, (0.75,))
+        self.assertEqual(peer.settimeout.call_args_list[1].args, (0.5,))
+
+    def test_deadline_response_drain_preserves_its_absolute_cleanup_bound(self):
+        peer = Mock()
+        peer.recv.return_value = b'x'
+        with patch.object(time, 'monotonic', side_effect=[10, 10.5, 11.1]):
+            with self.assertRaisesRegex(TimeoutError, 'teardown exceeded one second'):
+                send_model_deadline_response(peer)
+        peer.recv.assert_called_once_with(1024)
+
+    def test_deadline_response_drain_refuses_excess_input(self):
+        peer = Mock()
+        peer.recv.return_value = b'x' * (len(acceptance.ABSOLUTE_TRICKLE_WIRE) + 1)
+        with self.assertRaisesRegex(AssertionError, 'unbounded model teardown input'):
+            send_model_deadline_response(peer)
+
+    def test_deadline_response_keeps_send_failure_fatal(self):
+        peer = Mock()
+        primary = OSError('controlled model response failure')
+        peer.sendall.side_effect = primary
+        with self.assertRaises(OSError) as caught:
+            send_model_deadline_response(peer)
+        self.assertIs(caught.exception, primary)
+        peer.shutdown.assert_not_called()
+        peer.recv.assert_not_called()
+
+    def test_deadline_response_accepts_peer_reset_after_half_close(self):
+        peer = Mock()
+        peer.recv.side_effect = ConnectionResetError('peer finished')
+        send_model_deadline_response(peer)
+        peer.shutdown.assert_called_once_with(socket.SHUT_WR)
 
     def test_actual_idle_only_model_is_rejected(self):
         elapsed = self.deadline_model(False)
