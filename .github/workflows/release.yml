@@ -430,8 +430,12 @@ jobs:
               raise RuntimeError("Unexpected create-release response")
 
           def require_sole_draft():
+              # The release listing lags behind creation, so it cannot prove our
+              # own draft exists. Read that by ID; use the listing for conflicts.
+              own = request("GET", f"{api_root}/{release_id}", None)
+              if own["id"] != release_id or own["tag_name"] != tag or own["draft"] is not True:
+                  raise RuntimeError("Our draft release is not intact; refusing publication")
               page = 1
-              found_own_draft = False
               while True:
                   releases = request("GET", f"{api_root}?per_page=100&page={page}", None)
                   for existing in releases:
@@ -439,28 +443,47 @@ jobs:
                           continue
                       if existing["id"] != release_id or existing["draft"] is not True:
                           raise RuntimeError("Another release already exists for this tag")
-                      found_own_draft = True
                   if len(releases) < 100:
                       break
                   page += 1
-              if not found_own_draft:
-                  raise RuntimeError("Our draft release is not visible; refusing publication")
 
-          require_sole_draft()
-          upload_root = f"https://uploads.github.com/repos/{repo}/releases/{release_id}/assets"
-          for path in assets:
-              data = path.read_bytes()
-              uploaded = request("POST", f"{upload_root}?name={urllib.parse.quote(path.name, safe='')}",
-                                 data, "application/octet-stream")
-              if uploaded["name"] != path.name or uploaded["size"] != len(data) or uploaded["state"] != "uploaded":
-                  raise RuntimeError(f"Upload metadata mismatch: {path.name}")
-              if uploaded.get("digest") not in (None, "sha256:" + hashlib.sha256(data).hexdigest()):
-                  raise RuntimeError(f"Upload digest mismatch: {path.name}")
-              print(f"Uploaded {path.name}")
-          # Recheck conflicts after uploads, then publish only the ID we created.
-          # A concurrent publication error is fatal; never adopt or retry against its ID.
-          require_sole_draft()
-          require_source_tag()
+          def discard_own_draft():
+              # An abandoned draft blocks every later attempt. Remove only the
+              # still-unpublished ID created above; never touch any other release.
+              try:
+                  own = request("GET", f"{api_root}/{release_id}", None)
+                  if own["id"] != release_id or own["draft"] is not True:
+                      return
+                  req = urllib.request.Request(f"{api_root}/{release_id}", method="DELETE", headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  })
+                  with urllib.request.urlopen(req, timeout=60):
+                      pass
+                  print(f"Discarded unpublished draft {release_id}")
+              except Exception as cleanup_error:
+                  print(f"::warning::could not discard draft {release_id}: {cleanup_error}")
+
+          try:
+              require_sole_draft()
+              upload_root = f"https://uploads.github.com/repos/{repo}/releases/{release_id}/assets"
+              for path in assets:
+                  data = path.read_bytes()
+                  uploaded = request("POST", f"{upload_root}?name={urllib.parse.quote(path.name, safe='')}",
+                                     data, "application/octet-stream")
+                  if uploaded["name"] != path.name or uploaded["size"] != len(data) or uploaded["state"] != "uploaded":
+                      raise RuntimeError(f"Upload metadata mismatch: {path.name}")
+                  if uploaded.get("digest") not in (None, "sha256:" + hashlib.sha256(data).hexdigest()):
+                      raise RuntimeError(f"Upload digest mismatch: {path.name}")
+                  print(f"Uploaded {path.name}")
+              # Recheck conflicts after uploads, then publish only the ID we created.
+              # A concurrent publication error is fatal; never adopt or retry against its ID.
+              require_sole_draft()
+              require_source_tag()
+          except BaseException:
+              discard_own_draft()
+              raise
           published = request("PATCH", f"{api_root}/{release_id}", {"draft": False})
           if published["id"] != release_id or published["tag_name"] != tag or published["draft"] is not False:
               raise RuntimeError("Release did not become public")
