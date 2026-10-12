@@ -332,28 +332,121 @@ jobs:
           echo "Checksums injected for $VERSION"
           cat repo/packaging/scoop/freak.json
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          body_path: repo/docs/releases/${{ env.RELEASE_TAG }}.md
-          generate_release_notes: false
-          files: |
-            artifacts/freak-linux-x64/freak-linux-x64
-            artifacts/freak-linux-x64/hangar-linux-x64
-            artifacts/freak-linux-arm64/freak-linux-arm64
-            artifacts/freak-linux-arm64/hangar-linux-arm64
-            artifacts/freak-macos-arm64/freak-macos-arm64
-            artifacts/freak-macos-arm64/hangar-macos-arm64
-            artifacts/freak-windows-x64/freak-windows-x64.exe
-            artifacts/freak-windows-x64/hangar-windows-x64.exe
-            artifacts/freak-linux-x64.tar.gz
-            artifacts/freak-linux-arm64.tar.gz
-            artifacts/freak-macos-arm64.tar.gz
-            artifacts/freak-windows-x64.zip
-            artifacts/editor-packages/freak-vscode-*.vsix
-            artifacts/editor-packages/freak-zed-*.zip
-            artifacts/SHA256SUMS
-            artifacts/package-manager/freak.rb
-            artifacts/package-manager/freak.json
-            artifacts/package-manager/winget/*
+      - name: Create GitHub Release without replacing an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ needs.version-invariant.outputs.source_commit }}
+        run: |
+          # Recheck on every publishing attempt, including a rerun of this job.
+          can_publish=$(gh api graphql \
+            -f query='query($repoOwner: String!, $repoName: String!, $tag: String!) { repository(owner: $repoOwner, name: $repoName) { release(tagName: $tag) { id } } }' \
+            -f repoOwner="${GITHUB_REPOSITORY%/*}" \
+            -f repoName="${GITHUB_REPOSITORY#*/}" \
+            -f tag="$RELEASE_TAG" \
+            --jq '.data.repository != null and .data.repository.release == null')
+          test "$can_publish" = "true"
+          python - <<'PY'
+          import glob
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          tag = os.environ["RELEASE_TAG"]
+          token = os.environ["GH_TOKEN"]
+          api_root = f"https://api.github.com/repos/{repo}/releases"
+          patterns = [
+              "artifacts/freak-linux-x64/freak-linux-x64",
+              "artifacts/freak-linux-x64/hangar-linux-x64",
+              "artifacts/freak-linux-arm64/freak-linux-arm64",
+              "artifacts/freak-linux-arm64/hangar-linux-arm64",
+              "artifacts/freak-macos-arm64/freak-macos-arm64",
+              "artifacts/freak-macos-arm64/hangar-macos-arm64",
+              "artifacts/freak-windows-x64/freak-windows-x64.exe",
+              "artifacts/freak-windows-x64/hangar-windows-x64.exe",
+              "artifacts/freak-linux-x64.tar.gz",
+              "artifacts/freak-linux-arm64.tar.gz",
+              "artifacts/freak-macos-arm64.tar.gz",
+              "artifacts/freak-windows-x64.zip",
+              "artifacts/editor-packages/freak-vscode-*.vsix",
+              "artifacts/editor-packages/freak-zed-*.zip",
+              "artifacts/SHA256SUMS",
+              "artifacts/package-manager/freak.rb",
+              "artifacts/package-manager/freak.json",
+              "artifacts/package-manager/winget/*.yaml",
+          ]
+          assets = []
+          for pattern in patterns:
+              matches = sorted(pathlib.Path(p) for p in glob.glob(pattern))
+              if not matches or any(not p.is_file() or p.stat().st_size == 0 for p in matches):
+                  raise RuntimeError(f"Missing or empty release asset: {pattern}")
+              assets.extend(matches)
+          if len(assets) != 20 or len({p.name for p in assets}) != len(assets):
+              raise RuntimeError("Expected 20 uniquely named release assets")
+          notes = pathlib.Path(f"repo/docs/releases/{tag}.md").read_text(encoding="utf-8")
+          if not notes.strip():
+              raise RuntimeError("Release notes must not be empty")
+
+          def request(method, url, payload, content_type="application/json"):
+              data = None if payload is None else (json.dumps(payload).encode() if content_type == "application/json" else payload)
+              req = urllib.request.Request(url, data=data, method=method, headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": content_type,
+              })
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  if response.status != (201 if method == "POST" else 200):
+                      raise RuntimeError(f"Unexpected {method} response status: {response.status}")
+                  return json.load(response)
+
+          # POST creates a new release; it never updates one found by tag.
+          # GitHub can allow duplicate drafts, so check for those explicitly too.
+          # Keep our new release a draft until every upload has succeeded.
+          release = request("POST", api_root, {
+              "tag_name": tag, "target_commitish": os.environ["SOURCE_COMMIT"],
+              "name": tag, "body": notes, "draft": True, "prerelease": False,
+          })
+          release_id = release["id"]
+          if type(release_id) is not int or release_id <= 0 or release["tag_name"] != tag or release["draft"] is not True:
+              raise RuntimeError("Unexpected create-release response")
+
+          def require_sole_draft():
+              page = 1
+              found_own_draft = False
+              while True:
+                  releases = request("GET", f"{api_root}?per_page=100&page={page}", None)
+                  for existing in releases:
+                      if existing["tag_name"] != tag:
+                          continue
+                      if existing["id"] != release_id or existing["draft"] is not True:
+                          raise RuntimeError("Another release already exists for this tag")
+                      found_own_draft = True
+                  if len(releases) < 100:
+                      break
+                  page += 1
+              if not found_own_draft:
+                  raise RuntimeError("Our draft release is not visible; refusing publication")
+
+          require_sole_draft()
+          upload_root = f"https://uploads.github.com/repos/{repo}/releases/{release_id}/assets"
+          for path in assets:
+              data = path.read_bytes()
+              uploaded = request("POST", f"{upload_root}?name={urllib.parse.quote(path.name, safe='')}",
+                                 data, "application/octet-stream")
+              if uploaded["name"] != path.name or uploaded["size"] != len(data) or uploaded["state"] != "uploaded":
+                  raise RuntimeError(f"Upload metadata mismatch: {path.name}")
+              if uploaded.get("digest") not in (None, "sha256:" + hashlib.sha256(data).hexdigest()):
+                  raise RuntimeError(f"Upload digest mismatch: {path.name}")
+              print(f"Uploaded {path.name}")
+          # Recheck conflicts after uploads, then publish only the ID we created.
+          # A concurrent publication error is fatal; never adopt or retry against its ID.
+          require_sole_draft()
+          published = request("PATCH", f"{api_root}/{release_id}", {"draft": False})
+          if published["id"] != release_id or published["tag_name"] != tag or published["draft"] is not False:
+              raise RuntimeError("Release did not become public")
+          print(published["html_url"])
+          PY
