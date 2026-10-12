@@ -332,7 +332,7 @@ package-name = { git = "https://example.com/owner/package.git", version = "lates
 
 Dependencies live in `hangar_modules/`. The layout is deliberately minimal.
 
-In the 0.15.0 development candidate, package-aware builds also produce a
+In 0.15.0, package-aware builds also produce a
 schema-v2 graph lock. Legacy `hangar add`, `install`, `update`, `remove`, `audit`
 and `outdated` refuse these locks before changing project state. They also
 refuse malformed or unreadable existing locks. Valid legacy locks remain

@@ -11,8 +11,9 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import shutil
+import shlex
 import signal
 import subprocess
 import tempfile
@@ -1255,11 +1256,25 @@ def main() -> int:
         assert version.returncode == 0 and stable_hash.encode() in version.stdout and report['source_input_sha256'].encode() in version.stdout, version
         program = root / "program é 日本 ' $ &.fk"
         program.write_text(PROGRAM, encoding='utf-8')
+        documented_build = None
+        release_notes = repo / 'docs/releases' / ('v' + (repo / 'VERSION').read_text().strip() + '.md')
+        if release_notes.is_file():
+            examples = [line for line in release_notes.read_text(encoding='utf-8').splitlines()
+                        if line.startswith('/path/to/new-preview/freak-v4 build ')]
+            assert len(examples) == 1, 'Expected one published V4 preview build example'
+            documented_build = shlex.split(examples[0])
+            assert len(documented_build) == 4 and documented_build[1:3] == ['build', 'program.fk']
+            assert documented_build[3].startswith('--output=')
+            example_output = documented_build[3].removeprefix('--output=')
+            assert PurePosixPath(example_output).is_absolute() or PureWindowsPath(example_output).is_absolute(), 'Published V4 output must be absolute'
         for action in ('check', 'emit', 'build'):
             destination = root / ('compiled.exe' if os.name == 'nt' else 'compiled') if action == 'build' else root / 'emitted.ll'
             command = [str(preview), action, str(program)]
             if action != 'check':
                 command.append('--output=' + str(destination))
+            if action == 'build' and documented_build is not None:
+                command = [str(preview), documented_build[1], str(program),
+                           documented_build[3].replace(example_output, str(destination), 1)]
             process = subprocess.run(command, cwd=root, env=contradictory, capture_output=True, timeout=180)
             assert process.returncode == 0, (action, process.stdout, process.stderr)
             if action == 'emit':

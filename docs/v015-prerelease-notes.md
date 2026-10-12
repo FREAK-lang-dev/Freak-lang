@@ -1,7 +1,8 @@
-# 0.15.0 prerelease notes
+# 0.15.0 prerelease notes (historical)
 
-This is a draft for the future release. `VERSION` remains 0.14.2 until the
-separate release preparation and publication gates complete.
+These notes record the earlier preparation work based on 0.14.2. The current
+release behavior, breaking changes and limits are in the
+[0.15.0 release notes](releases/v0.15.0.md).
 
 ## Breaking changes
 
@@ -75,5 +76,6 @@ following source still receives genuine diagnostics. Live fallthrough, loop
 targets and strict snapshot checks remain covered; aggregate native lowering
 is unchanged.
 Current V4 HIR and MIR snapshots advance to v12 and v10
-to retain binding modifiers; older snapshots must be rebuilt. This PR does
-not tag or publish a release.
+to retain binding modifiers; older snapshots must be rebuilt. That earlier PR
+did not tag or publish a release; publication belongs to the separate release
+preparation and verification gates.
