@@ -455,6 +455,44 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
     assert sha(selected_driver) != before_driver
     build(source_b, "same-path-driver-byte-change-miss", selected_env=driver_env, compile_count=1)
     build(source_a, "changed-driver-warm", selected_env=driver_env, compile_count=0)
+    code, closure, _ = evidence.invoke(["ldd", str(selected_driver)], work, driver_env, "selected-driver-loader-closure")
+    assert code == 0, closure
+    libraries = re.findall(r"^\s*(\S*(?:libLLVM|libclang-cpp)\S*)\s+=>\s+(/.*?)\s+\(", closure, re.M)
+    assert libraries, "qualification requires a dynamic codegen support image"
+    library_name, library_path = libraries[0]
+    private_support = work / "selected-support"
+    private_support.mkdir(mode=0o700)
+    selected_support = private_support / library_name
+    shutil.copy2(Path(library_path).resolve(), selected_support)
+    support_env = dict(driver_env, LD_LIBRARY_PATH=str(private_support) + os.pathsep + env.get("LD_LIBRARY_PATH", ""))
+    code, selected_closure, _ = evidence.invoke(["ldd", str(selected_driver)], work, support_env, "private-selected-loader-closure")
+    assert code == 0 and str(selected_support) in selected_closure, selected_closure
+    build(source_a, "selected-support-cold", selected_env=support_env, compile_count=1)
+    build(source_b, "selected-support-warm", selected_env=support_env, compile_count=0)
+    support_stat = selected_support.stat()
+    with selected_support.open("ab") as stream:
+        stream.write(b"FREAK runtime cache selected-support raw-byte control\n")
+    os.utime(selected_support, ns=(support_stat.st_atime_ns, support_stat.st_mtime_ns))
+    build(source_b, "same-path-support-byte-change-miss", selected_env=support_env, compile_count=1)
+    build(source_a, "changed-support-warm", selected_env=support_env, compile_count=0)
+
+    code, assembler_spelling, _ = evidence.invoke([str(clang), "-print-prog-name=as"], work, env, "selected-external-assembler")
+    assert code == 0, assembler_spelling
+    assembler_origin = shutil.which(assembler_spelling.strip()) or assembler_spelling.strip()
+    private_assembler = work / "selected-assembler"
+    private_assembler.mkdir(mode=0o700)
+    assembler = private_assembler / "as"
+    shutil.copy2(Path(assembler_origin).resolve(strict=True), assembler)
+    (driver_bin / "clang.cfg").write_text("-resource-dir=" + resource.strip() + "\n-fno-integrated-as\n-B" + str(private_assembler) + "\n")
+    refusal = build(source_a, "unproved-assembler-source-fallback", selected_env=driver_env, compile_count=0)
+    assert not any(event == "hit" for event, _, _ in refusal), refusal
+    assembler_stat = assembler.stat()
+    with assembler.open("ab") as stream:
+        stream.write(b"FREAK unproved assembler byte-change control\n")
+    os.utime(assembler, ns=(assembler_stat.st_atime_ns, assembler_stat.st_mtime_ns))
+    refusal = build(source_b, "changed-unproved-assembler-still-no-hit", selected_env=driver_env, compile_count=0)
+    assert not any(event == "hit" for event, _, _ in refusal), refusal
+    (driver_bin / "clang.cfg").write_text("-resource-dir=" + resource.strip() + "\n")
 
     for optimization in (1, 2, 3):
         build(source_a, f"O{optimization}-cold", optimization=optimization, compile_count=1)
@@ -673,7 +711,7 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
         "Linux native only at this milestone; Windows/macOS tool closure and installed archive gates remain pending.",
         "Unknown Windows DLL selection and unresolved/static support closure disable cache reuse.",
         "Private owned staging excludes arbitrary concurrent same-user pathname replacement; no anchored child-I/O primitive is claimed.",
-        "Same-path driver-byte, source-mutation and interruption controls are prepared; support-library mutation and native target/UI/profile qualification remain pending.",
+        "Same-path driver/support bytes, external-assembler refusal, source mutation and interruption controls are prepared; native target/UI/profile qualification remains pending.",
         "Concurrent publication is opt-in and requires the root to grant two bounded compiler children; the default gate keeps one native compiler at a time.",
     ]
     evidence.report["outcome"] = "passed-focused-linux"
