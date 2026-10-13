@@ -70,6 +70,232 @@ def archive_payload(archive: Path) -> dict[str, bytes]:
     return files
 
 
+_COMMAND_KEEPER = r'''
+import json, os, select, signal, sys
+owner, ready, metadata, group = map(int, sys.argv[1:5])
+nonce = sys.argv[5]
+if os.getpgrp() != group:
+    sys.exit(127)
+if os.fork() != 0:
+    os._exit(0)
+for name in ('SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT'):
+    signal.signal(getattr(signal, name), signal.SIG_IGN)
+try:
+    if select.select([owner], [], [], 0)[0]:
+        os.killpg(os.getpgrp(), signal.SIGKILL)
+    context = json.dumps({'nonce': nonce, 'native_pid': group, 'stage': 'keeper-ready',
+                         'keeper_pid': os.getpid(), 'pgid': os.getpgrp()}).encode() + b'\n'
+    os.write(metadata, context)
+    os.write(ready, context)
+    os.close(ready)
+    while True:
+        try:
+            message = os.read(owner, 1)
+        except InterruptedError:
+            continue
+        if message == b'D':
+            break
+        if not message:
+            os.killpg(os.getpgrp(), signal.SIGKILL)
+        raise RuntimeError('invalid owner lifeline message')
+except BaseException:
+    os.killpg(os.getpgrp(), signal.SIGKILL)
+'''
+
+
+class _CommandLifeline:
+    """A keeper pins the direct child's group before the actual command execs."""
+
+    def __init__(self, timeout: float):
+        self.fds: dict[str, int] = {}
+        # As with Popen's existing exec handshake, this setup precedes the
+        # unchanged communicate(timeout) deadline for the actual command.
+        self.limit = 10
+        self.nonce = os.urandom(16).hex()
+        self.context = {'mode': 'POSIX owner-pipe group keeper',
+                        'python': sys.executable,
+                        'source_sha256': hashlib.sha256(_COMMAND_KEEPER.encode()).hexdigest(),
+                        'command_timeout_seconds': timeout, 'readiness_cap_seconds': self.limit,
+                        'registered': False, 'popen_returned': False}
+        try:
+            for name in ('owner', 'ready', 'metadata'):
+                self.fds[name + '_read'], self.fds[name + '_write'] = os.pipe()
+                # Callers may have closed a standard descriptor. Keep every
+                # control FD above stderr before the keeper redirects stdio.
+                for role in (name + '_read', name + '_write'):
+                    if self.fds[role] < 3:
+                        import fcntl
+                        original_fd = self.fds[role]
+                        self.fds[role] = fcntl.fcntl(original_fd, fcntl.F_DUPFD, 3)
+                        try:
+                            os.set_inheritable(self.fds[role], False)
+                        except BaseException:
+                            try:
+                                os.close(original_fd)
+                            except BaseException:
+                                pass
+                            raise
+                        else:
+                            os.close(original_fd)
+        except BaseException:
+            for fd in self.fds.values():
+                try:
+                    os.close(fd)
+                except BaseException:
+                    pass
+            raise
+
+    def options(self, preexec_fn):
+        def prepare():
+            # This writer belongs only to the gate. In particular, a nested
+            # keeper exec must never retain an ancestor's owner writer.
+            os.close(self.fds['owner_write'])
+            intermediate = os.fork()
+            if intermediate == 0:
+                try:
+                    os.close(self.fds['ready_read'])
+                    null = os.open(os.devnull, os.O_RDWR)
+                    for fd in (0, 1, 2):
+                        os.dup2(null, fd)
+                    if null > 2:
+                        os.close(null)
+                    # All other descriptors, including capture pipes,
+                    # subprocess' exec-error pipe and ancestor lifelines, are
+                    # CLOEXEC. Only this keeper's three reads/writers survive.
+                    os.execv(sys.executable, [sys.executable, '-I', '-c', _COMMAND_KEEPER,
+                             str(self.fds['owner_read']), str(self.fds['ready_write']),
+                             str(self.fds['metadata_write']), str(os.getpgrp()), self.nonce])
+                except BaseException:
+                    os.killpg(os.getpgrp(), signal.SIGKILL)
+                    os._exit(127)
+            bootstrap = {'nonce': self.nonce, 'native_pid': os.getpgrp(),
+                         'bootstrap_pid': intermediate, 'pgid': os.getpgrp(),
+                         'stage': 'keeper-bootstrap'}
+            os.write(self.fds['metadata_write'], json.dumps(bootstrap).encode() + b'\n')
+            self.context.update(bootstrap)
+            os.close(self.fds['ready_write'])
+            os.close(self.fds['owner_read'])
+            deadline = time.monotonic() + self.limit
+            ready = b''
+            reaped = False
+            while not ready or not reaped:
+                if not reaped:
+                    waited, status = os.waitpid(intermediate, os.WNOHANG)
+                    if waited:
+                        reaped = True
+                        if status != 0:
+                            raise RuntimeError('keeper interpreter failed before actual command exec')
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    # This pre-exec child still pins the exact owned group.
+                    # Stop a stuck keeper before releasing that identity.
+                    os.write(self.fds['metadata_write'], b'{"startup_error":"keeper readiness timeout"}\n')
+                    os.killpg(os.getpgrp(), signal.SIGKILL)
+                    os._exit(127)
+                if not ready and select.select([self.fds['ready_read']], [], [], min(.01, remaining))[0]:
+                    ready = os.read(self.fds['ready_read'], 1024)
+                elif ready:
+                    time.sleep(min(.001, remaining))
+            os.close(self.fds['ready_read'])
+            os.close(self.fds['metadata_write'])
+            if not ready:
+                raise RuntimeError('keeper failed before actual command exec')
+            parsed = json.loads(ready)
+            assert parsed['nonce'] == self.nonce and parsed['stage'] == 'keeper-ready'
+            assert parsed['native_pid'] == parsed['pgid'] == os.getpgrp()
+            self.context.update(parsed, registered=True)
+            if preexec_fn is not None:
+                preexec_fn()
+        return {'pass_fds': tuple(self.fds[name] for name in
+                ('owner_read', 'ready_read', 'ready_write', 'metadata_write')),
+                'preexec_fn': prepare}
+
+    def _close(self, name: str):
+        fd = self.fds.pop(name, None)
+        if fd is not None:
+            os.close(fd)
+
+    def _parent_only(self):
+        for name in ('owner_read', 'ready_read', 'ready_write', 'metadata_write'):
+            self._close(name)
+
+    def _registration(self, expected_pid: int | None, limit: float | None = None):
+        self._parent_only()
+        if self.context['registered']:
+            return
+        limit = self.limit if limit is None else limit
+        fd = self.fds['metadata_read']
+        data = b''
+        deadline = time.monotonic() + limit
+        while len(data) <= 2048:
+            if not select.select([fd], [], [], max(0, deadline - time.monotonic()))[0]:
+                raise TimeoutError('owned command keeper did not acknowledge readiness')
+            chunk = os.read(fd, 2048 - len(data) + 1)
+            if not chunk:
+                if expected_pid is None:
+                    self.context['startup'] = 'keeper never acknowledged readiness before launch failure'
+                    return
+                raise RuntimeError('owned command keeper did not register')
+            data += chunk
+            for line in data.splitlines(keepends=True):
+                if not line.endswith(b'\n'):
+                    continue
+                parsed = json.loads(line)
+                if 'startup_error' in parsed:
+                    raise RuntimeError(parsed['startup_error'])
+                assert parsed['nonce'] == self.nonce, 'keeper registration identity mismatch'
+                assert parsed['stage'] in ('keeper-bootstrap', 'keeper-ready')
+                identity = 'bootstrap_pid' if parsed['stage'] == 'keeper-bootstrap' else 'keeper_pid'
+                assert all(type(parsed[name]) is int and parsed[name] > 0
+                           for name in ('native_pid', identity, 'pgid'))
+                assert parsed['native_pid'] == parsed['pgid'] != parsed[identity]
+                if expected_pid is not None:
+                    assert parsed['native_pid'] == expected_pid, 'keeper registered another command'
+                self.context.update({name: value for name, value in parsed.items() if name != 'nonce'})
+                if parsed['stage'] == 'keeper-ready':
+                    self.context['registered'] = True
+            if self.context['registered']:
+                self.context['stage'] = 'keeper-ready'
+                return
+        raise ValueError('owned keeper registration exceeds bounded size')
+
+    def registered(self, child):
+        self._registration(child.pid)
+        return self.context
+
+    def finish(self, normal: bool):
+        errors = []
+        deadline = time.monotonic() + min(1, self.limit)
+        try:
+            if normal and self.context['registered']:
+                try:
+                    os.write(self.fds['owner_write'], b'D')
+                except BrokenPipeError:
+                    pass  # An owned group kill may already have ended it.
+            self._close('owner_write')
+        except BaseException as error:
+            errors.append(error)
+        try:
+            self._registration(None, max(0, deadline - time.monotonic()))
+            fd = self.fds['metadata_read']
+            if not select.select([fd], [], [], max(0, deadline - time.monotonic()))[0]:
+                raise TimeoutError('owned keeper did not release its lifeline within one second')
+            if os.read(fd, 1024):
+                raise RuntimeError('unexpected data after keeper registration')
+            self.context['lifeline_released'] = True
+            self.context['finish'] = 'disarmed' if normal else 'owner EOF'
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            for name in tuple(self.fds):
+                try:
+                    self._close(name)
+                except BaseException as error:
+                    errors.append(error)
+        if errors:
+            raise errors[0]
+
+
 def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
                 prefix: Path, records: list[dict], expected: int | None = 0,
                 timeout: float = 180, preexec_fn: Callable[[], None] | None = None,
@@ -81,13 +307,22 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
     records.append(record)
     stdout = stderr = b''
     child = None
+    keeper = None
     recording_error = None
     try:
         if on_record is not None:
             on_record(record)
+        options = {'preexec_fn': preexec_fn}
+        if os.name != 'nt':
+            keeper = _CommandLifeline(timeout)
+            record['keeper'] = keeper.context
+            options = keeper.options(preexec_fn)
         child = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, start_new_session=os.name != 'nt',
-                                 preexec_fn=preexec_fn)
+                                 **options)
+        if keeper is not None:
+            keeper.context['popen_returned'] = True
+            keeper.registered(child)
         record.update(pid=child.pid, process_tree='taskkill /T' if os.name == 'nt' else 'owned process group')
         if on_record is not None:
             try:
@@ -186,6 +421,14 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
         raise
     finally:
         original_error = sys.exc_info()[1]
+        if keeper is not None:
+            try:
+                keeper.finish(original_error is None and child is not None and child.returncode is not None)
+            except BaseException as error:
+                record.setdefault('cleanup_errors', []).append(repr(error))
+                record['cleanup_failed'] = True
+                if recording_error is None:
+                    recording_error = error
         record.update(returncode=child.returncode if child is not None else None,
                       elapsed_seconds=time.monotonic() - began,
                       stdout_sha256=hashlib.sha256(stdout).hexdigest(),
