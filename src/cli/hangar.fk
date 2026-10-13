@@ -2272,7 +2272,18 @@ task hangar_extract_colon(s: word, idx: int) -> word {
 task hangar_project_uses_graph(project_dir: word) -> bool {
     pilot lock = cli_host_path_join(project_dir, "hangar.lock")
     if not fs::exists(lock) { give back true }
-    give back fs::read(lock).contains("lock.schema = 2")
+    -- Unreadable or non-file locks stay with the legacy path, which reports them.
+    pilot read = fs::read_bytes_limit_ticket(lock, hangar_graph_manifest_limit)
+    if not fs::result_ok(read) {
+        fs::result_release(read)
+        give back false
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot text = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    give back valid and text.contains("lock.schema = 2")
 }
 
 task hangar_graph_summary(verb: word) -> int {
