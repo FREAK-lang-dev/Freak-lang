@@ -115,6 +115,7 @@ class HttpProgress:
             raise ValueError('HTTP checkpoint exceeds bounded report size')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = None
+        primary = None
         try:
             with tempfile.NamedTemporaryFile(
                 dir=self.path.parent, prefix='.' + self.path.name + '-', delete=False
@@ -124,9 +125,21 @@ class HttpProgress:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, self.path)
+        except BaseException as error:
+            primary = error
+            raise
         finally:
             if temporary is not None:
-                temporary.unlink(missing_ok=True)
+                try:
+                    temporary.unlink(missing_ok=True)
+                except BaseException as cleanup_error:
+                    if primary is None:
+                        raise
+                    try:
+                        primary.add_note('HTTP staged-file cleanup failed: ' +
+                                         type(cleanup_error).__name__[:160])
+                    except BaseException:
+                        pass
 
     @classmethod
     def read(cls, path: Path):

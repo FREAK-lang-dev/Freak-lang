@@ -241,5 +241,71 @@ class HttpProgressTests(unittest.TestCase):
                     process.communicate(timeout=5)
 
 
+class HttpProgressAtomicCleanup(unittest.TestCase):
+    def test_secondary_cleanup_interrupt_keeps_original_error_and_previous_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'report.json'
+            progress = HttpProgress(path, {'matrices': []}, 1)
+            progress._write()
+            before = path.read_bytes()
+            primary = OSError('controlled replace failure')
+            secondary = KeyboardInterrupt('controlled cleanup interruption')
+            with patch('v3_v35_http.os.replace', side_effect=primary), \
+                    patch.object(Path, 'unlink', side_effect=secondary):
+                try:
+                    progress._write()
+                except OSError as caught:
+                    self.assertIs(caught, primary)
+                else:
+                    self.fail('the primary error was lost')
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(primary.__notes__, ['HTTP staged-file cleanup failed: KeyboardInterrupt'])
+
+    def test_hostile_note_attachment_cannot_replace_primary(self):
+        class HostileNoteError(OSError):
+            def add_note(self, note):
+                raise SystemExit('secondary note interruption')
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'report.json'
+            progress = HttpProgress(path, {'matrices': []}, 1)
+            primary = HostileNoteError('controlled replace failure')
+            with patch('v3_v35_http.os.replace', side_effect=primary), \
+                    patch.object(Path, 'unlink', side_effect=KeyboardInterrupt('cleanup')):
+                try:
+                    progress._write()
+                except HostileNoteError as caught:
+                    self.assertIs(caught, primary)
+                else:
+                    self.fail('the primary error was lost')
+
+    def test_cleanup_failure_without_primary_is_propagated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            progress = HttpProgress(Path(directory) / 'report.json', {'matrices': []}, 1)
+            secondary = KeyboardInterrupt('controlled cleanup interruption')
+            with patch.object(Path, 'unlink', side_effect=secondary):
+                try:
+                    progress._write()
+                except KeyboardInterrupt as caught:
+                    self.assertIs(caught, secondary)
+                else:
+                    self.fail('cleanup-only failure was swallowed')
+
+    def test_unrelated_ambient_exception_is_not_a_local_write_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            progress = HttpProgress(Path(directory) / 'report.json', {'matrices': []}, 1)
+            secondary = OSError('controlled cleanup failure')
+            try:
+                raise RuntimeError('unrelated outer failure')
+            except RuntimeError:
+                with patch.object(Path, 'unlink', side_effect=secondary):
+                    try:
+                        progress._write()
+                    except OSError as caught:
+                        self.assertIs(caught, secondary)
+                    else:
+                        self.fail('cleanup-only failure was swallowed under ambient exception')
+
+
 if __name__ == '__main__':
     unittest.main()
