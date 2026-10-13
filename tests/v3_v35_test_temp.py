@@ -23,7 +23,7 @@ from v3_v35_acceptance import inventory, run_command, sha
 PROGRAM = ('task main() { say "SYSTEM_TEMP_ADMISSION_OK"; '
            'say process::executable_path() }\n')
 OUTPUT = b'SYSTEM_TEMP_ADMISSION_OK'
-MANIFEST = ('[project]\nname = "temporary_parent_probe"\nversion = "1.0.0"\n'
+MANIFEST = ('[project]\nname = "temporary_parent_probe"\nversion = "1.0.0"\nkind = "app"\n'
             'entry = "src/main.fk"\n[tests]\n'
             'temporary_parent = "tests/temporary_parent.fk"\n')
 
