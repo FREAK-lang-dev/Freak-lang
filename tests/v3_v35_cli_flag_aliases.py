@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import sys
 import tempfile
 
@@ -49,6 +50,42 @@ def sha256(path: Path) -> str:
 def snapshot(directory: Path) -> dict:
     return {str(path.relative_to(directory)): ("directory" if path.is_dir() else sha256(path))
             for path in sorted(directory.rglob("*"))}
+
+
+def posix_recorder_launcher(python: str, recorder: Path) -> str:
+    return f'#!/bin/sh\nexec {shlex.quote(python)} {shlex.quote(str(recorder))} "$@"\n'
+
+
+def write_safe_recorder(root: Path, real_clang: str) -> tuple[Path, Path]:
+    wrapper, log = write_recorder(root, real_clang)
+    if sys.platform != "win32":
+        # The inherited recorder is never invoked before its launcher paths
+        # are made literal. Keep the Windows direct-executable helper intact.
+        wrapper.write_text(posix_recorder_launcher(sys.executable, root / "record_clang.py"),
+                           encoding="utf-8")
+    return wrapper, log
+
+
+def literal_path_controls() -> int:
+    """Parse launcher text only; no shell or native child is executed."""
+    spellings = (
+        ('/tools/"literal quote"/python', '/scratch/"literal quote"/record.py'),
+        ("/tools/$PYTHON/python", "/scratch/$TMPDIR/record.py"),
+        ("/tools/`literal command`/python", "/scratch/`literal command`/record.py"),
+        ("/tools/'literal quote'/python", "/scratch/'literal quote'/record.py"),
+        ("/tools/space and café/python", "/scratch/space and café/record.py"),
+        ('/tools/"quote"/$PYTHON/`literal`/python', '/scratch/"quote"/$TMPDIR/`literal`/record.py'),
+    )
+    for python, recorder in spellings:
+        launcher = posix_recorder_launcher(python, Path(recorder))
+        assert shlex.split(launcher, comments=True) == ["exec", python, recorder, "$@"]
+        assert launcher == ("#!/bin/sh\nexec " + shlex.quote(python) + " " +
+                            shlex.quote(recorder) + ' "$@"\n')
+    python, recorder = spellings[-1]
+    unsafe = f'#!/bin/sh\nexec "{python}" "{recorder}" "$@"\n'
+    assert shlex.split(unsafe, comments=True) != ["exec", python, recorder, "$@"], (
+        "unsafe inherited launcher control did not expose its literal-quote defect")
+    return len(spellings)
 
 
 def text(output: bytes) -> bytes:
@@ -210,8 +247,9 @@ def main() -> None:
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     controls = inert_controls()
+    quoted_paths = literal_path_controls()
     if args.static:
-        print(f"PASS flag receipt oracles: {controls} failing controls; native verification not run")
+        print(f"PASS flag receipt oracles: {controls} failing controls, {quoted_paths} literal path controls; native verification not run")
         return
     if not (args.freak and args.payload_home and args.clang and args.report):
         parser.error("native verification requires --freak, --payload-home, --clang and --report")
@@ -241,7 +279,8 @@ def main() -> None:
     evidence = {"schema": "freak.v35.cli-flag-aliases.v1", "status": "running",
                 "freak": str(freak), "payload_home": str(home), "clang": str(clang),
                 "compiler_or_cli_rebuilt": False, "pinned_input_sha256": before,
-                "inert_failing_controls": controls, "command_records": [], "receipts": [],
+                "inert_failing_controls": controls, "literal_path_controls": quoted_paths,
+                "command_records": [], "receipts": [],
                 "matrices": [], "refusals": []}
     with retain_evidence(evidence, report) as save, tempfile.TemporaryDirectory(prefix="freak-v35-flags-") as temporary:
         scratch = Path(temporary).resolve(strict=True)
@@ -249,7 +288,7 @@ def main() -> None:
         temp_root.mkdir()
         tools = scratch / "recorder"
         tools.mkdir()
-        wrapper, log = write_recorder(tools, str(clang))
+        wrapper, log = write_safe_recorder(tools, str(clang))
         evidence.update(recorder=str(wrapper), recorder_sha256=sha256(wrapper),
                         recorder_source=(tools / "record_clang.py").read_text(encoding="utf-8"))
         save()
@@ -286,16 +325,16 @@ def main() -> None:
 
         for backend in args.backend or ("c", "llvm"):
             for command in ("build", "run"):
-                settings = [(level, "off", [f"--O{level}", f"--opt={level}", f"--O{level}"],
+                settings = [(level, "off", [f"--O{level}", f"--O{level}"],
                              [f"--opt={level}", "--lto=off"]) for level in range(4)]
-                settings += [(2, mode, ["--O2", alias, f"--lto={mode}", alias],
+                settings += [(2, mode, ["--O2", alias, alias],
                               ["--opt=2", f"--lto={mode}"])
                              for alias, mode in (("--flto", "full"), ("--tlto", "thin"))]
                 for level, mode, aliases, legacy in settings:
                     source = scratch / f"{backend}-{command}-o{level}-{mode}.fk"
                     source.write_text(PROGRAM, encoding="utf-8")
                     if mode == "thin":
-                        aliases += ["--lto"]
+                        legacy += ["--lto"]
                     key = f"{backend}/{command}/o{level}/{mode}"
                     result, _, compiles = invoke(key + "/aliases", [command, source, "--" + backend, *aliases])
                     assert_profile(result, compiles, level, mode)
@@ -314,8 +353,22 @@ def main() -> None:
                         assert not legacy_compiles, "equivalent spellings rebuilt a warm run artifact"
                     else:
                         assert_profile(legacy_result, legacy_compiles, level, mode)
+                    mixed_orders = []
+                    if command == "run":
+                        # The parser is shared by build/run. Warm native run
+                        # checks both mixed orders independently without a
+                        # legacy flag supplying the first alias-only level.
+                        for order, flags in (("alias-first", [*aliases, *legacy]),
+                                             ("legacy-first", [*legacy, *aliases])):
+                            mixed, _, mixed_compiles = invoke(key + "/mixed/" + order,
+                                [command, source, "--" + backend, *flags])
+                            assert_program(mixed)
+                            assert b"run cache hit" in text(mixed.stdout), mixed.stdout
+                            assert not mixed_compiles, "equivalent mixed spellings rebuilt a warm run artifact"
+                            mixed_orders.append({"order": order, "flags": flags})
                     evidence["matrices"].append({"backend": backend, "command": command,
                         "optimization": level, "lto": mode, "aliases": aliases, "legacy": legacy,
+                        "mixed_orders": mixed_orders,
                         "source_sha256": sha256(source), "source": PROGRAM})
                     save()
             for alias, mode in (("--flto", "full"), ("--tlto", "thin")):
