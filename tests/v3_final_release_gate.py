@@ -926,6 +926,12 @@ def main() -> int:
         assert hashlib.sha256(archive.read_bytes()).hexdigest() == archive_hash
 
         isolated_env = isolated_runtime_env(root, install_env)
+        configured_clang = isolated_env.get("FREAK_CLANG", "clang")
+        diagnostic_clang = shutil.which(
+            configured_clang, path=isolated_env.get("PATH")
+        )
+        assert diagnostic_clang, f"Clang not found for diagnostic CLI gate: {configured_clang}"
+        diagnostic_clang = str(Path(diagnostic_clang).resolve(strict=True))
         assert_exact_installed_discovery(
             freak=installed_freak,
             hangar=installed_hangar,
@@ -1049,6 +1055,7 @@ def main() -> int:
                 "installed diagnostic cast CLI",
                 [python, "-u", str(repo / "tests" / "v3_v35_diagnostic_cast_cli.py"),
                  "--freak", str(installed_freak), "--payload-home", str(install_home),
+                 "--clang", diagnostic_clang,
                  "--report", str(evidence / "diagnostic-cli.json")],
                 1200,
             ),
