@@ -936,8 +936,11 @@ def init_effect_authority_controls(root: Path, invocation: tuple[str, Path, list
             for index, command in enumerate((*WRITERS, *(("version", bump) for bump in VERSION_BUMPS))):
                 code, output = recorder.run([str(binary), *prefix, *command], target, env,
                                             f"{name}:legacy-authority:permissive-Windows-parent-ACL:{int(retained_lock)}:{index}")
-                assert code == 1 and output == (WRITER_PREFIX + "cannot hold graph.lock: "
-                    "directory transaction lock requires a private owned directory\n"), output
+                # Without hangar.lock these route to the graph-aware writers,
+                # which refuse at the same private-directory boundary (or
+                # earlier, for a dependency the manifest does not declare).
+                assert code == 1 and ("requires a private owned directory" in output
+                                      or "is not a dependency of this project" in output), output
                 assert snapshot(target) == before and report.read_bytes() == b"", output
                 assert (state / "graph.lock").exists() == retained_lock
     print(f"native:{name}:init:owned-rollback-and-retained-files:preserved", flush=True)
