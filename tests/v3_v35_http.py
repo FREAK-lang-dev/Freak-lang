@@ -50,9 +50,12 @@ class HttpProgress:
                 self._write()
             except BaseException as recording_error:
                 # A checkpoint failure must not replace the verification cause.
-                if hasattr(error, 'add_note'):
-                    error.add_note('HTTP checkpoint recording failed: ' +
-                                   type(recording_error).__name__)
+                try:
+                    if hasattr(error, 'add_note'):
+                        error.add_note('HTTP checkpoint recording failed: ' +
+                                       type(recording_error).__name__)
+                except BaseException:
+                    pass
             return False
         if self.report['progress']['outcome'] != 'passed':
             raise RuntimeError('HTTP verification ended without a passing checkpoint')
