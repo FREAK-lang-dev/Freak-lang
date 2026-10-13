@@ -14,11 +14,13 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
 import unittest
 from pathlib import Path
+from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "freak-runtime-object-v1"
@@ -92,11 +94,23 @@ def dependency_harness(source: str) -> tuple[str, int]:
         (False, "freak-cache: /unknown\\q.h\n", None),
         (False, "freak-cache: " + " /a.h" * 4097 + "\n", None),
     ]
+    trace_rows = [
+        ('clang version 19\n "/clang" "-cc1" "-emit-obj"\n', True),
+        (' "/clang" "-cc1"\n "/as" "object.s"\n', False),
+        (' "/other-clang" "-cc1"\n', False),
+        (' "/clang" "-cc1"\n "/clang" "-cc1"\n', False),
+        (' "/clang" "-cc1as"\n', False),
+        ('clang version 19\n', False),
+    ]
     chunks = [
         'pilot CLI_RUNTIME_CACHE_META_LIMIT = 1048576\npilot CLI_RUNTIME_CACHE_DEP_LIMIT = 4096\n',
         'pilot mut simulated_windows = false\npilot mut observed = 0\n',
         'task cli_is_windows() -> bool { give back simulated_windows }\n',
         'task cli_runtime_cache_raw_pin(path: word, retain: bool) -> word { array_push(observed, path) give back "pin:" + path }\n',
+        'task cli_runtime_cache_canonical(path: word) -> word { give back path }\n',
+        task_source((ROOT / "src/cli/build.fk").read_text(), "cli_trace_executable_token"),
+        task_source(source, "cli_runtime_cache_trace_cc1"),
+        task_source(source, "cli_runtime_cache_dyld_plain"),
         task_source(source, "cli_runtime_cache_dependencies"),
         'task require(value: bool, label: word) -> void { if not value { say label process::exit(1) } }\n',
         'task main() -> int {\n',
@@ -112,8 +126,48 @@ def dependency_harness(source: str) -> tuple[str, int]:
             for item, path in enumerate(expected):
                 chunks.append(f'require(array_get(observed, {item}) == {fk_quote(path)}, "dependency path {index}/{item}")\n')
         chunks.append("array_release(observed)\n")
+    for index, (trace, admitted) in enumerate(trace_rows):
+        chunks.append(f'require(cli_runtime_cache_trace_cc1({fk_quote(trace)}, "/clang") == {str(admitted).lower()}, "execution plan {index}")\n')
+    chunks.append('require(cli_runtime_cache_dyld_plain() == (process::env("CACHE_CONTROL_DYLD_REJECT") != "1"), "DYLD refusal")\n')
     chunks.append('say "dependency controls passed"\ngive back 0\n}\n')
     return "".join(chunks), len(rows)
+
+
+def optional_stage_harness(source: str) -> str:
+    # Force only the optional-stage compiler to fail, then execute the actual
+    # orchestration body. The platform filesystem/lock/cleanup operations remain
+    # real; the external compiler is a stub so no filesystem quota is required.
+    chunks = [
+        'pilot mut cli_runtime_cache_tool_complete = false\npilot mut cli_runtime_cache_paths = 0\npilot mut cli_runtime_cache_hashes = 0\npilot mut test_root_owner = 0\npilot mut observed_lto = ""\n',
+        'task cli_runtime_cache_tool_identity(executable: word) -> word { cli_runtime_cache_tool_complete = true give back "tool" }\n',
+        'task cli_runtime_cache_note(event: word, unit: word, key: word) -> void {}\n',
+        'task cli_runtime_cache_root() -> int { give back fs::open_dir_ticket(fs::result_word(test_root_owner)) }\n',
+        'task cli_runtime_cache_stage() -> int { give back fs::temp_dir("/tmp", "cache-stage-control") }\n',
+        task_source(source, "cli_runtime_cache_reset"),
+        task_source(source, "cli_runtime_cache_release"),
+        task_source(source, "cli_runtime_cache_cleanup"),
+        'task cli_runtime_cache_units(runtime_dir: word, target: word, cross: word) -> int { pilot units = array_new() array_push(units, "freak_runtime.c") give back units }\n',
+        'task cli_runtime_cache_ui(runtime_dir: word, cross: word) -> bool { give back false }\n',
+        'task cli_runtime_cache_stem(unit: word) -> word { give back "common" }\n',
+        'task cli_runtime_cache_prepare(executable: word, tool: word, unit: word, stage: int, stem: word, runtime_dir: word, opt: word, lto: word, cross: word, ui: bool) -> word { give back "' + '0' * 64 + '" }\n',
+        'task cli_runtime_cache_copy_hit(root: int, key: word, stage: int, object: word) -> bool { give back false }\n',
+        'task cli_runtime_cache_compile_unit(executable: word, stage: int, stem: word, runtime_dir: word, opt: word, lto: word, cross: word, ui: bool) -> bool { observed_lto = lto give back false }\n',
+        'task cli_runtime_cache_inputs_stable() -> bool { give back true }\n',
+        'task cli_runtime_cache_publish(root: int, key: word, stage: int, object: word) -> void {}\n',
+        'task cli_runtime_cache_link(executable: word, stage: int, units: int, transpiled: word, output: word, runtime_dir: word, opt: word, lto: word, cross: word, ui: bool) -> bool { give back false }\n',
+        'task cli_host_path_join(parent: word, leaf: word) -> word { give back parent + "/" + leaf }\n',
+        'task cli_build_regular_output(path: word) -> bool { give back false }\n',
+        'task cli_delete_derived_artifact(path: word) -> bool { give back true }\n',
+        task_source(source, "cli_runtime_cache_build"),
+        'task main() -> int {\n',
+        'test_root_owner = fs::temp_dir("/tmp", "cache-root-control")\n',
+        'if not fs::result_ok(test_root_owner) { say "root control setup failed" give back 1 }\n',
+        'pilot control_outcome = cli_runtime_cache_build("compiler", "user.c", "output", "runtime", "c", "2", "full", "")\n',
+        'cli_runtime_cache_cleanup(test_root_owner)\n',
+        'if control_outcome != -1 or observed_lto != "full" { say "optional-stage fallback changed" give back 1 }\n',
+        'say "optional-stage fallback passed"\ngive back 0\n}\n',
+    ]
+    return "".join(chunks)
 
 
 class SourceControls(unittest.TestCase):
@@ -145,6 +199,17 @@ class SourceControls(unittest.TestCase):
         self.assertNotIn("rename_relative", body)
         self.assertIn("publish_temp_dir_checked(entry, root, key)", body)
 
+    def test_declared_names_follow_actual_lexer_vocabulary(self) -> None:
+        lexer = task_source((ROOT / "src/compiler/v3/lexer.fk").read_text(), "lex_ident_token_type")
+        reserved = set(re.findall(r'lower == "([a-z_]+)"', lexer))
+        code = re.sub(r'"(?:\\.|[^"\\])*"|--[^\n]*', " ", self.source)
+        names = re.findall(r"\bpilot\s+(?:mut\s+)?([A-Za-z_][A-Za-z_0-9]*)", code)
+        names += re.findall(r"\b([A-Za-z_][A-Za-z_0-9]*)\s*:\s*(?:int|bool|word|ByteBuffer)\b", code)
+        self.assertFalse(sorted({name for name in names if name.lower() in reserved}))
+
+    def test_optional_stage_control_uses_actual_orchestration(self) -> None:
+        self.assertIn(task_source(self.source, "cli_runtime_cache_build"), optional_stage_harness(self.source))
+
 
 class Evidence:
     def __init__(self, root: Path) -> None:
@@ -163,7 +228,43 @@ class Evidence:
         self.report["inputs"].append({"path": str(path), "sha256": sha(path)})
         self.save()
 
-    def invoke(self, argv: list[str], cwd: Path, env: dict[str, str], label: str, *, trace: bool = False, timeout: int = 240) -> tuple[int, str, str]:
+    @staticmethod
+    def stop_owned(child: subprocess.Popen[bytes]) -> list[str]:
+        """Bounded containment of this exact newly created session.
+
+        Always address the owned group even if the direct tracer has exited;
+        compiler descendants may remain. Cleanup errors are secondary facts.
+        """
+        notes: list[str] = []
+        for action in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                if os.name != "nt":
+                    os.killpg(child.pid, action)
+                elif child.poll() is None:
+                    if action == signal.SIGTERM:
+                        child.terminate()
+                    else:
+                        child.kill()
+            except ProcessLookupError:
+                pass
+            except BaseException as error:
+                notes.append(f"owned group termination: {type(error).__name__}: {error}")
+            try:
+                child.wait(timeout=2 if action == signal.SIGTERM else 5)
+            except BaseException as error:
+                notes.append(f"owned parent reap: {type(error).__name__}: {error}")
+        return notes
+
+    @staticmethod
+    def retain_channels(prefix: Path, record: dict, trace: bool) -> None:
+        for suffix in (".stdout", ".stderr", ".execve") if trace else (".stdout", ".stderr"):
+            try:
+                path = prefix.with_suffix(suffix)
+                record[suffix[1:]] = {"path": str(path), "bytes": path.stat().st_size, "sha256": sha(path)}
+            except BaseException as error:
+                record.setdefault("secondary_evidence_errors", []).append(f"{suffix}: {type(error).__name__}: {error}")
+
+    def invoke(self, argv: list[str], cwd: Path, env: dict[str, str], label: str, *, trace: bool = False, timeout: int = 240, runtime_hook: Callable[[], None] | None = None, interrupt_runtime: bool = False) -> tuple[int, str, str]:
         number = len(self.report["commands"])
         prefix = self.root / f"{number:03}-{label}"
         trace_path = prefix.with_suffix(".execve")
@@ -175,21 +276,50 @@ class Evidence:
         self.save()
         started = time.monotonic()
         with prefix.with_suffix(".stdout").open("wb") as output, prefix.with_suffix(".stderr").open("wb") as errors:
+            child = subprocess.Popen(actual, cwd=cwd, env=env, stdout=output, stderr=errors, start_new_session=os.name != "nt")
+            record["owned_pid"] = child.pid
+            hook_fired = False
             try:
-                result = subprocess.run(actual, cwd=cwd, env=env, stdout=output, stderr=errors, timeout=timeout, check=False, start_new_session=os.name != "nt")
+                if runtime_hook or interrupt_runtime:
+                    assert trace and sys.platform.startswith("linux"), "runtime hooks require actual Linux execve tracing"
+                    while child.poll() is None:
+                        if time.monotonic() - started >= timeout:
+                            raise subprocess.TimeoutExpired(actual, timeout)
+                        if not hook_fired and trace_path.is_file() and runtime_compiles(trace_path.read_text(errors="replace")):
+                            hook_fired = True
+                            if runtime_hook:
+                                runtime_hook()
+                            if interrupt_runtime:
+                                os.killpg(child.pid, signal.SIGTERM)
+                        time.sleep(0.02)
+                    returncode = child.returncode
+                    assert hook_fired, "actual runtime compiler never reached the requested hook"
+                    record["runtime_compile_hook_fired"] = True
+                else:
+                    returncode = child.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                record.update(status="timed_out", elapsed_ms=int((time.monotonic() - started) * 1000))
-                self.save()
+                record.update(status="timed_out", elapsed_ms=int((time.monotonic() - started) * 1000), cleanup_notes=self.stop_owned(child))
+                self.retain_channels(prefix, record, trace)
+                try:
+                    self.save()
+                except BaseException as error:
+                    record.setdefault("secondary_evidence_errors", []).append(f"report publication: {type(error).__name__}: {error}")
                 raise
-        record.update(status="completed", returncode=result.returncode, elapsed_ms=int((time.monotonic() - started) * 1000))
-        for suffix in (".stdout", ".stderr"):
-            path = prefix.with_suffix(suffix)
-            record[suffix[1:]] = {"path": str(path), "bytes": path.stat().st_size, "sha256": sha(path)}
-        if trace:
-            record["execve"] = {"path": str(trace_path), "sha256": sha(trace_path)}
+            except BaseException as error:
+                record.update(status="harness_failed", error=f"{type(error).__name__}: {error}", cleanup_notes=self.stop_owned(child))
+                self.retain_channels(prefix, record, trace)
+                try:
+                    self.save()
+                except BaseException as secondary:
+                    record.setdefault("secondary_evidence_errors", []).append(f"report publication: {type(secondary).__name__}: {secondary}")
+                raise
+            if interrupt_runtime:
+                record["cleanup_notes"] = self.stop_owned(child)
+        record.update(status="completed", returncode=returncode, elapsed_ms=int((time.monotonic() - started) * 1000))
+        self.retain_channels(prefix, record, trace)
         self.save()
         text = ANSI.sub("", prefix.with_suffix(".stdout").read_bytes().decode("utf-8", "replace") + prefix.with_suffix(".stderr").read_bytes().decode("utf-8", "replace"))
-        return result.returncode, text, trace_path.read_text(errors="replace") if trace else ""
+        return returncode, text, trace_path.read_text(errors="replace") if trace else ""
 
     def case(self, label: str, **facts: object) -> None:
         self.report["cases"].append({"label": label, "outcome": "passed", **facts})
@@ -443,6 +573,95 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
     build(parser_source, "dependency-parser-build", compile_count=0)
     execute(parser_source, "dependency controls passed\n", "dependency-parser-execute")
     evidence.case("actual-freak-dependency-parser", controls=cases)
+    for name in ("DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH", "DYLD_VERSIONED_LIBRARY_PATH", "DYLD_ROOT_PATH"):
+        dyld_env = dict(env, **{name: str(foreign)}, CACHE_CONTROL_DYLD_REJECT="1")
+        code, output, _ = evidence.invoke([str(parser_source.with_suffix(""))], work, dyld_env, "dyld-refusal-" + name.lower())
+        assert code == 0 and output == "dependency controls passed\n", output
+        evidence.case("dyld-refusal-" + name.lower())
+    stage_source = work / "optional-stage-controls.fk"
+    stage_source.write_text(optional_stage_harness((ROOT / "src/cli/runtime_cache.fk").read_text()))
+    build(stage_source, "optional-stage-control-build", compile_count=0)
+    execute(stage_source, "optional-stage fallback passed\n", "optional-stage-control-execute")
+
+    mutation_parent = work / "mutation-cache"
+    mutation_parent.mkdir(mode=0o700)
+    mutation_env = dict(env, XDG_CACHE_HOME=str(mutation_parent))
+    try:
+        code, output, _ = evidence.invoke([str(freak), "build", str(source_a), "--c", "--clang-opt=0", "--lto=off"], work, mutation_env, "runtime-source-mutation-during-object", trace=True, runtime_hook=lambda: runtime_header.write_bytes(original_header + b"\n/* changed during native compilation */\n"))
+        assert code != 0 and not source_a.with_suffix("").exists(), (code, output)
+        assert not (mutation_parent / "freak/runtime-v1" / key).exists(), "published a changed-input object"
+        evidence.case("runtime-source-mutation-during-object", returncode=code)
+    finally:
+        runtime_header.write_bytes(original_header)
+        os.utime(runtime_header, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+    interrupted_parent = work / "interrupted-cache"
+    interrupted_parent.mkdir(mode=0o700)
+    interrupted_env = dict(env, XDG_CACHE_HOME=str(interrupted_parent))
+    code, output, _ = evidence.invoke([str(freak), "build", str(source_a), "--c", "--clang-opt=0", "--lto=off"], work, interrupted_env, "interrupt-runtime-writer", trace=True, interrupt_runtime=True)
+    assert code != 0 and not source_a.with_suffix("").exists(), (code, output)
+    assert not (interrupted_parent / "freak/runtime-v1" / key).exists(), "interrupted writer published incomplete output"
+    evidence.case("interrupt-runtime-writer", returncode=code)
+    build(source_a, "after-interrupted-writer-cold", selected_env=interrupted_env, compile_count=1)
+    build(source_b, "after-interrupted-writer-warm", selected_env=interrupted_env, compile_count=0)
+
+    if args.concurrent_writers:
+        # Explicit opt-in: the lead must reserve two compiler children for this
+        # one bounded contract. Ordinary gate invocations serialize compilation.
+        concurrent_parent = work / "concurrent-cache"
+        concurrent_parent.mkdir(mode=0o700)
+        concurrent_env = dict(env, XDG_CACHE_HOME=str(concurrent_parent))
+        seeded = build(source_a, "concurrent-root-seed", selected_env=concurrent_env, compile_count=1)
+        concurrent_key = next(found_key for _, unit, found_key in seeded if unit == "freak_runtime.c")
+        concurrent_root = concurrent_parent / "freak/runtime-v1"
+        (concurrent_root / concurrent_key).rename(concurrent_root / (concurrent_key + "-test-owned-backup"))
+        children = []
+        try:
+            for index, source in enumerate((source_a, source_b)):
+                prefix = evidence.root / f"concurrent-{index}"
+                output = prefix.with_suffix(".stdout").open("wb")
+                errors = prefix.with_suffix(".stderr").open("wb")
+                trace_path = prefix.with_suffix(".execve")
+                argv = ["strace", "-f", "-s", "65536", "-e", "trace=execve", "-o", str(trace_path), "--", str(freak), "build", str(source), "--c", "--clang-opt=0", "--lto=off"]
+                child = subprocess.Popen(argv, cwd=work, env=concurrent_env, stdout=output, stderr=errors, start_new_session=True)
+                record = {"label": f"concurrent-writer-{index}", "argv": argv, "cwd": str(work), "owned_pid": child.pid, "timeout_seconds": 240, "status": "running"}
+                evidence.report["commands"].append(record)
+                children.append((child, prefix, output, errors, record))
+            evidence.save()
+            deadline = time.monotonic() + 240
+            for child, prefix, output, errors, record in children:
+                code = child.wait(timeout=max(0.01, deadline - time.monotonic()))
+                output.close()
+                errors.close()
+                record.update(status="completed", returncode=code)
+                evidence.retain_channels(prefix, record, True)
+                text = prefix.with_suffix(".stdout").read_text(errors="replace") + prefix.with_suffix(".stderr").read_text(errors="replace")
+                assert code == 0, text
+                evidence.save()
+        finally:
+            for child, prefix, output, errors, record in children:
+                if child.poll() is None:
+                    record["cleanup_notes"] = evidence.stop_owned(child)
+                    record["status"] = "contained_after_failure"
+                output.close()
+                errors.close()
+                evidence.retain_channels(prefix, record, True)
+            evidence.save()
+        winner = concurrent_root / concurrent_key
+        winner_object = winner / "runtime.o"
+        winner_bytes = winner_object.read_bytes()
+        expected_receipt = f"{SCHEMA}\n{concurrent_key}\n{concurrent_key}\n{len(winner_bytes)}\n{sha(winner_object)}\ncomplete\n"
+        assert winner_bytes and (winner / "receipt").read_text() == expected_receipt
+        build(source_a, "concurrent-complete-winner-hit", selected_env=concurrent_env, compile_count=0)
+        execute(source_a, "41\n", "execute-concurrent-a")
+        execute(source_b, "43\n", "execute-concurrent-b")
+        evidence.case("concurrent-immutable-publication", winner=concurrent_key, bounded_compiler_children=2)
+    else:
+        evidence.report["concurrent_publication"] = "not run: explicit two-compiler grant required"
+
+    # A live cache-path replacement after a hit has been copied cannot alter
+    # the privately staged object consumed by the fresh program link.
+    # The held-read/copy architecture is also verified in independent review.
+    assert object_path.read_bytes() == object_bytes
 
     # Failure and complete publication controls require no injected fallbacks.
     bad_source = work / "bad.fk"
@@ -454,7 +673,8 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
         "Linux native only at this milestone; Windows/macOS tool closure and installed archive gates remain pending.",
         "Unknown Windows DLL selection and unresolved/static support closure disable cache reuse.",
         "Private owned staging excludes arbitrary concurrent same-user pathname replacement; no anchored child-I/O primitive is claimed.",
-        "Native same-path driver/support mutation, concurrent publication, target/UI/profile partitioning and interruption controls remain required before PR readiness.",
+        "Same-path driver-byte, source-mutation and interruption controls are prepared; support-library mutation and native target/UI/profile qualification remain pending.",
+        "Concurrent publication is opt-in and requires the root to grant two bounded compiler children; the default gate keeps one native compiler at a time.",
     ]
     evidence.report["outcome"] = "passed-focused-linux"
     evidence.save()
@@ -467,6 +687,7 @@ def main() -> int:
     parser.add_argument("--clang", type=Path)
     parser.add_argument("--payload", type=Path)
     parser.add_argument("--evidence-dir", type=Path)
+    parser.add_argument("--concurrent-writers", action="store_true", help="reserve two bounded compiler children for publication races; requires the lead's native resource grant")
     args = parser.parse_args()
     if args.pure:
         result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(SourceControls))
