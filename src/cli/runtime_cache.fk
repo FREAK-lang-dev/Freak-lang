@@ -97,18 +97,21 @@ task cli_runtime_cache_raw_pin(path: word, retain: bool) -> word {
     if bytes.status() == 0 { digest = fs::sha256_bytes(bytes) }
     bytes.release()
     if digest == "" { give back "" }
+    pilot pin = cli_runtime_cache_field(canonical) + cli_runtime_cache_field(digest)
     if retain {
-        array_push(cli_runtime_cache_paths, canonical)
-        array_push(cli_runtime_cache_hashes, digest)
+        -- Retain the logical Clang dependency too. Re-resolving it detects a
+        -- header symlink retargeted while compiling the admitted snapshot.
+        array_push(cli_runtime_cache_paths, path)
+        array_push(cli_runtime_cache_hashes, pin)
     }
-    give back cli_runtime_cache_field(canonical) + cli_runtime_cache_field(digest)
+    give back pin
 }
 
 task cli_runtime_cache_inputs_stable() -> bool {
     pilot index = 0
     repeat until index >= array_len(cli_runtime_cache_paths) {
         pilot pin = cli_runtime_cache_raw_pin(array_get(cli_runtime_cache_paths, index), false)
-        pilot expected = cli_runtime_cache_field(array_get(cli_runtime_cache_paths, index)) + cli_runtime_cache_field(array_get(cli_runtime_cache_hashes, index))
+        pilot expected = array_get(cli_runtime_cache_hashes, index)
         if pin == "" or pin != expected { give back false }
         index += 1
     }

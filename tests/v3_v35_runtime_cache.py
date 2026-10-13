@@ -632,6 +632,27 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
     finally:
         runtime_header.write_bytes(original_header)
         os.utime(runtime_header, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+    alias_parent = work / "retargeted-header-cache"
+    alias_parent.mkdir(mode=0o700)
+    alias_env = dict(env, XDG_CACHE_HOME=str(alias_parent))
+    header_old = work / "header-old.h"
+    header_new = work / "header-new.h"
+    header_old.write_bytes(original_header)
+    header_new.write_bytes(original_header + b"\n/* different logical header target */\n")
+    runtime_header.unlink()
+    runtime_header.symlink_to(header_old)
+    def retarget_header() -> None:
+        replacement = runtime_header.with_suffix(".retarget")
+        replacement.symlink_to(header_new)
+        replacement.replace(runtime_header)
+    try:
+        code, output, _ = evidence.invoke([str(freak), "build", str(source_a), "--c", "--clang-opt=0", "--lto=off"], work, alias_env, "logical-header-retarget-during-object", trace=True, runtime_hook=retarget_header)
+        assert code != 0 and not source_a.with_suffix("").exists(), (code, output)
+        evidence.case("logical-header-retarget-during-object", returncode=code)
+    finally:
+        runtime_header.unlink()
+        runtime_header.write_bytes(original_header)
+        os.utime(runtime_header, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
     interrupted_parent = work / "interrupted-cache"
     interrupted_parent.mkdir(mode=0o700)
     interrupted_env = dict(env, XDG_CACHE_HOME=str(interrupted_parent))
