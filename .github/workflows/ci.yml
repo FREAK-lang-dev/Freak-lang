@@ -348,12 +348,12 @@ jobs:
           --freakc ./build/freakc_v3_stage2$EXT
           --evidence-dir "${{ runner.temp }}/v35-http-release"
 
-      - name: Upload installed HTTP and template evidence
+      - name: Upload installed HTTP, template and component evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: v35-http-release-${{ runner.os }}
-          path: ${{ runner.temp }}/v35-http-release/*.json
+          path: ${{ runner.temp }}/v35-http-release/
           if-no-files-found: ignore
 
       - name: Test suite (regression tests)
@@ -766,12 +766,12 @@ jobs:
           --freakc ./build/freakc_v3_stage2$EXT
           --evidence-dir "${{ runner.temp }}/v35-http-release"
 
-      - name: Upload installed HTTP and template evidence
+      - name: Upload installed HTTP, template and component evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: v35-http-release-${{ runner.os }}
-          path: ${{ runner.temp }}/v35-http-release/*.json
+          path: ${{ runner.temp }}/v35-http-release/
           if-no-files-found: ignore
 
       - name: Test suite (regression tests)
