@@ -419,6 +419,37 @@ static size_t shared_pool_bytes(pool_snapshot p) {
     return p.byte_capacity*sizeof(*freak_byte_buffers)+p.json_capacity*sizeof(*freak_json_documents)+
         p.word_buckets*sizeof(*freak_llvm_owned_buckets);
 }
+static void response_size(int64_t request,int status) {
+    REQUIRE(H(response_status)(request,status));
+    REQUIRE(H(response_header)(request,W("X-Response-Size"),W("verified")));
+    __auto_type query=H(request_query)(request);freak_word q=view(query);
+    size_t length=freak_http_require_request(request)->limits.body+1;REQUIRE(length>=2);
+    if(eq(q,"bad-text")) {
+        REQUIRE(status==205);REQUIRE(!H(send_text)(request,W("\xff")));
+        __auto_type error=H(request_error)(request);REQUIRE(eq(view(error),"text response requires NUL-free UTF-8"));drop(error);
+    }
+    if(eq(q,"bad-bytes")) {
+        REQUIRE(status==205);int64_t bad=freak_byte_buffer_new();freak_byte_buffer_write_byte(bad,256);
+        REQUIRE(!H(send_bytes)(request,bad));
+        __auto_type error=H(request_error)(request);REQUIRE(eq(view(error),"response ByteBuffer has a pending error"));drop(error);
+        freak_byte_buffer_release(bad);
+    }
+    int sent;
+    if(eq(q,"bytes")||eq(q,"bad-bytes")) {
+        int64_t body=freak_byte_buffer_with_capacity((int64_t)length);freak_byte_buffer_record *buffer=freak_byte_buffer_require(body,"response-size fixture");
+        memset(buffer->data,'x',length);buffer->data[0]=0;buffer->data[1]=255;buffer->length=length;
+        sent=H(send_bytes)(request,body);REQUIRE(freak_byte_buffer_length(body)==(int64_t)length);freak_byte_buffer_release(body);
+    } else {
+        char *body=malloc(length+1);REQUIRE(body);memset(body,'x',length);body[length]=0;
+        sent=H(send_text)(request,W(body));free(body);
+    }
+    drop(query);
+    if(status==205)REQUIRE(sent);
+    else {
+        REQUIRE(!sent);__auto_type error=H(request_error)(request);REQUIRE(eq(view(error),"response body exceeds configured limit"));drop(error);
+        REQUIRE(H(send_text)(request,W("recovered")));
+    }
+}
 static void service(const char *profile) {
     int initial_fds=fds();int64_t server=H(open)(0);REQUIRE(H(status)(server)==0);
     bool tight=!strcmp(profile,"tight");
@@ -460,7 +491,11 @@ static void service(const char *profile) {
                 const char *framing[]={"Content-Length","Transfer-Encoding","Connection","Trailer","Upgrade","Keep-Alive","Proxy-Connection"};
                 for(size_t i=0;i<sizeof(framing)/sizeof(*framing);i++) REQUIRE(!H(response_header)(request,W(framing[i]),W("x")));
                 REQUIRE(!H(response_status)(request,100));REQUIRE(H(response_header)(request,W("X-Safe"),W("yes")));sent=H(send_text)(request,W("safe"));
-            } else if(eq(p,"/large")) {
+            } else if(eq(p,"/response-size/205")) response_size(request,205);
+            else if(eq(p,"/response-size/200")) response_size(request,200);
+            else if(eq(p,"/response-size/204")) response_size(request,204);
+            else if(eq(p,"/response-size/304")) response_size(request,304);
+            else if(eq(p,"/large")) {
                 freak_http_request *native=freak_http_require_request(request);int amount=1024;setsockopt(native->socket,SOL_SOCKET,SO_SNDBUF,(const char *)&amount,sizeof(amount));
                 int64_t b=freak_byte_buffer_with_capacity(262144);freak_byte_buffer_record *r=freak_byte_buffer_require(b,"large fixture");for(size_t i=0;i<262144;i++)r->data[i]=(unsigned char)((i*17+3)&255);r->length=262144;sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
             } else if(eq(p,"/empty")) sent=H(send_text)(request,W(""));
@@ -593,6 +628,24 @@ def reset_content_corpus(s:Server):
         for path,body in (('/205',b''),('/205?bytes',binary),('/205?bytes',b'')):
             assert_response(s.exchange(request(path,method,body)),205,b'',head=method=='HEAD')
 
+def response_size_corpus(s:Server,limit:int):
+    s.checkpoint('response-framing','oversized-omitted-and-checked-bodies')
+    for method in ('GET','HEAD'):
+        for status in (205,200,204,304):
+            for kind in ('text','bytes'):
+                # Response bodies are generated in the application, independently
+                # of an admitted empty request, at exactly configured limit+1.
+                body=b'recovered' if status==200 and method=='GET' else b''
+                headers=assert_response(s.exchange(request(f'/response-size/{status}?{kind}',method)),status,body,head=method=='HEAD')
+                assert headers[b'x-response-size']==b'verified',headers
+                if status not in (204,205):assert headers[b'content-length']==b'9',headers
+        # Omitted205 bodies still pass through Word/ByteBuffer validation.
+        for kind in ('bad-text','bad-bytes'):
+            headers=assert_response(s.exchange(request(f'/response-size/205?{kind}',method)),205,b'',head=method=='HEAD')
+            assert headers[b'x-response-size']==b'verified',headers
+        # The response exception must never admit oversized inbound bodies.
+        assert_rejection(s.exchange(request('/response-size/205?text',method,headers=[('Content-Length',str(limit+1))])),413,head=method=='HEAD')
+
 def head_rejection_corpus(s:Server):
     s.checkpoint('parser-rejections','incomplete-head-token')
     # llhttp recognizes the final D before accepting the method delimiter.
@@ -641,6 +694,7 @@ def normal_corpus(s:Server,soak:int):
     assert_response(s.exchange(request('/204')),204,b'')
     assert_response(s.exchange(request('/204','HEAD')),204,b'',head=True)
     reset_content_corpus(s)
+    response_size_corpus(s,1048576)
     s.checkpoint('normal-corpus','bodyless-and-header-responses')
     c=http.client.HTTPConnection('127.0.0.1',s.port,timeout=4);c.request('GET','/205');r=c.getresponse();assert r.status==205 and r.reason=='Reset Content' and r.getheader('Content-Length')=='0' and r.read()==b'';c.close();s.cases+=1
     for method in ('GET','HEAD'):
@@ -711,6 +765,7 @@ def invalid_corpus(s:Server):
 
 def tight_corpus(s:Server):
     s.checkpoint('tight-corpus','size-and-metadata-limits')
+    response_size_corpus(s,64)
     assert_response(s.exchange(request('/health')),200,b'healthy')
     assert_response(s.exchange(request('/'+'x'*128)),414)
     assert_response(s.exchange(request('/health',headers=[('X','x'*512)])),431)

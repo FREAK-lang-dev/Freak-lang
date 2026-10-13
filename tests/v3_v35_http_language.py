@@ -15,9 +15,49 @@ import shutil
 import subprocess
 import tempfile
 
-from v3_v35_http import HttpProgress, Server, assert_response, invalid_corpus, request, reset_content_corpus, runtime_inputs
+from v3_v35_http import HttpProgress, Server, assert_response, invalid_corpus, request, reset_content_corpus, response_size_corpus, runtime_inputs
 
 PROGRAM = r'''
+task app_response_size(request: int, status: int) {
+    if http_response_status(request, status) != 1 { process::exit(2) }
+    if http_response_header(request, "X-Response-Size", "verified") != 1 { process::exit(2) }
+    pilot query = http_request_query(request)
+    if query == "bad-text" {
+        pilot invalid_text = "é".char_at(0)
+        if status != 205 or http_send_text(request, invalid_text) != 0 { process::exit(2) }
+        if http_request_error(request) != "text response requires NUL-free UTF-8" { process::exit(2) }
+    }
+    if query == "bad-bytes" {
+        pilot invalid_bytes = ByteBuffer::new()
+        invalid_bytes.write_byte(256)
+        pilot invalid_sent = http_server::send_bytes(request, invalid_bytes)
+        invalid_bytes.release()
+        if status != 205 or invalid_sent != 0 { process::exit(2) }
+        if http_request_error(request) != "response ByteBuffer has a pending error" { process::exit(2) }
+    }
+    pilot mut sent = 0
+    if query == "bytes" or query == "bad-bytes" {
+        pilot response_bytes = ByteBuffer::with_capacity(1048577)
+        response_bytes.write_word("x".repeated(1048575))
+        response_bytes.write_byte(0)
+        response_bytes.write_byte(255)
+        if response_bytes.length() != 1048577 or response_bytes.status() != 0 { process::exit(2) }
+        sent = http_server::send_bytes(request, response_bytes)
+        if response_bytes.length() != 1048577 { process::exit(2) }
+        response_bytes.release()
+    } else {
+        pilot response_text = "x".repeated(1048577)
+        if response_text.length() != 1048577 { process::exit(2) }
+        sent = http_send_text(request, response_text)
+    }
+    if status == 205 {
+        if sent != 1 { process::exit(2) }
+    } else {
+        if sent != 0 { process::exit(2) }
+        if http_request_error(request) != "response body exceeds configured limit" { process::exit(2) }
+        if http_send_text(request, "recovered") != 1 { process::exit(2) }
+    }
+}
 task app_dispatch(request: int) -> bool {
     pilot path = http_request_path(request)
     pilot method = http_request_method(request)
@@ -84,6 +124,10 @@ task app_dispatch(request: int) -> bool {
         pilot sent = http_send_text(request, output)
         give back false
     }
+    if path == "/response-size/205" { app_response_size(request, 205); give back false }
+    if path == "/response-size/200" { app_response_size(request, 200); give back false }
+    if path == "/response-size/204" { app_response_size(request, 204); give back false }
+    if path == "/response-size/304" { app_response_size(request, 304); give back false }
     if path == "/empty" {
         pilot sent = http_send_text(request, "")
         give back false
@@ -160,6 +204,7 @@ def consumer_corpus(server:Server,soak:int):
     for path,status in [('/empty',200),('/204',204)]:assert_response(server.exchange(request(path)),status,b'')
     assert_response(server.exchange(request('/204','HEAD')),204,b'',head=True)
     reset_content_corpus(server)
+    response_size_corpus(server,1048576)
     server.checkpoint('language-consumer','bodyless-and-header-responses')
     for method in ('GET','HEAD'):
         h=assert_response(server.exchange(request('/304',method)),304,b'',head=method=='HEAD');assert h[b'content-length']==b'7'

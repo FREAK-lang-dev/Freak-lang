@@ -502,7 +502,7 @@ invalid:
 }
 static int64_t freak_http_send(freak_http_request *request,const unsigned char *body,size_t length,const char *type) {
     if(!freak_http_respondable(request)) return 0;
-    if(length>request->limits.body) { snprintf(request->error,sizeof(request->error),"response body exceeds configured limit"); return 0; }
+    if(request->response_status!=205 && length>request->limits.body) { snprintf(request->error,sizeof(request->error),"response body exceeds configured limit"); return 0; }
     freak_http_text wire={0}; char first[256];
     int count=snprintf(first,sizeof(first),"HTTP/1.1 %d %s\r\nConnection: close\r\n",request->response_status,freak_http_reason(request->response_status));
     freak_http_text_append(&wire,first,(size_t)count,request->limits.headers+1024);
