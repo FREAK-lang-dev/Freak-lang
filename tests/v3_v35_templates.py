@@ -167,7 +167,7 @@ def main():
         'clang':str(clang),'clang_sha256':hashlib.sha256(clang.read_bytes()).hexdigest(),'clang_version':tool_version.stdout.splitlines()[0],
         'strict_borrow':True,'sanitize':args.sanitize,'creator_matrices':[],'installed_cli_matrices':[],'installed_cli_verified':False}
     with tempfile.TemporaryDirectory(prefix='freak-native-templates-') as temporary:
-        root=Path(temporary);source=root/'creator.fk';source.write_text(SELECTORS+'\n'+generator+'\n'+MAIN)
+        root=Path(temporary).resolve(strict=True);source=root/'creator.fk';source.write_text(SELECTORS+'\n'+generator+'\n'+MAIN)
         if args.sanitize:
             control=root/'control.c';control.write_text('#include <stdlib.h>\nint main(int n,char **v){volatile char *p=malloc(1);p[n+4]=3;free((void*)p);return 0;}\n');binary=root/'control'
             linked=run([args.clang,control,'-O0','-fsanitize=address,undefined','-o',binary],cwd=root);assert linked.returncode==0,(linked.stdout,linked.stderr)
