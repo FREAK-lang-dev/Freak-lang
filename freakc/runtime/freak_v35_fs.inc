@@ -1396,6 +1396,122 @@ int64_t freak_fs_write_relative_bytes_checked(int64_t root_handle,freak_word rel
     else { if (temporary && !result->completed) freak_fs_anchor_delete(parent,temporary,false); freak_fs_ticket_error(result,result->completed ? "filesystem publication completed but directory synchronization failed" : "could not write and publish anchored filesystem file"); }
     freak_fs_anchor_close(parent); free(temporary); free(name); return handle;
 }
+/* Create-only publication is permitted in ordinary/public parent directories:
+   held no-follow ancestors and exclusive leaf creation grant no replacement
+   authority. Both inputs are borrowed. completed records leaf creation even
+   when subsequent validation, bytes, durability or close fails. A partial leaf
+   is retained; no mutable pathname is used to roll it back. */
+#ifdef _WIN32
+static HANDLE freak_fs_anchor_new_file(HANDLE parent,const char *name,bool *created,const char **phase) {
+    freak_fs_nt_create_fn create_file=(freak_fs_nt_create_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtCreateFile");
+    if (!create_file) { SetLastError(ERROR_PROC_NOT_FOUND); return INVALID_HANDLE_VALUE; }
+    wchar_t *wide=freak_command_wide(name); size_t bytes=wcslen(wide)*sizeof(wchar_t);
+    if (bytes > USHRT_MAX) { free(wide); SetLastError(ERROR_FILENAME_EXCED_RANGE); return INVALID_HANDLE_VALUE; }
+    freak_fs_nt_string string={(USHORT)bytes,(USHORT)bytes,wide};
+    freak_fs_nt_object object={sizeof(object),parent,&string,0x40 /* OBJ_CASE_INSENSITIVE */,NULL,NULL};
+    freak_fs_nt_io io={0}; io.value.status=0x103 /* STATUS_PENDING */;
+    HANDLE file=INVALID_HANDLE_VALUE;
+    LONG status=create_file(&file,FILE_WRITE_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE,&object,&io,NULL,
+        FILE_ATTRIBUTE_NORMAL,0 /* no sharing while bytes and parent are synchronized */,2 /* FILE_CREATE */,
+        0x40 /* FILE_NON_DIRECTORY_FILE */ | 0x20 /* FILE_SYNCHRONOUS_IO_NONALERT */ | 0x200000 /* FILE_OPEN_REPARSE_POINT */,NULL,0);
+    if (status == 0x103 || (status == 0 && io.value.status == 0x103)) freak_fs_sync_nonfinal("create-only file creation");
+    free(wide);
+    *created=status >= 0 && io.value.status >= 0 && io.information == 2 /* FILE_CREATED */ && file != INVALID_HANDLE_VALUE;
+    if (status != 0 || io.value.status != 0 || !*created) {
+        if (status != 0) freak_fs_nt_error(status);
+        else if (io.value.status != 0) freak_fs_nt_error(io.value.status);
+        else SetLastError(ERROR_INVALID_DATA);
+        freak_fs_anchor_close(file); return INVALID_HANDLE_VALUE;
+    }
+    *phase="leaf-validation";
+    BY_HANDLE_FILE_INFORMATION info;
+    if (!GetFileInformationByHandle(file,&info)) { freak_fs_anchor_close(file); return INVALID_HANDLE_VALUE; }
+    SetLastError(NO_ERROR); DWORD kind=GetFileType(file);
+    if (kind == FILE_TYPE_UNKNOWN && GetLastError() != NO_ERROR) { freak_fs_anchor_close(file); return INVALID_HANDLE_VALUE; }
+    if (kind != FILE_TYPE_DISK || (info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))) {
+        SetLastError(ERROR_ACCESS_DENIED); freak_fs_anchor_close(file); return INVALID_HANDLE_VALUE;
+    }
+    return file;
+}
+#endif
+int64_t freak_fs_write_relative_new_bytes_checked(int64_t root_handle,freak_word relative,int64_t bytes_handle) {
+    freak_byte_buffer_record *buffer=freak_byte_buffer_require(bytes_handle,"anchored create-only filesystem binary write");
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) { freak_fs_ticket_error(result,"binary buffer has a pending error"); return handle; }
+    char *name=freak_fs_checked_path(result,relative); if (!name) return handle;
+    if (!freak_fs_relative_valid(name,false)) { free(name); freak_fs_ticket_error(result,"filesystem relative path has unsafe components"); return handle; }
+    const char *phase="parent-open"; unsigned long first_error=0;
+    char *leaf; freak_fs_anchor parent=freak_fs_anchor_parent(root,name,&leaf),file=FREAK_FS_INVALID_ANCHOR;
+    if (parent == FREAK_FS_INVALID_ANCHOR) goto failed;
+    phase="leaf-create";
+#ifdef _WIN32
+    file=freak_fs_anchor_new_file(parent,leaf,&result->completed,&phase);
+#else
+    file=openat(parent,leaf,O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC,0600);
+    result->completed=file >= 0;
+#endif
+    if (file == FREAK_FS_INVALID_ANCHOR) goto failed;
+#ifndef _WIN32
+    phase="leaf-validation";
+    struct stat admitted;
+    if (fstat(file,&admitted) != 0) goto failed;
+    if (!S_ISREG(admitted.st_mode)) { errno=EINVAL; goto failed; }
+#endif
+    phase="leaf-write";
+    size_t position=0;
+    while (position < buffer->length) {
+        size_t remaining=buffer->length-position;
+#ifdef _WIN32
+        DWORD wanted=remaining > MAXDWORD ? MAXDWORD : (DWORD)remaining,count=0;
+        if (!WriteFile(file,buffer->data+position,wanted,&count,NULL)) goto failed;
+        if (!count) { SetLastError(ERROR_WRITE_FAULT); goto failed; }
+#else
+        size_t wanted=remaining > (size_t)SSIZE_MAX ? (size_t)SSIZE_MAX : remaining;
+        ssize_t count=write(file,buffer->data+position,wanted);
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0) goto failed;
+        if (!count) { errno=EIO; goto failed; }
+#endif
+        position+=(size_t)count;
+    }
+    phase="leaf-sync";
+#ifdef _WIN32
+    if (!FlushFileBuffers(file)) goto failed;
+#else
+    if (fsync(file) != 0) goto failed;
+    phase="leaf-identity";
+    struct stat current;
+    if (fstatat(parent,leaf,&current,AT_SYMLINK_NOFOLLOW) != 0) goto failed;
+    if (!S_ISREG(current.st_mode) || admitted.st_dev != current.st_dev || admitted.st_ino != current.st_ino) { errno=EAGAIN; goto failed; }
+#endif
+    phase="parent-sync";
+    if (!freak_fs_anchor_sync(parent)) goto failed;
+#ifndef _WIN32
+    phase="leaf-identity";
+    if (fstatat(parent,leaf,&current,AT_SYMLINK_NOFOLLOW) != 0) goto failed;
+    if (!S_ISREG(current.st_mode) || admitted.st_dev != current.st_dev || admitted.st_ino != current.st_ino) { errno=EAGAIN; goto failed; }
+#endif
+    phase="leaf-close";
+#ifdef _WIN32
+    if (!CloseHandle(file)) { file=FREAK_FS_INVALID_ANCHOR; goto failed; }
+#else
+    if (close(file) != 0) { file=FREAK_FS_INVALID_ANCHOR; goto failed; }
+#endif
+    file=FREAK_FS_INVALID_ANCHOR; result->ok=true;
+    freak_fs_anchor_close(parent); free(name); return handle;
+failed:
+#ifdef _WIN32
+    first_error=GetLastError();
+#else
+    first_error=(unsigned long)errno;
+#endif
+    freak_fs_anchor_close(file); freak_fs_anchor_close(parent);
+    char reason[256];
+    snprintf(reason,sizeof(reason),"create-only filesystem write failed [phase=%s,native=%lu]; %s",phase,first_error,
+        result->completed ? "leaf creation completed; recovery is required" : "no leaf created");
+    freak_fs_ticket_error(result,reason); free(name); return handle;
+}
 int64_t freak_fs_remove_relative_file_checked(int64_t root_handle,freak_word relative) {
     int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
     freak_fs_ticket *root=freak_fs_directory_require(root_handle);
@@ -2144,6 +2260,7 @@ int64_t freak_llvm_fs_read_source_relative_ticket(int64_t root,int64_t path) { r
 int64_t freak_llvm_fs_read_relative_bytes_ticket(int64_t root,int64_t path) { return freak_fs_read_relative_bytes_ticket(root,freak_llvm_word_view(path)); }
 int64_t freak_llvm_fs_read_relative_bytes_limit_ticket(int64_t root,int64_t path,int64_t limit) { return freak_fs_read_relative_bytes_limit_ticket(root,freak_llvm_word_view(path),limit); }
 int64_t freak_llvm_fs_write_relative_bytes_checked(int64_t root,int64_t path,int64_t bytes) { return freak_fs_write_relative_bytes_checked(root,freak_llvm_word_view(path),bytes); }
+int64_t freak_llvm_fs_write_relative_new_bytes_checked(int64_t root,int64_t path,int64_t bytes) { return freak_fs_write_relative_new_bytes_checked(root,freak_llvm_word_view(path),bytes); }
 int64_t freak_llvm_fs_set_mode_relative_checked(int64_t root,int64_t path,int64_t mode) { return freak_fs_set_mode_relative_checked(root,freak_llvm_word_view(path),mode); }
 int64_t freak_llvm_fs_remove_temp_dir_checked(int64_t temp) { return freak_fs_remove_temp_dir_checked(temp); }
 int64_t freak_llvm_fs_publish_temp_dir_checked(int64_t temp,int64_t parent,int64_t path) { return freak_fs_publish_temp_dir_checked(temp,parent,freak_llvm_word_view(path)); }

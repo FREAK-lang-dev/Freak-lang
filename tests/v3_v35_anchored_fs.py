@@ -43,6 +43,7 @@ extern int64_t freak_fs_read_source_relative_ticket(int64_t,freak_word);
 extern int64_t freak_fs_read_relative_bytes_ticket(int64_t,freak_word);
 extern int64_t freak_fs_read_relative_bytes_limit_ticket(int64_t,freak_word,int64_t);
 extern int64_t freak_fs_write_relative_bytes_checked(int64_t,freak_word,int64_t);
+extern int64_t freak_fs_write_relative_new_bytes_checked(int64_t,freak_word,int64_t);
 extern int64_t freak_fs_remove_temp_dir_checked(int64_t);
 extern int64_t freak_fs_publish_temp_dir_checked(int64_t,int64_t,freak_word);
 extern bool freak_fs_result_completed(int64_t);
@@ -64,6 +65,7 @@ extern int64_t freak_llvm_fs_read_source_relative_ticket(int64_t,int64_t);
 extern int64_t freak_llvm_fs_read_relative_bytes_ticket(int64_t,int64_t);
 extern int64_t freak_llvm_fs_read_relative_bytes_limit_ticket(int64_t,int64_t,int64_t);
 extern int64_t freak_llvm_fs_write_relative_bytes_checked(int64_t,int64_t,int64_t);
+extern int64_t freak_llvm_fs_write_relative_new_bytes_checked(int64_t,int64_t,int64_t);
 extern int64_t freak_llvm_fs_remove_temp_dir_checked(int64_t);
 extern int64_t freak_llvm_fs_publish_temp_dir_checked(int64_t,int64_t,int64_t);
 extern int64_t freak_llvm_fs_result_completed(int64_t);
@@ -105,6 +107,11 @@ extern long syscall(long,...);
 extern int __real_openat(int,const char *,int,...);
 extern ssize_t __real_read(int,void *,size_t);
 extern int __real_fsync(int);
+extern ssize_t __real_write(int,const void *,size_t);
+extern int __real_close(int);
+extern int __real_fstat(int,struct stat *);
+static int new_collision=0,partial_fault=0,file_sync_fault=0,close_fault=0,new_validation_fault=0,new_fault_fd=-1,new_leaf_retarget=0;
+static char new_leaf_path[8192],new_owned_path[8192];
 static int exchange=0,grow=0,sync_fault=0; static size_t read_total=0,read_max=0;
 static char swap_path[8192],old_path[8192],outside_path[8192],grow_path[8192];
 static int lock_competition=0,competing_lock=-1;
@@ -129,7 +136,12 @@ int freak_fs_test_flock(int descriptor,int operation) {
 }
 int __wrap_openat(int parent,const char *name,int flags,...) {
     va_list args; va_start(args,flags); mode_t mode=(flags&O_CREAT)?(mode_t)va_arg(args,int):0; va_end(args);
+    if(new_collision && !strcmp(name,"late-new") && (flags&O_CREAT)) {
+        new_collision=0; int contender=__real_openat(parent,name,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+        require(contender>=0 && __real_write(contender,"foreign late leaf",17)==17 && __real_close(contender)==0,"late exclusive contender");
+    }
     int fd=__real_openat(parent,name,flags,mode);
+    if(new_validation_fault && fd>=0 && (flags&O_CREAT))new_fault_fd=fd;
     if (exchange && fd>=0 && !strcmp(name,"sub") && (flags&O_DIRECTORY)) {
         exchange=0; require(rename(swap_path,old_path)==0,"exchange admitted ancestor"); require(symlink(outside_path,swap_path)==0,"replace ancestor with outside link");
     }
@@ -140,7 +152,33 @@ ssize_t __wrap_read(int fd,void *bytes,size_t count) {
     if (count>read_max) read_max=count;
     ssize_t n=__real_read(fd,bytes,count); if(n>0) read_total+=(size_t)n; return n;
 }
-int __wrap_fsync(int fd) { struct stat info; if(sync_fault && fstat(fd,&info)==0 && S_ISDIR(info.st_mode)) { errno=EIO; return -1; } return __real_fsync(fd); }
+int __wrap_fstat(int fd,struct stat *info) {
+    if(new_validation_fault && fd==new_fault_fd) { new_validation_fault=0;errno=EIO;return -1; }
+    return __real_fstat(fd,info);
+}
+ssize_t __wrap_write(int fd,const void *bytes,size_t count) {
+    if(partial_fault==1) { partial_fault=2; require(count>2,"partial raw-byte request"); return __real_write(fd,bytes,2); }
+    if(partial_fault==2) { partial_fault=0; errno=ENOSPC; return -1; }
+    return __real_write(fd,bytes,count);
+}
+int __wrap_close(int fd) {
+    struct stat info;
+    if(close_fault && fstat(fd,&info)==0 && S_ISREG(info.st_mode)) { close_fault=0; require(__real_close(fd)==0,"actual close before controlled error"); errno=EIO; return -1; }
+    return __real_close(fd);
+}
+int __wrap_fsync(int fd) {
+    struct stat info;
+    if(fstat(fd,&info)==0) {
+        if(new_leaf_retarget && S_ISREG(info.st_mode)) {
+            new_leaf_retarget=0;require(__real_fsync(fd)==0 && rename(new_leaf_path,new_owned_path)==0,"actual created leaf identity retarget");
+            int foreign=open(new_leaf_path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+            require(foreign>=0 && __real_write(foreign,"foreign retained",16)==16 && __real_close(foreign)==0,"actual replacement bytes retained");return 0;
+        }
+        if(file_sync_fault && S_ISREG(info.st_mode)) { file_sync_fault=0; errno=EROFS; return -1; }
+        if(sync_fault && S_ISDIR(info.st_mode)) { errno=EIO; return -1; }
+    }
+    return __real_fsync(fd);
+}
 static void paths(const char *root,const char *outside) { snprintf(swap_path,sizeof(swap_path),"%s/sub",root); snprintf(old_path,sizeof(old_path),"%s/old-sub",root); snprintf(outside_path,sizeof(outside_path),"%s",outside); }
 #endif
 #ifndef _WIN32
@@ -291,6 +329,32 @@ int main(int argc,char **argv) {
     }
     if(!strcmp(mode,"lock-fails")) { failed(F(lock_dir_ticket)(d,W("transaction.lock"))); F(result_release)(d); return 0; }
     if(!strcmp(mode,"lock-once")) { success(F(lock_dir_ticket)(d,W("transaction.lock"))); F(result_release)(d); return 0; }
+    if(!strcmp(mode,"new-file") || !strcmp(mode,"new-file-public")) {
+#ifndef _WIN32
+        if(!strcmp(mode,"new-file-public")) require(chmod(path,0777)==0,"ordinary public writable parent");
+#endif
+        int64_t b=freak_byte_buffer_new(); freak_byte_buffer_write_byte(b,'a'); freak_byte_buffer_write_byte(b,0); freak_byte_buffer_write_byte(b,255); freak_byte_buffer_write_byte(b,'b');
+        int64_t r=F(write_relative_new_bytes_checked)(d,W("new-raw"),b);
+        require(F(result_ok)(r)&&F(result_completed)(r),"exclusive raw create succeeds in held ordinary parent"); F(result_release)(r);
+        require(freak_byte_buffer_length(b)==4 && freak_byte_buffer_status(b)==0,"raw buffer is borrowed");
+        exact(F(read_source_relative_ticket)(d,W("new-raw")),"a\0\xff" "b",4);
+        r=F(write_relative_new_bytes_checked)(d,W("sub/nested-new-raw"),b);require(F(result_ok)(r)&&F(result_completed)(r),"nested held parent create-only raw bytes");F(result_release)(r);
+        const char *collisions[]={"new-raw","sub/value","raw","sub","marker"};
+        for(size_t i=0;i<sizeof(collisions)/sizeof(*collisions);i++) {
+            r=F(write_relative_new_bytes_checked)(d,W(collisions[i]),b); require(!F(result_ok)(r)&&!F(result_completed)(r),"existing entries cannot be replaced"); F(result_release)(r);
+        }
+#ifndef _WIN32
+        const char *links[]={"link/secret","file-link","dangling"};
+        for(size_t i=0;i<sizeof(links)/sizeof(*links);i++) { r=F(write_relative_new_bytes_checked)(d,W(links[i]),b); require(!F(result_ok)(r)&&!F(result_completed)(r),"create-only refuses ancestor and leaf links"); F(result_release)(r); }
+#endif
+        const char *unsafe[]={"../secret","/secret","sub//value","sub/./value","sub/","C:secret",".",".."};
+        for(size_t i=0;i<sizeof(unsafe)/sizeof(*unsafe);i++) { r=F(write_relative_new_bytes_checked)(d,W(unsafe[i]),b); require(!F(result_ok)(r)&&!F(result_completed)(r),"unsafe components rejected before create"); F(result_release)(r); }
+        int64_t bad=freak_byte_buffer_new(); freak_byte_buffer_read_byte(bad); require(freak_byte_buffer_status(bad)!=0,"pending buffer error fixture");
+        r=F(write_relative_new_bytes_checked)(d,W("pending-error"),bad); require(!F(result_ok)(r)&&!F(result_completed)(r),"pending byte error causes no publication"); F(result_release)(r); freak_byte_buffer_release(bad);
+        int64_t empty=freak_byte_buffer_new(); r=F(write_relative_new_bytes_checked)(d,W("empty-new"),empty); require(F(result_ok)(r)&&F(result_completed)(r),"empty file is durably created"); F(result_release)(r); freak_byte_buffer_release(empty);
+        exact(F(read_relative_ticket)(d,W("sub/value")),"owned",5); exact(F(read_source_relative_ticket)(d,W("raw")),"a\0\xff" "b",4); exact(F(read_relative_ticket)(d,W("marker")),"small",5);
+        freak_byte_buffer_release(b); F(result_release)(d); require(freak_fs_result_live()==0,"create-only all tickets released"); return 0;
+    }
     if(!strcmp(mode,"smoke")) {
         exact(F(read_relative_ticket)(d,W("sub/value")),"owned",5);
         exact(F(read_source_relative_ticket)(d,W("raw")),"a\0\xff" "b",4);
@@ -351,7 +415,31 @@ int main(int argc,char **argv) {
         F(result_release)(d); require(freak_fs_result_live()==0,"all tickets released"); puts("ANCHORED_OK"); return 0;
     }
 #ifdef TEST_INTERPOSE
-    if(!strcmp(mode,"read-race") || !strcmp(mode,"write-race")) {
+    if(!strcmp(mode,"new-create-race")) {
+        require(argc==4,"outside argument"); paths(path,argv[3]); exchange=1;
+        int64_t b=buffer("held new bytes"); int64_t r=F(write_relative_new_bytes_checked)(d,W("sub/new-held"),b);
+        require(F(result_ok)(r)&&F(result_completed)(r),"create uses retained exchanged ancestor"); F(result_release)(r); freak_byte_buffer_release(b);
+    } else if(!strcmp(mode,"new-late-collision")) {
+        new_collision=1; int64_t b=buffer("our candidate"); int64_t r=F(write_relative_new_bytes_checked)(d,W("late-new"),b);
+        require(!F(result_ok)(r)&&!F(result_completed)(r),"late collision leaves foreign entry untouched"); F(result_release)(r); freak_byte_buffer_release(b);
+        exact(F(read_relative_ticket)(d,W("late-new")),"foreign late leaf",17);
+    } else if(!strcmp(mode,"new-partial-write") || !strcmp(mode,"new-file-sync") || !strcmp(mode,"new-parent-sync") || !strcmp(mode,"new-close") || !strcmp(mode,"new-validation") || !strcmp(mode,"new-leaf-retarget")) {
+        int64_t b=freak_byte_buffer_new(); freak_byte_buffer_write_byte(b,'a'); freak_byte_buffer_write_byte(b,0); freak_byte_buffer_write_byte(b,255); freak_byte_buffer_write_byte(b,'b');
+        int expected;
+        if(!strcmp(mode,"new-partial-write")) { partial_fault=1; close_fault=1; expected=ENOSPC; }
+        else if(!strcmp(mode,"new-file-sync")) { file_sync_fault=1; close_fault=1; expected=EROFS; }
+        else if(!strcmp(mode,"new-parent-sync")) { sync_fault=1; close_fault=1; expected=EIO; }
+        else if(!strcmp(mode,"new-validation")) { new_validation_fault=1;close_fault=1;expected=EIO; }
+        else if(!strcmp(mode,"new-leaf-retarget")) { snprintf(new_leaf_path,sizeof(new_leaf_path),"%s/new-retained",path);snprintf(new_owned_path,sizeof(new_owned_path),"%s/new-retained-owned",path);new_leaf_retarget=1;close_fault=1;expected=EAGAIN; }
+        else { close_fault=1; expected=EIO; }
+        int64_t r=F(write_relative_new_bytes_checked)(d,W("new-retained"),b);
+        require(!F(result_ok)(r)&&F(result_completed)(r),"failed bytes/durability/close retains created completion");
+        freak_word error=freak_fs_result_error(r); char native[64]; snprintf(native,sizeof(native),"native=%d]",expected);
+        require(strstr(error.data,native)!=NULL && strstr(error.data,"leaf creation completed")!=NULL,"exact original native error survives secondary close failure"); freak_word_release_owned(&error); F(result_release)(r);
+        sync_fault=0; close_fault=0; freak_byte_buffer_release(b);
+        if(!strcmp(mode,"new-leaf-retarget")) { exact(F(read_relative_ticket)(d,W("new-retained")),"foreign retained",16);exact(F(read_source_relative_ticket)(d,W("new-retained-owned")),"a\0\xff" "b",4); }
+        else exact(F(read_source_relative_ticket)(d,W("new-retained")),"a\0\xff" "b",!strcmp(mode,"new-partial-write")?2:!strcmp(mode,"new-validation")?0:4);
+    } else     if(!strcmp(mode,"read-race") || !strcmp(mode,"write-race")) {
         require(argc==4,"outside argument"); paths(path,argv[3]); exchange=1;
         if(!strcmp(mode,"read-race")) exact(F(read_relative_ticket)(d,W("sub/value")),"owned",5);
         else { int64_t b=buffer("changed"); success(F(write_relative_bytes_checked)(d,W("sub/value"),b)); freak_byte_buffer_release(b); }
@@ -480,17 +568,19 @@ def main() -> int:
             for adapter in ('c','llvm'):
                 exe=home/f'{adapter}-O{opt}{".exe" if os.name=="nt" else ""}'; command=[compiler,str(source),str(runtime/'freak_runtime.c'),str(runtime/'freak_llvm_runtime.c'),f'-I{runtime}',f'-O{opt}','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1',*flags,'-o',str(exe)]
                 if adapter=='llvm': command+=['-DUSE_LLVM_ADAPTER=1']
-                if sys.platform.startswith('linux'): command+=['-DTEST_INTERPOSE=1','-Wl,--wrap=openat','-Wl,--wrap=read','-Wl,--wrap=fsync','-Dflock=freak_fs_test_flock']
+                if sys.platform.startswith('linux'): command+=['-DTEST_INTERPOSE=1','-Wl,--wrap=openat','-Wl,--wrap=read','-Wl,--wrap=fsync','-Wl,--wrap=write','-Wl,--wrap=close','-Wl,--wrap=fstat','-Dflock=freak_fs_test_flock']
                 built=subprocess.run(command,capture_output=True,timeout=90); assert built.returncode==0,built.stderr.decode(errors='replace')
                 modes=['smoke','binary','limit','held-identity','cleanup-depth','open-long-fails','temp-swap','cleanup-parent-race','cleanup-link','held-list-path'] if os.name!='nt' else ['smoke','binary','limit','held-identity','cleanup-depth','open-long-fails']
+                modes+=['new-file','new-file-public']
                 modes+=['new-lock','new-lock-late-empty','new-lock-late-nonempty']
                 modes+=['abort-new-lock','abort-foreign-lock','abort-foreign-directory','anchored-temp-parent','late-target-publication','new-lock-public-parent']
-                if sys.platform.startswith('linux'): modes+=['read-race','write-race','growth','fault-publish','fault-rename','cleanup-descendant-race','new-lock-lost-flock']
+                if sys.platform.startswith('linux'): modes+=['new-create-race','new-late-collision','new-partial-write','new-file-sync','new-parent-sync','new-close','new-validation','new-leaf-retarget','read-race','write-race','growth','fault-publish','fault-rename','cleanup-descendant-race','new-lock-lost-flock']
                 for mode in modes+['foreign','stale','wrong-kind','open-fails']:
                     case=home/f'{adapter}-{opt}-{mode}'; case.mkdir(); root=case/'root'; root.mkdir(mode=0o700); (root/'sub').mkdir(); (root/'sub/value').write_bytes(b'owned'); (root/'raw').write_bytes(b'a\0\xffb'); (root/'marker').write_bytes(b'small')
                     outside=case/'outside'; outside.mkdir(); (outside/'value').write_bytes(b'outside-secret'); (outside/'secret').write_bytes(b'outside-secret')
                     private.claim_fresh_directories(case, root, root/'sub', outside)
                     if mode=='new-lock-public-parent' and os.name=='nt': windows_public_parent_acl(root)
+                    if mode=='new-file-public' and os.name=='nt': windows_public_parent_acl(root)
                     if os.name!='nt':
                         (root/'link').symlink_to(outside,target_is_directory=True); (root/'file-link').symlink_to(outside/'secret'); (root/'dangling').symlink_to(case/'absent')
                         (root/'denied').mkdir(mode=0o000)
@@ -503,6 +593,15 @@ def main() -> int:
                     elif mode=='wrong-kind': assert result.returncode!=0 and b'directory ticket' in result.stderr,(mode,result.stderr)
                     else: assert result.returncode==0,(mode,result.stdout,result.stderr)
                     assert (outside/'value').read_bytes()==b'outside-secret' and (outside/'secret').read_bytes()==b'outside-secret'
+                    if mode in ('new-file','new-file-public'):
+                        assert (root/'new-raw').read_bytes()==b'a\0\xffb' and (root/'sub/nested-new-raw').read_bytes()==b'a\0\xffb' and (root/'empty-new').read_bytes()==b''
+                        assert not (root/'pending-error').exists() and (root/'sub/value').read_bytes()==b'owned'
+                    if mode=='new-create-race': assert (root/'old-sub/new-held').read_bytes()==b'held new bytes' and not (outside/'new-held').exists()
+                    if mode=='new-late-collision': assert (root/'late-new').read_bytes()==b'foreign late leaf'
+                    if mode=='new-partial-write': assert (root/'new-retained').read_bytes()==b'a\0'
+                    if mode=='new-validation': assert (root/'new-retained').read_bytes()==b''
+                    if mode=='new-leaf-retarget': assert (root/'new-retained').read_bytes()==b'foreign retained' and (root/'new-retained-owned').read_bytes()==b'a\0\xffb'
+                    if mode in ('new-file-sync','new-parent-sync','new-close'): assert (root/'new-retained').read_bytes()==b'a\0\xffb'
                     if mode=='new-lock': assert (root/'fresh.lock').read_bytes()==b'' and not (case/'escape').exists() and not (root/'sub/escape').exists()
                     if mode=='new-lock-late-empty': assert (root/'late.lock').read_bytes()==b''
                     if mode=='new-lock-late-nonempty': assert (root/'late.lock').read_bytes()==b'retained writer state'

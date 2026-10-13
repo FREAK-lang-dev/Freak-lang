@@ -29,6 +29,7 @@ PROGRAM = '''task main() {
     pilot relative_bytes = fs::read_relative_bytes_ticket(held, "path")
     pilot relative_limited = fs::read_relative_bytes_limit_ticket(held, "path", 1024)
     pilot relative_write = fs::write_relative_bytes_checked(held, "path", bytes)
+    pilot relative_create = fs::write_relative_new_bytes_checked(held, "new", bytes)
     pilot cleanup = fs::remove_temp_dir_checked(held)
     pilot retained_publish = fs::publish_temp_dir_checked(held, held, "stage")
     pilot completed: bool = fs::result_completed(held)
@@ -85,6 +86,7 @@ OPERATIONS = (
     "read_relative_bytes_ticket",
     "read_relative_bytes_limit_ticket",
     "write_relative_bytes_checked",
+    "write_relative_new_bytes_checked",
     "remove_temp_dir_checked",
     "publish_temp_dir_checked",
     "result_completed",
@@ -108,6 +110,26 @@ OPERATIONS = (
 )
 
 NEGATIVE = {
+    "create_only_root_type": (
+        'fs::write_relative_new_bytes_checked("root", "path", ByteBuffer::new())',
+        "argument 1 expects int, got word", False,
+    ),
+    "create_only_relative_type": (
+        'fs::write_relative_new_bytes_checked(1, 2, ByteBuffer::new())',
+        "argument 2 expects word, got int", False,
+    ),
+    "create_only_buffer_type": (
+        'fs::write_relative_new_bytes_checked(1, "path", "bytes")',
+        "argument 3 expects ByteBuffer, got word", False,
+    ),
+    "create_only_arity": (
+        'fs::write_relative_new_bytes_checked(1, "path")',
+        "expects 3 argument(s), got 2", False,
+    ),
+    "create_only_extra_argument": (
+        'fs::write_relative_new_bytes_checked(1, "path", ByteBuffer::new(), 4)',
+        "expects 3 argument(s), got 4", False,
+    ),
     "abort_lock_type": (
         'fs::abort_new_lock_checked("lock")', "argument 1 expects int, got word", False,
     ),

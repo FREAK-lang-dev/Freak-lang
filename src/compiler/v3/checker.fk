@@ -1186,6 +1186,7 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "fs::read_relative_bytes_ticket" { give back "int" }
     if name == "fs::read_relative_bytes_limit_ticket" { give back "int" }
     if name == "fs::write_relative_bytes_checked" { give back "int" }
+    if name == "fs::write_relative_new_bytes_checked" { give back "int" }
     if name == "fs::remove_temp_dir_checked" { give back "int" }
     if name == "fs::publish_temp_dir_checked" { give back "int" }
     if name == "fs::result_completed" { give back "bool" }
@@ -1368,6 +1369,7 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "fs::read_relative_bytes_ticket" { give back "int,word" }
     if name == "fs::read_relative_bytes_limit_ticket" { give back "int,word,int" }
     if name == "fs::write_relative_bytes_checked" { give back "int,word,ByteBuffer" }
+    if name == "fs::write_relative_new_bytes_checked" { give back "int,word,ByteBuffer" }
     if name == "fs::remove_temp_dir_checked" { give back "int" }
     if name == "fs::publish_temp_dir_checked" { give back "int,int,word" }
     if name == "fs::result_completed" { give back "int" }

@@ -511,6 +511,149 @@ _Static_assert(sizeof(freak_fs_nt_device)==sizeof(FILE_FS_DEVICE_INFORMATION),"d
 _Static_assert(offsetof(freak_fs_nt_device,characteristics)==offsetof(FILE_FS_DEVICE_INFORMATION,Characteristics),"device native layout");
 '''
 
+NEW_WINDOWS_HARNESS = r'''
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
+#endif
+#include "freak_runtime.h"
+#include <windows.h>
+#include <winternl.h>
+#include <aclapi.h>
+#include <sddl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+static const char *scenario; static int active=0,write_calls=0,created_calls=0,file_closes=0;
+static HANDLE created_file=INVALID_HANDLE_VALUE; static DWORD collision_native_error=0; static FILE_ID_INFO contender_identity;
+#ifdef USE_LLVM_ADAPTER
+#define W(s) ((int64_t)(intptr_t)(s))
+#define F(n) freak_llvm_fs_##n
+#else
+#define W(s) freak_word_lit(s)
+#define F(n) freak_fs_##n
+#endif
+static void require(int ok,const char *why) { if(!ok) { fprintf(stderr,"NEW_FILE_ASSERTION %s native=%lu\n",why,GetLastError()); exit(2); } }
+static int is(const char *s) { return active && !strcmp(s,scenario); }
+static void unsafe_callback(void) { if(strstr(scenario,"pending") || strstr(scenario,"nonfinal")) fputs("UNSAFE_EXIT_CALLBACK\n",stderr); }
+NTSTATUS NTAPI new_create(PHANDLE file,ACCESS_MASK access,POBJECT_ATTRIBUTES object,PIO_STATUS_BLOCK io,PLARGE_INTEGER allocation,ULONG attributes,ULONG share,ULONG disposition,ULONG options,PVOID ea,ULONG ea_size) {
+    typedef NTSTATUS (NTAPI *fn)(PHANDLE,ACCESS_MASK,POBJECT_ATTRIBUTES,PIO_STATUS_BLOCK,PLARGE_INTEGER,ULONG,ULONG,ULONG,ULONG,PVOID,ULONG);
+    fn real=(fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtCreateFile"); require(real!=NULL,"native create export");
+    int focused=active && access==(FILE_WRITE_DATA|FILE_READ_ATTRIBUTES|SYNCHRONIZE);
+    if(focused) {
+        require(object->RootDirectory && !object->SecurityDescriptor && share==0 && disposition==2 && options==(0x40|0x20|0x200000),"minimum-access held exclusive nonreparse create");
+        require(created_file==INVALID_HANDLE_VALUE,"one held created leaf");
+        if(is("late-collision")) {
+            HANDLE other=INVALID_HANDLE_VALUE;IO_STATUS_BLOCK other_io={0};
+            NTSTATUS status=real(&other,access,object,&other_io,allocation,attributes,share,disposition,options,ea,ea_size);
+            require(status==0 && other_io.Status==0 && other_io.Information==2,"actual late contender FILE_CREATE");
+            DWORD count=0;require(WriteFile(other,"foreign contender",17,&count,NULL) && count==17 && FlushFileBuffers(other),"actual late contender bytes");
+            require(GetFileInformationByHandleEx(other,FileIdInfo,&contender_identity,sizeof(contender_identity)) && CloseHandle(other),"late contender full identity and close");
+        }
+    }
+    NTSTATUS status=real(file,access,object,io,allocation,attributes,share,disposition,options,ea,ea_size);
+    if(focused && is("late-collision") && status!=0) {
+        typedef ULONG (WINAPI *convert_fn)(NTSTATUS);convert_fn convert=(convert_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"RtlNtStatusToDosError");
+        require(convert!=NULL,"native collision conversion");collision_native_error=convert(status);
+    }
+    if(focused && status==0 && io->Status==0 && io->Information==2) { created_file=*file;created_calls++; }
+    if(focused && is("create-pending")) return 0x103;
+    if(focused && is("create-nonfinal")) { io->Status=0x103;return 0; }
+    return status;
+}
+NTSTATUS NTAPI new_flush(HANDLE file,ULONG flags,PVOID parameters,ULONG size,PIO_STATUS_BLOCK io) {
+    typedef NTSTATUS (NTAPI *fn)(HANDLE,ULONG,PVOID,ULONG,PIO_STATUS_BLOCK);
+    fn real=(fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtFlushBuffersFileEx");require(real!=NULL,"directory flush export");
+    if(is("parent-sync-fault")) return (NTSTATUS)0xc0000185;
+    return real(file,flags,parameters,size,io);
+}
+FARPROC WINAPI new_get_proc(HMODULE module,LPCSTR name) {
+    if(!strcmp(name,"NtCreateFile")) return (FARPROC)new_create;
+    if(!strcmp(name,"NtFlushBuffersFileEx")) return (FARPROC)new_flush;
+    return GetProcAddress(module,name);
+}
+BOOL WINAPI new_info(HANDLE file,LPBY_HANDLE_FILE_INFORMATION information) {
+    if(file==created_file && is("post-create-fault")) { SetLastError(ERROR_CRC);return FALSE; }
+    return GetFileInformationByHandle(file,information);
+}
+BOOL WINAPI new_write(HANDLE file,LPCVOID bytes,DWORD wanted,LPDWORD count,LPOVERLAPPED operation) {
+    if(file==created_file && is("partial-write-fault")) {
+        if(write_calls++) { SetLastError(ERROR_DISK_FULL);return FALSE; }
+        require(wanted>2,"actual partial raw bytes");return WriteFile(file,bytes,2,count,operation);
+    }
+    return WriteFile(file,bytes,wanted,count,operation);
+}
+BOOL WINAPI new_file_sync(HANDLE file) {
+    if(file==created_file && is("file-sync-fault")) { SetLastError(ERROR_WRITE_PROTECT);return FALSE; }
+    return FlushFileBuffers(file);
+}
+BOOL WINAPI new_close(HANDLE file) {
+    BOOL ok=CloseHandle(file);DWORD error=GetLastError();
+    if(file==created_file && ok) { created_file=INVALID_HANDLE_VALUE;file_closes++;if(is("close-fault")) { SetLastError(ERROR_INVALID_HANDLE);return FALSE; } }
+    SetLastError(error);return ok;
+}
+static wchar_t *wide(const char *name) { int count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,name,-1,NULL,0);wchar_t *result=malloc((size_t)count*sizeof(wchar_t));require(result && MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,name,-1,result,count)==count,"oracle UTF8 path");return result; }
+static wchar_t *acl_snapshot(const char *path,int inherited) {
+    wchar_t *name=wide(path),*text=NULL;PSECURITY_DESCRIPTOR descriptor=NULL;PACL acl=NULL;
+    require(GetNamedSecurityInfoW(name,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION,NULL,NULL,&acl,NULL,&descriptor)==ERROR_SUCCESS,"independent ACL snapshot");
+    if(inherited) { int found=0;for(DWORD i=0;acl && i<acl->AceCount;i++) { PVOID raw=NULL;require(GetAce(acl,i,&raw),"inherited ACE observation");if(((ACE_HEADER *)raw)->AceFlags&INHERITED_ACE)found++; }require(found>0,"actual inherited parent ACL"); }
+    require(ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor,SDDL_REVISION_1,OWNER_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION,&text,NULL),"independent ACL serialization");
+    LocalFree(descriptor);free(name);return text;
+}
+int main(int argc,char **argv) {
+    require(argc==3,"arguments");scenario=argv[2];require(atexit(unsafe_callback)==0,"exit sentinel");
+    int64_t root=F(open_dir_ticket)(W(argv[1]));require(F(result_ok)(root),"ordinary held directory");
+    int64_t bytes=freak_byte_buffer_new();freak_byte_buffer_write_byte(bytes,'a');freak_byte_buffer_write_byte(bytes,0);freak_byte_buffer_write_byte(bytes,255);freak_byte_buffer_write_byte(bytes,'b');
+    wchar_t *before_acl=acl_snapshot(argv[1],!strcmp(scenario,"inherited"));DWORD before=0,after=0;require(GetProcessHandleCount(GetCurrentProcess(),&before),"handle baseline");
+    char old[8192];snprintf(old,sizeof(old),"%s-old",argv[1]);const char *observed=argv[1];
+    if(!strcmp(scenario,"root-retarget")) { wchar_t *from=wide(argv[1]),*to=wide(old);require(MoveFileExW(from,to,0) && CreateDirectoryW(from,NULL),"actual admitted root pathname replacement");free(from);free(to);observed=old; }
+    active=1;int64_t result=F(write_relative_new_bytes_checked)(root,W("fresh"),bytes);
+    int accepted=!strcmp(scenario,"native") || !strcmp(scenario,"inherited") || !strcmp(scenario,"public") || !strcmp(scenario,"root-retarget");
+    int completed=strcmp(scenario,"late-collision")!=0;
+    require(!!F(result_ok)(result)==accepted && !!F(result_completed)(result)==completed,"create-only result and retained completion");
+    if(!accepted) {
+        DWORD expected=!strcmp(scenario,"partial-write-fault")?ERROR_DISK_FULL:!strcmp(scenario,"file-sync-fault")?ERROR_WRITE_PROTECT:!strcmp(scenario,"post-create-fault")?ERROR_CRC:!strcmp(scenario,"parent-sync-fault")?ERROR_IO_DEVICE:!strcmp(scenario,"close-fault")?ERROR_INVALID_HANDLE:collision_native_error;
+        freak_word error=freak_fs_result_error(result);char native[64];snprintf(native,sizeof(native),"native=%lu]",expected);require(strstr(error.data,native)!=NULL,"exact first-cause native code");
+        printf("NEW_FILE_ERROR %.*s\n",(int)error.length,error.data);freak_word_release_owned(&error);
+    }
+    F(result_release)(result);active=0;
+    if(accepted) {
+        result=F(write_relative_new_bytes_checked)(root,W("fresh"),bytes);require(!F(result_ok)(result)&&!F(result_completed)(result),"existing created leaf is never replaced");F(result_release)(result);
+        result=F(write_relative_new_bytes_checked)(root,W("existing"),bytes);require(!F(result_ok)(result)&&!F(result_completed)(result),"existing foreign leaf is never replaced");F(result_release)(result);
+    }
+    if(!strcmp(scenario,"late-collision")) {
+        char leaf[8192];snprintf(leaf,sizeof(leaf),"%s/fresh",argv[1]);wchar_t *name=wide(leaf);
+        HANDLE observation=CreateFileW(name,FILE_READ_ATTRIBUTES,7,NULL,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,NULL);FILE_ID_INFO retained;
+        require(observation!=INVALID_HANDLE_VALUE && GetFileInformationByHandleEx(observation,FileIdInfo,&retained,sizeof(retained)),"independent late leaf identity");
+        require(retained.VolumeSerialNumber==contender_identity.VolumeSerialNumber && !memcmp(retained.FileId.Identifier,contender_identity.FileId.Identifier,16) && CloseHandle(observation),"late collision identity retained");free(name);
+    }
+    require(freak_byte_buffer_length(bytes)==4 && freak_byte_buffer_status(bytes)==0,"borrowed raw buffer");
+    wchar_t *after_acl=acl_snapshot(observed,!strcmp(scenario,"inherited"));require(!wcscmp(before_acl,after_acl),"parent owner/DACL untouched");LocalFree(before_acl);LocalFree(after_acl);
+    require(created_calls==(completed?1:0) && file_closes==created_calls && created_file==INVALID_HANDLE_VALUE,"created leaf handle ownership");
+    freak_byte_buffer_release(bytes);F(result_release)(root);require(freak_fs_result_live()==0,"result ownership");
+    require(GetProcessHandleCount(GetCurrentProcess(),&after) && before==after,"native handle balance");
+    printf("NEW_FILE_WINDOWS_OK %d %d\n",created_calls,file_closes);return 0;
+}
+'''
+
+NEW_WINDOWS_WRAPPER = r'''
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
+#endif
+#include <winsock2.h>
+#include <windows.h>
+FARPROC WINAPI new_get_proc(HMODULE,LPCSTR);
+BOOL WINAPI new_info(HANDLE,LPBY_HANDLE_FILE_INFORMATION);
+BOOL WINAPI new_write(HANDLE,LPCVOID,DWORD,LPDWORD,LPOVERLAPPED);
+BOOL WINAPI new_file_sync(HANDLE);
+BOOL WINAPI new_close(HANDLE);
+#define GetProcAddress new_get_proc
+#define GetFileInformationByHandle new_info
+#define WriteFile new_write
+#define FlushFileBuffers new_file_sync
+#define CloseHandle new_close
+#include "freak_runtime.c"
+'''
+
 POSIX_TEMP_HARNESS = r'''
 #define _POSIX_C_SOURCE 200809L
 #include "freak_runtime.h"
@@ -543,6 +686,21 @@ int main(int argc,char **argv){
     puts("TEMP_PARENTS_SYNC_OK");return 0;
 }
 '''
+
+
+def windows_inheritable_parent_acl(directory: Path) -> None:
+    """Fixture-only ordinary inherited Everyone ACL, created before its child."""
+    import ctypes
+    import ctypes.wintypes as wintypes
+    security=ctypes.WinDLL('advapi32',use_last_error=True);kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    convert=security.ConvertStringSecurityDescriptorToSecurityDescriptorW
+    convert.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,ctypes.POINTER(ctypes.c_void_p),ctypes.POINTER(wintypes.DWORD)];convert.restype=wintypes.BOOL
+    apply=security.SetFileSecurityW;apply.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,ctypes.c_void_p];apply.restype=wintypes.BOOL
+    kernel.LocalFree.argtypes=[ctypes.c_void_p];kernel.LocalFree.restype=ctypes.c_void_p
+    descriptor=ctypes.c_void_p()
+    assert convert('D:P(A;OICI;FA;;;WD)',1,ctypes.byref(descriptor),None),ctypes.get_last_error()
+    try:assert apply(str(directory),0x80000004,descriptor),ctypes.get_last_error()
+    finally:kernel.LocalFree(descriptor)
 
 
 def coff_undefined_symbols(path: Path) -> list[str]:
@@ -662,6 +820,8 @@ def main() -> int:
                     records.append({'adapter': adapter, 'optimization': optimization, 'case': 'posix-temp-publication-both-parent-sync-attempts', 'status': 'pass'})
         harness = home/'windows.c';harness.write_text(WINDOWS_HARNESS)
         wrapper = home/'runtime.c';wrapper.write_text(WINDOWS_RUNTIME_WRAPPER)
+        new_harness=home/'new-file.c';new_wrapper=home/'new-runtime.c'
+        new_harness.write_text(NEW_WINDOWS_HARNESS);new_wrapper.write_text(NEW_WINDOWS_WRAPPER)
         if args.windows_sdk:
             sdk = args.windows_sdk.resolve(strict=True)
             command = [clang, '--target=x86_64-w64-windows-gnu', f'--sysroot={sdk}', '-fsyntax-only', '-Werror=implicit-function-declaration', f'-I{runtime}', str(runtime/'freak_runtime.c'), str(runtime/'freak_llvm_runtime.c')]
@@ -674,6 +834,10 @@ def main() -> int:
                 result = subprocess.run(command, capture_output=True, timeout=90)
                 assert result.returncode == 0, result.stderr
                 records.append({'case': 'windows-sdk-native-harness-syntax', 'adapter': adapter, 'status': 'pass', 'native_execution': False})
+                command=[clang,'--target=x86_64-w64-windows-gnu',f'--sysroot={sdk}','-fsyntax-only','-Werror=implicit-function-declaration',f'-I{runtime}',str(new_harness),str(new_wrapper)]
+                if adapter=='llvm':command+=['-DUSE_LLVM_ADAPTER=1',str(runtime/'freak_llvm_runtime.c')]
+                result=subprocess.run(command,capture_output=True,timeout=90);assert result.returncode==0,result.stderr
+                records.append({'case':'windows-sdk-create-only-harness-syntax','adapter':adapter,'status':'pass','native_execution':False})
             object_path = home/'runtime.obj'
             command = [clang, '--target=x86_64-w64-windows-gnu', f'--sysroot={sdk}', '-c', '-O2', f'-I{runtime}', str(runtime/'freak_runtime.c'), '-o', str(object_path)]
             result = subprocess.run(command, capture_output=True, timeout=90)
@@ -733,6 +897,37 @@ def main() -> int:
                         records.append({'adapter':adapter,'optimization':optimization,'case':'native-windows-'+name,'status':'pass',
                                         'controlled_api_response':name in (*SYNC_CONTROLS,*NONFINAL_CONTROLS,'directory-fault','missing-security-api','temp-rollback'),
                                         'stdout':result.stdout.decode(errors='replace'),'stderr':result.stderr.decode(errors='replace')})
+        if os.name == 'nt':
+            from v3_v35_anchored_fs import windows_public_parent_acl
+            for adapter in ('c','llvm'):
+                for optimization in args.optimization or (0,2,3):
+                    binary=home/f'new-{adapter}-{optimization}.exe'
+                    command=[clang,str(new_harness),str(new_wrapper),f'-I{runtime}',f'-O{optimization}',*flags,'-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1','-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1','-lws2_32','-lshell32','-ladvapi32','-lntdll','-o',str(binary)]
+                    if adapter=='llvm':command+=['-DUSE_LLVM_ADAPTER=1',str(runtime/'freak_llvm_runtime.c')]
+                    built=subprocess.run(command,capture_output=True,timeout=90);assert built.returncode==0,built.stderr
+                    for name in ('native','public','inherited','root-retarget','late-collision','post-create-fault','partial-write-fault','file-sync-fault','parent-sync-fault','close-fault','create-pending','create-nonfinal'):
+                        case=home/f'new-{adapter}-{optimization}-{name}';case.mkdir()
+                        if name=='inherited':windows_inheritable_parent_acl(case)
+                        directory=case/'project';directory.mkdir();(directory/'existing').write_bytes(b'unchanged')
+                        if name=='public':windows_public_parent_acl(directory)
+                        original_identity=(directory/'existing').stat()
+                        invocation=[str(binary),str(directory),name]
+                        result=subprocess.run(invocation,env=environment,capture_output=True,timeout=15)
+                        observation={'adapter':adapter,'optimization':optimization,'case':'create-only-'+name,'command':invocation,'returncode':result.returncode,'stdout_hex':result.stdout.hex(),'stderr_hex':result.stderr.hex(),'native_windows_execution':True,'controlled_api_response':name in ('post-create-fault','partial-write-fault','file-sync-fault','parent-sync-fault','close-fault','create-pending','create-nonfinal'),'oracles_passed':False}
+                        report['native_windows_observations'].append(observation)
+                        print('WINDOWS_NEW_FILE_OBSERVATION '+json.dumps(observation),flush=True)
+                        if args.report:args.report.write_text(json.dumps(report,indent=2)+'\n')
+                        observed=Path(str(directory)+'-old') if name=='root-retarget' else directory
+                        assert (observed/'existing').read_bytes()==b'unchanged'
+                        retained_identity=(observed/'existing').stat()
+                        assert (original_identity.st_dev,original_identity.st_ino)==(retained_identity.st_dev,retained_identity.st_ino)
+                        expected=b'foreign contender' if name=='late-collision' else b'' if name in ('post-create-fault','create-pending','create-nonfinal') else b'a\0' if name=='partial-write-fault' else b'a\0\xffb'
+                        assert (observed/'fresh').read_bytes()==expected
+                        if name=='root-retarget':assert not tuple(directory.iterdir())
+                        if name in ('create-pending','create-nonfinal'):
+                            assert result.returncode==1 and b'nonfinal synchronous directory create-only file creation' in result.stderr and b'UNSAFE_EXIT_CALLBACK' not in result.stderr,(name,result)
+                        else:assert result.returncode==0 and not result.stderr and b'NEW_FILE_WINDOWS_OK ' in result.stdout,(adapter,optimization,name,result)
+                        observation['oracles_passed']=True;records.append(observation)
     assert hashes == {str(path): hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in hashes}, 'runtime changed during verification'
     if os.name == 'nt':report['gate_passed'] = report['native_windows_verified'] = True
     if args.report:
