@@ -291,9 +291,11 @@ task cli_show_help() -> void {
     say cli_box_mid("  " + C_BYELLOW + "--c" + C_RESET + "               " + C_DIM + "C backend" + C_RESET, 45)
     say "  --diagnostic-cast=off|minimal|normal  Optional compiler messages (default: off)"
     say "                                      build, run, check, transpile only"
-    say cli_box_mid("  " + C_BYELLOW + "--opt=0..3" + C_RESET + "        " + C_DIM + "Clang optimization (default: 2)" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "--O0..--O3" + C_RESET + "        " + C_DIM + "Clang optimization (default: 2)" + C_RESET, 45)
     say cli_box_mid("  " + C_BYELLOW + "+03" + C_RESET + "               " + C_DIM + "+03 — FINAL FORM" + C_RESET, 45)
-    say cli_box_mid("  " + C_BYELLOW + "--lto[=MODE]" + C_RESET + "      " + C_DIM + "thin, full, or off" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "--flto / --tlto" + C_RESET + "   " + C_DIM + "Full / thin LTO" + C_RESET, 45)
+    say "  Legacy: --opt=0..3; --lto[=MODE] (thin, full, off; bare --lto means thin)."
+    say "  Optimization and LTO options apply to build and run only."
     say cli_box_mid("  " + C_BYELLOW + "--target=ALIAS|TRIPLE" + C_RESET + " " + C_DIM + "linux-x64, linux-arm64," + C_RESET, 45)
     say cli_box_mid("  " + C_DIM + "windows-x64, macos-arm64; raw triples pass through" + C_RESET, 45)
     say cli_box_bot(45)
@@ -301,7 +303,8 @@ task cli_show_help() -> void {
 
     say "  " + C_DIM + "EXAMPLES" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " hello.fk"
-    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak run" + C_RESET + " hello.fk " + C_BYELLOW + "--c --opt=3" + C_RESET
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak run" + C_RESET + " hello.fk " + C_BYELLOW + "--c --O3" + C_RESET
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--O3 --flto" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--target=x86_64-unknown-linux-gnu" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--target=linux-x64" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak doctor" + C_RESET + " --target=windows-x64"
