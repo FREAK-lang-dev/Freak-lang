@@ -290,6 +290,9 @@ jobs:
           PY
           python -B -u tests/test_v3_v35_bootstrap_native_helpers.py
           python -B -u tests/test_v3_v35_acceptance_helpers.py
+          python -B -u tests/test_v3_final_component_evidence.py
+          python -B -u tests/test_v3_v35_http_progress.py
+          python -B -u tests/test_v3_v35_test_temp_helpers.py
           python -B -u tests/test_v3_v35_run_freshness_helpers.py
           python -B -u tests/test_v3_performance_process_state.py
           python -B -u tests/test_v3_performance_platform_helpers.py
@@ -346,12 +349,12 @@ jobs:
           --freakc ./build/freakc_v3_stage2$EXT
           --evidence-dir "${{ runner.temp }}/v35-http-release"
 
-      - name: Upload installed HTTP, template and diagnostic evidence
+      - name: Upload installed HTTP, template and component evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: v35-http-release-${{ runner.os }}
-          path: ${{ runner.temp }}/v35-http-release/*.json
+          path: ${{ runner.temp }}/v35-http-release/
           if-no-files-found: ignore
 
       - name: Test suite (regression tests)
@@ -675,6 +678,9 @@ jobs:
           PY
           python -B -u tests/test_v3_v35_bootstrap_native_helpers.py
           python -B -u tests/test_v3_v35_acceptance_helpers.py
+          python -B -u tests/test_v3_final_component_evidence.py
+          python -B -u tests/test_v3_v35_http_progress.py
+          python -B -u tests/test_v3_v35_test_temp_helpers.py
           python -B -u tests/test_v3_v35_run_freshness_helpers.py
           python -B -u tests/test_v3_performance_process_state.py
           python -B -u tests/test_v3_performance_platform_helpers.py
@@ -762,12 +768,12 @@ jobs:
           --freakc ./build/freakc_v3_stage2$EXT
           --evidence-dir "${{ runner.temp }}/v35-http-release"
 
-      - name: Upload installed HTTP, template and diagnostic evidence
+      - name: Upload installed HTTP, template and component evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: v35-http-release-${{ runner.os }}
-          path: ${{ runner.temp }}/v35-http-release/*.json
+          path: ${{ runner.temp }}/v35-http-release/
           if-no-files-found: ignore
 
       - name: Test suite (regression tests)

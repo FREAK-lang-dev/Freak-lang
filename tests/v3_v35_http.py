@@ -20,12 +20,173 @@ import subprocess
 import tempfile
 import time
 
+
+class HttpProgress:
+    """Atomically retain completed matrices and bounded active gate context."""
+
+    MAX_REPORT_BYTES = 1024 * 1024
+
+    def __init__(self, path: Path | None, report: dict, expected_matrices: int):
+        if type(expected_matrices) is not int or expected_matrices < 1:
+            raise ValueError('invalid HTTP checkpoint matrix count')
+        self.path = path
+        self.report = report
+        self.report['progress'] = {
+            'schema': 1, 'outcome': 'running', 'sequence': 0,
+            'completed_matrices': len(report['matrices']),
+            'expected_matrices': expected_matrices,
+            'active': {'phase': 'report-start'},
+        }
+
+    def __enter__(self):
+        self._write()
+        return self
+
+    def __exit__(self, kind, error, traceback):
+        if error is not None:
+            self.report['progress']['outcome'] = 'failed'
+            self.report['progress']['exception_type'] = kind.__name__
+            try:
+                self._write()
+            except BaseException as recording_error:
+                # A checkpoint failure must not replace the verification cause.
+                try:
+                    if hasattr(error, 'add_note'):
+                        error.add_note('HTTP checkpoint recording failed: ' +
+                                       type(recording_error).__name__)
+                except BaseException:
+                    pass
+            return False
+        if self.report['progress']['outcome'] != 'passed':
+            raise RuntimeError('HTTP verification ended without a passing checkpoint')
+        return False
+
+    def stage(self, phase: str, fixture: str | None = None, *, case: int | None = None):
+        active = self.report['progress']['active']
+        active['phase'] = self._label(phase)
+        for key, value in (('fixture', fixture), ('case', case)):
+            if value is None:
+                active.pop(key, None)
+            else:
+                if key == 'case':
+                    if type(value) is not int or value < 0:
+                        raise ValueError('invalid HTTP checkpoint case')
+                    active[key] = value
+                else:
+                    active[key] = self._label(value)
+        self._write()
+
+    def matrix_started(self, field: str, adapter: str, optimization: int):
+        if field not in ('adapter', 'backend') or adapter not in ('c', 'llvm'):
+            raise ValueError('invalid HTTP checkpoint matrix')
+        if optimization not in (0, 2, 3):
+            raise ValueError('invalid HTTP checkpoint optimization')
+        self.report['progress']['active'] = {
+            'phase': 'matrix-start', field: adapter, 'optimization': optimization,
+        }
+        self._write()
+
+    def matrix_finished(self):
+        self.report['progress']['completed_matrices'] = len(self.report['matrices'])
+        self.report['progress']['active'] = {'phase': 'matrix-finish'}
+        self._write()
+
+    def passed(self):
+        if (self.report.get('pinned_inputs_unchanged') is not True or
+                self.report['progress']['completed_matrices'] !=
+                self.report['progress']['expected_matrices']):
+            raise RuntimeError('HTTP checkpoint cannot pass before final input verification')
+        self.report['progress']['outcome'] = 'passed'
+        self.report['progress']['active'] = {'phase': 'complete'}
+        self._write()
+
+    @staticmethod
+    def _label(value):
+        if not isinstance(value, str) or not value or len(value) > 160:
+            raise ValueError('invalid HTTP checkpoint label')
+        return value
+
+    def _write(self):
+        if self.path is None:
+            return
+        self.report['progress']['sequence'] += 1
+        payload = (json.dumps(self.report, indent=2) + '\n').encode('utf-8')
+        if len(payload) > self.MAX_REPORT_BYTES:
+            raise ValueError('HTTP checkpoint exceeds bounded report size')
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = None
+        primary = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=self.path.parent, prefix='.' + self.path.name + '-', delete=False
+            ) as stream:
+                temporary = Path(stream.name)
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.path)
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except BaseException as cleanup_error:
+                    if primary is None:
+                        raise
+                    try:
+                        primary.add_note('HTTP staged-file cleanup failed: ' +
+                                         type(cleanup_error).__name__[:160])
+                    except BaseException:
+                        pass
+
+    @classmethod
+    def read(cls, path: Path):
+        """Reject torn, oversized, or inconsistent checkpoints before admission."""
+        with path.open('rb') as stream:
+            payload = stream.read(cls.MAX_REPORT_BYTES + 1)
+        if len(payload) > cls.MAX_REPORT_BYTES:
+            raise ValueError('HTTP checkpoint exceeds bounded report size')
+        report = json.loads(payload)
+        progress = report['progress']
+        if (type(progress['schema']) is not int or progress['schema'] != 1
+                or progress['outcome'] not in ('running', 'failed', 'passed')
+                or type(progress['sequence']) is not int or progress['sequence'] < 1
+                or not isinstance(report['matrices'], list)
+                or type(progress['completed_matrices']) is not int
+                or type(progress['expected_matrices']) is not int
+                or progress['expected_matrices'] < 1
+                or progress['completed_matrices'] != len(report['matrices'])
+                or not 0 <= progress['completed_matrices'] <= progress['expected_matrices']
+                or not isinstance(progress['active'], dict)):
+            raise ValueError('inconsistent HTTP checkpoint')
+        cls._label(progress['active']['phase'])
+        if progress['outcome'] == 'passed' and (
+            report.get('pinned_inputs_unchanged') is not True or
+            progress['completed_matrices'] != progress['expected_matrices'] or
+            progress['active'] != {'phase': 'complete'}
+        ):
+            raise ValueError('incomplete HTTP checkpoint cannot pass')
+        return report
+
 HARNESS = r'''
+/* Defer only the HTTP include so its sends can be observed without changing
+   the shared socket substrate or the Linux corpus send instrumentation. */
+#define FREAK_V35_HTTP_INCLUDED 1
 #include "freak_runtime.c"
+#undef FREAK_V35_HTTP_INCLUDED
 #ifndef FREAK_V35_JSON_INCLUDED
 #include "freak_v35_json.inc"
 #endif
+#ifdef _WIN32
+static int stop_fixture_send(SOCKET,const char *,int,int);
+#else
+static ssize_t stop_fixture_send(int,const void *,size_t,int);
+#endif
+#define send stop_fixture_send
 #include "freak_v35_http.inc"
+#undef send
 #include <assert.h>
 #ifndef _WIN32
 #include <dirent.h>
@@ -68,14 +229,121 @@ static void bind_tests(void) {
     s=H(bind)(W("::1"),0,0);if(H(status)(s)==0) REQUIRE(H(local_port)(s)>0);H(close)(s);
     base();
 }
-typedef struct { int64_t server,request; bool writing; atomic_bool ready; int sent; } stop_context;
+typedef struct {
+    int64_t server,request;
+    bool writing,positive_partial;
+    atomic_bool ready,completed,probe_failed;
+    atomic_size_t send_calls,sent_bytes;
+    atomic_int send_buffer,backpressure;
+    int sent,receive_buffer;
+    freak_native_socket send_socket;
+} stop_context;
+static _Thread_local stop_context *stop_write_context;
+static int stop_socket_error(void) {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+static void stop_restore_socket_error(int error) {
+#ifdef _WIN32
+    WSASetLastError(error);
+#else
+    errno=error;
+#endif
+}
+static bool stop_would_block(int error) {
+#ifdef _WIN32
+    return error==WSAEWOULDBLOCK;
+#else
+    return error==EAGAIN||error==EWOULDBLOCK;
+#endif
+}
+/* Zero means the actual SDK reports no writability, not a fabricated send
+   failure. Error/hangup readiness never counts as backpressure. */
+static int stop_write_probe(freak_native_socket socket) {
+#ifdef _WIN32
+    fd_set writes,errors;FD_ZERO(&writes);FD_ZERO(&errors);FD_SET(socket,&writes);FD_SET(socket,&errors);
+    struct timeval timeout={0};int result=select(0,NULL,&writes,&errors,&timeout);
+    if(result<0||(result>0&&FD_ISSET(socket,&errors)))return -1;
+    return result==0?0:FD_ISSET(socket,&writes)?1:-1;
+#else
+    struct pollfd descriptor={socket,POLLOUT,0};int result=poll(&descriptor,1,0);
+    if(result<0||(descriptor.revents&(POLLERR|POLLHUP|POLLNVAL)))return -1;
+    return result==0?0:(descriptor.revents&POLLOUT)?1:-1;
+#endif
+}
+#ifdef _WIN32
+static int stop_fixture_send(SOCKET socket,const char *data,int length,int flags) {
+    stop_context *c=stop_write_context;bool targeted=c&&socket==c->send_socket;
+    int wanted=targeted&&length>1024?1024:length;
+    int result=send(socket,data,wanted,flags);
+#else
+static ssize_t stop_fixture_send(int socket,const void *data,size_t length,int flags) {
+    stop_context *c=stop_write_context;bool targeted=c&&socket==c->send_socket;
+    size_t wanted=targeted&&length>1024?1024:length;
+    ssize_t result=send(socket,data,wanted,flags);
+#endif
+    int error=stop_socket_error();
+    if(targeted) {
+        atomic_fetch_add_explicit(&c->send_calls,1,memory_order_relaxed);
+        if(result>0)atomic_fetch_add_explicit(&c->sent_bytes,(size_t)result,memory_order_relaxed);
+        bool partial=result>0&&(size_t)result<(size_t)length;
+        if(partial)c->positive_partial=true;
+        int observed=0;
+        if(result<0&&c->positive_partial&&stop_would_block(error))observed=1;
+        else if(partial) {
+            int writable=stop_write_probe(socket);
+            if(writable<0)atomic_store_explicit(&c->probe_failed,true,memory_order_release);
+            else if(writable==0)observed=2;
+        }
+        if(observed&&!atomic_load_explicit(&c->ready,memory_order_relaxed)) {
+            atomic_store_explicit(&c->backpressure,observed,memory_order_relaxed);
+            atomic_store_explicit(&c->ready,true,memory_order_release);
+        }
+    }
+    /* Preserve the real send result and its error even when the observation
+       calls select/poll. Production retries still see the actual SDK cause. */
+    stop_restore_socket_error(error);return result;
+}
+static int stop_buffer(freak_native_socket socket,int option,const char *label) {
+    int amount=1024,actual=0;
+#ifdef _WIN32
+    int length=sizeof(actual);
+#else
+    socklen_t length=sizeof(actual);
+#endif
+    if(setsockopt(socket,SOL_SOCKET,option,(const char *)&amount,sizeof(amount))!=0) {
+        fprintf(stderr,"STOP_SETUP %s setsockopt error=%d\n",label,stop_socket_error());REQUIRE(false);
+    }
+    if(getsockopt(socket,SOL_SOCKET,option,(char *)&actual,&length)!=0) {
+        fprintf(stderr,"STOP_SETUP %s getsockopt error=%d\n",label,stop_socket_error());REQUIRE(false);
+    }
+    if(length!=sizeof(actual)||actual<=0) {
+        fprintf(stderr,"STOP_SETUP %s invalid_buffer=%d size=%u\n",label,actual,(unsigned)length);REQUIRE(false);
+    }
+    return actual;
+}
+static void stop_setup_failure(stop_context *c,const char *reason) {
+    fprintf(stderr,"STOP_SETUP %s ready=%d completed=%d probe_failed=%d backpressure=%d send_calls=%zu sent_bytes=%zu send_buffer=%d receive_buffer=%d\n",
+        reason,atomic_load_explicit(&c->ready,memory_order_acquire),atomic_load_explicit(&c->completed,memory_order_acquire),
+        atomic_load_explicit(&c->probe_failed,memory_order_acquire),atomic_load_explicit(&c->backpressure,memory_order_relaxed),
+        atomic_load_explicit(&c->send_calls,memory_order_relaxed),atomic_load_explicit(&c->sent_bytes,memory_order_relaxed),
+        atomic_load_explicit(&c->send_buffer,memory_order_relaxed),c->receive_buffer);
+    REQUIRE(false);
+}
 static void stop_work(stop_context *c) {
     c->request=H(next_request)(c->server);
     if(c->writing) {
-        REQUIRE(!H(request_status)(c->request));int amount=1024;freak_http_request *r=freak_http_require_request(c->request);setsockopt(r->socket,SOL_SOCKET,SO_SNDBUF,(const char *)&amount,sizeof(amount));
+        REQUIRE(!H(request_status)(c->request));freak_http_request *r=freak_http_require_request(c->request);
+        atomic_store_explicit(&c->send_buffer,stop_buffer(r->socket,SO_SNDBUF,"sender"),memory_order_relaxed);c->send_socket=r->socket;
         int64_t b=freak_byte_buffer_with_capacity(8388608);freak_byte_buffer_record *buffer=freak_byte_buffer_require(b,"stop-write");memset(buffer->data,'x',8388608);buffer->length=8388608;
-        atomic_store_explicit(&c->ready,true,memory_order_release);c->sent=H(send_bytes)(c->request,b);freak_byte_buffer_release(b);
+        stop_write_context=c;c->sent=H(send_bytes)(c->request,b);
+        atomic_store_explicit(&c->completed,true,memory_order_release);
+        stop_write_context=NULL;freak_byte_buffer_release(b);
     }
+    atomic_store_explicit(&c->completed,true,memory_order_release);
 }
 #ifdef _WIN32
 static DWORD WINAPI accept_thread(LPVOID p) { stop_work(p);return 0; }
@@ -84,23 +352,49 @@ static void *accept_thread(void *p) { stop_work(p);return NULL; }
 #endif
 static void stop_tests(void) {
     for(int reading=0;reading<3;reading++) {
-        stop_context c={0};c.server=H(open)(0);c.writing=reading==2;atomic_init(&c.ready,false);REQUIRE(H(status)(c.server)==0);
+        stop_context c={0};c.server=H(open)(0);c.writing=reading==2;
+        atomic_init(&c.ready,false);atomic_init(&c.completed,false);atomic_init(&c.probe_failed,false);
+        atomic_init(&c.send_calls,0);atomic_init(&c.sent_bytes,0);atomic_init(&c.send_buffer,0);atomic_init(&c.backpressure,0);
+        REQUIRE(H(status)(c.server)==0);
         if(c.writing)H(set_limits)(c.server,8192,32768,100,8388608);
         freak_native_socket client=FREAK_INVALID_NATIVE_SOCKET;
-        if(reading) { client=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);REQUIRE(client!=FREAK_INVALID_NATIVE_SOCKET);int receive=1024;setsockopt(client,SOL_SOCKET,SO_RCVBUF,(const char *)&receive,sizeof(receive));struct sockaddr_in a={0};a.sin_family=AF_INET;a.sin_port=htons(H(local_port)(c.server));a.sin_addr.s_addr=htonl(INADDR_LOOPBACK);REQUIRE(connect(client,(struct sockaddr *)&a,sizeof(a))==0);const char *wire=c.writing?"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n":"GET /";REQUIRE(send(client,wire,(int)strlen(wire),0)==(int)strlen(wire)); }
+        if(reading) { client=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);REQUIRE(client!=FREAK_INVALID_NATIVE_SOCKET);c.receive_buffer=stop_buffer(client,SO_RCVBUF,"receiver");struct sockaddr_in a={0};a.sin_family=AF_INET;a.sin_port=htons(H(local_port)(c.server));a.sin_addr.s_addr=htonl(INADDR_LOOPBACK);REQUIRE(connect(client,(struct sockaddr *)&a,sizeof(a))==0);const char *wire=c.writing?"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n":"GET /";REQUIRE(send(client,wire,(int)strlen(wire),0)==(int)strlen(wire)); }
 #ifdef _WIN32
         HANDLE thread=CreateThread(NULL,0,accept_thread,&c,0,NULL);REQUIRE(thread);Sleep(30);
 #else
         pthread_t thread;REQUIRE(pthread_create(&thread,NULL,accept_thread,&c)==0);freak_time_sleep(30);
 #endif
-        if(c.writing) {uint64_t limit=freak_command_now_ms()+2000;while(!atomic_load_explicit(&c.ready,memory_order_acquire)){REQUIRE(freak_command_now_ms()<limit);freak_time_sleep(1);}freak_time_sleep(30);}
+        if(c.writing) {
+            uint64_t limit=freak_command_now_ms()+2000;
+            while(!atomic_load_explicit(&c.ready,memory_order_acquire)) {
+                if(atomic_load_explicit(&c.completed,memory_order_acquire))stop_setup_failure(&c,"worker_completed_before_backpressure");
+                if(atomic_load_explicit(&c.probe_failed,memory_order_acquire))stop_setup_failure(&c,"writability_probe_failed");
+                if(freak_command_now_ms()>=limit)stop_setup_failure(&c,"backpressure_deadline");
+                freak_time_sleep(1);
+            }
+            freak_time_sleep(30);
+            if(atomic_load_explicit(&c.completed,memory_order_acquire))stop_setup_failure(&c,"worker_completed_before_stop");
+            if(atomic_load_explicit(&c.probe_failed,memory_order_acquire))stop_setup_failure(&c,"writability_probe_failed");
+            if(freak_command_now_ms()>=limit)stop_setup_failure(&c,"setup_deadline");
+        }
         uint64_t start=freak_command_now_ms();H(stop)(c.server);
 #ifdef _WIN32
         REQUIRE(WaitForSingleObject(thread,1000)==WAIT_OBJECT_0);CloseHandle(thread);
 #else
         REQUIRE(pthread_join(thread,NULL)==0);
 #endif
-        REQUIRE(freak_command_now_ms()-start<500&&H(request_status)(c.request)==(c.writing?0:503)&&H(status)(c.server)==1);if(c.writing)REQUIRE(!c.sent);
+        uint64_t elapsed=freak_command_now_ms()-start;
+        int64_t request_status=H(request_status)(c.request),expected_status=c.writing?0:503,server_status=H(status)(c.server);
+        if(elapsed>=500||request_status!=expected_status||server_status!=1||(c.writing&&c.sent)) {
+            __auto_type error=H(request_error)(c.request);freak_word message=view(error);
+            fprintf(stderr,"STOP_CHECK reading=%d writing=%d elapsed_ms=%llu request_status=%lld expected_status=%lld server_status=%lld sent=%d error=%.*s\n",
+                reading,c.writing,(unsigned long long)elapsed,(long long)request_status,(long long)expected_status,(long long)server_status,c.sent,(int)message.length,message.data);
+            drop(error);fflush(stderr);
+        }
+        REQUIRE(elapsed<500);
+        REQUIRE(request_status==expected_status);
+        REQUIRE(server_status==1);
+        if(c.writing)REQUIRE(!c.sent);
         if(client!=FREAK_INVALID_NATIVE_SOCKET) freak_tcp_socket_native_close(client);
         H(request_release)(c.request);H(close)(c.server);base();
     }
@@ -221,7 +515,9 @@ def run(command, **kwargs):
     return subprocess.run(command, capture_output=True, timeout=60, **kwargs)
 
 class Server:
-    def __init__(self, exe: Path, profile: str, env: dict[str, str]):
+    def __init__(self, exe: Path, profile: str, env: dict[str, str], progress: HttpProgress | None = None):
+        self.progress=progress
+        self.checkpoint('server-start',profile)
         self.process=subprocess.Popen([str(exe),profile],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
         assert self.process.stdout is not None
         if os.name != 'nt':
@@ -229,6 +525,8 @@ class Server:
         line=self.process.stdout.readline()
         assert line.startswith(b'PORT '),(line,self.process.poll())
         self.port=int(line.split()[1]);self.cases=0
+    def checkpoint(self, phase: str, fixture: str | None = None, *, case: int | None = None):
+        if self.progress is not None:self.progress.stage(phase,fixture,case=case)
     def connect(self):
         s=socket.create_connection(('127.0.0.1',self.port),timeout=4);s.settimeout(4);return s
     def exchange(self, data: bytes, *, split: int|None=None, eof=False, slow=False):
@@ -288,6 +586,7 @@ def assert_rejection(result,status,*,head=False):
     return headers
 
 def reset_content_corpus(s:Server):
+    s.checkpoint('response-framing','reset-content-205')
     binary=b'A\0\xff\xc3\xa9\xf0\x9f\x9a\x80B'
     for method in ('GET','HEAD'):
         # The application supplies nonempty text, nonempty binary, or no bytes.
@@ -295,6 +594,7 @@ def reset_content_corpus(s:Server):
             assert_response(s.exchange(request(path,method,body)),205,b'',head=method=='HEAD')
 
 def head_rejection_corpus(s:Server):
+    s.checkpoint('parser-rejections','incomplete-head-token')
     # llhttp recognizes the final D before accepting the method delimiter.
     # Incomplete or invalid tokens still receive the ordinary 400 body.
     for wire in (b'H',b'HE',b'HEA',b'HEAD',b'HEADX',b'HEAD\t',b'HEAD\r',b'HEAD\n',b'h'):
@@ -305,6 +605,7 @@ def head_rejection_corpus(s:Server):
     missing=request('/health','HEAD').replace(b'Host: localhost\r\n',b'')
     # Every split around the token and separating space confirms the same HEAD.
     for split in range(1,6):assert_rejection(s.exchange(missing,split=split,eof=True),400,head=True)
+    s.checkpoint('parser-rejections','confirmed-head-controls')
     bad=[(missing,400),
          (request('/health','HEAD').replace(b'localhost',b'a b'),400),
          (request('/health','HEAD',headers=[('Host','duplicate')]),400),
@@ -325,6 +626,7 @@ def head_rejection_corpus(s:Server):
     assert_rejection(s.exchange(request('/health').replace(b'Host: localhost\r\n',b'')),400)
 
 def normal_corpus(s:Server,soak:int):
+    s.checkpoint('normal-corpus','ordinary-client-and-routing')
     # http.client provides an independent ordinary-client response parser.
     c=http.client.HTTPConnection('127.0.0.1',s.port,timeout=4);c.request('GET','/health');r=c.getresponse();assert r.status==200 and r.read()==b'healthy' and r.getheader('Connection')=='close';c.close();s.cases+=1
     assert_response(s.exchange(request('/hello/Ada')),200,b'Ada')
@@ -339,6 +641,7 @@ def normal_corpus(s:Server,soak:int):
     assert_response(s.exchange(request('/204')),204,b'')
     assert_response(s.exchange(request('/204','HEAD')),204,b'',head=True)
     reset_content_corpus(s)
+    s.checkpoint('normal-corpus','bodyless-and-header-responses')
     c=http.client.HTTPConnection('127.0.0.1',s.port,timeout=4);c.request('GET','/205');r=c.getresponse();assert r.status==205 and r.reason=='Reset Content' and r.getheader('Content-Length')=='0' and r.read()==b'';c.close();s.cases+=1
     for method in ('GET','HEAD'):
         h=assert_response(s.exchange(request('/304',method)),304,b'',head=method=='HEAD');assert h[b'content-length']==b'7'
@@ -348,15 +651,18 @@ def normal_corpus(s:Server,soak:int):
     fixed=request('/echo','POST',binary)
     chunked=request('/echo','POST',b'5;foo="a\\\"b"\r\n'+binary[:5]+b'\r\n'+f'{len(binary)-5:x}'.encode()+b'\r\n'+binary[5:]+b'\r\n0\r\nX-End: yes\r\n\r\n',headers=[('Transfer-Encoding','chunked')])
     for wire in (fixed,chunked):
+        s.checkpoint('normal-corpus','binary-body-splits')
         for split in range(1,len(wire)):assert_response(s.exchange(wire,split=split),200,binary)
     wire=request('/inspect?x=1&x=2%20z','POST',b'1\r\na\r\n0\r\nX-Repeat: third\r\n\r\n',headers=[('Transfer-Encoding','chunked'),('X-Repeat','first'),('X-Repeat','second')])
     assert_response(s.exchange(wire),200,b'query=x=1&x=2%20z\n0:first\n0:second\n1:third\n')
     doc={'name':'é猫🚀','escape':'"\\\n\t','nul':'a\0b','n':9007199254740993}
     body=json.dumps(doc,ensure_ascii=False,separators=(',',':')).encode();wire=request('/json','POST',body,headers=[('Content-Type','application/json')])
     for split in range(1,len(wire)):
+        if split%128==1:s.checkpoint('normal-corpus','json-body-splits',case=split)
         response=s.exchange(wire,split=split);h=assert_response(response,200);assert h[b'content-type']==b'application/json';assert json.loads(response[2])==doc
     for body,status in [(b'{',400),(b'[]',422),(b'null',422),(b'{"name":null}',422),(b'{"name":"x","name":"y"}',400),(b'{"name":"\\uD800"}',400),(b'{"name":"a\x00b"}',400),(b'{"name":"\xff"}',400)]:assert_response(s.exchange(request('/json','POST',body)),status)
     # Exactly one message is exposed even when a second request shares the recv.
+    s.checkpoint('normal-corpus','message-boundary-and-continue')
     response=s.exchange(request('/health')+request('/hello/second'));assert_response(response,200,b'healthy')
     with s.connect() as client:
         client.sendall(request('/echo','POST',headers=[('Content-Length','3'),('Expect','100-continue')]))
@@ -366,12 +672,14 @@ def normal_corpus(s:Server,soak:int):
         client.sendall(b'a\0b');out=b''
         while chunk:=client.recv(4096):out+=chunk
         assert_response(parse_response(out),200,b'a\0b');s.cases+=1
+    s.checkpoint('normal-corpus','large-partial-send-and-peer-reset')
     large=s.exchange(request('/large'),slow=True);assert_response(large,200,bytes((i*17+3)&255 for i in range(262144)))
     # Peer reset while sending must not kill the listener or retain its socket.
     with s.connect() as client:
         client.sendall(request('/large'));client.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,struct.pack('ii',1,0))
     time.sleep(.01);assert_response(s.exchange(request('/health')),200,b'healthy')
     for i in range(soak):
+        if i%128==0:s.checkpoint('normal-corpus','ownership-soak',case=i)
         if i%4==0:assert_response(s.exchange(request('/echo','POST',binary)),200,binary)
         elif i%4==1:assert_response(s.exchange(request('/json','POST',b'{"name":"soak"}')),200)
         elif i%4==2:assert_response(s.exchange(request('/health')),200,b'healthy')
@@ -379,6 +687,7 @@ def normal_corpus(s:Server,soak:int):
 
 def invalid_corpus(s:Server):
     head_rejection_corpus(s)
+    s.checkpoint('parser-rejections','host-header-and-framing')
     bad=[]
     for host in ('','a,b','a b','user@host','host/path','[::1','[broken]','[::1]:','a:','a:bad','a:65536','-host','a..b','a:0'):
         bad.append((request('/health').replace(b'localhost',host.encode()),400,'Host '+host))
@@ -393,6 +702,7 @@ def invalid_corpus(s:Server):
         if status is None:assert response[0] in (400,501,505),(label,response)
         else:assert_response(response,status)
     for malformed in (b'Z\r\na\r\n0\r\n\r\n',b'1\r\naXX0\r\n\r\n',b'1\r\n',b'1\r\na\r\n',b'0\r\nX: y\r\n',b'10000000000000000\r\n',b'1;foo="unterminated\r\na\r\n0\r\n\r\n'):
+        s.checkpoint('parser-rejections','malformed-chunks-and-trailers')
         response=s.exchange(request('/echo','POST',malformed,headers=[('Transfer-Encoding','chunked')]),eof=True);assert response[0] in (400,413),(malformed,response)
     for name in ('Host','Content-Length','Transfer-Encoding','Authorization','Cookie','Connection'):
         wire=request('/echo','POST',f'0\r\n{name}: x\r\n\r\n'.encode(),headers=[('Transfer-Encoding','chunked')]);assert_response(s.exchange(wire),400)
@@ -400,6 +710,7 @@ def invalid_corpus(s:Server):
     for fields,status in [([('Host','duplicate'),('Content-Length','1'),('Expect','100-continue')],400),([('Content-Length','1048577'),('Expect','100-continue')],413)]:assert_response(s.exchange(request('/echo','POST',headers=fields)),status)
 
 def tight_corpus(s:Server):
+    s.checkpoint('tight-corpus','size-and-metadata-limits')
     assert_response(s.exchange(request('/health')),200,b'healthy')
     assert_response(s.exchange(request('/'+'x'*128)),414)
     assert_response(s.exchange(request('/health',headers=[('X','x'*512)])),431)
@@ -422,11 +733,14 @@ def tight_corpus(s:Server):
     assert_response(s.exchange(request('/echo','POST',b'0\r\nX: '+b'a'*64+b'\r\n\r\n',headers=[('Transfer-Encoding','chunked')])),431)
     assert_response(s.exchange(request('/echo','POST',b'0\r\n'+b'X: a\r\n'*8+b'\r\n',headers=[('Transfer-Encoding','chunked')])),431)
     for wire in (b'GET /health HTTP/1.1\r\nHost:',request('/echo','POST',headers=[('Content-Length','2')])+b'a'):
+        s.checkpoint('tight-corpus','idle-deadline')
         started=time.monotonic();assert_response(s.exchange(wire),408);assert time.monotonic()-started<1
     for wire in (b'HEAD ',b'HEAD /health HTTP/1.1\r\nHost:',request('/echo','HEAD',headers=[('Content-Length','2')])+b'a'):
+        s.checkpoint('tight-corpus','head-idle-deadline')
         started=time.monotonic();assert_rejection(s.exchange(wire),408,head=True);assert time.monotonic()-started<1
     # Progress beats idle but cannot reset the absolute header/body deadline.
     for method,body in (('GET',False),('POST',True),('HEAD',False),('HEAD',True)):
+        s.checkpoint('tight-corpus','absolute-body-deadline' if body else 'absolute-header-deadline')
         with s.connect() as client:
             if body:client.sendall(request('/echo',method,headers=[('Content-Length','20')]))
             else:client.sendall(f'{method} /health HTTP/1.1\r\nX: '.encode())
@@ -443,26 +757,31 @@ def tight_corpus(s:Server):
                 out+=chunk
             assert_rejection(parse_response(out),408,head=method=='HEAD');assert time.monotonic()-started<.8;s.cases+=1
     # Premature fixed-length EOF also rejects without retaining a handler.
+    s.checkpoint('tight-corpus','premature-eof')
     assert_response(s.exchange(request('/echo','POST',headers=[('Content-Length','2')])+b'a',eof=True),400)
     assert_rejection(s.exchange(request('/echo','HEAD',headers=[('Content-Length','2')])+b'a',eof=True),400,head=True)
 
-def exercise(exe:Path,env,soak:int):
+def exercise(exe:Path,env,soak:int,progress:HttpProgress|None=None):
+    if progress is not None:progress.stage('native-control','bind-stop-ownership')
     c=run([str(exe),'bind'],env=env);assert c.returncode==0 and not c.stdout and not c.stderr,(c.returncode,c.stdout,c.stderr)
     for mode,message in [('stale',b'stale server'),('double',b'stale server'),('foreign',b'stale server'),('wrong-domain',b'stale request'),('stale-request',b'stale request'),('double-request',b'stale request'),('invalid-limits',b'invalid HTTP size'),('live-audit',b'live HTTP server')]:
+        if progress is not None:progress.stage('native-control',mode)
         c=run([str(exe),mode],env=env);assert c.returncode!=0 and not c.stdout and message in c.stderr,(mode,c.returncode,c.stdout,c.stderr)
     report={}
     for profile in ('normal','tight'):
-        s=Server(exe,profile,env)
+        s=Server(exe,profile,env,progress)
         try:
             if profile=='normal':normal_corpus(s,soak);invalid_corpus(s)
             else:tight_corpus(s)
+            s.checkpoint('server-stop',profile)
             counts=s.stop();report[profile]={'requests':counts[0],'partial_sends':counts[1],'send_failures':counts[2],'retained_bytes':counts[3],'kernel_fds':counts[4],'oracle_cases':s.cases,
                 'shared_pool_checks_after_warmup':counts[5],'shared_pool_retained_bytes':counts[6],
                 'byte_buffer_capacity':counts[7],'byte_buffer_slots':counts[8],'json_document_capacity':counts[9],
                 'json_document_slots':counts[10],'llvm_word_buckets':counts[11]}
             if profile=='normal' and soak>=512:assert counts[5]>0,counts
             if profile=='normal' and os.sys.platform.startswith('linux'):assert counts[1]>0 and counts[2]>0,counts
-        finally:s.abort()
+        finally:
+            s.abort()
     return report
 
 def runtime_inputs(runtime_root:Path|None):
@@ -481,32 +800,42 @@ def runtime_inputs(runtime_root:Path|None):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'));p.add_argument('--runtime-root',type=Path);p.add_argument('--optimization',type=int,choices=(0,2,3),action='append');p.add_argument('--adapter',choices=('c','llvm'),action='append');p.add_argument('--sanitize',action='store_true');p.add_argument('--soak',type=int,default=1000);p.add_argument('--report',type=Path);args=p.parse_args()
-    assert args.soak>=0
-    clang=shutil.which(args.clang);assert clang,args.clang
-    runtime,vendor=runtime_inputs(args.runtime_root)
-    pinned_paths=sorted(p for p in runtime.iterdir() if p.suffix in ('.c','.h','.inc'))
-    pinned_paths+=sorted(p for p in vendor.rglob('*') if p.is_file())
-    pinned={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths}
-    env=os.environ.copy();env['ASAN_OPTIONS']='detect_leaks=1:halt_on_error=1';env['UBSAN_OPTIONS']='halt_on_error=1'
-    report={'runtime_sha256':hashlib.sha256((runtime/'freak_runtime.c').read_bytes()).hexdigest(),'http_sha256':hashlib.sha256((runtime/'freak_v35_http.inc').read_bytes()).hexdigest(),'pinned_input_sha256':pinned,'clang':str(Path(clang).resolve()),'clang_sha256':hashlib.sha256(Path(clang).read_bytes()).hexdigest(),'clang_version':run([clang,'--version']).stdout.decode().splitlines()[0],'sanitize':args.sanitize,'matrices':[]}
-    with tempfile.TemporaryDirectory(prefix='freak-http-floor-') as temporary:
-        root=Path(temporary);h=root/'http.c';h.write_text(HARNESS)
-        flags=['-lws2_32','-lshell32'] if os.name=='nt' else ['-lm','-pthread']
-        if os.sys.platform.startswith('linux'):flags+=['-Wl,--wrap=send']
-        if args.sanitize:
-            flags+=['-fsanitize=address,undefined,function','-fno-omit-frame-pointer','-g']
-            control=root/'control.c';control.write_text('#include <stdlib.h>\nint main(int n,char **v){volatile char *p=malloc(1);p[n+4]=3;free((void*)p);return 0;}\n')
-            exe=root/'control';c=run([clang,str(control),'-O0',*flags,'-o',str(exe)]);assert c.returncode==0,c.stderr.decode()
-            c=run([str(exe)],env=env);assert c.returncode!=0 and b'AddressSanitizer' in c.stderr,c.stderr.decode();report['sanitizer_failing_control']=True
-        for opt in args.optimization or (0,2,3):
-            for adapter in args.adapter or ('c','llvm'):
-                exe=root/f'http-{adapter}-O{opt}'
-                command=[clang,str(h),str(runtime/'freak_llvm_runtime.c'),f'-I{runtime}',f'-O{opt}','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1','-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1',*flags,'-o',str(exe)]
-                if adapter=='llvm':command.insert(1,'-DUSE_LLVM_ADAPTER=1')
-                c=run(command);assert c.returncode==0,c.stderr.decode()
-                corpus=exercise(exe,env,args.soak);report['matrices'].append({'adapter':adapter,'optimization':opt,'corpus':corpus,'bind_stop_ownership':True,'controlled_errors':8})
-                print(f'PASS HTTP {adapter} O{opt}: {corpus}',flush=True)
-    assert pinned=={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths},'runtime inputs changed during verification'
-    report['pinned_inputs_unchanged']=True
-    if args.report:args.report.parent.mkdir(parents=True,exist_ok=True);args.report.write_text(json.dumps(report,indent=2)+'\n')
+    report={'matrices':[]}
+    with HttpProgress(args.report,report,len(args.optimization or (0,2,3))*len(args.adapter or ('c','llvm'))) as progress:
+        progress.stage('input-provenance')
+        assert args.soak>=0
+        clang=shutil.which(args.clang);assert clang,args.clang
+        runtime,vendor=runtime_inputs(args.runtime_root)
+        pinned_paths=sorted(p for p in runtime.iterdir() if p.suffix in ('.c','.h','.inc'))
+        pinned_paths+=sorted(p for p in vendor.rglob('*') if p.is_file())
+        pinned={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths}
+        env=os.environ.copy();env['ASAN_OPTIONS']='detect_leaks=1:halt_on_error=1';env['UBSAN_OPTIONS']='halt_on_error=1'
+        report.update({'runtime_sha256':hashlib.sha256((runtime/'freak_runtime.c').read_bytes()).hexdigest(),'http_sha256':hashlib.sha256((runtime/'freak_v35_http.inc').read_bytes()).hexdigest(),'pinned_input_sha256':pinned,'clang':str(Path(clang).resolve()),'clang_sha256':hashlib.sha256(Path(clang).read_bytes()).hexdigest(),'clang_version':run([clang,'--version']).stdout.decode().splitlines()[0],'sanitize':args.sanitize,'matrices':[]})
+        progress.stage('input-provenance-complete')
+        with tempfile.TemporaryDirectory(prefix='freak-http-floor-') as temporary:
+            root=Path(temporary);h=root/'http.c';h.write_text(HARNESS)
+            flags=['-lws2_32','-lshell32'] if os.name=='nt' else ['-lm','-pthread']
+            if os.sys.platform.startswith('linux'):flags+=['-Wl,--wrap=send']
+            if args.sanitize:
+                progress.stage('sanitizer-control','compile')
+                flags+=['-fsanitize=address,undefined,function','-fno-omit-frame-pointer','-g']
+                control=root/'control.c';control.write_text('#include <stdlib.h>\nint main(int n,char **v){volatile char *p=malloc(1);p[n+4]=3;free((void*)p);return 0;}\n')
+                exe=root/'control';c=run([clang,str(control),'-O0',*flags,'-o',str(exe)]);assert c.returncode==0,c.stderr.decode()
+                progress.stage('sanitizer-control','execute')
+                c=run([str(exe)],env=env);assert c.returncode!=0 and b'AddressSanitizer' in c.stderr,c.stderr.decode();report['sanitizer_failing_control']=True
+            for opt in args.optimization or (0,2,3):
+                for adapter in args.adapter or ('c','llvm'):
+                    progress.matrix_started('adapter',adapter,opt)
+                    progress.stage('matrix-compile','raw-harness')
+                    exe=root/f'http-{adapter}-O{opt}'
+                    command=[clang,str(h),str(runtime/'freak_llvm_runtime.c'),f'-I{runtime}',f'-O{opt}','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1','-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1',*flags,'-o',str(exe)]
+                    if adapter=='llvm':command.insert(1,'-DUSE_LLVM_ADAPTER=1')
+                    c=run(command);assert c.returncode==0,c.stderr.decode()
+                    corpus=exercise(exe,env,args.soak,progress);report['matrices'].append({'adapter':adapter,'optimization':opt,'corpus':corpus,'bind_stop_ownership':True,'controlled_errors':8})
+                    progress.matrix_finished()
+                    print(f'PASS HTTP {adapter} O{opt}: {corpus}',flush=True)
+        progress.stage('final-input-verification')
+        assert pinned=={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths},'runtime inputs changed during verification'
+        report['pinned_inputs_unchanged']=True
+        progress.passed()
 if __name__=='__main__':main()

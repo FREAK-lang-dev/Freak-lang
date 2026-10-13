@@ -203,12 +203,12 @@ jobs:
             --tested-sha256 "$archive.tested.sha256" \
             --evidence-dir "$RUNNER_TEMP/v35-http-release"
 
-      - name: Upload installed HTTP, template and diagnostic evidence
+      - name: Upload installed HTTP, template and component evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: v35-http-release-${{ matrix.target }}
-          path: ${{ runner.temp }}/v35-http-release/*.json
+          path: ${{ runner.temp }}/v35-http-release/
           if-no-files-found: ignore
 
       - name: Upload artifact
