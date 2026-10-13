@@ -56,25 +56,18 @@ task cli_runtime_cache_release() -> void {
     cli_runtime_cache_hashes = 0
 }
 
-task cli_runtime_cache_hash_file(path: word) -> word {
+task cli_runtime_cache_hash_file(path: word, hash_tool: word, use_shasum: bool) -> word {
     -- Large compiler support images are streamed by the platform hash tool;
     -- dependency/snapshot/object reads below retain explicit byte bounds.
     if cli_is_windows() { give back cli_run_windows_file_sha256(path) }
-    pilot tool = cli_run_resolve_program("sha256sum")
-    pilot command = 0
-    if tool != "" {
-        command = process::command_new(tool)
-        process::command_arg(command, "--")
-        process::command_arg(command, path)
-    } else {
-        tool = cli_run_resolve_program("shasum")
-        if tool == "" { give back "" }
-        command = process::command_new(tool)
+    if hash_tool == "" { give back "" }
+    pilot command = process::command_new(hash_tool)
+    if use_shasum {
         process::command_arg(command, "-a")
         process::command_arg(command, "256")
-        process::command_arg(command, "--")
-        process::command_arg(command, path)
     }
+    process::command_arg(command, "--")
+    process::command_arg(command, path)
     give back cli_run_sha256_from_output(cli_tool_capture(command, false))
 }
 
@@ -137,15 +130,15 @@ task cli_runtime_cache_environment() -> word {
     give back material
 }
 
-task cli_runtime_cache_support_pin(path: word) -> word {
+task cli_runtime_cache_support_pin(path: word, hash_tool: word, use_shasum: bool) -> word {
     pilot canonical = cli_runtime_cache_canonical(path)
     if canonical == "" { give back "" }
-    pilot digest = cli_runtime_cache_hash_file(canonical)
+    pilot digest = cli_runtime_cache_hash_file(canonical, hash_tool, use_shasum)
     if digest == "" { give back "" }
     give back cli_runtime_cache_field(canonical) + cli_runtime_cache_field(digest)
 }
 
-task cli_runtime_cache_linux_support(executable: word) -> word {
+task cli_runtime_cache_linux_support(executable: word, hash_tool: word, use_shasum: bool) -> word {
     -- ldd reports the selected ELF loader's transitive closure. Reject every
     -- unresolved/unrecognized row, injected preload/audit code, or failed probe.
     if process::env("LD_PRELOAD") != "" or process::env("LD_AUDIT") != "" { give back "" }
@@ -175,7 +168,7 @@ task cli_runtime_cache_linux_support(executable: word) -> word {
                     if end < 0 { give back "" }
                     path = path.substring(0, end).trim()
                     if not path.starts_with("/") { give back "" }
-                    pilot pin = cli_runtime_cache_support_pin(path)
+                    pilot pin = cli_runtime_cache_support_pin(path, hash_tool, use_shasum)
                     if pin == "" { give back "" }
                     material = material + pin
                     count += 1
@@ -206,7 +199,7 @@ task cli_runtime_cache_dyld_plain() -> bool {
     give back true
 }
 
-task cli_runtime_cache_macos_support(executable: word) -> word {
+task cli_runtime_cache_macos_support(executable: word, hash_tool: word, use_shasum: bool) -> word {
     -- Only fully resolved absolute dylib closures qualify initially. @rpath,
     -- shared-cache-only images and injected libraries conservatively miss.
     if not cli_runtime_cache_dyld_plain() { give back "" }
@@ -245,7 +238,7 @@ task cli_runtime_cache_macos_support(executable: word) -> word {
                                     prior += 1
                                 }
                                 if not found {
-                                    pilot pin = cli_runtime_cache_support_pin(path)
+                                    pilot pin = cli_runtime_cache_support_pin(path, hash_tool, use_shasum)
                                     if pin == "" { valid = false } else { material = material + pin array_push(pending, path) }
                                 }
                             }
@@ -269,7 +262,21 @@ task cli_runtime_cache_tool_identity(executable: word) -> word {
     cli_runtime_cache_tool_complete = false
     pilot resolved = cli_runtime_cache_canonical(cli_run_resolve_program(executable))
     if resolved == "" { give back "" }
-    pilot pin = cli_runtime_cache_support_pin(resolved)
+    -- Resolve the SHA utility once for this fresh identity pass. Every image
+    -- still receives its own raw-byte hash, including every later admission
+    -- pass; no utility selection or content identity survives this call.
+    pilot hash_tool = ""
+    pilot use_shasum = false
+    if not cli_is_windows() {
+        hash_tool = cli_run_resolve_program("sha256sum")
+        if hash_tool == "" {
+            hash_tool = cli_run_resolve_program("shasum")
+            use_shasum = true
+        }
+        hash_tool = cli_runtime_cache_canonical(hash_tool)
+        if hash_tool == "" { give back "" }
+    }
+    pilot pin = cli_runtime_cache_support_pin(resolved, hash_tool, use_shasum)
     pilot version = cli_run_tool_version(resolved, false)
     if pin == "" or version == "" { give back "" }
     pilot command = process::command_new(executable)
@@ -284,8 +291,8 @@ task cli_runtime_cache_tool_identity(executable: word) -> word {
     if environment == "" { give back "" }
     pilot support = ""
     if not cli_is_windows() {
-        if cli_is_macos() { support = cli_runtime_cache_macos_support(resolved) }
-        else { support = cli_runtime_cache_linux_support(resolved) }
+        if cli_is_macos() { support = cli_runtime_cache_macos_support(resolved, hash_tool, use_shasum) }
+        else { support = cli_runtime_cache_linux_support(resolved, hash_tool, use_shasum) }
     }
     -- Unknown Windows DLL loading, static ELF probes, and unresolved macOS
     -- closures disable reuse. They never reject an otherwise supported build.
