@@ -175,6 +175,17 @@ def assert_comparative_idle_trickle(cadence: dict, receiver_receipt: dict, elaps
 class OwnedCommandCleanupControls(unittest.TestCase):
     """Inert owned-child controls; every fake PID signal is intercepted."""
 
+    MODELED_SIGKILL = 9
+
+    def platform_model(self, windows=False):
+        # Model both branches independently of the runner's OS. In particular,
+        # Windows has no killpg/SIGKILL, and changing real os.name would affect
+        # pathlib and subprocess outside this acceptance-module patch.
+        from types import SimpleNamespace
+        platform = SimpleNamespace(name='nt' if windows else 'posix')
+        signals = SimpleNamespace() if windows else SimpleNamespace(SIGKILL=self.MODELED_SIGKILL)
+        return platform, signals
+
     def child(self, effects):
         child = Mock(pid=123456789, returncode=None,
                      stdout=io.BytesIO(), stderr=io.BytesIO())
@@ -185,10 +196,10 @@ class OwnedCommandCleanupControls(unittest.TestCase):
         return child
 
     def invoke(self, root, child, records, *, checkpoint=None, windows=False):
-        from types import SimpleNamespace
-        platform = SimpleNamespace(name='nt') if windows else acceptance.os
+        platform, signals = self.platform_model(windows)
         cleanup = subprocess.CompletedProcess([], 0, b'tree stopped', b'')
         with patch.object(acceptance, 'os', platform), \
+                patch.object(acceptance, 'signal', signals), \
                 patch.object(acceptance.subprocess, 'Popen', return_value=child), \
                 patch.object(acceptance.subprocess, 'run', return_value=cleanup) as taskkill, \
                 patch.object(platform, 'killpg', create=True) as group_kill:
@@ -226,7 +237,7 @@ class OwnedCommandCleanupControls(unittest.TestCase):
                             capture_output=True, timeout=10)
                         group_kill.assert_not_called()
                     else:
-                        group_kill.assert_called_once_with(child.pid, acceptance.signal.SIGKILL)
+                        group_kill.assert_called_once_with(child.pid, self.MODELED_SIGKILL)
                         taskkill.assert_not_called()
 
     def test_pid_checkpoint_interrupt_cleans_up_before_original_failure(self):
@@ -282,13 +293,20 @@ class OwnedCommandCleanupControls(unittest.TestCase):
                 if 'returncode' in record:
                     terminal.append(dict(record))
                     raise checkpoint_error
-            with patch.object(acceptance.subprocess, 'Popen', return_value=child), \
-                    patch.object(acceptance.os, 'killpg', side_effect=OSError('controlled group kill failure')):
+            platform, signals = self.platform_model()
+            with patch.object(acceptance, 'os', platform), \
+                    patch.object(acceptance, 'signal', signals), \
+                    patch.object(acceptance.subprocess, 'Popen', return_value=child), \
+                    patch.object(acceptance.subprocess, 'run') as taskkill, \
+                    patch.object(platform, 'killpg', create=True,
+                                 side_effect=OSError('controlled group kill failure')) as group_kill:
                 with self.assertRaises(RuntimeError) as caught:
                     acceptance.run_command(['inert'], cwd=root, env={}, label='owned-error',
                                            prefix=root / 'owned-error', records=records,
                                            timeout=120, on_record=checkpoint)
             self.assertIs(caught.exception, primary)
+            group_kill.assert_called_once_with(child.pid, self.MODELED_SIGKILL)
+            taskkill.assert_not_called()
             self.assertEqual((root / 'owned-error.stdout').read_bytes(), b'last stdout')
             self.assertEqual((root / 'owned-error.stderr').read_bytes(), b'last stderr')
             child.kill.assert_called_once_with()
@@ -322,7 +340,6 @@ class OwnedCommandCleanupControls(unittest.TestCase):
             self.assertEqual((root / 'owned-error.stderr').read_bytes(), b'last stderr')
 
     def test_secondary_cleanup_interruptions_preserve_first_cause_and_channels(self):
-        from types import SimpleNamespace
         with tempfile.TemporaryDirectory() as temporary:
             root, records = Path(temporary), []
             primary = RuntimeError('controlled primary failure')
@@ -330,7 +347,9 @@ class OwnedCommandCleanupControls(unittest.TestCase):
             tree_error = KeyboardInterrupt('controlled taskkill interruption')
             capture_error = KeyboardInterrupt('controlled capture interruption')
             child = self.child([primary, capture_error])
-            with patch.object(acceptance, 'os', SimpleNamespace(name='nt')), \
+            platform, signals = self.platform_model(windows=True)
+            with patch.object(acceptance, 'os', platform), \
+                    patch.object(acceptance, 'signal', signals), \
                     patch.object(acceptance.subprocess, 'Popen', return_value=child), \
                     patch.object(acceptance.subprocess, 'run', side_effect=tree_error):
                 with self.assertRaises(RuntimeError) as caught:
@@ -354,7 +373,7 @@ class OwnedCommandCleanupControls(unittest.TestCase):
             self.assertIs(error, primary)
             self.assertEqual(primary.timeout, 120)
             self.assertEqual((primary.output, primary.stderr), (b'first later', b'first error later'))
-            group_kill.assert_called_once_with(child.pid, acceptance.signal.SIGKILL)
+            group_kill.assert_called_once_with(child.pid, self.MODELED_SIGKILL)
             child.kill.assert_called_once_with()
             child.wait.assert_called_once_with(timeout=5)
             self.assertEqual([call.kwargs['timeout'] for call in child.communicate.call_args_list], [120, 10])
