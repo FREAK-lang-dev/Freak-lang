@@ -13,13 +13,14 @@ a registered invalid source (see easter_eggs.json), and only as a
 replacement cast line in minimal/normal mode. They are never consulted
 in "off" mode and never fire for any other source.
 
-Integration hook (deferred, owned by the lead): wire an opt-in
-``--diagnostic-cast=<off|minimal|normal>`` CLI flag (default ``off``) at
-the CLI dispatch boundary; keep checker/parser/emitter output canonical
-and call ``render()`` as a post-pass presentation step only, passing the
-compiler version plus the diagnostic code, file, line, column, source
-text, and speaker. No checker/CLI flag parsing changes ship from this
-lane.
+The native CLI integrates the opt-in ``--diagnostic-cast=off|minimal|normal``
+flag, defaulting to ``off`` for interactive and redirected output. Enabled
+modes append cast text to mapped compiler failures with admitted original
+source in build/run/check/transpile. Canonical diagnostics and exit status
+remain unchanged, and JSON output contains no cast text. This Python module
+is the parity oracle; native builds use the generated FREAK data and native
+suffix renderer. Unmapped or source-unknown failures keep canonical output
+without a cast suffix. Full ``--voice`` routing remains V4 work.
 """
 
 from __future__ import annotations
