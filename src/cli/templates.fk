@@ -2,6 +2,11 @@
 -- Only fixed template paths may be read/written. Publication never replaces an
 -- existing destination, and cleanup authority is the held task-owned temp ticket.
 pilot mut cli_template_error = ""
+-- Diagnostic snapshots of the held target, never authority for an operation.
+pilot mut cli_template_project_path = ""
+pilot mut cli_template_project_identity = ""
+pilot mut cli_template_retained_files = false
+pilot mut cli_template_effects = false
 
 task cli_template_fail(message: word) -> void {
     if cli_template_error == "" { cli_template_error = message }
@@ -130,11 +135,303 @@ task cli_template_populate(source: int, stage: int, kind: word, name: word) -> b
     give back true
 }
 
-task cli_create_template(template_name: word, destination: word) -> bool {
+task cli_template_reset() -> void {
     cli_template_error = ""
+    cli_template_project_path = ""
+    cli_template_project_identity = ""
+    cli_template_retained_files = false
+    cli_template_effects = false
+}
+
+task cli_template_kind_valid(template_name: word) -> bool {
     if template_name != "cli" and template_name != "lib" and template_name != "http" {
         cli_template_fail("template must be cli, lib, or http")
         give back false
+    }
+    give back true
+}
+
+-- Refresh guidance from the admitted identity. A renamed parent must never
+-- direct the user to build a foreign directory now occupying the old name.
+task cli_template_capture_target(project: int) -> void {
+    pilot identity = fs::directory_identity_ticket(project)
+    if fs::result_ok(identity) { cli_template_project_identity = fs::result_word(identity) }
+    fs::result_release(identity)
+    pilot current = fs::directory_path_ticket(project)
+    cli_template_project_path = ""
+    if fs::result_ok(current) { cli_template_project_path = fs::result_word(current) }
+    fs::result_release(current)
+}
+
+task cli_template_name_from_project(project: int) -> word {
+    pilot current = fs::directory_path_ticket(project)
+    pilot name = "freak-project"
+    if fs::result_ok(current) {
+        pilot path = fs::result_word(current)
+        pilot split = cli_template_separator(path + "")
+        pilot candidate = path.substring(split + 1, path.length() - split - 1)
+        if cli_template_name_safe(candidate + "") { name = candidate }
+    }
+    fs::result_release(current)
+    give back name
+}
+
+task cli_template_entry_missing(project: int, relative: word) -> bool {
+    pilot observed = fs::read_relative_bytes_limit_ticket(project, relative, 1)
+    pilot missing = fs::result_missing(observed)
+    fs::result_release(observed)
+    give back missing
+}
+
+-- Only missing admits creation. No legacy or modern generation may be rebuilt
+-- from an orphan lock, even if its bytes are malformed or unreadable.
+task cli_template_generation_ready(project: int) -> bool {
+    if not cli_template_entry_missing(project, "hangar.toml") {
+        cli_template_fail("hangar.toml already exists; initialization preserves existing manifests")
+        give back false
+    }
+    if not cli_template_entry_missing(project, "hangar.lock") {
+        cli_template_fail("existing hangar.lock without hangar.toml; graph-aware recovery is required")
+        give back false
+    }
+    give back true
+}
+
+task cli_template_journal_ready(private: int) -> bool {
+    if not cli_template_entry_missing(private, "transaction.marker") or not cli_template_entry_missing(private, "transaction.manifest.before") or not cli_template_entry_missing(private, "transaction.lock.before") {
+        cli_template_fail("pending or unreadable graph transaction state; graph-aware recovery is required")
+        give back false
+    }
+    give back true
+}
+
+task cli_template_validate_directories(project: int, kind: word) -> bool {
+    pilot directories = cli_template_directories(kind)
+    pilot relative = ""
+    pilot index = 0
+    repeat until index >= directories.length() {
+        pilot ch = directories.char_at(index)
+        if ch == "\n" {
+            pilot observed = fs::open_relative_dir_ticket(project, relative)
+            pilot admitted = fs::result_ok(observed) or fs::result_missing(observed)
+            if not admitted { cli_template_fail("cannot admit template directory " + relative + ": " + fs::result_error(observed)) }
+            fs::result_release(observed)
+            if not admitted { give back false }
+            relative = ""
+        } else { relative = relative + ch }
+        index += 1
+    }
+    give back true
+}
+
+task cli_template_existing_checked(ticket: int, operation: word) -> bool {
+    pilot okay = fs::result_ok(ticket)
+    pilot completed = fs::result_completed(ticket)
+    if completed { cli_template_effects = true }
+    if not okay {
+        pilot detail = operation + ": " + fs::result_error(ticket)
+        if completed { detail = detail + "; creation completed, the created entry is retained and recovery is required" }
+        cli_template_fail(detail)
+    }
+    fs::result_release(ticket)
+    give back okay
+}
+
+-- Retain the published directory ticket; subsequent children use this exact
+-- parent rather than reacquiring a mutable nested pathname from project.
+task cli_template_hold_directory(parent: int, name: word) -> int {
+    pilot directory = fs::open_relative_dir_ticket(parent, name)
+    if fs::result_ok(directory) { give back directory }
+    pilot missing = fs::result_missing(directory)
+    pilot detail = fs::result_error(directory)
+    fs::result_release(directory)
+    if not missing { cli_template_fail("cannot anchor template directory " + name + ": " + detail) give back 0 }
+    directory = fs::temp_dir_ticket(parent, "freak-init-directory")
+    if not fs::result_ok(directory) {
+        cli_template_fail("cannot stage template directory " + name + ": " + fs::result_error(directory))
+        fs::result_release(directory)
+        give back 0
+    }
+    pilot publication = fs::publish_temp_dir_checked(directory, parent, name)
+    pilot published = fs::result_completed(publication)
+    pilot okay = cli_template_existing_checked(publication, "cannot publish template directory " + name + " without replacement")
+    if not okay {
+        if not published {
+            pilot cleanup = fs::remove_temp_dir_checked(directory)
+            if not fs::result_ok(cleanup) { cli_template_error = cli_template_error + "; owned unpublished directory cleanup: " + fs::result_error(cleanup) }
+            fs::result_release(cleanup)
+        }
+        fs::result_release(directory)
+        give back 0
+    }
+    give back directory
+}
+
+task cli_template_validate_source(source: int, kind: word) -> bool {
+    pilot files = cli_template_files(kind)
+    pilot index = 0
+    pilot relative = ""
+    repeat until index >= files.length() {
+        pilot ch = files.char_at(index)
+        if ch == "\n" {
+            pilot read = fs::read_relative_bytes_limit_ticket(source, relative, 131072)
+            pilot valid = false
+            if fs::result_ok(read) {
+                pilot bytes: ByteBuffer = fs::result_bytes(read)
+                pilot text = bytes.to_word()
+                valid = bytes.status() == 0
+                bytes.release()
+                if not valid { cli_template_fail("canonical template must contain NUL-free UTF-8: " + relative) }
+            } else { cli_template_fail("cannot read canonical template " + relative + ": " + fs::result_error(read)) }
+            fs::result_release(read)
+            if not valid { give back false }
+            relative = ""
+        } else { relative = relative + ch }
+        index += 1
+    }
+    give back true
+}
+
+task cli_template_copy_missing_file(source: int, parent: int, relative: word, leaf: word, name: word, retain_existing: bool) -> bool {
+    if retain_existing and not cli_template_entry_missing(parent, leaf + "") { cli_template_retained_files = true give back true }
+    pilot read = fs::read_relative_bytes_limit_ticket(source, relative, 131072)
+    pilot complete = false
+    if fs::result_ok(read) {
+        pilot bytes: ByteBuffer = fs::result_bytes(read)
+        pilot content = bytes.to_word()
+        pilot text_ok = bytes.status() == 0
+        bytes.release()
+        if text_ok {
+            pilot substituted = content.replace("@@NAME@@", name + "")
+            pilot consumer_name = "template-consumer"
+            if name == consumer_name { consumer_name = "template-consumer-app" }
+            substituted = substituted.replace("@@CONSUMER_NAME@@", consumer_name)
+            pilot output: ByteBuffer = ByteBuffer::new()
+            output.write_word(substituted)
+            pilot written = fs::write_relative_new_bytes_checked(parent, leaf, output)
+            output.release()
+            complete = cli_template_existing_checked(written, "cannot create template " + relative + " without replacement")
+        } else { cli_template_fail("canonical template must contain NUL-free UTF-8: " + relative) }
+    } else { cli_template_fail("cannot read canonical template " + relative + ": " + fs::result_error(read)) }
+    fs::result_release(read)
+    give back complete
+}
+
+task cli_template_populate_existing(source: int, project: int, kind: word, name: word) -> bool {
+    pilot src = cli_template_hold_directory(project, "src")
+    pilot tests = 0
+    pilot examples = 0
+    pilot consumer = 0
+    pilot consumer_src = 0
+    pilot consumer_tests = 0
+    pilot complete = src != 0
+    if complete { tests = cli_template_hold_directory(project, "tests") complete = tests != 0 }
+    if complete and kind == "lib" { examples = cli_template_hold_directory(project, "examples") complete = examples != 0 }
+    if complete and kind == "lib" { consumer = cli_template_hold_directory(examples, "consumer") complete = consumer != 0 }
+    if complete and kind == "lib" { consumer_src = cli_template_hold_directory(consumer, "src") complete = consumer_src != 0 }
+    if complete and kind == "lib" { consumer_tests = cli_template_hold_directory(consumer, "tests") complete = consumer_tests != 0 }
+    pilot files = cli_template_files(kind)
+    pilot index = 0
+    pilot relative = ""
+    repeat until index >= files.length() or not complete {
+        pilot ch = files.char_at(index)
+        if ch == "\n" {
+            -- The project manifest is the final publication. Never advertise a
+            -- complete modern project while canonical file creation is partial.
+            if relative != "hangar.toml" {
+                pilot parent = project
+                pilot leaf = relative + ""
+                if relative.starts_with("src/") { parent = src leaf = relative.substring(4, relative.length() - 4) }
+                else if relative.starts_with("tests/") { parent = tests leaf = relative.substring(6, relative.length() - 6) }
+                else if relative.starts_with("examples/consumer/src/") { parent = consumer_src leaf = relative.substring(22, relative.length() - 22) }
+                else if relative.starts_with("examples/consumer/tests/") { parent = consumer_tests leaf = relative.substring(24, relative.length() - 24) }
+                else if relative.starts_with("examples/consumer/") { parent = consumer leaf = relative.substring(18, relative.length() - 18) }
+                complete = cli_template_copy_missing_file(source, parent, relative + "", leaf, name + "", true)
+            }
+            relative = ""
+        } else { relative = relative + ch }
+        index += 1
+    }
+    if complete { complete = cli_template_generation_ready(project) }
+    if complete { complete = cli_template_copy_missing_file(source, project, "hangar.toml", "hangar.toml", name, false) }
+    if consumer_tests != 0 { fs::result_release(consumer_tests) }
+    if consumer_src != 0 { fs::result_release(consumer_src) }
+    if consumer != 0 { fs::result_release(consumer) }
+    if examples != 0 { fs::result_release(examples) }
+    if tests != 0 { fs::result_release(tests) }
+    if src != 0 { fs::result_release(src) }
+    give back complete
+}
+
+-- Borrow project on every outcome; the caller alone releases its root ticket.
+task cli_initialize_project_at(template_name: word, project: int, project_name: word) -> bool {
+    cli_template_reset()
+    cli_template_capture_target(project)
+    if not cli_template_kind_valid(template_name + "") { give back false }
+    if not cli_template_name_safe(project_name + "") { cli_template_fail("project name must be a portable ASCII identifier of at most 64 characters") give back false }
+    if not cli_template_generation_ready(project) { give back false }
+    if not cli_template_validate_directories(project, template_name + "") { give back false }
+    pilot private = fs::open_relative_dir_ticket(project, ".freak")
+    pilot private_missing = fs::result_missing(private)
+    if fs::result_ok(private) {
+        if not cli_template_journal_ready(private) or not cli_template_entry_missing(private, "graph.lock") {
+            cli_template_fail("existing graph.lock without hangar.toml; graph-aware recovery is required")
+            fs::result_release(private)
+            give back false
+        }
+    } else if not private_missing {
+        cli_template_fail("cannot admit init private directory: " + fs::result_error(private))
+        fs::result_release(private)
+        give back false
+    }
+    pilot payload = cli_template_payload_root()
+    if payload == "" { cli_template_fail("selected compiler payload has no canonical templates") fs::result_release(private) give back false }
+    pilot source = fs::open_dir_ticket(payload + "/templates/v35/" + template_name)
+    pilot complete = false
+    if fs::result_ok(source) {
+        complete = cli_template_validate_source(source, template_name + "")
+        if complete and private_missing {
+            fs::result_release(private)
+            private = cli_template_hold_directory(project, ".freak")
+            complete = private != 0
+        }
+        if complete {
+            pilot held = fs::lock_dir_new_ticket(private, "graph.lock")
+            if fs::result_ok(held) {
+                complete = cli_template_generation_ready(project)
+                if complete { complete = cli_template_journal_ready(private) }
+                if complete { complete = cli_template_populate_existing(source, project, template_name + "", project_name) }
+                if not complete {
+                    pilot aborted = fs::abort_new_lock_checked(held)
+                    if not fs::result_ok(aborted) { cli_template_error = cli_template_error + "; owned init lock rollback: " + fs::result_error(aborted) }
+                    fs::result_release(aborted)
+                }
+            } else { cli_template_fail("cannot hold new graph.lock: " + fs::result_error(held)) complete = false }
+            fs::result_release(held)
+        }
+    } else { cli_template_fail("cannot open selected canonical template without following links: " + fs::result_error(source)) }
+    fs::result_release(source)
+    if private != 0 { fs::result_release(private) }
+    cli_template_capture_target(project)
+    if not complete and cli_template_effects { cli_template_error = cli_template_error + "; created entries remain in the captured project directory; inspect them before retrying" }
+    give back complete
+}
+
+task cli_initialize_project(template_name: word, destination: word, allow_existing: bool) -> bool {
+    cli_template_reset()
+    if not cli_template_kind_valid(template_name + "") { give back false }
+    if allow_existing and destination != "" {
+        pilot project = fs::open_dir_ticket(destination + "")
+        if fs::result_ok(project) {
+            pilot name = cli_template_name_from_project(project)
+            pilot okay = cli_initialize_project_at(template_name, project, name)
+            fs::result_release(project)
+            give back okay
+        }
+        pilot missing = fs::result_missing(project)
+        pilot detail = fs::result_error(project)
+        fs::result_release(project)
+        if not missing { cli_template_fail("cannot anchor init target without following links: " + detail) give back false }
     }
     if destination == "" or (not cli_is_windows() and destination.contains("\\")) {
         cli_template_fail("destination must end in a portable project name")
@@ -154,11 +451,17 @@ task cli_create_template(template_name: word, destination: word) -> bool {
         pilot parent_name = cli_template_parent(destination)
         pilot parent = fs::open_dir_ticket(parent_name)
         if fs::result_ok(parent) {
-            pilot stage = fs::temp_dir(parent_name, "freak-template")
+            pilot stage = fs::temp_dir_ticket(parent, "freak-template")
             if fs::result_ok(stage) {
                 complete = cli_template_populate(source, stage, template_name + "", name + "")
-                if complete { complete = cli_template_checked(fs::publish_temp_dir_checked(stage, parent, name), "cannot publish project without replacing destination") }
-                if not complete {
+                pilot published = false
+                if complete {
+                    pilot publication = fs::publish_temp_dir_checked(stage, parent, name)
+                    published = fs::result_completed(publication)
+                    complete = cli_template_checked(publication, "cannot publish project without replacing destination")
+                }
+                if published { cli_template_capture_target(stage) }
+                if not complete and not published {
                     pilot removed = fs::remove_temp_dir_checked(stage)
                     if not fs::result_ok(removed) { cli_template_error = cli_template_error + "; owned staging cleanup: " + fs::result_error(removed) }
                     fs::result_release(removed)
@@ -172,4 +475,8 @@ task cli_create_template(template_name: word, destination: word) -> bool {
     }
     fs::result_release(source)
     give back complete
+}
+
+task cli_create_template(template_name: word, destination: word) -> bool {
+    give back cli_initialize_project(template_name, destination, false)
 }
