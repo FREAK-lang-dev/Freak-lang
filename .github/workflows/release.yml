@@ -76,6 +76,10 @@ jobs:
         with:
           ref: ${{ needs.version-invariant.outputs.source_commit }}
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
       - name: Install Clang (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang lld
