@@ -190,8 +190,8 @@ task ib_validate_program() -> bool {
     repeat array_len(ib_task_names) times {
         pilot stmt = word_to_int(array_get(ib_task_statements, index))
         pilot parameters = array_get(ast_task_params, stmt)
-        pilot result = array_get(ast_task_returns, stmt)
-        if result != "int" and result != "void" { ib_stmt_error(stmt, "task results must be int or void") }
+        pilot return_type = array_get(ast_task_returns, stmt)
+        if return_type != "int" and return_type != "void" { ib_stmt_error(stmt, "task results must be int or void") }
         if tc_arg_count(parameters) > 64 { ib_stmt_error(stmt, "task signature exceeds 64 parameters") }
         pilot parameter_index = 0
         repeat tc_arg_count(parameters) times {
@@ -267,9 +267,9 @@ task ib_emit_expr(expr: int) -> int {
         freak_ib_call_argument(ib_session, word_to_int(array_get(arguments, index)))
         index += 1
     }
-    pilot result = freak_ib_call_end(ib_session)
+    pilot call_value = freak_ib_call_end(ib_session)
     array_release(arguments)
-    give back result
+    give back call_value
 }
 
 task ib_emit_block(body: word) -> bool {
@@ -365,13 +365,13 @@ task ib_emit_program(output: word, optimization: int) -> bool {
         index += 1
     }
     freak_ib_native_main(ib_session, word_to_int(array_get(ib_task_functions, ib_task_index("main"))))
-    pilot result = false
-    if error_count == 0 { result = freak_ib_emit_object(ib_session, output) == 1 }
-    if not result { say "experimental IRBuilder backend: " + freak_ib_error(ib_session) }
+    pilot object_emitted = false
+    if error_count == 0 { object_emitted = freak_ib_emit_object(ib_session, output) == 1 }
+    if not object_emitted { say "experimental IRBuilder backend: " + freak_ib_error(ib_session) }
     freak_ib_session_release(ib_session)
     ib_session = 0
     if freak_ib_live_sessions() != 0 or freak_ib_live_tickets() != 0 { panic("experimental builder registry was not drained") }
-    give back result
+    give back object_emitted
 }
 
 task ib_release_tables() -> void {
