@@ -676,14 +676,25 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
                 assert code == 0, text
                 evidence.save()
         finally:
+            primary = sys.exc_info()[1]
             for child, prefix, output, errors, record in children:
-                if child.poll() is None:
-                    record["cleanup_notes"] = evidence.stop_owned(child)
+                # The direct tracer may already be gone while its compiler
+                # descendants remain. Always contain this owned session.
+                record["cleanup_notes"] = evidence.stop_owned(child)
+                if record["status"] != "completed":
                     record["status"] = "contained_after_failure"
-                output.close()
-                errors.close()
+                for channel in (output, errors):
+                    try:
+                        channel.close()
+                    except BaseException as secondary:
+                        record.setdefault("secondary_evidence_errors", []).append(f"channel close: {type(secondary).__name__}: {secondary}")
                 evidence.retain_channels(prefix, record, True)
-            evidence.save()
+            try:
+                evidence.save()
+            except BaseException as secondary:
+                if primary is None:
+                    raise
+                primary.add_note(f"secondary concurrent report publication: {type(secondary).__name__}: {secondary}")
         winner = concurrent_root / concurrent_key
         winner_object = winner / "runtime.o"
         winner_bytes = winner_object.read_bytes()
@@ -737,7 +748,10 @@ def main() -> int:
         native_gate(args, evidence)
     except BaseException as error:
         evidence.report.update(outcome="failed", error=f"{type(error).__name__}: {error}")
-        evidence.save()
+        try:
+            evidence.save()
+        except BaseException as secondary:
+            error.add_note(f"secondary final report publication: {type(secondary).__name__}: {secondary}")
         raise
     print(json.dumps({"outcome": evidence.report["outcome"], "report": str(evidence.root / "report.json")}))
     return 0
