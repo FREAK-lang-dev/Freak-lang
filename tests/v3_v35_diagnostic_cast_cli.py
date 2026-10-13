@@ -8,6 +8,7 @@ actual payload, canonical compiler locations and the pinned data selector.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import importlib.util
 import json
@@ -17,6 +18,8 @@ import re
 import subprocess
 import sys
 import tempfile
+
+from v3_v35_acceptance import run_command
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +43,22 @@ CASES = {
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@contextlib.contextmanager
+def retain_evidence(evidence: dict, report: Path | None):
+    def save(_=None):
+        if report:
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+    save()
+    try:
+        yield save
+    except BaseException as error:
+        evidence.update(status="fail", failure=f"{type(error).__name__}: {error}")
+        raise
+    finally:
+        save()
 
 
 def load_selector(repo: Path):
@@ -96,7 +115,9 @@ def assert_presentation(baseline, observed, expected_suffix: bytes) -> list:
     actual = canonical_blocks(observed.stdout)
     assert actual == original, "cast changed a canonical message, source line, location or caret"
     if expected_suffix:
-        assert observed.stdout.endswith(expected_suffix), "missing, changed, duplicated or misplaced cast suffix"
+        assert observed.stdout.endswith(expected_suffix), (
+            "missing, changed, duplicated or misplaced cast suffix",
+            expected_suffix, observed.stdout[-len(expected_suffix) - 200:])
         prefix = observed.stdout[:-len(expected_suffix)]
     else:
         assert not CAST.search(observed.stdout), "default/off or unclassified failure emitted a cast line"
@@ -182,6 +203,7 @@ def main() -> None:
     source_paths = [repo / line.strip() for line in manifest.read_text().splitlines()
                     if line.strip() and not line.startswith("#")]
     pinned = [freak, clang, manifest, Path(__file__).resolve(), *source_paths,
+              repo / "tests/v3_v35_acceptance.py",
               repo / "src/diagnostics/selector.py", repo / "src/diagnostics/embedded_cast.fk",
               repo / "src/cli/diagnostic_cast.fk", repo / "src/cli/diagnostic_cast_adapter.fk",
               *sorted((repo / "src/diagnostics").glob("*.json")),
@@ -192,8 +214,8 @@ def main() -> None:
     evidence = {"schema": "freak.v35.diagnostic-cast.cli.v1", "freak": str(freak),
                 "payload_home": str(home), "pinned_input_sha256": before,
                 "inert_failing_controls": controls, "compiler_or_cli_rebuilt": False,
-                "backend_matrices": [], "receipts": []}
-    with tempfile.TemporaryDirectory(prefix="freak-v35-cast-cli-") as temporary:
+                "backend_matrices": [], "receipts": [], "command_records": [], "status": "running"}
+    with retain_evidence(evidence, args.report) as save, tempfile.TemporaryDirectory(prefix="freak-v35-cast-cli-") as temporary:
         scratch = Path(temporary).resolve(strict=True)
         temp_root = scratch / "temporary"
         temp_root.mkdir()
@@ -206,11 +228,14 @@ def main() -> None:
                    TMPDIR=str(temp_root), TEMP=str(temp_root), TMP=str(temp_root))
 
         def invoke(name, command, cwd=scratch):
-            result = subprocess.run([str(freak), *map(str, command)], cwd=cwd, env=env,
-                                    capture_output=True, timeout=120)
+            log_root = args.report.parent if args.report else scratch
+            result = run_command([str(freak), *map(str, command)], cwd=cwd, env=env,
+                label=name, prefix=log_root / f"diagnostic-cli-command-{len(evidence['receipts'])}",
+                records=evidence["command_records"], expected=None, timeout=120, on_record=save)
             evidence["receipts"].append({"name": name, "command": [str(freak), *map(str, command)],
                 "cwd": str(cwd), "exit_code": result.returncode,
                 "stdout_hex": result.stdout.hex(), "stderr_hex": result.stderr.hex()})
+            save()
             return result
 
         doctor = invoke("doctor-json", ["doctor", "--json"])
@@ -358,6 +383,7 @@ def main() -> None:
     after = {str(path.resolve()): sha256(path) for path in pinned}
     assert before == after, "pinned CLI/source/runtime/data/payload inputs changed during gate"
     evidence["pinned_inputs_unchanged"] = True
+    evidence["status"] = "pass"
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
