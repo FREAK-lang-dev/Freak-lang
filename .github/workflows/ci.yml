@@ -344,6 +344,15 @@ jobs:
           python -u tests/v3_final_release_gate.py
           ./build/freak$EXT ./build/hangar$EXT
           --freakc ./build/freakc_v3_stage2$EXT
+          --evidence-dir "${{ runner.temp }}/v35-http-release"
+
+      - name: Upload installed HTTP and template evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v35-http-release-${{ runner.os }}
+          path: ${{ runner.temp }}/v35-http-release/*.json
+          if-no-files-found: ignore
 
       - name: Test suite (regression tests)
         shell: bash
@@ -751,6 +760,15 @@ jobs:
           python -u tests/v3_final_release_gate.py
           ./build/freak$EXT ./build/hangar$EXT
           --freakc ./build/freakc_v3_stage2$EXT
+          --evidence-dir "${{ runner.temp }}/v35-http-release"
+
+      - name: Upload installed HTTP and template evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v35-http-release-${{ runner.os }}
+          path: ${{ runner.temp }}/v35-http-release/*.json
+          if-no-files-found: ignore
 
       - name: Test suite (regression tests)
         shell: bash

@@ -200,7 +200,16 @@ jobs:
             --freakc "./build/freakc_v3_stage2${{ matrix.ext }}" \
             --standalone-freak "dist/freak-${{ matrix.target }}${{ matrix.ext }}" \
             --standalone-hangar "dist/hangar-${{ matrix.target }}${{ matrix.ext }}" \
-            --tested-sha256 "$archive.tested.sha256"
+            --tested-sha256 "$archive.tested.sha256" \
+            --evidence-dir "$RUNNER_TEMP/v35-http-release"
+
+      - name: Upload installed HTTP and template evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: v35-http-release-${{ matrix.target }}
+          path: ${{ runner.temp }}/v35-http-release/*.json
+          if-no-files-found: ignore
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

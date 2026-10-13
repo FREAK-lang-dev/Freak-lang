@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import tempfile
 
-from v3_v35_http import Server, assert_response, invalid_corpus, request
+from v3_v35_http import Server, assert_response, invalid_corpus, request, reset_content_corpus, runtime_inputs
 
 PROGRAM = r'''
 task app_dispatch(request: int) -> bool {
@@ -93,6 +93,16 @@ task app_dispatch(request: int) -> bool {
         pilot sent = http_send_text(request, "ignored")
         give back false
     }
+    if path == "/205" {
+        pilot status = http_response_status(request, 205)
+        if http_request_query(request) == "bytes" {
+            pilot body = http_request_body(request)
+            pilot sent = http_send_bytes(request, body)
+        } else {
+            pilot sent = http_send_text(request, "ignored")
+        }
+        give back false
+    }
     if path == "/304" {
         pilot status = http_response_status(request, 304)
         pilot sent = http_send_text(request, "ignored")
@@ -143,10 +153,14 @@ def run(command, *, cwd, env=None):
 def consumer_corpus(server:Server,soak:int):
     assert_response(server.exchange(request('/health')),200,b'healthy')
     assert_response(server.exchange(request('/hello/Ada')),200,b'Ada')
-    assert_response(server.exchange(request('/health','HEAD')),200,b'',head=True)
-    assert_response(server.exchange(request('/unknown','HEAD')),404,b'',head=True)
+    h=assert_response(server.exchange(request('/health','HEAD')),200,b'',head=True);assert h[b'content-length']==b'7'
+    h=assert_response(server.exchange(request('/unknown','HEAD')),404,b'',head=True);assert h[b'content-length']==b'7'
     h=assert_response(server.exchange(request('/health','POST')),405,b'');assert h[b'allow']==b'GET, HEAD'
-    for path,status in [('/empty',200),('/204',204),('/304',304)]:assert_response(server.exchange(request(path)),status,b'')
+    for path,status in [('/empty',200),('/204',204)]:assert_response(server.exchange(request(path)),status,b'')
+    assert_response(server.exchange(request('/204','HEAD')),204,b'',head=True)
+    reset_content_corpus(server)
+    for method in ('GET','HEAD'):
+        h=assert_response(server.exchange(request('/304',method)),304,b'',head=method=='HEAD');assert h[b'content-length']==b'7'
     binary=b'A\0\xff\xc3\xa9\xf0\x9f\x9a\x80B'
     fixed=request('/echo','POST',binary)
     chunked=request('/echo','POST',b'b;ext="a\\\"b"\r\n'+binary+b'\r\n0\r\nX: trailer\r\n\r\n',headers=[('Transfer-Encoding','chunked')])
@@ -170,12 +184,10 @@ def consumer_corpus(server:Server,soak:int):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--compiler',type=Path,required=True);p.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'));p.add_argument('--runtime-root',type=Path);p.add_argument('--std-root',type=Path);p.add_argument('--optimization',type=int,choices=(0,2,3),action='append');p.add_argument('--backend',choices=('c','llvm'),action='append');p.add_argument('--sanitize',action='store_true');p.add_argument('--soak',type=int,default=1000);p.add_argument('--report',type=Path);args=p.parse_args()
-    repo=Path(__file__).resolve().parents[1];runtime=args.runtime_root or repo/'freakc/runtime';compiler=args.compiler.resolve(strict=True)
-    std=args.std_root or repo/'std'
+    repo=Path(__file__).resolve().parents[1];runtime,vendor=runtime_inputs(args.runtime_root);compiler=args.compiler.resolve(strict=True)
+    std=(args.std_root or repo/'std').resolve(strict=True)
     facade=(std/'json_document.fk').read_text()+'\n'+(std/'http_server.fk').read_text()
     pinned_paths=[compiler,std/'json_document.fk',std/'http_server.fk',*sorted(runtime.glob('*.c')),*sorted(runtime.glob('*.h')),*sorted(runtime.glob('*.inc'))]
-    vendor=runtime/'third_party/llhttp'
-    if not vendor.exists():vendor=runtime.parents[1]/'third_party/llhttp'
     pinned_paths+=sorted(p for p in vendor.rglob('*') if p.is_file())
     before={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths}
     clang=shutil.which(args.clang);assert clang,args.clang

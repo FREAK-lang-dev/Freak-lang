@@ -171,6 +171,11 @@ static void service(const char *profile) {
                 int64_t b=freak_byte_buffer_with_capacity(262144);freak_byte_buffer_record *r=freak_byte_buffer_require(b,"large fixture");for(size_t i=0;i<262144;i++)r->data[i]=(unsigned char)((i*17+3)&255);r->length=262144;sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
             } else if(eq(p,"/empty")) sent=H(send_text)(request,W(""));
             else if(eq(p,"/204")) { REQUIRE(H(response_status)(request,204));sent=H(send_text)(request,W("ignored")); }
+            else if(eq(p,"/205")) {
+                REQUIRE(H(response_status)(request,205));
+                if(eq(view(query),"bytes")) { int64_t b=H(request_body)(request);sent=H(send_bytes)(request,b);freak_byte_buffer_release(b); }
+                else sent=H(send_text)(request,W("ignored"));
+            }
             else if(eq(p,"/304")) { REQUIRE(H(response_status)(request,304));sent=H(send_text)(request,W("ignored")); }
             else { REQUIRE(H(response_status)(request,404));sent=H(send_text)(request,W("missing")); }
             if(!sent) send_failures++;
@@ -269,9 +274,55 @@ def assert_response(result,status,body=None,*,head=False):
     actual,headers,payload=result;assert actual==status,(status,result)
     if body is not None:assert payload==body,('body bytes differ',len(body),len(payload),hashlib.sha256(body).hexdigest(),hashlib.sha256(payload).hexdigest(),status)
     if status==204:assert b'content-length' not in headers and payload==b'',result
+    elif status==205:assert headers[b'content-length']==b'0' and payload==b'',result
     elif head or status==304:assert not payload,result
     else:assert int(headers[b'content-length'])==len(payload),result
     return headers
+
+ERROR_BODIES = {400:b'Bad Request\n',408:b'Request Timeout\n',413:b'Content Too Large\n',414:b'URI Too Long\n',417:b'Expectation Failed\n',431:b'Request Header Fields Too Large\n',501:b'Not Implemented\n',505:b'HTTP Version Not Supported\n'}
+
+def assert_rejection(result,status,*,head=False):
+    expected=ERROR_BODIES[status]
+    headers=assert_response(result,status,b'' if head else expected,head=head)
+    assert headers[b'content-length']==str(len(expected)).encode(),result
+    return headers
+
+def reset_content_corpus(s:Server):
+    binary=b'A\0\xff\xc3\xa9\xf0\x9f\x9a\x80B'
+    for method in ('GET','HEAD'):
+        # The application supplies nonempty text, nonempty binary, or no bytes.
+        for path,body in (('/205',b''),('/205?bytes',binary),('/205?bytes',b'')):
+            assert_response(s.exchange(request(path,method,body)),205,b'',head=method=='HEAD')
+
+def head_rejection_corpus(s:Server):
+    # llhttp recognizes the final D before accepting the method delimiter.
+    # Incomplete or invalid tokens still receive the ordinary 400 body.
+    for wire in (b'H',b'HE',b'HEA',b'HEAD',b'HEADX',b'HEAD\t',b'HEAD\r',b'HEAD\n',b'h'):
+        assert_rejection(s.exchange(wire,eof=True),400)
+    for split in range(1,5):
+        assert_rejection(s.exchange(b'HEAD ',split=split,eof=True),400,head=True)
+    assert_rejection(s.exchange(b'HEAD ',eof=True),400,head=True)
+    missing=request('/health','HEAD').replace(b'Host: localhost\r\n',b'')
+    # Every split around the token and separating space confirms the same HEAD.
+    for split in range(1,6):assert_rejection(s.exchange(missing,split=split,eof=True),400,head=True)
+    bad=[(missing,400),
+         (request('/health','HEAD').replace(b'localhost',b'a b'),400),
+         (request('/health','HEAD',headers=[('Host','duplicate')]),400),
+         (request('/health','HEAD').replace(b'\r\n\r\n',b'\r\nX : a\r\n\r\n'),400),
+         (request('/health','HEAD').replace(b'\r\n\r\n',b'\r\nX: a\r\n folded\r\n\r\n'),400),
+         (request('/health','HEAD',headers=[('Content-Length','0'),('Content-Length','0')]),400),
+         (request('/health','HEAD',headers=[('Content-Length','2')])+b'a',400),
+         (request('/health','HEAD',headers=[('Content-Length','1048577')]),413),
+         (request('/health','HEAD',headers=[('Expect','unrecognized')]),417),
+         (request('/health','HEAD',headers=[('Content-Encoding','gzip')]),501),
+         (request('/health','HEAD',version='HTTP/2.0'),505)]
+    for wire,status in bad:
+        control=s.exchange(b'GET'+wire[4:],eof=True)
+        assert_rejection(control,status)
+        headers=assert_rejection(s.exchange(wire,eof=True),status,head=True)
+        assert headers[b'content-length']==control[1][b'content-length'],(wire,headers,control)
+    # Reused request slots must clear the confirmed method along with ownership.
+    assert_rejection(s.exchange(request('/health').replace(b'Host: localhost\r\n',b'')),400)
 
 def normal_corpus(s:Server,soak:int):
     # http.client provides an independent ordinary-client response parser.
@@ -281,12 +332,16 @@ def normal_corpus(s:Server,soak:int):
     assert_response(s.exchange(request('/health',headers=[('Host','duplicate')])),400)
     for host in ('example.com','127.0.0.1:8080','[::1]','[::1]:8080'):
         assert_response(s.exchange(request('/health').replace(b'localhost',host.encode())),200,b'healthy')
-    assert_response(s.exchange(request('/health','HEAD')),200,b'',head=True)
-    assert_response(s.exchange(request('/unknown','HEAD')),404,b'',head=True)
+    h=assert_response(s.exchange(request('/health','HEAD')),200,b'',head=True);assert h[b'content-length']==b'7'
+    h=assert_response(s.exchange(request('/unknown','HEAD')),404,b'',head=True);assert h[b'content-length']==b'7'
     h=assert_response(s.exchange(request('/health','POST')),405,b'');assert h[b'allow']==b'GET, HEAD'
     assert_response(s.exchange(request('/empty')),200,b'')
     assert_response(s.exchange(request('/204')),204,b'')
-    assert_response(s.exchange(request('/304')),304,b'')
+    assert_response(s.exchange(request('/204','HEAD')),204,b'',head=True)
+    reset_content_corpus(s)
+    c=http.client.HTTPConnection('127.0.0.1',s.port,timeout=4);c.request('GET','/205');r=c.getresponse();assert r.status==205 and r.reason=='Reset Content' and r.getheader('Content-Length')=='0' and r.read()==b'';c.close();s.cases+=1
+    for method in ('GET','HEAD'):
+        h=assert_response(s.exchange(request('/304',method)),304,b'',head=method=='HEAD');assert h[b'content-length']==b'7'
     h=assert_response(s.exchange(request('/unsafe')),200,b'safe');assert h[b'x-safe']==b'yes' and b'injected' not in h
     binary=b'A\0\xff\xc3\xa9\xf0\x9f\x9a\x80B'
     assert_response(s.exchange(request('/header-bytes').replace(b'\r\n\r\n',b'\r\nX-Binary: \xff\x80\r\n\r\n')),200,b'\xff\x80')
@@ -323,6 +378,7 @@ def normal_corpus(s:Server,soak:int):
         else:assert_response(s.exchange(request('/health').replace(b'Host: localhost\r\n',b'')),400)
 
 def invalid_corpus(s:Server):
+    head_rejection_corpus(s)
     bad=[]
     for host in ('','a,b','a b','user@host','host/path','[::1','[broken]','[::1]:','a:','a:bad','a:65536','-host','a..b','a:0'):
         bad.append((request('/health').replace(b'localhost',host.encode()),400,'Host '+host))
@@ -349,6 +405,9 @@ def tight_corpus(s:Server):
     assert_response(s.exchange(request('/health',headers=[('X','x'*512)])),431)
     assert_response(s.exchange(request('/health',headers=[('X'+str(i),'x') for i in range(8)])),431)
     assert_response(s.exchange(request('/echo','POST',headers=[('Content-Length','65')])),413)
+    # Rejected HEAD keeps the corresponding GET error length at each limit.
+    for wire,status in [(request('/'+'x'*128,'HEAD'),414),(request('/health','HEAD',headers=[('X','x'*512)]),431),(request('/health','HEAD',headers=[('X'+str(i),'x') for i in range(8)]),431),(request('/echo','HEAD',headers=[('Content-Length','65')]),413)]:
+        assert_rejection(s.exchange(wire),status,head=True)
     assert_response(s.exchange(request('/echo','POST',b'x'*64)),200,b'x'*64)
     # Exact admitted boundaries also pass, preventing limits from overrejecting.
     line=request('/'+'x'*112);assert len(line.split(b'\r\n')[0])+2==128;assert_response(s.exchange(line),404)
@@ -364,11 +423,13 @@ def tight_corpus(s:Server):
     assert_response(s.exchange(request('/echo','POST',b'0\r\n'+b'X: a\r\n'*8+b'\r\n',headers=[('Transfer-Encoding','chunked')])),431)
     for wire in (b'GET /health HTTP/1.1\r\nHost:',request('/echo','POST',headers=[('Content-Length','2')])+b'a'):
         started=time.monotonic();assert_response(s.exchange(wire),408);assert time.monotonic()-started<1
+    for wire in (b'HEAD ',b'HEAD /health HTTP/1.1\r\nHost:',request('/echo','HEAD',headers=[('Content-Length','2')])+b'a'):
+        started=time.monotonic();assert_rejection(s.exchange(wire),408,head=True);assert time.monotonic()-started<1
     # Progress beats idle but cannot reset the absolute header/body deadline.
-    for body in (False,True):
+    for method,body in (('GET',False),('POST',True),('HEAD',False),('HEAD',True)):
         with s.connect() as client:
-            if body:client.sendall(request('/echo','POST',headers=[('Content-Length','20')]))
-            else:client.sendall(b'GET /health HTTP/1.1\r\nX: ')
+            if body:client.sendall(request('/echo',method,headers=[('Content-Length','20')]))
+            else:client.sendall(f'{method} /health HTTP/1.1\r\nX: '.encode())
             started=time.monotonic()
             for i in range(10):
                 try:client.sendall(b'a')
@@ -380,9 +441,10 @@ def tight_corpus(s:Server):
                 except ConnectionResetError:break
                 if not chunk:break
                 out+=chunk
-            assert_response(parse_response(out),408);assert time.monotonic()-started<.8;s.cases+=1
+            assert_rejection(parse_response(out),408,head=method=='HEAD');assert time.monotonic()-started<.8;s.cases+=1
     # Premature fixed-length EOF also rejects without retaining a handler.
     assert_response(s.exchange(request('/echo','POST',headers=[('Content-Length','2')])+b'a',eof=True),400)
+    assert_rejection(s.exchange(request('/echo','HEAD',headers=[('Content-Length','2')])+b'a',eof=True),400,head=True)
 
 def exercise(exe:Path,env,soak:int):
     c=run([str(exe),'bind'],env=env);assert c.returncode==0 and not c.stdout and not c.stderr,(c.returncode,c.stdout,c.stderr)
@@ -403,13 +465,27 @@ def exercise(exe:Path,env,soak:int):
         finally:s.abort()
     return report
 
+def runtime_inputs(runtime_root:Path|None):
+    root=(runtime_root or Path(__file__).resolve().parents[1]).resolve(strict=True)
+    if runtime_root is None or (root/'freakc/runtime').is_dir():
+        runtime=root/'freakc/runtime'
+        embedded=runtime/'third_party/llhttp'
+        # Match the production include priority, including dual-layout roots.
+        # An incomplete embedded payload must not silently borrow a parser.
+        vendor=embedded if embedded.exists() else root/'third_party/llhttp'
+    else:
+        runtime=root;vendor=runtime/'third_party/llhttp'
+    for source in (runtime/'freak_runtime.c',runtime/'freak_llvm_runtime.c',runtime/'freak_v35_http.inc',vendor/'freak_amalgamation.inc'):
+        if not source.is_file():raise FileNotFoundError(f'HTTP gate runtime input is missing: {source}')
+    return runtime,vendor
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'));p.add_argument('--runtime-root',type=Path);p.add_argument('--optimization',type=int,choices=(0,2,3),action='append');p.add_argument('--adapter',choices=('c','llvm'),action='append');p.add_argument('--sanitize',action='store_true');p.add_argument('--soak',type=int,default=1000);p.add_argument('--report',type=Path);args=p.parse_args()
     assert args.soak>=0
     clang=shutil.which(args.clang);assert clang,args.clang
-    repo=(args.runtime_root or Path(__file__).resolve().parents[1]).resolve();runtime=repo/'freakc/runtime'
+    runtime,vendor=runtime_inputs(args.runtime_root)
     pinned_paths=sorted(p for p in runtime.iterdir() if p.suffix in ('.c','.h','.inc'))
-    pinned_paths+=sorted(p for p in (repo/'third_party/llhttp').rglob('*') if p.is_file())
+    pinned_paths+=sorted(p for p in vendor.rglob('*') if p.is_file())
     pinned={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths}
     env=os.environ.copy();env['ASAN_OPTIONS']='detect_leaks=1:halt_on_error=1';env['UBSAN_OPTIONS']='halt_on_error=1'
     report={'runtime_sha256':hashlib.sha256((runtime/'freak_runtime.c').read_bytes()).hexdigest(),'http_sha256':hashlib.sha256((runtime/'freak_v35_http.inc').read_bytes()).hexdigest(),'pinned_input_sha256':pinned,'clang':str(Path(clang).resolve()),'clang_sha256':hashlib.sha256(Path(clang).read_bytes()).hexdigest(),'clang_version':run([clang,'--version']).stdout.decode().splitlines()[0],'sanitize':args.sanitize,'matrices':[]}
