@@ -258,26 +258,27 @@ class _CommandLifeline:
         if self.watcher is not None:
             raise RuntimeError('a command lifeline can launch only one SDK child')
         self.context['readiness_cap_seconds'] = self.limit
-        lease = {'fd': self.fds.pop('metadata_read'), 'claimed': False}
+        lease = {'claimed': False}
         lease_lock = threading.Lock()
         def watch():
             with lease_lock:
-                fd = lease['fd']
+                fd = self.fds.pop('metadata_read', None)
                 if fd is None:
                     return
                 lease['claimed'] = True
             self._watch_registration(fd)
-        self.watcher = threading.Thread(target=watch, daemon=True)
         try:
+            # Keep the reader in the parent inventory throughout Lock/Thread
+            # construction. Only a running watcher may claim its descriptor.
+            self.watcher = threading.Thread(target=watch, daemon=True)
             self.watcher.start()
         except BaseException:
             # If startup failed before the thread took ownership, retire the
             # lease atomically. A late-starting thread then performs no read.
             with lease_lock:
                 if not lease['claimed']:
-                    fd, lease['fd'] = lease['fd'], None
                     try:
-                        os.close(fd)
+                        self._close('metadata_read')
                     except BaseException as cleanup:
                         self.context.setdefault('startup_cleanup_errors', []).append(repr(cleanup))
             raise
@@ -326,6 +327,7 @@ class _CommandLifeline:
         readers = {}
         writers = []
         self.native = _OwnedCommandPopen.__new__(_OwnedCommandPopen)
+        primary_error = None
         try:
             for channel in ('stdout', 'stderr'):
                 if kwargs.get(channel) == subprocess.PIPE:
@@ -346,8 +348,11 @@ class _CommandLifeline:
                     kwargs[channel] = write_fd
             _OwnedCommandPopen.__init__(self.native, command, **kwargs)
             return self.native
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
-            original = sys.exc_info()[1]
+            original = primary_error
             cleanup_errors = []
             for fd in writers:
                 try:
@@ -442,6 +447,7 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
     child = None
     keeper = None
     recording_error = None
+    primary_error = None
     try:
         if on_record is not None:
             on_record(record)
@@ -467,6 +473,7 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
                 record.setdefault('recording_errors', []).append(repr(error))
         stdout, stderr = child.communicate(timeout=timeout)
     except BaseException as original:
+        primary_error = original
         if child is None and keeper is not None:
             partial = keeper.native
             if partial is not None and getattr(partial, '_child_created', False) and partial.returncode is None:
@@ -557,7 +564,7 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
                 original.output, original.stderr = stdout, stderr
         raise
     finally:
-        original_error = sys.exc_info()[1]
+        original_error = primary_error
         if keeper is not None:
             try:
                 keeper.finish(original_error is None and child is not None and child.returncode is not None)
