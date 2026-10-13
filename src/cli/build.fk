@@ -1528,46 +1528,54 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         if not cli_delete_derived_artifact(user_obj) { give back "" }
     }
 
-    -- Source mode: Clang links generated code and matching runtime sources.
-    -- LLVM builds need both runtimes: freak_runtime.c (word/array/io functions)
-    -- and freak_llvm_runtime.c (math/tcp/time bridge functions)
-    pilot command = process::command_new(clang_executable)
-    cli_build_common_args(command, out_bin, transpiled_file, runtime_dir, opt, cross)
-    if target == "llvm" {
-        -- llvm_runtime first (libc wrappers + LLVM bridge), then freak_runtime (word/array fns)
-        -- -z muldefs on Linux allows duplicate symbols (freak_word_length, freak_llvm_fs_*)
-        pilot llvm_rt_c = runtime_dir + "/freak_llvm_runtime.c"
-        pilot rt_c = runtime_dir + "/freak_runtime.c"
-        process::command_arg(command, llvm_rt_c)
-        process::command_arg(command, rt_c)
-    } else {
-        process::command_arg(command, runtime_dir + "/freak_runtime.c")
-    }
-    cli_build_lto_args(command, lto)
-
-    if not is_win {
-        process::command_arg(command, "-lm")
-    }
-    if is_win {
-        process::command_arg(command, "-lws2_32")
-    }
-
-    -- Add UI runtime if source file uses ui:: functions.
-    -- -DFREAK_HAS_UI activates the LLVM-side bridge wrappers
-    -- (freak_llvm_ui_*) inside freak_llvm_runtime.c.
-    pilot ui_c = runtime_dir + "/ui/win32_backend.c"
-    if is_win {
-        if fs::exists(ui_c) {
-            process::command_arg(command, ui_c)
-            process::command_arg(command, "-DFREAK_HAS_UI")
-            process::command_arg(command, "-luser32")
-            process::command_arg(command, "-lgdi32")
-            process::command_arg(command, "-lmsimg32")
+    -- A cache hit supplies verified runtime objects copied into this build's
+    -- private stage. User code is compiled and the selected driver links anew.
+    -- Unavailable, unsafe, unsupported or bounded-out caches keep source mode.
+    pilot cached = cli_runtime_cache_build(clang_executable, transpiled_file, out_bin, runtime_dir, target, opt, lto, cross)
+    if cached == 1 { give back out_bin }
+    pilot compiled = false
+    if cached < 0 {
+        -- Source mode: Clang links generated code and matching runtime sources.
+        -- LLVM builds need both runtimes: freak_runtime.c (word/array/io functions)
+        -- and freak_llvm_runtime.c (math/tcp/time bridge functions)
+        pilot command = process::command_new(clang_executable)
+        cli_build_common_args(command, out_bin, transpiled_file, runtime_dir, opt, cross)
+        if target == "llvm" {
+            -- llvm_runtime first (libc wrappers + LLVM bridge), then freak_runtime (word/array fns)
+            -- -z muldefs on Linux allows duplicate symbols (freak_word_length, freak_llvm_fs_*)
+            pilot llvm_rt_c = runtime_dir + "/freak_llvm_runtime.c"
+            pilot rt_c = runtime_dir + "/freak_runtime.c"
+            process::command_arg(command, llvm_rt_c)
+            process::command_arg(command, rt_c)
+        } else {
+            process::command_arg(command, runtime_dir + "/freak_runtime.c")
         }
-    }
+        cli_build_lto_args(command, lto)
 
-    say "  " + C_DIM + SYM_GEAR + "  Compiling native binary..." + C_RESET
-    pilot compiled = cli_build_command(command, "Clang compilation/link")
+        if not is_win {
+            process::command_arg(command, "-lm")
+        }
+        if is_win {
+            process::command_arg(command, "-lws2_32")
+        }
+
+        -- Add UI runtime if source file uses ui:: functions.
+        -- -DFREAK_HAS_UI activates the LLVM-side bridge wrappers
+        -- (freak_llvm_ui_*) inside freak_llvm_runtime.c.
+        pilot ui_c = runtime_dir + "/ui/win32_backend.c"
+        if is_win {
+            if fs::exists(ui_c) {
+                process::command_arg(command, ui_c)
+                process::command_arg(command, "-DFREAK_HAS_UI")
+                process::command_arg(command, "-luser32")
+                process::command_arg(command, "-lgdi32")
+                process::command_arg(command, "-lmsimg32")
+            }
+        }
+
+        say "  " + C_DIM + SYM_GEAR + "  Compiling native binary..." + C_RESET
+        compiled = cli_build_command(command, "Clang compilation/link")
+    }
     if not compiled or not cli_build_regular_output(out_bin) {
         cli_delete_derived_artifact(out_bin)
         say ""
@@ -1935,6 +1943,9 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
     -- Full build pipeline: read source, transpile, compile.
     -- Returns the output binary path, or "" on error.
     cli_build_start_ms = time::now_ms()
+    cli_runtime_cache_profile = profile
+    cli_runtime_cache_policy = runtime_policy
+    cli_runtime_cache_stats = runtime_stats
 
     -- Invalidate every output this explicit build can safely derive before its
     -- first failure return. `cli_binary_path` equals the input on POSIX when
