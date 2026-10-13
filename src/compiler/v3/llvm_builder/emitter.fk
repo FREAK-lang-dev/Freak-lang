@@ -1,0 +1,381 @@
+-- Experimental scalar AST -> LLVM C API lowering. The compiler host uses --c.
+-- No textual IR is constructed or parsed by this backend.
+extern task freak_ib_session_new(name: word, optimization: int) -> int
+extern task freak_ib_error(session: int) -> word
+extern task freak_ib_session_release(session: int) -> int
+extern task freak_ib_live_sessions() -> int
+extern task freak_ib_live_tickets() -> int
+extern task freak_ib_function(session: int, name: word, parameters: int, returns_integer: int) -> int
+extern task freak_ib_parameter(session: int, function: int, index: int) -> int
+extern task freak_ib_block(session: int, function: int, name: word) -> int
+extern task freak_ib_position(session: int, block: int) -> int
+extern task freak_ib_integer(session: int, value: int) -> int
+extern task freak_ib_boolean(session: int, value: int) -> int
+extern task freak_ib_slot(session: int) -> int
+extern task freak_ib_load(session: int, slot: int) -> int
+extern task freak_ib_store(session: int, slot: int, value: int) -> int
+extern task freak_ib_arithmetic(session: int, operation: int, left: int, right: int) -> int
+extern task freak_ib_negate(session: int, value: int) -> int
+extern task freak_ib_compare(session: int, operation: int, left: int, right: int) -> int
+extern task freak_ib_not(session: int, value: int) -> int
+extern task freak_ib_call_begin(session: int, function: int) -> int
+extern task freak_ib_call_argument(session: int, value: int) -> int
+extern task freak_ib_call_end(session: int) -> int
+extern task freak_ib_say(session: int, value: int) -> int
+extern task freak_ib_jump(session: int, destination: int) -> int
+extern task freak_ib_branch(session: int, condition: int, then_block: int, else_block: int) -> int
+extern task freak_ib_return(session: int, value: int) -> int
+extern task freak_ib_unreachable(session: int) -> int
+extern task freak_ib_native_main(session: int, function: int) -> int
+extern task freak_ib_emit_object(session: int, output: word) -> int
+
+pilot ib_session = 0
+pilot ib_task_names = 0
+pilot ib_task_statements = 0
+pilot ib_task_functions = 0
+pilot ib_local_names = 0
+pilot ib_local_slots = 0
+pilot ib_local_count = 0
+pilot ib_function = 0
+pilot ib_label_counter = 0
+
+task ib_expr_type(expr: int) -> word {
+    if expr < 0 or expr >= array_len(tc_checked_expr_types) { give back "" }
+    give back array_get(tc_checked_expr_types, expr)
+}
+
+task ib_expr_error(expr: int, message: word) -> void {
+    diag_error_at_code("E0005", "experimental IRBuilder backend: " + message, "", array_get(ast_expr_files, expr), word_to_int(array_get(ast_expr_lines, expr)), 1)
+}
+
+task ib_stmt_error(stmt: int, message: word) -> void {
+    diag_error_at_code("E0005", "experimental IRBuilder backend: " + message, "", array_get(ast_stmt_files, stmt), word_to_int(array_get(ast_stmt_lines, stmt)), 1)
+}
+
+task ib_task_index(name: word) -> int {
+    pilot index = 0
+    repeat array_len(ib_task_names) times {
+        if array_get(ib_task_names, index) == name { give back index }
+        index += 1
+    }
+    give back 0 - 1
+}
+
+task ib_arithmetic_code(operation: word) -> int {
+    if operation == "+" or operation == "+=" { give back 0 }
+    if operation == "-" or operation == "-=" { give back 1 }
+    if operation == "*" or operation == "*=" { give back 2 }
+    if operation == "/" or operation == "/=" { give back 3 }
+    if operation == "%" or operation == "%=" { give back 4 }
+    give back 0 - 1
+}
+
+task ib_comparison_code(operation: word) -> int {
+    if operation == "==" { give back 0 }
+    if operation == "!=" { give back 1 }
+    if operation == "<" { give back 2 }
+    if operation == "<=" { give back 3 }
+    if operation == ">" { give back 4 }
+    if operation == ">=" { give back 5 }
+    give back 0 - 1
+}
+
+task ib_validate_expr(expr: int) -> void {
+    if expr < 0 { give back }
+    pilot kind = array_get(ast_expr_kinds, expr)
+    pilot value = array_get(ast_expr_vals, expr)
+    pilot left = array_get(ast_expr_lefts, expr)
+    pilot right = array_get(ast_expr_rights, expr)
+    pilot semantic_type = ib_expr_type(expr)
+    if semantic_type != "int" and semantic_type != "bool" and semantic_type != "void" {
+        ib_expr_error(expr, "unsupported expression type '" + semantic_type + "'")
+        give back
+    }
+    if kind == EXPR_INT or kind == EXPR_BOOL or kind == EXPR_IDENT { give back }
+    if kind == EXPR_CALL {
+        if ib_task_index(value) < 0 { ib_expr_error(expr, "only scalar source-task calls are supported") }
+        pilot index = 0
+        repeat tc_arg_count(left) times {
+            pilot argument = tc_arg_at(left, index)
+            ib_validate_expr(argument)
+            if ib_expr_type(argument) != "int" { ib_expr_error(argument, "task arguments must have type int") }
+            index += 1
+        }
+        give back
+    }
+    if kind == EXPR_UNARYOP {
+        pilot operand = word_to_int(left)
+        if value == "-" and tc_literal_is_minimum(operand) { give back }
+        ib_validate_expr(operand)
+        if value == "-" and ib_expr_type(operand) == "int" { give back }
+        if value == "not" and ib_expr_type(operand) == "bool" { give back }
+        ib_expr_error(expr, "unsupported unary operation")
+        give back
+    }
+    if kind == EXPR_BINOP {
+        ib_validate_expr(word_to_int(left))
+        ib_validate_expr(word_to_int(right))
+        if ib_expr_type(word_to_int(left)) == "int" and ib_expr_type(word_to_int(right)) == "int" {
+            if ib_arithmetic_code(value) >= 0 or ib_comparison_code(value) >= 0 { give back }
+        }
+        ib_expr_error(expr, "unsupported binary operation '" + value + "' (including short-circuit operators)")
+        give back
+    }
+    ib_expr_error(expr, "unsupported expression form")
+}
+
+task ib_validate_block(body: word) -> void {
+    pilot index = 0
+    repeat tc_arg_count(body) times {
+        ib_validate_stmt(tc_arg_at(body, index))
+        index += 1
+    }
+}
+
+task ib_validate_stmt(stmt: int) -> void {
+    pilot kind = array_get(ast_stmt_kinds, stmt)
+    pilot expr = word_to_int(array_get(ast_stmt_exprs, stmt))
+    if kind == STMT_PILOT {
+        ib_validate_expr(expr)
+        if ib_expr_type(expr) != "int" { ib_stmt_error(stmt, "local bindings must have type int") }
+        give back
+    }
+    if kind == STMT_SAY {
+        ib_validate_expr(expr)
+        if ib_expr_type(expr) != "int" { ib_stmt_error(stmt, "say supports int values only") }
+        give back
+    }
+    if kind == STMT_EXPR { ib_validate_expr(expr) give back }
+    if kind == STMT_GIVE_BACK { if expr >= 0 { ib_validate_expr(expr) } give back }
+    if kind == STMT_ASSIGN {
+        if array_get(ast_expr_kinds, expr) != EXPR_IDENT { ib_stmt_error(stmt, "assignment requires a scalar local binding") }
+        ib_validate_expr(expr)
+        ib_validate_expr(word_to_int(array_get(ast_stmt_bodies, stmt)))
+        if ib_expr_type(expr) != "int" { ib_stmt_error(stmt, "assignment requires int") }
+        give back
+    }
+    if kind == STMT_IF {
+        ib_validate_expr(expr)
+        ib_validate_block(array_get(ast_stmt_bodies, stmt))
+        ib_validate_block(array_get(ast_stmt_else_bodies, stmt))
+        give back
+    }
+    if kind == STMT_BLOCK { ib_validate_block(array_get(ast_stmt_bodies, stmt)) give back }
+    ib_stmt_error(stmt, "unsupported statement form (loops, aggregates and eventually are outside this slice)")
+}
+
+task ib_validate_program() -> bool {
+    ib_task_names = array_new()
+    ib_task_statements = array_new()
+    ib_task_functions = array_new()
+    ib_local_names = array_new()
+    ib_local_slots = array_new()
+    pilot index = 0
+    repeat array_len(ast_top_stmts) times {
+        pilot stmt = word_to_int(array_get(ast_top_stmts, index))
+        if array_get(ast_stmt_kinds, stmt) != STMT_TASK {
+            ib_stmt_error(stmt, "the scalar slice requires task definitions at top level")
+        } else {
+            array_push(ib_task_names, array_get(ast_stmt_names, stmt))
+            array_push(ib_task_statements, word_from_int(stmt))
+        }
+        index += 1
+    }
+    if ib_task_index("main") < 0 {
+        diag_error_at_code("E0005", "experimental IRBuilder backend: task main is required", "", input_file, 1, 1)
+    }
+    index = 0
+    repeat array_len(ib_task_names) times {
+        pilot stmt = word_to_int(array_get(ib_task_statements, index))
+        pilot parameters = array_get(ast_task_params, stmt)
+        pilot result = array_get(ast_task_returns, stmt)
+        if result != "int" and result != "void" { ib_stmt_error(stmt, "task results must be int or void") }
+        if tc_arg_count(parameters) > 64 { ib_stmt_error(stmt, "task signature exceeds 64 parameters") }
+        pilot parameter_index = 0
+        repeat tc_arg_count(parameters) times {
+            if tc_param_type_at(parameters, parameter_index) != "int" { ib_stmt_error(stmt, "task parameters must have type int") }
+            parameter_index += 1
+        }
+        if array_get(ast_stmt_extras, stmt) != "" { ib_stmt_error(stmt, "impl tasks are unsupported") }
+        ib_validate_block(array_get(ast_stmt_bodies, stmt))
+        index += 1
+    }
+    give back error_count == 0
+}
+
+task ib_bind(name: word, slot: int) -> void {
+    if ib_local_count < array_len(ib_local_names) {
+        array_set(ib_local_names, ib_local_count, name)
+        array_set(ib_local_slots, ib_local_count, word_from_int(slot))
+    } else {
+        array_push(ib_local_names, name)
+        array_push(ib_local_slots, word_from_int(slot))
+    }
+    ib_local_count += 1
+}
+
+task ib_lookup_slot(name: word) -> int {
+    pilot index = ib_local_count - 1
+    repeat until index < 0 {
+        if array_get(ib_local_names, index) == name { give back word_to_int(array_get(ib_local_slots, index)) }
+        index -= 1
+    }
+    give back 0
+}
+
+task ib_emit_expr(expr: int) -> int {
+    pilot kind = array_get(ast_expr_kinds, expr)
+    pilot value = array_get(ast_expr_vals, expr)
+    pilot left = array_get(ast_expr_lefts, expr)
+    pilot right = array_get(ast_expr_rights, expr)
+    if kind == EXPR_INT { give back freak_ib_integer(ib_session, word_to_int(value)) }
+    if kind == EXPR_BOOL {
+        pilot boolean = 0
+        if value == "true" { boolean = 1 }
+        give back freak_ib_boolean(ib_session, boolean)
+    }
+    if kind == EXPR_IDENT { give back freak_ib_load(ib_session, ib_lookup_slot(value)) }
+    if kind == EXPR_UNARYOP {
+        if value == "-" and tc_literal_is_minimum(word_to_int(left)) {
+            give back freak_ib_integer(ib_session, 0 - 9223372036854775807 - 1)
+        }
+        pilot operand = ib_emit_expr(word_to_int(left))
+        if value == "not" { give back freak_ib_not(ib_session, operand) }
+        give back freak_ib_negate(ib_session, operand)
+    }
+    if kind == EXPR_BINOP {
+        pilot lhs = ib_emit_expr(word_to_int(left))
+        pilot rhs = ib_emit_expr(word_to_int(right))
+        pilot operation = ib_arithmetic_code(value)
+        if operation >= 0 { give back freak_ib_arithmetic(ib_session, operation, lhs, rhs) }
+        give back freak_ib_compare(ib_session, ib_comparison_code(value), lhs, rhs)
+    }
+    -- Arguments are evaluated before beginning the C-owned argument list.
+    -- Nested source calls therefore cannot overwrite an outer pending call.
+    pilot arguments = array_new()
+    pilot index = 0
+    repeat tc_arg_count(left) times {
+        array_push(arguments, word_from_int(ib_emit_expr(tc_arg_at(left, index))))
+        index += 1
+    }
+    pilot function = word_to_int(array_get(ib_task_functions, ib_task_index(value)))
+    freak_ib_call_begin(ib_session, function)
+    index = 0
+    repeat array_len(arguments) times {
+        freak_ib_call_argument(ib_session, word_to_int(array_get(arguments, index)))
+        index += 1
+    }
+    pilot result = freak_ib_call_end(ib_session)
+    array_release(arguments)
+    give back result
+}
+
+task ib_emit_block(body: word) -> bool {
+    pilot saved_count = ib_local_count
+    pilot ended = false
+    pilot index = 0
+    repeat until index >= tc_arg_count(body) or ended {
+        ended = ib_emit_stmt(tc_arg_at(body, index))
+        index += 1
+    }
+    ib_local_count = saved_count
+    give back ended
+}
+
+task ib_emit_stmt(stmt: int) -> bool {
+    pilot kind = array_get(ast_stmt_kinds, stmt)
+    pilot expr = word_to_int(array_get(ast_stmt_exprs, stmt))
+    if kind == STMT_PILOT {
+        pilot value = ib_emit_expr(expr)
+        pilot slot = freak_ib_slot(ib_session)
+        freak_ib_store(ib_session, slot, value)
+        ib_bind(array_get(ast_stmt_names, stmt), slot)
+        give back false
+    }
+    if kind == STMT_SAY { freak_ib_say(ib_session, ib_emit_expr(expr)) give back false }
+    if kind == STMT_EXPR { ib_emit_expr(expr) give back false }
+    if kind == STMT_ASSIGN {
+        pilot slot = ib_lookup_slot(array_get(ast_expr_vals, expr))
+        pilot previous = 0
+        pilot operation = array_get(ast_stmt_names, stmt)
+        if operation != "=" { previous = freak_ib_load(ib_session, slot) }
+        pilot value = ib_emit_expr(word_to_int(array_get(ast_stmt_bodies, stmt)))
+        if operation != "=" { value = freak_ib_arithmetic(ib_session, ib_arithmetic_code(operation), previous, value) }
+        freak_ib_store(ib_session, slot, value)
+        give back false
+    }
+    if kind == STMT_GIVE_BACK {
+        pilot value = 0
+        if expr >= 0 { value = ib_emit_expr(expr) }
+        freak_ib_return(ib_session, value)
+        give back true
+    }
+    if kind == STMT_BLOCK { give back ib_emit_block(array_get(ast_stmt_bodies, stmt)) }
+    pilot condition = ib_emit_expr(expr)
+    ib_label_counter += 1
+    pilot suffix = word_from_int(ib_label_counter)
+    pilot then_block = freak_ib_block(ib_session, ib_function, "then." + suffix)
+    pilot else_block = freak_ib_block(ib_session, ib_function, "else." + suffix)
+    pilot join_block = freak_ib_block(ib_session, ib_function, "join." + suffix)
+    freak_ib_branch(ib_session, condition, then_block, else_block)
+    freak_ib_position(ib_session, then_block)
+    pilot then_ended = ib_emit_block(array_get(ast_stmt_bodies, stmt))
+    if not then_ended { freak_ib_jump(ib_session, join_block) }
+    freak_ib_position(ib_session, else_block)
+    pilot else_ended = ib_emit_block(array_get(ast_stmt_else_bodies, stmt))
+    if not else_ended { freak_ib_jump(ib_session, join_block) }
+    freak_ib_position(ib_session, join_block)
+    if then_ended and else_ended { freak_ib_unreachable(ib_session) give back true }
+    give back false
+}
+
+task ib_emit_program(output: word, optimization: int) -> bool {
+    ib_session = freak_ib_session_new(input_file, optimization)
+    if ib_session == 0 { say "experimental IRBuilder backend: " + freak_ib_error(0) give back false }
+    pilot index = 0
+    repeat array_len(ib_task_names) times {
+        pilot stmt = word_to_int(array_get(ib_task_statements, index))
+        pilot integer_result = 0
+        if array_get(ast_task_returns, stmt) == "int" { integer_result = 1 }
+        pilot function = freak_ib_function(ib_session, "__freak_user_" + array_get(ib_task_names, index), tc_arg_count(array_get(ast_task_params, stmt)), integer_result)
+        array_push(ib_task_functions, word_from_int(function))
+        index += 1
+    }
+    index = 0
+    repeat array_len(ib_task_names) times {
+        pilot stmt = word_to_int(array_get(ib_task_statements, index))
+        ib_function = word_to_int(array_get(ib_task_functions, index))
+        ib_local_count = 0
+        freak_ib_position(ib_session, freak_ib_block(ib_session, ib_function, "entry"))
+        pilot parameters = array_get(ast_task_params, stmt)
+        pilot parameter_index = 0
+        repeat tc_arg_count(parameters) times {
+            pilot slot = freak_ib_slot(ib_session)
+            freak_ib_store(ib_session, slot, freak_ib_parameter(ib_session, ib_function, parameter_index))
+            ib_bind(tc_param_name_at(parameters, parameter_index), slot)
+            parameter_index += 1
+        }
+        pilot ended = ib_emit_block(array_get(ast_stmt_bodies, stmt))
+        if not ended {
+            if array_get(ast_task_returns, stmt) == "void" { freak_ib_return(ib_session, 0) }
+            else { ib_stmt_error(stmt, "integer task reached an unterminated exit") }
+        }
+        index += 1
+    }
+    freak_ib_native_main(ib_session, word_to_int(array_get(ib_task_functions, ib_task_index("main"))))
+    pilot result = false
+    if error_count == 0 { result = freak_ib_emit_object(ib_session, output) == 1 }
+    if not result { say "experimental IRBuilder backend: " + freak_ib_error(ib_session) }
+    freak_ib_session_release(ib_session)
+    ib_session = 0
+    if freak_ib_live_sessions() != 0 or freak_ib_live_tickets() != 0 { panic("experimental builder registry was not drained") }
+    give back result
+}
+
+task ib_release_tables() -> void {
+    if ib_task_names != 0 { array_release(ib_task_names) ib_task_names = 0 }
+    if ib_task_statements != 0 { array_release(ib_task_statements) ib_task_statements = 0 }
+    if ib_task_functions != 0 { array_release(ib_task_functions) ib_task_functions = 0 }
+    if ib_local_names != 0 { array_release(ib_local_names) ib_local_names = 0 }
+    if ib_local_slots != 0 { array_release(ib_local_slots) ib_local_slots = 0 }
+}
