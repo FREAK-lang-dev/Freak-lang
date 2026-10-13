@@ -16,7 +16,6 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 import tempfile
 
 from v3_v35_acceptance import run_command
