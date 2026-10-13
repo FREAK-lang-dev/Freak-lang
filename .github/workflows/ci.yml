@@ -297,6 +297,8 @@ jobs:
           python -B -u tests/test_v3_v35_http_progress.py
           python -B -u tests/v3_v35_cli_flag_aliases.py --static
           python -B -u tests/v3_v35_runtime_cache.py --pure
+          python -B -u tests/test_v3_v35_runtime_cache_launcher.py
+          python -B -u tests/test_v3_v35_runtime_cache_tool_resolution.py
           python -B -u tests/test_v3_v35_http_deadline_helpers.py
           python -B -u tests/test_v3_v35_template_progress.py
           python -B -u tests/test_v3_v35_diagnostic_facts_helpers.py
@@ -693,6 +695,8 @@ jobs:
           python -B -u tests/test_v3_v35_http_progress.py
           python -B -u tests/v3_v35_cli_flag_aliases.py --static
           python -B -u tests/v3_v35_runtime_cache.py --pure
+          python -B -u tests/test_v3_v35_runtime_cache_launcher.py
+          python -B -u tests/test_v3_v35_runtime_cache_tool_resolution.py
           python -B -u tests/test_v3_v35_http_deadline_helpers.py
           python -B -u tests/test_v3_v35_template_progress.py
           python -B -u tests/test_v3_v35_diagnostic_facts_helpers.py

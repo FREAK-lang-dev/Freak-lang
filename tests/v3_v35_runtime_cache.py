@@ -548,7 +548,9 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
     assert (payload / "std/freak_abi").is_file(), payload
     assert sys.platform.startswith("linux"), "This milestone qualifies Linux reuse; Windows/macOS closure/native coverage remains pending."
     assert shutil.which("strace"), "Linux qualification requires actual execve evidence."
-    for path in (freak, clang, ROOT / "src/cli/runtime_cache.fk", ROOT / "src/cli/build.fk", ROOT / "src/cli/run.fk", Path(__file__)):
+    for path in (freak, clang, ROOT / "src/cli/runtime_cache.fk", ROOT / "src/cli/build.fk", ROOT / "src/cli/run.fk",
+                 ROOT / "src/compiler/v3/lexer.fk", ROOT / "tests/v3_v35_acceptance.py",
+                 ROOT / "tests/test_v3_v35_runtime_cache_tool_resolution.py", Path(__file__)):
         evidence.pin(path)
     work = evidence.root / "work"
     work.mkdir(mode=0o700)
@@ -836,6 +838,12 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
     build(parser_source, "dependency-parser-build", compile_count=0)
     execute(parser_source, "dependency controls passed\n", "dependency-parser-execute")
     evidence.case("actual-freak-dependency-parser", controls=cases)
+    from test_v3_v35_runtime_cache_tool_resolution import harness as hash_resolution_harness
+    hash_source = work / "hash-resolution-controls.fk"
+    hash_source.write_text(hash_resolution_harness())
+    build(hash_source, "hash-resolution-control-build", compile_count=0)
+    execute(hash_source, "runtime hash resolution controls passed (12 cases)\n", "hash-resolution-control-execute")
+    evidence.case("actual-freak-hash-resolution", controls=12)
     for name in ("DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH", "DYLD_VERSIONED_LIBRARY_PATH", "DYLD_ROOT_PATH"):
         dyld_env = dict(env, **{name: str(foreign)}, CACHE_CONTROL_DYLD_REJECT="1")
         code, output, _ = evidence.invoke([str(parser_source.with_suffix(""))], work, dyld_env, "dyld-refusal-" + name.lower())
