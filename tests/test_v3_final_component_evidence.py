@@ -23,10 +23,13 @@ report.write_text(json.dumps({
     'progress': {'outcome': 'running', 'matrix': {'adapter': 'llvm', 'optimization': 2},
                  'phase': 'corpus', 'fixture': 'fragmented-request'}
 }))
+if sys.argv[3] == 'bad-json': report.write_bytes(b'not-json')
+if sys.argv[3] == 'bad-utf8': report.write_bytes(bytes([255]))
+if sys.argv[3] == 'bad-object': report.write_bytes(b'[]')
 os.write(1, b'component-out\\n')
 os.write(2, b'component-err\\n')
 if sys.argv[3] == 'timeout': time.sleep(20)
-sys.exit(int(sys.argv[3]) if sys.argv[3] != 'timeout' else 0)
+sys.exit(7 if sys.argv[3].startswith('bad-') else int(sys.argv[3]) if sys.argv[3] != 'timeout' else 0)
 """
 
 
@@ -82,6 +85,21 @@ class ComponentEvidence(unittest.TestCase):
                     self.execute(root, str(status))
                 record = self.retained(root, status)
                 self.assertNotIn("timed_out", record)
+
+    def test_malformed_present_reports_retain_exact_bytes_identity_and_original_status(self):
+        for mode in ("bad-json", "bad-utf8", "bad-object"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                with self.assertRaisesRegex(AssertionError, "failed \\(7\\)"):
+                    self.execute(root, mode)
+                prefix = root / "evidence/components/controlled-component"
+                record, = json.loads(prefix.with_suffix(".json").read_text())["records"]
+                self.assertEqual(record["returncode"], 7)
+                self.assertIn("unavailable", record["child_report"])
+                self.assertEqual(record["child_report"]["sha256"],
+                                 hashlib.sha256((root / "child.json").read_bytes()).hexdigest())
+                self.assertIn(b"component-out", prefix.with_suffix(".stdout").read_bytes())
+                self.assertIn(b"component-err", prefix.with_suffix(".stderr").read_bytes())
 
 
 if __name__ == "__main__":

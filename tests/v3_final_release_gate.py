@@ -856,11 +856,11 @@ def run_child_gate(
             snapshot = {"path": str(report)}
             try:
                 data = report.read_bytes()
+                snapshot["sha256"] = hashlib.sha256(data).hexdigest()
                 value = json.loads(data)
                 if not isinstance(value, dict) or not isinstance(value.get("matrices", []), list):
                     raise ValueError("component report is not an object with a matrix list")
-                snapshot.update(sha256=hashlib.sha256(data).hexdigest(),
-                                progress=value.get("progress"),
+                snapshot.update(progress=value.get("progress"),
                                 completed_matrices=len(value.get("matrices", [])))
             except (OSError, ValueError, TypeError) as error:
                 snapshot["unavailable"] = type(error).__name__
