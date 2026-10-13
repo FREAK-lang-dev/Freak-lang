@@ -296,6 +296,7 @@ Output:
 - Strict `word.parse_int()` / `word.parse_num()` with the sticky `parse_status()` channel; `int` / `num` / `bool` `.to_word()` conversions and `word += word`.
 - `--target` aliases (`linux-x64`, `linux-arm64`, `windows-x64`, `macos-arm64`) and `freak doctor --target`.
 - Stable diagnostic codes with an optional data-driven cast layer.
+- `--diagnostic-cast=off|minimal|normal` appends deterministic cast messages to known compiler failures in `build`, `run`, `check` and `transpile`; the default is `off`.
 - `freak about` / `freak about --pioneers` for compiler history.
 
 ---

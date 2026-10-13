@@ -1028,6 +1028,31 @@ def main() -> int:
         evidence.mkdir(parents=True, exist_ok=True)
         children += (
             (
+                "diagnostic code data contracts",
+                [python, "-u", str(repo / "tests" / "v3_diagnostic_codes.py")],
+                240,
+            ),
+            (
+                "compiler diagnostic source facts",
+                [python, "-u", str(repo / "tests" / "v3_v35_diagnostic_facts.py"),
+                 "--compiler", str(direct), "--runtime", str(install_home / "runtime")],
+                1200,
+            ),
+            (
+                "native diagnostic cast selector",
+                [python, "-u", str(repo / "tests" / "v3_v35_diagnostic_cast.py"),
+                 "--compiler", str(direct), "--runtime-root", str(install_home / "runtime"),
+                 "--report", str(evidence / "diagnostic-selector.json")],
+                1200,
+            ),
+            (
+                "installed diagnostic cast CLI",
+                [python, "-u", str(repo / "tests" / "v3_v35_diagnostic_cast_cli.py"),
+                 "--freak", str(installed_freak), "--payload-home", str(install_home),
+                 "--report", str(evidence / "diagnostic-cli.json")],
+                1200,
+            ),
+            (
                 "HTTP parser input provenance",
                 [python, "-u", str(repo / "tests" / "test_v3_v35_http_inputs.py")],
                 240,

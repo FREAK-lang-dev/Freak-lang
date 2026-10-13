@@ -2868,13 +2868,13 @@ freak timeline-diff           -- show causality divergence between timelines
 | isekai scope violation  | Sumika    | "You can't bring that with you."         |
 | causality divergence    | 00-Unit   | No emotion. Just facts. Somehow worse.   |
 
-### V3 diagnostic codes foundation (additive, checker-unwired)
+### V3 diagnostic codes and optional presentation
 
-> Status: foundation data + deterministic presentation only. No existing
-> diagnostic message changed; the checker, emitters, parser, globals, and
-> CLI flag parsing are untouched by this lane. Voice routing stays 🔜 V4;
-> what lands here is the stable numbering, the data packs, and the
-> off-by-default selector the lead wires at integration.
+> Current V3 native CLI accepts `--diagnostic-cast=off|minimal|normal` for
+> `build`, `run`, `check` and `transpile`, with default `off`. Known compiler
+> codes with captured source snapshots receive deterministic appended lines;
+> canonical messages, source/caret blocks and exit status stay unchanged.
+> Category routing and the `--voice` override remain V4 work.
 
 Stable codes live in `src/diagnostics/codes.json` (schema
 `freak.v3.diagnostic-codes.v1`). Codes are never renamed, renumbered, or
@@ -2910,13 +2910,15 @@ diagnostic byte-identical; `minimal` appends `[CODE] line`; `normal`
 appends `[CODE SPEAKER] line` (plus one deterministic resource line for
 E0009). Executable proof: `python -u tests/v3_diagnostic_codes.py`.
 
-Integration hook (deferred, lead-owned): the lead wires an opt-in
-`--diagnostic-cast=<off|minimal|normal>` CLI flag (default `off`) at the
-CLI dispatch boundary at integration time; the checker and emitters keep
-emitting canonical diagnostics unchanged and pass (compiler version, code,
-file, line, column, source, speaker) to `selector.render()` as a
-post-pass presentation step only. No checker/CLI flag-parsing edits ship
-from this lane.
+The native CLI embeds the selector and packs, then appends presentation at
+its command failure boundary from independently owned compiler source facts.
+Current coded sites cover E0001–E0005, E0007 and E0008. E0006/E0009/E0010
+remain reserved data entries without automatic shipping compiler sites.
+Generic errors and unavailable source snapshots receive no appended line.
+Invalid modes or conflicting duplicate flags fail before build state or
+artifacts change. `doctor --json` and `test --json` retain their interfaces.
+The final archive gate exercises the installed CLI and separately verifies
+the compiler facts and selector components.
 
 ---
 

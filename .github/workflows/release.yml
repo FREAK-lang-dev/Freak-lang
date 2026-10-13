@@ -203,7 +203,7 @@ jobs:
             --tested-sha256 "$archive.tested.sha256" \
             --evidence-dir "$RUNNER_TEMP/v35-http-release"
 
-      - name: Upload installed HTTP and template evidence
+      - name: Upload installed HTTP, template and diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
