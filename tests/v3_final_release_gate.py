@@ -1088,7 +1088,9 @@ def main() -> int:
             (
                 "compiler diagnostic source facts",
                 [python, "-u", str(repo / "tests" / "v3_v35_diagnostic_facts.py"),
-                 "--compiler", str(direct), "--runtime", str(install_home / "runtime")],
+                 "--compiler", str(direct), "--runtime", str(install_home / "runtime"),
+                 "--clang", diagnostic_clang,
+                 "--report", str(evidence / "diagnostic-facts.json")],
                 1200,
             ),
             (
