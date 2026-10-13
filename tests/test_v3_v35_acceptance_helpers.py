@@ -153,6 +153,11 @@ def assert_comparative_idle_trickle(cadence: dict, receiver_receipt: dict, elaps
     assert expiry['expired_ns'] - last_received >= acceptance.ABSOLUTE_TRICKLE_IDLE_NS, \
         'invalid comparative idle expiry'
     assert expiry['expired_ns'] <= round(elapsed * 1_000_000_000), 'invalid comparative elapsed expiry timestamp'
+    # request() starts its client clock before connecting; the receiver starts
+    # after accept and records expiry before sending the response. Its relative
+    # expiry must therefore precede the client's relative first response, even
+    # when connection setup or response teardown takes extra time.
+    assert expiry['expired_ns'] <= response, 'invalid comparative expiry after response'
 
     # A later malformed row must remain fatal even if an earlier gap stalled.
     for gap in completion_gaps:
@@ -754,12 +759,15 @@ class AcceptanceHelpers(unittest.TestCase):
         wire = acceptance.ABSOLUTE_TRICKLE_WIRE
         sends, reads = [], []
         previous = start = 0
+        # A receiver clock started later can expire before a sub-250ms client
+        # response wait. Keep those controls valid across the ordered origins.
+        receiver_offset = max(0, 250_000_000 - response_gap)
         for index, end in enumerate((*acceptance.ABSOLUTE_TRICKLE_CUTS, len(wire))[:count]):
             completed = 0 if index == 0 else previous + (completion_gap if index == 8 else 100_000_000)
             sends.append({'start_byte': start, 'end_byte': end,
                           'started_ns': previous if blocked_send and index == 8 else completed,
                           'completed_ns': completed})
-            reads.append({'start_byte': start, 'end_byte': end, 'received_ns': completed,
+            reads.append({'start_byte': start, 'end_byte': end, 'received_ns': max(0, completed - receiver_offset),
                           'data_hex': wire[start:end].hex()})
             previous, start = completed, end
         cadence = {'cuts': list(acceptance.ABSOLUTE_TRICKLE_CUTS),
@@ -767,8 +775,8 @@ class AcceptanceHelpers(unittest.TestCase):
                    'sends': sends, 'first_response_ns': previous + response_gap}
         receipt = {'model': 'idle-only', 'clock': 'receiver-monotonic-relative-ns',
                    'idle_timeout_ns': acceptance.ABSOLUTE_TRICKLE_IDLE_NS, 'wire_bytes': len(wire),
-                   'reads': reads, 'expiry': {'expired_ns': previous + 250_000_000,
-                                             'last_received_ns': previous, 'received_bytes': start}}
+                   'reads': reads, 'expiry': {'expired_ns': reads[-1]['received_ns'] + 250_000_000,
+                                             'last_received_ns': reads[-1]['received_ns'], 'received_bytes': start}}
         return cadence, receipt, (previous + max(response_gap, 250_000_000)) / 1_000_000_000
 
     def test_comparative_idle_complete_cadence_admits_terminal_idle_wait(self):
@@ -847,6 +855,7 @@ class AcceptanceHelpers(unittest.TestCase):
             lambda cadence, receipt: receipt['expiry'].__setitem__('last_received_ns', 0),
             lambda cadence, receipt: receipt['expiry'].__setitem__('received_bytes', 999),
             lambda cadence, receipt: receipt['expiry'].__setitem__('expired_ns', receipt['expiry']['last_received_ns']),
+            lambda cadence, receipt: receipt['expiry'].__setitem__('expired_ns', cadence['first_response_ns'] + 1),
         )
         for index, mutate in enumerate(mutations):
             with self.subTest(mutation=index):
@@ -854,6 +863,22 @@ class AcceptanceHelpers(unittest.TestCase):
                 mutate(cadence, receipt)
                 with self.assertRaises(AssertionError):
                     assert_comparative_idle_trickle(cadence, receipt, elapsed)
+
+    def test_comparative_idle_expiry_must_precede_response_even_with_long_teardown(self):
+        for count, gap in ((33, 100_000_000), (9, 100_000_000), (9, 300_000_000)):
+            with self.subTest(count=count, completion_gap=gap):
+                cadence, receipt, elapsed = self.comparative_idle_evidence(count=count, completion_gap=gap)
+                self.assertEqual(receipt['expiry']['expired_ns'], cadence['first_response_ns'])
+                if count == 33:
+                    assert_comparative_idle_trickle(cadence, receipt, elapsed)
+                else:
+                    with self.assertRaises(ComparativeTrickleStall):
+                        assert_comparative_idle_trickle(cadence, receipt, elapsed)
+                # Additional elapsed teardown time cannot legitimize an expiry
+                # one nanosecond after the response it supposedly caused.
+                receipt['expiry']['expired_ns'] += 1
+                with self.assertRaisesRegex(AssertionError, 'expiry after response'):
+                    assert_comparative_idle_trickle(cadence, receipt, elapsed + 1)
 
     def test_comparative_idle_valid_cadence_with_early_response_remains_fatal(self):
         cadence, receipt, elapsed = self.comparative_idle_evidence(count=9, response_gap=100_000_000)
