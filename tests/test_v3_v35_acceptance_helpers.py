@@ -987,6 +987,107 @@ class CommandLifelineControls(unittest.TestCase):
             for descriptor in (replacement_read,replacement_write):
                 if descriptor is not None:os.close(descriptor)
 
+    def test_actual_thread_constructor_sigint_closes_unclaimed_reader_and_preserves_primary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records, lifelines = Path(temporary), [], []
+            primary=KeyboardInterrupt('controlled actual Thread-constructor SIGINT')
+            original_lifeline=acceptance._CommandLifeline
+            class Tracking(original_lifeline):
+                def __init__(self,timeout):
+                    super().__init__(timeout)
+                    self.initial_reader=self.fds['metadata_read']
+                    lifelines.append(self)
+            original=threading.Thread.__init__
+            def interrupted(thread,*args,**kwargs):
+                original(thread,*args,**kwargs)
+                os.kill(os.getpid(),signal.SIGINT)
+            def handler(number,frame):raise primary
+            previous=signal.signal(signal.SIGINT,handler)
+            try:
+                with patch.object(acceptance,'_CommandLifeline',Tracking), \
+                        patch.object(threading.Thread,'__init__',interrupted):
+                    with self.assertRaises(KeyboardInterrupt) as raised:
+                        acceptance.run_command([sys.executable,'-c',f'from pathlib import Path;Path({str(root/"must-not-run")!r}).touch()'],
+                            cwd=root,env=os.environ.copy(),label='thread-constructor',prefix=root/'thread-constructor',records=records,timeout=2)
+            finally:
+                signal.signal(signal.SIGINT,previous)
+            self.assertIs(raised.exception,primary)
+            self.assertEqual(len(lifelines),1)
+            self.assertIsNone(lifelines[0].watcher)
+            self.assertEqual(lifelines[0].fds,{})
+            with self.assertRaises(OSError):os.fstat(lifelines[0].initial_reader)
+            self.assertTrue(lifelines[0].context['keeper_reaped'])
+            self.assertEqual(records[0]['error'],repr(primary))
+            self.assertFalse((root/'must-not-run').exists())
+            self.assertEqual((root/'thread-constructor.stdout').read_bytes(),b'')
+            self.assertEqual((root/'thread-constructor.stderr').read_bytes(),b'')
+            self.gone([lifelines[0].keeper.pid])
+
+    def test_ambient_caller_exception_does_not_suppress_new_terminal_recording_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            ambient=ValueError('unrelated caller exception')
+            primary=OSError('controlled current terminal checkpoint failure')
+            def checkpoint(row):
+                if 'returncode' in row:raise primary
+            try:raise ambient
+            except ValueError:
+                with self.assertRaises(OSError) as raised:
+                    acceptance.run_command([sys.executable,'-c','import os;os.write(1,b"kept output");os.write(2,b"kept error")'],
+                        cwd=root,env=os.environ.copy(),label='ambient-checkpoint',prefix=root/'ambient-checkpoint',records=records,timeout=2,on_record=checkpoint)
+            self.assertIs(raised.exception,primary)
+            self.assertEqual(records[0]['returncode'],0)
+            self.assertEqual(records[0]['error'],repr(primary))
+            self.assertNotEqual(records[0]['error'],repr(ambient))
+            self.assertEqual(records[0]['keeper']['finish'],'normal group drain')
+            self.assertTrue(records[0]['keeper']['keeper_reaped'])
+            self.assertEqual((root/'ambient-checkpoint.stdout').read_bytes(),b'kept output')
+            self.assertEqual((root/'ambient-checkpoint.stderr').read_bytes(),b'kept error')
+            self.gone([records[0]['keeper']['keeper_pid']])
+
+    def test_ambient_caller_exception_does_not_suppress_new_capture_writer_close_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            ready=root/'capture-ready'
+            primary=OSError('controlled current capture writer-close failure')
+            ambient=ValueError('unrelated caller exception')
+            writer={'fd':None,'raised':False}
+            original_init=acceptance._OwnedCommandPopen.__init__
+            original_close=os.close
+            def initialized(child,command,**kwargs):
+                if '-I' not in command:writer['fd']=kwargs['stdout']
+                original_init(child,command,**kwargs)
+                if '-I' not in command:
+                    deadline=time.monotonic()+2
+                    while not ready.exists() and time.monotonic()<deadline:time.sleep(.01)
+                    self.assertTrue(ready.exists())
+            def close(fd):
+                if (threading.current_thread() is threading.main_thread() and fd==writer['fd']
+                        and not writer['raised']):
+                    writer['raised']=True
+                    original_close(fd)
+                    raise primary
+                return original_close(fd)
+            with patch.object(acceptance._OwnedCommandPopen,'__init__',initialized), \
+                    patch.object(acceptance.os,'close',close):
+                try:raise ambient
+                except ValueError:
+                    with self.assertRaises(OSError) as raised:
+                        acceptance.run_command([sys.executable,'-c',
+                            f'import os,time;from pathlib import Path;os.write(1,b"kept output");os.write(2,b"kept error");Path({str(ready)!r}).touch();time.sleep(60)'],
+                            cwd=root,env=os.environ.copy(),label='ambient-capture',prefix=root/'ambient-capture',records=records,timeout=2)
+            self.assertTrue(writer['raised'])
+            self.assertIs(raised.exception,primary)
+            self.assertEqual(records[0]['error'],repr(primary))
+            self.assertNotEqual(records[0]['error'],repr(ambient))
+            self.assertEqual(records[0]['keeper']['capture_cleanup_errors'],[repr(primary)])
+            self.assertEqual(records[0]['cleanup_errors'],[])
+            self.assertFalse(records[0]['cleanup_failed'])
+            self.assertTrue(records[0]['keeper']['keeper_reaped'])
+            self.assertEqual((root/'ambient-capture.stdout').read_bytes(),b'kept output')
+            self.assertEqual((root/'ambient-capture.stderr').read_bytes(),b'kept error')
+            self.gone([records[0]['keeper']['keeper_pid'],records[0]['keeper']['native_pid']])
+
 
 class AcceptanceHelpers(unittest.TestCase):
     def test_success_keeps_separate_raw_channels_and_exit(self):
