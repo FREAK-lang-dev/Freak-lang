@@ -410,10 +410,11 @@ static void freak_http_finish_rejection(freak_http_request *request) {
     while(drained<65536) {
         if(freak_http_wait_socket(server,request->socket,false,deadline,deadline)!=1) return;
         if(atomic_load_explicit(&server->stopping,memory_order_acquire) || freak_command_now_ms()>=deadline) return;
+        size_t wanted=65536-drained; if(wanted>sizeof(discarded)) wanted=sizeof(discarded);
 #ifdef _WIN32
-        int received=recv(request->socket,(char *)discarded,sizeof(discarded),0);
+        int received=recv(request->socket,(char *)discarded,(int)wanted,0);
 #else
-        ssize_t received=recv(request->socket,discarded,sizeof(discarded),0);
+        ssize_t received=recv(request->socket,discarded,wanted,0);
 #endif
         if(received<0 && (freak_tcp_socket_error_is_interrupted() || freak_tcp_socket_error_is_timeout())) continue;
         if(received<=0) return;
