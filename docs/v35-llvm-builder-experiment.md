@@ -35,6 +35,25 @@ backend admission; no imported package or standard-library delivery is claimed.
 The experimental host is assembled from the five existing frontend sources,
 the new emitter and the new main, and compiled by stable V3 `--c`. It links the
 C bridge, normal FREAK runtime and an explicitly selected LLVM 19.1.7 library.
+The FREAK compiler logic uses FREAK's existing native C extern calls. For
+example, the emitter contains this declaration:
+
+```freak
+extern task freak_ib_integer(session: int, value: int) -> int
+```
+
+A call such as `freak_ib_integer(ib_session, 42)` reaches the C symbol defined
+in `bridge.c`, which creates an LLVM constant and returns its checked integer
+ticket. The path is FREAK lowering code → native C extern call → C shim →
+LLVM's C API (`LLVMConstInt` and `LLVMBuild*`). These extern declarations belong
+to the compiler host; extern declarations in compiled applications remain
+outside the experimental scalar slice.
+
+The Bible's `extern [C] { ... }` blocks describe normative FFI syntax. Shipping
+V3 currently parses `extern task`; it does not parse those extern blocks. This
+experiment uses that existing extern-task implementation and adds no parser
+or block-syntax support.
+
 Its C word ABI is `freak_word`, so the bridge borrows and copies names/path bytes
 before returning. This host cannot be bootstrapped through the current LLVM
 backend using the same word prototypes. All other boundary values are int64
