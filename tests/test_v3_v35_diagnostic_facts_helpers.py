@@ -45,7 +45,7 @@ def finish_matrices(evidence):
 class FactsHostHelpers(unittest.TestCase):
     def test_selected_bin_and_resource_dlls_precede_foreign_path(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory); bin_dir = root / 'selected' / 'bin'; bin_dir.mkdir(parents=True)
+            root = Path(directory).resolve(strict=True); bin_dir = root / 'selected' / 'bin'; bin_dir.mkdir(parents=True)
             clang = bin_dir / 'clang.exe'; clang.write_bytes(b'selected inert compiler')
             bin_dll = bin_dir / 'libclang_rt.asan_dynamic-x86_64.dll'; bin_dll.write_bytes(b'mingw ASan')
             resource = root / 'selected' / 'resource'; dll_dir = resource / 'lib' / 'windows'; dll_dir.mkdir(parents=True)
@@ -58,6 +58,47 @@ class FactsHostHelpers(unittest.TestCase):
             self.assertEqual(query.call_args.kwargs['timeout'], 10)
             self.assertEqual(env['PATH'].split(os.pathsep), [str(bin_dir.resolve()), str(dll_dir.resolve()), str(foreign)])
             self.assertEqual(set(files), {bin_dll, resource_dll}); self.assertEqual(env['preserved'], 'yes')
+
+    def test_symlink_parent_selects_same_canonical_sdk_dlls_and_path_priority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve(strict=True); selected = root / 'selected'; bin_dir = selected / 'bin'; bin_dir.mkdir(parents=True)
+            clang = bin_dir / 'clang.exe'; clang.write_bytes(b'selected inert compiler')
+            bin_dll = bin_dir / 'libclang_rt.asan_dynamic-x86_64.dll'; bin_dll.write_bytes(b'selected MinGW ASan')
+            resource = selected / 'resource'; dll_dir = resource / 'lib' / 'windows'; dll_dir.mkdir(parents=True)
+            resource_dll = dll_dir / 'clang_rt.asan_dynamic-x86_64.dll'; resource_dll.write_bytes(b'selected MSVC ASan')
+            foreign = root / 'foreign'; foreign.mkdir()
+            foreign_dlls = {foreign / dll.name for dll in (bin_dll, resource_dll)}
+            for dll in foreign_dlls: dll.write_bytes(b'foreign ASan must stay excluded')
+            alias = root / 'selected-alias'; original_resolve = Path.resolve
+            try:
+                alias.symlink_to(selected, target_is_directory=True)
+                alias_resolution = contextlib.nullcontext()
+            except OSError as error:
+                if os.name != 'nt' or getattr(error, 'winerror', None) != 1314: raise
+                # Windows may lack symlink privilege. Model only this parent
+                # alias; the selected SDK files and DLL scans remain real.
+                def resolve_parent(path, *args, **kwargs):
+                    try: relative = path.relative_to(alias)
+                    except ValueError: return original_resolve(path, *args, **kwargs)
+                    return original_resolve(selected / relative, *args, **kwargs)
+                alias_resolution = mock.patch.object(Path, 'resolve', autospec=True, side_effect=resolve_parent)
+            observed = []
+            with alias_resolution:
+                for parent in (selected, alias):
+                    with self.subTest(parent=parent):
+                        result = subprocess.CompletedProcess([], 0, str(parent / 'resource') + '\n', '')
+                        with mock.patch.object(facts, 'run', return_value=result) as query, mock.patch.object(facts, 'sanitizer_env', return_value={'PATH': str(foreign), 'preserved': 'yes'}), mock.patch.object(facts.shutil, 'which', return_value=None):
+                            selected_clang = facts.resolve_clang(str(parent / 'bin' / 'clang.exe'))
+                            env, files = facts.native_environment(selected_clang, platform='win32')
+                        self.assertEqual(selected_clang, clang)
+                        self.assertEqual(query.call_args.args, ([str(clang), '-print-resource-dir'], bin_dir))
+                        self.assertEqual(query.call_args.kwargs['timeout'], 10)
+                        self.assertEqual(set(files), {bin_dll, resource_dll})
+                        self.assertTrue(set(files).isdisjoint(foreign_dlls))
+                        self.assertEqual(env['PATH'].split(os.pathsep), [str(bin_dir), str(dll_dir), str(foreign)])
+                        self.assertEqual(env['preserved'], 'yes')
+                        observed.append((env, files))
+            self.assertEqual(observed[0], observed[1])
 
     def test_missing_selected_runtime_refuses_foreign_or_backup_dll(self):
         with tempfile.TemporaryDirectory() as directory:
