@@ -18,6 +18,8 @@ import time
 import zipfile
 from pathlib import Path
 
+from v3_v35_acceptance import run_command
+
 
 def run(
     command: list[str],
@@ -827,7 +829,8 @@ def assert_exact_archive_upgrade(
 
 
 def run_child_gate(
-    *, label: str, command: list[str], repo: Path, cwd: Path, env: dict[str, str], timeout: int
+    *, label: str, command: list[str], repo: Path, cwd: Path, env: dict[str, str], timeout: int,
+    evidence_dir: Path,
 ) -> None:
     """
     Run a subordinate acceptance-gate command and report its successful completion.
@@ -839,10 +842,39 @@ def run_child_gate(
         cwd (Path): Working directory for the command.
         env (dict[str, str]): Environment variables for the command.
         timeout (int): Maximum execution time in seconds.
+        evidence_dir (Path): Retained component records and separate raw channels.
     """
-    result = run(command, cwd, env, timeout=timeout)
-    require_ok(result, label)
-    output = show_output(result).strip()
+    directory = evidence_dir / "components"
+    directory.mkdir(parents=True, exist_ok=True)
+    name = "".join(char.lower() if char.isascii() and char.isalnum() else "-" for char in label)
+    prefix = directory / name
+    records: list[dict] = []
+
+    def checkpoint(_=None) -> None:
+        if "--report" in command:
+            report = Path(command[command.index("--report") + 1])
+            snapshot = {"path": str(report)}
+            try:
+                data = report.read_bytes()
+                value = json.loads(data)
+                if not isinstance(value, dict) or not isinstance(value.get("matrices", []), list):
+                    raise ValueError("component report is not an object with a matrix list")
+                snapshot.update(sha256=hashlib.sha256(data).hexdigest(),
+                                progress=value.get("progress"),
+                                completed_matrices=len(value.get("matrices", [])))
+            except (OSError, ValueError, TypeError) as error:
+                snapshot["unavailable"] = type(error).__name__
+            records[-1]["child_report"] = snapshot
+        destination = prefix.with_suffix(".json")
+        temporary = destination.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps({"component": label, "records": records}, indent=2) + "\n",
+                             encoding="utf-8")
+        temporary.replace(destination)
+
+    result = run_command(command, cwd=cwd, env=env, label=label, prefix=prefix,
+                         records=records, timeout=timeout, expected=None, on_record=checkpoint)
+    output = (result.stdout + result.stderr).decode("utf-8", errors="replace").strip()
+    assert result.returncode == 0, f"{label} failed ({result.returncode})\n{output}"
     if output:
         print(output)
     print(f"PASS final component [{label}]")
@@ -897,6 +929,8 @@ def main() -> int:
     base_env["NO_COLOR"] = "1"
     with tempfile.TemporaryDirectory(prefix="freak-v3-final-release-") as temporary:
         root = Path(temporary).resolve(strict=True)
+        evidence = args.evidence_dir.resolve() if args.evidence_dir else root / "http-evidence"
+        evidence.mkdir(parents=True, exist_ok=True)
         assert_archive_safety_controls(root)
         archive = supplied_archive or create_release_archive(
             repo=repo,
@@ -960,6 +994,7 @@ def main() -> int:
             cwd=root / "hostile-repo-shaped-cwd",
             env=golden_env,
             timeout=900,
+            evidence_dir=evidence,
         )
         children = (
             (
@@ -1024,8 +1059,6 @@ def main() -> int:
                 ("standard-library capability", "v3_std_capability.py"),
             )
         )
-        evidence = args.evidence_dir.resolve() if args.evidence_dir else root / "http-evidence"
-        evidence.mkdir(parents=True, exist_ok=True)
         children += (
             (
                 "HTTP parser input provenance",
@@ -1077,6 +1110,7 @@ def main() -> int:
                 cwd=hostile_cwd,
                 env=isolated_env,
                 timeout=timeout,
+                evidence_dir=evidence,
             )
         assert_exact_archive_upgrade(
             repo=repo,
