@@ -79,6 +79,20 @@ task cli_runtime_cache_canonical(path: word) -> word {
     give back canonical
 }
 
+task cli_runtime_cache_absolute_hash_tool(path: word) -> word {
+    if path == "" { give back "" }
+    pilot absolute = path
+    if not absolute.starts_with("/") {
+        pilot cwd = cli_current_dir()
+        if cwd == "" { give back "" }
+        absolute = cli_host_path_join(cwd, path)
+    }
+    -- Validate the target without changing the selected argv[0]. A symlink
+    -- named sha256sum may select a multicall applet through that basename.
+    if cli_runtime_cache_canonical(absolute) == "" { give back "" }
+    give back absolute
+}
+
 task cli_runtime_cache_raw_pin(path: word, retain: bool) -> word {
     pilot canonical = cli_runtime_cache_canonical(path)
     if canonical == "" { give back "" }
@@ -273,7 +287,7 @@ task cli_runtime_cache_tool_identity(executable: word) -> word {
             hash_tool = cli_run_resolve_program("shasum")
             use_shasum = true
         }
-        hash_tool = cli_runtime_cache_canonical(hash_tool)
+        hash_tool = cli_runtime_cache_absolute_hash_tool(hash_tool)
         if hash_tool == "" { give back "" }
     }
     pilot pin = cli_runtime_cache_support_pin(resolved, hash_tool, use_shasum)

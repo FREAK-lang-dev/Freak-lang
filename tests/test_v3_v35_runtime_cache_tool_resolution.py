@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CACHE_TASKS = (
     "cli_runtime_cache_field", "cli_runtime_cache_find", "cli_runtime_cache_digest",
     "cli_runtime_cache_environment", "cli_runtime_cache_dyld_plain",
+    "cli_runtime_cache_absolute_hash_tool",
     "cli_runtime_cache_hash_file", "cli_runtime_cache_support_pin",
     "cli_runtime_cache_linux_support", "cli_runtime_cache_macos_support",
     "cli_runtime_cache_tool_identity", "cli_runtime_cache_trace_cc1",
@@ -92,6 +93,7 @@ task cli_run_resolve_program(name: word) -> word {
         control_lookup_count += 1
         if control_sha_mode == 1 or control_sha_mode == 2 { give back "" }
         if control_sha_mode == 3 { give back "./unresolvable-sha256sum" }
+        if control_sha_mode == 4 { give back "./busybox-bin/sha256sum" }
         if control_generation == 0 { give back "./first path/'sha256sum" }
         give back "./second path/sha256sum"
     }
@@ -105,10 +107,12 @@ task cli_run_resolve_program(name: word) -> word {
     give back ""
 }
 task cli_runtime_cache_canonical(path: word) -> word {
-    if path == "" or path == "./unresolvable-sha256sum" { give back "" }
+    if path == "" or path == "/cwd/./unresolvable-sha256sum" { give back "" }
+    if path == "/cwd/./busybox-bin/sha256sum" { give back "/bin/busybox" }
     if path.starts_with("./") { give back "/" + path.substring(2, path.length() - 2) }
     give back path
 }
+task cli_current_dir() -> word { give back "/cwd" }
 task cli_run_tool_version(path: word, allow_nonzero: bool) -> word { give back "clang version 19" }
 task control_digest(path: word) -> word {
     if path == "/clang" {
@@ -212,37 +216,52 @@ task main() -> int {
     pilot first_identity = cli_runtime_cache_tool_identity("clang")
     require(first_identity != "" and cli_runtime_cache_tool_complete, "initial Linux identity")
     require(control_lookup_count == 1, "one initial SHA selection")
-    require_hashes("/first path/'sha256sum")
+    require_hashes("/cwd/./first path/'sha256sum")
     pilot first_key = object_key(first_identity)
-    require(first_key.length() == 64, "actual initial object key")
+    require(cli_run_valid_sha256(first_key), "actual initial object key")
 
     reset_pass()
     control_generation = 1
     pilot second_identity = cli_runtime_cache_tool_identity("clang")
+    require(second_identity != "" and cli_runtime_cache_tool_complete, "next pass remains admitted")
     require(control_lookup_count == 1, "next pass selects utility again")
-    require_hashes("/second path/sha256sum")
+    require_hashes("/cwd/./second path/sha256sum")
     require(second_identity == first_identity and object_key(second_identity) == first_key, "utility plumbing leaves content identity/key unchanged")
 
     reset_pass()
     control_driver_changed = true
     pilot driver_identity = cli_runtime_cache_tool_identity("clang")
-    require_hashes("/second path/sha256sum")
-    require(driver_identity != first_identity and object_key(driver_identity) != first_key, "same-path driver bytes cannot hit the old key")
+    require(driver_identity != "" and cli_runtime_cache_tool_complete, "changed driver remains admitted")
+    require_hashes("/cwd/./second path/sha256sum")
+    pilot driver_key = object_key(driver_identity)
+    require(cli_run_valid_sha256(driver_key), "actual changed-driver object key")
+    require(driver_identity != first_identity and driver_key != first_key, "same-path driver bytes cannot hit the old key")
     control_driver_changed = false
 
     reset_pass()
     control_library_changed = true
     pilot library_identity = cli_runtime_cache_tool_identity("clang")
-    require_hashes("/second path/sha256sum")
-    require(library_identity != first_identity and object_key(library_identity) != first_key, "same-path support bytes cannot hit the old key")
+    require(library_identity != "" and cli_runtime_cache_tool_complete, "changed support remains admitted")
+    require_hashes("/cwd/./second path/sha256sum")
+    pilot library_key = object_key(library_identity)
+    require(cli_run_valid_sha256(library_key), "actual changed-support object key")
+    require(library_identity != first_identity and library_key != first_key, "same-path support bytes cannot hit the old key")
     control_library_changed = false
 
     reset_pass()
     control_sha_mode = 1
     pilot fallback_identity = cli_runtime_cache_tool_identity("clang")
+    require(fallback_identity != "" and cli_runtime_cache_tool_complete, "fallback utility remains admitted")
     require(control_lookup_count == 2, "one primary and one fallback lookup")
-    require_hashes("/fallback path/shasum")
+    require_hashes("/cwd/./fallback path/shasum")
     require(fallback_identity == first_identity and object_key(fallback_identity) == first_key, "SHA-format fallback preserves identity and key")
+
+    reset_pass()
+    control_sha_mode = 4
+    pilot multicall_identity = cli_runtime_cache_tool_identity("clang")
+    require(control_lookup_count == 1 and cli_runtime_cache_tool_complete, "one multicall utility selection")
+    require_hashes("/cwd/./busybox-bin/sha256sum")
+    require(multicall_identity == first_identity and object_key(multicall_identity) == first_key, "multicall basename preserves identity and key")
 
     reset_pass()
     control_sha_mode = 2
@@ -271,7 +290,7 @@ task main() -> int {
     pilot macos_identity = cli_runtime_cache_tool_identity("clang")
     require(macos_identity != "" and cli_runtime_cache_tool_complete, "resolved macOS closure")
     require(control_lookup_count == 1, "one SHA selection across macOS closure")
-    require_hashes("/second path/sha256sum")
+    require_hashes("/cwd/./second path/sha256sum")
     control_macos = false
 
     reset_pass()
@@ -284,7 +303,7 @@ task main() -> int {
     array_release(control_hash_paths)
     array_release(control_hash_tools)
     if control_arguments != 0 { array_release(control_arguments) }
-    say "runtime hash resolution controls passed (11 cases)"
+    say "runtime hash resolution controls passed (12 cases)"
     give back 0
 }
 '''
@@ -303,8 +322,10 @@ class PreparationControls(unittest.TestCase):
 
     def test_production_key_and_admission_tasks_are_in_the_control(self) -> None:
         generated = harness()
-        self.assertIn('object_key(driver_identity) != first_key', generated)
-        self.assertIn('object_key(library_identity) != first_key', generated)
+        self.assertIn('driver_key != first_key', generated)
+        self.assertIn('library_key != first_key', generated)
+        self.assertIn('driver_identity != "" and cli_runtime_cache_tool_complete', generated)
+        self.assertIn('library_identity != "" and cli_runtime_cache_tool_complete', generated)
         self.assertIn('array_len(control_hash_paths) == 3', generated)
         self.assertIn('control_lookup_count == 2', generated)
         self.assertIn('control_windows_hash_count == 1', generated)
