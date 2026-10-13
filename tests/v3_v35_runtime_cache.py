@@ -648,7 +648,10 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
     try:
         code, output, _ = evidence.invoke([str(freak), "build", str(source_a), "--c", "--clang-opt=0", "--lto=off"], work, alias_env, "logical-header-retarget-during-object", trace=True, runtime_hook=retarget_header)
         assert code != 0 and not source_a.with_suffix("").exists(), (code, output)
-        evidence.case("logical-header-retarget-during-object", returncode=code)
+        admitted_keys = [found_key for event, unit, found_key in events(output) if event == "compile" and unit == "freak_runtime.c"]
+        assert len(admitted_keys) == 1, ("no exact admitted key in retained compile evidence", output)
+        assert not (alias_parent / "freak/runtime-v1" / admitted_keys[0]).exists(), "published a logically rebound header object"
+        evidence.case("logical-header-retarget-during-object", returncode=code, refused_publication_key=admitted_keys[0])
     finally:
         runtime_header.unlink()
         runtime_header.write_bytes(original_header)
