@@ -22,7 +22,7 @@ class HttpInputs(unittest.TestCase):
             self.runtime(root / 'freakc/runtime')
             self.vendor(root / 'third_party/llhttp', 'repository parser\n')
             runtime, vendor = runtime_inputs(root)
-            self.assertEqual(runtime, root / 'freakc/runtime')
+            self.assertEqual(runtime, (root / 'freakc/runtime').resolve(strict=True))
             self.assertEqual((vendor / 'freak_amalgamation.inc').read_text(), 'repository parser\n')
 
     def test_embedded_parser_wins_over_distinct_repository_parser(self):
@@ -42,7 +42,7 @@ class HttpInputs(unittest.TestCase):
             self.vendor(root / 'third_party/llhttp', 'outside parser\n')
             self.vendor(runtime / 'third_party/llhttp', 'payload parser\n')
             selected, vendor = runtime_inputs(runtime)
-            self.assertEqual(selected, runtime)
+            self.assertEqual(selected, runtime.resolve(strict=True))
             self.assertEqual((vendor / 'freak_amalgamation.inc').read_text(), 'payload parser\n')
 
     def test_missing_payload_parser_cannot_borrow_external_parser(self):
