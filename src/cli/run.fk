@@ -187,8 +187,10 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     material = material + "|runtime-policy=" + runtime_policy + "|runtime-stats=" + runtime_stats + "|cross=" + cross + "|strict=" + strict_label
     material = material + "|clang=" + cli_run_clang_identity(clang_cmd)
     material = material + "|linker=" + cli_run_linker_identity(clang_cmd, lto, cross) + "|link-plan=" + link_plan
-    -- Discover the same actual preprocessed runtime/header/SDK closure as the
-    -- object cache. A new include shadow or SDK edit cannot reuse an old binary.
+    -- Qualified tools add the same actual runtime/header/SDK closure as the
+    -- object cache. Explicit legacy mode preserves the established fingerprint
+    -- for unsupported tools without claiming the stronger optional guarantee.
+    -- The mode marker prevents reuse across proven/legacy transitions.
     material = material + "|runtime-context=" + cli_runtime_cache_run_context(clang_cmd, runtime_dir, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
     material = material + "|runtime-dir=" + runtime_dir
     if runtime_dir != "" {
@@ -476,7 +478,7 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
         give back 1
     }
 
-    if fingerprint != "" and cli_runtime_cache_context_ready and fs::exists(binary) and fs::exists(cache_file) {
+    if fingerprint != "" and fs::exists(binary) and fs::exists(cache_file) {
         pilot expected_record = cli_run_cache_record(fingerprint, binary)
         if expected_record != "" and fs::read(cache_file) == expected_record { cache_hit = true }
     }

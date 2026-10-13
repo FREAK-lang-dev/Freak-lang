@@ -725,18 +725,29 @@ task cli_runtime_cache_build(executable: word, transpiled: word, output: word, r
     give back cache_outcome
 }
 
+task cli_runtime_cache_run_marker(proven: bool, digest: word, reason: word) -> word {
+    if proven and digest != "" { give back "proven:" + digest }
+    -- A legacy marker is explicitly outside the new SDK/support-closure
+    -- guarantee. It cannot equal a previously admitted proven context.
+    give back "legacy:" + reason
+}
+
 task cli_runtime_cache_run_context(executable: word, runtime_dir: word, target: word, profile: word, opt: word, lto: word, policy: word, stats: word, cross: word) -> word {
-    -- Even FREAK_RUNTIME_CACHE=off retains real dependency discovery. A failed
-    -- or unsupported context disables the whole-program run hit, not execution.
+    -- The established whole-program cache keeps its source/graph/selected
+    -- executable/linker/artifact checks when this stronger optional context
+    -- is unsupported. Legacy mode adds no SDK or hidden-delegate guarantee.
+    -- Runtime-object admission remains strict and never uses this fallback.
+    -- FREAK_RUNTIME_CACHE=off still discovers context for qualified toolchains.
     cli_runtime_cache_context_ready = false
     cli_runtime_cache_profile = profile
     cli_runtime_cache_policy = policy
     cli_runtime_cache_stats = stats
     pilot tool = cli_runtime_cache_tool_identity(executable)
-    if tool == "" { give back "unavailable-tool-context" }
+    if tool == "" { give back cli_runtime_cache_run_marker(false, "", "unavailable-tool-context") }
     pilot complete = cli_runtime_cache_tool_complete
+    if not complete { give back cli_runtime_cache_run_marker(false, "", "unproved-tool-support") }
     pilot stage = cli_runtime_cache_stage()
-    if stage == 0 { give back "unavailable-stage-context" }
+    if stage == 0 { give back cli_runtime_cache_run_marker(false, "", "unavailable-stage-context") }
     cli_runtime_cache_reset()
     pilot units = cli_runtime_cache_units(runtime_dir, target, cross)
     pilot material = ""
@@ -751,7 +762,7 @@ task cli_runtime_cache_run_context(executable: word, runtime_dir: word, target: 
     array_release(units)
     cli_runtime_cache_release()
     cli_runtime_cache_cleanup(stage)
-    if not valid { give back "unavailable-runtime-context" }
+    if not valid { give back cli_runtime_cache_run_marker(false, "", "unavailable-runtime-context") }
     cli_runtime_cache_context_ready = complete and cli_runtime_cache_tool_complete
-    give back cli_runtime_cache_digest(material)
+    give back cli_runtime_cache_run_marker(cli_runtime_cache_context_ready, cli_runtime_cache_digest(material), "unproved-tool-support")
 }

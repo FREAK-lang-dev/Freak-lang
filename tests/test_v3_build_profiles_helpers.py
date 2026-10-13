@@ -19,6 +19,55 @@ from unittest.mock import patch
 import v3_build_profiles as profiles
 
 
+class CompilationClassificationHelpers(unittest.TestCase):
+    def test_only_exact_simple_queries_are_probes(self):
+        for query in (["--version"], ["-dumpmachine"], ["-print-resource-dir"], ["-print-prog-name=ld"]):
+            with self.subTest(query=query):
+                self.assertFalse(profiles.clang_codegen_or_link(query))
+        for mixed in (["--version", "user.c"], ["user.c", "-print-resource-dir"],
+                      ["-o", "-###", "user.c"], ["user.c", "-print-prog-name=ld"]):
+            with self.subTest(mixed=mixed):
+                self.assertTrue(profiles.clang_codegen_or_link(mixed))
+
+    def test_cache_preprocessing_preserves_zero_codegen_oracle(self):
+        preprocessing = ["-E", "-MD", "-MF", "/private/cache/common.d", "-MT", "freak-cache",
+                         "-g", "-o", "/private/cache/common.i", "/payload/freak_runtime.c",
+                         "-I", "/payload", "-O3", "-w", "-flto=thin"]
+        self.assertFalse(profiles.clang_codegen_or_link(preprocessing))
+        for native_flag in ("-c", "-S", "-emit-llvm", "--precompile"):
+            with self.subTest(native_flag=native_flag):
+                self.assertTrue(profiles.clang_codegen_or_link(preprocessing + [native_flag]))
+        for flag in ("-E", "-MD", "-MF", "-MT", "-o"):
+            with self.subTest(missing=flag):
+                changed = preprocessing.copy()
+                changed.remove(flag)
+                self.assertTrue(profiles.clang_codegen_or_link(changed))
+            with self.subTest(duplicate=flag):
+                self.assertTrue(profiles.clang_codegen_or_link(preprocessing + [flag]))
+        for flag, wrong in (("-MT", "other"), ("-MF", "object.o"), ("-o", "object.o")):
+            with self.subTest(flag=flag, wrong=wrong):
+                changed = preprocessing.copy()
+                changed[changed.index(flag) + 1] = wrong
+                self.assertTrue(profiles.clang_codegen_or_link(changed))
+        self.assertTrue(profiles.clang_codegen_or_link(["--", *preprocessing]))
+
+    def test_actual_objects_and_links_always_remain_compilation(self):
+        rows = (["-c", "-x", "cpp-output", "common.i", "-o", "common.o"],
+                ["-g", "user.c", "common.o", "-O2", "-o", "program"],
+                ["user.ll", "llvm.o", "common.o", "-flto=thin", "-o", "program"],
+                ["-E"], [])
+        for row in rows:
+            with self.subTest(row=row):
+                self.assertTrue(profiles.clang_codegen_or_link(row))
+
+    def test_all_raw_rows_are_retained_while_only_codegen_is_classified(self):
+        rows = [["-print-resource-dir"], ["-###", "-c", "user.c"],
+                ["-c", "user.c", "-o", "user.o"], ["user.o", "-o", "program"]]
+        with patch.object(profiles, "read_log", return_value=rows):
+            self.assertEqual(profiles.compile_entries(Path("unused")), rows[2:])
+            self.assertEqual(profiles.read_log(Path("unused")), rows)
+
+
 def display_token(value):
     return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
 

@@ -108,15 +108,36 @@ def read_log(log: Path) -> list[list[str]]:
     return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
 
 
+def clang_codegen_or_link(arguments: list[str]) -> bool:
+    """Classify recorded argv without discarding the underlying raw receipt.
+
+    A warm whole-program run may probe or preprocess its current dependency
+    closure. It must still emit no object code and perform no fresh link.
+    Unknown or mixed invocations conservatively remain compilation entries.
+    """
+    if arguments in (["--version"], ["-dumpmachine"], ["-print-resource-dir"]):
+        return False
+    if len(arguments) == 1 and arguments[0].startswith("-print-prog-name="):
+        return False
+    if arguments[:1] == ["-###"]:
+        return False  # The selected Clang driver's dry-run, never execution.
+    if arguments[:1] == ["-E"] and not any(flag in arguments for flag in ("-c", "-S", "-emit-llvm", "--precompile")):
+        # This is the exact cache preprocessor recipe. Require each critical
+        # selector once and its actual paired value; malformed plans are not
+        # allowed to hide behind a warm no-compilation assertion.
+        if all(arguments.count(flag) == 1 for flag in ("-E", "-MD", "-MF", "-MT", "-o")):
+            def paired(flag: str) -> str | None:
+                index = arguments.index(flag)
+                return arguments[index + 1] if index + 1 < len(arguments) else None
+            dependency = paired("-MF")
+            output = paired("-o")
+            if paired("-MT") == "freak-cache" and dependency and output and dependency.endswith(".d") and output.endswith(".i"):
+                return False
+    return True
+
+
 def compile_entries(log: Path) -> list[list[str]]:
-    return [
-        args
-        for args in read_log(log)
-        if "--version" not in args
-        and "-dumpmachine" not in args
-        and "-###" not in args
-        and not any("print-prog-name" in arg for arg in args)
-    ]
+    return [arguments for arguments in read_log(log) if clang_codegen_or_link(arguments)]
 
 
 def binary_path(source: Path) -> Path:
