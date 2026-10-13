@@ -81,8 +81,20 @@ FAULT_SHIM = r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 static int triggered;
+static int replace_directory(int parent,const char *name,const char *moved,const char *foreign) {
+    int (*actual_open)(int,const char *,int,...)=dlsym(RTLD_NEXT,"openat");
+    ssize_t (*actual_write)(int,const void *,size_t)=dlsym(RTLD_NEXT,"write");
+    if (!actual_open || !actual_write || renameat(parent,name,parent,moved) || mkdirat(parent,name,0700)) return 0;
+    int file=actual_open(parent,foreign,O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,0600);
+    if (file < 0) return 0;
+    static const char bytes[]="foreign replacement directory authority";
+    ssize_t written=actual_write(file,bytes,sizeof(bytes)-1);
+    int synced=fsync(file),closed=close(file);
+    return written == (ssize_t)sizeof(bytes)-1 && !synced && !closed;
+}
 static int selected(int fd,const char *leaf) {
     const char *root=getenv("FREAK_INIT_CONTROL_ROOT");
     if (!root || !*root) return 0;
@@ -103,6 +115,14 @@ ssize_t write(int fd,const void *data,size_t size) {
         if (triggered++) { errno=ENOSPC; return -1; }
         return actual(fd,data,size < 5 ? size : 5);
     }
+    if (!triggered && mode && !strcmp(mode,"directory-retarget-before") && selected(fd,"README.md")) {
+        triggered=1;
+        int (*actual_open)(int,const char *,int,...)=dlsym(RTLD_NEXT,"openat");
+        int parent=actual_open ? actual_open(AT_FDCWD,getenv("FREAK_INIT_CONTROL_ROOT"),O_RDONLY | O_DIRECTORY | O_NOFOLLOW) : -1;
+        int replaced=parent >= 0 && replace_directory(parent,"src","src-held","src/foreign");
+        if (parent >= 0) close(parent);
+        if (!replaced) { errno=EIO; return -1; }
+    }
     return actual(fd,data,size);
 }
 int openat(int parent,const char *path,int flags,...) {
@@ -122,6 +142,15 @@ int openat(int parent,const char *path,int flags,...) {
         ssize_t written=actual_write(foreign,bytes,sizeof(bytes)-1);
         int synced=fsync(foreign),closed=close(foreign);
         if (written != (ssize_t)sizeof(bytes)-1 || synced || closed) { errno=EIO; return -1; }
+    }
+    if (!triggered && mode && (!strcmp(mode,"directory-retarget-after") || !strcmp(mode,"private-retarget")) &&
+        (flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL) &&
+        !strcmp(path,"hangar.toml") && selected(parent,NULL)) {
+        triggered=1;
+        int replaced=!strcmp(mode,"private-retarget") ?
+            replace_directory(parent,".freak",".freak-held",".freak/graph.lock") :
+            replace_directory(parent,"src","src-held","src/foreign");
+        if (!replaced) { errno=EIO; return -1; }
     }
     return actual_open(parent,path,flags,permissions);
 }
@@ -374,6 +403,37 @@ def native_corpus(binary: Path, canonical: Path, root: Path, env: dict,
         assert entries(target) == before
         assert "without replacement" in failed.stdout and "creation completed" not in failed.stdout, failed.stdout
         cases.append("actual-late-manifest-exclusive-create-refusal-and-preservation")
+
+        for mode in ("directory-retarget-before", "directory-retarget-after"):
+            target = root / ("actual-" + mode)
+            target.mkdir()
+            fault_env["FREAK_INIT_CONTROL_ROOT"] = str(target)
+            fault_env["FREAK_INIT_CONTROL_MODE"] = mode
+            failed = creator(binary, "existing", "cli", target, fault_env, progress, success=False)
+            assert "template directory identity changed during initialization: src" in failed.stdout, failed.stdout
+            required = expected(canonical, "cli", target.name)
+            if mode == "directory-retarget-before":
+                required.pop("hangar.toml")
+                assert not (target / "hangar.toml").exists()
+            required = {(key.replace("src/", "src-held/", 1) if key.startswith("src/") else key): data
+                        for key, data in required.items()}
+            required["src/foreign"] = b"foreign replacement directory authority"
+            assert regular_files(target) == required, regular_files(target)
+            assert "created entries remain in the captured project directory" in failed.stdout
+            cases.append("actual-" + mode + "-false-result-held-source-and-foreign-preservation")
+
+        target = root / "actual-private-retarget"
+        target.mkdir()
+        fault_env["FREAK_INIT_CONTROL_ROOT"] = str(target)
+        fault_env["FREAK_INIT_CONTROL_MODE"] = "private-retarget"
+        failed = creator(binary, "existing", "cli", target, fault_env, progress, success=False)
+        assert "template directory identity changed during initialization: .freak" in failed.stdout, failed.stdout
+        assert (target / ".freak/graph.lock").read_bytes() == b"foreign replacement directory authority"
+        assert not (target / ".freak-held/graph.lock").exists()
+        required = expected(canonical, "cli", target.name)
+        # The old, now-empty private directory may remain for truthful recovery.
+        assert regular_files(target) == required
+        cases.append("actual-private-retarget-false-result-owned-lock-abort-foreign-lock-preserved")
 
     return {"cases": cases, "canonical_kinds": 3, "preserved_entries": True,
             "consumer_postcreation_faults_verified": fault_shim is not None,

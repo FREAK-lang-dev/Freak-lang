@@ -317,6 +317,33 @@ task cli_template_copy_missing_file(source: int, parent: int, relative: word, le
     give back complete
 }
 
+task cli_template_directory_same(parent: int, name: word, held: int) -> bool {
+    pilot current = fs::open_relative_dir_ticket(parent, name + "")
+    pilot same = false
+    if fs::result_ok(current) {
+        pilot admitted = fs::directory_identity_ticket(held)
+        pilot observed = fs::directory_identity_ticket(current)
+        if fs::result_ok(admitted) and fs::result_ok(observed) { same = fs::result_word(admitted) == fs::result_word(observed) }
+        fs::result_release(observed)
+        fs::result_release(admitted)
+    }
+    fs::result_release(current)
+    if not same { cli_template_fail("template directory identity changed during initialization: " + name + "; created entries are retained and recovery is required") }
+    give back same
+}
+
+task cli_template_layout_same(project: int, src: int, tests: int, examples: int, consumer: int, consumer_src: int, consumer_tests: int, kind: word) -> bool {
+    if not cli_template_directory_same(project, "src", src) { give back false }
+    if not cli_template_directory_same(project, "tests", tests) { give back false }
+    if kind == "lib" {
+        if not cli_template_directory_same(project, "examples", examples) { give back false }
+        if not cli_template_directory_same(examples, "consumer", consumer) { give back false }
+        if not cli_template_directory_same(consumer, "src", consumer_src) { give back false }
+        if not cli_template_directory_same(consumer, "tests", consumer_tests) { give back false }
+    }
+    give back true
+}
+
 task cli_template_populate_existing(source: int, project: int, kind: word, name: word) -> bool {
     pilot src = cli_template_hold_directory(project, "src")
     pilot tests = 0
@@ -330,7 +357,8 @@ task cli_template_populate_existing(source: int, project: int, kind: word, name:
     if complete and kind == "lib" { consumer = cli_template_hold_directory(examples, "consumer") complete = consumer != 0 }
     if complete and kind == "lib" { consumer_src = cli_template_hold_directory(consumer, "src") complete = consumer_src != 0 }
     if complete and kind == "lib" { consumer_tests = cli_template_hold_directory(consumer, "tests") complete = consumer_tests != 0 }
-    pilot files = cli_template_files(kind)
+    if complete { complete = cli_template_layout_same(project, src, tests, examples, consumer, consumer_src, consumer_tests, kind + "") }
+    pilot files = cli_template_files(kind + "")
     pilot index = 0
     pilot relative = ""
     repeat until index >= files.length() or not complete {
@@ -352,8 +380,10 @@ task cli_template_populate_existing(source: int, project: int, kind: word, name:
         } else { relative = relative + ch }
         index += 1
     }
+    if complete { complete = cli_template_layout_same(project, src, tests, examples, consumer, consumer_src, consumer_tests, kind + "") }
     if complete { complete = cli_template_generation_ready(project) }
     if complete { complete = cli_template_copy_missing_file(source, project, "hangar.toml", "hangar.toml", name, false) }
+    if complete { complete = cli_template_layout_same(project, src, tests, examples, consumer, consumer_src, consumer_tests, kind) }
     if consumer_tests != 0 { fs::result_release(consumer_tests) }
     if consumer_src != 0 { fs::result_release(consumer_src) }
     if consumer != 0 { fs::result_release(consumer) }
@@ -396,11 +426,15 @@ task cli_initialize_project_at(template_name: word, project: int, project_name: 
             complete = private != 0
         }
         if complete {
+            complete = cli_template_directory_same(project, ".freak", private)
+        }
+        if complete {
             pilot held = fs::lock_dir_new_ticket(private, "graph.lock")
             if fs::result_ok(held) {
                 complete = cli_template_generation_ready(project)
                 if complete { complete = cli_template_journal_ready(private) }
                 if complete { complete = cli_template_populate_existing(source, project, template_name + "", project_name) }
+                if complete { complete = cli_template_directory_same(project, ".freak", private) }
                 if not complete {
                     pilot aborted = fs::abort_new_lock_checked(held)
                     if not fs::result_ok(aborted) { cli_template_error = cli_template_error + "; owned init lock rollback: " + fs::result_error(aborted) }
