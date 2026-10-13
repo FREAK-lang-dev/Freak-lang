@@ -70,7 +70,8 @@ def result_report(process, *, passed: bool, selected: Path,
     assert executed.is_absolute() and executed.name == ('test_0.exe' if os.name == 'nt' else 'test_0'), executed
     assert executed.parent.name.startswith('freak-tests-'), executed
     assert executed.parent.parent.resolve() == physical_parent, executed
-    assert output == OUTPUT + b'\n' + lines[1] + b'\n', output
+    normalized = output.replace(b'\r\n', b'\n') if os.name == 'nt' else output
+    assert normalized == OUTPUT + b'\n' + lines[1] + b'\n', output
     return report
 
 

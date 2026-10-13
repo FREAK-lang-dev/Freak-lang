@@ -34,6 +34,31 @@ sys.exit(7 if sys.argv[3].startswith('bad-') else int(sys.argv[3]) if sys.argv[3
 
 
 class ComponentEvidence(unittest.TestCase):
+    def test_prelaunch_report_is_preserved_without_becoming_current_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stale = b'{"matrices":[{}],"progress":{"outcome":"passed"}}\n'
+            report = root / "child.json"
+            report.write_bytes(stale)
+            with self.assertRaisesRegex(AssertionError, "failed \\(7\\)"):
+                run_child_gate(label="controlled component", repo=root, cwd=root,
+                               env=os.environ.copy(), timeout=1,
+                               evidence_dir=root / "evidence",
+                               command=[sys.executable, "-u", "-c", "import sys; sys.exit(7)",
+                                        "--report", str(report)])
+            prefix = root / "evidence/components/controlled-component"
+            record, = json.loads(prefix.with_suffix(".json").read_text())["records"]
+            self.assertEqual(record["returncode"], 7)
+            self.assertEqual(record["child_report"]["unavailable"], "FileNotFoundError")
+            self.assertNotIn("sha256", record["child_report"])
+            self.assertNotIn("progress", record["child_report"])
+            self.assertFalse(report.exists())
+            preserved = Path(record["previous_child_report"]["path"])
+            self.assertEqual(preserved.read_bytes(), stale)
+            self.assertEqual(preserved.parent.parent, root / "evidence/components")
+            self.assertEqual(record["previous_child_report"]["scope"],
+                             "preceding run; moved before launch")
+
     def execute(self, root: Path, mode: str) -> None:
         run_child_gate(label="controlled component", repo=root, cwd=root,
                        env=os.environ.copy(), timeout=1,

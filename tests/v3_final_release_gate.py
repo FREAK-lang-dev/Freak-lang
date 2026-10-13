@@ -849,8 +849,22 @@ def run_child_gate(
     name = "".join(char.lower() if char.isascii() and char.isalnum() else "-" for char in label)
     prefix = directory / name
     records: list[dict] = []
+    previous_report: Path | None = None
+    if "--report" in command:
+        report = Path(command[command.index("--report") + 1])
+        try:
+            report.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            prior = Path(tempfile.mkdtemp(prefix=name + "-prior-report-", dir=directory))
+            previous_report = report.replace(prior / "report.json")
 
     def checkpoint(_=None) -> None:
+        if previous_report is not None:
+            records[-1]["previous_child_report"] = {
+                "path": str(previous_report), "scope": "preceding run; moved before launch",
+            }
         if "--report" in command:
             report = Path(command[command.index("--report") + 1])
             snapshot = {"path": str(report)}
