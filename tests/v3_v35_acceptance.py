@@ -74,7 +74,7 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
                 prefix: Path, records: list[dict], expected: int | None = 0,
                 timeout: float = 180, preexec_fn: Callable[[], None] | None = None,
                 on_record: Callable[[dict], None] | None = None) -> subprocess.CompletedProcess[bytes]:
-    """Retain the original timeout and partial channels after bounded cleanup."""
+    """Retain the original failure and partial channels after bounded cleanup."""
     began = time.monotonic()
     record = {'case': label, 'argv': command, 'cwd': str(cwd), 'expected': expected,
               'timeout_seconds': timeout}
@@ -97,11 +97,21 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
                 # propagating a checkpoint failure.
                 recording_error = error
                 record.setdefault('recording_errors', []).append(repr(error))
-        try:
-            stdout, stderr = child.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired as original:
-            record['timed_out'] = True
-            stdout, stderr = original.output or b'', original.stderr or b''
+        stdout, stderr = child.communicate(timeout=timeout)
+    except BaseException as original:
+        if child is not None:
+            # Every exceptional exit after launch owns this process tree,
+            # including interruptions in communicate or the PID checkpoint.
+            # Keep one cleanup path so a timeout is never cleaned up twice.
+            if isinstance(original, subprocess.TimeoutExpired):
+                record['timed_out'] = True
+            record['cleanup_trigger'] = type(original).__name__
+            partial_stdout = getattr(original, 'output', None)
+            partial_stderr = getattr(original, 'stderr', None)
+            if partial_stdout is not None:
+                stdout = partial_stdout
+            if partial_stderr is not None:
+                stderr = partial_stderr
             cleanup_errors = []
             try:
                 if os.name == 'nt':
@@ -118,21 +128,44 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
                 # The owned group has already exited; bounded pipe capture and
                 # direct-child reaping still run below.
                 pass
-            except Exception as error:
+            except BaseException as error:
                 cleanup_errors.append(repr(error))
             try:
-                if child.poll() is None:
+                running = child.poll() is None
+            except BaseException as error:
+                cleanup_errors.append(repr(error))
+                running = True
+            if running:
+                try:
                     child.kill()
+                except BaseException as error:
+                    cleanup_errors.append(repr(error))
+            capture_failed = False
+            try:
                 stdout, stderr = child.communicate(timeout=10)
             except subprocess.TimeoutExpired as recovery:
                 # communicate's partial bytes include the earlier capture.
                 stdout = recovery.output if recovery.output is not None else stdout
                 stderr = recovery.stderr if recovery.stderr is not None else stderr
                 cleanup_errors.append('recovery communicate exceeded 10 seconds')
+                capture_failed = True
+            except BaseException as error:
+                partial_stdout = getattr(error, 'output', None)
+                partial_stderr = getattr(error, 'stderr', None)
+                if partial_stdout is not None:
+                    stdout = partial_stdout
+                if partial_stderr is not None:
+                    stderr = partial_stderr
+                cleanup_errors.append(repr(error))
+                capture_failed = True
+            if capture_failed:
                 if os.name != 'nt':
                     for stream in (child.stdout, child.stderr):
                         if stream is not None:
-                            stream.close()
+                            try:
+                                stream.close()
+                            except BaseException as error:
+                                cleanup_errors.append(repr(error))
                 else:
                     # Windows communicate uses daemon readers. A descendant
                     # may still hold the write end when taskkill fails; close
@@ -140,15 +173,17 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
                     # The readers retain their streams until EOF. Keep this
                     # recovery bounded and report the failed cleanup above.
                     record['reader_cleanup'] = 'deferred until inherited pipes reach EOF'
-                try:
-                    child.wait(timeout=5)
-                except Exception as error:
-                    cleanup_errors.append(repr(error))
-            except Exception as error:
+            try:
+                child.wait(timeout=5)
+            except BaseException as error:
                 cleanup_errors.append(repr(error))
+            if child.returncode is None:
+                cleanup_errors.append('direct child termination was not confirmed')
             record['cleanup_errors'] = cleanup_errors
-            original.output, original.stderr = stdout, stderr
-            raise
+            record['cleanup_failed'] = bool(cleanup_errors)
+            if isinstance(original, subprocess.TimeoutExpired):
+                original.output, original.stderr = stdout, stderr
+        raise
     finally:
         original_error = sys.exc_info()[1]
         record.update(returncode=child.returncode if child is not None else None,
@@ -163,7 +198,7 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
             try:
                 path.write_bytes(data)
                 retained['written'] = True
-            except Exception as error:
+            except BaseException as error:
                 # Attempt the other channel and terminal checkpoint even when
                 # evidence storage fails. Keep the first operation/setup cause.
                 retained['error'] = repr(error)
@@ -175,7 +210,7 @@ def run_command(command: list[str], *, cwd: Path, env: dict, label: str,
         if on_record is not None:
             try:
                 on_record(record)
-            except Exception as error:
+            except BaseException as error:
                 record.setdefault('recording_errors', []).append(repr(error))
                 if recording_error is None:
                     recording_error = error

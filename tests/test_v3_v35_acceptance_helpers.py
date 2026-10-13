@@ -172,6 +172,196 @@ def assert_comparative_idle_trickle(cadence: dict, receiver_receipt: dict, elaps
     assert elapsed >= 3.2 and response >= 3_200_000_000, ('comparative idle response arrived early', elapsed)
 
 
+class OwnedCommandCleanupControls(unittest.TestCase):
+    """Inert owned-child controls; every fake PID signal is intercepted."""
+
+    def child(self, effects):
+        child = Mock(pid=123456789, returncode=None,
+                     stdout=io.BytesIO(), stderr=io.BytesIO())
+        child.communicate.side_effect = effects
+        child.poll.side_effect = lambda: child.returncode
+        child.kill.side_effect = lambda: setattr(child, 'returncode', -9)
+        child.wait.side_effect = lambda **kwargs: child.returncode
+        return child
+
+    def invoke(self, root, child, records, *, checkpoint=None, windows=False):
+        from types import SimpleNamespace
+        platform = SimpleNamespace(name='nt') if windows else acceptance.os
+        cleanup = subprocess.CompletedProcess([], 0, b'tree stopped', b'')
+        with patch.object(acceptance, 'os', platform), \
+                patch.object(acceptance.subprocess, 'Popen', return_value=child), \
+                patch.object(acceptance.subprocess, 'run', return_value=cleanup) as taskkill, \
+                patch.object(platform, 'killpg', create=True) as group_kill:
+            try:
+                acceptance.run_command(['inert'], cwd=root, env={}, label='owned-error',
+                                       prefix=root / 'owned-error', records=records,
+                                       timeout=120, on_record=checkpoint)
+            except BaseException as error:
+                return error, taskkill, group_kill
+        self.fail('the original command failure was lost')
+
+    def test_communicate_interrupt_and_exception_stop_owned_tree_and_reap(self):
+        for windows in (False, True):
+            for primary in (KeyboardInterrupt('controlled interruption'),
+                            RuntimeError('controlled communicate failure')):
+                with self.subTest(windows=windows, cause=type(primary).__name__), \
+                        tempfile.TemporaryDirectory() as temporary:
+                    root, records = Path(temporary), []
+                    child = self.child([primary, (b'partial stdout', b'partial stderr')])
+                    error, taskkill, group_kill = self.invoke(root, child, records, windows=windows)
+                    self.assertIs(error, primary)
+                    self.assertEqual([call.kwargs['timeout'] for call in child.communicate.call_args_list], [120, 10])
+                    child.kill.assert_called_once_with()
+                    child.wait.assert_called_once_with(timeout=5)
+                    self.assertEqual((root / 'owned-error.stdout').read_bytes(), b'partial stdout')
+                    self.assertEqual((root / 'owned-error.stderr').read_bytes(), b'partial stderr')
+                    self.assertEqual(records[0]['returncode'], -9)
+                    self.assertEqual(records[0]['error'], repr(primary))
+                    self.assertEqual(records[0]['cleanup_errors'], [])
+                    self.assertFalse(records[0]['cleanup_failed'])
+                    self.assertNotIn('timed_out', records[0])
+                    if windows:
+                        taskkill.assert_called_once_with(
+                            ['taskkill', '/PID', '123456789', '/T', '/F'],
+                            capture_output=True, timeout=10)
+                        group_kill.assert_not_called()
+                    else:
+                        group_kill.assert_called_once_with(child.pid, acceptance.signal.SIGKILL)
+                        taskkill.assert_not_called()
+
+    def test_pid_checkpoint_interrupt_cleans_up_before_original_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            primary = KeyboardInterrupt('controlled PID checkpoint interruption')
+            child = self.child([(b'checkpoint stdout', b'checkpoint stderr')])
+            def checkpoint(record):
+                if 'pid' in record and 'returncode' not in record:
+                    raise primary
+            error, _, group_kill = self.invoke(root, child, records, checkpoint=checkpoint)
+            self.assertIs(error, primary)
+            child.communicate.assert_called_once_with(timeout=10)
+            child.kill.assert_called_once_with()
+            child.wait.assert_called_once_with(timeout=5)
+            group_kill.assert_called_once()
+            self.assertEqual(records[0]['error'], repr(primary))
+            self.assertEqual((root / 'owned-error.stdout').read_bytes(), b'checkpoint stdout')
+            self.assertEqual((root / 'owned-error.stderr').read_bytes(), b'checkpoint stderr')
+
+    def test_prelaunch_interrupt_never_terminates_an_unowned_pid(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            primary = KeyboardInterrupt('controlled initial checkpoint interruption')
+            child = self.child([])
+            def checkpoint(record):
+                raise primary
+            error, taskkill, group_kill = self.invoke(root, child, records, checkpoint=checkpoint)
+            self.assertIs(error, primary)
+            child.communicate.assert_not_called()
+            child.kill.assert_not_called()
+            child.wait.assert_not_called()
+            taskkill.assert_not_called()
+            group_kill.assert_not_called()
+            self.assertIsNone(records[0]['returncode'])
+            self.assertEqual((root / 'owned-error.stdout').read_bytes(), b'')
+            self.assertEqual((root / 'owned-error.stderr').read_bytes(), b'')
+            self.assertEqual(records[0]['recording_errors'], [repr(primary)])
+
+    def test_cleanup_failures_keep_original_cause_partial_channels_and_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records, terminal = Path(temporary), [], []
+            primary = RuntimeError('controlled primary failure')
+            primary.output, primary.stderr = b'first stdout', b'first stderr'
+            recovery = RuntimeError('controlled capture failure')
+            recovery.output, recovery.stderr = b'last stdout', b'last stderr'
+            child = self.child([primary, recovery])
+            child.poll.side_effect = RuntimeError('controlled poll failure')
+            child.kill.side_effect = OSError('controlled kill failure')
+            child.wait.side_effect = subprocess.TimeoutExpired(['inert'], 5)
+            checkpoint_error = KeyboardInterrupt('controlled terminal checkpoint interruption')
+            def checkpoint(record):
+                if 'returncode' in record:
+                    terminal.append(dict(record))
+                    raise checkpoint_error
+            with patch.object(acceptance.subprocess, 'Popen', return_value=child), \
+                    patch.object(acceptance.os, 'killpg', side_effect=OSError('controlled group kill failure')):
+                with self.assertRaises(RuntimeError) as caught:
+                    acceptance.run_command(['inert'], cwd=root, env={}, label='owned-error',
+                                           prefix=root / 'owned-error', records=records,
+                                           timeout=120, on_record=checkpoint)
+            self.assertIs(caught.exception, primary)
+            self.assertEqual((root / 'owned-error.stdout').read_bytes(), b'last stdout')
+            self.assertEqual((root / 'owned-error.stderr').read_bytes(), b'last stderr')
+            child.kill.assert_called_once_with()
+            child.wait.assert_called_once_with(timeout=5)
+            self.assertTrue(child.stdout.closed and child.stderr.closed)
+            self.assertTrue(records[0]['cleanup_failed'])
+            self.assertEqual(records[0]['cleanup_errors'], [
+                "OSError('controlled group kill failure')", "RuntimeError('controlled poll failure')",
+                "OSError('controlled kill failure')", repr(recovery),
+                repr(child.wait.side_effect), 'direct child termination was not confirmed'])
+            self.assertEqual(records[0]['error'], repr(primary))
+            self.assertEqual(records[0]['recording_errors'], [repr(checkpoint_error)])
+            self.assertEqual(terminal[-1]['stdout_sha256'], acceptance.sha(root / 'owned-error.stdout'))
+            self.assertEqual(terminal[-1]['stderr_sha256'], acceptance.sha(root / 'owned-error.stderr'))
+
+    def test_windows_capture_failure_defers_reader_close_and_reaps_direct_child(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            primary = KeyboardInterrupt('controlled interruption')
+            recovery = subprocess.TimeoutExpired(['inert'], 10, output=b'last stdout', stderr=b'last stderr')
+            child = self.child([primary, recovery])
+            error, taskkill, _ = self.invoke(root, child, records, windows=True)
+            self.assertIs(error, primary)
+            taskkill.assert_called_once()
+            child.wait.assert_called_once_with(timeout=5)
+            self.assertFalse(child.stdout.closed or child.stderr.closed)
+            self.assertEqual(records[0]['reader_cleanup'], 'deferred until inherited pipes reach EOF')
+            self.assertEqual(records[0]['cleanup_errors'], ['recovery communicate exceeded 10 seconds'])
+            self.assertTrue(records[0]['cleanup_failed'])
+            self.assertEqual((root / 'owned-error.stdout').read_bytes(), b'last stdout')
+            self.assertEqual((root / 'owned-error.stderr').read_bytes(), b'last stderr')
+
+    def test_secondary_cleanup_interruptions_preserve_first_cause_and_channels(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            primary = RuntimeError('controlled primary failure')
+            primary.output, primary.stderr = b'first stdout', b'first stderr'
+            tree_error = KeyboardInterrupt('controlled taskkill interruption')
+            capture_error = KeyboardInterrupt('controlled capture interruption')
+            child = self.child([primary, capture_error])
+            with patch.object(acceptance, 'os', SimpleNamespace(name='nt')), \
+                    patch.object(acceptance.subprocess, 'Popen', return_value=child), \
+                    patch.object(acceptance.subprocess, 'run', side_effect=tree_error):
+                with self.assertRaises(RuntimeError) as caught:
+                    acceptance.run_command(['inert'], cwd=root, env={}, label='owned-error',
+                                           prefix=root / 'owned-error', records=records, timeout=120)
+            self.assertIs(caught.exception, primary)
+            child.kill.assert_called_once_with()
+            child.wait.assert_called_once_with(timeout=5)
+            self.assertEqual(records[0]['cleanup_errors'], [repr(tree_error), repr(capture_error)])
+            self.assertTrue(records[0]['cleanup_failed'])
+            self.assertEqual(records[0]['error'], repr(primary))
+            self.assertEqual((root / 'owned-error.stdout').read_bytes(), b'first stdout')
+            self.assertEqual((root / 'owned-error.stderr').read_bytes(), b'first stderr')
+
+    def test_timeout_uses_one_cleanup_and_keeps_original_timeout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            primary = subprocess.TimeoutExpired(['inert'], 120, output=b'first', stderr=b'first error')
+            child = self.child([primary, (b'first later', b'first error later')])
+            error, _, group_kill = self.invoke(root, child, records)
+            self.assertIs(error, primary)
+            self.assertEqual(primary.timeout, 120)
+            self.assertEqual((primary.output, primary.stderr), (b'first later', b'first error later'))
+            group_kill.assert_called_once_with(child.pid, acceptance.signal.SIGKILL)
+            child.kill.assert_called_once_with()
+            child.wait.assert_called_once_with(timeout=5)
+            self.assertEqual([call.kwargs['timeout'] for call in child.communicate.call_args_list], [120, 10])
+            self.assertTrue(records[0]['timed_out'])
+            self.assertFalse(records[0]['cleanup_failed'])
+
+
 class AcceptanceHelpers(unittest.TestCase):
     def test_success_keeps_separate_raw_channels_and_exit(self):
         with tempfile.TemporaryDirectory() as temporary:
