@@ -27,7 +27,7 @@ def literal(value: str) -> str:
         raise ValueError('embedded FREAK literals cannot contain NUL')
     if any(ord(c) < 32 and c not in '\n\r\t' for c in value):
         raise ValueError('embedded diagnostic text contains an unsupported control character')
-    return json.dumps(value, ensure_ascii=False)
+    return json.dumps(value, ensure_ascii=False).replace('{', r'\{').replace('}', r'\}')
 
 
 def read(name: str):
