@@ -13,7 +13,7 @@ import contextlib
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePath, PureWindowsPath
 import re
 import shlex
 import sys
@@ -52,7 +52,7 @@ def snapshot(directory: Path) -> dict:
             for path in sorted(directory.rglob("*"))}
 
 
-def posix_recorder_launcher(python: str, recorder: Path) -> str:
+def posix_recorder_launcher(python: str, recorder: PurePath | str) -> str:
     return f'#!/bin/sh\nexec {shlex.quote(python)} {shlex.quote(str(recorder))} "$@"\n'
 
 
@@ -77,7 +77,7 @@ def literal_path_controls() -> int:
         ('/tools/"quote"/$PYTHON/`literal`/python', '/scratch/"quote"/$TMPDIR/`literal`/record.py'),
     )
     for python, recorder in spellings:
-        launcher = posix_recorder_launcher(python, Path(recorder))
+        launcher = posix_recorder_launcher(python, recorder)
         assert shlex.split(launcher, comments=True) == ["exec", python, recorder, "$@"]
         assert launcher == ("#!/bin/sh\nexec " + shlex.quote(python) + " " +
                             shlex.quote(recorder) + ' "$@"\n')
@@ -85,7 +85,13 @@ def literal_path_controls() -> int:
     unsafe = f'#!/bin/sh\nexec "{python}" "{recorder}" "$@"\n'
     assert shlex.split(unsafe, comments=True) != ["exec", python, recorder, "$@"], (
         "unsafe inherited launcher control did not expose its literal-quote defect")
-    return len(spellings)
+    # Keep these lexical controls independent of the executing host's Path
+    # flavor, including when a Windows runner exercises --static.
+    windows_python = str(PureWindowsPath(r'C:\tools\"literal"\$PYTHON\`literal`\python.exe'))
+    windows_recorder = PureWindowsPath(r'D:\scratch\"literal"\$TMPDIR\`literal`\record.py')
+    assert shlex.split(posix_recorder_launcher(windows_python, windows_recorder), comments=True) == [
+        "exec", windows_python, str(windows_recorder), "$@"]
+    return len(spellings) + 1
 
 
 def text(output: bytes) -> bytes:
