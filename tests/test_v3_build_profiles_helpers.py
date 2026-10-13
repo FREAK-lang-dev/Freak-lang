@@ -32,8 +32,13 @@ class CompilationClassificationHelpers(unittest.TestCase):
     def test_cache_preprocessing_preserves_zero_codegen_oracle(self):
         preprocessing = ["-E", "-MD", "-MF", "/private/cache/common.d", "-MT", "freak-cache",
                          "-g", "-o", "/private/cache/common.i", "/payload/freak_runtime.c",
-                         "-I", "/payload", "-O3", "-w", "-flto=thin"]
+                         "-I", "/payload", "-O3", "-w", "-D_CRT_SECURE_NO_WARNINGS"]
         self.assertFalse(profiles.clang_codegen_or_link(preprocessing))
+        for tail in (["-flto=thin", "-fuse-ld=lld"], ["-flto", "-fuse-ld=ld"],
+                     ["--target=x86_64-pc-windows-msvc", "-DFREAK_HAS_UI"],
+                     ["-flto", "-fuse-ld=lld", "-DFREAK_HAS_UI"]):
+            with self.subTest(tail=tail):
+                self.assertFalse(profiles.clang_codegen_or_link(preprocessing + tail))
         for native_flag in ("-c", "-S", "-emit-llvm", "--precompile"):
             with self.subTest(native_flag=native_flag):
                 self.assertTrue(profiles.clang_codegen_or_link(preprocessing + [native_flag]))
@@ -50,6 +55,11 @@ class CompilationClassificationHelpers(unittest.TestCase):
                 changed[changed.index(flag) + 1] = wrong
                 self.assertTrue(profiles.clang_codegen_or_link(changed))
         self.assertTrue(profiles.clang_codegen_or_link(["--", *preprocessing]))
+        for escape in (["-Xclang", "-emit-obj"], ["-Xclang", "-load", "plugin.so"],
+                       ["-mllvm", "-some-action"], ["@response.txt"], ["--config=config.cfg"],
+                       ["extra.c"], ["-x", "c"], ["-flto"], ["-fuse-ld=lld"]):
+            with self.subTest(escape=escape):
+                self.assertTrue(profiles.clang_codegen_or_link(preprocessing + escape))
 
     def test_actual_objects_and_links_always_remain_compilation(self):
         rows = (["-c", "-x", "cpp-output", "common.i", "-o", "common.o"],

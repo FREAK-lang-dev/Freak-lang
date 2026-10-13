@@ -121,17 +121,23 @@ def clang_codegen_or_link(arguments: list[str]) -> bool:
         return False
     if arguments[:1] == ["-###"]:
         return False  # The selected Clang driver's dry-run, never execution.
-    if arguments[:1] == ["-E"] and not any(flag in arguments for flag in ("-c", "-S", "-emit-llvm", "--precompile")):
-        # This is the exact cache preprocessor recipe. Require each critical
-        # selector once and its actual paired value; malformed plans are not
-        # allowed to hide behind a warm no-compilation assertion.
-        if all(arguments.count(flag) == 1 for flag in ("-E", "-MD", "-MF", "-MT", "-o")):
-            def paired(flag: str) -> str | None:
-                index = arguments.index(flag)
-                return arguments[index + 1] if index + 1 < len(arguments) else None
-            dependency = paired("-MF")
-            output = paired("-o")
-            if paired("-MT") == "freak-cache" and dependency and output and dependency.endswith(".d") and output.endswith(".i"):
+    # Match the complete ordered recipe emitted by runtime_cache_preprocess.
+    # Unknown frontend/plugin/config/response options can override -E; such
+    # plans must never hide object emission behind the no-codegen warm oracle.
+    if len(arguments) >= 15 and arguments[:3] == ["-E", "-MD", "-MF"]:
+        def ordinary(value: str, suffix: str = "") -> bool:
+            return bool(value) and not value.startswith(("-", "@")) and value.endswith(suffix)
+        if (arguments[4:8] == ["-MT", "freak-cache", "-g", "-o"]
+                and ordinary(arguments[3], ".d") and ordinary(arguments[8], ".i")
+                and ordinary(arguments[9], ".c") and arguments[10] == "-I"
+                and ordinary(arguments[11]) and arguments[12] in ("-O0", "-O1", "-O2", "-O3")
+                and arguments[13:15] == ["-w", "-D_CRT_SECURE_NO_WARNINGS"]):
+            tail = arguments[15:]
+            if tail and re.fullmatch(r"--target=[A-Za-z0-9_.-]+", tail[0]):
+                tail = tail[1:]
+            if len(tail) >= 2 and tail[0] in ("-flto", "-flto=thin") and tail[1] in ("-fuse-ld=ld", "-fuse-ld=lld"):
+                tail = tail[2:]
+            if tail in ([], ["-DFREAK_HAS_UI"]):
                 return False
     return True
 
