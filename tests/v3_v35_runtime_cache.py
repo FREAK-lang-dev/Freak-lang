@@ -240,6 +240,93 @@ class SourceControls(unittest.TestCase):
         self.assertIn('launch_fingerprint != fingerprint', run)
 
 
+class _CacheLaunch:
+    """Regular-file capture and a shared, directly reapable command lifeline.
+
+    The caller registers this owner before allocating files or launching. The
+    shared helper owns parent-death containment; this adapter adds no keeper.
+    """
+    def __init__(self, prefix: Path, record: dict, timeout: float) -> None:
+        self.prefix = prefix
+        self.record = record
+        self.timeout = timeout
+        self.output = self.errors = None
+        self.child = None
+        self.keeper = None
+        self.finished = False
+
+    def launch(self, argv: list[str], cwd: Path, env: dict[str, str]):
+        self.output = self.prefix.with_suffix(".stdout").open("wb")
+        self.errors = self.prefix.with_suffix(".stderr").open("wb")
+        options = {}
+        if os.name != "nt":
+            # This immutable prerequisite supplies all isolation options,
+            # including an owned PGID while retaining the caller's SID.
+            from v3_v35_acceptance import _CommandLifeline
+            self.keeper = _CommandLifeline(self.timeout)
+            self.record["keeper"] = self.keeper.context
+            options = self.keeper.options(None)
+        spawn = self.keeper.spawn if self.keeper is not None else subprocess.Popen
+        self.child = spawn(argv, cwd=cwd, env=env, stdout=self.output,
+                           stderr=self.errors, **options)
+        # All steps after Popen, including readiness and PID checkpoint, are
+        # inside the caller's cleanup guard. The child is already retained here.
+        self.record["owned_pid"] = self.child.pid
+        if self.keeper is not None:
+            self.keeper.context["popen_returned"] = True
+            self.keeper.registered(self.child)
+            self.record["owned_pgid"] = self.keeper.context["pgid"]
+        return self.child
+
+    def finish(self, normal: bool) -> list[str]:
+        if self.finished:
+            return []
+        self.finished = True
+        notes = []
+        keeper_failed = False
+        if self.child is None and self.keeper is not None:
+            # The shared spawn API retains the actual Popen object before its
+            # constructor. A constructor interrupted after fork must still be
+            # waited/reaped even though launch() never returned to its caller.
+            partial = self.keeper.native
+            if partial is not None and getattr(partial, "_child_created", False):
+                self.child = partial
+                self.record["owned_pid"] = partial.pid
+                if self.keeper.context.get("pgid") == partial.pid:
+                    self.record["owned_pgid"] = partial.pid
+        if self.keeper is not None:
+            try:
+                # Normal finish also drains residual descendants and actually
+                # waits/reaps the direct keeper. EOF handles abrupt owner death.
+                self.keeper.finish(normal)
+            except BaseException as error:
+                keeper_failed = True
+                notes.append(f"shared lifeline finish: {type(error).__name__}: {error}")
+        if self.child is not None:
+            if self.keeper is None or keeper_failed:
+                # Windows remains an explicitly unqualified direct-child model.
+                # A failed POSIX lifeline only uses the fallback while the
+                # unreaped direct child still pins its exact owned PID/group.
+                try:
+                    running = self.child.poll() is None
+                except BaseException as error:
+                    running = True
+                    notes.append(f"child status: {type(error).__name__}: {error}")
+                if running:
+                    notes.extend(Evidence.stop_owned(self.child))
+            try:
+                self.child.wait(timeout=5)
+            except BaseException as error:
+                notes.append(f"owned child reap: {type(error).__name__}: {error}")
+        for channel in (self.output, self.errors):
+            if channel is not None:
+                try:
+                    channel.close()
+                except BaseException as error:
+                    notes.append(f"capture close: {type(error).__name__}: {error}")
+        return notes
+
+
 class Evidence:
     def __init__(self, root: Path) -> None:
         root.mkdir(parents=True, exist_ok=False)
@@ -271,10 +358,11 @@ class Evidence:
 
     @staticmethod
     def stop_owned(child: subprocess.Popen[bytes]) -> list[str]:
-        """Bounded containment of this exact newly created session.
+        """Fallback while the unreaped direct child pins its private PGID.
 
-        Always address the owned group even if the direct tracer has exited;
-        compiler descendants may remain. Cleanup errors are secondary facts.
+        The normal POSIX path uses the live shared keeper to drain descendants,
+        including after the tracer exits. Never use this fallback on a reaped
+        leader whose numeric group identity may have been recycled.
         """
         notes: list[str] = []
         for action in (signal.SIGTERM, signal.SIGKILL):
@@ -292,8 +380,17 @@ class Evidence:
                 notes.append(f"owned group termination: {type(error).__name__}: {error}")
             try:
                 child.wait(timeout=2 if action == signal.SIGTERM else 5)
+                # A successful wait releases the direct leader's PID identity.
+                # Residual POSIX group containment belongs to the live keeper;
+                # a fallback must never signal this number again after reap.
+                break
+            except subprocess.TimeoutExpired:
+                if action == signal.SIGKILL:
+                    notes.append("owned parent did not exit after bounded kill")
             except BaseException as error:
                 notes.append(f"owned parent reap: {type(error).__name__}: {error}")
+                if child.returncode is not None:
+                    break
         return notes
 
     @staticmethod
@@ -314,54 +411,105 @@ class Evidence:
             actual = ["strace", "-f", "-s", "65536", "-e", "trace=execve", "-o", str(trace_path), "--", *argv]
         record = {"argv": actual, "cwd": str(cwd), "label": label, "timeout_seconds": timeout, "status": "running"}
         self.report["commands"].append(record)
-        self.save()
-        started = time.monotonic()
-        with prefix.with_suffix(".stdout").open("wb") as output, prefix.with_suffix(".stderr").open("wb") as errors:
-            child = subprocess.Popen(actual, cwd=cwd, env=env, stdout=output, stderr=errors, start_new_session=os.name != "nt")
-            record["owned_pid"] = child.pid
+        owner = _CacheLaunch(prefix, record, timeout)
+        began = time.monotonic()
+        completed = False
+        try:
+            self.save()
+            child = owner.launch(actual, cwd, env)
             self.save()
             hook_fired = False
+            if runtime_hook or interrupt_runtime:
+                assert trace and sys.platform.startswith("linux"), "runtime hooks require actual Linux execve tracing"
+                while child.poll() is None:
+                    if time.monotonic() - began >= timeout:
+                        raise subprocess.TimeoutExpired(actual, timeout)
+                    if not hook_fired and trace_path.is_file() and runtime_compiles(trace_path.read_text(errors="replace")):
+                        hook_fired = True
+                        if runtime_hook:
+                            runtime_hook()
+                        if interrupt_runtime:
+                            os.killpg(record["owned_pgid"], signal.SIGTERM)
+                    time.sleep(0.02)
+                returncode = child.returncode
+                assert hook_fired, "actual runtime compiler never reached the requested hook"
+                record["runtime_compile_hook_fired"] = True
+            else:
+                returncode = child.wait(timeout=timeout)
+            completed = True
+            record.update(status="completed", returncode=returncode, elapsed_ms=int((time.monotonic() - began) * 1000))
+        except BaseException as primary:
+            record.update(status="timed_out" if isinstance(primary, subprocess.TimeoutExpired) else "harness_failed",
+                          error=f"{type(primary).__name__}: {primary}", elapsed_ms=int((time.monotonic() - began) * 1000))
+            raise
+        finally:
+            primary = sys.exc_info()[1]
+            record["cleanup_notes"] = owner.finish(completed)
+            self.retain_channels(prefix, record, trace)
             try:
-                if runtime_hook or interrupt_runtime:
-                    assert trace and sys.platform.startswith("linux"), "runtime hooks require actual Linux execve tracing"
-                    while child.poll() is None:
-                        if time.monotonic() - started >= timeout:
-                            raise subprocess.TimeoutExpired(actual, timeout)
-                        if not hook_fired and trace_path.is_file() and runtime_compiles(trace_path.read_text(errors="replace")):
-                            hook_fired = True
-                            if runtime_hook:
-                                runtime_hook()
-                            if interrupt_runtime:
-                                os.killpg(child.pid, signal.SIGTERM)
-                        time.sleep(0.02)
-                    returncode = child.returncode
-                    assert hook_fired, "actual runtime compiler never reached the requested hook"
-                    record["runtime_compile_hook_fired"] = True
-                else:
-                    returncode = child.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                record.update(status="timed_out", elapsed_ms=int((time.monotonic() - started) * 1000), cleanup_notes=self.stop_owned(child))
-                self.retain_channels(prefix, record, trace)
-                try:
-                    self.save()
-                except BaseException as error:
-                    record.setdefault("secondary_evidence_errors", []).append(f"report publication: {type(error).__name__}: {error}")
-                raise
-            except BaseException as error:
-                record.update(status="harness_failed", error=f"{type(error).__name__}: {error}", cleanup_notes=self.stop_owned(child))
-                self.retain_channels(prefix, record, trace)
-                try:
-                    self.save()
-                except BaseException as secondary:
-                    record.setdefault("secondary_evidence_errors", []).append(f"report publication: {type(secondary).__name__}: {secondary}")
-                raise
-            if interrupt_runtime:
-                record["cleanup_notes"] = self.stop_owned(child)
-        record.update(status="completed", returncode=returncode, elapsed_ms=int((time.monotonic() - started) * 1000))
-        self.retain_channels(prefix, record, trace)
-        self.save()
+                self.save()
+            except BaseException as secondary:
+                record.setdefault("secondary_evidence_errors", []).append(f"report publication: {type(secondary).__name__}: {secondary}")
+                if primary is None:
+                    raise
+                primary.add_note(f"secondary command report publication: {type(secondary).__name__}: {secondary}")
+        if record["cleanup_notes"]:
+            raise RuntimeError("cache command containment was not confirmed: " + "; ".join(record["cleanup_notes"]))
         text = ANSI.sub("", prefix.with_suffix(".stdout").read_bytes().decode("utf-8", "replace") + prefix.with_suffix(".stderr").read_bytes().decode("utf-8", "replace"))
         return returncode, text, trace_path.read_text(errors="replace") if trace else ""
+
+    def invoke_concurrent(self, commands: list[list[str]], cwd: Path, env: dict[str, str], *, trace: bool = True, timeout: int = 240) -> None:
+        assert 0 < len(commands) <= 2, "explicit concurrency budget is at most two command children"
+        owners = []
+        completed = False
+        began = time.monotonic()
+        try:
+            for index, command in enumerate(commands):
+                prefix = self.root / f"concurrent-{index}"
+                actual = list(command)
+                if trace:
+                    actual = ["strace", "-f", "-s", "65536", "-e", "trace=execve", "-o", str(prefix.with_suffix(".execve")), "--", *command]
+                record = {"label": f"concurrent-writer-{index}", "argv": actual, "cwd": str(cwd), "timeout_seconds": timeout, "status": "running"}
+                owner = _CacheLaunch(prefix, record, timeout)
+                # Register before either capture-open or Popen can fail. Every
+                # prior launch and every partially opened file remains owned.
+                owners.append(owner)
+                self.report["commands"].append(record)
+                self.save()
+                owner.launch(actual, cwd, env)
+                self.save()
+            deadline = time.monotonic() + timeout
+            for owner in owners:
+                code = owner.child.wait(timeout=max(0.01, deadline - time.monotonic()))
+                owner.record.update(status="completed", returncode=code, elapsed_ms=int((time.monotonic() - began) * 1000))
+                self.save()
+                if code != 0:
+                    text = (owner.prefix.with_suffix(".stdout").read_text(errors="replace") +
+                            owner.prefix.with_suffix(".stderr").read_text(errors="replace"))
+                    raise AssertionError("concurrent writer exited with status " + str(code) + ": " + text)
+            completed = True
+        finally:
+            primary = sys.exc_info()[1]
+            notes = []
+            for owner in owners:
+                owner.record["cleanup_notes"] = owner.finish(completed)
+                notes.extend(owner.record["cleanup_notes"])
+                if owner.record["status"] != "completed":
+                    owner.record.update(status="timed_out" if isinstance(primary, subprocess.TimeoutExpired) else "harness_failed",
+                                        error=f"{type(primary).__name__}: {primary}")
+                self.retain_channels(owner.prefix, owner.record, trace)
+            try:
+                self.save()
+            except BaseException as secondary:
+                for owner in owners:
+                    owner.record.setdefault("secondary_evidence_errors", []).append(
+                        f"report publication: {type(secondary).__name__}: {secondary}")
+                if primary is None:
+                    raise
+                primary.add_note(f"secondary concurrent report publication: {type(secondary).__name__}: {secondary}")
+            if primary is None and notes:
+                raise RuntimeError("concurrent cache containment was not confirmed: " + "; ".join(notes))
+
 
     def case(self, label: str, **facts: object) -> None:
         self.report["cases"].append({"label": label, "outcome": "passed", **facts})
@@ -738,49 +886,9 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
         concurrent_key = next(found_key for _, unit, found_key in seeded if unit == "freak_runtime.c")
         concurrent_root = concurrent_parent / "freak/runtime-v1"
         (concurrent_root / concurrent_key).rename(concurrent_root / (concurrent_key + "-test-owned-backup"))
-        children = []
-        try:
-            for index, source in enumerate((source_a, source_b)):
-                prefix = evidence.root / f"concurrent-{index}"
-                output = prefix.with_suffix(".stdout").open("wb")
-                errors = prefix.with_suffix(".stderr").open("wb")
-                trace_path = prefix.with_suffix(".execve")
-                argv = ["strace", "-f", "-s", "65536", "-e", "trace=execve", "-o", str(trace_path), "--", str(freak), "build", str(source), "--c", "--opt=0", "--lto=off"]
-                child = subprocess.Popen(argv, cwd=work, env=concurrent_env, stdout=output, stderr=errors, start_new_session=True)
-                record = {"label": f"concurrent-writer-{index}", "argv": argv, "cwd": str(work), "owned_pid": child.pid, "timeout_seconds": 240, "status": "running"}
-                evidence.report["commands"].append(record)
-                children.append((child, prefix, output, errors, record))
-            evidence.save()
-            deadline = time.monotonic() + 240
-            for child, prefix, output, errors, record in children:
-                code = child.wait(timeout=max(0.01, deadline - time.monotonic()))
-                output.close()
-                errors.close()
-                record.update(status="completed", returncode=code)
-                evidence.retain_channels(prefix, record, True)
-                text = prefix.with_suffix(".stdout").read_text(errors="replace") + prefix.with_suffix(".stderr").read_text(errors="replace")
-                assert code == 0, text
-                evidence.save()
-        finally:
-            primary = sys.exc_info()[1]
-            for child, prefix, output, errors, record in children:
-                # The direct tracer may already be gone while its compiler
-                # descendants remain. Always contain this owned session.
-                record["cleanup_notes"] = evidence.stop_owned(child)
-                if record["status"] != "completed":
-                    record["status"] = "contained_after_failure"
-                for channel in (output, errors):
-                    try:
-                        channel.close()
-                    except BaseException as secondary:
-                        record.setdefault("secondary_evidence_errors", []).append(f"channel close: {type(secondary).__name__}: {secondary}")
-                evidence.retain_channels(prefix, record, True)
-            try:
-                evidence.save()
-            except BaseException as secondary:
-                if primary is None:
-                    raise
-                primary.add_note(f"secondary concurrent report publication: {type(secondary).__name__}: {secondary}")
+        evidence.invoke_concurrent([[str(freak), "build", str(source), "--c", "--opt=0", "--lto=off"]
+                                    for source in (source_a, source_b)], work, concurrent_env,
+                                   trace=True, timeout=240)
         winner = concurrent_root / concurrent_key
         winner_object = winner / "runtime.o"
         winner_bytes = winner_object.read_bytes()
