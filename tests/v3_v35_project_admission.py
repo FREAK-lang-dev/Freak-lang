@@ -191,7 +191,8 @@ def run_gate(compiler: Path, clang: Path, payload: Path, root: Path,
                              "-I", str(runtime), "-o", str(cli), *(["-lws2_32"] if os.name == "nt" else ["-lm"])], repo)
     assert linked.returncode == 0, linked.stdout + linked.stderr
     environment = os.environ.copy()
-    environment.update({"FREAK_HOME": str(payload), "NO_COLOR": "1", "PATH": str(clang.parent) + os.pathsep + environment.get("PATH", "")})
+    environment.update({"FREAK_HOME": str(payload), "FREAK_CLANG": str(clang),
+                        "NO_COLOR": "1", "PATH": str(clang.parent) + os.pathsep + environment.get("PATH", "")})
     physical = root / "public-日本-Ω"
     physical.mkdir()
     prepare_fresh(physical)
