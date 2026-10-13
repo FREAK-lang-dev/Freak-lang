@@ -187,6 +187,11 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
     env["PATH"] = str(tool_root) + os.pathsep + env.get("PATH", "")
     env["FREAK_GIT"] = str(tool_root / ("git.exe" if os.name == "nt" else "git"))
     env["NO_COLOR"] = "1"
+    # Publication is real now; without credentials it must refuse before
+    # touching the project or the network.
+    env.pop("HANGAR_TOKEN", None)
+    env["HANGAR_CONFIG_DIR"] = str(root / "no-hangar-credentials")
+    env["HANGAR_REGISTRY"] = "http://127.0.0.1:9/api/v1"
     cases = {
         "missing-add-argument": (["add"], "", "Usage:"),
         "missing-remove-argument": (["remove"], "", "Usage:"),
@@ -201,7 +206,7 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
         "failed-git-binary-diagnostic": (["install"], 'missing = { git = "owner/repository", version = "latest" }\n', "Could not fetch missing"),
         "preserved-existing-add": (["add", "existing", "owner/repository"], "", "Cannot safely replace existing"),
         "preserved-existing-update": (["update", "existing"], 'existing = { git = "owner/repository", version = "latest" }\n', "Cannot safely replace existing"),
-        "unavailable-publication": (["publish"], "", "Publication is unavailable"),
+        "unavailable-publication": (["publish"], "", "Not signed in"),
         "malformed-header": (["install"], "[dependencies\n", "Invalid manifest"),
         "unterminated-value": (["install"], 'missing = "unterminated\n', "Invalid manifest"),
         "duplicate-key": (["install"], 'missing = "1.0"\nmissing = "2.0"\n', "duplicate manifest key"),
