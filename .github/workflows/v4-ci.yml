@@ -49,6 +49,9 @@ jobs:
           "$root/freakc_seed" "$root/freakc_v3.fk" --c
           clang -o "$root/freakc_stage2" "$root/freakc_v3.fk.c" \
             freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O0 -lm
+          "$root/freakc_stage2" "$root/freakc_v3.fk" --c
+          clang -o "$root/freakc_stage2" "$root/freakc_v3.fk.c" \
+            freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O0 -lm
           while IFS= read -r source; do
             cat "$source" >> "$root/freakc_cli.fk"
           done < packaging/cli-sources.manifest
