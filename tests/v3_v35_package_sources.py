@@ -198,7 +198,7 @@ def package_probe_source(repo: Path) -> str:
               task_source(hangar, 'hangar_checked_fs') + '\n' +
               '\n'.join(task_source(build, name) for name in ('cli_is_windows','cli_host_path_join','cli_output_path_absolute')) + '\n' +
               '\n'.join(task_source(hangar, name) for name in ('hangar_native_tool_candidate','hangar_native_tool_executable','hangar_git_command','hangar_valid_git_source','hangar_valid_revision')) + '\n' +
-              '\n'.join((repo/f'src/cli/{name}.fk').read_text() for name in ('package_graph','package_paths','package_inputs','package_sources','package_lock','package_transaction')))
+              '\n'.join((repo/f'src/cli/{name}.fk').read_text() for name in ('package_graph','package_paths','package_inputs','package_registry','package_sources','package_lock','package_transaction')))
 
 
 def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path, paths_only: bool = False, physical_roots: bool = False) -> None:

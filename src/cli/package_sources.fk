@@ -464,6 +464,8 @@ task package_publish_source_node(node: int, store: int, store_path: word) -> boo
     pilot hash = package_hash_declared_inputs_rooted(node, original, array_get(package_source_manifest_files, node), stage)
     if array_get(package_source_kinds, node) == "git" and expected_tree != "" and hash != "" and hash != expected_tree { hangar_graph_fail("Git raw input tree disagrees with locked canonical integrity: " + array_get(hangar_graph_request_paths, node))
         hash = "" }
+    if array_get(package_source_kinds, node) == "registry" and expected_tree != "" and hash != "" and hash != expected_tree { hangar_graph_fail("registry package inputs disagree with locked canonical integrity: " + array_get(hangar_graph_request_paths, node))
+        hash = "" }
     if hash == "" {
         hangar_checked_fs(fs::remove_temp_dir_checked(stage), "Could not clean owned source staging")
         fs::result_release(stage)
@@ -567,7 +569,7 @@ task package_lock_matches_graph(frozen: bool) -> bool {
             hangar_graph_fail("locked package identity or manifest changed: " + array_get(hangar_graph_request_paths, index))
             give back false
         }
-        if frozen or array_get(package_source_kinds, index) == "git" {
+        if frozen or array_get(package_source_kinds, index) == "git" or array_get(package_source_kinds, index) == "registry" {
             if package_lock_field(prefix + "tree_sha256") != array_get(package_source_hashes, index) { hangar_graph_fail("frozen source input tree changed: " + array_get(hangar_graph_request_paths, index)) give back false }
         }
         index += 1
@@ -677,12 +679,20 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
         pilot alias = array_get(hangar_graph_edge_aliases, edge)
         pilot request = array_get(hangar_graph_request_paths, parent) + " -> " + alias
         pilot target = 0 - 1
-        if array_get(hangar_graph_edge_kinds, edge) == "path" {
-            if array_get(package_source_kinds, parent) == "git" { target = package_admit_git_path(edge, offline) } else {
+        pilot edge_kind = array_get(hangar_graph_edge_kinds, edge)
+        if edge_kind == "path" {
+            if array_get(package_source_kinds, parent) == "git" { target = package_admit_git_path(edge, offline) } else if array_get(package_source_kinds, parent) == "registry" {
+                -- A published package's path dependency resolves through the
+                -- registry by its declared version; the path is the author's.
+                if array_get(hangar_graph_edge_versions, edge) == "" { hangar_graph_fail("registry package declares a path-only dependency without a version: " + request) give back false }
+                target = package_admit_registry(edge, offline, update_name)
+            } else {
                 pilot path = package_local_path(array_get(package_source_original_roots, parent), array_get(hangar_graph_edge_sources, edge))
                 if path == "" { give back false }
                 target = package_admit_local(path, "hangar.toml", request)
             }
+        } else if edge_kind == "registry" {
+            target = package_admit_registry(edge, offline, update_name)
         } else {
             target = package_admit_git(edge, offline, update_name)
         }
@@ -1037,7 +1047,11 @@ task package_git_pin(edge: int) -> int {
     repeat until index >= word_to_int(package_lock_field("lock.edge_count")) {
         pilot prefix = "edge." + word_from_int(index) + "."
         pilot old_parent = package_lock_field(prefix + "parent")
-        if package_lock_field("node." + old_parent + ".identity") == identity and package_lock_field(prefix + "alias") == array_get(hangar_graph_edge_aliases, edge) and package_lock_field(prefix + "kind") == kind and package_lock_field(prefix + "source") == array_get(hangar_graph_edge_sources, edge) and package_lock_field(prefix + "revision") == array_get(hangar_graph_edge_revisions, edge) and package_lock_field(prefix + "version") == array_get(hangar_graph_edge_versions, edge) { give back word_to_int(package_lock_field(prefix + "target")) }
+        -- The root's identity is its absolute path, which changes when a
+        -- project is cloned or moved; node 0 is always the root.
+        pilot same_parent = package_lock_field("node." + old_parent + ".identity") == identity
+        if parent == 0 { same_parent = old_parent == "0" }
+        if same_parent and package_lock_field(prefix + "alias") == array_get(hangar_graph_edge_aliases, edge) and package_lock_field(prefix + "kind") == kind and package_lock_field(prefix + "source") == array_get(hangar_graph_edge_sources, edge) and package_lock_field(prefix + "revision") == array_get(hangar_graph_edge_revisions, edge) and package_lock_field(prefix + "version") == array_get(hangar_graph_edge_versions, edge) { give back word_to_int(package_lock_field(prefix + "target")) }
         index += 1
     }
     give back 0 - 1
@@ -1384,6 +1398,159 @@ task package_fetch_git_repository(url: word, commit: word, revision: word, reque
     give back repository
 }
 
+
+-- ===================== registry sources =====================
+
+task package_registry_identity(base: word, name: word, version: word) -> word {
+    give back "registry:" + base + "/" + name + "@" + version
+}
+
+task package_registry_register(node: int, ticket: int, root: word, base: word, identity: word, digest: word, manifest_hash: word, tree: word, owned: bool) -> void {
+    package_source_register(node, ticket, root, "registry", digest, "hangar.toml", manifest_hash)
+    array_set(package_source_origins, node, base)
+    array_set(package_source_original_roots, node, identity.substring(9, identity.length() - 9))
+    array_set(package_source_hashes, node, tree)
+    if owned { array_set(package_source_original_owned, node, "true") }
+    if toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), "tests") {
+        array_push(hangar_graph_fact_nodes, word_from_int(node))
+        array_push(hangar_graph_fact_keys, "__package.tests_declared")
+        array_push(hangar_graph_fact_values, "true")
+    }
+}
+
+task package_registry_check_manifest(node: int, name: word, version: word, request: word) -> bool {
+    if array_get(hangar_graph_names, node) != name or array_get(hangar_graph_versions, node) != version {
+        hangar_graph_fail("registry served " + name + "@" + version + " but its manifest declares " + array_get(hangar_graph_names, node) + "@" + array_get(hangar_graph_versions, node) + ": " + request)
+        give back false
+    }
+    give back true
+}
+
+task package_admit_registry_cached(base: word, name: word, version: word, digest: word, tree: word, manifest_hash: word, request: word) -> int {
+    pilot store = fs::open_relative_dir_ticket(package_preparation_private, "store")
+    if not fs::result_ok(store) {
+        if not fs::result_missing(store) { hangar_graph_fail("registry cache store is unsafe or unavailable: " + fs::result_error(store)) }
+        fs::result_release(store)
+        give back 0 - 1
+    }
+    pilot directory = fs::open_relative_dir_ticket(store, tree)
+    fs::result_release(store)
+    if not fs::result_ok(directory) {
+        if not fs::result_missing(directory) { hangar_graph_fail("registry cache tree is unsafe or unavailable: " + fs::result_error(directory)) }
+        fs::result_release(directory)
+        give back 0 - 1
+    }
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, "hangar.toml", hangar_graph_manifest_limit)
+    if not fs::result_ok(read) { hangar_graph_fail("cached registry manifest is missing or unsafe: " + fs::result_error(read))
+        fs::result_release(read)
+        fs::result_release(directory)
+        give back 0 - 1 }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot hash = fs::sha256_bytes(bytes)
+    pilot text = bytes.to_word()
+    pilot valid = bytes.status() == 0 and hash == manifest_hash
+    bytes.release()
+    if not valid { hangar_graph_fail("cached registry manifest bytes disagree with the lock")
+        fs::result_release(directory)
+        give back 0 - 1 }
+    pilot identity = package_registry_identity(base, name, version)
+    pilot node = hangar_graph_add_manifest(identity, identity + ":hangar.toml", text, request)
+    if node < 0 { fs::result_release(directory) give back 0 - 1 }
+    package_registry_register(node, directory, package_directory_path(directory), base, identity, digest, hash, tree, false)
+    if not package_registry_check_manifest(node, name, version, request) { give back 0 - 1 }
+    give back node
+}
+
+task package_admit_registry(edge: int, offline: bool, update_name: word) -> int {
+    pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
+    pilot alias = array_get(hangar_graph_edge_aliases, edge)
+    pilot request = array_get(hangar_graph_request_paths, parent) + " -> " + alias
+    pilot name = array_get(hangar_graph_edge_packages, edge)
+    pilot constraint = array_get(hangar_graph_edge_versions, edge)
+    if constraint == "" { constraint = "*" }
+    pilot base = hangar_registry_base()
+    pilot pin = package_git_pin(edge)
+    pilot update = update_name == "*" or update_name == alias or update_name == name
+    pilot version = ""
+    pilot digest = ""
+    pilot tree = ""
+    pilot manifest_hash = ""
+    if pin >= 0 and not update {
+        pilot prefix = "node." + word_from_int(pin) + "."
+        if package_lock_field(prefix + "kind") == "registry" {
+            if package_lock_field(prefix + "origin") != base { hangar_graph_fail("locked registry " + package_lock_field(prefix + "origin") + " differs from " + base + "; run hangar update " + alias) give back 0 - 1 }
+            version = package_lock_field(prefix + "version")
+            digest = package_lock_field(prefix + "commit")
+            tree = package_lock_field(prefix + "tree_sha256")
+            manifest_hash = package_lock_field(prefix + "manifest_sha256")
+        }
+    }
+    if version != "" {
+        pilot known = hangar_graph_find_identity(package_registry_identity(base, name, version))
+        if known >= 0 { give back known }
+    }
+    if tree != "" {
+        pilot cached = package_admit_registry_cached(base, name, version, digest, tree, manifest_hash, request)
+        if cached >= 0 { give back cached }
+        if hangar_graph_error != "" { give back 0 - 1 }
+    }
+    if offline {
+        pilot wanted = name + " " + constraint
+        if version != "" { wanted = name + "@" + version }
+        hangar_graph_fail("offline registry cache miss: " + wanted + " (" + request + ")")
+        give back 0 - 1
+    }
+    pilot private_path = package_directory_path(package_preparation_private)
+    if private_path == "" { give back 0 - 1 }
+    pilot download = fs::temp_dir(private_path, ".registry-dl-")
+    if not fs::result_ok(download) { hangar_graph_fail("cannot create registry download staging: " + fs::result_error(download))
+        fs::result_release(download)
+        give back 0 - 1 }
+    pilot download_path = fs::result_word(download)
+    if version == "" {
+        version = hangar_registry_select_version(name, constraint, download_path)
+        if version == "" { hangar_graph_fail(hangar_registry_error + " (" + request + ")")
+            package_discard_temp(download)
+            give back 0 - 1 }
+        pilot known = hangar_graph_find_identity(package_registry_identity(base, name, version))
+        if known >= 0 { package_discard_temp(download) give back known }
+    }
+    pilot raw = fs::temp_dir(private_path, ".registry-input-")
+    if not fs::result_ok(raw) { hangar_graph_fail("cannot create registry input staging: " + fs::result_error(raw))
+        fs::result_release(raw)
+        package_discard_temp(download)
+        give back 0 - 1 }
+    say "  Fetching " + name + "@" + version + " from " + base
+    pilot fetched = hangar_registry_fetch_archive(name, version, download_path, fs::result_word(raw), digest)
+    package_discard_temp(download)
+    if fetched == "" { hangar_graph_fail(hangar_registry_error + " (" + request + ")")
+        package_discard_temp(raw)
+        give back 0 - 1 }
+    pilot read = fs::read_relative_bytes_limit_ticket(raw, "hangar.toml", hangar_graph_manifest_limit)
+    if not fs::result_ok(read) { hangar_graph_fail("registry archive " + name + "@" + version + " has no readable hangar.toml at its root: " + fs::result_error(read))
+        fs::result_release(read)
+        package_discard_temp(raw)
+        give back 0 - 1 }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot hash = fs::sha256_bytes(bytes)
+    pilot text = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    if not valid { hangar_graph_fail("registry manifest must be UTF-8 text without NUL: " + request)
+        package_discard_temp(raw)
+        give back 0 - 1 }
+    if manifest_hash != "" and manifest_hash != hash { hangar_graph_fail("registry manifest bytes disagree with locked integrity: " + request)
+        package_discard_temp(raw)
+        give back 0 - 1 }
+    pilot identity = package_registry_identity(base, name, version)
+    pilot node = hangar_graph_add_manifest(identity, identity + ":hangar.toml", text, request)
+    if node < 0 { package_discard_temp(raw) give back 0 - 1 }
+    package_registry_register(node, raw, fs::result_word(raw), base, identity, fetched, hash, tree, true)
+    if not package_registry_check_manifest(node, name, version, request) { give back 0 - 1 }
+    give back node
+}
 
 task package_release_graph() -> void {
     package_sources_release()
