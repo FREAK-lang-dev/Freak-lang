@@ -532,7 +532,7 @@ task freakc_cli_main() -> void {
             if run_exit != 0 { cli_diagnostic_cast_emit_compiler_failure() process::exit(run_exit) }
         } else if subcmd == "check" {
             pilot source: word = cli_prepare_source(src_file, target)
-            if cli_project_source_error != "" or hangar_graph_error != "" { process::exit(1) }
+            if cli_project_source_error != "" or hangar_graph_error != "" { cli_diagnostic_cast_emit_compiler_failure() process::exit(1) }
             say ""
             say "  " + C_G3 + SYM_GEAR + " CHECKING" + C_RESET + " " + C_BWHITE + src_file + C_RESET
             say ""
@@ -578,7 +578,7 @@ task freakc_cli_main() -> void {
                 process::exit(1)
             }
             pilot source: word = cli_prepare_source(src_file, target)
-            if cli_project_source_error != "" or hangar_graph_error != "" { process::exit(1) }
+            if cli_project_source_error != "" or hangar_graph_error != "" { cli_diagnostic_cast_emit_compiler_failure() process::exit(1) }
             pilot transpiled: word = cli_transpile(src_file, source, target)
             if transpiled == "" {
                 cli_diagnostic_cast_emit_compiler_failure()

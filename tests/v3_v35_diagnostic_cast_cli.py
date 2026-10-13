@@ -380,13 +380,10 @@ def main() -> None:
         evidence.update(canonical_blocks_preserved=True, statuses_preserved=True,
                         deterministic_repeat=True, invalid_options_before_effects=True,
                         equal_normalized_duplicates=True, json_modes_preserved=True)
-    after = {str(path.resolve()): sha256(path) for path in pinned}
-    assert before == after, "pinned CLI/source/runtime/data/payload inputs changed during gate"
-    evidence["pinned_inputs_unchanged"] = True
-    evidence["status"] = "pass"
-    if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+        after = {str(path.resolve()): sha256(path) for path in pinned}
+        assert before == after, "pinned CLI/source/runtime/data/payload inputs changed during gate"
+        evidence["pinned_inputs_unchanged"] = True
+        evidence["status"] = "pass"
     print(f"PASS native diagnostic cast CLI: {len(evidence['backend_matrices'])} backend matrices, {len(evidence['receipts'])} actual command receipts", flush=True)
 
 
