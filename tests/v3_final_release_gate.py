@@ -1101,6 +1101,20 @@ def main() -> int:
                 1200,
             ),
         )
+        selected_clang = shutil.which(
+            isolated_env.get("FREAK_CLANG", "clang"), path=isolated_env.get("PATH")
+        )
+        assert selected_clang, "selected Clang is required for public test acceptance"
+        selected_clang = str(Path(selected_clang).resolve(strict=True))
+        children += (
+            (
+                "public system temporary parent admission",
+                [python, "-B", "-u", str(repo / "tests" / "v3_v35_test_temp.py"),
+                 str(installed_freak), "--payload-home", str(install_home),
+                 "--clang", selected_clang, "--evidence-dir", str(evidence / "test-temp")],
+                1200,
+            ),
+        )
         hostile_cwd = root / "hostile-repo-shaped-cwd"
         for label, command, timeout in children:
             run_child_gate(
