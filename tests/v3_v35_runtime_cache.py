@@ -414,6 +414,7 @@ class Evidence:
         owner = _CacheLaunch(prefix, record, timeout)
         began = time.monotonic()
         completed = False
+        primary_error = None
         try:
             self.save()
             child = owner.launch(actual, cwd, env)
@@ -439,11 +440,12 @@ class Evidence:
             completed = True
             record.update(status="completed", returncode=returncode, elapsed_ms=int((time.monotonic() - began) * 1000))
         except BaseException as primary:
+            primary_error = primary
             record.update(status="timed_out" if isinstance(primary, subprocess.TimeoutExpired) else "harness_failed",
                           error=f"{type(primary).__name__}: {primary}", elapsed_ms=int((time.monotonic() - began) * 1000))
             raise
         finally:
-            primary = sys.exc_info()[1]
+            primary = primary_error
             record["cleanup_notes"] = owner.finish(completed)
             self.retain_channels(prefix, record, trace)
             try:
@@ -463,6 +465,7 @@ class Evidence:
         owners = []
         completed = False
         began = time.monotonic()
+        primary_error = None
         try:
             for index, command in enumerate(commands):
                 prefix = self.root / f"concurrent-{index}"
@@ -488,8 +491,11 @@ class Evidence:
                             owner.prefix.with_suffix(".stderr").read_text(errors="replace"))
                     raise AssertionError("concurrent writer exited with status " + str(code) + ": " + text)
             completed = True
+        except BaseException as primary:
+            primary_error = primary
+            raise
         finally:
-            primary = sys.exc_info()[1]
+            primary = primary_error
             notes = []
             for owner in owners:
                 owner.record["cleanup_notes"] = owner.finish(completed)

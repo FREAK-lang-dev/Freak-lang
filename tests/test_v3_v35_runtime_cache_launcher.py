@@ -331,6 +331,45 @@ class LaunchBoundaryModels(unittest.TestCase):
         self.assert_contained(normal=True)
         self.assert_raw(row)
 
+    def test_terminal_save_failure_inside_ambient_except_is_this_invocations_failure(self):
+        primary = OSError("terminal cache evidence publication failed")
+        original = self.evidence.save
+        def checkpoint():
+            if "cleanup_notes" in self.evidence.report["commands"][-1]:
+                raise primary
+            original()
+        self.evidence.save = checkpoint
+        ambient = ValueError("unrelated handled caller exception")
+        try:
+            raise ambient
+        except ValueError:
+            with self.assertRaises(OSError) as raised:
+                self.invoke()
+        self.assertIs(raised.exception, primary)
+        self.assertFalse(getattr(ambient, "__notes__", []))
+        self.assert_contained(normal=True)
+        self.assert_raw(self.evidence.report["commands"][0])
+
+    def test_concurrent_terminal_save_failure_does_not_modify_ambient_exception(self):
+        primary = OSError("terminal concurrent evidence publication failed")
+        original = self.evidence.save
+        def checkpoint():
+            if all("cleanup_notes" in row for row in self.evidence.report["commands"]):
+                raise primary
+            original()
+        self.evidence.save = checkpoint
+        ambient = ValueError("unrelated handled concurrent caller exception")
+        try:
+            raise ambient
+        except ValueError:
+            with self.assertRaises(OSError) as raised:
+                self.evidence.invoke_concurrent([["first"], ["second"]], self.root, {}, trace=False)
+        self.assertIs(raised.exception, primary)
+        self.assertFalse(getattr(ambient, "__notes__", []))
+        self.assert_contained(normal=True)
+        for row in self.evidence.report["commands"]:
+            self.assert_raw(row)
+
 
 @unittest.skipUnless(os.name == "posix" and hasattr(acceptance, "_CommandLifeline"), "committed POSIX lifeline prerequisite required")
 class InertLifelineControls(unittest.TestCase):
