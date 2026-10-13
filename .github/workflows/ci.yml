@@ -77,12 +77,15 @@ jobs:
           python -u tests/v3_checked_parsing.py --case format_annotated_shadowed_task
           python -u tests/v3_checked_parsing.py --case format_loop_binding_collision
 
-      - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
+      - name: Build V3 compiler (two current-source generations)
         shell: bash
         run: |
           cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/checker.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
           clang -o build/freakc_v3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           ./build/freakc_v3$EXT build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          # Generation one still carries the seed emitter's ownership lowering.
+          ./build/freakc_v3_stage2$EXT build/freakc_v3.fk --c
           clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
       - name: Build full CLI (Stage 2 — current V3 compiler + CLI + Hangar)
@@ -294,6 +297,8 @@ jobs:
           python -B -u tests/test_v3_v35_http_progress.py
           python -B -u tests/v3_v35_cli_flag_aliases.py --static
           python -B -u tests/v3_v35_runtime_cache.py --pure
+          python -B -u tests/test_v3_v35_http_deadline_helpers.py
+          python -B -u tests/test_v3_v35_template_progress.py
           python -B -u tests/test_v3_v35_diagnostic_facts_helpers.py
           python -B -u tests/test_v3_v35_test_temp_helpers.py
           python -B -u tests/test_v3_v35_run_freshness_helpers.py
@@ -426,12 +431,15 @@ jobs:
           python -u tests/v3_checked_parsing.py --case format_annotated_shadowed_task
           python -u tests/v3_checked_parsing.py --case format_loop_binding_collision
 
-      - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
+      - name: Build V3 compiler (two current-source generations)
         shell: bash
         run: |
           cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/checker.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
           clang -o build/freakc_v3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           ./build/freakc_v3$EXT build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          # Generation one still carries the seed emitter's ownership lowering.
+          ./build/freakc_v3_stage2$EXT build/freakc_v3.fk --c
           clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
       - name: Build full CLI (Stage 2 — current V3 compiler + CLI + Hangar)
@@ -685,6 +693,8 @@ jobs:
           python -B -u tests/test_v3_v35_http_progress.py
           python -B -u tests/v3_v35_cli_flag_aliases.py --static
           python -B -u tests/v3_v35_runtime_cache.py --pure
+          python -B -u tests/test_v3_v35_http_deadline_helpers.py
+          python -B -u tests/test_v3_v35_template_progress.py
           python -B -u tests/test_v3_v35_diagnostic_facts_helpers.py
           python -B -u tests/test_v3_v35_test_temp_helpers.py
           python -B -u tests/test_v3_v35_run_freshness_helpers.py
