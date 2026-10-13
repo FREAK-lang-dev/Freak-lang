@@ -52,6 +52,8 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
     pilot locked_requested = false
     pilot offline_requested = false
     pilot frozen_requested = false
+    pilot diagnostic_cast_requested = "off"
+    pilot diagnostic_cast_seen = ""
     pilot allow_build_profile = subcommand_mode == "build" or subcommand_mode == "run"
 
     pilot fi = start_idx
@@ -72,6 +74,11 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
             backend_seen = "llvm"
         } else if flag == "--strict-borrow" {
             strict_seen = true
+        } else if flag.starts_with("--diagnostic-cast=") {
+            pilot requested = cli_diagnostic_cast_parse_mode(cli_flag_value(flag, 18), diagnostic_cast_seen)
+            if requested.starts_with("error:") { give back requested }
+            diagnostic_cast_requested = requested
+            diagnostic_cast_seen = requested
         } else if flag == "-o" or flag == "--output" or flag.starts_with("--output=") {
             if not allow_build_profile { give back cli_flag_error("--output is only valid for build and run") }
             pilot requested = ""
@@ -191,6 +198,7 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
     cli_requested_locked = locked_requested
     cli_requested_offline = offline_requested
     cli_requested_frozen = frozen_requested
+    cli_requested_diagnostic_cast = diagnostic_cast_requested
     give back "ok:" + target + ":" + profile + ":" + opt + ":" + lto + ":" + runtime_policy + ":" + runtime_stats + ":" + cross
 }
 
@@ -507,6 +515,7 @@ task freakc_cli_main() -> void {
         if subcmd == "build" {
             pilot binary: word = cli_build_profile(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
             if binary == "" {
+                cli_diagnostic_cast_emit_compiler_failure()
                 process::exit(1)
             }
         } else if subcmd == "run" {
@@ -520,7 +529,7 @@ task freakc_cli_main() -> void {
                 separator_index += 1
             }
             pilot run_exit = cli_run(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross, program_arg_start)
-            if run_exit != 0 { process::exit(run_exit) }
+            if run_exit != 0 { cli_diagnostic_cast_emit_compiler_failure() process::exit(run_exit) }
         } else if subcmd == "check" {
             pilot source: word = cli_prepare_source(src_file, target)
             if cli_project_source_error != "" or hangar_graph_error != "" { process::exit(1) }
@@ -534,7 +543,7 @@ task freakc_cli_main() -> void {
             init_arrays()
             cli_step_start()
             tokenize(source)
-            if not cli_project_bind_tokens() { cli_project_binding_release() process::exit(1) }
+            if not cli_project_bind_tokens() { cli_project_binding_release() cli_diagnostic_cast_emit_compiler_failure() process::exit(1) }
             cli_step_done("Lexing")
             cli_step_start()
             parse_program()
@@ -544,6 +553,7 @@ task freakc_cli_main() -> void {
                 say ""
                 say "  " + C_BRED + SYM_CROSS + " FAILED" + C_RESET + C_DIM + " -- syntax errors found" + C_RESET
                 say ""
+                cli_diagnostic_cast_emit_compiler_failure()
                 process::exit(1)
             }
             cli_step_start()
@@ -553,6 +563,7 @@ task freakc_cli_main() -> void {
                 say ""
                 say "  " + C_BRED + SYM_CROSS + " FAILED" + C_RESET + C_DIM + " -- type/borrow errors found" + C_RESET
                 say ""
+                cli_diagnostic_cast_emit_compiler_failure()
                 process::exit(1)
             }
             say ""
@@ -570,6 +581,7 @@ task freakc_cli_main() -> void {
             if cli_project_source_error != "" or hangar_graph_error != "" { process::exit(1) }
             pilot transpiled: word = cli_transpile(src_file, source, target)
             if transpiled == "" {
+                cli_diagnostic_cast_emit_compiler_failure()
                 process::exit(1)
             }
         }

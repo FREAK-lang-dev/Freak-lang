@@ -7,6 +7,9 @@ src/compiler/v3/checker.fk
 src/compiler/v3/emit_c.fk
 src/compiler/v3/emit_llvm.fk
 src/cli/version.fk
+src/diagnostics/embedded_cast.fk
+src/cli/diagnostic_cast.fk
+src/cli/diagnostic_cast_adapter.fk
 src/cli/toml.fk
 src/cli/lockfile.fk
 src/cli/package_graph.fk
