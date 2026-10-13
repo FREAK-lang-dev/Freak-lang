@@ -108,15 +108,42 @@ def read_log(log: Path) -> list[list[str]]:
     return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
 
 
+def clang_codegen_or_link(arguments: list[str]) -> bool:
+    """Classify recorded argv without discarding the underlying raw receipt.
+
+    A warm whole-program run may probe or preprocess its current dependency
+    closure. It must still emit no object code and perform no fresh link.
+    Unknown or mixed invocations conservatively remain compilation entries.
+    """
+    if arguments in (["--version"], ["-dumpmachine"], ["-print-resource-dir"]):
+        return False
+    if len(arguments) == 1 and arguments[0].startswith("-print-prog-name="):
+        return False
+    if arguments[:1] == ["-###"]:
+        return False  # The selected Clang driver's dry-run, never execution.
+    # Match the complete ordered recipe emitted by runtime_cache_preprocess.
+    # Unknown frontend/plugin/config/response options can override -E; such
+    # plans must never hide object emission behind the no-codegen warm oracle.
+    if len(arguments) >= 15 and arguments[:3] == ["-E", "-MD", "-MF"]:
+        def ordinary(value: str, suffix: str = "") -> bool:
+            return bool(value) and not value.startswith(("-", "@")) and value.endswith(suffix)
+        if (arguments[4:8] == ["-MT", "freak-cache", "-g", "-o"]
+                and ordinary(arguments[3], ".d") and ordinary(arguments[8], ".i")
+                and ordinary(arguments[9], ".c") and arguments[10] == "-I"
+                and ordinary(arguments[11]) and arguments[12] in ("-O0", "-O1", "-O2", "-O3")
+                and arguments[13:15] == ["-w", "-D_CRT_SECURE_NO_WARNINGS"]):
+            tail = arguments[15:]
+            if tail and re.fullmatch(r"--target=[A-Za-z0-9_.-]+", tail[0]):
+                tail = tail[1:]
+            if len(tail) >= 2 and tail[0] in ("-flto", "-flto=thin") and tail[1] in ("-fuse-ld=ld", "-fuse-ld=lld"):
+                tail = tail[2:]
+            if tail in ([], ["-DFREAK_HAS_UI"]):
+                return False
+    return True
+
+
 def compile_entries(log: Path) -> list[list[str]]:
-    return [
-        args
-        for args in read_log(log)
-        if "--version" not in args
-        and "-dumpmachine" not in args
-        and "-###" not in args
-        and not any("print-prog-name" in arg for arg in args)
-    ]
+    return [arguments for arguments in read_log(log) if clang_codegen_or_link(arguments)]
 
 
 def binary_path(source: Path) -> Path:

@@ -14,6 +14,8 @@ import json
 import os
 import re
 import shutil
+import inspect
+import shlex
 import signal
 import subprocess
 import sys
@@ -111,6 +113,7 @@ def dependency_harness(source: str) -> tuple[str, int]:
         task_source((ROOT / "src/cli/build.fk").read_text(), "cli_trace_executable_token"),
         task_source(source, "cli_runtime_cache_trace_cc1"),
         task_source(source, "cli_runtime_cache_dyld_plain"),
+        task_source(source, "cli_runtime_cache_run_marker"),
         task_source(source, "cli_runtime_cache_dependencies"),
         'task require(value: bool, label: word) -> void { if not value { say label process::exit(1) } }\n',
         'task main() -> int {\n',
@@ -129,6 +132,12 @@ def dependency_harness(source: str) -> tuple[str, int]:
     for index, (trace, admitted) in enumerate(trace_rows):
         chunks.append(f'require(cli_runtime_cache_trace_cc1({fk_quote(trace)}, "/clang") == {str(admitted).lower()}, "execution plan {index}")\n')
     chunks.append('require(cli_runtime_cache_dyld_plain() == (process::env("CACHE_CONTROL_DYLD_REJECT") != "1"), "DYLD refusal")\n')
+    chunks.append('pilot known_digest = "' + 'a' * 64 + '"\n')
+    chunks.append('require(cli_runtime_cache_run_marker(true, known_digest, "unused") == "proven:" + known_digest, "proven marker")\n')
+    for reason in ("unproved-tool-support", "unavailable-tool-context", "unavailable-stage-context", "unavailable-runtime-context"):
+        chunks.append(f'require(cli_runtime_cache_run_marker(false, known_digest, {fk_quote(reason)}) == {fk_quote("legacy:" + reason)}, "adverse mode {reason}")\n')
+        chunks.append(f'require(cli_runtime_cache_run_marker(false, known_digest, {fk_quote(reason)}) != cli_runtime_cache_run_marker(true, known_digest, "unused"), "mode separation {reason}")\n')
+    chunks.append('require(cli_runtime_cache_run_marker(true, "", "empty-proof") == "legacy:empty-proof", "empty proof is not proven")\n')
     chunks.append('say "dependency controls passed"\ngive back 0\n}\n')
     return "".join(chunks), len(rows)
 
@@ -209,6 +218,26 @@ class SourceControls(unittest.TestCase):
 
     def test_optional_stage_control_uses_actual_orchestration(self) -> None:
         self.assertIn(task_source(self.source, "cli_runtime_cache_build"), optional_stage_harness(self.source))
+
+    def test_gate_uses_the_actual_public_optimization_vocabulary(self) -> None:
+        main = (ROOT / "src/cli/main.fk").read_text()
+        self.assertIn('flag.starts_with("--opt=")', main)
+        native = inspect.getsource(native_gate)
+        self.assertNotIn("--clang" + "-opt=", native)
+        self.assertIn('f"--opt={optimization}"', native)
+
+    def test_legacy_run_fallback_does_not_enter_object_admission(self) -> None:
+        build = task_source(self.source, "cli_runtime_cache_build")
+        context = task_source(self.source, "cli_runtime_cache_run_context")
+        self.assertIn('if tool == "" or not cli_runtime_cache_tool_complete', build)
+        self.assertNotIn("cli_runtime_cache_run_marker", build)
+        self.assertIn('if not complete { give back cli_runtime_cache_run_marker(false, "", "unproved-tool-support") }', context)
+        run = (ROOT / "src/cli/run.fk").read_text()
+        self.assertIn('CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v8"', run)
+        self.assertIn('"|runtime-context=" + cli_runtime_cache_run_context(', run)
+        self.assertIn('if fingerprint != "" and fs::exists(binary) and fs::exists(cache_file)', run)
+        self.assertIn('fs::read(cache_file) == expected_record', run)
+        self.assertIn('launch_fingerprint != fingerprint', run)
 
 
 class Evidence:
@@ -360,7 +389,7 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
 
     def build(source: Path, label: str, *, target: str = "c", optimization: int = 0, lto: str = "off", selected_env: dict[str, str] | None = None, compile_count: int | None = None) -> list[tuple[str, str, str]]:
         active = selected_env or env
-        code, output, trace = evidence.invoke([str(freak), "build", str(source), "--" + target, f"--clang-opt={optimization}", f"--lto={lto}"], work, active, label, trace=True)
+        code, output, trace = evidence.invoke([str(freak), "build", str(source), "--" + target, f"--opt={optimization}", f"--lto={lto}"], work, active, label, trace=True)
         assert code == 0, output
         found = events(output)
         actual_count = runtime_compiles(trace)
@@ -589,7 +618,7 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
 
     # A complete-program run hit must not bypass the same SDK closure.
     def run(label: str) -> str:
-        code, output, _ = evidence.invoke([str(freak), "run", str(source_b), "--c", "--clang-opt=0", "--lto=off"], work, shadow_env, label, trace=True)
+        code, output, _ = evidence.invoke([str(freak), "run", str(source_b), "--c", "--opt=0", "--lto=off"], work, shadow_env, label, trace=True)
         assert code == 0 and "43\n" in output, output
         evidence.case(label, complete_program_hit="run cache hit" in output)
         return output
@@ -602,6 +631,26 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
     third = run("run-sdk-change-invalidates-program")
     assert "run cache hit" not in third, third
     assert "run cache hit" in run("run-sdk-change-warm"), "new SDK context never became fresh"
+
+    # Opaque wrappers retain the existing whole-program cache contract. They
+    # never qualify runtime-object reuse or the new hidden-tool/SDK guarantee.
+    opaque_driver = work / "opaque-clang"
+    opaque_driver.write_text("#!/bin/sh\nexec " + shlex.quote(str(clang)) + ' "$@"\n')
+    opaque_driver.chmod(0o700)
+    legacy_env = dict(shadow_env, FREAK_CLANG=str(opaque_driver))
+    def legacy_run(label: str, hit: bool) -> None:
+        code, output, trace = evidence.invoke([str(freak), "run", str(source_b), "--c", "--opt=0", "--lto=off"], work, legacy_env, label, trace=True)
+        assert code == 0 and "43\n" in output and ("run cache hit" in output) is hit, output
+        assert not any(event == "hit" for event, _, _ in events(output)), "legacy wrapper reused a runtime object"
+        assert runtime_compiles(trace) == 0, "legacy wrapper used runtime object compilation"
+        if hit:
+            generated = json.dumps(str(source_b) + ".c")
+            assert not any("execve(" in row and "= 0" in row and generated in row and '"-###"' not in row for row in trace.splitlines()), "legacy warm run compiled or linked user code"
+        evidence.case(label, complete_program_hit=hit, context_scope="legacy; no new SDK/hidden-tool qualification")
+    legacy_run("proven-to-legacy-context-cold", False)
+    legacy_run("opaque-wrapper-legacy-warm", True)
+    assert "run cache hit" not in run("legacy-to-proven-context-cold"), "legacy marker admitted a prior proven context"
+    assert "run cache hit" in run("restored-proven-context-warm")
 
     # Compile grammar controls from the implementation, using this installed
     # CLI's normal build path and selected runtime, rather than a Python model.
@@ -625,7 +674,7 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
     mutation_parent.mkdir(mode=0o700)
     mutation_env = dict(env, XDG_CACHE_HOME=str(mutation_parent))
     try:
-        code, output, _ = evidence.invoke([str(freak), "build", str(source_a), "--c", "--clang-opt=0", "--lto=off"], work, mutation_env, "runtime-source-mutation-during-object", trace=True, runtime_hook=lambda: runtime_header.write_bytes(original_header + b"\n/* changed during native compilation */\n"))
+        code, output, _ = evidence.invoke([str(freak), "build", str(source_a), "--c", "--opt=0", "--lto=off"], work, mutation_env, "runtime-source-mutation-during-object", trace=True, runtime_hook=lambda: runtime_header.write_bytes(original_header + b"\n/* changed during native compilation */\n"))
         assert code != 0 and not source_a.with_suffix("").exists(), (code, output)
         assert not (mutation_parent / "freak/runtime-v1" / key).exists(), "published a changed-input object"
         evidence.case("runtime-source-mutation-during-object", returncode=code)
@@ -646,7 +695,7 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
         replacement.symlink_to(header_new)
         replacement.replace(runtime_header)
     try:
-        code, output, _ = evidence.invoke([str(freak), "build", str(source_a), "--c", "--clang-opt=0", "--lto=off"], work, alias_env, "logical-header-retarget-during-object", trace=True, runtime_hook=retarget_header)
+        code, output, _ = evidence.invoke([str(freak), "build", str(source_a), "--c", "--opt=0", "--lto=off"], work, alias_env, "logical-header-retarget-during-object", trace=True, runtime_hook=retarget_header)
         assert code != 0 and not source_a.with_suffix("").exists(), (code, output)
         admitted_keys = [found_key for event, unit, found_key in events(output) if event == "compile" and unit == "freak_runtime.c"]
         assert len(admitted_keys) == 1, ("no exact admitted key in retained compile evidence", output)
@@ -659,7 +708,7 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
     interrupted_parent = work / "interrupted-cache"
     interrupted_parent.mkdir(mode=0o700)
     interrupted_env = dict(env, XDG_CACHE_HOME=str(interrupted_parent))
-    code, output, _ = evidence.invoke([str(freak), "build", str(source_a), "--c", "--clang-opt=0", "--lto=off"], work, interrupted_env, "interrupt-runtime-writer", trace=True, interrupt_runtime=True)
+    code, output, _ = evidence.invoke([str(freak), "build", str(source_a), "--c", "--opt=0", "--lto=off"], work, interrupted_env, "interrupt-runtime-writer", trace=True, interrupt_runtime=True)
     assert code != 0 and not source_a.with_suffix("").exists(), (code, output)
     assert not (interrupted_parent / "freak/runtime-v1" / key).exists(), "interrupted writer published incomplete output"
     evidence.case("interrupt-runtime-writer", returncode=code)
@@ -683,7 +732,7 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
                 output = prefix.with_suffix(".stdout").open("wb")
                 errors = prefix.with_suffix(".stderr").open("wb")
                 trace_path = prefix.with_suffix(".execve")
-                argv = ["strace", "-f", "-s", "65536", "-e", "trace=execve", "-o", str(trace_path), "--", str(freak), "build", str(source), "--c", "--clang-opt=0", "--lto=off"]
+                argv = ["strace", "-f", "-s", "65536", "-e", "trace=execve", "-o", str(trace_path), "--", str(freak), "build", str(source), "--c", "--opt=0", "--lto=off"]
                 child = subprocess.Popen(argv, cwd=work, env=concurrent_env, stdout=output, stderr=errors, start_new_session=True)
                 record = {"label": f"concurrent-writer-{index}", "argv": argv, "cwd": str(work), "owned_pid": child.pid, "timeout_seconds": 240, "status": "running"}
                 evidence.report["commands"].append(record)
