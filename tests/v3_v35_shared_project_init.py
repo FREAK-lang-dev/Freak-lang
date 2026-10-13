@@ -296,16 +296,19 @@ def native_corpus(binary: Path, canonical: Path, root: Path, env: dict,
         before = entries(target)
         result = creator(binary, "held", "cli", target, env, progress, success=False)
         assert entries(target) == before and "BORROWED_ROOT " in result.stdout
+        assert ("hangar.toml already exists" if leaf == "hangar.toml" else "existing hangar.lock without hangar.toml") in result.stdout
         cases.append("before-effects-" + variant)
 
     for leaf in ("transaction.marker", "transaction.manifest.before", "transaction.lock.before", "graph.lock"):
         target = root / ("retained-" + leaf.replace(".", "-"))
         private = target / ".freak"
-        private.mkdir(parents=True)
+        private.mkdir(parents=True, mode=0o700)
         (private / leaf).write_bytes(b"retained generation authority\x00\xff")
         before = entries(target)
-        creator(binary, "existing", "cli", target, env, progress, success=False)
+        result = creator(binary, "existing", "cli", target, env, progress, success=False)
         assert entries(target) == before
+        assert ("existing graph.lock without hangar.toml" if leaf == "graph.lock" else
+                "pending or unreadable graph transaction state") in result.stdout, result.stdout
         cases.append("before-effects-" + leaf)
 
     for leaf in ("hangar.toml", "hangar.lock", "src", ".freak"):
@@ -467,6 +470,37 @@ def public_corpus(cli: Path, hangar: Path | None, canonical: Path, root: Path,
         assert created.returncode == 0, (command, created.stdout, created.stderr)
         assert_canonical(target, canonical, kind, target.name)
         result.append({"launcher": "freak-hangar", "template": kind, "inplace": True})
+    if hangar:
+        for kind in KINDS:
+            target = root / ("standalone-inplace-" + kind)
+            target.mkdir()
+            command = [hangar, "init", "--template", kind]
+            created = run(command, cwd=target, env=env, progress=progress, label="public-standalone-inplace-" + kind)
+            assert created.returncode == 0, (command, created.stdout, created.stderr)
+            assert_canonical(target, canonical, kind, target.name)
+            result.append({"launcher": "hangar", "template": kind, "inplace": True})
+    for label, prefix in launchers:
+        name = "default-named-" + label
+        command = [*prefix, "init", name]
+        created = run(command, cwd=root, env=env, progress=progress, label="public-" + name)
+        assert created.returncode == 0, (command, created.stdout, created.stderr)
+        target = root / name
+        assert_canonical(target, canonical, "cli", name)
+        before = entries(target)
+        refused = run(command, cwd=root, env=env, progress=progress, label="public-duplicate-" + name)
+        assert refused.returncode != 0 and entries(target) == before
+        result.append({"launcher": label, "template": "cli", "named": True,
+                       "duplicate_preserved": True, "default_template": True})
+    for label, prefix in launchers:
+        if label == "freak":
+            continue
+        target = root / ("default-inplace-" + label)
+        target.mkdir()
+        command = [*prefix, "init"]
+        created = run(command, cwd=target, env=env, progress=progress, label="public-default-inplace-" + label)
+        assert created.returncode == 0, (command, created.stdout, created.stderr)
+        assert_canonical(target, canonical, "cli", target.name)
+        result.append({"launcher": label, "template": "cli", "inplace": True, "default_template": True})
     return result
 
 
@@ -479,6 +513,12 @@ def public_expectations(with_cli: bool, with_hangar: bool) -> list[dict]:
         result.extend({"launcher": launcher, "template": kind, "named": True, "duplicate_preserved": True}
                       for launcher in launchers)
         result.append({"launcher": "freak-hangar", "template": kind, "inplace": True})
+    if with_hangar:
+        result.extend({"launcher": "hangar", "template": kind, "inplace": True} for kind in KINDS)
+    result.extend({"launcher": launcher, "template": "cli", "named": True,
+                   "duplicate_preserved": True, "default_template": True} for launcher in launchers)
+    result.extend({"launcher": launcher, "template": "cli", "inplace": True, "default_template": True}
+                  for launcher in launchers if launcher != "freak")
     return result
 
 
@@ -579,11 +619,11 @@ class PureControls(unittest.TestCase):
             progress.passed()
 
     def test_public_floor_cannot_omit_standalone_hangar(self):
-        self.assertEqual(len(public_expectations(True, True)), 12)
-        self.assertEqual(len(public_expectations(True, False)), 9)
+        self.assertEqual(len(public_expectations(True, True)), 20)
+        self.assertEqual(len(public_expectations(True, False)), 12)
         self.assertEqual(len(public_expectations(False, False)), 0)
         self.assertEqual([row["template"] for row in public_expectations(True, True)
-                          if row["launcher"] == "hangar"], list(KINDS))
+                          if row["launcher"] == "hangar" and row.get("named") and not row.get("default_template")], list(KINDS))
 
     def test_windows_retarget_refusal_oracle_preserves_every_entry(self):
         target = self.root / "held-original"
