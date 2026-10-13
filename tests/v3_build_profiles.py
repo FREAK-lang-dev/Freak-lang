@@ -245,7 +245,7 @@ def check_static_contract(repo: Path) -> None:
     for forbidden in ("-Ofast", "-ffast-math", "-march=native"):
         assert forbidden not in build, f"unsafe optimization flag present: {forbidden}"
     for needle in (
-        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v7"',
+        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v8"',
         "task cli_run_file_sha256",
         'give back path + ":sha256=" + digest',
         '"|target=" + target + "|profile=" + profile + "|clang-opt=" + opt + "|lto=" + lto',

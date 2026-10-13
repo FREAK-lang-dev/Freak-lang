@@ -292,6 +292,8 @@ jobs:
           python -B -u tests/test_v3_v35_acceptance_helpers.py
           python -B -u tests/test_v3_final_component_evidence.py
           python -B -u tests/test_v3_v35_http_progress.py
+          python -B -u tests/v3_v35_cli_flag_aliases.py --static
+          python -B -u tests/v3_v35_runtime_cache.py --pure
           python -B -u tests/test_v3_v35_diagnostic_facts_helpers.py
           python -B -u tests/test_v3_v35_test_temp_helpers.py
           python -B -u tests/test_v3_v35_run_freshness_helpers.py
@@ -681,6 +683,8 @@ jobs:
           python -B -u tests/test_v3_v35_acceptance_helpers.py
           python -B -u tests/test_v3_final_component_evidence.py
           python -B -u tests/test_v3_v35_http_progress.py
+          python -B -u tests/v3_v35_cli_flag_aliases.py --static
+          python -B -u tests/v3_v35_runtime_cache.py --pure
           python -B -u tests/test_v3_v35_diagnostic_facts_helpers.py
           python -B -u tests/test_v3_v35_test_temp_helpers.py
           python -B -u tests/test_v3_v35_run_freshness_helpers.py

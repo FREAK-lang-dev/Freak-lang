@@ -268,7 +268,7 @@ def main() -> None:
     assert not report.exists(), "retain old evidence; use a fresh --report path"
     assert not report.with_suffix(report.suffix + ".pending").exists(), "use a fresh evidence path"
     assert freak.is_file() and clang.is_file()
-    assert freak == home / ("freak.exe" if os.name == "nt" else "freak"), "use the installed archive CLI"
+    assert freak == home / "bin" / ("freak.exe" if os.name == "nt" else "freak"), "use the installed archive CLI"
     payload = manifest_entries(repo)
     for source, destination in payload:
         assert sha256(source) == sha256(home / destination), (source, destination, "payload mismatch")

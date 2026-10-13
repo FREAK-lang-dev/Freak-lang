@@ -248,6 +248,18 @@ class Evidence:
         self.save()
 
     def save(self) -> None:
+        commands = self.report["commands"]
+        last = commands[-1] if commands else None
+        outcome = self.report["outcome"]
+        active = {"phase": "report-start"}
+        if last is not None:
+            active = {"phase": last["status"], "fixture": last["label"],
+                      "argv": last["argv"], "pid": last.get("owned_pid")}
+        if outcome.startswith("passed"):
+            active = {"phase": "complete"}
+        self.report["progress"] = {"outcome": outcome, "active": active,
+                                   "completed_commands": sum(row["status"] == "completed" for row in commands),
+                                   "completed_cases": len(self.report["cases"])}
         staging = self.root / "report.new"
         staging.write_text(json.dumps(self.report, indent=2) + "\n")
         staging.replace(self.root / "report.json")
@@ -307,6 +319,7 @@ class Evidence:
         with prefix.with_suffix(".stdout").open("wb") as output, prefix.with_suffix(".stderr").open("wb") as errors:
             child = subprocess.Popen(actual, cwd=cwd, env=env, stdout=output, stderr=errors, start_new_session=os.name != "nt")
             record["owned_pid"] = child.pid
+            self.save()
             hook_fired = False
             try:
                 if runtime_hook or interrupt_runtime:
@@ -798,6 +811,9 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
         "Same-path driver/support bytes, external-assembler refusal, source mutation and interruption controls are prepared; native target/UI/profile qualification remains pending.",
         "Concurrent publication is opt-in and requires the root to grant two bounded compiler children; the default gate keeps one native compiler at a time.",
     ]
+    for pin in evidence.report["inputs"]:
+        assert sha(Path(pin["path"])) == pin["sha256"], "pinned native gate input changed: " + pin["path"]
+    evidence.report["pinned_inputs_unchanged"] = True
     evidence.report["outcome"] = "passed-focused-linux"
     evidence.save()
 
