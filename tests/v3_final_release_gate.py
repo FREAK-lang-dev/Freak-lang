@@ -1016,6 +1016,11 @@ def main() -> int:
             timeout=900,
             evidence_dir=evidence,
         )
+        selected_clang = shutil.which(
+            isolated_env.get("FREAK_CLANG", "clang"), path=isolated_env.get("PATH")
+        )
+        assert selected_clang, "selected Clang is required for public test acceptance"
+        selected_clang = str(Path(selected_clang).resolve(strict=True))
         children = (
             (
                 "negative parser/type corpus",
@@ -1156,11 +1161,6 @@ def main() -> int:
                 1200,
             ),
         )
-        selected_clang = shutil.which(
-            isolated_env.get("FREAK_CLANG", "clang"), path=isolated_env.get("PATH")
-        )
-        assert selected_clang, "selected Clang is required for public test acceptance"
-        selected_clang = str(Path(selected_clang).resolve(strict=True))
         children += (
             (
                 "public system temporary parent admission",
