@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -172,6 +173,24 @@ def assert_comparative_idle_trickle(cadence: dict, receiver_receipt: dict, elaps
     assert elapsed >= 3.2 and response >= 3_200_000_000, ('comparative idle response arrived early', elapsed)
 
 
+class _InertCommandLifeline:
+    """Keep fake-Popen lifecycle controls inert; real lifelines have own tests."""
+    def __init__(self, timeout):
+        self.context = {'mode': 'modeled inert keeper', 'registered': False}
+        self.native = None
+    def options(self, preexec_fn):
+        return {'preexec_fn': preexec_fn, 'start_new_session': False}
+    def spawn(self, command, **kwargs):
+        self.native = acceptance.subprocess.Popen(command, **kwargs)
+        return self.native
+    def stop(self, child):
+        acceptance.os.killpg(child.pid, acceptance.signal.SIGKILL)
+    def registered(self, child):
+        self.context.update(registered=True, native_pid=child.pid)
+    def finish(self, normal):
+        self.context.update(lifeline_released=True, normal=normal)
+
+
 class OwnedCommandCleanupControls(unittest.TestCase):
     """Inert owned-child controls; every fake PID signal is intercepted."""
 
@@ -200,6 +219,7 @@ class OwnedCommandCleanupControls(unittest.TestCase):
         cleanup = subprocess.CompletedProcess([], 0, b'tree stopped', b'')
         with patch.object(acceptance, 'os', platform), \
                 patch.object(acceptance, 'signal', signals), \
+                patch.object(acceptance, '_CommandLifeline', _InertCommandLifeline), \
                 patch.object(acceptance.subprocess, 'Popen', return_value=child), \
                 patch.object(acceptance.subprocess, 'run', return_value=cleanup) as taskkill, \
                 patch.object(platform, 'killpg', create=True) as group_kill:
@@ -296,6 +316,7 @@ class OwnedCommandCleanupControls(unittest.TestCase):
             platform, signals = self.platform_model()
             with patch.object(acceptance, 'os', platform), \
                     patch.object(acceptance, 'signal', signals), \
+                    patch.object(acceptance, '_CommandLifeline', _InertCommandLifeline), \
                     patch.object(acceptance.subprocess, 'Popen', return_value=child), \
                     patch.object(acceptance.subprocess, 'run') as taskkill, \
                     patch.object(platform, 'killpg', create=True,
@@ -381,6 +402,501 @@ class OwnedCommandCleanupControls(unittest.TestCase):
             self.assertFalse(records[0]['cleanup_failed'])
 
 
+class KeeperFailureControls(unittest.TestCase):
+    """Host-independent POSIX models preserve the SDK's original first cause."""
+    def model(self, root, primary, secondary):
+        from types import SimpleNamespace
+        class BrokenKeeper(_InertCommandLifeline):
+            def finish(self, normal):raise secondary
+        child = Mock(pid=42, returncode=0, stdout=io.BytesIO(), stderr=io.BytesIO())
+        child.communicate.side_effect = [primary, (b'retained out', b'retained err')] if primary else [(b'retained out',b'retained err')]
+        child.poll.return_value = 0
+        records = []
+        with patch.object(acceptance,'os',SimpleNamespace(name='posix',killpg=Mock())), \
+                patch.object(acceptance,'signal',SimpleNamespace(SIGKILL=9)), \
+                patch.object(acceptance,'_CommandLifeline',BrokenKeeper), \
+                patch.object(acceptance.subprocess,'Popen',return_value=child):
+            try:
+                acceptance.run_command(['inert'],cwd=root,env={},label='keeper-failure',
+                    prefix=root/'keeper-failure',records=records,timeout=2)
+            except BaseException as caught:
+                self.assertIs(caught,primary if primary is not None else secondary)
+            else:self.fail('keeper cleanup failure falsely passed')
+        self.assertEqual((root/'keeper-failure.stdout').read_bytes(),b'retained out')
+        self.assertEqual((root/'keeper-failure.stderr').read_bytes(),b'retained err')
+        self.assertTrue(records[0]['cleanup_failed'])
+        self.assertEqual(records[0]['cleanup_errors'],[repr(secondary)])
+        self.assertEqual(records[0]['error'],repr(primary if primary is not None else secondary))
+        return child
+
+    def test_secondary_keeper_interruption_keeps_original_timeout_and_channels(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            primary = subprocess.TimeoutExpired(['inert'],2,output=b'first out',stderr=b'first err')
+            child = self.model(Path(temporary),primary,KeyboardInterrupt('controlled keeper cleanup interruption'))
+            self.assertEqual(primary.timeout,2)
+            self.assertEqual((primary.output,primary.stderr),(b'retained out',b'retained err'))
+            self.assertEqual([call.kwargs['timeout'] for call in child.communicate.call_args_list],[2,10])
+            child.wait.assert_called_once_with(timeout=5)
+
+    def test_keeper_failure_after_sdk_success_preserves_first_cleanup_cause(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            child = self.model(Path(temporary),None,OSError('controlled keeper cleanup failure'))
+            child.communicate.assert_called_once_with(timeout=2)
+
+
+@unittest.skipUnless(os.name == 'posix', 'POSIX lifeline controls; Windows taskkill models remain active')
+class CommandLifelineControls(unittest.TestCase):
+    """Inert real Python commands; Linux reaps only recorded owned adoptees."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.previous_subreaper = None
+        if sys.platform.startswith('linux'):
+            cls.libc = ctypes.CDLL(None, use_errno=True)
+            previous = ctypes.c_int()
+            assert cls.libc.prctl(37, ctypes.byref(previous), 0, 0, 0) == 0
+            cls.previous_subreaper = previous.value
+            assert cls.libc.prctl(36, 1, 0, 0, 0) == 0
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.previous_subreaper is not None:
+            assert cls.libc.prctl(36, cls.previous_subreaper, 0, 0, 0) == 0
+
+    def gone(self, pids):
+        remaining = set(pids)
+        deadline = time.monotonic() + 3
+        while remaining and time.monotonic() < deadline:
+            for pid in tuple(remaining):
+                try:
+                    waited, _ = os.waitpid(pid, os.WNOHANG)
+                except ChildProcessError:
+                    waited = 0
+                if waited == pid:
+                    remaining.remove(pid)
+                    continue
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    remaining.remove(pid)
+            if remaining:
+                time.sleep(.01)
+        self.assertEqual(remaining, set(), 'recorded owned processes survived')
+
+    def ready(self, path, parent):
+        deadline = time.monotonic() + 3
+        while not path.is_file() and time.monotonic() < deadline:
+            self.assertIsNone(parent.poll(), 'gate exited before owned fixture readiness')
+            time.sleep(.01)
+        self.assertTrue(path.is_file(), 'inert fixture readiness exceeded three seconds')
+        return json.loads(path.read_text())
+
+    def gate(self, root, command, name, extra=''):
+        module_path = str(Path(acceptance.__file__).parent)
+        return ('import json,os,sys,time\nfrom pathlib import Path\n'
+                f'sys.path.insert(0,{module_path!r})\nimport v3_v35_acceptance as a\n'
+                f'root=Path({str(root)!r})\nrecords=[]\n' + extra + '\n'
+                'def retain(record):\n'
+                f'    (root/{name!r}).write_text(json.dumps(record))\n'
+                f'a.run_command({command!r},cwd=root,env=os.environ.copy(),label="nested",'
+                'prefix=root/"raw",records=records,timeout=60,on_record=retain'
+                + (',preexec_fn=callback' if extra else '') + ')\n')
+
+    def stop_gate(self, parent, pids):
+        if parent.poll() is None:
+            parent.kill()
+        parent.communicate(timeout=3)
+        # On Linux, adopted children remain our waitable identities. A failed
+        # assertion must still stop/reap them without signalling a recycled PID.
+        if self.previous_subreaper is not None:
+            deadline = time.monotonic() + 3
+            for pid in pids:
+                while time.monotonic() < deadline:
+                    try:
+                        waited, _ = os.waitpid(pid, os.WNOHANG)
+                    except ChildProcessError:
+                        break
+                    if waited == pid:
+                        break
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    time.sleep(.01)
+
+    def test_actual_channels_argv_env_cwd_preexec_and_exit_are_preserved(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            marker = root / 'preexec'
+            def callback():
+                marker.write_text(str(os.getpid()))
+            argv = [sys.executable, '-c',
+                    'import json,os,sys; os.write(1,b"raw\\x00\\xff\\r\\n"); '
+                    'os.write(2,json.dumps([sys.argv[1:],os.getcwd(),os.environ["KEPT"]]).encode())\n'
+                    'try: os.waitpid(-1,os.WNOHANG)\n'
+                    'except ChildProcessError: pass\n'
+                    'else: sys.exit(99)\n'
+                    'for fd in range(3,128):\n'
+                    '    try: os.fstat(fd)\n'
+                    '    except OSError: pass\n'
+                    '    else: sys.exit(98)\n'
+                    'sys.exit(7)',
+                    'a b', '$literal;[braces]']
+            result = acceptance.run_command(argv, cwd=root, env={**os.environ, 'KEPT': 'exact'},
+                    label='native-metadata', prefix=root/'native', records=records, expected=7,
+                    timeout=2, preexec_fn=callback)
+            self.assertEqual(result.stdout, b'raw\x00\xff\r\n')
+            self.assertEqual(json.loads(result.stderr), [argv[3:], str(root), 'exact'])
+            self.assertEqual(records[0]['argv'], argv)
+            self.assertEqual(int(marker.read_text()), records[0]['pid'])
+            keeper = records[0]['keeper']
+            self.assertEqual(keeper['native_pid'], records[0]['pid'])
+            self.assertNotEqual(keeper['keeper_pid'], records[0]['pid'])
+            self.assertTrue(keeper['registered'] and keeper['lifeline_released'])
+            self.gone([keeper['keeper_pid']])
+
+    def test_actual_native_signal_status_and_raw_bytes_are_preserved(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            result = acceptance.run_command([sys.executable, '-c',
+                'import os,signal; os.write(1,b"before signal\\n"); os.kill(os.getpid(),signal.SIGTERM)'],
+                cwd=root, env=os.environ.copy(), label='signal', prefix=root/'signal',
+                records=records, expected=None, timeout=2)
+            self.assertEqual(result.returncode, -signal.SIGTERM)
+            self.assertEqual(result.stdout, b'before signal\n')
+            self.assertEqual((root/'signal.stdout').read_bytes(), result.stdout)
+            self.assertEqual(records[0]['returncode'], result.returncode)
+            self.gone([records[0]['keeper']['keeper_pid']])
+
+    def test_actual_timeout_keeps_original_cap_partial_channels_and_unrelated_survivor(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            survivor = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(60)'])
+            try:
+                with self.assertRaises(subprocess.TimeoutExpired) as raised:
+                    acceptance.run_command([sys.executable, '-c',
+                        'import os,subprocess,sys,time; p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"]); '
+                        'print(p.pid,flush=True); print("partial error",file=sys.stderr,flush=True);time.sleep(60)'],
+                        cwd=root, env=os.environ.copy(), label='timeout', prefix=root/'timeout', records=records, timeout=.25)
+                self.assertEqual(raised.exception.timeout, .25)
+                self.assertEqual(raised.exception.output, (root/'timeout.stdout').read_bytes())
+                self.assertEqual(raised.exception.stderr, b'partial error\n')
+                self.assertEqual(records[0]['timeout_seconds'], .25)
+                self.assertEqual(records[0]['cleanup_errors'], [])
+                self.assertIsNone(survivor.poll())
+                descendant = int(raised.exception.output)
+                self.gone([descendant, records[0]['keeper']['keeper_pid']])
+            finally:
+                survivor.kill();survivor.wait(timeout=3)
+
+    def test_actual_communicate_interrupt_preserves_primary_object_and_channels(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            ready = root/'ready'
+            primary = KeyboardInterrupt('controlled first communicate interruption')
+            original_spawn = acceptance._CommandLifeline.spawn
+            def spawn(lifeline, *args, **kwargs):
+                child = original_spawn(lifeline, *args, **kwargs)
+                original = child.communicate
+                first = True
+                def communicate(*args, **kwargs):
+                    nonlocal first
+                    if first:
+                        first = False
+                        deadline = time.monotonic()+3
+                        while not ready.exists() and time.monotonic()<deadline:time.sleep(.01)
+                        self.assertTrue(ready.exists())
+                        raise primary
+                    return original(*args, **kwargs)
+                child.communicate = communicate
+                return child
+            with patch.object(acceptance._CommandLifeline, 'spawn', spawn):
+                with self.assertRaises(KeyboardInterrupt) as raised:
+                    acceptance.run_command([sys.executable,'-c',
+                        f'import os,time;from pathlib import Path;os.write(1,b"kept out\\x00");os.write(2,b"kept err\\xff");Path({str(ready)!r}).touch();time.sleep(60)'],
+                        cwd=root,env=os.environ.copy(),label='interrupt',prefix=root/'interrupt',records=records,timeout=2)
+            self.assertIs(raised.exception, primary)
+            self.assertEqual((root/'interrupt.stdout').read_bytes(),b'kept out\x00')
+            self.assertEqual((root/'interrupt.stderr').read_bytes(),b'kept err\xff')
+            self.assertEqual(records[0]['cleanup_errors'],[])
+            self.gone([records[0]['keeper']['keeper_pid']])
+
+    def test_parent_hard_kill_stops_two_nested_groups_and_grandchild(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            leaf = ('import json,os,subprocess,sys,time\nfrom pathlib import Path\n'
+                    'child=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"])\n'
+                    f'Path({str(root/"ready")!r}).write_text(json.dumps({{"pid":os.getpid(),"pgid":os.getpgrp(),"descendant":child.pid}}))\n'
+                    'print("leaf ready",flush=True)\ntime.sleep(60)\n')
+            middle = self.gate(root,[sys.executable,'-c',leaf],'inner-record')
+            outer = self.gate(root,[sys.executable,'-c',middle],'outer-record')
+            parent = subprocess.Popen([sys.executable,'-c',outer],stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+            survivor = subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])
+            pids = []
+            try:
+                leaf_ready = self.ready(root/'ready',parent)
+                outer_record = json.loads((root/'outer-record').read_text())
+                inner_record = json.loads((root/'inner-record').read_text())
+                pids = [outer_record['pid'],outer_record['keeper']['keeper_pid'],
+                        inner_record['pid'],inner_record['keeper']['keeper_pid'],leaf_ready['descendant']]
+                self.assertNotEqual(outer_record['pid'],parent.pid)
+                self.assertNotEqual(inner_record['pid'],outer_record['pid'])
+                self.assertEqual(leaf_ready['pgid'],inner_record['pid'])
+                os.killpg(parent.pid,signal.SIGKILL)
+                parent.communicate(timeout=3)
+                self.assertEqual(parent.returncode,-signal.SIGKILL)
+                self.gone(pids)
+                self.assertIsNone(survivor.poll())
+            finally:
+                self.stop_gate(parent,pids)
+                survivor.kill();survivor.wait(timeout=3)
+
+    def test_parent_death_before_popen_returns_keeps_command_unexecuted_and_reaps(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            extra = ('class Tracking(a._CommandLifeline):\n'
+                     '    def options(self, original):\n'
+                     '        def before():\n'
+                     '            (root/"preexec-ready").write_text(json.dumps(self.context))\n'
+                     '            time.sleep(60)\n'
+                     '        return super().options(before)\n'
+                     'a._CommandLifeline=Tracking\ndef callback():pass\n')
+            target = f'from pathlib import Path;Path({str(root/"must-not-execute")!r}).touch()'
+            outer = self.gate(root,[sys.executable,'-c',target],'outer-record',extra)
+            parent = subprocess.Popen([sys.executable,'-c',outer],stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+            pids = []
+            try:
+                context = self.ready(root/'preexec-ready',parent)
+                initial = json.loads((root/'outer-record').read_text())
+                self.assertNotIn('pid',initial)
+                pids = [context['native_pid'],context['keeper_pid']]
+                parent.kill();parent.communicate(timeout=3)
+                self.gone(pids)
+                self.assertFalse((root/'must-not-execute').exists())
+            finally:
+                self.stop_gate(parent,pids)
+
+    def test_keeper_startup_and_preexec_failures_never_execute_and_release_fds(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = f'from pathlib import Path;Path({str(root/"must-not-execute")!r}).touch()'
+            for failure in ('keeper', 'preexec'):
+                records = []
+                def callback():raise OSError('controlled preexec failure')
+                with self.subTest(failure=failure), patch.object(acceptance,'_COMMAND_KEEPER',')' if failure=='keeper' else acceptance._COMMAND_KEEPER):
+                    with self.assertRaises(subprocess.SubprocessError):
+                        acceptance.run_command([sys.executable,'-c',target],cwd=root,env=os.environ.copy(),
+                            label=failure,prefix=root/failure,records=records,
+                            preexec_fn=callback if failure=='preexec' else None,timeout=2)
+                self.assertFalse((root/'must-not-execute').exists())
+                self.assertEqual(records[0]['keeper']['popen_returned'], failure == 'keeper')
+                self.assertTrue(records[0]['keeper']['lifeline_released'])
+                self.assertEqual((root/failure).with_suffix('.stdout').read_bytes(),b'')
+                context = records[0]['keeper']
+                self.gone([context['keeper_pid']])
+
+    def test_closed_stdin_does_not_alias_keeper_control_descriptors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            code = ('import json,os,sys\nfrom pathlib import Path\n'
+                    f'sys.path.insert(0,{str(Path(acceptance.__file__).parent)!r})\n'
+                    'import v3_v35_acceptance as a\nos.close(0)\nrecords=[]\n'
+                    f'r=a.run_command([sys.executable,"-c","import os;os.write(1,b\'closed stdin works\')"],cwd=Path({str(root)!r}),env=os.environ.copy(),label="closed",prefix=Path({str(root/"closed")!r}),records=records,timeout=2)\n'
+                    'assert r.stdout==b"closed stdin works"\n'
+                    f'Path({str(root/"closed-record")!r}).write_text(json.dumps(records[0]))\n')
+            observed = subprocess.run([sys.executable,'-c',code],capture_output=True,timeout=5)
+            self.assertEqual(observed.returncode,0,(observed.stdout,observed.stderr))
+            self.gone([json.loads((root/'closed-record').read_text())['keeper']['keeper_pid']])
+
+    def test_stuck_keeper_readiness_is_bounded_before_actual_exec(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            original_lifeline = acceptance._CommandLifeline
+            class ShortReadiness(original_lifeline):
+                def __init__(self, timeout):
+                    super().__init__(timeout)
+                    self.limit = .1  # Fault-control budget; production remains ten seconds.
+            target = f'from pathlib import Path;Path({str(root/"must-not-execute")!r}).touch()'
+            began = time.monotonic()
+            with patch.object(acceptance,'_CommandLifeline',ShortReadiness), \
+                    patch.object(acceptance,'_COMMAND_KEEPER','import time; time.sleep(60)'):
+                with self.assertRaisesRegex(RuntimeError,'keeper readiness timeout'):
+                    acceptance.run_command([sys.executable,'-c',target],cwd=root,env=os.environ.copy(),
+                        label='stuck-keeper',prefix=root/'stuck',records=records,timeout=2)
+            self.assertLess(time.monotonic()-began,2)
+            self.assertFalse((root/'must-not-execute').exists())
+            self.assertFalse(records[0]['keeper']['registered'])
+            self.assertEqual(records[0]['returncode'],-signal.SIGKILL)
+            self.gone([records[0]['keeper']['keeper_pid']])
+
+    def test_ordinary_caller_without_subreaper_reaps_every_keeper_and_preserves_unrelated_child(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            code = textwrap.dedent('''
+                import ctypes,json,os,signal,subprocess,sys,tempfile
+                from pathlib import Path
+                import v3_v35_acceptance as a
+                if sys.platform.startswith('linux'):
+                    prior=ctypes.c_int()
+                    assert ctypes.CDLL(None).prctl(37,ctypes.byref(prior),0,0,0)==0
+                    assert prior.value==0, 'ordinary caller must not be a subreaper'
+                root=Path(sys.argv[1]); rows=[]
+                survivor=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])
+                try:
+                    for index in range(12):
+                        records=[]
+                        result=a.run_command([sys.executable,'-c','import os;os.write(1,bytes.fromhex("657861637400ff"));os._exit(7)'],
+                            cwd=root,env=os.environ.copy(),label=str(index),prefix=root/str(index),records=records,expected=7,timeout=2)
+                        assert result.stdout==bytes.fromhex('657861637400ff')
+                        keeper=records[0]['keeper']
+                        assert keeper['keeper_reaped'] and keeper['lifeline_released']
+                        assert keeper['sid']==os.getsid(0)
+                        assert keeper['keeper_returncode']==-signal.SIGKILL
+                        for pid in (keeper['keeper_pid'],records[0]['pid']):
+                            try: os.waitpid(pid,os.WNOHANG)
+                            except ChildProcessError: pass
+                            else: raise AssertionError('helper left a waitable child')
+                            try: os.kill(pid,0)
+                            except ProcessLookupError: pass
+                            else: raise AssertionError('helper left an unreaped process')
+                        assert survivor.poll() is None
+                        rows.append(records[0])
+                    # Neither setup/exec errors nor exceptional commands leave
+                    # a keeper requiring an external process supervisor.
+                    for mode in ('missing','preexec','timeout','signal'):
+                        records=[]
+                        def callback(): raise OSError('controlled original preexec failure')
+                        command=([str(root/'missing')] if mode=='missing' else
+                                 [sys.executable,'-c','import time;time.sleep(60)' if mode=='timeout' else
+                                  'import os,signal;os.kill(os.getpid(),signal.SIGTERM)' if mode=='signal' else 'pass'])
+                        try:
+                            result=a.run_command(command,cwd=root,env=os.environ.copy(),label=mode,prefix=root/mode,
+                                records=records,expected=None,timeout=.1 if mode=='timeout' else 2,
+                                preexec_fn=callback if mode=='preexec' else None)
+                        except (FileNotFoundError,subprocess.SubprocessError,subprocess.TimeoutExpired):
+                            assert mode!='signal'
+                        else: assert mode=='signal' and result.returncode==-signal.SIGTERM
+                        keeper=records[0]['keeper']
+                        assert keeper['keeper_reaped'] and keeper['lifeline_released']
+                        try: os.waitpid(keeper['keeper_pid'],os.WNOHANG)
+                        except ChildProcessError: pass
+                        else: raise AssertionError('exceptional launch left a waitable keeper')
+                        try: os.kill(keeper['keeper_pid'],0)
+                        except ProcessLookupError: pass
+                        else: raise AssertionError('exceptional launch left an orphan keeper')
+                        assert survivor.poll() is None
+                        rows.append(records[0])
+                    (root/'ordinary-records.json').write_text(json.dumps(rows))
+                finally:
+                    survivor.kill(); survivor.wait(timeout=3)
+                print('ordinary caller reaped all sixteen keeper/SDK lifecycles')
+            ''')
+            observed = subprocess.run([sys.executable,'-c',code,str(root)],
+                cwd=Path(__file__).parent,capture_output=True,timeout=10)
+            self.assertEqual(observed.returncode,0,(observed.stdout,observed.stderr))
+            rows=json.loads((root/'ordinary-records.json').read_text())
+            self.assertEqual(len(rows),16)
+            self.assertTrue(all(row['keeper']['keeper_reaped'] for row in rows))
+
+    def test_keeper_constructor_interruption_keeps_original_and_reaps_direct_owner(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, instances = Path(temporary), []
+            primary=KeyboardInterrupt('controlled keeper Popen constructor interruption')
+            original=acceptance._OwnedCommandPopen.__init__
+            def interrupt(child,*args,**kwargs):
+                original(child,*args,**kwargs)
+                instances.append(child)
+                raise primary
+            with patch.object(acceptance._OwnedCommandPopen,'__init__',interrupt):
+                with self.assertRaises(KeyboardInterrupt) as raised:
+                    acceptance.run_command([sys.executable,'-c','pass'],cwd=root,env=os.environ.copy(),
+                        label='keeper-constructor',prefix=root/'keeper-constructor',records=[],timeout=2)
+            self.assertIs(raised.exception,primary)
+            self.assertEqual(len(instances),1)
+            self.assertIsNotNone(instances[0].returncode)
+            self.gone([instances[0].pid])
+
+    def test_sdk_constructor_interruption_keeps_owned_object_partial_channels_and_first_cause(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            ready=root/'sdk-ready'
+            primary=KeyboardInterrupt('controlled SDK Popen constructor interruption')
+            original=acceptance._OwnedCommandPopen.__init__
+            def interrupt(child,command,**kwargs):
+                original(child,command,**kwargs)
+                if '-I' not in command:
+                    deadline=time.monotonic()+2
+                    while not ready.exists() and time.monotonic()<deadline:time.sleep(.01)
+                    self.assertTrue(ready.exists())
+                    raise primary
+            with patch.object(acceptance._OwnedCommandPopen,'__init__',interrupt):
+                with self.assertRaises(KeyboardInterrupt) as raised:
+                    acceptance.run_command([sys.executable,'-c',
+                        f'import os,time;from pathlib import Path;os.write(1,b"partial\\x00");os.write(2,b"error\\xff");Path({str(ready)!r}).touch();time.sleep(60)'],
+                        cwd=root,env=os.environ.copy(),label='sdk-constructor',prefix=root/'sdk-constructor',records=records,timeout=2)
+            self.assertIs(raised.exception,primary)
+            self.assertEqual((root/'sdk-constructor.stdout').read_bytes(),b'partial\x00')
+            self.assertEqual((root/'sdk-constructor.stderr').read_bytes(),b'error\xff')
+            self.assertEqual(records[0]['returncode'],-signal.SIGKILL)
+            self.assertEqual(records[0]['cleanup_errors'],[])
+            self.assertTrue(records[0]['keeper']['keeper_reaped'])
+            self.gone([records[0]['keeper']['keeper_pid'],records[0]['keeper']['native_pid']])
+
+    def test_normal_completion_drains_residual_group_descendant(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            result=acceptance.run_command([sys.executable,'-c',
+                'import subprocess,sys;child=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);print(child.pid,flush=True)'],
+                cwd=root,env=os.environ.copy(),label='residual',prefix=root/'residual',records=records,timeout=2)
+            self.assertEqual(result.returncode,0)
+            self.assertEqual(records[0]['returncode'],0)
+            self.assertEqual(records[0]['keeper']['finish'],'normal group drain')
+            self.gone([int(result.stdout),records[0]['keeper']['keeper_pid']])
+
+    def test_actual_sigint_while_popen_preexec_waits_preserves_primary_and_reaps_without_subreaper(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            code=textwrap.dedent('''
+                import ctypes,json,os,signal,subprocess,sys,threading,time
+                from pathlib import Path
+                import v3_v35_acceptance as a
+                root=Path(sys.argv[1]); records=[]
+                if sys.platform.startswith('linux'):
+                    prior=ctypes.c_int()
+                    assert ctypes.CDLL(None).prctl(37,ctypes.byref(prior),0,0,0)==0 and prior.value==0
+                def callback():
+                    (root/'preexec-ready').touch()
+                    time.sleep(60)
+                def signal_owner():
+                    deadline=time.monotonic()+3
+                    while not (root/'preexec-ready').exists() and time.monotonic()<deadline:time.sleep(.01)
+                    assert (root/'preexec-ready').exists()
+                    os.kill(os.getpid(),signal.SIGINT)
+                sender=threading.Thread(target=signal_owner);sender.start()
+                try:
+                    a.run_command([sys.executable,'-c',f'from pathlib import Path;Path({str(root/"must-not-run")!r}).touch()'],
+                        cwd=root,env=os.environ.copy(),label='sigint',prefix=root/'sigint',records=records,timeout=2,preexec_fn=callback)
+                except KeyboardInterrupt:pass
+                else:raise AssertionError('actual interruption lost')
+                sender.join(timeout=1);assert not sender.is_alive()
+                assert not (root/'must-not-run').exists()
+                assert records[0]['returncode']==-signal.SIGKILL
+                assert records[0]['keeper']['keeper_reaped']
+                for pid in (records[0]['keeper']['keeper_pid'],records[0]['keeper']['native_pid']):
+                    try: os.waitpid(pid,os.WNOHANG)
+                    except ChildProcessError:pass
+                    else:raise AssertionError('interruption left a waitable child')
+                    try:os.kill(pid,0)
+                    except ProcessLookupError:pass
+                    else:raise AssertionError('interruption left an orphan')
+                (root/'sigint-record.json').write_text(json.dumps(records[0]))
+            ''')
+            observed=subprocess.run([sys.executable,'-c',code,str(root)],cwd=Path(__file__).parent,
+                capture_output=True,timeout=6)
+            self.assertEqual(observed.returncode,0,(observed.stdout,observed.stderr))
+            self.assertTrue(json.loads((root/'sigint-record.json').read_text())['keeper']['keeper_reaped'])
+
+
 class AcceptanceHelpers(unittest.TestCase):
     def test_success_keeps_separate_raw_channels_and_exit(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -450,6 +966,7 @@ class AcceptanceHelpers(unittest.TestCase):
             child.poll.return_value = -9
             records = []
             with patch.object(acceptance.os, 'killpg', create=True), \
+                    patch.object(acceptance, '_CommandLifeline', _InertCommandLifeline), \
                     patch.object(acceptance.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')), \
                     patch.object(acceptance.subprocess, 'Popen', return_value=child):
                 with self.assertRaises(subprocess.TimeoutExpired) as caught:
@@ -485,6 +1002,7 @@ class AcceptanceHelpers(unittest.TestCase):
                 if record.get('timed_out'):
                     raise OSError('checkpoint write failed')
             with patch.object(acceptance.os, 'killpg', create=True), \
+                    patch.object(acceptance, '_CommandLifeline', _InertCommandLifeline), \
                     patch.object(acceptance.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')), \
                     patch.object(acceptance.subprocess, 'Popen', return_value=child):
                 with self.assertRaises(subprocess.TimeoutExpired) as caught:
