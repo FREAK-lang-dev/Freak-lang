@@ -444,6 +444,18 @@ def native_corpus(binary: Path, canonical: Path, root: Path, env: dict,
             "native_windows": os.name == "nt"}
 
 
+def assert_public_guidance(output: str, kind: str, *, retained: bool = False) -> None:
+    assert "Initialized " + kind + " project" in output, output
+    assert "Project directory: " in output, output
+    if retained:
+        assert "Existing entries were preserved. Inspect the project files before building." in output, output
+        assert "From the project directory:" not in output, output
+    else:
+        command = "freak test" if kind == "lib" else "freak build"
+        assert "From the project directory: " + command in output, output
+        assert "src/lib.fk" not in output, output
+
+
 def public_corpus(cli: Path, hangar: Path | None, canonical: Path, root: Path,
                   env: dict, progress: TemplateProgress) -> list[dict]:
     result = []
@@ -456,6 +468,7 @@ def public_corpus(cli: Path, hangar: Path | None, canonical: Path, root: Path,
             command = [*prefix, "init", name, "--template=" + kind]
             created = run(command, cwd=root, env=env, progress=progress, label="public-" + name)
             assert created.returncode == 0, (command, created.stdout, created.stderr)
+            assert_public_guidance(created.stdout, kind)
             target = root / name
             assert_canonical(target, canonical, kind, name)
             before = entries(target)
@@ -468,6 +481,7 @@ def public_corpus(cli: Path, hangar: Path | None, canonical: Path, root: Path,
         command = [cli, "hangar", "init", "--template", kind]
         created = run(command, cwd=target, env=env, progress=progress, label="public-inplace-" + kind)
         assert created.returncode == 0, (command, created.stdout, created.stderr)
+        assert_public_guidance(created.stdout, kind)
         assert_canonical(target, canonical, kind, target.name)
         result.append({"launcher": "freak-hangar", "template": kind, "inplace": True})
     if hangar:
@@ -477,6 +491,7 @@ def public_corpus(cli: Path, hangar: Path | None, canonical: Path, root: Path,
             command = [hangar, "init", "--template", kind]
             created = run(command, cwd=target, env=env, progress=progress, label="public-standalone-inplace-" + kind)
             assert created.returncode == 0, (command, created.stdout, created.stderr)
+            assert_public_guidance(created.stdout, kind)
             assert_canonical(target, canonical, kind, target.name)
             result.append({"launcher": "hangar", "template": kind, "inplace": True})
     for label, prefix in launchers:
@@ -484,6 +499,7 @@ def public_corpus(cli: Path, hangar: Path | None, canonical: Path, root: Path,
         command = [*prefix, "init", name]
         created = run(command, cwd=root, env=env, progress=progress, label="public-" + name)
         assert created.returncode == 0, (command, created.stdout, created.stderr)
+        assert_public_guidance(created.stdout, "cli")
         target = root / name
         assert_canonical(target, canonical, "cli", name)
         before = entries(target)
@@ -499,8 +515,76 @@ def public_corpus(cli: Path, hangar: Path | None, canonical: Path, root: Path,
         command = [*prefix, "init"]
         created = run(command, cwd=target, env=env, progress=progress, label="public-default-inplace-" + label)
         assert created.returncode == 0, (command, created.stdout, created.stderr)
+        assert_public_guidance(created.stdout, "cli")
         assert_canonical(target, canonical, "cli", target.name)
         result.append({"launcher": label, "template": "cli", "inplace": True, "default_template": True})
+    return result
+
+
+ARGUMENT_REFUSALS = (
+    ("missing-template-value", ("--template",)),
+    ("empty-template-value", ("--template=",)),
+    ("unknown-template", ("--template", "unknown")),
+    ("duplicate-template", ("--template=cli", "--template", "lib")),
+    ("unknown-option", ("--unknown",)),
+    ("extra-target", ("another-target",)),
+    ("unknown-before-template", ("--unknown", "--template=cli")),
+)
+
+
+def public_argument_expectations(with_cli: bool, with_hangar: bool) -> list[str]:
+    if not with_cli:
+        return []
+    labels = ("freak", "freak-hangar", "hangar") if with_hangar else ("freak", "freak-hangar")
+    result = [label + ":" + case for label in labels for case, _ in ARGUMENT_REFUSALS]
+    result.append("freak:missing-target")
+    result.extend(label + ":separated-template" for label in labels)
+    result.extend(label + ":retained-guidance" for label in labels if label != "freak")
+    return result
+
+
+def public_argument_corpus(cli: Path, hangar: Path | None, canonical: Path, root: Path,
+                           env: dict, progress: TemplateProgress) -> list[str]:
+    launchers = [("freak", [cli]), ("freak-hangar", [cli, "hangar"])]
+    if hangar:
+        launchers.append(("hangar", [hangar]))
+    result = []
+    for label, prefix in launchers:
+        for case, arguments in ARGUMENT_REFUSALS:
+            before = entries(root)
+            command = [*prefix, "init", label + "-invalid-" + case, *arguments]
+            refused = run(command, cwd=root, env=env, progress=progress, label=label + ":" + case)
+            assert refused.returncode != 0, (command, refused.stdout, refused.stderr)
+            assert entries(root) == before, (command, "argument refusal changed parent entries")
+            result.append(label + ":" + case)
+    before = entries(root)
+    refused = run([cli, "init", "--template", "lib"], cwd=root, env=env,
+                  progress=progress, label="freak:missing-target")
+    assert refused.returncode != 0 and entries(root) == before
+    result.append("freak:missing-target")
+    for label, prefix in launchers:
+        name = label + "-separated-template"
+        created = run([*prefix, "init", name, "--template", "lib"], cwd=root, env=env,
+                      progress=progress, label=label + ":separated-template")
+        assert created.returncode == 0, (created.stdout, created.stderr)
+        assert_canonical(root / name, canonical, "lib", name)
+        assert_public_guidance(created.stdout, "lib")
+        result.append(label + ":separated-template")
+    for label, prefix in launchers:
+        if label == "freak":
+            continue
+        target = root / (label + "-retained-guidance")
+        target.mkdir()
+        retained = b"existing README\x00\xff"
+        (target / "README.md").write_bytes(retained)
+        before = entries(target)
+        created = run([*prefix, "init", "--template=lib"], cwd=target, env=env,
+                      progress=progress, label=label + ":retained-guidance")
+        assert created.returncode == 0, (created.stdout, created.stderr)
+        assert_preserved(before, target)
+        assert_canonical(target, canonical, "lib", target.name, {"README.md": retained})
+        assert_public_guidance(created.stdout, "lib", retained=True)
+        result.append(label + ":retained-guidance")
     return result
 
 
@@ -526,6 +610,8 @@ class SharedInitProgress(TemplateProgress):
     def passed(self):
         if self.report.get("public_cli_cases") != self.report["expected_public_cli_cases"]:
             raise RuntimeError("shared initializer public CLI floor is incomplete")
+        if self.report.get("public_argument_cases", []) != self.report.get("expected_public_argument_cases", []):
+            raise RuntimeError("shared initializer public argument floor is incomplete")
         self.report["public_cli_verified"] = bool(self.report["expected_public_cli_cases"])
         super().passed()
 
@@ -535,6 +621,28 @@ class PureControls(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="shared-init-oracle-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve(strict=True)
+
+    def test_library_guidance_refuses_a_nonexistent_entry(self):
+        header = "Initialized lib project\nProject directory: example\n"
+        assert_public_guidance(header + "From the project directory: freak test\n", "lib")
+        with self.assertRaises(AssertionError):
+            assert_public_guidance(header + "From the project directory: freak check src/lib.fk\n", "lib")
+
+    def test_retained_guidance_requires_inspection_before_building(self):
+        output = ("Initialized lib project\nProject directory: example\n"
+                  "Existing entries were preserved. Inspect the project files before building.\n")
+        assert_public_guidance(output, "lib", retained=True)
+        with self.assertRaises(AssertionError):
+            assert_public_guidance(output + "From the project directory: freak test\n", "lib", retained=True)
+
+    def test_public_argument_floor_cannot_omit_a_refusal(self):
+        required = public_argument_expectations(True, True)
+        self.assertEqual(len(required), 27)
+        progress = object.__new__(SharedInitProgress)
+        progress.report = {"public_cli_cases": [], "expected_public_cli_cases": [],
+                           "public_argument_cases": required[:-1], "expected_public_argument_cases": required}
+        with self.assertRaisesRegex(RuntimeError, "public argument floor is incomplete"):
+            progress.passed()
 
     def test_oracle_records_binary_and_empty_files(self):
         (self.root / "binary").write_bytes(b"\x00\xff")
@@ -716,7 +824,9 @@ def main() -> int:
                 "pure_checks_are_not_native_evidence": True, "public_cli_supplied": bool(args.cli),
                 "native_windows": os.name == "nt", "shared_init_matrices": [],
                 "expected_public_cli_cases": public_expectations(bool(args.cli), bool(args.hangar)),
-                "public_cli_cases": [], "public_cli_verified": False}
+                "public_cli_cases": [], "public_cli_verified": False,
+                "expected_public_argument_cases": public_argument_expectations(bool(args.cli), bool(args.hangar)),
+                "public_argument_cases": []}
     with SharedInitProgress(args.report, evidence, matrices, []) as progress:
         with tempfile.TemporaryDirectory(prefix="freak-shared-init-native-") as temporary:
             root = Path(temporary).resolve(strict=True)
@@ -762,6 +872,8 @@ def main() -> int:
                 projects = root / "public-projects"
                 projects.mkdir()
                 evidence["public_cli_cases"] = public_corpus(args.cli.resolve(strict=True),
+                    args.hangar.resolve(strict=True) if args.hangar else None, canonical, projects, env, progress)
+                evidence["public_argument_cases"] = public_argument_corpus(args.cli.resolve(strict=True),
                     args.hangar.resolve(strict=True) if args.hangar else None, canonical, projects, env, progress)
             after = {str(path): digest(path) for path in pinned}
             assert before == after, "pinned initializer/compiler/runtime/payload inputs changed"

@@ -355,7 +355,7 @@ task cli_init_success(template_name: word) -> void {
     if cli_template_retained_files {
         say "Existing entries were preserved. Inspect the project files before building."
     } else if template_name == "lib" {
-        say "From the project directory: freak check src/lib.fk"
+        say "From the project directory: freak test"
     } else {
         say "From the project directory: freak build"
     }
