@@ -1906,7 +1906,7 @@ def audit_conformance(paths: List[Path]) -> int:
         "run pipeline": (
             repo / "src" / "cli" / "run.fk",
             (
-                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v7"',
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v8"',
                 "task cli_run_fingerprint",
                 "task cli_run_clang_identity",
                 "task cli_run_linker_identity",
