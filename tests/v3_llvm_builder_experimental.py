@@ -13,8 +13,12 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
+import tempfile
+import time
 import unittest
+from unittest.mock import Mock, patch
 
 FRONTEND = tuple(f"src/compiler/v3/{name}.fk" for name in
                  ("globals", "helpers", "lexer", "parser", "checker"))
@@ -76,6 +80,10 @@ task main() { selected(0); selected(9); }
 """, b"9\n", 0),
     "empty_main": ("task main() {}\n", b"", 0),
     "negative_status": ("task main() -> int { give back -1; }\n", b"", 255),
+    "argument_bound": (
+        "task edge(" + ",".join(f"n{i}: int" for i in range(64)) +
+        ") -> int { give back n0 + n63; } task main() { say edge(" +
+        ",".join(str(i) for i in range(64)) + "); }\n", b"63\n", 0),
 }
 
 RUNTIME_FAILURE = {
@@ -91,6 +99,9 @@ RUNTIME_FAILURE = {
 UNSUPPORTED = {
     "word": 'task main() { say "not supported"; }\n',
     "num": "task main() { say 1.5; }\n",
+    "promoted_num_binding": "task main() { pilot n: num = 1; }\n",
+    "parameter_bound": ("task wide(" + ",".join(f"n{i}: int" for i in range(65)) +
+                        ") {} task main() {}\n"),
     "loop": "task main() { pilot n = 0; repeat while n < 3 { n += 1; } }\n",
     "short_circuit": "task main() { if true and false { say 1; } }\n",
     "global": "pilot n = 4; task main() { say n; }\n",
@@ -199,6 +210,13 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def safe_exception(error: BaseException) -> str:
+    try:
+        return repr(error)[:500]
+    except BaseException:
+        return "exception representation failed"
+
+
 def sdk_closure(include: Path) -> list[Path]:
     """Pin the selected C API headers and every project include they consume."""
     pending = list(SDK_HEADERS)
@@ -254,6 +272,46 @@ class SourceControls(unittest.TestCase):
         self.assertEqual(len(set(POSITIVE) | set(RUNTIME_FAILURE) | set(UNSUPPORTED) | set(FRONTEND_FAILURE)),
                          len(POSITIVE) + len(RUNTIME_FAILURE) + len(UNSUPPORTED) + len(FRONTEND_FAILURE))
 
+    def test_owned_native_launcher_drains_on_every_interruption(self):
+        for failure in (KeyboardInterrupt("interrupted"), SystemExit(23),
+                        subprocess.TimeoutExpired(["inert"], 180)):
+            with self.subTest(kind=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
+                evidence = Evidence(Path(directory))
+                child = Mock(pid=999999, returncode=None)
+                child.poll.return_value = None
+                child.wait.side_effect = [failure, -9]
+                def launch(*_, **kwargs):
+                    kwargs["stdout"].write(b"partial stdout\n")
+                    kwargs["stderr"].write(b"partial stderr\n")
+                    return child
+                with patch.object(subprocess, "Popen", side_effect=launch), \
+                        patch.object(os, "killpg", create=True) as group_kill:
+                    with self.assertRaises(type(failure)) as caught:
+                        evidence.run(["inert"], "interruption", {})
+                    self.assertIs(caught.exception, failure)
+                    group_kill.assert_called_once_with(child.pid, 9)
+                    child.kill.assert_called_once_with()
+                    self.assertEqual(child.wait.call_count, 2)
+                    self.assertEqual(child.wait.call_args.kwargs, {"timeout": 5})
+                self.assertEqual((Path(directory) / "command-0000.stdout").read_bytes(), b"partial stdout\n")
+                self.assertEqual((Path(directory) / "command-0000.stderr").read_bytes(), b"partial stderr\n")
+
+    def test_secondary_cleanup_failures_preserve_the_first_exception(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Evidence(Path(directory))
+            primary = KeyboardInterrupt("original interruption")
+            child = Mock(pid=999999, returncode=None)
+            child.poll.return_value = None
+            child.wait.side_effect = [primary, RuntimeError("reap failed")]
+            child.kill.side_effect = SystemExit("kill failed")
+            with patch.object(subprocess, "Popen", return_value=child), \
+                    patch.object(os, "killpg", create=True, side_effect=PermissionError("denied")):
+                with self.assertRaises(KeyboardInterrupt) as caught:
+                    evidence.run(["inert"], "secondary cleanup", {})
+            self.assertIs(caught.exception, primary)
+            self.assertEqual(child.wait.call_count, 2)
+            self.assertIn("cleanup_errors", evidence.records[0])
+
 
 class Evidence:
     def __init__(self, root: Path):
@@ -270,10 +328,88 @@ class Evidence:
         temporary.replace(self.root / "report.json")
 
     def run(self, argv: list[str], label: str, env: dict, expected: int | None = 0):
-        from v3_v35_acceptance import run_command
-        return run_command(argv, cwd=self.root, env=env, label=label, records=self.records,
-                           prefix=self.root / f"command-{len(self.records):04d}", expected=expected,
-                           timeout=180, on_record=lambda _: self.write())
+        # Native qualification is Linux-only. Regular files retain partial raw
+        # channels without inherited-pipe capture or reader-thread cleanup.
+        prefix = self.root / f"command-{len(self.records):04d}"
+        record = {"case": label, "argv": argv, "cwd": str(self.root),
+                  "expected": expected, "timeout_seconds": 180}
+        self.records.append(record)
+        child = None
+        channels = {}
+        primary = None
+        cleanup_errors = []
+        started = time.monotonic()
+        try:
+            self.write()
+            for channel in ("stdout", "stderr"):
+                channels[channel] = prefix.with_suffix("." + channel).open("xb")
+            child = subprocess.Popen(argv, cwd=self.root, env=env,
+                                     stdout=channels["stdout"], stderr=channels["stderr"],
+                                     start_new_session=True)
+            record.update(pid=child.pid, process_tree="owned native Linux process group")
+            self.write()
+            child.wait(timeout=180)
+        except BaseException as error:
+            primary = error
+            record["error"] = safe_exception(error)
+            record["timed_out"] = isinstance(error, subprocess.TimeoutExpired)
+            if child is not None:
+                # Target only the fresh launcher's group. Every cleanup step is
+                # bounded/protected and cannot replace the triggering exception.
+                try:
+                    os.killpg(child.pid, 9)
+                except ProcessLookupError:
+                    pass
+                except BaseException as secondary:
+                    cleanup_errors.append("group kill: " + safe_exception(secondary))
+                try:
+                    if child.poll() is None: child.kill()
+                except BaseException as secondary:
+                    cleanup_errors.append("child kill: " + safe_exception(secondary))
+                try:
+                    child.wait(timeout=5)
+                except BaseException as secondary:
+                    cleanup_errors.append("child reap: " + safe_exception(secondary))
+            raise
+        finally:
+            secondary_failure = None
+            for channel, stream in channels.items():
+                try:
+                    stream.close()
+                except BaseException as secondary:
+                    cleanup_errors.append(channel + " close: " + safe_exception(secondary))
+                    if secondary_failure is None: secondary_failure = secondary
+            record.update(elapsed_seconds=time.monotonic() - started,
+                          returncode=child.returncode if child is not None else None)
+            record["raw_files"] = {}
+            for channel in ("stdout", "stderr"):
+                path = prefix.with_suffix("." + channel)
+                try:
+                    if path.exists():
+                        record["raw_files"][channel] = {"path": str(path), "bytes": path.stat().st_size,
+                                                        "sha256": digest(path)}
+                except BaseException as secondary:
+                    cleanup_errors.append(channel + " retain: " + safe_exception(secondary))
+                    if secondary_failure is None: secondary_failure = secondary
+            if cleanup_errors: record["cleanup_errors"] = cleanup_errors
+            try:
+                self.write()
+            except BaseException as secondary:
+                if secondary_failure is None: secondary_failure = secondary
+            if primary is not None:
+                for note in cleanup_errors:
+                    try: primary.add_note(note[:500])
+                    except BaseException: pass
+                if secondary_failure is not None:
+                    try: primary.add_note("evidence cleanup failed: " + safe_exception(secondary_failure))
+                    except BaseException: pass
+            elif secondary_failure is not None:
+                raise secondary_failure
+        stdout = prefix.with_suffix(".stdout").read_bytes()
+        stderr = prefix.with_suffix(".stderr").read_bytes()
+        if expected is not None:
+            assert child.returncode == expected, (label, child.returncode, stdout[-4000:], stderr[-4000:])
+        return subprocess.CompletedProcess(argv, child.returncode, stdout, stderr)
 
 
 def native(args) -> int:
@@ -290,7 +426,11 @@ def native(args) -> int:
     env = os.environ.copy()
     env.pop("LD_PRELOAD", None)
     env["LD_LIBRARY_PATH"] = str(library.parent) + (":" + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
+    if args.sanitize:
+        env["ASAN_OPTIONS"] = "detect_leaks=1:halt_on_error=1:exitcode=86"
+        env["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1"
     inputs = [repo / path for path in (*FRONTEND, *NEW_SOURCES)]
+    inputs.append(Path(__file__).resolve(strict=True))
     runtime = repo / "freakc/runtime"
     inputs += [compiler, clang, library, *sdk_closure(include)]
     inputs += [path for directory in (runtime, repo / "third_party/llhttp")
@@ -377,15 +517,16 @@ def native(args) -> int:
             assert result.returncode != 0 and not output.exists()
         assert all(digest(Path(path)) == expected for path, expected in pins.items()), "input changed during qualification"
         evidence.report.update(outcome="PASS", platforms=["native-linux"], optimizations=[0, 2, 3],
-                               parity_cases=len(POSITIVE) + len(RUNTIME_FAILURE), source_controls="separate pure gate")
+                               parity_cases=len(POSITIVE) + len(RUNTIME_FAILURE), shim_sanitized=args.sanitize,
+                               source_controls="separate pure gate")
         evidence.write()
         print("Experimental LLVM builder: PASS (native Linux O0/O2/O3 scalar parity and negatives)")
         return 0
     except BaseException as error:
-        evidence.report.update(outcome="FAIL", error=repr(error))
+        evidence.report.update(outcome="FAIL", error=safe_exception(error))
         try: evidence.write()
         except BaseException as secondary:
-            try: error.add_note("failed to retain experiment report: " + repr(secondary)[:500])
+            try: error.add_note("failed to retain experiment report: " + safe_exception(secondary))
             except BaseException: pass
         raise
 

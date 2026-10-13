@@ -137,6 +137,8 @@ task ib_validate_stmt(stmt: int) -> void {
     pilot expr = word_to_int(array_get(ast_stmt_exprs, stmt))
     if kind == STMT_PILOT {
         ib_validate_expr(expr)
+        pilot annotation = array_get(ast_stmt_extras, stmt)
+        if annotation != "" and annotation != "int" { ib_stmt_error(stmt, "local binding annotations must be int") }
         if ib_expr_type(expr) != "int" { ib_stmt_error(stmt, "local bindings must have type int") }
         give back
     }

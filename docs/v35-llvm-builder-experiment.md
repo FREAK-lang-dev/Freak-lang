@@ -21,13 +21,16 @@ The first supported slice is deliberately small:
   `say` of int values.
 
 Word/num values and signatures, boolean local bindings, arrays, shapes, Result,
-loops, `and`/`or`, `eventually`, globals, externs, imports and runtime namespaces
+loops, `and`/`or`, `eventually`, globals, externs and runtime namespaces
 are unsupported. Valid source using them receives an explicit experimental
-backend diagnostic before a LLVM session or usable object is produced, even
+backend diagnostic before an LLVM session or usable object is produced, even
 when the unsupported form is unreachable. General ownership lowering, PHIs,
 debug information, LTO, cross compilation and compiler self-host through this
 backend remain future work. Normal V3 source/type/borrow errors still stop the
 pipeline before backend admission.
+The prototype accepts standalone source only: it has no CLI project/import
+loader. Import declarations receive the existing frontend's rejection before
+backend admission; no imported package or standard-library delivery is claimed.
 
 The experimental host is assembled from the five existing frontend sources,
 the new emitter and the new main, and compiled by stable V3 `--c`. It links the
