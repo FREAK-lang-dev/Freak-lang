@@ -171,11 +171,22 @@ class HttpProgress:
         return report
 
 HARNESS = r'''
+/* Defer only the HTTP include so its sends can be observed without changing
+   the shared socket substrate or the Linux corpus send instrumentation. */
+#define FREAK_V35_HTTP_INCLUDED 1
 #include "freak_runtime.c"
+#undef FREAK_V35_HTTP_INCLUDED
 #ifndef FREAK_V35_JSON_INCLUDED
 #include "freak_v35_json.inc"
 #endif
+#ifdef _WIN32
+static int stop_fixture_send(SOCKET,const char *,int,int);
+#else
+static ssize_t stop_fixture_send(int,const void *,size_t,int);
+#endif
+#define send stop_fixture_send
 #include "freak_v35_http.inc"
+#undef send
 #include <assert.h>
 #ifndef _WIN32
 #include <dirent.h>
@@ -218,14 +229,121 @@ static void bind_tests(void) {
     s=H(bind)(W("::1"),0,0);if(H(status)(s)==0) REQUIRE(H(local_port)(s)>0);H(close)(s);
     base();
 }
-typedef struct { int64_t server,request; bool writing; atomic_bool ready; int sent; } stop_context;
+typedef struct {
+    int64_t server,request;
+    bool writing,positive_partial;
+    atomic_bool ready,completed,probe_failed;
+    atomic_size_t send_calls,sent_bytes;
+    atomic_int send_buffer,backpressure;
+    int sent,receive_buffer;
+    freak_native_socket send_socket;
+} stop_context;
+static _Thread_local stop_context *stop_write_context;
+static int stop_socket_error(void) {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+static void stop_restore_socket_error(int error) {
+#ifdef _WIN32
+    WSASetLastError(error);
+#else
+    errno=error;
+#endif
+}
+static bool stop_would_block(int error) {
+#ifdef _WIN32
+    return error==WSAEWOULDBLOCK;
+#else
+    return error==EAGAIN||error==EWOULDBLOCK;
+#endif
+}
+/* Zero means the actual SDK reports no writability, not a fabricated send
+   failure. Error/hangup readiness never counts as backpressure. */
+static int stop_write_probe(freak_native_socket socket) {
+#ifdef _WIN32
+    fd_set writes,errors;FD_ZERO(&writes);FD_ZERO(&errors);FD_SET(socket,&writes);FD_SET(socket,&errors);
+    struct timeval timeout={0};int result=select(0,NULL,&writes,&errors,&timeout);
+    if(result<0||(result>0&&FD_ISSET(socket,&errors)))return -1;
+    return result==0?0:FD_ISSET(socket,&writes)?1:-1;
+#else
+    struct pollfd descriptor={socket,POLLOUT,0};int result=poll(&descriptor,1,0);
+    if(result<0||(descriptor.revents&(POLLERR|POLLHUP|POLLNVAL)))return -1;
+    return result==0?0:(descriptor.revents&POLLOUT)?1:-1;
+#endif
+}
+#ifdef _WIN32
+static int stop_fixture_send(SOCKET socket,const char *data,int length,int flags) {
+    stop_context *c=stop_write_context;bool targeted=c&&socket==c->send_socket;
+    int wanted=targeted&&length>1024?1024:length;
+    int result=send(socket,data,wanted,flags);
+#else
+static ssize_t stop_fixture_send(int socket,const void *data,size_t length,int flags) {
+    stop_context *c=stop_write_context;bool targeted=c&&socket==c->send_socket;
+    size_t wanted=targeted&&length>1024?1024:length;
+    ssize_t result=send(socket,data,wanted,flags);
+#endif
+    int error=stop_socket_error();
+    if(targeted) {
+        atomic_fetch_add_explicit(&c->send_calls,1,memory_order_relaxed);
+        if(result>0)atomic_fetch_add_explicit(&c->sent_bytes,(size_t)result,memory_order_relaxed);
+        bool partial=result>0&&(size_t)result<(size_t)length;
+        if(partial)c->positive_partial=true;
+        int observed=0;
+        if(result<0&&c->positive_partial&&stop_would_block(error))observed=1;
+        else if(partial) {
+            int writable=stop_write_probe(socket);
+            if(writable<0)atomic_store_explicit(&c->probe_failed,true,memory_order_release);
+            else if(writable==0)observed=2;
+        }
+        if(observed&&!atomic_load_explicit(&c->ready,memory_order_relaxed)) {
+            atomic_store_explicit(&c->backpressure,observed,memory_order_relaxed);
+            atomic_store_explicit(&c->ready,true,memory_order_release);
+        }
+    }
+    /* Preserve the real send result and its error even when the observation
+       calls select/poll. Production retries still see the actual SDK cause. */
+    stop_restore_socket_error(error);return result;
+}
+static int stop_buffer(freak_native_socket socket,int option,const char *label) {
+    int amount=1024,actual=0;
+#ifdef _WIN32
+    int length=sizeof(actual);
+#else
+    socklen_t length=sizeof(actual);
+#endif
+    if(setsockopt(socket,SOL_SOCKET,option,(const char *)&amount,sizeof(amount))!=0) {
+        fprintf(stderr,"STOP_SETUP %s setsockopt error=%d\n",label,stop_socket_error());REQUIRE(false);
+    }
+    if(getsockopt(socket,SOL_SOCKET,option,(char *)&actual,&length)!=0) {
+        fprintf(stderr,"STOP_SETUP %s getsockopt error=%d\n",label,stop_socket_error());REQUIRE(false);
+    }
+    if(length!=sizeof(actual)||actual<=0) {
+        fprintf(stderr,"STOP_SETUP %s invalid_buffer=%d size=%u\n",label,actual,(unsigned)length);REQUIRE(false);
+    }
+    return actual;
+}
+static void stop_setup_failure(stop_context *c,const char *reason) {
+    fprintf(stderr,"STOP_SETUP %s ready=%d completed=%d probe_failed=%d backpressure=%d send_calls=%zu sent_bytes=%zu send_buffer=%d receive_buffer=%d\n",
+        reason,atomic_load_explicit(&c->ready,memory_order_acquire),atomic_load_explicit(&c->completed,memory_order_acquire),
+        atomic_load_explicit(&c->probe_failed,memory_order_acquire),atomic_load_explicit(&c->backpressure,memory_order_relaxed),
+        atomic_load_explicit(&c->send_calls,memory_order_relaxed),atomic_load_explicit(&c->sent_bytes,memory_order_relaxed),
+        atomic_load_explicit(&c->send_buffer,memory_order_relaxed),c->receive_buffer);
+    REQUIRE(false);
+}
 static void stop_work(stop_context *c) {
     c->request=H(next_request)(c->server);
     if(c->writing) {
-        REQUIRE(!H(request_status)(c->request));int amount=1024;freak_http_request *r=freak_http_require_request(c->request);setsockopt(r->socket,SOL_SOCKET,SO_SNDBUF,(const char *)&amount,sizeof(amount));
+        REQUIRE(!H(request_status)(c->request));freak_http_request *r=freak_http_require_request(c->request);
+        atomic_store_explicit(&c->send_buffer,stop_buffer(r->socket,SO_SNDBUF,"sender"),memory_order_relaxed);c->send_socket=r->socket;
         int64_t b=freak_byte_buffer_with_capacity(8388608);freak_byte_buffer_record *buffer=freak_byte_buffer_require(b,"stop-write");memset(buffer->data,'x',8388608);buffer->length=8388608;
-        atomic_store_explicit(&c->ready,true,memory_order_release);c->sent=H(send_bytes)(c->request,b);freak_byte_buffer_release(b);
+        stop_write_context=c;c->sent=H(send_bytes)(c->request,b);
+        atomic_store_explicit(&c->completed,true,memory_order_release);
+        stop_write_context=NULL;freak_byte_buffer_release(b);
     }
+    atomic_store_explicit(&c->completed,true,memory_order_release);
 }
 #ifdef _WIN32
 static DWORD WINAPI accept_thread(LPVOID p) { stop_work(p);return 0; }
@@ -234,16 +352,31 @@ static void *accept_thread(void *p) { stop_work(p);return NULL; }
 #endif
 static void stop_tests(void) {
     for(int reading=0;reading<3;reading++) {
-        stop_context c={0};c.server=H(open)(0);c.writing=reading==2;atomic_init(&c.ready,false);REQUIRE(H(status)(c.server)==0);
+        stop_context c={0};c.server=H(open)(0);c.writing=reading==2;
+        atomic_init(&c.ready,false);atomic_init(&c.completed,false);atomic_init(&c.probe_failed,false);
+        atomic_init(&c.send_calls,0);atomic_init(&c.sent_bytes,0);atomic_init(&c.send_buffer,0);atomic_init(&c.backpressure,0);
+        REQUIRE(H(status)(c.server)==0);
         if(c.writing)H(set_limits)(c.server,8192,32768,100,8388608);
         freak_native_socket client=FREAK_INVALID_NATIVE_SOCKET;
-        if(reading) { client=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);REQUIRE(client!=FREAK_INVALID_NATIVE_SOCKET);int receive=1024;setsockopt(client,SOL_SOCKET,SO_RCVBUF,(const char *)&receive,sizeof(receive));struct sockaddr_in a={0};a.sin_family=AF_INET;a.sin_port=htons(H(local_port)(c.server));a.sin_addr.s_addr=htonl(INADDR_LOOPBACK);REQUIRE(connect(client,(struct sockaddr *)&a,sizeof(a))==0);const char *wire=c.writing?"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n":"GET /";REQUIRE(send(client,wire,(int)strlen(wire),0)==(int)strlen(wire)); }
+        if(reading) { client=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);REQUIRE(client!=FREAK_INVALID_NATIVE_SOCKET);c.receive_buffer=stop_buffer(client,SO_RCVBUF,"receiver");struct sockaddr_in a={0};a.sin_family=AF_INET;a.sin_port=htons(H(local_port)(c.server));a.sin_addr.s_addr=htonl(INADDR_LOOPBACK);REQUIRE(connect(client,(struct sockaddr *)&a,sizeof(a))==0);const char *wire=c.writing?"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n":"GET /";REQUIRE(send(client,wire,(int)strlen(wire),0)==(int)strlen(wire)); }
 #ifdef _WIN32
         HANDLE thread=CreateThread(NULL,0,accept_thread,&c,0,NULL);REQUIRE(thread);Sleep(30);
 #else
         pthread_t thread;REQUIRE(pthread_create(&thread,NULL,accept_thread,&c)==0);freak_time_sleep(30);
 #endif
-        if(c.writing) {uint64_t limit=freak_command_now_ms()+2000;while(!atomic_load_explicit(&c.ready,memory_order_acquire)){REQUIRE(freak_command_now_ms()<limit);freak_time_sleep(1);}freak_time_sleep(30);}
+        if(c.writing) {
+            uint64_t limit=freak_command_now_ms()+2000;
+            while(!atomic_load_explicit(&c.ready,memory_order_acquire)) {
+                if(atomic_load_explicit(&c.completed,memory_order_acquire))stop_setup_failure(&c,"worker_completed_before_backpressure");
+                if(atomic_load_explicit(&c.probe_failed,memory_order_acquire))stop_setup_failure(&c,"writability_probe_failed");
+                if(freak_command_now_ms()>=limit)stop_setup_failure(&c,"backpressure_deadline");
+                freak_time_sleep(1);
+            }
+            freak_time_sleep(30);
+            if(atomic_load_explicit(&c.completed,memory_order_acquire))stop_setup_failure(&c,"worker_completed_before_stop");
+            if(atomic_load_explicit(&c.probe_failed,memory_order_acquire))stop_setup_failure(&c,"writability_probe_failed");
+            if(freak_command_now_ms()>=limit)stop_setup_failure(&c,"setup_deadline");
+        }
         uint64_t start=freak_command_now_ms();H(stop)(c.server);
 #ifdef _WIN32
         REQUIRE(WaitForSingleObject(thread,1000)==WAIT_OBJECT_0);CloseHandle(thread);
