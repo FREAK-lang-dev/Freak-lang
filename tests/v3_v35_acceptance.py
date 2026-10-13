@@ -204,11 +204,10 @@ class _CommandLifeline:
                 self.context['forced_keeper_kill'] = True
             self.context.update(keeper_returncode=code, keeper_reaped=True)
 
-    def _watch_registration(self):
+    def _watch_registration(self, fd):
         data = b''
         deadline = time.monotonic() + self.limit
         try:
-            fd = self.fds['metadata_read']
             while not self.context['registered']:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
@@ -246,13 +245,42 @@ class _CommandLifeline:
                 self._wait_keeper()
             except BaseException as cleanup:
                 self.context.setdefault('startup_cleanup_errors', []).append(repr(cleanup))
+        finally:
+            # This thread exclusively owns the read end. An interrupted join
+            # must not recycle its descriptor while select/read is still live.
+            try:
+                os.close(fd)
+                self.context['metadata_reader_closed'] = True
+            except BaseException as cleanup:
+                self.context.setdefault('startup_cleanup_errors', []).append(repr(cleanup))
 
     def options(self, preexec_fn):
         if self.watcher is not None:
             raise RuntimeError('a command lifeline can launch only one SDK child')
         self.context['readiness_cap_seconds'] = self.limit
-        self.watcher = threading.Thread(target=self._watch_registration, daemon=True)
-        self.watcher.start()
+        lease = {'fd': self.fds.pop('metadata_read'), 'claimed': False}
+        lease_lock = threading.Lock()
+        def watch():
+            with lease_lock:
+                fd = lease['fd']
+                if fd is None:
+                    return
+                lease['claimed'] = True
+            self._watch_registration(fd)
+        self.watcher = threading.Thread(target=watch, daemon=True)
+        try:
+            self.watcher.start()
+        except BaseException:
+            # If startup failed before the thread took ownership, retire the
+            # lease atomically. A late-starting thread then performs no read.
+            with lease_lock:
+                if not lease['claimed']:
+                    fd, lease['fd'] = lease['fd'], None
+                    try:
+                        os.close(fd)
+                    except BaseException as cleanup:
+                        self.context.setdefault('startup_cleanup_errors', []).append(repr(cleanup))
+            raise
         def prepare():
             # Only the gate owns this writer; close it before any registration
             # or callback. Nested keeper execs inherit only their own controls.
@@ -291,9 +319,56 @@ class _CommandLifeline:
                 'preexec_fn': prepare}
 
     def spawn(self, command, **kwargs):
+        # CPython closes its own PIPE readers if _execute_child is interrupted.
+        # Own these actual pipe endpoints outside that constructor so bytes
+        # emitted before Popen returns survive its failure cleanup. Regular-file
+        # captures remain the caller's unchanged descriptors.
+        readers = {}
+        writers = []
         self.native = _OwnedCommandPopen.__new__(_OwnedCommandPopen)
-        _OwnedCommandPopen.__init__(self.native, command, **kwargs)
-        return self.native
+        try:
+            for channel in ('stdout', 'stderr'):
+                if kwargs.get(channel) == subprocess.PIPE:
+                    read_fd, write_fd = os.pipe()
+                    writers.extend((read_fd, write_fd))
+                    for index in (-2, -1):
+                        if writers[index] < 3:
+                            import fcntl
+                            fd = writers[index]
+                            writers[index] = fcntl.fcntl(fd, fcntl.F_DUPFD, 3)
+                            try:
+                                os.set_inheritable(writers[index], False)
+                            finally:
+                                os.close(fd)
+                    read_fd, write_fd = writers[-2:]
+                    readers[channel] = os.fdopen(read_fd, 'rb')
+                    writers.remove(read_fd)
+                    kwargs[channel] = write_fd
+            _OwnedCommandPopen.__init__(self.native, command, **kwargs)
+            return self.native
+        finally:
+            original = sys.exc_info()[1]
+            cleanup_errors = []
+            for fd in writers:
+                try:
+                    os.close(fd)
+                except BaseException as cleanup:
+                    cleanup_errors.append(cleanup)
+            running = (getattr(self.native, '_child_created', False)
+                       and self.native.returncode is None)
+            for channel, reader in readers.items():
+                if original is None or running:
+                    setattr(self.native, channel, reader)
+                else:
+                    try:
+                        reader.close()
+                    except BaseException as cleanup:
+                        cleanup_errors.append(cleanup)
+            if cleanup_errors:
+                self.context.setdefault('capture_cleanup_errors', []).extend(
+                    repr(error) for error in cleanup_errors)
+                if original is None:
+                    raise cleanup_errors[0]
 
     def registered(self, child):
         for name in ('config_write', 'ready_read', 'metadata_write'):

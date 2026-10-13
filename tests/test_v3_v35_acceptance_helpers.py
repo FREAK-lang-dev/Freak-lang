@@ -896,6 +896,97 @@ class CommandLifelineControls(unittest.TestCase):
             self.assertEqual(observed.returncode,0,(observed.stdout,observed.stderr))
             self.assertTrue(json.loads((root/'sigint-record.json').read_text())['keeper']['keeper_reaped'])
 
+    def test_actual_inner_constructor_sigint_retains_both_binary_pipes_and_original_cause(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, records = Path(temporary), []
+            ready=root/'inner-constructor-ready'
+            primary=KeyboardInterrupt('controlled actual inner-constructor SIGINT')
+            original=subprocess.Popen._execute_child
+            def interrupted(child,command,*args,**kwargs):
+                original(child,command,*args,**kwargs)
+                if '-I' not in command:
+                    deadline=time.monotonic()+2
+                    while not ready.exists() and time.monotonic()<deadline:time.sleep(.01)
+                    self.assertTrue(ready.exists())
+                    # This hook is inside base Popen.__init__'s try scope,
+                    # before it can return to the lifeline's spawn method.
+                    os.kill(os.getpid(),signal.SIGINT)
+            def signal_handler(number,frame):
+                raise primary
+            previous=signal.signal(signal.SIGINT,signal_handler)
+            try:
+                with patch.object(subprocess.Popen,'_execute_child',interrupted):
+                    with self.assertRaises(KeyboardInterrupt) as raised:
+                        acceptance.run_command([sys.executable,'-c',
+                            f'import os,time;from pathlib import Path;os.write(1,bytes.fromhex("6265666f726520534947494e5400ff"));os.write(2,bytes.fromhex("6265666f726520534947494e542065727200ff"));Path({str(ready)!r}).touch();time.sleep(60)'],
+                            cwd=root,env=os.environ.copy(),label='inner-constructor',prefix=root/'inner-constructor',records=records,timeout=2)
+            finally:
+                signal.signal(signal.SIGINT,previous)
+            self.assertIs(raised.exception,primary)
+            self.assertEqual((root/'inner-constructor.stdout').read_bytes(),b'before SIGINT\x00\xff')
+            self.assertEqual((root/'inner-constructor.stderr').read_bytes(),b'before SIGINT err\x00\xff')
+            self.assertEqual(records[0]['error'],repr(primary))
+            self.assertEqual(records[0]['cleanup_errors'],[])
+            self.assertFalse(records[0]['cleanup_failed'])
+            self.assertEqual(records[0]['returncode'],-signal.SIGKILL)
+            self.assertTrue(records[0]['keeper']['keeper_reaped'])
+            self.gone([records[0]['keeper']['native_pid'],records[0]['keeper']['keeper_pid']])
+
+    def test_interrupted_watcher_join_retains_its_fd_until_retirement_and_leaves_unrelated_pipe(self):
+        lifeline=acceptance._CommandLifeline(2)
+        fd=lifeline.fds['metadata_read']
+        main=threading.get_ident()
+        before_read,resume=threading.Event(),threading.Event()
+        original_read=os.read
+        replacement_read=replacement_write=None
+        real_join=None
+        observed=[]
+        def held_read(number,count):
+            if threading.get_ident()!=main and number==fd:
+                before_read.set()
+                self.assertTrue(resume.wait(timeout=3),'controlled reader release exceeded three seconds')
+                data=original_read(number,count)
+                observed.append(data)
+                return data
+            return original_read(number,count)
+        try:
+            with patch.object(acceptance.os,'read',held_read):
+                lifeline.options(None)
+                os.write(lifeline.fds['metadata_write'],b'{}\n')
+                self.assertTrue(before_read.wait(timeout=2))
+                real_join=lifeline.watcher.join
+                primary=KeyboardInterrupt('controlled watcher-join interruption')
+                def interrupted_join(*args,**kwargs):raise primary
+                lifeline.watcher.join=interrupted_join
+                with self.assertRaises(KeyboardInterrupt) as raised:
+                    lifeline.finish(False)
+                self.assertIs(raised.exception,primary)
+                lifeline.watcher.join=real_join
+                self.assertTrue(lifeline.watcher.is_alive())
+                os.fstat(fd)  # Still owned by the live reader, never recycled.
+                replacement_read,replacement_write=os.pipe()
+                self.assertNotEqual(replacement_read,fd)
+                self.assertNotEqual(replacement_write,fd)
+                unrelated=b'{"unrelated pipe bytes":true}\n'
+                os.write(replacement_write,unrelated)
+                resume.set()
+                real_join(timeout=2)
+                self.assertFalse(lifeline.watcher.is_alive())
+                self.assertEqual(observed,[b'{}\n'])
+                self.assertEqual(original_read(replacement_read,1024),unrelated)
+                with self.assertRaises(OSError):os.fstat(fd)
+                self.assertTrue(lifeline.context['metadata_reader_closed'])
+                self.assertTrue(lifeline.context['keeper_reaped'])
+                self.gone([lifeline.keeper.pid])
+        finally:
+            resume.set()
+            if real_join is not None:
+                lifeline.watcher.join=real_join
+                real_join(timeout=2)
+            lifeline.finish(False)
+            for descriptor in (replacement_read,replacement_write):
+                if descriptor is not None:os.close(descriptor)
+
 
 class AcceptanceHelpers(unittest.TestCase):
     def test_success_keeps_separate_raw_channels_and_exit(self):
