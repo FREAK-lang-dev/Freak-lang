@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import tempfile
 
-from v3_v35_http import Server, assert_response, invalid_corpus, request
+from v3_v35_http import Server, assert_response, invalid_corpus, request, reset_content_corpus
 
 PROGRAM = r'''
 task app_dispatch(request: int) -> bool {
@@ -93,6 +93,16 @@ task app_dispatch(request: int) -> bool {
         pilot sent = http_send_text(request, "ignored")
         give back false
     }
+    if path == "/205" {
+        pilot status = http_response_status(request, 205)
+        if http_request_query(request) == "bytes" {
+            pilot body = http_request_body(request)
+            pilot sent = http_send_bytes(request, body)
+        } else {
+            pilot sent = http_send_text(request, "ignored")
+        }
+        give back false
+    }
     if path == "/304" {
         pilot status = http_response_status(request, 304)
         pilot sent = http_send_text(request, "ignored")
@@ -143,10 +153,14 @@ def run(command, *, cwd, env=None):
 def consumer_corpus(server:Server,soak:int):
     assert_response(server.exchange(request('/health')),200,b'healthy')
     assert_response(server.exchange(request('/hello/Ada')),200,b'Ada')
-    assert_response(server.exchange(request('/health','HEAD')),200,b'',head=True)
-    assert_response(server.exchange(request('/unknown','HEAD')),404,b'',head=True)
+    h=assert_response(server.exchange(request('/health','HEAD')),200,b'',head=True);assert h[b'content-length']==b'7'
+    h=assert_response(server.exchange(request('/unknown','HEAD')),404,b'',head=True);assert h[b'content-length']==b'7'
     h=assert_response(server.exchange(request('/health','POST')),405,b'');assert h[b'allow']==b'GET, HEAD'
-    for path,status in [('/empty',200),('/204',204),('/304',304)]:assert_response(server.exchange(request(path)),status,b'')
+    for path,status in [('/empty',200),('/204',204)]:assert_response(server.exchange(request(path)),status,b'')
+    assert_response(server.exchange(request('/204','HEAD')),204,b'',head=True)
+    reset_content_corpus(server)
+    for method in ('GET','HEAD'):
+        h=assert_response(server.exchange(request('/304',method)),304,b'',head=method=='HEAD');assert h[b'content-length']==b'7'
     binary=b'A\0\xff\xc3\xa9\xf0\x9f\x9a\x80B'
     fixed=request('/echo','POST',binary)
     chunked=request('/echo','POST',b'b;ext="a\\\"b"\r\n'+binary+b'\r\n0\r\nX: trailer\r\n\r\n',headers=[('Transfer-Encoding','chunked')])
