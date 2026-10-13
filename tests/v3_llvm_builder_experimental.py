@@ -114,13 +114,13 @@ UNSUPPORTED = {
     "unreachable_word": 'task main() { give back; say "still unsupported"; }\n',
 }
 FRONTEND_FAILURE = {
-    "unbound": ("task main() { say missing; }\n", "E0001"),
-    "type": ('task main() { pilot n: int = "word"; }\n', "E0002"),
-    "fixed": ("task main() { fixed pilot n = 1; n = 2; }\n", "E0004"),
-    "call_arity": ("task f(n: int) {} task main() { f(); }\n", "E0005"),
-    "minimum_magnitude": ("task main() { say 9223372036854775808; }\n", "E0008"),
-    "syntax": ("task main() { say ; }\n", None),
-    "empty": ("", "E0005"),
+    "unbound": ("task main() { say missing; }\n", "type error: unknown binding 'missing' (line 1)", 1),
+    "type": ('task main() { pilot n: int = "word"; }\n', "type error: cannot initialize int binding 'n' with word (line 1)", 1),
+    "fixed": ("task main() { fixed pilot n = 1; n = 2; }\n", "type error: fixed pilot cannot be modified (line 1)", 1),
+    "call_arity": ("task f(n: int) {} task main() { f(); }\n", "type error: call to 'f' expects 1 argument(s), got 0 (line 1)", 1),
+    "minimum_magnitude": ("task main() { say 9223372036854775808; }\n", "type error: integer literal is outside the signed 64-bit range (line 1)", 1),
+    "syntax": ("task main() { say ; }\n", "error: unexpected ';' — this token cannot start an expression", 19),
+    "empty": ("", "type error: program requires a usable task main() entry or executable script statements (line 1)", 1),
 }
 
 BRIDGE_CONTROL = r'''
@@ -217,6 +217,19 @@ def safe_exception(error: BaseException) -> str:
         return "exception representation failed"
 
 
+def assert_frontend_diagnostic(name: str, source: Path, stdout: bytes, stderr: bytes) -> None:
+    """Match the current human diagnostic, not optional in-memory fact codes."""
+    source_text, message, column = FRONTEND_FAILURE[name]
+    assert not stderr, (name, stderr)
+    # Ignore only SGR colour sequences; preserve every message/path/span byte.
+    display = re.sub(rb"\x1b\[[0-9;]*m", b"", stdout).decode("utf-8")
+    assert message + f"\n --> {source}:1:{column}\n" in display, (name, display)
+    original_line = source_text.rstrip("\r\n")
+    frame = "1 | " + original_line + "\n  | " + " " * (column - 1) + "^\n"
+    assert frame in display, (name, display)
+    assert "Experimental LLVM IRBuilder object:" not in display, (name, display)
+
+
 def sdk_closure(include: Path) -> list[Path]:
     """Pin the selected C API headers and every project include they consume."""
     pending = list(SDK_HEADERS)
@@ -311,6 +324,24 @@ class SourceControls(unittest.TestCase):
             self.assertIs(caught.exception, primary)
             self.assertEqual(child.wait.call_count, 2)
             self.assertIn("cleanup_errors", evidence.records[0])
+
+    def test_frontend_oracle_uses_exact_message_and_original_source_span(self):
+        source = Path("/retained/original-source.fk")
+        for name, (source_text, message, column) in FRONTEND_FAILURE.items():
+            with self.subTest(case=name):
+                original_line = source_text.rstrip("\r\n")
+                display = (message + f"\n --> {source}:1:{column}\n1 | " + original_line +
+                           "\n  | " + " " * (column - 1) + "^\n").encode()
+                assert_frontend_diagnostic(name, source, display, b"")
+                for changed in (display.replace(message.encode(), b"some other failure"),
+                                display.replace(str(source).encode(), b"/different-source.fk"),
+                                display.replace(f":1:{column}\n".encode(), b":2:1\n"),
+                                display.replace(b"^\n", b"\n"),
+                                display.replace(("1 | " + original_line).encode(), b"1 | changed source")):
+                    with self.assertRaises(AssertionError):
+                        assert_frontend_diagnostic(name, source, changed, b"")
+                with self.assertRaises(AssertionError):
+                    assert_frontend_diagnostic(name, source, display, b"unexpected stderr")
 
 
 class Evidence:
@@ -500,7 +531,7 @@ def native(args) -> int:
                 evidence.report["completed"].append(f"parity:{name}:O{opt}"); evidence.write()
         for group, cases in (("unsupported", UNSUPPORTED), ("frontend", FRONTEND_FAILURE)):
             for name, fixture in cases.items():
-                source_text, code = (fixture, None) if group == "unsupported" else fixture
+                source_text = fixture if group == "unsupported" else fixture[0]
                 source = root / f"negative-{group}-{name}.fk"; source.write_text(source_text)
                 output = Path(str(source) + ".builder.o"); output.write_bytes(b"stale object\n")
                 unrelated = Path(str(source) + ".c"); unrelated.write_bytes(b"unrelated C output\n")
@@ -508,7 +539,7 @@ def native(args) -> int:
                 assert result.returncode != 0 and not output.exists(), (group, name, result)
                 assert unrelated.read_bytes() == b"unrelated C output\n"
                 if group == "unsupported": assert b"experimental IRBuilder backend:" in result.stdout
-                if code: assert code.encode() in result.stdout + result.stderr
+                else: assert_frontend_diagnostic(name, source, result.stdout, result.stderr)
                 evidence.report["completed"].append(group + ":" + name); evidence.write()
         source = root / "bad-option.fk"; source.write_text("task main() {}\n")
         for options in (["--opt=4"], ["--llvm"], ["--opt=0", "--opt=2"]):
