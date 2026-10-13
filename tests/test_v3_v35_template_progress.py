@@ -1,5 +1,6 @@
 """Template evidence controls; subprocess fixtures run inert Python only."""
 from pathlib import Path
+import io
 import json
 import os
 import queue
@@ -10,7 +11,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from v3_v35_templates import TemplateProgress, cleanup_owned_child, run
+from v3_v35_templates import TemplateProgress, cleanup_owned_child, creator_corpus, http_once, run
 
 
 CREATORS = [{'backend': backend, 'optimization': opt}
@@ -329,10 +330,139 @@ class TemplateProgressTests(unittest.TestCase):
             def add_note(self, note):raise KeyboardInterrupt('secondary note refusal')
 
         primary = HostileError('original corpus failure');record = {}
-        with patch('v3_v35_templates.os.name', 'posix'), patch('v3_v35_templates.os.killpg', side_effect=OSError('secondary tree refusal')):
+        with patch('v3_v35_templates.os.name', 'posix'):
             self.assertEqual(cleanup_owned_child(FakeChild(), record, timeout=5, primary=primary), (b'', b''))
         self.assertTrue(record['cleanup_failed'])
-        self.assertEqual(record['cleanup_errors'], ['SystemExit', 'OSError', 'SystemExit', 'OSError'])
+        self.assertEqual(record['cleanup_errors'], ['SystemExit', 'SystemExit', 'OSError'])
+
+    def test_http_timeout_call_site_preserves_each_known_channel(self):
+        class Socket:
+            def __enter__(self):return self
+            def __exit__(self, *args):pass
+            def sendall(self, data):pass
+            def recv(self, size):
+                if getattr(self, 'sent', False):return b''
+                self.sent = True
+                return b'HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nhealthy'
+
+        banner = b'HTTP http://127.0.0.1:1234\n'
+        for recovery in ('absent', 'stdout-only', 'stderr-only'):
+            with self.subTest(recovery=recovery), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory);path = root / 'report.json'
+                primary = subprocess.TimeoutExpired(['inert-http'], 10, output=b'first-out', stderr=b'first-err')
+                secondary = (OSError('secondary capture refusal') if recovery == 'absent' else
+                             subprocess.TimeoutExpired(['inert-http'], 5,
+                                                       output=b'recovery-out' if recovery == 'stdout-only' else None,
+                                                       stderr=b'recovery-err' if recovery == 'stderr-only' else None))
+                class Child:
+                    pid = 1234
+                    returncode = None
+                    stdout = io.BytesIO(banner)
+                    calls = 0
+                    def poll(self):return self.returncode
+                    def kill(self):self.returncode = -9
+                    def communicate(self, timeout):
+                        self.calls += 1
+                        raise primary if self.calls == 1 else secondary
+                child = Child()
+                def popen(command, **kwargs):
+                    self.assertNotIn('start_new_session', kwargs)
+                    self.assertEqual(kwargs['bufsize'], 0)
+                    return child
+                with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    with TemplateProgress(path, {}, CREATORS, []) as progress:
+                        with patch('v3_v35_templates.subprocess.Popen', side_effect=popen), \
+                                patch('v3_v35_templates.select.select', return_value=([child.stdout], [], [])), \
+                                patch('v3_v35_templates.os.name', 'posix'), \
+                                patch('socket.create_connection', return_value=Socket()):
+                            http_once(Path('inert'), root, 'c', os.environ.copy(), progress)
+                self.assertIs(caught.exception, primary)
+                record = TemplateProgress.read(path)['commands'][-1]
+                self.assertEqual(Path(record['raw_files']['stdout']['path']).read_bytes(),
+                                 banner + (b'recovery-out' if recovery == 'stdout-only' else b'first-out'))
+                self.assertEqual(Path(record['raw_files']['stderr']['path']).read_bytes(),
+                                 b'recovery-err' if recovery == 'stderr-only' else b'first-err')
+
+    def test_race_timeout_call_site_preserves_completed_and_partial_children(self):
+        for recovery in ('absent', 'stdout-only', 'stderr-only'):
+            with self.subTest(recovery=recovery), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory);path = root / 'report.json'
+                canonical = root / 'payload/templates/v35'
+                canonical.mkdir(parents=True);(root / 'payload/runtime').mkdir()
+                scratch = root / 'scratch';scratch.mkdir()
+                primary = subprocess.TimeoutExpired(['inert-race'], 10, output=b'first-out', stderr=b'first-err')
+                secondary = (OSError('secondary capture refusal') if recovery == 'absent' else
+                             subprocess.TimeoutExpired(['inert-race'], 10,
+                                                       output=b'recovery-out' if recovery == 'stdout-only' else None,
+                                                       stderr=b'recovery-err' if recovery == 'stderr-only' else None))
+                class Child:
+                    def __init__(self, index):
+                        self.pid = 1234 + index;self.index = index;self.calls = 0
+                        self.returncode = 0 if index == 0 else None
+                    def poll(self):return self.returncode
+                    def kill(self):self.returncode = -9
+                    def communicate(self, timeout):
+                        self.calls += 1
+                        if self.index == 0:return b'OK\n', b''
+                        raise primary if self.calls == 1 else secondary
+                children = []
+                def popen(command, **kwargs):
+                    self.assertNotIn('start_new_session', kwargs)
+                    child = Child(len(children));children.append(child)
+                    return child
+                with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    with TemplateProgress(path, {}, CREATORS, []) as progress:
+                        with patch('v3_v35_templates.creator_case'), \
+                                patch('v3_v35_templates.tree', return_value={}), \
+                                patch('v3_v35_templates.expected', return_value={}), \
+                                patch('v3_v35_templates.os.name', 'posix'), \
+                                patch('v3_v35_templates.subprocess.Popen', side_effect=popen):
+                            creator_corpus(Path('inert'), canonical, scratch, os.environ.copy(), progress)
+                self.assertIs(caught.exception, primary)
+                records = TemplateProgress.read(path)['commands']
+                self.assertEqual(len(records), 2)
+                self.assertEqual(Path(records[0]['raw_files']['stdout']['path']).read_bytes(), b'OK\n')
+                self.assertEqual(Path(records[0]['raw_files']['stderr']['path']).read_bytes(), b'')
+                self.assertEqual(Path(records[1]['raw_files']['stdout']['path']).read_bytes(),
+                                 b'recovery-out' if recovery == 'stdout-only' else b'first-out')
+                self.assertEqual(Path(records[1]['raw_files']['stderr']['path']).read_bytes(),
+                                 b'recovery-err' if recovery == 'stderr-only' else b'first-err')
+
+    def test_http_banner_and_extra_output_share_one_unbuffered_capture(self):
+        class Socket:
+            def __enter__(self):return self
+            def __exit__(self, *args):pass
+            def sendall(self, data):pass
+            def recv(self, size):
+                if getattr(self, 'sent', False):return b''
+                self.sent = True
+                return b'HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nhealthy'
+
+        emitted = b'HTTP http://127.0.0.1:1234\nEXTRA-RAW-OUTPUT\n'
+        real_popen = subprocess.Popen
+        children = []
+        def popen(command, **kwargs):
+            self.assertNotIn('start_new_session', kwargs)
+            self.assertEqual(kwargs['bufsize'], 0)
+            child = real_popen([sys.executable, '-B', '-c',
+                               'import os,time;os.write(1,' + repr(emitted) + ');time.sleep(0.1)'], **kwargs)
+            children.append(child)
+            if os.name != 'nt':self.assertEqual(os.getpgid(child.pid), os.getpgrp())
+            return child
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory);path = root / 'report.json'
+            try:
+                with self.assertRaisesRegex(RuntimeError, 'without a passing checkpoint'):
+                    with TemplateProgress(path, {}, CREATORS, []) as progress:
+                        with patch('v3_v35_templates.subprocess.Popen', side_effect=popen), \
+                                patch('socket.create_connection', return_value=Socket()):
+                            http_once(Path('inert'), root, 'c', os.environ.copy(), progress)
+                        raw = Path(progress.report['commands'][-1]['raw_files']['stdout']['path']).read_bytes()
+                        self.assertEqual(raw, emitted)
+            finally:
+                for child in children:
+                    if child.poll() is None:child.kill()
+                    child.communicate(timeout=5)
 
     def test_killed_main_retains_active_second_matrix_and_prior_completion(self):
         with tempfile.TemporaryDirectory() as directory:

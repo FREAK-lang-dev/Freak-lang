@@ -15,9 +15,7 @@ from pathlib import Path
 import re
 import select
 import shutil
-import signal
 import subprocess
-import sys
 import tempfile
 import time
 import uuid
@@ -263,8 +261,12 @@ class TemplateProgress:
             self._note(primary, 'Template command recording failed', secondary)
 
 
-def cleanup_owned_child(child, record, *, timeout, primary=None):
+def cleanup_owned_child(child, record, *, timeout, primary=None, stdout=None, stderr=None):
     """Bound cleanup without replacing the operation that caused it."""
+    stdout = (getattr(primary, 'output', None) if stdout is None else stdout)
+    stderr = (getattr(primary, 'stderr', None) if stderr is None else stderr)
+    stdout = b'' if stdout is None else stdout
+    stderr = b'' if stderr is None else stderr
     errors = []
     first_error = None
     try:
@@ -278,7 +280,8 @@ def cleanup_owned_child(child, record, *, timeout, primary=None):
                 record['tree_cleanup'] = {'returncode': stopped.returncode,
                                           'stdout_hex': stopped.stdout.hex(), 'stderr_hex': stopped.stderr.hex()}
                 if stopped.returncode != 0:errors.append('taskkill did not confirm tree termination')
-            else:os.killpg(child.pid, signal.SIGKILL)
+            # POSIX children inherit the release gate's group. Never kill that
+            # group from inside it; its outer owner handles abrupt parent exit.
         except ProcessLookupError:
             pass
         except BaseException as error:
@@ -290,10 +293,13 @@ def cleanup_owned_child(child, record, *, timeout, primary=None):
             errors.append(type(error).__name__)
             if first_error is None:first_error = error
         try:
-            result = child.communicate(timeout=timeout)
+            recovered_out, recovered_err = child.communicate(timeout=timeout)
         except BaseException as error:
-            errors.append(type(error).__name__);result = (getattr(error, 'output', None) or b'', getattr(error, 'stderr', None) or b'')
+            errors.append(type(error).__name__)
+            recovered_out, recovered_err = getattr(error, 'output', None), getattr(error, 'stderr', None)
             if first_error is None:first_error = error
+        result = (stdout if recovered_out is None else recovered_out,
+                  stderr if recovered_err is None else recovered_err)
         record['cleanup_errors'] = errors
         record['cleanup_failed'] = bool(errors) or child.returncode is None
         if first_error is not None:
@@ -373,16 +379,21 @@ def creator_corpus(binary:Path,canonical:Path,root:Path,env,progress=None):
         creator_case(binary,'cli',linkparent/'escape',env,success=False,progress=progress);assert not (parent/'escape').exists()
     # Two real creators race for one name. Publication must preserve one whole
     # generation and both creators must clean only their own staging tickets.
-    destination=parent/'race';processes=[];records=[];results=[];primary=None
+    destination=parent/'race';processes=[];records=[];results=[];partial={};primary=None
     try:
         for index in range(2):
             command=[str(binary),'cli',str(destination)]
             record=progress.process_record(command,cwd=parent,label='creator-race-'+str(index),timeout=10) if progress else {}
             records.append(record)
-            child=subprocess.Popen(command,cwd=parent,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=os.name!='nt')
-            processes.append(child);record.update(pid=child.pid,process_tree='taskkill /T' if os.name=='nt' else 'owned process group')
+            child=subprocess.Popen(command,cwd=parent,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            processes.append(child);record.update(pid=child.pid,process_tree='taskkill /T' if os.name=='nt' else 'inherited parent process group')
             if progress:progress._write()
-        results=[p.communicate(timeout=10) for p in processes];assert sorted(out.startswith(b'OK\n') for out,err in results)==[False,True],results
+        for index,p in enumerate(processes):
+            try:results.append(p.communicate(timeout=10))
+            except BaseException as error:
+                partial[index]=(getattr(error,'output',None) or b'',getattr(error,'stderr',None) or b'')
+                raise
+        assert sorted(out.startswith(b'OK\n') for out,err in results)==[False,True],results
         assert all(p.returncode==0 and not err for p,(out,err) in zip(processes,results)),results
     except BaseException as error:
         primary=error
@@ -391,10 +402,10 @@ def creator_corpus(binary:Path,canonical:Path,root:Path,env,progress=None):
         recording_error=None
         for index,record in enumerate(records):
             child=processes[index] if index<len(processes) else None
-            out,err=results[index] if index<len(results) else (b'',b'')
+            out,err=results[index] if index<len(results) else partial.get(index,(b'',b''))
             try:
                 if child is not None:
-                    recovered=cleanup_owned_child(child,record,timeout=10,primary=primary if primary is not None else recording_error)
+                    recovered=cleanup_owned_child(child,record,timeout=10,primary=primary if primary is not None else recording_error,stdout=out,stderr=err)
                     if recovered is not None:out,err=recovered
                 if progress:progress.process_finished(record,child,out,err,primary if primary is not None else recording_error)
             except BaseException as error:
@@ -430,8 +441,8 @@ def http_once(cli:Path,project:Path,backend:str,env,progress=None):
     record=progress.process_record(command,cwd=project,label='installed-http-once',timeout=30) if progress else {}
     child=None;primary=None;raw_lines=[];raw_out=raw_err=b''
     try:
-        child=subprocess.Popen(command,cwd=project,env=child_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=os.name!='nt')
-        record.update(pid=child.pid,process_tree='taskkill /T' if os.name=='nt' else 'owned process group')
+        child=subprocess.Popen(command,cwd=project,env=child_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,bufsize=0)
+        record.update(pid=child.pid,process_tree='taskkill /T' if os.name=='nt' else 'inherited parent process group')
         if progress:progress.stage('http-listen','http')
         assert child.stdout is not None;deadline=time.monotonic()+30;lines=[];port=None
         while time.monotonic()<deadline:
@@ -454,7 +465,7 @@ def http_once(cli:Path,project:Path,backend:str,env,progress=None):
         raise
     finally:
         if child is not None:
-            recovered=cleanup_owned_child(child,record,timeout=5,primary=primary)
+            recovered=cleanup_owned_child(child,record,timeout=5,primary=primary,stdout=raw_out,stderr=raw_err)
             if recovered is not None:raw_out,raw_err=recovered
         if progress:progress.process_finished(record,child,b''.join(raw_lines)+raw_out,raw_err,primary)
 
