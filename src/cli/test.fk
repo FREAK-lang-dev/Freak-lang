@@ -378,9 +378,21 @@ task cli_test_temp_directory() -> word {
         cli_test_fail("cannot select a system temporary directory")
         give back ""
     }
-    pilot created = fs::temp_dir(parent, "freak-tests-")
+    -- System-selected paths may contain OS aliases such as /var on macOS.
+    -- Resolve that selection before the runtime admits an anchored parent;
+    -- exclusive creation and later cleanup still use the owned directory ticket.
+    pilot resolved_parent = fs::canonical_path(parent)
+    if not fs::result_ok(resolved_parent) {
+        pilot detail = fs::result_error(resolved_parent)
+        fs::result_release(resolved_parent)
+        cli_test_fail("cannot canonicalize selected system temporary parent '" + parent + "': " + detail)
+        give back ""
+    }
+    pilot canonical_parent = fs::result_word(resolved_parent)
+    fs::result_release(resolved_parent)
+    pilot created = fs::temp_dir(canonical_parent, "freak-tests-")
     if not fs::result_ok(created) {
-        cli_test_fail("cannot create owned test output directory: " + fs::result_error(created))
+        cli_test_fail("cannot create owned test output directory under selected parent '" + parent + "' (canonical '" + canonical_parent + "'): " + fs::result_error(created))
         fs::result_release(created)
         give back ""
     }
