@@ -222,7 +222,8 @@ def main():
     parser.add_argument('--optimization', type=int, choices=(0, 2, 3), default=0)
     parser.add_argument('--prepare-only', action='store_true')
     args=parser.parse_args();runtime=args.runtime_root.resolve(strict=True)
-    source_path=runtime / 'freak_v35_http.inc';source=source_path.read_text()
+    source_path=runtime / 'freak_v35_http.inc';source_snapshot=source_path.read_bytes()
+    source=source_snapshot.decode('utf-8')
     extracted={name:extract_function(source,name) for name in FUNCTIONS}
     production='\n\n'.join(extracted.values());harness=PREAMBLE+production+TRAILER
     for _, _, before, _ in MUTATIONS:
@@ -231,8 +232,10 @@ def main():
     if report_path.exists():raise FileExistsError('use a fresh rejection-close report path: '+str(report_path))
     root=report_path.parent / (report_path.stem+'-raw');root.mkdir(exist_ok=False)
     pins=[source_path,Path(__file__).resolve(),Path(__file__).with_name('v3_v35_acceptance.py').resolve()]
+    initial_pins={str(path):sha(path) for path in pins if path!=source_path}
+    initial_pins[str(source_path)]=hashlib.sha256(source_snapshot).hexdigest()
     report={'status':'running','scope':'deterministic compiled branch logic; no TCP/Windows ABI/timing claim',
-            'pinned_inputs':{str(path):sha(path) for path in pins},'commands':[],'cases':[],
+            'pinned_inputs':initial_pins,'commands':[],'cases':[],
             'failing_controls':[],'extracted_function_sha256':{name:hashlib.sha256(value.encode()).hexdigest()
                                                             for name,value in extracted.items()}}
     def save():
@@ -248,7 +251,7 @@ def main():
                            on_record=lambda record:save())
     primary=None
     try:
-        base_file=root/'production-rejection-controls.c';base_file.write_text(harness)
+        base_file=root/'production-rejection-controls.c';base_file.write_bytes(harness.encode('utf-8'))
         report['generated_harness']={'path':str(base_file),'sha256':sha(base_file)}
         if args.prepare_only:
             report.update(status='prepared-only',prepared_cases=len(CASES)*2,prepared_failing_controls=len(MUTATIONS)*2)
@@ -271,7 +274,8 @@ def main():
                         raise AssertionError('wrong control output identity')
                     report['cases'].append(record)
                 for name, case, before, after in MUTATIONS:
-                    mutant=root/(branch+'-'+name+'.c');mutant.write_text(PREAMBLE+production.replace(before,after)+TRAILER)
+                    mutant=root/(branch+'-'+name+'.c')
+                    mutant.write_bytes((PREAMBLE+production.replace(before,after)+TRAILER).encode('utf-8'))
                     bad=root/(branch+'-'+name+('.exe' if os.name=='nt' else ''))
                     run([compiler,*flags,mutant,'-o',bad],'compile-failing-'+branch+'-'+name)
                     result=run([bad,case],'failing-'+branch+'-'+name,97)
