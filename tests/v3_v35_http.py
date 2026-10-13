@@ -468,7 +468,11 @@ def exercise(exe:Path,env,soak:int):
 def runtime_inputs(runtime_root:Path|None):
     root=(runtime_root or Path(__file__).resolve().parents[1]).resolve(strict=True)
     if runtime_root is None or (root/'freakc/runtime').is_dir():
-        runtime=root/'freakc/runtime';vendor=root/'third_party/llhttp'
+        runtime=root/'freakc/runtime'
+        embedded=runtime/'third_party/llhttp'
+        # Match the production include priority, including dual-layout roots.
+        # An incomplete embedded payload must not silently borrow a parser.
+        vendor=embedded if embedded.exists() else root/'third_party/llhttp'
     else:
         runtime=root;vendor=runtime/'third_party/llhttp'
     for source in (runtime/'freak_runtime.c',runtime/'freak_llvm_runtime.c',runtime/'freak_v35_http.inc',vendor/'freak_amalgamation.inc'):

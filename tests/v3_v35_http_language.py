@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import tempfile
 
-from v3_v35_http import Server, assert_response, invalid_corpus, request, reset_content_corpus
+from v3_v35_http import Server, assert_response, invalid_corpus, request, reset_content_corpus, runtime_inputs
 
 PROGRAM = r'''
 task app_dispatch(request: int) -> bool {
@@ -184,12 +184,10 @@ def consumer_corpus(server:Server,soak:int):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--compiler',type=Path,required=True);p.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'));p.add_argument('--runtime-root',type=Path);p.add_argument('--std-root',type=Path);p.add_argument('--optimization',type=int,choices=(0,2,3),action='append');p.add_argument('--backend',choices=('c','llvm'),action='append');p.add_argument('--sanitize',action='store_true');p.add_argument('--soak',type=int,default=1000);p.add_argument('--report',type=Path);args=p.parse_args()
-    repo=Path(__file__).resolve().parents[1];runtime=args.runtime_root or repo/'freakc/runtime';compiler=args.compiler.resolve(strict=True)
-    std=args.std_root or repo/'std'
+    repo=Path(__file__).resolve().parents[1];runtime,vendor=runtime_inputs(args.runtime_root);compiler=args.compiler.resolve(strict=True)
+    std=(args.std_root or repo/'std').resolve(strict=True)
     facade=(std/'json_document.fk').read_text()+'\n'+(std/'http_server.fk').read_text()
     pinned_paths=[compiler,std/'json_document.fk',std/'http_server.fk',*sorted(runtime.glob('*.c')),*sorted(runtime.glob('*.h')),*sorted(runtime.glob('*.inc'))]
-    vendor=runtime/'third_party/llhttp'
-    if not vendor.exists():vendor=runtime.parents[1]/'third_party/llhttp'
     pinned_paths+=sorted(p for p in vendor.rglob('*') if p.is_file())
     before={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths}
     clang=shutil.which(args.clang);assert clang,args.clang

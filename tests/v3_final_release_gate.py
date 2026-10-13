@@ -865,6 +865,7 @@ def main() -> int:
     parser.add_argument("--standalone-freak", type=Path)
     parser.add_argument("--standalone-hangar", type=Path)
     parser.add_argument("--tested-sha256", type=Path)
+    parser.add_argument("--evidence-dir", type=Path)
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parents[1]
@@ -1022,6 +1023,50 @@ def main() -> int:
                 ("Ordnance import hygiene", "v3_ordnance_import_hygiene.py"),
                 ("standard-library capability", "v3_std_capability.py"),
             )
+        )
+        evidence = args.evidence_dir.resolve() if args.evidence_dir else root / "http-evidence"
+        evidence.mkdir(parents=True, exist_ok=True)
+        children += (
+            (
+                "HTTP parser input provenance",
+                [python, "-u", str(repo / "tests" / "test_v3_v35_http_inputs.py")],
+                240,
+            ),
+            (
+                "pinned llhttp source parser",
+                [python, "-u", str(repo / "tests" / "v3_v35_llhttp.py")],
+                240,
+            ),
+            (
+                "HTTP builtin compiler ABI",
+                [python, "-u", str(repo / "tests" / "v3_v35_http_builtins.py"),
+                 "--compiler", str(direct)],
+                1200,
+            ),
+            (
+                "installed HTTP transport floor",
+                [python, "-u", str(repo / "tests" / "v3_v35_http.py"),
+                 "--runtime-root", str(install_home / "runtime"),
+                 "--report", str(evidence / "http-floor.json")],
+                1200,
+            ),
+            (
+                "ordinary FREAK installed HTTP consumer",
+                [python, "-u", str(repo / "tests" / "v3_v35_http_language.py"),
+                 "--compiler", str(direct), "--runtime-root", str(install_home / "runtime"),
+                 "--std-root", str(install_home / "std"),
+                 "--report", str(evidence / "http-language.json")],
+                1200,
+            ),
+            (
+                "installed V3.5 templates",
+                [python, "-u", str(repo / "tests" / "v3_v35_templates.py"),
+                 "--compiler", str(direct), "--runtime-root", str(install_home / "runtime"),
+                 "--templates-root", str(install_home / "templates" / "v35"),
+                 "--cli", str(installed_freak), "--payload-home", str(install_home),
+                 "--report", str(evidence / "templates.json")],
+                1200,
+            ),
         )
         hostile_cwd = root / "hostile-repo-shaped-cwd"
         for label, command, timeout in children:
