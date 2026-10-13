@@ -312,7 +312,7 @@ def main() -> None:
             imported.mkdir()
             entry = imported / "main.fk"
             module = imported / "bad.fk"
-            entry_source = "use bad::{value}\ntask main() { say value() }\n"
+            entry_source = "use self::bad::{value}\ntask main() { say value() }\n"
             module_source = "task value() -> int { say missing; give back 7 }\n"
             entry.write_text(entry_source, encoding="utf-8", newline="")
             module.write_text(module_source, encoding="utf-8", newline="")
