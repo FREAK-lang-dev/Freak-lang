@@ -131,25 +131,30 @@ class HttpProgressTests(unittest.TestCase):
             self.assertEqual(durable['progress']['active']['fixture'], 'stale-request')
 
     def test_recording_failure_cannot_replace_original_cause_or_tear_previous_state(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / 'report.json'
-            cause = RuntimeError('original verification failure')
-            with self.assertRaises(RuntimeError) as caught:
-                with HttpProgress(path, {'matrices': []}, 1) as progress:
-                    progress.stage('native-control', 'wrong-domain')
-                    before = path.read_bytes()
-                    with patch('v3_v35_http.os.replace', side_effect=OSError('recording refused')):
-                        try:
+        class HostileNoteError(RuntimeError):
+            def add_note(self, note):
+                raise KeyboardInterrupt('secondary note interruption')
+
+        for kind in (RuntimeError, HostileNoteError):
+            with self.subTest(kind=kind.__name__), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / 'report.json'
+                cause = kind('original verification failure')
+                recording = None
+                try:
+                    with self.assertRaises(RuntimeError) as caught:
+                        with HttpProgress(path, {'matrices': []}, 1) as progress:
+                            progress.stage('native-control', 'wrong-domain')
+                            before = path.read_bytes()
+                            recording = patch.object(progress, '_write', side_effect=OSError('recording refused'))
+                            recording.start()
                             raise cause
-                        except RuntimeError:
-                            progress.__exit__(RuntimeError, cause, cause.__traceback__)
-                            raise
-            self.assertIs(caught.exception, cause)
-            # The outer context can record the same failure once replacement recovers.
-            durable = HttpProgress.read(path)
-            self.assertEqual(durable['progress']['outcome'], 'failed')
-            self.assertEqual(json.loads(before)['progress']['outcome'], 'running')
-            self.assertFalse(list(path.parent.glob('.report.json-*')))
+                finally:
+                    if recording is not None:
+                        recording.stop()
+                self.assertIs(caught.exception, cause)
+                self.assertEqual(path.read_bytes(), before)
+                self.assertEqual(HttpProgress.read(path)['progress']['outcome'], 'running')
+                self.assertFalse(list(path.parent.glob('.report.json-*')))
 
     def test_failed_atomic_replace_keeps_last_complete_checkpoint(self):
         with tempfile.TemporaryDirectory() as temporary:
