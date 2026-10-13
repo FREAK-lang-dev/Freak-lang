@@ -337,7 +337,28 @@ task hangar_init_target_path(path: word) -> word {
 }
 
 task hangar_init(project_dir: word) -> int {
-    give back hangar_init_normalized(hangar_init_target_path(project_dir))
+    give back hangar_init_template(project_dir, "cli")
+}
+
+task hangar_init_template(project_dir: word, template_name: word) -> int {
+    if not cli_initialize_project(template_name, hangar_init_target_path(project_dir), true) {
+        say "Init error: " + cli_template_error
+        give back 1
+    }
+    cli_init_success(template_name)
+    give back 0
+}
+
+task cli_init_success(template_name: word) -> void {
+    say "Initialized " + template_name + " project"
+    if cli_template_project_path != "" { say "Project directory: " + cli_template_project_path }
+    if cli_template_retained_files {
+        say "Existing entries were preserved. Inspect the project files before building."
+    } else if template_name == "lib" {
+        say "From the project directory: freak check src/lib.fk"
+    } else {
+        say "From the project directory: freak build"
+    }
 }
 
 task hangar_init_normalized(project_dir: word) -> int {
@@ -2367,10 +2388,31 @@ task hangar_dispatch(args_cnt: int) -> int {
     pilot project_dir = "."
 
     if subcmd == "init" {
-        if args_cnt >= 4 {
-            project_dir = hangar_arg(3)
+        pilot template_name = "cli"
+        pilot template_seen = false
+        pilot target_seen = false
+        pilot index = 3
+        repeat until index >= args_cnt {
+            pilot argument = hangar_arg(index)
+            if argument == "--template" or argument.starts_with("--template=") {
+                if template_seen { say "--template may be specified only once" give back 1 }
+                template_seen = true
+                if argument == "--template" {
+                    index += 1
+                    if index >= args_cnt { say "--template requires cli, lib, or http" give back 1 }
+                    template_name = hangar_arg(index)
+                } else { template_name = cli_flag_value(argument, 11) }
+            } else if argument.starts_with("-") {
+                say "Unknown init option " + argument
+                give back 1
+            } else {
+                if target_seen { say "Usage: hangar init [directory] [--template=cli|lib|http]" give back 1 }
+                target_seen = true
+                project_dir = argument
+            }
+            index += 1
         }
-        give back hangar_init(project_dir)
+        give back hangar_init_template(project_dir, template_name)
     } else if subcmd == "add" {
         if args_cnt < 4 {
             say "Usage: hangar add <name> [constraint]"

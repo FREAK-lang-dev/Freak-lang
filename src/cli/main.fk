@@ -462,19 +462,24 @@ task freakc_cli_main() -> void {
 
     if subcmd == "init" {
         if args_cnt < 3 { say "Usage: freak init <project-name> [--template=cli|lib|http]" process::exit(1) }
+        if process::arg(2).starts_with("-") { say "Usage: freak init <project-name> [--template=cli|lib|http]" process::exit(1) }
         pilot template_name = "cli" pilot index = 3
+        pilot template_seen = false
         repeat until index >= args_cnt {
             pilot flag = process::arg(index)
-            if flag.starts_with("--template=") { template_name = cli_flag_value(flag, 11) }
-            else if flag == "--template" {
-                index += 1
-                if index >= args_cnt { say "--template requires cli, lib, or http" process::exit(1) }
-                template_name = process::arg(index)
+            if flag.starts_with("--template=") or flag == "--template" {
+                if template_seen { say "--template may be specified only once" process::exit(1) }
+                template_seen = true
+                if flag == "--template" {
+                    index += 1
+                    if index >= args_cnt { say "--template requires cli, lib, or http" process::exit(1) }
+                    template_name = process::arg(index)
+                } else { template_name = cli_flag_value(flag, 11) }
             } else { say "Unknown init option " + flag process::exit(1) }
             index += 1
         }
         if not cli_create_template(template_name, process::arg(2)) { say "Init error: " + cli_template_error process::exit(1) }
-        say "Created project " + process::arg(2)
+        cli_init_success(template_name)
         give back
     }
 
