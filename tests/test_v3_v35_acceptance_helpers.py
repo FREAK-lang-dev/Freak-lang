@@ -87,6 +87,86 @@ class TricklePacer:
         return result
 
 
+class ComparativeTrickleStall(RuntimeError):
+    """A validated comparative receipt cannot distinguish an idle expiry."""
+
+    def __init__(self, cadence, receiver_receipt, stall):
+        self.evidence = {'outcome': 'REFUSED', 'scope': 'comparative idle-only helper',
+                         'reason': 'trickle gap reached the idle threshold',
+                         'idle_threshold_ns': acceptance.ABSOLUTE_TRICKLE_IDLE_NS,
+                         'stall': stall, 'client_cadence': cadence,
+                         'receiver_receipt': receiver_receipt}
+        super().__init__(self.evidence['reason'])
+
+
+def assert_comparative_idle_trickle(cadence: dict, receiver_receipt: dict, elapsed: float) -> None:
+    """Validate the entire receipt before qualifying this idle-only control."""
+    assert type(elapsed) in (int, float) and 0 <= elapsed < float('inf'), 'invalid comparative elapsed'
+    assert type(cadence) is dict and set(cadence) == {
+        'cuts', 'delay_seconds', 'wire_bytes', 'sends', 'first_response_ns'}, 'invalid comparative cadence metadata'
+    assert type(cadence['cuts']) is list and all(type(cut) is int for cut in cadence['cuts'])
+    assert cadence['cuts'] == list(acceptance.ABSOLUTE_TRICKLE_CUTS)
+    assert type(cadence['delay_seconds']) is float and cadence['delay_seconds'] == acceptance.ABSOLUTE_TRICKLE_DELAY
+    assert type(cadence['wire_bytes']) is int and cadence['wire_bytes'] == len(acceptance.ABSOLUTE_TRICKLE_WIRE)
+    sends = cadence['sends']
+    assert type(sends) is list and 0 < len(sends) <= len(acceptance.ABSOLUTE_TRICKLE_CUTS) + 1
+    previous = start = 0
+    completion_gaps = []
+    for index, (row, end) in enumerate(zip(sends, (*acceptance.ABSOLUTE_TRICKLE_CUTS,
+                                                 len(acceptance.ABSOLUTE_TRICKLE_WIRE)))):
+        assert type(row) is dict and set(row) == {'start_byte', 'end_byte', 'started_ns', 'completed_ns'}
+        assert all(type(row[key]) is int for key in row), 'invalid comparative send integer'
+        began, completed = row['started_ns'], row['completed_ns']
+        assert previous <= began <= completed, 'invalid comparative send timestamp order'
+        assert (row['start_byte'], row['end_byte']) == (start, end), 'invalid comparative send byte range'
+        completion_gaps.append({'kind': 'send_completion', 'send_index': index,
+                                'gap_ns': completed - previous})
+        previous, start = completed, end
+    response = cadence['first_response_ns']
+    assert type(response) is int and response >= previous, 'invalid comparative response timestamp'
+    assert response <= round(elapsed * 1_000_000_000), 'invalid comparative elapsed response timestamp'
+
+    assert type(receiver_receipt) is dict and set(receiver_receipt) == {
+        'model', 'clock', 'idle_timeout_ns', 'wire_bytes', 'reads', 'expiry'}, 'invalid comparative receiver metadata'
+    assert type(receiver_receipt['model']) is str and receiver_receipt['model'] == 'idle-only'
+    assert type(receiver_receipt['clock']) is str and receiver_receipt['clock'] == 'receiver-monotonic-relative-ns'
+    assert type(receiver_receipt['idle_timeout_ns']) is int
+    assert receiver_receipt['idle_timeout_ns'] == acceptance.ABSOLUTE_TRICKLE_IDLE_NS
+    assert type(receiver_receipt['wire_bytes']) is int and receiver_receipt['wire_bytes'] == cadence['wire_bytes']
+    reads = receiver_receipt['reads']
+    assert type(reads) is list and len(reads) <= len(acceptance.ABSOLUTE_TRICKLE_WIRE)
+    received = last_received = 0
+    for row in reads:
+        assert type(row) is dict and set(row) == {'start_byte', 'end_byte', 'received_ns', 'data_hex'}
+        assert all(type(row[key]) is int for key in ('start_byte', 'end_byte', 'received_ns'))
+        assert row['start_byte'] == received < row['end_byte'] <= start, 'invalid comparative received byte range'
+        assert last_received <= row['received_ns'], 'invalid comparative receiver timestamp order'
+        assert type(row['data_hex']) is str
+        assert row['data_hex'] == acceptance.ABSOLUTE_TRICKLE_WIRE[received:row['end_byte']].hex(), \
+            'invalid comparative received bytes'
+        received, last_received = row['end_byte'], row['received_ns']
+    expiry = receiver_receipt['expiry']
+    assert type(expiry) is dict and set(expiry) == {'expired_ns', 'last_received_ns', 'received_bytes'}
+    assert all(type(expiry[key]) is int for key in expiry), 'invalid comparative expiry integer'
+    assert expiry['expired_ns'] >= last_received, 'invalid comparative expiry timestamp'
+    assert expiry['last_received_ns'] == last_received and expiry['received_bytes'] == received
+    assert expiry['expired_ns'] - last_received >= acceptance.ABSOLUTE_TRICKLE_IDLE_NS, \
+        'invalid comparative idle expiry'
+    assert expiry['expired_ns'] <= round(elapsed * 1_000_000_000), 'invalid comparative elapsed expiry timestamp'
+
+    # A later malformed row must remain fatal even if an earlier gap stalled.
+    for gap in completion_gaps:
+        if gap['gap_ns'] >= acceptance.ABSOLUTE_TRICKLE_IDLE_NS:
+            raise ComparativeTrickleStall(cadence, receiver_receipt, gap)
+    complete = len(sends) == len(acceptance.ABSOLUTE_TRICKLE_CUTS) + 1
+    if not complete and response - previous >= acceptance.ABSOLUTE_TRICKLE_IDLE_NS:
+        raise ComparativeTrickleStall(cadence, receiver_receipt,
+                                     {'kind': 'incomplete_response_wait', 'gap_ns': response - previous})
+    # A complete trickle naturally ends with the receiver's 0.25s idle wait.
+    assert complete and received == len(acceptance.ABSOLUTE_TRICKLE_WIRE), 'incomplete comparative idle trickle'
+    assert elapsed >= 3.2 and response >= 3_200_000_000, ('comparative idle response arrived early', elapsed)
+
+
 class AcceptanceHelpers(unittest.TestCase):
     def test_success_keeps_separate_raw_channels_and_exit(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -398,10 +478,16 @@ class AcceptanceHelpers(unittest.TestCase):
         port = listener.getsockname()[1]
         errors = []
         observations = []
+        receiver_receipt = {'model': 'absolute' if absolute else 'idle-only',
+                            'clock': 'receiver-monotonic-relative-ns',
+                            'idle_timeout_ns': acceptance.ABSOLUTE_TRICKLE_IDLE_NS,
+                            'wire_bytes': len(acceptance.ABSOLUTE_TRICKLE_WIRE),
+                            'reads': [], 'expiry': None}
         def serve():
             try:
                 with listener, listener.accept()[0] as peer:
                     began = last = time.monotonic()
+                    received = 0
                     while True:
                         remaining = (began + 1 if absolute else last + 0.25) - time.monotonic()
                         # A delayed server thread can resume with fragments
@@ -409,7 +495,11 @@ class AcceptanceHelpers(unittest.TestCase):
                         # the absolute deadline still expires unconditionally.
                         data = available_idle_input(peer) if remaining <= 0 and not absolute else None
                         if remaining <= 0 and data is None:
-                            observations.append({'event': 'expired', 'seconds': time.monotonic() - began,
+                            expired = time.monotonic()
+                            receiver_receipt['expiry'] = {'expired_ns': round((expired - began) * 1_000_000_000),
+                                                          'last_received_ns': round((last - began) * 1_000_000_000),
+                                                          'received_bytes': received}
+                            observations.append({'event': 'expired', 'seconds': expired - began,
                                                  'idle_seconds': time.monotonic() - last,
                                                  'queued_bytes': None})
                             send_model_deadline_response(peer)
@@ -423,6 +513,10 @@ class AcceptanceHelpers(unittest.TestCase):
                         if not data:
                             raise AssertionError('client closed before model deadline')
                         last = time.monotonic()
+                        receiver_receipt['reads'].append({'start_byte': received, 'end_byte': received + len(data),
+                                                          'received_ns': round((last - began) * 1_000_000_000),
+                                                          'data_hex': data.hex()})
+                        received += len(data)
                         if len(observations) < 64:
                             observations.append({'event': 'read', 'seconds': last - began,
                                                  'bytes': len(data)})
@@ -446,12 +540,14 @@ class AcceptanceHelpers(unittest.TestCase):
                                                        'elapsed_seconds': elapsed,
                                                        'client_cadence': pacer.observations,
                                                        'observed_cadence': cadence,
-                                                       'server_observations': observations}))
+                                                       'server_observations': observations,
+                                                       'receiver_receipt': receiver_receipt}))
             self.assertEqual((status, body), (408, b''))
             # A framed rejection can reset a connection with unread input.
             self.assertIn(termination, ('eof', 'reset'))
             if observe_cadence:
                 self.observed_trickle_cadence = cadence
+                self.observed_receiver_receipt = receiver_receipt
             return elapsed
         finally:
             thread.join(timeout=10)
@@ -643,10 +739,159 @@ class AcceptanceHelpers(unittest.TestCase):
         peer.shutdown.assert_called_once_with(socket.SHUT_WR)
 
     def test_actual_idle_only_model_is_rejected(self):
-        elapsed = self.deadline_model(False)
+        elapsed = self.deadline_model(False, observe_cadence=True)
+        try:
+            assert_comparative_idle_trickle(self.observed_trickle_cadence, self.observed_receiver_receipt, elapsed)
+        except ComparativeTrickleStall as refusal:
+            print('HTTP comparative idle control: ' + json.dumps(refusal.evidence))
+            return
         self.assertGreaterEqual(elapsed, 3.2)
         with self.assertRaises(AssertionError):
             acceptance.assert_absolute_header_deadline(elapsed)
+
+    def comparative_idle_evidence(self, *, count=33, response_gap=250_000_000,
+                                 completion_gap=100_000_000, blocked_send=False):
+        wire = acceptance.ABSOLUTE_TRICKLE_WIRE
+        sends, reads = [], []
+        previous = start = 0
+        for index, end in enumerate((*acceptance.ABSOLUTE_TRICKLE_CUTS, len(wire))[:count]):
+            completed = 0 if index == 0 else previous + (completion_gap if index == 8 else 100_000_000)
+            sends.append({'start_byte': start, 'end_byte': end,
+                          'started_ns': previous if blocked_send and index == 8 else completed,
+                          'completed_ns': completed})
+            reads.append({'start_byte': start, 'end_byte': end, 'received_ns': completed,
+                          'data_hex': wire[start:end].hex()})
+            previous, start = completed, end
+        cadence = {'cuts': list(acceptance.ABSOLUTE_TRICKLE_CUTS),
+                   'delay_seconds': acceptance.ABSOLUTE_TRICKLE_DELAY, 'wire_bytes': len(wire),
+                   'sends': sends, 'first_response_ns': previous + response_gap}
+        receipt = {'model': 'idle-only', 'clock': 'receiver-monotonic-relative-ns',
+                   'idle_timeout_ns': acceptance.ABSOLUTE_TRICKLE_IDLE_NS, 'wire_bytes': len(wire),
+                   'reads': reads, 'expiry': {'expired_ns': previous + 250_000_000,
+                                             'last_received_ns': previous, 'received_bytes': start}}
+        return cadence, receipt, (previous + max(response_gap, 250_000_000)) / 1_000_000_000
+
+    def test_comparative_idle_complete_cadence_admits_terminal_idle_wait(self):
+        for response_gap in (250_000_000, 300_000_000):
+            with self.subTest(response_gap=response_gap):
+                cadence, receipt, elapsed = self.comparative_idle_evidence(response_gap=response_gap)
+                assert_comparative_idle_trickle(cadence, receipt, elapsed)
+                self.assertEqual(len(cadence['sends']), 33)
+                self.assertEqual(receipt['expiry']['received_bytes'], len(acceptance.ABSOLUTE_TRICKLE_WIRE))
+                self.assertGreaterEqual(elapsed, 3.2)
+                with self.assertRaises(AssertionError):
+                    acceptance.assert_absolute_header_deadline(elapsed)
+                with self.assertRaisesRegex(AssertionError, 'stalled trickle response wait'):
+                    acceptance.assert_absolute_trickle_cadence(cadence)
+
+    def test_comparative_idle_partial_249ms_response_remains_fatal(self):
+        for response_gap in (249_000_000, 249_999_999):
+            with self.subTest(response_gap=response_gap):
+                cadence, receipt, elapsed = self.comparative_idle_evidence(count=9, response_gap=response_gap)
+                with self.assertRaisesRegex(AssertionError, 'incomplete comparative idle trickle'):
+                    assert_comparative_idle_trickle(cadence, receipt, elapsed)
+
+    def test_comparative_idle_partial_250ms_or_300ms_response_is_refused(self):
+        for count, response_gap in ((9, 250_000_000), (9, 300_000_000), (32, 250_000_000)):
+            with self.subTest(count=count, response_gap=response_gap):
+                cadence, receipt, elapsed = self.comparative_idle_evidence(count=count, response_gap=response_gap)
+                with self.assertRaises(ComparativeTrickleStall) as caught:
+                    assert_comparative_idle_trickle(cadence, receipt, elapsed)
+                evidence = caught.exception.evidence
+                self.assertEqual(evidence['outcome'], 'REFUSED')
+                self.assertEqual(evidence['scope'], 'comparative idle-only helper')
+                self.assertEqual(evidence['stall'], {'kind': 'incomplete_response_wait', 'gap_ns': response_gap})
+                self.assertIs(evidence['client_cadence'], cadence)
+                self.assertIs(evidence['receiver_receipt'], receipt)
+
+    def test_comparative_idle_completion_stall_and_blocked_send_are_refused(self):
+        for gap, blocked in ((250_000_000, False), (300_000_000, False), (300_000_000, True)):
+            with self.subTest(gap=gap, blocked=blocked):
+                cadence, receipt, elapsed = self.comparative_idle_evidence(
+                    count=9, response_gap=100_000_000, completion_gap=gap, blocked_send=blocked)
+                with self.assertRaises(ComparativeTrickleStall) as caught:
+                    assert_comparative_idle_trickle(cadence, receipt, elapsed)
+                self.assertEqual(caught.exception.evidence['stall'],
+                                 {'kind': 'send_completion', 'send_index': 8, 'gap_ns': gap})
+        # A first blocked send can expire before the receiver observes bytes.
+        cadence, receipt, elapsed = self.comparative_idle_evidence(count=1, response_gap=100_000_000)
+        cadence['sends'][0]['completed_ns'] = 300_000_000
+        cadence['first_response_ns'] = 400_000_000
+        receipt['reads'] = []
+        receipt['expiry'] = {'expired_ns': 250_000_000, 'last_received_ns': 0, 'received_bytes': 0}
+        with self.assertRaises(ComparativeTrickleStall) as caught:
+            assert_comparative_idle_trickle(cadence, receipt, 0.4)
+        self.assertEqual(caught.exception.evidence['stall'],
+                         {'kind': 'send_completion', 'send_index': 0, 'gap_ns': 300_000_000})
+
+    def test_comparative_idle_early_stall_cannot_hide_later_malformed_receipt(self):
+        mutations = (
+            lambda cadence, receipt: cadence['cuts'].__setitem__(0, True),
+            lambda cadence, receipt: cadence.__setitem__('delay_seconds', '0.1'),
+            lambda cadence, receipt: cadence.__setitem__('wire_bytes', float(cadence['wire_bytes'])),
+            lambda cadence, receipt: cadence['sends'][-1].__setitem__('start_byte', True),
+            lambda cadence, receipt: cadence['sends'][-1].__setitem__('end_byte', 999),
+            lambda cadence, receipt: cadence['sends'][-1].__setitem__('started_ns', -1),
+            lambda cadence, receipt: cadence['sends'][-1].__setitem__('completed_ns', float('nan')),
+            lambda cadence, receipt: cadence['sends'][-1].__setitem__('extra', 0),
+            lambda cadence, receipt: cadence.__setitem__('first_response_ns', None),
+            lambda cadence, receipt: receipt.__setitem__('model', 'absolute'),
+            lambda cadence, receipt: receipt.__setitem__('clock', 'client-monotonic-relative-ns'),
+            lambda cadence, receipt: receipt.__setitem__('idle_timeout_ns', 300_000_000),
+            lambda cadence, receipt: receipt.__setitem__('wire_bytes', 1),
+            lambda cadence, receipt: receipt['reads'][-1].__setitem__('end_byte', 999),
+            lambda cadence, receipt: receipt['reads'][-1].__setitem__('received_ns', False),
+            lambda cadence, receipt: receipt['reads'][-1].__setitem__('data_hex', '00'),
+            lambda cadence, receipt: receipt['reads'][-1].__setitem__('extra', 0),
+            lambda cadence, receipt: receipt['expiry'].__setitem__('expired_ns', float('inf')),
+            lambda cadence, receipt: receipt['expiry'].__setitem__('last_received_ns', 0),
+            lambda cadence, receipt: receipt['expiry'].__setitem__('received_bytes', 999),
+            lambda cadence, receipt: receipt['expiry'].__setitem__('expired_ns', receipt['expiry']['last_received_ns']),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(mutation=index):
+                cadence, receipt, elapsed = self.comparative_idle_evidence(count=10, completion_gap=300_000_000)
+                mutate(cadence, receipt)
+                with self.assertRaises(AssertionError):
+                    assert_comparative_idle_trickle(cadence, receipt, elapsed)
+
+    def test_comparative_idle_valid_cadence_with_early_response_remains_fatal(self):
+        cadence, receipt, elapsed = self.comparative_idle_evidence(count=9, response_gap=100_000_000)
+        acceptance.assert_absolute_header_deadline(elapsed)
+        acceptance.assert_absolute_trickle_cadence(cadence)
+        with self.assertRaisesRegex(AssertionError, 'incomplete comparative idle trickle'):
+            assert_comparative_idle_trickle(cadence, receipt, elapsed)
+        cadence, receipt, elapsed = self.comparative_idle_evidence(response_gap=100_000_000)
+        for row in cadence['sends']:
+            row['started_ns'] //= 4
+            row['completed_ns'] //= 4
+        for row in receipt['reads']:
+            row['received_ns'] //= 4
+        receipt['expiry']['last_received_ns'] //= 4
+        receipt['expiry']['expired_ns'] = receipt['expiry']['last_received_ns'] + 250_000_000
+        cadence['first_response_ns'] = 1_050_000_000
+        for elapsed in (1.05, 3.45):
+            with self.subTest(elapsed=elapsed), self.assertRaisesRegex(AssertionError, 'comparative idle response arrived early'):
+                assert_comparative_idle_trickle(cadence, receipt, elapsed)
+
+    def test_comparative_idle_live_refusal_emits_structured_evidence_and_keeps_malformed_fatal(self):
+        cadence, receipt, elapsed = self.comparative_idle_evidence(count=9, response_gap=300_000_000)
+        self.observed_trickle_cadence, self.observed_receiver_receipt = cadence, receipt
+        output = io.StringIO()
+        with patch.object(self, 'deadline_model', return_value=elapsed), \
+                patch.object(acceptance, 'assert_absolute_header_deadline') as oracle, redirect_stdout(output):
+            self.test_actual_idle_only_model_is_rejected()
+        oracle.assert_not_called()
+        evidence = json.loads(output.getvalue().removeprefix('HTTP comparative idle control: '))
+        self.assertEqual(evidence['outcome'], 'REFUSED')
+        self.assertEqual(evidence['client_cadence'], cadence)
+        self.assertEqual(evidence['receiver_receipt'], receipt)
+        receipt['reads'][-1]['received_ns'] = None
+        output = io.StringIO()
+        with patch.object(self, 'deadline_model', return_value=elapsed), redirect_stdout(output):
+            with self.assertRaises(AssertionError):
+                self.test_actual_idle_only_model_is_rejected()
+        self.assertEqual(output.getvalue(), '')
 
     def test_trickle_transport_avoids_delayed_ack_idle_refusal(self):
         # Deterministic transport countermodel, not a Darwin TCP reproduction:
