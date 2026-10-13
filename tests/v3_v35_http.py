@@ -237,7 +237,18 @@ static void stop_tests(void) {
 #else
         REQUIRE(pthread_join(thread,NULL)==0);
 #endif
-        REQUIRE(freak_command_now_ms()-start<500&&H(request_status)(c.request)==(c.writing?0:503)&&H(status)(c.server)==1);if(c.writing)REQUIRE(!c.sent);
+        uint64_t elapsed=freak_command_now_ms()-start;
+        int64_t request_status=H(request_status)(c.request),expected_status=c.writing?0:503,server_status=H(status)(c.server);
+        if(elapsed>=500||request_status!=expected_status||server_status!=1||(c.writing&&c.sent)) {
+            __auto_type error=H(request_error)(c.request);freak_word message=view(error);
+            fprintf(stderr,"STOP_CHECK reading=%d writing=%d elapsed_ms=%llu request_status=%lld expected_status=%lld server_status=%lld sent=%d error=%.*s\n",
+                reading,c.writing,(unsigned long long)elapsed,(long long)request_status,(long long)expected_status,(long long)server_status,c.sent,(int)message.length,message.data);
+            drop(error);fflush(stderr);
+        }
+        REQUIRE(elapsed<500);
+        REQUIRE(request_status==expected_status);
+        REQUIRE(server_status==1);
+        if(c.writing)REQUIRE(!c.sent);
         if(client!=FREAK_INVALID_NATIVE_SOCKET) freak_tcp_socket_native_close(client);
         H(request_release)(c.request);H(close)(c.server);base();
     }
