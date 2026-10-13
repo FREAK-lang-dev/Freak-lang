@@ -1125,6 +1125,13 @@ def main() -> int:
                 1200,
             ),
             (
+                "bounded HTTP rejection close controls",
+                [python, "-B", "-u", str(repo / "tests" / "v3_v35_http_rejection_close.py"),
+                 "--runtime-root", str(install_home / "runtime"), "--clang", selected_clang,
+                 "--report", str(evidence / "http-rejection-close.json")],
+                240,
+            ),
+            (
                 "installed HTTP transport floor",
                 [python, "-u", str(repo / "tests" / "v3_v35_http.py"),
                  "--runtime-root", str(install_home / "runtime"),
