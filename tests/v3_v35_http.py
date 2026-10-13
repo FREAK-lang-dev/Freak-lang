@@ -620,6 +620,26 @@ def assert_rejection(result,status,*,head=False):
     assert headers[b'content-length']==str(len(expected)).encode(),result
     return headers
 
+def absolute_deadline_probe(client,*,head=False):
+    """Keep progress at 50ms intervals and preserve the actual timeout reply."""
+    started=time.monotonic()
+    for i in range(10):
+        try:client.sendall(b'a')
+        except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError):break
+        # Read when the response arrives. Sending again after the peer closes
+        # can abort the local connection before its queued reply is consumed.
+        if select.select([client],[],[],.05)[0]:break
+    out=b''
+    while True:
+        try:chunk=client.recv(4096)
+        except (ConnectionResetError,ConnectionAbortedError):break
+        if not chunk:break
+        out+=chunk
+    # Closure alone is never success: exact wire/body and elapsed-time checks
+    # still run, including when a known closed-connection exception occurred.
+    assert_rejection(parse_response(out),408,head=head)
+    assert time.monotonic()-started<.8
+
 def reset_content_corpus(s:Server):
     s.checkpoint('response-framing','reset-content-205')
     binary=b'A\0\xff\xc3\xa9\xf0\x9f\x9a\x80B'
@@ -799,18 +819,7 @@ def tight_corpus(s:Server):
         with s.connect() as client:
             if body:client.sendall(request('/echo',method,headers=[('Content-Length','20')]))
             else:client.sendall(f'{method} /health HTTP/1.1\r\nX: '.encode())
-            started=time.monotonic()
-            for i in range(10):
-                try:client.sendall(b'a')
-                except (BrokenPipeError,ConnectionResetError):break
-                time.sleep(.05)
-            out=b''
-            while True:
-                try:chunk=client.recv(4096)
-                except ConnectionResetError:break
-                if not chunk:break
-                out+=chunk
-            assert_rejection(parse_response(out),408,head=method=='HEAD');assert time.monotonic()-started<.8;s.cases+=1
+            absolute_deadline_probe(client,head=method=='HEAD');s.cases+=1
     # Premature fixed-length EOF also rejects without retaining a handler.
     s.checkpoint('tight-corpus','premature-eof')
     assert_response(s.exchange(request('/echo','POST',headers=[('Content-Length','2')])+b'a',eof=True),400)
