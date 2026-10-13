@@ -2,6 +2,10 @@
 *.fk linguist-language=swift
 *.fk linguist-detectable=true
 
+# The generated diagnostic inventory hashes exact JSON bytes on every host.
+/src/diagnostics/*.json text eol=lf
+/src/diagnostics/packs/*.json text eol=lf
+
 # Python is only the bootstrap compiler — don't count it as primary
 freakc/*.py linguist-vendored=true
 
