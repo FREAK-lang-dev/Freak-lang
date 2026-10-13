@@ -313,7 +313,16 @@ class _CacheLaunch:
                     running = True
                     notes.append(f"child status: {type(error).__name__}: {error}")
                 if running:
-                    notes.extend(Evidence.stop_owned(self.child))
+                    try:
+                        notes.extend(Evidence.stop_owned(self.child))
+                    except BaseException as error:
+                        notes.append(f"fallback containment: {type(error).__name__}: {error}")
+                        try:
+                            # Direct Popen identity still belongs to us; this
+                            # call has its own poll/identity guard internally.
+                            self.child.kill()
+                        except BaseException as secondary:
+                            notes.append(f"direct child kill: {type(secondary).__name__}: {secondary}")
             try:
                 self.child.wait(timeout=5)
             except BaseException as error:
@@ -365,12 +374,12 @@ class Evidence:
         leader whose numeric group identity may have been recycled.
         """
         notes: list[str] = []
-        for action in (signal.SIGTERM, signal.SIGKILL):
+        for action in ("terminate", "kill"):
             try:
                 if os.name != "nt":
-                    os.killpg(child.pid, action)
+                    os.killpg(child.pid, signal.SIGTERM if action == "terminate" else signal.SIGKILL)
                 elif child.poll() is None:
-                    if action == signal.SIGTERM:
+                    if action == "terminate":
                         child.terminate()
                     else:
                         child.kill()
@@ -379,13 +388,13 @@ class Evidence:
             except BaseException as error:
                 notes.append(f"owned group termination: {type(error).__name__}: {error}")
             try:
-                child.wait(timeout=2 if action == signal.SIGTERM else 5)
+                child.wait(timeout=2 if action == "terminate" else 5)
                 # A successful wait releases the direct leader's PID identity.
                 # Residual POSIX group containment belongs to the live keeper;
                 # a fallback must never signal this number again after reap.
                 break
             except subprocess.TimeoutExpired:
-                if action == signal.SIGKILL:
+                if action == "kill":
                     notes.append("owned parent did not exit after bounded kill")
             except BaseException as error:
                 notes.append(f"owned parent reap: {type(error).__name__}: {error}")

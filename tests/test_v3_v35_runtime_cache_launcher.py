@@ -18,7 +18,7 @@ import threading
 import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import v3_v35_acceptance as acceptance
 import v3_v35_runtime_cache as cache
@@ -133,7 +133,8 @@ class LaunchBoundaryModels(unittest.TestCase):
         self.addCleanup(patch.stopall)
         patch.object(acceptance, "_CommandLifeline", side_effect=keeper, create=True).start()
         patch.object(cache.subprocess, "Popen", side_effect=popen).start()
-        patch.object(cache.os, "killpg", side_effect=AssertionError("unexpected real group signaling in model")).start()
+        patch.object(cache, "os", SimpleNamespace(name="posix", killpg=Mock(
+            side_effect=AssertionError("unexpected real group signaling in model")))).start()
 
     def invoke(self):
         return self.evidence.invoke(["inert-model"], self.root, {}, "model", timeout=240)
@@ -282,7 +283,7 @@ class LaunchBoundaryModels(unittest.TestCase):
         self.child_outcomes = [primary]
         # Patch this module's platform view only; changing global os.name would
         # make pathlib construct an unsupported WindowsPath on the POSIX host.
-        with patch.object(cache, "os", SimpleNamespace(name="nt")):
+        with patch.object(cache, "os", SimpleNamespace(name="nt")), patch.object(cache, "signal", SimpleNamespace(SIGTERM=15)):
             with self.assertRaises(subprocess.TimeoutExpired) as raised:
                 self.invoke()
         self.assertIs(raised.exception, primary)
@@ -318,7 +319,7 @@ class LaunchBoundaryModels(unittest.TestCase):
             signalled.append((pgid, action))
             self.children[0].returncode = -15
         argv = ["inert-sdk", "a b", "$literal;[]"]
-        with patch.object(cache.os, "killpg", side_effect=interrupt):
+        with patch.object(cache.os, "killpg", side_effect=interrupt), patch.object(cache, "sys", SimpleNamespace(platform="linux")):
             code, _, trace = self.evidence.invoke(argv, self.root, {}, "trace-model", trace=True, interrupt_runtime=True)
         row, = self.evidence.report["commands"]
         self.assertEqual(code, -15)
@@ -369,6 +370,19 @@ class LaunchBoundaryModels(unittest.TestCase):
         self.assert_contained(normal=True)
         for row in self.evidence.report["commands"]:
             self.assert_raw(row)
+
+    def test_unexpected_fallback_error_preserves_timeout_and_closes_both_captures(self):
+        primary = subprocess.TimeoutExpired(["inert-Windows-model"], 240)
+        self.child_outcomes = [primary]
+        with patch.object(cache, "os", SimpleNamespace(name="nt")), patch.object(cache.Evidence, "stop_owned", side_effect=OSError("secondary fallback failure")):
+            with self.assertRaises(subprocess.TimeoutExpired) as raised:
+                self.invoke()
+        self.assertIs(raised.exception, primary)
+        self.assertIsNotNone(self.children[0].returncode)
+        self.assertTrue(all(handle.closed for handle in self.output_handles))
+        row, = self.evidence.report["commands"]
+        self.assertIn("secondary fallback failure", str(row["cleanup_notes"]))
+        self.assert_raw(row)
 
 
 @unittest.skipUnless(os.name == "posix" and hasattr(acceptance, "_CommandLifeline"), "committed POSIX lifeline prerequisite required")
