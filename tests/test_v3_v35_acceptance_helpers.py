@@ -526,7 +526,9 @@ class CommandLifelineControls(unittest.TestCase):
 
     def test_actual_channels_argv_env_cwd_preexec_and_exit_are_preserved(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root, records = Path(temporary), []
+            # Admit the physical fixture root before spawning. macOS temporary
+            # paths can use /var while getcwd() returns /private/var.
+            root, records = Path(temporary).resolve(strict=True), []
             marker = root / 'preexec'
             def callback():
                 marker.write_text(str(os.getpid()))
