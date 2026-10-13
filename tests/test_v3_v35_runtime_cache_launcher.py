@@ -123,6 +123,10 @@ class LaunchBoundaryModels(unittest.TestCase):
             options["stdout"].flush()
             options["stderr"].write(b"raw stderr\xfe\n")
             options["stderr"].flush()
+            if argv[0] == "strace":
+                # A synthetic trace tests launcher routing only. It is never
+                # included in native compiler/cache qualification evidence.
+                Path(argv[argv.index("-o") + 1]).write_text('1 execve("/inert-clang", ["clang", "-c", "cpp-output"], []) = 0\n')
             self.output_handles.extend((options["stdout"], options["stderr"]))
             return child
 
@@ -295,6 +299,37 @@ class LaunchBoundaryModels(unittest.TestCase):
             self.evidence.invoke_concurrent([["a"], ["b"], ["c"]], self.root, {}, trace=False)
         self.assertEqual(self.children, [])
         self.assertEqual(self.evidence.report["commands"], [])
+
+    def test_concurrent_nonzero_status_keeps_diagnostics_and_contains_other_writer(self):
+        self.child_outcomes = [7, 0]
+        with self.assertRaises(AssertionError) as raised:
+            self.evidence.invoke_concurrent([["first"], ["second"]], self.root, {}, trace=False)
+        self.assertIn("status 7", str(raised.exception))
+        self.assertIn("raw stdout", str(raised.exception))
+        self.assertIn("raw stderr", str(raised.exception))
+        self.assertEqual(self.children[0].returncode, 7)
+        self.assert_contained()
+        for row in self.evidence.report["commands"]:
+            self.assert_raw(row)
+
+    def test_trace_runtime_interrupt_routes_to_owned_group_and_retains_exact_argv(self):
+        signalled = []
+        def interrupt(pgid, action):
+            signalled.append((pgid, action))
+            self.children[0].returncode = -15
+        argv = ["inert-sdk", "a b", "$literal;[]"]
+        with patch.object(cache.os, "killpg", side_effect=interrupt):
+            code, _, trace = self.evidence.invoke(argv, self.root, {}, "trace-model", trace=True, interrupt_runtime=True)
+        row, = self.evidence.report["commands"]
+        self.assertEqual(code, -15)
+        self.assertEqual(row["argv"][:7], ["strace", "-f", "-s", "65536", "-e", "trace=execve", "-o"])
+        self.assertEqual(row["argv"][-4:], ["--", *argv])
+        self.assertEqual(row["timeout_seconds"], 240)
+        self.assertTrue(row["runtime_compile_hook_fired"])
+        self.assertEqual(signalled, [(row["owned_pgid"], signal.SIGTERM)])
+        self.assertTrue(trace)
+        self.assert_contained(normal=True)
+        self.assert_raw(row)
 
 
 @unittest.skipUnless(os.name == "posix" and hasattr(acceptance, "_CommandLifeline"), "committed POSIX lifeline prerequisite required")
