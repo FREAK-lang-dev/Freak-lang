@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import sys
 import tempfile
 import unittest
 
@@ -37,8 +38,11 @@ task main() {
             if mode == "retarget" {
                 pilot moved = fs::rename_checked(target + "", process::arg(4))
                 proceed = fs::result_ok(moved)
+                pilot renamed = fs::result_completed(moved)
+                pilot rename_error = fs::result_error(moved)
                 fs::result_release(moved)
                 if proceed {
+                    say "RETARGET_MOVED"
                     pilot replacement = fs::mkdir_checked(target + "")
                     proceed = fs::result_ok(replacement)
                     fs::result_release(replacement)
@@ -47,7 +51,8 @@ task main() {
                         proceed = fs::result_ok(foreign)
                         fs::result_release(foreign)
                     }
-                } else { say "RETARGET_REFUSED" }
+                } else if renamed { say "RETARGET_COMPLETED_ERROR " + rename_error }
+                else { say "RETARGET_REFUSED " + rename_error }
             }
             if proceed { okay = cli_initialize_project_at(kind, held, name) }
             -- The borrowed root must still be usable after every API outcome.
@@ -63,6 +68,65 @@ task main() {
     if cli_template_retained_files { say "RETAINED true" } else { say "RETAINED false" }
 }
 '''
+
+# This Linux interposer is a deliberately failing control, not runtime code.
+# Root compiles it only inside the serialized native gate. It is activated for
+# one exact held test-root spelling and never installed in a product payload.
+FAULT_SHIM = r'''
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+static int triggered;
+static int selected(int fd,const char *leaf) {
+    const char *root=getenv("FREAK_INIT_CONTROL_ROOT");
+    if (!root || !*root) return 0;
+    char descriptor[64],path[4097],wanted[4097];
+    snprintf(descriptor,sizeof(descriptor),"/proc/self/fd/%d",fd);
+    ssize_t count=readlink(descriptor,path,sizeof(path)-1);
+    if (count <= 0 || count >= (ssize_t)sizeof(path)-1) return 0;
+    path[count]=0;
+    int size=leaf ? snprintf(wanted,sizeof(wanted),"%s/%s",root,leaf) :
+                    snprintf(wanted,sizeof(wanted),"%s",root);
+    return size > 0 && size < (int)sizeof(wanted) && !strcmp(path,wanted);
+}
+ssize_t write(int fd,const void *data,size_t size) {
+    ssize_t (*actual)(int,const void *,size_t)=dlsym(RTLD_NEXT,"write");
+    const char *mode=getenv("FREAK_INIT_CONTROL_MODE");
+    if (!actual) { errno=ENOSYS; return -1; }
+    if (mode && !strcmp(mode,"partial") && selected(fd,"README.md")) {
+        if (triggered++) { errno=ENOSPC; return -1; }
+        return actual(fd,data,size < 5 ? size : 5);
+    }
+    return actual(fd,data,size);
+}
+int openat(int parent,const char *path,int flags,...) {
+    mode_t permissions=0;
+    if (flags & O_CREAT) { va_list args; va_start(args,flags); permissions=(mode_t)va_arg(args,int); va_end(args); }
+    int (*actual_open)(int,const char *,int,...)=dlsym(RTLD_NEXT,"openat");
+    ssize_t (*actual_write)(int,const void *,size_t)=dlsym(RTLD_NEXT,"write");
+    const char *mode=getenv("FREAK_INIT_CONTROL_MODE");
+    if (!actual_open || !actual_write) { errno=ENOSYS; return -1; }
+    if (!triggered && mode && !strcmp(mode,"late-manifest") &&
+        (flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL) &&
+        !strcmp(path,"hangar.toml") && selected(parent,NULL)) {
+        triggered=1;
+        int foreign=actual_open(parent,path,O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,0600);
+        if (foreign < 0) return -1;
+        static const unsigned char bytes[]="foreign manifest appeared after admission\0\xff";
+        ssize_t written=actual_write(foreign,bytes,sizeof(bytes)-1);
+        int synced=fsync(foreign),closed=close(foreign);
+        if (written != (ssize_t)sizeof(bytes)-1 || synced || closed) { errno=EIO; return -1; }
+    }
+    return actual_open(parent,path,flags,permissions);
+}
+'''
+FOREIGN_MANIFEST = b"foreign manifest appeared after admission\x00\xff"
 
 
 def digest(path: Path) -> str:
@@ -118,19 +182,42 @@ def assert_canonical(root: Path, canonical: Path, kind: str, name: str,
 
 
 def creator(binary: Path, mode: str, kind: str, destination: Path, env: dict,
-            progress: TemplateProgress, *, success: bool, extra: tuple = ()):
+            progress: TemplateProgress, *, success: bool | None, extra: tuple = ()):
     result = run([binary, mode, kind, destination, *extra], cwd=destination.parent,
                  env=env, progress=progress, label="shared-init-" + mode + "-" + destination.name)
     assert result.returncode == 0 and not result.stderr, (result.returncode, result.stdout, result.stderr)
     lines = result.stdout.splitlines()
-    assert ("OK" in lines) == success, (success, result.stdout)
-    if not success:
+    if success is not None:
+        assert ("OK" in lines) == success, (success, result.stdout)
+    if success is False:
         assert any(line.startswith("ERROR ") for line in lines), result.stdout
     return result
 
 
+def retarget_outcome(stdout: str, target: Path, moved: Path, canonical: Path,
+                     before: dict[str, tuple], *, windows: bool) -> str:
+    lines = stdout.splitlines()
+    assert not any(line.startswith("RETARGET_COMPLETED_ERROR ") for line in lines), stdout
+    refused = any(line.startswith("RETARGET_REFUSED ") for line in lines)
+    if refused:
+        assert windows and "RETARGET_MOVED" not in lines and "OK" not in lines, stdout
+        assert not moved.exists() and entries(target) == before
+        assert any(line.startswith("BORROWED_ROOT ") and len(line) > len("BORROWED_ROOT ") for line in lines)
+        return "windows-held-root-retarget-refusal"
+    assert "RETARGET_MOVED" in lines and "OK" in lines, stdout
+    assert regular_files(target) == {"foreign": b"replacement directory is foreign"}
+    assert_canonical(moved, canonical, "cli", "held-original")
+    captured = [line[len("CAPTURED_PATH "):] for line in lines if line.startswith("CAPTURED_PATH ")]
+    assert len(captured) == 1 and Path(captured[0]).resolve(strict=True) == moved.resolve(strict=True), stdout
+    assert Path(captured[0]).resolve(strict=True) != target.resolve(strict=True)
+    identities = [line[len("CAPTURED_IDENTITY "):] for line in lines if line.startswith("CAPTURED_IDENTITY ")]
+    borrowed = [line[len("BORROWED_ROOT "):] for line in lines if line.startswith("BORROWED_ROOT ")]
+    assert len(identities) == len(borrowed) == 1 and identities[0] and identities == borrowed, stdout
+    return "captured-held-root-after-retarget"
+
+
 def native_corpus(binary: Path, canonical: Path, root: Path, env: dict,
-                  progress: TemplateProgress) -> dict:
+                  progress: TemplateProgress, fault_shim: Path | None) -> dict:
     cases = []
     for kind in KINDS:
         target = root / (kind + "-new")
@@ -249,22 +336,49 @@ def native_corpus(binary: Path, canonical: Path, root: Path, env: dict,
     # Windows held handles may deny the rename, itself a conservative boundary.
     target = root / "held-original"
     target.mkdir()
+    before = entries(target)
     moved = root / "held-moved"
     result = creator(binary, "retarget", "cli", target, env, progress,
-                     success=os.name != "nt", extra=(moved,))
-    if os.name == "nt":
-        assert "RETARGET_REFUSED\n" in result.stdout and not moved.exists()
-        assert entries(target) == {}
-        cases.append("windows-held-root-retarget-refusal")
-    else:
-        assert regular_files(target) == {"foreign": b"replacement directory is foreign"}
-        assert_canonical(moved, canonical, "cli", "held-original")
-        assert "CAPTURED_PATH " + str(moved) + "\n" in result.stdout, result.stdout
-        assert "CAPTURED_PATH " + str(target) + "\n" not in result.stdout
-        cases.append("captured-held-root-after-retarget")
+                     success=None, extra=(moved,))
+    cases.append(retarget_outcome(result.stdout, target, moved, canonical, before, windows=os.name == "nt"))
+
+    if fault_shim is not None:
+        target = root / "actual-partial-write"
+        target.mkdir()
+        fault_env = env.copy()
+        fault_env["LD_PRELOAD"] = str(fault_shim) + (":" + env["LD_PRELOAD"] if env.get("LD_PRELOAD") else "")
+        fault_env["FREAK_INIT_CONTROL_ROOT"] = str(target)
+        fault_env["FREAK_INIT_CONTROL_MODE"] = "partial"
+        failed = creator(binary, "existing", "cli", target, fault_env, progress, success=False)
+        partial = expected(canonical, "cli", target.name)["README.md"][:5]
+        assert (target / "README.md").read_bytes() == partial
+        assert not (target / "hangar.toml").exists(), regular_files(target)
+        assert "creation completed, the created entry is retained" in failed.stdout, failed.stdout
+        assert "created entries remain in the captured project directory" in failed.stdout, failed.stdout
+        before = entries(target)
+        recovered = creator(binary, "existing", "cli", target, env, progress, success=True)
+        assert_preserved(before, target)
+        assert "RETAINED true\n" in recovered.stdout
+        assert_canonical(target, canonical, "cli", target.name, {"README.md": partial})
+        cases.append("actual-partial-write-false-result-retained-and-retry")
+
+        target = root / "actual-late-manifest"
+        target.mkdir()
+        fault_env["FREAK_INIT_CONTROL_ROOT"] = str(target)
+        fault_env["FREAK_INIT_CONTROL_MODE"] = "late-manifest"
+        failed = creator(binary, "existing", "cli", target, fault_env, progress, success=False)
+        assert (target / "hangar.toml").read_bytes() == FOREIGN_MANIFEST
+        assert_canonical(target, canonical, "cli", target.name, {"hangar.toml": FOREIGN_MANIFEST})
+        before = entries(target)
+        creator(binary, "existing", "cli", target, env, progress, success=False)
+        assert entries(target) == before
+        assert "without replacement" in failed.stdout and "creation completed" not in failed.stdout, failed.stdout
+        cases.append("actual-late-manifest-exclusive-create-refusal-and-preservation")
 
     return {"cases": cases, "canonical_kinds": 3, "preserved_entries": True,
-            "manifest_published_last": True, "native_windows": os.name == "nt"}
+            "consumer_postcreation_faults_verified": fault_shim is not None,
+            "consumer_postcreation_fault_boundary": "actual Linux interposition" if fault_shim else "pending on this platform",
+            "native_windows": os.name == "nt"}
 
 
 def public_corpus(cli: Path, hangar: Path | None, canonical: Path, root: Path,
@@ -411,6 +525,44 @@ class PureControls(unittest.TestCase):
         self.assertEqual([row["template"] for row in public_expectations(True, True)
                           if row["launcher"] == "hangar"], list(KINDS))
 
+    def test_windows_retarget_refusal_oracle_preserves_every_entry(self):
+        target = self.root / "held-original"
+        target.mkdir()
+        (target / "keep").write_bytes(b"retained")
+        before = entries(target)
+        output = "RETARGET_REFUSED access denied\nBORROWED_ROOT windows:123\nERROR \n"
+        self.assertEqual(retarget_outcome(output, target, self.root / "moved", ROOT / "templates/v35", before,
+                                         windows=True), "windows-held-root-retarget-refusal")
+        (target / "keep").write_bytes(b"changed")
+        with self.assertRaises(AssertionError):
+            retarget_outcome(output, target, self.root / "moved", ROOT / "templates/v35", before, windows=True)
+
+    def test_windows_actual_retarget_oracle_requires_captured_root(self):
+        target = self.root / "held-original"
+        target.mkdir()
+        before = entries(target)
+        moved = self.root / "held-moved"
+        target.rename(moved)
+        for relative, data in expected(ROOT / "templates/v35", "cli", "held-original").items():
+            path = moved / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        target.mkdir()
+        (target / "foreign").write_bytes(b"replacement directory is foreign")
+        output = "RETARGET_MOVED\nOK\nCAPTURED_PATH " + str(moved) + "\nCAPTURED_IDENTITY id123\nBORROWED_ROOT id123\n"
+        self.assertEqual(retarget_outcome(output, target, moved, ROOT / "templates/v35", before, windows=True),
+                         "captured-held-root-after-retarget")
+        with self.assertRaises(AssertionError):
+            retarget_outcome(output.replace(str(moved), str(target)), target, moved, ROOT / "templates/v35", before,
+                             windows=True)
+
+    def test_retarget_completed_durability_failure_is_never_a_refusal(self):
+        target = self.root / "held-original"
+        target.mkdir()
+        with self.assertRaises(AssertionError):
+            retarget_outcome("RETARGET_COMPLETED_ERROR sync failed\nRETARGET_REFUSED wrong\nBORROWED_ROOT id\nERROR \n",
+                             target, self.root / "moved", ROOT / "templates/v35", {}, windows=True)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -468,6 +620,16 @@ def main() -> int:
     with SharedInitProgress(args.report, evidence, matrices, []) as progress:
         with tempfile.TemporaryDirectory(prefix="freak-shared-init-native-") as temporary:
             root = Path(temporary).resolve(strict=True)
+            fault_shim = None
+            if sys.platform.startswith("linux"):
+                shim_source = root / "fault-control.c"
+                shim_source.write_text(FAULT_SHIM, encoding="utf-8")
+                fault_shim = root / "fault-control.so"
+                linked = run([clang, "-O2", "-shared", "-fPIC", shim_source, "-ldl", "-o", fault_shim],
+                             cwd=root, progress=progress, label="shared-init-fault-control-link")
+                assert linked.returncode == 0, (linked.stdout, linked.stderr)
+                evidence["fault_control_source_sha256"] = digest(shim_source)
+                evidence["fault_control_image_sha256"] = digest(fault_shim)
             source = root / "shared-init.fk"
             source.write_text(SELECTORS + "\n" + generator + "\n" + MAIN, encoding="utf-8")
             for backend in backends:
@@ -488,7 +650,7 @@ def main() -> int:
                     assert linked.returncode == 0, (linked.stdout, linked.stderr)
                     cases_root = root / ("cases-" + backend + "-O" + str(optimization))
                     cases_root.mkdir()
-                    corpus = native_corpus(binary, canonical, cases_root, env, progress)
+                    corpus = native_corpus(binary, canonical, cases_root, env, progress, fault_shim)
                     evidence["shared_init_matrices"].append({"backend": backend, "optimization": optimization,
                                                              "corpus": corpus})
                     # TemplateProgress retains its exact matrix-floor contract.
