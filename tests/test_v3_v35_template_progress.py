@@ -9,15 +9,22 @@ import sys
 import tempfile
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from v3_v35_templates import TemplateProgress, cleanup_owned_child, creator_corpus, http_once, run
+from v3_v35_templates import TemplateProgress, cleanup_owned_child, creator_corpus, directory_has_entry, http_once, run
 
 
 CREATORS = [{'backend': backend, 'optimization': opt}
             for backend in ('c', 'llvm') for opt in (0, 2, 3)]
 INSTALLED = [{'template': kind, 'backend': backend}
              for kind in ('cli', 'lib', 'http') for backend in ('c', 'llvm')]
+
+
+def posix_model():
+    # Replace only the gate's OS binding. Changing shared os.name changes
+    # pathlib and subprocess behavior elsewhere in the Windows test process.
+    return SimpleNamespace(**{**vars(os), 'name': 'posix'})
 
 
 def finish(progress, *, installed=True):
@@ -56,7 +63,10 @@ def corpus(binary, canonical, scratch, env, progress=None):
     calls += 1
     progress.stage('inert-creator-corpus', 'publication-race')
     if calls == 2:
-        print('ACTIVE_SECOND_MATRIX', flush=True)
+        # The parent retains and matches raw bytes on every host. A text print
+        # translates this marker to CRLF on Windows before it reaches the pipe.
+        sys.stdout.buffer.write(b'ACTIVE_SECOND_MATRIX\n')
+        sys.stdout.buffer.flush()
         sys.stdin.buffer.read(1)
     return {'inert_fixture': True}
 
@@ -330,7 +340,7 @@ class TemplateProgressTests(unittest.TestCase):
             def add_note(self, note):raise KeyboardInterrupt('secondary note refusal')
 
         primary = HostileError('original corpus failure');record = {}
-        with patch('v3_v35_templates.os.name', 'posix'):
+        with patch('v3_v35_templates.os', posix_model()):
             self.assertEqual(cleanup_owned_child(FakeChild(), record, timeout=5, primary=primary), (b'', b''))
         self.assertTrue(record['cleanup_failed'])
         self.assertEqual(record['cleanup_errors'], ['SystemExit', 'SystemExit', 'OSError'])
@@ -373,7 +383,7 @@ class TemplateProgressTests(unittest.TestCase):
                     with TemplateProgress(path, {}, CREATORS, []) as progress:
                         with patch('v3_v35_templates.subprocess.Popen', side_effect=popen), \
                                 patch('v3_v35_templates.select.select', return_value=([child.stdout], [], [])), \
-                                patch('v3_v35_templates.os.name', 'posix'), \
+                                patch('v3_v35_templates.os', posix_model()), \
                                 patch('socket.create_connection', return_value=Socket()):
                             http_once(Path('inert'), root, 'c', os.environ.copy(), progress)
                 self.assertIs(caught.exception, primary)
@@ -412,13 +422,31 @@ class TemplateProgressTests(unittest.TestCase):
                     return child
                 with self.assertRaises(subprocess.TimeoutExpired) as caught:
                     with TemplateProgress(path, {}, CREATORS, []) as progress:
-                        with patch('v3_v35_templates.creator_case'), \
+                        with patch('v3_v35_templates.creator_case') as creator, \
                                 patch('v3_v35_templates.tree', return_value={}), \
                                 patch('v3_v35_templates.expected', return_value={}), \
-                                patch('v3_v35_templates.os.name', 'posix'), \
+                                patch('v3_v35_templates.subprocess.run', return_value=
+                                      subprocess.CompletedProcess(['inert-taskkill'], 0, b'', b'')) as taskkill, \
                                 patch('v3_v35_templates.subprocess.Popen', side_effect=popen):
                             creator_corpus(Path('inert'), canonical, scratch, os.environ.copy(), progress)
                 self.assertIs(caught.exception, primary)
+                rejected_names = [call.args[2].name for call in creator.call_args_list
+                                  if not call.kwargs['success']]
+                expected_rejected = [
+                    'cli-demo', 'lib-demo', 'http-demo', 'sentinel', 'empty', 'regular',
+                    'bad name', 'bad"name', 'bad$name', 'bad&name', 'é', '9start',
+                    'CON', 'nul', 'LPT9', 'COM1', 'x' * 65, 'unknown', 'child']
+                if os.name != 'nt':expected_rejected += ['linked', 'broken', 'escape']
+                self.assertEqual(rejected_names, expected_rejected)
+                self.assertEqual(len(children), 2)
+                if os.name == 'nt':
+                    self.assertEqual(taskkill.call_count, 2)
+                    self.assertEqual([call.args[0] for call in taskkill.call_args_list], [
+                        ['taskkill', '/PID', '1234', '/T', '/F'],
+                        ['taskkill', '/PID', '1235', '/T', '/F']])
+                    self.assertTrue(all(call.kwargs['timeout'] == 10
+                                        for call in taskkill.call_args_list))
+                else:taskkill.assert_not_called()
                 records = TemplateProgress.read(path)['commands']
                 self.assertEqual(len(records), 2)
                 self.assertEqual(Path(records[0]['raw_files']['stdout']['path']).read_bytes(), b'OK\n')
@@ -427,6 +455,35 @@ class TemplateProgressTests(unittest.TestCase):
                                  b'recovery-out' if recovery == 'stdout-only' else b'first-out')
                 self.assertEqual(Path(records[1]['raw_files']['stderr']['path']).read_bytes(),
                                  b'recovery-err' if recovery == 'stderr-only' else b'first-err')
+
+    def test_directory_entry_oracle_never_follows_reserved_or_broken_leaves(self):
+        original_name = os.name
+        path_class = type(Path('.'))
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            for name in ('CON', 'nul', 'LPT9', 'COM1'):
+                self.assertFalse(directory_has_entry(parent / name))
+            existing = parent / 'ordinary';existing.write_bytes(b'preserve\0')
+            self.assertTrue(directory_has_entry(existing))
+            self.assertFalse(directory_has_entry(parent / 'absent'))
+            self.assertEqual(existing.read_bytes(), b'preserve\0')
+        def cannot_follow():
+            self.fail('directory-entry oracle followed a candidate leaf')
+        entries = [SimpleNamespace(name='NuL', exists=cannot_follow),
+                   SimpleNamespace(name='broken', exists=cannot_follow)]
+        parent = SimpleNamespace(iterdir=lambda: iter(entries))
+        for platform in ('posix', 'nt'):
+            model = posix_model();model.name = platform
+            with self.subTest(platform=platform), patch('v3_v35_templates.os', model):
+                self.assertEqual(directory_has_entry(SimpleNamespace(parent=parent, name='nul',
+                                                                     exists=cannot_follow)),
+                                 platform == 'nt')
+                self.assertTrue(directory_has_entry(SimpleNamespace(parent=parent, name='broken',
+                                                                    exists=cannot_follow)))
+                self.assertFalse(directory_has_entry(SimpleNamespace(parent=parent, name='absent',
+                                                                     exists=cannot_follow)))
+                self.assertEqual(os.name, original_name)
+                self.assertIs(type(Path('.')), path_class)
 
     def test_http_banner_and_extra_output_share_one_unbuffered_capture(self):
         class Socket:
