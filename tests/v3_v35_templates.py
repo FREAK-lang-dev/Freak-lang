@@ -350,6 +350,13 @@ def creator_case(binary:Path,kind:str,destination:Path,env,*,success:bool,progre
     assert r.stdout.startswith('OK\n' if success else 'ERROR '),(kind,destination,success,r.stdout)
     return r
 
+def directory_has_entry(destination:Path):
+    # Check owned directory entries without following the candidate leaf.
+    # Windows stat/exists can expose a NUL device even when no entry was made.
+    name=destination.name.casefold() if os.name=='nt' else destination.name
+    return any((entry.name.casefold() if os.name=='nt' else entry.name)==name
+               for entry in destination.parent.iterdir())
+
 def creator_corpus(binary:Path,canonical:Path,root:Path,env,progress=None):
     parent=root/'parent space🚀';parent.mkdir();env=env.copy()
     # Selector points at an existing repo or installed payload; CWD contains no
@@ -369,7 +376,7 @@ def creator_corpus(binary:Path,canonical:Path,root:Path,env,progress=None):
     empty=parent/'empty';empty.mkdir();creator_case(binary,'cli',empty,env,success=False,progress=progress);assert list(empty.iterdir())==[]
     regular=parent/'regular';regular.write_bytes(b'preserve');creator_case(binary,'cli',regular,env,success=False,progress=progress);assert regular.read_bytes()==b'preserve'
     for name in ('bad name','bad"name','bad$name','bad&name','é','9start','CON','nul','LPT9','COM1','x'*65):
-        destination=parent/name;creator_case(binary,'cli',destination,env,success=False,progress=progress);assert not destination.exists(),name
+        destination=parent/name;creator_case(binary,'cli',destination,env,success=False,progress=progress);assert not directory_has_entry(destination),name
     creator_case(binary,'unknown',parent/'unknown',env,success=False,progress=progress);assert not (parent/'unknown').exists()
     creator_case(binary,'cli',parent/'missing-parent'/'child',env,success=False,progress=progress);assert not (parent/'missing-parent').exists()
     if os.name!='nt':
@@ -393,7 +400,7 @@ def creator_corpus(binary:Path,canonical:Path,root:Path,env,progress=None):
             except BaseException as error:
                 partial[index]=(getattr(error,'output',None) or b'',getattr(error,'stderr',None) or b'')
                 raise
-        assert sorted(out.startswith(b'OK\n') for out,err in results)==[False,True],results
+        assert sorted(out.replace(b'\r\n',b'\n').startswith(b'OK\n') for out,err in results)==[False,True],results
         assert all(p.returncode==0 and not err for p,(out,err) in zip(processes,results)),results
     except BaseException as error:
         primary=error

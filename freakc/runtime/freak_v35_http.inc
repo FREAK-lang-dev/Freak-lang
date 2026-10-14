@@ -394,11 +394,39 @@ static int freak_http_on_complete(llhttp_t *parser) { ((freak_http_request *)par
 static const char *freak_http_reason(int status) {
     switch(status) { case 200:return "OK";case 201:return "Created";case 204:return "No Content";case 205:return "Reset Content";case 304:return "Not Modified";case 400:return "Bad Request";case 404:return "Not Found";case 405:return "Method Not Allowed";case 408:return "Request Timeout";case 413:return "Content Too Large";case 414:return "URI Too Long";case 417:return "Expectation Failed";case 431:return "Request Header Fields Too Large";case 500:return "Internal Server Error";case 501:return "Not Implemented";case 503:return "Service Unavailable";case 505:return "HTTP Version Not Supported";default:return "Response"; }
 }
-static void freak_http_reject(freak_http_request *request) {
+static void freak_http_finish_rejection(freak_http_request *request) {
+    freak_http_server *server=freak_http_find_server(request->server);
+    if(!server || atomic_load_explicit(&server->stopping,memory_order_acquire)) return;
+#ifdef _WIN32
+    if(shutdown(request->socket,SD_SEND)!=0) return;
+#else
+    if(shutdown(request->socket,SHUT_WR)!=0) return;
+#endif
+    /* Flush the complete reply before closing with unread trickle input.
+       A peer cannot extend this fixed grace period or the discard budget. */
+    uint64_t grace=request->limits.idle_ms<50?request->limits.idle_ms:50;
+    uint64_t deadline=freak_command_now_ms()+grace;
+    unsigned char discarded[4096]; size_t drained=0;
+    while(drained<65536) {
+        if(freak_http_wait_socket(server,request->socket,false,deadline,deadline)!=1) return;
+        if(atomic_load_explicit(&server->stopping,memory_order_acquire) || freak_command_now_ms()>=deadline) return;
+        size_t wanted=65536-drained; if(wanted>sizeof(discarded)) wanted=sizeof(discarded);
+#ifdef _WIN32
+        int received=recv(request->socket,(char *)discarded,(int)wanted,0);
+#else
+        ssize_t received=recv(request->socket,discarded,wanted,0);
+#endif
+        if(received<0 && (freak_tcp_socket_error_is_interrupted() || freak_tcp_socket_error_is_timeout())) continue;
+        if(received<=0) return;
+        drained+=(size_t)received;
+    }
+}
+static void freak_http_reject(freak_http_request *request,bool nonblocking) {
     if(request->socket==FREAK_INVALID_NATIVE_SOCKET) return;
     const char *reason=freak_http_reason(request->status); char response[512];
     int size=snprintf(response,sizeof(response),"HTTP/1.1 %d %s\r\nContent-Length: %zu\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n%s%s",request->status,reason,strlen(reason)+1,request->head_method?"":reason,request->head_method?"":"\n");
-    if(size>0 && (size_t)size<sizeof(response)) (void)freak_http_send_all(request,response,(size_t)size,freak_command_now_ms()+request->limits.idle_ms);
+    bool sent=size>0 && (size_t)size<sizeof(response) && freak_http_send_all(request,response,(size_t)size,freak_command_now_ms()+request->limits.idle_ms);
+    if(sent && nonblocking) freak_http_finish_rejection(request);
     freak_http_close_socket(&request->socket);
 }
 int64_t freak_http_server_next_request(int64_t server_ticket) {
@@ -413,7 +441,7 @@ int64_t freak_http_server_next_request(int64_t server_ticket) {
         freak_http_socket_live++; break;
     }
     freak_tcp_socket_configure_no_sigpipe(request->socket);
-    if(!freak_http_nonblocking(request->socket)) { freak_http_error(request,500,"could not configure HTTP connection"); freak_http_reject(request); return ticket; }
+    if(!freak_http_nonblocking(request->socket)) { freak_http_error(request,500,"could not configure HTTP connection"); freak_http_reject(request,false); return ticket; }
     llhttp_settings_init(&request->settings);
     request->settings.on_method=freak_http_on_method; request->settings.on_url=freak_http_on_target;
     request->settings.on_header_field=freak_http_on_field; request->settings.on_header_value=freak_http_on_value;
@@ -462,7 +490,7 @@ int64_t freak_http_server_next_request(int64_t server_ticket) {
             }
         }
     }
-    if(request->status) freak_http_reject(request); return ticket;
+    if(request->status) freak_http_reject(request,true); return ticket;
 }
 
 int64_t freak_http_server_request_status(int64_t ticket) { return freak_http_require_request(ticket)->status; }
