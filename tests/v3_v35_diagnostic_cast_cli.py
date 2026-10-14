@@ -19,6 +19,7 @@ import subprocess
 import tempfile
 
 from v3_v35_acceptance import run_command
+from windows_private_fixture import WindowsPrivateFixture
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -216,6 +217,8 @@ def main() -> None:
                 "backend_matrices": [], "receipts": [], "command_records": [], "status": "running"}
     with retain_evidence(evidence, args.report) as save, tempfile.TemporaryDirectory(prefix="freak-v35-cast-cli-") as temporary:
         scratch = Path(temporary).resolve(strict=True)
+        # Windows package publication requires caller-private destination parents.
+        private = WindowsPrivateFixture(scratch)
         temp_root = scratch / "temporary"
         temp_root.mkdir()
         env = os.environ.copy()
@@ -309,6 +312,7 @@ def main() -> None:
 
             imported = scratch / (backend + "-imported")
             imported.mkdir()
+            private.claim_fresh_directories(imported)
             entry = imported / "main.fk"
             module = imported / "bad.fk"
             entry_source = "use self::bad::{value}\ntask main() { say value() }\n"
@@ -359,6 +363,7 @@ def main() -> None:
 
         tests_project = scratch / "json-project"
         tests_project.mkdir()
+        private.claim_fresh_directories(tests_project)
         (tests_project / "hangar.toml").write_text('[project]\nname="cast_json"\nversion="1.0.0"\nkind="app"\nentry="main.fk"\n[tests]\ninvalid="invalid.fk"\n', encoding="utf-8")
         (tests_project / "main.fk").write_text("task main() {}\n", encoding="utf-8")
         (tests_project / "invalid.fk").write_text(CASES["unbound"][0], encoding="utf-8")
