@@ -5,6 +5,14 @@
 -- Dispatches to subcommands: build, run, check, transpile, version, help.
 -- ===================================================================
 
+-- Paths stay separate from the colon-delimited profile, including drive names.
+pilot cli_requested_output = ""
+pilot cli_requested_graph_snapshot = ""
+pilot cli_requested_manifest = ""
+pilot cli_requested_locked = false
+pilot cli_requested_offline = false
+pilot cli_requested_frozen = false
+
 task cli_flag_value(flag: word, start_idx: int) -> word {
     pilot value = ""
     pilot vi = start_idx
@@ -38,11 +46,18 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
     pilot cross_seen = ""
     pilot plus03_seen = false
     pilot strict_seen = false
+    pilot output_requested = ""
+    pilot graph_requested = ""
+    pilot manifest_requested = ""
+    pilot locked_requested = false
+    pilot offline_requested = false
+    pilot frozen_requested = false
     pilot allow_build_profile = subcommand_mode == "build" or subcommand_mode == "run"
 
     pilot fi = start_idx
     repeat until fi >= args_cnt {
         pilot flag: word = process::arg(fi)
+        if subcommand_mode == "run" and flag == "--" { break }
         if flag == "--c" {
             if backend_seen != "" and backend_seen != "c" {
                 give back cli_flag_error("conflicting backend flags")
@@ -57,6 +72,38 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
             backend_seen = "llvm"
         } else if flag == "--strict-borrow" {
             strict_seen = true
+        } else if flag == "-o" or flag == "--output" or flag.starts_with("--output=") {
+            if not allow_build_profile { give back cli_flag_error("--output is only valid for build and run") }
+            pilot requested = ""
+            if flag.starts_with("--output=") {
+                requested = cli_flag_value(flag, 9)
+            } else {
+                fi += 1
+                if fi >= args_cnt { give back cli_flag_error("--output requires a file path") }
+                requested = process::arg(fi)
+                if requested.starts_with("--") { give back cli_flag_error("--output requires a file path") }
+            }
+            if requested == "" { give back cli_flag_error("--output requires a file path") }
+            if output_requested != "" and output_requested != requested { give back cli_flag_error("conflicting output paths") }
+            output_requested = requested
+        } else if flag.starts_with("--graph-snapshot=") {
+            pilot requested = cli_flag_value(flag, 17)
+            if requested == "" { give back cli_flag_error("--graph-snapshot requires a file path") }
+            if graph_requested != "" and graph_requested != requested { give back cli_flag_error("conflicting graph snapshots") }
+            graph_requested = requested
+        } else if flag.starts_with("--manifest-path=") {
+            pilot requested = cli_flag_value(flag, 16)
+            if requested == "" { give back cli_flag_error("--manifest-path requires a file path") }
+            if manifest_requested != "" and manifest_requested != requested { give back cli_flag_error("conflicting manifest paths") }
+            manifest_requested = requested
+        } else if flag == "--locked" {
+            locked_requested = true
+        } else if flag == "--offline" {
+            offline_requested = true
+        } else if flag == "--frozen" {
+            frozen_requested = true
+            locked_requested = true
+            offline_requested = true
         } else if flag == "+03" {
             if not allow_build_profile {
                 give back cli_flag_error("+03 is only valid for build and run")
@@ -138,6 +185,12 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
     }
 
     strict_borrow = strict_seen
+    cli_requested_output = output_requested
+    cli_requested_graph_snapshot = graph_requested
+    cli_requested_manifest = manifest_requested
+    cli_requested_locked = locked_requested
+    cli_requested_offline = offline_requested
+    cli_requested_frozen = frozen_requested
     give back "ok:" + target + ":" + profile + ":" + opt + ":" + lto + ":" + runtime_policy + ":" + runtime_stats + ":" + cross
 }
 
@@ -255,7 +308,7 @@ task hangar_standalone_main() -> void {
 
     if args_cnt >= 2 {
         pilot standalone_flag: word = process::arg(1)
-        if standalone_flag == "--version" or standalone_flag == "-V" or standalone_flag == "version" {
+        if standalone_flag == "--version" or standalone_flag == "-V" {
             cli_show_version()
             give back
         }
@@ -271,7 +324,10 @@ task hangar_standalone_main() -> void {
 
     -- Adjust args_cnt to match what hangar_dispatch expects
     -- (it checks args_cnt < 3, expects subcmd at hangar_arg(2) which becomes arg(1))
-    hangar_dispatch(args_cnt + 1)
+    pilot standalone_hangar_status = hangar_dispatch(args_cnt + 1)
+    if standalone_hangar_status != 0 {
+        process::exit(standalone_hangar_status)
+    }
 }
 
 -- ── Main Dispatch ────────────────────────────────────
@@ -279,6 +335,15 @@ task freakc_cli_main() -> void {
     cli_configure_output()
 
     pilot args_cnt = process::args_count()
+
+    -- Private stages authenticate their nonce and held-directory metadata.
+    if args_cnt >= 2 and process::arg(1) == "__bootstrap-stage" {
+        if args_cnt != 4 { say "Invalid private bootstrap stage invocation" process::exit(1) }
+        pilot stage_ok = cli_bootstrap_stage(process::arg(2), process::arg(3))
+        cli_bootstrap_release()
+        if not stage_ok { say "Bootstrap stage error: " + cli_bootstrap_error process::exit(1) }
+        give back
+    }
 
     -- BusyBox pattern: check if invoked as "hangar"
     pilot argv0: word = process::arg(0)
@@ -308,6 +373,63 @@ task freakc_cli_main() -> void {
         give back
     }
 
+    if subcmd == "bootstrap-v4" or subcmd == "bootstrap" {
+        pilot source_root = ""
+        pilot output = ""
+        pilot source_seen = false
+        pilot output_seen = false
+        pilot locked = false
+        pilot selected_v4 = subcmd == "bootstrap-v4"
+        pilot index = 2
+        repeat until index >= args_cnt {
+            pilot flag = process::arg(index)
+            if flag == "--v4" { selected_v4 = true }
+            else if flag == "--locked" { locked = true }
+            else if flag.starts_with("--source=") {
+                if source_seen { say "Duplicate bootstrap --source" process::exit(1) }
+                source_seen = true
+                source_root = cli_flag_value(flag, 9)
+                if source_root == "" { say "Bootstrap --source requires a path" process::exit(1) }
+            } else if flag.starts_with("--output=") {
+                if output_seen { say "Duplicate bootstrap --output" process::exit(1) }
+                output_seen = true
+                output = cli_flag_value(flag, 9)
+                if output == "" { say "Bootstrap --output requires a path" process::exit(1) }
+            } else if flag == "--source" or flag == "--output" {
+                index += 1
+                if index >= args_cnt { say "Bootstrap option requires a path: " + flag process::exit(1) }
+                if flag == "--source" {
+                    if source_seen { say "Duplicate bootstrap --source" process::exit(1) }
+                    source_seen = true
+                    source_root = process::arg(index)
+                    if source_root == "" or source_root.starts_with("--") { say "Bootstrap --source requires a path" process::exit(1) }
+                } else {
+                    if output_seen { say "Duplicate bootstrap --output" process::exit(1) }
+                    output_seen = true
+                    output = process::arg(index)
+                    if output == "" or output.starts_with("--") { say "Bootstrap --output requires a path" process::exit(1) }
+                }
+            } else if flag != "--target=host" {
+                say "Unknown or unsupported bootstrap option: " + flag
+                process::exit(1)
+            }
+            index += 1
+        }
+        if not selected_v4 or source_root == "" or output == "" {
+            say "Usage: freak bootstrap-v4 --source=V4_ROOT --output=NEW_DIRECTORY [--locked]"
+            process::exit(1)
+        }
+        if not cli_output_path_absolute(output) {
+            pilot cwd = cli_current_dir()
+            if cwd == "" { say "Cannot resolve bootstrap output working directory" process::exit(1) }
+            output = cli_host_path_join(cwd, output)
+        }
+        pilot bootstrap_ok = cli_bootstrap_v4(source_root, output, locked)
+        cli_bootstrap_release()
+        if not bootstrap_ok { say "Bootstrap error: " + cli_bootstrap_error process::exit(1) }
+        give back
+    }
+
     -- Flex easter egg
     if subcmd == "flex" {
         cli_flex()
@@ -324,31 +446,31 @@ task freakc_cli_main() -> void {
         give back
     }
 
-    -- Quick init
     if subcmd == "init" {
-        if args_cnt < 3 {
-            say ""
-            say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " init requires a project name."
-            say "  " + C_DIM + "Usage: " + C_RESET + "freak init <project-name>"
-            say ""
-            give back
+        if args_cnt < 3 { say "Usage: freak init <project-name> [--template=cli|lib|http]" process::exit(1) }
+        pilot template_name = "cli" pilot index = 3
+        repeat until index >= args_cnt {
+            pilot flag = process::arg(index)
+            if flag.starts_with("--template=") { template_name = cli_flag_value(flag, 11) }
+            else if flag == "--template" {
+                index += 1
+                if index >= args_cnt { say "--template requires cli, lib, or http" process::exit(1) }
+                template_name = process::arg(index)
+            } else { say "Unknown init option " + flag process::exit(1) }
+            index += 1
         }
-        cli_init(process::arg(2))
+        if not cli_create_template(template_name, process::arg(2)) { say "Init error: " + cli_template_error process::exit(1) }
+        say "Created project " + process::arg(2)
         give back
     }
 
     -- Subcommands that require a file argument
     if subcmd == "build" or subcmd == "run" or subcmd == "check" or subcmd == "transpile" {
-        if args_cnt < 3 {
-            say ""
-            say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " " + subcmd + " requires a file argument."
-            say "  " + C_DIM + "Usage: " + C_RESET + "freak " + subcmd + " <file.fk> [options]"
-            say ""
-            process::exit(1)
+        pilot src_file = "" pilot flag_start = 2
+        if args_cnt > 2 and not process::arg(2).starts_with("-") and process::arg(2) != "+03" {
+            src_file = process::arg(2) flag_start = 3
         }
-
-        pilot src_file: word = process::arg(2)
-        pilot flags: word = cli_parse_flags(3, args_cnt, subcmd)
+        pilot flags: word = cli_parse_flags(flag_start, args_cnt, subcmd)
         if cli_extract_flag(flags, 0) == "error" {
             say ""
             say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " " + cli_extract_flag(flags, 1)
@@ -362,6 +484,25 @@ task freakc_cli_main() -> void {
         pilot runtime_policy: word = cli_extract_flag(flags, 5)
         pilot runtime_stats: word = cli_extract_flag(flags, 6)
         pilot cross: word = cli_extract_flag(flags, 7)
+        if src_file == "" {
+            src_file = cli_project_entry(cli_requested_manifest)
+            if src_file == "" { say "Project error: " + cli_project_source_error process::exit(1) }
+        }
+
+        pilot output_path = cli_requested_output
+        if output_path != "" and not cli_output_path_absolute(output_path) {
+            pilot current = fs::canonical_path(".")
+            if not fs::result_ok(current) {
+                pilot message = fs::result_error(current)
+                fs::result_release(current)
+                say "Cannot resolve output directory: " + message
+                process::exit(1)
+            }
+            output_path = cli_host_path_join(fs::result_word(current), output_path)
+            fs::result_release(current)
+        }
+        if not cli_set_output_path_override(src_file, output_path) { process::exit(1) }
+        package_configure_source_options(cli_requested_manifest, cli_requested_graph_snapshot, cli_requested_locked, cli_requested_offline, cli_requested_frozen)
 
         if subcmd == "build" {
             pilot binary: word = cli_build_profile(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
@@ -369,32 +510,35 @@ task freakc_cli_main() -> void {
                 process::exit(1)
             }
         } else if subcmd == "run" {
-            pilot run_exit = cli_run(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
+            pilot program_arg_start = args_cnt
+            pilot separator_index = flag_start
+            repeat until separator_index >= args_cnt {
+                if process::arg(separator_index) == "--" {
+                    program_arg_start = separator_index + 1
+                    break
+                }
+                separator_index += 1
+            }
+            pilot run_exit = cli_run(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross, program_arg_start)
             if run_exit != 0 { process::exit(run_exit) }
         } else if subcmd == "check" {
-            -- Type-check only: read, lex, parse, check — no emit
-            pilot source: word = fs::read(src_file)
-            if source == "" {
-                say ""
-                say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " Could not read file: " + C_BWHITE + src_file + C_RESET
-                say ""
-                process::exit(1)
-            }
+            pilot source: word = cli_prepare_source(src_file, target)
+            if cli_project_source_error != "" or hangar_graph_error != "" { process::exit(1) }
             say ""
             say "  " + C_G3 + SYM_GEAR + " CHECKING" + C_RESET + " " + C_BWHITE + src_file + C_RESET
             say ""
             input_file = src_file
             diagnostic_source = source
-            source_map_reset()
-            source_map_register(src_file, source)
             error_count = 0
             parse_error_count = 0
             init_arrays()
             cli_step_start()
             tokenize(source)
+            if not cli_project_bind_tokens() { cli_project_binding_release() process::exit(1) }
             cli_step_done("Lexing")
             cli_step_start()
             parse_program()
+            if error_count == 0 { cli_project_bind_ast() }
             cli_step_done("Parsing")
             if error_count > 0 {
                 say ""
@@ -412,6 +556,7 @@ task freakc_cli_main() -> void {
                 process::exit(1)
             }
             say ""
+            cli_project_binding_release()
             say "  " + C_BGREEN + SYM_SPARK + " PASSED" + C_RESET + C_DIM + " -- no type errors found" + C_RESET
             say ""
         } else if subcmd == "transpile" {
@@ -421,13 +566,8 @@ task freakc_cli_main() -> void {
             if not cli_invalidate_backend_output(src_file, target) {
                 process::exit(1)
             }
-            pilot source: word = fs::read(src_file)
-            if source == "" {
-                say ""
-                say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " Could not read file: " + src_file
-                say ""
-                process::exit(1)
-            }
+            pilot source: word = cli_prepare_source(src_file, target)
+            if cli_project_source_error != "" or hangar_graph_error != "" { process::exit(1) }
             pilot transpiled: word = cli_transpile(src_file, source, target)
             if transpiled == "" {
                 process::exit(1)
@@ -513,7 +653,8 @@ task freakc_cli_main() -> void {
 
     -- Hangar package manager
     if subcmd == "hangar" {
-        hangar_dispatch(args_cnt)
+        pilot hangar_status = hangar_dispatch(args_cnt)
+        if hangar_status != 0 { process::exit(hangar_status) }
         give back
     }
 
@@ -526,12 +667,9 @@ task freakc_cli_main() -> void {
         give back
     }
 
-    -- Test runner shim (wraps the Python suite runner; native runner is V4)
     if subcmd == "test" {
-        pilot test_exit = process::exec("python tests/suite/run_tests.py")
-        if test_exit != 0 {
-            process::exit(test_exit)
-        }
+        pilot test_exit = cli_test_command(args_cnt)
+        if test_exit != 0 { process::exit(test_exit) }
         give back
     }
 
@@ -549,13 +687,9 @@ task freakc_cli_main() -> void {
         if not cli_invalidate_backend_output(subcmd, target) {
             process::exit(1)
         }
-        pilot source: word = fs::read(subcmd)
-        if source == "" {
-            say ""
-            say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " Could not read file: " + subcmd
-            say ""
-            process::exit(1)
-        }
+        package_configure_source_options(cli_requested_manifest, cli_requested_graph_snapshot, cli_requested_locked, cli_requested_offline, cli_requested_frozen)
+        pilot source: word = cli_prepare_source(subcmd, target)
+        if cli_project_source_error != "" or hangar_graph_error != "" { process::exit(1) }
 
         pilot msg = "FREAK v2 Compiling: " + subcmd + " (Target: " + target + ")"
         say msg
@@ -574,4 +708,4 @@ task freakc_cli_main() -> void {
     say ""
 }
 
-freakc_cli_main()
+task main() { freakc_cli_main() cli_bootstrap_release() cli_project_binding_release() package_release_graph() }

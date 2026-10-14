@@ -1,0 +1,8 @@
+use std::test::{test_assert_int}
+use self::arithmetic::{arithmetic_value}
+
+task main() {
+    test_assert_int("first element", 2, arithmetic_value(2, 3, 0))
+    test_assert_int("fifth element", 14, arithmetic_value(2, 3, 4))
+    test_assert_int("descending", -10, arithmetic_value(2, -3, 4))
+}

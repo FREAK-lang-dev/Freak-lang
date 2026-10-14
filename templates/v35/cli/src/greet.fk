@@ -1,0 +1,3 @@
+task greet(name: word) -> word {
+    give back "Hello, " + name + "!"
+}

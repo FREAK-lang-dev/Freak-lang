@@ -18,7 +18,7 @@ task v4_word_lower_execute_run() -> void {
     pilot before = v4_codegen_llvm_module_text(codegen, target)
     v4_word_lower_execute_assert(before != "", "nonempty native module")
     pilot snapshot = v4_mir_snapshot()
-    v4_word_lower_execute_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v9|") and snapshot.ends_with("end|freak-mir-snapshot-v9"), "current v9 wire")
+    v4_word_lower_execute_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v10|") and snapshot.ends_with("end|freak-mir-snapshot-v10"), "current v9 wire")
     v4_word_lower_execute_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "detached v9 restore")
     v4_word_lower_execute_assert(v4_codegen_llvm_module_text(codegen, target) == before, "old sealed module stable")
     pilot restored = v4_codegen_llvm_lower_owned_mir(0, mir)

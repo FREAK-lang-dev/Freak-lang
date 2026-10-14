@@ -146,7 +146,7 @@ function Recover-OrphanedPayloadTransaction {
 
     if ($backups.Count -eq 1) {
         $backupRoot = $backups[0].FullName
-        $allowedTopLevel = @("bin", "runtime", "runtime.missing", "std", "std.missing", "distribution-files.manifest", "distribution-files.manifest.missing")
+        $allowedTopLevel = @("bin", "runtime", "runtime.missing", "std", "std.missing", "templates", "templates.missing", "distribution-files.manifest", "distribution-files.manifest.missing")
         foreach ($entry in Get-ChildItem -LiteralPath $backupRoot -Force -ErrorAction SilentlyContinue) {
             if ($allowedTopLevel -notcontains $entry.Name) {
                 Err "Interrupted installer backup contains an unexpected entry; backup preserved at $backupRoot"
@@ -164,6 +164,7 @@ function Recover-OrphanedPayloadTransaction {
         $records = @(
             [pscustomobject]@{ Live = "$InstallDir\runtime"; Backup = "$backupRoot\runtime" },
             [pscustomobject]@{ Live = "$InstallDir\std"; Backup = "$backupRoot\std" },
+            [pscustomobject]@{ Live = "$InstallDir\templates"; Backup = "$backupRoot\templates" },
             [pscustomobject]@{ Live = "$InstallDir\distribution-files.manifest"; Backup = "$backupRoot\distribution-files.manifest" },
             [pscustomobject]@{ Live = "$BinDir\freak.exe"; Backup = "$backupRoot\bin\freak.exe" },
             [pscustomobject]@{ Live = "$BinDir\hangar.exe"; Backup = "$backupRoot\bin\hangar.exe" }
@@ -320,38 +321,86 @@ $StageDir = Join-Path $TmpDir "stage"
 $StageBin = Join-Path $StageDir "bin"
 $StageRuntime = Join-Path $StageDir "runtime"
 $StageStd = Join-Path $StageDir "std"
+$StageTemplates = Join-Path $StageDir "templates"
 $StageManifest = Join-Path $StageDir "distribution-files.manifest"
-New-Item -ItemType Directory -Path $ExtractDir, $StageBin, $StageRuntime, $StageStd -Force | Out-Null
+New-Item -ItemType Directory -Path $ExtractDir, $StageBin, $StageRuntime, $StageStd, $StageTemplates -Force | Out-Null
 
 function Get-ManifestEntries {
     if (-not (Test-Path -LiteralPath $StageManifest -PathType Leaf)) {
         Err "Staged distribution manifest is missing"
     }
-    foreach ($rawLine in Get-Content -LiteralPath $StageManifest) {
-        $line = $rawLine.Trim()
+    if ([System.IO.File]::ReadAllText($StageManifest).IndexOf([char]0) -ge 0) {
+        Err "Unsafe distribution manifest contains a NUL byte"
+    }
+    $destinations = [System.Collections.Generic.List[string]]::new()
+    $entries = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in Get-Content -LiteralPath $StageManifest) {
         if (-not $line -or $line.StartsWith('#')) { continue }
         $parts = $line.Split([char]'|', 2)
         if ($parts.Count -ne 2 -or -not $parts[1]) { Err "Malformed distribution manifest entry: $line" }
-        $source = $parts[0].Replace('\', '/')
-        $destination = $parts[1].Replace('\', '/')
-        $sourceParts = @($source.Split('/') | Where-Object { $_ })
-        $destinationParts = @($destination.Split('/') | Where-Object { $_ })
-        if (($source -notlike 'freakc/runtime/*' -and $source -notlike 'std/*') -or
-            ($destination -notlike 'runtime/*' -and $destination -notlike 'std/*') -or
+        $source = $parts[0]
+        $destination = $parts[1]
+        $sourceParts = $source.Split('/')
+        $destinationParts = $destination.Split('/')
+        if (-not $source -or
+            $source -match '[\x00-\x1f\x7f:|\\]' -or $destination -match '[\x00-\x1f\x7f:|\\]' -or
+            $source -match '[ .](/|$)' -or $destination -match '[ .](/|$)' -or
             [System.IO.Path]::IsPathRooted($source) -or [System.IO.Path]::IsPathRooted($destination) -or
             $source.StartsWith('/') -or $destination.StartsWith('/') -or
             $source.Contains('//') -or $destination.Contains('//') -or
             $source.StartsWith('./') -or $destination.StartsWith('./') -or
             $source.EndsWith('/.') -or $destination.EndsWith('/.') -or
             $sourceParts -contains '.' -or $destinationParts -contains '.' -or
-            $sourceParts -contains '..' -or $destinationParts -contains '..') {
+            $sourceParts -contains '..' -or $destinationParts -contains '..' -or
+            $sourceParts -contains '' -or $destinationParts -contains '') {
             Err "Unsafe distribution manifest entry: $line"
         }
-        [pscustomobject]@{ Source = $source; Destination = $destination }
+        $expected = $null
+        if ($source.StartsWith('freakc/runtime/', [StringComparison]::Ordinal)) {
+            $expected = 'runtime/' + $source.Substring('freakc/runtime/'.Length)
+        } elseif ($source.StartsWith('std/', [StringComparison]::Ordinal) -or
+                  $source.StartsWith('templates/v35/', [StringComparison]::Ordinal)) {
+            $expected = $source
+        } elseif ($source.StartsWith('third_party/llhttp/', [StringComparison]::Ordinal)) {
+            $expected = 'runtime/' + $source
+        } elseif ($source -ceq 'src/compiler/v4/native-runtime.manifest') {
+            $expected = 'runtime/v4-native.manifest'
+        }
+        if (-not $expected -or $destination -cne $expected) {
+            Err "Unsafe distribution source/destination mapping: $line"
+        }
+        foreach ($prior in $destinations) {
+            if ($destination.Equals($prior, [StringComparison]::OrdinalIgnoreCase) -or
+                $destination.StartsWith($prior + '/', [StringComparison]::OrdinalIgnoreCase) -or
+                $prior.StartsWith($destination + '/', [StringComparison]::OrdinalIgnoreCase)) {
+                Err "Unsafe distribution destination collision: $destination"
+            }
+        }
+        $destinations.Add($destination)
+        $entries.Add([pscustomobject]@{ Source = $source; Destination = $destination })
+    }
+    if ($destinations.Count -eq 0) { Err "Staged distribution manifest has no payload entries" }
+    foreach ($entry in $entries) { $entry }
+}
+
+function Assert-NoPayloadReparsePoints([string]$Root) {
+    $pending = [System.Collections.Generic.List[object]]::new()
+    $pending.Add((Get-Item -LiteralPath $Root -Force))
+    for ($index = 0; $index -lt $pending.Count; $index++) {
+        $item = $pending[$index]
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            Err "Unsafe distribution payload reparse point: $($item.FullName)"
+        }
+        if ($item.PSIsContainer) {
+            foreach ($child in Get-ChildItem -LiteralPath $item.FullName -Force) {
+                $pending.Add($child)
+            }
+        }
     }
 }
 
 function Assert-StagedPayload {
+    Assert-NoPayloadReparsePoints $StageDir
     foreach ($path in @("$StageBin\freak.exe", "$StageBin\hangar.exe", $StageManifest)) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Err "Staged payload is missing $path" }
         if ((Get-Item -LiteralPath $path).Length -eq 0) { Err "Staged payload is empty: $path" }
@@ -735,16 +784,18 @@ function Install-StagedPayload {
     $backupRoot = Join-Path $InstallDir ".freak-backup-$applyId"
     $items = @()
     try {
-        New-Item -ItemType Directory -Path "$applyRoot\bin", "$applyRoot\runtime", "$applyRoot\std", "$backupRoot\bin" -Force | Out-Null
+        New-Item -ItemType Directory -Path "$applyRoot\bin", "$applyRoot\runtime", "$applyRoot\std", "$applyRoot\templates", "$backupRoot\bin" -Force | Out-Null
         Copy-Item -LiteralPath "$StageBin\freak.exe" -Destination "$applyRoot\bin\freak.exe" -Force
         Copy-Item -LiteralPath "$StageBin\hangar.exe" -Destination "$applyRoot\bin\hangar.exe" -Force
         Copy-Item -Path "$StageRuntime\*" -Destination "$applyRoot\runtime" -Recurse -Force
         Copy-Item -Path "$StageStd\*" -Destination "$applyRoot\std" -Recurse -Force
+        Get-ChildItem -LiteralPath $StageTemplates -Force | Copy-Item -Destination "$applyRoot\templates" -Recurse -Force
         Copy-Item -LiteralPath $StageManifest -Destination "$applyRoot\distribution-files.manifest" -Force
 
         $items = @(
             [pscustomobject]@{ Live = "$InstallDir\runtime"; Pending = "$applyRoot\runtime"; Backup = "$backupRoot\runtime"; Prepared = $false; HadOriginal = $false },
             [pscustomobject]@{ Live = "$InstallDir\std"; Pending = "$applyRoot\std"; Backup = "$backupRoot\std"; Prepared = $false; HadOriginal = $false },
+            [pscustomobject]@{ Live = "$InstallDir\templates"; Pending = "$applyRoot\templates"; Backup = "$backupRoot\templates"; Prepared = $false; HadOriginal = $false },
             [pscustomobject]@{ Live = "$InstallDir\distribution-files.manifest"; Pending = "$applyRoot\distribution-files.manifest"; Backup = "$backupRoot\distribution-files.manifest"; Prepared = $false; HadOriginal = $false }
         )
         if (-not $UpgradeMode) {
@@ -847,6 +898,7 @@ try {
         try {
             Info "Extracting distribution..."
             Expand-Archive -LiteralPath $ZipPath -DestinationPath $ExtractDir -Force
+            Assert-NoPayloadReparsePoints $ExtractDir
             Copy-Item -LiteralPath "$ExtractDir\freak\bin\freak.exe" -Destination "$StageBin\freak.exe" -Force
             if (-not (Test-Path -LiteralPath "$ExtractDir\freak\bin\hangar.exe" -PathType Leaf)) {
                 Err "Distribution archive is missing Hangar"
@@ -854,6 +906,9 @@ try {
             Copy-Item -LiteralPath "$ExtractDir\freak\bin\hangar.exe" -Destination "$StageBin\hangar.exe" -Force
             Copy-Item -Path "$ExtractDir\freak\runtime\*" -Destination $StageRuntime -Recurse -Force
             Copy-Item -Path "$ExtractDir\freak\std\*" -Destination $StageStd -Recurse -Force
+            if (Test-Path -LiteralPath "$ExtractDir\freak\templates" -PathType Container) {
+                Get-ChildItem -LiteralPath "$ExtractDir\freak\templates" -Force | Copy-Item -Destination $StageTemplates -Recurse -Force
+            }
             $archiveManifest = "$ExtractDir\freak\distribution-files.manifest"
             if (Test-Path -LiteralPath $archiveManifest -PathType Leaf) {
                 Copy-Item -LiteralPath $archiveManifest -Destination $StageManifest -Force
@@ -880,7 +935,7 @@ try {
         } catch {
             if ($LocalArchive) { throw }
             Remove-Item -LiteralPath $StageDir -Recurse -Force
-            New-Item -ItemType Directory -Path $StageBin, $StageRuntime, $StageStd -Force | Out-Null
+            New-Item -ItemType Directory -Path $StageBin, $StageRuntime, $StageStd, $StageTemplates -Force | Out-Null
             Stage-FallbackPayload
         }
     } else {

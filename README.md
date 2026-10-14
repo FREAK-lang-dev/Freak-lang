@@ -6,7 +6,7 @@
 and not enough sleep, but somehow it compiles.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-pink?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/v0.14.2-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
+[![Version](https://img.shields.io/badge/v0.15.0-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/FREAK-lang-dev/Freak-lang/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/FREAK-lang-dev/Freak-lang/actions)
 [![Status](https://img.shields.io/badge/status-self--hosting-brightgreen?style=flat-square)](#)
 [![Vibes](https://img.shields.io/badge/vibes-MONO__NO__AWARE-blueviolet?style=flat-square)](#)
@@ -35,6 +35,8 @@ greet(name)
 That's it. That's the whole vibe.
 
 ---
+
+Release 0.15.0: read the [release notes and breaking changes](docs/releases/v0.15.0.md) before upgrading from 0.14.2.
 
 ## Features
 
@@ -184,7 +186,13 @@ freak doctor --json   # passive machine-readable report for editors and scripts
 freak doctor --fix    # install/repair dependencies and the distribution payload
 ```
 
-`freak doctor` verifies that Clang can parse the platform's standard C headers, link a native executable, and run it; a working `clang --version` alone is rejected. It also checks optional LLD, all required runtime/UI files, all 11 shipped stdlib modules, and a complete FREAK compile-link-execute probe. It exits nonzero when required checks fail and removes its probe artifacts. `--json` keeps the additive `freak.doctor.v1` schema, uses a unique system-temporary toolchain probe, and reports exact missing files without installing or repairing anything.
+`freak doctor` verifies that Clang can parse the platform's standard C headers, link a native executable, and run it; a working `clang --version` alone is rejected. It also checks optional LLD, all required runtime/UI files, all 15 shipped stdlib modules, and a complete FREAK compile-link-execute probe. It exits nonzero when required checks fail and removes its probe artifacts. `--json` keeps the additive `freak.doctor.v1` schema, uses a unique system-temporary toolchain probe, and reports exact missing files without installing or repairing anything.
+
+The LLVM profile requires upstream Clang 15 or later, or Apple Clang 15 or
+later, plus a working native SDK and linker. Doctor reports the selected
+executable, recognized vendor/version, minimum, and the real probe result.
+`FREAK_CLANG` selects one executable path; a missing explicit selection fails
+instead of substituting a different compiler.
 
 `freak upgrade` remains the supported upgrade command. Current clients route it through the staged tagged installer. Windows keeps `.next` binaries plus a durable `.freak-upgrade-pending` marker, waits for the invoking installer process to exit, then hash-verifies and swaps both binaries as one rollback-capable transaction; Doctor reports the pending state and builds refuse to mix the old compiler with the newly staged payload. A failed attempt retains recovery state for retry. The immutable v0.14.0 updater predates recursive payloads and deferred self-replacement: on Linux/macOS, run `freak upgrade` once for the retained standalone-binary hop and again with the new client to install the complete payload; on Windows, bootstrap once with the PowerShell installer above, then use `freak upgrade` normally. Package-manager installs should likewise refresh through their manager or the installer so `FREAK_HOME` stays aligned.
 
@@ -204,10 +212,24 @@ Compile and run:
 freak run hello.fk
 ```
 
+Pass program arguments after `--`, with compiler options before it:
+
+```bash
+freak run hello.fk --llvm -- "Ada Lovelace" ""
+```
+
+Arguments remain literal, including spaces, empty values, Unicode and shell
+metacharacters. The program inherits terminal input and output; its exit status
+is returned by `freak run`.
+
 `freak run` reuses the adjacent `.freak-run-cache` sidecar only when the
-source, loaded standard library, resolved compiler executable/toolchain,
-backend flags, runtime inputs, and output-binary fingerprint still match. It
-revalidates that proof immediately before launch. Concurrent commands targeting
+bound source and loaded standard library, complete declared package graph,
+admitted lock/snapshot, resolved compiler executable/toolchain, backend flags,
+runtime inputs, and output-binary fingerprint still match. It validates graph
+options before consulting the cache and revalidates live inputs after a build
+and immediately before launch. Ordinary graph admission may normalize lock
+formatting; locked mode preserves and hashes the selected lock bytes.
+Concurrent commands targeting
 the same output are not serialized; use distinct outputs or avoid overlapping
 runs when another process may replace the binary after that final check.
 
@@ -309,6 +331,12 @@ package-name = { git = "https://example.com/owner/package.git", version = "lates
 ```
 
 Dependencies live in `hangar_modules/`. The layout is deliberately minimal.
+
+In 0.15.0, package-aware builds also produce a
+schema-v2 graph lock. Legacy `hangar add`, `install`, `update`, `remove`, `audit`
+and `outdated` refuse these locks before changing project state. They also
+refuse malformed or unreadable existing locks. Valid legacy locks remain
+supported. Graph-aware Hangar install/update commands are still pending.
 
 ---
 
@@ -446,35 +474,38 @@ Not actually a module. The official FREAK-developer snack. Serves one compiler. 
 
 > This is not a real module. It compiles in your mouth, not the compiler. Do not `use std::ramen;`.
 
-> The bible also describes `std::thread`, `std::anime`, `std::narrative`, `std::test`, `std::ffi`, `std::os`, `std::panic`, `std::regex`, `Shared<T>` / `Weak<T>` / `size_of<T>()`, and a few more. Those ship with V4 — see [freak-conformance-audit.md](freak-conformance-audit.md) §7 for the per-module status.
+> The bible also describes `std::thread`, `std::anime`, `std::narrative`, `std::ffi`, `std::os`, `std::panic`, `std::regex`, `Shared<T>` / `Weak<T>` / `size_of<T>()`, and a few more. Those ship with V4 — see [freak-conformance-audit.md](freak-conformance-audit.md) §7 for the per-module status. The ordinary `std::test` assertion helpers are available to native project tests; richer test blocks and annotations remain V4 work.
 
 ---
 
 ## Testing
 
-In a source checkout, the native CLI exposes a development shim that runs the
-Python bootstrap regression harness over `tests/suite/test_*.fk`:
+The installed native CLI builds and runs each source file declared in the
+project's `[tests]` table as a separate native program. Tests use the same
+immutable package graph and selected backend as project builds.
 
 ```bash
-freak test
+freak test --locked --offline
+freak test --c --locked --offline
+freak test --json --jobs=2 --timeout-ms=30000
 ```
 
-Sample output:
+Declare test names and relative source paths in `hangar.toml`:
 
-```
-Found 14 test(s).
-  PASS  test_arithmetic.fk
-  PASS  test_boolean.fk
-  PASS  test_loops.fk
-  ...
-==================================================
-  14 passed, 0 failed, 0 skipped / 14 total
-==================================================
+```toml
+[tests]
+arithmetic = "tests/arithmetic_test.fk"
 ```
 
-(14 `test_*.fk` cases ship; none carry SKIP directives, so a healthy tree reports 14 passed.)
+Each test file supplies an ordinary `task main()` and can use assertions such
+as `std::test::test_assert_int`. Build errors, failed assertions, spawn errors,
+signals and timeouts produce failed test results and a nonzero command status.
+Reports retain test-name order; `--json` selects structured results.
 
-> The bible describes a richer in-language test framework — `test "name" { expect X to be Y }` blocks, `@nakige` test annotations, vibes ratings on output. That ships with V4. Today, add a `test_*.fk` case under `tests/suite/` and run `freak test` from the repository checkout. The shim and Python bootstrap compiler are not included in standalone release archives; use `tests/v3_legacy_golden.py` for the preserved self-hosted V3 corpus.
+The source checkout also has a separate Python regression harness:
+`python -u tests/suite/run_tests.py`. It is a development tool and is not
+required by installed native project tests. The richer test-block and
+annotation framework described in the bible remains development V4 work.
 
 ---
 
@@ -517,7 +548,7 @@ on sharp edges.
 | Self-hosting compiler (V3) | ⚠️ Shipping self-hosted — actively hardened, not stable |
 | LLVM IR backend (default) | ✅ Complete |
 | C backend (`--c`) | ⚠️ Portability target — scalar/control/word, typed lists, and owned shapes execute on C and LLVM; native UI parity remains separate |
-| Native CLI (`freak build`/`run`/`check`/`transpile`) | ✅ Complete; `freak test` is a source-checkout Python shim |
+| Native CLI (`freak build`/`run`/`check`/`transpile`/`test`) | ✅ Native project tests use the selected backend and immutable package graph |
 | Hangar package manager | ✅ Complete |
 | Cross-compilation (`--target=`) | ✅ Complete |
 | Optimization levels (`--opt=0..3`) | ✅ Complete |

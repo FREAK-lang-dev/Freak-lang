@@ -1,0 +1,11 @@
+grounded pilot ROOT: int = 2
+
+task main() -> int {
+    pilot value = 36
+    value += 2
+    pilot mut explicit = 2
+    explicit = 3
+    fixed pilot first = 1
+    grounded pilot second = 0
+    give back value + explicit + first + second
+}

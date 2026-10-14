@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import functools
 import hashlib
 import http.server
@@ -35,8 +36,8 @@ def manifest_entries(repo: Path) -> list[tuple[str, str]]:
         source = source.replace("\\", "/")
         destination = destination.replace("\\", "/")
         for value, prefixes in (
-            (source, ("freakc/runtime/", "std/")),
-            (destination, ("runtime/", "std/")),
+            (source, ("freakc/runtime/", "std/", "third_party/llhttp/", "templates/v35/", "src/compiler/v4/native-runtime.manifest")),
+            (destination, ("runtime/", "std/", "templates/v35/")),
         ):
             parts = value.split("/")
             assert not value.startswith("/"), value
@@ -59,6 +60,10 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             "freakc/runtime/freak_runtime.c",
             "freakc/runtime/freak_runtime.h",
             "freakc/runtime/freak_llvm_runtime.c",
+            "freakc/runtime/freak_v35_process.inc",
+            "freakc/runtime/freak_v35_fs.inc",
+            "freakc/runtime/freak_v35_json.inc",
+            "freakc/runtime/freak_v35_http.inc",
             "freakc/runtime/ui/win32_backend.c",
             "freakc/runtime/ui/freak_ui_platform.h",
             "freakc/runtime/freak_abi",
@@ -67,6 +72,13 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             "std/freak_std_api",
         }
     )
+    expected_sources.update(path.relative_to(repo).as_posix() for path in (repo / "third_party" / "llhttp").rglob("*") if path.is_file())
+    expected_sources.update(path.relative_to(repo).as_posix() for path in (repo / "templates/v35").rglob("*") if path.is_file())
+    expected_sources.add("src/compiler/v4/native-runtime.manifest")
+    for raw in (repo / "src/compiler/v4/native-runtime.manifest").read_text().splitlines():
+        if raw and not raw.startswith("#"):
+            _, name = raw.split(" ")
+            expected_sources.add(name if name.startswith("third_party/") else "freakc/runtime/" + name)
     assert actual_sources == expected_sources, (
         f"manifest missing={sorted(expected_sources - actual_sources)} "
         f"extra={sorted(actual_sources - expected_sources)}"
@@ -81,15 +93,95 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
         if destination.startswith("runtime/"):
             relative = destination.removeprefix("runtime/")
             runtime_destinations.append(relative)
-        else:
+        elif destination.startswith("std/"):
             relative = destination.removeprefix("std/")
             if destination not in ("std/freak_abi", "std/freak_std_api"):
                 std_destinations.append(relative)
+        else:
+            relative = destination
         assert f'"{relative}"' in doctor_text, (
             f"doctor inventory does not cover manifest destination {destination}"
         )
     assert f'"files_expected\\\": {len(runtime_destinations)}' in doctor_text
     assert f'"modules_expected\\\": {len(std_destinations)}' in doctor_text
+
+
+def check_installer_manifest_validation(repo: Path, root: Path) -> None:
+    """Exercise the installer's actual parser before any payload is fetched."""
+    fixture = root / "manifest-validation"
+    fixture.mkdir()
+    manifest = fixture / "distribution-files.manifest"
+    if sys.platform == "win32":
+        text = (repo / "install.ps1").read_text(encoding="utf-8")
+        functions = text[text.index("function Get-ManifestEntries {"):text.index("function Assert-NoPayloadReparsePoints(")]
+        script = fixture / "validate.ps1"
+        script.write_text(
+            "param([string]$StageManifest)\n$ErrorActionPreference = 'Stop'\n"
+            "function Err($message) { throw $message }\n" + functions +
+            "@(Get-ManifestEntries).Count\n", encoding="utf-8",
+        )
+        command = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), str(manifest)]
+    else:
+        text = (repo / "install.sh").read_text(encoding="utf-8")
+        functions = text[text.index("validate_manifest_entry() {"):text.index("assert_no_payload_symlinks() {")]
+        script = fixture / "validate.sh"
+        script.write_text(
+            "set -euo pipefail\nSTAGE_MANIFEST=$1\n"
+            "err() { printf '%s\\n' \"$*\" >&2; exit 1; }\n" + functions +
+            "validate_manifest\n", encoding="utf-8",
+        )
+        command = ["bash", str(script), str(manifest)]
+
+    valid = (repo / "packaging/distribution-files.manifest").read_bytes()
+    valid_controls = {
+        "CRLF-no-final-newline": valid.replace(b"\n", b"\r\n").rstrip(b"\r\n"),
+        "LF-blank-records": b"\n" + valid.replace(b"\n", b"\n\n") + b"\n",
+        "CRLF-blank-records": b"\r\n" + valid.replace(b"\n", b"\r\n\r\n") + b"\r\n",
+    }
+    for name, contents in valid_controls.items():
+        manifest.write_bytes(contents)
+        accepted = subprocess.run(command, cwd=repo, capture_output=True, timeout=30)
+        assert accepted.returncode == 0, (name, accepted.stdout, accepted.stderr)
+        if sys.platform == "win32":
+            assert int(accepted.stdout.strip()) == len(manifest_entries(repo))
+
+    controls = {
+        "cross-subsystem": b"std/math.fk|runtime/math.fk\n",
+        "wrong-vendor-prefix": b"third_party/llhttp/LICENSE|runtime/LICENSE\n",
+        "foreign-vendor": b"third_party/other/LICENSE|runtime/third_party/other/LICENSE\n",
+        "wrong-template-prefix": b"templates/v35/cli/LICENSE|std/LICENSE\n",
+        "foreign-template": b"templates/v36/cli/LICENSE|templates/v36/cli/LICENSE\n",
+        "native-manifest-suffix": b"src/compiler/v4/native-runtime.manifest.extra|runtime/v4-native.manifest\n",
+        "wrong-native-manifest-destination": b"src/compiler/v4/native-runtime.manifest|runtime/native-runtime.manifest\n",
+        "source-traversal": b"std/../math.fk|std/math.fk\n",
+        "destination-traversal": b"std/math.fk|std/../math.fk\n",
+        "absolute": b"/std/math.fk|std/math.fk\n",
+        "drive": b"std/C:math.fk|std/C:math.fk\n",
+        "backslash": b"std\\math.fk|std/math.fk\n",
+        "double-separator": b"std//math.fk|std//math.fk\n",
+        "trailing-separator": b"std/math.fk/|std/math.fk/\n",
+        "windows-dot-alias": b"std/math.fk.|std/math.fk.\n",
+        "windows-space-alias": b"std/math.fk |std/math.fk \n",
+        "windows-directory-alias": b"freakc/runtime/ui./file.c|runtime/ui./file.c\n",
+        "extra-field": b"std/math.fk|std/math.fk|runtime/math.fk\n",
+        "empty-source": b"|std/math.fk\n",
+        "nul": b"std/ma\x00th.fk|std/math.fk\n",
+        "nul-comment": b"# comment\x00\nstd/math.fk|std/math.fk\n",
+        "control": b"std/ma\x01th.fk|std/ma\x01th.fk\n",
+        "source-carriage-return": b"std/math.fk\r|std/math.fk\n",
+        "carriage-return-source-field": b"\r|std/math.fk\n",
+        "empty-delimited-record": b"std/math.fk|std/math.fk\n|\n",
+        "carriage-return-before-empty-destination": b"std/math.fk|std/math.fk\n\r|\n",
+        "duplicate": b"std/math.fk|std/math.fk\nstd/math.fk|std/math.fk\n",
+        "case-alias": b"std/math.fk|std/math.fk\nstd/MATH.fk|std/MATH.fk\n",
+        "ancestor": b"freakc/runtime/leaf|runtime/leaf\nfreakc/runtime/leaf/child|runtime/leaf/child\n",
+        "ancestor-reversed": b"freakc/runtime/leaf/child|runtime/leaf/child\nfreakc/runtime/leaf|runtime/leaf\n",
+        "empty": b"# no payload rows\n",
+    }
+    for name, contents in controls.items():
+        manifest.write_bytes(contents)
+        rejected = subprocess.run(command, cwd=repo, capture_output=True, timeout=30)
+        assert rejected.returncode != 0, (name, rejected.stdout, rejected.stderr)
 
 
 def check_static_contracts(repo: Path) -> None:
@@ -244,7 +336,7 @@ def check_static_contracts(repo: Path) -> None:
     assert "unresolved WinGet placeholder" in release_text
     assert "dist/freak/runtime/freak_runtime.o" not in release_text
     assert "packaging/distribution-files.manifest text eol=lf" in attributes_text
-    assert 'doc["checks"]["stdlib"]["modules_expected"] == 11' in ci_text
+    assert 'doc["checks"]["stdlib"]["modules_expected"] == 15' in ci_text
     for needle in (
         "task hangar_install_freak() -> int",
         "FREAK_UPGRADE_SCRIPT",
@@ -253,7 +345,7 @@ def check_static_contracts(repo: Path) -> None:
     ):
         assert needle in hangar_text, f"upgrade path missing {needle}"
     for needle in (
-        "modules_expected\\\": 11",
+        "modules_expected\\\": 15",
         "ui/window.fk",
         "scoop install mingw-mstorsjo-llvm-ucrt",
         "FREAK_DOCTOR_INSTALL_COMMAND",
@@ -263,8 +355,8 @@ def check_static_contracts(repo: Path) -> None:
         "FREAK_DOCTOR_TEST_FAIL_FIRST_REMOVE",
         "FREAK_DOCTOR_TEST_RETAIN_PROBE",
         "cleanup_retained",
-        "cli_quote_cmd_path(probe_source)",
-        "probe_run_exit == 0",
+        "process::command_arg(compile_command, probe_source)",
+        "run_status == 2 and process::command_exit_code(probe_command) == 0",
         "give back probe_ok",
         "pending_marker = cli_pending_upgrade_marker()",
         "clang toolchain ",
@@ -276,15 +368,14 @@ def check_static_contracts(repo: Path) -> None:
     for needle in (
         "task cli_posix_canonical_executable(path: word) -> word",
         "if link_hops >= 32",
-        'pilot lookup_target = "$PATH:" + argv0',
-        "if resolved == \"\" or not fs::exists(resolved)",
-        'if not resolved.contains("/")',
+        "task cli_executable_path() -> word",
+        "give back process::executable_path()",
         "CLI_PAYLOAD_ERROR_PREFIX",
         "task cli_payload_is_resolution_error(value: word) -> bool",
         "task cli_is_repo_checkout_root(root: word) -> bool",
         "task cli_windows_cwd_is_shell_fallback(cwd: word) -> bool",
         "PAYLOAD RESOLUTION FAILED",
-        "if not fs::exists(absolute) { give back \"\" }",
+        'fs::canonical_path(".")',
         "/scoop/apps/mingw-mstorsjo-llvm-ucrt/current/bin/clang.exe",
     ):
         assert needle in build_text, f"executable discovery missing {needle}"
@@ -334,7 +425,7 @@ def create_distribution(
         encoding="utf-8"
     )
     (dist / "distribution-files.manifest").write_bytes(
-        manifest_text.replace("\n", "\r\n").rstrip("\r\n").encode("utf-8")
+        ("\r\n" + manifest_text.replace("\n", "\r\n\r\n").rstrip("\r\n")).encode("utf-8")
     )
 
     if windows:
@@ -509,6 +600,8 @@ def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> 
         )
         assert verified.returncode == 0, verified.stdout + verified.stderr
         assert "Verified SHA-256" in verified.stdout
+        for source, destination in manifest_entries(repo):
+            assert (valid_root / destination).read_bytes() == (repo / source).read_bytes()
 
         # Conflicting duplicate entries are ambiguous and must fail closed on
         # both installers before touching an existing payload.
@@ -575,7 +668,7 @@ def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> 
             hangar_asset = f"hangar-{platform_tag}-{arch_tag}"
         (fallback_release / freak_asset).write_bytes(b"standalone freak\n")
         (fallback_release / hangar_asset).write_bytes(b"standalone hangar\n")
-        manifest_bytes = (repo / "packaging" / "distribution-files.manifest").read_bytes().rstrip(b"\r\n")
+        manifest_bytes = b"\r\n" + (repo / "packaging" / "distribution-files.manifest").read_bytes().replace(b"\n", b"\r\n\r\n").rstrip(b"\r\n")
         raw_manifest = fallback_raw / "packaging" / "distribution-files.manifest"
         raw_manifest.parent.mkdir(parents=True)
         raw_manifest.write_bytes(manifest_bytes)
@@ -610,25 +703,30 @@ def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> 
         )
         assert fallback.returncode == 0, fallback.stdout + fallback.stderr
         assert fallback.stdout.count("Verified SHA-256") >= 3 + len(manifest_entries(repo))
+        for source, destination in manifest_entries(repo):
+            assert (root / "fallback-valid" / destination).read_bytes() == (repo / source).read_bytes()
 
-        tampered_source = fallback_raw / manifest_entries(repo)[0][0]
-        tampered_source.write_bytes(tampered_source.read_bytes() + b"tampered\n")
-        fallback_rejected_root = root / "fallback-rejected"
-        fallback_sentinel = fallback_rejected_root / "std" / "preserve.fk"
-        fallback_sentinel.parent.mkdir(parents=True)
-        fallback_sentinel.write_bytes(b"old fallback payload\n")
-        fallback_env["FREAK_HOME"] = str(fallback_rejected_root)
-        fallback_rejected = subprocess.run(
-            command, cwd=repo, env=fallback_env, capture_output=True, text=True,
-            errors="replace", timeout=120,
-        )
-        assert fallback_rejected.returncode != 0, (
-            fallback_rejected.stdout + fallback_rejected.stderr
-        )
-        assert "sha256 mismatch" in (
-            fallback_rejected.stdout + fallback_rejected.stderr
-        ).lower()
-        assert fallback_sentinel.read_bytes() == b"old fallback payload\n"
+        for source_name in (manifest_entries(repo)[0][0], "third_party/llhttp/LICENSE", "templates/v35/cli/LICENSE"):
+            tampered_source = fallback_raw / source_name
+            original_bytes = tampered_source.read_bytes()
+            tampered_source.write_bytes(original_bytes + b"tampered\n")
+            fallback_rejected_root = root / ("fallback-rejected-" + source_name.replace("/", "-"))
+            fallback_sentinel = fallback_rejected_root / "std" / "preserve.fk"
+            fallback_sentinel.parent.mkdir(parents=True)
+            fallback_sentinel.write_bytes(b"old fallback payload\n")
+            fallback_env["FREAK_HOME"] = str(fallback_rejected_root)
+            fallback_rejected = subprocess.run(
+                command, cwd=repo, env=fallback_env, capture_output=True, text=True,
+                errors="replace", timeout=120,
+            )
+            assert fallback_rejected.returncode != 0, (
+                fallback_rejected.stdout + fallback_rejected.stderr
+            )
+            assert "sha256 mismatch" in (
+                fallback_rejected.stdout + fallback_rejected.stderr
+            ).lower()
+            assert fallback_sentinel.read_bytes() == b"old fallback payload\n"
+            tampered_source.write_bytes(original_bytes)
     finally:
         server.shutdown()
         server.server_close()
@@ -1086,6 +1184,7 @@ def check_offline_installer(
         Path("bin") / f"hangar{extension}": b"old-hangar\n",
         Path("runtime") / "freak_runtime.c": b"old-runtime\n",
         Path("std") / "math.fk": b"old-stdlib\n",
+        Path("templates") / "v35" / "cli" / "LICENSE": b"old-template-license\n",
         Path("distribution-files.manifest"): b"old-manifest\n",
     }
     for relative, contents in preserved_files.items():
@@ -1140,6 +1239,48 @@ def check_offline_installer(
     assert "unsafe distribution" in unsafe_output.lower(), unsafe_output
     for relative, contents in preserved_files.items():
         assert (preserved_root / relative).read_bytes() == contents
+
+    # A manifest row must correspond to a real regular payload file, including
+    # vendor licenses and templates that previously were never installed.
+    for missing in ("runtime/third_party/llhttp/LICENSE", "templates/v35/cli/LICENSE"):
+        damaged_dist = root / ("missing-" + missing.replace("/", "-")) / "freak"
+        shutil.copytree(root / "archive" / "freak", damaged_dist)
+        (damaged_dist / missing).unlink()
+        damaged_archive = damaged_dist.parent / ("payload.zip" if sys.platform == "win32" else "payload.tar.gz")
+        if sys.platform == "win32":
+            with zipfile.ZipFile(damaged_archive, "w", zipfile.ZIP_DEFLATED) as zipped:
+                for path in damaged_dist.rglob("*"):
+                    if path.is_file():
+                        zipped.write(path, path.relative_to(damaged_dist.parent))
+        else:
+            with tarfile.open(damaged_archive, "w:gz") as tarred:
+                tarred.add(damaged_dist, arcname="freak")
+        damaged_env = failure_env.copy()
+        damaged_env["FREAK_INSTALL_ARCHIVE"] = str(damaged_archive)
+        damaged = subprocess.run(command, cwd=repo, env=damaged_env, capture_output=True,
+                                 text=True, errors="replace", timeout=120)
+        assert damaged.returncode != 0, damaged.stdout + damaged.stderr
+        assert "staged payload is missing" in (damaged.stdout + damaged.stderr).lower()
+        for relative, contents in preserved_files.items():
+            assert (preserved_root / relative).read_bytes() == contents
+
+    if sys.platform != "win32":
+        linked_dist = root / "linked-payload" / "freak"
+        shutil.copytree(root / "archive" / "freak", linked_dist)
+        linked_license = linked_dist / "runtime/third_party/llhttp/LICENSE"
+        linked_license.unlink()
+        linked_license.symlink_to(repo / "third_party/llhttp/LICENSE")
+        linked_archive = linked_dist.parent / "payload.tar.gz"
+        with tarfile.open(linked_archive, "w:gz") as tarred:
+            tarred.add(linked_dist, arcname="freak")
+        linked_env = failure_env.copy()
+        linked_env["FREAK_INSTALL_ARCHIVE"] = str(linked_archive)
+        linked = subprocess.run(command, cwd=repo, env=linked_env, capture_output=True,
+                                text=True, errors="replace", timeout=120)
+        assert linked.returncode != 0, linked.stdout + linked.stderr
+        assert "unsafe distribution payload symlink" in (linked.stdout + linked.stderr).lower()
+        for relative, contents in preserved_files.items():
+            assert (preserved_root / relative).read_bytes() == contents
 
     failure_env["FREAK_INSTALL_ARCHIVE"] = str(archive)
     failure_env["FREAK_INSTALL_TEST_FAIL_APPLY"] = "1"
@@ -1534,6 +1675,15 @@ def populate_payload(
         shutil.copy2(repo / source, target)
 
 
+def populate_repository_payload(
+    repo: Path, destination: Path, entries: list[tuple[str, str]]
+) -> None:
+    for source, _ in entries:
+        target = destination / source
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(repo / source, target)
+
+
 def check_doctor(
     repo: Path, root: Path, compiler: Path, entries: list[tuple[str, str]]
 ) -> None:
@@ -1559,8 +1709,7 @@ def check_doctor(
     checkout_bin.mkdir(parents=True)
     checkout_compiler = checkout_bin / compiler.name
     shutil.copy2(compiler, checkout_compiler)
-    shutil.copytree(repo / "freakc" / "runtime", checkout / "runtime")
-    shutil.copytree(repo / "std", checkout / "std")
+    populate_payload(repo, checkout, entries)
     compiler = checkout_compiler
     cwd = root / "doctor-cwd"
     cwd.mkdir()
@@ -1584,9 +1733,11 @@ def check_doctor(
     assert Path(report["checks"]["stdlib"]["path"]).resolve() == (
         payload / "std"
     ).resolve()
-    assert report["checks"]["runtime"]["files_expected"] == 7
-    assert report["checks"]["stdlib"]["modules_found"] == 11
-    assert report["checks"]["stdlib"]["modules_expected"] == 11
+    assert report["checks"]["runtime"]["files_expected"] == len(
+        [destination for _, destination in manifest_entries(repo) if destination.startswith("runtime/")]
+    )
+    assert report["checks"]["stdlib"]["modules_found"] == 15
+    assert report["checks"]["stdlib"]["modules_expected"] == 15
     assert report["checks"]["abi"] == {
         "ok": True,
         "expected": "freak-v3-abi-1",
@@ -1768,8 +1919,7 @@ def check_doctor(
     # Without FREAK_HOME, an installed/executable-relative payload must beat a
     # hostile project CWD that tries to shadow runtime or stdlib inputs.
     shadow_cwd = root / "doctor-shadow-cwd"
-    shutil.copytree(repo / "freakc" / "runtime", shadow_cwd / "freakc" / "runtime")
-    shutil.copytree(repo / "std", shadow_cwd / "std")
+    populate_repository_payload(repo, shadow_cwd, entries)
     shadow_env = env.copy()
     shadow_env.pop("FREAK_HOME")
     shadowed = run_cli(compiler, shadow_cwd, shadow_env, "doctor", "--json")
@@ -1827,8 +1977,7 @@ def check_doctor(
         repo / "packaging" / "distribution-files.manifest",
         damaged_packaging / "distribution-files.manifest",
     )
-    shutil.copytree(repo / "freakc" / "runtime", damaged_checkout / "freakc" / "runtime")
-    shutil.copytree(repo / "std", damaged_checkout / "std")
+    populate_repository_payload(repo, damaged_checkout, entries)
     (damaged_checkout / "std" / "math.fk").unlink()
     (damaged_checkout / "freakc" / "runtime" / "freak_abi").unlink()
 
@@ -1868,12 +2017,11 @@ def check_doctor(
     assert "abi mismatch" in damaged_build_result.stdout.lower()
     assert not Path(str(abi_source) + ".c").exists()
 
-    # A slashless argv[0] that cannot be found in PATH has no executable
-    # identity. Even a same-named CWD decoy inside an otherwise recognizable
-    # repository layout must not enable the development payload fallback.
+    # The OS image path remains authoritative when slashless argv[0] cannot
+    # be found in PATH. A same-named CWD decoy inside a recognizable repository
+    # must not replace that identity or enable the development payload fallback.
     unresolved_cwd = root / "doctor-unresolved-slashless-cwd"
-    shutil.copytree(repo / "freakc" / "runtime", unresolved_cwd / "freakc" / "runtime")
-    shutil.copytree(repo / "std", unresolved_cwd / "std")
+    populate_repository_payload(repo, unresolved_cwd, entries)
     unresolved_marker = unresolved_cwd / "src" / "compiler" / "v3" / "main.fk"
     unresolved_marker.parent.mkdir(parents=True)
     shutil.copy2(repo / "src" / "compiler" / "v3" / "main.fk", unresolved_marker)
@@ -1898,10 +2046,14 @@ def check_doctor(
         timeout=180,
         check=False,
     )
-    assert unresolved.returncode != 0, unresolved.stdout + unresolved.stderr
+    assert unresolved.returncode == 0, unresolved.stdout + unresolved.stderr
     unresolved_report = json.loads(unresolved.stdout)
-    assert unresolved_report["checks"]["runtime"]["path"] == ""
-    assert unresolved_report["checks"]["stdlib"]["path"] == ""
+    assert Path(unresolved_report["checks"]["runtime"]["path"]).resolve() == (
+        checkout / "runtime"
+    ).resolve()
+    assert Path(unresolved_report["checks"]["stdlib"]["path"]).resolve() == (
+        checkout / "std"
+    ).resolve()
 
     if sys.platform != "win32":
         # A slashless PATH invocation normally leaves argv[0] as `freak`. A
@@ -1970,9 +2122,9 @@ def check_doctor(
             symlink_home / "std"
         ).resolve()
 
-        # Broken and cyclic argv[0] links never acquire payload identity. Run
-        # the real compiler with a deliberately different argv[0] so the
-        # resolver, rather than the operating system loader, owns the failure.
+        # Broken and cyclic argv[0] links cannot replace the OS image identity.
+        # Launching those links as the actual executable must still fail in
+        # the loader before any compiler or payload can run.
         broken_shim = shim_dir / "broken-freak"
         broken_shim.symlink_to("missing-freak-target")
         cycle_a = shim_dir / "cycle-a"
@@ -1991,12 +2143,24 @@ def check_doctor(
                 timeout=180,
                 check=False,
             )
-            assert invalid_link.returncode != 0, (
+            assert invalid_link.returncode == 0, (
                 invalid_link.stdout + invalid_link.stderr
             )
             invalid_report = json.loads(invalid_link.stdout)
-            assert invalid_report["checks"]["runtime"]["path"] == ""
-            assert invalid_report["checks"]["stdlib"]["path"] == ""
+            assert Path(invalid_report["checks"]["runtime"]["path"]).resolve() == (
+                checkout / "runtime"
+            ).resolve()
+            assert Path(invalid_report["checks"]["stdlib"]["path"]).resolve() == (
+                checkout / "std"
+            ).resolve()
+            try:
+                subprocess.run([str(invalid_shim), "doctor", "--json"],
+                               cwd=unresolved_cwd, env=repo_env, capture_output=True,
+                               timeout=180, check=False)
+            except OSError as error:
+                assert error.errno in (errno.ENOENT, errno.ELOOP), error
+            else:
+                raise AssertionError(f"OS loader accepted invalid executable link: {invalid_shim}")
 
     # An executable in an archive-style <home>/bin directory owns that payload
     # even when it is incomplete. Falling through to the hostile CWD would hide
@@ -2318,9 +2482,8 @@ def check_doctor(
         assert "upgrade pending" in default_build.stdout.lower()
         assert not Path(str(abi_source) + ".c").exists()
 
-        # cmd.exe reports WINDIR when it is launched from a UNC cwd. Reject
-        # that reported directory even when a same-named, complete-payload
-        # decoy exists there; existence alone is not executable identity.
+        # The real OS image path must beat a SystemRoot/CWD decoy even when
+        # WINDIR is absent and argv[0] claims a different relative executable.
         fallback_home = root / "doctor-windows-cwd-fallback-home"
         populate_payload(repo, fallback_home, entries)
         fallback_bin = fallback_home / "bin"
@@ -2342,11 +2505,15 @@ def check_doctor(
             timeout=180,
             check=False,
         )
-        assert fallback.returncode != 0, fallback.stdout + fallback.stderr
+        assert fallback.returncode == 0, fallback.stdout + fallback.stderr
         fallback_report = json.loads(fallback.stdout)
         assert fallback_report["platform"]["os"] == "windows"
-        assert fallback_report["checks"]["runtime"]["path"] == ""
-        assert fallback_report["checks"]["stdlib"]["path"] == ""
+        assert Path(fallback_report["checks"]["runtime"]["path"]).resolve() == (
+            checkout / "runtime"
+        ).resolve()
+        assert Path(fallback_report["checks"]["stdlib"]["path"]).resolve() == (
+            checkout / "std"
+        ).resolve()
 
         # Every Windows caller must share the same WINDIR-or-SystemRoot
         # classification. Exercise the public upgrade route with WINDIR absent
@@ -2429,10 +2596,31 @@ def check_doctor(
                     timeout=180,
                     check=False,
                 )
-                assert unc.returncode != 0, unc.stdout + unc.stderr
+                # The OS image is the copied local executable, even when its
+                # relative argv and UNC CWD cause command-shell warnings.
+                assert unc.returncode == 0, unc.stdout + unc.stderr
                 unc_report = json.loads(unc.stdout)
-                assert unc_report["checks"]["runtime"]["path"] == ""
-                assert unc_report["checks"]["stdlib"]["path"] == ""
+                assert unc_report["status"] == "ok"
+                assert unc_report["platform"] == {"os": "windows", "windows": True}
+                for check, directory in (("runtime", "runtime"), ("stdlib", "std")):
+                    assert unc_report["checks"][check]["ok"] is True
+                    assert Path(unc_report["checks"][check]["path"]).samefile(
+                        unc_home_local / directory
+                    ), unc_report
+                unc_clang = unc_report["checks"]["clang"]
+                assert unc_clang["ok"] is True
+                assert unc_clang["version_ok"] is True
+                assert unc_clang["probe_ok"] is True
+                assert unc_clang["cleanup_retained"] == ""
+                unc_clang_path = shutil.which(
+                    unc_clang["executable"], path=repo_env.get("PATH", "")
+                )
+                repo_clang_path = shutil.which(
+                    repo_report["checks"]["clang"]["executable"],
+                    path=repo_env.get("PATH", ""),
+                )
+                assert unc_clang_path and repo_clang_path, unc_report
+                assert Path(unc_clang_path).samefile(repo_clang_path), unc_report
 
     # Direct archive use (`cd <home>/bin && ./freak`) supplies a relative
     # argv[0]. It must still resolve the executable-adjacent payload before
@@ -2591,27 +2779,38 @@ def check_doctor(
     shutil.copy2(repo / "freakc" / "runtime" / "freak_runtime.c", runtime_source)
     caller_cache.unlink()
 
-    # A version/output-only fake models the Windows failure mode that motivated
-    # the usable-toolchain probe. Creating a file is insufficient: doctor must
-    # execute the linked probe before accepting Clang, and --fix must repair it.
+    # A launchable native tool with a supported version still emits an invalid
+    # executable. Doctor must run that output before accepting the toolchain;
+    # neither --version success nor the output file proves a working linker.
     broken_clang = root / (
-        "version-only-clang.cmd" if sys.platform == "win32" else "version-only-clang.sh"
+        "version-only-clang.exe" if sys.platform == "win32" else "version-only-clang"
     )
+    broken_clang_source = root / "version-only-clang.c"
+    broken_clang_source.write_text(
+        '#include <stdio.h>\n#include <string.h>\n'
+        'int main(int argc, char **argv) {\n'
+        '  if (argc == 2 && strcmp(argv[1], "--version") == 0) {\n'
+        '    puts("clang version 15.0.0"); return 0;\n'
+        '  }\n'
+        '  for (int i = 1; i + 1 < argc; ++i) {\n'
+        '    if (strcmp(argv[i], "-o") == 0) {\n'
+        '      FILE *output = fopen(argv[i + 1], "wb");\n'
+        '      if (!output) return 2;\n'
+        '      fputs("this is not an executable", output); fclose(output); return 0;\n'
+        '    }\n'
+        '  }\n'
+        '  return 1;\n'
+        '}\n', encoding="utf-8",
+    )
+    real_clang = report["checks"]["clang"]["executable"]
+    fixture_build = subprocess.run(
+        [real_clang, str(broken_clang_source), "-o", str(broken_clang)],
+        cwd=root, env=env, capture_output=True, text=True,
+        errors="replace", timeout=60, check=False,
+    )
+    assert fixture_build.returncode == 0, fixture_build.stdout + fixture_build.stderr
     repair_sentinel = root / "doctor-install-attempted.txt"
     if sys.platform == "win32":
-        broken_clang.write_text(
-            '@echo off\nif "%1"=="--version" (echo clang output-only fixture& exit /b 0)\n'
-            ":scan\n"
-            'if "%1"=="" exit /b 1\n'
-            'if "%1"=="-o" goto emit\n'
-            "shift\n"
-            "goto scan\n"
-            ":emit\n"
-            "shift\n"
-            '> "%~1" echo this is not an executable\n'
-            "exit /b 0\n",
-            encoding="utf-8",
-        )
         install_fixture = root / "doctor-install-fixture.cmd"
         install_fixture.write_text(
             f'@echo off\n> "{repair_sentinel}" echo attempted\nexit /b 0\n',
@@ -2619,17 +2818,6 @@ def check_doctor(
         )
         install_command = f'"{install_fixture}"'
     else:
-        broken_clang.write_text(
-            "#!/usr/bin/env bash\n"
-            'if [ "${1:-}" = "--version" ]; then echo clang output-only fixture; exit 0; fi\n'
-            "while [ \"$#\" -gt 0 ]; do\n"
-            '  if [ "$1" = "-o" ]; then shift; printf not-executable > "$1"; exit 0; fi\n'
-            "  shift\n"
-            "done\n"
-            "exit 1\n",
-            encoding="utf-8",
-        )
-        broken_clang.chmod(0o755)
         install_fixture = root / "doctor-install-fixture.sh"
         install_fixture.write_text(
             "#!/usr/bin/env bash\n"
@@ -2645,6 +2833,8 @@ def check_doctor(
     assert broken.returncode != 0, broken.stdout + broken.stderr
     broken_report = json.loads(broken.stdout)
     assert broken_report["checks"]["clang"]["ok"] is False
+    assert broken_report["checks"]["clang"]["version_ok"] is True
+    assert broken_report["checks"]["clang"]["probe_ok"] is False
     assert not list(cwd.glob("freak-doctor-clang-probe-*"))
     assert not list(probe_temp.glob("freak-doctor-clang-probe-*"))
 
@@ -2720,7 +2910,8 @@ def main() -> int:
     check_manifest(repo, entries)
     check_static_contracts(repo)
     with tempfile.TemporaryDirectory(prefix="freak-v3-install-doctor-") as tmp:
-        root = Path(tmp)
+        root = Path(tmp).resolve(strict=True)
+        check_installer_manifest_validation(repo, root)
         archive = create_distribution(
             repo, root, entries, windows=sys.platform == "win32"
         )

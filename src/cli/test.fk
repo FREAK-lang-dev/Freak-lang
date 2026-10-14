@@ -1,0 +1,575 @@
+-- ===================================================================
+-- FREAK CLI — Native Project Tests
+-- ===================================================================
+-- Root dispatch supplies one prepared immutable graph snapshot. Builds use
+-- the selected installed CLI and that same snapshot; there is no resolver or
+-- bootstrap compiler fallback in this module.
+
+extern task freak_word_compare(a: word, b: word) -> int
+
+task cli_test_json_escape(text: word) -> word {
+    pilot builder = word_builder::with_capacity(text.length())
+    pilot bytes: ByteBuffer = ByteBuffer::with_capacity(text.length())
+    bytes.write_word(text)
+    bytes.seek(0)
+    pilot hex = "0123456789abcdef"
+    pilot mut index = 0
+    repeat until index >= text.length() {
+        pilot value = bytes.read_byte()
+        pilot ch = text.char_at(index)
+        if ch == "\"" { word_builder::append(builder, "\\\"") } else if ch == "\\" { word_builder::append(builder, "\\\\") } else if value < 32 {
+            word_builder::append(builder, "\\u00")
+            word_builder::append(builder, hex.char_at(value / 16))
+            word_builder::append(builder, hex.char_at(value % 16))
+        } else { word_builder::append(builder, ch) }
+        index += 1
+    }
+    bytes.release()
+    give back word_builder::finish(builder)
+}
+
+task cli_test_bytes_hex(bytes: ByteBuffer) -> word {
+    -- Consume the owned capture buffer, including after a failed text view.
+    bytes.clear_status()
+    pilot hex = "0123456789abcdef"
+    pilot builder = word_builder::with_capacity(bytes.length() * 2)
+    bytes.seek(0)
+    repeat until bytes.remaining() == 0 {
+        pilot value = bytes.read_byte()
+        word_builder::append(builder, hex.char_at(value / 16))
+        word_builder::append(builder, hex.char_at(value % 16))
+    }
+    bytes.release()
+    give back word_builder::finish(builder)
+}
+
+task cli_test_process_label(status: int, exit_code: int) -> word {
+    if status == 2 {
+        if exit_code == 0 { give back "passed" }
+        give back "failed"
+    }
+    if status == 3 { give back "spawn_failed" }
+    if status == 4 { give back "signaled" }
+    if status == 5 { give back "timed_out" }
+    if status == 6 { give back "output_limit" }
+    if status == 7 { give back "cancelled" }
+    if status == 8 { give back "io_error" }
+    give back "invalid_state"
+}
+
+pilot mut cli_test_error = ""
+pilot mut cli_test_names = 0
+pilot mut cli_test_paths = 0
+pilot mut cli_test_sources = 0
+pilot mut cli_test_phase = 0
+pilot mut cli_test_tickets = 0
+pilot mut cli_test_started = 0
+pilot mut cli_test_build_reports = 0
+pilot mut cli_test_run_reports = 0
+pilot mut cli_test_results = 0
+pilot cli_test_temp_ticket = 0
+pilot cli_test_build_timeout_ms = 120000
+
+task cli_test_fail(message: word) -> void {
+    if cli_test_error == "" { cli_test_error = message }
+}
+
+task cli_test_clear() -> void {
+    if cli_test_names != 0 {
+        array_release(cli_test_names)
+        array_release(cli_test_paths)
+        array_release(cli_test_sources)
+        array_release(cli_test_phase)
+        array_release(cli_test_tickets)
+        array_release(cli_test_started)
+        array_release(cli_test_build_reports)
+        array_release(cli_test_run_reports)
+        array_release(cli_test_results)
+    }
+    cli_test_names = array_new()
+    cli_test_paths = array_new()
+    cli_test_sources = array_new()
+    cli_test_phase = array_new()
+    cli_test_tickets = array_new()
+    cli_test_started = array_new()
+    cli_test_build_reports = array_new()
+    cli_test_run_reports = array_new()
+    cli_test_results = array_new()
+    cli_test_error = ""
+}
+
+task cli_test_release() -> void {
+    array_release(cli_test_names)
+    array_release(cli_test_paths)
+    array_release(cli_test_sources)
+    array_release(cli_test_phase)
+    array_release(cli_test_tickets)
+    array_release(cli_test_started)
+    array_release(cli_test_build_reports)
+    array_release(cli_test_run_reports)
+    array_release(cli_test_results)
+    cli_test_names = 0
+}
+
+task cli_test_add(root: word, name: word, relative: word) -> void {
+    if cli_test_error != "" { give back }
+    if array_len(cli_test_names) >= 256 {
+        cli_test_fail("project tests exceed the supported limit of 256")
+        give back
+    }
+    if name == "" {
+        cli_test_fail("test names cannot be empty")
+        give back
+    }
+    pilot source = package_checked_source(root, relative)
+    if source == "" {
+        cli_test_fail("invalid test " + name + ": " + hangar_graph_error)
+        give back
+    }
+    pilot mut index = 0
+    repeat until index >= array_len(cli_test_names) {
+        if array_get(cli_test_names, index) == name {
+            cli_test_fail("duplicate test name: " + name)
+            give back
+        }
+        if array_get(cli_test_sources, index) == source {
+            cli_test_fail("test file is declared more than once: " + relative)
+            give back
+        }
+        index += 1
+    }
+    array_push(cli_test_names, name)
+    array_push(cli_test_paths, relative)
+    array_push(cli_test_sources, source)
+}
+
+task cli_test_sort() -> void {
+    pilot mut index = 1
+    repeat until index >= array_len(cli_test_names) {
+        pilot name: word = array_get(cli_test_names, index)
+        pilot path: word = array_get(cli_test_paths, index)
+        pilot source: word = array_get(cli_test_sources, index)
+        pilot mut previous = index - 1
+        pilot mut placed = false
+        repeat until previous < 0 or placed {
+            pilot before: word = array_get(cli_test_names, previous)
+            pilot mut comparison = freak_word_compare(before, name)
+            if comparison == 0 { comparison = freak_word_compare(array_get(cli_test_paths, previous), path) }
+            if comparison > 0 {
+                array_set(cli_test_names, previous + 1, before)
+                array_set(cli_test_paths, previous + 1, array_get(cli_test_paths, previous))
+                array_set(cli_test_sources, previous + 1, array_get(cli_test_sources, previous))
+                previous -= 1
+            } else { placed = true }
+        }
+        array_set(cli_test_names, previous + 1, name)
+        array_set(cli_test_paths, previous + 1, path)
+        array_set(cli_test_sources, previous + 1, source)
+        index += 1
+    }
+}
+
+task cli_test_discover(root: word, manifest_path: word) -> bool {
+    pilot manifest = fs::read_ticket(manifest_path)
+    if not fs::result_ok(manifest) {
+        cli_test_fail("cannot read test manifest: " + fs::result_error(manifest))
+        fs::result_release(manifest)
+        give back false
+    }
+    pilot text = fs::result_word(manifest)
+    fs::result_release(manifest)
+    if not toml_parse(text) {
+        cli_test_fail("invalid test manifest at line " + word_from_int(toml_error_line) + ": " + toml_error)
+        give back false
+    }
+    pilot mut declared = toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), "tests")
+    pilot mut index = 0
+    repeat until index >= array_len(toml_sections_arr) {
+        pilot section: word = array_get(toml_sections_arr, index)
+        if section.starts_with("tests.") {
+            cli_test_fail("nested test tables are unsupported: " + section)
+        }
+        index += 1
+    }
+    index = 0
+    repeat until index >= toml_count {
+        pilot key: word = array_get(toml_keys_arr, index)
+        if key.starts_with("tests.") {
+            declared = true
+            if key.substring(6, key.length() - 6).contains(".") {
+                cli_test_fail("test names must be a single manifest key: " + key)
+            } else if array_get(toml_types_arr, index) != "string" {
+                cli_test_fail("test declarations require quoted relative .fk paths: " + key)
+            } else {
+                cli_test_add(root, key.substring(6, key.length() - 6), array_get(toml_vals_arr, index))
+            }
+        }
+        index += 1
+    }
+    if not declared {
+        -- Root snapshot preparation binds the same fallback inventory before
+        -- calling this entry. Child builds reject changed snapshot inputs.
+        pilot directory = root + "/tests"
+        pilot info = fs::stat_checked(directory)
+        pilot ordinary = fs::result_ok(info) and fs::result_kind(info) == 2
+        fs::result_release(info)
+        if not ordinary {
+            cli_test_fail("test discovery requires an ordinary tests/ directory")
+            give back false
+        }
+        pilot listing = fs::list_dir_checked(directory)
+        if not fs::result_ok(listing) {
+            cli_test_fail("cannot list tests/: " + fs::result_error(listing))
+            fs::result_release(listing)
+            give back false
+        }
+        index = 0
+        repeat until index >= fs::result_count(listing) {
+            pilot entry = fs::result_entry(listing, index)
+            if entry.ends_with("_test.fk") {
+                cli_test_add(root, entry.substring(0, entry.length() - 3), "tests/" + entry)
+            }
+            index += 1
+        }
+        fs::result_release(listing)
+    }
+    if cli_test_error != "" { give back false }
+    if array_len(cli_test_names) == 0 {
+        cli_test_fail("project declares no tests and discovery found no *_test.fk programs")
+        give back false
+    }
+    cli_test_sort()
+    give back true
+}
+
+task cli_test_capture_report(ticket: int, started: int, json_mode: bool) -> word {
+    pilot status = process::command_status(ticket)
+    pilot exit_code = process::command_exit_code(ticket)
+    pilot signal = process::command_signal(ticket)
+    pilot label = cli_test_process_label(status, exit_code)
+    pilot elapsed = (time::monotonic_ns() - started) / 1000000
+    pilot error = process::command_error(ticket)
+    pilot stdout: ByteBuffer = process::command_stdout_bytes(ticket)
+    pilot stderr: ByteBuffer = process::command_stderr_bytes(ticket)
+    pilot out_length = stdout.length()
+    pilot err_length = stderr.length()
+    if json_mode {
+        pilot mut exit_json = "null"
+        if status == 2 { exit_json = word_from_int(exit_code) }
+        pilot mut signal_json = "null"
+        if status == 4 { signal_json = word_from_int(signal) }
+        pilot mut timeout_json = "false"
+        if status == 5 { timeout_json = "true" }
+        pilot out_hex = cli_test_bytes_hex(stdout)
+        pilot err_hex = cli_test_bytes_hex(stderr)
+        give back "{\"status\":\"" + label + "\",\"process_status\":" + word_from_int(status) + ",\"exit_code\":" + exit_json + ",\"signal\":" + signal_json + ",\"timed_out\":" + timeout_json + ",\"elapsed_ms\":" + word_from_int(elapsed) + ",\"encoding\":\"hex\",\"stdout_bytes\":" + word_from_int(out_length) + ",\"stderr_bytes\":" + word_from_int(err_length) + ",\"stdout_hex\":\"" + out_hex + "\",\"stderr_hex\":\"" + err_hex + "\",\"error\":\"" + cli_test_json_escape(error) + "\"}"
+    }
+    pilot mut report = label + " (" + word_from_int(elapsed) + " ms)"
+    if status == 2 { report = report + ", exit " + word_from_int(exit_code) }
+    if status == 4 { report = report + ", signal " + word_from_int(signal) }
+    if error != "" { report = report + "\n" + error }
+    if out_length > 0 {
+        pilot output = stdout.to_word()
+        if stdout.status() == 0 {
+            report = report + "\nstdout:\n" + output
+            stdout.release()
+        } else { report = report + "\nstdout (hex): " + cli_test_bytes_hex(stdout) }
+    } else { stdout.release() }
+    if err_length > 0 {
+        pilot output = stderr.to_word()
+        if stderr.status() == 0 {
+            report = report + "\nstderr:\n" + output
+            stderr.release()
+        } else { report = report + "\nstderr (hex): " + cli_test_bytes_hex(stderr) }
+    } else { stderr.release() }
+    give back report
+}
+
+task cli_test_output(directory: word, index: int) -> word {
+    pilot mut path = directory + "/test_" + word_from_int(index)
+    if cli_is_windows() { path = path + ".exe" }
+    give back path
+}
+
+task cli_test_start_build(index: int, compiler: word, root: word, snapshot: word, backend: word, directory: word, timeout_ms: int, stdout_limit: int, stderr_limit: int) -> void {
+    pilot ticket = process::command_new(compiler)
+    process::command_arg(ticket, "build")
+    process::command_arg(ticket, array_get(cli_test_sources, index))
+    process::command_arg(ticket, "--graph-snapshot=" + snapshot)
+    process::command_arg(ticket, "--locked")
+    process::command_arg(ticket, "--offline")
+    process::command_arg(ticket, "--" + backend)
+    process::command_arg(ticket, "--output=" + cli_test_output(directory, index))
+    process::command_cwd(ticket, root)
+    array_set(cli_test_tickets, index, word_from_int(ticket))
+    array_set(cli_test_started, index, word_from_int(time::monotonic_ns()))
+    array_set(cli_test_phase, index, "1")
+    -- The run deadline must not expire while Clang is still building the test.
+    -- Compilation has its own bounded deadline and reports a build timeout.
+    process::command_spawn(ticket, cli_test_build_timeout_ms, stdout_limit, stderr_limit)
+}
+
+task cli_test_start_run(index: int, root: word, directory: word, timeout_ms: int, stdout_limit: int, stderr_limit: int) -> void {
+    pilot ticket = process::command_new(cli_test_output(directory, index))
+    process::command_cwd(ticket, root)
+    array_set(cli_test_tickets, index, word_from_int(ticket))
+    array_set(cli_test_started, index, word_from_int(time::monotonic_ns()))
+    array_set(cli_test_phase, index, "2")
+    process::command_spawn(ticket, timeout_ms, stdout_limit, stderr_limit)
+}
+
+task cli_test_poll(index: int, root: word, directory: word, timeout_ms: int, stdout_limit: int, stderr_limit: int, json_mode: bool) -> void {
+    pilot phase: word = array_get(cli_test_phase, index)
+    if phase != "1" and phase != "2" { give back }
+    pilot ticket = word_to_int(array_get(cli_test_tickets, index))
+    pilot status = process::command_poll(ticket)
+    if status == 1 { give back }
+    pilot exit_code = process::command_exit_code(ticket)
+    pilot started = word_to_int(array_get(cli_test_started, index))
+    pilot report = cli_test_capture_report(ticket, started, json_mode)
+    process::command_release(ticket)
+    array_set(cli_test_tickets, index, "")
+    if phase == "1" {
+        array_set(cli_test_build_reports, index, report)
+        if status == 2 and exit_code == 0 {
+            cli_test_start_run(index, root, directory, timeout_ms, stdout_limit, stderr_limit)
+        } else {
+            array_set(cli_test_results, index, "build_failed")
+            array_set(cli_test_phase, index, "3")
+        }
+    } else {
+        array_set(cli_test_run_reports, index, report)
+        array_set(cli_test_results, index, cli_test_process_label(status, exit_code))
+        array_set(cli_test_phase, index, "3")
+    }
+}
+
+task cli_test_emit_case(index: int, json_mode: bool) -> void {
+    pilot name: word = array_get(cli_test_names, index)
+    pilot path: word = array_get(cli_test_paths, index)
+    pilot outcome: word = array_get(cli_test_results, index)
+    pilot build: word = array_get(cli_test_build_reports, index)
+    pilot mut run: word = array_get(cli_test_run_reports, index)
+    if json_mode {
+        if run == "" { run = "null" }
+        pilot mut prefix = ""
+        if index > 0 { prefix = "," }
+        say prefix + "{\"name\":\"" + cli_test_json_escape(name) + "\",\"path\":\"" + cli_test_json_escape(path) + "\",\"status\":\"" + outcome + "\",\"build\":" + build + ",\"run\":" + run + "}"
+    } else {
+        say "TEST " + name + " [" + path + "]: " + outcome
+        say "  build: " + build
+        if run != "" { say "  run: " + run }
+    }
+    -- A stalled earlier test cannot accumulate an entire suite's output:
+    -- start/report cursors retain captures for at most the jobs-wide window.
+    array_set(cli_test_build_reports, index, "")
+    array_set(cli_test_run_reports, index, "")
+}
+
+task cli_test_temp_directory() -> word {
+    pilot mut parent = process::env("TMPDIR")
+    if cli_is_windows() {
+        parent = process::env("TEMP")
+        if parent == "" { parent = process::env("TMP") }
+    } else {
+        if parent == "" { parent = "/tmp" }
+    }
+    if parent == "" {
+        cli_test_fail("cannot select a system temporary directory")
+        give back ""
+    }
+    pilot created = fs::temp_dir(parent, "freak-tests-")
+    if not fs::result_ok(created) {
+        cli_test_fail("cannot create owned test output directory: " + fs::result_error(created))
+        fs::result_release(created)
+        give back ""
+    }
+    cli_test_temp_ticket = created
+    pilot raw = fs::result_word(created)
+    pilot canonical = fs::directory_path_ticket(created)
+    if not fs::result_ok(canonical) {
+        cli_test_fail("cannot resolve owned test output directory: " + fs::result_error(canonical) + "; retained at " + raw)
+        fs::result_release(canonical)
+        pilot cleanup = fs::remove_temp_dir_checked(created)
+        fs::result_release(cleanup)
+        fs::result_release(created)
+        cli_test_temp_ticket = 0
+        give back ""
+    }
+    pilot path = fs::result_word(canonical)
+    fs::result_release(canonical)
+    give back path
+}
+
+task cli_test_cleanup(directory: word) -> bool {
+    -- Retain the exclusive directory capability until every child finishes.
+    -- Cleanup traverses held handles and never follows child-created links.
+    if cli_test_temp_ticket == 0 { give back true }
+    pilot removed_directory = fs::remove_temp_dir_checked(cli_test_temp_ticket)
+    if not fs::result_ok(removed_directory) {
+        cli_test_fail("cannot remove owned test output directory: " + fs::result_error(removed_directory) + "; retained at " + directory)
+    }
+    fs::result_release(removed_directory)
+    fs::result_release(cli_test_temp_ticket)
+    cli_test_temp_ticket = 0
+    give back cli_test_error == ""
+}
+
+task cli_test_setup_failure(json_mode: bool) -> int {
+    if json_mode {
+        say "{\"schema\":1,\"cases\":[],\"summary\":{\"total\":0,\"passed\":0,\"failed\":0},\"error\":\"" + cli_test_json_escape(cli_test_error) + "\"}"
+    } else { say "Test error: " + cli_test_error }
+    cli_test_release()
+    give back 1
+}
+
+task cli_test_project(project_root: word, manifest_path: word, graph_snapshot: word, backend: word, jobs: int, timeout_ms: int, stdout_limit: int, stderr_limit: int, json_mode: bool) -> int {
+    cli_test_clear()
+    if jobs < 1 or jobs > 4 {
+        cli_test_fail("--jobs must be between 1 and 4")
+        give back cli_test_setup_failure(json_mode)
+    }
+    if timeout_ms < 1 or timeout_ms > 3600000 {
+        cli_test_fail("--timeout-ms must be between 1 and 3600000")
+        give back cli_test_setup_failure(json_mode)
+    }
+    if stdout_limit < 1 or stderr_limit < 1 or stdout_limit > 16777216 or stderr_limit > 16777216 {
+        cli_test_fail("stdout/stderr limits must be between 1 and 16777216 bytes")
+        give back cli_test_setup_failure(json_mode)
+    }
+    if backend != "c" and backend != "llvm" {
+        cli_test_fail("tests require the c or llvm backend")
+        give back cli_test_setup_failure(json_mode)
+    }
+    if graph_snapshot == "" {
+        cli_test_fail("project tests require a prepared immutable graph snapshot")
+        give back cli_test_setup_failure(json_mode)
+    }
+    if not cli_test_discover(project_root, manifest_path) { give back cli_test_setup_failure(json_mode) }
+    pilot compiler = cli_executable_path()
+    if compiler == "" {
+        cli_test_fail("cannot resolve the selected installed FREAK executable")
+        give back cli_test_setup_failure(json_mode)
+    }
+    pilot directory = cli_test_temp_directory()
+    if directory == "" { give back cli_test_setup_failure(json_mode) }
+    pilot total = array_len(cli_test_names)
+    pilot mut index = 0
+    repeat until index >= total {
+        array_push(cli_test_phase, "0")
+        array_push(cli_test_tickets, "")
+        array_push(cli_test_started, "0")
+        array_push(cli_test_build_reports, "")
+        array_push(cli_test_run_reports, "")
+        array_push(cli_test_results, "")
+        index += 1
+    }
+    if json_mode { say "{\"schema\":1,\"cases\":[" }
+    pilot mut next_start = 0
+    pilot mut next_report = 0
+    pilot mut passed = 0
+    repeat until next_report >= total {
+        repeat until next_start >= total or next_start >= next_report + jobs {
+            cli_test_start_build(next_start, compiler, project_root, graph_snapshot, backend, directory, timeout_ms, stdout_limit, stderr_limit)
+            next_start += 1
+        }
+        index = next_report
+        repeat until index >= next_start {
+            cli_test_poll(index, project_root, directory, timeout_ms, stdout_limit, stderr_limit, json_mode)
+            index += 1
+        }
+        pilot mut report_ready = true
+        repeat until next_report >= next_start or not report_ready {
+            if array_get(cli_test_phase, next_report) == "3" {
+                if array_get(cli_test_results, next_report) == "passed" { passed += 1 }
+                cli_test_emit_case(next_report, json_mode)
+                next_report += 1
+            } else { report_ready = false }
+        }
+        if next_report < total { time::sleep(5) }
+    }
+    pilot clean = cli_test_cleanup(directory)
+    pilot failed = total - passed
+    if json_mode {
+        say "],\"summary\":{\"total\":" + word_from_int(total) + ",\"passed\":" + word_from_int(passed) + ",\"failed\":" + word_from_int(failed) + "},\"error\":\"" + cli_test_json_escape(cli_test_error) + "\"}"
+    } else {
+        say word_from_int(passed) + " passed, " + word_from_int(failed) + " failed (" + word_from_int(total) + " tests)"
+        if not clean { say "Test cleanup error: " + cli_test_error }
+    }
+    cli_test_release()
+    if failed > 0 or not clean { give back 1 }
+    give back 0
+}
+
+
+-- Validate every option before graph/store/output mutation.
+task cli_test_decimal(text: word, maximum: int) -> int {
+    if text == "" { give back 0 - 1 }
+    pilot value = 0 pilot index = 0
+    repeat until index >= text.length() {
+        pilot ch = text.char_at(index)
+        pilot digit = 0 - 1 pilot candidate = 0
+        repeat until candidate >= 10 {
+            if "0123456789".char_at(candidate) == ch { digit = candidate }
+            candidate += 1
+        }
+        if digit < 0 or value > (maximum - digit) / 10 { give back 0 - 1 }
+        value = value * 10 + digit index += 1
+    }
+    give back value
+}
+
+task cli_test_command(args_cnt: int) -> int {
+    cli_test_clear()
+    pilot manifest = "" pilot snapshot = "" pilot backend = "llvm"
+    pilot jobs = 1 pilot timeout_ms = 30000 pilot stdout_limit = 1048576 pilot stderr_limit = 1048576
+    pilot build_timeout_ms = 120000
+    pilot locked = false pilot offline = false pilot frozen = false pilot json_mode = false
+    pilot index = 2
+    repeat until index >= args_cnt {
+        if process::arg(index) == "--json" { json_mode = true }
+        index += 1
+    }
+    index = 2
+    repeat until index >= args_cnt {
+        pilot flag = process::arg(index)
+        if flag == "--json" {}
+        else if flag == "--c" { backend = "c" }
+        else if flag == "--llvm" { backend = "llvm" }
+        else if flag == "--backend" {
+            index += 1
+            if index >= args_cnt { cli_test_fail("--backend requires c or llvm") }
+            else { backend = process::arg(index) }
+        } else if flag.starts_with("--backend=") { backend = cli_flag_value(flag, 10) }
+        else if flag.starts_with("--manifest-path=") { manifest = cli_flag_value(flag, 16) if manifest == "" { cli_test_fail("--manifest-path requires a file path") } }
+        else if flag.starts_with("--graph-snapshot=") { snapshot = cli_flag_value(flag, 17) if snapshot == "" { cli_test_fail("--graph-snapshot requires a file path") } }
+        else if flag == "--locked" { locked = true }
+        else if flag == "--offline" { offline = true }
+        else if flag == "--frozen" { locked = true offline = true frozen = true }
+        else if flag.starts_with("--jobs=") { jobs = cli_test_decimal(cli_flag_value(flag, 7), 4) }
+        else if flag.starts_with("--timeout-ms=") { timeout_ms = cli_test_decimal(cli_flag_value(flag, 13), 3600000) }
+        else if flag.starts_with("--build-timeout-ms=") { build_timeout_ms = cli_test_decimal(cli_flag_value(flag, 19), 3600000) }
+        else if flag.starts_with("--stdout-limit=") { stdout_limit = cli_test_decimal(cli_flag_value(flag, 15), 16777216) }
+        else if flag.starts_with("--stderr-limit=") { stderr_limit = cli_test_decimal(cli_flag_value(flag, 15), 16777216) }
+        else { cli_test_fail("unknown test option " + flag) }
+        index += 1
+    }
+    if backend != "c" and backend != "llvm" { cli_test_fail("tests require the c or llvm backend") }
+    if jobs < 1 or jobs > 4 { cli_test_fail("--jobs must be between 1 and 4") }
+    if timeout_ms < 1 or timeout_ms > 3600000 { cli_test_fail("--timeout-ms must be between 1 and 3600000") }
+    if build_timeout_ms < 1 or build_timeout_ms > 3600000 { cli_test_fail("--build-timeout-ms must be between 1 and 3600000") }
+    if stdout_limit < 1 or stdout_limit > 16777216 or stderr_limit < 1 or stderr_limit > 16777216 { cli_test_fail("stdout/stderr limits must be between 1 and 16777216 bytes") }
+    if cli_test_error != "" { give back cli_test_setup_failure(json_mode) }
+    cli_test_build_timeout_ms = build_timeout_ms
+    package_configure_source_options(manifest, snapshot, locked, offline, frozen)
+    if manifest == "" {
+        if not package_prepare_project_sources("./__freak_test_selection__.fk") { cli_test_fail(hangar_graph_error) }
+        if package_graph_no_manifest { cli_test_fail("tests require an enclosing or explicit package manifest") }
+    } else if not package_prepare_selected_manifest(manifest) { cli_test_fail(hangar_graph_error) }
+    if cli_test_error != "" { give back cli_test_setup_failure(json_mode) }
+    pilot root = array_get(package_source_original_roots, 0)
+    pilot selected_manifest = package_graph_manifest_path
+    pilot selected_snapshot = package_graph_snapshot_path
+    cli_test_release()
+    give back cli_test_project(root, selected_manifest, selected_snapshot, backend, jobs, timeout_ms, stdout_limit, stderr_limit, json_mode)
+}

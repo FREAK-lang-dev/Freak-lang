@@ -50,13 +50,13 @@ Pipeline (full compiler):
 | §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, body-derived provenance/source discovery through projection/scalar-holder/projected-reborrow/statically resolved call/reordered-argument/CFG-join paths with bounded deterministic loop-header/backedge fixed points, all-candidate final-use liveness (including elided multi-owner results), and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed child provenance, projection-assignment rebinding (including conservative dynamic-index overlap), field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Generic-call, owner-generic, and `Shared<T>::new` checks recursively expose nominal shape/route lends before substitution; direct nominal impl and overloaded operator calls on lend-bearing owners fail closed, and classifier depth exhaustion has a distinct diagnostic. First-pass closure capture ownership (`CaptureBorrow`, `CaptureBorrowMut`, `CaptureCopy`, `CaptureMove`) with stored-closure loan liveness and OneShot consumption, queryable Meiya-owned loan/move facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating also exist. Declaration-order children use `freak-mir-snapshot-v7`; v4/v5/v6 are rejected, and restore re-resolves IDs in a fresh borrowck generation. Ordinary-task fixed-layout aggregate parameters and returns now preserve leaf provenance; non-ordinary aggregate task parameters and returns, dynamic and wrapper containers, lend-bearing aliases/doctrine/callback contracts, signature-derived lifetime solving beyond declared ordinary-task relations, general lexical region inference, `'static`, general arena reclamation, runtime `Shared<T>`/`Weak<T>` depth, closure `Send`/`Sync`, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax exists, but borrowed-return closure contracts and forwarding do not yet. No fixed-aggregate backend or runtime ABI is claimed. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
-| §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; V3 ui is limited to the LLVM/Windows Win32-GDI floor and COCKPIT remains a Maverick source preview. Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
+| §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; current V3.5 development also includes ordinary `std::test` assertion helpers. V3 ui is limited to the LLVM/Windows Win32-GDI floor and COCKPIT remains a Maverick source preview. Planned: thread, anime, narrative, richer test blocks, regex, crypto, ffi, panic. |
 | §8 Lexer | ⚠️ Partial | All v0.13.x keywords lex. V4 token streams now carry `'a` lifetimes and number suffixes (`42u`/`3.14f`/`42t`/`999b`); the `\|\|` xm3 separator and remaining production recovery depth are still V4. |
 | §9 Parser | ⚠️ Partial | Tolerant parsing (`ErrorNode`/`IncompleteNode`, recovery boundaries, IDE-grade incremental parsing) is V4. v1 (Python) parser fails on V3-superset syntax — V3 self-hosting compiler is the bible-conformant parser. |
 | §10 Type Checker | ⚠️ Partial | Most semantic checks listed (power arithmetic, prob ranges, foreshadow strict enforcement, classified redaction, full FFI safety) are V4. V4 now validates route exhaustiveness, first-pass `dyn Doctrine` object-safety/coercion contracts, and the basic `@layout(C)` / `packed` / `transparent` contracts; deeper layout and backend guarantees still expand. |
 | §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. LLVM emits LineTablesOnly DWARF (DISubprogram per function + per-instruction `!dbg`). Special codegen for `mood`/variants/`dyn` fat-pointer vtables/`Shared<T>` runtime headers/optimization pragmas/classified symbol stripping is V4; extern ABI lowering is partial in V4. JIT (OrcJIT) is V4. |
 | §12 Build Modes | 🔜 V4 | `slice_of_life`/`mecha`/`shonen_jump`/`final_form`/`alternative` modes are V4. v0.13.x has only LLVM `--opt=0..3` and `--c`/`--llvm` backend selection. |
-| §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`; `freak test` is a source-checkout Python regression shim, not an installed in-language test framework. V4: `freak vibe`, the `test "name" { ... }` framework, `--voice=…`, `--clearance=…`, `--build-mode=…`, `-o output_path`. |
+| §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`; current V3.5 development also provides installed native `freak test` for ordinary programs declared in `[tests]`, and `-o`/`--output` for build/run. V4: `freak vibe`, the `test "name" { ... }` framework, `--voice=…`, `--clearance=…`, `--build-mode=…`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
 | §15 Cheatsheet | ⚠️ Partial | Reflects §1-§14 status. |
 | §16 FFI | ⚠️ Partial | V4 has landed substantial section-16 work (extern ABI metadata, layout attributes, callback surface validation + `@extern_callback` task export with trampolines, stack-unwinder import diagnostics, raw-pointer `.is_null()`, trust-me-gated `*ptr`/`.read()` read, `*ptr = value`/`.write(value)` write, `.offset(n)`, `.cast<U>()`, fieldless `@repr(...)` route/variant FFI safety, and more). Per-landing breakdown lives in [freak-conformance-audit.md §16](freak-conformance-audit.md#§16-system-boundaries-ffi). Still V4: runtime panic-catch in trampoline bodies, raw allocation/freeing, `std::os` platform modules, error-code translation. |
@@ -94,7 +94,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 
 | Sub-section | v0.14.0 status |
 |---|---|
-| §1.1 Variables | ✅ Implemented (note: `pilot mut` only matters under `--strict-borrow`) |
+| §1.1 Variables | ✅ Implemented (note: `pilot mut` is a silent synonym of mutable-by-default `pilot`) |
 | §1.2 Functions | ✅ Implemented — V4 also carries named call-site arguments through task, generic, instance-method, associated-method, editor, and diagnostic query slices |
 | §1.3 Primitive types | ⚠️ Partial — `num`/`int`/`word`/`bool`/`void` ship in production; V4 also carries `uint`/`tiny`/`char`/`big`/`float`/`float32`/`never`, `[T;N]`, tuple, and raw-pointer type forms through TY/MIR smokes, with scalar LLVM type plans for primitive carriers; full runtime/backend semantics still expand |
 | §1.4 Compound types (`maybe<T>`, `result<T,E>`) | ✅ Implemented |
@@ -125,7 +125,23 @@ pilot x: word = "hello"
 - Type annotation optional — inferred from value
 - Semicolons optional everywhere
 - Mutable by default
-- Immutable binding: `fixed pilot x = 42` — cannot be reassigned
+- Immutable binding: `fixed pilot x = 42` or `grounded pilot x = 42` — cannot be reassigned
+- `grounded` is contextual only before `pilot`, with spaces or tabs between the
+  words. LF, CRLF, bare CR and comments do not join the pair. It remains a usable
+  name elsewhere.
+- Mutation diagnostics preserve the written spelling: `fixed pilot cannot be modified` or `grounded pilot cannot be modified`.
+- `pilot mut` is a silent synonym of `pilot`, including under `--strict-borrow`.
+
+**V3 program entries:** a script without `task main()` runs executable root
+statements and binding initializers in source order. A program with `main` may
+contain root declarations but rejects executable root statements. Empty,
+comment-only and declaration-only programs without `main` fail at the user
+entry path. The explicit V4 host bootstrap compatibility profile is unchanged.
+
+**Word ordering:** `<`, `>`, `<=` and `>=` compare two Words by unsigned UTF-8
+bytes and return `bool`. A shorter prefix sorts first; uppercase ASCII sorts
+before lowercase. Embedded NUL bytes participate in ordering. Comparison is
+not locale-aware; mixed Word/numeric ordering is a type error.
 
 ### 1.2 Functions
 
@@ -157,8 +173,14 @@ connect(host: "localhost", port: 8080, timeout: 30)
 - `say` — print keyword (always available, no import)
 - String path interpolation: `{path}` inside double-quoted strings, where a
   path is an identifier followed by zero or more `.field` hops. The path must
-  resolve to `word`, `int`, `num`, or `bool`. Matched brace bodies that are not
-  paths, and unmatched braces, remain literal text.
+  resolve to `word`, `int`, `num`, or `bool`. Unsupported expression-like
+  bodies are errors: after trimming whitespace, a matched non-path body that
+  starts with an identifier/keyword, digit, `(`, `+`, `-`, or `!` is rejected
+  unless it contains `:` (object/JSON-like literal text). An unclosed such body
+  is rejected when its trimmed text is a valid path or it contains one of `(`,
+  `+`, `-`, `*`, `/`, `=`. Other unmatched braces, empty braces and other
+  non-expression brace text remain literal. Use `\{` and `\}` to
+  spell literal braces, for example `"\{score + 1\}"`.
 - `{}` and `done` are identical block delimiters
 
 ### 1.3 Types — Primitive
@@ -346,6 +368,13 @@ Rules:
 
 ### 1.7 Control Flow
 
+Statements in a program or block may be separated by a newline or `;`.
+A semicolon may also trail the last statement on a line or before `}`.
+Newline-separated programs retain their meaning; separators do not create
+expression statements. A semicolon ends a bare `give back` in a void task,
+while semicolons inside strings or comments are ordinary data. The separator
+is not an operator or a replacement for argument/collection commas.
+
 ```
 -- if/else
 if x > 10 { say "big" }
@@ -378,6 +407,16 @@ repeat 5 times { do_thing() }
 -- repeat until
 repeat until condition { do_thing() }
 
+-- condition-first loops: both spellings run while the condition is true
+repeat while condition { do_thing() }
+while condition { do_thing() }
+
+-- experimental V3.5 counted forms
+for each i in 0..10 { say i }
+for each i in 0..=10 step 2 { say i }
+repeat 10 times with i { say i }
+for (pilot i = 0; i < 10; i += 1) { say i }
+
 -- training arc: loop guaranteed to eventually terminate
 training arc until power >= 9000 max 100 sessions {
     practice()
@@ -393,6 +432,41 @@ for each item in list {
     process(item)
 }
 ```
+
+The condition of `repeat while` and `while` must be `bool`; it is tested
+before every pass, including the first. They share the existing loop rules
+for `break`, `continue`, lexical cleanup and early return.
+
+In current development V4, only exact lowercase `while` is reserved.
+`While` and `WHILE` remain identifiers in supported declaration positions.
+This reservation includes route/variant case names and nested payload fields
+and types; quoted tokens and comments remain literal contents.
+Loop headers distinguish a known shape/route constructor's payload braces
+from the body braces; supported Boolean comparisons can therefore use those
+constructors. Frontend/MIR and snapshot acceptance does not extend existing
+aggregate-constructor or global-value native lowering limits.
+
+Development V4 closes a completed `when` or `check route` join when every
+arm terminates. Following source retains name, type, call, pattern and coverage
+diagnostics; ownership checks remain active on the published graph.
+A live fallthrough keeps its continuation, and nested
+`break`/`continue` edges keep their loop targets. This construction rule does
+not relax live CFG validation or snapshot admission.
+
+The three V3.5 counted forms are experimental. Range bounds, an explicit
+positive `int` step and a repeat count are evaluated once in source order.
+`a..b` excludes `b`; `a..=b` includes it. Empty and backwards ranges run
+zero times. Range and repeat indices are fresh immutable `int` bindings,
+scoped to the body; a same-named outer binding is restored after the loop.
+Invalid constant steps fail compilation and nonpositive dynamic steps fail
+controllably at runtime. An inclusive range ending at the largest `int`
+finishes without overflowing its internal increment.
+
+The initial C-style form accepts an `int` `pilot` initializer, a `bool`
+condition, and an assignment or `int`/`void` expression step. Its initializer
+is mutable and local to the header and body; `fixed pilot` is rejected.
+`continue` executes the step, while `break` skips it. A `num` bound, count
+or step is a type error. `with` and `step` remain contextual identifiers.
 
 ### 1.8 Closures and Lambdas
 
@@ -601,7 +675,7 @@ Rules:
 > ordered cases, payload presence, and payload-field names, surface types, and
 > exact spans. TY and editor declaration readers consume these stored facts;
 > generic substitution, alias canonicalization, and recovery behavior are
-> unchanged. HIR v11 snapshots validate complete owner/case/field records before
+> unchanged. HIR v12 snapshots validate complete owner/case/field records before
 > atomic restore. Discriminant token ranges come from stored HIR case spans;
 > evaluation and constructor/pattern syntax remain
 > separately syntax-facing. This ownership change does not define a new layout
@@ -678,7 +752,7 @@ Rules:
 **Shipping V3 dynamic lists:** literals infer `List<T>` for `int`, `num`,
 `bool`, `word`, and concrete owned shapes. Mixed numeric elements widen to
 `num`; incompatible elements are diagnosed. V3 implements checked indexing,
-indexed assignment through a `pilot mut` root, `.length()`, `.capacity()`,
+indexed assignment through a mutable `pilot` root, `.length()`, `.capacity()`,
 `.reserve(n)`, `.clear()`, `.push(value)`, `.pop()`,
 `List::filled(value, count)`, `List::new()`, `List::with_capacity(n)`, and
 `for each item in values` on LLVM and C. A context-typed empty literal
@@ -687,7 +761,7 @@ indexed assignment through a `pilot mut` root, `.length()`, `.capacity()`,
 `List<T>` pilot annotation; an unannotated empty literal defaults to
 `List<word>`, while an unannotated `List::new()` / `List::with_capacity(n)`
 is rejected as uninferred. Mutating methods (`.push()`, `.pop()`,
-`.clear()`, `.reserve()`) require the same `pilot mut` root as indexed
+`.clear()`, `.reserve()`) require the same mutable `pilot` root as indexed
 assignment. Popped words and shapes transfer ownership to the caller and
 cleared elements release owned storage, so native word/shape counters
 return to zero on ordinary exits.
@@ -1043,8 +1117,10 @@ pilot all = tracker.report()
 the rest is V4.
 
 > **What ships in v0.13.x (Phase-1):**
-> - `pilot x = ...` is immutable; `pilot mut x = ...` opts into reassignment.
->   Reassign without `mut` produces *"This binding was sworn to silence."*
+> - `pilot x = ...` is mutable, with `pilot mut` accepted as a silent synonym.
+>   `fixed pilot` and contextual `grounded pilot` are immutable in every mode.
+>   Strict borrow checking retains its move/loan checks without requiring `mut`
+>   for ordinary reassignment.
 > - Single-owner moves for `word`, `List<...>`, `Map<...>`, and user
 >   shapes. Use after move produces *"Shirogane. You gave this away."*
 > - Primitives are Copy: `int`, `num`, `bool`, `tiny`, `char`, `float`,
@@ -1776,7 +1852,7 @@ freak hangar clean         -- clear cache
 | `std::thread` (`spawn`, atomics, channels) | 🔜 V4 |
 | `std::anime` (mood arithmetic, power checks) | 🔜 V4 (depends on §2 types) |
 | `std::narrative` (death-flag analysis, foreshadow logs) | 🔜 V4 (depends on §5 enforcement) |
-| `std::test` (`test "..." { expect ... }`) | 🔜 V4 (currently use `python tests/suite/run_tests.py`) |
+| `std::test` | ✅ Ordinary assertion helpers in current V3.5 native project tests; `test "..." { expect ... }` blocks remain 🔜 V4 |
 | `std::ffi`, `std::os`, `std::panic`, `std::regex`, `std::crypto`, `Shared<T>` / `Weak<T>` / `size_of<T>()` | ⚠️ Partial — V4 normalizes core `std::ffi` boundary aliases and uses them in extern/layout safety checks; `Shared<T>` / `Weak<T>` type and method surfaces now lower through TY/MIR/Meiya, while runtime allocation, platform modules, panic, regex, crypto, and `size_of<T>()` still expand |
 
 The prelude (always-available types and `say`/`ask`/`panic`) ships in v0.13.x
@@ -2160,7 +2236,15 @@ narrative::foreshadow_log()    -- ForeshadowLog
 log.unpaid.length              -- should be 0 at program end
 ```
 
-### 7.17 std::test (dev only, stripped in release)
+### 7.17 std::test
+
+Current V3.5 development distributes ordinary `test_assert`, `test_assert_int`,
+and `test_assert_word` helpers in `std/test.fk`. They terminate a failing
+standalone test program with status 1. Declare these programs in the project's
+`[tests]` table and run them with the native `freak test` command.
+
+The richer test-block framework below remains V4 work; its proposed dev-only
+stripping policy does not apply to the existing assertion helpers.
 
 ```
 test "description" { ... }
@@ -2278,7 +2362,7 @@ class TokenType(Enum):
     GIVE_BACK / BREAK / CONTINUE
 
     # Control flow
-    IF / ELSE / WHEN / REPEAT / TIMES / UNTIL / DONE / FOR_KW / EACH
+    IF / ELSE / WHEN / REPEAT / TIMES / UNTIL / WHILE / DONE / FOR_KW / EACH
 
     # Error handling
     CHECK / RESULT_KW / GOT / NOBODY / SOME / OK / ERR / OR_ELSE
@@ -2301,7 +2385,7 @@ class TokenType(Enum):
 
     # Delimiters
     LBRACE / RBRACE / LPAREN / RPAREN / LBRACKET / RBRACKET
-    COMMA / COLON / SEMICOLON / DOT / DOT_DOT / ELLIPSIS
+    COMMA / COLON / SEMICOLON / DOT / DOT_DOT / DOT_DOT_EQ / ELLIPSIS
     COLON_COLON / PIPE_SINGLE / AT
 
     # Assignment
@@ -2312,6 +2396,11 @@ class TokenType(Enum):
 ```
 
 ### 8.2 Multi-Word Tokens (lex greedily)
+
+V3.5 reserves `while`, increasing its reserved-word inventory from 54 to 55.
+This is a breaking change for older programs using `while` as an identifier.
+`repeat while` uses the same reserved `while` token. Counted-loop `with` and
+`step` are contextual words and do not enlarge that inventory.
 
 ```
 give back / or else / trust me / for each / training arc
@@ -2720,12 +2809,19 @@ alternative     -- special mode. enables ALL anime features. full causality.
 | `--build-mode=[mode]` flag | 🔜 V4 (depends on §12) |
 | `-o output_path` flag | 🔜 V4 (output path currently fixed to source basename + `.exe`) |
 
+The table records v0.14.0 behavior. Current V3.5 development provides native
+`freak test`: each source declared in `[tests]` supplies an ordinary `task main()`
+and may use the existing `std::test` assertion helpers. It builds and runs with
+the selected backend and immutable package graph; failures return nonzero.
+The Python source-checkout regression harness remains a separate developer tool.
+Build/run also accept checked `-o`/`--output` destinations. Richer test blocks and
+annotations remain V4 work.
 
 ```
 freak run file.fk             -- compile and run
 freak build file.fk           -- compile to binary
 freak check file.fk           -- type check + borrow check only
-freak test                    -- source-checkout Python regression shim (not test blocks)
+freak test                    -- native project programs declared in [tests]
 freak vibe file.fk            -- Opus vibe analysis
 
 freak hangar [command]        -- package manager (see Section 6.3)
@@ -3059,7 +3155,7 @@ Rules:
 
 > V4 ownership status: declared extern-member return surface types and exact
 > spans are stored in HIR and consumed by direct and synthetic TY signatures,
-> diagnostics and editor displays. HIR v11 snapshots validate complete ordered
+> diagnostics and editor displays. HIR v12 snapshots validate complete ordered
 > extern-return owner/member facts before atomic restoration. Missing returns
 > remain unknown; the existing arrow-expression recovery is explicitly gated
 > by its stored HIR flag. Optional semicolon separators terminate extern-member

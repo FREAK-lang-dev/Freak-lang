@@ -19,5 +19,3 @@ task main() -> int {
     say ship.name   -- ERROR: ship was moved
     give back 0
 }
-
-main()

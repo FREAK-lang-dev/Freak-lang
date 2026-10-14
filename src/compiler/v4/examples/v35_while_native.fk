@@ -1,0 +1,77 @@
+task v35_while_tick() -> bool {
+    say "tick"
+    give back true
+}
+
+task v35_while_flow() -> int {
+    pilot n = 0
+    pilot hits = 0
+    while n < 4 and v35_while_tick() {
+        n += 1
+        if n == 2 { continue }
+        if n == 4 { break }
+        hits += 1
+    }
+    give back n * 10 + hits
+}
+
+task v35_while_pretest_tail() -> int {
+    pilot sessions = 0
+    while false { sessions = 100 }sessions += 1
+    repeat while false { sessions = 100 }sessions += 2
+    give back sessions
+}
+
+task v35_while_nested() -> int {
+    pilot outer = 0
+    pilot hits = 0
+    while outer < 2 {
+        outer += 1
+        pilot inner = 0
+        repeat while inner < 4 {
+            inner += 1
+            if inner == 2 { continue }
+            if inner == 4 { break }
+            hits += 1
+        }
+    }
+    give back hits
+}
+
+task v35_until_preserved() -> int {
+    pilot n = 0
+    repeat until n >= 3 { n += 1 }n += 1
+    give back n
+}
+
+task v35_while_owned_continue() -> int {
+    pilot n = 0
+    while n < 2 {
+        pilot value = "temp"
+        n += 1
+        if n == 1 { continue }
+        if value.length() != 4 { give back 1 }
+    }
+    give back 0
+}
+
+task v35_while_owned_return() -> word {
+    pilot kept = "kept"
+    while true {
+        pilot temporary = "temporary"
+        if temporary.length() != 9 { give back "bad" }
+        give back kept
+    }
+    give back "bad"
+}
+
+task main() -> int {
+    if v35_while_flow() != 42 { give back 1 }
+    if v35_while_pretest_tail() != 3 { give back 2 }
+    if v35_while_nested() != 4 { give back 3 }
+    if v35_until_preserved() != 4 { give back 4 }
+    if v35_while_owned_continue() != 0 { give back 5 }
+    if v35_while_owned_return() != "kept" { give back 6 }
+    say "v35-while-ok"
+    give back 42
+}

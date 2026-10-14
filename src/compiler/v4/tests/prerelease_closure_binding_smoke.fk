@@ -1,0 +1,123 @@
+-- One source pipeline per process; binding permission belongs to the actual
+-- callee declaration, independently of closure capture ownership/doctrine.
+task v4_closure_binding_assert(condition: bool, label: word) -> void {
+    if not condition { panic("closure binding: " + label) }
+}
+
+task v4_closure_binding_source(mode: word) -> word {
+    pilot prefix = "fixed pilot"
+    if mode.starts_with("grounded-") { prefix = "grounded pilot" }
+    if mode.starts_with("pilot-") { prefix = "pilot" }
+    if mode == "explicit-mut" { prefix = "pilot mut" }
+    pilot statements = "pilot count: int = 0\n " + prefix + " cb = mut |_| " + chr(123) + " count += 1 " + chr(125) + "\n cb()\n"
+    if mode.ends_with("read") { statements = "pilot count: int = 0\n " + prefix + " cb = |_| => count\n cb()\n" }
+    if mode.ends_with("copy") { statements = "pilot count: int = 0\n " + prefix + " cb = copy |_| => count\n cb()\n" }
+    if mode.ends_with("once") or mode.ends_with("once-reuse") {
+        statements = "pilot title: word = \"owned\"\n " + prefix + " cb = move |_| " + chr(123) + " say title " + chr(125) + "\n cb()\n"
+        if mode.ends_with("once-reuse") { statements = statements + " cb()\n" }
+    }
+    if mode.ends_with("grouped") { statements = "pilot count: int = 0\n " + prefix + " cb = mut |_| " + chr(123) + " count += 1 " + chr(125) + "\n (cb)()\n" }
+    if mode.ends_with("nested") { statements = prefix + " cb = mut |_| => 1\n pilot answer = identity(cb())\n" }
+    if mode.starts_with("shadow-") {
+        pilot outer = "fixed pilot"
+        pilot inner = "pilot"
+        if mode == "shadow-fixed" { outer = "pilot"; inner = "fixed pilot" }
+        if mode == "shadow-grounded" { outer = "pilot"; inner = "grounded pilot" }
+        statements = outer + " cb = mut |_| => 1\n if true " + chr(123) + "\n " + inner + " cb = mut |_| => 2\n cb()\n " + chr(125) + "\n"
+    }
+    if mode.ends_with("tuple") { statements = prefix + " holder = (mut |_| => 1, 0)\n (holder.0)()\n" }
+    if mode.ends_with("index") { statements = prefix + " holder = [mut |_| => 1]\n (holder[0])()\n" }
+    if mode == "temporary" { statements = "(mut |_| => 1)()\n" }
+    if mode.ends_with("moved") { statements = prefix + " cb = mut |_| => 1\n pilot moved = cb\n moved()\n" }
+    if mode.ends_with("task") { statements = prefix + " cb = ordinary\n cb()\n" }
+    pilot helpers = "task identity(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\n"
+    helpers = helpers + "task ordinary() -> int " + chr(123) + " give back 1 " + chr(125) + "\n"
+    give back helpers + "task exercise() -> int " + chr(123) + "\n " + statements + " give back 0\n" + chr(125) + "\n"
+}
+
+task v4_closure_binding_run() -> void {
+    pilot mode = "fixed-mut"
+    if process::args_count() > 1 { mode = process::arg(1) }
+    pilot source_mode = mode
+    if mode == "restored-fixed-mut" { source_mode = "fixed-mut" }
+    if mode == "restored-grounded-mut" { source_mode = "grounded-mut" }
+    if mode == "restored-pilot-mut" { source_mode = "pilot-mut" }
+    pilot expected_prefix = ""
+    if source_mode == "fixed-mut" or source_mode == "fixed-grouped" or source_mode == "fixed-nested" or source_mode == "fixed-tuple" or source_mode == "fixed-index" or source_mode == "shadow-fixed" { expected_prefix = "fixed pilot" }
+    if source_mode == "grounded-mut" or source_mode == "grounded-grouped" or source_mode == "grounded-nested" or source_mode == "grounded-tuple" or source_mode == "grounded-index" or source_mode == "shadow-grounded" { expected_prefix = "grounded pilot" }
+    pilot repeat_move: bool = mode.ends_with("once-reuse")
+    pilot source = v4_closure_binding_source(source_mode)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    v4_closure_binding_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) == 0, "source reaches Meiya cleanly " + mode)
+    if mode.starts_with("restored-") {
+        pilot snapshot = v4_mir_snapshot()
+        v4_closure_binding_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "MIR restored " + mode)
+        v4_closure_binding_assert(v4_mir_snapshot() == snapshot, "MIR identity and prefixes preserved " + mode)
+    }
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    pilot def_id = v4_resolve_def_for_name(resolve, "exercise")
+    pilot body = v4_mir_lookup_body(mir, def_id)
+    pilot result_id = v4_borrowck_lookup_result(borrow, def_id)
+    pilot callee_count = 0
+    pilot immutable_count = 0
+    pilot value = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+        if v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_call {
+            pilot callee = v4_borrowck_call_callee_rvalue(mir, body, value)
+            if callee >= 0 {
+                pilot callee_ty = v4_mir_rvalue_ty(mir, body, callee)
+                if v4_ty_is_closure_type(callee_ty) {
+                    callee_count += 1
+                    if v4_ty_closure_doctrine(callee_ty) == v4_ty_closure_mut_callable {
+                        -- Check concrete identity, never a callee name/path match.
+                        v4_closure_binding_assert(v4_borrowck_binding_prefix_for_rvalue(mir, body, callee) == expected_prefix, "callee declaration identity " + mode)
+                    } else {
+                        v4_closure_binding_assert(expected_prefix == "", "read/move call is not mutable " + mode)
+                    }
+                }
+            }
+        }
+        value += 1
+    }
+    v4_closure_binding_assert(callee_count >= 1 or mode.ends_with("task"), "real callee exists " + mode)
+    pilot diag = 0
+    repeat until diag >= v4_borrowck_diag_count(borrow) {
+        pilot diagnostic = v4_borrowck_diag(borrow, diag)
+        if v4_diag_message(diagnostic) == "fixed pilot cannot be modified" or v4_diag_message(diagnostic) == "grounded pilot cannot be modified" {
+            immutable_count += 1
+            v4_closure_binding_assert(v4_diag_message(diagnostic) == expected_prefix + " cannot be modified", "authored prefix " + mode)
+            v4_closure_binding_assert(v4_diag_help(diagnostic) == "an immutable binding cannot grant a mutable closure call", "call-specific diagnosis " + mode)
+            pilot span = v4_diag_span(diagnostic)
+            pilot matching_call = false
+            value = 0
+            repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+                if v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_call and v4_mir_rvalue_span(mir, body, value) == span { matching_call = true }
+                value += 1
+            }
+            v4_closure_binding_assert(matching_call, "diagnostic owns actual call span " + mode)
+        }
+        diag += 1
+    }
+    if expected_prefix != "" {
+        v4_closure_binding_assert(v4_borrowck_result_status(borrow, result_id) == v4_borrowck_blocked and v4_borrowck_diag_count(borrow) == 1 and immutable_count == 1, "immutable mutable-call rejected exactly once " + mode)
+    } else if repeat_move {
+        v4_closure_binding_assert(v4_borrowck_result_status(borrow, result_id) == v4_borrowck_blocked and immutable_count == 0, "OneShot reuse stays a move error " + mode)
+        pilot found_move = false
+        diag = 0
+        repeat until diag >= v4_borrowck_diag_count(borrow) {
+            if v4_diag_message(v4_borrowck_diag(borrow, diag)) == "Meiya remembers the field you already moved" { found_move = true }
+            diag += 1
+        }
+        v4_closure_binding_assert(found_move, "OneShot diagnostic preserved " + mode)
+    } else {
+        v4_closure_binding_assert(v4_borrowck_result_status(borrow, result_id) == v4_borrowck_clean and v4_borrowck_diag_count(borrow) == 0 and immutable_count == 0, "permitted call stays clean " + mode)
+    }
+    say "prerelease-closure-binding " + mode + "=passed"
+}
+
+v4_closure_binding_run()

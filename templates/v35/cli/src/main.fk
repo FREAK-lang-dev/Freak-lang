@@ -1,0 +1,7 @@
+use self::greet::{greet}
+
+task main() {
+    pilot mut name = "@@NAME@@"
+    if process::args_count() > 1 { name = process::arg(1) }
+    say greet(name)
+}

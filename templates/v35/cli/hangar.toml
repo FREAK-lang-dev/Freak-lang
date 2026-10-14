@@ -1,0 +1,18 @@
+[project]
+name = "@@NAME@@"
+version = "0.1.0"
+kind = "app"
+entry = "src/main.fk"
+readme = "README.md"
+license_file = "LICENSE"
+
+[modules]
+greet = "src/greet.fk"
+
+[exports]
+greet = "greet::greet"
+
+[tests]
+greeting = "tests/greeting_test.fk"
+
+[dependencies]

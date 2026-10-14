@@ -1,6 +1,9 @@
 pilot name = "Shiranui"
 pilot version = 13
-say "Hello, {name}!"
-say "Version: {version}"
 pilot greeting = "Hello" + ", " + "world!"
-say greeting
+
+task main() {
+    say "Hello, {name}!"
+    say "Version: {version}"
+    say greeting
+}

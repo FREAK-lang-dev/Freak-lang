@@ -1,3 +1,30 @@
+use self::layout::{
+    cockpit_layout_capacity,
+    cockpit_layout_release
+}
+use self::state::{
+    cockpit_fail,
+    cockpit_ui_should_close
+}
+use self::theme::{
+    cockpit_theme_dark,
+    cockpit_theme_release
+}
+use self::ui::{
+    cockpit_container_end,
+    cockpit_row_begin,
+    cockpit_ui_begin_frame,
+    cockpit_ui_close,
+    cockpit_ui_end_frame,
+    cockpit_ui_open
+}
+use self::widgets::{
+    cockpit_widget_button,
+    cockpit_widget_heading,
+    cockpit_widget_separator,
+    cockpit_widget_spacer
+}
+
 -- COCKPIT V3 calculator. Close the native window to exit.
 
 task cockpit_calculate(pending: num, current: num, operation: int) -> word {

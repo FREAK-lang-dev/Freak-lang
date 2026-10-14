@@ -185,7 +185,7 @@ def main() -> int:
     clang = os.environ.get("FREAK_CLANG") or shutil.which("clang")
     assert clang, "Clang is required"
     with tempfile.TemporaryDirectory(prefix="freak-v3-clip-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve(strict=True)
         freak = args.freak.resolve() if args.freak else foundation.build_fresh_cli(
             clang=clang, repo=repo, root=root, runtime_root=runtime)
         shutil.copytree(runtime, root / "runtime")

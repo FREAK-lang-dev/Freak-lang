@@ -18,7 +18,7 @@ task v4_sum_execute_run() -> void {
     pilot before = v4_codegen_llvm_module_text(codegen, target)
     v4_sum_execute_assert(before != "", "nonempty native module")
     pilot snapshot = v4_mir_snapshot()
-    v4_sum_execute_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v9|") and snapshot.ends_with("end|freak-mir-snapshot-v9"), "current v9 wire")
+    v4_sum_execute_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v10|") and snapshot.ends_with("end|freak-mir-snapshot-v10"), "current v9 wire")
     v4_sum_execute_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "current detached restore")
     v4_sum_execute_assert(v4_mir_snapshot() == snapshot and v4_codegen_llvm_module_text(codegen, target) == before, "wire and old seal exact")
     pilot restored = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")

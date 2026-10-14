@@ -38,6 +38,19 @@ def _load_tool() -> Any:
 LAB = _load_tool()
 
 
+def _load_recorder_controls() -> Any:
+    path = ROOT / "tests" / "test_v3_performance_windows_recorder.py"
+    specification = importlib.util.spec_from_file_location("freak_performance_recorder_controls", path)
+    if specification is None or specification.loader is None:
+        raise AssertionError(f"cannot import {path}")
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+RECORDER_CONTROLS = _load_recorder_controls()
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -650,6 +663,7 @@ def _list_workload_checks(manifest: dict[str, Any]) -> None:
 
 
 def _static_checks(temporary: Path) -> dict[str, Any]:
+    RECORDER_CONTROLS.static_checks(LAB)
     _linker_identity_timeout_checks()
     manifest = LAB.load_manifest(MANIFEST)
     assert manifest["schema"] == LAB.MANIFEST_SCHEMA
@@ -1049,6 +1063,8 @@ def _profile_matrix_checks(temporary: Path, cli: Path, clang: Path | None) -> No
 
 
 def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Path | None) -> None:
+    if sys.platform == "win32":
+        RECORDER_CONTROLS.native_checks(LAB, temporary, clang or LAB._resolve_clang(None))
     before = {path.relative_to(MANIFEST.parent).as_posix(): _sha256(path) for path in MANIFEST.parent.rglob("*") if path.is_file()}
     output = temporary / "quick.json"
     command = [

@@ -1,0 +1,79 @@
+task v35_counted_lower() -> int {
+    say "lower"
+    give back 1
+}
+
+task v35_counted_upper() -> int {
+    say "upper"
+    give back 6
+}
+
+task v35_counted_step() -> int {
+    say "step"
+    give back 2
+}
+
+task v35_counted_once() -> int {
+    pilot sum = 0
+    for each i in v35_counted_lower()..v35_counted_upper() step v35_counted_step() {
+        sum += i
+    }
+    give back sum
+}
+
+task v35_counted_contextual() -> int {
+    pilot step = 3
+    pilot with = 2
+    pilot sum = 0
+    for each i in 0..step { sum += i }sum += with
+    for each i in 0..with + step { sum += i }
+    for each i in 0..with step with { sum += i }
+    repeat with times with step { sum += step }
+    give back sum
+}
+
+task v35_counted_bool_bound(value: bool) -> int {
+    if value { give back 4 }
+    give back 0
+}
+
+task v35_counted_relational_bounds() -> int {
+    pilot sum = 0
+    for each i in 0..v35_counted_bool_bound(0 < 1) step 2 { sum += i }
+    for each i in 0..v35_counted_bool_bound(1 > 0) step 2 { sum += i }
+    for each i in 0..(v35_counted_bool_bound(0 < 1)) step 2 { sum += i }
+    for each i in 0..(v35_counted_bool_bound(1 > 0)) step 2 { sum += i }
+    give back sum
+}
+
+task v35_counted_newline_bodies() -> int {
+    pilot sum = 0
+    for each i in 0..4 step 2
+    { sum += i }
+    repeat 3 times with i
+    { sum += i }
+    for (pilot i = 0; i < 3; i += 1)
+    { sum += i }
+    give back sum
+}
+
+task v35_counted_unreached_step() -> void {
+    say "unexpected counted epilogue"
+}
+
+task v35_counted_terminal_bodies() -> int {
+    repeat 3 times with i { break }
+    for (pilot i = 0; i < 3; v35_counted_unreached_step()) { break }
+    for (pilot i = 0; i < 3; i += 1) { give back i }
+    give back 99
+}
+
+task main() -> int {
+    if v35_counted_once() != 9 { give back 1 }
+    if v35_counted_contextual() != 16 { give back 2 }
+    if v35_counted_relational_bounds() != 8 { give back 3 }
+    if v35_counted_newline_bodies() != 8 { give back 4 }
+    if v35_counted_terminal_bodies() != 0 { give back 5 }
+    say "v35-counted-bounds-ok"
+    give back 42
+}

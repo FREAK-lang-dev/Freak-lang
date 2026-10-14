@@ -1,67 +1,76 @@
 -- ===================================================================
--- FREAK Runtime — Pure FREAK implementations
+-- FREAK Runtime — LLVM filesystem wrappers
 -- ===================================================================
--- Replaces C runtime functions with native FREAK code.
--- Uses i64 wrapper intrinsics that bridge to libc.
+-- FREAK wrappers use a checked source reader and i64 libc stream bridges.
 --
 -- NOTE: Task names omit the "freak_" prefix because the LLVM backend
 -- automatically adds "@freak_" to all user-defined tasks.
 -- So "task llvm_fs_read(...)" becomes "@freak_llvm_fs_read" in IR.
 -- ===================================================================
 
--- ── i64 wrapper declarations (defined as IR intrinsics) ─
--- These are thin wrappers around libc, handling i8* <-> i64 casts.
+-- ── i64 wrapper declarations (defined by the native runtime) ─
+-- These bridges carry pointers and owned filesystem tickets as integers.
 extern task freak_fopen(path: int, mode: int) -> int
 extern task freak_fclose(file: int) -> int
 extern task freak_fseek(file: int, offset: int, whence: int) -> int
 extern task freak_ftell(file: int) -> int
 extern task freak_fread(buf: int, size: int, count: int, file: int) -> int
 extern task freak_fwrite(buf: int, size: int, count: int, file: int) -> int
+extern task freak_ferror(file: int) -> int
 extern task freak_calloc(count: int, size: int) -> int
 extern task freak_llvm_word_adopt(pointer: int) -> int
 extern task freak_llvm_word_adopt_sized(pointer: int, length: int) -> int
 extern task freak_remove(path: int) -> int
 extern task freak_path_exists(path: int) -> int
 extern task freak_llvm_word_length(s: int) -> int
+extern task freak_llvm_fs_read_source_ticket(path: int) -> int
+extern task freak_llvm_fs_result_ok(ticket: int) -> int
+extern task freak_llvm_fs_result_word(ticket: int) -> int
+extern task freak_llvm_fs_result_release(ticket: int) -> void
 
 -- ── fs::read — read entire file contents ─────────────
 task llvm_fs_read(path_p: int) -> int {
-    pilot f = freak_fopen(path_p, "rb")
-    if f == 0 {
-        say "FREAK: cannot read file"
-        process::exit(1)
+    -- Reuse the checked source reader: nonblocking regular-file admission,
+    -- 64-bit measurement, seek/read/EOF/error/close checks, and sized raw bytes.
+    -- The word getter clones its owner before the result ticket is released.
+    pilot read_ticket = freak_llvm_fs_read_source_ticket(path_p)
+    if freak_llvm_fs_result_ok(read_ticket) == 0 {
+        freak_llvm_fs_result_release(read_ticket)
+        panic("FREAK: cannot read complete file")
     }
-    freak_fseek(f, 0, 2)
-    pilot sz = freak_ftell(f)
-    freak_fseek(f, 0, 0)
-    pilot buf = freak_calloc(sz + 1, 1)
-    pilot count = freak_fread(buf, 1, sz, f)
-    freak_fclose(f)
-    give back freak_llvm_word_adopt_sized(buf, count)
+    pilot contents = freak_llvm_fs_result_word(read_ticket)
+    freak_llvm_fs_result_release(read_ticket)
+    give back contents
 }
 
 -- ── fs::write — write string to file (overwrite) ────
 task llvm_fs_write(path_p: int, content_p: int) -> void {
     pilot f = freak_fopen(path_p, "wb")
     if f == 0 {
-        say "FREAK: cannot write file"
-        process::exit(1)
+        panic("FREAK: cannot write file")
     }
     pilot len = freak_llvm_word_length(content_p)
-    freak_fwrite(content_p, 1, len, f)
-    freak_fclose(f)
+    pilot count = freak_fwrite(content_p, 1, len, f)
+    pilot stream_error = freak_ferror(f)
+    pilot closed = freak_fclose(f)
+    if count != len or stream_error != 0 or closed != 0 {
+        panic("FREAK: could not complete file write")
+    }
 }
 
 -- ── fs::append — append string to file ───────────────
 task llvm_fs_append(path_p: int, content_p: int) -> void {
     pilot f = freak_fopen(path_p, "ab")
     if f == 0 {
-        say "FREAK: cannot append file"
-        process::exit(1)
+        panic("FREAK: cannot append file")
     }
     pilot len = freak_llvm_word_length(content_p)
-    freak_fwrite(content_p, 1, len, f)
-    freak_fclose(f)
+    pilot count = freak_fwrite(content_p, 1, len, f)
+    pilot stream_error = freak_ferror(f)
+    pilot closed = freak_fclose(f)
+    if count != len or stream_error != 0 or closed != 0 {
+        panic("FREAK: could not complete file write")
+    }
 }
 
 -- ── fs::exists — check if file exists ────────────────

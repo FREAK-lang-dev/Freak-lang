@@ -7,6 +7,116 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**Locked V4 bootstrap baseline (2026-10-05):** the current native bootstrap
+pins the unchanged official V4 sources at `b43127c4`. Earlier V3.5 V4
+counted/while language checkpoints below describe the local experiment through
+`b8c5e99`; those additions are deferred and are not part of the current locked
+V4 source baseline. The native V3 syntax fixes remain present. This draft
+checkpoint does not claim wider P0 completion or platform/release readiness.
+The four historical experimental V4 loop fixtures and their full executable
+expectations remain under `src/compiler/v4/tests/deferred/v35-loops`. The
+development while slice below has separate active fixtures; the counted forms
+still require their matching semantic implementation.
+
+**Development V4 while slice (2026-10-08):** `while condition` and
+`repeat while condition` share condition-first bool checking and the existing
+loop CFG, cleanup, break, continue and early-return rules. Lex/Parse own keyword
+and declaration-name validation; Built-MIR construction owns the positive
+condition branch and reuses the existing repeat-until representation with
+opposite polarity. No snapshot format or compiler ownership boundary changes.
+The active `v35_while_contract_smoke.fk` registers 110 isolated frontend/MIR and
+restoration contracts, retaining the original 98 and adding twelve newline
+generic-type reservation and casing cases. All 110 pass process-isolated native
+fixture executions on Linux. The added casing controls cover reservation and
+recovery; generic-type native lowering remains separate. Only exact lowercase
+`while` is reserved; names such as
+`While` and `WHILE` keep their spelling in supported declaration positions.
+The reservation includes route/variant cases and their nested fields and types;
+quoted tokens and comments retain their literal contents.
+Loop-header scanning distinguishes registered constructor payload braces from
+the loop body, including supported Boolean comparisons against constructors.
+The separate `v35_while_map_header_smoke.fk` registers 32 balanced-map header,
+body-span, malformed-header diagnostic, local-map Bool CFG and restoration
+contracts, including missing-condition assignment/call bodies with a typed
+declaration and a following conditional; their native fixture executions are
+pending. Inline map-literal
+indexing retains its existing unsupported type boundary, and these controls do
+not claim executable map LLVM lowering.
+The existing two native examples retain their zero-pass, nested-control and
+short-circuit checks. `v35_native_while_casing_execute_smoke.fk` adds three
+actual native programs covering task/local/parameter names, aliases, and
+fixed/grounded locals, with exact restored LLVM modules and output. Aggregate
+constructor and global-value native lowering retain their existing limits;
+two launch-spelling cases are explicitly parser-only. Counted forms, ungrouped
+multiline condition continuation, general backend parity and release/platform
+acceptance remain separate gates. The frozen bootstrap pin
+and its 28-row inventory remain unchanged.
+
+**V3 source binding and ticket-word correctness (2026-10-07):** source package
+binding distinguishes declaration roles and preserves source diagnostic names.
+Fixed root value/callable collisions and calls through lexical non-callable
+values are rejected by both CLI binding and the direct V3 checker. Generated
+private names do not provide source-level access to package declarations.
+Supported unloaded task/fixed/shape export headers remain narrower than full
+validation of unused unsupported declarations; package externs are unsupported.
+Original names retain builtin type/namespace/callable reservations before
+flattening. The public CLI supports forward shape constructors through header
+registration; the legacy direct parser's order limitation remains separately
+verified alongside public C/LLVM construction and field access.
+The established V3 non-fixed root pilot/task contextual lookup remains a legacy
+compatibility boundary, without a new namespace or bootstrap-flag exception.
+The normative V4 value namespace and mutable-root prohibition in bible §17.4
+remain unchanged; full V4 namespace/root-constant conformance stays partial.
+Six filesystem/process/JSON/HTTP ticket getters now return independently owned
+words that survive ticket release, reuse and table growth. Generic literal
+cloning keeps its existing sharing semantics. Focused C/LLVM and sanitizer
+proofs do not replace final current-head shipping and native-platform CI.
+Windows owned temporary creation explicitly selects the effective caller's
+owner SID and a protected, inheritable caller-only DACL, then verifies both on
+the held new object. Generic directory creation and strict publication-parent
+policy remain unchanged. Native verification must retain the original token
+default-owner context; Python fixtures claim only their explicitly fresh
+directories before public use.
+
+**V3.5 initial syntax checkpoint (2026-10-05):** native V3 statement lists
+accept semicolons, including a trailing separator and bare void return.
+`tests/v3_v35_language.py` checks twelve positive/negative C/LLVM cases against
+a freshly reconstructed native compiler, including exact diagnostic columns
+and stale-output rejection. Newline behavior remains covered. This checkpoint
+does not establish the new counted/while forms, checked-result bootstrap,
+scoped packages, installed-archive/platform acceptance or a new release.
+
+**V3.5 process/CLI checkpoint (2026-10-05):** both native backends expose
+bounded shell-free command tickets with distinct spawn/exit/signal/timeout and
+capture-limit states, tree cleanup and owned byte captures. The direct runtime
+gate covers O0/O2/O3 and sanitizer controls; the native CLI gate covers literal
+argv, cache reuse, child exit status, piped and controlling-terminal input,
+and Ctrl-C. Doctor recognizes the declared Clang-15 floor and requires a real
+compile/link/execute probe, preserving an explicit missing tool selection.
+Windows/macOS/ARM archive evidence and final current-head review remain pending.
+
+**V3.5 native loop checkpoint (2026-10-05):** the C and LLVM emitters
+implement both condition-first spellings and all three experimental counted
+forms. The fresh compiler gate covers 70 syntax/semantic/error cases at O2;
+an O0 two-million-iteration regression checks constant stack use for the
+repeat index. It includes scoped indices, single-evaluated bounds, continued
+C-style steps, owned early exits and the inclusive maximum-int boundary.
+The reviewed semicolon-at-`when`-arm defect is fixed. The V4 while parity
+gate passes fourteen isolated frontend, span, error and snapshot cases plus
+native LLVM execution covering pretests, owned early return, nesting and
+break/continue. The V4 counted gate passes 29 isolated frontend, type, scope,
+Meiya and snapshot contracts plus five native LLVM programs. Native cases cover
+single-evaluated bounds, inclusive maximum-int termination, continued C-style
+steps, owned early exits, and an exact controlled panic for a dynamic nonpositive
+range step. Explicit scalar local identities are validated on snapshot restore.
+Review regressions cover comparisons inside grouped range bounds, a body brace
+on the following line, and unconditional break/return without executing a step.
+Counted construction compacts disconnected epilogues after checking header
+diagnostics, so an invalid unreachable step still fails compilation.
+Fixed-array projection steps are covered through MIR and restore; native
+fixed-aggregate lowering remains an existing V4 limitation. The counted forms
+remain experimental. Final optimization/platform matrices and installed-archive
+proofs remain pending.
 **V4 checked integer lowering checkpoint (2026-10-05):** signed-int64 `+`,
 `-`, `*` use LLVM overflow intrinsics in internal alwaysinline wrappers. The
 failure path reuses the original checked helper and exact diagnostic/exit;
@@ -207,8 +317,8 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 13 | Audit commands in native CLI | Python-only; `build/freak.exe` doesn't dispatch | 🟡 | 🛠 wire native CLI |
 | 14 | Error voices (Meiya/Yuuko/Sagiri/Kasumi/Takeru/Mana/Hayase/Sumika/00-Unit) | Mostly generic errors | 🟡 | 📖 V4 |
 | 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 has landed substantial section-16 work; per-landing breakdown lives in [§16 below](#§16-system-boundaries-ffi). Trust-me-gated raw pointer ops, runtime panic-catch in trampoline bodies, and deeper ABI coverage still expand | 🟡 | 📖 V4 |
-| 16 | Bible-promised stdlib (`std::thread`, `std::anime`, `std::narrative`, `std::test`) | Listed planned, no `.fk` files | 🔴 | 📖 confirm Planned |
-| 17 | `freak vibe`, `freak test` CLI subcommands | Not in native CLI | 🟡 | 📖 OR 🛠 (`freak test` shim possible) |
+| 16 | Bible-promised stdlib (`std::thread`, `std::anime`, `std::narrative`, richer `std::test` blocks) | These remain planned; ordinary `std::test` assertion helpers exist in current V3.5 development | 🔴 | 📖 V4 framework |
+| 17 | `freak vibe`, `freak test` CLI subcommands | Current V3.5 has native project tests; `freak vibe` and richer test blocks remain planned | 🟡 | 📖 V4 remainder |
 | 18 | Test coverage gap (~50% of bible has zero tests) | See Appendix B | 🟡 | Out of scope; surfaced |
 
 Bonus finding from Phase A baseline: **Python parser fails on ~30 files** (V3 self-hosting source, std/algorithm, std/runtime, math3d, several tests). Means Python (v1) and V3 compilers accept different language subsets — V3 is a superset that uses constructs (e.g. `give back` as a field name, certain bare statements) that v1 rejects. **Verdict: 📖 V4** — V3 is the compiler that conforms to bible; v1 is FREAK Lite.
@@ -227,18 +337,18 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
 | `pilot x = value` declares variable, mutable by default | ✅ | ✅ | [freakc/parser.py:900-950](freakc/parser.py); confirmed by `tests/suite/test_variables.fk` |
-| `fixed pilot x = value` immutable | ✅ | ✅ | parsed and enforced |
-| Type annotation optional / inferred | ✅ | ✅ | The shipping checker infers unannotated literals. In V4, task-local `pilot` and `fixed pilot` annotations—including tuple and fixed-array annotations used by tuple/list destructuring—are normalized with exact spans into HIR snapshot v11 facts, exposed/canonicalized by TY, and consumed by MIR build without re-reading their type tokens. MIR build still uses body tokens for patterns, initializer boundaries, places, and CFG; six unrelated type-text callers remain guarded, backend representation is unchanged, and symbol-valued annotated locals retain the existing phantom-local-IR limitation. |
-| `pilot mut x = ...` (Phase-1 BC) for explicit mutability under `--strict-borrow` | ✅ | 📖 | [src/compiler/v3/checker.fk](src/compiler/v3/checker.fk) — bible should mention this dual mode (default leak-everything vs `--strict-borrow`) |
+| `fixed pilot x = value` and contextual `grounded pilot x = value` immutable | ✅ V3; ⚠️ V4 | ✅ V3; 📖 V4 | V3 rejects writes on both backends, including under strict borrow checking. V4 preserves the written prefix in HIR/MIR snapshots, rejects local/projected writes, mutable lends, closure writes and mutable-closure invocation by declaration identity, and keeps mutable roots forbidden. Root projection reads do not imply mutation; their Meiya address/native-storage support and root Const inference remain bounded. Registered prerelease binding, closure-binding, root-projection, tooling and LLVM execution smokes cover the slice. Sources: [bible §1.1](freak-full-bible.md#L113); [V3 assignment validation](src/compiler/v3/checker.fk#L3151); [V3 indexed mutation diagnostics](src/compiler/v3/checker.fk#L2041); [Meiya declaration identity](src/compiler/v4/crates/freak_borrowck/src/lib.fk#L2244); [binding controls](src/compiler/v4/tests/prerelease_grounded_binding_smoke.fk#L243); [contextual boundary controls](src/compiler/v4/tests/prerelease_grounded_boundary_smoke.fk#L43). |
+| Type annotation optional / inferred | ✅ | ✅ | The shipping checker infers unannotated literals. In V4, task-local `pilot` and `fixed pilot` annotations—including tuple and fixed-array annotations used by tuple/list destructuring—are normalized with exact spans into HIR snapshot v12 facts, exposed/canonicalized by TY, and consumed by MIR build without re-reading their type tokens. MIR build still uses body tokens for patterns, initializer boundaries, places, and CFG; six unrelated type-text callers remain guarded, backend representation is unchanged, and symbol-valued annotated locals retain the existing phantom-local-IR limitation. Sources: [bible §1.1](freak-full-bible.md#L113); [HIR annotation lowering](src/compiler/v4/crates/freak_hir/src/lib.fk#L1544); [HIR snapshot validation](src/compiler/v4/crates/freak_hir/src/lib.fk#L2597); [TY annotation facts](src/compiler/v4/crates/freak_ty/src/lib.fk#L764); [annotation controls](src/compiler/v4/tests/mir_local_annotation_semantic_smoke.fk#L289). |
+| `pilot mut x = ...` is a silent synonym of mutable-by-default `pilot` | ✅ | ✅ | Strict borrow checking retains ownership checks; ordinary reassignment needs no `mut`. Fixed and contextual grounded bindings stay immutable. Sources: [bible §1.1](freak-full-bible.md#L113); [V3 mutable default and mut synonym](src/compiler/v3/parser.fk#L737); [V3 strict-borrow dispatch](src/compiler/v3/parser.fk#L1219); [V3 mutability controls](tests/v3_v35_literals.py#L14). |
 
 #### §1.2 Functions ([freak-full-bible.md:42-71](freak-full-bible.md))
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `task name(...) -> type { ... }` | ✅ | ✅ | Core feature. V4 stores ordinary top-level tasks as closed `explicit` / `implicit-block` / `arrow` HIR return-form facts; an explicit `-> T` carries normalized surface text and its exact span through HIR snapshot v11, and TY consumes that declared type/span without token reconstruction. Ordinary-task parameters are likewise stored as ordered HIR name/mode/lifetime/type contracts with exact spans; TY, MIR build, Meiya, and editor consumers use those semantic facts. Impl/doctrine/extern parameter signatures, arrow inference, implicit block returns, other MIR body families, and backend behavior retain their existing semantics and remain separately bounded. |
+| `task name(...) -> type { ... }` | ✅ | ✅ | Core feature. V4 stores ordinary top-level tasks as closed `explicit` / `implicit-block` / `arrow` HIR return-form facts; an explicit `-> T` carries normalized surface text and its exact span through HIR snapshot v12, and TY consumes that declared type/span without token reconstruction. Ordinary-task parameters are likewise stored as ordered HIR name/mode/lifetime/type contracts with exact spans; TY, MIR build, Meiya, and editor consumers use those semantic facts. Impl/doctrine/extern parameter signatures, arrow inference, implicit block returns, other MIR body families, and backend behavior retain their existing semantics and remain separately bounded. Sources: [bible §1.2](freak-full-bible.md#L146); [HIR task return forms](src/compiler/v4/crates/freak_hir/src/lib.fk#L3570); [HIR return snapshot validation](src/compiler/v4/crates/freak_hir/src/lib.fk#L3702); [HIR parameter facts](src/compiler/v4/crates/freak_hir/src/lib.fk#L4114); [TY declared return reader](src/compiler/v4/crates/freak_ty/src/lib.fk#L6161); [task return controls](src/compiler/v4/tests/task_return_semantic_boundary_smoke.fk#L84); [task parameter controls](src/compiler/v4/tests/task_param_semantic_boundary_smoke.fk#L36). |
 | `give back` return keyword | ✅ | ✅ | |
 | `say` print keyword always available | ✅ | ✅ | |
-| String path interpolation `"{path}"` | ✅ | ✅ | Self-hosted V3 lowers resolved `IDENT(.IDENT)*` paths in every word-expression context on C and LLVM; non-path brace bodies remain literal. Executable evidence: [tests/v3_interpolation.py](tests/v3_interpolation.py) and [tests/v3_legacy_golden.py](tests/v3_legacy_golden.py). |
+| String path interpolation `"{path}"` | ✅ V3 | ✅ V3 | Self-hosted V3 lowers resolved `IDENT(.IDENT)*` paths in every word-expression context on C and LLVM. Stronger FIX-05 rejects unsupported expression-like matched bodies. An unclosed such body is rejected if its trimmed text is a valid path or it contains `(`, `+`, `-`, `*`, `/`, or `=`; other unmatched braces remain literal. Escaped braces preserve literal text, including the original literal corpus. Empty/object/JSON-like and other non-expression brace text remain literal. Executable evidence: [tests/v3_interpolation.py](tests/v3_interpolation.py), [tests/v3_v35_literals.py](tests/v3_v35_literals.py), and [tests/v3_legacy_golden.py](tests/v3_legacy_golden.py). This evidence does not establish V4 interpolation parity. |
 | Arrow shorthand `task square(x) => x*x` | ✅ | ✅ | parsed and emitted |
 | `done` synonym for `}` | ✅ | ✅ | |
 | Named parameters at call site `connect(host: "x", port: 80)` | ⚠️ | 📖 V4 | V4 lowers named call-site arguments for task calls, generic calls, instance methods, associated methods, and extern/callback calls, with unknown/duplicate/missing/positional-after-named diagnostics plus editor completion/definition facts; production backend parity still expands |
@@ -276,7 +386,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `shape Foo { field: type }` declarations | ✅ | ✅ | V4 stores ordered field names, surface types, and exact name/type/segment spans in HIR; TY consumes stored facts without token reconstruction and retains global alias canonicalization. HIR snapshot v11 validates Shape-only owners (including empty Shapes), dense ordinals, counts, source ordering, and contained spans before atomic restore. Malformed-field recovery and unclosed-body behavior remain unchanged. Physical layout remains a separate follow-up slice. |
+| `shape Foo { field: type }` declarations | ✅ | ✅ | V4 stores ordered field names, surface types, and exact name/type/segment spans in HIR; TY consumes stored facts without token reconstruction and retains global alias canonicalization. HIR snapshot v12 validates Shape-only owners (including empty Shapes), dense ordinals, counts, source ordering, and contained spans before atomic restore. Malformed-field recovery and unclosed-body behavior remain unchanged. Physical layout remains a separate follow-up slice. Sources: [bible §1.5](freak-full-bible.md#L241); [HIR field lowering](src/compiler/v4/crates/freak_hir/src/lib.fk#L5538); [HIR field snapshot validation](src/compiler/v4/crates/freak_hir/src/lib.fk#L5875); [TY field reader](src/compiler/v4/crates/freak_ty/src/lib.fk#L10444); [shape snapshot controls](src/compiler/v4/tests/shape_field_semantic_boundary_smoke.fk#L13). |
 | `impl Foo { task ... }` method blocks | ✅ | ✅ | |
 | Field access `instance.field` | ✅ | ✅ | |
 | `Foo { field: value }` instantiation | ✅ | ✅ | |
@@ -309,11 +419,12 @@ parity. This does not claim native C UI support or general collection fields.
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
 | `if`/`else` | ✅ | ✅ | V4 terminal else-if chains compact completed joins before publication; same-line following statements retain checking and execution. Closed native and hostile-snapshot contracts preserve strict CFG admission. |
-| `when` pattern matching with literal patterns | ⚠️ | 📖 V4 | V4 also lowers tuple, fixed-array, and route/variant payload patterns; production V3 remains narrower |
+| `when` pattern matching with literal patterns | ⚠️ | 📖 V4 | V4 also lowers tuple, fixed-array, and route/variant payload patterns; terminal `when`/`check route` joins compact before publication using dispatch-reachable paths, so detached duplicate or covered arms cannot keep following code executable. Following source retains diagnostics and ordinary declaration metadata without executable initializers. Live fallthrough, unwired outer branches, loop targets and strict snapshot admission are covered by 77 isolated contracts and three scalar LLVM/native programs; aggregate native lowering and production V3 remain narrower. |
 | `when` pattern destructuring `Variant::Case { field }` | ⚠️ | 📖 V4 | V4 carries payload destructuring, refutable-pattern checks, exhaustive route/variant `when`, and alias-backed duplicate/unreachable diagnostics; broader pattern ergonomics still expand |
 | `for each item in list` | ⚠️ | 📖 V4 | The phrase is lexed, but shipping V3 has no executable `for each` statement path. |
 | `repeat N times` | ✅ | ✅ | |
 | `repeat until condition` | ✅ | ✅ | |
+| `while condition` / `repeat while condition` | ✅ V3; ⚠️ V4 | ✅ V3; 📖 V4 | Development V4 supports condition-first bool loops through existing loop CFG and snapshot contracts. Active frontend/restoration and LLVM execution fixtures cover the bounded slice; counted loops and ungrouped multiline condition continuation remain separate. Sources: [bible §1.7](freak-full-bible.md#L410); [Parse keyword validation](src/compiler/v4/crates/freak_parse/src/lib.fk#L1771); [while contracts](src/compiler/v4/tests/v35_while_contract_smoke.fk#L1); [native while execution](src/compiler/v4/tests/v35_native_while_execute_smoke.fk#L1). |
 | `training arc until cond max N sessions` | ✅ | ✅ | V4 Built-MIR owns the counter, condition-first/re-evaluated cap and shared `continue` increment. Eighteen training programs pass O0/O2/O3 with native ownership and sanitizer controls; an admitted `sessions` local no longer obscures the heading suffix. V3 native evaluates its cap once, an explicit parity difference. |
 | `training arc with growth` variant | ⚠️ | 📖 V4 | V4 MIR enforces condition-subject mutation for local and projected places; full production backend parity still pending |
 | `prob_when expr { >= 0.9 -> ... }` | ❌ | 📖 V4 | not parsed |
@@ -358,13 +469,13 @@ parity. This does not claim native C UI support or general collection fields.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `variant Foo { Case1, Case2 { fields } }` sum types | ⚠️ | 📖 V4 | V4 stores route/variant form, ordered cases, payload presence, and payload-field names/types/spans in HIR. TY and editor declaration readers consume stored facts, retaining generic substitution, alias canonicalization, duplicate-name lookup, and malformed/empty-payload recovery. HIR snapshot v11 validates complete owner/case/field hierarchies, counts, canonical identities, and contained ordered spans before atomic restore. Discriminant evaluation, constructor/pattern syntax, and final backend layout remain separate boundaries. |
+| `variant Foo { Case1, Case2 { fields } }` sum types | ⚠️ | 📖 V4 | V4 stores route/variant form, ordered cases, payload presence, and payload-field names/types/spans in HIR. TY and editor declaration readers consume stored facts, retaining generic substitution, alias canonicalization, duplicate-name lookup, and malformed/empty-payload recovery. HIR snapshot v12 validates complete owner/case/field hierarchies, counts, canonical identities, and contained ordered spans before atomic restore. Discriminant evaluation, constructor/pattern syntax, and final backend layout remain separate boundaries. Sources: [bible §1.14](freak-full-bible.md#L606); [HIR case lowering](src/compiler/v4/crates/freak_hir/src/lib.fk#L4983); [HIR hierarchy validation](src/compiler/v4/crates/freak_hir/src/lib.fk#L5191); [TY payload reader](src/compiler/v4/crates/freak_ty/src/lib.fk#L10392); [route snapshot controls](src/compiler/v4/tests/route_semantic_boundary_smoke.fk#L13). |
 | Pattern matching on variants exhaustive | ⚠️ | 📖 V4 | V4 diagnoses missing and unreachable route/variant arms, including alias-backed scrutinee types |
 | Explicit route/variant discriminant division | ⚠️ | 📖 V4 | HIR keeps `/` inside an explicit `=` discriminant expression; TY maps stored case spans to token ranges instead of splitting cases again. Comma, semicolon, newline, or body end terminates the expression; slash-separated cases remain supported before `=`. Arithmetic, malformed nonempty expressions, zero-divisor diagnostics, snapshot round trips and same-length edits are covered by `route discriminant division`. Empty-RHS recovery and physical enum layout are not expanded by this fix. |
 | `alias Matrix = [[num; 4]; 4]` type aliases | ⚠️ | 📖 V4 | V4 normalizes alias target type text and exact spans at the expanded-AST-to-HIR boundary, snapshots those HIR facts, and makes TY consume them without token reconstruction. Alias canonicalization through TY/MIR, cycle diagnostics, and editor/query facts remain covered; production V3 remains narrower. This is the first bounded No Syntax Past HIR family, not a claim that every type form or MIR body is syntax-free, and it does not make aliases nominal types. |
 | `impl Doctrine for Alias` rejected as alias nominality violation | ⚠️ | 📖 V4 | Promoted V4 Semantic Core contract: aliases remain compile-time substitutions, so naming an alias cannot create a fresh doctrine impl slot. Use a nominal `shape` / `variant` when distinct doctrine identity is required. The conformance guard expects `v4_ty_validate_alias_nominality`, `alias-nominality-diagnostics=1`, and `alias nominality` markers. |
 | Direct recursive shapes/variants rejected unless indirection breaks the value cycle | ⚠️ | 📖 V4 | V4 TY now rejects direct, mutual, alias-mediated, deep-alias, generic-wrapper, import-expanded, and recursive-alias owned recursion for shapes and variants, while allowing recursion through builtin `Shared<T>`, `Weak<T>`, `List<T>`, and raw pointers. Locally declared or imported carrier-name shadows are not trusted as indirection, local type names win over imports, phantom generic alias args are not followed after erasure, recursive generic nominal walks are bounded, and owner-name generic shadows diagnose before recursion walking. The conformance guard expects `v4_ty_validate_direct_type_recursion`, `type-recursion-ty-diagnostics=10`, `type-recursion-import-ty-diagnostics=2`, and `Yuuko infinite shape` / `Yuuko infinite variant` smoke markers. |
-| `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | V4 stores declared surface type and exact type/name spans in HIR; TY reads these facts without token reconstruction, including inferred and recovered declarations. HIR v11 snapshots require a complete, validated Const record set before atomic restoration. Initializer inference/evaluation and cycle analysis remain syntax-facing and unchanged. Cycle detection, integer const chains/arithmetic, tuple/list/repeat-fill plus generic shape/route-constructor type inference, const task calls, constructor payload validation, and declared initializer mismatch diagnostics are in V4; full const-eval remains. |
+| `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | V4 stores declared surface type and exact type/name spans in HIR; TY reads these facts without token reconstruction, including inferred and recovered declarations. HIR v12 snapshots require a complete, validated Const record set before atomic restoration. Initializer inference/evaluation and cycle analysis remain syntax-facing and unchanged. Cycle detection, integer const chains/arithmetic, tuple/list/repeat-fill plus generic shape/route-constructor type inference, const task calls, constructor payload validation, and declared initializer mismatch diagnostics are in V4; full const-eval remains. Sources: [bible §1.14](freak-full-bible.md#L606); [HIR declared Const facts](src/compiler/v4/crates/freak_hir/src/lib.fk#L1357); [HIR Const snapshot validation](src/compiler/v4/crates/freak_hir/src/lib.fk#L1420); [TY declared Const reader](src/compiler/v4/crates/freak_ty/src/lib.fk#L6202); [Const snapshot controls](src/compiler/v4/tests/const_semantic_boundary_smoke.fk#L11). |
 
 #### §1.15 Literals
 
@@ -422,7 +533,7 @@ Phase-1 (currently shipped, behind `--strict-borrow`):
 | Single-owner ownership rule | ✅ | ✅ | enforced for word, List, Map, Shapes |
 | Move on assignment / function call | ✅ | ✅ | "Shirogane. You gave this away." diagnostic confirmed |
 | Primitives are Copy | ✅ | ✅ | int/num/bool/tiny/char/float/float32/big copy |
-| `pilot x` immutable, `pilot mut x` mutable | ✅ | ✅ | "This binding was sworn to silence." for immutable reassign |
+| `pilot` and `pilot mut` mutable; `fixed pilot` / contextual `grounded pilot` immutable | ✅ | ✅ | Strict/default V3 mutation diagnostics preserve the written modifier; ownership and move rules remain. Sources: [bible §1.1](freak-full-bible.md#L113); [bible §4.1](freak-full-bible.md#L1296); [V3 mutable default and mut synonym](src/compiler/v3/parser.fk#L737); [V3 assignment validation](src/compiler/v3/checker.fk#L3151); [V3 indexed mutation diagnostics](src/compiler/v3/checker.fk#L2041); [V3 strict-borrow dispatch](src/compiler/v3/parser.fk#L1219); [strict/default V3 controls](tests/v3_v35_literals.py#L14). |
 | Default mode: leak-everything (no BC) | ✅ | ✅ | bible should make this explicit |
 
 V4 (partially implemented unless marked otherwise):
@@ -657,7 +768,7 @@ completion remain open.
 | `use module::*` glob import | ⚠️ | 📖 V4 | |
 | `hangar.toml` schema (project, dependencies, build mode) | ✅ | ✅ | [src/cli/toml.fk](src/cli/toml.fk) |
 | `hangar init` | ✅ | ✅ | [src/cli/hangar.fk](src/cli/hangar.fk) |
-| `hangar add`, `hangar remove`, `hangar install` | ✅ | ✅ | |
+| `hangar add`, `hangar remove`, `hangar install` | ✅ legacy; ⚠️ graph-v2 | ✅ legacy; 📖 graph adapter | Legacy commands refuse graph-v2, unknown, malformed or unreadable locks before effects. The graph-aware public adapter remains pending. Sources: [entry admission](src/cli/hangar.fk#L24); [bounded legacy reader](src/cli/lockfile.fk#L242); [native preservation controls](tests/v3_v35_hangar_lock_preservation.py#L1). |
 | `hangar search [q]` | ❌ | 📖 V4 | no registry to search |
 | `hangar version` (semver bump) | ✅ | ✅ | |
 | `hangar install freak` (download compiler) | ✅ | ✅ | |
@@ -692,7 +803,7 @@ completion remain open.
 | `thread::spawn`, `Atomic<T>` | ❌ | 📖 V4 | std::thread Planned per CLAUDE.md |
 | `std::anime` (mood/power/etc.) | ❌ | 📖 V4 | depends on §2 types |
 | `std::narrative` (death flags, foreshadow logs) | ❌ | 📖 V4 | depends on §5 enforcement |
-| `std::test` (`test "name" { expect ... to be ... }`) | ❌ | 📖 V4 | currently `tests/suite/run_tests.py` Python harness |
+| `std::test` | ⚠️ | 📖 V4 framework | Ordinary assertion helpers ship with current V3.5 native project tests. `test "name" { expect ... to be ... }` blocks remain planned; the Python regression harness is a separate developer tool. |
 | `Shared::new`, `Weak::upgrade`, `size_of<T>()` | ❌ | 📖 V4 | depends on §4 |
 | `std::ffi` C boundary types | ⚠️ | 📖 V4 | V4 normalizes core scalar aliases (`c_int`, `c_size`, `c_double`, `wchar`, etc.) through TY/codegen; target-width fidelity and the broader std::ffi surface still expand |
 | `std::http` (HTTP/1.1 client) | ✅ | ✅ | [std/http.fk](std/http.fk) |
@@ -807,7 +918,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | `freak transpile file.fk` | ✅ | ✅ | |
 | `freak doctor [--fix|--json]` | ✅ | ✅ | Complete runtime/UI and 11-module stdlib inventory, standard-header + native link/run Clang validation, optional dependency bootstrap, full FREAK compile-link-execute probe, exact passive JSON missing-file report, and nonzero required-failure status. |
 | `freak upgrade` | ✅ | ✅ | Tagged staged installer preserves the public command; POSIX tracks/reconciles recoverable rollback state, while Windows retains durable pending state and hash-verifies the deferred two-binary transaction after the invoking installer exits. Immutable v0.14.0 POSIX clients need a binary hop plus a second upgrade; immutable Windows clients bootstrap through `install.ps1`. |
-| `freak test` | ✅ | ✅ shim wraps `python tests/suite/run_tests.py` |
+| `freak test` | ✅ | ✅ | Installed native project runner for ordinary programs declared in `[tests]`, with existing `std::test` assertions; richer test blocks remain V4 work. The Python regression harness is a separate developer tool. |
 | `freak vibe file.fk` | ❌ | 📖 V4 (or remove) |
 | `freak audit-science` | ⚠️ | 🛠 wire native CLI | Python-only; native dispatch missing |
 | `freak audit-trust` | ⚠️ | 🛠 wire native CLI | same |
@@ -900,7 +1011,7 @@ post-pass `render()` presentation step only).
 |---|---|---|---|
 | FFI-safe types only in extern | ⚠️ | 📖 V4 | V4 rejects bare `word`/`int` extern signatures, raw pointers to non-FFI pointees, validates `extern [C]/[system] task(...) -> T` callback surfaces with explicit missing-`extern`, bad-ABI, and non-FFI callback payload diagnostics, accepts fieldless `@repr(...)` routes/variants as extern params/returns/pointer targets/layout fields, lowers indirect callback calls, rejects non-FFI-safe layout fields, and validates `@extern_callback("ABI")` task signatures against the same FFI-safety rules, but the full section-16 surface is not complete |
 | `extern [C]` (and other ABIs) | ⚠️ | partial — `tests/extern_test.fk` and `tests/extern_llvm_test.fk` (failing in v1 parser per Phase-A) | |
-| V4 declared extern-member return ownership | ⚠️ | 📖 V4 | Declared extern-member surface types, exact declaration/member spans and recovery flags are stored in HIR. Direct-member, synthetic-signature, diagnostic and editor-display TY paths consume those facts without declared-type reconstruction; existing canonicalization entry points and explicitly gated arrow-expression recovery are unchanged. Extern-only boundaries exclude top-level semicolon separators, including same-line members, while preserving nested type semicolons and quoted semicolon/bracket tokens. Quoted braces, arrows and keywords remain literal data during member and body scans; real declaration punctuation retains its recovery behavior. Callback-parameter arrow recovery outside open generic type syntax preserves following member boundaries after comparisons; arrows inside open generic types retain conservative declaration recovery, and legacy nested-callback return discovery/inference can leave the enclosing member's return unknown. HIR v11 snapshots validate complete Extern owner/member sets, dense ordinals, canonical flags/counts and contained same-file spans before atomic restore. Extern parameters, ABI/layout rules and backend representation remain separate boundaries. |
+| V4 declared extern-member return ownership | ⚠️ | 📖 V4 | Declared extern-member surface types, exact declaration/member spans and recovery flags are stored in HIR. Direct-member, synthetic-signature, diagnostic and editor-display TY paths consume those facts without declared-type reconstruction; existing canonicalization entry points and explicitly gated arrow-expression recovery are unchanged. Extern-only boundaries exclude top-level semicolon separators, including same-line members, while preserving nested type semicolons and quoted semicolon/bracket tokens. Quoted braces, arrows and keywords remain literal data during member and body scans; real declaration punctuation retains its recovery behavior. Callback-parameter arrow recovery outside open generic type syntax preserves following member boundaries after comparisons; arrows inside open generic types retain conservative declaration recovery, and legacy nested-callback return discovery/inference can leave the enclosing member's return unknown. HIR v12 snapshots validate complete Extern owner/member sets, dense ordinals, canonical flags/counts and contained same-file spans before atomic restore. Extern parameters, ABI/layout rules and backend representation remain separate boundaries. Sources: [bible §16.1](freak-full-bible.md#L3043); [bible §16.2](freak-full-bible.md#L3088); [HIR declared extern returns](src/compiler/v4/crates/freak_hir/src/lib.fk#L1777); [HIR complete snapshot validation](src/compiler/v4/crates/freak_hir/src/lib.fk#L5697); [TY declared extern reader](src/compiler/v4/crates/freak_ty/src/lib.fk#L4299); [extern boundary controls](src/compiler/v4/tests/extern_return_boundary_smoke.fk#L40). |
 | Calling conventions: cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, system | ⚠️ | 📖 V4 | V4 carries and validates the core ABI list plus duplicate/unknown-option diagnostics; final extern variadics now enforce C-compatible ABI selection, callback surface types plus indirect callback calls reuse the same ABI validation, `@extern_callback("ABI")` task exports normalize through the same list, and the executable smoke lane now proves the full matrix through direct extern calls, callback surface types, indirect callback calls, and LLVM calling-convention lowering, while panic-boundary callback rules still expand |
 | `link="name"` library binding | ⚠️ | 📖 V4 | V4 carries library metadata through TY/codegen/query/LSP and diagnoses malformed or duplicate link entries |
 | `@link_name("symbol")` | ⚠️ | 📖 V4 | V4 carries per-member symbol overrides through TY/codegen/query/LSP and diagnoses malformed or duplicate attributes |
@@ -953,7 +1064,7 @@ All cheap-win items below landed across commits `035b33e`–`b0a05f9` plus the v
 6. **Wire `audit-conformance` to native CLI** ✅ — same pattern.
 7. **Wire `Ord` operator doctrine** ✅ — Python emitter; V3 emitter still missing operator-overload codegen entirely (V4).
 8. **Index doctrine** ✅ — already wired in Python emitter (audit doc had a small inaccuracy at first pass). `IndexMut` deferred to V4 (lvalue-assignment rewrite).
-9. **Add `freak test` shim** ✅ — [src/cli/main.fk](src/cli/main.fk) wraps `python tests/suite/run_tests.py`.
+9. **Add `freak test` shim** ✅ — the v0.13.x implementation wrapped `python tests/suite/run_tests.py`. Current V3.5 development supersedes that shim with the native project runner in [src/cli/test.fk](src/cli/test.fk).
 10. **Fix the two SKIP'd suite tests** ✅ — `test_maybe.fk` (compound-literal cast) + `test_pipe.fk` (pipe desugaring + arity check). Suite at 14/14.
 11. **Restore winget manifest + dynamic release path** ✅ — `packaging/winget/manifests/F/FREAK/freak/0.13.2/` tracked; `release.yml` derives the path from `$VERSION`.
 12. **LB10 minimal DWARF** ✅ — line-tables-only debug info live in V3 emit_llvm.fk. Source-line backtraces work in gdb/lldb.
@@ -980,9 +1091,9 @@ E. **§4 Borrow Checker** — split into:
 
 F. **§5 Anime Layer** — per-feature status; `foreshadow-audit`/`audit-miracles`/`audit-trust`/`audit-science` are ✅; everything else 📖 V4.
 
-G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`, `std::test`) as Planned. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`; `std::process` and `std::ui` partial).
+G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`) and richer test blocks as Planned. Ordinary `std::test` assertion helpers are available in current V3.5 development. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`; `std::process` and `std::ui` partial).
 
-H. **§13 CLI** — remove or V4-tag `freak vibe`, `--voice`, `--clearance`, `--build-mode`, `-o`. Add `audit-conformance` once Phase C lands.
+H. **§13 CLI** — keep `freak vibe`, `--voice`, `--clearance`, and `--build-mode` marked V4. Current V3.5 development supports build/run `-o`/`--output`; `audit-conformance` is implemented.
 
 I. **§14 Error Voices** — wholesale V4 tag.
 
@@ -992,7 +1103,7 @@ K. **§17 Internals/IDE** — wholesale V4 tag.
 
 ### Out-of-scope (V4 work, surfaced for tracking)
 
-Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, `std::test`, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer allocation/freeing, broader layout-stability enforcement, panic infrastructure, IDE-grade tolerant parser.
+Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, richer `std::test` blocks, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer allocation/freeing, broader layout-stability enforcement, panic infrastructure, IDE-grade tolerant parser.
 
 ---
 

@@ -151,31 +151,31 @@ task math3d_cross(a: Vector3, b: Vector3) -> Vector3 {
 }
 
 task math3d_magnitude2(v: Vector2) -> num {
-    give back math::sqrt(math3d_dot2(v, v))
+    give back math::sqrt(math3d_dot2(Vector2 { x: v.x, y: v.y }, v))
 }
 
 task math3d_magnitude3(v: Vector3) -> num {
-    give back math::sqrt(math3d_dot3(v, v))
+    give back math::sqrt(math3d_dot3(Vector3 { x: v.x, y: v.y, z: v.z }, v))
 }
 
 task math3d_magnitude4(v: Vector4) -> num {
-    give back math::sqrt(math3d_dot4(v, v))
+    give back math::sqrt(math3d_dot4(Vector4 { x: v.x, y: v.y, z: v.z, w: v.w }, v))
 }
 
 task math3d_normalize2(v: Vector2) -> Vector2 {
-    pilot mag = math3d_magnitude2(v)
+    pilot mag = math3d_magnitude2(Vector2 { x: v.x, y: v.y })
     if mag == 0.0 { give back v }
     give back Vector2 { x: v.x / mag, y: v.y / mag }
 }
 
 task math3d_normalize3(v: Vector3) -> Vector3 {
-    pilot mag = math3d_magnitude3(v)
+    pilot mag = math3d_magnitude3(Vector3 { x: v.x, y: v.y, z: v.z })
     if mag == 0.0 { give back v }
     give back Vector3 { x: v.x / mag, y: v.y / mag, z: v.z / mag }
 }
 
 task math3d_normalize4(v: Vector4) -> Vector4 {
-    pilot mag = math3d_magnitude4(v)
+    pilot mag = math3d_magnitude4(Vector4 { x: v.x, y: v.y, z: v.z, w: v.w })
     if mag == 0.0 { give back v }
     give back Vector4 { x: v.x / mag, y: v.y / mag, z: v.z / mag, w: v.w / mag }
 }
@@ -197,7 +197,7 @@ task math3d_lerp(a: num, b: num, t: num) -> num {
 }
 
 task math3d_approx_eq(a: num, b: num, epsilon: num) -> bool {
-    pilot diff = a - b
+    pilot mut diff = a - b
     if diff < 0.0 { diff = 0.0 - diff }
     give back diff <= epsilon
 }
@@ -320,12 +320,12 @@ task math3d_mat4_transform_direction(m: Matrix4x4, v: Vector3) -> Vector3 {
 }
 
 task math3d_mat4_look_at(eye: Vector3, target: Vector3, up: Vector3) -> Matrix4x4 {
-    pilot forward = math3d_normalize3(target.sub(eye))
-    pilot side = math3d_normalize3(math3d_cross(forward, up))
-    pilot true_up = math3d_cross(side, forward)
+    pilot forward = math3d_normalize3(target.sub(Vector3 { x: eye.x, y: eye.y, z: eye.z }))
+    pilot side = math3d_normalize3(math3d_cross(Vector3 { x: forward.x, y: forward.y, z: forward.z }, up))
+    pilot true_up = math3d_cross(Vector3 { x: side.x, y: side.y, z: side.z }, Vector3 { x: forward.x, y: forward.y, z: forward.z })
     give back math3d_mat4(
-        side.x, side.y, side.z, 0.0 - math3d_dot3(side, eye),
-        true_up.x, true_up.y, true_up.z, 0.0 - math3d_dot3(true_up, eye),
+        side.x, side.y, side.z, 0.0 - math3d_dot3(side, Vector3 { x: eye.x, y: eye.y, z: eye.z }),
+        true_up.x, true_up.y, true_up.z, 0.0 - math3d_dot3(true_up, Vector3 { x: eye.x, y: eye.y, z: eye.z }),
         0.0 - forward.x, 0.0 - forward.y, 0.0 - forward.z, math3d_dot3(forward, eye),
         0.0, 0.0, 0.0, 1.0
     )

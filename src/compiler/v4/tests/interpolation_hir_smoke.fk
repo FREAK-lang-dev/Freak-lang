@@ -146,7 +146,7 @@ task v4_interp_hir_run() -> void {
         index += 1
     }
     array_release(modes)
-    v4_interp_hir_assert(v4_hir_snapshot_restore(payload.replace("freak-hir-snapshot-v11", "freak-hir-snapshot-v10")).starts_with("hir-snapshot-restore ok=0"), "old version fenced")
+    v4_interp_hir_assert(v4_hir_snapshot_restore(payload.replace("freak-hir-snapshot-v12", "freak-hir-snapshot-v10")).starts_with("hir-snapshot-restore ok=0"), "old version fenced")
     pilot shuffled = v4_interp_hir_shuffle(payload)
     v4_interp_hir_assert(v4_hir_snapshot_restore(shuffled).starts_with("hir-snapshot-restore ok=1"), "shuffled detached restore")
     v4_interp_hir_assert(v4_hir_snapshot() == payload and v4_hir_word_piece_value(hir, first + 2, 0) == decoded, "restored sized plans")

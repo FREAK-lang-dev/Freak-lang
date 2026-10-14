@@ -1,17 +1,24 @@
+use self::containers::{
+    cockpit_values_get_int,
+    cockpit_values_new,
+    cockpit_values_push_int,
+    cockpit_values_release
+}
+
 -- COCKPIT V3 compatibility: themes are explicitly owned scalar arrays.
 
-pilot cockpit_theme_bg = 0
-pilot cockpit_theme_surface = 1
-pilot cockpit_theme_border = 2
-pilot cockpit_theme_text = 3
-pilot cockpit_theme_muted = 4
-pilot cockpit_theme_accent = 5
-pilot cockpit_theme_accent_hover = 6
-pilot cockpit_theme_danger = 7
-pilot cockpit_theme_success = 8
-pilot cockpit_theme_font_size = 9
-pilot cockpit_theme_padding = 10
-pilot cockpit_theme_gap = 11
+fixed pilot cockpit_theme_bg = 0
+fixed pilot cockpit_theme_surface = 1
+fixed pilot cockpit_theme_border = 2
+fixed pilot cockpit_theme_text = 3
+fixed pilot cockpit_theme_muted = 4
+fixed pilot cockpit_theme_accent = 5
+fixed pilot cockpit_theme_accent_hover = 6
+fixed pilot cockpit_theme_danger = 7
+fixed pilot cockpit_theme_success = 8
+fixed pilot cockpit_theme_font_size = 9
+fixed pilot cockpit_theme_padding = 10
+fixed pilot cockpit_theme_gap = 11
 
 task cockpit_color_rgba(red: int, green: int, blue: int, alpha: int) -> int {
     give back red + green * 256 + blue * 65536 + alpha * 16777216

@@ -548,16 +548,31 @@ def main() -> int:
         rejected = run([str(freak), "check", str(negative)], repo)
         output = rejected.stdout + rejected.stderr
         assert rejected.returncode != 0, output
+        assert "unknown callable 'ByteBuffer::from'" in output, output
+        assert not Path(str(negative) + ".c").exists()
+        assert not Path(str(negative) + ".ll").exists()
+
+        # Binding rejects the unknown callable before semantic checking runs.
+        # Keep the original program above and project its four semantic errors
+        # by removing only that binding failure.
+        binding_line = '    ByteBuffer::from("old")\n'
+        assert NEGATIVE_PROGRAM.count(binding_line) == 1
+        semantic_negative = root / "byte_buffer_semantic_negative.fk"
+        semantic_negative.write_text(
+            NEGATIVE_PROGRAM.replace(binding_line, "", 1), encoding="utf-8"
+        )
+        semantic_rejected = run([str(freak), "check", str(semantic_negative)], repo)
+        semantic_output = semantic_rejected.stdout + semantic_rejected.stderr
+        assert semantic_rejected.returncode != 0, semantic_output
         for diagnostic in (
             "call to 'ByteBuffer::new' expects 0 argument(s), got 1",
             "method 'write_word' argument 1 expects word, got int",
             "method 'slice' expects 2 argument(s), got 1",
             "has no method 'nope'",
-            "unknown callable 'ByteBuffer::from'",
         ):
-            assert diagnostic in output, (diagnostic, output)
-        assert not Path(str(negative) + ".c").exists()
-        assert not Path(str(negative) + ".ll").exists()
+            assert diagnostic in semantic_output, (diagnostic, semantic_output)
+        assert not Path(str(semantic_negative) + ".c").exists()
+        assert not Path(str(semantic_negative) + ".ll").exists()
 
         reserved_shape = root / "byte_buffer_reserved_shape.fk"
         reserved_shape.write_text(RESERVED_SHAPE_PROGRAM, encoding="utf-8")

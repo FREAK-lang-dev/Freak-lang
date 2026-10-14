@@ -38,7 +38,7 @@ task v4_hir_index_cold_resource_check() -> void {
 
 task v4_hir_index_payload(files: int, items: int, annotations: int) -> word {
     pilot parts = array_new()
-    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v11|files=" + word_from_int(files) + "|items=" + word_from_int(files * items))
+    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v12|files=" + word_from_int(files) + "|items=" + word_from_int(files * items))
     array_push(parts, "|alias-targets=0|local-annotations=" + word_from_int(files * items * annotations) + "|task-returns=" + word_from_int(files * items) + "|task-param-owners=" + word_from_int(files * items) + "|task-params=0|shape-owners=0|shape-fields=0|const-annotations=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|word-owners=" + word_from_int(files * items) + "|word-literals=0|word-pieces=0|word-path-parts=0|diagnostics=0")
     pilot file = files - 1
     repeat until file < 0 {
@@ -63,7 +63,7 @@ task v4_hir_index_payload(files: int, items: int, annotations: int) -> word {
         array_push(parts, "\nhir|" + word_from_int(file) + "|" + source + "|0|" + word_from_int(items) + "|0")
         file -= 1
     }
-    array_push(parts, "\nend|freak-hir-snapshot-v11")
+    array_push(parts, "\nend|freak-hir-snapshot-v12")
     pilot payload = word_join(parts)
     array_release(parts)
     give back payload

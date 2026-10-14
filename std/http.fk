@@ -12,11 +12,11 @@
 -- ===================================================================
 
 -- Response storage
-pilot http_resp_statuses = 0
-pilot http_resp_bodies = 0
-pilot http_resp_headers_raw = 0
-pilot http_resp_count = 0
-pilot http_inited = 0
+pilot mut http_resp_statuses = 0
+pilot mut http_resp_bodies = 0
+pilot mut http_resp_headers_raw = 0
+pilot mut http_resp_count = 0
+pilot mut http_inited = 0
 
 task http_init() -> void {
     if http_inited == 0 {
@@ -58,13 +58,13 @@ task http_parse_status(line: word) -> int {
     -- Parse "HTTP/1.1 200 OK" -> 200
     -- Find first space, then parse 3-digit status
     pilot slen = line.length()
-    pilot si = 0
+    pilot mut si = 0
     -- Skip to first space
     repeat slen times {
         if line.char_at(si) == " " {
             -- Parse next 3 chars as status code
-            pilot code_str = ""
-            pilot ci = si + 1
+            pilot mut code_str = ""
+            pilot mut ci = si + 1
             repeat 3 times {
                 if ci < slen {
                     code_str = code_str + line.char_at(ci)
@@ -82,11 +82,11 @@ task http_split_response(raw: word) -> int {
     -- Split raw HTTP response into status, headers, body
     -- Look for \r\n\r\n boundary between headers and body
     pilot rlen = raw.length()
-    pilot ri = 0
-    pilot header_end = 0 - 1
-    pilot prev3 = ""
-    pilot prev2 = ""
-    pilot prev1 = ""
+    pilot mut ri = 0
+    pilot mut header_end = 0 - 1
+    pilot mut prev3 = ""
+    pilot mut prev2 = ""
+    pilot mut prev1 = ""
 
     repeat rlen times {
         pilot ch = raw.char_at(ri)
@@ -104,8 +104,8 @@ task http_split_response(raw: word) -> int {
     }
 
     -- Extract status line (first line)
-    pilot status_line = ""
-    pilot li = 0
+    pilot mut status_line = ""
+    pilot mut li = 0
     repeat rlen times {
         pilot lc = raw.char_at(li)
         if lc == "\r" or lc == "\n" {
@@ -120,11 +120,11 @@ task http_split_response(raw: word) -> int {
     pilot status = http_parse_status(status_line)
 
     -- Extract headers and body
-    pilot headers = ""
-    pilot body = ""
+    pilot mut headers = ""
+    pilot mut body = ""
     if header_end > 0 {
         -- Headers: from start to header_end
-        pilot hi = 0
+        pilot mut hi = 0
         repeat header_end times {
             if hi < rlen {
                 headers = headers + raw.char_at(hi)
@@ -132,7 +132,7 @@ task http_split_response(raw: word) -> int {
             hi += 1
         }
         -- Body: from header_end to end
-        pilot bi = header_end
+        pilot mut bi = header_end
         repeat rlen times {
             if bi < rlen {
                 body = body + raw.char_at(bi)

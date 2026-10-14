@@ -1,0 +1,43 @@
+name: Release 0.15.0 recovery
+
+# Execute the repaired workflow while retaining the original release tag/source.
+# Publication verifies its own draft by ID; the release listing lags creation.
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release-v0150-recovery.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-v0150-recovery
+  cancel-in-progress: false
+
+jobs:
+  require-unpublished-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v0.15.0
+      - name: Verify original tag and refuse an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse HEAD)" = "7780d357f3849fea3eabb4d41732ae6fa6c10bbd"
+          python -u tools/release_version.py check --tag v0.15.0
+          can_publish=$(gh api graphql \
+            -f query='query($repoOwner: String!, $repoName: String!) { repository(owner: $repoOwner, name: $repoName) { release(tagName: "v0.15.0") { id } } }' \
+            -f repoOwner="${GITHUB_REPOSITORY%/*}" \
+            -f repoName="${GITHUB_REPOSITORY#*/}" \
+            --jq '.data.repository != null and .data.repository.release == null')
+          test "$can_publish" = "true"
+  recover:
+    needs: require-unpublished-tag
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      release_tag: v0.15.0
+      expected_source_commit: 7780d357f3849fea3eabb4d41732ae6fa6c10bbd

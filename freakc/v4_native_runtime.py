@@ -1,26 +1,45 @@
-"""Source inventory for native programs emitted by the V4 compiler.
+"""Read the closed native V4 runtime inventory used by bootstrap and packaging."""
+from pathlib import Path, PurePosixPath
 
-The bootstrap C compiler continues to link the legacy core runtime. Native V4
-programs also need the LLVM adapter and the compiler-private checked helpers.
-Keep the adapter before the core for the established compatibility link order.
-"""
+MANIFEST_PATH = Path(__file__).resolve().parents[1] / "src/compiler/v4/native-runtime.manifest"
 
-SOURCE_NAMES = (
-    "freak_llvm_runtime.c",
-    "freak_v4_word_runtime.c",
-    "freak_v4_numeric_runtime.c",
-    "freak_v4_unicode_runtime.c",
-    "freak_v4_system_runtime.c",
-    "freak_v4_panic_runtime.c",
-    "freak_runtime.c",
-)
+def read_inventory(path: Path = MANIFEST_PATH) -> tuple[tuple[str, str], ...]:
+    rows = []
+    seen = set()
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        if not raw or raw.startswith("#"):
+            continue
+        fields = raw.split(" ")
+        if len(fields) != 2 or fields[0] not in {"source", "header", "asset", "marker"}:
+            raise ValueError("invalid native runtime inventory record")
+        role, name = fields
+        components = name.split("/")
+        if (not name.isascii() or "\\" in name or ":" in name or
+                PurePosixPath(name).is_absolute() or
+                any(part in {"", ".", ".."} for part in components) or name.casefold() in seen):
+            raise ValueError("unsafe or duplicate native runtime inventory path")
+        if role == "source" and not name.endswith(".c"):
+            raise ValueError("native runtime source must be C")
+        seen.add(name.casefold())
+        rows.append((role, name))
+    if not rows or not any(role == "source" for role, _ in rows):
+        raise ValueError("empty native runtime inventory")
+    return tuple(rows)
 
-HEADER_NAMES = (
-    "freak_runtime.h",
-    "freak_v4_word_runtime.h",
-    "freak_v4_numeric_runtime.h",
-    "freak_v4_unicode_runtime.h",
-    "freak_v4_unicode_lower_tables.h",
-    "freak_v4_system_runtime.h",
-    "freak_v4_panic_runtime.h",
-)
+RUNTIME_INVENTORY = read_inventory()
+SOURCE_NAMES = tuple(name for role, name in RUNTIME_INVENTORY if role == "source")
+# Existing build gates resolve these names below freakc/runtime; vendor records
+# are carried in the complete inventory and resolved by runtime_file instead.
+HEADER_NAMES = tuple(name for role, name in RUNTIME_INVENTORY
+                     if role == "header" and not name.startswith("third_party/"))
+RUNTIME_FILE_NAMES = tuple(name for _, name in RUNTIME_INVENTORY)
+
+def runtime_file(runtime_root: Path, name: str) -> Path:
+    if name not in RUNTIME_FILE_NAMES:
+        raise ValueError("file is not in the native runtime inventory")
+    direct = runtime_root / name
+    if direct.is_file():
+        return direct
+    if runtime_root.parts[-2:] == ("freakc", "runtime") and name.startswith("third_party/"):
+        return runtime_root.parents[1] / name
+    return direct

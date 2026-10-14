@@ -1,0 +1,12 @@
+alias While = int
+alias WHILE = int
+
+task answer(While: While, WHILE: WHILE) -> int {
+    give back While + WHILE
+}
+
+task main() -> int {
+    if answer(20, 22) != 42 { give back 1 }
+    say "v35-while-casing-aliases-ok"
+    give back 42
+}

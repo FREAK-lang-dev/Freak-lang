@@ -1,0 +1,12 @@
+use std::test::{test_assert_word}
+use self::routes::{hello, route_parameter}
+
+task main() {
+    test_assert_word("named route", "Hello, Ada!", hello("Ada"))
+    test_assert_word("UTF-8 parameter", "é", route_parameter("/hello/%C3%A9"))
+    test_assert_word("escaped space", "Ada Lovelace", route_parameter("/hello/Ada%20Lovelace"))
+    test_assert_word("encoded separator", "", route_parameter("/hello/a%2fb"))
+    test_assert_word("literal separator", "", route_parameter("/hello/a/b"))
+    test_assert_word("encoded NUL", "", route_parameter("/hello/%00"))
+    test_assert_word("invalid UTF-8", "", route_parameter("/hello/%ff"))
+}

@@ -15,6 +15,17 @@ build/freakc_cli.fk linguist-generated=true
 
 # Shell consumers parse this field-by-field; keep the canonical payload map LF.
 packaging/distribution-files.manifest text eol=lf
+packaging/cli-sources.manifest text eol=lf
+
+# Locked bootstrap hashes and Git-object comparisons use exact source bytes.
+src/compiler/v4/crates/*/src/lib.fk text eol=lf
+src/compiler/v4/tools/build_llvm.fk text eol=lf
+src/compiler/v4/tools/preview_launcher.fk text eol=lf
+src/compiler/v4/tools/preview_protocol.fk text eol=lf
+src/compiler/v4/bootstrap-sources.manifest text eol=lf
+src/compiler/v4/native-runtime.manifest text eol=lf
+src/compiler/v4/bootstrap.toml text eol=lf
+src/compiler/v4/bootstrap.lock text eol=lf
 
 # Windows CI and installed POSIX entrypoints must remain executable by Bash.
 *.sh text eol=lf

@@ -810,9 +810,11 @@ def build_tool(repo, work, profile, timeout, build):
     measured.write_text(instrument(frozen.read_text()), encoding="utf-8")
     runtime = compiler_dir / "runtime"
     runtime.mkdir(exist_ok=True)
-    from freakc.v4_native_runtime import SOURCE_NAMES, HEADER_NAMES
-    for name in (*SOURCE_NAMES, *HEADER_NAMES):
-        (runtime / name).write_bytes((repo / "freakc/runtime" / name).read_bytes())
+    from freakc.v4_native_runtime import SOURCE_NAMES, RUNTIME_FILE_NAMES, runtime_file
+    for name in RUNTIME_FILE_NAMES:
+        destination = runtime / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(runtime_file(repo / "freakc/runtime", name).read_bytes())
     flags = ["-pg", "-O1", "-fno-inline"] if profile else ["-O2"]
     tool = compiler_dir / ("v4c_pg" if profile else "v4c")
     command = [clang, *flags, "-w", str(measured), str(runtime / "freak_runtime.c"),
@@ -848,8 +850,7 @@ def build_tool(repo, work, profile, timeout, build):
                 "tool_sha256": sha256(tool), "tool": str(tool), "clang": clang,
                 "clang_version": version.stdout, "compiler_flags": flags, "profile": profile,
                 "symbol_tool": symbol_tool,
-                "runtime_hashes": {name: sha256(runtime / name) for name in
-                    (*SOURCE_NAMES, *HEADER_NAMES)},
+                "runtime_hashes": {name: sha256(runtime / name) for name in RUNTIME_FILE_NAMES},
                 "runtime_objects": [str(obj) for obj in runtime_objects],
                 "runtime_object_hashes": {str(obj): sha256(obj) for obj in runtime_objects},
                 "runtime_symbols": sorted(counts), "runtime_collisions": duplicates,

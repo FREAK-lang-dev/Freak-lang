@@ -176,6 +176,11 @@ _RECORDING_IDENTITY_KEYS = {
     "wrapper_sha256",
     "combined_sha256",
 }
+_WINDOWS_RECORDING_IDENTITY_KEYS = _RECORDING_IDENTITY_KEYS | {
+    "launcher_source_content_base64",
+    "launcher_source_sha256",
+    "launcher_build",
+}
 _RAW_INVOCATION_KEYS = {"argv", "cwd", "exit_code", "inputs", "output"}
 _INVOCATION_KEYS = _RAW_INVOCATION_KEYS | {"record_sha256"}
 _OBSERVED_INPUT_KEYS = {"argument_index", "path", "bytes", "sha256"}
@@ -581,8 +586,6 @@ raise SystemExit(completed.returncode)
 
 
 def _recording_wrapper_bytes(kind: str, python_executable: str, recorder_path: str, recorder_text: str) -> bytes:
-    if kind == "windows-cmd":
-        return f'@"{python_executable}" "{recorder_path}" %*\r\n'.encode("utf-8")
     if kind == "posix-sh":
         return (
             "#!/bin/sh\nexec "
@@ -592,6 +595,166 @@ def _recording_wrapper_bytes(kind: str, python_executable: str, recorder_path: s
             + ' "$@"\n'
         ).encode("utf-8")
     raise LabError(f"unknown recording wrapper kind: {kind}")
+
+
+def _windows_recording_launcher_source(python_executable: str, recorder_path: str) -> bytes:
+    def wide_initializer(value: str) -> str:
+        if "\0" in value:
+            raise LabError("recording launcher path contains NUL")
+        try:
+            raw = value.encode("utf-16-le")
+        except UnicodeEncodeError as error:
+            raise LabError("recording launcher path is not valid Unicode") from error
+        units = [int.from_bytes(raw[index:index + 2], "little") for index in range(0, len(raw), 2)]
+        return ",".join(f"0x{unit:04x}" for unit in [*units, 0])
+
+    # These quoting and length checks follow the independently verified native
+    # bootstrap fixture. Every receiving CRT argument is quoted, including empty
+    # strings and trailing backslashes. The launch selects Python directly.
+    source = r'''#define _WIN32_WINNT 0x0602
+#include <windows.h>
+#include <shellapi.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <wchar.h>
+_Static_assert(sizeof(wchar_t)==2,"Windows launcher requires UTF-16 wchar_t");
+static wchar_t python_executable[]={PYTHON_UNITS};
+static wchar_t recorder_path[]={RECORDER_UNITS};
+static wchar_t *quote_spawn_argument(const wchar_t *argument) {
+    size_t length=wcslen(argument);
+    if(length>(SIZE_MAX/sizeof(wchar_t)-3)/2)return NULL;
+    wchar_t *quoted=calloc(length*2+3,sizeof(wchar_t));
+    if(!quoted)return NULL;
+    size_t used=0; quoted[used++]=L'"';
+    const wchar_t *cursor=argument;
+    while(*cursor) {
+        size_t slashes=0;
+        while(*cursor==L'\\'){slashes++;cursor++;}
+        size_t escaped=(*cursor==L'"'||!*cursor)?slashes*2:slashes;
+        for(size_t i=0;i<escaped;i++)quoted[used++]=L'\\';
+        if(*cursor==L'"')quoted[used++]=L'\\';
+        if(*cursor)quoted[used++]=*cursor++;
+    }
+    quoted[used++]=L'"';
+    return quoted;
+}
+static DWORD forward_spawn(const wchar_t *executable,int count,wchar_t **arguments) {
+    if(count<1||(size_t)count>SIZE_MAX/sizeof(wchar_t *)-1)return 96;
+    wchar_t **quoted=calloc((size_t)count+1,sizeof(wchar_t *));
+    if(!quoted)return 96;
+    size_t command_length=0;
+    DWORD result=96;
+    wchar_t *line=NULL;
+    for(int i=0;i<count;i++) {
+        if(!arguments[i]||!(quoted[i]=quote_spawn_argument(arguments[i])))goto done;
+        size_t length=wcslen(quoted[i]);
+        size_t separator=i?1:0;
+        if(length>32766-separator||command_length>32766-separator-length)goto done;
+        command_length+=length+separator;
+    }
+    line=calloc(command_length+1,sizeof(wchar_t));
+    if(!line)goto done;
+    size_t used=0;
+    for(int i=0;i<count;i++) {
+        if(i)line[used++]=L' ';
+        size_t length=wcslen(quoted[i]);
+        wmemcpy(line+used,quoted[i],length);used+=length;
+    }
+    STARTUPINFOW startup={0};PROCESS_INFORMATION child={0};
+    startup.cb=sizeof(startup);startup.dwFlags=STARTF_USESTDHANDLES;
+    startup.hStdInput=GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput=GetStdHandle(STD_OUTPUT_HANDLE);
+    startup.hStdError=GetStdHandle(STD_ERROR_HANDLE);
+    if(!CreateProcessW(executable,line,NULL,NULL,TRUE,0,NULL,NULL,&startup,&child)) {
+        fprintf(stderr,"performance recorder launch: Windows error %lu\n",(unsigned long)GetLastError());
+        goto done;
+    }
+    CloseHandle(child.hThread);
+    DWORD exit_code=0;
+    if(WaitForSingleObject(child.hProcess,INFINITE)==WAIT_OBJECT_0&&GetExitCodeProcess(child.hProcess,&exit_code)) {
+        result=exit_code;
+    } else {
+        fprintf(stderr,"performance recorder wait: Windows error %lu\n",(unsigned long)GetLastError());
+    }
+    CloseHandle(child.hProcess);
+done:
+    free(line);
+    for(int i=0;i<count;i++)free(quoted[i]);
+    free(quoted);
+    return result;
+}
+int main(void) {
+    int count=0;
+    wchar_t **incoming=CommandLineToArgvW(GetCommandLineW(),&count);
+    if(!incoming||count<1){if(incoming)LocalFree(incoming);return 96;}
+    if(count>=INT32_MAX||(size_t)count>SIZE_MAX/sizeof(wchar_t *)-2){LocalFree(incoming);return 96;}
+    wchar_t **forwarded=calloc((size_t)count+2,sizeof(wchar_t *));
+    if(!forwarded){LocalFree(incoming);return 96;}
+    forwarded[0]=python_executable;
+    forwarded[1]=recorder_path;
+    for(int i=1;i<count;i++)forwarded[i+1]=incoming[i];
+    DWORD result=forward_spawn(python_executable,count+1,forwarded);
+    free(forwarded);LocalFree(incoming);
+    ExitProcess(result);
+}
+'''
+    return source.replace("PYTHON_UNITS", wide_initializer(python_executable)).replace(
+        "RECORDER_UNITS", wide_initializer(recorder_path)
+    ).encode("ascii")
+
+
+def _windows_recording_launcher_command(clang: Path, target_triple: str) -> list[str]:
+    target = target_triple.lower()
+    if "windows-msvc" in target:
+        timestamp = "-Wl,/Brepro"
+    elif "windows-gnu" in target or "mingw" in target:
+        timestamp = "-Wl,--no-insert-timestamp"
+    else:
+        raise LabError(f"recording launcher requires a Windows Clang target: {target_triple}")
+    return [
+        str(clang), "-std=c11", "-O2", "-fuse-ld=lld", timestamp,
+        "record_clang_launcher.c", "-o", "record-clang.exe", "-lshell32",
+    ]
+
+
+def _build_windows_recording_launcher(
+    work_dir: Path, clang: Path, python_executable: str, recorder_path: str,
+) -> tuple[bytes, bytes, dict[str, Any]]:
+    environment = _clean_environment(clang)
+    compiler = _tool_identity(clang, environment, work_dir, 30.0)
+    source_bytes = _windows_recording_launcher_source(python_executable, recorder_path)
+    source = work_dir / "record_clang_launcher.c"
+    wrapper = work_dir / "record-clang.exe"
+    source.write_bytes(source_bytes)
+    command = _windows_recording_launcher_command(clang, compiler["target_triple"])
+    command_sha256 = _json_sha256(command)
+    linker = _linker_identity_from_trace(clang, command[1:], command_sha256, work_dir, environment, 30.0)
+    completed = _run_bytes(command, cwd=work_dir, environment=environment, timeout=30.0)
+    if completed.returncode != 0:
+        raise LabError(
+            f"native recording launcher build failed with exit {completed.returncode}\n"
+            f"stdout bytes: {completed.stdout.hex()}\nstderr bytes: {completed.stderr.hex()}"
+        )
+    wrapper_bytes = _read_bounded_file(wrapper, MAX_RECORDER_SOURCE_BYTES, "native recording launcher")
+    linker_after = _linker_identity_from_trace(clang, command[1:], command_sha256, work_dir, environment, 30.0)
+    for field in ("observed_path", "path", "sha256", "bytes", "version_exit_code", "version_stdout_base64", "version_stderr_base64"):
+        if linker[field] != linker_after[field]:
+            raise LabError("native recording launcher linker changed while building")
+    if source.read_bytes() != source_bytes or compiler != _tool_identity(clang, environment, work_dir, 30.0):
+        raise LabError("native recording launcher source or compiler changed while building")
+    if wrapper_bytes != _read_bounded_file(wrapper, MAX_RECORDER_SOURCE_BYTES, "native recording launcher"):
+        raise LabError("native recording launcher changed while identifying its linker")
+    return source_bytes, wrapper_bytes, {
+        "compiler": compiler,
+        "command": command,
+        "command_sha256": command_sha256,
+        "stdout_raw_base64": _encode_bytes(completed.stdout),
+        "stdout_sha256": _sha256_bytes(completed.stdout),
+        "stderr_raw_base64": _encode_bytes(completed.stderr),
+        "stderr_sha256": _sha256_bytes(completed.stderr),
+        "linker": linker,
+    }
 
 
 def _recording_identity_digest(identity: Mapping[str, Any]) -> str:
@@ -607,14 +770,16 @@ def _write_recording_clang(work_dir: Path, real_clang: Path) -> tuple[Path, Path
     recorder.write_bytes(recorder_bytes)
     python_executable = str(Path(sys.executable).resolve(strict=True))
     if sys.platform == "win32":
-        kind = "windows-cmd"
-        wrapper = work_dir / "record-clang.cmd"
+        kind = "windows-native"
+        wrapper = work_dir / "record-clang.exe"
+        launcher_source, wrapper_bytes, launcher_build = _build_windows_recording_launcher(
+            work_dir, real_clang, python_executable, str(recorder.resolve())
+        )
     else:
         kind = "posix-sh"
         wrapper = work_dir / "record-clang"
-    wrapper_bytes = _recording_wrapper_bytes(kind, python_executable, str(recorder.resolve()), recorder_text)
-    wrapper.write_bytes(wrapper_bytes)
-    if kind == "posix-sh":
+        wrapper_bytes = _recording_wrapper_bytes(kind, python_executable, str(recorder.resolve()), recorder_text)
+        wrapper.write_bytes(wrapper_bytes)
         wrapper.chmod(0o755)
     identity = {
         "schema": RECORDING_SCHEMA,
@@ -629,6 +794,12 @@ def _write_recording_clang(work_dir: Path, real_clang: Path) -> tuple[Path, Path
         "wrapper_content_base64": _encode_bytes(wrapper_bytes),
         "wrapper_sha256": _sha256_bytes(wrapper_bytes),
     }
+    if kind == "windows-native":
+        identity.update({
+            "launcher_source_content_base64": _encode_bytes(launcher_source),
+            "launcher_source_sha256": _sha256_bytes(launcher_source),
+            "launcher_build": launcher_build,
+        })
     identity["combined_sha256"] = _recording_identity_digest(identity)
     return wrapper.resolve(), log.resolve(), identity
 
@@ -642,6 +813,11 @@ def _rehash_recording_files(identity: Mapping[str, Any], context: str) -> str:
         wrapper_bytes = _read_bounded_file(wrapper, MAX_RECORDER_SOURCE_BYTES, f"{context} wrapper")
         python_sha256 = _sha256_file(python_executable)
         python_bytes = python_executable.stat().st_size
+        launcher_source = None
+        if identity["kind"] == "windows-native":
+            launcher_source = _read_bounded_file(
+                wrapper.with_name("record_clang_launcher.c"), MAX_RECORDER_SOURCE_BYTES, f"{context} launcher source"
+            )
     except LabError:
         raise
     except OSError as error:
@@ -655,6 +831,12 @@ def _rehash_recording_files(identity: Mapping[str, Any], context: str) -> str:
         or identity["wrapper_content_base64"] != _encode_bytes(wrapper_bytes)
     ):
         raise LabError(f"{context} recorder source changed")
+    if launcher_source is not None:
+        if (
+            identity["launcher_source_sha256"] != _sha256_bytes(launcher_source)
+            or identity["launcher_source_content_base64"] != _encode_bytes(launcher_source)
+        ):
+            raise LabError(f"{context} launcher source changed")
     return _recording_identity_digest(identity)
 
 
@@ -2309,12 +2491,71 @@ def _validate_invocation_record(value: Any, context: str) -> dict[str, Any]:
     return _validate_invocation_payload(value, context, stored=True)
 
 
+def _validate_windows_recording_launcher(
+    identity: Mapping[str, Any], wrapper_bytes: bytes, python_executable: str, recorder_path: str, context: str,
+) -> None:
+    source = _decode_bytes(
+        identity.get("launcher_source_content_base64"),
+        f"{context}.launcher_source_content_base64",
+        maximum=MAX_RECORDER_SOURCE_BYTES,
+    )
+    expected_source = _windows_recording_launcher_source(python_executable, recorder_path)
+    if source != expected_source or identity.get("launcher_source_sha256") != _sha256_bytes(source):
+        raise LabError(f"{context} launcher source is not canonical")
+    build = _require_dict(identity.get("launcher_build"), f"{context}.launcher_build")
+    _exact_keys(build, {
+        "compiler", "command", "command_sha256", "stdout_raw_base64", "stdout_sha256",
+        "stderr_raw_base64", "stderr_sha256", "linker",
+    }, f"{context}.launcher_build")
+    compiler = _require_dict(build.get("compiler"), f"{context}.launcher_build.compiler")
+    _exact_keys(compiler, {"path", "sha256", "bytes", "version", "target_triple"}, f"{context}.launcher_build.compiler")
+    clang = _resolve_exact_executable(
+        _require_string(compiler.get("path"), f"{context}.launcher_build.compiler.path", nonempty=True),
+        "recording launcher Clang",
+    )
+    target = _require_string(compiler.get("target_triple"), f"{context}.launcher_build.compiler.target_triple", nonempty=True)
+    command = _windows_recording_launcher_command(clang, target)
+    command_sha256 = _json_sha256(command)
+    if build.get("command") != command or build.get("command_sha256") != command_sha256:
+        raise LabError(f"{context} launcher build command is not canonical")
+    for stream in ("stdout", "stderr"):
+        raw = _decode_bytes(build.get(f"{stream}_raw_base64"), f"{context}.launcher_build.{stream}_raw_base64", maximum=MAX_CAPTURE_BYTES)
+        if build.get(f"{stream}_sha256") != _sha256_bytes(raw):
+            raise LabError(f"{context} launcher build {stream} checksum is invalid")
+    if identity.get("wrapper_sha256") != _sha256_bytes(wrapper_bytes):
+        raise LabError(f"{context} wrapper content checksum is invalid")
+    with tempfile.TemporaryDirectory(prefix="freak-v3-recorder-revalidate-") as temporary:
+        work_dir = Path(temporary).resolve()
+        environment = _clean_environment(clang)
+        if compiler != _tool_identity(clang, environment, work_dir, 30.0):
+            raise LabError(f"{context} launcher compiler identity is stale")
+        # The shared linker validator traces from its own directory. Stage the
+        # canonical input and make only that trace's input spelling absolute.
+        source_path = work_dir / "record_clang_launcher.c"
+        source_path.write_bytes(source)
+        trace_arguments = command[1:]
+        trace_arguments[trace_arguments.index("record_clang_launcher.c")] = str(source_path)
+        _validate_linker_identity(
+            build.get("linker"), f"{context}.launcher_build.linker", clang, trace_arguments,
+            environment, 30.0, command_sha256,
+        )
+        _, canonical_wrapper, live_build = _build_windows_recording_launcher(
+            work_dir, clang, python_executable, recorder_path,
+        )
+    if wrapper_bytes != canonical_wrapper:
+        raise LabError(f"{context} launcher executable differs from the canonical source rebuild")
+    for field in ("compiler", "command", "command_sha256", "stdout_raw_base64", "stdout_sha256", "stderr_raw_base64", "stderr_sha256"):
+        if build[field] != live_build[field]:
+            raise LabError(f"{context} launcher build {field} differs from the live rebuild")
+
+
 def _validate_recording_identity(value: Any, context: str) -> dict[str, Any]:
     identity = _require_dict(value, context)
-    _exact_keys(identity, _RECORDING_IDENTITY_KEYS, context)
+    expected_kind = "windows-native" if sys.platform == "win32" else "posix-sh"
+    expected_keys = _WINDOWS_RECORDING_IDENTITY_KEYS if expected_kind == "windows-native" else _RECORDING_IDENTITY_KEYS
+    _exact_keys(identity, expected_keys, context)
     if identity.get("schema") != RECORDING_SCHEMA:
         raise LabError(f"{context}.schema is unsupported")
-    expected_kind = "windows-cmd" if sys.platform == "win32" else "posix-sh"
     if identity.get("kind") != expected_kind:
         raise LabError(f"{context}.kind differs from the validation platform")
     python_executable = _require_string(
@@ -2336,7 +2577,7 @@ def _validate_recording_identity(value: Any, context: str) -> dict[str, Any]:
         raise LabError(f"{context} paths must be absolute")
     if Path(recorder_path).name != "record_clang.py":
         raise LabError(f"{context}.recorder_path is not canonical")
-    expected_wrapper_name = "record-clang.cmd" if expected_kind == "windows-cmd" else "record-clang"
+    expected_wrapper_name = "record-clang.exe" if expected_kind == "windows-native" else "record-clang"
     if Path(wrapper_path).name != expected_wrapper_name:
         raise LabError(f"{context}.wrapper_path is not canonical")
 
@@ -2351,18 +2592,18 @@ def _validate_recording_identity(value: Any, context: str) -> dict[str, Any]:
         maximum=MAX_RECORDER_SOURCE_BYTES,
     )
     expected_recorder = _recording_recorder_text().encode("utf-8")
-    expected_wrapper = _recording_wrapper_bytes(
-        expected_kind,
-        python_executable,
-        recorder_path,
-        _recording_recorder_text(),
-    )
     if recorder_bytes != expected_recorder or identity.get("recorder_sha256") != _sha256_bytes(recorder_bytes):
         raise LabError(f"{context} recorder content is not canonical")
-    if wrapper_bytes != expected_wrapper or identity.get("wrapper_sha256") != _sha256_bytes(wrapper_bytes):
-        raise LabError(f"{context} wrapper content is not canonical")
     if identity.get("combined_sha256") != _recording_identity_digest(identity):
         raise LabError(f"{context}.combined_sha256 is invalid")
+    if expected_kind == "windows-native":
+        _validate_windows_recording_launcher(identity, wrapper_bytes, python_executable, recorder_path, context)
+    else:
+        expected_wrapper = _recording_wrapper_bytes(
+            expected_kind, python_executable, recorder_path, _recording_recorder_text(),
+        )
+        if wrapper_bytes != expected_wrapper or identity.get("wrapper_sha256") != _sha256_bytes(wrapper_bytes):
+            raise LabError(f"{context} wrapper content is not canonical")
     return identity
 
 
@@ -2782,6 +3023,8 @@ def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str,
         raise LabError("result compiler version/help identity differs from the live executable")
     if toolchain != live_toolchain:
         raise LabError("result toolchain version/target identity differs from the live executable")
+    if recording_identity["kind"] == "windows-native" and recording_identity["launcher_build"]["compiler"] != live_toolchain:
+        raise LabError("result recording launcher compiler differs from the selected Clang")
     detected_profiles = _available_profiles(live_help)
 
     configuration = _require_dict(document["configuration"], "result.configuration")

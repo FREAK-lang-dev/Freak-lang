@@ -358,6 +358,16 @@ task v4_editor_local_decl_span(stream_id: int, local_span: word, local_name: wor
     }
 
     pilot local_start = v4_span_start(local_span)
+    pilot first = v4_editor_first_nontrivia_token_in_span(stream_id, local_span)
+    if first >= 0 {
+        pilot modifier = v4_lex_token_syntax_value(stream_id, first)
+        if modifier == "fixed" or modifier == "grounded" {
+            pilot next = v4_editor_next_nontrivia_token(stream_id, first)
+            if next >= 0 and v4_lex_token_syntax_value(stream_id, next) == "pilot" {
+                local_start = v4_span_end(v4_lex_token_span(stream_id, next))
+            }
+        }
+    }
     pilot local_end = v4_span_end(local_span)
     pilot token_id = 0
     pilot token_count = v4_lex_token_count(stream_id)

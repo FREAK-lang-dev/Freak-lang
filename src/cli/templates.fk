@@ -1,0 +1,175 @@
+-- Native project generation copies the selected payload's canonical examples.
+-- Only fixed template paths may be read/written. Publication never replaces an
+-- existing destination, and cleanup authority is the held task-owned temp ticket.
+pilot mut cli_template_error = ""
+
+task cli_template_fail(message: word) -> void {
+    if cli_template_error == "" { cli_template_error = message }
+}
+
+task cli_template_name_safe(name: word) -> bool {
+    if name == "" or name.length() > 64 { give back false }
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(name)
+    bytes.seek(0)
+    pilot mut index = 0
+    pilot mut safe = true
+    repeat until bytes.remaining() == 0 or not safe {
+        pilot value = bytes.read_byte()
+        pilot letter = value >= 65 and value <= 90 or value >= 97 and value <= 122
+        if index == 0 { safe = letter } else { safe = letter or value >= 48 and value <= 57 or value == 45 or value == 95 }
+        index += 1
+    }
+    bytes.release()
+    if not safe { give back false }
+    pilot folded = name.to_lower()
+    if folded == "con" or folded == "prn" or folded == "aux" or folded == "nul" { give back false }
+    if folded.length() == 4 and (folded.starts_with("com") or folded.starts_with("lpt")) {
+        pilot mut last = folded.char_at(3)
+        if "123456789".contains(last) { give back false }
+    }
+    give back true
+}
+
+task cli_template_separator(path: word) -> int {
+    pilot mut last = -1
+    pilot mut index = 0
+    repeat until index >= path.length() {
+        pilot ch = path.char_at(index)
+        if ch == "/" or ch == "\\" { last = index }
+        index += 1
+    }
+    give back last
+}
+
+task cli_template_parent(path: word) -> word {
+    pilot mut last = cli_template_separator(path + "")
+    if last < 0 { give back "." }
+    if last == 0 { give back path.substring(0, 1) }
+    if last == 2 and path.char_at(1) == ":" { give back path.substring(0, 3) }
+    give back path.substring(0, last)
+}
+
+task cli_template_payload_root() -> word {
+    pilot runtime = cli_find_runtime_dir()
+    if runtime == "" { give back "" }
+    if cli_payload_is_resolution_error(runtime + "") { cli_template_fail("selected payload resolution failed: " + runtime) give back "" }
+    pilot normalized = runtime.replace("\\", "/")
+    if normalized == "freakc/runtime" { give back "." }
+    if normalized.ends_with("/freakc/runtime") { give back runtime.substring(0, runtime.length() - 15) }
+    if cli_template_separator(runtime + "") < 0 { give back "" }
+    give back cli_template_parent(runtime)
+}
+
+task cli_template_checked(fs_ticket: int, operation: word) -> bool {
+    pilot mut complete = fs::result_ok(fs_ticket)
+    if not complete { cli_template_fail(operation + ": " + fs::result_error(fs_ticket)) }
+    fs::result_release(fs_ticket)
+    give back complete
+}
+
+task cli_template_directories(kind: word) -> word {
+    if kind == "lib" { give back "src\ntests\nexamples\nexamples/consumer\nexamples/consumer/src\nexamples/consumer/tests\n" }
+    give back "src\ntests\n"
+}
+
+task cli_template_files(kind: word) -> word {
+    if kind == "lib" { give back "hangar.toml\nREADME.md\nLICENSE\nsrc/greet.fk\ntests/greeting_test.fk\nexamples/consumer/hangar.toml\nexamples/consumer/src/main.fk\nexamples/consumer/tests/consumer_test.fk\n" }
+    if kind == "http" { give back "hangar.toml\nREADME.md\nLICENSE\nsrc/main.fk\nsrc/routes.fk\ntests/routes_test.fk\n" }
+    give back "hangar.toml\nREADME.md\nLICENSE\nsrc/main.fk\nsrc/greet.fk\ntests/greeting_test.fk\n"
+}
+
+task cli_template_copy_file(source: int, stage: int, relative: word, name: word) -> bool {
+    pilot read = fs::read_relative_bytes_limit_ticket(source, relative, 131072)
+    pilot mut complete = false
+    if fs::result_ok(read) {
+        pilot bytes: ByteBuffer = fs::result_bytes(read)
+        pilot content = bytes.to_word()
+        pilot text_ok = bytes.status() == 0
+        bytes.release()
+        if text_ok {
+            pilot mut substituted = content.replace("@@NAME@@", name + "")
+            pilot mut consumer_name = "template-consumer"
+            if name == consumer_name { consumer_name = "template-consumer-app" }
+            substituted = substituted.replace("@@CONSUMER_NAME@@", consumer_name)
+            pilot output: ByteBuffer = ByteBuffer::new()
+            output.write_word(substituted)
+            pilot written = fs::write_relative_bytes_checked(stage, relative, output)
+            output.release()
+            complete = cli_template_checked(written, "cannot write staged template " + relative)
+        } else { cli_template_fail("canonical template must contain NUL-free UTF-8: " + relative) }
+    } else {
+        cli_template_fail("cannot read canonical template " + relative + ": " + fs::result_error(read))
+    }
+    fs::result_release(read)
+    give back complete
+}
+
+task cli_template_populate(source: int, stage: int, kind: word, name: word) -> bool {
+    pilot directories = cli_template_directories(kind + "")
+    pilot mut path = ""
+    pilot mut index = 0
+    repeat until index >= directories.length() {
+        pilot ch = directories.char_at(index)
+        if ch == "\n" {
+            if not cli_template_checked(fs::mkdir_relative_checked(stage, path), "cannot create staged directory " + path) { give back false }
+            path = ""
+        } else { path = path + ch }
+        index += 1
+    }
+    pilot files = cli_template_files(kind)
+    index = 0
+    repeat until index >= files.length() {
+        pilot ch = files.char_at(index)
+        if ch == "\n" {
+            if not cli_template_copy_file(source, stage, path + "", name + "") { give back false }
+            path = ""
+        } else { path = path + ch }
+        index += 1
+    }
+    give back true
+}
+
+task cli_create_template(template_name: word, destination: word) -> bool {
+    cli_template_error = ""
+    if template_name != "cli" and template_name != "lib" and template_name != "http" {
+        cli_template_fail("template must be cli, lib, or http")
+        give back false
+    }
+    if destination == "" or (not cli_is_windows() and destination.contains("\\")) {
+        cli_template_fail("destination must end in a portable project name")
+        give back false
+    }
+    pilot split = cli_template_separator(destination + "")
+    pilot name = destination.substring(split + 1, destination.length() - split - 1)
+    if not cli_template_name_safe(name + "") {
+        cli_template_fail("project name must start with an ASCII letter, contain at most 64 letters/digits/_/-, and avoid Windows device names")
+        give back false
+    }
+    pilot payload = cli_template_payload_root()
+    if payload == "" { cli_template_fail("selected compiler payload has no canonical templates") give back false }
+    pilot source = fs::open_dir_ticket(payload + "/templates/v35/" + template_name)
+    pilot mut complete = false
+    if fs::result_ok(source) {
+        pilot parent_name = cli_template_parent(destination)
+        pilot parent = fs::open_dir_ticket(parent_name)
+        if fs::result_ok(parent) {
+            pilot stage = fs::temp_dir(parent_name, "freak-template")
+            if fs::result_ok(stage) {
+                complete = cli_template_populate(source, stage, template_name + "", name + "")
+                if complete { complete = cli_template_checked(fs::publish_temp_dir_checked(stage, parent, name), "cannot publish project without replacing destination") }
+                if not complete {
+                    pilot removed = fs::remove_temp_dir_checked(stage)
+                    if not fs::result_ok(removed) { cli_template_error = cli_template_error + "; owned staging cleanup: " + fs::result_error(removed) }
+                    fs::result_release(removed)
+                }
+            } else { cli_template_fail("cannot create owned template staging: " + fs::result_error(stage)) }
+            fs::result_release(stage)
+        } else { cli_template_fail("destination parent must already exist without symlinks: " + fs::result_error(parent)) }
+        fs::result_release(parent)
+    } else {
+        cli_template_fail("cannot open selected canonical template without following links: " + fs::result_error(source))
+    }
+    fs::result_release(source)
+    give back complete
+}

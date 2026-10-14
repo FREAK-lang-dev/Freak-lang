@@ -2,6 +2,11 @@ name: Editor packages
 
 on:
   workflow_call:
+    inputs:
+      source_ref:
+        required: false
+        type: string
+        default: ""
   pull_request:
     branches: [main]
     paths:
@@ -27,6 +32,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - id: version
         run: |
           python -u tools/release_version.py check

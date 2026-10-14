@@ -98,7 +98,14 @@ class FsBridgePure(unittest.TestCase):
         self.assertEqual(len(self.data["cases"]), 58)
         self.assertEqual(self.data["counts"], {"linux":55, "darwin":55, "win32":57})
         self.assertEqual({case["id"] for case in self.data["cases"]}, gate.EXPECTED_IDS)
-        self.assertEqual(len(gate.SOURCE_NAMES), 13)
+        from freakc.v4_native_runtime import RUNTIME_FILE_NAMES, runtime_file
+        expected_runtime_sources = {runtime_file(ROOT / "freakc/runtime", name).relative_to(ROOT).as_posix()
+                                    for name in RUNTIME_FILE_NAMES}
+        self.assertEqual(set(gate.RUNTIME_SOURCE_NAMES), expected_runtime_sources)
+        self.assertEqual(set(gate.SOURCE_NAMES), expected_runtime_sources |
+                         set(gate.OWNED_NAMES) | set(gate.INVENTORY_NAMES) |
+                         {gate.SUPPORT_NAME, gate.GUARD_NAME})
+        self.assertEqual(len(gate.SOURCE_NAMES), len(set(gate.SOURCE_NAMES)))
         self.assertEqual(len(gate.OWNED_NAMES), 5)
 
     def test_sized_nul_and_crlf_are_ok_exact_data(self):
@@ -245,6 +252,24 @@ class FsBridgePure(unittest.TestCase):
         self.assertEqual((support.RUN_SECONDS,support.RUN_MIB),(10,128))
         self.assertEqual(set(support.source_hashes()),set(gate.SOURCE_NAMES))
         with self.assertRaises(gate.GateError): gate.load_support(frozen)
+
+    def test_transitive_runtime_and_vendor_inputs_retain_original_and_frozen_pins(self):
+        root, _, frozen, compiler, support, report = self.fixture()
+        pins = support.Conservation(compiler, frozen, report)
+        pins.check()
+        for name in ("freakc/runtime/freak_v35_process.inc",
+                     "third_party/llhttp/freak_amalgamation.inc",
+                     "third_party/llhttp/src/llhttp.c"):
+            self.assertIn(name, report["source_hashes"])
+            for directory, reason in ((root, "original source"), (frozen, "frozen source")):
+                with self.subTest(name=name, directory=directory):
+                    path = directory / name
+                    original = path.read_bytes()
+                    path.write_bytes(original + b"dependency drift\n")
+                    with self.assertRaisesRegex(support.GateError, reason + " conservation failed"):
+                        pins.check()
+                    path.write_bytes(original)
+                    pins.check()
 
     def test_sanitizer_options_are_clean_and_restored_without_harness(self):
         _, _, _, _, support, _ = self.fixture()

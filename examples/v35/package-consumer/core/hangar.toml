@@ -1,0 +1,14 @@
+[project]
+name = "diamond-core"
+version = "0.1.0"
+kind = "lib"
+readme = "README.md"
+license_file = "LICENSE"
+
+[modules]
+core = "src/core.fk"
+
+[exports]
+seed = "core::seed"
+
+[dependencies]

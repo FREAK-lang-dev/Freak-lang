@@ -208,8 +208,8 @@ NEGATIVE = {
     "wrong_store": ('pilot mut values = [1]\nvalues[0] = "bad"\n', "cannot assign"),
     "narrow_num_store": ('pilot mut values = [1]\nvalues[0] = 2.5\n', "cannot assign"),
     "bool_store": ('pilot mut values = [true]\nvalues[0] = 1\n', "cannot assign"),
-    "immutable_store": ('pilot values = [1]\nvalues[0] = 2\n', "mutable list binding"),
-    "immutable_compound": ('pilot values = [1]\nvalues[0] += 2\n', "mutable list binding"),
+    "immutable_store": ('fixed pilot values = [1]\nvalues[0] = 2\n', "mutable list binding"),
+    "immutable_compound": ('fixed pilot values = [1]\nvalues[0] += 2\n', "mutable list binding"),
     "filled_num_count": ('pilot values = List::filled(0, 2.5)\n', "expects int"),
     "filled_bool_count": ('pilot values = List::filled(0, true)\n', "expects int"),
     "filled_missing_count": ('pilot values = List::filled(0)\n', "expects 2"),
@@ -219,11 +219,11 @@ NEGATIVE = {
 
 PANIC = {}
 for label, offset in (("negative", "-1"), ("at_length", "2"), ("extreme", "9223372036854775807")):
-    PANIC[f"read_{label}"] = (f'pilot values = [1, 2]\nsay values[{offset}]\n', "out of bounds")
-    PANIC[f"write_{label}"] = (f'pilot mut values = [1, 2]\nvalues[{offset}] = 9\n', "out of bounds")
-PANIC["empty_read"] = ('pilot values = List::filled(0, 0)\nsay values[0]\n', "out of bounds")
-PANIC["negative_count"] = ('pilot values = List::filled(0, -1)\n', "negative or too large")
-PANIC["overflow_count"] = ('pilot values = List::filled(0, 9223372036854775807)\n', "negative or too large")
+    PANIC[f"read_{label}"] = (f'pilot values = [1, 2]\ntask main() {{\n    say values[{offset}]\n}}\n', "out of bounds")
+    PANIC[f"write_{label}"] = (f'pilot mut values = [1, 2]\ntask main() {{\n    values[{offset}] = 9\n}}\n', "out of bounds")
+PANIC["empty_read"] = ('pilot values = List::filled(0, 0)\ntask main() {\n    say values[0]\n}\n', "out of bounds")
+PANIC["negative_count"] = ('pilot values = List::filled(0, -1)\ntask main() {}\n', "negative or too large")
+PANIC["overflow_count"] = ('pilot values = List::filled(0, 9223372036854775807)\ntask main() {}\n', "negative or too large")
 
 
 def emission(compiler: Path, root: Path, backend: str, name: str, source: str, strict: bool = False):
@@ -301,7 +301,7 @@ def main() -> int:
                 records.append(expect_panic(compiler, repo, root, backend, name, source, diagnostic))
                 print(f"PASS {name}/{backend}", flush=True)
             if not args.case or args.case == "strict_primitive":
-                source = "pilot mut values = [1, 2]\nvalues[0] += 3\nfor each value in values { say value }\n"
+                source = "pilot mut values = [1, 2]\ntask main() {\n    values[0] += 3\n    for each value in values { say value }\n}\n"
                 compiled, generated = emission(compiler, root, backend, "strict_primitive", source, True)
                 require_ok(compiled, f"strict_primitive/{backend} emission")
                 executed = native_run(repo, root, backend, "strict_primitive", generated)

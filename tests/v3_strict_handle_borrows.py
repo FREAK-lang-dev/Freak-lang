@@ -116,6 +116,57 @@ NEGATIVE = {
 }
 
 
+HANDLE_MOVE_NEGATIVE = {
+    "capacity_user_call_moves": 'pilot b = word_builder::with_capacity(4)\nconsume_handle(b)\nword_builder::length(b)',
+    "builder_alias_moves_source": 'pilot b = word_builder::new()\npilot alias = b\nword_builder::length(b)',
+    "builder_alias_user_call_moves": 'pilot b = word_builder::new()\npilot alias = b\nconsume_handle(alias)\nword_builder::length(alias)',
+    "builder_alias_chain_user_call_moves": 'pilot b = word_builder::new()\npilot alias = b\npilot last = alias\nconsume_handle(last)\nword_builder::length(last)',
+    "array_user_call_moves": 'pilot a = array_new()\nconsume_handle(a)\narray_len(a)',
+    "array_alias_user_call_moves": 'pilot a = array_new()\npilot alias = a\nconsume_handle(alias)\narray_len(alias)',
+    "socket_connect_user_call_moves": 'pilot s = tcp::socket_connect("127.0.0.1", 1)\nconsume_handle(s)\ntcp::socket_status(s)',
+    "socket_listen_user_call_moves": 'pilot s = tcp::socket_listen("127.0.0.1", 0, 1)\nconsume_handle(s)\ntcp::socket_status(s)',
+    "socket_accept_user_call_moves": 'pilot s = tcp::socket_accept(0)\nconsume_handle(s)\ntcp::socket_status(s)',
+    "socket_alias_user_call_moves": 'pilot s = tcp::socket_listen("127.0.0.1", 0, 1)\npilot alias = s\nconsume_handle(alias)\ntcp::socket_status(alias)',
+    "legacy_socket_user_call_moves": 'pilot s = tcp::connect("127.0.0.1", 1)\nconsume_handle(s)\ntcp::close(s)',
+    "legacy_socket_alias_user_call_moves": 'pilot s = tcp_connect("127.0.0.1", 1)\npilot alias = s\nconsume_handle(alias)\ntcp_close(alias)',
+    "window_user_call_moves": 'pilot w = ui::create_window("x", 1, 1, 0)\nconsume_handle(w)\nui::get_width(w)',
+}
+
+COPY_AND_BORROW_PROGRAM = '''task consume_handle(handle: int) -> void {}
+task scalar() -> int { give back 4 }
+task main() {
+    pilot primitive = 4
+    pilot primitive_alias = primitive
+    consume_handle(primitive_alias)
+    say primitive
+    say primitive_alias
+    pilot returned = scalar()
+    consume_handle(returned)
+    say returned
+    pilot calculated = primitive + returned
+    consume_handle(calculated)
+    say calculated
+    pilot builder = word_builder::new()
+    pilot owner = builder
+    word_builder::length(owner)
+    word_builder::capacity(owner)
+    pilot length = word_builder::length(owner)
+    consume_handle(length)
+    say length
+    word_builder::discard(owner)
+    pilot array = array_new()
+    pilot count = array_len(array)
+    consume_handle(count)
+    say count
+    array_release(array)
+    pilot explicit: int = word_builder::new()
+    consume_handle(explicit)
+    word_builder::length(explicit)
+    word_builder::discard(explicit)
+}
+'''
+
+
 def invoke(command: list[str], repo: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, cwd=repo, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", timeout=60)
@@ -166,7 +217,7 @@ def main() -> int:
                     assert counters["word_builder_creations"] == counters["word_builder_finishes"] == 3, counters
                     assert counters["byte_buffer_creations"] == counters["byte_buffer_releases"] == 1, counters
                 print(f"PASS strict {name} {backend}", flush=True)
-        for name, body in NEGATIVE.items():
+        for name, body in (*NEGATIVE.items(), *HANDLE_MOVE_NEGATIVE.items()):
             source = root / f"{name}.fk"
             source.write_text("task consume_handle(handle: int) -> void {}\n"
                               "task drain_buffer(value: ByteBuffer) -> word { value.release() give back \"x\" }\n"
@@ -178,6 +229,12 @@ def main() -> int:
                 if name in ("builder_after_discard", "buffer_after_release", "nested_finish_same",
                             "nested_finish_same_typed", "nested_join_same", "nested_release_receiver"):
                     assert (checked.stdout + checked.stderr).count("Shirogane. You gave this away") == 1, (name, backend, checked.stdout, checked.stderr)
+        source = root / "copy_and_borrow_provenance.fk"
+        source.write_text(COPY_AND_BORROW_PROGRAM, encoding="utf-8")
+        for backend in ("c", "llvm"):
+            checked = invoke([cli, "transpile", str(source), f"--{backend}", "--strict-borrow"], repo)
+            assert checked.returncode == 0, (backend, checked.stdout, checked.stderr)
+            assert Path(str(source) + (".c" if backend == "c" else ".ll")).is_file(), backend
         for name, should_pass in (("borrow_word_move", False), ("borrow_move_basic", False),
                                   ("borrow_immut_reassign", False), ("borrow_mut_reassign", True),
                                   ("borrow_copy_primitive", True)):

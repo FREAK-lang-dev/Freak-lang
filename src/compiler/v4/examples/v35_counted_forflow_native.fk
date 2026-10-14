@@ -1,0 +1,33 @@
+task v35_counted_condition(i: int) -> bool {
+    say "condition"
+    give back i < 3
+}
+
+task v35_counted_epilogue() -> void {
+    say "epilogue"
+}
+
+task v35_counted_forflow() -> int {
+    pilot sum = 0
+    for (pilot i = 0; i < 3 and v35_counted_condition(i); v35_counted_epilogue()) {
+        i += 1
+        if i == 2 { continue }
+        sum += i
+    }
+    give back sum
+}
+
+task v35_counted_header_shadow() -> int {
+    pilot i = 1
+    pilot sum = 0
+    for (pilot i = i; i < 3; i += 1) { sum += i }
+    repeat 1 times with n { sum += n }
+    give back i + sum
+}
+
+task main() -> int {
+    if v35_counted_forflow() != 4 { give back 1 }
+    if v35_counted_header_shadow() != 4 { give back 2 }
+    say "v35-counted-forflow-ok"
+    give back 42
+}

@@ -3,25 +3,53 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      expected_source_commit:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
   LLVM_MINGW_VERSION: "20260616"
   LLVM_MINGW_SHA256: "b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35"
 
 jobs:
   version-invariant:
     runs-on: ubuntu-latest
+    outputs:
+      source_commit: ${{ steps.source.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
       - name: Require tag, compiler, and package versions to agree
-        run: python -u tools/release_version.py check --tag "${GITHUB_REF_NAME}"
+        run: python -u tools/release_version.py check --tag "${RELEASE_TAG}"
+      - name: Require release notes for the tagged version
+        run: test -s "docs/releases/${RELEASE_TAG}.md"
+      - name: Bind all release jobs to the checked source commit
+        id: source
+        env:
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          selected_commit=$(git rev-parse HEAD)
+          if [[ -n "$EXPECTED_SOURCE_COMMIT" ]]; then
+            test "$selected_commit" = "$EXPECTED_SOURCE_COMMIT"
+          fi
+          echo "commit=$selected_commit" >> "$GITHUB_OUTPUT"
 
   editors:
     needs: version-invariant
     uses: ./.github/workflows/editor-packages.yml
+    with:
+      source_ref: ${{ needs.version-invariant.outputs.source_commit }}
 
   build:
     needs: version-invariant
@@ -45,6 +73,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-invariant.outputs.source_commit }}
 
       - name: Install Clang (Ubuntu)
         if: runner.os == 'Linux'
@@ -64,7 +94,9 @@ jobs:
           Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP -Force
           $bin = Join-Path $env:RUNNER_TEMP "llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64\bin"
           $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & (Join-Path $bin "clang.exe") --version
+          $clangPath = Join-Path $bin "clang.exe"
+          "FREAK_CLANG=$clangPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $clangPath --version
 
       - name: Set platform linker flags
         shell: bash
@@ -90,23 +122,9 @@ jobs:
         run: |
           mkdir -p build
           rm -f build/freakc_cli.fk
-          cat std/version.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/globals.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/helpers.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/lexer.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/parser.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/checker.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/emit_c.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/emit_llvm.fk >> build/freakc_cli.fk
-          cat src/cli/version.fk >> build/freakc_cli.fk
-          cat src/cli/toml.fk >> build/freakc_cli.fk
-          cat src/cli/lockfile.fk >> build/freakc_cli.fk
-          cat src/cli/build.fk >> build/freakc_cli.fk
-          cat src/cli/run.fk >> build/freakc_cli.fk
-          cat src/cli/hangar.fk >> build/freakc_cli.fk
-          cat src/cli/doctor.fk >> build/freakc_cli.fk
-          cat src/cli/audit.fk >> build/freakc_cli.fk
-          cat src/cli/main.fk >> build/freakc_cli.fk
+          while IFS= read -r source; do
+            cat "$source" >> build/freakc_cli.fk
+          done < packaging/cli-sources.manifest
           ./build/freakc_v3_stage2${{ matrix.ext }} build/freakc_cli.fk --c
           clang -o build/freak${{ matrix.ext }} build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
           # Create hangar binary (same binary, BusyBox pattern)
@@ -191,7 +209,7 @@ jobs:
           path: dist/
 
   publish:
-    needs: [build, editors]
+    needs: [version-invariant, build, editors]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -257,6 +275,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: repo
+          ref: ${{ needs.version-invariant.outputs.source_commit }}
 
       - name: Update packaging checksums
         run: |
@@ -273,7 +292,7 @@ jobs:
             fi
           done
           cd ..
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           sed -i "s/HOMEBREW_SHA256_MACOS_ARM64_PLACEHOLDER/$HASH_MACOS/g" repo/packaging/homebrew/freak.rb
           sed -i "s/HOMEBREW_SHA256_LINUX_X64_PLACEHOLDER/$HASH_LINUX_X64/g" repo/packaging/homebrew/freak.rb
           sed -i "s/HOMEBREW_SHA256_LINUX_ARM64_PLACEHOLDER/$HASH_LINUX_ARM64/g" repo/packaging/homebrew/freak.rb
@@ -313,26 +332,160 @@ jobs:
           echo "Checksums injected for $VERSION"
           cat repo/packaging/scoop/freak.json
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: |
-            artifacts/freak-linux-x64/freak-linux-x64
-            artifacts/freak-linux-x64/hangar-linux-x64
-            artifacts/freak-linux-arm64/freak-linux-arm64
-            artifacts/freak-linux-arm64/hangar-linux-arm64
-            artifacts/freak-macos-arm64/freak-macos-arm64
-            artifacts/freak-macos-arm64/hangar-macos-arm64
-            artifacts/freak-windows-x64/freak-windows-x64.exe
-            artifacts/freak-windows-x64/hangar-windows-x64.exe
-            artifacts/freak-linux-x64.tar.gz
-            artifacts/freak-linux-arm64.tar.gz
-            artifacts/freak-macos-arm64.tar.gz
-            artifacts/freak-windows-x64.zip
-            artifacts/editor-packages/freak-vscode-*.vsix
-            artifacts/editor-packages/freak-zed-*.zip
-            artifacts/SHA256SUMS
-            artifacts/package-manager/freak.rb
-            artifacts/package-manager/freak.json
-            artifacts/package-manager/winget/*
+      - name: Create GitHub Release without replacing an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ needs.version-invariant.outputs.source_commit }}
+        run: |
+          # Recheck on every publishing attempt, including a rerun of this job.
+          can_publish=$(gh api graphql \
+            -f query='query($repoOwner: String!, $repoName: String!, $tag: String!) { repository(owner: $repoOwner, name: $repoName) { release(tagName: $tag) { id } } }' \
+            -f repoOwner="${GITHUB_REPOSITORY%/*}" \
+            -f repoName="${GITHUB_REPOSITORY#*/}" \
+            -f tag="$RELEASE_TAG" \
+            --jq '.data.repository != null and .data.repository.release == null')
+          test "$can_publish" = "true"
+          python - <<'PY'
+          import glob
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          tag = os.environ["RELEASE_TAG"]
+          token = os.environ["GH_TOKEN"]
+          api_root = f"https://api.github.com/repos/{repo}/releases"
+          patterns = [
+              "artifacts/freak-linux-x64/freak-linux-x64",
+              "artifacts/freak-linux-x64/hangar-linux-x64",
+              "artifacts/freak-linux-arm64/freak-linux-arm64",
+              "artifacts/freak-linux-arm64/hangar-linux-arm64",
+              "artifacts/freak-macos-arm64/freak-macos-arm64",
+              "artifacts/freak-macos-arm64/hangar-macos-arm64",
+              "artifacts/freak-windows-x64/freak-windows-x64.exe",
+              "artifacts/freak-windows-x64/hangar-windows-x64.exe",
+              "artifacts/freak-linux-x64.tar.gz",
+              "artifacts/freak-linux-arm64.tar.gz",
+              "artifacts/freak-macos-arm64.tar.gz",
+              "artifacts/freak-windows-x64.zip",
+              "artifacts/editor-packages/freak-vscode-*.vsix",
+              "artifacts/editor-packages/freak-zed-*.zip",
+              "artifacts/SHA256SUMS",
+              "artifacts/package-manager/freak.rb",
+              "artifacts/package-manager/freak.json",
+              "artifacts/package-manager/winget/*.yaml",
+          ]
+          assets = []
+          for pattern in patterns:
+              matches = sorted(pathlib.Path(p) for p in glob.glob(pattern))
+              if not matches or any(not p.is_file() or p.stat().st_size == 0 for p in matches):
+                  raise RuntimeError(f"Missing or empty release asset: {pattern}")
+              assets.extend(matches)
+          if len(assets) != 20 or len({p.name for p in assets}) != len(assets):
+              raise RuntimeError("Expected 20 uniquely named release assets")
+          notes = pathlib.Path(f"repo/docs/releases/{tag}.md").read_text(encoding="utf-8")
+          if not notes.strip():
+              raise RuntimeError("Release notes must not be empty")
+
+          def request(method, url, payload, content_type="application/json"):
+              data = None if payload is None else (json.dumps(payload).encode() if content_type == "application/json" else payload)
+              req = urllib.request.Request(url, data=data, method=method, headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": content_type,
+              })
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  if response.status != (201 if method == "POST" else 200):
+                      raise RuntimeError(f"Unexpected {method} response status: {response.status}")
+                  return json.load(response)
+
+          def require_source_tag():
+              ref_url = f"https://api.github.com/repos/{repo}/git/ref/tags/{urllib.parse.quote(tag, safe='')}"
+              target = request("GET", ref_url, None)["object"]
+              visited = set()
+              while target["type"] == "tag":
+                  if target["sha"] in visited:
+                      raise RuntimeError("Cyclic annotated tag response")
+                  visited.add(target["sha"])
+                  target = request("GET", f"https://api.github.com/repos/{repo}/git/tags/{target['sha']}", None)["object"]
+              if target["type"] != "commit" or target["sha"] != os.environ["SOURCE_COMMIT"]:
+                  raise RuntimeError("Release tag no longer matches the verified source commit")
+
+          # POST creates a new release; it never updates one found by tag.
+          # GitHub can allow duplicate drafts, so check for those explicitly too.
+          # Keep our new release a draft until every upload has succeeded.
+          require_source_tag()
+          release = request("POST", api_root, {
+              # The verified tag already exists. Omit the unused target_commitish
+              # so token authorization resolves against the default branch.
+              "tag_name": tag,
+              "name": tag, "body": notes, "draft": True, "prerelease": False,
+          })
+          release_id = release["id"]
+          if type(release_id) is not int or release_id <= 0 or release["tag_name"] != tag or release["draft"] is not True:
+              raise RuntimeError("Unexpected create-release response")
+
+          def require_sole_draft():
+              # The release listing lags behind creation, so it cannot prove our
+              # own draft exists. Read that by ID; use the listing for conflicts.
+              own = request("GET", f"{api_root}/{release_id}", None)
+              if own["id"] != release_id or own["tag_name"] != tag or own["draft"] is not True:
+                  raise RuntimeError("Our draft release is not intact; refusing publication")
+              page = 1
+              while True:
+                  releases = request("GET", f"{api_root}?per_page=100&page={page}", None)
+                  for existing in releases:
+                      if existing["tag_name"] != tag:
+                          continue
+                      if existing["id"] != release_id or existing["draft"] is not True:
+                          raise RuntimeError("Another release already exists for this tag")
+                  if len(releases) < 100:
+                      break
+                  page += 1
+
+          def discard_own_draft():
+              # An abandoned draft blocks every later attempt. Remove only the
+              # still-unpublished ID created above; never touch any other release.
+              try:
+                  own = request("GET", f"{api_root}/{release_id}", None)
+                  if own["id"] != release_id or own["draft"] is not True:
+                      return
+                  req = urllib.request.Request(f"{api_root}/{release_id}", method="DELETE", headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  })
+                  with urllib.request.urlopen(req, timeout=60):
+                      pass
+                  print(f"Discarded unpublished draft {release_id}")
+              except Exception as cleanup_error:
+                  print(f"::warning::could not discard draft {release_id}: {cleanup_error}")
+
+          try:
+              require_sole_draft()
+              upload_root = f"https://uploads.github.com/repos/{repo}/releases/{release_id}/assets"
+              for path in assets:
+                  data = path.read_bytes()
+                  uploaded = request("POST", f"{upload_root}?name={urllib.parse.quote(path.name, safe='')}",
+                                     data, "application/octet-stream")
+                  if uploaded["name"] != path.name or uploaded["size"] != len(data) or uploaded["state"] != "uploaded":
+                      raise RuntimeError(f"Upload metadata mismatch: {path.name}")
+                  if uploaded.get("digest") not in (None, "sha256:" + hashlib.sha256(data).hexdigest()):
+                      raise RuntimeError(f"Upload digest mismatch: {path.name}")
+                  print(f"Uploaded {path.name}")
+              # Recheck conflicts after uploads, then publish only the ID we created.
+              # A concurrent publication error is fatal; never adopt or retry against its ID.
+              require_sole_draft()
+              require_source_tag()
+          except BaseException:
+              discard_own_draft()
+              raise
+          published = request("PATCH", f"{api_root}/{release_id}", {"draft": False})
+          if published["id"] != release_id or published["tag_name"] != tag or published["draft"] is not False:
+              raise RuntimeError("Release did not become public")
+          print(published["html_url"])
+          PY

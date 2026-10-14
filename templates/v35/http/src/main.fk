@@ -1,0 +1,103 @@
+use std::http_server::{http_open, http_bind, http_server_status, http_server_error, http_local_port, http_next_request, http_request_status, http_request_method, http_request_path, http_request_body, http_response_status, http_response_header, http_send_text, http_send_json, http_request_release, http_stop, http_close}
+use std::json_document::{json_document_parse_bytes, json_document_ok, json_document_root, json_document_kind, json_document_object_get, json_document_release}
+use self::routes::{hello, route_parameter}
+
+task configured_port(value: word) -> int {
+    if value == "" { give back 8080 }
+    if value.length() > 5 { give back -1 }
+    pilot mut index = 0
+    repeat until index >= value.length() {
+        if not "0123456789".contains(value.char_at(index)) { give back -1 }
+        index += 1
+    }
+    pilot port = word_to_int(value)
+    if port > 65535 { give back -1 }
+    give back port
+}
+
+task serve_one(request: int) -> void {
+    pilot method = http_request_method(request)
+    pilot path = http_request_path(request)
+    if path == "/health" or path.starts_with("/hello/") {
+        if method != "GET" and method != "HEAD" {
+            pilot status = http_response_status(request, 405)
+            pilot header = http_response_header(request, "Allow", "GET, HEAD")
+            pilot sent = http_send_text(request, "")
+        } else if path == "/health" {
+            pilot sent = http_send_text(request, "healthy")
+        } else {
+            pilot name = route_parameter(path + "")
+            if name == "" {
+                pilot status = http_response_status(request, 400)
+                pilot sent = http_send_text(request, "invalid named parameter")
+            } else {
+                pilot sent = http_send_text(request, hello(name))
+            }
+        }
+        give back
+    }
+    if path == "/json" {
+        if method != "POST" {
+            pilot status = http_response_status(request, 405)
+            pilot header = http_response_header(request, "Allow", "POST")
+            pilot sent = http_send_text(request, "")
+            give back
+        }
+        pilot body = http_request_body(request)
+        -- Namespace builtins borrow buffers; this caller releases its owner.
+        pilot document = json_document::parse_bytes(body)
+        body.release()
+        if json_document_ok(document) == 0 {
+            pilot status = http_response_status(request, 400)
+            pilot sent = http_send_text(request, "invalid JSON")
+        } else {
+            pilot root = json_document_root(document)
+            pilot mut name = 0
+            if json_document_kind(document, root) == 6 { name = json_document_object_get(document, root, "name") }
+            if json_document_kind(document, root) != 6 or json_document_kind(document, name) != 4 {
+                pilot status = http_response_status(request, 422)
+                pilot sent = http_send_text(request, "name must be a string")
+            } else {
+                pilot sent = http_send_json(request, document)
+            }
+        }
+        json_document_release(document)
+        give back
+    }
+    pilot status = http_response_status(request, 404)
+    pilot sent = http_send_text(request, "missing")
+}
+
+task main() {
+    pilot mut address = process::env("FREAK_HTTP_BIND")
+    if address == "" { address = "127.0.0.1" }
+    pilot port = configured_port(process::env("FREAK_HTTP_PORT"))
+    if port < 0 { say "FREAK_HTTP_PORT must be a decimal port from 0 through 65535" process::exit(2) }
+    pilot exposure = process::env("FREAK_HTTP_ALLOW_NON_LOOPBACK")
+    if exposure != "" and exposure != "0" and exposure != "1" { say "FREAK_HTTP_ALLOW_NON_LOOPBACK must be 0 or 1" process::exit(2) }
+    pilot mut explicit = 0
+    if exposure == "1" { explicit = 1 }
+    pilot mut once = false
+    if process::args_count() > 1 {
+        if process::arg(1) != "--once" or process::args_count() != 2 { say "usage: service [--once]" process::exit(2) }
+        once = true
+    }
+    pilot server = http_bind(address + "", port, explicit)
+    if http_server_status(server) != 0 {
+        say http_server_error(server)
+        http_close(server)
+        process::exit(1)
+    }
+    -- Startup only: no request headers, cookies, bodies or forwarded values logged.
+    say "HTTP http://" + address + ":" + word_from_int(http_local_port(server))
+    pilot mut finished = false
+    repeat until finished {
+        pilot request = http_next_request(server)
+        if http_request_status(request) == 0 { serve_one(request) }
+        if http_request_status(request) == 503 { finished = true }
+        http_request_release(request)
+        if once { finished = true }
+    }
+    http_stop(server)
+    http_close(server)
+}

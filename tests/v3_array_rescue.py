@@ -55,11 +55,13 @@ task main() {
 }
 ''', ["1", "7"]),
     "requested": ('''pilot mut values = [1, 2, 3, 4]
-values[2] = 99
-say values[0]
-say values.length()
-for each x in values {
-    say x
+task main() {
+    values[2] = 99
+    say values[0]
+    say values.length()
+    for each x in values {
+        say x
+    }
 }
 ''', ["1", "4", "1", "2", "99", "4"]),
     "numeric": ('''task main() {

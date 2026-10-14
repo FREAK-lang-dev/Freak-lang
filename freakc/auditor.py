@@ -1681,6 +1681,59 @@ def _hir_query_resource_errors(fixture: Path, harness: Path) -> List[str]:
     ))
 
 
+def _project_test_boundary_gaps(
+    repo: Path, cli_src: str, readme_text: str, bible_text: str,
+) -> List[str]:
+    """Guard the native project runner separately from the developer harness."""
+    contracts = {
+        "developer regression harness": ("tests/suite/run_tests.py", (
+            'print(_bold("FREAK Lite / Python Bootstrap Regression Test Suite"))',
+            "python -m freakc", "tests/v3_legacy_golden.py",
+        )),
+        "native project test runner": ("src/cli/test.fk", (
+            "task cli_test_command(", "task cli_test_project(",
+            "process::command_spawn(", "process::command_poll(",
+        )),
+        "CLI source manifest": ("packaging/cli-sources.manifest", (
+            "src/cli/test.fk",
+        )),
+        "distributed assertion helpers": ("packaging/distribution-files.manifest", (
+            "std/test.fk|std/test.fk",
+        )),
+        "assertion implementation": ("std/test.fk", (
+            "task test_assert(", "task test_assert_int(",
+            "task test_assert_word(", "process::exit(1)",
+        )),
+    }
+    gaps: List[str] = []
+    texts = {}
+    for label, (relative, needles) in contracts.items():
+        path = repo / relative
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        texts[label] = text
+        if not text or any(needle not in text for needle in needles):
+            gaps.append(label)
+    dispatch = ('if subcmd == "test" {',
+                "pilot test_exit = cli_test_command(args_cnt)",
+                "if test_exit != 0 { process::exit(test_exit) }")
+    if any(needle not in cli_src for needle in dispatch):
+        gaps.append("native CLI test dispatch and failure status")
+    if ('print(_bold("FREAK Compiler Regression Test Suite"))'
+            in texts["developer regression harness"]):
+        gaps.append("obsolete compiler-wide runtime banner")
+    readme_words = " ".join(readme_text.split())
+    if any(needle not in readme_words for needle in (
+            "installed native CLI", "[tests]", "std::test::test_assert_int",
+            "separate Python regression harness", "not required by installed native project tests",
+            "richer test-block")):
+        gaps.append("public native/developer test boundary")
+    if "current V3.5 development also provides installed native `freak test`" not in bible_text:
+        gaps.append("current bible native project test status")
+    if "freak test                    -- run all test blocks" in bible_text:
+        gaps.append("obsolete in-language test-block command claim")
+    return gaps
+
+
 def audit_conformance(paths: List[Path]) -> int:
     """
     Verify the selected v0.13.x baseline and promoted V4 contracts.
@@ -1853,12 +1906,17 @@ def audit_conformance(paths: List[Path]) -> int:
         "run pipeline": (
             repo / "src" / "cli" / "run.fk",
             (
-                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"',
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v7"',
                 "task cli_run_fingerprint",
                 "task cli_run_clang_identity",
                 "task cli_run_linker_identity",
                 "task cli_run_file_sha256",
-                "certutil -hashfile",
+                "task cli_run_windows_file_sha256(path: word) -> word {",
+                "task cli_run_sha256_from_bytes(output: ByteBuffer) -> word {",
+                'hangar_native_tool_executable("certutil")',
+                'process::command_arg(command, "-hashfile")',
+                'process::command_arg(command, path)',
+                'process::command_arg(command, "SHA256")',
                 "sha256sum ",
                 "task cli_run_cache_record",
                 "fs::delete(cache_file)",
@@ -2059,6 +2117,14 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in needles:
             if needle not in source_text:
                 run_freshness_missing.append(f"{label}: {needle}")
+        if label == "run pipeline":
+            signature = "task cli_run_windows_file_sha256(path: word) -> word {"
+            if source_text.count(signature) == 1:
+                native_hash = source_text.split(signature, 1)[1].split("\ntask ", 1)[0]
+                if "process::exec_capture(" in native_hash:
+                    run_freshness_missing.append("run pipeline: Windows file hashing must use native argv")
+            else:
+                run_freshness_missing.append("run pipeline: native hash helper must be unambiguous")
         if label == "release payload" and (
             "Pre-compile runtime to .o" in source_text
             or "dist/freak/runtime/freak_runtime.o" in source_text
@@ -2085,20 +2151,24 @@ def audit_conformance(paths: List[Path]) -> int:
         )
 
     # Check 6c: V3 freezes path interpolation as an ordinary owned word
-    # expression. Non-path brace bodies are literal compatibility text.
+    # expression. Stronger FIX-05 rejects expression-like non-path bodies;
+    # escaped braces and non-expression text retain their literal contract.
     interpolation_missing: List[str] = []
     interpolation_sources = {
         "bible": (
             bible,
-            ("String path interpolation", "`{path}`", "remain literal text"),
+            ("String path interpolation", "`{path}`", "Unsupported expression-like",
+             "object/JSON-like literal text", "Use `\\{` and `\\}`"),
         ),
         "audit": (
             audit_doc,
-            ("String path interpolation", "IDENT(.IDENT)*", "tests/v3_interpolation.py"),
+            ("String path interpolation", "IDENT(.IDENT)*", "tests/v3_interpolation.py",
+             "Stronger FIX-05", "does not establish V4 interpolation parity"),
         ),
         "parser": (
             repo / "src" / "compiler" / "v3" / "parser.fk",
-            ("parser_interp_path_valid", "lex_ident_token_type", "EXPR_INTERP"),
+            ("parser_interp_path_valid", "lex_ident_token_type", "EXPR_INTERP",
+             "unsupported interpolation expression", "unterminated interpolation expression"),
         ),
         "checker": (
             repo / "src" / "compiler" / "v3" / "checker.fk",
@@ -2114,7 +2184,8 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "focused gate": (
             repo / "tests" / "v3_interpolation.py",
-            ("LITERAL_PROGRAM", "NEGATIVE_PROGRAMS", "detect_leaks=1"),
+            ("LITERAL_PROGRAM", "NEGATIVE_PROGRAMS", "detect_leaks=1",
+             "SYNTAX_PROGRAMS", "syntax_error=name in SYNTAX_PROGRAMS"),
         ),
         "preservation manifest": (
             repo / "tests" / "v3_legacy" / "golden" / "cases.json",
@@ -2169,37 +2240,17 @@ def audit_conformance(paths: List[Path]) -> int:
         )
 
     lite_suite = repo / "tests" / "suite" / "run_tests.py"
-    lite_suite_text = (
-        lite_suite.read_text(encoding="utf-8") if lite_suite.exists() else ""
-    )
     bible_path = repo / "freak-full-bible.md"
     bible_text = (
         bible_path.read_text(encoding="utf-8") if bible_path.exists() else ""
     )
-    lite_suite_needles = (
-        'print(_bold("FREAK Lite / Python Bootstrap Regression Test Suite"))',
-        "python -m freakc",
-        "tests/v3_legacy_golden.py",
-        "`freak test` is a source-checkout Python shim",
-        "not embedded in release archives",
-        "Source-checkout shim — wraps `python tests/suite/run_tests.py`",
-        "source-checkout Python regression shim (not test blocks)",
+    lite_suite_missing = _project_test_boundary_gaps(
+        repo, cli_src, public_readme_text, bible_text,
     )
-    lite_suite_sources = (lite_suite_text, public_readme_text, bible_text)
-    lite_suite_missing = [
-        needle
-        for needle in lite_suite_needles
-        if not any(needle in source for source in lite_suite_sources)
-    ]
-    old_runtime_label = 'print(_bold("FREAK Compiler Regression Test Suite"))'
-    if old_runtime_label in lite_suite_text:
-        lite_suite_missing.append("obsolete compiler-wide runtime banner")
-    if "freak test                    -- run all test blocks" in bible_text:
-        lite_suite_missing.append("obsolete in-language test-block command claim")
     add(
         "V3/FREAK Lite test boundary",
         lite_suite.exists() and not lite_suite_missing,
-        "bootstrap runner labels itself and points to the V3 preservation gate"
+        "native project tests and distributed assertions; separate developer bootstrap harness"
         if not lite_suite_missing
         else f"{len(lite_suite_missing)} gap(s)",
     )
@@ -2236,14 +2287,14 @@ def audit_conformance(paths: List[Path]) -> int:
                 or normalized_source.startswith("/")
                 or (len(normalized_source) >= 2 and normalized_source[0].isalpha() and normalized_source[1] == ":")
                 or any(part in ("", ".", "..") for part in source_parts)
-                or not normalized_source.startswith(("freakc/runtime/", "std/"))
+                or not normalized_source.startswith(("freakc/runtime/", "std/", "third_party/llhttp/", "templates/v35/", "src/compiler/v4/native-runtime.manifest"))
             )
             destination_unsafe = (
                 destination != destination.strip()
                 or normalized_destination.startswith("/")
                 or (len(normalized_destination) >= 2 and normalized_destination[0].isalpha() and normalized_destination[1] == ":")
                 or any(part in ("", ".", "..") for part in destination_parts)
-                or not normalized_destination.startswith(("runtime/", "std/"))
+                or not normalized_destination.startswith(("runtime/", "std/", "templates/v35/"))
             )
             if source_unsafe or destination_unsafe:
                 distribution_missing.append(f"unsafe manifest entry: {line}")
@@ -2270,6 +2321,10 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freakc/runtime/freak_runtime.c",
                 "freakc/runtime/freak_runtime.h",
                 "freakc/runtime/freak_llvm_runtime.c",
+                "freakc/runtime/freak_v35_process.inc",
+                "freakc/runtime/freak_v35_fs.inc",
+                "freakc/runtime/freak_v35_json.inc",
+                "freakc/runtime/freak_v35_http.inc",
                 "freakc/runtime/ui/win32_backend.c",
                 "freakc/runtime/ui/freak_ui_platform.h",
                 "freakc/runtime/freak_abi",
@@ -2278,6 +2333,15 @@ def audit_conformance(paths: List[Path]) -> int:
                 "std/freak_std_api",
             }
         )
+        expected_sources.update(path.relative_to(repo).as_posix()
+                                for path in (repo / "third_party" / "llhttp").rglob("*")
+                                if path.is_file())
+        expected_sources.update(path.relative_to(repo).as_posix() for path in (repo / "templates/v35").rglob("*") if path.is_file())
+        expected_sources.add("src/compiler/v4/native-runtime.manifest")
+        for raw in (repo / "src/compiler/v4/native-runtime.manifest").read_text().splitlines():
+            if raw and not raw.startswith("#"):
+                _, name = raw.split(" ")
+                expected_sources.add(name if name.startswith("third_party/") else "freakc/runtime/" + name)
         for missing_source in sorted(expected_sources - manifest_sources):
             distribution_missing.append(
                 f"required file absent from manifest: {missing_source}"
@@ -2318,8 +2382,8 @@ def audit_conformance(paths: List[Path]) -> int:
         "doctor": (
             repo / "src" / "cli" / "doctor.fk",
             (
-                "modules_expected\\\": 11",
-                "files_expected\\\": 7",
+                "modules_expected\\\": 15",
+                "files_expected\\\": 35",
                 "FREAK_V3_ABI",
                 "FREAK_V3_RUNTIME_API",
                 "runtime_api",
@@ -2328,7 +2392,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 "ui/window.fk",
                 'process::env("TMPDIR")',
                 "cli_doctor_remove_temp_parent",
-                "probe_run_exit == 0",
+                "run_status == 2 and process::command_exit_code(probe_command) == 0",
+                "cli_find_clang_executable()",
                 "compile, link, and execution work",
                 "-> int",
             ),
@@ -2511,7 +2576,7 @@ def audit_conformance(paths: List[Path]) -> int:
     lower_missing: List[str] = []
     lower_contracts = (
         ("src/compiler/v4/crates/freak_mir/src/lib.fk",
-         ('pilot v4_mir_snapshot_format = "freak-mir-snapshot-v9"',
+         ('pilot v4_mir_snapshot_format = "freak-mir-snapshot-v10"',
           'if kind == "to_lower" { give back 119 }')),
         ("src/compiler/v4/crates/freak_ty/src/lib.fk",
          ('if kind == "to_lower" { give back v4_ty_word }',
@@ -3116,7 +3181,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if v4_hir_task_return.exists():
         hir_src = v4_hir_task_return.read_text(encoding="utf-8")
         for needle in (
-            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v12"',
             'pilot v4_hir_task_return_explicit = "explicit"',
             'pilot v4_hir_task_return_implicit_block = "implicit-block"',
             'pilot v4_hir_task_return_arrow = "arrow"',
@@ -3192,7 +3257,7 @@ def audit_conformance(paths: List[Path]) -> int:
             v4_task_return_readme,
             (
                 "The third bounded boundary covers declared returns on ordinary top-level tasks.",
-                "HIR snapshot v11 validates that vocabulary",
+                "HIR snapshot v12 validates that vocabulary",
             ),
         ),
         (
@@ -3213,7 +3278,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 task return HIR boundary",
         not task_return_boundary_missing,
-        "HIR v11 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
+        "HIR v12 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
     )
     if task_return_boundary_missing:
         failures.append(
@@ -3234,7 +3299,7 @@ def audit_conformance(paths: List[Path]) -> int:
             v4_hir_task_param,
             "freak_hir",
             (
-                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
+                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v12"',
                 'pilot v4_hir_task_param_mode_value = "value"',
                 'pilot v4_hir_task_param_mode_lend = "lend"',
                 'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -3294,7 +3359,7 @@ def audit_conformance(paths: List[Path]) -> int:
             if needle not in harness_src:
                 task_param_boundary_missing.append(f"check_v4.py: {needle}")
     for doc_path, needles in (
-        (v4_task_return_readme, ("The fourth", "ordinary-task parameter APIs", "HIR snapshot v11 validates exact record")),
+        (v4_task_return_readme, ("The fourth", "ordinary-task parameter APIs", "HIR snapshot v12 validates exact record")),
         (audit_doc, ("Ordinary-task parameters are likewise stored", "Impl/doctrine/extern parameter signatures")),
     ):
         if not doc_path.exists():
@@ -3307,7 +3372,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 task parameter HIR boundary",
         not task_param_boundary_missing,
-        "HIR v11 + TY/MIR/editor adapters + smoke + docs wired" if not task_param_boundary_missing else f"{len(task_param_boundary_missing)} gap(s)",
+        "HIR v12 + TY/MIR/editor adapters + smoke + docs wired" if not task_param_boundary_missing else f"{len(task_param_boundary_missing)} gap(s)",
     )
     if task_param_boundary_missing:
         failures.append(
@@ -3352,7 +3417,7 @@ def audit_conformance(paths: List[Path]) -> int:
         source = path.read_text(encoding="utf-8") if path.exists() else ""
         shape_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
     add("V4 shape field HIR boundary", not shape_missing,
-        "HIR v11 + storage adapters + executable probes wired" if not shape_missing else f"{len(shape_missing)} gap(s)")
+        "HIR v12 + storage adapters + executable probes wired" if not shape_missing else f"{len(shape_missing)} gap(s)")
     if shape_missing:
         failures.append("V4 shape field HIR boundary regressed: " + "; ".join(shape_missing))
 
@@ -3371,7 +3436,7 @@ def audit_conformance(paths: List[Path]) -> int:
     const_missing.extend(_hir_lookup_probe_errors(
         shape_tests / "const_snapshot_smoke.fk", shape_harness,
         tuple("const-snapshot-" + label for label in (
-            "v11-reordered", "inferred-quoted", "old-version-atomic", "extra-field-atomic",
+            "v12-reordered", "inferred-quoted", "old-version-atomic", "extra-field-atomic",
             "noncanonical-id-atomic", "sparse-owner-atomic", "sparse-item-atomic",
             "duplicate-item-atomic", "header-count-atomic", "owner-kind-atomic",
             "inferred-record-required", "name-span-canonical", "name-span-owner",
@@ -3389,7 +3454,7 @@ def audit_conformance(paths: List[Path]) -> int:
         source = path.read_text(encoding="utf-8") if path.exists() else ""
         const_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
     add("V4 root Const HIR boundary", not const_missing,
-        "HIR v11 + storage adapters + executable probes wired" if not const_missing else f"{len(const_missing)} gap(s)")
+        "HIR v12 + storage adapters + executable probes wired" if not const_missing else f"{len(const_missing)} gap(s)")
     if const_missing:
         failures.append("V4 root Const HIR boundary regressed: " + "; ".join(const_missing))
 
@@ -3428,7 +3493,7 @@ def audit_conformance(paths: List[Path]) -> int:
         source = path.read_text(encoding="utf-8") if path.exists() else ""
         route_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
     add("V4 route declaration HIR boundary", not route_missing,
-        "HIR v11 + TY/editor storage adapters + executable probes wired" if not route_missing else f"{len(route_missing)} gap(s)")
+        "HIR v12 + TY/editor storage adapters + executable probes wired" if not route_missing else f"{len(route_missing)} gap(s)")
     if route_missing:
         failures.append("V4 route declaration HIR boundary regressed: " + "; ".join(route_missing))
 
@@ -3436,7 +3501,7 @@ def audit_conformance(paths: List[Path]) -> int:
     extern_return_missing = _hir_extern_return_probe_errors(shape_tests, shape_harness)
     for path, markers in (
         (v4_hir_task_param, (
-            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v12"',
             "task v4_hir_extern_member_return_surface_type(",
             "task v4_hir_extern_member_return_span(",
             "task v4_hir_extern_member_return_has_arrow_fallback(",
@@ -3459,7 +3524,7 @@ def audit_conformance(paths: List[Path]) -> int:
         source = path.read_text(encoding="utf-8") if path.exists() else ""
         extern_return_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
     add("V4 extern-member return HIR boundary", not extern_return_missing,
-        "HIR v11 + declared readers + guarded recovery + executable probes wired"
+        "HIR v12 + declared readers + guarded recovery + executable probes wired"
         if not extern_return_missing else f"{len(extern_return_missing)} gap(s)")
     if extern_return_missing:
         failures.append("V4 extern-member return HIR boundary regressed: " + "; ".join(extern_return_missing))

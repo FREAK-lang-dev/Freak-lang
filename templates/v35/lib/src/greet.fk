@@ -1,0 +1,4 @@
+-- This library declares tasks only. Importing it does not execute a program.
+task greet(name: word) -> word {
+    give back "Hello, " + name + "!"
+}

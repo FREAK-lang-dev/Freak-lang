@@ -14,5 +14,3 @@ task main() -> int {
     say "z = " + word_from_int(z)
     give back 0
 }
-
-main()

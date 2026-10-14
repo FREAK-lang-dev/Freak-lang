@@ -466,10 +466,26 @@ task v4_parse_is_fixed_pilot_keyword(stream_id: int, token_id: int) -> bool {
     if token_id < 0 or token_id >= v4_lex_token_count(stream_id) {
         give back false
     }
-    if v4_lex_token_type(stream_id, token_id) != v4_tok_keyword or v4_lex_token_value(stream_id, token_id) != "fixed" {
+    pilot modifier = v4_lex_token_syntax_value(stream_id, token_id)
+    if modifier != "fixed" and modifier != "grounded" {
         give back false
     }
     pilot pilot_token = v4_parse_skip_trivia(stream_id, token_id + 1)
+    -- Contextual grounded agrees with V3: only spaces/tabs join the pair.
+    -- Keep fixed's established all-trivia lookahead and recovery unchanged.
+    if modifier == "grounded" {
+        pilot trivia = token_id + 1
+        repeat until trivia >= pilot_token {
+            pilot text = v4_lex_token_value(stream_id, trivia)
+            pilot offset = 0
+            repeat until offset >= text.length() {
+                pilot ch = text.char_at(offset)
+                if ch != " " and ch != "\t" { give back false }
+                offset += 1
+            }
+            trivia += 1
+        }
+    }
     if pilot_token < 0 or pilot_token >= v4_lex_token_count(stream_id) {
         give back false
     }
@@ -478,7 +494,7 @@ task v4_parse_is_fixed_pilot_keyword(stream_id: int, token_id: int) -> bool {
 
 task v4_parse_top_keyword_text(stream_id: int, token_id: int) -> word {
     if v4_parse_is_fixed_pilot_keyword(stream_id, token_id) {
-        give back "fixed pilot"
+        give back v4_lex_token_syntax_value(stream_id, token_id) + " pilot"
     }
     if token_id < 0 or token_id >= v4_lex_token_count(stream_id) {
         give back ""
@@ -492,7 +508,7 @@ task v4_parse_kind_for_keyword(value: word) -> word {
     if value == "route" { give back v4_node_route }
     if value == "variant" { give back v4_node_route }
     if value == "alias" { give back v4_node_alias }
-    if value == "fixed pilot" { give back v4_node_const }
+    if (value == "fixed pilot" or value == "grounded pilot") { give back v4_node_const }
     if value == "impl" { give back v4_node_impl }
     if value == "doctrine" { give back v4_node_doctrine }
     if value == "use" { give back v4_node_use }
@@ -501,7 +517,7 @@ task v4_parse_kind_for_keyword(value: word) -> word {
 }
 
 task v4_parse_keyword_requires_name(value: word) -> bool {
-    give back value == "task" or value == "shape" or value == "route" or value == "variant" or value == "alias" or value == "fixed pilot" or value == "impl" or value == "doctrine"
+    give back value == "task" or value == "shape" or value == "route" or value == "variant" or value == "alias" or (value == "fixed pilot" or value == "grounded pilot") or value == "impl" or value == "doctrine"
 }
 
 task v4_parse_keyword_requires_body(value: word) -> bool {
@@ -671,6 +687,7 @@ task v4_parse_item_name_text(stream_id: int, start_token: int, end_token: int, k
             if idx >= end_token {
                 -- name boundary reached
             } else if tok_type == v4_tok_ident or tok_type == v4_tok_keyword {
+                if val == "while" { give back "" }
                 last_name = idx
             } else if val == "::" {
                 -- keep walking the path
@@ -726,6 +743,7 @@ task v4_parse_use_alias_from_tokens(stream_id: int, start_token: int, end_token:
     }
     pilot alias_type = v4_lex_token_type(stream_id, alias_token)
     if alias_type == v4_tok_ident or alias_type == v4_tok_keyword {
+        if v4_lex_token_value(stream_id, alias_token) == "while" { give back "" }
         give back v4_lex_token_value(stream_id, alias_token)
     }
     give back ""
@@ -1565,6 +1583,7 @@ task v4_parse_closure_param_name_from_tokens(stream_id: int, start_token: int, e
     if token_type != v4_tok_ident and token_type != v4_tok_keyword {
         give back ""
     }
+    if v4_lex_token_value(stream_id, first) == "while" { give back "" }
     give back v4_lex_token_value(stream_id, first)
 }
 
@@ -1683,7 +1702,7 @@ task v4_parse_parse_top_item(tree_id: int, stream_id: int, token_id: int, root_i
     pilot item_span = v4_parse_make_span(stream_id, token_id, end_token)
     pilot name_value = ""
 
-    if keyword == "fixed pilot" {
+    if (keyword == "fixed pilot" or keyword == "grounded pilot") {
         pilot pilot_token = v4_parse_skip_trivia(stream_id, token_id + 1)
         name_value = v4_parse_const_name_from_tokens(stream_id, pilot_token + 1, end_token)
     } else if v4_parse_keyword_requires_name(keyword) {
@@ -1715,11 +1734,11 @@ task v4_parse_parse_top_item(tree_id: int, stream_id: int, token_id: int, root_i
         } else if v4_parse_alias_target_from_tokens(stream_id, token_id + 1, end_token) == "" {
             v4_parse_add_incomplete(tree_id, item_node, item_span, "expected target type after =")
         }
-    } else if keyword == "fixed pilot" {
+    } else if (keyword == "fixed pilot" or keyword == "grounded pilot") {
         pilot pilot_token = v4_parse_skip_trivia(stream_id, token_id + 1)
         pilot const_start = pilot_token + 1
         if v4_parse_find_top_level_token(stream_id, const_start, end_token, "=") < 0 {
-            v4_parse_add_incomplete(tree_id, item_node, item_span, "expected = in fixed pilot")
+            v4_parse_add_incomplete(tree_id, item_node, item_span, "expected = in " + keyword)
         } else if v4_parse_const_init_from_tokens(stream_id, const_start, end_token) == "" {
             v4_parse_add_incomplete(tree_id, item_node, item_span, "expected constant initializer after =")
         }
@@ -1729,6 +1748,10 @@ task v4_parse_parse_top_item(tree_id: int, stream_id: int, token_id: int, root_i
         if not v4_parse_item_has_body(stream_id, token_id, end_token) {
             v4_parse_add_incomplete(tree_id, item_node, item_span, "expected body for " + keyword)
         }
+    }
+
+    if node_kind == v4_node_route {
+        v4_parse_validate_route_while_keyword_uses(tree_id, stream_id, token_id, end_token)
     }
 
     v4_parse_parse_closures_in_item(tree_id, stream_id, token_id, end_token, item_node)
@@ -1745,10 +1768,74 @@ task v4_parse_parse_error(tree_id: int, stream_id: int, token_id: int, root_id: 
     give back end_token
 }
 
+-- Preserve historically admitted keyword-shaped names, but the newly reserved
+-- while spelling is only syntax at a statement boundary or after repeat.
+-- Its case variants remain ordinary identifiers throughout the V4 frontend.
+-- Scan complete bodies too: fields and pattern bindings are not parse nodes.
+task v4_parse_while_is_loop_heading(stream_id: int, token_id: int, statement_boundary: bool, previous: word) -> bool {
+    pilot next = v4_parse_skip_trivia(stream_id, token_id + 1)
+    pilot next_value = v4_lex_token_syntax_value(stream_id, next)
+    if next_value == "<" or next_value == ">" or next_value == ":" or next_value == "=" or next_value == "," or next_value == ")" or next_value == "}" or next_value == "]" or next_value == "." or next_value == "::" or next_value == "->" or next_value == "=>" or next_value == "in" {
+        give back false
+    }
+    give back statement_boundary or previous == "repeat"
+}
+
+-- Route/variant declarations contain names, types and discriminants, not loop
+-- statements. Close only the heading exemptions of the complete-stream pass;
+-- its existing diagnostics retain their order and no token is diagnosed twice.
+-- Recognized top-item ranges are disjoint: this allocation-free extra work is
+-- bounded by their combined token lengths, never a scan per case or field.
+task v4_parse_validate_route_while_keyword_uses(tree_id: int, stream_id: int, start_token: int, end_token: int) -> void {
+    pilot idx = start_token
+    pilot previous = ""
+    pilot statement_boundary = true
+    repeat until idx >= end_token {
+        pilot token_type = v4_lex_token_type(stream_id, idx)
+        if token_type == v4_tok_trivia {
+            if v4_lex_token_value(stream_id, idx) == "\n" { statement_boundary = true }
+        } else if token_type != v4_tok_eof {
+            pilot value = v4_lex_token_syntax_value(stream_id, idx)
+            if (token_type == v4_tok_keyword or token_type == v4_tok_ident) and value == "while" {
+                if v4_parse_while_is_loop_heading(stream_id, idx, statement_boundary, previous) {
+                    v4_parse_add_diag(tree_id, v4_diag_error, v4_lex_token_span(stream_id, idx), "while is a reserved keyword", "choose another name for this binding or member")
+                }
+            }
+            statement_boundary = value == "{" or value == "}" or value == ";" or value == "->" or value == "=>"
+            previous = value
+        }
+        idx += 1
+    }
+}
+
+task v4_parse_validate_while_keyword_uses(tree_id: int, stream_id: int) -> void {
+    pilot idx = 0
+    pilot count = v4_lex_token_count(stream_id)
+    pilot previous = ""
+    pilot statement_boundary = true
+    repeat until idx >= count {
+        pilot token_type = v4_lex_token_type(stream_id, idx)
+        if token_type == v4_tok_trivia {
+            if v4_lex_token_value(stream_id, idx) == "\n" { statement_boundary = true }
+        } else if token_type != v4_tok_eof {
+            pilot value = v4_lex_token_syntax_value(stream_id, idx)
+            if (token_type == v4_tok_keyword or token_type == v4_tok_ident) and value == "while" {
+                if not v4_parse_while_is_loop_heading(stream_id, idx, statement_boundary, previous) {
+                    v4_parse_add_diag(tree_id, v4_diag_error, v4_lex_token_span(stream_id, idx), "while is a reserved keyword", "choose another name for this binding or member")
+                }
+            }
+            statement_boundary = value == "{" or value == "}" or value == ";" or value == "->" or value == "=>"
+            previous = value
+        }
+        idx += 1
+    }
+}
+
 task v4_parse_stream(file_id: int, stream_id: int) -> int {
     v4_parse_init()
     pilot tree_id = v4_parse_tree_new(file_id, stream_id)
     pilot root_id = v4_parse_add_node(tree_id, v4_node_source_file, word_from_int(file_id), V4_NO_SPAN, 0 - 1)
+    v4_parse_validate_while_keyword_uses(tree_id, stream_id)
     pilot idx = 0
     pilot count = v4_lex_token_count(stream_id)
 
@@ -1764,7 +1851,7 @@ task v4_parse_stream(file_id: int, stream_id: int) -> int {
 
         if tok_type == v4_tok_symbol and tok_value == "@" {
             idx = v4_parse_parse_attribute(tree_id, stream_id, idx, root_id)
-        } else if tok_type == v4_tok_keyword and (v4_parse_is_top_keyword(tok_value) or v4_parse_is_fixed_pilot_keyword(stream_id, idx)) {
+        } else if (tok_type == v4_tok_keyword and v4_parse_is_top_keyword(tok_value)) or v4_parse_is_fixed_pilot_keyword(stream_id, idx) {
             idx = v4_parse_parse_top_item(tree_id, stream_id, idx, root_id)
         } else if tok_type == v4_tok_unknown {
             idx = v4_parse_parse_error(tree_id, stream_id, idx, root_id)

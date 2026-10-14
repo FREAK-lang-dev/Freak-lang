@@ -6,12 +6,12 @@
 -- while storing archive state in integer handles, like std::json.
 -- ===================================================================
 
-pilot zip_arch_names = 0
-pilot zip_arch_contents = 0
-pilot zip_arch_paths = 0
-pilot zip_arch_count = 0
-pilot zip_arch_inited = false
-pilot zip_last_error_message = ""
+pilot mut zip_arch_names = 0
+pilot mut zip_arch_contents = 0
+pilot mut zip_arch_paths = 0
+pilot mut zip_arch_count = 0
+pilot mut zip_arch_inited = false
+pilot mut zip_last_error_message = ""
 
 task zip_init() -> void {
     if not zip_arch_inited {
@@ -60,8 +60,8 @@ task zip_archive_content_at(archive: int, index: int) -> word {
 }
 
 task zip_escape_json(s: word) -> word {
-    pilot out = ""
-    pilot i = 0
+    pilot mut out = ""
+    pilot mut i = 0
     pilot slen = s.length()
     repeat slen times {
         if s.char_at(i) == "\\" {
@@ -91,7 +91,7 @@ task zip_temp_path(prefix: word, suffix: word) -> word {
 }
 
 task zip_tool_script() -> word {
-    pilot script = ""
+    pilot mut script = ""
     script = script + "import json\n"
     script = script + "import sys\n"
     script = script + "import zipfile\n"
@@ -151,8 +151,8 @@ task zip_build_command(script_path: word, mode: word, archive_path: word, data_p
 }
 
 task zip_write_payload(archive: int) -> word {
-    pilot out = "{\"entries\":["
-    pilot i = 0
+    pilot mut out = "{\"entries\":["
+    pilot mut i = 0
     pilot names_handle = word_to_int(array_get(zip_arch_names, archive))
     pilot contents_handle = word_to_int(array_get(zip_arch_contents, archive))
     pilot total = array_len(names_handle)
@@ -179,7 +179,7 @@ task zip_read(path: word) -> int {
     fs::write(script_path, zip_tool_script())
     fs::write(err_path, "")
 
-    pilot command = zip_build_command(script_path, "read", path, data_path, err_path)
+    pilot command = zip_build_command(script_path + "", "read", path + "", data_path + "", err_path + "")
     pilot exit_code = process::exec(command)
     if exit_code != 0 {
         zip_last_error_message = "zip read failed"
@@ -217,7 +217,7 @@ task zip_read(path: word) -> int {
     pilot archive = zip_archive_new()
     array_set(zip_arch_paths, archive, path)
 
-    pilot i = 0
+    pilot mut i = 0
     pilot total = json_arr_len(entries_handle)
     pilot names_handle = word_to_int(array_get(zip_arch_names, archive))
     pilot contents_handle = word_to_int(array_get(zip_arch_contents, archive))
@@ -245,7 +245,7 @@ task zip_write(path: word, archive: int) -> bool {
     fs::write(data_path, zip_write_payload(archive))
     fs::write(err_path, "")
 
-    pilot command = zip_build_command(script_path, "write", path, data_path, err_path)
+    pilot command = zip_build_command(script_path + "", "write", path, data_path + "", err_path + "")
     pilot exit_code = process::exec(command)
     if exit_code != 0 {
         zip_last_error_message = "zip write failed"

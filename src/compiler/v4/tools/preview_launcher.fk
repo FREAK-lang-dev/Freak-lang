@@ -1,0 +1,453 @@
+-- Standalone native launcher template. Bootstrap replaces only validated ASCII
+-- provenance/profile tokens and the generated, escaped runtime byte inventory.
+pilot preview_source_commit = "@@SOURCE_COMMIT@@"
+pilot preview_source_input_sha256 = "@@SOURCE_INPUT_SHA256@@"
+pilot preview_locked_source = "@@LOCKED_SOURCE@@"
+pilot preview_builder_sha256 = "@@BUILDER_SHA256@@"
+pilot preview_builder_id = "@@BUILDER_ID@@"
+pilot preview_target = "@@HOST_TARGET@@"
+pilot preview_engine_sha256 = "@@ENGINE_SHA256@@"
+pilot preview_runtime_inventory = "@@RUNTIME_INVENTORY@@"
+pilot preview_runtime_sources = "@@RUNTIME_SOURCES@@"
+pilot mut preview_error = ""
+pilot mut preview_home = ""
+pilot mut preview_directory = 0
+pilot mut preview_engine = ""
+pilot mut preview_output_existing = false
+
+task preview_fail(message: word) -> bool {
+    if preview_error == "" { preview_error = message }
+    give back false
+}
+
+task preview_windows() -> bool {
+    give back freak_process_platform_is_windows()
+}
+
+task preview_join(parent: word, relative: word) -> word {
+    if preview_windows() {
+        if parent.ends_with("\\") { give back parent + relative.replace("/", "\\") }
+        give back parent + "\\" + relative.replace("/", "\\")
+    }
+    if parent.ends_with("/") { give back parent + relative }
+    give back parent + "/" + relative
+}
+
+-- This spelling belongs only to external Clang, not the held filesystem paths.
+task preview_clang_path(path: word) -> word {
+    if preview_windows() { give back path.replace("\\", "/") }
+    give back path
+}
+
+task preview_parent(path: word) -> word {
+    pilot mut index = 0
+    pilot mut split = -1
+    repeat until index >= path.length() {
+        pilot ch = path.char_at(index)
+        if ch == "/" or (preview_windows() and ch == "\\") { split = index }
+        index += 1
+    }
+    if split == 0 { give back "/" }
+    if preview_windows() and split == 2 { give back path.substring(0, 3) }
+    if split < 0 { give back "" }
+    give back path.substring(0, split)
+}
+
+task preview_leaf(path: word) -> word {
+    pilot mut index = 0
+    pilot mut split = -1
+    repeat until index >= path.length() {
+        pilot ch = path.char_at(index)
+        if ch == "/" or (preview_windows() and ch == "\\") { split = index }
+        index += 1
+    }
+    give back path.substring(split + 1, path.length() - split - 1)
+}
+
+task preview_absolute(path: word) -> bool {
+    if not preview_windows() { give back path.starts_with("/") }
+    if path.starts_with("\\\\") or path.starts_with("//") { give back true }
+    if path.length() < 3 { give back false }
+    give back "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".contains(path.char_at(0)) and path.char_at(1) == ":" and (path.char_at(2) == "/" or path.char_at(2) == "\\")
+}
+
+task preview_line(text: word, start: int) -> word {
+    give back preview_protocol_line(text, start)
+}
+
+task preview_hash(directory: int, relative: word) -> word {
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, relative, 67108864)
+    if not fs::result_ok(read) {
+        pilot error = fs::result_error(read)
+        fs::result_release(read)
+        preview_fail("cannot read private preview input " + relative + ": " + error)
+        give back ""
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot hash = fs::sha256_bytes(bytes)
+    bytes.release()
+    give back hash
+}
+
+task preview_admit() -> bool {
+    pilot executable = process::executable_path()
+    if executable == "" { give back preview_fail("cannot identify the native launcher executable") }
+    preview_home = preview_parent(executable)
+    if not preview_absolute(preview_home) { give back preview_fail("native launcher home is not absolute") }
+    preview_directory = fs::open_dir_ticket(preview_home)
+    if not fs::result_ok(preview_directory) { give back preview_fail("cannot open private preview home") }
+    pilot mut engine_name = "freak-v4-engine"
+    if preview_windows() { engine_name = engine_name + ".exe" }
+    if preview_hash(preview_directory, engine_name) != preview_engine_sha256 { give back preview_fail("private V4 compiler hash mismatch") }
+    preview_engine = preview_join(preview_home, engine_name)
+    pilot mut index = 0
+    pilot mut count = 0
+    repeat until index >= preview_runtime_inventory.length() {
+        pilot line = preview_line(preview_runtime_inventory, index)
+        index += line.length() + 1
+        if line != "" {
+            if line.length() < 66 or line.char_at(64) != " " { give back preview_fail("invalid embedded runtime byte inventory") }
+            pilot expected = line.substring(0, 64)
+            pilot relative = line.substring(65, line.length() - 65)
+            if preview_hash(preview_directory, "runtime/" + relative) != expected { give back preview_fail("private runtime hash mismatch: " + relative) }
+            count += 1
+        }
+    }
+    if count == 0 { give back preview_fail("private runtime byte inventory is empty") }
+    give back true
+}
+
+task preview_diagnostic(bytes: ByteBuffer) -> word {
+    pilot mut text = bytes.to_word()
+    if bytes.status() != 0 {
+        bytes.clear_status()
+        bytes.seek(0)
+        pilot builder = word_builder::with_capacity(bytes.length() * 2 + 32)
+        word_builder::append(builder, "binary output (hex): ")
+        pilot hex = "0123456789abcdef"
+        repeat until bytes.remaining() == 0 {
+            pilot value = bytes.read_byte()
+            word_builder::append(builder, hex.char_at(value / 16))
+            word_builder::append(builder, hex.char_at(value % 16))
+        }
+        text = word_builder::finish(builder)
+    }
+    bytes.release()
+    give back text
+}
+
+task preview_capture(command: int, stage: word, timeout_ms: int, limit: int) -> word {
+    pilot status = process::command_run(command, timeout_ms, limit, limit)
+    pilot exit_code = process::command_exit_code(command)
+    pilot signal = process::command_signal(command)
+    pilot error = process::command_error(command)
+    pilot bytes: ByteBuffer = process::command_stdout_bytes(command)
+    pilot text = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    pilot diagnostic = preview_diagnostic(process::command_stderr_bytes(command))
+    process::command_release(command)
+    if diagnostic != "" { say diagnostic }
+    if status != 2 or exit_code != 0 or not valid {
+        if valid and text != "" { say text }
+        preview_fail(stage + " failed: status " + word_from_int(status) + ", exit " + word_from_int(exit_code) + ", signal " + word_from_int(signal) + "; " + error)
+        give back ""
+    }
+    give back text
+}
+
+task preview_module(source: word) -> word {
+    pilot command = process::command_new(preview_engine)
+    process::command_arg(command, source)
+    process::command_arg(command, preview_target)
+    process::command_arg(command, "abort")
+    pilot output = preview_capture(command, "V4 frontend/codegen", 120000, 33554432)
+    if preview_error != "" { give back "" }
+    pilot module = preview_protocol_module(output)
+    if preview_protocol_error != "" { if output != "" { say output }
+        preview_fail(preview_protocol_error) }
+    give back module
+}
+
+task preview_mkdirs(directory: int, relative: word) -> bool {
+    pilot mut index = 0
+    repeat until index >= relative.length() {
+        if relative.char_at(index) == "/" {
+            pilot parent = relative.substring(0, index)
+            pilot existing = fs::open_relative_dir_ticket(directory, parent)
+            pilot mut valid = fs::result_ok(existing)
+            pilot missing = fs::result_missing(existing)
+            fs::result_release(existing)
+            if not valid and missing {
+                pilot made = fs::mkdir_relative_checked(directory, parent)
+                valid = fs::result_ok(made)
+                fs::result_release(made)
+            }
+            if not valid { give back preview_fail("cannot prepare private runtime directory: " + parent) }
+        }
+        index += 1
+    }
+    give back true
+}
+
+task preview_write(directory: int, relative: word, text: word) -> bool {
+    pilot bytes: ByteBuffer = ByteBuffer::with_capacity(text.length())
+    bytes.write_word(text)
+    pilot written = fs::write_relative_bytes_checked(directory, relative, bytes)
+    bytes.release()
+    pilot valid = fs::result_ok(written)
+    pilot error = fs::result_error(written)
+    fs::result_release(written)
+    if not valid { give back preview_fail("cannot write owned preview module: " + error) }
+    give back true
+}
+
+task preview_copy_runtime(directory: int) -> bool {
+    pilot mut index = 0
+    repeat until index >= preview_runtime_inventory.length() {
+        pilot line = preview_line(preview_runtime_inventory, index)
+        index += line.length() + 1
+        if line != "" {
+            pilot hash = line.substring(0, 64)
+            pilot relative = "runtime/" + line.substring(65, line.length() - 65)
+            if not preview_mkdirs(directory, relative) { give back false }
+            pilot read = fs::read_relative_bytes_limit_ticket(preview_directory, relative, 16777216)
+            if not fs::result_ok(read) { fs::result_release(read)
+                give back preview_fail("cannot snapshot private runtime input: " + relative) }
+            pilot bytes: ByteBuffer = fs::result_bytes(read)
+            fs::result_release(read)
+            pilot valid = fs::sha256_bytes(bytes) == hash
+            if valid {
+                pilot written = fs::write_relative_bytes_checked(directory, relative, bytes)
+                valid = fs::result_ok(written)
+                fs::result_release(written)
+            }
+            bytes.release()
+            if not valid { give back preview_fail("private runtime changed or failed during snapshot: " + relative) }
+        }
+    }
+    give back true
+}
+
+task preview_cleanup(owned: int) -> bool {
+    pilot removed = fs::remove_temp_dir_checked(owned)
+    pilot valid = fs::result_ok(removed)
+    pilot error = fs::result_error(removed)
+    fs::result_release(removed)
+    fs::result_release(owned)
+    if not valid { give back preview_fail("owned preview work directory could not be removed: " + error) }
+    give back true
+}
+
+task preview_output(source: word, requested: word) -> word {
+    preview_output_existing = false
+    if not preview_absolute(requested) { preview_fail("--output requires an absolute file path")
+        give back "" }
+    pilot leaf = preview_leaf(requested)
+    if leaf == "" or leaf == "." or leaf == ".." or leaf.ends_with(".fk") or (preview_windows() and (leaf.to_lower().ends_with(".fk") or leaf.contains(":") or leaf.ends_with(".") or leaf.ends_with(" "))) {
+        preview_fail("output must name an ordinary binary/module file and cannot replace a .fk source")
+        give back ""
+    }
+    pilot info = fs::stat_checked(preview_parent(requested))
+    pilot mut ordinary = fs::result_ok(info) and fs::result_kind(info) == 2
+    fs::result_release(info)
+    if not ordinary { preview_fail("output parent must be an existing ordinary directory")
+        give back "" }
+    pilot parent = fs::canonical_path(preview_parent(requested))
+    if not fs::result_ok(parent) { fs::result_release(parent)
+        preview_fail("cannot resolve output parent")
+        give back "" }
+    pilot path = preview_join(fs::result_word(parent), leaf)
+    fs::result_release(parent)
+    pilot mut folded = path
+    pilot mut home = preview_home
+    if preview_windows() { folded = folded.to_lower(); home = home.to_lower() }
+    if folded.starts_with(preview_join(home, "")) { preview_fail("output cannot replace the private V4 preview payload")
+        give back "" }
+    pilot original = fs::canonical_path(source)
+    if fs::result_ok(original) {
+        pilot mut origin = fs::result_word(original)
+        if preview_windows() { origin = origin.to_lower() }
+        if folded == origin { fs::result_release(original)
+            preview_fail("output aliases source")
+            give back "" }
+    }
+    fs::result_release(original)
+    pilot prior = fs::stat_checked(path)
+    preview_output_existing = fs::result_ok(prior)
+    ordinary = not fs::result_ok(prior) or fs::result_kind(prior) == 1
+    fs::result_release(prior)
+    if not ordinary { preview_fail("existing output must be an ordinary file")
+        give back "" }
+    give back path
+}
+
+task preview_version_supported(version: word) -> bool {
+    pilot line = preview_line(version, 0)
+    pilot mut prefix = ""
+    if line.starts_with("Apple clang version ") { prefix = "Apple clang version " }
+    if line.starts_with("clang version ") { prefix = "clang version " }
+    if line.starts_with("Ubuntu clang version ") { prefix = "Ubuntu clang version " }
+    if line.starts_with("Debian clang version ") { prefix = "Debian clang version " }
+    if line.starts_with("Homebrew clang version ") { prefix = "Homebrew clang version " }
+    if line.starts_with("FreeBSD clang version ") { prefix = "FreeBSD clang version " }
+    if prefix == "" { give back false }
+    pilot mut index = prefix.length()
+    pilot mut major = 0
+    pilot mut digits = 0
+    repeat until index >= line.length() or not "0123456789".contains(line.char_at(index)) or digits >= 4 {
+        major = major * 10 + word_to_int(line.char_at(index))
+        index += 1
+        digits += 1
+    }
+    if digits == 0 or major < 15 or index + 1 >= line.length() { give back false }
+    if line.char_at(index) != "." or not "0123456789".contains(line.char_at(index + 1)) { give back false }
+    give back true
+}
+
+task preview_clang() -> word {
+    pilot mut executable = process::env("FREAK_CLANG")
+    if executable.length() > 1 and executable.starts_with("\"") and executable.ends_with("\"") { executable = executable.substring(1, executable.length() - 2) }
+    if executable == "" {
+        pilot mut index = 0
+        repeat until index >= 8 or executable != "" {
+            pilot mut candidate = "clang"
+            if index > 0 { candidate = "clang-" + word_from_int(22 - index) }
+            pilot command = process::command_new(candidate)
+            process::command_arg(command, "--version")
+            pilot status = process::command_run(command, 10000, 65536, 65536)
+            if status == 2 and process::command_exit_code(command) == 0 { executable = candidate }
+            process::command_release(command)
+            index += 1
+        }
+    }
+    if executable == "" { preview_fail("supported Clang was not found; select one raw executable with FREAK_CLANG")
+        give back "" }
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "--version")
+    pilot version = preview_capture(command, "selected Clang version probe", 10000, 65536)
+    if preview_error != "" { give back "" }
+    if not preview_version_supported(version) { preview_fail("native preview requires upstream or Apple Clang major 15 or newer; unknown vendors are unsupported")
+        give back "" }
+    give back executable
+}
+
+task preview_compile(stage_root: word) -> bool {
+    pilot executable = preview_clang()
+    if executable == "" { give back false }
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "-O0")
+    process::command_arg(command, "--target=" + preview_target)
+    process::command_arg(command, preview_clang_path(preview_join(stage_root, "module.ll")))
+    pilot mut index = 0
+    pilot mut sources = 0
+    repeat until index >= preview_runtime_sources.length() {
+        pilot source = preview_line(preview_runtime_sources, index)
+        index += source.length() + 1
+        if source != "" {
+            process::command_arg(command, preview_clang_path(preview_join(stage_root, "runtime/" + source)))
+            sources += 1
+        }
+    }
+    process::command_arg(command, "-I")
+    process::command_arg(command, preview_clang_path(preview_join(stage_root, "runtime")))
+    if preview_windows() { process::command_arg(command, "-lws2_32") } else { process::command_arg(command, "-lm") }
+    process::command_arg(command, "-o")
+    pilot mut program_name = "program"
+    if preview_windows() { program_name = "program.exe" }
+    process::command_arg(command, preview_clang_path(preview_join(stage_root, program_name)))
+    if sources != 7 { process::command_release(command)
+        give back preview_fail("private runtime does not declare seven native sources") }
+    preview_capture(command, "native Clang compile/link", 120000, 1048576)
+    if preview_error != "" { give back false }
+    pilot produced = fs::stat_checked(preview_join(stage_root, program_name))
+    pilot valid = fs::result_ok(produced) and fs::result_kind(produced) == 1 and fs::result_size(produced) > 0
+    fs::result_release(produced)
+    if not valid { give back preview_fail("Clang did not produce an ordinary nonempty program") }
+    give back true
+}
+
+task preview_publish(source: word, requested: word, build: bool) -> bool {
+    pilot destination = preview_output(source, requested)
+    if destination == "" { give back false }
+    pilot parent = fs::open_dir_ticket(preview_parent(destination))
+    if not fs::result_ok(parent) { fs::result_release(parent)
+        give back preview_fail("cannot hold output directory") }
+    pilot leaf = preview_leaf(destination)
+    pilot mut valid = true
+    if preview_output_existing {
+        pilot stale = fs::remove_relative_file_checked(parent, leaf)
+        valid = fs::result_ok(stale)
+        fs::result_release(stale)
+    }
+    if not valid { fs::result_release(parent)
+        give back preview_fail("cannot invalidate stale preview output") }
+    pilot owned = fs::temp_dir(preview_parent(destination), ".freak-v4-work")
+    if not fs::result_ok(owned) { fs::result_release(owned); fs::result_release(parent)
+        give back preview_fail("cannot create owned preview work directory") }
+    pilot stage_root = fs::result_word(owned)
+    pilot module = preview_module(source)
+    if preview_error == "" { valid = preview_write(owned, "module.ll", module) } else { valid = false }
+    if valid and build { valid = preview_copy_runtime(owned) }
+    if valid and build { valid = preview_compile(stage_root) }
+    pilot mut selected = "module.ll"
+    if build {
+        selected = "program"
+        if preview_windows() { selected = "program.exe" }
+    }
+    if valid {
+        pilot published = fs::rename_relative_new_checked(owned, selected, parent, leaf)
+        valid = fs::result_ok(published)
+        pilot completed = fs::result_completed(published)
+        pilot error = fs::result_error(published)
+        fs::result_release(published)
+        if not valid { preview_fail("preview publication failed: " + error)
+            if completed { say "Preview output was published but its directory durability check failed: " + destination } }
+    }
+    fs::result_release(parent)
+    pilot cleaned = preview_cleanup(owned)
+    give back valid and cleaned
+}
+
+task preview_main() -> void {
+    pilot argc = process::args_count()
+    if argc < 2 or process::arg(1) == "--help" {
+        say "FREAK V4 native preview (host target, task main, panic abort)"
+        say "  freak-v4 --version"
+        say "  freak-v4 check SOURCE.fk"
+        say "  freak-v4 emit SOURCE.fk --output=ABSOLUTE.ll"
+        say "  freak-v4 build SOURCE.fk --output=ABSOLUTE_BINARY"
+        give back
+    }
+    pilot command = process::arg(1)
+    pilot mut valid = command == "--version" and argc == 2
+    pilot mut source = ""
+    pilot mut output = ""
+    if command == "check" and argc == 3 { valid = true; source = process::arg(2) }
+    if (command == "emit" or command == "build") and argc == 4 and process::arg(3).starts_with("--output=") {
+        valid = true
+        source = process::arg(2)
+        output = process::arg(3).substring(9, process::arg(3).length() - 9)
+    }
+    if source != "" and not source.to_lower().ends_with(".fk") { valid = false }
+    if not valid { say "FREAK V4 preview: invalid arguments; use --help"; process::exit(1) }
+    if preview_admit() {
+        if command == "--version" {
+            say "FREAK V4 native preview"
+            say "Declared source commit: " + preview_source_commit
+            say "Source input SHA256: " + preview_source_input_sha256 + " (" + preview_locked_source + ")"
+            say "Native V3.5 builder: " + preview_builder_sha256 + " (" + preview_builder_id + ")"
+            say "Host target: " + preview_target
+        } else if command == "check" {
+            preview_module(source)
+            if preview_error == "" { say "FREAK V4 preview: checked " + source }
+        } else { preview_publish(source, output, command == "build") }
+    }
+    if preview_directory != 0 { fs::result_release(preview_directory) }
+    if preview_error != "" { say "FREAK V4 preview: " + preview_error; process::exit(1) }
+}
+
+task main() -> void {
+    preview_main()
+}

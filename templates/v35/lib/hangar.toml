@@ -1,0 +1,22 @@
+[project]
+name = "@@NAME@@"
+version = "0.1.0"
+kind = "lib"
+readme = "README.md"
+license_file = "LICENSE"
+
+[modules]
+greet = "src/greet.fk"
+
+[exports]
+greet = "greet::greet"
+
+[tests]
+greeting = "tests/greeting_test.fk"
+
+[assets]
+consumer_manifest = "examples/consumer/hangar.toml"
+consumer_source = "examples/consumer/src/main.fk"
+consumer_test = "examples/consumer/tests/consumer_test.fk"
+
+[dependencies]

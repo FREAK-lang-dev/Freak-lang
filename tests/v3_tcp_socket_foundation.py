@@ -600,13 +600,30 @@ def main() -> int:
         rejected = run([str(freak), "check", str(negative)], repo)
         output = rejected.stdout + rejected.stderr
         assert rejected.returncode != 0, output
+        assert "unknown callable 'tcp::socket_nope'" in output, output
+        assert not Path(str(negative) + ".c").exists()
+        assert not Path(str(negative) + ".ll").exists()
+
+        # Binding rejects the unknown callable before semantic checking runs.
+        # Keep the original fixture intact and exercise its type/arity errors
+        # in a second projection that removes only that binding failure.
+        binding_line = "    tcp::socket_nope(1)\n"
+        assert NEGATIVE_PROGRAM.count(binding_line) == 1
+        semantic_negative = root / "tcp_socket_semantic_negative.fk"
+        semantic_negative.write_text(
+            NEGATIVE_PROGRAM.replace(binding_line, "", 1), encoding="utf-8"
+        )
+        semantic_rejected = run([str(freak), "check", str(semantic_negative)], repo)
+        semantic_output = semantic_rejected.stdout + semantic_rejected.stderr
+        assert semantic_rejected.returncode != 0, semantic_output
         for diagnostic in (
             "argument 1 expects word, got int",
             "argument 2 expects ByteBuffer, got int",
             "expects 3 argument(s), got 2",
-            "unknown callable 'tcp::socket_nope'",
         ):
-            assert diagnostic in output, (diagnostic, output)
+            assert diagnostic in semantic_output, (diagnostic, semantic_output)
+        assert not Path(str(semantic_negative) + ".c").exists()
+        assert not Path(str(semantic_negative) + ".ll").exists()
 
         # LLVM words carry a NUL-terminated pointer, not a pointer/length pair.
         # Bytes after its terminator are not part of that ABI value. Prove the

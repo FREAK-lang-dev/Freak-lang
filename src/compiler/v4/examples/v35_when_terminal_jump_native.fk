@@ -1,0 +1,27 @@
+task jumps() -> int {
+    pilot count = 0
+    while count < 2 {
+        count += 1
+        when count { 1 -> continue
+        _ -> break }
+        say "dead jump tail"
+        give back 99
+    }
+    give back count
+}
+task nested() -> int {
+    pilot count = 0
+    while count < 2 {
+        while true {
+            when 1 { _ -> break }
+            give back 99
+        }
+        count += 1
+    }
+    give back count
+}
+task main() -> int {
+    if jumps() != 2 or nested() != 2 { give back 1 }
+    say "when-terminal-jump-ok"
+    give back 42
+}

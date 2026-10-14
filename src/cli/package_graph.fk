@@ -1,0 +1,398 @@
+-- ===================================================================
+-- Hangar immutable graph records and complete-closure validation.
+-- The source store supplies validated origins/identities/manifest bytes, then
+-- links each declared edge. A compiler may consume only a validated closure.
+-- Parsing a child cannot change already-snapshotted requester/module/export
+-- facts. This module does not discover packages from arbitrary directories.
+-- ===================================================================
+
+pilot hangar_graph_names = 0
+pilot hangar_graph_identities = 0
+pilot hangar_graph_origins = 0
+pilot hangar_graph_versions = 0
+pilot hangar_graph_request_paths = 0
+pilot hangar_graph_contents = 0
+pilot hangar_graph_fact_nodes = 0
+pilot hangar_graph_fact_keys = 0
+pilot hangar_graph_fact_values = 0
+pilot hangar_graph_edge_parents = 0
+pilot hangar_graph_edge_aliases = 0
+pilot hangar_graph_edge_sources = 0
+pilot hangar_graph_edge_kinds = 0
+pilot hangar_graph_edge_revisions = 0
+pilot hangar_graph_edge_versions = 0
+pilot hangar_graph_edge_targets = 0
+pilot hangar_graph_colors = 0
+pilot hangar_graph_order = 0
+pilot hangar_graph_count = 0
+pilot hangar_graph_edge_count = 0
+pilot hangar_graph_manifest_bytes = 0
+pilot hangar_graph_error = ""
+pilot hangar_graph_node_limit = 1024
+pilot hangar_graph_edge_limit = 4096
+pilot hangar_graph_depth_limit = 64
+pilot hangar_graph_manifest_limit = 1048576
+pilot hangar_graph_manifest_total_limit = 16777216
+
+task hangar_graph_fail(message: word) -> void {
+    if hangar_graph_error == "" { hangar_graph_error = message }
+}
+
+task hangar_graph_release() -> void {
+    if hangar_graph_names != 0 {
+        array_release(hangar_graph_names)
+        array_release(hangar_graph_identities)
+        array_release(hangar_graph_origins)
+        array_release(hangar_graph_versions)
+        array_release(hangar_graph_request_paths)
+        array_release(hangar_graph_contents)
+        array_release(hangar_graph_fact_nodes)
+        array_release(hangar_graph_fact_keys)
+        array_release(hangar_graph_fact_values)
+        array_release(hangar_graph_edge_parents)
+        array_release(hangar_graph_edge_aliases)
+        array_release(hangar_graph_edge_sources)
+        array_release(hangar_graph_edge_kinds)
+        array_release(hangar_graph_edge_revisions)
+        array_release(hangar_graph_edge_versions)
+        array_release(hangar_graph_edge_targets)
+        array_release(hangar_graph_colors)
+        array_release(hangar_graph_order)
+    }
+    hangar_graph_names = 0
+    hangar_graph_identities = 0
+    hangar_graph_origins = 0
+    hangar_graph_versions = 0
+    hangar_graph_request_paths = 0
+    hangar_graph_contents = 0
+    hangar_graph_fact_nodes = 0
+    hangar_graph_fact_keys = 0
+    hangar_graph_fact_values = 0
+    hangar_graph_edge_parents = 0
+    hangar_graph_edge_aliases = 0
+    hangar_graph_edge_sources = 0
+    hangar_graph_edge_kinds = 0
+    hangar_graph_edge_revisions = 0
+    hangar_graph_edge_versions = 0
+    hangar_graph_edge_targets = 0
+    hangar_graph_colors = 0
+    hangar_graph_order = 0
+    hangar_graph_count = 0
+    hangar_graph_edge_count = 0
+    hangar_graph_manifest_bytes = 0
+    hangar_graph_error = ""
+}
+
+task hangar_graph_clear() -> void {
+    hangar_graph_release()
+    hangar_graph_names = array_new()
+    hangar_graph_identities = array_new()
+    hangar_graph_origins = array_new()
+    hangar_graph_versions = array_new()
+    hangar_graph_request_paths = array_new()
+    hangar_graph_contents = array_new()
+    hangar_graph_fact_nodes = array_new()
+    hangar_graph_fact_keys = array_new()
+    hangar_graph_fact_values = array_new()
+    hangar_graph_edge_parents = array_new()
+    hangar_graph_edge_aliases = array_new()
+    hangar_graph_edge_sources = array_new()
+    hangar_graph_edge_kinds = array_new()
+    hangar_graph_edge_revisions = array_new()
+    hangar_graph_edge_versions = array_new()
+    hangar_graph_edge_targets = array_new()
+    hangar_graph_colors = array_new()
+    hangar_graph_order = array_new()
+    hangar_graph_count = 0
+    hangar_graph_edge_count = 0
+    hangar_graph_manifest_bytes = 0
+    hangar_graph_error = ""
+}
+
+task hangar_graph_fact(node: int, key: word) -> word {
+    pilot i = 0
+    repeat until i >= array_len(hangar_graph_fact_keys) {
+        if word_to_int(array_get(hangar_graph_fact_nodes, i)) == node and array_get(hangar_graph_fact_keys, i) == key {
+            give back array_get(hangar_graph_fact_values, i)
+        }
+        i += 1
+    }
+    give back ""
+}
+
+task hangar_graph_find_identity(identity: word) -> int {
+    pilot i = 0
+    repeat until i >= hangar_graph_count {
+        if array_get(hangar_graph_identities, i) == identity { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task hangar_graph_utf8_size(content: word) -> int {
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(content)
+    pilot size = bytes.length()
+    bytes.release()
+    give back size
+}
+
+task hangar_graph_symbol(name: word) -> bool {
+    if name == "" or name.length() > 64 { give back false }
+    pilot initial = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+    if not initial.contains(name.char_at(0)) { give back false }
+    pilot allowed = initial + "0123456789"
+    pilot i = 0
+    repeat until i >= name.length() {
+        if not allowed.contains(name.char_at(i)) { give back false }
+        i += 1
+    }
+    give back true
+}
+
+task hangar_graph_relative_file(path: word) -> bool {
+    if path == "" or path.starts_with("/") or path.contains("\\") or path.contains(":") { give back false }
+    if path.starts_with("../") or path.contains("/../") or path.ends_with("/..") or path == ".." { give back false }
+    if path.starts_with("./") or path.contains("/./") or path.ends_with("/.") or path == "." { give back false }
+    if path.contains("//") or path.contains("\n") or path.contains("\r") or path.contains("\t") { give back false }
+    give back path.ends_with(".fk")
+}
+
+task hangar_graph_validate_surface() -> bool {
+    pilot entry = toml_get("project.entry")
+    pilot kind = toml_get("project.kind")
+    if kind != "app" and kind != "lib" {
+        hangar_graph_fail("project.kind must be 'app' or 'lib'")
+        give back false
+    }
+    if kind == "app" and not hangar_graph_relative_file(entry) {
+        hangar_graph_fail("application project.entry must declare a relative .fk file")
+        give back false
+    }
+    if kind == "lib" and entry != "" {
+        hangar_graph_fail("library project.entry is unsupported; declare modules and exports")
+        give back false
+    }
+    pilot modules = 0
+    pilot i = 0
+    repeat until i >= toml_count {
+        pilot key = array_get(toml_keys_arr, i)
+        pilot value = array_get(toml_vals_arr, i)
+        if key.starts_with("__package.") { hangar_graph_fail("manifest uses a reserved package admission fact: " + key) give back false }
+        if key.starts_with("tests.") {
+            if not hangar_graph_symbol(key.substring(6, key.length() - 6)) or not hangar_graph_relative_file(value) { hangar_graph_fail("tests must be a flat name-to-relative-source map: " + key) give back false }
+        } else if key.starts_with("assets.") {
+            if not hangar_graph_symbol(key.substring(7, key.length() - 7)) { hangar_graph_fail("assets must be a flat name-to-relative-file map: " + key) give back false }
+        }
+        if key.starts_with("modules.") {
+            pilot name = key.substring(8, key.length())
+            if not hangar_graph_symbol(name) or not hangar_graph_relative_file(value) {
+                hangar_graph_fail("invalid declared module: " + key)
+                give back false
+            }
+            modules += 1
+        } else if key.starts_with("exports.") {
+            pilot name = key.substring(8, key.length())
+            if not hangar_graph_symbol(name) {
+                hangar_graph_fail("invalid declared export: " + key)
+                give back false
+            }
+            pilot position = 0
+            pilot split = 0 - 1
+            repeat until position >= value.length() - 1 {
+                if value.char_at(position) == ":" and value.char_at(position + 1) == ":" { split = position }
+                position += 1
+            }
+            if split <= 0 {
+                hangar_graph_fail("export must name module::declaration: " + key)
+                give back false
+            }
+            pilot owner = value.substring(0, split)
+            pilot declaration = value.substring(split + 2, value.length())
+            if not hangar_graph_symbol(owner) or not hangar_graph_symbol(declaration) or not toml_has("modules." + owner) {
+                hangar_graph_fail("export names an undeclared module or invalid declaration: " + key)
+                give back false
+            }
+        }
+        i += 1
+    }
+    if kind == "lib" and modules == 0 {
+        hangar_graph_fail("library must explicitly declare source modules")
+        give back false
+    }
+    give back true
+}
+
+task hangar_graph_add_manifest(identity: word, origin: word, content: word, request_path: word) -> int {
+    if identity == "" or origin == "" {
+        hangar_graph_fail("package source identity and origin must be resolved before graph insertion")
+        give back 0 - 1
+    }
+    pilot existing = hangar_graph_find_identity(identity)
+    if existing >= 0 { give back existing }
+    if hangar_graph_count >= hangar_graph_node_limit {
+        hangar_graph_fail("dependency node limit exceeded along " + request_path)
+        give back 0 - 1
+    }
+    pilot content_bytes = hangar_graph_utf8_size(content)
+    if content_bytes > hangar_graph_manifest_limit or hangar_graph_manifest_bytes + content_bytes > hangar_graph_manifest_total_limit {
+        hangar_graph_fail("dependency manifest byte limit exceeded along " + request_path)
+        give back 0 - 1
+    }
+    if not toml_parse(content) {
+        hangar_graph_fail("invalid manifest " + origin + ":" + word_from_int(toml_error_line) + ": " + toml_error)
+        give back 0 - 1
+    }
+    pilot name = toml_get("project.name")
+    pilot version = toml_get("project.version")
+    if not hangar_valid_package_name(name) or version == "" or version != ver_to_string(ver_parse(version)) {
+        hangar_graph_fail("package manifest requires a valid project.name and project.version: " + origin)
+        give back 0 - 1
+    }
+    pilot i = 0
+    repeat until i >= hangar_graph_count {
+        if array_get(hangar_graph_names, i) == name {
+            hangar_graph_fail("incompatible identities for " + name + ": " + array_get(hangar_graph_request_paths, i) + " -> " + array_get(hangar_graph_identities, i) + "; " + request_path + " -> " + identity)
+            give back 0 - 1
+        }
+        i += 1
+    }
+    if not hangar_graph_validate_surface() { give back 0 - 1 }
+    pilot node = hangar_graph_count
+    array_push(hangar_graph_names, name)
+    array_push(hangar_graph_identities, identity)
+    array_push(hangar_graph_origins, origin)
+    array_push(hangar_graph_versions, version)
+    array_push(hangar_graph_request_paths, request_path)
+    array_push(hangar_graph_contents, content)
+    array_push(hangar_graph_colors, "0")
+    hangar_graph_count += 1
+    hangar_graph_manifest_bytes += content_bytes
+    i = 0
+    repeat until i >= toml_count {
+        array_push(hangar_graph_fact_nodes, word_from_int(node))
+        array_push(hangar_graph_fact_keys, array_get(toml_keys_arr, i))
+        array_push(hangar_graph_fact_values, array_get(toml_vals_arr, i))
+        i += 1
+    }
+    pilot dependencies = toml_dep_names_arr()
+    i = 0
+    repeat until i >= array_len(dependencies) {
+        pilot alias = array_get(dependencies, i)
+        if not hangar_graph_symbol(alias) {
+            hangar_graph_fail("invalid dependency alias in " + origin + ": " + alias)
+            array_release(dependencies)
+            give back 0 - 1
+        }
+        if hangar_graph_edge_count >= hangar_graph_edge_limit {
+            hangar_graph_fail("dependency edge limit exceeded along " + request_path)
+            array_release(dependencies)
+            give back 0 - 1
+        }
+        pilot prefix = "dependencies." + alias
+        pilot field = 0
+        repeat until field >= toml_count {
+            pilot key = array_get(toml_keys_arr, field)
+            if key.starts_with(prefix + ".") and key != prefix + ".path" and key != prefix + ".git" and key != prefix + ".rev" and key != prefix + ".version" {
+                hangar_graph_fail("unsupported dependency field: " + key)
+                array_release(dependencies)
+                give back 0 - 1
+            }
+            field += 1
+        }
+        pilot local = toml_get(prefix + ".path")
+        pilot git = toml_get(prefix + ".git")
+        pilot revision = toml_get(prefix + ".rev")
+        pilot constraint = toml_get(prefix + ".version")
+        pilot source_kind = "path"
+        pilot source = local
+        if local != "" and git != "" {
+            hangar_graph_fail("dependency declares both path and Git source: " + request_path + " -> " + alias)
+            array_release(dependencies)
+            give back 0 - 1
+        }
+        if git != "" { source_kind = "git"
+            source = git }
+        if source == "" {
+            hangar_graph_fail("registry package source is unavailable: " + request_path + " -> " + alias)
+            array_release(dependencies)
+            give back 0 - 1
+        }
+        if local != "" and revision != "" {
+            hangar_graph_fail("local dependency cannot declare a Git revision: " + alias)
+            array_release(dependencies)
+            give back 0 - 1
+        }
+        array_push(hangar_graph_edge_parents, word_from_int(node))
+        array_push(hangar_graph_edge_aliases, alias)
+        array_push(hangar_graph_edge_sources, source)
+        array_push(hangar_graph_edge_kinds, source_kind)
+        array_push(hangar_graph_edge_revisions, revision)
+        array_push(hangar_graph_edge_versions, constraint)
+        array_push(hangar_graph_edge_targets, "-1")
+        hangar_graph_edge_count += 1
+        i += 1
+    }
+    array_release(dependencies)
+    give back node
+}
+
+task hangar_graph_link(edge: int, target: int) -> bool {
+    if edge < 0 or edge >= hangar_graph_edge_count or target < 0 or target >= hangar_graph_count {
+        hangar_graph_fail("invalid dependency edge/target while linking graph")
+        give back false
+    }
+    if array_get(hangar_graph_edge_targets, edge) != "-1" {
+        hangar_graph_fail("dependency edge linked more than once")
+        give back false
+    }
+    pilot constraint = array_get(hangar_graph_edge_versions, edge)
+    if constraint != "" and constraint != "latest" and constraint != "*" {
+        if not version_matches_constraint(array_get(hangar_graph_versions, target), constraint) {
+            pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
+            hangar_graph_fail("version conflict: " + array_get(hangar_graph_request_paths, parent) + " -> " + array_get(hangar_graph_edge_aliases, edge) + " requires " + constraint + "; " + array_get(hangar_graph_request_paths, target) + " resolved " + array_get(hangar_graph_versions, target))
+            give back false
+        }
+    }
+    array_set(hangar_graph_edge_targets, edge, word_from_int(target))
+    give back true
+}
+
+task hangar_graph_visit(node: int, depth: int, chain: word) -> bool {
+    if depth > hangar_graph_depth_limit { hangar_graph_fail("dependency depth limit exceeded: " + chain) give back false }
+    pilot color = array_get(hangar_graph_colors, node)
+    if color == "2" { give back true }
+    if color == "1" { hangar_graph_fail("dependency cycle: " + chain) give back false }
+    array_set(hangar_graph_colors, node, "1")
+    pilot edge = 0
+    repeat until edge >= hangar_graph_edge_count {
+        if word_to_int(array_get(hangar_graph_edge_parents, edge)) == node {
+            pilot target = word_to_int(array_get(hangar_graph_edge_targets, edge))
+            pilot next_chain = chain + " -> " + array_get(hangar_graph_edge_aliases, edge)
+            if target < 0 { hangar_graph_fail("unresolved dependency: " + next_chain) give back false }
+            if not hangar_graph_visit(target, depth + 1, next_chain) { give back false }
+        }
+        edge += 1
+    }
+    array_set(hangar_graph_colors, node, "2")
+    array_push(hangar_graph_order, word_from_int(node))
+    give back true
+}
+
+task hangar_graph_complete(root: int) -> bool {
+    if hangar_graph_error != "" { give back false }
+    if root < 0 or root >= hangar_graph_count { hangar_graph_fail("graph has no valid root") give back false }
+    pilot i = 0
+    repeat until i >= hangar_graph_count {
+        array_set(hangar_graph_colors, i, "0")
+        i += 1
+    }
+    array_release(hangar_graph_order)
+    hangar_graph_order = array_new()
+    if not hangar_graph_visit(root, 0, array_get(hangar_graph_names, root)) { give back false }
+    if array_len(hangar_graph_order) != hangar_graph_count {
+        hangar_graph_fail("graph contains packages outside the declared root closure")
+        give back false
+    }
+    give back true
+}

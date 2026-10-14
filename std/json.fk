@@ -18,17 +18,17 @@
 -- ===================================================================
 
 -- Value pool
-pilot json_types = 0
-pilot json_vals = 0
-pilot json_children = 0
-pilot json_keys = 0
-pilot json_count = 0
-pilot json_inited = 0
+pilot mut json_types = 0
+pilot mut json_vals = 0
+pilot mut json_children = 0
+pilot mut json_keys = 0
+pilot mut json_count = 0
+pilot mut json_inited = 0
 
 -- Parser state
-pilot json_src = ""
-pilot json_pos = 0
-pilot json_len = 0
+pilot mut json_src = ""
+pilot mut json_pos = 0
+pilot mut json_len = 0
 
 task json_init() -> void {
     if json_inited == 0 {
@@ -102,7 +102,7 @@ task json_obj_get(handle: int, key: word) -> int {
     pilot ch: word = array_get(json_children, handle)
     pilot ch_handle = word_to_int(ch)
     pilot klen = array_len(ks_handle)
-    pilot ki = 0
+    pilot mut ki = 0
     repeat klen times {
         pilot k: word = array_get(ks_handle, ki)
         if k == key {
@@ -156,7 +156,7 @@ task json_expect(ch: word) -> void {
 
 task json_parse_string() -> word {
     json_expect("\"")
-    pilot ps_out = ""
+    pilot mut ps_out = ""
     repeat until json_pos >= json_len {
         pilot c = json_advance()
         if c == "\"" { give back ps_out }
@@ -185,8 +185,8 @@ task json_parse_string() -> word {
 }
 
 task json_parse_number() -> word {
-    pilot pn_out = ""
-    pilot c = json_cur()
+    pilot mut pn_out = ""
+    pilot mut c = json_cur()
     if c == "-" {
         pn_out = "-"
         json_pos += 1
@@ -206,7 +206,7 @@ task json_parse_number() -> word {
 task json_try_keyword(kw: word) -> bool {
     pilot kwlen = kw.length()
     if json_pos + kwlen > json_len { give back false }
-    pilot ki = 0
+    pilot mut ki = 0
     repeat kwlen times {
         if json_src.char_at(json_pos + ki) != kw.char_at(ki) { give back false }
         ki += 1
@@ -316,9 +316,9 @@ task json_parse_value() -> int {
 
 task json_parse(source: word) -> int {
     json_init()
+    json_len = source.length()
     json_src = source
     json_pos = 0
-    json_len = source.length()
     give back json_parse_value()
 }
 
@@ -347,8 +347,8 @@ task json_stringify(handle: int) -> word {
 
     if t == "a" {
         pilot alen = json_arr_len(handle)
-        pilot a_out = "["
-        pilot ai = 0
+        pilot mut a_out = "["
+        pilot mut ai = 0
         repeat alen times {
             if ai > 0 { a_out = a_out + "," }
             pilot child = json_arr_get(handle, ai)
@@ -360,8 +360,8 @@ task json_stringify(handle: int) -> word {
 
     if t == "o" {
         pilot olen = json_obj_len(handle)
-        pilot o_out = "{"
-        pilot oi = 0
+        pilot mut o_out = "{"
+        pilot mut oi = 0
         repeat olen times {
             if oi > 0 { o_out = o_out + "," }
             pilot okey: word = json_obj_key_at(handle, oi)

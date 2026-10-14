@@ -58,6 +58,17 @@ def assert_complete(results: list[dict]) -> None:
             raise RuntimeError("lowercase result lacks a passing exact oracle or both audits")
 
 
+def lowercase_link_command(clang: str, llvm: Path, binary: Path, *,
+                           platform: str | None = None) -> list[str]:
+    command = build.native_link_command(clang, llvm, binary)
+    platform = sys.platform if platform is None else platform
+    if platform == "win32":
+        # LLD links the Windows exports without LINK's import-library notice.
+        # Keep the exact empty-output oracle for every link result.
+        command.append("-fuse-ld=lld")
+    return command
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--clang", default=os.environ.get("FREAK_CLANG") or shutil.which("clang"))
@@ -120,7 +131,7 @@ def main() -> int:
             os.environ["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1:exitcode=85"
         for optimization in OPTIMIZATIONS:
             binary = work / f"word_lowercase-O{optimization}{'.exe' if sys.platform == 'win32' else '.native'}"
-            command = build.native_link_command(args.clang, llvm, binary)
+            command = lowercase_link_command(args.clang, llvm, binary)
             command = [f"-O{optimization}" if re.fullmatch(r"-O[0-3]", token) else token for token in command]
             command += ["-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1", "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1"]
             if not args.plain:

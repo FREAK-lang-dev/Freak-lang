@@ -1,2 +1,4 @@
-say "Hello, FREAK!"
-say "Self-hosting compiler: YES"
+task main() {
+    say "Hello, FREAK!"
+    say "Self-hosting compiler: YES"
+}

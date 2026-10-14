@@ -6,12 +6,73 @@
 -- ===================================================================
 
 pilot cli_doctor_retained_probe_path: word = ""
+pilot CLI_DOCTOR_MINIMUM_CLANG_MAJOR: int = 15
+pilot CLI_DOCTOR_MINIMUM_APPLE_CLANG_MAJOR: int = 15
+
+task cli_doctor_clang_version_prefix(version: word) -> word {
+    if version.starts_with("Apple clang version ") { give back "Apple clang version " }
+    if version.starts_with("clang version ") { give back "clang version " }
+    if version.starts_with("Ubuntu clang version ") { give back "Ubuntu clang version " }
+    if version.starts_with("Debian clang version ") { give back "Debian clang version " }
+    if version.starts_with("Homebrew clang version ") { give back "Homebrew clang version " }
+    if version.starts_with("FreeBSD clang version ") { give back "FreeBSD clang version " }
+    give back ""
+}
+
+task cli_doctor_clang_vendor(version: word) -> word {
+    if version.starts_with("Apple clang version ") { give back "apple" }
+    if cli_doctor_clang_version_prefix(version) != "" { give back "upstream" }
+    give back "unknown"
+}
+
+task cli_doctor_clang_version_major(version: word) -> int {
+    pilot prefix = cli_doctor_clang_version_prefix(version)
+    if prefix == "" { give back 0 }
+    pilot index = prefix.length()
+    pilot digits = ""
+    repeat until index >= version.length() {
+        pilot ch = version.char_at(index)
+        if not is_numeric(ch) { break }
+        -- Bound conversion before to_int, including hostile version output.
+        if digits.length() >= 4 { give back 0 }
+        digits = digits + ch
+        index += 1
+    }
+    if digits == "" or index + 1 >= version.length() { give back 0 }
+    if version.char_at(index) != "." or not is_numeric(version.char_at(index + 1)) { give back 0 }
+    give back digits.to_int()
+}
+
+task cli_doctor_clang_minimum_major(version: word) -> int {
+    if cli_doctor_clang_vendor(version) == "apple" { give back CLI_DOCTOR_MINIMUM_APPLE_CLANG_MAJOR }
+    give back CLI_DOCTOR_MINIMUM_CLANG_MAJOR
+}
+
+task cli_doctor_clang_version_supported(version: word) -> bool {
+    give back cli_doctor_clang_version_major(version) >= cli_doctor_clang_minimum_major(version)
+}
+
+task cli_doctor_clang_minimum_line() -> word {
+    give back "Minimum supported Clang: upstream Clang " + word_from_int(CLI_DOCTOR_MINIMUM_CLANG_MAJOR) + ", Apple Clang " + word_from_int(CLI_DOCTOR_MINIMUM_APPLE_CLANG_MAJOR) + " (headers/linker/run probe required)."
+}
+
+task cli_doctor_clang_version_problem(version: word) -> word {
+    if cli_doctor_clang_version_major(version) == 0 {
+        give back "The selected tool's Clang version is unrecognized or malformed."
+    }
+    give back "The selected Clang is older than the supported minimum " + word_from_int(cli_doctor_clang_minimum_major(version)) + "."
+}
 
 task cli_doctor_json_escape(input: word) -> word {
     pilot out = ""
+    pilot bytes: ByteBuffer = ByteBuffer::with_capacity(input.length())
+    bytes.write_word(input)
+    bytes.seek(0)
+    pilot hex_digits = "0123456789abcdef"
     pilot i = 0
     repeat until i >= input.length() {
         pilot ch: word = input.char_at(i)
+        pilot byte = bytes.read_byte()
         if ch == "\\" {
             out = out + "\\\\"
         } else if ch == "\"" {
@@ -20,11 +81,16 @@ task cli_doctor_json_escape(input: word) -> word {
             out = out + "\\n"
         } else if ch == "\r" {
             out = out + "\\r"
+        } else if ch == "\t" {
+            out = out + "\\t"
+        } else if byte < 32 {
+            out = out + "\\u00" + hex_digits.char_at(byte / 16) + hex_digits.char_at(byte % 16)
         } else {
             out = out + ch
         }
         i += 1
     }
+    bytes.release()
     give back out
 }
 
@@ -106,33 +172,33 @@ task cli_doctor_remove_temp_parent(probe_path: word) -> bool {
     give back true
 }
 
-task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
-    if clang_cmd == "" { give back false }
+task cli_doctor_clang_probe(clang_executable: word) -> bool {
+    if clang_executable == "" { give back false }
     pilot is_win = cli_is_windows()
     pilot probe_stem = cli_doctor_temp_stem("freak-doctor-clang-probe-")
     if probe_stem == "" { give back false }
     pilot probe_source = probe_stem + ".c"
     pilot probe_binary = probe_stem
     if is_win { probe_binary = probe_binary + ".exe" }
-    pilot probe_text = "#include <stdio.h>\nint main(void) { return 0; }\n"
+    pilot probe_text = "#include <stdio.h>\nint main(void) \{ return 0; \}\n"
     fs::write(probe_source, probe_text)
-    pilot probe_exit = 1
-    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
-    if is_win {
-        probe_exit = process::exec(clang_prefix + " -x c " + cli_quote_cmd_path(probe_source) + " -o " + cli_quote_cmd_path(probe_binary) + " >nul 2>nul")
-    } else {
-        probe_exit = process::exec(clang_prefix + " -x c " + cli_quote_cmd_path(probe_source) + " -o " + cli_quote_cmd_path(probe_binary) + " >/dev/null 2>/dev/null")
+    pilot compile_command = process::command_new(clang_executable)
+    process::command_arg(compile_command, "-x")
+    process::command_arg(compile_command, "c")
+    process::command_arg(compile_command, probe_source)
+    process::command_arg(compile_command, "-o")
+    process::command_arg(compile_command, probe_binary)
+    pilot compile_status = process::command_run(compile_command, 30000, 16384, 16384)
+    pilot compile_ok = compile_status == 2 and process::command_exit_code(compile_command) == 0
+    process::command_release(compile_command)
+    pilot run_ok = false
+    if compile_ok and fs::exists(probe_binary) {
+        pilot probe_command = process::command_new(probe_binary)
+        pilot run_status = process::command_run(probe_command, 10000, 4096, 4096)
+        run_ok = run_status == 2 and process::command_exit_code(probe_command) == 0
+        process::command_release(probe_command)
     }
-    pilot probe_run_exit = 1
-    if probe_exit == 0 and fs::exists(probe_binary) {
-        pilot probe_command = cli_shell_command_prefix(cli_quote_cmd_path(probe_binary))
-        if is_win {
-            probe_run_exit = process::exec(probe_command + " >nul 2>nul")
-        } else {
-            probe_run_exit = process::exec(probe_command + " >/dev/null 2>/dev/null")
-        }
-    }
-    pilot probe_ok = probe_exit == 0 and probe_run_exit == 0
+    pilot probe_ok = compile_ok and run_ok
     if fs::exists(probe_source) { fs::delete(probe_source) }
     if fs::exists(probe_binary) { fs::delete(probe_binary) }
     if fs::exists(probe_stem + ".obj") { fs::delete(probe_stem + ".obj") }
@@ -145,10 +211,22 @@ task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     give back probe_ok
 }
 
-task cli_doctor_clang_version_line(clang_cmd: word) -> word {
-    if clang_cmd == "" { give back "" }
-    pilot clang_ver: word = process::exec_capture(clang_cmd + " --version")
+task cli_doctor_clang_version_line(clang_executable: word) -> word {
+    if clang_executable == "" { give back "" }
+    pilot command = process::command_new(clang_executable)
+    process::command_arg(command, "--version")
+    pilot status = process::command_run(command, 10000, 16384, 16384)
+    pilot clang_ver = ""
+    if status == 2 and process::command_exit_code(command) == 0 {
+        clang_ver = process::command_stdout(command)
+    }
+    process::command_release(command)
     give back cli_doctor_first_line(clang_ver)
+}
+
+task cli_doctor_clang_command_works(clang_executable: word) -> bool {
+    if not cli_doctor_clang_version_supported(cli_doctor_clang_version_line(clang_executable)) { give back false }
+    give back cli_doctor_clang_probe(clang_executable)
 }
 
 task cli_doctor_first_line(text: word) -> word {
@@ -181,9 +259,13 @@ task cli_doctor_std_module_count(std_dir: word) -> int {
     if fs::exists(std_dir + "/convert.fk")   { mod_count += 1 }
     if fs::exists(std_dir + "/algorithm.fk") { mod_count += 1 }
     if fs::exists(std_dir + "/json.fk")      { mod_count += 1 }
+    if fs::exists(std_dir + "/json_document.fk") { mod_count += 1 }
+    if fs::exists(std_dir + "/test.fk") { mod_count += 1 }
     if fs::exists(std_dir + "/http.fk")      { mod_count += 1 }
+    if fs::exists(std_dir + "/http_server.fk") { mod_count += 1 }
     if fs::exists(std_dir + "/version.fk")   { mod_count += 1 }
     if fs::exists(std_dir + "/runtime.fk")   { mod_count += 1 }
+    if fs::exists(std_dir + "/path.fk")      { mod_count += 1 }
     if fs::exists(std_dir + "/ui/window.fk") { mod_count += 1 }
     give back mod_count
 }
@@ -193,30 +275,54 @@ task cli_doctor_append_missing(missing: word, file: word) -> word {
     give back missing + ", " + file
 }
 
+task cli_doctor_runtime_file_exists(runtime_dir: word, relative: word) -> bool {
+    if fs::exists(runtime_dir + "/" + relative) { give back true }
+    if relative == "v4-native.manifest" and runtime_dir.replace("\\", "/").ends_with("/freakc/runtime") { give back fs::exists(runtime_dir + "/../../src/compiler/v4/native-runtime.manifest") }
+    -- Repository runtimes include the same pinned vendor from its source root.
+    if relative.starts_with("third_party/llhttp/") and runtime_dir.replace("\\", "/").ends_with("/freakc/runtime") {
+        give back fs::exists(runtime_dir + "/../../" + relative)
+    }
+    give back false
+}
+
 task cli_doctor_runtime_missing(runtime_dir: word) -> word {
     if runtime_dir == "" { give back "runtime directory" }
     pilot missing = ""
-    if not fs::exists(runtime_dir + "/freak_runtime.c") {
-        missing = cli_doctor_append_missing(missing, "freak_runtime.c")
-    }
-    if not fs::exists(runtime_dir + "/freak_runtime.h") {
-        missing = cli_doctor_append_missing(missing, "freak_runtime.h")
-    }
-    if not fs::exists(runtime_dir + "/freak_llvm_runtime.c") {
-        missing = cli_doctor_append_missing(missing, "freak_llvm_runtime.c")
-    }
-    if not fs::exists(runtime_dir + "/ui/win32_backend.c") {
-        missing = cli_doctor_append_missing(missing, "ui/win32_backend.c")
-    }
-    if not fs::exists(runtime_dir + "/ui/freak_ui_platform.h") {
-        missing = cli_doctor_append_missing(missing, "ui/freak_ui_platform.h")
-    }
-    if not fs::exists(runtime_dir + "/freak_abi") {
-        missing = cli_doctor_append_missing(missing, "freak_abi")
-    }
-    if not fs::exists(runtime_dir + "/freak_runtime_api") {
-        missing = cli_doctor_append_missing(missing, "freak_runtime_api")
-    }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_llvm_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_llvm_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_process.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_process.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_fs.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_fs.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_json.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_json.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_http.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_http.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "ui/win32_backend.c") { missing = cli_doctor_append_missing(missing, "ui/win32_backend.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "ui/freak_ui_platform.h") { missing = cli_doctor_append_missing(missing, "ui/freak_ui_platform.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_abi") { missing = cli_doctor_append_missing(missing, "freak_abi") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_runtime_api") { missing = cli_doctor_append_missing(missing, "freak_runtime_api") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/LICENSE") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/LICENSE") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/LICENSE-MIT") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/LICENSE-MIT") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/PATCHES.md") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/PATCHES.md") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/README.freak.md") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/README.freak.md") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/SHA256SUMS") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/SHA256SUMS") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/UPSTREAM.json") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/UPSTREAM.json") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/freak_amalgamation.inc") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/freak_amalgamation.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/include/llhttp.h") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/include/llhttp.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/api.c") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/api.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/http.c") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/http.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/llhttp.c") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/llhttp.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/llhttp.h") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/llhttp.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_word_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_word_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_numeric_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_numeric_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_unicode_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_unicode_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_system_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_system_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_panic_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_panic_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_word_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_word_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_numeric_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_numeric_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_unicode_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_unicode_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_unicode_lower_tables.h") { missing = cli_doctor_append_missing(missing, "freak_v4_unicode_lower_tables.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_system_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_system_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_panic_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_panic_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "v4-native.manifest") { missing = cli_doctor_append_missing(missing, "v4-native.manifest") }
     give back missing
 }
 
@@ -230,12 +336,43 @@ task cli_doctor_std_missing(std_dir: word) -> word {
     if not fs::exists(std_dir + "/convert.fk") { missing = cli_doctor_append_missing(missing, "convert.fk") }
     if not fs::exists(std_dir + "/algorithm.fk") { missing = cli_doctor_append_missing(missing, "algorithm.fk") }
     if not fs::exists(std_dir + "/json.fk") { missing = cli_doctor_append_missing(missing, "json.fk") }
+    if not fs::exists(std_dir + "/json_document.fk") { missing = cli_doctor_append_missing(missing, "json_document.fk") }
+    if not fs::exists(std_dir + "/test.fk") { missing = cli_doctor_append_missing(missing, "test.fk") }
     if not fs::exists(std_dir + "/http.fk") { missing = cli_doctor_append_missing(missing, "http.fk") }
+    if not fs::exists(std_dir + "/http_server.fk") { missing = cli_doctor_append_missing(missing, "http_server.fk") }
     if not fs::exists(std_dir + "/version.fk") { missing = cli_doctor_append_missing(missing, "version.fk") }
     if not fs::exists(std_dir + "/runtime.fk") { missing = cli_doctor_append_missing(missing, "runtime.fk") }
+    if not fs::exists(std_dir + "/path.fk") { missing = cli_doctor_append_missing(missing, "path.fk") }
     if not fs::exists(std_dir + "/ui/window.fk") { missing = cli_doctor_append_missing(missing, "ui/window.fk") }
     if not fs::exists(std_dir + "/freak_abi") { missing = cli_doctor_append_missing(missing, "freak_abi") }
     if not fs::exists(std_dir + "/freak_std_api") { missing = cli_doctor_append_missing(missing, "freak_std_api") }
+    give back missing
+}
+
+task cli_doctor_templates_missing() -> word {
+    pilot root = cli_template_payload_root()
+    if root == "" { give back "templates payload root" }
+    pilot missing = ""
+    if not fs::exists(root + "/templates/v35/cli/LICENSE") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/LICENSE") }
+    if not fs::exists(root + "/templates/v35/cli/README.md") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/README.md") }
+    if not fs::exists(root + "/templates/v35/cli/hangar.toml") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/hangar.toml") }
+    if not fs::exists(root + "/templates/v35/cli/src/greet.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/src/greet.fk") }
+    if not fs::exists(root + "/templates/v35/cli/src/main.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/src/main.fk") }
+    if not fs::exists(root + "/templates/v35/cli/tests/greeting_test.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/tests/greeting_test.fk") }
+    if not fs::exists(root + "/templates/v35/http/LICENSE") { missing = cli_doctor_append_missing(missing, "templates/v35/http/LICENSE") }
+    if not fs::exists(root + "/templates/v35/http/README.md") { missing = cli_doctor_append_missing(missing, "templates/v35/http/README.md") }
+    if not fs::exists(root + "/templates/v35/http/hangar.toml") { missing = cli_doctor_append_missing(missing, "templates/v35/http/hangar.toml") }
+    if not fs::exists(root + "/templates/v35/http/src/main.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/http/src/main.fk") }
+    if not fs::exists(root + "/templates/v35/http/src/routes.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/http/src/routes.fk") }
+    if not fs::exists(root + "/templates/v35/http/tests/routes_test.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/http/tests/routes_test.fk") }
+    if not fs::exists(root + "/templates/v35/lib/LICENSE") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/LICENSE") }
+    if not fs::exists(root + "/templates/v35/lib/README.md") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/README.md") }
+    if not fs::exists(root + "/templates/v35/lib/examples/consumer/hangar.toml") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/examples/consumer/hangar.toml") }
+    if not fs::exists(root + "/templates/v35/lib/examples/consumer/src/main.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/examples/consumer/src/main.fk") }
+    if not fs::exists(root + "/templates/v35/lib/examples/consumer/tests/consumer_test.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/examples/consumer/tests/consumer_test.fk") }
+    if not fs::exists(root + "/templates/v35/lib/hangar.toml") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/hangar.toml") }
+    if not fs::exists(root + "/templates/v35/lib/src/greet.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/src/greet.fk") }
+    if not fs::exists(root + "/templates/v35/lib/tests/greeting_test.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/tests/greeting_test.fk") }
     give back missing
 }
 
@@ -252,12 +389,13 @@ task cli_doctor_json() -> int {
         else { os_tag = "linux" }
     }
 
-    pilot clang_cmd = cli_doctor_find_clang_command()
-    pilot clang_ok = cli_doctor_clang_command_works(clang_cmd)
-    pilot clang_version = ""
-    if clang_ok {
-        clang_version = cli_doctor_clang_version_line(clang_cmd)
-    }
+    pilot clang_executable = cli_find_clang_executable()
+    pilot clang_cmd = cli_normalize_cmd_override(clang_executable)
+    pilot clang_version = cli_doctor_clang_version_line(clang_executable)
+    pilot clang_version_ok = cli_doctor_clang_version_supported(clang_version)
+    pilot clang_probe_ok = false
+    if clang_version_ok { clang_probe_ok = cli_doctor_clang_probe(clang_executable) }
+    pilot clang_ok = clang_version_ok and clang_probe_ok
 
     pilot lld_cmd = "ld.lld --version 2>/dev/null"
     if is_win { lld_cmd = "where lld-link 2>nul" }
@@ -291,7 +429,9 @@ task cli_doctor_json() -> int {
     pilot pending_marker = cli_pending_upgrade_marker()
     pilot upgrade_pending = pending_marker != ""
 
-    pilot all_ok = clang_ok and runtime_ok and std_ok and abi_ok and runtime_api_ok and std_api_ok and not upgrade_pending and cli_doctor_retained_probe_path == ""
+    pilot templates_missing = cli_doctor_templates_missing()
+    pilot templates_ok = templates_missing == ""
+    pilot all_ok = templates_ok and clang_ok and runtime_ok and std_ok and abi_ok and runtime_api_ok and std_api_ok and not upgrade_pending and cli_doctor_retained_probe_path == ""
     pilot status = "issues"
     if all_ok { status = "ok" }
 
@@ -308,7 +448,13 @@ task cli_doctor_json() -> int {
     say "    \"clang\": {"
     say "      \"ok\": " + cli_doctor_json_bool(clang_ok) + ","
     say "      \"command\": \"" + cli_doctor_json_escape(clang_cmd) + "\","
+    say "      \"executable\": \"" + cli_doctor_json_escape(clang_executable) + "\","
     say "      \"version\": \"" + cli_doctor_json_escape(clang_version) + "\","
+    say "      \"vendor\": \"" + cli_doctor_clang_vendor(clang_version) + "\","
+    say "      \"major\": " + word_from_int(cli_doctor_clang_version_major(clang_version)) + ","
+    say "      \"minimum_major\": " + word_from_int(cli_doctor_clang_minimum_major(clang_version)) + ","
+    say "      \"version_ok\": " + cli_doctor_json_bool(clang_version_ok) + ","
+    say "      \"probe_ok\": " + cli_doctor_json_bool(clang_probe_ok) + ","
     say "      \"cleanup_retained\": \"" + cli_doctor_json_escape(cli_doctor_retained_probe_path) + "\""
     say "    },"
     say "    \"lld\": {"
@@ -319,7 +465,7 @@ task cli_doctor_json() -> int {
     say "    \"runtime\": {"
     say "      \"ok\": " + cli_doctor_json_bool(runtime_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(rt_dir) + "\","
-    say "      \"files_expected\": 7,"
+    say "      \"files_expected\": 35,"
     say "      \"missing\": \"" + cli_doctor_json_escape(runtime_missing) + "\","
     say "      \"precompiled_objects\": " + cli_doctor_json_bool(runtime_obj) + ","
     say "      \"llvm_runtime\": " + cli_doctor_json_bool(llvm_runtime)
@@ -328,9 +474,10 @@ task cli_doctor_json() -> int {
     say "      \"ok\": " + cli_doctor_json_bool(std_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(std_dir) + "\","
     say "      \"modules_found\": " + word_from_int(std_modules) + ","
-    say "      \"modules_expected\": 11,"
+    say "      \"modules_expected\": 15,"
     say "      \"missing\": \"" + cli_doctor_json_escape(std_missing) + "\""
     say "    },"
+    say "    \"templates\": {\"ok\":" + cli_doctor_json_bool(templates_ok) + ",\"files_expected\":20,\"missing\":\"" + cli_doctor_json_escape(templates_missing) + "\"},"
     say "    \"abi\": {"
     say "      \"ok\": " + cli_doctor_json_bool(abi_ok) + ","
     say "      \"expected\": \"" + cli_doctor_json_escape(FREAK_V3_ABI) + "\","
@@ -465,30 +612,36 @@ task cli_doctor(fix_mode: bool) -> int {
 
     -- ── 1. clang ──────────────────────────────────────────
     say "  " + C_BWHITE + "[1/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " clang"
-    pilot clang_cmd = cli_find_clang_command()
+    say "        " + C_DIM + cli_doctor_clang_minimum_line() + C_RESET
+    pilot clang_executable = cli_find_clang_executable()
+    pilot clang_version = cli_doctor_clang_version_line(clang_executable)
     pilot clang_ok = false
-    if cli_doctor_clang_command_works(clang_cmd) {
+    if cli_doctor_clang_command_works(clang_executable) {
         clang_ok = true
-        pilot cv_line: word = cli_clang_version_line(clang_cmd)
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + cv_line + C_RESET
-        if clang_cmd != "clang" {
-            say "        " + C_DIM + "using: " + clang_cmd + C_RESET
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + clang_version + C_RESET
+        if clang_executable != "clang" {
+            say "        " + C_DIM + "using: " + clang_executable + C_RESET
         }
         checks_passed += 1
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " clang toolchain " + C_RED + "unusable" + C_RESET
-        say "        " + C_DIM + "The C headers, linker, or generated executable probe failed." + C_RESET
+        if not cli_doctor_clang_version_supported(clang_version) {
+            say "        " + C_DIM + cli_doctor_clang_version_problem(clang_version) + C_RESET
+            if clang_version != "" { say "        " + C_DIM + "Reported: " + clang_version + C_RESET }
+        } else {
+            say "        " + C_DIM + "The C headers, linker, or generated executable probe failed." + C_RESET
+        }
         if fix_mode {
             say "        " + C_DIM + "Attempting auto-install..." + C_RESET
             pilot clang_fix = cli_install_clang(os_tag)
             if clang_fix == 0 {
-                clang_cmd = cli_find_clang_command()
-                if cli_doctor_clang_command_works(clang_cmd) {
+                clang_executable = cli_find_clang_executable()
+                if cli_doctor_clang_command_works(clang_executable) {
                     clang_ok = true
-                    pilot cv_line2: word = cli_clang_version_line(clang_cmd)
+                    pilot cv_line2: word = cli_doctor_clang_version_line(clang_executable)
                     say "        " + C_BGREEN + SYM_CHECK + C_RESET + " clang installed: " + C_DIM + cv_line2 + C_RESET
-                    if clang_cmd != "clang" {
-                        say "        " + C_DIM + "using: " + clang_cmd + C_RESET
+                    if clang_executable != "clang" {
+                        say "        " + C_DIM + "using: " + clang_executable + C_RESET
                     }
                     checks_passed += 1
                 } else {
@@ -543,10 +696,11 @@ task cli_doctor(fix_mode: bool) -> int {
     pilot std_dir: word = cli_find_std_dir()
     pilot runtime_missing = cli_doctor_runtime_missing(rt_dir)
     pilot std_missing = cli_doctor_std_missing(std_dir)
+    pilot templates_missing = cli_doctor_templates_missing()
     pilot abi_ok = cli_payload_abi_ok(rt_dir, std_dir)
     pilot runtime_api_ok = cli_payload_runtime_api_ok(rt_dir)
     pilot std_api_ok = cli_payload_std_api_ok(std_dir)
-    if fix_mode and (runtime_missing != "" or std_missing != "" or not abi_ok or not runtime_api_ok or not std_api_ok) {
+    if fix_mode and (runtime_missing != "" or std_missing != "" or templates_missing != "" or not abi_ok or not runtime_api_ok or not std_api_ok) {
         say "  " + C_DIM + "Repairing the compiler/runtime/stdlib payload as one unit..." + C_RESET
         pilot repair_res = hangar_install_freak()
         if repair_res == 0 {
@@ -554,6 +708,7 @@ task cli_doctor(fix_mode: bool) -> int {
             std_dir = cli_find_std_dir()
             runtime_missing = cli_doctor_runtime_missing(rt_dir)
             std_missing = cli_doctor_std_missing(std_dir)
+            templates_missing = cli_doctor_templates_missing()
             abi_ok = cli_payload_abi_ok(rt_dir, std_dir)
             runtime_api_ok = cli_payload_runtime_api_ok(rt_dir)
             std_api_ok = cli_payload_std_api_ok(std_dir)
@@ -619,7 +774,7 @@ task cli_doctor(fix_mode: bool) -> int {
     say "  " + C_BWHITE + "[4/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " standard library"
     if std_missing == "" {
         pilot mod_count = cli_doctor_std_module_count(std_dir)
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/11 modules in " + C_DIM + std_dir + C_RESET
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/14 modules in " + C_DIM + std_dir + C_RESET
         checks_passed += 1
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " standard library incomplete"
@@ -632,13 +787,19 @@ task cli_doctor(fix_mode: bool) -> int {
     say ""
 
     -- ── 5. Compile pipeline test ──────────────────────────
+    if templates_missing == "" {
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " 20 template payload files available"
+    } else {
+        say "        " + C_BRED + SYM_CROSS + C_RESET + " templates incomplete: " + templates_missing
+        all_ok = false
+    }
     say "  " + C_BWHITE + "[5/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " compile pipeline"
     -- The deferred Windows updater may finish or appear while Doctor runs.
     -- Re-read the durable marker at each decision boundary.
     pending_marker = cli_pending_upgrade_marker()
     pilot pipeline_ok = false
-    if clang_ok and runtime_missing == "" and std_missing == "" and abi_ok and runtime_api_ok and std_api_ok and pending_marker == "" {
-        pilot test_src = "say \"FREAK doctor test\""
+    if clang_ok and runtime_missing == "" and std_missing == "" and templates_missing == "" and abi_ok and runtime_api_ok and std_api_ok and pending_marker == "" {
+        pilot test_src = "task main() \{ say \"FREAK doctor test\" \}"
         pilot test_probe = cli_doctor_temp_stem("freak-doctor-pipeline-probe-")
         if test_probe == "" {
             say "        " + C_BRED + SYM_CROSS + C_RESET + " could not create an owned temporary probe directory"
@@ -754,15 +915,21 @@ task cli_doctor_target_json(raw: word, triple: word) -> int {
     pilot can_run = false
     if known { can_run = cli_host_can_execute_target(triple) }
     pilot clang_cmd = ""
+    pilot clang_executable = ""
     pilot clang_ok = false
     pilot clang_version = ""
+    pilot clang_version_ok = false
+    pilot clang_probe_ok = false
     pilot linker_cmd = ""
     if known {
-        clang_cmd = cli_doctor_find_clang_command()
-        clang_ok = cli_doctor_clang_command_works(clang_cmd)
+        clang_executable = cli_find_clang_executable()
+        clang_cmd = cli_normalize_cmd_override(clang_executable)
+        clang_version = cli_doctor_clang_version_line(clang_executable)
+        clang_version_ok = cli_doctor_clang_version_supported(clang_version)
+        if clang_version_ok { clang_probe_ok = cli_doctor_clang_probe(clang_executable) }
+        clang_ok = clang_version_ok and clang_probe_ok
         if clang_ok {
-            clang_version = cli_doctor_clang_version_line(clang_cmd)
-            linker_cmd = cli_selected_linker_command(clang_cmd, "off", cli_canonical_target_triple(triple))
+            linker_cmd = cli_selected_linker_command(cli_quote_cmd_path(clang_executable), "off", cli_canonical_target_triple(triple))
         }
     }
     pilot linker_ok = linker_cmd != ""
@@ -792,7 +959,13 @@ task cli_doctor_target_json(raw: word, triple: word) -> int {
     say "      \"clang\": {"
     say "        \"ok\": " + cli_doctor_json_bool(clang_ok) + ","
     say "        \"command\": \"" + cli_doctor_json_escape(clang_cmd) + "\","
-    say "        \"version\": \"" + cli_doctor_json_escape(clang_version) + "\""
+    say "        \"executable\": \"" + cli_doctor_json_escape(clang_executable) + "\","
+    say "        \"version\": \"" + cli_doctor_json_escape(clang_version) + "\","
+    say "        \"vendor\": \"" + cli_doctor_clang_vendor(clang_version) + "\","
+    say "        \"major\": " + word_from_int(cli_doctor_clang_version_major(clang_version)) + ","
+    say "        \"minimum_major\": " + word_from_int(cli_doctor_clang_minimum_major(clang_version)) + ","
+    say "        \"version_ok\": " + cli_doctor_json_bool(clang_version_ok) + ","
+    say "        \"probe_ok\": " + cli_doctor_json_bool(clang_probe_ok)
     say "      },"
     say "      \"linker\": {"
     say "        \"ok\": " + cli_doctor_json_bool(linker_ok) + ","
@@ -855,15 +1028,21 @@ task cli_doctor_target_report(raw: word, triple: word, json_mode: bool) -> int {
     }
 
     pilot all_ok = true
-    pilot clang_cmd = cli_doctor_find_clang_command()
-    if cli_doctor_clang_command_works(clang_cmd) {
-        say "  " + C_BGREEN + SYM_CHECK + C_RESET + " clang usable: " + C_DIM + cli_doctor_clang_version_line(clang_cmd) + C_RESET
+    pilot clang_executable = cli_find_clang_executable()
+    pilot clang_version = cli_doctor_clang_version_line(clang_executable)
+    say "  " + C_DIM + cli_doctor_clang_minimum_line() + C_RESET
+    if cli_doctor_clang_command_works(clang_executable) {
+        say "  " + C_BGREEN + SYM_CHECK + C_RESET + " clang usable: " + C_DIM + clang_version + C_RESET
     } else {
         say "  " + C_BRED + SYM_CROSS + C_RESET + " clang toolchain " + C_RED + "unusable" + C_RESET
+        if not cli_doctor_clang_version_supported(clang_version) {
+            say "        " + C_DIM + cli_doctor_clang_version_problem(clang_version) + C_RESET
+            if clang_version != "" { say "        " + C_DIM + "Reported: " + clang_version + C_RESET }
+        }
         say "        " + C_DIM + "Fix: run freak doctor --fix, then retry freak doctor --target=" + triple + C_RESET
         all_ok = false
     }
-    pilot linker_cmd = cli_selected_linker_command(clang_cmd, "off", cli_canonical_target_triple(triple))
+    pilot linker_cmd = cli_selected_linker_command(cli_quote_cmd_path(clang_executable), "off", cli_canonical_target_triple(triple))
     if linker_cmd != "" {
         say "  " + C_BGREEN + SYM_CHECK + C_RESET + " linker for " + triple + ": " + C_DIM + linker_cmd + C_RESET
     } else {

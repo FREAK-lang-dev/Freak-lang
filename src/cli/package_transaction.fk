@@ -1,0 +1,413 @@
+-- A held private graph lock protects journal publication and recovery. Before
+-- images authorize only restoration of known generation bytes, never unknown
+-- project entries. A durable committed marker is the generation commit point.
+-- No-replace renames retain every parked inode. An editor's existing FD can
+-- still mutate that inode; this protocol does not provide content CAS. Bounded
+-- private history is retained for recovery and is never automatically deleted.
+
+task package_transaction_field(key: word, bare: bool) -> word {
+    pilot mut index = 0
+    repeat until index >= toml_count {
+        if array_get(toml_keys_arr, index) == key {
+            if (array_get(toml_types_arr, index) == "bare") != bare { hangar_graph_fail("package transaction marker has an invalid scalar type: " + key) give back "" }
+            give back array_get(toml_vals_arr, index)
+        }
+        index += 1
+    }
+    hangar_graph_fail("package transaction marker is missing field: " + key)
+    give back ""
+}
+
+task package_transaction_parse(content: word) -> int {
+    pilot mut requester = ""
+    if toml_keys_arr != 0 { requester = toml_render() }
+    pilot mut record: int = array_new()
+    if not toml_parse(content) { hangar_graph_fail("invalid package transaction marker: " + toml_error) } else {
+        if toml_count != 11 or array_len(toml_sections_arr) != 0 { hangar_graph_fail("package transaction marker has unknown or missing fields") }
+        if package_transaction_field("schema", true) != "2" { hangar_graph_fail("unsupported package transaction marker schema") }
+        array_push(record, package_transaction_field("phase", false))
+        array_push(record, package_transaction_field("manifest_file", false))
+        array_push(record, package_transaction_field("manifest_before_sha256", false))
+        array_push(record, package_transaction_field("lock_before_sha256", false))
+        array_push(record, package_transaction_field("lock_before_present", true))
+        array_push(record, package_transaction_field("manifest_after_sha256", false))
+        array_push(record, package_transaction_field("lock_after_sha256", false))
+        array_push(record, package_transaction_field("history", false))
+        array_push(record, package_transaction_field("manifest_before_mode", true))
+        array_push(record, package_transaction_field("lock_before_mode", true))
+        if array_get(record, 0) != "pending" and array_get(record, 0) != "committed" { hangar_graph_fail("invalid package transaction phase") }
+        pilot mut filename = array_get(record, 1)
+        if not package_input_allowed(filename + "") or package_leaf_path(filename + "") != filename or filename == "hangar.lock" { hangar_graph_fail("invalid package transaction manifest filename") }
+        if array_get(record, 4) != "true" and array_get(record, 4) != "false" { hangar_graph_fail("invalid package transaction previous-lock presence") }
+        if not array_get(record, 7).starts_with(".transaction-history-") or package_leaf_path(array_get(record, 7)) != array_get(record, 7) { hangar_graph_fail("invalid package transaction history directory") }
+        if not package_transaction_mode(array_get(record, 8)) or not package_transaction_mode(array_get(record, 9)) { hangar_graph_fail("invalid package transaction permission mode") }
+        pilot mut index = 2
+        repeat until index >= 7 {
+            if index != 4 and not package_lock_hex(array_get(record, index), 64) { hangar_graph_fail("invalid package transaction generation digest") }
+            index += 1
+        }
+    }
+    if requester == "" { toml_clear() } else { toml_parse(requester) }
+    if hangar_graph_error != "" { array_release(record) give back 0 }
+    give back record
+}
+
+task package_transaction_marker(record: int, phase: word) -> ByteBuffer {
+    pilot mut builder = word_builder::new()
+    package_lock_line(builder, "schema", "2", true)
+    package_lock_line(builder, "phase", phase, false)
+    package_lock_line(builder, "manifest_file", array_get(record, 1), false)
+    package_lock_line(builder, "manifest_before_sha256", array_get(record, 2), false)
+    package_lock_line(builder, "lock_before_sha256", array_get(record, 3), false)
+    package_lock_line(builder, "lock_before_present", array_get(record, 4), true)
+    package_lock_line(builder, "manifest_after_sha256", array_get(record, 5), false)
+    package_lock_line(builder, "lock_after_sha256", array_get(record, 6), false)
+    package_lock_line(builder, "history", array_get(record, 7), false)
+    package_lock_line(builder, "manifest_before_mode", array_get(record, 8), true)
+    package_lock_line(builder, "lock_before_mode", array_get(record, 9), true)
+    pilot mut bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(word_builder::finish(builder))
+    give back bytes
+}
+
+task package_transaction_checked(ticket: int, operation: word) -> bool {
+    pilot mut valid = fs::result_ok(ticket)
+    if not valid { hangar_graph_fail("package transaction " + operation + ": " + fs::result_error(ticket)) }
+    fs::result_release(ticket)
+    give back valid
+}
+
+task package_transaction_remove(private: int, path: word) -> bool {
+    pilot mut removed = fs::remove_relative_file_checked(private, path)
+    pilot mut valid = fs::result_ok(removed) or fs::result_missing(removed)
+    if not valid { hangar_graph_fail("cannot durably clear package transaction metadata: " + fs::result_error(removed)) }
+    fs::result_release(removed)
+    give back valid
+}
+
+task package_transaction_clear(private: int) -> bool {
+    -- Keep before images until marker removal itself is durable. A marker that
+    -- can reappear after a crash must retain everything needed for recovery.
+    if not package_transaction_remove(private, "transaction.marker") { give back false }
+    pilot mut previous = hangar_graph_error
+    package_transaction_remove(private, "transaction.manifest.before")
+    package_transaction_remove(private, "transaction.lock.before")
+    hangar_graph_error = previous
+    give back true
+}
+
+task package_transaction_mode(text: word) -> bool {
+    pilot mut mode = word_to_int(text)
+    give back mode >= 0 and mode <= 511 and word_from_int(mode) == text
+}
+
+task package_transaction_hash(directory: int, path: word, maximum: int) -> word {
+    pilot mut read = fs::read_relative_bytes_limit_ticket(directory, path, maximum)
+    if not fs::result_ok(read) {
+        if not fs::result_missing(read) { hangar_graph_fail("package transaction entry is unsafe or unreadable: " + path + ": " + fs::result_error(read)) }
+        fs::result_release(read)
+        give back ""
+    }
+    pilot mut bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot mut hash = fs::sha256_bytes(bytes)
+    bytes.release()
+    give back hash
+}
+
+pilot mut package_transaction_history_entries = 0
+pilot mut package_transaction_history_count = 0
+pilot mut package_transaction_history_bytes = 0
+
+task package_transaction_history_size(directory: int, depth: int, remaining: int) -> int {
+    if depth > 8 { hangar_graph_fail("retained transaction history exceeds its directory depth quota") give back 0 - 1 }
+    pilot mut listing = fs::list_dir_ticket(directory)
+    if not fs::result_ok(listing) { hangar_graph_fail("cannot inspect retained transaction history: " + fs::result_error(listing)) fs::result_release(listing) give back 0 - 1 }
+    pilot mut budget = remaining
+    pilot mut index = 0
+    repeat until index >= fs::result_count(listing) or budget < 0 {
+        package_transaction_history_entries += 1
+        if package_transaction_history_entries > 4096 { hangar_graph_fail("retained transaction history exceeds its entry quota") budget = 0 - 1 } else {
+            pilot mut name = fs::result_entry(listing, index)
+            pilot mut child = fs::open_relative_dir_ticket(directory, name)
+            if fs::result_ok(child) { budget = package_transaction_history_size(child, depth + 1, budget) } else {
+                pilot mut limit = budget
+                if limit > 67108864 { limit = 67108864 }
+                pilot mut file = fs::read_relative_bytes_limit_ticket(directory, name, limit)
+                if fs::result_ok(file) { budget -= fs::result_size(file) } else { hangar_graph_fail("retained transaction history exceeds its byte quota or contains an unsafe entry: " + name) budget = 0 - 1 }
+                fs::result_release(file)
+            }
+            fs::result_release(child)
+        }
+        index += 1
+    }
+    fs::result_release(listing)
+    give back budget
+}
+
+task package_transaction_history_budget(private: int, needed: int, new_history: bool) -> bool {
+    pilot mut listing = fs::list_dir_ticket(private)
+    if not fs::result_ok(listing) { hangar_graph_fail("cannot inspect private transaction histories: " + fs::result_error(listing)) fs::result_release(listing) give back false }
+    pilot mut budget = 268435456
+    pilot mut count = 0
+    pilot mut index = 0
+    package_transaction_history_entries = 0
+    repeat until index >= fs::result_count(listing) or budget < 0 {
+        pilot mut name = fs::result_entry(listing, index)
+        if name.starts_with(".transaction-history-") {
+            count += 1
+            pilot mut history = fs::open_relative_dir_ticket(private, name)
+            if not fs::result_ok(history) { hangar_graph_fail("retained transaction history is unsafe: " + fs::result_error(history)) budget = 0 - 1 } else { budget = package_transaction_history_size(history, 0, budget) }
+            fs::result_release(history)
+        }
+        index += 1
+    }
+    fs::result_release(listing)
+    package_transaction_history_count = count
+    package_transaction_history_bytes = 268435456 - budget
+    if budget < needed or package_transaction_history_entries > 4088 or count > 128 or (new_history and count >= 128) { hangar_graph_fail("retained transaction history quota reached; previous generation is unchanged") give back false }
+    give back true
+}
+
+task package_transaction_admit_history(private: int, needed: int) -> bool {
+    give back package_transaction_history_budget(private, needed, true)
+}
+
+task package_transaction_retain_current(project: int, private: int, history: int, filename: word, expected: word, maximum: int) -> bool {
+    pilot mut read = fs::read_relative_bytes_limit_ticket(project, filename, maximum)
+    if not fs::result_ok(read) { hangar_graph_fail("cannot inspect project entry before retention") fs::result_release(read) give back false }
+    pilot mut size = fs::result_size(read)
+    fs::result_release(read)
+    if not package_transaction_history_budget(private, size, false) { give back false }
+    pilot mut retained = fs::temp_dir(package_directory_path(history), ".recovery-")
+    if not fs::result_ok(retained) { hangar_graph_fail("cannot create private recovery retention: " + fs::result_error(retained)) fs::result_release(retained) give back false }
+    pilot mut moved = fs::rename_relative_new_checked(project, filename, retained, "current")
+    pilot mut completed = fs::result_completed(moved)
+    if not fs::result_ok(moved) { hangar_graph_fail("cannot durably retain published project entry during rollback: " + fs::result_error(moved)) }
+    fs::result_release(moved)
+    if completed {
+        pilot mut hash = package_transaction_hash(retained, "current", maximum)
+        if hash != expected {
+            -- The inode changed after the precheck. Put its actual bytes back
+            -- only into an absent name; a newly created destination stays put.
+            package_transaction_checked(fs::rename_relative_new_checked(retained, "current", project, filename), "could not restore a concurrently edited entry; bytes retained in transaction history")
+            hangar_graph_fail("published project entry changed while being parked; concurrent bytes are preserved")
+            completed = false
+        }
+    }
+    -- Retain the moved inode even after success: a foreign open FD may still
+    -- write to it. Closing our carrier never deletes retained files.
+    fs::result_release(retained)
+    give back completed
+}
+
+task package_transaction_restore_entry(project: int, private: int, history: int, filename: word, role: word, before_hash: word, after_hash: word, before_present: bool, before_ticket: int, before_mode: int, maximum: int) -> bool {
+    pilot mut original = role + ".original"
+    pilot mut parked = package_transaction_hash(history, original + "", maximum)
+    pilot mut current = package_transaction_hash(project, filename + "", maximum)
+    if hangar_graph_error != "" { give back false }
+    if parked != "" and parked != before_hash {
+        if current == "" { package_transaction_checked(fs::rename_relative_new_checked(history, original, project, filename), "could not restore concurrently edited original; bytes retained in transaction history") }
+        hangar_graph_fail("parked original changed concurrently; its actual bytes are preserved")
+        give back false
+    }
+    if before_present and current == before_hash { give back true }
+    if not before_present and current == "" { give back true }
+    if current != "" and current != after_hash { hangar_graph_fail("unexpected current project bytes are preserved in place: " + filename) give back false }
+    pilot mut retained = false
+    if current != "" {
+        retained = package_transaction_retain_current(project, private, history, filename + "", after_hash, maximum)
+        if not retained { give back false }
+    }
+    if not before_present { give back hangar_graph_error == "" }
+    if parked == before_hash { give back package_transaction_checked(fs::rename_relative_new_checked(history, original, project, filename), "original restoration failed; prior inode remains retained") }
+    if not retained { hangar_graph_fail("missing current and parked project entries cannot be restored as an unknown deletion") give back false }
+    -- A previous recovery may already have restored the original inode. If a
+    -- known published image appeared again, restore the verified before image
+    -- into its now-empty name without replacing any concurrent entry.
+    if not package_transaction_history_budget(private, fs::result_size(before_ticket), false) { give back false }
+    pilot mut restoration = fs::temp_dir(package_directory_path(history), ".recovery-")
+    if not fs::result_ok(restoration) { hangar_graph_fail("cannot stage verified before-image restoration") fs::result_release(restoration) give back false }
+    pilot mut bytes: ByteBuffer = fs::result_bytes(before_ticket)
+    pilot mut valid = package_transaction_checked(fs::write_relative_bytes_checked(restoration, "restored", bytes), "before-image staging failed")
+    bytes.release()
+    if valid and not process::platform_is_windows() { valid = package_transaction_checked(fs::set_mode_relative_checked(restoration, "restored", before_mode), "before-image permission restoration failed") }
+    if valid { valid = package_transaction_checked(fs::rename_relative_new_checked(restoration, "restored", project, filename), "before-image no-replace restoration failed") }
+    fs::result_release(restoration)
+    give back valid and hangar_graph_error == ""
+}
+
+task package_recover_transaction(project: int, private: int) -> bool {
+    give back package_recover_transaction_impl(project, private, false)
+}
+
+task package_recover_transaction_impl(project: int, private: int, force_abort: bool) -> bool {
+    pilot mut marker = fs::read_relative_bytes_limit_ticket(private, "transaction.marker", 8192)
+    if not fs::result_ok(marker) {
+        pilot mut missing = fs::result_missing(marker)
+        if not missing { hangar_graph_fail("cannot read pending package transaction: " + fs::result_error(marker)) }
+        fs::result_release(marker)
+        give back missing
+    }
+    pilot mut encoded: ByteBuffer = fs::result_bytes(marker)
+    fs::result_release(marker)
+    pilot mut content = encoded.to_word()
+    pilot mut valid = encoded.status() == 0
+    encoded.release()
+    if not valid { hangar_graph_fail("package transaction marker is not UTF-8 text without NUL") give back false }
+    pilot mut record: int = package_transaction_parse(content)
+    if record == 0 { give back false }
+    pilot mut old_manifest = fs::read_relative_bytes_limit_ticket(private, "transaction.manifest.before", hangar_graph_manifest_limit)
+    pilot mut old_lock = fs::read_relative_bytes_limit_ticket(private, "transaction.lock.before", 67108864)
+    pilot mut history = fs::open_relative_dir_ticket(private, array_get(record, 7))
+    valid = fs::result_ok(old_manifest) and fs::result_ok(old_lock) and fs::result_ok(history)
+    if valid {
+        pilot mut before_manifest: ByteBuffer = fs::result_bytes(old_manifest)
+        pilot mut before_lock: ByteBuffer = fs::result_bytes(old_lock)
+        valid = fs::sha256_bytes(before_manifest) == array_get(record, 2) and fs::sha256_bytes(before_lock) == array_get(record, 3)
+        if array_get(record, 4) == "false" and before_lock.length() != 0 { valid = false }
+        before_manifest.release()
+        before_lock.release()
+    }
+    if not valid { hangar_graph_fail("package transaction before images or retained history are missing, unsafe or unverified") } else {
+        pilot mut current_manifest = package_transaction_hash(project, array_get(record, 1), hangar_graph_manifest_limit)
+        pilot mut current_lock = package_transaction_hash(project, "hangar.lock", 67108864)
+        pilot mut committed = not force_abort and array_get(record, 0) == "committed" and current_manifest == array_get(record, 5) and current_lock == array_get(record, 6) and hangar_graph_error == ""
+        if not committed {
+            valid = package_transaction_restore_entry(project, private, history, array_get(record, 1), "manifest", array_get(record, 2), array_get(record, 5), true, old_manifest, word_to_int(array_get(record, 8)), hangar_graph_manifest_limit)
+            pilot mut manifest_error = hangar_graph_error
+            hangar_graph_error = ""
+            pilot mut lock_valid = package_transaction_restore_entry(project, private, history, "hangar.lock", "lock", array_get(record, 3), array_get(record, 6), array_get(record, 4) == "true", old_lock, word_to_int(array_get(record, 9)), 67108864)
+            if manifest_error != "" {
+                if hangar_graph_error == "" { hangar_graph_error = manifest_error } else { hangar_graph_error = manifest_error + "; " + hangar_graph_error }
+            }
+            valid = valid and lock_valid and hangar_graph_error == ""
+        }
+        if valid { valid = package_transaction_clear(private) }
+    }
+    fs::result_release(old_manifest)
+    fs::result_release(old_lock)
+    fs::result_release(history)
+    array_release(record)
+    give back valid
+}
+
+task package_commit_transaction(project: int, private: int, manifest_file: word, manifest: word, lock_content: word, expected_manifest: word, expected_lock: word) -> bool {
+    pilot mut lock_bytes: ByteBuffer = ByteBuffer::new()
+    lock_bytes.write_word(lock_content)
+    give back package_commit_transaction_impl(project, private, manifest_file, manifest, lock_bytes, expected_manifest, expected_lock)
+}
+
+task package_commit_transaction_impl(project: int, private: int, manifest_file: word, manifest: word, lock_bytes: ByteBuffer, expected_manifest: word, expected_lock: word) -> bool {
+    if not package_recover_transaction(project, private) { lock_bytes.release() give back false }
+    pilot mut old_manifest = fs::read_relative_bytes_limit_ticket(project, manifest_file, hangar_graph_manifest_limit)
+    pilot mut old_lock = fs::read_relative_bytes_limit_ticket(project, "hangar.lock", 67108864)
+    pilot mut lock_present = fs::result_ok(old_lock)
+    pilot mut valid = fs::result_ok(old_manifest) and (lock_present or fs::result_missing(old_lock))
+    if not valid {
+        hangar_graph_fail("cannot read safe project generation before transaction publication")
+        fs::result_release(old_manifest)
+        fs::result_release(old_lock)
+        lock_bytes.release()
+        give back false
+    }
+    if not process::platform_is_windows() and (fs::result_mode(old_manifest) > 511 or (lock_present and fs::result_mode(old_lock) > 511)) {
+        hangar_graph_fail("package transaction refuses privileged or sticky project file modes")
+        fs::result_release(old_manifest) fs::result_release(old_lock) lock_bytes.release()
+        give back false
+    }
+    pilot mut manifest_mode = fs::result_mode(old_manifest) % 512
+    pilot mut lock_mode = 384
+    if lock_present { lock_mode = fs::result_mode(old_lock) % 512 }
+    pilot mut before_manifest: ByteBuffer = fs::result_bytes(old_manifest)
+    pilot mut before_lock: ByteBuffer = ByteBuffer::new()
+    if lock_present { before_lock.release() before_lock = fs::result_bytes(old_lock) }
+    fs::result_release(old_manifest)
+    fs::result_release(old_lock)
+    pilot mut after_manifest: ByteBuffer = ByteBuffer::new()
+    after_manifest.write_word(manifest)
+    pilot mut record: int = array_new()
+    array_push(record, "pending")
+    array_push(record, manifest_file)
+    array_push(record, fs::sha256_bytes(before_manifest))
+    array_push(record, fs::sha256_bytes(before_lock))
+    if lock_present { array_push(record, "true") } else { array_push(record, "false") }
+    array_push(record, fs::sha256_bytes(after_manifest))
+    array_push(record, fs::sha256_bytes(lock_bytes))
+    if array_get(record, 2) != expected_manifest or (lock_present and array_get(record, 3) != expected_lock) or (not lock_present and expected_lock != "") {
+        hangar_graph_fail("project generation changed after graph admission; refusing transaction replacement")
+        valid = false
+    }
+    pilot mut unchanged = array_get(record, 2) == array_get(record, 5) and lock_present and array_get(record, 3) == array_get(record, 6)
+    if valid and unchanged {
+        before_manifest.release() before_lock.release() after_manifest.release() lock_bytes.release() array_release(record)
+        give back true
+    }
+    if valid { valid = package_transaction_admit_history(private, before_manifest.length() + before_lock.length() + after_manifest.length() + lock_bytes.length()) }
+    pilot mut history = 0
+    if valid {
+        history = fs::temp_dir(package_directory_path(private), ".transaction-history-")
+        if not fs::result_ok(history) { hangar_graph_fail("cannot create retained transaction history: " + fs::result_error(history)) valid = false }
+    }
+    if valid {
+        array_push(record, package_leaf_path(fs::result_word(history)))
+        array_push(record, word_from_int(manifest_mode))
+        array_push(record, word_from_int(lock_mode))
+        if array_get(record, 2) != array_get(record, 5) {
+            valid = package_transaction_checked(fs::write_relative_bytes_checked(history, "manifest.new", after_manifest), "new manifest staging failed")
+            if valid and not process::platform_is_windows() { valid = package_transaction_checked(fs::set_mode_relative_checked(history, "manifest.new", manifest_mode), "new manifest permission staging failed") }
+        }
+        if valid {
+            valid = package_transaction_checked(fs::write_relative_bytes_checked(history, "lock.new", lock_bytes), "new lock staging failed")
+            if valid and not process::platform_is_windows() { valid = package_transaction_checked(fs::set_mode_relative_checked(history, "lock.new", lock_mode), "new lock permission staging failed") }
+        }
+        if valid { valid = package_transaction_checked(fs::write_relative_bytes_checked(private, "transaction.manifest.before", before_manifest), "manifest before-image publication failed") }
+        if valid { valid = package_transaction_checked(fs::write_relative_bytes_checked(private, "transaction.lock.before", before_lock), "lock before-image publication failed") }
+    }
+    pilot mut marker_written = false
+    if valid {
+        pilot mut marker: ByteBuffer = package_transaction_marker(record, "pending")
+        pilot mut published = fs::write_relative_bytes_checked(private, "transaction.marker", marker)
+        marker_written = fs::result_ok(published) or fs::result_completed(published)
+        valid = package_transaction_checked(published, "pending marker publication failed")
+        marker.release()
+    }
+    if valid and array_get(record, 2) != array_get(record, 5) {
+        valid = package_transaction_checked(fs::rename_relative_new_checked(project, manifest_file, history, "manifest.original"), "original manifest parking failed")
+        if valid and package_transaction_hash(history, "manifest.original", hangar_graph_manifest_limit) != array_get(record, 2) { hangar_graph_fail("original manifest changed after admission; actual inode retained") valid = false }
+        if valid { valid = package_transaction_checked(fs::rename_relative_new_checked(history, "manifest.new", project, manifest_file), "new manifest no-replace publication failed") }
+    }
+    if valid and lock_present {
+        valid = package_transaction_checked(fs::rename_relative_new_checked(project, "hangar.lock", history, "lock.original"), "original lock parking failed")
+        if valid and package_transaction_hash(history, "lock.original", 67108864) != array_get(record, 3) { hangar_graph_fail("original lock changed after admission; actual inode retained") valid = false }
+    }
+    if valid { valid = package_transaction_checked(fs::rename_relative_new_checked(history, "lock.new", project, "hangar.lock"), "new lock no-replace publication failed") }
+    if valid {
+        if package_transaction_hash(project, manifest_file, hangar_graph_manifest_limit) != array_get(record, 5) or package_transaction_hash(project, "hangar.lock", 67108864) != array_get(record, 6) {
+            hangar_graph_fail("project generation changed before commit acknowledgement; concurrent bytes are preserved")
+            valid = false
+        }
+    }
+    if valid {
+        pilot mut marker: ByteBuffer = package_transaction_marker(record, "committed")
+        valid = package_transaction_checked(fs::write_relative_bytes_checked(private, "transaction.marker", marker), "commit marker publication failed")
+        marker.release()
+    }
+    if not valid and marker_written {
+        pilot mut failure = hangar_graph_error
+        hangar_graph_error = ""
+        pilot mut marker: ByteBuffer = package_transaction_marker(record, "pending")
+        pilot mut reset = fs::write_relative_bytes_checked(private, "transaction.marker", marker)
+        pilot mut reset_visible = fs::result_ok(reset) or fs::result_completed(reset)
+        fs::result_release(reset)
+        marker.release()
+        package_recover_transaction_impl(project, private, true)
+        if not reset_visible { hangar_graph_fail("could not durably record abort phase; recovery is required") }
+        if hangar_graph_error == "" { hangar_graph_error = failure } else { hangar_graph_error = failure + "; " + hangar_graph_error }
+    } else if valid {
+        if not package_transaction_clear(private) { hangar_graph_error = "" }
+    }
+    if history != 0 { fs::result_release(history) }
+    before_manifest.release() before_lock.release() after_manifest.release() lock_bytes.release() array_release(record)
+    give back valid
+}

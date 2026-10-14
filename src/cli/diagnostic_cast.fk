@@ -1,0 +1,133 @@
+-- Append-only diagnostic presentation. Every ordinary word parameter transfers
+-- ownership. Stable facts and canonical rendering are owned by the compiler.
+
+task cli_diagnostic_cast_default_mode(is_json: bool, is_terminal: bool) -> word {
+    if is_json or not is_terminal { give back "off" }
+    give back "normal"
+}
+
+task cli_diagnostic_cast_mode_valid(mode: word) -> bool {
+    pilot folded = mode.to_lower()
+    give back folded == "off" or folded == "minimal" or folded == "normal"
+}
+
+task diagnostic_cast_upper_mapping(point: int) -> word {
+    pilot rows = diagnostic_cast_upper_rows()
+    pilot mut low = 0
+    pilot mut high = diagnostic_cast_upper_count()
+    pilot mut found = ""
+    repeat until low >= high {
+        pilot middle = low + (high - low) / 2
+        pilot row = rows.substring(middle * 15, 15)
+        pilot candidate = word_to_int(row.substring(0, 7))
+        if candidate < point { low = middle + 1 } else if candidate > point { high = middle } else {
+            pilot offset = word_to_int(row.substring(7, 6))
+            pilot width = word_to_int(row.substring(13, 2))
+            found = diagnostic_cast_upper_values().substring(offset, width)
+            low = high
+        }
+    }
+    give back found
+}
+
+task cli_diagnostic_cast_upper(text: word) -> word {
+    -- Native word.to_upper currently changes ASCII bytes only. Decode UTF-8
+    -- keys and apply the pinned Unicode full uppercase table instead.
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(text)
+    bytes.seek(0)
+    pilot builder = word_builder::new()
+    pilot mut offset = 0
+    repeat until bytes.remaining() == 0 {
+        pilot lead = bytes.read_byte()
+        pilot mut width = 1
+        pilot mut point = lead
+        if lead >= 192 and lead < 224 { width = 2 point = lead % 32 } else if lead >= 224 and lead < 240 { width = 3 point = lead % 16 } else if lead >= 240 and lead < 248 { width = 4 point = lead % 8 }
+        pilot mut continuation = 1
+        repeat until continuation >= width {
+            point = point * 64 + bytes.read_byte() % 64
+            continuation += 1
+        }
+        if width == 1 {
+            word_builder::append(builder, text.substring(offset, 1).to_upper())
+        } else {
+            pilot mapped = diagnostic_cast_upper_mapping(point)
+            if mapped == "" { word_builder::append(builder, text.substring(offset, width)) } else { word_builder::append(builder, mapped) }
+        }
+        offset += width
+    }
+    bytes.release()
+    give back word_builder::finish(builder)
+}
+
+task cli_diagnostic_cast_digest(version: word, code: word, source_file: word, line_n: int, column_n: int, source: word, speaker: word) -> word {
+    pilot key: ByteBuffer = ByteBuffer::new()
+    key.write_word(version)
+    key.write_byte(0)
+    key.write_word(cli_diagnostic_cast_upper(code))
+    key.write_byte(0)
+    key.write_word(source_file)
+    key.write_byte(0)
+    key.write_word(word_from_int(line_n))
+    key.write_byte(0)
+    key.write_word(word_from_int(column_n))
+    key.write_byte(0)
+    key.write_word(source)
+    key.write_byte(0)
+    key.write_word(cli_diagnostic_cast_upper(speaker))
+    pilot digest = fs::sha256_bytes(key)
+    pilot complete = key.status() == 0 and digest.length() == 64
+    key.release()
+    if not complete { panic("diagnostic cast: selection key allocation failed") }
+    give back digest
+}
+
+task cli_diagnostic_cast_index(digest: word, count: int) -> int {
+    if count <= 0 or count > 65536 or digest.length() != 64 { panic("diagnostic cast: invalid digest or pack size") }
+    pilot digits = "0123456789abcdef"
+    pilot mut value = 0
+    pilot mut index = 0
+    repeat until index >= 64 {
+        pilot digit = digest.char_at(index)
+        pilot mut nibble = 0
+        repeat until nibble >= 16 or digits.char_at(nibble) == digit { nibble += 1 }
+        if nibble == 16 { panic("diagnostic cast: invalid digest digit") }
+        -- Bounded remainder arithmetic uses every one of the 256 digest bits.
+        value = (value * 16 + nibble) % count
+        index += 1
+    }
+    give back value
+}
+
+task cli_diagnostic_cast_suffix(mode: word, version: word, code: word, source_file: word, line_n: int, column_n: int, source: word, speaker: word, platform: word) -> word {
+    pilot folded_mode = mode.to_lower()
+    if folded_mode == "off" { give back "" }
+    if folded_mode != "minimal" and folded_mode != "normal" { panic("diagnostic cast: invalid presentation mode") }
+    pilot upper_code = cli_diagnostic_cast_upper(code)
+    pilot upper_speaker = cli_diagnostic_cast_upper(speaker)
+    -- Python resolves pack filenames through upper().lower(). The Kelvin
+    -- sign is the Unicode uppercase character whose lowercase is ASCII k;
+    -- preserve it in the digest/tag, but match the corresponding pack name.
+    pilot pack_speaker = upper_speaker.replace("K", "K")
+    pilot mut cast_line = diagnostic_cast_embedded_egg(source + "", upper_code + "")
+    if cast_line == "" {
+        pilot digest = cli_diagnostic_cast_digest(version + "", upper_code + "", source_file + "", line_n, column_n, source + "", upper_speaker + "")
+        pilot folded_platform = platform.to_lower()
+        pilot count = diagnostic_cast_embedded_count(pack_speaker + "", folded_platform + "")
+        pilot selected = cli_diagnostic_cast_index(digest, count)
+        cast_line = diagnostic_cast_embedded_line(pack_speaker + "", folded_platform, selected)
+    }
+    pilot mut suffix = "\n[" + upper_code
+    if folded_mode == "normal" { suffix = suffix + " " + upper_speaker }
+    suffix = suffix + "] " + cast_line
+    if folded_mode == "normal" and upper_code == "E0009" {
+        pilot resource_digest = cli_diagnostic_cast_digest(version, upper_code + "", source_file, line_n, column_n, source, "RESOURCES")
+        pilot resource_index = cli_diagnostic_cast_index(resource_digest, diagnostic_cast_resource_count())
+        suffix = suffix + "\n[resource] " + diagnostic_cast_resource_line(resource_index)
+    }
+    give back suffix
+}
+
+task cli_diagnostic_cast_render(canonical: word, mode: word, version: word, code: word, source_file: word, line_n: int, column_n: int, source: word, speaker: word, platform: word) -> word {
+    give back canonical + cli_diagnostic_cast_suffix(mode, version, code, source_file, line_n, column_n, source, speaker, platform)
+}

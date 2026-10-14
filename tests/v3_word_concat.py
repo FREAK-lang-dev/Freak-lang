@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -137,6 +138,42 @@ AUDIT_RE = re.compile(
     r"FREAK concat audit: concat_calls=(\d+) append_calls=(\d+) "
     r"allocations=(\d+) growths=(\d+) copied_bytes=(\d+)"
 )
+
+
+def generated_void_body(generated: str, backend: str, symbol: str) -> str:
+    """Select one exact emitted definition, excluding comments and literals."""
+    comments = r"/\*[\s\S]*?\*/|//[^\n]*" if backend == "c" else r";[^\n]*"
+    ignored = comments + r"""|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'"""
+    masked = re.sub(
+        ignored,
+        lambda match: re.sub(r"[^\n]", " ", match.group()),
+        generated,
+    )
+    prefix = "void " if backend == "c" else "define void @"
+    metadata = "" if backend == "c" else r"(?: !dbg ![0-9]+)?"
+    definitions = list(re.finditer(
+        r"^" + prefix + re.escape(symbol) + r"\([^\n]*\)" + metadata + r" \{",
+        masked, re.MULTILINE
+    ))
+    assert len(definitions) == 1, f"expected one {backend} definition of {symbol}"
+    start = definitions[0].end()
+    depth = 1
+    for index in range(start, len(masked)):
+        depth += (masked[index] == "{") - (masked[index] == "}")
+        if depth == 0:
+            return masked[start:index]
+    raise AssertionError(f"unterminated {backend} definition of {symbol}")
+
+
+def standalone_task_symbol(task: str) -> str:
+    """Match package_binding.pb_prefix's exact standalone entry identity."""
+    digest = hashlib.sha256(b"standalone\n@entry").hexdigest()
+    return "__freak_user_pkg_" + digest + "_" + task
+
+
+def codegen_call_count(body: str, marker: str) -> int:
+    """Count the exact call spelling, excluding longer identifier lookalikes."""
+    return len(re.findall(r"(?<![A-Za-z0-9_])" + re.escape(marker), body))
 
 
 def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -293,11 +330,13 @@ def main() -> int:
             generated_text = generated.read_text(encoding="utf-8")
             if not args.measure_only:
                 helper = (
-                    "freak_word_append_owned"
+                    "freak_word_append_owned("
                     if backend == "c"
-                    else "@freak_llvm_word_append_owned"
+                    else "call i64 @freak_llvm_word_append_owned("
                 )
-                assert helper in generated_text, generated_text
+                assert codegen_call_count(generated_void_body(
+                    generated_text, backend, "__freak_user_main"
+                ), helper) > 0, generated_text
 
             modes = (False,) if args.measure_only else (False, True)
             for force_move in modes:
@@ -357,9 +396,12 @@ def main() -> int:
             direct_append_marker = (
                 "freak_word_append_owned(&"
                 if backend == "c"
-                else "call i64 @freak_llvm_word_append_owned"
+                else "call i64 @freak_llvm_word_append_owned("
             )
-            assert correctness_text.count(direct_append_marker) == 5, (
+            correctness_body = generated_void_body(
+                correctness_text, backend, "__freak_user_main"
+            )
+            assert codegen_call_count(correctness_body, direct_append_marker) == 5, (
                 f"{backend} correctness case lost a direct append path"
             )
             correctness_binary = root / (
@@ -419,11 +461,17 @@ def main() -> int:
                 extra_generated = Path(str(extra_source) + suffix)
                 extra_text = extra_generated.read_text(encoding="utf-8")
                 helper = (
-                    "freak_word_append_owned"
+                    "freak_word_append_owned("
                     if backend == "c"
-                    else "@freak_llvm_word_append_owned"
+                    else "call i64 @freak_llvm_word_append_owned("
                 )
-                assert helper in extra_text, extra_text
+                scaling_symbol = (
+                    standalone_task_symbol("work")
+                    if scaling_name == "field" else "__freak_user_main"
+                )
+                assert codegen_call_count(generated_void_body(
+                    extra_text, backend, scaling_symbol
+                ), helper) > 0, extra_text
                 extra_binary = root / (
                     f"scaling_{backend}_{scaling_name}.exe"
                     if sys.platform == "win32"
@@ -470,13 +518,16 @@ def main() -> int:
             )
             field_generated = Path(str(field_source) + suffix)
             field_text = field_generated.read_text(encoding="utf-8")
+            field_body = generated_void_body(
+                field_text, backend, standalone_task_symbol("work")
+            )
             if backend == "llvm":
-                assert field_text.count("call i64 @freak_llvm_word_append_owned") == 2, (
+                assert codegen_call_count(field_body, "call i64 @freak_llvm_word_append_owned(") == 2, (
                     "LLVM field correctness case lost a direct append path"
                 )
             else:
-                assert field_text.count("freak_word_concat_consuming(__freak_concat_left, __freak_concat_right, true, true)") == 2
-                assert "freak_v3_shape_set_word" in field_text
+                assert codegen_call_count(field_body, "freak_word_concat_consuming(__freak_concat_left, __freak_concat_right, true, true)") == 2
+                assert codegen_call_count(field_body, "freak_v3_shape_set_word(") > 0
             field_binary = root / (
                 f"field_owned_suffix_{backend}.exe"
                 if sys.platform == "win32"

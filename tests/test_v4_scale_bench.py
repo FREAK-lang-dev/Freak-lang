@@ -1950,12 +1950,17 @@ class FrozenRuntimeInventory(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.work = Path(temporary.name)
         self.repo = self.work / "repo"
-        from freakc.v4_native_runtime import SOURCE_NAMES, HEADER_NAMES
-        self.sources, self.headers = SOURCE_NAMES, HEADER_NAMES
+        from freakc.v4_native_runtime import SOURCE_NAMES, RUNTIME_FILE_NAMES
+        self.sources, self.runtime_names = SOURCE_NAMES, RUNTIME_FILE_NAMES
         runtime = self.repo / "freakc/runtime"
         runtime.mkdir(parents=True)
-        for name in (*self.sources, *self.headers):
-            (runtime / name).write_text(f"frozen contents for {name}\n")
+        self.expected_runtime_hashes = {}
+        for name in self.runtime_names:
+            path = runtime / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = f"frozen contents for {name}\n".encode()
+            path.write_bytes(payload)
+            self.expected_runtime_hashes[name] = hashlib.sha256(payload).hexdigest()
         original = self.repo / "build/v4_smoke/build_llvm.fk.c"
         original.parent.mkdir(parents=True)
         original.write_text("original compiler\n")
@@ -1996,8 +2001,7 @@ class FrozenRuntimeInventory(unittest.TestCase):
         with patch.object(self.benchmark, "defined_symbols", side_effect=exports):
             tool, manifest = self.benchmark.build_tool(self.repo, self.work / "runs", False, 30, self.build)
         self.assertEqual(len(manifest["runtime_objects"]), 7)
-        self.assertEqual(set(manifest["runtime_hashes"]), set((*self.sources, *self.headers)))
-        self.assertEqual(len(manifest["runtime_hashes"]), 14)
+        self.assertEqual(manifest["runtime_hashes"], self.expected_runtime_hashes)
         self.assertEqual(manifest["runtime_symbols"], [f"unique_{i}" for i in range(7)])
         self.assertEqual(manifest["runtime_collisions"], [])
         self.assertEqual(manifest["symbol_tool"], self.symbol_tool)
@@ -2009,6 +2013,20 @@ class FrozenRuntimeInventory(unittest.TestCase):
         self.assertEqual(set(manifest["runtime_object_hashes"]), set(manifest["runtime_objects"]))
         for name, digest in manifest["runtime_object_hashes"].items():
             self.assertEqual(digest, hashlib.sha256(Path(name).read_bytes()).hexdigest())
+
+    def test_vendor_inputs_freeze_from_repository_layout(self):
+        for name in self.runtime_names:
+            if name.startswith("third_party/"):
+                destination = self.repo / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                (self.repo / "freakc/runtime" / name).replace(destination)
+        exports = [{f"unique_{i}"} for i in range(len(self.sources))]
+        with patch.object(self.benchmark, "defined_symbols", side_effect=exports):
+            tool, manifest = self.benchmark.build_tool(self.repo, self.work / "runs", False, 30, self.build)
+        self.assertEqual(manifest["runtime_hashes"], self.expected_runtime_hashes)
+        for name in self.runtime_names:
+            self.assertEqual(hashlib.sha256((tool.parent / "runtime" / name).read_bytes()).hexdigest(),
+                             self.expected_runtime_hashes[name])
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "Linux benchmark")

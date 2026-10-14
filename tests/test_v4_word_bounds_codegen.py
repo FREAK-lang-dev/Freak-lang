@@ -477,7 +477,7 @@ class WordBoundsOracles(unittest.TestCase):
                 runtime_count = len(gate.literal_assignment(ROOT / 'freakc/v4_native_runtime.py', 'SOURCE_NAMES'))
                 self.assertEqual(len(commands), 26 + 3 * (runtime_count + 103) + (0 if plain else 3))
                 for _, label, limits in commands:
-                    if label == 'clang identity': expected = (10, 64)
+                    if label == 'clang identity': expected = (10, 128)
                     elif label.startswith('runtime compile:'): expected = (120, 1024)
                     elif label.startswith('emit case'): expected = (60, 64)
                     elif label.startswith(('compile ', 'link ')): expected = (120, 512)

@@ -1,0 +1,276 @@
+use self::containers::{
+    cockpit_words_new,
+    cockpit_words_push,
+    cockpit_words_release
+}
+use self::layout::{
+    cockpit_layout_allocate,
+    cockpit_layout_append_context,
+    cockpit_layout_begin_frame,
+    cockpit_layout_begin_row,
+    cockpit_layout_capacity,
+    cockpit_layout_depth,
+    cockpit_layout_end,
+    cockpit_layout_last_width,
+    cockpit_layout_last_y,
+    cockpit_layout_release,
+    cockpit_layout_status
+}
+use self::state::{
+    cockpit_clip_contains,
+    cockpit_clip_pop,
+    cockpit_clip_push,
+    cockpit_fail,
+    cockpit_ui_begin_events,
+    cockpit_ui_clip_depth,
+    cockpit_ui_delete_scalar,
+    cockpit_ui_edit_text,
+    cockpit_ui_feed_event,
+    cockpit_ui_focus_input,
+    cockpit_ui_focused_input,
+    cockpit_ui_modal_scope,
+    cockpit_ui_should_close
+}
+use self::theme::{
+    cockpit_theme_dark,
+    cockpit_theme_release
+}
+use self::ui::{
+    cockpit_ui_begin_frame,
+    cockpit_ui_close,
+    cockpit_ui_open
+}
+use self::widgets::{
+    cockpit_modal_begin,
+    cockpit_modal_close,
+    cockpit_modal_end,
+    cockpit_modal_open,
+    cockpit_panel_begin,
+    cockpit_panel_end,
+    cockpit_popup_draw,
+    cockpit_scroll_begin,
+    cockpit_scroll_end,
+    cockpit_widget_button,
+    cockpit_widget_dropdown,
+    cockpit_widget_input,
+    cockpit_widget_label,
+    cockpit_widget_slider,
+    cockpit_widget_tooltip
+}
+
+
+task replay_focus_order(window: int, layout: ByteBuffer, theme: int) -> void {
+    pilot previous = 0
+    repeat 2 times {
+        cockpit_ui_focus_input(previous)
+        cockpit_ui_begin_events()
+        cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+        cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
+        pilot target_y = 45
+        if previous == 1 { target_y = 10 }
+        replay_click(10, target_y)
+        cockpit_ui_feed_event(3, 0, 121, 0, 0, 0, 0, 0)
+        pilot first = cockpit_widget_input(window, layout, theme, "A", 100)
+        pilot second = cockpit_widget_input(window, layout, theme, "B", 100)
+        if previous == 0 {
+            if first != "Ax" or second != "By" { cockpit_fail("focus first to second ordering") }
+        } else {
+            if first != "Ay" or second != "Bx" { cockpit_fail("focus second to first ordering") }
+        }
+        if cockpit_ui_focused_input != 1 - previous { cockpit_fail("final focus order") }
+        cockpit_ui_begin_events()
+        cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+        cockpit_ui_feed_event(2, 41, 0, 0, 1, 0, 0, 0)
+        first = cockpit_widget_input(window, layout, theme, first, 100)
+        second = cockpit_widget_input(window, layout, theme, second, 100)
+        if previous == 0 {
+            if first != "Ax" or second != "B" { cockpit_fail("persisted second focus") }
+        } else {
+            if first != "A" or second != "Bx" { cockpit_fail("persisted first focus") }
+        }
+        previous += 1
+    }
+    cockpit_ui_focus_input(0)
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    replay_click(10, 45)
+    cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
+    replay_click(10, 10)
+    cockpit_ui_feed_event(3, 0, 121, 0, 0, 0, 0, 0)
+    replay_click(150, 150)
+    cockpit_ui_feed_event(3, 0, 122, 0, 0, 0, 0, 0)
+    if cockpit_widget_input(window, layout, theme, "A", 100) != "Ay" { cockpit_fail("multiple focus clicks first") }
+    if cockpit_widget_input(window, layout, theme, "B", 100) != "Bx" { cockpit_fail("multiple focus clicks second") }
+    if cockpit_ui_focused_input != 0 - 1 { cockpit_fail("outside click clears focus") }
+    cockpit_ui_focus_input(0)
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    replay_click(10, 45)
+    cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
+    cockpit_clip_push(window, 0, 0, 100, 32)
+    if cockpit_widget_input(window, layout, theme, "A", 100) != "A" { cockpit_fail("clipped click retained old focus") }
+    if cockpit_widget_input(window, layout, theme, "B", 100) != "B" { cockpit_fail("clipped input received text") }
+    cockpit_clip_pop(window)
+    cockpit_ui_focus_input(0)
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    replay_click(10, 10)
+    cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
+    cockpit_modal_open()
+    if not cockpit_modal_begin(window, layout, theme, 320, 240) { cockpit_fail("modal begin failed") }
+    if cockpit_widget_input(window, layout, theme, "M", 100) != "M" { cockpit_fail("modal inherited opening edits") }
+    cockpit_modal_end(window, layout)
+    cockpit_modal_close()
+}
+
+task replay_failed_panels(window: int, layout: ByteBuffer, theme: int) -> void {
+    pilot wrapper = 0
+    repeat 3 times {
+        cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+        repeat 31 times { cockpit_layout_append_context(layout, 1, 2, 100, 100, 0, 3) }
+        pilot snapshot = layout.slice(0, layout.length())
+        cockpit_clip_push(window, 2, 3, 120, 130)
+        pilot clip_depth = cockpit_ui_clip_depth
+        if wrapper == 0 {
+            cockpit_panel_begin(window, layout, theme, 90, 80)
+            cockpit_panel_end(window, layout)
+        } else if wrapper == 1 {
+            if cockpit_scroll_begin(window, layout, theme, 90, 80, 400, 17) != 17 { cockpit_fail("failed scroll changed offset") }
+            cockpit_scroll_end(window, layout)
+        } else {
+            cockpit_modal_open()
+            if cockpit_modal_begin(window, layout, theme, 90, 80) { cockpit_fail("failed modal reported success") }
+            cockpit_modal_end(window, layout)
+            if cockpit_ui_modal_scope { cockpit_fail("failed modal changed scope") }
+            cockpit_modal_close()
+        }
+        if cockpit_layout_depth(layout) != 32 or cockpit_layout_status(layout) != 2 { cockpit_fail("failed panel unwound parent") }
+        if cockpit_ui_clip_depth != clip_depth { cockpit_fail("failed panel changed clip") }
+        layout.seek(0)
+        repeat snapshot.length() times {
+            if layout.read_byte() != snapshot.read_byte() { cockpit_fail("failed panel mutated parent") }
+        }
+        snapshot.release()
+        cockpit_clip_pop(window)
+        wrapper += 1
+    }
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+}
+
+task replay_click(x: int, y: int) -> void {
+    cockpit_ui_feed_event(4, 0, 0, 1, 0, x, y, 0)
+    cockpit_ui_feed_event(4, 0, 0, 1, 1, x, y, 0)
+}
+task main() {
+    pilot window = cockpit_ui_open("Replay", 320, 240, true)
+    pilot theme = cockpit_theme_dark()
+    pilot layout = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    replay_focus_order(window, layout, theme)
+    replay_failed_panels(window, layout, theme)
+    cockpit_ui_focus_input(0 - 1)
+    cockpit_ui_begin_frame(window, layout, theme)
+    say cockpit_ui_should_close()
+    cockpit_ui_begin_events()
+    cockpit_ui_feed_event(3, 0, 97, 0, 0, 0, 0, 0)
+    cockpit_ui_feed_event(3, 0, 98, 0, 0, 0, 0, 0)
+    say cockpit_ui_edit_text("x")
+    cockpit_ui_begin_events()
+    cockpit_ui_feed_event(3, 0, 97, 0, 0, 0, 0, 0)
+    cockpit_ui_feed_event(2, 41, 0, 0, 1, 0, 0, 0)
+    say cockpit_ui_edit_text("x")
+    say cockpit_ui_delete_scalar("é🙂")
+    say cockpit_ui_delete_scalar("é").length()
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    replay_click(10, 10)
+    cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
+    cockpit_ui_feed_event(3, 0, 121, 0, 0, 0, 0, 0)
+    say cockpit_widget_input(window, layout, theme, "", 100)
+    say cockpit_widget_input(window, layout, theme, "unfocused", 100)
+
+    cockpit_layout_begin_frame(layout, 300, 200, 10, 5)
+    cockpit_layout_allocate(layout, 50, 20)
+    cockpit_layout_begin_row(layout, 30, 3)
+    cockpit_layout_allocate(layout, 40, 10)
+    say cockpit_layout_last_y()
+    cockpit_layout_end(layout)
+    cockpit_layout_begin_frame(layout, 50, 80, 0, 0)
+    cockpit_ui_begin_events()
+    replay_click(75, 10)
+    say cockpit_widget_button(window, layout, theme, "Wide", 100)
+    say cockpit_layout_last_width()
+
+    cockpit_layout_begin_frame(layout, 200, 100, 0, 0)
+    cockpit_ui_begin_events()
+    replay_click(99, 10)
+    cockpit_ui_feed_event(4, 0, 0, 1, 0, 99, 10, 0)
+    say cockpit_widget_slider(window, layout, theme, 0, 0, 100, 100)
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    cockpit_ui_feed_event(4, 0, 0, 0, 0, 20, 20, 0)
+    cockpit_ui_feed_event(5, 0, 0, 0, 0, 20, 20, 0 - 1)
+    say cockpit_scroll_begin(window, layout, theme, 100, 80, 300, 0)
+    cockpit_widget_label(window, layout, theme, "scrolled")
+    cockpit_scroll_end(window, layout)
+    say cockpit_ui_clip_depth
+    cockpit_clip_push(window, 10, 10, 100, 100)
+    cockpit_clip_push(window, 50, 0, 100, 100)
+    say cockpit_clip_contains(20, 20)
+    say cockpit_clip_contains(60, 20)
+    cockpit_clip_pop(window)
+    say cockpit_clip_contains(20, 20)
+    cockpit_clip_pop(window)
+
+    cockpit_modal_open()
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    replay_click(10, 10)
+    say cockpit_widget_button(window, layout, theme, "Blocked", 100)
+    say cockpit_modal_begin(window, layout, theme, 200, 100)
+    cockpit_widget_label(window, layout, theme, "Modal")
+    cockpit_modal_end(window, layout)
+    cockpit_modal_close()
+    say cockpit_ui_clip_depth
+    cockpit_layout_begin_frame(layout, 100, 100, 0, 0)
+    repeat 32 times { cockpit_layout_begin_row(layout, 1, 0) }
+    say cockpit_layout_depth(layout)
+    say cockpit_layout_status(layout)
+    cockpit_layout_end(layout)
+    say cockpit_layout_depth(layout)
+    cockpit_layout_begin_frame(layout, 100, 100, 0, 0)
+    say cockpit_layout_status(layout)
+
+    pilot choices = cockpit_words_new()
+    cockpit_words_push(choices, "First")
+    cockpit_words_push(choices, "Second")
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    replay_click(10, 10)
+    say cockpit_widget_dropdown(window, layout, theme, 0, choices)
+    cockpit_popup_draw(window)
+    cockpit_ui_begin_events()
+    replay_click(10, 75)
+    cockpit_popup_draw(window)
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    say cockpit_widget_dropdown(window, layout, theme, 0, choices)
+    cockpit_widget_tooltip(window, theme, "Tip", 0, 0, 200, 200)
+    say cockpit_ui_clip_depth
+    repeat 20 times { cockpit_words_push(choices, "More") }
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    replay_click(10, 10)
+    cockpit_widget_dropdown(window, layout, theme, 0, choices)
+    cockpit_popup_draw(window)
+    cockpit_ui_begin_events()
+    cockpit_ui_feed_event(5, 0, 0, 0, 0, 10, 25, 0 - 100)
+    replay_click(10, 25)
+    cockpit_popup_draw(window)
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    say cockpit_widget_dropdown(window, layout, theme, 0, choices)
+    cockpit_words_release(choices)
+    cockpit_layout_release(layout)
+    cockpit_theme_release(theme)
+    cockpit_ui_close(window)
+}

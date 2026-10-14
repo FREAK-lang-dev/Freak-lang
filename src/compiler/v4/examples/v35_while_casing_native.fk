@@ -1,0 +1,19 @@
+task While(WHILE: int) -> int {
+    pilot While = WHILE
+    while While < 42 { While += 1 }
+    give back While
+}
+
+task WHILE(While: int) -> int {
+    pilot WHILE = While
+    repeat while WHILE < 42 { WHILE += 1 }
+    give back WHILE
+}
+
+task main() -> int {
+    pilot While = While(40)
+    pilot WHILE = WHILE(41)
+    if While != 42 or WHILE != 42 { give back 1 }
+    say "v35-while-casing-ok"
+    give back 42
+}

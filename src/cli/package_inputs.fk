@@ -1,0 +1,343 @@
+-- The source-only package input format is independent of host archive metadata.
+-- It hashes only declared files. Mode is canonically zero because this profile
+-- never executes package lifecycle hooks, executable assets, or native scripts.
+-- Each record is: int64-BE path-byte-length, UTF-8 logical path, int64-BE kind=1,
+-- int64-BE mode=0, int64-BE content-length, then the exact unmodified bytes.
+-- A fixed header and int64-BE record count precede sorted records.
+
+pilot package_input_nodes = 0
+pilot package_input_paths = 0
+pilot package_input_hashes = 0
+pilot package_input_lengths = 0
+pilot package_input_roles = 0
+pilot package_input_total_bytes = 0
+pilot package_input_file_limit = 16777216
+pilot package_input_total_limit = 67108864
+pilot package_input_inventory_limit = 16384
+pilot package_input_node_limit = 1024
+pilot package_pending_paths = 0
+pilot package_pending_roles = 0
+-- A candidate root manifest exists only within the authoring transaction. The
+-- original is read and checked before these bytes can enter an immutable tree.
+pilot mut package_manifest_candidate_active = false
+pilot mut package_manifest_candidate_text = ""
+pilot mut package_manifest_candidate_before = ""
+
+task package_inputs_release() -> void {
+    if package_input_nodes != 0 {
+        array_release(package_input_nodes)
+        array_release(package_input_paths)
+        array_release(package_input_hashes)
+        array_release(package_input_lengths)
+        array_release(package_input_roles)
+        array_release(package_pending_paths)
+        array_release(package_pending_roles)
+    }
+    package_input_nodes = 0
+    package_input_paths = 0
+    package_input_hashes = 0
+    package_input_lengths = 0
+    package_input_roles = 0
+    package_pending_paths = 0
+    package_pending_roles = 0
+    package_input_total_bytes = 0
+}
+
+task package_inputs_clear() -> void {
+    package_inputs_release()
+    package_input_nodes = array_new()
+    package_input_paths = array_new()
+    package_input_hashes = array_new()
+    package_input_lengths = array_new()
+    package_input_roles = array_new()
+    package_pending_paths = array_new()
+    package_pending_roles = array_new()
+    package_input_total_bytes = 0
+}
+
+task package_path_bytes_before(left: word, right: word) -> bool {
+    pilot a: ByteBuffer = ByteBuffer::new()
+    pilot b: ByteBuffer = ByteBuffer::new()
+    a.write_word(left)
+    b.write_word(right)
+    a.seek(0)
+    b.seek(0)
+    pilot before = a.length() < b.length()
+    pilot finished = false
+    repeat until a.remaining() == 0 or b.remaining() == 0 or finished {
+        pilot first = a.read_byte()
+        pilot second = b.read_byte()
+        if first != second { before = first < second
+            finished = true }
+    }
+    a.release()
+    b.release()
+    give back before
+}
+
+task package_input_allowed(path: word) -> bool {
+    if not package_relative_file(path) { give back false }
+    pilot index = 0
+    pilot component = ""
+    repeat until index > path.length() {
+        pilot boundary = index == path.length()
+        if not boundary { boundary = path.char_at(index) == "/" }
+        if boundary {
+            -- Explicit declarations cannot smuggle normal secret/cache inputs
+            -- into an archive or a source package generation.
+            pilot portable = component.to_lower()
+            if component.ends_with(".") or component.ends_with(" ") or portable == ".git" or portable == ".env" or portable.starts_with(".env.") or portable == ".freak" or portable == "hangar_modules" or portable == "node_modules" or portable == "__pycache__" or portable == "secrets" or portable == "target" or portable == "build" {
+                give back false
+            }
+            component = ""
+        } else { component = component + path.char_at(index) }
+        index += 1
+    }
+    give back true
+}
+
+task package_input_add(path: word, role: word) -> bool {
+    if not package_input_allowed(path) {
+        hangar_graph_fail("declared input is unsafe or names secret/cache/generated content: " + path)
+        give back false
+    }
+    pilot index = 0
+    repeat until index >= array_len(package_pending_paths) {
+        if array_get(package_pending_paths, index) == path {
+            if array_get(package_pending_roles, index) != role {
+                hangar_graph_fail("declared input has conflicting roles: " + path)
+                give back false
+            }
+            give back true
+        }
+        if array_get(package_pending_paths, index).to_lower() == path.to_lower() {
+            hangar_graph_fail("declared input paths conflict on a case-insensitive host: " + array_get(package_pending_paths, index) + "; " + path)
+            give back false
+        }
+        index += 1
+    }
+    if array_len(package_pending_paths) >= package_input_node_limit or array_len(package_input_paths) + array_len(package_pending_paths) >= package_input_inventory_limit {
+        hangar_graph_fail("declared source inventory exceeds its file-count limit")
+        give back false
+    }
+    index = array_len(package_pending_paths)
+    array_push(package_pending_paths, path)
+    array_push(package_pending_roles, role)
+    pilot sorting = true
+    repeat until index <= 0 or not sorting {
+        pilot previous = array_get(package_pending_paths, index - 1)
+        if not package_path_bytes_before(path, previous) { sorting = false } else {
+            array_set(package_pending_paths, index, previous)
+            array_set(package_pending_roles, index, array_get(package_pending_roles, index - 1))
+            index -= 1
+        }
+    }
+    array_set(package_pending_paths, index, path)
+    array_set(package_pending_roles, index, role)
+    give back true
+}
+
+task package_collect_declared_inputs(node: int, manifest_file: word) -> bool {
+    array_release(package_pending_paths)
+    array_release(package_pending_roles)
+    package_pending_paths = array_new()
+    package_pending_roles = array_new()
+    if not package_input_add(manifest_file, "manifest") { give back false }
+    pilot entry = hangar_graph_fact(node, "project.entry")
+    if entry != "" {
+        if not package_input_add(entry, "source") { give back false }
+    }
+    pilot index = 0
+    repeat until index >= array_len(hangar_graph_fact_keys) {
+        if word_to_int(array_get(hangar_graph_fact_nodes, index)) == node {
+            pilot key = array_get(hangar_graph_fact_keys, index)
+            pilot path = array_get(hangar_graph_fact_values, index)
+            if key.starts_with("modules.") {
+                if not hangar_graph_relative_file(path) or not package_input_add(path, "source") { give back false }
+            } else if key.starts_with("tests.") {
+                if not hangar_graph_relative_file(path) {
+                    hangar_graph_fail("test must declare a relative .fk source: " + key)
+                    give back false
+                }
+                if not package_input_add(path, "test") { give back false }
+            } else if key.starts_with("assets.") {
+                if not package_input_add(path, "asset") { give back false }
+            }
+        }
+        index += 1
+    }
+    pilot readme = hangar_graph_fact(node, "project.readme")
+    if readme != "" { if not package_input_add(readme, "documentation") { give back false } }
+    pilot license = hangar_graph_fact(node, "project.license_file")
+    if license != "" { if not package_input_add(license, "documentation") { give back false } }
+    give back true
+}
+
+task package_collect_default_tests(node: int, root_ticket: int) -> bool {
+    pilot declared = hangar_graph_fact(node, "__package.tests_declared") == "true"
+    pilot count = 0
+    pilot index = 0
+    repeat until index >= array_len(package_pending_roles) {
+        if array_get(package_pending_roles, index) == "test" { declared = true
+            count += 1 }
+        index += 1
+    }
+    if count > 256 { hangar_graph_fail("declared tests exceed the supported limit of 256") give back false }
+    if declared { give back true }
+    pilot tests = fs::open_relative_dir_ticket(root_ticket, "tests")
+    if not fs::result_ok(tests) {
+        pilot absent = fs::result_missing(tests)
+        if not absent { hangar_graph_fail("fallback tests/ must be an ordinary anchored directory without links: " + fs::result_error(tests)) }
+        fs::result_release(tests)
+        give back absent
+    }
+    pilot listing = fs::list_dir_ticket(tests)
+    fs::result_release(tests)
+    if not fs::result_ok(listing) {
+        hangar_graph_fail("cannot list anchored fallback tests/: " + fs::result_error(listing))
+        fs::result_release(listing)
+        give back false
+    }
+    pilot valid = true
+    index = 0
+    repeat until index >= fs::result_count(listing) or not valid {
+        pilot name = fs::result_entry(listing, index)
+        if name.ends_with("_test.fk") {
+            count += 1
+            if count > 256 { hangar_graph_fail("fallback tests exceed the supported limit of 256")
+                valid = false } else { valid = package_input_add("tests/" + name, "test") }
+        }
+        index += 1
+    }
+    fs::result_release(listing)
+    give back valid
+}
+
+task package_stage_input_parents(stage_ticket: int, relative: word, created: int) -> bool {
+    -- Parents are created once within the held, privately owned staging root.
+    -- A path supplied by a tool is never a write or recursive cleanup authority.
+    pilot prefix = ""
+    pilot index = 0
+    repeat until index >= relative.length() {
+        pilot ch = relative.char_at(index)
+        if ch == "/" {
+            if not toml_arr_contains(created, array_len(created), prefix + "") {
+                pilot directory = fs::mkdir_relative_checked(stage_ticket, prefix)
+                pilot complete = fs::result_ok(directory)
+                if not complete { hangar_graph_fail("cannot create anchored staged input parent: " + fs::result_error(directory)) }
+                fs::result_release(directory)
+                if not complete { give back false }
+                array_push(created, prefix)
+            }
+        }
+        prefix = prefix + ch
+        index += 1
+    }
+    give back true
+}
+
+task package_input_write_result(ticket: int, operation: word) -> bool {
+    pilot valid = fs::result_ok(ticket)
+    if not valid { hangar_graph_fail(operation + ": " + fs::result_error(ticket)) }
+    fs::result_release(ticket)
+    give back valid
+}
+
+task package_hash_declared_inputs_rooted(node: int, root_ticket: int, manifest_file: word, stage_ticket: int) -> word {
+    if not package_collect_declared_inputs(node, manifest_file) { give back "" }
+    if not package_collect_default_tests(node, root_ticket) { give back "" }
+    pilot created = array_new()
+    pilot canonical: ByteBuffer = ByteBuffer::new()
+    canonical.write_word("FREAK-source-input-tree-v2\n")
+    canonical.write_int_be(array_len(package_pending_paths))
+    pilot index = 0
+    pilot valid = true
+    repeat until index >= array_len(package_pending_paths) or not valid {
+        pilot relative = array_get(package_pending_paths, index)
+        pilot limit = package_input_file_limit
+        if package_input_total_limit - package_input_total_bytes < limit { limit = package_input_total_limit - package_input_total_bytes }
+        pilot contents = fs::read_relative_bytes_limit_ticket(root_ticket, relative, limit)
+        if not fs::result_ok(contents) {
+            hangar_graph_fail("declared input requires an ordinary file without symlinks within its byte limit: " + relative + ": " + fs::result_error(contents))
+            valid = false
+        } else {
+            pilot bytes: ByteBuffer = fs::result_bytes(contents)
+            pilot length = bytes.length()
+            if array_get(package_pending_roles, index) == "manifest" {
+                if node == 0 and package_manifest_candidate_active {
+                    if fs::sha256_bytes(bytes) != package_manifest_candidate_before { hangar_graph_fail("original manifest changed during candidate graph admission") valid = false } else {
+                        bytes.release()
+                        bytes = ByteBuffer::new()
+                        bytes.write_word(package_manifest_candidate_text)
+                        length = bytes.length()
+                    }
+                }
+                pilot admitted: ByteBuffer = ByteBuffer::new()
+                admitted.write_word(array_get(hangar_graph_contents, node))
+                if length != admitted.length() or fs::sha256_bytes(bytes) != fs::sha256_bytes(admitted) {
+                    hangar_graph_fail("manifest changed after graph admission: " + relative)
+                    valid = false
+                }
+                admitted.release()
+            }
+            if length > package_input_file_limit or package_input_total_bytes + length > package_input_total_limit {
+                hangar_graph_fail("declared input graph exceeds its byte limit: " + relative)
+                valid = false
+            } else if valid {
+                if stage_ticket != 0 {
+                    valid = package_stage_input_parents(stage_ticket, relative + "", created)
+                    if valid { valid = package_input_write_result(fs::write_relative_bytes_checked(stage_ticket, relative, bytes), "cannot write anchored staged input") }
+                }
+                if valid {
+                    pilot logical: ByteBuffer = ByteBuffer::new()
+                    logical.write_word(relative)
+                    canonical.write_int_be(logical.length())
+                    logical.release()
+                    canonical.write_word(relative)
+                    canonical.write_int_be(1)
+                    canonical.write_int_be(0)
+                    canonical.write_int_be(length)
+                    bytes.seek(0)
+                    repeat until bytes.remaining() == 0 { canonical.write_byte(bytes.read_byte()) }
+                    array_push(package_input_nodes, word_from_int(node))
+                    array_push(package_input_paths, relative)
+                    array_push(package_input_hashes, fs::sha256_bytes(bytes))
+                    array_push(package_input_lengths, word_from_int(length))
+                    array_push(package_input_roles, array_get(package_pending_roles, index))
+                    package_input_total_bytes += length
+                }
+            }
+            bytes.release()
+        }
+        fs::result_release(contents)
+        index += 1
+    }
+    pilot hash = ""
+    if valid and canonical.status() == 0 { hash = fs::sha256_bytes(canonical) } else if hangar_graph_error == "" { hangar_graph_fail("canonical input assembly failed") }
+    canonical.release()
+    array_release(created)
+    give back hash
+}
+
+task package_hash_declared_inputs(node: int, root: word, manifest_file: word, stage: word) -> word {
+    pilot anchored_root = fs::open_dir_ticket(root)
+    if not fs::result_ok(anchored_root) {
+        hangar_graph_fail("cannot open declared source root: " + fs::result_error(anchored_root))
+        fs::result_release(anchored_root)
+        give back ""
+    }
+    pilot anchored_stage = 0
+    if stage != "" {
+        anchored_stage = fs::open_dir_ticket(stage)
+        if not fs::result_ok(anchored_stage) {
+            hangar_graph_fail("cannot open declared staging root: " + fs::result_error(anchored_stage))
+            fs::result_release(anchored_stage)
+            fs::result_release(anchored_root)
+            give back ""
+        }
+    }
+    pilot hash = package_hash_declared_inputs_rooted(node, anchored_root, manifest_file, anchored_stage)
+    if anchored_stage != 0 { fs::result_release(anchored_stage) }
+    fs::result_release(anchored_root)
+    give back hash
+}

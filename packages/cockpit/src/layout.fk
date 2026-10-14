@@ -2,10 +2,10 @@
 -- One context is ten signed i64 fields in a preallocated ByteBuffer:
 -- x, y, width, height, cursor_x, cursor_y, direction, gap, count, cross_max.
 
-pilot cockpit_layout_vertical = 0
-pilot cockpit_layout_horizontal = 1
-pilot cockpit_layout_record_bytes = 80
-pilot cockpit_layout_max_depth = 32
+fixed pilot cockpit_layout_vertical = 0
+fixed pilot cockpit_layout_horizontal = 1
+fixed pilot cockpit_layout_record_bytes = 80
+fixed pilot cockpit_layout_max_depth = 32
 
 pilot cockpit_layout_error = 0
 pilot cockpit_layout_rect_x = 0
