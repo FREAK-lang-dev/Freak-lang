@@ -191,7 +191,7 @@ def corpus(binary, scratch, env, tests):
     # or Python selector runs in the native program.
     mappings = json.loads(zlib.decompress(base64.b85decode(EMBED.UNICODE_DATA)))
     unicode_text = 'aAzZ 123\n' + '|'.join(chr(point) for point,_ in mappings) + '|日本語 🛩'
-    source_path.write_text(unicode_text, encoding='utf-8')
+    source_path.write_bytes(unicode_text.encode('utf-8'))  # no Windows newline translation
     uppercase = good([binary, 'upper', source_path], cwd=scratch, env=env)
     assert uppercase == (unicode_text.upper().encode().hex()+'\n').encode()
     assert good([binary, 'defaults'], cwd=scratch, env=env) == b'off\nnormal\noff\noff\n'
