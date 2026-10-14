@@ -558,6 +558,9 @@ class IntRuntimeOracles(unittest.TestCase):
             run(trap, "config", "user.email", "trap-fixture@example.invalid")
             run(trap, "config", "commit.gpgsign", "false")
             run(trap, "config", "core.hooksPath", str(hooks))
+            # Background auto-maintenance would race the snapshot with its own lock files.
+            run(trap, "config", "maintenance.auto", "false")
+            run(trap, "config", "gc.auto", "0")
             (trap / "sentinel").write_bytes(b"external repository must remain unchanged")
             run(trap, "add", "sentinel")
             run(trap, "commit", "-q", "-m", "External repository sentinel")
