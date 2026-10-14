@@ -4,7 +4,8 @@ Delivery order: Preview (Tier 1), followed by self-hosting and V3 replacement
 (Tiers 1–4 and 8). Revision 3.1 of the uploaded release checklist is the scope; it does not
 override the language bible. Strict root scope remains the default. Compiler
 crate initialization must use explicit per-file bootstrap compatibility mode.
-The public release remains v0.14.2; this work does not create a release.
+The public release is v0.15.0 "Maverick" (2026-10-12, PR #172), built by the V3
+toolchain; this work does not create a release.
 
 ## Preview prerequisites
 
@@ -267,4 +268,4 @@ Inline overflow intrinsics, speed regression guards and renewed TY/Meiya growth
 rates remain open. So do default unwind/cleanup, bootstrap/self-hosting, general
 aggregates, V3 parity and distribution. The U0 design was reviewed before merge;
 its implementation must consume A4 Runtime MIR/Meiya ownership facts rather than
-adding cleanup inference to codegen. The public version remains `0.14.2`.
+adding cleanup inference to codegen. The public version is `0.15.0` (V3 toolchain).
