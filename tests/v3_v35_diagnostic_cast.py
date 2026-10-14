@@ -90,7 +90,8 @@ def run(command, *, cwd, env=None, timeout=90):
 def good(command, *, cwd, env=None):
     completed = run(command, cwd=cwd, env=env)
     assert completed.returncode == 0 and not completed.stderr, (command, completed.returncode, completed.stdout, completed.stderr)
-    return completed.stdout
+    # Windows text-mode stdout ends each line with CRLF; the oracle is LF.
+    return completed.stdout.replace(b'\r\n', b'\n') if os.name == 'nt' else completed.stdout
 
 
 def key(**changes):
