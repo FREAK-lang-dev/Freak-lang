@@ -15,9 +15,49 @@ import shutil
 import subprocess
 import tempfile
 
-from v3_v35_http import Server, assert_response, invalid_corpus, request
+from v3_v35_http import HttpProgress, Server, assert_response, invalid_corpus, request, reset_content_corpus, response_size_corpus, runtime_inputs
 
 PROGRAM = r'''
+task app_response_size(request: int, status: int) {
+    if http_response_status(request, status) != 1 { process::exit(2) }
+    if http_response_header(request, "X-Response-Size", "verified") != 1 { process::exit(2) }
+    pilot query = http_request_query(request)
+    if query == "bad-text" {
+        pilot invalid_text = "é".char_at(0)
+        if status != 205 or http_send_text(request, invalid_text) != 0 { process::exit(2) }
+        if http_request_error(request) != "text response requires NUL-free UTF-8" { process::exit(2) }
+    }
+    if query == "bad-bytes" {
+        pilot invalid_bytes = ByteBuffer::new()
+        invalid_bytes.write_byte(256)
+        pilot invalid_sent = http_server::send_bytes(request, invalid_bytes)
+        invalid_bytes.release()
+        if status != 205 or invalid_sent != 0 { process::exit(2) }
+        if http_request_error(request) != "response ByteBuffer has a pending error" { process::exit(2) }
+    }
+    pilot mut sent = 0
+    if query == "bytes" or query == "bad-bytes" {
+        pilot response_bytes = ByteBuffer::with_capacity(1048577)
+        response_bytes.write_word("x".repeated(1048575))
+        response_bytes.write_byte(0)
+        response_bytes.write_byte(255)
+        if response_bytes.length() != 1048577 or response_bytes.status() != 0 { process::exit(2) }
+        sent = http_server::send_bytes(request, response_bytes)
+        if response_bytes.length() != 1048577 { process::exit(2) }
+        response_bytes.release()
+    } else {
+        pilot response_text = "x".repeated(1048577)
+        if response_text.length() != 1048577 { process::exit(2) }
+        sent = http_send_text(request, response_text)
+    }
+    if status == 205 {
+        if sent != 1 { process::exit(2) }
+    } else {
+        if sent != 0 { process::exit(2) }
+        if http_request_error(request) != "response body exceeds configured limit" { process::exit(2) }
+        if http_send_text(request, "recovered") != 1 { process::exit(2) }
+    }
+}
 task app_dispatch(request: int) -> bool {
     pilot path = http_request_path(request)
     pilot method = http_request_method(request)
@@ -84,6 +124,10 @@ task app_dispatch(request: int) -> bool {
         pilot sent = http_send_text(request, output)
         give back false
     }
+    if path == "/response-size/205" { app_response_size(request, 205); give back false }
+    if path == "/response-size/200" { app_response_size(request, 200); give back false }
+    if path == "/response-size/204" { app_response_size(request, 204); give back false }
+    if path == "/response-size/304" { app_response_size(request, 304); give back false }
     if path == "/empty" {
         pilot sent = http_send_text(request, "")
         give back false
@@ -91,6 +135,16 @@ task app_dispatch(request: int) -> bool {
     if path == "/204" {
         pilot status = http_response_status(request, 204)
         pilot sent = http_send_text(request, "ignored")
+        give back false
+    }
+    if path == "/205" {
+        pilot status = http_response_status(request, 205)
+        if http_request_query(request) == "bytes" {
+            pilot body = http_request_body(request)
+            pilot sent = http_send_bytes(request, body)
+        } else {
+            pilot sent = http_send_text(request, "ignored")
+        }
         give back false
     }
     if path == "/304" {
@@ -141,18 +195,26 @@ def run(command, *, cwd, env=None):
     return subprocess.run(command,cwd=cwd,env=env,capture_output=True,text=True,encoding='utf-8',timeout=90)
 
 def consumer_corpus(server:Server,soak:int):
+    server.checkpoint('language-consumer','routing-and-framing')
     assert_response(server.exchange(request('/health')),200,b'healthy')
     assert_response(server.exchange(request('/hello/Ada')),200,b'Ada')
-    assert_response(server.exchange(request('/health','HEAD')),200,b'',head=True)
-    assert_response(server.exchange(request('/unknown','HEAD')),404,b'',head=True)
+    h=assert_response(server.exchange(request('/health','HEAD')),200,b'',head=True);assert h[b'content-length']==b'7'
+    h=assert_response(server.exchange(request('/unknown','HEAD')),404,b'',head=True);assert h[b'content-length']==b'7'
     h=assert_response(server.exchange(request('/health','POST')),405,b'');assert h[b'allow']==b'GET, HEAD'
-    for path,status in [('/empty',200),('/204',204),('/304',304)]:assert_response(server.exchange(request(path)),status,b'')
+    for path,status in [('/empty',200),('/204',204)]:assert_response(server.exchange(request(path)),status,b'')
+    assert_response(server.exchange(request('/204','HEAD')),204,b'',head=True)
+    reset_content_corpus(server)
+    response_size_corpus(server,1048576)
+    server.checkpoint('language-consumer','bodyless-and-header-responses')
+    for method in ('GET','HEAD'):
+        h=assert_response(server.exchange(request('/304',method)),304,b'',head=method=='HEAD');assert h[b'content-length']==b'7'
     binary=b'A\0\xff\xc3\xa9\xf0\x9f\x9a\x80B'
     fixed=request('/echo','POST',binary)
     chunked=request('/echo','POST',b'b;ext="a\\\"b"\r\n'+binary+b'\r\n0\r\nX: trailer\r\n\r\n',headers=[('Transfer-Encoding','chunked')])
     # Body length below is checked independently rather than hard-coding framing.
     chunked=chunked.replace(b'\r\nb;ext=',f'\r\n{len(binary):x};ext='.encode())
     for wire in (fixed,chunked):
+        server.checkpoint('language-consumer','binary-body-splits')
         for split in range(1,len(wire)):assert_response(server.exchange(wire,split=split),200,binary)
     assert_response(server.exchange(request('/header-bytes').replace(b'\r\n\r\n',b'\r\nX-Binary: \xff\x80\r\n\r\n')),200,b'\xff\x80')
     wire=request('/inspect?x=1&x=2%20z','POST',b'1\r\na\r\n0\r\nX-Repeat: third\r\n\r\n',headers=[('Transfer-Encoding','chunked'),('X-Repeat','first'),('X-Repeat','second')])
@@ -160,60 +222,75 @@ def consumer_corpus(server:Server,soak:int):
     doc={'name':'é猫🚀','escape':'"\\\n\t','nul':'a\0b','n':9007199254740993}
     source=json.dumps(doc,ensure_ascii=False,separators=(',',':')).encode();wire=request('/json','POST',source)
     for split in range(1,len(wire)):
+        if split%128==1:server.checkpoint('language-consumer','json-body-splits',case=split)
         result=server.exchange(wire,split=split);h=assert_response(result,200);assert h[b'content-type']==b'application/json' and json.loads(result[2])==doc
     for source,status in [(b'{',400),(b'null',422),(b'[]',422),(b'{"name":null}',422),(b'{"name":"x","name":"y"}',400),(b'{"name":"\\uD800"}',400)]:assert_response(server.exchange(request('/json','POST',source)),status)
     invalid_corpus(server)
     for i in range(soak):
+        if i%128==0:server.checkpoint('language-consumer','ownership-soak',case=i)
         if i%3==0:assert_response(server.exchange(request('/echo','POST',binary)),200,binary)
         elif i%3==1:assert_response(server.exchange(request('/json','POST',b'{"name":"soak"}')),200)
         else:assert_response(server.exchange(request('/health')),200,b'healthy')
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--compiler',type=Path,required=True);p.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'));p.add_argument('--runtime-root',type=Path);p.add_argument('--std-root',type=Path);p.add_argument('--optimization',type=int,choices=(0,2,3),action='append');p.add_argument('--backend',choices=('c','llvm'),action='append');p.add_argument('--sanitize',action='store_true');p.add_argument('--soak',type=int,default=1000);p.add_argument('--report',type=Path);args=p.parse_args()
-    repo=Path(__file__).resolve().parents[1];runtime=args.runtime_root or repo/'freakc/runtime';compiler=args.compiler.resolve(strict=True)
-    std=args.std_root or repo/'std'
-    facade=(std/'json_document.fk').read_text()+'\n'+(std/'http_server.fk').read_text()
-    pinned_paths=[compiler,std/'json_document.fk',std/'http_server.fk',*sorted(runtime.glob('*.c')),*sorted(runtime.glob('*.h')),*sorted(runtime.glob('*.inc'))]
-    vendor=runtime/'third_party/llhttp'
-    if not vendor.exists():vendor=runtime.parents[1]/'third_party/llhttp'
-    pinned_paths+=sorted(p for p in vendor.rglob('*') if p.is_file())
-    before={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths}
-    clang=shutil.which(args.clang);assert clang,args.clang
-    env=os.environ.copy();env['ASAN_OPTIONS']='detect_leaks=1:halt_on_error=1';env['UBSAN_OPTIONS']='halt_on_error=1'
-    evidence={'compiler_sha256':before[str(compiler)],'clang_path':str(Path(clang).resolve()),'clang_sha256':hashlib.sha256(Path(clang).read_bytes()).hexdigest(),'facade_sha256':hashlib.sha256(facade.encode()).hexdigest(),'pinned_input_sha256':before,'strict_borrow':True,'sanitize':args.sanitize,'matrices':[]}
-    with tempfile.TemporaryDirectory(prefix='freak-http-language-') as temporary:
-        root=Path(temporary);suffix='.exe' if os.name=='nt' else ''
-        if args.sanitize:
-            control=root/'control.c';control.write_text('#include <stdlib.h>\nint main(int n,char **v){volatile char *p=malloc(1);p[n+4]=3;free((void*)p);return 0;}\n');binary=root/'control'
-            linked=run([clang,control,'-O0','-fsanitize=address,undefined','-o',binary],cwd=root);assert linked.returncode==0,(linked.stdout,linked.stderr)
-            failed=run([binary],cwd=root,env=env);assert failed.returncode!=0 and 'AddressSanitizer' in failed.stderr,failed.stderr;evidence['sanitizer_failing_control']=True
-        for opt in args.optimization or (0,2,3):
-            for backend in args.backend or ('c','llvm'):
-                for name,program in [('consumer',PROGRAM),*CONTROLLED.items()]:
-                    source=root/f'{name}-{backend}.fk';source.write_text(facade+'\n'+program)
-                    compiled=run([str(compiler),str(source),f'--{backend}','--strict-borrow'],cwd=root);assert compiled.returncode==0,(name,compiled.stdout,compiled.stderr)
-                    generated=Path(str(source)+('.c' if backend=='c' else '.ll'));binary=root/f'{name}-{backend}-O{opt}{suffix}'
-                    cmd=[clang,f'-O{opt}',str(generated),str(runtime/'freak_runtime.c'),f'-I{runtime}','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1','-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1','-o',str(binary)]
-                    if args.sanitize:cmd+=['-fsanitize=address,undefined,function','-fno-omit-frame-pointer','-g']
-                    if backend=='llvm':cmd.append(str(runtime/'freak_llvm_runtime.c'))
-                    cmd+=['-lws2_32','-lshell32'] if os.name=='nt' else ['-lm']
-                    linked=run(cmd,cwd=root);assert linked.returncode==0,(name,linked.stdout,linked.stderr)
-                    if name=='consumer':
-                        server=Server(binary,'normal',env)
-                        try:
-                            consumer_corpus(server,args.soak);counts=server.stop();assert counts[:3]==[0,0,0],counts
-                            cases=server.cases
-                        finally:server.abort()
-                    else:
-                        executed=run([str(binary)],cwd=root,env=env);assert executed.returncode!=0 and not executed.stdout and 'HTTP floor:' in executed.stderr,(name,backend,executed.returncode,executed.stdout,executed.stderr)
-                for name,(program,diagnostic) in NEGATIVE.items():
-                    source=root/f'{name}-{backend}.fk';source.write_text(program)
-                    generated=Path(str(source)+('.c' if backend=='c' else '.ll'));generated.write_text('stale output')
-                    failed=run([str(compiler),str(source),f'--{backend}','--strict-borrow'],cwd=root)
-                    assert failed.returncode!=0 and diagnostic.lower() in (failed.stdout+failed.stderr).lower(),(name,failed.returncode,failed.stdout,failed.stderr)
-                    assert not generated.exists(),(name,'stale generated artifact survived')
-                evidence['matrices'].append({'backend':backend,'optimization':opt,'ordinary_consumer_cases':cases,'controlled_errors':len(CONTROLLED),'semantic_rejections':len(NEGATIVE)})
-                print(f'PASS HTTP facade {backend} O{opt}: {cases} ordinary-consumer requests,3 controlled errors,4 semantic rejections',flush=True)
-    after={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths};assert after==before,'pinned compiler/runtime/std/vendor inputs changed during gate';evidence['pinned_inputs_unchanged']=True
-    if args.report:args.report.parent.mkdir(parents=True,exist_ok=True);args.report.write_text(json.dumps(evidence,indent=2)+'\n')
+    evidence={'matrices':[]}
+    with HttpProgress(args.report,evidence,len(args.optimization or (0,2,3))*len(args.backend or ('c','llvm'))) as progress:
+        progress.stage('input-provenance')
+        repo=Path(__file__).resolve().parents[1];runtime,vendor=runtime_inputs(args.runtime_root);compiler=args.compiler.resolve(strict=True)
+        std=(args.std_root or repo/'std').resolve(strict=True)
+        facade=(std/'json_document.fk').read_text()+'\n'+(std/'http_server.fk').read_text()
+        pinned_paths=[compiler,std/'json_document.fk',std/'http_server.fk',*sorted(runtime.glob('*.c')),*sorted(runtime.glob('*.h')),*sorted(runtime.glob('*.inc'))]
+        pinned_paths+=sorted(p for p in vendor.rglob('*') if p.is_file())
+        before={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths}
+        clang=shutil.which(args.clang);assert clang,args.clang
+        env=os.environ.copy();env['ASAN_OPTIONS']='detect_leaks=1:halt_on_error=1';env['UBSAN_OPTIONS']='halt_on_error=1'
+        evidence.update({'compiler_sha256':before[str(compiler)],'clang_path':str(Path(clang).resolve()),'clang_sha256':hashlib.sha256(Path(clang).read_bytes()).hexdigest(),'facade_sha256':hashlib.sha256(facade.encode()).hexdigest(),'pinned_input_sha256':before,'strict_borrow':True,'sanitize':args.sanitize,'matrices':[]})
+        progress.stage('input-provenance-complete')
+        with tempfile.TemporaryDirectory(prefix='freak-http-language-') as temporary:
+            root=Path(temporary);suffix='.exe' if os.name=='nt' else ''
+            if args.sanitize:
+                progress.stage('sanitizer-control','compile')
+                control=root/'control.c';control.write_text('#include <stdlib.h>\nint main(int n,char **v){volatile char *p=malloc(1);p[n+4]=3;free((void*)p);return 0;}\n');binary=root/'control'
+                linked=run([clang,control,'-O0','-fsanitize=address,undefined','-o',binary],cwd=root);assert linked.returncode==0,(linked.stdout,linked.stderr)
+                progress.stage('sanitizer-control','execute')
+                failed=run([binary],cwd=root,env=env);assert failed.returncode!=0 and 'AddressSanitizer' in failed.stderr,failed.stderr;evidence['sanitizer_failing_control']=True
+            for opt in args.optimization or (0,2,3):
+                for backend in args.backend or ('c','llvm'):
+                    progress.matrix_started('backend',backend,opt)
+                    for name,program in [('consumer',PROGRAM),*CONTROLLED.items()]:
+                        progress.stage('language-compile',name)
+                        source=root/f'{name}-{backend}.fk';source.write_text(facade+'\n'+program)
+                        compiled=run([str(compiler),str(source),f'--{backend}','--strict-borrow'],cwd=root);assert compiled.returncode==0,(name,compiled.stdout,compiled.stderr)
+                        generated=Path(str(source)+('.c' if backend=='c' else '.ll'));binary=root/f'{name}-{backend}-O{opt}{suffix}'
+                        cmd=[clang,f'-O{opt}',str(generated),str(runtime/'freak_runtime.c'),f'-I{runtime}','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1','-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1','-o',str(binary)]
+                        if args.sanitize:cmd+=['-fsanitize=address,undefined,function','-fno-omit-frame-pointer','-g']
+                        if backend=='llvm':cmd.append(str(runtime/'freak_llvm_runtime.c'))
+                        cmd+=['-lws2_32','-lshell32'] if os.name=='nt' else ['-lm']
+                        progress.stage('native-link',name)
+                        linked=run(cmd,cwd=root);assert linked.returncode==0,(name,linked.stdout,linked.stderr)
+                        if name=='consumer':
+                            server=Server(binary,'normal',env,progress)
+                            try:
+                                consumer_corpus(server,args.soak)
+                                server.checkpoint('server-stop','consumer')
+                                counts=server.stop();assert counts[:3]==[0,0,0],counts
+                                cases=server.cases
+                            finally:server.abort()
+                        else:
+                            progress.stage('controlled-error',name)
+                            executed=run([str(binary)],cwd=root,env=env);assert executed.returncode!=0 and not executed.stdout and 'HTTP floor:' in executed.stderr,(name,backend,executed.returncode,executed.stdout,executed.stderr)
+                    for name,(program,diagnostic) in NEGATIVE.items():
+                        progress.stage('semantic-rejection',name)
+                        source=root/f'{name}-{backend}.fk';source.write_text(program)
+                        generated=Path(str(source)+('.c' if backend=='c' else '.ll'));generated.write_text('stale output')
+                        failed=run([str(compiler),str(source),f'--{backend}','--strict-borrow'],cwd=root)
+                        assert failed.returncode!=0 and diagnostic.lower() in (failed.stdout+failed.stderr).lower(),(name,failed.returncode,failed.stdout,failed.stderr)
+                        assert not generated.exists(),(name,'stale generated artifact survived')
+                    evidence['matrices'].append({'backend':backend,'optimization':opt,'ordinary_consumer_cases':cases,'controlled_errors':len(CONTROLLED),'semantic_rejections':len(NEGATIVE)})
+                    progress.matrix_finished()
+                    print(f'PASS HTTP facade {backend} O{opt}: {cases} ordinary-consumer requests,3 controlled errors,4 semantic rejections',flush=True)
+        progress.stage('final-input-verification')
+        after={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths};assert after==before,'pinned compiler/runtime/std/vendor inputs changed during gate';evidence['pinned_inputs_unchanged']=True
+        progress.passed()
 if __name__=='__main__':main()

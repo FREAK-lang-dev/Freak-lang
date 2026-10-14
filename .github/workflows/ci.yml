@@ -27,6 +27,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.os == 'macos-latest' && '3.13' || '3.12' }}
+
       - name: Release version invariant
         shell: bash
         run: python -u tools/release_version.py check
@@ -77,12 +81,15 @@ jobs:
           python -u tests/v3_checked_parsing.py --case format_annotated_shadowed_task
           python -u tests/v3_checked_parsing.py --case format_loop_binding_collision
 
-      - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
+      - name: Build V3 compiler (two current-source generations)
         shell: bash
         run: |
           cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/checker.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
           clang -o build/freakc_v3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           ./build/freakc_v3$EXT build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          # Generation one still carries the seed emitter's ownership lowering.
+          ./build/freakc_v3_stage2$EXT build/freakc_v3.fk --c
           clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
       - name: Build full CLI (Stage 2 — current V3 compiler + CLI + Hangar)
@@ -290,6 +297,11 @@ jobs:
           PY
           python -B -u tests/test_v3_v35_bootstrap_native_helpers.py
           python -B -u tests/test_v3_v35_acceptance_helpers.py
+          python -B -u tests/test_v3_final_component_evidence.py
+          python -B -u tests/test_v3_v35_http_progress.py
+          python -B -u tests/test_v3_v35_http_deadline_helpers.py
+          python -B -u tests/test_v3_v35_template_progress.py
+          python -B -u tests/test_v3_v35_test_temp_helpers.py
           python -B -u tests/test_v3_v35_run_freshness_helpers.py
           python -B -u tests/test_v3_performance_process_state.py
           python -B -u tests/test_v3_performance_platform_helpers.py
@@ -344,6 +356,15 @@ jobs:
           python -u tests/v3_final_release_gate.py
           ./build/freak$EXT ./build/hangar$EXT
           --freakc ./build/freakc_v3_stage2$EXT
+          --evidence-dir "${{ runner.temp }}/v35-http-release"
+
+      - name: Upload installed HTTP, template and component evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v35-http-release-${{ runner.os }}
+          path: ${{ runner.temp }}/v35-http-release/
+          if-no-files-found: ignore
 
       - name: Test suite (regression tests)
         shell: bash
@@ -364,6 +385,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
 
       - name: Release version invariant
         shell: bash
@@ -411,12 +436,15 @@ jobs:
           python -u tests/v3_checked_parsing.py --case format_annotated_shadowed_task
           python -u tests/v3_checked_parsing.py --case format_loop_binding_collision
 
-      - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
+      - name: Build V3 compiler (two current-source generations)
         shell: bash
         run: |
           cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/checker.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
           clang -o build/freakc_v3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           ./build/freakc_v3$EXT build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          # Generation one still carries the seed emitter's ownership lowering.
+          ./build/freakc_v3_stage2$EXT build/freakc_v3.fk --c
           clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
       - name: Build full CLI (Stage 2 — current V3 compiler + CLI + Hangar)
@@ -457,6 +485,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
 
       - name: Install Clang (Windows) (windows-test-suites-a)
         run: choco install llvm -y
@@ -666,6 +698,11 @@ jobs:
           PY
           python -B -u tests/test_v3_v35_bootstrap_native_helpers.py
           python -B -u tests/test_v3_v35_acceptance_helpers.py
+          python -B -u tests/test_v3_final_component_evidence.py
+          python -B -u tests/test_v3_v35_http_progress.py
+          python -B -u tests/test_v3_v35_http_deadline_helpers.py
+          python -B -u tests/test_v3_v35_template_progress.py
+          python -B -u tests/test_v3_v35_test_temp_helpers.py
           python -B -u tests/test_v3_v35_run_freshness_helpers.py
           python -B -u tests/test_v3_performance_process_state.py
           python -B -u tests/test_v3_performance_platform_helpers.py
@@ -717,6 +754,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
       - name: Install Clang (Windows) (windows-test-suites-b)
         run: choco install llvm -y
 
@@ -751,6 +792,15 @@ jobs:
           python -u tests/v3_final_release_gate.py
           ./build/freak$EXT ./build/hangar$EXT
           --freakc ./build/freakc_v3_stage2$EXT
+          --evidence-dir "${{ runner.temp }}/v35-http-release"
+
+      - name: Upload installed HTTP, template and component evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v35-http-release-${{ runner.os }}
+          path: ${{ runner.temp }}/v35-http-release/
+          if-no-files-found: ignore
 
       - name: Test suite (regression tests)
         shell: bash
@@ -768,6 +818,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
 
       - name: Install Clang (Windows) (windows-test-suites-c)
         run: choco install llvm -y

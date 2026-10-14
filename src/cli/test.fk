@@ -378,9 +378,26 @@ task cli_test_temp_directory() -> word {
         cli_test_fail("cannot select a system temporary directory")
         give back ""
     }
-    pilot created = fs::temp_dir(parent, "freak-tests-")
+    -- System-selected paths may contain OS aliases such as /var on macOS.
+    -- Resolve that selection before the runtime admits an anchored parent;
+    -- exclusive creation and later cleanup still use the owned directory ticket.
+    -- Windows keeps the selected parent: its canonical form is a \\?\ path
+    -- that CreateProcess rejects when the test binary is launched.
+    pilot mut canonical_parent = parent
+    if not cli_is_windows() {
+        pilot resolved_parent = fs::canonical_path(parent)
+        if not fs::result_ok(resolved_parent) {
+            pilot detail = fs::result_error(resolved_parent)
+            fs::result_release(resolved_parent)
+            cli_test_fail("cannot canonicalize selected system temporary parent '" + parent + "': " + detail)
+            give back ""
+        }
+        canonical_parent = fs::result_word(resolved_parent)
+        fs::result_release(resolved_parent)
+    }
+    pilot created = fs::temp_dir(canonical_parent, "freak-tests-")
     if not fs::result_ok(created) {
-        cli_test_fail("cannot create owned test output directory: " + fs::result_error(created))
+        cli_test_fail("cannot create owned test output directory under selected parent '" + parent + "' (canonical '" + canonical_parent + "'): " + fs::result_error(created))
         fs::result_release(created)
         give back ""
     }
@@ -396,8 +413,13 @@ task cli_test_temp_directory() -> word {
         cli_test_temp_ticket = 0
         give back ""
     }
-    pilot path = fs::result_word(canonical)
+    pilot mut path = fs::result_word(canonical)
     fs::result_release(canonical)
+    -- CreateProcess rejects \\?\ drive paths (Windows error 123), so the
+    -- launched test binaries live under the plain drive-letter spelling.
+    if cli_is_windows() and path.starts_with("\\\\?\\") and path.length() > 6 and path.substring(5, 1) == ":" {
+        path = path.substring(4, path.length() - 4)
+    }
     give back path
 }
 

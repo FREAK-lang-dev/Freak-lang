@@ -31,7 +31,7 @@ typedef struct {
 } freak_http_server;
 typedef struct {
     uint32_t generation;
-    bool in_use,headers_done,message_done,line_done,chunk_line,expect_continue,responded;
+    bool in_use,headers_done,message_done,line_done,chunk_line,expect_continue,responded,head_method;
     freak_native_socket socket;
     int status,response_status;
     int64_t server,body;
@@ -392,13 +392,41 @@ static int freak_http_on_chunk_complete(llhttp_t *parser) { freak_http_request *
 static int freak_http_on_complete(llhttp_t *parser) { ((freak_http_request *)parser->data)->message_done=true; return HPE_PAUSED; }
 
 static const char *freak_http_reason(int status) {
-    switch(status) { case 200:return "OK";case 201:return "Created";case 204:return "No Content";case 304:return "Not Modified";case 400:return "Bad Request";case 404:return "Not Found";case 405:return "Method Not Allowed";case 408:return "Request Timeout";case 413:return "Content Too Large";case 414:return "URI Too Long";case 417:return "Expectation Failed";case 431:return "Request Header Fields Too Large";case 500:return "Internal Server Error";case 501:return "Not Implemented";case 503:return "Service Unavailable";case 505:return "HTTP Version Not Supported";default:return "Response"; }
+    switch(status) { case 200:return "OK";case 201:return "Created";case 204:return "No Content";case 205:return "Reset Content";case 304:return "Not Modified";case 400:return "Bad Request";case 404:return "Not Found";case 405:return "Method Not Allowed";case 408:return "Request Timeout";case 413:return "Content Too Large";case 414:return "URI Too Long";case 417:return "Expectation Failed";case 431:return "Request Header Fields Too Large";case 500:return "Internal Server Error";case 501:return "Not Implemented";case 503:return "Service Unavailable";case 505:return "HTTP Version Not Supported";default:return "Response"; }
 }
-static void freak_http_reject(freak_http_request *request) {
+static void freak_http_finish_rejection(freak_http_request *request) {
+    freak_http_server *server=freak_http_find_server(request->server);
+    if(!server || atomic_load_explicit(&server->stopping,memory_order_acquire)) return;
+#ifdef _WIN32
+    if(shutdown(request->socket,SD_SEND)!=0) return;
+#else
+    if(shutdown(request->socket,SHUT_WR)!=0) return;
+#endif
+    /* Flush the complete reply before closing with unread trickle input.
+       A peer cannot extend this fixed grace period or the discard budget. */
+    uint64_t grace=request->limits.idle_ms<50?request->limits.idle_ms:50;
+    uint64_t deadline=freak_command_now_ms()+grace;
+    unsigned char discarded[4096]; size_t drained=0;
+    while(drained<65536) {
+        if(freak_http_wait_socket(server,request->socket,false,deadline,deadline)!=1) return;
+        if(atomic_load_explicit(&server->stopping,memory_order_acquire) || freak_command_now_ms()>=deadline) return;
+        size_t wanted=65536-drained; if(wanted>sizeof(discarded)) wanted=sizeof(discarded);
+#ifdef _WIN32
+        int received=recv(request->socket,(char *)discarded,(int)wanted,0);
+#else
+        ssize_t received=recv(request->socket,discarded,wanted,0);
+#endif
+        if(received<0 && (freak_tcp_socket_error_is_interrupted() || freak_tcp_socket_error_is_timeout())) continue;
+        if(received<=0) return;
+        drained+=(size_t)received;
+    }
+}
+static void freak_http_reject(freak_http_request *request,bool nonblocking) {
     if(request->socket==FREAK_INVALID_NATIVE_SOCKET) return;
     const char *reason=freak_http_reason(request->status); char response[512];
-    int size=snprintf(response,sizeof(response),"HTTP/1.1 %d %s\r\nContent-Length: %zu\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n%s\n",request->status,reason,strlen(reason)+1,reason);
-    if(size>0 && (size_t)size<sizeof(response)) (void)freak_http_send_all(request,response,(size_t)size,freak_command_now_ms()+request->limits.idle_ms);
+    int size=snprintf(response,sizeof(response),"HTTP/1.1 %d %s\r\nContent-Length: %zu\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n%s%s",request->status,reason,strlen(reason)+1,request->head_method?"":reason,request->head_method?"":"\n");
+    bool sent=size>0 && (size_t)size<sizeof(response) && freak_http_send_all(request,response,(size_t)size,freak_command_now_ms()+request->limits.idle_ms);
+    if(sent && nonblocking) freak_http_finish_rejection(request);
     freak_http_close_socket(&request->socket);
 }
 int64_t freak_http_server_next_request(int64_t server_ticket) {
@@ -413,7 +441,7 @@ int64_t freak_http_server_next_request(int64_t server_ticket) {
         freak_http_socket_live++; break;
     }
     freak_tcp_socket_configure_no_sigpipe(request->socket);
-    if(!freak_http_nonblocking(request->socket)) { freak_http_error(request,500,"could not configure HTTP connection"); freak_http_reject(request); return ticket; }
+    if(!freak_http_nonblocking(request->socket)) { freak_http_error(request,500,"could not configure HTTP connection"); freak_http_reject(request,false); return ticket; }
     llhttp_settings_init(&request->settings);
     request->settings.on_method=freak_http_on_method; request->settings.on_url=freak_http_on_target;
     request->settings.on_header_field=freak_http_on_field; request->settings.on_header_value=freak_http_on_value;
@@ -449,6 +477,9 @@ int64_t freak_http_server_next_request(int64_t server_ticket) {
             } else if(request->chunk_line && ++request->chunk_wire>request->limits.chunk_metadata) { freak_http_error(request,413,"chunk framing/extensions exceed metadata limit"); break; }
             llhttp_errno_t parsed=llhttp_execute(&request->parser,(const char *)bytes+i,1);
             if(parsed!=HPE_OK && !(parsed==HPE_PAUSED && request->message_done)) { if(!request->status) freak_http_error(request,400,"malformed HTTP request framing"); break; }
+            /* llhttp can recognize HEAD before its token ends. Only an accepted
+               space confirms the method for a later parse/deadline rejection. */
+            if(bytes[i]==' ' && llhttp_get_method(&request->parser)==HTTP_HEAD) request->head_method=true;
             if(!request->line_done && bytes[i]=='\n') request->line_done=true;
             if(!was_headers && request->headers_done) {
                 request->body_deadline=freak_command_now_ms()+request->limits.body_ms;
@@ -459,7 +490,7 @@ int64_t freak_http_server_next_request(int64_t server_ticket) {
             }
         }
     }
-    if(request->status) freak_http_reject(request); return ticket;
+    if(request->status) freak_http_reject(request,true); return ticket;
 }
 
 int64_t freak_http_server_request_status(int64_t ticket) { return freak_http_require_request(ticket)->status; }
@@ -499,11 +530,11 @@ invalid:
 }
 static int64_t freak_http_send(freak_http_request *request,const unsigned char *body,size_t length,const char *type) {
     if(!freak_http_respondable(request)) return 0;
-    if(length>request->limits.body) { snprintf(request->error,sizeof(request->error),"response body exceeds configured limit"); return 0; }
+    if(request->response_status!=205 && length>request->limits.body) { snprintf(request->error,sizeof(request->error),"response body exceeds configured limit"); return 0; }
     freak_http_text wire={0}; char first[256];
     int count=snprintf(first,sizeof(first),"HTTP/1.1 %d %s\r\nConnection: close\r\n",request->response_status,freak_http_reason(request->response_status));
     freak_http_text_append(&wire,first,(size_t)count,request->limits.headers+1024);
-    if(request->response_status!=204) { count=snprintf(first,sizeof(first),"Content-Length: %zu\r\n",length); freak_http_text_append(&wire,first,(size_t)count,request->limits.headers+1024); }
+    if(request->response_status!=204) { count=snprintf(first,sizeof(first),"Content-Length: %zu\r\n",request->response_status==205?0:length); freak_http_text_append(&wire,first,(size_t)count,request->limits.headers+1024); }
     bool content_type=false;
     for(size_t i=0;i<request->response_count;i++) {
         freak_http_header *header=&request->response_headers[i]; if(freak_http_equal(header->name.data,header->name.length,"content-type")) content_type=true;
@@ -514,7 +545,7 @@ static int64_t freak_http_send(freak_http_request *request,const unsigned char *
     freak_http_text_append(&wire,"\r\n",2,request->limits.headers+1024);
     uint64_t deadline=freak_command_now_ms()+request->limits.body_ms;
     bool sent=freak_http_send_all(request,wire.data,wire.length,deadline);
-    bool omit=request->response_status==204 || request->response_status==304 || freak_http_equal(request->method.data,request->method.length,"head");
+    bool omit=request->response_status==204 || request->response_status==205 || request->response_status==304 || freak_http_equal(request->method.data,request->method.length,"head");
     if(sent && !omit && length) sent=freak_http_send_all(request,body,length,deadline);
     freak_http_free(wire.data); freak_http_close_socket(&request->socket); request->responded=true;
     if(!sent) snprintf(request->error,sizeof(request->error),"could not send complete HTTP response before deadline"); return sent?1:0;

@@ -440,6 +440,7 @@ impl Displayable for Point {
 |---|---|
 | `std::fs` | File I/O |
 | `std::http` | HTTP/1.1 client over TCP sockets |
+| `std::http_server` | Bounded synchronous HTTP/1 server with binary bodies and strict framing; [deployment profile](docs/v35-http-floor.md) |
 | `std::json` | Parse and serialize JSON |
 | `std::math` / `std::math3d` | Numeric helpers, 3D vector / matrix math |
 | `std::string` / `std::convert` | String and conversion utilities |

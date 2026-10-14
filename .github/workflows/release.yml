@@ -76,6 +76,10 @@ jobs:
         with:
           ref: ${{ needs.version-invariant.outputs.source_commit }}
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
       - name: Install Clang (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang lld
@@ -109,12 +113,15 @@ jobs:
             echo "LINK_FLAGS=" >> "$GITHUB_ENV"
           fi
 
-      - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
+      - name: Build V3 compiler (two current-source generations)
         shell: bash
         run: |
           cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/checker.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
           clang -o build/freakc_v3${{ matrix.ext }} build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
           ./build/freakc_v3${{ matrix.ext }} build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage2${{ matrix.ext }} build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
+          # Match CI's owned generation two before compiling the release CLI.
+          ./build/freakc_v3_stage2${{ matrix.ext }} build/freakc_v3.fk --c
           clang -o build/freakc_v3_stage2${{ matrix.ext }} build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
 
       - name: Build full CLI (Stage 2 — current V3 compiler + CLI + Hangar)
@@ -200,7 +207,16 @@ jobs:
             --freakc "./build/freakc_v3_stage2${{ matrix.ext }}" \
             --standalone-freak "dist/freak-${{ matrix.target }}${{ matrix.ext }}" \
             --standalone-hangar "dist/hangar-${{ matrix.target }}${{ matrix.ext }}" \
-            --tested-sha256 "$archive.tested.sha256"
+            --tested-sha256 "$archive.tested.sha256" \
+            --evidence-dir "$RUNNER_TEMP/v35-http-release"
+
+      - name: Upload installed HTTP, template and component evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: v35-http-release-${{ matrix.target }}
+          path: ${{ runner.temp }}/v35-http-release/
+          if-no-files-found: ignore
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

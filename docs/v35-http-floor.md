@@ -80,8 +80,11 @@ separators, NUL, controls and invalid UTF-8.
 
 Response APIs reject CR/LF, invalid header tokens and caller-supplied framing
 headers. The floor supplies encoded-byte Content-Length and Connection: close.
-HEAD emits the corresponding length without the body. A 204 response has no
-Content-Length or body; 304 has no body. Writes loop over real partial sends
+HEAD emits the corresponding length without the body, including parser,
+size and deadline rejections once `HEAD ` has been accepted. An incomplete
+`HEAD` token or malformed method delimiter remains an ordinary parse error.
+A 204 response has no Content-Length or body; 205 emits Content-Length: 0
+without a body, and 304 has no body. Writes loop over real partial sends
 until completion or a deadline. The send return value reports completion;
 a parsed request can remain valid even when its response send fails.
 
@@ -189,10 +192,21 @@ growing after their exercised paths have warmed up.
 
 `tests/v3_v35_http_language.py` compiles an ordinary FREAK consumer using the
 fresh V3.5 compiler, strict borrow checking, both native backends and ownership
-audits. It verifies the facade, JSON roundtrip, named route, HEAD/404/405,
+audits. It verifies the facade, JSON roundtrip, named route, HEAD/204/205/304,
+rejected HEAD framing, 404/405,
 binary bodies, split framing and semantic type failures. The template gate
 also generates the installed examples, builds/runs/tests them and checks
 existing destinations, links, malformed names, partial failures and cleanup.
+
+The final release gate retains the Ordnance consumer checks and additionally
+runs the raw transport and ordinary-language matrices against the extracted
+archive's runtime, bundled parser and standard library. It exercises the
+installed CLI's template build/run/test paths. The compiler ABI and parser
+checksum checks use the explicit current compiler and pinned source checkout;
+archive payload verification separately checks every installed parser byte.
+Parser selection matches the runtime's include priority, and an explicitly
+supplied runtime cannot borrow an external parser when its bundle is missing.
+CI preserves the native HTTP and template JSON reports as artifacts.
 
 These focused checks establish the stated floor. They do not make the example
 production-hardened. Native Windows/macOS execution and final archive/CI
