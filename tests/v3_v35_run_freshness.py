@@ -354,7 +354,10 @@ def main() -> int:
                 invoke('transitive-edit-during-native-build', None, None, active=mutate)
                 assert not cache.exists()
                 assert files['transitive'].read_bytes() == mutate['FREAK_FRESHNESS_BODY'].encode()
-                assert Path(racing['FREAK_FRESHNESS_LOG']).read_bytes() == b'native mutation completed\n'
+                # Cached runtime builds hand clang several C inputs, so the
+                # mutator may fire once per invocation with the same body.
+                mutations = Path(racing['FREAK_FRESHNESS_LOG']).read_bytes()
+                assert mutations and set(mutations.splitlines(True)) == {b'native mutation completed\n'}, mutations
                 code, output = run(f'{backend}:immutable-build-snapshot-control', [str(binary)], root, env)
                 assert code == 0 and exact_run_result(output, 72), output
                 invoke('racing-build-recovery', 75, False, active=racing)
