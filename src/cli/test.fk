@@ -413,8 +413,13 @@ task cli_test_temp_directory() -> word {
         cli_test_temp_ticket = 0
         give back ""
     }
-    pilot path = fs::result_word(canonical)
+    pilot mut path = fs::result_word(canonical)
     fs::result_release(canonical)
+    -- CreateProcess rejects \\?\ drive paths (Windows error 123), so the
+    -- launched test binaries live under the plain drive-letter spelling.
+    if cli_is_windows() and path.starts_with("\\\\?\\") and path.length() > 6 and path.substring(5, 1) == ":" {
+        path = path.substring(4, path.length() - 4)
+    }
     give back path
 }
 
