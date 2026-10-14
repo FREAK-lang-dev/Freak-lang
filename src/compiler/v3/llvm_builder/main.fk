@@ -1,0 +1,150 @@
+-- Standalone experimental host only. It is assembled with V3's five frontend
+-- sources and emitter.fk, then bootstrapped through stable --c plus bridge.c.
+task main() -> int {
+    pilot count = process::args_count()
+    if count == 2 and process::arg(1) == "--help" {
+        say "freakc-irbuilder-experimental (LLVM 19.1.7 scalar prototype)"
+        say "Usage: freakc-irbuilder-experimental source.fk [--opt=0|1|2|3]"
+        say "Emits source.fk.builder.o; stable freak remains the release compiler."
+        give back 0
+    }
+    if count < 2 {
+        say "Usage: freakc-irbuilder-experimental source.fk [--opt=0|1|2|3]"
+        give back 1
+    }
+    input_file = process::arg(1)
+    if not input_file.ends_with(".fk") {
+        say "experimental IRBuilder backend: source path must end in .fk"
+        give back 1
+    }
+    pilot output = input_file + ".builder.o"
+    -- Invalidate only this backend's derived object, including dangling links.
+    if not fs::delete(output) or fs::exists(output) {
+        say "experimental IRBuilder backend: could not remove stale builder object"
+        give back 1
+    }
+    if count > 3 {
+        say "experimental IRBuilder backend: too many options"
+        give back 1
+    }
+    pilot optimization = 2
+    if count == 3 {
+        pilot flag = process::arg(2)
+        if flag != "--opt=0" and flag != "--opt=1" and flag != "--opt=2" and flag != "--opt=3" {
+            say "experimental IRBuilder backend: unsupported option '" + flag + "'"
+            give back 1
+        }
+        optimization = word_to_int(flag.char_at(6))
+    }
+    pilot read = fs::read_source_ticket(input_file)
+    if not fs::result_ok(read) {
+        say "experimental IRBuilder backend: " + fs::result_error(read)
+        fs::result_release(read)
+        give back 1
+    }
+    pilot source = fs::result_word(read)
+    fs::result_release(read)
+    strict_borrow = true
+    init_arrays()
+    diagnostic_source = source
+    source_map_reset()
+    source_map_register(input_file, source)
+    tokenize(source)
+    if error_count == 0 { parse_program() }
+    if error_count == 0 { check_program() }
+    pilot succeeded = false
+    if error_count == 0 {
+        if ib_validate_program() { succeeded = ib_emit_program(output, optimization) }
+    }
+    ib_release_tables()
+    ib_release_frontend()
+    if not succeeded {
+        -- The bridge creates output only after full verification/object emission.
+        -- Preserve a failed removal as an explicit failure, never success.
+        if not fs::delete(output) { say "experimental IRBuilder backend: could not remove failed builder object" }
+        give back 1
+    }
+    say "Experimental LLVM IRBuilder object: " + output
+    give back 0
+}
+
+-- Release the current frontend tables once this standalone compilation ends.
+task ib_release_frontend() -> void {
+    reset_diagnostics()
+    if ast_expr_files != 0 { array_release(ast_expr_files) ast_expr_files = 0 }
+    if ast_expr_kinds != 0 { array_release(ast_expr_kinds) ast_expr_kinds = 0 }
+    if ast_expr_labels != 0 { array_release(ast_expr_labels) ast_expr_labels = 0 }
+    if ast_expr_lefts != 0 { array_release(ast_expr_lefts) ast_expr_lefts = 0 }
+    if ast_expr_lines != 0 { array_release(ast_expr_lines) ast_expr_lines = 0 }
+    if ast_expr_rights != 0 { array_release(ast_expr_rights) ast_expr_rights = 0 }
+    if ast_expr_vals != 0 { array_release(ast_expr_vals) ast_expr_vals = 0 }
+    if ast_pilot_is_mut != 0 { array_release(ast_pilot_is_mut) ast_pilot_is_mut = 0 }
+    if ast_stmt_bodies != 0 { array_release(ast_stmt_bodies) ast_stmt_bodies = 0 }
+    if ast_stmt_else_bodies != 0 { array_release(ast_stmt_else_bodies) ast_stmt_else_bodies = 0 }
+    if ast_stmt_exprs != 0 { array_release(ast_stmt_exprs) ast_stmt_exprs = 0 }
+    if ast_stmt_extras != 0 { array_release(ast_stmt_extras) ast_stmt_extras = 0 }
+    if ast_stmt_files != 0 { array_release(ast_stmt_files) ast_stmt_files = 0 }
+    if ast_stmt_kinds != 0 { array_release(ast_stmt_kinds) ast_stmt_kinds = 0 }
+    if ast_stmt_lines != 0 { array_release(ast_stmt_lines) ast_stmt_lines = 0 }
+    if ast_stmt_names != 0 { array_release(ast_stmt_names) ast_stmt_names = 0 }
+    if ast_task_params != 0 { array_release(ast_task_params) ast_task_params = 0 }
+    if ast_task_returns != 0 { array_release(ast_task_returns) ast_task_returns = 0 }
+    if ast_top_stmts != 0 { array_release(ast_top_stmts) ast_top_stmts = 0 }
+    if bc_sym_is_mut != 0 { array_release(bc_sym_is_mut) bc_sym_is_mut = 0 }
+    if bc_sym_kinds != 0 { array_release(bc_sym_kinds) bc_sym_kinds = 0 }
+    if bc_sym_lines != 0 { array_release(bc_sym_lines) bc_sym_lines = 0 }
+    if bc_sym_names != 0 { array_release(bc_sym_names) bc_sym_names = 0 }
+    if bc_sym_scopes != 0 { array_release(bc_sym_scopes) bc_sym_scopes = 0 }
+    if bc_sym_state != 0 { array_release(bc_sym_state) bc_sym_state = 0 }
+    if diag_fact_codes != 0 { array_release(diag_fact_codes) diag_fact_codes = 0 }
+    if diag_fact_columns != 0 { array_release(diag_fact_columns) diag_fact_columns = 0 }
+    if diag_fact_files != 0 { array_release(diag_fact_files) diag_fact_files = 0 }
+    if diag_fact_hints != 0 { array_release(diag_fact_hints) diag_fact_hints = 0 }
+    if diag_fact_lines != 0 { array_release(diag_fact_lines) diag_fact_lines = 0 }
+    if diag_fact_messages != 0 { array_release(diag_fact_messages) diag_fact_messages = 0 }
+    if diag_fact_source_indexes != 0 { array_release(diag_fact_source_indexes) diag_fact_source_indexes = 0 }
+    if diag_source_contents != 0 { array_release(diag_source_contents) diag_source_contents = 0 }
+    if diag_source_paths != 0 { array_release(diag_source_paths) diag_source_paths = 0 }
+    if emt_extern_names != 0 { array_release(emt_extern_names) emt_extern_names = 0 }
+    if emt_extern_rets != 0 { array_release(emt_extern_rets) emt_extern_rets = 0 }
+    if emt_global_var_c_names != 0 { array_release(emt_global_var_c_names) emt_global_var_c_names = 0 }
+    if emt_global_var_names != 0 { array_release(emt_global_var_names) emt_global_var_names = 0 }
+    if emt_global_var_types != 0 { array_release(emt_global_var_types) emt_global_var_types = 0 }
+    if emt_var_c_names != 0 { array_release(emt_var_c_names) emt_var_c_names = 0 }
+    if emt_var_names != 0 { array_release(emt_var_names) emt_var_names = 0 }
+    if emt_var_types != 0 { array_release(emt_var_types) emt_var_types = 0 }
+    if emt_word_tasks != 0 { array_release(emt_word_tasks) emt_word_tasks = 0 }
+    if shape_registry_fields != 0 { array_release(shape_registry_fields) shape_registry_fields = 0 }
+    if shape_registry_names != 0 { array_release(shape_registry_names) shape_registry_names = 0 }
+    if source_location_files != 0 { array_release(source_location_files) source_location_files = 0 }
+    if source_location_lines != 0 { array_release(source_location_lines) source_location_lines = 0 }
+    if source_map_contents != 0 { array_release(source_map_contents) source_map_contents = 0 }
+    if source_map_ends != 0 { array_release(source_map_ends) source_map_ends = 0 }
+    if source_map_paths != 0 { array_release(source_map_paths) source_map_paths = 0 }
+    if source_map_starts != 0 { array_release(source_map_starts) source_map_starts = 0 }
+    if tc_callable_bucket_heads != 0 { array_release(tc_callable_bucket_heads) tc_callable_bucket_heads = 0 }
+    if tc_callable_extras != 0 { array_release(tc_callable_extras) tc_callable_extras = 0 }
+    if tc_callable_names != 0 { array_release(tc_callable_names) tc_callable_names = 0 }
+    if tc_callable_next != 0 { array_release(tc_callable_next) tc_callable_next = 0 }
+    if tc_callable_params != 0 { array_release(tc_callable_params) tc_callable_params = 0 }
+    if tc_callable_returns != 0 { array_release(tc_callable_returns) tc_callable_returns = 0 }
+    if tc_callable_stmt_ids != 0 { array_release(tc_callable_stmt_ids) tc_callable_stmt_ids = 0 }
+    if tc_checked_expr_types != 0 { array_release(tc_checked_expr_types) tc_checked_expr_types = 0 }
+    if tc_dependency_pending_calls != 0 { array_release(tc_dependency_pending_calls) tc_dependency_pending_calls = 0 }
+    if tc_global_mut != 0 { array_release(tc_global_mut) tc_global_mut = 0 }
+    if tc_global_names != 0 { array_release(tc_global_names) tc_global_names = 0 }
+    if tc_global_types != 0 { array_release(tc_global_types) tc_global_types = 0 }
+    if tc_local_mut != 0 { array_release(tc_local_mut) tc_local_mut = 0 }
+    if tc_local_names != 0 { array_release(tc_local_names) tc_local_names = 0 }
+    if tc_local_types != 0 { array_release(tc_local_types) tc_local_types = 0 }
+    if tok_cols != 0 { array_release(tok_cols) tok_cols = 0 }
+    if tok_lines != 0 { array_release(tok_lines) tok_lines = 0 }
+    if tok_origin_files != 0 { array_release(tok_origin_files) tok_origin_files = 0 }
+    if tok_origin_lines != 0 { array_release(tok_origin_lines) tok_origin_lines = 0 }
+    if tok_types != 0 { array_release(tok_types) tok_types = 0 }
+    if tok_vals != 0 { array_release(tok_vals) tok_vals = 0 }
+    source_map_initialized = false
+    source_map_count = 0
+    diagnostic_source = ""
+    lex_source = ""
+}
