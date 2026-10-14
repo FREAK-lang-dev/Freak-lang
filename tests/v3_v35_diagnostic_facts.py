@@ -240,8 +240,8 @@ def main() -> int:
  args=parser.parse_args();assert args.clang
  repo=Path(__file__).resolve().parents[1];runtime=args.runtime.resolve(strict=True) if args.runtime else repo/'freakc/runtime'
  parts=[repo/'src/compiler/v3'/f'{part}.fk' for part in ('globals','helpers','lexer','parser','checker')]
- prefix=''.join(part.read_text() for part in parts)
- globals_text=parts[0].read_text()
+ prefix=''.join(part.read_text(encoding='utf-8') for part in parts)
+ globals_text=parts[0].read_text(encoding='utf-8')
  handles=sorted(set(re.findall(r'^pilot (\w+)\s*=\s*0\s*$',globals_text,re.M)) & set(re.findall(r'\b(\w+)\s*=\s*array_new\(\)',prefix)))
  cleanup='\n'.join(f'if {name} != 0 {{ array_release({name}); {name} = 0; }}' for name in handles)
  flags=['-O2','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer','-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1','-I',str(runtime)]
@@ -329,7 +329,7 @@ task main() {{
 '''
   for backend in ('c','llvm'):
    evidence.matrix_started(backend)
-   source=root/f'facts_{backend}.fk';source.write_text(harness)
+   source=root/f'facts_{backend}.fk';source.write_text(harness,encoding='utf-8')
    evidence.source_snapshot(source,backend)
    evidence.stage('compiler-emission',backend=backend)
    require_ok(evidence.run([str(compiler),str(source),'--'+backend],root,emitted=Path(str(source)+('.c' if backend=='c' else '.ll'))),'fact component emission '+backend)
