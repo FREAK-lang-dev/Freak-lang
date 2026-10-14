@@ -400,7 +400,7 @@ def creator_corpus(binary:Path,canonical:Path,root:Path,env,progress=None):
             except BaseException as error:
                 partial[index]=(getattr(error,'output',None) or b'',getattr(error,'stderr',None) or b'')
                 raise
-        assert sorted(out.startswith(b'OK\n') for out,err in results)==[False,True],results
+        assert sorted(out.replace(b'\r\n',b'\n').startswith(b'OK\n') for out,err in results)==[False,True],results
         assert all(p.returncode==0 and not err for p,(out,err) in zip(processes,results)),results
     except BaseException as error:
         primary=error
