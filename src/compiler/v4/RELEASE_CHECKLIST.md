@@ -1,6 +1,10 @@
-# FREAK V4 release checklist (revision 3.2)
+# FREAK V4 release checklist (revision 3.3)
 
-Working revision reconciled on 2026-10-05 against merged `main` at
+Revision 3.3 reconciles status only, on 2026-10-13 against `main` at
+`525114fc5441c59481eb93067aeec8abee99d9be`; see "What changed in revision
+3.3" below. Everything else in this header is the revision 3.2 record.
+
+Revision 3.2 was reconciled on 2026-10-05 against merged `main` at
 `2b62e1cb1674336f52c3310a7dbf2e177d566a81`. PR #145 and PR #146 are
 merged. PR #146 preserved its 17 commits through rebase merge; its reviewed
 head `c3e7d00b9ee26db98f09bf187c3877ff8392357f` has the same tree as this
@@ -29,7 +33,9 @@ and architecture work proceed in bounded lanes; strict root scope remains
 the default and compiler initialization requires explicit per-file bootstrap
 compatibility. Integer overflow produces a runtime error at every optimization
 level; Word indexing and slicing use character semantics. The public release
-remains `0.14.2`; no version bump or release tag is authorized by this checklist.
+is `0.15.0` "Maverick" (2026-10-12, PR #172), built and shipped by the V3
+toolchain; it is the V3.5 delivery, not a V4 line. No V4 version bump or
+release tag is authorized by this checklist.
 
 All [20 V4 jobs](https://github.com/FREAK-lang-dev/Freak-lang/actions/runs/37239273024)
 and [six shipping jobs](https://github.com/FREAK-lang-dev/Freak-lang/actions/runs/37239273042)
@@ -78,6 +84,42 @@ These results do not complete the preview or the release checklist.
 The remaining correctness rows and A4 Runtime MIR transform stay separately
 tracked. The reviewed U0 unwind plan must integrate with A4 ownership facts;
 new cleanup policy must not be added to codegen.
+
+## What changed in revision 3.3
+
+Status reconciliation only; no scope, tier or line changes. Checked on
+`main` at `525114f` (2026-10-13), where shipping
+[CI](https://github.com/FREAK-lang-dev/Freak-lang/actions/runs/38386499688),
+[V4 CI](https://github.com/FREAK-lang-dev/Freak-lang/actions/runs/38386499768)
+and the [locked V4 bootstrap](https://github.com/FREAK-lang-dev/Freak-lang/actions/runs/38386500074)
+all passed. Merged since revision 3.2: #147 (checked integer speed, already
+recorded above), #150 (native V3 builds the locked V4 preview), #155 and #159
+(V3.5 prerelease semantics, V4 binding immutability), #162 (V4 `while` and
+`repeat while`), #172 (release 0.15.0) and the 0.15.0 release-recovery CI
+fixes #174, #176 and #181.
+
+The open tier 1 correctness rows were re-run with `build_v4.py` at `525114f`
+(Linux x86_64, Clang 18):
+
+| Repro | Result at `525114f` | Row |
+|---|---|---|
+| `fixed pilot fuel = 50` then `fuel = 75` | rejected: `fixed pilot cannot be modified` | ticked |
+| inner-block `pilot x` shadowing an outer `x` | builds; inner prints 2, outer returns 1 | ticked |
+| `pilot x = 1` then `x = 5` | builds, exits 5 (pilots mutable by default) | decision 14 closed |
+| `check result r { ok(v) -> ... err(e) -> ... }` | builds and runs | V3.5 row ticked |
+| `repeat while` and bare `while` | build and run | V3.5 row split and ticked |
+| `3 \|> inc \|> dbl` | `native rvalue not yet supported: Unknown` | still open |
+| `pilot n: int = 2.5` | builds, exits 2 (silent truncation) | still open |
+| `0xFF` | `native rvalue not yet supported: Unknown` (no longer read as 0) | still open, text updated |
+| unknown name, unknown task call | `native type not yet supported: unknown`, no span | still open |
+| `task greet() { ... }` | `native type not yet supported: unknown` | still open |
+| `task main(args: List<word>)` | `native type not yet supported: List<word>` | still open |
+| `for each i in 0..4`, `repeat 4 times with i`, C-style `for` | rejected (Meiya resource error, or unknown native type) | still open |
+
+Other changes: the tier 8 CI row is ticked; decisions 12 and 14 are closed
+by the maintainer-approved V3.5 semantics in #155 (confirm on review); a
+"Tracked issues" section maps open GitHub issues to rows. The 0.15.1 tracker
+#177 is V3 work and moves no V4 row; it ranks the V4-only issues separately.
 
 ## What changed in revision 3.2
 
@@ -181,7 +223,7 @@ scaling to done, and recorded the `|>` finding.
 | Self-hosted | 1, 2 | V4 compiles V4 |
 | Replaces V3 | 1 to 4, 8, A0, A1, A4 | "V4 release": everything V3 ships today, on the new compiler |
 | Bible-complete | 1 to 8, A0 to A4 | The 1.0 the audit describes |
-| V3.5 (on the V3 toolchain) | its own plan | V3 builds V4 natively, real packages, loops, an HTTP floor. Target 2026-10-12. Gates no V4 line; adds the V3.5 rows below |
+| V3.5 (on the V3 toolchain) | its own plan | V3 builds V4 natively, real packages, loops, an HTTP floor. Shipped as 0.15.0 on 2026-10-12; unfinished promises are tracked in #177 for 0.15.1. Gates no V4 line; adds the V3.5 rows below |
 | Self-contained toolchain | B0 to B4 | One binary with LLVM and LLD; no Clang for users where the platform allows. After Replaces V3; gates no other line |
 
 The replacement line follows `docs/bootstrap-map.md`: self-hosting, shipped-V3
@@ -426,9 +468,10 @@ V3.5 is work on the V3 toolchain and is tracked in
 `freak-v3.5-bootstrap-packages-http-plan.md`, not here. What it changes for
 V4:
 
-- [ ] **M** Accept, with the same meaning, the syntax V3.5 adds: `for each i in a..b` (with `..=` and `step`), `repeat N times with i`, the C-style `for (init; cond; step)`, and `repeat while` (and bare `while` if that is approved). V4 already accepts semicolons
-- [ ] **S** `check result NAME { ok(v) -> ... err(e) -> ... }`: the V4 source uses it at 11 sites and V3.5 will implement it; confirm V4 itself compiles the form, since V4 must eventually compile V4
-- [ ] **M** Move the V4 bootstrap off the Python compiler: `build_v4.py` and `check_v4.py` call `freakc.__main__.transpile` today. Switch to the V3.5 route when it exists, keep the Python route as a comparison until both agree on the pinned corpus
+- [x] **S** `repeat while` and bare `while`, condition-first, through the existing loop representation (#162). Follow-up: #167 (`while` reservation after grouped multiline member separators)
+- [ ] **M** Accept, with the same meaning, the remaining syntax V3.5 adds: `for each i in a..b` (with `..=` and `step`), `repeat N times with i`, and the C-style `for (init; cond; step)`. All three are rejected at `525114f`. V4 already accepts semicolons. Related request: #123
+- [x] **S** `check result NAME { ok(v) -> ... err(e) -> ... }` compiles and runs on V4 at `525114f` (closed `result<word,word>` slice)
+- [ ] **M** Move the V4 bootstrap off the Python compiler. Done for the locked preview: native V3 builds it with `freak bootstrap-v4 --locked`, pinned to `b43127c4` (#150, CI lane `v4-locked-bootstrap.yml`). Still open for development V4: `build_v4.py` and `check_v4.py` still transpile through the Python compiler; keep the Python route as a comparison until both agree on the pinned corpus
 
 Measured starting point for that plan (released 0.14.2 on the flattened V4
 source, 66,878 lines): the parser rejects exactly two things, 267 semicolons
@@ -515,7 +558,7 @@ PR #143 handoff-7 dispositions and remaining performance work:
 - [x] **S** Repair six stale smoke proofs for canonical LocalID/PlaceID facts, ordered short circuit, wire/native graph and literal/general say; preserve the semantic contracts and exact diagnostics
 - [x] **M** Inline checked signed-int64 `+`, `-`, `*` with LLVM overflow intrinsics, preserving evaluation and exact failure diagnostics. The [matched report](../../../benchmarks/v4/int_checked_speed.md) records 4.48x at O2 and 4.75x at O3 for the 100M live-checksum loop against actual checked baseline `2b62e1cb`. The historical `8ffb3895` 3.0 s / pre-Word 0.88 s observation is a different workload. Uint/tiny, negation, division, remainder and broad V3 runtime parity remain follow-up work.
 - [x] **S** Register the exact native hot-loop benchmark and genuine executable helper-call negative in the gate at O0/O2/O3. Linux/macOS/Windows plain runs retain timings and original source/tool/runtime/binary identities; Linux additionally requires sanitizer and ownership controls. Structural/live-work oracles reject helper regressions, with no flaky wall-time threshold; workflow execution on the current PR head remains required.
-- [ ] **M** Remaining compile-time overhead relative to V3 and unmeasured scaling families. The historical handoff-7 comparison was 1.7x to 2.6x slower. PR #146 closes the measured long-body growth below; codegen remains the largest stage on some workloads and call-heavy constants need further work.
+- [ ] **M** Remaining compile-time overhead relative to V3 and unmeasured scaling families (numeric-loop emission: #161). The historical handoff-7 comparison was 1.7x to 2.6x slower. PR #146 closes the measured long-body growth below; codegen remains the largest stage on some workloads and call-heavy constants need further work.
 - [x] **M** Remove the four measured repeated compiler scans: Parse closure children, MIR CFG predecessors, Meiya ordered loan candidates and MIR Never presence. The [pinned scaling report](../../../benchmarks/v4/compiler_superlinear_speed.md) records long1600 at 13.011 -> 2.922 seconds (three-run medians), exact module/native equivalence and actual-work regression guards. The broader compile-time/V3 comparison above remains open; smaller-workload costs and conservative spanning-loan work remain explicit.
 - [x] **M** Repair measured MIR Build long-body growth (merged PR #146). The final three-run long1600 median falls from 3.116 to 0.650 s through predecessor counts and the Never presence summary. Historical revision-3.2 observations at `8ffb3895` and `c3e7d00b` remain separate from this [pinned report](../../../benchmarks/v4/compiler_superlinear_speed.md); unmeasured shapes are not covered.
 - [x] **S** Integrate current main, resolve merge conflicts and complete all current-head gates; regular merge delivered with the original history preserved
@@ -526,12 +569,12 @@ Correctness:
 - [x] **S** `training arc ... max N sessions`: the ignored-cap bug at merged `116dae0` is fixed. Built-MIR owns a distinct typed counter, a condition-first/re-evaluated-cap branch and a shared increment for normal completion and `continue`. The checklist repro now exits 3; never-true, zero/negative, early exit, nested/sibling, changing/effectful/numeric caps and owned-Word loops pass the 18-program native matrix at O0/O2/O3 with both ownership audits and ASan/UBSan
 - [x] **M** An `if` / `else if` / `else` chain with every branch giving back builds and publishes a canonical module. Checked construction compaction removes only the completed join/diagnostic continuation; strict CFG and snapshot/native admission remain. Eight native programs cover long/nested chains, mixed live exits, loop exits, Word returns and same-line tails; seven adverse contracts preserve later source errors, missing-return/condition diagnostics and atomic hostile-endpoint rejection
 - [ ] **S** A num is accepted where an int is required (initialiser, assignment, argument, return value) and the fraction is dropped with no diagnostic: `pilot n: int = 2.5` gives 2. V3 rejects all four. Same on #143. Reject it, or make the narrowing an explicit conversion rvalue (A3, "no implicit widening decided in codegen")
-- [ ] **S** `0xFF` is read as `0` with no diagnostic on `main`; on #143 it is rejected, but only as `native rvalue not yet supported: Unknown`. The bible defines no hexadecimal literal. Reject it by name in the lexer
-- [ ] **S** `fixed pilot` is accepted and can be reassigned (`fixed pilot fuel = 50` then `fuel = 75` gives 75; same on #143). Bible §1.1 says it cannot be
+- [ ] **S** `0xFF` was read as `0` with no diagnostic; at `525114f` it is rejected, but only as `native rvalue not yet supported: Unknown`. The bible defines no hexadecimal literal. Reject it by name in the lexer
+- [x] **S** `fixed pilot` reassignment is rejected by name (`fixed pilot cannot be modified`, at `525114f`); `grounded pilot` is immutable too. The authored immutable prefix is carried through HIR, MIR, diagnostics and snapshots (#155, #159)
 - [ ] **S** An unknown name is reported only by codegen, as `native type not yet supported: unknown`, with no span and no name. Same for a call to an unknown task. Resolve or TY should report it by name (same on #143)
 - [ ] **S** A task with no return type (`task greet() { ... }`, and `task main()`) fails with that same codegen message. Accept it as `-> void` like V3, or reject it by name (decision 13)
 - [x] **S** `sessions` remains an admitted V4 pilot name: the heading matches its final suffix and the binary operand scanner recognizes the binding. `until sessions >= 3 max 10 sessions` executes with exit 3 at O0/O2/O3. V3 reserves the word; this fix follows the checklist's right-matching alternative
-- [ ] **S** A `pilot` in an inner block with the name of an outer pilot is rejected as `duplicate local declaration`. V3 allows the shadow (decision 12; same on #143)
+- [x] **S** A `pilot` in an inner block may shadow an outer pilot, as V3 allows (decision 12). At `525114f` the shadow builds and each scope sees its own value. Parameters and the callable's outer body share one scope, so redeclaring a parameter there is still rejected (#155)
 - [x] **S** Same-line statements after an ordinary conditional chain are retained, including `}give back` adjacency. The completed-chain range stops before a following statement or semicolon, attaches only the immediate `else`, and keeps malformed-header recovery bounded. Original mixed-return/live-tail and discarded-call sources remain regression cases; a wrong later call is still diagnosed
 - [ ] **S** Sweep the remaining tier 4 surface forms for the same failure (accepted, no diagnostic, wrong code). `eventually`, `isekai` and `PLUS ULTRA` are rejected today, though with misleading messages. The `training arc` cap above was found this way
 
@@ -803,14 +846,14 @@ FFI completion (phase C):
 
 ## Tier 8: release engineering
 
-- [ ] **S** Confirm CI is green on Linux, macOS and Windows after the merge (lanes exist; not verified from here)
-- [ ] **M** V4 native execution lane in CI: macOS and Windows lanes exist; add Linux arm64
+- [x] **S** CI green on Linux, macOS and Windows: shipping CI, V4 CI and the locked V4 bootstrap all passed at `525114f` (links in revision 3.3 notes)
+- [ ] **M** V4 native execution lane in CI: macOS and Windows lanes exist; add Linux arm64 (generic Linux arm64 only; on-device Termux is separate, #114)
 - [ ] **M** Installers (`install.sh`, `install.ps1`) ship the V4 compiler
 - [ ] **M** Homebrew, Scoop, Winget packages updated
 - [ ] **M** Packaged runtime objects for the V4 link path
-- [ ] **S** Version bump and name; `tools/release_version.py check`
-- [ ] **M** Migration guide: what changes for V3 programs. Known so far: missing task return types still fail; strict mode excludes top-level statements; keywords reserved in lowercase only; `TRUE` / `Yes` mean true (V3 reads them as false); semicolons and `pilot mut` accepted in the merged checkpoint. Resolve decisions 12–14 before documenting their final semantics
-- [ ] **M** README, bible section 0.2, conformance audit, V4 README all in sync
+- [ ] **S** Version bump and name for the V4 release; `tools/release_version.py check`. The 0.15.0 "Maverick" bump was the V3.5 release and does not count
+- [ ] **M** Migration guide: what changes for V3 programs. Known so far: missing task return types still fail; strict mode excludes top-level statements; keywords reserved in lowercase only; `TRUE` / `Yes` mean true (V3 reads them as false); semicolons and `pilot mut` accepted in the merged checkpoint; pilots are mutable by default and inner blocks may shadow (decisions 12 and 14, closed). Resolve decision 13 before documenting missing return types
+- [ ] **M** README, bible section 0.2, conformance audit, V4 README all in sync (bible 7.x implemented-versus-planned API scope: #116)
 - [ ] **S** `compiler-v3-final` tag after V3's Last Sortie gates
 - [ ] **M** Security review of generated-code memory safety claims before the README says "memory safe"
 - [ ] **S** Rename `crates/` if you are going to (cheapest before release)
@@ -829,15 +872,36 @@ FFI completion (phase C):
 9. `|>`: lower it now or reject it by name.
 10. Closed for the admitted scalar write path: checked range failure, with exact native regressions; broader ABI admission remains separate.
 11. Whether to split `freak_ty` into builder and authority (A5), decided after A1.
-12. Inner-block shadowing: allow it as V3 does, or keep rejecting it. The bible does not say.
+12. Closed (V3.5 semantics, #155): inner blocks may shadow an outer pilot, as V3 allows; a callable's parameters and outer body share one scope.
 13. A task with no return type: accept as `-> void`, or require the type.
-14. Is a pilot mutable by default? Bible §1.1 says yes, with `fixed pilot` as the immutable form. The borrow-checker note in §4 describes V3's strict rule, where only `pilot mut` may be reassigned. The merged checkpoint accepts `pilot mut`. The book and the migration guide both depend on the answer.
+14. Closed (V3.5 semantics, #155): ordinary `pilot` is mutable under both borrow modes, as bible §1.1 says; `pilot mut` is a synonym; `fixed pilot` and contextual `grounded pilot` are immutable. V4 matches at `525114f`. The §4 borrow-checker note describing V3's strict rule needs the same update.
 15. Closed for direction (2026-10-05): the long-term toolchain is one `freak` binary with LLVM and LLD built in, accepting the larger download. Timing stays deferred (backend delivery lane).
 16. Closed for direction: one LLVM major per release, changed at most twice a year, never the newest major before it has point releases.
 17. The minimum Clang / LLVM major the text backend supports today (B0).
 18. B2: build the LLVM module through builder calls, or write bitcode from FREAK.
 19. B3: Linux links the system C library, or ships musl for static executables.
 20. Whether any part of B5 (compiled-in passes, full debug information, JIT) is wanted, each on its own.
+
+## Tracked issues
+
+Open GitHub issues at revision 3.3 and the rows they belong to. The 0.15.1
+tracker #177 is V3 shipping work; it names the V4-only issues below as
+separately ranked and moves no row here.
+
+| Issue | What | Row |
+|---|---|---|
+| #139 | MIR snapshot restore exhausts array handles on valid multi-task input (repair `80520d5` reviewed, not on `main`) | Tier 2 Meiya and `freak_ty` memory rows |
+| #163 | Alias-route MIR snapshots fail validation for a clean program | Tier 3 routes |
+| #161 | Numeric-loop emission scaling under the resource limit | Tier 1 compile-time overhead |
+| #167 | `while` reservation after grouped multiline member separators | V3.5 lane `while` row |
+| #124 | Four inherited HIR snapshot and lookup P2 findings | A1 |
+| #148, PR #149 | Bind optional historical benchmark baselines to compiler provenance | Tier 4 performance lab |
+| #160 | Toolchain-manager dispatchers in the native Clang alias witness | Tier 8 (test tooling) |
+| #123 | Index `for` loops | V3.5 lane remaining syntax |
+| #104 | Enum-style surface for finite named values (needs design) | No row; candidate for decision 7 |
+| #116 | Bible 7.x API listings: implemented versus planned | Tier 8 docs sync |
+| #114 | Validate shipping V3 on Android Termux | Not a V4 row; keep distinct from tier 8 Linux arm64 |
+| #169 | Diagnostic voice packs in the shipping CLI (V3) | Tier 5 error voices follow it on V4 |
 
 ## Appendix: re-measuring the progress numbers
 
