@@ -18,6 +18,7 @@ from pathlib import Path
 import sys
 
 from v3_v35_acceptance import inventory, run_command, sha
+from windows_private_fixture import WindowsPrivateFixture
 
 
 PROGRAM = ('task main() { say "SYSTEM_TEMP_ADMISSION_OK"; '
@@ -102,6 +103,8 @@ def main() -> int:
     evidence = evidence.resolve(strict=True)
     root = evidence / 'fixtures'
     root.mkdir()
+    # Windows publication requires caller-private destination parents.
+    private = WindowsPrivateFixture(root)
     project = root / 'project'
     (project / 'src').mkdir(parents=True)
     (project / 'tests').mkdir()
@@ -111,6 +114,7 @@ def main() -> int:
     fixture_pins = inventory(project)
     physical = root / 'physical temp & parent'
     physical.mkdir()
+    private.claim_fresh_directories(project, project / 'src', project / 'tests', physical)
     (physical / 'sentinel').write_bytes(b'preserve temp parent\n')
     missing = root / 'absent-parent'
     regular = root / 'regular-parent'
