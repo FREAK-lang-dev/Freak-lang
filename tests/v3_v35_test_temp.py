@@ -170,8 +170,10 @@ def main() -> int:
             probe(freak, backend, 'physical', physical, passed=True, locked=False)
             for name, alias in aliases:
                 probe(freak, backend, name, alias, passed=True)
+            # Windows does not canonicalize the selected parent before creation.
             probe(freak, backend, 'absent-parent', missing, passed=False,
-                  failure='cannot canonicalize selected system temporary parent')
+                  failure='cannot create owned test output directory under selected parent'
+                  if os.name == 'nt' else 'cannot canonicalize selected system temporary parent')
             probe(freak, backend, 'regular-parent', regular, passed=False,
                   failure='cannot create owned test output directory under selected parent')
             if os.name == 'posix':
