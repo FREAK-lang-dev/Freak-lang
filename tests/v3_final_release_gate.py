@@ -974,6 +974,12 @@ def main() -> int:
         assert hashlib.sha256(archive.read_bytes()).hexdigest() == archive_hash
 
         isolated_env = isolated_runtime_env(root, install_env)
+        configured_clang = isolated_env.get("FREAK_CLANG", "clang")
+        diagnostic_clang = shutil.which(
+            configured_clang, path=isolated_env.get("PATH")
+        )
+        assert diagnostic_clang, f"Clang not found for diagnostic CLI gate: {configured_clang}"
+        diagnostic_clang = str(Path(diagnostic_clang).resolve(strict=True))
         assert_exact_installed_discovery(
             freak=installed_freak,
             hangar=installed_hangar,
@@ -1079,6 +1085,34 @@ def main() -> int:
             )
         )
         children += (
+            (
+                "diagnostic code data contracts",
+                [python, "-u", str(repo / "tests" / "v3_diagnostic_codes.py")],
+                240,
+            ),
+            (
+                "compiler diagnostic source facts",
+                [python, "-u", str(repo / "tests" / "v3_v35_diagnostic_facts.py"),
+                 "--compiler", str(direct), "--runtime", str(install_home / "runtime"),
+                 "--clang", diagnostic_clang,
+                 "--report", str(evidence / "diagnostic-facts.json")],
+                1200,
+            ),
+            (
+                "native diagnostic cast selector",
+                [python, "-u", str(repo / "tests" / "v3_v35_diagnostic_cast.py"),
+                 "--compiler", str(direct), "--runtime-root", str(install_home / "runtime"),
+                 "--report", str(evidence / "diagnostic-selector.json")],
+                1200,
+            ),
+            (
+                "installed diagnostic cast CLI",
+                [python, "-u", str(repo / "tests" / "v3_v35_diagnostic_cast_cli.py"),
+                 "--freak", str(installed_freak), "--payload-home", str(install_home),
+                 "--clang", diagnostic_clang,
+                 "--report", str(evidence / "diagnostic-cli.json")],
+                1200,
+            ),
             (
                 "HTTP parser input provenance",
                 [python, "-u", str(repo / "tests" / "test_v3_v35_http_inputs.py")],

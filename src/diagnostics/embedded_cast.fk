@@ -247,7 +247,7 @@ task diagnostic_cast_resource_line(index: int) -> word {
 task diagnostic_cast_embedded_egg(source: word, code: word) -> word {
     if source == "pilot = " and code == "E0001" { give back "Yuuko: That is not a binding. That is a cry for help with an equals sign." }
     if source == "pilot x: num = \"nope\"" and code == "E0002" { give back "Yuuko: A word in a num's clothing. Even I cannot grade this curve." }
-    if source == "task main() { missing(1, 2, 3) }" and code == "E0005" { give back "Hangar: You called a task that was never built. The hangar is empty." }
+    if source == "task main() \{ missing(1, 2, 3) \}" and code == "E0005" { give back "Hangar: You called a task that was never built. The hangar is empty." }
     if source == "pilot x = [1, 2, 3][99]" and code == "E0006" { give back "Cockpit: Index ninety-nine on a three-ship formation. Bold. Wrong." }
     if source == "for science, trust me" { give back "Ministry: Two anime prefixes walk into a compiler. Both are audited." }
     if source == "kill yourself" { give back "[FREAK] Request denied. // [FREAK] Compiler self-preservation policy remains enabled. // [MEIYA] You do not own this process. // [MINISTRY] No compiler termination operation has been authorized. // [YUUKO] Nice try." }

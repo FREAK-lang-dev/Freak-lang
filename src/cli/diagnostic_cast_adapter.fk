@@ -1,0 +1,33 @@
+-- Public CLI glue only. The standalone renderer has no compiler dependency.
+-- The dispatcher commits this setting only after every option is validated.
+pilot cli_requested_diagnostic_cast = "off"
+
+task cli_diagnostic_cast_parse_mode(requested: word, previous: word) -> word {
+    pilot mode = requested.to_lower()
+    if not cli_diagnostic_cast_mode_valid(mode + "") {
+        give back "error:--diagnostic-cast must be off, minimal, or normal"
+    }
+    if previous != "" and previous != mode {
+        give back "error:conflicting --diagnostic-cast flags"
+    }
+    give back mode
+}
+
+task cli_diagnostic_cast_emit_compiler_failure() -> void {
+    -- Default/off does not inspect facts, obtain platform identity, or hash.
+    -- Runtime, linker, project-admission and option failures have no coded
+    -- compiler facts; canonical output and the dispatcher's status survive.
+    if cli_requested_diagnostic_cast == "off" or error_count == 0 { give back }
+    pilot platform = process::platform_name()
+    pilot index = 0
+    repeat diag_fact_count() times {
+        pilot code = diag_fact_code(index)
+        if cli_diagnostic_cast_code_known(code + "") and diag_fact_source_known(index) {
+            pilot speaker = cli_diagnostic_cast_default_speaker(code + "")
+            say cli_diagnostic_cast_suffix(cli_requested_diagnostic_cast + "", CLI_VERSION + "", code,
+                diag_fact_file(index), diag_fact_line(index), diag_fact_column(index),
+                diag_fact_source(index), speaker, platform + "")
+        }
+        index += 1
+    }
+}

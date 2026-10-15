@@ -949,7 +949,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | Hayase | death-flag tier 3-4 | ❌ | 📖 V4 |
 | 00-Unit | causality divergence | ❌ | 📖 V4 |
 
-V3 diagnostic-code foundation (additive, checker-unwired): stable codes
+V3 diagnostic-code foundation with opt-in native CLI presentation: stable codes
 E0001 unknown binding, E0002 type mismatch, E0003 use after move, E0004
 immutable reassignment, E0005 invalid call, E0006 index out of bounds,
 E0007 numeric parse failure, E0008 numeric overflow, E0009 allocation
@@ -960,11 +960,13 @@ exact-invalid-source easter eggs, resource lines) are data-only JSON under
 `src/diagnostics/`; `selector.py` adds deterministic SHA-256 selection
 (version + code + file + line + column + source + speaker, mod pack count)
 with `off` (canonical byte-identical) / `minimal` / `normal` modes.
-Proof: `python -u tests/v3_diagnostic_codes.py` (13 checks). No existing
-diagnostic message changed; checker/emitter/parser/globals/CLI parsing
-untouched. Verdict stays 📖 V4 for routing; the `--diagnostic-cast`
-flag wiring is deferred to the lead at integration (hook: default `off`,
-post-pass `render()` presentation step only).
+Data proof: `python -u tests/v3_diagnostic_codes.py`. Native CLI
+`--diagnostic-cast=off|minimal|normal` is available for build/run/check/transpile,
+default off; it appends from known codes and captured source facts while
+preserving canonical blocks and exit status. Current sites cover
+E0001–E0005/E0007/E0008; the remaining entries are reserved data.
+Compiler facts, native selector and installed CLI have separate final archive
+gates. Full category routing and `--voice` remain V4.
 
 ---
 

@@ -90,7 +90,8 @@ def run(command, *, cwd, env=None, timeout=90):
 def good(command, *, cwd, env=None):
     completed = run(command, cwd=cwd, env=env)
     assert completed.returncode == 0 and not completed.stderr, (command, completed.returncode, completed.stdout, completed.stderr)
-    return completed.stdout
+    # Windows text-mode stdout ends each line with CRLF; the oracle is LF.
+    return completed.stdout.replace(b'\r\n', b'\n') if os.name == 'nt' else completed.stdout
 
 
 def key(**changes):
@@ -190,7 +191,7 @@ def corpus(binary, scratch, env, tests):
     # or Python selector runs in the native program.
     mappings = json.loads(zlib.decompress(base64.b85decode(EMBED.UNICODE_DATA)))
     unicode_text = 'aAzZ 123\n' + '|'.join(chr(point) for point,_ in mappings) + '|日本語 🛩'
-    source_path.write_text(unicode_text, encoding='utf-8')
+    source_path.write_bytes(unicode_text.encode('utf-8'))  # no Windows newline translation
     uppercase = good([binary, 'upper', source_path], cwd=scratch, env=env)
     assert uppercase == (unicode_text.upper().encode().hex()+'\n').encode()
     assert good([binary, 'defaults'], cwd=scratch, env=env) == b'off\nnormal\noff\noff\n'
@@ -227,7 +228,7 @@ def static_checks():
         fresh=run([sys.executable,generator,'--check'],cwd=replica)
         assert fresh.returncode==0, (fresh.stdout,fresh.stderr)
         generated=(replica/'src/diagnostics/embedded_cast.fk').read_bytes()
-        pack=replica/'src/diagnostics/packs/freak.json';payload=json.loads(pack.read_text())
+        pack=replica/'src/diagnostics/packs/freak.json';payload=json.loads(pack.read_text(encoding='utf-8'))
         payload['lines'][0]+=' stale control';pack.write_text(json.dumps(payload),encoding='utf-8')
         stale=run([sys.executable,generator,'--check'],cwd=replica)
         assert stale.returncode!=0 and b'stale' in stale.stderr, (stale.stdout,stale.stderr)
@@ -263,9 +264,9 @@ def main():
     evidence = dict(compiler_sha256=before[str(compiler)], pinned_input_sha256=before, clang=str(clang), clang_sha256=hashlib.sha256(clang.read_bytes()).hexdigest(), clang_version=version.stdout.decode().splitlines()[0], strict_borrow=True, ownership_audits=True, sanitize=args.sanitize, generation_freshness_failing_control=True, unicode_mapping_version=EMBED.UNICODE_VERSION, python_oracle_unicode_version=unicodedata.unidata_version, matrices=[])
     env = os.environ.copy(); env['ASAN_OPTIONS']='detect_leaks=1:halt_on_error=1'; env['UBSAN_OPTIONS']='halt_on_error=1'
     tests = cases()
-    body = (DATA/'embedded_cast.fk').read_text()+'\n'+(ROOT/'src/cli/diagnostic_cast.fk').read_text()+'\n'+PROGRAM
+    body = (DATA/'embedded_cast.fk').read_text(encoding='utf-8')+'\n'+(ROOT/'src/cli/diagnostic_cast.fk').read_text(encoding='utf-8')+'\n'+PROGRAM
     with tempfile.TemporaryDirectory(prefix='freak-diagnostic-cast-') as temporary:
-        scratch = Path(temporary); source = scratch/'selector.fk'; source.write_text(body)
+        scratch = Path(temporary); source = scratch/'selector.fk'; source.write_text(body, encoding='utf-8')
         if args.sanitize:
             control = scratch/'control.c'; control.write_text('#include <stdlib.h>\nint main(int n,char **v){volatile char *p=malloc(1);p[n+4]=3;free((void*)p);return 0;}\n')
             control_binary = scratch/'control'

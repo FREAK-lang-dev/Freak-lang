@@ -25,9 +25,11 @@ network access, or dynamic pack loading.
   modified here. Explicit mode `off` returns them byte-identical, including
   sized raw source words containing NUL. It performs no selection-key hashing
   or presentation-data lookup.
-- The CLI integration contract defaults to `normal` for interactive stdout
-  and `off` for redirected stdout and `--json`. An explicit `off` overrides
-  the terminal default. Cast text is never added to JSON output.
+- The native CLI accepts `--diagnostic-cast=off|minimal|normal` and defaults
+  to `off` for both interactive and redirected stdout. Enabled modes append
+  cast text only to mapped compiler failures with admitted original source
+  in `build`, `run`, `check` and `transpile`. Canonical diagnostics and exit
+  status are unchanged. Cast text is never added to JSON output.
 - Easter eggs replace the pack line only in `minimal`/`normal` mode and only
   on byte-exact match of a registered invalid source. Near-misses never fire.
 - Packs are data only: JSON with strings/lists/dicts, no code, no templates
@@ -41,9 +43,11 @@ column_n, source, speaker, platform) -> word` returns only the appended suffix.
 followed by that suffix. All ordinary `word` parameters transfer ownership;
 callers that retain a word pass an explicit owned clone such as `source + ""`.
 `cli_diagnostic_cast_mode_valid(mode)` validates the three modes, and
-`cli_diagnostic_cast_default_mode(is_json, is_terminal)` implements the terminal
-default without probing a terminal itself. Mode names accept ASCII case
-variants. Invalid modes must be rejected by the CLI before rendering.
+`cli_diagnostic_cast_default_mode(is_json, is_terminal)` exercises
+terminal-dependent policy in component fixtures; the native CLI does not call
+that helper and uses the explicit flag, always defaulting to `off`. Mode
+names accept ASCII case variants. Invalid modes are rejected by the CLI before
+rendering.
 
 Selection hashes the UTF-8 bytes of seven fields, separated by exactly six
 NUL bytes: compiler version, uppercase diagnostic code, source filename,
@@ -65,9 +69,13 @@ the compiler has already rejected that complete source, never on a valid
 program or a near-match.
 
 The compiler owns stable facts and canonical rendering. The CLI owns flag
-parsing, terminal detection, original source provenance, platform selection,
-and suppression for `--json`. This component gate proves selector behavior;
-it does not claim those separate integration hooks have executed.
+parsing, original source provenance, platform selection and suppression for
+`--json`. The pipeline maps E0001–E0005, E0007 and E0008; failures without a
+mapped code or admitted source retain canonical output without cast text.
+E0006, E0009 and E0010 remain reserved rather than automatically emitted by
+this pipeline. Full `--voice` routing remains V4 work. The component gate
+proves selector behavior; `tests/v3_v35_diagnostic_cast_cli.py` separately
+checks the integrated flag and failure hooks through an installed native CLI.
 
 Regenerate with `python tools/embed_diagnostic_cast.py`. Verify freshness and
 data with `python tests/v3_v35_diagnostic_cast.py --static`. Execute the native
