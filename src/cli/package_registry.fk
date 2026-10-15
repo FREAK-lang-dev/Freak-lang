@@ -201,8 +201,9 @@ task hangar_registry_error_text() -> word {
         if json_document::kind(doc, node) == 4 { message = json_document::string_word(doc, node) }
     }
     json_document::release(doc)
-    if message == "" { message = "HTTP " + word_from_int(hangar_registry_status) }
-    give back message
+    if message == "" { give back "HTTP " + word_from_int(hangar_registry_status) }
+    -- A bare server message such as "internal error" reads like a Hangar bug.
+    give back message + " (registry HTTP " + word_from_int(hangar_registry_status) + ")"
 }
 
 -- String field of the response's top-level object, or "".
