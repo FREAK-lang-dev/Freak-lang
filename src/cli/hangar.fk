@@ -7,7 +7,6 @@
 -- Uses git clone for package downloads (no zip handling needed).
 -- ===================================================================
 
-pilot HANGAR_DEFAULT_REGISTRY = "https://index.hangar.dev"
 pilot HANGAR_RELEASE_API_LATEST = "https://api.github.com/repos/FREAK-lang-dev/Freak-lang/releases/latest"
 pilot HANGAR_RELEASE_LATEST = "https://github.com/FREAK-lang-dev/Freak-lang/releases/latest"
 
@@ -2241,77 +2240,6 @@ task hangar_audit_admitted(project_dir: word, fix_mode: bool) -> int {
 
 -- ===================== HG3: LOGIN & PUBLISH ==========================
 
-task hangar_login() -> int {
-    say ""
-    say C_BMAGENTA + "  HANGAR LOGIN" + C_RESET
-    say ""
-    say "  Please enter your Hangar API token:"
-    pilot token: word = process::input()
-    if token == "" {
-        say "  Login cancelled."
-        give back 1
-    }
-
-    -- Store in ~/.hangar/credentials
-    pilot home_dir: word = process::env("HOME")
-    if home_dir == "" {
-        -- Windows fallback
-        home_dir = process::env("APPDATA") + "/freak"
-    }
-    pilot hangar_dir = home_dir + "/.hangar"
-    if fs::exists(hangar_dir) == false {
-        fs::make_dir(hangar_dir)
-    }
-    pilot creds_path = hangar_dir + "/credentials"
-    fs::write(creds_path, token)
-
-    say ""
-    say C_BGREEN + "  SUCCESS" + C_RESET + " Token stored in " + creds_path
-    say ""
-    give back 0
-}
-
-task hangar_publish(project_dir: word, dry_run: bool) -> int {
-    pilot manifest = project_dir + "/hangar.toml"
-    if fs::exists(manifest) == false {
-        say "  No hangar.toml found. Cannot publish."
-        give back 1
-    }
-
-    if not toml_load(manifest) {
-        say "  Invalid manifest " + manifest + ":" + word_from_int(toml_error_line) + ": " + toml_error
-        give back 1
-    }
-    pilot pname: word = toml_get("project.name")
-    pilot pver: word = toml_get("project.version")
-
-    if pname == "" or pver == "" {
-        say "  Invalid hangar.toml: name and version are required."
-        give back 1
-    }
-
-    say ""
-    say C_BMAGENTA + "  HANGAR PUBLISH" + C_RESET + " " + C_BWHITE + pname + C_RESET + " v" + pver
-    say ""
-
-    -- Dry run: show what would be included
-    if dry_run {
-        say C_DIM + "  [DRY RUN] Would include:" + C_RESET
-        say "    hangar.toml"
-        say "    src/"
-        if fs::exists(project_dir + "/README.md") { say "    README.md" }
-        if fs::exists(project_dir + "/LICENSE") { say "    LICENSE" }
-        say ""
-        say "  Dry run complete. No files uploaded."
-        give back 0
-    }
-
-    -- A transport exit code cannot establish registry acknowledgement. There
-    -- is no supported configured publication target in this native generation.
-    say "  Publication is unavailable: no supported configured target can acknowledge this package."
-    give back 1
-}
-
 task hangar_extract_colon(s: word, idx: int) -> word {
     pilot res = ""
     pilot cur_idx = 0
@@ -2336,6 +2264,267 @@ task hangar_extract_colon(s: word, idx: int) -> word {
     give back ""
 }
 
+-- ===================== GRAPH-AWARE PROJECT COMMANDS ==================
+-- `freak build` writes lock schema 2. Projects without a lock, or with a
+-- schema 2 lock, use these graph-aware writers; a legacy [[package]] lock
+-- keeps the legacy writers above.
+
+task hangar_project_uses_graph(project_dir: word) -> bool {
+    pilot lock = cli_host_path_join(project_dir, "hangar.lock")
+    if not fs::exists(lock) { give back true }
+    -- Unreadable or non-file locks stay with the legacy path, which reports them.
+    pilot read = fs::read_bytes_limit_ticket(lock, hangar_graph_manifest_limit)
+    if not fs::result_ok(read) {
+        fs::result_release(read)
+        give back false
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot text = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    give back valid and text.contains("lock.schema = 2")
+}
+
+task hangar_graph_summary(verb: word) -> int {
+    say ""
+    say C_BMAGENTA + "  HANGAR " + verb + C_RESET
+    say ""
+    pilot index = 1
+    repeat until index >= hangar_graph_count {
+        pilot kind = array_get(package_source_kinds, index)
+        pilot from = kind
+        if kind == "registry" { from = "registry" }
+        if kind == "local" { from = "path" }
+        say "  " + C_BGREEN + "+" + C_RESET + " " + array_get(hangar_graph_names, index) + " " + C_BWHITE + array_get(hangar_graph_versions, index) + C_RESET + C_DIM + "  (" + from + ")" + C_RESET
+        index += 1
+    }
+    if hangar_graph_count <= 1 { say "  No dependencies." }
+    say ""
+    say C_DIM + "  hangar.lock is up to date." + C_RESET
+    say ""
+    give back 0
+}
+
+task hangar_graph_failed(verb: word) -> int {
+    say "  " + verb + " failed: " + hangar_graph_error
+    package_release_graph()
+    give back 1
+}
+
+task hangar_graph_install(project_dir: word, update_name: word) -> int {
+    pilot manifest = cli_host_path_join(project_dir, "hangar.toml")
+    if not fs::exists(manifest) {
+        say "  No hangar.toml found. Run 'freak init' first."
+        give back 1
+    }
+    pilot valid = false
+    if update_name == "" {
+        package_configure_source_options(manifest, "", false, false, false)
+        valid = package_prepare_selected_manifest(manifest)
+    } else {
+        valid = package_prepare_graph(manifest, false, false, false, update_name)
+    }
+    if not valid {
+        if update_name == "" { give back hangar_graph_failed("Install") }
+        give back hangar_graph_failed("Update")
+    }
+    pilot verb = "INSTALL"
+    if update_name != "" { verb = "UPDATE" }
+    pilot status = hangar_graph_summary(verb)
+    package_release_graph()
+    give back status
+}
+
+-- Rewrite one dependency line in manifest text. line == "" removes it.
+-- Returns "" when removal finds nothing.
+task hangar_manifest_with_dependency(content: word, key: word, line: word) -> word {
+    pilot out = word_builder::new()
+    pilot in_deps = false
+    pilot saw_deps = false
+    pilot replaced = false
+    pilot start = 0
+    pilot i = 0
+    pilot length = content.length()
+    repeat until i > length {
+        if i == length or content.char_at(i) == "\n" {
+            pilot raw = content.substring(start, i - start)
+            pilot trimmed = raw.trim()
+            pilot keep = true
+            if trimmed.starts_with("[") {
+                if in_deps and not replaced and line != "" {
+                    word_builder::append(out, line + "\n")
+                    replaced = true
+                }
+                in_deps = trimmed == "[dependencies]"
+                if in_deps { saw_deps = true }
+            } else if in_deps {
+                pilot rest = ""
+                if trimmed.starts_with(key) { rest = trimmed.substring(key.length(), trimmed.length() - key.length()).trim() }
+                if rest.starts_with("=") {
+                    keep = false
+                    if line != "" and not replaced { word_builder::append(out, line + "\n") }
+                    replaced = true
+                }
+            }
+            if keep and not (i == length and raw == "") {
+                word_builder::append(out, raw)
+                if i < length { word_builder::append(out, "\n") }
+            }
+            start = i + 1
+        }
+        i += 1
+    }
+    pilot text = word_builder::finish(out)
+    if line == "" {
+        if not replaced { give back "" }
+        give back text
+    }
+    if in_deps and not replaced {
+        if not text.ends_with("\n") { text = text + "\n" }
+        give back text + line + "\n"
+    }
+    if not saw_deps {
+        if not text.ends_with("\n") { text = text + "\n" }
+        give back text + "\n[dependencies]\n" + line + "\n"
+    }
+    give back text
+}
+
+task hangar_graph_change(project_dir: word, key: word, line: word, update_name: word, verb: word) -> int {
+    pilot manifest = cli_host_path_join(project_dir, "hangar.toml")
+    if not fs::exists(manifest) {
+        say "  No hangar.toml found. Run 'freak init' first."
+        give back 1
+    }
+    pilot read = fs::read_bytes_limit_ticket(manifest, hangar_graph_manifest_limit)
+    if not fs::result_ok(read) {
+        say "  Cannot read " + manifest + ": " + fs::result_error(read)
+        fs::result_release(read)
+        give back 1
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot before = fs::sha256_bytes(bytes)
+    pilot content = bytes.to_word()
+    bytes.release()
+    pilot candidate = hangar_manifest_with_dependency(content, key, line)
+    if candidate == "" {
+        say "  " + key + " is not a dependency of this project."
+        give back 1
+    }
+    if not package_prepare_manifest_change(manifest, candidate, before, false, false, false, update_name) { give back hangar_graph_failed(verb) }
+    pilot status = hangar_graph_summary(verb.to_upper())
+    package_release_graph()
+    give back status
+}
+
+-- hangar add <name> [constraint] | <name> --path <dir> | <name> <git-url> [rev]
+task hangar_graph_add(project_dir: word, key: word, source: word, extra: word) -> int {
+    if not hangar_valid_package_name(key) {
+        say "  Invalid dependency name: " + key
+        give back 1
+    }
+    pilot line = ""
+    if source == "--path" {
+        if extra == "" { say "  Usage: hangar add <name> --path <dir>" give back 1 }
+        line = key + " = \{ path = \"" + extra + "\" \}"
+    } else if source.starts_with("https://") or source.starts_with("git@") or source.ends_with(".git") {
+        line = key + " = \{ git = \"" + source + "\""
+        if extra != "" and extra != "latest" { line = line + ", rev = \"" + extra + "\"" }
+        line = line + " \}"
+    } else {
+        pilot constraint = source
+        if constraint == "" or constraint == "latest" {
+            pilot scratch = hangar_registry_scratch(".add-")
+            if scratch == 0 { say "  " + hangar_registry_error give back 1 }
+            pilot newest = hangar_registry_select_version(key, "*", fs::result_word(scratch))
+            hangar_registry_discard(scratch)
+            if newest == "" { say "  " + hangar_registry_error give back 1 }
+            constraint = "^" + newest
+        }
+        line = key + " = \"" + constraint + "\""
+    }
+    give back hangar_graph_change(project_dir, key, line, hangar_registry_alias_for(key), "Add")
+}
+
+-- Replace `version = "..."` inside [project]; "" when there is none.
+task hangar_manifest_with_version(content: word, new_version: word) -> word {
+    pilot out = word_builder::new()
+    pilot in_project = false
+    pilot replaced = false
+    pilot start = 0
+    pilot i = 0
+    pilot length = content.length()
+    repeat until i > length {
+        if i == length or content.char_at(i) == "\n" {
+            pilot raw = content.substring(start, i - start)
+            pilot trimmed = raw.trim()
+            pilot emitted = false
+            if trimmed.starts_with("[") { in_project = trimmed == "[project]" }
+            else if in_project and not replaced and trimmed.starts_with("version") and trimmed.substring(7, trimmed.length() - 7).trim().starts_with("=") {
+                word_builder::append(out, "version = \"" + new_version + "\"")
+                replaced = true
+                emitted = true
+            }
+            if not emitted and not (i == length and raw == "") { word_builder::append(out, raw) }
+            if i < length and not (i == length and raw == "") { word_builder::append(out, "\n") }
+            start = i + 1
+        }
+        i += 1
+    }
+    pilot text = word_builder::finish(out)
+    if not replaced { give back "" }
+    give back text
+}
+
+task hangar_graph_version(project_dir: word, bump: word) -> int {
+    pilot manifest = cli_host_path_join(project_dir, "hangar.toml")
+    if not fs::exists(manifest) {
+        say "  No hangar.toml found. Run 'freak init' first."
+        give back 1
+    }
+    if not toml_load(manifest) {
+        say "  Invalid manifest " + manifest + ":" + word_from_int(toml_error_line) + ": " + toml_error
+        give back 1
+    }
+    pilot pname: word = toml_get("project.name")
+    pilot current: word = toml_get("project.version")
+    if bump == "" {
+        say "  " + C_BWHITE + pname + C_RESET + " " + C_BMAGENTA + "v" + current + C_RESET
+        give back 0
+    }
+    pilot parsed: word = ver_parse(current)
+    pilot new_ver = bump
+    if bump == "major" { new_ver = word_from_int(ver_major(parsed) + 1) + ".0.0" }
+    if bump == "minor" { new_ver = word_from_int(ver_major(parsed)) + "." + word_from_int(ver_minor(parsed) + 1) + ".0" }
+    if bump == "patch" { new_ver = word_from_int(ver_major(parsed)) + "." + word_from_int(ver_minor(parsed)) + "." + word_from_int(ver_patch(parsed) + 1) }
+    if new_ver != ver_to_string(ver_parse(new_ver)) {
+        say "  Not a semver version or bump: " + bump + " (use patch, minor, major or X.Y.Z)"
+        give back 1
+    }
+    pilot read = fs::read_bytes_limit_ticket(manifest, hangar_graph_manifest_limit)
+    if not fs::result_ok(read) {
+        say "  Cannot read " + manifest + ": " + fs::result_error(read)
+        fs::result_release(read)
+        give back 1
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot before = fs::sha256_bytes(bytes)
+    pilot content = bytes.to_word()
+    bytes.release()
+    pilot candidate = hangar_manifest_with_version(content, new_ver)
+    if candidate == "" {
+        say "  hangar.toml has no version line under [project]."
+        give back 1
+    }
+    if not package_prepare_manifest_change(manifest, candidate, before, false, false, false, "") { give back hangar_graph_failed("Version bump") }
+    package_release_graph()
+    say "  " + C_BWHITE + pname + C_RESET + " " + C_DIM + current + C_RESET + " -> " + C_BMAGENTA + new_ver + C_RESET
+    give back 0
+}
+
 -- ===================== MAIN DISPATCH ================================
 
 task hangar_dispatch(args_cnt: int) -> int {
@@ -2345,8 +2534,9 @@ task hangar_dispatch(args_cnt: int) -> int {
         say ""
         say C_BWHITE + "  COMMANDS" + C_RESET
         say C_BCYAN + "    init" + C_RESET + "                         " + C_DIM + "Create new project" + C_RESET
-        say C_BCYAN + "    add" + C_RESET + " <name> [constraint]       " + C_DIM + "Add dependency with version" + C_RESET
-        say C_BCYAN + "    add" + C_RESET + " <name> <repo> [version]  " + C_DIM + "Add dependency with git repo" + C_RESET
+        say C_BCYAN + "    add" + C_RESET + " <name> [constraint]       " + C_DIM + "Add a registry dependency (latest if omitted)" + C_RESET
+        say C_BCYAN + "    add" + C_RESET + " <name> --path <dir>      " + C_DIM + "Add a local path dependency" + C_RESET
+        say C_BCYAN + "    add" + C_RESET + " <name> <git-url> [rev]   " + C_DIM + "Add a Git dependency" + C_RESET
         say C_BCYAN + "    remove" + C_RESET + " <name>                " + C_DIM + "Remove dependency" + C_RESET
         say C_BCYAN + "    install" + C_RESET + "                      " + C_DIM + "Install all dependencies" + C_RESET
         say C_BCYAN + "    install freak" + C_RESET + "                " + C_DIM + "Install FREAK compiler" + C_RESET
@@ -2357,8 +2547,12 @@ task hangar_dispatch(args_cnt: int) -> int {
         say ""
         say C_BCYAN + "    audit" + C_RESET + "                        " + C_DIM + "Verify package integrity" + C_RESET
         say C_BCYAN + "    audit" + C_RESET + " --fix                 " + C_DIM + "Fix integrity issues" + C_RESET
-        say C_BCYAN + "    login" + C_RESET + "                        " + C_DIM + "Authenticate with registry" + C_RESET
+        say C_BCYAN + "    auth login" + C_RESET + "                   " + C_DIM + "Sign in to the registry (opens a device code)" + C_RESET
+        say C_BCYAN + "    auth status" + C_RESET + "                  " + C_DIM + "Show who you're signed in as" + C_RESET
+        say C_BCYAN + "    auth logout" + C_RESET + "                  " + C_DIM + "Revoke this machine's session" + C_RESET
         say C_BCYAN + "    publish" + C_RESET + " [--dry-run]          " + C_DIM + "Publish to registry" + C_RESET
+        say ""
+        say C_DIM + "  Registry: " + hangar_registry_base() + "  (set HANGAR_REGISTRY to change)" + C_RESET
         say ""
         give back 0
     }
@@ -2370,35 +2564,44 @@ task hangar_dispatch(args_cnt: int) -> int {
         if args_cnt >= 4 {
             project_dir = hangar_arg(3)
         }
+        if project_dir == "-h" or project_dir == "--help" {
+            say "Usage: hangar init [dir]"
+            say "  Create hangar.toml in dir (default: the current folder)."
+            say "  For a full project from a template: freak init <name> --template=cli|lib|http"
+            give back 0
+        }
+        if project_dir.starts_with("-") {
+            say "hangar init: unknown option " + project_dir + " (see: hangar init --help)"
+            give back 1
+        }
         give back hangar_init(project_dir)
     } else if subcmd == "add" {
         if args_cnt < 4 {
             say "Usage: hangar add <name> [constraint]"
-            say "       hangar add <name> <repo> [version]"
+            say "       hangar add <name> --path <dir>"
+            say "       hangar add <name> <git-url> [rev]"
             give back 1
         }
         pilot pkg: word = hangar_arg(3)
+        pilot source = ""
+        pilot extra = ""
+        if args_cnt >= 5 { source = hangar_arg(4) }
+        if args_cnt >= 6 { extra = hangar_arg(5) }
+        if hangar_project_uses_graph(project_dir) { give back hangar_graph_add(project_dir, pkg, source, extra) }
         if args_cnt == 4 {
             -- hangar add muvluv (no constraint, defaults to latest)
             give back hangar_add(project_dir, pkg, "", "latest")
         } else if args_cnt == 5 {
             -- Could be: hangar add muvluv ^1.0  OR  hangar add muvluv repo_url
-            pilot arg4: word = hangar_arg(4)
-            if arg4.starts_with("^") or arg4.starts_with("~") or arg4.starts_with("=") or arg4.starts_with(">") or arg4.starts_with("<") {
-                -- SemVer constraint: hangar add muvluv ^1.0
-                give back hangar_add(project_dir, pkg, "", arg4)
+            if source.starts_with("^") or source.starts_with("~") or source.starts_with("=") or source.starts_with(">") or source.starts_with("<") {
+                give back hangar_add(project_dir, pkg, "", source)
             } else {
-                -- Git repo: hangar add muvluv https://github.com/...
-                give back hangar_add(project_dir, pkg, arg4, "latest")
+                give back hangar_add(project_dir, pkg, source, "latest")
             }
         } else {
-            -- hangar add muvluv repo version
-            pilot repo: word = hangar_arg(4)
             pilot ver = "latest"
-            if args_cnt >= 6 {
-                ver = hangar_arg(5)
-            }
-            give back hangar_add(project_dir, pkg, repo, ver)
+            if extra != "" { ver = extra }
+            give back hangar_add(project_dir, pkg, source, ver)
         }
     } else if subcmd == "remove" {
         if args_cnt < 4 {
@@ -2406,6 +2609,7 @@ task hangar_dispatch(args_cnt: int) -> int {
             give back 1
         }
         pilot pkg2: word = hangar_arg(3)
+        if hangar_project_uses_graph(project_dir) { give back hangar_graph_change(project_dir, pkg2, "", "", "Remove") }
         give back hangar_remove(project_dir, pkg2)
     } else if subcmd == "install" {
         -- Check if "install freak" (toolchain bootstrap)
@@ -2415,11 +2619,16 @@ task hangar_dispatch(args_cnt: int) -> int {
                 give back hangar_install_freak()
             }
         }
+        if hangar_project_uses_graph(project_dir) { give back hangar_graph_install(project_dir, "") }
         give back hangar_install(project_dir)
     } else if subcmd == "update" {
         pilot update_pkg = ""
         if args_cnt >= 4 {
             update_pkg = hangar_arg(3)
+        }
+        if hangar_project_uses_graph(project_dir) {
+            if update_pkg == "" { update_pkg = "*" }
+            give back hangar_graph_install(project_dir, update_pkg)
         }
         give back hangar_update(project_dir, update_pkg)
     } else if subcmd == "outdated" {
@@ -2429,6 +2638,7 @@ task hangar_dispatch(args_cnt: int) -> int {
         if args_cnt >= 4 {
             bump = hangar_arg(3)
         }
+        if hangar_project_uses_graph(project_dir) { give back hangar_graph_version(project_dir, bump) }
         give back hangar_version_cmd(project_dir, bump)
     } else if subcmd == "audit" {
         pilot fix_mode = false
@@ -2437,15 +2647,27 @@ task hangar_dispatch(args_cnt: int) -> int {
             if arg3 == "--fix" { fix_mode = true }
         }
         give back hangar_audit(project_dir, fix_mode)
+    } else if subcmd == "auth" {
+        pilot action = "status"
+        if args_cnt >= 4 { action = hangar_arg(3) }
+        if action == "login" { give back hangar_auth_login() }
+        if action == "logout" { give back hangar_auth_logout() }
+        if action == "status" or action == "whoami" { give back hangar_auth_status() }
+        say "Usage: hangar auth login|status|logout"
+        give back 1
     } else if subcmd == "login" {
-        give back hangar_login()
+        give back hangar_auth_login()
+    } else if subcmd == "logout" {
+        give back hangar_auth_logout()
+    } else if subcmd == "whoami" {
+        give back hangar_auth_status()
     } else if subcmd == "publish" {
         pilot dry_run = false
         if args_cnt >= 4 {
             pilot arg3: word = hangar_arg(3)
             if arg3 == "--dry-run" { dry_run = true }
         }
-        give back hangar_publish(project_dir, dry_run)
+        give back hangar_registry_publish(project_dir, dry_run)
     } else {
         pilot msg = "Unknown hangar command: " + subcmd
         say msg

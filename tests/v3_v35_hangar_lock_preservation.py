@@ -364,12 +364,19 @@ def writer_version_controls(root: Path, invocation: tuple[str, Path, list[str]],
                                 f"{name}:version:non-file-journal")
     assert code == 1 and output == pending_message and snapshot(cwd) == before, output
     before = snapshot(diamond)
-    for bump in VERSION_BUMPS:
-        code, output = recorder.run([str(binary), *prefix, "version", bump], diamond, env,
-                                    f"{name}:version:graph-v2:{bump}")
-        assert code == 1 and output == (PREFIX +
-            "unsupported lock schema; expected legacy [[package]] records\n" + SUFFIX), output
-        assert snapshot(diamond) == before and report.read_bytes() == b"", output
+    # A lock v2 project bumps through the graph-aware writer; run it on a copy
+    # so the shared diamond fixture keeps its generation.
+    bumped = diamond.parent / f"{name}-version-graph-v2"
+    shutil.copytree(diamond, bumped)
+    private.claim_fresh_directories(bumped, *(path for path in bumped.rglob("*") if path.is_dir()))
+    current = tomllib.loads((bumped / "hangar.toml").read_text())["project"]["version"]
+    major, minor, patch = (int(part) for part in current.split("."))
+    code, output = recorder.run([str(binary), *prefix, "version", "patch"], bumped, env,
+                                f"{name}:version:graph-v2:patch")
+    assert code == 0, output
+    assert tomllib.loads((bumped / "hangar.toml").read_text())["project"]["version"] == f"{major}.{minor}.{patch + 1}", output
+    assert tomllib.loads((bumped / "hangar.lock").read_text())["lock"]["schema"] == 2, output
+    assert snapshot(diamond) == before and report.read_bytes() == b"", output
     manifest = tomllib.loads((diamond / "hangar.toml").read_text())["project"]
     code, output = recorder.run([str(binary), *prefix, "version"], diamond, env,
                                 f"{name}:version:graph-v2-display")
@@ -929,8 +936,11 @@ def init_effect_authority_controls(root: Path, invocation: tuple[str, Path, list
             for index, command in enumerate((*WRITERS, *(("version", bump) for bump in VERSION_BUMPS))):
                 code, output = recorder.run([str(binary), *prefix, *command], target, env,
                                             f"{name}:legacy-authority:permissive-Windows-parent-ACL:{int(retained_lock)}:{index}")
-                assert code == 1 and output == (WRITER_PREFIX + "cannot hold graph.lock: "
-                    "directory transaction lock requires a private owned directory\n"), output
+                # Without hangar.lock these route to the graph-aware writers,
+                # which refuse at the same private-directory boundary (or
+                # earlier, for a dependency the manifest does not declare).
+                assert code == 1 and ("requires a private owned directory" in output
+                                      or "is not a dependency of this project" in output), output
                 assert snapshot(target) == before and report.read_bytes() == b"", output
                 assert (state / "graph.lock").exists() == retained_lock
     print(f"native:{name}:init:owned-rollback-and-retained-files:preserved", flush=True)
@@ -995,9 +1005,26 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
     receipt["genuine_v2"] = {"schema": 2, "nodes": 4, "edges": 4,
                              "lock_sha256": sha(diamond / "hangar.lock"),
                              "snapshot": snapshot(diamond)}
-    for invocation in invocations:
-        rejected(diamond, invocation, recorder, env, report,
-                 "unsupported lock schema; expected legacy [[package]] records", "genuine-v2")
+    # A genuine lock v2 project is graph-owned: add/install/update/remove/version
+    # route to the graph-aware commands, while legacy-only audit/outdated still
+    # refuse it without touching project state.
+    legacy_only = (("audit",), ("audit", "--fix"), ("outdated",))
+    for name, binary, prefix in invocations:
+        lock_before = (diamond / "hangar.lock").read_bytes()
+        manifest_before = manifest.read_bytes()
+        code, output = recorder.run([str(binary), *prefix, "install"], diamond, env,
+                                    f"{name}:genuine-v2:graph-install")
+        assert code == 0, output
+        assert (diamond / "hangar.lock").read_bytes() == lock_before, output
+        assert manifest.read_bytes() == manifest_before and report.read_bytes() == b"", output
+        before = snapshot(diamond)
+        for index, args in enumerate(legacy_only):
+            code, output = recorder.run([str(binary), *prefix, *args], diamond, env,
+                                        f"{name}:genuine-v2:{index}")
+            assert code == 1, (args, code, output)
+            assert output == PREFIX + "unsupported lock schema; expected legacy [[package]] records\n" + SUFFIX, (args, output)
+            assert snapshot(diamond) == before and report.read_bytes() == b"", (args, output)
+        print(f"native:{name}:genuine-v2:graph-routed:{len(legacy_only)}", flush=True)
 
     cases = {
         "unknown-schema": (b"lock.schema = 99\n", "unsupported lock schema; expected legacy [[package]] records"),
