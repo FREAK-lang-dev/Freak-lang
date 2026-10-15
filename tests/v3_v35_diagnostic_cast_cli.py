@@ -134,7 +134,9 @@ def expected_suffix(selector, baseline, codes: tuple[str, ...], sources: dict[Pa
     newline = b"\r\n" if blocks and blocks[0][0].splitlines(keepends=True)[0].endswith(b"\r\n") else b"\n"
     suffix = bytearray()
     for (_, file, line, column), code in zip(blocks, codes):
-        path = Path(file).resolve(strict=True)
+        # Windows module provenance may carry the extended-length \\?\ prefix.
+        local = file[4:] if os.name == "nt" and file.startswith("\\\\?\\") else file
+        path = Path(local).resolve(strict=True)
         assert path in sources, ("diagnostic provenance escaped original source", path, list(sources))
         source = sources[path]
         assert path.read_text(encoding="utf-8") == source, "fixture source unexpectedly mutated"
