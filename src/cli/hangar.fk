@@ -223,6 +223,8 @@ task hangar_init_anchored(project: int, project_dir: word) -> int {
     toml_clear()
     toml_set("project.name", project_name)
     toml_set("project.version", "0.1.0")
+    toml_set("project.kind", "app")
+    toml_set("project.entry", "src/main.fk")
     pilot manifest: ByteBuffer = ByteBuffer::new()
     manifest.write_word(toml_render())
     pilot complete = hangar_init_checked(fs::write_relative_bytes_checked(stage, "hangar.toml", manifest), "cannot stage init manifest")
@@ -429,6 +431,8 @@ task hangar_init_admitted(project_dir: word) -> int {
     toml_clear()
     toml_set("project.name", project_name)
     toml_set("project.version", "0.1.0")
+    toml_set("project.kind", "app")
+    toml_set("project.entry", "src/main.fk")
     toml_write_file(manifest)
 
     -- Create src/main.fk
