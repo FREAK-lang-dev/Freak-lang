@@ -34,6 +34,47 @@ sys.exit(7 if sys.argv[3].startswith('bad-') else int(sys.argv[3]) if sys.argv[3
 
 
 class ComponentEvidence(unittest.TestCase):
+    def test_evidence_directory_retains_current_timeout_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            child_evidence = root / "child-evidence"
+            child_evidence.mkdir()
+            program = PROGRAM.replace("report = Path(sys.argv[2])",
+                                      "report = Path(sys.argv[2]) / 'report.json'")
+            with self.assertRaises(subprocess.TimeoutExpired):
+                run_child_gate(label="directory component", repo=root, cwd=root,
+                               env=os.environ.copy(), timeout=1,
+                               evidence_dir=root / "evidence",
+                               command=[sys.executable, "-u", "-c", program,
+                                        "--evidence-dir", str(child_evidence), "timeout"])
+            prefix = root / "evidence/components/directory-component"
+            record, = json.loads(prefix.with_suffix(".json").read_text())["records"]
+            self.assertTrue(record["timed_out"])
+            self.assertEqual(record["child_report"]["path"], str(child_evidence / "report.json"))
+            self.assertEqual(record["child_report"]["progress"]["fixture"], "fragmented-request")
+            self.assertEqual(record["child_report"]["completed_matrices"], 1)
+            self.assertIn(b"component-out", prefix.with_suffix(".stdout").read_bytes())
+            self.assertIn(b"component-err", prefix.with_suffix(".stderr").read_bytes())
+
+    def test_evidence_directory_quarantines_preceding_pass(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            child_evidence = root / "child-evidence"
+            child_evidence.mkdir()
+            report = child_evidence / "report.json"
+            stale = b'{"matrices":[{}],"progress":{"outcome":"passed"}}\n'
+            report.write_bytes(stale)
+            with self.assertRaisesRegex(AssertionError, "failed \\(7\\)"):
+                run_child_gate(label="directory component", repo=root, cwd=root,
+                               env=os.environ.copy(), timeout=1,
+                               evidence_dir=root / "evidence",
+                               command=[sys.executable, "-u", "-c", "import sys; sys.exit(7)",
+                                        "--evidence-dir", str(child_evidence)])
+            record, = json.loads((root / "evidence/components/directory-component.json").read_text())["records"]
+            self.assertEqual(record["child_report"]["unavailable"], "FileNotFoundError")
+            self.assertNotIn("progress", record["child_report"])
+            self.assertEqual(Path(record["previous_child_report"]["path"]).read_bytes(), stale)
+
     def test_prelaunch_report_is_preserved_without_becoming_current_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

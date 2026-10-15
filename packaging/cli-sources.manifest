@@ -19,6 +19,7 @@ src/cli/package_lock.fk
 src/cli/package_transaction.fk
 src/cli/package_sources.fk
 src/cli/package_binding.fk
+src/cli/runtime_cache.fk
 src/cli/build.fk
 src/cli/run.fk
 src/cli/test.fk

@@ -4,7 +4,7 @@
 -- Handles: freshness check, build when needed, then execute the binary.
 -- ===================================================================
 
-pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v7"
+pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v8"
 pilot CLI_RUN_UNHASHABLE = "<unhashable>"
 
 task cli_run_valid_sha256(token: word) -> bool {
@@ -187,6 +187,11 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     material = material + "|runtime-policy=" + runtime_policy + "|runtime-stats=" + runtime_stats + "|cross=" + cross + "|strict=" + strict_label
     material = material + "|clang=" + cli_run_clang_identity(clang_cmd)
     material = material + "|linker=" + cli_run_linker_identity(clang_cmd, lto, cross) + "|link-plan=" + link_plan
+    -- Qualified tools add the same actual runtime/header/SDK closure as the
+    -- object cache. Explicit legacy mode preserves the established fingerprint
+    -- for unsupported tools without claiming the stronger optional guarantee.
+    -- The mode marker prevents reuse across proven/legacy transitions.
+    material = material + "|runtime-context=" + cli_runtime_cache_run_context(clang_cmd, runtime_dir, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
     material = material + "|runtime-dir=" + runtime_dir
     if runtime_dir != "" {
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.c")

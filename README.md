@@ -532,7 +532,24 @@ FREAK is **self-hosting** — the compiler is written in FREAK itself.
     └──── C backend (--c flag) ────→ .fk.c ──────────→ native binary
 ```
 
-Both backends produce native binaries via Clang. The LLVM IR path supports cross-compilation (`--target=`) and optimization levels (`--opt=0/1/2/3`).
+Both backends produce native binaries via Clang. Build and run accept
+`--O0`, `--O1`, `--O2`, and `--O3` for optimization, `--flto` for full LTO,
+and `--tlto` for thin LTO. The existing `--opt=0..3` and `--lto=off/thin/full`
+flags remain supported. The LLVM IR path supports cross-compilation
+(`--target=`); cross builds require `--lto=off`.
+
+Source builds can reuse verified runtime object files across programs while
+compiling user code and linking afresh. Reuse requires a complete compiler,
+support-library, runtime, and header context, and a private cache directory.
+Unavailable, unsafe, busy, or unsupported caches fall back to source builds.
+Set `FREAK_RUNTIME_CACHE=off` to disable runtime-object reuse.
+
+The existing complete-program `run` cache remains available. With a proven
+runtime context, it also detects SDK and included-header changes. Unsupported
+tool contexts retain the previous source, package, compiler, linker, and binary
+freshness checks; this fallback does not add guarantees for SDK changes or
+hidden wrapper dependencies. Windows DLL closures and macOS shared-cache
+libraries remain conservative boundaries for runtime-object reuse.
 
 ---
 

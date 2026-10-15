@@ -1,0 +1,789 @@
+-- Shared runtime translation-unit objects. User code and final links are never
+-- cached here. Directory tickets own reads/publication; Clang uses fresh private
+-- stages under the existing boundary excluding arbitrary same-user tampering.
+pilot CLI_RUNTIME_CACHE_SCHEMA = "freak-runtime-object-v1"
+pilot CLI_RUNTIME_CACHE_FILE_LIMIT = 67108864
+pilot CLI_RUNTIME_CACHE_META_LIMIT = 1048576
+pilot CLI_RUNTIME_CACHE_DEP_LIMIT = 4096
+pilot mut cli_runtime_cache_profile = "o0"
+pilot mut cli_runtime_cache_policy = "default"
+pilot mut cli_runtime_cache_stats = "off"
+pilot mut cli_runtime_cache_context_ready = false
+pilot mut cli_runtime_cache_tool_complete = false
+pilot mut cli_runtime_cache_paths = 0
+pilot mut cli_runtime_cache_hashes = 0
+
+task cli_runtime_cache_field(value: word) -> word {
+    -- Length framing is unambiguous even for newlines and delimiter characters.
+    give back word_from_int(value.length()) + ":" + value
+}
+
+task cli_runtime_cache_find(text: word, pattern: word) -> int {
+    pilot index = 0
+    repeat until index + pattern.length() > text.length() {
+        if text.substring(index, pattern.length()) == pattern { give back index }
+        index += 1
+    }
+    give back -1
+}
+
+task cli_runtime_cache_digest(value: word) -> word {
+    pilot bytes: ByteBuffer = ByteBuffer::with_capacity(value.length())
+    bytes.write_word(value)
+    pilot hash = ""
+    if bytes.status() == 0 { hash = fs::sha256_bytes(bytes) }
+    bytes.release()
+    give back hash
+}
+
+task cli_runtime_cache_note(event: word, unit: word, key: word) -> void {
+    if process::env("FREAK_RUNTIME_CACHE_TRACE") == "1" {
+        say "FREAK_RUNTIME_CACHE " + event + " " + unit + " " + key
+    }
+}
+
+task cli_runtime_cache_reset() -> void {
+    if cli_runtime_cache_paths != 0 { array_release(cli_runtime_cache_paths) }
+    if cli_runtime_cache_hashes != 0 { array_release(cli_runtime_cache_hashes) }
+    cli_runtime_cache_paths = array_new()
+    cli_runtime_cache_hashes = array_new()
+}
+
+task cli_runtime_cache_release() -> void {
+    if cli_runtime_cache_paths != 0 { array_release(cli_runtime_cache_paths) }
+    if cli_runtime_cache_hashes != 0 { array_release(cli_runtime_cache_hashes) }
+    cli_runtime_cache_paths = 0
+    cli_runtime_cache_hashes = 0
+}
+
+task cli_runtime_cache_hash_file(path: word, hash_tool: word, use_shasum: bool) -> word {
+    -- Large compiler support images are streamed by the platform hash tool;
+    -- dependency/snapshot/object reads below retain explicit byte bounds.
+    if cli_is_windows() { give back cli_run_windows_file_sha256(path) }
+    if hash_tool == "" { give back "" }
+    pilot command = process::command_new(hash_tool)
+    if use_shasum {
+        process::command_arg(command, "-a")
+        process::command_arg(command, "256")
+    }
+    process::command_arg(command, "--")
+    process::command_arg(command, path)
+    give back cli_run_sha256_from_output(cli_tool_capture(command, false))
+}
+
+task cli_runtime_cache_canonical(path: word) -> word {
+    pilot cache_outcome = fs::canonical_path(path)
+    pilot canonical = ""
+    if fs::result_ok(cache_outcome) { canonical = fs::result_word(cache_outcome) }
+    fs::result_release(cache_outcome)
+    give back canonical
+}
+
+task cli_runtime_cache_absolute_hash_tool(path: word) -> word {
+    if path == "" { give back "" }
+    pilot absolute = path
+    if not absolute.starts_with("/") {
+        pilot cwd = cli_current_dir()
+        if cwd == "" { give back "" }
+        absolute = cli_host_path_join(cwd, path)
+    }
+    -- Validate the target without changing the selected argv[0]. A symlink
+    -- named sha256sum may select a multicall applet through that basename.
+    if cli_runtime_cache_canonical(absolute) == "" { give back "" }
+    give back absolute
+}
+
+task cli_runtime_cache_raw_pin(path: word, retain: bool) -> word {
+    pilot canonical = cli_runtime_cache_canonical(path)
+    if canonical == "" { give back "" }
+    pilot cache_outcome = fs::read_bytes_limit_ticket(canonical, CLI_RUNTIME_CACHE_FILE_LIMIT)
+    if not fs::result_ok(cache_outcome) { fs::result_release(cache_outcome) give back "" }
+    pilot bytes: ByteBuffer = fs::result_bytes(cache_outcome)
+    fs::result_release(cache_outcome)
+    pilot digest = ""
+    if bytes.status() == 0 { digest = fs::sha256_bytes(bytes) }
+    bytes.release()
+    if digest == "" { give back "" }
+    pilot pin = cli_runtime_cache_field(canonical) + cli_runtime_cache_field(digest)
+    if retain {
+        -- Retain the logical Clang dependency too. Re-resolving it detects a
+        -- header symlink retargeted while compiling the admitted snapshot.
+        array_push(cli_runtime_cache_paths, path)
+        array_push(cli_runtime_cache_hashes, pin)
+    }
+    give back pin
+}
+
+task cli_runtime_cache_inputs_stable() -> bool {
+    pilot index = 0
+    repeat until index >= array_len(cli_runtime_cache_paths) {
+        pilot pin = cli_runtime_cache_raw_pin(array_get(cli_runtime_cache_paths, index), false)
+        pilot expected = array_get(cli_runtime_cache_hashes, index)
+        if pin == "" or pin != expected { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task cli_runtime_cache_environment() -> word {
+    pilot names = "PATH|CPATH|C_INCLUDE_PATH|CPLUS_INCLUDE_PATH|OBJC_INCLUDE_PATH|SDKROOT|MACOSX_DEPLOYMENT_TARGET|INCLUDE|LIB|LIBPATH|SystemRoot|TMPDIR|TEMP|CCC_OVERRIDE_OPTIONS|CCC_ADD_ARGS|CLANG_CONFIG_FILE_USER_DIR|CLANG_CONFIG_FILE_SYSTEM_DIR|CLANG_NO_DEFAULT_CONFIG|LD_LIBRARY_PATH|LD_PRELOAD|LD_AUDIT|DYLD_LIBRARY_PATH|DYLD_FALLBACK_LIBRARY_PATH|DYLD_INSERT_LIBRARIES|SOURCE_DATE_EPOCH|ZERO_AR_DATE"
+    pilot material = ""
+    pilot name = ""
+    pilot index = 0
+    repeat until index > names.length() {
+        pilot ch = "|"
+        if index < names.length() { ch = names.char_at(index) }
+        if ch == "|" {
+            pilot value = process::env(name)
+            if value.length() > 65536 { give back "" }
+            material = material + cli_runtime_cache_field(name) + cli_runtime_cache_field(value)
+            name = ""
+        } else { name = name + ch }
+        index += 1
+    }
+    give back material
+}
+
+task cli_runtime_cache_support_pin(path: word, hash_tool: word, use_shasum: bool) -> word {
+    pilot canonical = cli_runtime_cache_canonical(path)
+    if canonical == "" { give back "" }
+    pilot digest = cli_runtime_cache_hash_file(canonical, hash_tool, use_shasum)
+    if digest == "" { give back "" }
+    give back cli_runtime_cache_field(canonical) + cli_runtime_cache_field(digest)
+}
+
+task cli_runtime_cache_linux_support(executable: word, hash_tool: word, use_shasum: bool) -> word {
+    -- ldd reports the selected ELF loader's transitive closure. Reject every
+    -- unresolved/unrecognized row, injected preload/audit code, or failed probe.
+    if process::env("LD_PRELOAD") != "" or process::env("LD_AUDIT") != "" { give back "" }
+    pilot utility = cli_run_resolve_program("ldd")
+    if utility == "" { give back "" }
+    pilot command = process::command_new(utility)
+    process::command_arg(command, executable)
+    pilot text = cli_tool_capture(command, false)
+    if text == "" or cli_tool_capture_problem != "" { give back "" }
+    pilot material = ""
+    pilot line = ""
+    pilot count = 0
+    pilot index = 0
+    repeat until index > text.length() {
+        pilot ch = "\n"
+        if index < text.length() { ch = text.char_at(index) }
+        if ch == "\n" {
+            pilot row = line.trim()
+            if row != "" {
+                if row.starts_with("linux-vdso.so.") or row.starts_with("linux-gate.so.") {
+                    -- Kernel-provided objects contain no compiler code.
+                } else {
+                    pilot path = row
+                    pilot arrow = cli_runtime_cache_find(row, " => ")
+                    if arrow >= 0 { path = row.substring(arrow + 4, row.length() - arrow - 4) }
+                    pilot end = cli_runtime_cache_find(path, " (")
+                    if end < 0 { give back "" }
+                    path = path.substring(0, end).trim()
+                    if not path.starts_with("/") { give back "" }
+                    pilot pin = cli_runtime_cache_support_pin(path, hash_tool, use_shasum)
+                    if pin == "" { give back "" }
+                    material = material + pin
+                    count += 1
+                    if count > 512 { give back "" }
+                }
+            }
+            line = ""
+        } else { line = line + ch }
+        index += 1
+    }
+    if count == 0 { give back "" }
+    give back material
+}
+
+task cli_runtime_cache_dyld_plain() -> bool {
+    pilot names = "DYLD_INSERT_LIBRARIES|DYLD_LIBRARY_PATH|DYLD_FALLBACK_LIBRARY_PATH|DYLD_FRAMEWORK_PATH|DYLD_FALLBACK_FRAMEWORK_PATH|DYLD_VERSIONED_LIBRARY_PATH|DYLD_VERSIONED_FRAMEWORK_PATH|DYLD_ROOT_PATH|DYLD_IMAGE_SUFFIX|DYLD_FORCE_FLAT_NAMESPACE"
+    pilot name = ""
+    pilot index = 0
+    repeat until index > names.length() {
+        pilot ch = "|"
+        if index < names.length() { ch = names.char_at(index) }
+        if ch == "|" {
+            if process::env(name) != "" { give back false }
+            name = ""
+        } else { name = name + ch }
+        index += 1
+    }
+    give back true
+}
+
+task cli_runtime_cache_macos_support(executable: word, hash_tool: word, use_shasum: bool) -> word {
+    -- Only fully resolved absolute dylib closures qualify initially. @rpath,
+    -- shared-cache-only images and injected libraries conservatively miss.
+    if not cli_runtime_cache_dyld_plain() { give back "" }
+    pilot utility = cli_run_resolve_program("otool")
+    if utility == "" { give back "" }
+    pilot pending = array_new()
+    array_push(pending, executable)
+    pilot material = ""
+    pilot valid = true
+    pilot position = 0
+    repeat until position >= array_len(pending) or not valid {
+        pilot command = process::command_new(utility)
+        process::command_arg(command, "-L")
+        process::command_arg(command, array_get(pending, position))
+        pilot text = cli_tool_capture(command, false)
+        if text == "" or cli_tool_capture_problem != "" { valid = false }
+        pilot line = ""
+        pilot row_index = 0
+        pilot index = 0
+        repeat until index > text.length() or not valid {
+            pilot ch = "\n"
+            if index < text.length() { ch = text.char_at(index) }
+            if ch == "\n" {
+                pilot row = line.trim()
+                if row_index > 0 and row != "" {
+                    pilot end = cli_runtime_cache_find(row, " (compatibility version ")
+                    if end < 0 { valid = false } else {
+                        pilot path = row.substring(0, end)
+                        if not path.starts_with("/") { valid = false } else {
+                            path = cli_runtime_cache_canonical(path)
+                            if path == "" { valid = false } else {
+                                pilot found = false
+                                pilot prior = 0
+                                repeat until prior >= array_len(pending) {
+                                    if array_get(pending, prior) == path { found = true }
+                                    prior += 1
+                                }
+                                if not found {
+                                    pilot pin = cli_runtime_cache_support_pin(path, hash_tool, use_shasum)
+                                    if pin == "" { valid = false } else { material = material + pin array_push(pending, path) }
+                                }
+                            }
+                        }
+                    }
+                }
+                row_index += 1
+                line = ""
+            } else { line = line + ch }
+            index += 1
+        }
+        if array_len(pending) > 512 { valid = false }
+        position += 1
+    }
+    array_release(pending)
+    if not valid or material == "" { give back "" }
+    give back material
+}
+
+task cli_runtime_cache_tool_identity(executable: word) -> word {
+    cli_runtime_cache_tool_complete = false
+    pilot resolved = cli_runtime_cache_canonical(cli_run_resolve_program(executable))
+    if resolved == "" { give back "" }
+    -- Resolve the SHA utility once for this fresh identity pass. Every image
+    -- still receives its own raw-byte hash, including every later admission
+    -- pass; no utility selection or content identity survives this call.
+    pilot hash_tool = ""
+    pilot use_shasum = false
+    if not cli_is_windows() {
+        hash_tool = cli_run_resolve_program("sha256sum")
+        if hash_tool == "" {
+            hash_tool = cli_run_resolve_program("shasum")
+            use_shasum = true
+        }
+        hash_tool = cli_runtime_cache_absolute_hash_tool(hash_tool)
+        if hash_tool == "" { give back "" }
+    }
+    pilot pin = cli_runtime_cache_support_pin(resolved, hash_tool, use_shasum)
+    pilot version = cli_run_tool_version(resolved, false)
+    if pin == "" or version == "" { give back "" }
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "-print-resource-dir")
+    pilot resource = cli_first_line(cli_tool_capture(command, false)).trim()
+    if resource == "" or cli_tool_capture_problem != "" { give back "" }
+    command = process::command_new(executable)
+    process::command_arg(command, "-dumpmachine")
+    pilot triple = cli_first_line(cli_tool_capture(command, false)).trim()
+    if triple == "" or cli_tool_capture_problem != "" { give back "" }
+    pilot environment = cli_runtime_cache_environment()
+    if environment == "" { give back "" }
+    pilot support = ""
+    if not cli_is_windows() {
+        if cli_is_macos() { support = cli_runtime_cache_macos_support(resolved, hash_tool, use_shasum) }
+        else { support = cli_runtime_cache_linux_support(resolved, hash_tool, use_shasum) }
+    }
+    -- Unknown Windows DLL loading, static ELF probes, and unresolved macOS
+    -- closures disable reuse. They never reject an otherwise supported build.
+    if support != "" { cli_runtime_cache_tool_complete = true }
+    give back cli_runtime_cache_field(executable) + pin + cli_runtime_cache_field(version) + cli_runtime_cache_field(resource) + cli_runtime_cache_field(triple) + cli_runtime_cache_field(environment) + cli_runtime_cache_field(support)
+}
+
+task cli_runtime_cache_private(directory: int) -> bool {
+    pilot lock = fs::lock_dir_ticket(directory, "ownership.lock")
+    pilot valid = fs::result_ok(lock)
+    fs::result_release(lock)
+    give back valid
+}
+
+task cli_runtime_cache_directory(parent: int, leaf: word, private: bool) -> int {
+    pilot directory = fs::open_relative_dir_ticket(parent, leaf)
+    if fs::result_ok(directory) {
+        if not private or cli_runtime_cache_private(directory) { give back directory }
+        fs::result_release(directory)
+        give back 0
+    }
+    pilot absent = fs::result_missing(directory)
+    fs::result_release(directory)
+    if not absent { give back 0 }
+    directory = fs::temp_dir_ticket(parent, "freak-cache-root")
+    if not fs::result_ok(directory) { fs::result_release(directory) give back 0 }
+    pilot published = fs::publish_temp_dir_checked(directory, parent, leaf)
+    pilot complete = fs::result_completed(published)
+    pilot valid = fs::result_ok(published)
+    fs::result_release(published)
+    if valid { give back directory }
+    if not complete {
+        pilot removed = fs::remove_temp_dir_checked(directory)
+        fs::result_release(removed)
+    }
+    fs::result_release(directory)
+    -- An overlapping initializer may have won. Reopen and validate only;
+    -- never remove or replace the occupied destination.
+    directory = fs::open_relative_dir_ticket(parent, leaf)
+    if fs::result_ok(directory) {
+        if not private or cli_runtime_cache_private(directory) { give back directory }
+    }
+    fs::result_release(directory)
+    give back 0
+}
+
+task cli_runtime_cache_root() -> int {
+    pilot parent_path = ""
+    pilot components = array_new()
+    if cli_is_windows() {
+        parent_path = process::env("LOCALAPPDATA")
+        array_push(components, "freak")
+        array_push(components, "cache")
+    } else if cli_is_macos() {
+        parent_path = process::env("HOME")
+        array_push(components, "Library")
+        array_push(components, "Caches")
+        array_push(components, "freak")
+    } else {
+        parent_path = process::env("XDG_CACHE_HOME")
+        if parent_path == "" or not cli_output_path_absolute(parent_path) {
+            parent_path = process::env("HOME")
+            array_push(components, ".cache")
+        }
+        array_push(components, "freak")
+    }
+    array_push(components, "runtime-v1")
+    if not cli_output_path_absolute(parent_path) { array_release(components) give back 0 }
+    pilot directory = fs::open_dir_ticket(parent_path)
+    if not fs::result_ok(directory) { fs::result_release(directory) array_release(components) give back 0 }
+    pilot index = 0
+    repeat until index >= array_len(components) {
+        pilot leaf = array_get(components, index)
+        pilot next = cli_runtime_cache_directory(directory, leaf, leaf == "freak" or leaf == "runtime-v1" or leaf == "cache")
+        fs::result_release(directory)
+        if next == 0 { array_release(components) give back 0 }
+        directory = next
+        index += 1
+    }
+    array_release(components)
+    if not cli_runtime_cache_private(directory) { fs::result_release(directory) give back 0 }
+    give back directory
+}
+
+task cli_runtime_cache_stage() -> int {
+    pilot parent_path = process::env("TMPDIR")
+    if cli_is_windows() {
+        parent_path = process::env("TEMP")
+        if parent_path == "" { parent_path = process::env("TMP") }
+    } else if parent_path == "" { parent_path = "/tmp" }
+    if not cli_output_path_absolute(parent_path) { give back 0 }
+    -- Ordinary system temp aliases (macOS /var) are canonicalized once. The
+    -- resulting parent and the exclusively created child are then held.
+    parent_path = cli_runtime_cache_canonical(parent_path)
+    if parent_path == "" { give back 0 }
+    pilot parent = fs::open_dir_ticket(parent_path)
+    if not fs::result_ok(parent) { fs::result_release(parent) give back 0 }
+    pilot stage = fs::temp_dir_ticket(parent, "freak-runtime-build")
+    fs::result_release(parent)
+    if not fs::result_ok(stage) { fs::result_release(stage) give back 0 }
+    give back stage
+}
+
+task cli_runtime_cache_cleanup(stage: int) -> void {
+    if stage == 0 { give back }
+    pilot removed = fs::remove_temp_dir_checked(stage)
+    if not fs::result_ok(removed) {
+        -- Cleanup is secondary and never replaces a tool's original failure.
+        say "  Runtime cache stage cleanup failed: " + fs::result_error(removed)
+    }
+    fs::result_release(removed)
+    fs::result_release(stage)
+}
+
+task cli_runtime_cache_ui(runtime_dir: word, cross: word) -> bool {
+    give back cli_link_is_windows(cross) and fs::exists(runtime_dir + "/ui/win32_backend.c")
+}
+
+task cli_runtime_cache_units(runtime_dir: word, target: word, cross: word) -> int {
+    pilot units = array_new()
+    if target == "llvm" { array_push(units, "freak_llvm_runtime.c") }
+    array_push(units, "freak_runtime.c")
+    if cli_runtime_cache_ui(runtime_dir, cross) { array_push(units, "ui/win32_backend.c") }
+    give back units
+}
+
+task cli_runtime_cache_stem(unit: word) -> word {
+    if unit == "freak_runtime.c" { give back "common" }
+    if unit == "freak_llvm_runtime.c" { give back "llvm" }
+    give back "ui"
+}
+
+task cli_runtime_cache_compile_args(command: int, input: word, output: word, runtime_dir: word, opt: word, lto: word, cross: word, ui: bool, snapshot: bool) -> void {
+    process::command_arg(command, "-c")
+    if snapshot {
+        process::command_arg(command, "-x")
+        process::command_arg(command, "cpp-output")
+    }
+    cli_build_common_args(command, output, input, runtime_dir, opt, cross)
+    cli_build_lto_args(command, lto)
+    if ui { process::command_arg(command, "-DFREAK_HAS_UI") }
+}
+
+task cli_runtime_cache_preprocess(executable: word, source: word, stage: int, stem: word, runtime_dir: word, opt: word, lto: word, cross: word, ui: bool) -> bool {
+    pilot path = fs::result_word(stage)
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "-E")
+    process::command_arg(command, "-MD")
+    process::command_arg(command, "-MF")
+    process::command_arg(command, cli_host_path_join(path, stem + ".d"))
+    process::command_arg(command, "-MT")
+    process::command_arg(command, "freak-cache")
+    cli_build_common_args(command, cli_host_path_join(path, stem + ".i"), source, runtime_dir, opt, cross)
+    cli_build_lto_args(command, lto)
+    if ui { process::command_arg(command, "-DFREAK_HAS_UI") }
+    give back cli_build_command(command, "runtime preprocessing")
+}
+
+task cli_runtime_cache_read_text(directory: int, name: word) -> word {
+    pilot cache_outcome = fs::read_relative_bytes_limit_ticket(directory, name, CLI_RUNTIME_CACHE_META_LIMIT)
+    if not fs::result_ok(cache_outcome) { fs::result_release(cache_outcome) give back "" }
+    pilot bytes: ByteBuffer = fs::result_bytes(cache_outcome)
+    fs::result_release(cache_outcome)
+    pilot text = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    if not valid { give back "" }
+    give back text
+}
+
+task cli_runtime_cache_dependencies(text: word, retain: bool) -> word {
+    -- -MT fixes the target spelling, so drive-colons never act as separators.
+    -- Decode Make continuations, quoted whitespace/#/colon/backslashes and $$.
+    if not text.starts_with("freak-cache:") or text.length() > CLI_RUNTIME_CACHE_META_LIMIT { give back "" }
+    pilot material = ""
+    pilot token = ""
+    pilot count = 0
+    pilot index = 12
+    repeat until index > text.length() {
+        pilot ch = " "
+        if index < text.length() { ch = text.char_at(index) }
+        if ch == "\\" {
+            if index + 1 >= text.length() { give back "" }
+            pilot next = text.char_at(index + 1)
+            if next == "\n" { index += 1 }
+            else if next == "\r" and index + 2 < text.length() and text.char_at(index + 2) == "\n" { index += 2 }
+            else if next == " " or next == "\t" or next == "#" or next == ":" or next == "\\" {
+                token = token + next
+                index += 1
+            } else if cli_is_windows() { token = token + "\\" }
+            else { give back "" }
+        } else if ch == "$" {
+            if index + 1 >= text.length() or text.char_at(index + 1) != "$" { give back "" }
+            token = token + "$"
+            index += 1
+        } else if ch == "#" { give back "" }
+        else if ch == " " or ch == "\t" or ch == "\n" or ch == "\r" {
+            if token != "" {
+                count += 1
+                if count > CLI_RUNTIME_CACHE_DEP_LIMIT { give back "" }
+                pilot pin = cli_runtime_cache_raw_pin(token, retain)
+                if pin == "" { give back "" }
+                material = material + pin
+                if material.length() > CLI_RUNTIME_CACHE_META_LIMIT { give back "" }
+                token = ""
+            }
+        } else { token = token + ch }
+        index += 1
+    }
+    if count == 0 { give back "" }
+    give back material
+}
+
+task cli_runtime_cache_snapshot_hash(directory: int, stem: word) -> word {
+    pilot cache_outcome = fs::read_relative_bytes_limit_ticket(directory, stem + ".i", CLI_RUNTIME_CACHE_FILE_LIMIT)
+    if not fs::result_ok(cache_outcome) { fs::result_release(cache_outcome) give back "" }
+    pilot bytes: ByteBuffer = fs::result_bytes(cache_outcome)
+    fs::result_release(cache_outcome)
+    pilot digest = ""
+    if bytes.status() == 0 and bytes.length() > 0 { digest = fs::sha256_bytes(bytes) }
+    bytes.release()
+    give back digest
+}
+
+task cli_runtime_cache_trace_cc1(trace: word, driver: word) -> bool {
+    pilot cc1 = ""
+    pilot compiler_commands = 0
+    pilot line = ""
+    pilot index = 0
+    repeat until index > trace.length() {
+        pilot ch = "\n"
+        if index < trace.length() { ch = trace.char_at(index) }
+        if ch == "\n" {
+            if line.trim().starts_with("\"") {
+                -- External assemblers and other subprocesses need their own
+                -- support closure. Until it is proved, retain source builds.
+                compiler_commands += 1
+                if not line.contains("\"-cc1\"") { give back false }
+                cc1 = cli_trace_executable_token(line)
+            }
+            line = ""
+        } else { line = line + ch }
+        index += 1
+    }
+    give back compiler_commands == 1 and cc1 != "" and cli_runtime_cache_canonical(cc1) == driver
+}
+
+task cli_runtime_cache_prepare(executable: word, tool: word, unit: word, stage: int, stem: word, runtime_dir: word, opt: word, lto: word, cross: word, ui: bool) -> word {
+    pilot source = runtime_dir + "/" + unit
+    pilot before = cli_runtime_cache_raw_pin(source, false)
+    if before == "" { give back "" }
+    if not cli_runtime_cache_preprocess(executable, source, stage, stem, runtime_dir, opt, lto, cross, ui) { give back "" }
+    pilot first_hash = cli_runtime_cache_snapshot_hash(stage, stem)
+    pilot first_deps = cli_runtime_cache_dependencies(cli_runtime_cache_read_text(stage, stem + ".d"), false)
+    if first_hash == "" or first_deps == "" { give back "" }
+    -- A second matching snapshot admits the discovered raw closure before
+    -- reuse. Header shadows are discovered by the real preprocessor each time.
+    if not cli_runtime_cache_preprocess(executable, source, stage, stem, runtime_dir, opt, lto, cross, ui) { give back "" }
+    pilot hash = cli_runtime_cache_snapshot_hash(stage, stem)
+    pilot deps = cli_runtime_cache_dependencies(cli_runtime_cache_read_text(stage, stem + ".d"), true)
+    if hash != first_hash or deps != first_deps or before != cli_runtime_cache_raw_pin(source, false) { give back "" }
+    pilot stage_path = fs::result_word(stage)
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "-###")
+    cli_runtime_cache_compile_args(command, cli_host_path_join(stage_path, stem + ".i"), cli_host_path_join(stage_path, stem + ".o"), runtime_dir, opt, lto, cross, ui, true)
+    process::command_arg(command, "-fdebug-compilation-dir=" + runtime_dir)
+    process::command_arg(command, "-fdebug-prefix-map=" + stage_path + "=/freak-runtime-cache")
+    pilot trace = cli_tool_capture(command, true)
+    if trace == "" or cli_tool_capture_problem != "" { give back "" }
+    if trace.contains("-fpass-plugin") or trace.contains("\"-load\"") or trace.contains("\"-plugin\"") { give back "" }
+    -- Separate cc1 executables are outside the currently proved support
+    -- closure. Clang's ordinary integrated cc1 must name the selected image.
+    pilot driver = cli_runtime_cache_canonical(cli_run_resolve_program(executable))
+    if not cli_runtime_cache_trace_cc1(trace, driver) { give back "" }
+    trace = trace.replace(stage_path, "<owned-runtime-stage>")
+    pilot material = CLI_RUNTIME_CACHE_SCHEMA + cli_runtime_cache_field(unit) + cli_runtime_cache_field(runtime_dir) + cli_runtime_cache_field(FREAK_V3_ABI) + cli_runtime_cache_field(FREAK_V3_RUNTIME_API)
+    material = material + cli_runtime_cache_field(CLI_VERSION) + cli_runtime_cache_field(FREAKC_VERSION) + cli_runtime_cache_field(cli_runtime_cache_profile) + cli_runtime_cache_field(cli_runtime_cache_policy) + cli_runtime_cache_field(cli_runtime_cache_stats)
+    material = material + cli_runtime_cache_field(tool) + cli_runtime_cache_field(opt) + cli_runtime_cache_field(lto) + cli_runtime_cache_field(cross) + cli_runtime_cache_field(word_from_bool(ui)) + cli_runtime_cache_field(trace) + cli_runtime_cache_field(hash) + cli_runtime_cache_field(deps)
+    if material.length() > CLI_RUNTIME_CACHE_META_LIMIT { give back "" }
+    give back cli_runtime_cache_digest(material)
+}
+
+task cli_runtime_cache_receipt(key: word, bytes: ByteBuffer) -> word {
+    give back CLI_RUNTIME_CACHE_SCHEMA + "\n" + key + "\n" + key + "\n" + word_from_int(bytes.length()) + "\n" + fs::sha256_bytes(bytes) + "\ncomplete\n"
+}
+
+task cli_runtime_cache_copy_hit(root: int, key: word, stage: int, object: word) -> bool {
+    pilot entry = fs::open_relative_dir_ticket(root, key)
+    if not fs::result_ok(entry) { fs::result_release(entry) give back false }
+    if not cli_runtime_cache_private(entry) { fs::result_release(entry) give back false }
+    pilot read = fs::read_relative_bytes_limit_ticket(entry, "runtime.o", CLI_RUNTIME_CACHE_FILE_LIMIT)
+    if not fs::result_ok(read) { fs::result_release(read) fs::result_release(entry) give back false }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot receipt = cli_runtime_cache_read_text(entry, "receipt")
+    pilot valid = bytes.status() == 0 and bytes.length() > 0 and receipt == cli_runtime_cache_receipt(key, bytes)
+    if valid {
+        pilot copied = fs::write_relative_bytes_checked(stage, object, bytes)
+        valid = fs::result_ok(copied)
+        fs::result_release(copied)
+    }
+    bytes.release()
+    fs::result_release(entry)
+    give back valid
+}
+
+task cli_runtime_cache_publish(root: int, key: word, stage: int, object: word) -> void {
+    pilot read = fs::read_relative_bytes_limit_ticket(stage, object, CLI_RUNTIME_CACHE_FILE_LIMIT)
+    if not fs::result_ok(read) { fs::result_release(read) give back }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    if bytes.status() != 0 or bytes.length() == 0 { bytes.release() give back }
+    pilot entry = fs::temp_dir_ticket(root, "freak-runtime-entry")
+    if not fs::result_ok(entry) { fs::result_release(entry) bytes.release() give back }
+    pilot written = fs::write_relative_bytes_checked(entry, "runtime.o", bytes)
+    pilot valid = fs::result_ok(written)
+    fs::result_release(written)
+    pilot text: ByteBuffer = ByteBuffer::new()
+    text.write_word(cli_runtime_cache_receipt(key, bytes))
+    bytes.release()
+    if valid and text.status() == 0 {
+        written = fs::write_relative_bytes_checked(entry, "receipt", text)
+        valid = fs::result_ok(written)
+        fs::result_release(written)
+    } else { valid = false }
+    text.release()
+    if valid { valid = cli_runtime_cache_private(entry) }
+    pilot completed = false
+    if valid {
+        pilot published = fs::publish_temp_dir_checked(entry, root, key)
+        completed = fs::result_completed(published)
+        valid = fs::result_ok(published)
+        fs::result_release(published)
+    }
+    -- Never remove an occupied key or a completed publication, including a
+    -- directory-sync failure. Only this unpublished temporary identity is ours.
+    if not completed {
+        pilot removed = fs::remove_temp_dir_checked(entry)
+        fs::result_release(removed)
+    }
+    fs::result_release(entry)
+}
+
+task cli_runtime_cache_compile_unit(executable: word, stage: int, stem: word, runtime_dir: word, opt: word, lto: word, cross: word, ui: bool) -> bool {
+    pilot path = fs::result_word(stage)
+    pilot command = process::command_new(executable)
+    cli_runtime_cache_compile_args(command, cli_host_path_join(path, stem + ".i"), cli_host_path_join(path, stem + ".o"), runtime_dir, opt, lto, cross, ui, true)
+    process::command_arg(command, "-fdebug-compilation-dir=" + runtime_dir)
+    process::command_arg(command, "-fdebug-prefix-map=" + path + "=/freak-runtime-cache")
+    give back cli_build_command(command, "runtime object compilation")
+}
+
+task cli_runtime_cache_link(executable: word, stage: int, units: int, transpiled: word, output: word, runtime_dir: word, opt: word, lto: word, cross: word, ui: bool) -> bool {
+    pilot command = process::command_new(executable)
+    cli_build_common_args(command, output, transpiled, runtime_dir, opt, cross)
+    pilot index = 0
+    repeat until index >= array_len(units) {
+        process::command_arg(command, cli_host_path_join(fs::result_word(stage), cli_runtime_cache_stem(array_get(units, index)) + ".o"))
+        index += 1
+    }
+    cli_build_lto_args(command, lto)
+    if cli_link_is_windows(cross) { process::command_arg(command, "-lws2_32") }
+    else { process::command_arg(command, "-lm") }
+    if ui {
+        process::command_arg(command, "-DFREAK_HAS_UI")
+        process::command_arg(command, "-luser32")
+        process::command_arg(command, "-lgdi32")
+        process::command_arg(command, "-lmsimg32")
+    }
+    give back cli_build_command(command, "Clang program compilation/link")
+}
+
+task cli_runtime_cache_build(executable: word, transpiled: word, output: word, runtime_dir: word, target: word, opt: word, lto: word, cross: word) -> int {
+    -- -1: preserve the original source build; 0: real compilation failed;
+    -- 1: fresh user compilation/link succeeded with verified runtime objects.
+    if process::env("FREAK_RUNTIME_CACHE") == "off" { give back -1 }
+    pilot tool = cli_runtime_cache_tool_identity(executable)
+    if tool == "" or not cli_runtime_cache_tool_complete { cli_runtime_cache_note("fallback", "tool-closure", "") give back -1 }
+    pilot root = cli_runtime_cache_root()
+    if root == 0 { cli_runtime_cache_note("fallback", "cache-root", "") give back -1 }
+    pilot stage = cli_runtime_cache_stage()
+    if stage == 0 { fs::result_release(root) give back -1 }
+    cli_runtime_cache_reset()
+    pilot units = cli_runtime_cache_units(runtime_dir, target, cross)
+    pilot keys = array_new()
+    pilot ui = cli_runtime_cache_ui(runtime_dir, cross)
+    pilot valid = true
+    pilot index = 0
+    repeat until index >= array_len(units) or not valid {
+        pilot key = cli_runtime_cache_prepare(executable, tool, array_get(units, index), stage, cli_runtime_cache_stem(array_get(units, index)), runtime_dir, opt, lto, cross, ui)
+        if key == "" { valid = false } else { array_push(keys, key) }
+        index += 1
+    }
+    pilot cache_outcome = -1
+    if valid {
+        cache_outcome = 0
+        index = 0
+        repeat until index >= array_len(units) or not valid {
+            pilot unit = array_get(units, index)
+            pilot key = array_get(keys, index)
+            pilot stem = cli_runtime_cache_stem(array_get(units, index))
+            pilot lock = fs::lock_dir_ticket(root, key + ".lock")
+            pilot held = fs::result_ok(lock)
+            pilot hit = false
+            if held { hit = cli_runtime_cache_copy_hit(root, key, stage, stem + ".o") }
+            if hit { cli_runtime_cache_note("hit", unit, key) } else {
+                cli_runtime_cache_note("compile", unit, key)
+                valid = cli_runtime_cache_compile_unit(executable, stage, stem, runtime_dir, opt, lto, cross, ui)
+                if not valid {
+                    -- A failed optional-stage output (full/read-only temp
+                    -- filesystem included) must still permit the original
+                    -- source command with the exact same selected LTO policy.
+                    -- That command retains/reports any real compiler error.
+                    cache_outcome = -1
+                }
+                if valid {
+                    valid = cli_build_regular_output(cli_host_path_join(fs::result_word(stage), stem + ".o"))
+                    if not valid { cache_outcome = -1 }
+                }
+                if valid { valid = cli_runtime_cache_inputs_stable() and cli_runtime_cache_tool_identity(executable) == tool and cli_runtime_cache_tool_complete }
+                if valid and held { cli_runtime_cache_publish(root, key, stage, stem + ".o") }
+            }
+            fs::result_release(lock)
+            index += 1
+        }
+        if valid { valid = cli_runtime_cache_inputs_stable() and cli_runtime_cache_tool_identity(executable) == tool and cli_runtime_cache_tool_complete }
+        if valid { valid = cli_runtime_cache_link(executable, stage, units, transpiled, output, runtime_dir, opt, lto, cross, ui) }
+        if valid { valid = cli_runtime_cache_inputs_stable() and cli_runtime_cache_tool_identity(executable) == tool and cli_runtime_cache_tool_complete }
+        if valid and cli_build_regular_output(output) { cache_outcome = 1 }
+        else { cli_delete_derived_artifact(output) }
+    }
+    array_release(keys)
+    array_release(units)
+    cli_runtime_cache_release()
+    cli_runtime_cache_cleanup(stage)
+    fs::result_release(root)
+    give back cache_outcome
+}
+
+task cli_runtime_cache_run_marker(proven: bool, digest: word, reason: word) -> word {
+    if proven and digest != "" { give back "proven:" + digest }
+    -- A legacy marker is explicitly outside the new SDK/support-closure
+    -- guarantee. It cannot equal a previously admitted proven context.
+    give back "legacy:" + reason
+}
+
+task cli_runtime_cache_run_context(executable: word, runtime_dir: word, target: word, profile: word, opt: word, lto: word, policy: word, stats: word, cross: word) -> word {
+    -- The established whole-program cache keeps its source/graph/selected
+    -- executable/linker/artifact checks when this stronger optional context
+    -- is unsupported. Legacy mode adds no SDK or hidden-delegate guarantee.
+    -- Runtime-object admission remains strict and never uses this fallback.
+    -- FREAK_RUNTIME_CACHE=off still discovers context for qualified toolchains.
+    cli_runtime_cache_context_ready = false
+    cli_runtime_cache_profile = profile
+    cli_runtime_cache_policy = policy
+    cli_runtime_cache_stats = stats
+    pilot tool = cli_runtime_cache_tool_identity(executable)
+    if tool == "" { give back cli_runtime_cache_run_marker(false, "", "unavailable-tool-context") }
+    pilot complete = cli_runtime_cache_tool_complete
+    if not complete { give back cli_runtime_cache_run_marker(false, "", "unproved-tool-support") }
+    pilot stage = cli_runtime_cache_stage()
+    if stage == 0 { give back cli_runtime_cache_run_marker(false, "", "unavailable-stage-context") }
+    cli_runtime_cache_reset()
+    pilot units = cli_runtime_cache_units(runtime_dir, target, cross)
+    pilot material = ""
+    pilot valid = true
+    pilot index = 0
+    repeat until index >= array_len(units) or not valid {
+        pilot key = cli_runtime_cache_prepare(executable, tool, array_get(units, index), stage, cli_runtime_cache_stem(array_get(units, index)), runtime_dir, opt, lto, cross, cli_runtime_cache_ui(runtime_dir, cross))
+        if key == "" { valid = false } else { material = material + cli_runtime_cache_field(key) }
+        index += 1
+    }
+    if valid { valid = cli_runtime_cache_inputs_stable() and cli_runtime_cache_tool_identity(executable) == tool }
+    array_release(units)
+    cli_runtime_cache_release()
+    cli_runtime_cache_cleanup(stage)
+    if not valid { give back cli_runtime_cache_run_marker(false, "", "unavailable-runtime-context") }
+    cli_runtime_cache_context_ready = complete and cli_runtime_cache_tool_complete
+    give back cli_runtime_cache_run_marker(cli_runtime_cache_context_ready, cli_runtime_cache_digest(material), "unproved-tool-support")
+}

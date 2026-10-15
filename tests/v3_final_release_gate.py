@@ -850,8 +850,12 @@ def run_child_gate(
     prefix = directory / name
     records: list[dict] = []
     previous_report: Path | None = None
+    report: Path | None = None
     if "--report" in command:
         report = Path(command[command.index("--report") + 1])
+    elif "--evidence-dir" in command:
+        report = Path(command[command.index("--evidence-dir") + 1]) / "report.json"
+    if report is not None:
         try:
             report.lstat()
         except FileNotFoundError:
@@ -865,8 +869,7 @@ def run_child_gate(
             records[-1]["previous_child_report"] = {
                 "path": str(previous_report), "scope": "preceding run; moved before launch",
             }
-        if "--report" in command:
-            report = Path(command[command.index("--report") + 1])
+        if report is not None:
             snapshot = {"path": str(report)}
             try:
                 data = report.read_bytes()
@@ -1163,6 +1166,13 @@ def main() -> int:
         )
         children += (
             (
+                "installed optimization and LTO aliases",
+                [python, "-B", "-u", str(repo / "tests" / "v3_v35_cli_flag_aliases.py"),
+                 "--freak", str(installed_freak), "--payload-home", str(install_home),
+                 "--clang", selected_clang, "--report", str(evidence / "cli-flag-aliases.json")],
+                1200,
+            ),
+            (
                 "public system temporary parent admission",
                 [python, "-B", "-u", str(repo / "tests" / "v3_v35_test_temp.py"),
                  str(installed_freak), "--payload-home", str(install_home),
@@ -1170,6 +1180,16 @@ def main() -> int:
                 1200,
             ),
         )
+        if sys.platform.startswith("linux"):
+            children += (
+                (
+                    "installed runtime object reuse",
+                    [python, "-B", "-u", str(repo / "tests" / "v3_v35_runtime_cache.py"),
+                     "--freak", str(installed_freak), "--payload", str(install_home),
+                     "--clang", selected_clang, "--evidence-dir", str(evidence / "runtime-cache")],
+                    1200,
+                ),
+            )
         hostile_cwd = root / "hostile-repo-shaped-cwd"
         for label, command, timeout in children:
             run_child_gate(

@@ -116,11 +116,15 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
                 give back cli_flag_error("+03 is only valid for build and run")
             }
             plus03_seen = true
-        } else if flag.starts_with("--opt=") {
+        } else if flag.starts_with("--opt=") or flag == "--O0" or flag == "--O1" or flag == "--O2" or flag == "--O3" {
             if not allow_build_profile {
+                if not flag.starts_with("--opt=") {
+                    give back cli_flag_error(flag + " is only valid for build and run")
+                }
                 give back cli_flag_error("--opt is only valid for build and run")
             }
-            pilot oval = cli_flag_value(flag, 6)
+            pilot oval = cli_flag_value(flag, 3)
+            if flag.starts_with("--opt=") { oval = cli_flag_value(flag, 6) }
             if oval != "0" and oval != "1" and oval != "2" and oval != "3" {
                 give back cli_flag_error("--opt must be exactly 0, 1, 2, or 3")
             }
@@ -129,15 +133,17 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
             }
             opt = oval
             opt_seen = oval
-        } else if flag == "--lto" {
+        } else if flag == "--lto" or flag == "--flto" or flag == "--tlto" {
             if not allow_build_profile {
-                give back cli_flag_error("--lto is only valid for build and run")
+                give back cli_flag_error(flag + " is only valid for build and run")
             }
-            if lto_seen != "" and lto_seen != "thin" {
+            pilot lval = "thin"
+            if flag == "--flto" { lval = "full" }
+            if lto_seen != "" and lto_seen != lval {
                 give back cli_flag_error("conflicting --lto flags")
             }
-            lto = "thin"
-            lto_seen = "thin"
+            lto = lval
+            lto_seen = lval
         } else if flag.starts_with("--lto=") {
             if not allow_build_profile {
                 give back cli_flag_error("--lto is only valid for build and run")
