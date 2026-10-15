@@ -750,7 +750,7 @@ def init_generation_controls(root: Path, invocation: tuple[str, Path, list[str]]
                                     f"{name}:init-generation:{label}")
         assert code == 0 and "INITIALIZED" in output and "ownership audit" not in output, output
         assert tomllib.loads((target / "hangar.toml").read_text()) == {
-            "project": {"name": "fresh-project", "version": "0.1.0"}}, output
+            "project": {"name": "fresh-project", "version": "0.1.0", "kind": "app", "entry": "src/main.fk"}}, output
         assert (target / "src/main.fk").read_text() == (
             '-- fresh-project -- a FREAK project\n\nsay "Hello from fresh-project!"\n')
         assert (target / "hangar_modules").is_dir() and not (target / "hangar.lock").exists()
@@ -859,7 +859,7 @@ def init_effect_authority_controls(root: Path, invocation: tuple[str, Path, list
                                 f"{name}:init-authority:retry-after-failure")
     assert code == 0 and "INITIALIZED" in output and "ownership audit" not in output, output
     assert tomllib.loads((target / "hangar.toml").read_text()) == {
-        "project": {"name": "fresh-project", "version": "0.1.0"}}, output
+        "project": {"name": "fresh-project", "version": "0.1.0", "kind": "app", "entry": "src/main.fk"}}, output
     assert (target / "src/main.fk").read_bytes() == (
         b'-- fresh-project -- a FREAK project\n\nsay "Hello from fresh-project!"\n')
     assert report.read_bytes() == b"" and (state / "graph.lock").read_bytes() == b""
