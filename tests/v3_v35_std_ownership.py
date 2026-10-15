@@ -165,6 +165,10 @@ task std_gate_core() -> void {
     std_gate_check(ver_satisfies("2.4.9", "~2.4.0"))
     std_gate_check(not ver_satisfies("2.5.0", "~2.4.0"))
     std_gate_check(ver_satisfies("7.0.0", "*"))
+    std_gate_check(ver_satisfies("0.2.9", "^0.2.0"))
+    std_gate_check(not ver_satisfies("0.3.1", "^0.2.0"))
+    std_gate_check(ver_satisfies("0.0.3", "^0.0.3"))
+    std_gate_check(not ver_satisfies("0.0.4", "^0.0.3"))
 
     pilot root = json_parse("{\"s\":\"hello\",\"a\":[2,true,null],\"u\":\"Ω\"}")
     std_gate_check(json_obj_len(root) == 3)
