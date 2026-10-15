@@ -329,8 +329,14 @@ task ver_satisfies_single(v: word, constraint: word) -> bool {
     }
 
     if constraint.starts_with("^") {
+        -- Caret keeps the leftmost non-zero component fixed, as Cargo and
+        -- npm do: ^1.2.3 is <2.0.0, ^0.2.3 is <0.3.0, ^0.0.3 is only 0.0.3.
         pilot c: word = ver_parse(ver_strip_prefix(constraint, 1))
         if ver_major(v + "") != ver_major(c + "") { give back false }
+        if ver_major(c + "") == 0 {
+            if ver_minor(v + "") != ver_minor(c + "") { give back false }
+            if ver_minor(c + "") == 0 and ver_patch(v + "") != ver_patch(c + "") { give back false }
+        }
         give back ver_gte(v, c)
     }
 
