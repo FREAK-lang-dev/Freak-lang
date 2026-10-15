@@ -557,6 +557,58 @@ task package_read_graph_source(node: int, relative: word) -> word {
     give back source
 }
 
+-- Path components of an absolute local origin, splitting on / and \\.
+task package_lock_path_parts(path: word) -> int {
+    pilot parts = array_new()
+    pilot component = ""
+    pilot index = 0
+    repeat until index > path.length() {
+        pilot boundary = index == path.length()
+        if not boundary { boundary = path.char_at(index) == "/" or path.char_at(index) == "\\" }
+        if boundary {
+            if component != "" { array_push(parts, component) }
+            component = ""
+        } else { component = component + path.char_at(index) }
+        index += 1
+    }
+    give back parts
+}
+
+-- target relative to base, as "../"-prefixed components joined by "/".
+task package_lock_relative_path(base: word, target: word) -> word {
+    pilot from = package_lock_path_parts(base)
+    pilot to = package_lock_path_parts(target)
+    pilot common = 0
+    repeat until common >= array_len(from) or common >= array_len(to) or array_get(from, common) != array_get(to, common) { common += 1 }
+    pilot out = ""
+    pilot index = common
+    repeat until index >= array_len(from) {
+        out = out + "../"
+        index += 1
+    }
+    index = common
+    repeat until index >= array_len(to) {
+        out = out + array_get(to, index) + "/"
+        index += 1
+    }
+    array_release(from)
+    array_release(to)
+    give back out
+}
+
+-- Local identities are absolute paths, which change when a project is
+-- moved or cloned. Compare their position relative to the root instead.
+task package_lock_local_matches(index: int) -> bool {
+    pilot prefix = "node." + word_from_int(index) + "."
+    if package_lock_field(prefix + "kind") != "local" or array_get(package_source_kinds, index) != "local" { give back false }
+    pilot locked_origin = package_lock_field(prefix + "origin")
+    pilot current_origin = array_get(package_source_origins, index)
+    if package_lock_field(prefix + "identity") != "local:" + locked_origin { give back false }
+    if array_get(hangar_graph_identities, index) != "local:" + current_origin { give back false }
+    pilot locked_relative = package_lock_relative_path(package_lock_field("node.0.origin"), locked_origin)
+    give back locked_relative == package_lock_relative_path(array_get(package_source_origins, 0), current_origin)
+}
+
 task package_lock_matches_graph(frozen: bool) -> bool {
     if word_to_int(package_lock_field("lock.node_count")) != hangar_graph_count or word_to_int(package_lock_field("lock.edge_count")) != hangar_graph_edge_count or word_to_int(package_lock_field("lock.fact_count")) != array_len(hangar_graph_fact_keys) or ((frozen) and word_to_int(package_lock_field("lock.file_count")) != array_len(package_input_paths)) {
         hangar_graph_fail("locked graph structure changed; run hangar update explicitly")
@@ -565,7 +617,7 @@ task package_lock_matches_graph(frozen: bool) -> bool {
     pilot index = 0
     repeat until index >= hangar_graph_count {
         pilot prefix = "node." + word_from_int(index) + "."
-        if package_lock_field(prefix + "name") != array_get(hangar_graph_names, index) or package_lock_field(prefix + "version") != array_get(hangar_graph_versions, index) or package_lock_field(prefix + "identity") != array_get(hangar_graph_identities, index) or package_lock_field(prefix + "origin") != array_get(package_source_origins, index) or package_lock_field(prefix + "kind") != array_get(package_source_kinds, index) or package_lock_field(prefix + "commit") != array_get(package_source_commits, index) or package_lock_field(prefix + "manifest_sha256") != array_get(package_source_manifest_hashes, index) {
+        if package_lock_field(prefix + "name") != array_get(hangar_graph_names, index) or package_lock_field(prefix + "version") != array_get(hangar_graph_versions, index) or ((package_lock_field(prefix + "identity") != array_get(hangar_graph_identities, index) or package_lock_field(prefix + "origin") != array_get(package_source_origins, index)) and not package_lock_local_matches(index)) or package_lock_field(prefix + "kind") != array_get(package_source_kinds, index) or package_lock_field(prefix + "commit") != array_get(package_source_commits, index) or package_lock_field(prefix + "manifest_sha256") != array_get(package_source_manifest_hashes, index) {
             hangar_graph_fail("locked package identity or manifest changed: " + array_get(hangar_graph_request_paths, index))
             give back false
         }

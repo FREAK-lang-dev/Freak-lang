@@ -2419,6 +2419,96 @@ task hangar_graph_change(project_dir: word, key: word, line: word, update_name: 
     give back status
 }
 
+-- Lock v2 audit: re-admit the graph in locked, frozen mode, so every
+-- package's manifest and input tree must still match its lock record.
+task hangar_graph_audit(project_dir: word, fix_mode: bool) -> int {
+    pilot manifest = cli_host_path_join(project_dir, "hangar.toml")
+    if not fs::exists(manifest) {
+        say "  No hangar.toml found. Run 'freak init' first."
+        give back 1
+    }
+    if not fs::exists(cli_host_path_join(project_dir, "hangar.lock")) {
+        say "  No hangar.lock yet. Run: hangar install"
+        give back 0
+    }
+    if not package_prepare_graph(manifest, true, true, true, "") {
+        say "  Audit failed: " + hangar_graph_error
+        if fix_mode { say "  Lock v2 projects are repaired with: hangar update" }
+        package_release_graph()
+        give back 1
+    }
+    say ""
+    say C_BMAGENTA + "  HANGAR AUDIT" + C_RESET
+    say ""
+    pilot index = 1
+    repeat until index >= hangar_graph_count {
+        say "  " + C_BGREEN + SYM_CHECK + C_RESET + " " + array_get(hangar_graph_names, index) + " " + array_get(hangar_graph_versions, index) + C_DIM + "  (" + array_get(package_source_kinds, index) + ")" + C_RESET
+        index += 1
+    }
+    say ""
+    say "  " + word_from_int(hangar_graph_count - 1) + " package(s) match hangar.lock."
+    say ""
+    package_release_graph()
+    give back 0
+}
+
+-- Lock v2 outdated: compare each locked registry package with the newest
+-- version the registry publishes. Path and Git packages have no registry.
+task hangar_graph_outdated(project_dir: word) -> int {
+    pilot manifest = cli_host_path_join(project_dir, "hangar.toml")
+    if not fs::exists(manifest) {
+        say "  No hangar.toml found. Run 'freak init' first."
+        give back 1
+    }
+    if not fs::exists(cli_host_path_join(project_dir, "hangar.lock")) {
+        say "  No hangar.lock yet. Run: hangar install"
+        give back 0
+    }
+    if not package_prepare_graph(manifest, true, true, false, "") {
+        say "  Outdated failed: " + hangar_graph_error
+        package_release_graph()
+        give back 1
+    }
+    say ""
+    say C_BMAGENTA + "  HANGAR OUTDATED" + C_RESET
+    say ""
+    pilot newer = 0
+    pilot failed = false
+    pilot index = 1
+    repeat until index >= hangar_graph_count {
+        pilot name = array_get(hangar_graph_names, index)
+        pilot locked = array_get(hangar_graph_versions, index)
+        pilot kind = array_get(package_source_kinds, index)
+        if kind == "registry" {
+            pilot scratch = hangar_registry_scratch(".outdated-")
+            pilot newest = ""
+            if scratch != 0 {
+                newest = hangar_registry_select_version(name, "*", fs::result_word(scratch))
+                hangar_registry_discard(scratch)
+            }
+            if newest == "" {
+                say "  " + C_BRED + SYM_CROSS + C_RESET + " " + name + " " + locked + C_DIM + "  " + hangar_registry_error + C_RESET
+                failed = true
+            } else if newest != locked {
+                say "  " + C_BYELLOW + SYM_RING + C_RESET + " " + name + " " + locked + " -> " + C_BWHITE + newest + C_RESET
+                newer += 1
+            } else {
+                say "  " + C_BGREEN + SYM_CHECK + C_RESET + " " + name + " " + locked + C_DIM + "  (latest)" + C_RESET
+            }
+        } else {
+            say "  " + C_DIM + "-" + C_RESET + " " + name + " " + locked + C_DIM + "  (" + kind + ", not in the registry)" + C_RESET
+        }
+        index += 1
+    }
+    if hangar_graph_count <= 1 { say "  No dependencies." }
+    say ""
+    if newer > 0 { say "  " + word_from_int(newer) + " package(s) have newer versions. Update with: hangar update [package]" }
+    say ""
+    package_release_graph()
+    if failed { give back 1 }
+    give back 0
+}
+
 -- hangar add <name> [constraint] | <name> --path <dir> | <name> <git-url> [rev]
 task hangar_graph_add(project_dir: word, key: word, source: word, extra: word) -> int {
     if not hangar_valid_package_name(key) {
@@ -2428,10 +2518,11 @@ task hangar_graph_add(project_dir: word, key: word, source: word, extra: word) -
     pilot line = ""
     if source == "--path" {
         if extra == "" { say "  Usage: hangar add <name> --path <dir>" give back 1 }
-        line = key + " = \{ path = \"" + extra + "\" \}"
+        -- Quote through the TOML writer: Windows paths carry backslashes.
+        line = key + " = \{ path = " + toml_quote(extra) + " \}"
     } else if source.starts_with("https://") or source.starts_with("git@") or source.ends_with(".git") {
-        line = key + " = \{ git = \"" + source + "\""
-        if extra != "" and extra != "latest" { line = line + ", rev = \"" + extra + "\"" }
+        line = key + " = \{ git = " + toml_quote(source)
+        if extra != "" and extra != "latest" { line = line + ", rev = " + toml_quote(extra) }
         line = line + " \}"
     } else {
         pilot constraint = source
@@ -2443,7 +2534,7 @@ task hangar_graph_add(project_dir: word, key: word, source: word, extra: word) -
             if newest == "" { say "  " + hangar_registry_error give back 1 }
             constraint = "^" + newest
         }
-        line = key + " = \"" + constraint + "\""
+        line = key + " = " + toml_quote(constraint)
     }
     give back hangar_graph_change(project_dir, key, line, hangar_registry_alias_for(key), "Add")
 }
@@ -2632,6 +2723,7 @@ task hangar_dispatch(args_cnt: int) -> int {
         }
         give back hangar_update(project_dir, update_pkg)
     } else if subcmd == "outdated" {
+        if hangar_project_uses_graph(project_dir) { give back hangar_graph_outdated(project_dir) }
         give back hangar_outdated(project_dir)
     } else if subcmd == "version" {
         pilot bump = ""
@@ -2646,6 +2738,7 @@ task hangar_dispatch(args_cnt: int) -> int {
             pilot arg3: word = hangar_arg(3)
             if arg3 == "--fix" { fix_mode = true }
         }
+        if hangar_project_uses_graph(project_dir) { give back hangar_graph_audit(project_dir, fix_mode) }
         give back hangar_audit(project_dir, fix_mode)
     } else if subcmd == "auth" {
         pilot action = "status"
