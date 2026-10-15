@@ -1005,10 +1005,11 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
     receipt["genuine_v2"] = {"schema": 2, "nodes": 4, "edges": 4,
                              "lock_sha256": sha(diamond / "hangar.lock"),
                              "snapshot": snapshot(diamond)}
-    # A genuine lock v2 project is graph-owned: add/install/update/remove/version
-    # route to the graph-aware commands, while legacy-only audit/outdated still
-    # refuse it without touching project state.
-    legacy_only = (("audit",), ("audit", "--fix"), ("outdated",))
+    # A genuine lock v2 project is graph-owned: every project command routes to
+    # the graph-aware version. audit and outdated are read-only and must leave
+    # project state untouched.
+    graph_read_only = ((("audit",), "HANGAR AUDIT"), (("audit", "--fix"), "HANGAR AUDIT"),
+                       (("outdated",), "HANGAR OUTDATED"))
     for name, binary, prefix in invocations:
         lock_before = (diamond / "hangar.lock").read_bytes()
         manifest_before = manifest.read_bytes()
@@ -1018,13 +1019,13 @@ def execute(args, root: Path, recorder: Recorder, receipt: dict,
         assert (diamond / "hangar.lock").read_bytes() == lock_before, output
         assert manifest.read_bytes() == manifest_before and report.read_bytes() == b"", output
         before = snapshot(diamond)
-        for index, args in enumerate(legacy_only):
+        for index, (args, banner) in enumerate(graph_read_only):
             code, output = recorder.run([str(binary), *prefix, *args], diamond, env,
                                         f"{name}:genuine-v2:{index}")
-            assert code == 1, (args, code, output)
-            assert output == PREFIX + "unsupported lock schema; expected legacy [[package]] records\n" + SUFFIX, (args, output)
+            assert code == 0, (args, code, output)
+            assert banner in output and "legacy" not in output, (args, output)
             assert snapshot(diamond) == before and report.read_bytes() == b"", (args, output)
-        print(f"native:{name}:genuine-v2:graph-routed:{len(legacy_only)}", flush=True)
+        print(f"native:{name}:genuine-v2:graph-routed:{len(graph_read_only)}", flush=True)
 
     cases = {
         "unknown-schema": (b"lock.schema = 99\n", "unsupported lock schema; expected legacy [[package]] records"),
