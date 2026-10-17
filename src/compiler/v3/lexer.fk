@@ -334,7 +334,6 @@ task lex_operators() -> void {
 task tokenize(source: word) -> void {
     lex_source = source
     lex_len = source.length()
-    say "Source length: " + word_from_int(lex_len)
     lex_pos = 0
     lex_line = 1
     lex_col = 1

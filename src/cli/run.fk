@@ -6,6 +6,9 @@
 
 pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v8"
 pilot CLI_RUN_UNHASHABLE = "<unhashable>"
+-- Why the last cli_run_fingerprint call returned "": "source" means the
+-- program or its package graph was rejected and already reported.
+pilot cli_run_fingerprint_failure = ""
 
 task cli_run_valid_sha256(token: word) -> bool {
     if token.length() != 64 { give back false }
@@ -150,9 +153,13 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     package_inputs_release()
     hangar_graph_release()
     package_lock_release()
+    cli_run_fingerprint_failure = ""
     pilot source: word = cli_prepare_source(src_file, target)
     cli_project_binding_release()
-    if source == "" { give back "" }
+    if source == "" {
+        cli_run_fingerprint_failure = "source"
+        give back ""
+    }
 
     -- Source binding loads the actual transitive modules and their requested
     -- standard payload. The graph render also identifies every declared input
@@ -160,11 +167,17 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     pilot graph = "standalone"
     if package_graph_ready {
         graph = package_lock_render()
-        if graph == "" { give back "" }
+        if graph == "" {
+            cli_run_fingerprint_failure = "package lock"
+            give back ""
+        }
     }
     pilot source_digest = cli_run_word_sha256(source)
     pilot graph_digest = cli_run_word_sha256(graph)
-    if source_digest == "" or graph_digest == "" { give back "" }
+    if source_digest == "" or graph_digest == "" {
+        cli_run_fingerprint_failure = "bound source"
+        give back ""
+    }
     pilot runtime_dir: word = cli_find_runtime_dir()
     pilot std_dir: word = cli_find_std_dir()
     pilot pending_marker: word = cli_pending_upgrade_marker()
@@ -227,8 +240,41 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     material = material + "|std-abi=" + cli_run_file_fingerprint(std_dir + "/freak_abi")
     material = material + "|pending-upgrade=" + cli_run_file_fingerprint(pending_marker)
 
-    if material.contains(CLI_RUN_UNHASHABLE) { give back "" }
+    if material.contains(CLI_RUN_UNHASHABLE) {
+        cli_run_fingerprint_failure = cli_run_unhashable_item(material)
+        give back ""
+    }
     give back cli_run_word_sha256(material)
+}
+
+task cli_run_unhashable_item(material: word) -> word {
+    -- The first unhashable field, up to the next "|" separator.
+    pilot marker = CLI_RUN_UNHASHABLE + ":"
+    pilot m = marker.length()
+    pilot n = material.length()
+    pilot i = 0
+    repeat until i + m > n {
+        if material.substring(i, m) == marker {
+            pilot j = i + m
+            repeat until j >= n or material.char_at(j) == "|" { j += 1 }
+            give back material.substring(i + m, j - i - m)
+        }
+        i += 1
+    }
+    give back "unknown input"
+}
+
+task cli_run_report_fingerprint_failure() {
+    say ""
+    if cli_run_fingerprint_failure == "source" {
+        say "  " + C_BRED + SYM_CROSS + " RUN ABORTED" + C_RESET + " The program or its packages were rejected; see the error above."
+        give back
+    }
+    say "  " + C_BRED + SYM_CROSS + " RUN ABORTED" + C_RESET + " Build inputs or the selected toolchain could not be hashed."
+    if cli_run_fingerprint_failure != "" {
+        say "  " + C_DIM + "Could not hash: " + C_RESET + cli_run_fingerprint_failure
+    }
+    say "  " + C_DIM + "Install a platform SHA-256 tool and verify Clang can report its linker with -###." + C_RESET
 }
 
 task cli_run_resolve_program(command: word) -> word {
@@ -472,9 +518,7 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
     pilot cache_hit = false
 
     if fingerprint == "" {
-        say ""
-        say "  " + C_BRED + SYM_CROSS + " RUN ABORTED" + C_RESET + " Build inputs or the selected toolchain could not be hashed."
-        say "  " + C_DIM + "Install a platform SHA-256 tool and verify Clang can report its linker with -###." + C_RESET
+        cli_run_report_fingerprint_failure()
         give back 1
     }
 
