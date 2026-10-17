@@ -573,6 +573,9 @@ task cli_runtime_cache_prepare(executable: word, tool: word, unit: word, stage: 
     process::command_arg(command, "-###")
     cli_runtime_cache_compile_args(command, cli_host_path_join(stage_path, stem + ".i"), cli_host_path_join(stage_path, stem + ".o"), runtime_dir, opt, lto, cross, ui, true)
     process::command_arg(command, "-fdebug-compilation-dir=" + runtime_dir)
+    -- Clang otherwise records the caller's directory here, which would tie
+    -- every cache key to the directory the build started in.
+    process::command_arg(command, "-fcoverage-compilation-dir=" + runtime_dir)
     process::command_arg(command, "-fdebug-prefix-map=" + stage_path + "=/freak-runtime-cache")
     pilot trace = cli_tool_capture(command, true)
     if trace == "" or cli_tool_capture_problem != "" { give back "" }
@@ -655,6 +658,7 @@ task cli_runtime_cache_compile_unit(executable: word, stage: int, stem: word, ru
     pilot command = process::command_new(executable)
     cli_runtime_cache_compile_args(command, cli_host_path_join(path, stem + ".i"), cli_host_path_join(path, stem + ".o"), runtime_dir, opt, lto, cross, ui, true)
     process::command_arg(command, "-fdebug-compilation-dir=" + runtime_dir)
+    process::command_arg(command, "-fcoverage-compilation-dir=" + runtime_dir)
     process::command_arg(command, "-fdebug-prefix-map=" + path + "=/freak-runtime-cache")
     give back cli_build_command(command, "runtime object compilation")
 }
