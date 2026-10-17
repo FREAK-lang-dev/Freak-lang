@@ -565,9 +565,9 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
     source_a.write_text('task main() -> int { say 41 give back 0 }\n')
     source_b.write_text('task main() -> int { say 42 give back 0 }\n')
 
-    def build(source: Path, label: str, *, target: str = "c", optimization: int = 0, lto: str = "off", selected_env: dict[str, str] | None = None, compile_count: int | None = None) -> list[tuple[str, str, str]]:
+    def build(source: Path, label: str, *, target: str = "c", optimization: int = 0, lto: str = "off", selected_env: dict[str, str] | None = None, compile_count: int | None = None, cwd: Path | None = None) -> list[tuple[str, str, str]]:
         active = selected_env or env
-        code, output, trace = evidence.invoke([str(freak), "build", str(source), "--" + target, f"--opt={optimization}", f"--lto={lto}"], work, active, label, trace=True)
+        code, output, trace = evidence.invoke([str(freak), "build", str(source), "--" + target, f"--opt={optimization}", f"--lto={lto}"], cwd or work, active, label, trace=True)
         assert code == 0, output
         found = events(output)
         actual_count = runtime_compiles(trace)
@@ -599,6 +599,13 @@ def native_gate(args: argparse.Namespace, evidence: Evidence) -> None:
     source_b.write_text('task main() -> int { say 43 give back 0 }\n')
     build(source_b, "changed-user-warm", compile_count=0)
     execute(source_b, "43\n", "execute-changed-b")
+    # The key must not depend on the directory a build starts in.
+    elsewhere = work / "elsewhere"
+    elsewhere.mkdir(mode=0o700)
+    source_c = elsewhere / "c.fk"
+    source_c.write_text('task main() -> int { say 44 give back 0 }\n')
+    build(source_c, "other-directory-warm", compile_count=0, cwd=elsewhere)
+    execute(source_c, "44\n", "execute-other-directory")
     assert initial == {path.name: sha(path) for path in entry.iterdir() if path.is_file()}, "warm hit mutated the entry"
     evidence.case("immutable-warm-entry", key=key)
 
