@@ -210,13 +210,23 @@ task hangar_auth_logout() -> int {
         say "  Not signed in."
         give back 0
     }
+    pilot revoked = false
     pilot scratch = hangar_registry_scratch(".auth-")
     if scratch != 0 {
-        hangar_registry_request("POST", hangar_registry_base() + "/auth/logout", fs::result_word(scratch), "", "", true)
+        if hangar_registry_request("POST", hangar_registry_base() + "/auth/logout", fs::result_word(scratch), "", "", true) {
+            revoked = hangar_registry_status >= 200 and hangar_registry_status < 300
+            if not revoked { hangar_registry_error = "HTTP " + word_from_int(hangar_registry_status) }
+        }
         hangar_registry_discard(scratch)
     }
     hangar_registry_forget_credentials()
-    say "  Signed out. This machine's session was revoked."
+    if revoked {
+        say "  Signed out. This machine's session was revoked."
+    } else {
+        -- The local credentials are gone either way; say when the server copy may still be live.
+        say "  Signed out on this machine, but the registry did not confirm the session was revoked."
+        if hangar_registry_error != "" { say C_DIM + "  " + hangar_registry_error + C_RESET }
+    }
     give back 0
 }
 
