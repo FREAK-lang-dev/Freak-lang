@@ -1,0 +1,327 @@
+-- Hangar registry transport and resolution (Ordnance API v1), shared by the
+-- package graph (registry dependencies) and the hangar auth/publish commands.
+--
+-- Transport is the native curl executable with explicit argument vectors, the
+-- same shell-free model Git fetches use. Secrets never appear in argv: the
+-- Authorization header is passed through a private header file. Bodies stay
+-- on disk so archive bytes never cross a word boundary.
+--
+-- Environment:
+--   HANGAR_REGISTRY    registry API base, default https://hangar.freaklang.dev/api/v1
+--   HANGAR_TOKEN       session secret; overrides the stored credentials (CI)
+--   HANGAR_CONFIG_DIR  where credentials live, default ~/.hangar
+--   FREAK_CURL / FREAK_TAR  explicit curl / tar executables
+
+pilot HANGAR_REGISTRY_DEFAULT = "https://hangar.freaklang.dev/api/v1"
+pilot hangar_registry_status = 0
+pilot hangar_registry_body = ""
+pilot hangar_registry_error = ""
+
+-- Run a prepared command; on failure record its diagnostic. Releases it.
+task hangar_registry_run(command: int, operation: word) -> bool {
+    pilot status = process::command_run(command, 330000, 4096, 65536)
+    pilot succeeded = status == 2 and process::command_exit_code(command) == 0
+    if not succeeded {
+        pilot diagnostic: ByteBuffer = process::command_stderr_bytes(command)
+        pilot message = diagnostic.to_word().trim()
+        if diagnostic.status() != 0 { message = "[binary or invalid UTF-8 tool output omitted]" }
+        diagnostic.release()
+        hangar_registry_error = operation + " failed"
+        if message != "" { hangar_registry_error = hangar_registry_error + " (" + message + ")" }
+    }
+    process::command_release(command)
+    give back succeeded
+}
+
+-- Captured tool output as text; binary or invalid UTF-8 output reads as "".
+task hangar_registry_output(command: int, stderr: bool) -> word {
+    pilot mut bytes: ByteBuffer = ByteBuffer::new()
+    bytes.release()
+    if stderr { bytes = process::command_stderr_bytes(command) } else { bytes = process::command_stdout_bytes(command) }
+    pilot mut text = bytes.to_word()
+    if bytes.status() != 0 { text = "" }
+    bytes.release()
+    give back text.trim()
+}
+
+task hangar_registry_base() -> word {
+    pilot mut base = process::env("HANGAR_REGISTRY").trim()
+    if base == "" { base = HANGAR_REGISTRY_DEFAULT }
+    repeat while base.ends_with("/") { base = base.substring(0, base.length() - 1) }
+    give back base
+}
+
+task hangar_registry_config_dir() -> word {
+    pilot explicit = process::env("HANGAR_CONFIG_DIR")
+    if explicit != "" { give back explicit }
+    pilot home_dir = process::env("HOME")
+    if home_dir == "" { home_dir = process::env("USERPROFILE") }
+    if home_dir == "" { home_dir = process::env("APPDATA") + "/freak" }
+    give back cli_host_path_join(home_dir, ".hangar")
+}
+
+task hangar_registry_ensure_config_dir() -> word {
+    pilot dir = hangar_registry_config_dir()
+    if not fs::exists(dir) { fs::make_dir(dir) }
+    if not fs::exists(dir) {
+        hangar_registry_error = "cannot create " + dir
+        give back ""
+    }
+    give back dir
+}
+
+-- Credentials file: key=value lines (session, username, registry). A file
+-- holding only a bare token (the pre-0.15.1 format) is still accepted.
+task hangar_registry_credential(key: word) -> word {
+    pilot path = cli_host_path_join(hangar_registry_config_dir(), "credentials")
+    if not fs::exists(path) { give back "" }
+    pilot text = fs::read(path)
+    pilot mut start = 0
+    pilot mut found_key = false
+    pilot i = 0
+    repeat until i > text.length() {
+        if i == text.length() or text.char_at(i) == "\n" {
+            pilot line = text.substring(start, i - start).trim()
+            if line.contains("=") { found_key = true }
+            if line.starts_with(key + "=") { give back line.substring(key.length() + 1, line.length() - key.length() - 1) }
+            start = i + 1
+        }
+        i += 1
+    }
+    if key == "session" and not found_key { give back text.trim() }
+    give back ""
+}
+
+task hangar_registry_session() -> word {
+    pilot env_token = process::env("HANGAR_TOKEN").trim()
+    if env_token != "" { give back env_token }
+    pilot stored_registry = hangar_registry_credential("registry")
+    if stored_registry != "" and stored_registry != hangar_registry_base() { give back "" }
+    give back hangar_registry_credential("session")
+}
+
+task hangar_registry_tool(name: word, override_env: word) -> word {
+    pilot explicit = process::env(override_env)
+    if explicit != "" { give back explicit }
+    give back hangar_native_tool_executable(name)
+}
+
+task hangar_registry_write_file(dir: word, name: word, content: word) -> bool {
+    pilot held = fs::open_dir_ticket(dir)
+    if not fs::result_ok(held) { fs::result_release(held) give back false }
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(content)
+    pilot written = fs::write_relative_bytes_checked(held, name, bytes)
+    pilot succeeded = fs::result_ok(written)
+    fs::result_release(written)
+    bytes.release()
+    fs::result_release(held)
+    give back succeeded
+}
+
+-- One HTTP request. body_file and out_file are paths inside a scratch
+-- directory ("" for none). Sets hangar_registry_status (0 on transport
+-- failure) and hangar_registry_body (response text, when no out_file).
+-- Returns true when a response was received, whatever its status.
+task hangar_registry_request(method: word, url: word, scratch_dir: word, body_file: word, out_file: word, authorized: bool) -> bool {
+    hangar_registry_status = 0
+    hangar_registry_body = ""
+    hangar_registry_error = ""
+    pilot curl = hangar_registry_tool("curl", "FREAK_CURL")
+    if curl == "" {
+        hangar_registry_error = "curl was not found on PATH (set FREAK_CURL to choose one)"
+        give back false
+    }
+    pilot response_path = out_file
+    if response_path == "" { response_path = cli_host_path_join(scratch_dir, "response.body") }
+    pilot command = process::command_new(curl)
+    process::command_arg(command, "-sS")
+    process::command_arg(command, "--proto")
+    process::command_arg(command, "=https,http")
+    process::command_arg(command, "--max-time")
+    process::command_arg(command, "300")
+    process::command_arg(command, "--max-filesize")
+    process::command_arg(command, "52428800")
+    process::command_arg(command, "-A")
+    process::command_arg(command, "hangar")
+    process::command_arg(command, "-X")
+    process::command_arg(command, method)
+    process::command_arg(command, "-o")
+    process::command_arg(command, response_path)
+    process::command_arg(command, "-w")
+    process::command_arg(command, "%\{http_code\}")
+    process::command_arg(command, "-H")
+    process::command_arg(command, "Accept: application/json")
+    if authorized {
+        pilot session = hangar_registry_session()
+        if session == "" {
+            process::command_release(command)
+            hangar_registry_error = "not signed in; run: hangar auth login"
+            give back false
+        }
+        if not hangar_registry_write_file(scratch_dir, "auth.headers", "Authorization: Bearer " + session + "\n") {
+            process::command_release(command)
+            hangar_registry_error = "cannot stage the authorization header"
+            give back false
+        }
+        process::command_arg(command, "-H")
+        process::command_arg(command, "@" + cli_host_path_join(scratch_dir, "auth.headers"))
+    }
+    if body_file != "" {
+        process::command_arg(command, "-H")
+        process::command_arg(command, "Content-Type: application/json")
+        process::command_arg(command, "--data-binary")
+        process::command_arg(command, "@" + body_file)
+    }
+    process::command_arg(command, "--")
+    process::command_arg(command, url)
+    pilot status = process::command_run(command, 330000, 4096, 65536)
+    pilot exited = status == 2
+    pilot code = 0 - 1
+    if exited { code = process::command_exit_code(command) }
+    pilot stdout_text = hangar_registry_output(command, false)
+    pilot stderr_text = hangar_registry_output(command, true)
+    process::command_release(command)
+    if not exited or code != 0 {
+        hangar_registry_error = "could not reach " + url
+        if stderr_text != "" { hangar_registry_error = hangar_registry_error + " (" + stderr_text + ")" }
+        give back false
+    }
+    hangar_registry_status = word_to_int(stdout_text)
+    if out_file == "" and fs::exists(response_path) { hangar_registry_body = fs::read(response_path) }
+    give back hangar_registry_status > 0
+}
+
+-- Registry error bodies are {"error": "..."}.
+task hangar_registry_error_text() -> word {
+    pilot doc = json_document::parse(hangar_registry_body)
+    pilot message = ""
+    if json_document::ok(doc) != 0 {
+        pilot node = json_document::object_get(doc, json_document::root(doc), "error")
+        if json_document::kind(doc, node) == 4 { message = json_document::string_word(doc, node) }
+    }
+    json_document::release(doc)
+    if message == "" { give back "HTTP " + word_from_int(hangar_registry_status) }
+    -- A bare server message such as "internal error" reads like a Hangar bug.
+    give back message + " (registry HTTP " + word_from_int(hangar_registry_status) + ")"
+}
+
+-- String field of the response's top-level object, or "".
+task hangar_registry_field(field: word) -> word {
+    pilot doc = json_document::parse(hangar_registry_body)
+    pilot value = ""
+    if json_document::ok(doc) != 0 {
+        pilot node = json_document::object_get(doc, json_document::root(doc), field)
+        pilot kind = json_document::kind(doc, node)
+        if kind == 4 { value = json_document::string_word(doc, node) }
+        if kind == 3 { value = json_document::number_text(doc, node) }
+    }
+    json_document::release(doc)
+    give back value
+}
+
+-- Highest published version of name satisfying constraint, or "" with
+-- hangar_registry_error set. Prereleases are chosen only when no release
+-- satisfies the constraint.
+task hangar_registry_select_version(name: word, constraint: word, scratch_dir: word) -> word {
+    if not hangar_registry_request("GET", hangar_registry_base() + "/units/" + name, scratch_dir, "", "", false) { give back "" }
+    if hangar_registry_status == 404 {
+        hangar_registry_error = name + " is not published on " + hangar_registry_base()
+        give back ""
+    }
+    if hangar_registry_status != 200 {
+        hangar_registry_error = "registry lookup for " + name + " failed: " + hangar_registry_error_text()
+        give back ""
+    }
+    pilot doc = json_document::parse(hangar_registry_body)
+    if json_document::ok(doc) == 0 {
+        json_document::release(doc)
+        hangar_registry_error = "registry returned malformed JSON for " + name
+        give back ""
+    }
+    pilot versions = json_document::object_get(doc, json_document::root(doc), "versions")
+    pilot best = ""
+    pilot best_pre = ""
+    if json_document::kind(doc, versions) == 5 {
+        pilot count = json_document::count(doc, versions)
+        pilot i = 0
+        repeat until i >= count {
+            pilot entry = json_document::array_get(doc, versions, i)
+            pilot field = json_document::object_get(doc, entry, "version")
+            if json_document::kind(doc, field) == 4 {
+                pilot candidate = json_document::string_word(doc, field)
+                pilot parsed = ver_parse(candidate)
+                if candidate == ver_to_string(parsed) and (constraint == "" or constraint == "*" or constraint == "latest" or version_matches_constraint(candidate, constraint)) {
+                    if ver_pre(parsed) == "" {
+                        if best == "" or ver_gt(parsed, ver_parse(best)) { best = candidate }
+                    } else {
+                        if best_pre == "" or ver_gt(parsed, ver_parse(best_pre)) { best_pre = candidate }
+                    }
+                }
+            }
+            i += 1
+        }
+    }
+    json_document::release(doc)
+    if best == "" { best = best_pre }
+    if best == "" { hangar_registry_error = "no published version of " + name + " satisfies " + constraint }
+    give back best
+}
+
+-- Download name@version into download_dir/archive and extract it into
+-- extract_dir. A nonempty expected digest (from the lock) must match before
+-- anything is extracted. Returns the archive SHA-256 or "".
+task hangar_registry_fetch_archive(name: word, version: word, download_dir: word, extract_dir: word, expected: word) -> word {
+    pilot archive = cli_host_path_join(download_dir, "archive")
+    pilot url = hangar_registry_base() + "/units/" + name + "/" + version + "/download"
+    if not hangar_registry_request("GET", url, download_dir, "", archive, false) { give back "" }
+    if hangar_registry_status != 200 {
+        hangar_registry_body = ""
+        if fs::exists(archive) { hangar_registry_body = fs::read(archive) }
+        hangar_registry_error = "download of " + name + "@" + version + " failed: " + hangar_registry_error_text()
+        give back ""
+    }
+    pilot read = fs::read_bytes_limit_ticket(archive, 52428800)
+    if not fs::result_ok(read) {
+        hangar_registry_error = "cannot read downloaded archive: " + fs::result_error(read)
+        fs::result_release(read)
+        give back ""
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot digest = fs::sha256_bytes(bytes)
+    bytes.seek(0)
+    pilot first = 0
+    pilot second = 0
+    if bytes.length() >= 2 {
+        first = bytes.read_byte()
+        second = bytes.read_byte()
+    }
+    bytes.release()
+    if expected != "" and digest != expected {
+        hangar_registry_error = "registry archive for " + name + "@" + version + " changed since it was locked (expected sha256 " + expected + ", got " + digest + ")"
+        give back ""
+    }
+    -- gzip (1f 8b) or zip (50 4b). bsdtar reads both; GNU tar reads gzip.
+    if not ((first == 31 and second == 139) or (first == 80 and second == 75)) {
+        hangar_registry_error = "registry archive for " + name + "@" + version + " is neither gzip nor zip"
+        give back ""
+    }
+    pilot tar = hangar_registry_tool("tar", "FREAK_TAR")
+    if tar == "" {
+        hangar_registry_error = "tar was not found on PATH (set FREAK_TAR to choose one)"
+        give back ""
+    }
+    -- Extraction is a staging step only: the graph then copies the declared
+    -- inputs through no-follow reads, so links and stray files never land in
+    -- the source store.
+    pilot command = process::command_new(tar)
+    process::command_arg(command, "-xf")
+    process::command_arg(command, archive)
+    process::command_arg(command, "-C")
+    process::command_arg(command, extract_dir)
+    if not hangar_registry_run(command, "Extracting " + name + "@" + version) {
+        give back ""
+    }
+    give back digest
+}

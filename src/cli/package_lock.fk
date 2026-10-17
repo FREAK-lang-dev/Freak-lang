@@ -116,12 +116,16 @@ task package_lock_validate() -> bool {
         pilot manifest = package_lock_take(prefix + "manifest_sha256", false)
         pilot manifest_file = package_lock_take(prefix + "manifest_file", false)
         pilot inputs = package_lock_count(prefix + "input_count", package_input_node_limit)
-        if not hangar_valid_package_name(name) or version == "" or version != ver_to_string(ver_parse(version)) or identity == "" or origin == "" or (kind != "local" and kind != "git") or not package_lock_hex(tree, 64) or not package_lock_hex(manifest, 64) or not package_input_allowed(manifest_file) or inputs <= 0 {
+        if not hangar_valid_package_name(name) or version == "" or version != ver_to_string(ver_parse(version)) or identity == "" or origin == "" or (kind != "local" and kind != "git" and kind != "registry") or not package_lock_hex(tree, 64) or not package_lock_hex(manifest, 64) or not package_input_allowed(manifest_file) or inputs <= 0 {
             package_lock_fail("lock v2 has an invalid package identity or input record: " + prefix)
             give back false
         }
         if (kind == "local" and commit != "") or (kind == "git" and not package_lock_hex(commit, 40) and not package_lock_hex(commit, 64)) {
             package_lock_fail("lock v2 Git identity requires an exact resolved commit: " + prefix)
+            give back false
+        }
+        if kind == "registry" and not package_lock_hex(commit, 64) {
+            package_lock_fail("lock v2 registry identity requires the archive SHA-256: " + prefix)
             give back false
         }
         pilot previous = 0
@@ -199,7 +203,7 @@ task package_lock_validate() -> bool {
         pilot source = package_lock_take(prefix + "source", false)
         pilot revision = package_lock_take(prefix + "revision", false)
         pilot constraint = package_lock_take(prefix + "version", false)
-        if parent < 0 or target < 0 or not hangar_graph_symbol(alias) or (kind != "local" and kind != "git") or source == "" or (kind == "local" and revision != "") or not version_matches_constraint(toml_get("node." + word_from_int(target) + ".version"), constraint) {
+        if parent < 0 or target < 0 or not hangar_graph_symbol(alias) or (kind != "local" and kind != "git" and kind != "registry") or source == "" or (kind != "git" and revision != "") or not version_matches_constraint(toml_get("node." + word_from_int(target) + ".version"), constraint) {
             package_lock_fail("lock v2 has an invalid or incompatible resolved edge: " + prefix)
             give back false
         }

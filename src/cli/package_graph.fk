@@ -22,6 +22,7 @@ pilot hangar_graph_edge_kinds = 0
 pilot hangar_graph_edge_revisions = 0
 pilot hangar_graph_edge_versions = 0
 pilot hangar_graph_edge_targets = 0
+pilot hangar_graph_edge_packages = 0
 pilot hangar_graph_colors = 0
 pilot hangar_graph_order = 0
 pilot hangar_graph_count = 0
@@ -56,6 +57,7 @@ task hangar_graph_release() -> void {
         array_release(hangar_graph_edge_revisions)
         array_release(hangar_graph_edge_versions)
         array_release(hangar_graph_edge_targets)
+        array_release(hangar_graph_edge_packages)
         array_release(hangar_graph_colors)
         array_release(hangar_graph_order)
     }
@@ -75,6 +77,7 @@ task hangar_graph_release() -> void {
     hangar_graph_edge_revisions = 0
     hangar_graph_edge_versions = 0
     hangar_graph_edge_targets = 0
+    hangar_graph_edge_packages = 0
     hangar_graph_colors = 0
     hangar_graph_order = 0
     hangar_graph_count = 0
@@ -101,6 +104,7 @@ task hangar_graph_clear() -> void {
     hangar_graph_edge_revisions = array_new()
     hangar_graph_edge_versions = array_new()
     hangar_graph_edge_targets = array_new()
+    hangar_graph_edge_packages = array_new()
     hangar_graph_colors = array_new()
     hangar_graph_order = array_new()
     hangar_graph_count = 0
@@ -278,9 +282,12 @@ task hangar_graph_add_manifest(identity: word, origin: word, content: word, requ
     pilot dependencies = toml_dep_names_arr()
     i = 0
     repeat until i >= array_len(dependencies) {
-        pilot alias = array_get(dependencies, i)
+        pilot key = array_get(dependencies, i)
+        -- A dashed package name (`ansi-aura`) imports as `ansi_aura`.
+        pilot alias = key
+        if not hangar_graph_symbol(alias) and hangar_valid_package_name(key) { alias = hangar_registry_alias_for(key) }
         if not hangar_graph_symbol(alias) {
-            hangar_graph_fail("invalid dependency alias in " + origin + ": " + alias)
+            hangar_graph_fail("invalid dependency alias in " + origin + ": " + key)
             array_release(dependencies)
             give back 0 - 1
         }
@@ -289,12 +296,12 @@ task hangar_graph_add_manifest(identity: word, origin: word, content: word, requ
             array_release(dependencies)
             give back 0 - 1
         }
-        pilot prefix = "dependencies." + alias
+        pilot prefix = "dependencies." + key
         pilot field = 0
         repeat until field >= toml_count {
-            pilot key = array_get(toml_keys_arr, field)
-            if key.starts_with(prefix + ".") and key != prefix + ".path" and key != prefix + ".git" and key != prefix + ".rev" and key != prefix + ".version" {
-                hangar_graph_fail("unsupported dependency field: " + key)
+            pilot field_key = array_get(toml_keys_arr, field)
+            if field_key.starts_with(prefix + ".") and field_key != prefix + ".path" and field_key != prefix + ".git" and field_key != prefix + ".rev" and field_key != prefix + ".version" and field_key != prefix + ".package" {
+                hangar_graph_fail("unsupported dependency field: " + field_key)
                 array_release(dependencies)
                 give back 0 - 1
             }
@@ -304,6 +311,10 @@ task hangar_graph_add_manifest(identity: word, origin: word, content: word, requ
         pilot git = toml_get(prefix + ".git")
         pilot revision = toml_get(prefix + ".rev")
         pilot constraint = toml_get(prefix + ".version")
+        -- `name = "^1.2"` is shorthand for a registry dependency.
+        if toml_has(prefix) { constraint = toml_get(prefix) }
+        pilot package = toml_get(prefix + ".package")
+        if package == "" { package = key }
         pilot source_kind = "path"
         pilot source = local
         if local != "" and git != "" {
@@ -314,12 +325,22 @@ task hangar_graph_add_manifest(identity: word, origin: word, content: word, requ
         if git != "" { source_kind = "git"
             source = git }
         if source == "" {
-            hangar_graph_fail("registry package source is unavailable: " + request_path + " -> " + alias)
-            array_release(dependencies)
-            give back 0 - 1
+            if not hangar_registry_valid_name(package) {
+                hangar_graph_fail("invalid registry package name: " + request_path + " -> " + package)
+                array_release(dependencies)
+                give back 0 - 1
+            }
+            if constraint == "" { constraint = "*" }
+            source_kind = "registry"
+            source = package
         }
         if local != "" and revision != "" {
             hangar_graph_fail("local dependency cannot declare a Git revision: " + alias)
+            array_release(dependencies)
+            give back 0 - 1
+        }
+        if source_kind == "registry" and revision != "" {
+            hangar_graph_fail("registry dependency cannot declare a Git revision: " + alias)
             array_release(dependencies)
             give back 0 - 1
         }
@@ -330,6 +351,7 @@ task hangar_graph_add_manifest(identity: word, origin: word, content: word, requ
         array_push(hangar_graph_edge_revisions, revision)
         array_push(hangar_graph_edge_versions, constraint)
         array_push(hangar_graph_edge_targets, "-1")
+        array_push(hangar_graph_edge_packages, package)
         hangar_graph_edge_count += 1
         i += 1
     }
@@ -395,4 +417,24 @@ task hangar_graph_complete(root: int) -> bool {
         give back false
     }
     give back true
+}
+
+-- Registry names: ^[a-z0-9][a-z0-9_-]{1,63}$ (matches Ordnance's rule).
+task hangar_registry_valid_name(name: word) -> bool {
+    if name.length() < 2 or name.length() > 64 { give back false }
+    pilot first = "abcdefghijklmnopqrstuvwxyz0123456789"
+    if not first.contains(name.char_at(0)) { give back false }
+    pilot allowed = first + "_-"
+    pilot i = 1
+    repeat until i >= name.length() {
+        if not allowed.contains(name.char_at(i)) { give back false }
+        i += 1
+    }
+    give back true
+}
+
+-- A dependency key such as `ansi-aura` is a valid package name but not a
+-- FREAK identifier. Its import alias is the same name with '-' as '_'.
+task hangar_registry_alias_for(name: word) -> word {
+    give back name.replace("-", "_")
 }

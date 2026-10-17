@@ -1,0 +1,448 @@
+-- hangar auth (device-flow sign-in) and hangar publish against the
+-- registry. Transport and resolution live in package_registry.fk.
+
+task hangar_registry_store_credentials(session: word, username: word) -> bool {
+    pilot dir = hangar_registry_ensure_config_dir()
+    if dir == "" { give back false }
+    pilot held = fs::open_dir_ticket(dir)
+    if not fs::result_ok(held) {
+        hangar_registry_error = "cannot open " + dir + ": " + fs::result_error(held)
+        fs::result_release(held)
+        give back false
+    }
+    pilot content = "session=" + session + "\nusername=" + username + "\nregistry=" + hangar_registry_base() + "\n"
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(content)
+    fs::remove_relative_file_checked(held, "credentials")
+    pilot written = fs::write_relative_bytes_checked(held, "credentials", bytes)
+    pilot succeeded = fs::result_ok(written)
+    if not succeeded { hangar_registry_error = "cannot write credentials: " + fs::result_error(written) }
+    fs::result_release(written)
+    bytes.release()
+    if succeeded and not process::platform_is_windows() {
+        -- 0600: the session secret is a bearer credential.
+        fs::result_release(fs::set_mode_relative_checked(held, "credentials", 384))
+    }
+    fs::result_release(held)
+    give back succeeded
+}
+
+task hangar_registry_forget_credentials() -> void {
+    pilot path = cli_host_path_join(hangar_registry_config_dir(), "credentials")
+    if fs::exists(path) { fs::delete(path) }
+}
+
+-- ===================== transport =====================
+
+task hangar_registry_scratch(prefix: word) -> int {
+    pilot dir = hangar_registry_ensure_config_dir()
+    if dir == "" { give back 0 }
+    pilot scratch = fs::temp_dir(dir, prefix)
+    if not fs::result_ok(scratch) {
+        hangar_registry_error = "cannot create scratch directory: " + fs::result_error(scratch)
+        fs::result_release(scratch)
+        give back 0
+    }
+    give back scratch
+}
+
+task hangar_registry_discard(scratch: int) -> void {
+    if scratch == 0 { give back }
+    pilot removed = fs::remove_temp_dir_checked(scratch)
+    fs::result_release(removed)
+    fs::result_release(scratch)
+}
+
+-- ===================== base64 =====================
+
+task hangar_registry_base64_file(path: word, limit: int) -> word {
+    pilot read = fs::read_bytes_limit_ticket(path, limit)
+    if not fs::result_ok(read) {
+        hangar_registry_error = "cannot read archive: " + fs::result_error(read)
+        fs::result_release(read)
+        give back ""
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    pilot out = word_builder::with_capacity((bytes.length() + 2) / 3 * 4)
+    bytes.seek(0)
+    repeat while bytes.remaining() >= 3 {
+        pilot a = bytes.read_byte()
+        pilot b = bytes.read_byte()
+        pilot c = bytes.read_byte()
+        pilot n = a * 65536 + b * 256 + c
+        word_builder::append(out, alphabet.char_at(n / 262144))
+        word_builder::append(out, alphabet.char_at(n / 4096 % 64))
+        word_builder::append(out, alphabet.char_at(n / 64 % 64))
+        word_builder::append(out, alphabet.char_at(n % 64))
+    }
+    pilot rest = bytes.remaining()
+    if rest == 1 {
+        pilot n = bytes.read_byte() * 65536
+        word_builder::append(out, alphabet.char_at(n / 262144))
+        word_builder::append(out, alphabet.char_at(n / 4096 % 64))
+        word_builder::append(out, "==")
+    } else if rest == 2 {
+        pilot a = bytes.read_byte()
+        pilot n = a * 65536 + bytes.read_byte() * 256
+        word_builder::append(out, alphabet.char_at(n / 262144))
+        word_builder::append(out, alphabet.char_at(n / 4096 % 64))
+        word_builder::append(out, alphabet.char_at(n / 64 % 64))
+        word_builder::append(out, "=")
+    }
+    bytes.release()
+    give back word_builder::finish(out)
+}
+
+-- ===================== version selection =====================
+
+-- ===================== hangar auth =====================
+
+task hangar_auth_login() -> int {
+    say ""
+    say C_BMAGENTA + "  HANGAR AUTH" + C_RESET + C_DIM + "  " + hangar_registry_base() + C_RESET
+    say ""
+    pilot scratch = hangar_registry_scratch(".auth-")
+    if scratch == 0 {
+        say "  " + hangar_registry_error
+        give back 1
+    }
+    pilot dir = fs::result_word(scratch)
+    pilot start_body = "{\"label\":\"hangar cli\"}"
+    pilot start_ok = hangar_registry_write_file(dir, "start.json", start_body)
+    if start_ok { start_ok = hangar_registry_request("POST", hangar_registry_base() + "/auth/device/start", dir, cli_host_path_join(dir, "start.json"), "", false) }
+    if not start_ok or hangar_registry_status != 201 {
+        if hangar_registry_error == "" { hangar_registry_error = hangar_registry_error_text() }
+        say "  Could not start sign-in: " + hangar_registry_error
+        hangar_registry_discard(scratch)
+        give back 1
+    }
+    pilot device_code = hangar_registry_field("device_code")
+    pilot user_code = hangar_registry_field("user_code")
+    pilot uri = hangar_registry_field("verification_uri")
+    pilot interval = word_to_int(hangar_registry_field("interval"))
+    pilot expires = word_to_int(hangar_registry_field("expires_in"))
+    if interval < 1 { interval = 5 }
+    if expires < 1 { expires = 900 }
+    if device_code == "" or user_code == "" {
+        say "  The registry did not return a device code."
+        hangar_registry_discard(scratch)
+        give back 1
+    }
+    say "  Open " + C_BCYAN + uri + C_RESET + " in a browser where you're signed in,"
+    say "  and enter this code:"
+    say ""
+    say "      " + C_BWHITE + user_code + C_RESET
+    say ""
+    say C_DIM + "  Waiting for approval..." + C_RESET
+    hangar_registry_write_file(dir, "poll.json", "{\"device_code\":\"" + device_code + "\"}")
+    pilot waited = 0
+    repeat while waited < expires {
+        time::sleep(interval * 1000)
+        waited = waited + interval
+        if hangar_registry_request("POST", hangar_registry_base() + "/auth/device/poll", dir, cli_host_path_join(dir, "poll.json"), "", false) {
+            if hangar_registry_status == 200 and hangar_registry_field("status") == "approved" {
+                pilot session = hangar_registry_field("session")
+                pilot username = hangar_registry_field("username")
+                hangar_registry_discard(scratch)
+                if session == "" or not hangar_registry_store_credentials(session, username) {
+                    say "  Sign-in was approved but the session could not be saved: " + hangar_registry_error
+                    give back 1
+                }
+                say ""
+                say C_BGREEN + "  SIGNED IN" + C_RESET + " as " + C_BWHITE + username + C_RESET
+                say ""
+                give back 0
+            }
+            if hangar_registry_status == 410 or hangar_registry_status == 404 {
+                say "  Sign-in failed: " + hangar_registry_error_text()
+                hangar_registry_discard(scratch)
+                give back 1
+            }
+        }
+    }
+    hangar_registry_discard(scratch)
+    say "  Sign-in timed out. Run hangar auth login again."
+    give back 1
+}
+
+task hangar_auth_status() -> int {
+    if hangar_registry_session() == "" {
+        say "  Not signed in to " + hangar_registry_base() + ". Run: hangar auth login"
+        give back 1
+    }
+    pilot scratch = hangar_registry_scratch(".auth-")
+    if scratch == 0 {
+        say "  " + hangar_registry_error
+        give back 1
+    }
+    pilot succeeded = hangar_registry_request("GET", hangar_registry_base() + "/auth/whoami", fs::result_word(scratch), "", "", true)
+    hangar_registry_discard(scratch)
+    if not succeeded {
+        say "  " + hangar_registry_error
+        give back 1
+    }
+    if hangar_registry_status == 401 {
+        say "  Your session has expired or was revoked. Run: hangar auth login"
+        give back 1
+    }
+    if hangar_registry_status != 200 {
+        say "  Status check failed: " + hangar_registry_error_text()
+        give back 1
+    }
+    pilot doc = json_document::parse(hangar_registry_body)
+    pilot username = ""
+    if json_document::ok(doc) != 0 {
+        pilot root = json_document::root(doc)
+        pilot user = json_document::object_get(doc, root, "user")
+        if json_document::kind(doc, user) != 6 { user = root }
+        pilot field = json_document::object_get(doc, user, "username")
+        if json_document::kind(doc, field) == 4 { username = json_document::string_word(doc, field) }
+    }
+    json_document::release(doc)
+    say "  Signed in to " + hangar_registry_base() + " as " + C_BWHITE + username + C_RESET
+    give back 0
+}
+
+task hangar_auth_logout() -> int {
+    if hangar_registry_credential("session") == "" {
+        say "  Not signed in."
+        give back 0
+    }
+    pilot scratch = hangar_registry_scratch(".auth-")
+    if scratch != 0 {
+        hangar_registry_request("POST", hangar_registry_base() + "/auth/logout", fs::result_word(scratch), "", "", true)
+        hangar_registry_discard(scratch)
+    }
+    hangar_registry_forget_credentials()
+    say "  Signed out. This machine's session was revoked."
+    give back 0
+}
+
+-- ===================== hangar publish =====================
+
+-- JSON object of registry dependencies, or "" with hangar_registry_error set.
+-- Only version constraints travel to the registry; a path dependency must
+-- also declare `version` so consumers can resolve it from the registry.
+task hangar_publish_dependencies() -> word {
+    pilot doc = json_document::new()
+    pilot object = json_document::make_object(doc)
+    pilot deps = toml_dep_names_arr()
+    pilot valid = true
+    pilot i = 0
+    repeat until i >= array_len(deps) or not valid {
+        pilot key = array_get(deps, i)
+        pilot prefix = "dependencies." + key
+        pilot constraint = toml_get(prefix)
+        if constraint == "" { constraint = toml_get(prefix + ".version") }
+        pilot package = toml_get(prefix + ".package")
+        if package == "" { package = key }
+        if toml_get(prefix + ".git") != "" {
+            hangar_registry_error = "dependency " + key + " comes from Git; published packages can only depend on registry packages"
+            valid = false
+        } else if constraint == "" {
+            hangar_registry_error = "dependency " + key + " needs a version to publish, e.g. " + key + " = \{ path = \"" + toml_get(prefix + ".path") + "\", version = \"^0.1.0\" \}"
+            valid = false
+        } else {
+            json_document::object_insert(doc, object, package, json_document::make_string(doc, constraint))
+        }
+        i += 1
+    }
+    array_release(deps)
+    json_document::set_root(doc, object)
+    pilot text = json_document::serialize_word(doc)
+    json_document::release(doc)
+    if not valid { give back "" }
+    give back text
+}
+
+task hangar_publish_read_text(project_dir: word, relative: word) -> word {
+    if relative == "" { give back "" }
+    pilot path = cli_host_path_join(project_dir, relative)
+    if not fs::exists(path) { give back "" }
+    give back fs::read(path)
+}
+
+-- The files a consumer's graph admits for this package: manifest, entry,
+-- modules, tests (declared or tests/*_test.fk), assets, readme and license.
+-- Reads only; dependencies are not resolved and nothing is written.
+-- Returns an array handle of relative paths, or 0 with hangar_graph_error.
+task hangar_publish_inputs(project_dir: word, manifest: word) -> int {
+    package_sources_clear()
+    pilot directory = fs::open_dir_ticket(project_dir)
+    if not fs::result_ok(directory) {
+        hangar_graph_fail("cannot open project directory: " + fs::result_error(directory))
+        fs::result_release(directory)
+        give back 0
+    }
+    pilot content = fs::read(manifest)
+    pilot node = hangar_graph_add_manifest("publish:" + project_dir, manifest, content, "root")
+    pilot valid = node == 0
+    if valid and toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), "tests") {
+        array_push(hangar_graph_fact_nodes, "0")
+        array_push(hangar_graph_fact_keys, "__package.tests_declared")
+        array_push(hangar_graph_fact_values, "true")
+    }
+    if valid { valid = package_collect_declared_inputs(0, "hangar.toml") }
+    if valid { valid = package_collect_default_tests(0, directory) }
+    fs::result_release(directory)
+    pilot files = 0
+    if valid {
+        files = array_new()
+        pilot index = 0
+        repeat until index >= array_len(package_pending_paths) {
+            pilot relative = array_get(package_pending_paths, index)
+            if not fs::exists(cli_host_path_join(project_dir, relative)) {
+                hangar_graph_fail("declared file is missing: " + relative)
+                array_release(files)
+                give back 0
+            }
+            array_push(files, relative)
+            index += 1
+        }
+    }
+    give back files
+}
+
+task hangar_registry_publish(project_dir: word, dry_run: bool) -> int {
+    pilot manifest = cli_host_path_join(project_dir, "hangar.toml")
+    if fs::exists(manifest) == false {
+        say "  No hangar.toml found. Cannot publish."
+        give back 1
+    }
+    if not toml_load(manifest) {
+        say "  Invalid manifest " + manifest + ":" + word_from_int(toml_error_line) + ": " + toml_error
+        give back 1
+    }
+    pilot name: word = toml_get("project.name")
+    pilot version: word = toml_get("project.version")
+    pilot description = toml_get("project.description")
+    pilot license = toml_get("project.license")
+    pilot repository = toml_get("project.repository")
+    pilot readme_file = toml_get("project.readme")
+    if readme_file == "" and fs::exists(cli_host_path_join(project_dir, "README.md")) { readme_file = "README.md" }
+    pilot license_file = toml_get("project.license_file")
+    if not hangar_registry_valid_name(name) {
+        say "  Package name '" + name + "' can't be published: registry names are lowercase letters, digits, '-' and '_' (2-64 characters, starting with a letter or digit)."
+        give back 1
+    }
+    if version == "" or version != ver_to_string(ver_parse(version)) {
+        say "  project.version must be strict semver (like 0.1.0); got '" + version + "'."
+        give back 1
+    }
+    if license == "" and license_file != "" {
+        pilot license_text = hangar_publish_read_text(project_dir, license_file)
+        if license_text.starts_with("MIT License") { license = "MIT" }
+    }
+    pilot dependencies = hangar_publish_dependencies()
+    if dependencies == "" {
+        say "  " + hangar_registry_error
+        give back 1
+    }
+    if not dry_run and hangar_registry_session() == "" {
+        say "  Not signed in to " + hangar_registry_base() + ". Run: hangar auth login"
+        give back 1
+    }
+    pilot files = hangar_publish_inputs(project_dir, manifest)
+    if files == 0 {
+        say "  Cannot publish: " + hangar_graph_error
+        give back 1
+    }
+    toml_load(manifest)
+
+    say ""
+    say C_BMAGENTA + "  HANGAR PUBLISH" + C_RESET + " " + C_BWHITE + name + C_RESET + " v" + version + C_DIM + "  -> " + hangar_registry_base() + C_RESET
+    say ""
+    pilot list = ""
+    pilot index = 0
+    repeat until index >= array_len(files) {
+        say C_DIM + "    " + array_get(files, index) + C_RESET
+        list = list + array_get(files, index) + "\n"
+        index += 1
+    }
+    say ""
+    if dry_run {
+        say "  Dry run: " + word_from_int(array_len(files)) + " files would be published. Nothing was uploaded."
+        array_release(files)
+        give back 0
+    }
+    array_release(files)
+    pilot scratch = hangar_registry_scratch(".publish-")
+    if scratch == 0 {
+        say "  " + hangar_registry_error
+        give back 1
+    }
+    pilot dir = fs::result_word(scratch)
+    pilot archive = cli_host_path_join(dir, name + "-" + version + ".tgz")
+    pilot tar = hangar_registry_tool("tar", "FREAK_TAR")
+    if tar == "" or not hangar_registry_write_file(dir, "files.txt", list) {
+        say "  tar was not found on PATH (set FREAK_TAR to choose one)."
+        hangar_registry_discard(scratch)
+        give back 1
+    }
+    pilot command = process::command_new(tar)
+    process::command_arg(command, "-czf")
+    process::command_arg(command, archive)
+    process::command_arg(command, "-C")
+    process::command_arg(command, project_dir)
+    process::command_arg(command, "-T")
+    process::command_arg(command, cli_host_path_join(dir, "files.txt"))
+    if hangar_command_result(command, "Packing " + name) != 0 {
+        hangar_registry_discard(scratch)
+        give back 1
+    }
+    pilot encoded = hangar_registry_base64_file(archive, 18874368)
+    if encoded == "" {
+        say "  " + hangar_registry_error + " (archives are limited to 18 MiB)"
+        hangar_registry_discard(scratch)
+        give back 1
+    }
+    -- Metadata goes through the JSON writer; the base64 archive (which needs
+    -- no escaping and may exceed the document string limit) is spliced in.
+    pilot doc = json_document::new()
+    pilot object = json_document::make_object(doc)
+    json_document::object_insert(doc, object, "name", json_document::make_string(doc, name))
+    json_document::object_insert(doc, object, "version", json_document::make_string(doc, version))
+    json_document::object_insert(doc, object, "description", json_document::make_string(doc, description))
+    json_document::object_insert(doc, object, "license", json_document::make_string(doc, license))
+    json_document::object_insert(doc, object, "repository", json_document::make_string(doc, repository))
+    json_document::object_insert(doc, object, "readme", json_document::make_string(doc, hangar_publish_read_text(project_dir, readme_file)))
+    json_document::set_root(doc, object)
+    pilot metadata = json_document::serialize_word(doc)
+    pilot metadata_ok = json_document::ok(doc) != 0
+    json_document::release(doc)
+    if not metadata_ok or not metadata.ends_with("}") {
+        say "  Cannot encode package metadata (is the README over 256 KiB?)."
+        hangar_registry_discard(scratch)
+        give back 1
+    }
+    pilot body = metadata.substring(0, metadata.length() - 1) + ",\"dependencies\":" + dependencies + ",\"tarball_base64\":\"" + encoded + "\"}"
+    if not hangar_registry_write_file(dir, "publish.json", body) {
+        say "  Cannot stage the publish request."
+        hangar_registry_discard(scratch)
+        give back 1
+    }
+    pilot sent = hangar_registry_request("POST", hangar_registry_base() + "/publish", dir, cli_host_path_join(dir, "publish.json"), "", true)
+    hangar_registry_discard(scratch)
+    if not sent {
+        say "  " + hangar_registry_error
+        give back 1
+    }
+    if hangar_registry_status == 201 {
+        say C_BGREEN + "  PUBLISHED" + C_RESET + " " + name + "@" + version + " as " + hangar_registry_field("published_by")
+        say C_DIM + "  Add it with: hangar add " + name + " ^" + version + C_RESET
+        say ""
+        give back 0
+    }
+    if hangar_registry_status == 409 {
+        say "  " + name + "@" + version + " is already published. Versions are immutable; bump with: hangar version patch"
+        give back 1
+    }
+    if hangar_registry_status == 401 {
+        say "  Your session has expired or was revoked. Run: hangar auth login"
+        give back 1
+    }
+    say "  Publish failed: " + hangar_registry_error_text()
+    give back 1
+}
