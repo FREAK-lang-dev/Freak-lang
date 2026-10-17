@@ -939,8 +939,12 @@ def init_effect_authority_controls(root: Path, invocation: tuple[str, Path, list
                 # Without hangar.lock these route to the graph-aware writers,
                 # which refuse at the same private-directory boundary (or
                 # earlier, for a dependency the manifest does not declare).
-                assert code == 1 and ("requires a private owned directory" in output
-                                      or "is not a dependency of this project" in output), output
+                # The graph audit has no lock to check and writes nothing.
+                if command[0] == "audit":
+                    assert code == 0 and "No hangar.lock yet" in output, output
+                else:
+                    assert code == 1 and ("requires a private owned directory" in output
+                                          or "is not a dependency of this project" in output), output
                 assert snapshot(target) == before and report.read_bytes() == b"", output
                 assert (state / "graph.lock").exists() == retained_lock
     print(f"native:{name}:init:owned-rollback-and-retained-files:preserved", flush=True)
