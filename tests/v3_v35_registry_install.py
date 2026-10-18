@@ -21,6 +21,8 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from windows_private_fixture import WindowsPrivateFixture
+
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 LIB_MANIFEST = """[project]
@@ -133,9 +135,10 @@ def refused(argv: list[str], cwd: Path, env: dict[str, str], label: str, needle:
         raise AssertionError(f"{label}: expected '{needle}' in:\n{output}")
 
 
-def write_project(path: Path, manifest: str) -> None:
+def write_project(path: Path, manifest: str, private: WindowsPrivateFixture) -> None:
     path.mkdir()
     (path / "src").mkdir()
+    private.claim_fresh_directories(path, path / "src")
     (path / "hangar.toml").write_text(manifest, encoding="utf-8")
     (path / "src" / "main.fk").write_text("task main() {\n    say 1\n}\n", encoding="utf-8")
 
@@ -154,10 +157,13 @@ def main() -> int:
     try:
         with tempfile.TemporaryDirectory(prefix="freak-registry-install-") as raw:
             root = Path(raw)
+            # Windows Hangar only writes into folders with a private owner ACL.
+            private = WindowsPrivateFixture(root)
             home = root / "home"
             project = root / "consumer"
             home.mkdir()
             project.mkdir()
+            private.claim_fresh_directories(home, project)
             env = dict(os.environ)
             env.update({
                 "HOME": str(home), "USERPROFILE": str(home),
@@ -212,13 +218,14 @@ def main() -> int:
 
             # #195: a lockless project from the old hangar init still installs.
             legacy = root / "legacy"
-            write_project(legacy, '[project]\nname = "legacy"\nversion = "0.1.0"\n\n[dependencies]\n')
+            write_project(legacy, '[project]\nname = "legacy"\nversion = "0.1.0"\n\n[dependencies]\n', private)
             run([hangar, "install"], legacy, env, "install in a legacy project")
 
             # #194: a symlinked module is refused before upload.
             library = root / "linked-lib"
             write_project(library, '[project]\nname = "linked-lib"\nversion = "0.1.0"\nkind = "lib"\n\n'
-                          '[modules]\nsignal = "src/signal.fk"\n\n[exports]\nvalue = "signal::value"\n')
+                          '[modules]\nsignal = "src/signal.fk"\n\n[exports]\nvalue = "signal::value"\n',
+                          private)
             (root / "real.fk").write_text("task value() -> int {\n    give back 1\n}\n", encoding="utf-8")
             try:
                 (library / "src" / "signal.fk").symlink_to(root / "real.fk")
