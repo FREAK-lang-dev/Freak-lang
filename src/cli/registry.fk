@@ -393,11 +393,11 @@ task hangar_registry_publish(project_dir: word, dry_run: bool) -> int {
     }
     pilot command = process::command_new(tar)
     process::command_arg(command, "-czf")
-    process::command_arg(command, archive)
+    process::command_arg(command, hangar_registry_tool_path(archive))
     process::command_arg(command, "-C")
-    process::command_arg(command, project_dir)
+    process::command_arg(command, hangar_registry_tool_path(project_dir))
     process::command_arg(command, "-T")
-    process::command_arg(command, cli_host_path_join(dir, "files.txt"))
+    process::command_arg(command, hangar_registry_tool_path(cli_host_path_join(dir, "files.txt")))
     if hangar_command_result(command, "Packing " + name) != 0 {
         hangar_registry_discard(scratch)
         give back 1
