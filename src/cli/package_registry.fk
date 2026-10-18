@@ -327,11 +327,22 @@ task hangar_registry_inventory(tar: word, archive: word, label: word) -> bool {
     process::command_arg(command, hangar_registry_tool_path(archive))
     pilot status = process::command_run(command, 330000, 2097152, 65536)
     pilot listed = status == 2 and process::command_exit_code(command) == 0
-    pilot listing = ""
-    if listed { listing = hangar_registry_output(command, false) }
+    pilot mut listing = ""
+    pilot mut decoded = false
+    if listed {
+        pilot bytes: ByteBuffer = process::command_stdout_bytes(command)
+        listing = bytes.to_word()
+        decoded = bytes.status() == 0
+        bytes.release()
+    }
     process::command_release(command)
     if not listed {
         hangar_registry_error = "cannot list registry archive " + label + " (it may have too many entries)"
+        give back false
+    }
+    -- An unreadable or empty listing can't be checked, so it is never trusted.
+    if not decoded or listing.trim() == "" {
+        hangar_registry_error = "cannot read the listing of registry archive " + label + " (entry names must be UTF-8)"
         give back false
     }
     pilot entries = 0

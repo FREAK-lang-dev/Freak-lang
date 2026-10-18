@@ -2282,7 +2282,8 @@ task hangar_manifest_declares_kind(project_dir: word) -> bool {
         toml_clear()
         give back true
     }
-    pilot declared = toml_get("project.kind") != ""
+    -- An explicit but empty kind is declared, so the graph path reports it.
+    pilot declared = toml_has("project.kind")
     toml_clear()
     give back declared
 }
