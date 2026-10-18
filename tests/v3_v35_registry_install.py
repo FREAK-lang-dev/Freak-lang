@@ -65,7 +65,8 @@ class Zeros(io.RawIOBase):
 def archive(kind: str = "good") -> bytes:
     manifest = LIB_MANIFEST.replace("beacon-kit", kind) if kind != "good" else LIB_MANIFEST
     buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:gz", compresslevel=1) as tar:
+    with tarfile.open(fileobj=buffer, mode="w:gz", compresslevel=1, format=tarfile.GNU_FORMAT,
+                      encoding="utf-8", errors="surrogateescape") as tar:
         for name, text in (("hangar.toml", manifest), ("src/signal.fk", LIB_SOURCE)):
             data = text.encode()
             info = tarfile.TarInfo(name)
@@ -77,9 +78,11 @@ def archive(kind: str = "good") -> bytes:
             link.type = tarfile.SYMTYPE
             link.linkname = "../../outside.fk"
             tar.addfile(link)
-        if kind == "bomb":
-            # 300 MiB of zeros: a tiny download that would fill a disk.
-            big = tarfile.TarInfo("assets/filler.bin")
+        if kind in ("bomb", "badname"):
+            # 300 MiB of zeros: a tiny download that would fill a disk. The
+            # badname copy hides it behind a name that is not valid UTF-8.
+            name = "assets/filler.bin" if kind == "bomb" else "assets/filler\udcff.bin"
+            big = tarfile.TarInfo(name)
             big.size = 300 * 1024 * 1024
             tar.addfile(big, Zeros(big.size))
     return buffer.getvalue()
@@ -151,7 +154,8 @@ def main() -> int:
     freak = str(args.freak.resolve())
     hangar = str(args.hangar.resolve())
 
-    Registry.payloads = {"beacon-kit": archive(), "linky": archive("linky"), "bomb": archive("bomb")}
+    Registry.payloads = {"beacon-kit": archive(), "linky": archive("linky"), "bomb": archive("bomb"),
+                        "badname": archive("badname")}
     server = ThreadingHTTPServer(("127.0.0.1", 0), Registry)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
@@ -199,7 +203,8 @@ def main() -> int:
             # #193 and links: hostile archives are refused before unpacking.
             refused([hangar, "add", "linky", "^0.1.0"], project, env, "add archive with a link", "link or special file")
             refused([hangar, "add", "bomb", "^0.1.0"], project, env, "add archive bomb", "MiB")
-            if any(root.rglob("filler.bin")) or (root / "outside.fk").exists():
+            run([hangar, "add", "badname", "^0.1.0"], project, env, "add archive with a non-UTF-8 name", expect=1)
+            if any(root.rglob("filler*")) or (root / "outside.fk").exists():
                 raise AssertionError("a refused archive was unpacked")
 
             # #197: a mistyped publish option never publishes.
@@ -220,6 +225,12 @@ def main() -> int:
             legacy = root / "legacy"
             write_project(legacy, '[project]\nname = "legacy"\nversion = "0.1.0"\n\n[dependencies]\n', private)
             run([hangar, "install"], legacy, env, "install in a legacy project")
+
+            # An explicit empty kind is a declaration, so it is reported, not
+            # silently treated as a legacy project.
+            empty_kind = root / "empty-kind"
+            write_project(empty_kind, '[project]\nname = "empty-kind"\nversion = "0.1.0"\nkind = ""\n', private)
+            run([hangar, "install"], empty_kind, env, "install with an empty kind", expect=1)
 
             # #194: a symlinked module is refused before upload.
             library = root / "linked-lib"
