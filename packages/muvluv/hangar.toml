@@ -1,5 +1,27 @@
 [project]
 name = "muvluv"
 version = "0.1.0"
+kind = "lib"
+author = "FREAK Core Team"
+edition = "alternative-3"
+description = "Muv-Luv flavoured FREAK library: Eishi and TSF shapes, BETA tier helpers, YuukoLab and COSMO calls."
+readme = "README.md"
+license_file = "LICENSE"
+
+[modules]
+muvluv = "src/muvluv.fk"
+
+[exports]
+Eishi = "muvluv::Eishi"
+TSF = "muvluv::TSF"
+tier_name = "muvluv::tier_name"
+required_power = "muvluv::required_power"
+tier_threat = "muvluv::tier_threat"
+cosmo_strike = "muvluv::cosmo_strike"
+yuuko_analyze = "muvluv::yuuko_analyze"
+yuuko_log = "muvluv::yuuko_log"
+
+[tests]
+tiers = "tests/tiers_test.fk"
 
 [dependencies]
