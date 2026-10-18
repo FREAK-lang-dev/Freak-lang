@@ -308,7 +308,7 @@ task hangar_publish_inputs(project_dir: word, manifest: word) -> int {
             pilot read = fs::read_relative_bytes_limit_ticket(directory, relative, 18874368)
             if not fs::result_ok(read) {
                 if fs::result_missing(read) { hangar_graph_fail("declared file is missing: " + relative) }
-                else { hangar_graph_fail("declared file must be a regular file, not a link or folder: " + relative + " (" + fs::result_error(read) + ")") }
+                else { hangar_graph_fail("declared file must be a regular file of at most 18 MiB, not a link or folder: " + relative + " (" + fs::result_error(read) + ")") }
                 fs::result_release(read)
                 fs::result_release(directory)
                 array_release(files)
