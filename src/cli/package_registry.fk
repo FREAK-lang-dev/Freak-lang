@@ -317,12 +317,28 @@ task hangar_registry_digits(text: word) -> bool {
     give back true
 }
 
+-- True for "uid/gid" with both parts numeric.
+task hangar_registry_numeric_pair(text: word) -> bool {
+    pilot slash = -1
+    pilot i = 0
+    repeat until i >= text.length() {
+        if text.char_at(i) == "/" and slash < 0 { slash = i }
+        i += 1
+    }
+    if slash <= 0 { give back false }
+    pilot rest = text.substring(slash + 1, text.length() - slash - 1)
+    give back hangar_registry_digits(text.substring(0, slash)) and hangar_registry_digits(rest)
+}
+
 -- List the archive before unpacking it. Refuse links and special files,
 -- more than HANGAR_REGISTRY_MAX_ENTRIES entries, or more than
 -- HANGAR_REGISTRY_MAX_EXPANDED bytes once unpacked, so a hostile archive
 -- can't fill the disk. Reads GNU tar and bsdtar verbose listings.
 task hangar_registry_inventory(tar: word, archive: word, label: word) -> bool {
     pilot command = process::command_new(tar)
+    -- Numeric owners keep user and group names, which may hold spaces, out
+    -- of the listing, so every field before the size is a plain number.
+    process::command_arg(command, "--numeric-owner")
     process::command_arg(command, "-tvf")
     process::command_arg(command, hangar_registry_tool_path(archive))
     pilot status = process::command_run(command, 330000, 2097152, 65536)
@@ -368,13 +384,19 @@ task hangar_registry_inventory(tar: word, archive: word, label: word) -> bool {
                     hangar_registry_error = "registry archive " + label + " contains a link or special file: " + line
                     give back false
                 }
-                -- GNU tar: mode owner/group size ...; bsdtar: mode links owner group size ...
+                -- GNU tar: mode uid/gid size ...; bsdtar: mode links uid gid size ...
                 pilot size_field = 4
-                if count > 1 and array_get(fields, 1).contains("/") { size_field = 2 }
+                pilot layout = false
+                if count > 1 and array_get(fields, 1).contains("/") {
+                    size_field = 2
+                    layout = hangar_registry_numeric_pair(array_get(fields, 1))
+                } else if count > 4 {
+                    layout = hangar_registry_digits(array_get(fields, 1)) and hangar_registry_digits(array_get(fields, 2)) and hangar_registry_digits(array_get(fields, 3))
+                }
                 pilot size = ""
                 if count > size_field { size = array_get(fields, size_field) }
                 array_release(fields)
-                if not hangar_registry_digits(size) {
+                if not layout or not hangar_registry_digits(size) {
                     hangar_registry_error = "cannot read the size of an entry in registry archive " + label + ": " + line
                     give back false
                 }

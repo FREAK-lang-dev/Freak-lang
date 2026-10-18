@@ -72,6 +72,9 @@ def archive(kind: str = "good") -> bytes:
             info = tarfile.TarInfo(name)
             info.size = len(data)
             info.mode = 0o644
+            # Real archives carry owner names; one with spaces must not
+            # shift the listing fields Hangar reads sizes from.
+            info.uname, info.gname = "runner", "build staff"
             tar.addfile(info, io.BytesIO(data))
         if kind == "linky":
             link = tarfile.TarInfo("src/escape.fk")
@@ -84,6 +87,9 @@ def archive(kind: str = "good") -> bytes:
             name = "assets/filler.bin" if kind == "bomb" else "assets/filler\udcff.bin"
             big = tarfile.TarInfo(name)
             big.size = 300 * 1024 * 1024
+            # A group name shaped like "1 5" once made GNU tar's listing
+            # read as a 5-byte file.
+            big.uname, big.gname = "a", "1 5"
             tar.addfile(big, Zeros(big.size))
     return buffer.getvalue()
 
@@ -127,7 +133,7 @@ def run(argv: list[str], cwd: Path, env: dict[str, str], label: str, expect: int
     result = subprocess.run(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                             capture_output=True, timeout=600)
     output = ANSI.sub("", (result.stdout + result.stderr).decode("utf-8", "replace"))
-    if (result.returncode == 0) != (expect == 0):
+    if result.returncode != expect:
         raise AssertionError(f"{label} exited {result.returncode}:\n{output}")
     return output
 
@@ -179,8 +185,8 @@ def main() -> int:
 
             # An unknown command must fail so scripts notice typos.
             unknown = subprocess.run([freak, "frobnicate"], env=env, capture_output=True, timeout=60)
-            if unknown.returncode == 0:
-                raise AssertionError("freak frobnicate exited 0")
+            if unknown.returncode != 1:
+                raise AssertionError(f"freak frobnicate exited {unknown.returncode}, expected 1")
 
             run([hangar, "init"], project, env, "hangar init")
             (project / "src").mkdir(exist_ok=True)
