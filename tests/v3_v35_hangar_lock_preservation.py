@@ -936,10 +936,10 @@ def init_effect_authority_controls(root: Path, invocation: tuple[str, Path, list
             for index, command in enumerate((*WRITERS, *(("version", bump) for bump in VERSION_BUMPS))):
                 code, output = recorder.run([str(binary), *prefix, *command], target, env,
                                             f"{name}:legacy-authority:permissive-Windows-parent-ACL:{int(retained_lock)}:{index}")
-                # Without hangar.lock these route to the graph-aware writers,
-                # which refuse at the same private-directory boundary (or
-                # earlier, for a dependency the manifest does not declare).
-                # The graph audit has no lock to check and writes nothing.
+                # This kindless manifest has no hangar.lock, so writers use the
+                # legacy path, which refuses at the same private-directory
+                # boundary (or earlier, for an undeclared dependency). Audit
+                # has no lock to check, takes no write lock and writes nothing.
                 if command[0] == "audit":
                     assert code == 0 and "No hangar.lock yet" in output, output
                 else:

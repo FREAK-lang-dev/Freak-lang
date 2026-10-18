@@ -2304,6 +2304,13 @@ task hangar_project_uses_graph(project_dir: word) -> bool {
     give back valid and text.contains("lock.schema = 2")
 }
 
+-- Read-only commands with no lock have nothing to check, so they use the
+-- graph path, which says so without taking the project's write lock.
+task hangar_project_reads_graph(project_dir: word) -> bool {
+    if not fs::exists(cli_host_path_join(project_dir, "hangar.lock")) { give back true }
+    give back hangar_project_uses_graph(project_dir)
+}
+
 task hangar_graph_summary(verb: word) -> int {
     say ""
     say C_BMAGENTA + "  HANGAR " + verb + C_RESET
@@ -2741,7 +2748,7 @@ task hangar_dispatch(args_cnt: int) -> int {
         }
         give back hangar_update(project_dir, update_pkg)
     } else if subcmd == "outdated" {
-        if hangar_project_uses_graph(project_dir) { give back hangar_graph_outdated(project_dir) }
+        if hangar_project_reads_graph(project_dir) { give back hangar_graph_outdated(project_dir) }
         give back hangar_outdated(project_dir)
     } else if subcmd == "version" {
         pilot bump = ""
@@ -2756,7 +2763,7 @@ task hangar_dispatch(args_cnt: int) -> int {
             pilot arg3: word = hangar_arg(3)
             if arg3 == "--fix" { fix_mode = true }
         }
-        if hangar_project_uses_graph(project_dir) { give back hangar_graph_audit(project_dir, fix_mode) }
+        if hangar_project_reads_graph(project_dir) { give back hangar_graph_audit(project_dir, fix_mode) }
         give back hangar_audit(project_dir, fix_mode)
     } else if subcmd == "auth" {
         pilot action = "status"
