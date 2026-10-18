@@ -489,7 +489,15 @@ class CommandLifelineControls(unittest.TestCase):
             self.assertIsNone(parent.poll(), 'gate exited before owned fixture readiness')
             time.sleep(.01)
         self.assertTrue(path.is_file(), 'inert fixture readiness exceeded three seconds')
-        return json.loads(path.read_text())
+        # The child creates the file before writing it, so wait for complete JSON.
+        while True:
+            try:
+                return json.loads(path.read_text())
+            except json.JSONDecodeError:
+                if time.monotonic() >= deadline:
+                    raise
+                self.assertIsNone(parent.poll(), 'gate exited before owned fixture readiness')
+                time.sleep(.01)
 
     def gate(self, root, command, name, extra=''):
         module_path = str(Path(acceptance.__file__).parent)
