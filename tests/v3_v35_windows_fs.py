@@ -469,6 +469,22 @@ int main(int argc,char **argv) {
         active=0;int64_t temp=F(temp_dir)(W(argv[1]),W("owned"));require(F(result_ok)(temp),"owned staging");active=1;scenario="directory-fault";
         release(F(publish_temp_dir_checked)(temp,destination,W("published")),0,1);require(directory_flushes==2,"both temp parents attempted after first failure");
         scenario="temp-rollback";release(F(remove_temp_dir_checked)(temp),1,1);F(result_release)(temp);require(dispositions==1,"real owned temp disposition observed");
+    }else if(is("readonly-temp")){
+        /* Git leaves object and pack files read-only. Owned staging that holds
+           them must still be removable (hangar add from a Git source). */
+        active=0;int64_t temp=F(temp_dir)(W(argv[1]),W("gitobjects"));require(F(result_ok)(temp),"owned Git staging");
+        release(F(mkdir_relative_checked)(temp,W("pack")),1,1);
+        int64_t buffer=freak_byte_buffer_new();freak_byte_buffer_write_byte(buffer,'P');
+        release(F(write_relative_bytes_checked)(temp,W("object"),buffer),1,1);freak_byte_buffer_release(buffer);
+        char pattern[MAX_PATH*2];snprintf(pattern,sizeof(pattern),"%s\\*gitobjects*",argv[1]);
+        WIN32_FIND_DATAA found;HANDLE search=FindFirstFileA(pattern,&found);require(search!=INVALID_HANDLE_VALUE,"find owned Git staging");FindClose(search);
+        char object[MAX_PATH*3];snprintf(object,sizeof(object),"%s\\%s\\object",argv[1],found.cFileName);
+        require(SetFileAttributesA(object,FILE_ATTRIBUTE_READONLY),"mark staged object read-only");
+        require(GetFileAttributesA(object) & FILE_ATTRIBUTE_READONLY,"staged object is read-only");
+        active=1;dispositions=0;
+        release(F(remove_temp_dir_checked)(temp),1,1);F(result_release)(temp);
+        require(dispositions==3,"read-only object, folder and owned staging all disposed");
+        require(GetFileAttributesA(object)==INVALID_FILE_ATTRIBUTES,"read-only staged object removed");
     }else{
         release(F(mkdir_relative_checked)(source,W("runtime")),0,1);
         require(directory_flushes==0,"rejected support/identity never flushed");
@@ -692,7 +708,7 @@ def main() -> int:
                     command = [clang, str(harness), str(wrapper), f'-I{runtime}', f'-O{optimization}', *flags, '-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1', '-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1', '-lws2_32', '-lshell32', '-ladvapi32', '-lntdll', '-o', str(binary)]
                     if adapter == 'llvm':command += ['-DUSE_LLVM_ADAPTER=1', str(runtime/'freak_llvm_runtime.c')]
                     built = subprocess.run(command, capture_output=True, timeout=90);assert built.returncode == 0, built.stderr
-                    for name in ('native', 'readonly-others', 'source-write', 'destination-write', 'write-dac', 'delete-child', 'null-dacl', 'missing-security-api', 'directory-fault', *SYNC_CONTROLS, *NONFINAL_CONTROLS, 'replace-delete', 'temp-rollback'):
+                    for name in ('native', 'readonly-others', 'source-write', 'destination-write', 'write-dac', 'delete-child', 'null-dacl', 'missing-security-api', 'directory-fault', *SYNC_CONTROLS, *NONFINAL_CONTROLS, 'replace-delete', 'temp-rollback', 'readonly-temp'):
                         case = home/f'{adapter}-{optimization}-{name}';case.mkdir();source_root, destination = case/'source', case/'destination'
                         source_root.mkdir();destination.mkdir();(source_root/'a').write_bytes(b'published\0\xff');(destination/'neighbor').write_bytes(b'unchanged');(source_root/'deletable').write_bytes(b'delete-me')
                         invocation = [str(binary), str(source_root), str(destination), name]
@@ -728,6 +744,7 @@ def main() -> int:
                             else:assert not (source_root/'a').exists() if moved else (source_root/'a').read_bytes()==b'published\0\xff'
                             assert (destination/'result').read_bytes()==b'published\0\xff' if moved else not (destination/'result').exists()
                             if name in SYNC_CONTROLS:assert (source_root/'runtime').is_dir(), 'completed failed barrier must leave actual creation'
+                            if name=='readonly-temp':assert sorted(p.name for p in source_root.iterdir())==['a','deletable'], 'read-only Git staging must be fully removed'
                             if name=='temp-rollback':assert not (destination/'published').exists() and sorted(p.name for p in source_root.iterdir())==['a','deletable']
                         observation['oracles_passed'] = True
                         records.append({'adapter':adapter,'optimization':optimization,'case':'native-windows-'+name,'status':'pass',
