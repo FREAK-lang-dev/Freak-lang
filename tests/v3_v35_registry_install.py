@@ -44,21 +44,49 @@ task main() {
 """
 
 
-def archive() -> bytes:
+class Zeros(io.RawIOBase):
+    """A stream of zero bytes, so a huge entry costs no memory."""
+
+    def __init__(self, size: int) -> None:
+        self.left = size
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:
+        count = min(len(buffer), self.left)
+        buffer[:count] = bytes(count)
+        self.left -= count
+        return count
+
+
+def archive(kind: str = "good") -> bytes:
+    manifest = LIB_MANIFEST.replace("beacon-kit", kind) if kind != "good" else LIB_MANIFEST
     buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
-        for name, text in (("hangar.toml", LIB_MANIFEST), ("src/signal.fk", LIB_SOURCE)):
+    with tarfile.open(fileobj=buffer, mode="w:gz", compresslevel=1) as tar:
+        for name, text in (("hangar.toml", manifest), ("src/signal.fk", LIB_SOURCE)):
             data = text.encode()
             info = tarfile.TarInfo(name)
             info.size = len(data)
             info.mode = 0o644
             tar.addfile(info, io.BytesIO(data))
+        if kind == "linky":
+            link = tarfile.TarInfo("src/escape.fk")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "../../outside.fk"
+            tar.addfile(link)
+        if kind == "bomb":
+            # 300 MiB of zeros: a tiny download that would fill a disk.
+            big = tarfile.TarInfo("assets/filler.bin")
+            big.size = 300 * 1024 * 1024
+            tar.addfile(big, Zeros(big.size))
     return buffer.getvalue()
 
 
 class Registry(BaseHTTPRequestHandler):
-    payload = b""
+    payloads: dict[str, bytes] = {}
     requests: list[str] = []
+    authorized: list[str] = []
 
     def log_message(self, *args) -> None:
         pass
@@ -72,22 +100,44 @@ class Registry(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         Registry.requests.append(self.path)
-        if self.path == "/api/v1/units/beacon-kit":
-            body = {"name": "beacon-kit", "versions": [{"version": "0.1.0"}]}
+        if self.headers.get("Authorization"):
+            Registry.authorized.append(self.path)
+        parts = self.path.split("/")
+        # /api/v1/units/<name> and /api/v1/units/<name>/0.1.0/download
+        name = parts[4] if len(parts) > 4 else ""
+        if name in Registry.payloads and len(parts) == 5:
+            body = {"name": name, "versions": [{"version": "0.1.0"}]}
             self.reply(200, json.dumps(body).encode(), "application/json")
-        elif self.path == "/api/v1/units/beacon-kit/0.1.0/download":
-            self.reply(200, Registry.payload, "application/gzip")
+        elif name in Registry.payloads and parts[5:] == ["0.1.0", "download"]:
+            self.reply(200, Registry.payloads[name], "application/gzip")
+        elif self.path == "/api/v1/auth/whoami":
+            self.reply(401, b'{"error":"unauthorized"}', "application/json")
         else:
             self.reply(404, b'{"error":"not found"}', "application/json")
 
+    do_POST = do_GET
 
-def run(argv: list[str], cwd: Path, env: dict[str, str], label: str) -> str:
+
+def run(argv: list[str], cwd: Path, env: dict[str, str], label: str, expect: int = 0) -> str:
     result = subprocess.run(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                             capture_output=True, timeout=600)
     output = ANSI.sub("", (result.stdout + result.stderr).decode("utf-8", "replace"))
-    if result.returncode != 0:
+    if (result.returncode == 0) != (expect == 0):
         raise AssertionError(f"{label} exited {result.returncode}:\n{output}")
     return output
+
+
+def refused(argv: list[str], cwd: Path, env: dict[str, str], label: str, needle: str) -> None:
+    output = run(argv, cwd, env, label, expect=1)
+    if needle not in output:
+        raise AssertionError(f"{label}: expected '{needle}' in:\n{output}")
+
+
+def write_project(path: Path, manifest: str) -> None:
+    path.mkdir()
+    (path / "src").mkdir()
+    (path / "hangar.toml").write_text(manifest, encoding="utf-8")
+    (path / "src" / "main.fk").write_text("task main() {\n    say 1\n}\n", encoding="utf-8")
 
 
 def main() -> int:
@@ -98,7 +148,7 @@ def main() -> int:
     freak = str(args.freak.resolve())
     hangar = str(args.hangar.resolve())
 
-    Registry.payload = archive()
+    Registry.payloads = {"beacon-kit": archive(), "linky": archive("linky"), "bomb": archive("bomb")}
     server = ThreadingHTTPServer(("127.0.0.1", 0), Registry)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
@@ -139,6 +189,43 @@ def main() -> int:
                 raise AssertionError(f"registry staging was not cleaned: {leftovers}")
             # A fresh install from the lock must reuse the cache offline.
             run([hangar, "install", "--offline"], project, env, "hangar install --offline")
+
+            # #193 and links: hostile archives are refused before unpacking.
+            refused([hangar, "add", "linky", "^0.1.0"], project, env, "add archive with a link", "link or special file")
+            refused([hangar, "add", "bomb", "^0.1.0"], project, env, "add archive bomb", "MiB")
+            if any(root.rglob("filler.bin")) or (root / "outside.fk").exists():
+                raise AssertionError("a refused archive was unpacked")
+
+            # #197: a mistyped publish option never publishes.
+            requests = len(Registry.requests)
+            refused([hangar, "publish", "--dryrun"], project, env, "publish --dryrun", "Nothing was published")
+            if len(Registry.requests) != requests:
+                raise AssertionError("publish with an unknown option contacted the registry")
+
+            # #196: a bare pre-0.15.1 token is only for the default registry.
+            (home / ".hangar").mkdir(exist_ok=True)
+            (home / ".hangar" / "credentials").write_text("legacy-secret-token\n", encoding="utf-8")
+            run([hangar, "auth", "status"], project, env, "auth status with legacy token", expect=1)
+            if Registry.authorized:
+                raise AssertionError(f"legacy token was sent to a custom registry: {Registry.authorized}")
+            (home / ".hangar" / "credentials").unlink()
+
+            # #195: a lockless project from the old hangar init still installs.
+            legacy = root / "legacy"
+            write_project(legacy, '[project]\nname = "legacy"\nversion = "0.1.0"\n\n[dependencies]\n')
+            run([hangar, "install"], legacy, env, "install in a legacy project")
+
+            # #194: a symlinked module is refused before upload.
+            library = root / "linked-lib"
+            write_project(library, '[project]\nname = "linked-lib"\nversion = "0.1.0"\nkind = "lib"\n\n'
+                          '[modules]\nsignal = "src/signal.fk"\n\n[exports]\nvalue = "signal::value"\n')
+            (root / "real.fk").write_text("task value() -> int {\n    give back 1\n}\n", encoding="utf-8")
+            try:
+                (library / "src" / "signal.fk").symlink_to(root / "real.fk")
+            except OSError:
+                print("registry install: symlinks unavailable here, skipped the publish link case")
+            else:
+                refused([hangar, "publish", "--dry-run"], library, env, "publish a symlinked module", "regular file")
     finally:
         server.shutdown()
     print("registry install: passed")

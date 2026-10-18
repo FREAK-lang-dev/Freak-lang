@@ -296,22 +296,32 @@ task hangar_publish_inputs(project_dir: word, manifest: word) -> int {
     }
     if valid { valid = package_collect_declared_inputs(0, "hangar.toml") }
     if valid { valid = package_collect_default_tests(0, directory) }
-    fs::result_release(directory)
     pilot files = 0
     if valid {
         files = array_new()
         pilot index = 0
         repeat until index >= array_len(package_pending_paths) {
             pilot relative = array_get(package_pending_paths, index)
-            if not fs::exists(cli_host_path_join(project_dir, relative)) {
-                hangar_graph_fail("declared file is missing: " + relative)
+            -- Read each input the way consumers will: anchored, without
+            -- following links. A symlink tar would store as a link could
+            -- never be installed from the registry.
+            pilot read = fs::read_relative_bytes_limit_ticket(directory, relative, 18874368)
+            if not fs::result_ok(read) {
+                if fs::result_missing(read) { hangar_graph_fail("declared file is missing: " + relative) }
+                else { hangar_graph_fail("declared file must be a regular file, not a link or folder: " + relative + " (" + fs::result_error(read) + ")") }
+                fs::result_release(read)
+                fs::result_release(directory)
                 array_release(files)
                 give back 0
             }
+            pilot bytes: ByteBuffer = fs::result_bytes(read)
+            bytes.release()
+            fs::result_release(read)
             array_push(files, relative)
             index += 1
         }
     }
+    fs::result_release(directory)
     give back files
 }
 

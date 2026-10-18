@@ -96,7 +96,11 @@ task hangar_registry_session() -> word {
     pilot env_token = process::env("HANGAR_TOKEN").trim()
     if env_token != "" { give back env_token }
     pilot stored_registry = hangar_registry_credential("registry")
-    if stored_registry != "" and stored_registry != hangar_registry_base() { give back "" }
+    -- Credentials from before 0.15.1 don't say which registry issued them.
+    -- They could only have come from the default one, so never send them
+    -- anywhere else.
+    if stored_registry == "" { stored_registry = HANGAR_REGISTRY_DEFAULT }
+    if stored_registry != hangar_registry_base() { give back "" }
     give back hangar_registry_credential("session")
 }
 
@@ -285,6 +289,96 @@ task hangar_registry_select_version(name: word, constraint: word, scratch_dir: w
     give back best
 }
 
+pilot HANGAR_REGISTRY_MAX_ENTRIES = 10000
+pilot HANGAR_REGISTRY_MAX_EXPANDED = 268435456
+
+-- The whitespace-separated fields of one tar listing line.
+task hangar_registry_fields(line: word) -> int {
+    pilot fields = array_new()
+    pilot mut current = ""
+    pilot i = 0
+    repeat until i > line.length() {
+        if i == line.length() or line.char_at(i) == " " or line.char_at(i) == "\t" {
+            if current != "" { array_push(fields, current) }
+            current = ""
+        } else { current = current + line.char_at(i) }
+        i += 1
+    }
+    give back fields
+}
+
+task hangar_registry_digits(text: word) -> bool {
+    if text == "" or text.length() > 15 { give back false }
+    pilot i = 0
+    repeat until i >= text.length() {
+        if not "0123456789".contains(text.char_at(i)) { give back false }
+        i += 1
+    }
+    give back true
+}
+
+-- List the archive before unpacking it. Refuse links and special files,
+-- more than HANGAR_REGISTRY_MAX_ENTRIES entries, or more than
+-- HANGAR_REGISTRY_MAX_EXPANDED bytes once unpacked, so a hostile archive
+-- can't fill the disk. Reads GNU tar and bsdtar verbose listings.
+task hangar_registry_inventory(tar: word, archive: word, label: word) -> bool {
+    pilot command = process::command_new(tar)
+    process::command_arg(command, "-tvf")
+    process::command_arg(command, hangar_registry_tool_path(archive))
+    pilot status = process::command_run(command, 330000, 2097152, 65536)
+    pilot listed = status == 2 and process::command_exit_code(command) == 0
+    pilot listing = ""
+    if listed { listing = hangar_registry_output(command, false) }
+    process::command_release(command)
+    if not listed {
+        hangar_registry_error = "cannot list registry archive " + label + " (it may have too many entries)"
+        give back false
+    }
+    pilot entries = 0
+    pilot total = 0
+    pilot start = 0
+    pilot i = 0
+    repeat until i > listing.length() {
+        if i == listing.length() or listing.char_at(i) == "\n" {
+            pilot line = listing.substring(start, i - start).trim()
+            start = i + 1
+            if line != "" {
+                entries += 1
+                if entries > HANGAR_REGISTRY_MAX_ENTRIES {
+                    hangar_registry_error = "registry archive " + label + " has more than " + word_from_int(HANGAR_REGISTRY_MAX_ENTRIES) + " entries"
+                    give back false
+                }
+                pilot fields = hangar_registry_fields(line)
+                pilot count = array_len(fields)
+                pilot kind = ""
+                if count > 0 { kind = array_get(fields, 0).substring(0, 1) }
+                if kind != "-" and kind != "d" {
+                    array_release(fields)
+                    hangar_registry_error = "registry archive " + label + " contains a link or special file: " + line
+                    give back false
+                }
+                -- GNU tar: mode owner/group size ...; bsdtar: mode links owner group size ...
+                pilot size_field = 4
+                if count > 1 and array_get(fields, 1).contains("/") { size_field = 2 }
+                pilot size = ""
+                if count > size_field { size = array_get(fields, size_field) }
+                array_release(fields)
+                if not hangar_registry_digits(size) {
+                    hangar_registry_error = "cannot read the size of an entry in registry archive " + label + ": " + line
+                    give back false
+                }
+                total += word_to_int(size)
+                if total > HANGAR_REGISTRY_MAX_EXPANDED {
+                    hangar_registry_error = "registry archive " + label + " unpacks to more than " + word_from_int(HANGAR_REGISTRY_MAX_EXPANDED / 1048576) + " MiB"
+                    give back false
+                }
+            }
+        }
+        i += 1
+    }
+    give back true
+}
+
 -- Download name@version into download_dir/archive and extract it into
 -- extract_dir. A nonempty expected digest (from the lock) must match before
 -- anything is extracted. Returns the archive SHA-256 or "".
@@ -329,6 +423,7 @@ task hangar_registry_fetch_archive(name: word, version: word, download_dir: word
         hangar_registry_error = "tar was not found on PATH (set FREAK_TAR to choose one)"
         give back ""
     }
+    if not hangar_registry_inventory(tar, archive, name + "@" + version) { give back "" }
     -- Extraction is a staging step only: the graph then copies the declared
     -- inputs through no-follow reads, so links and stray files never land in
     -- the source store.

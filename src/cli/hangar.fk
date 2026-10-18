@@ -2273,9 +2273,23 @@ task hangar_extract_colon(s: word, idx: int) -> word {
 -- schema 2 lock, use these graph-aware writers; a legacy [[package]] lock
 -- keeps the legacy writers above.
 
+-- Projects from before 0.15.1 have no project.kind and no lock. They keep
+-- the legacy path, which worked for them, until they declare a kind.
+task hangar_manifest_declares_kind(project_dir: word) -> bool {
+    pilot manifest = cli_host_path_join(project_dir, "hangar.toml")
+    if not fs::exists(manifest) { give back true }
+    if not toml_load(manifest) {
+        toml_clear()
+        give back true
+    }
+    pilot declared = toml_get("project.kind") != ""
+    toml_clear()
+    give back declared
+}
+
 task hangar_project_uses_graph(project_dir: word) -> bool {
     pilot lock = cli_host_path_join(project_dir, "hangar.lock")
-    if not fs::exists(lock) { give back true }
+    if not fs::exists(lock) { give back hangar_manifest_declares_kind(project_dir) }
     -- Unreadable or non-file locks stay with the legacy path, which reports them.
     pilot read = fs::read_bytes_limit_ticket(lock, hangar_graph_manifest_limit)
     if not fs::result_ok(read) {
@@ -2759,10 +2773,23 @@ task hangar_dispatch(args_cnt: int) -> int {
     } else if subcmd == "whoami" {
         give back hangar_auth_status()
     } else if subcmd == "publish" {
+        -- A publish can't be undone, so anything but the exact dry-run flag
+        -- stops here instead of being ignored.
         pilot dry_run = false
-        if args_cnt >= 4 {
-            pilot arg3: word = hangar_arg(3)
-            if arg3 == "--dry-run" { dry_run = true }
+        pilot index = 3
+        repeat until index >= args_cnt {
+            pilot option: word = hangar_arg(index)
+            if option == "--dry-run" {
+                dry_run = true
+            } else if option == "--help" or option == "-h" {
+                say "Usage: hangar publish [--dry-run]"
+                give back 0
+            } else {
+                say "  Unknown publish option '" + option + "'. Nothing was published."
+                say "  Usage: hangar publish [--dry-run]"
+                give back 1
+            }
+            index += 1
         }
         give back hangar_registry_publish(project_dir, dry_run)
     } else {
