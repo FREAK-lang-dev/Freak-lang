@@ -68,7 +68,7 @@ task replay_focus_order(window: int, layout: ByteBuffer, theme: int) -> void {
         cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
         pilot target_y = 45
         if previous == 1 { target_y = 10 }
-        replay_click(10, target_y)
+        replay_click(90, target_y)
         cockpit_ui_feed_event(3, 0, 121, 0, 0, 0, 0, 0)
         pilot first = cockpit_widget_input(window, layout, theme, "A", 100)
         pilot second = cockpit_widget_input(window, layout, theme, "B", 100)
@@ -93,9 +93,9 @@ task replay_focus_order(window: int, layout: ByteBuffer, theme: int) -> void {
     cockpit_ui_focus_input(0)
     cockpit_ui_begin_events()
     cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
-    replay_click(10, 45)
+    replay_click(90, 45)
     cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
-    replay_click(10, 10)
+    replay_click(90, 10)
     cockpit_ui_feed_event(3, 0, 121, 0, 0, 0, 0, 0)
     replay_click(150, 150)
     cockpit_ui_feed_event(3, 0, 122, 0, 0, 0, 0, 0)
@@ -105,7 +105,7 @@ task replay_focus_order(window: int, layout: ByteBuffer, theme: int) -> void {
     cockpit_ui_focus_input(0)
     cockpit_ui_begin_events()
     cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
-    replay_click(10, 45)
+    replay_click(90, 45)
     cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
     cockpit_clip_push(window, 0, 0, 100, 32)
     if cockpit_widget_input(window, layout, theme, "A", 100) != "A" { cockpit_fail("clipped click retained old focus") }
@@ -114,7 +114,7 @@ task replay_focus_order(window: int, layout: ByteBuffer, theme: int) -> void {
     cockpit_ui_focus_input(0)
     cockpit_ui_begin_events()
     cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
-    replay_click(10, 10)
+    replay_click(90, 10)
     cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
     cockpit_modal_open()
     if not cockpit_modal_begin(window, layout, theme, 320, 240) { cockpit_fail("modal begin failed") }

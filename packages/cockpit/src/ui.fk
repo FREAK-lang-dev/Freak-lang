@@ -11,6 +11,8 @@ use self::state::{
     cockpit_ui_clip_stack,
     cockpit_ui_edits,
     cockpit_ui_feed_event,
+    cockpit_ui_keys_down,
+    cockpit_ui_keys_pressed,
     cockpit_ui_poll_result,
     cockpit_ui_reset
 }
@@ -43,6 +45,8 @@ task cockpit_ui_close(window: int) -> void {
     ui::destroy_window(window)
     if cockpit_ui_edits != 0 { array_release(cockpit_ui_edits) cockpit_ui_edits = 0 }
     if cockpit_ui_clip_stack != 0 { array_release(cockpit_ui_clip_stack) cockpit_ui_clip_stack = 0 }
+    if cockpit_ui_keys_down != 0 { array_release(cockpit_ui_keys_down) cockpit_ui_keys_down = 0 }
+    if cockpit_ui_keys_pressed != 0 { array_release(cockpit_ui_keys_pressed) cockpit_ui_keys_pressed = 0 }
 }
 
 task cockpit_ui_begin_frame(window: int, layout: ByteBuffer, theme: int) -> void {

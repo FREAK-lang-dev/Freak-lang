@@ -19,6 +19,7 @@ example_showcase = "examples/showcase.fk"
 example_calculator = "examples/calculator.fk"
 example_settings = "examples/settings.fk"
 replay_fixture = "tests/replay.fk"
+replay_input_fixture = "tests/replay_input.fk"
 
 [exports]
 cockpit_clip_contains = "state::cockpit_clip_contains"

@@ -24,6 +24,7 @@ use self::state::{
     cockpit_clip_pop,
     cockpit_clip_push,
     cockpit_fail,
+    cockpit_key_escape,
     cockpit_popup_items,
     cockpit_popup_result_value,
     cockpit_popup_result_widget,
@@ -39,8 +40,13 @@ use self::state::{
     cockpit_ui_edit_input,
     cockpit_ui_focused_input,
     cockpit_ui_initial_focus,
+    cockpit_text_mask,
+    cockpit_ui_caret,
+    cockpit_ui_caret_epoch,
     cockpit_ui_input_allowed,
     cockpit_ui_input_is_focused,
+    cockpit_ui_input_scroll,
+    cockpit_ui_key_pressed,
     cockpit_ui_modal_active,
     cockpit_ui_modal_scope,
     cockpit_ui_mouse_clicked_value,
@@ -64,6 +70,7 @@ use self::theme::{
     cockpit_theme_font_size,
     cockpit_theme_gap,
     cockpit_theme_get,
+    cockpit_theme_muted,
     cockpit_theme_surface,
     cockpit_theme_text
 }
@@ -152,6 +159,13 @@ task cockpit_widget_checkbox(window: int, layout: ByteBuffer, theme: int, text: 
 }
 
 task cockpit_widget_input(window: int, layout: ByteBuffer, theme: int, text: word, width: int) -> word {
+    give back cockpit_widget_input_ex(window, layout, theme, text, width, "", false)
+}
+
+-- A text field with a caret, placeholder hint and optional password masking.
+-- Arrow keys move the caret, Up/Down jump to the start/end, Tab/Shift+Tab move
+-- focus, Enter submits (see cockpit_widget_input_submitted) and Escape blurs.
+task cockpit_widget_input_ex(window: int, layout: ByteBuffer, theme: int, text: word, width: int, placeholder: word, password: bool) -> word {
     pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
     if width <= 0 { width = cockpit_layout_remaining_width(layout) }
     pilot height = font_size + 18
@@ -161,12 +175,30 @@ task cockpit_widget_input(window: int, layout: ByteBuffer, theme: int, text: wor
     pilot x = cockpit_layout_last_x()
     pilot y = cockpit_layout_last_y()
     pilot widget_id = cockpit_ui_next_widget()
-    pilot next_text = cockpit_ui_edit_input(text, widget_id, x, y, width, height)
+    pilot next_text = cockpit_ui_edit_input(text, widget_id, x, y, width, height, font_size, password)
+    pilot focused = cockpit_ui_input_is_focused(widget_id)
     cockpit_draw_fill(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_surface))
     pilot border = cockpit_theme_get(theme, cockpit_theme_border)
-    if cockpit_ui_input_is_focused(widget_id) { border = cockpit_theme_get(theme, cockpit_theme_accent) }
+    if focused { border = cockpit_theme_get(theme, cockpit_theme_accent) }
     cockpit_draw_stroke(window, x, y, width, height, border, 1)
-    pilot ignored = cockpit_draw_text(window, next_text, x + 8, y + 8, cockpit_theme_get(theme, cockpit_theme_text), font_size, false)
+    pilot scroll = 0
+    if focused { scroll = cockpit_ui_input_scroll }
+    pilot shown = next_text
+    if password { shown = cockpit_text_mask(next_text) }
+    if next_text.length() == 0 and not focused and placeholder.length() > 0 {
+        pilot ignored_hint = cockpit_draw_text(window, placeholder, x + 8, y + 8, cockpit_theme_get(theme, cockpit_theme_muted), font_size, false)
+    } else {
+        pilot ignored = cockpit_draw_text(window, shown, x + 8 - scroll, y + 8, cockpit_theme_get(theme, cockpit_theme_text), font_size, false)
+    }
+    if focused {
+        pilot before = next_text.substring(0, cockpit_ui_caret)
+        if password { before = cockpit_text_mask(before) }
+        pilot caret_x = x + 8 - scroll + ui::measure_text(before, font_size, 0, 0)
+        -- Solid while typing, then a 530 ms blink.
+        if ((time::now_ms() - cockpit_ui_caret_epoch) / 530) % 2 == 0 {
+            cockpit_draw_fill(window, caret_x, y + 6, 2, height - 12, cockpit_theme_get(theme, cockpit_theme_text))
+        }
+    }
     give back next_text
 }
 
@@ -260,6 +292,7 @@ task cockpit_popup_close() -> void { cockpit_ui_popup_widget = 0 - 1 }
 -- to its control on the following frame. The caller owns items/theme until close.
 task cockpit_popup_draw(window: int) -> void {
     if cockpit_ui_popup_widget < 0 { give back }
+    if cockpit_ui_key_pressed(cockpit_key_escape) { cockpit_ui_popup_widget = 0 - 1 give back }
     cockpit_ui_popup_scope = true
     pilot count = cockpit_words_length(cockpit_popup_items)
     if cockpit_popup_row_height <= 0 { cockpit_ui_popup_widget = 0 - 1 cockpit_ui_popup_scope = false give back }

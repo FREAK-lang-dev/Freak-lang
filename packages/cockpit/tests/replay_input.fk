@@ -1,0 +1,227 @@
+use self::layout::{
+    cockpit_layout_begin_frame,
+    cockpit_layout_capacity,
+    cockpit_layout_release
+}
+use self::state::{
+    cockpit_fail,
+    cockpit_key_ctrl,
+    cockpit_key_delete,
+    cockpit_key_digit,
+    cockpit_key_down,
+    cockpit_key_enter,
+    cockpit_key_escape,
+    cockpit_key_function,
+    cockpit_key_left,
+    cockpit_key_letter,
+    cockpit_key_right,
+    cockpit_key_shift,
+    cockpit_key_tab,
+    cockpit_key_up,
+    cockpit_text_mask,
+    cockpit_text_next,
+    cockpit_text_prev,
+    cockpit_ui_begin_events,
+    cockpit_ui_caret,
+    cockpit_ui_feed_event,
+    cockpit_ui_focus_input,
+    cockpit_ui_focused_input,
+    cockpit_ui_key_down,
+    cockpit_ui_key_pressed,
+    cockpit_ui_shortcut,
+    cockpit_ui_text_focused,
+    cockpit_widget_input_submitted
+}
+use self::theme::{
+    cockpit_theme_dark,
+    cockpit_theme_release
+}
+use self::ui::{
+    cockpit_ui_close,
+    cockpit_ui_open
+}
+use self::widgets::{
+    cockpit_widget_input,
+    cockpit_widget_input_ex
+}
+
+-- Deterministic replay of 0.2.0 keyboard editing. The mock platform measures
+-- every byte as 7 pixels, so text inside an input starts at x + 8.
+
+task press_key(key: int) -> void {
+    cockpit_ui_feed_event(2, key, 0, 0, 1, 0, 0, 0)
+    cockpit_ui_feed_event(2, key, 0, 0, 0, 0, 0, 0)
+}
+
+task hold_key(key: int, down: bool) -> void {
+    pilot pressed = 0
+    if down { pressed = 1 }
+    cockpit_ui_feed_event(2, key, 0, 0, pressed, 0, 0, 0)
+}
+
+task type_char(character: int) -> void {
+    cockpit_ui_feed_event(3, 0, character, 0, 0, 0, 0, 0)
+}
+
+task click_at(x: int, y: int) -> void {
+    cockpit_ui_feed_event(4, 0, 0, 1, 0, x, y, 0)
+    cockpit_ui_feed_event(4, 0, 0, 1, 1, x, y, 0)
+}
+
+task next_frame(layout: ByteBuffer) -> void {
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+}
+
+task check_text(actual: word, wanted: word, label: word) -> void {
+    if actual != wanted { cockpit_fail("input replay " + label + ": got [" + actual + "] want [" + wanted + "]") }
+}
+
+task replay_caret(window: int, layout: ByteBuffer, theme: int) -> void {
+    cockpit_ui_focus_input(0)
+    next_frame(layout)
+    press_key(cockpit_key_left)
+    press_key(cockpit_key_left)
+    type_char(88)
+    pilot text = cockpit_widget_input(window, layout, theme, "hello", 180)
+    check_text(text, "helXlo", "insert at caret")
+    if cockpit_ui_caret != 4 { cockpit_fail("caret after insert") }
+
+    next_frame(layout)
+    press_key(cockpit_key_up)
+    press_key(cockpit_key_delete)
+    press_key(cockpit_key_down)
+    cockpit_ui_feed_event(2, 41, 0, 0, 1, 0, 0, 0)
+    text = cockpit_widget_input(window, layout, theme, text, 180)
+    check_text(text, "elXl", "home delete end backspace")
+
+    next_frame(layout)
+    press_key(cockpit_key_left)
+    press_key(cockpit_key_right)
+    press_key(cockpit_key_right)
+    type_char(33)
+    text = cockpit_widget_input(window, layout, theme, text, 180)
+    check_text(text, "elXl!", "right stops at end")
+
+    -- Clicking at pixel 8 + 2 * 7 places the caret after "he".
+    next_frame(layout)
+    click_at(22, 10)
+    type_char(90)
+    text = cockpit_widget_input(window, layout, theme, "hello", 180)
+    check_text(text, "heZllo", "click places caret")
+
+    -- Multi-byte scalars move and delete as one unit.
+    pilot unicode = "aé🙂"
+    if cockpit_text_prev(unicode, 7) != 3 { cockpit_fail("prev skips emoji") }
+    if cockpit_text_prev(unicode, 3) != 1 { cockpit_fail("prev skips e acute") }
+    if cockpit_text_next(unicode, 1) != 3 { cockpit_fail("next skips e acute") }
+    if cockpit_text_next(unicode, 3) != 7 { cockpit_fail("next skips emoji") }
+    if cockpit_text_mask(unicode) != "•••" { cockpit_fail("mask counts scalars") }
+    cockpit_ui_focus_input(0)
+    next_frame(layout)
+    press_key(cockpit_key_left)
+    cockpit_ui_feed_event(2, 41, 0, 0, 1, 0, 0, 0)
+    text = cockpit_widget_input(window, layout, theme, unicode, 180)
+    check_text(text, "a🙂", "backspace before emoji")
+    say "PASS caret editing"
+}
+
+task replay_focus_keys(window: int, layout: ByteBuffer, theme: int) -> void {
+    -- Tab moves forward within the frame; later edits land in the next field.
+    cockpit_ui_focus_input(0)
+    next_frame(layout)
+    type_char(49)
+    press_key(cockpit_key_tab)
+    type_char(50)
+    pilot first = cockpit_widget_input(window, layout, theme, "A", 180)
+    pilot second = cockpit_widget_input(window, layout, theme, "B", 180)
+    check_text(first, "A1", "tab source keeps earlier edits")
+    check_text(second, "B2", "tab target receives later edits")
+    if cockpit_ui_focused_input != 1 { cockpit_fail("tab focus") }
+
+    -- Tab from the last field wraps to the first one on the next frame.
+    next_frame(layout)
+    press_key(cockpit_key_tab)
+    first = cockpit_widget_input(window, layout, theme, first, 180)
+    second = cockpit_widget_input(window, layout, theme, second, 180)
+    if cockpit_ui_text_focused() { cockpit_fail("wrapping tab keeps focus") }
+    next_frame(layout)
+    type_char(51)
+    first = cockpit_widget_input(window, layout, theme, first, 180)
+    second = cockpit_widget_input(window, layout, theme, second, 180)
+    check_text(first, "A13", "tab wrap")
+
+    -- Shift+Tab goes back to the earlier field.
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    hold_key(cockpit_key_shift, true)
+    press_key(cockpit_key_tab)
+    hold_key(cockpit_key_shift, false)
+    first = cockpit_widget_input(window, layout, theme, first, 180)
+    second = cockpit_widget_input(window, layout, theme, second, 180)
+    if cockpit_ui_focused_input != 0 { cockpit_fail("shift tab focus") }
+
+    -- Tab with nothing focused selects the first field.
+    cockpit_ui_focus_input(0 - 1)
+    next_frame(layout)
+    press_key(cockpit_key_tab)
+    first = cockpit_widget_input(window, layout, theme, first, 180)
+    next_frame(layout)
+    type_char(52)
+    first = cockpit_widget_input(window, layout, theme, first, 180)
+    check_text(first, "A134", "tab from nothing")
+
+    -- Enter submits the most recent input; Escape releases the keyboard.
+    next_frame(layout)
+    press_key(cockpit_key_enter)
+    first = cockpit_widget_input(window, layout, theme, first, 180)
+    if not cockpit_widget_input_submitted() { cockpit_fail("enter submits") }
+    second = cockpit_widget_input(window, layout, theme, second, 180)
+    if cockpit_widget_input_submitted() { cockpit_fail("submit belongs to the first input") }
+    next_frame(layout)
+    press_key(cockpit_key_escape)
+    type_char(53)
+    first = cockpit_widget_input(window, layout, theme, first, 180)
+    check_text(first, "A134", "escape blurs")
+    if cockpit_ui_text_focused() { cockpit_fail("escape keeps focus") }
+
+    -- Password fields edit the real text and only mask the drawing.
+    cockpit_ui_focus_input(0)
+    next_frame(layout)
+    type_char(115)
+    pilot secret = cockpit_widget_input_ex(window, layout, theme, "pa", 180, "Password", true)
+    check_text(secret, "pas", "password edits")
+    say "PASS focus keys"
+}
+
+task replay_shortcuts(layout: ByteBuffer) -> void {
+    if cockpit_key_letter("S") != 19 or cockpit_key_letter("s") != 19 { cockpit_fail("letter key") }
+    if cockpit_key_letter("?") != 0 { cockpit_fail("unknown letter") }
+    if cockpit_key_digit(0) != 27 or cockpit_key_function(12) != 61 { cockpit_fail("digit/function key") }
+    cockpit_ui_focus_input(0 - 1)
+    next_frame(layout)
+    hold_key(cockpit_key_ctrl, true)
+    press_key(cockpit_key_letter("S"))
+    if not cockpit_ui_shortcut(cockpit_key_letter("S"), true, false, false) { cockpit_fail("ctrl+s") }
+    if cockpit_ui_shortcut(cockpit_key_letter("S"), true, true, false) { cockpit_fail("ctrl+shift+s matched") }
+    if not cockpit_ui_key_down(cockpit_key_ctrl) { cockpit_fail("ctrl held") }
+    next_frame(layout)
+    if cockpit_ui_key_pressed(cockpit_key_letter("S")) { cockpit_fail("pressed persisted") }
+    if not cockpit_ui_key_down(cockpit_key_ctrl) { cockpit_fail("held persisted") }
+    -- Losing window focus releases every held key.
+    cockpit_ui_feed_event(7, 0, 0, 0, 0, 0, 0, 0)
+    if cockpit_ui_key_down(cockpit_key_ctrl) { cockpit_fail("focus loss releases keys") }
+    say "PASS shortcuts"
+}
+
+task main() {
+    pilot window = cockpit_ui_open("Input replay", 320, 240, true)
+    pilot theme = cockpit_theme_dark()
+    pilot layout = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    replay_caret(window, layout, theme)
+    replay_focus_keys(window, layout, theme)
+    replay_shortcuts(layout)
+    cockpit_layout_release(layout)
+    cockpit_theme_release(theme)
+    cockpit_ui_close(window)
+}
