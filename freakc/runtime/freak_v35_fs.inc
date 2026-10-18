@@ -484,7 +484,18 @@ static freak_fs_anchor freak_fs_anchor_dup(freak_fs_anchor directory) {
 }
 static void freak_fs_sync_nonfinal(const char *operation);
 static bool freak_fs_windows_discard_new_temp(HANDLE child);
+static freak_fs_anchor freak_fs_anchor_child_access(freak_fs_anchor parent,const char *name,bool directory,bool create,ACCESS_MASK extra,bool allow_reparse,bool exclusive,PVOID security);
 static freak_fs_anchor freak_fs_anchor_child_mode_security(freak_fs_anchor parent,const char *name,bool directory,bool create,bool writable,bool allow_reparse,bool exclusive,PVOID security) {
+    ACCESS_MASK extra = writable ? DELETE | (directory ? FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_DELETE_CHILD : GENERIC_WRITE) : 0;
+    return freak_fs_anchor_child_access(parent,name,directory,create,extra,allow_reparse,exclusive,security);
+}
+/* Deleting a file needs DELETE, not write access to its data. Asking for
+   GENERIC_WRITE would refuse read-only files (such as Git objects) at open. */
+static freak_fs_anchor freak_fs_anchor_child_for_delete(freak_fs_anchor parent,const char *name,bool directory) {
+    ACCESS_MASK extra = DELETE | FILE_WRITE_ATTRIBUTES | (directory ? FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_DELETE_CHILD : 0);
+    return freak_fs_anchor_child_access(parent,name,directory,false,extra,false,false,NULL);
+}
+static freak_fs_anchor freak_fs_anchor_child_access(freak_fs_anchor parent,const char *name,bool directory,bool create,ACCESS_MASK extra,bool allow_reparse,bool exclusive,PVOID security) {
     static freak_fs_nt_create_fn create_file = NULL;
     if (!create_file) create_file = (freak_fs_nt_create_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtCreateFile");
     if (!create_file) return INVALID_HANDLE_VALUE;
@@ -496,7 +507,7 @@ static freak_fs_anchor freak_fs_anchor_child_mode_security(freak_fs_anchor paren
     freak_fs_nt_io io={0}; io.value.status=0x103 /* STATUS_PENDING */;
     HANDLE child = INVALID_HANDLE_VALUE;
     ACCESS_MASK access = SYNCHRONIZE | FILE_READ_ATTRIBUTES | (directory ? FILE_LIST_DIRECTORY | FILE_TRAVERSE : GENERIC_READ);
-    if (writable) access |= DELETE | (directory ? FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_DELETE_CHILD : GENERIC_WRITE);
+    access |= extra;
     if (security) access |= READ_CONTROL;
     LONG status = create_file(&child,access,&object,&io,NULL,FILE_ATTRIBUTE_NORMAL,
         exclusive ? 0 : FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,create ? 2 /* FILE_CREATE */ : 1 /* FILE_OPEN */,
@@ -1059,7 +1070,20 @@ static bool freak_fs_anchor_set_information(HANDLE item,void *information,size_t
 }
 static bool freak_fs_anchor_delete_handle(HANDLE item) {
     BOOLEAN dispose=TRUE;
-    return freak_fs_anchor_set_information(item,&dispose,sizeof(dispose),13 /* FileDispositionInformation */);
+    if (freak_fs_anchor_set_information(item,&dispose,sizeof(dispose),13 /* FileDispositionInformation */)) return true;
+    /* Git writes its object and pack files read-only. On Windows that attribute
+       blocks deletion, so clear it on this same held handle and retry once. A
+       handle opened without FILE_WRITE_ATTRIBUTES simply keeps the refusal. */
+    FILE_BASIC_INFO basic;
+    if (!GetFileInformationByHandleEx(item,FileBasicInfo,&basic,sizeof(basic)) || !(basic.FileAttributes & FILE_ATTRIBUTE_READONLY)) return false;
+    DWORD original=basic.FileAttributes;
+    memset(&basic,0,sizeof(basic));
+    basic.FileAttributes=original & ~(DWORD)FILE_ATTRIBUTE_READONLY;
+    if (!basic.FileAttributes) basic.FileAttributes=FILE_ATTRIBUTE_NORMAL;
+    if (!SetFileInformationByHandle(item,FileBasicInfo,&basic,sizeof(basic))) return false;
+    if (freak_fs_anchor_set_information(item,&dispose,sizeof(dispose),13 /* FileDispositionInformation */)) return true;
+    basic.FileAttributes=original; SetFileInformationByHandle(item,FileBasicInfo,&basic,sizeof(basic));
+    return false;
 }
 /* Only a terminal FILE_CREATED response grants ownership of this new empty
    identity. Never unwind a pending request's IOSB or dispose it by its name. */
@@ -1215,7 +1239,7 @@ cleanup:
 #endif
 static bool freak_fs_anchor_delete(freak_fs_anchor parent,const char *leaf,bool directory) {
 #ifdef _WIN32
-    HANDLE item=freak_fs_anchor_child(parent,leaf,directory,false,true);
+    HANDLE item=freak_fs_anchor_child_for_delete(parent,leaf,directory);
     if (item == INVALID_HANDLE_VALUE) return false;
     bool ok=freak_fs_anchor_delete_handle(item);
     CloseHandle(item); return ok;
