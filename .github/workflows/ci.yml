@@ -176,6 +176,12 @@ jobs:
           python -u tests/v3_v35_hangar.py --freak ./build/freak$EXT \
             --hangar ./build/hangar$EXT --clang "$(command -v clang)"
 
+      - name: V3.5 registry package install
+        shell: bash
+        run: |
+          python -B -u tests/v3_v35_registry_install.py --freak ./build/freak$EXT \
+            --hangar ./build/hangar$EXT
+
       - name: V3.5 process and CLI contracts
         shell: bash
         run: |
@@ -581,6 +587,12 @@ jobs:
         run: |
           python -u tests/v3_v35_hangar.py --freak ./build/freak$EXT \
             --hangar ./build/hangar$EXT --clang "$(command -v clang)"
+
+      - name: V3.5 registry package install
+        shell: bash
+        run: |
+          python -B -u tests/v3_v35_registry_install.py --freak ./build/freak$EXT \
+            --hangar ./build/hangar$EXT
 
       - name: V3.5 process and CLI contracts
         shell: bash

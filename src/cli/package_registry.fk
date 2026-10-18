@@ -103,7 +103,24 @@ task hangar_registry_session() -> word {
 task hangar_registry_tool(name: word, override_env: word) -> word {
     pilot explicit = process::env(override_env)
     if explicit != "" { give back explicit }
+    -- Prefer Windows' own bsdtar: Git for Windows' GNU tar, often first on
+    -- PATH, reads a drive-letter path as a remote host.
+    if name == "tar" and process::platform_is_windows() {
+        pilot root = process::env("SystemRoot")
+        if root != "" {
+            pilot system_tar = cli_host_path_join(cli_host_path_join(root, "System32"), "tar.exe")
+            if fs::exists(system_tar) { give back system_tar }
+        }
+    }
     give back hangar_native_tool_executable(name)
+}
+
+-- Windows tar cannot use extended-length (\\?\) paths; give it the plain form.
+task hangar_registry_tool_path(path: word) -> word {
+    if not path.starts_with("\\\\?\\") { give back path }
+    pilot rest = path.substring(4, path.length() - 4)
+    if rest.starts_with("UNC\\") { give back "\\\\" + rest.substring(4, rest.length() - 4) }
+    give back rest
 }
 
 task hangar_registry_write_file(dir: word, name: word, content: word) -> bool {
@@ -317,9 +334,9 @@ task hangar_registry_fetch_archive(name: word, version: word, download_dir: word
     -- the source store.
     pilot command = process::command_new(tar)
     process::command_arg(command, "-xf")
-    process::command_arg(command, archive)
+    process::command_arg(command, hangar_registry_tool_path(archive))
     process::command_arg(command, "-C")
-    process::command_arg(command, extract_dir)
+    process::command_arg(command, hangar_registry_tool_path(extract_dir))
     if not hangar_registry_run(command, "Extracting " + name + "@" + version) {
         give back ""
     }

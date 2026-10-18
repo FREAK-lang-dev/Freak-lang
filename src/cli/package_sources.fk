@@ -7,6 +7,9 @@ pilot package_source_tickets = 0
 pilot package_source_original_tickets = 0
 pilot package_source_physical_keys = 0
 pilot package_source_original_owned = 0
+-- Registry archives unpack into a subdirectory of an owned staging folder;
+-- this holds that owned parent per node ("0" when none).
+pilot package_source_staging_parents = 0
 pilot package_source_git_prefixes = 0
 pilot package_git_repository_keys = 0
 pilot package_git_repository_tickets = 0
@@ -95,7 +98,34 @@ task package_finish_git_staging() -> bool {
         }
         index += 1
     }
+    index = 0
+    repeat until index >= hangar_graph_count {
+        if not package_release_staging_parent(index) { valid = false }
+        index += 1
+    }
     give back valid
+}
+
+-- Close the unpacked tree first: Windows cannot remove a folder while a
+-- handle inside it is open.
+task package_release_staging_parent(index: int) -> bool {
+    if package_source_staging_parents == 0 or index >= array_len(package_source_staging_parents) { give back true }
+    pilot parent = word_to_int(array_get(package_source_staging_parents, index))
+    if parent == 0 { give back true }
+    pilot original = word_to_int(array_get(package_source_original_tickets, index))
+    if original != 0 {
+        fs::result_release(original)
+        array_set(package_source_original_tickets, index, "0")
+    }
+    pilot removed = fs::remove_temp_dir_checked(parent)
+    pilot complete = fs::result_ok(removed)
+    if not complete { hangar_graph_fail("cannot durably clean owned registry staging before graph commit: " + fs::result_error(removed)) }
+    if complete or fs::result_completed(removed) {
+        fs::result_release(parent)
+        array_set(package_source_staging_parents, index, "0")
+    }
+    fs::result_release(removed)
+    give back complete
 }
 
 
@@ -106,6 +136,14 @@ task package_sources_release() -> void {
         repeat until index >= array_len(package_source_tickets) {
             pilot ticket = word_to_int(array_get(package_source_tickets, index))
             if ticket != 0 { fs::result_release(ticket) }
+            pilot parent = word_to_int(array_get(package_source_staging_parents, index))
+            if parent != 0 {
+                pilot inner = word_to_int(array_get(package_source_original_tickets, index))
+                if inner != 0 { fs::result_release(inner) }
+                array_set(package_source_original_tickets, index, "0")
+                hangar_checked_fs(fs::remove_temp_dir_checked(parent), "Could not clean owned registry staging")
+                fs::result_release(parent)
+            }
             pilot original = word_to_int(array_get(package_source_original_tickets, index))
             if original != 0 {
                 if array_get(package_source_original_owned, index) == "true" { hangar_checked_fs(fs::remove_temp_dir_checked(original), "Could not clean owned raw Git inputs") }
@@ -120,6 +158,7 @@ task package_sources_release() -> void {
         array_release(package_source_original_tickets)
         array_release(package_source_physical_keys)
         array_release(package_source_original_owned)
+        array_release(package_source_staging_parents)
         array_release(package_source_git_prefixes)
         array_release(package_git_repository_keys)
         array_release(package_git_repository_tickets)
@@ -138,6 +177,7 @@ task package_sources_release() -> void {
     package_source_original_tickets = 0
     package_source_physical_keys = 0
     package_source_original_owned = 0
+    package_source_staging_parents = 0
     package_source_git_prefixes = 0
     package_git_repository_keys = 0
     package_git_repository_tickets = 0
@@ -165,6 +205,7 @@ task package_sources_clear() -> void {
     package_source_original_tickets = array_new()
     package_source_physical_keys = array_new()
     package_source_original_owned = array_new()
+    package_source_staging_parents = array_new()
     package_source_git_prefixes = array_new()
     package_git_repository_keys = array_new()
     package_git_repository_tickets = array_new()
@@ -359,6 +400,7 @@ task package_source_register(node: int, ticket: int, root: word, kind: word, com
     array_push(package_source_manifest_hashes, manifest_hash)
     array_push(package_source_physical_keys, "")
     array_push(package_source_original_owned, "false")
+    array_push(package_source_staging_parents, "0")
     array_push(package_source_git_prefixes, "")
 }
 
@@ -1158,6 +1200,11 @@ task package_discard_temp(ticket: int) -> void {
     fs::result_release(ticket)
 }
 
+task package_discard_registry_staging(inner: int, raw: int) -> void {
+    fs::result_release(inner)
+    package_discard_temp(raw)
+}
+
 task package_admit_git(edge: int, offline: bool, update_name: word) -> int {
     pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
     pilot alias = array_get(hangar_graph_edge_aliases, edge)
@@ -1573,16 +1620,30 @@ task package_admit_registry(edge: int, offline: bool, update_name: word) -> int 
         fs::result_release(raw)
         package_discard_temp(download)
         give back 0 - 1 }
+    -- tar unpacks into a plain subfolder. On Windows nothing else can enter
+    -- the owned staging folder itself while Hangar holds it.
+    pilot made = fs::mkdir_relative_checked(raw, "unpacked")
+    pilot made_ok = fs::result_ok(made)
+    pilot made_error = fs::result_error(made)
+    fs::result_release(made)
+    if not made_ok { hangar_graph_fail("cannot create registry input staging: " + made_error)
+        package_discard_temp(download)
+        package_discard_temp(raw)
+        give back 0 - 1 }
     say "  Fetching " + name + "@" + version + " from " + base
-    pilot fetched = hangar_registry_fetch_archive(name, version, download_path, fs::result_word(raw), digest)
+    pilot fetched = hangar_registry_fetch_archive(name, version, download_path, cli_host_path_join(fs::result_word(raw), "unpacked"), digest)
     package_discard_temp(download)
     if fetched == "" { hangar_graph_fail(hangar_registry_error + " (" + request + ")")
         package_discard_temp(raw)
         give back 0 - 1 }
-    pilot read = fs::read_relative_bytes_limit_ticket(raw, "hangar.toml", hangar_graph_manifest_limit)
+    pilot inner = fs::open_relative_dir_ticket(raw, "unpacked")
+    if not fs::result_ok(inner) { hangar_graph_fail("cannot open unpacked registry archive " + name + "@" + version + ": " + fs::result_error(inner))
+        package_discard_registry_staging(inner, raw)
+        give back 0 - 1 }
+    pilot read = fs::read_relative_bytes_limit_ticket(inner, "hangar.toml", hangar_graph_manifest_limit)
     if not fs::result_ok(read) { hangar_graph_fail("registry archive " + name + "@" + version + " has no readable hangar.toml at its root: " + fs::result_error(read))
         fs::result_release(read)
-        package_discard_temp(raw)
+        package_discard_registry_staging(inner, raw)
         give back 0 - 1 }
     pilot bytes: ByteBuffer = fs::result_bytes(read)
     fs::result_release(read)
@@ -1591,15 +1652,16 @@ task package_admit_registry(edge: int, offline: bool, update_name: word) -> int 
     pilot valid = bytes.status() == 0
     bytes.release()
     if not valid { hangar_graph_fail("registry manifest must be UTF-8 text without NUL: " + request)
-        package_discard_temp(raw)
+        package_discard_registry_staging(inner, raw)
         give back 0 - 1 }
     if manifest_hash != "" and manifest_hash != hash { hangar_graph_fail("registry manifest bytes disagree with locked integrity: " + request)
-        package_discard_temp(raw)
+        package_discard_registry_staging(inner, raw)
         give back 0 - 1 }
     pilot identity = package_registry_identity(base, name, version)
     pilot node = hangar_graph_add_manifest(identity, identity + ":hangar.toml", text, request)
-    if node < 0 { package_discard_temp(raw) give back 0 - 1 }
-    package_registry_register(node, raw, fs::result_word(raw), base, identity, fetched, hash, tree, true)
+    if node < 0 { package_discard_registry_staging(inner, raw) give back 0 - 1 }
+    package_registry_register(node, inner, fs::result_word(inner), base, identity, fetched, hash, tree, false)
+    array_set(package_source_staging_parents, node, word_from_int(raw))
     if not package_registry_check_manifest(node, name, version, request) { give back 0 - 1 }
     give back node
 }
