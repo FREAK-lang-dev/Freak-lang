@@ -52,6 +52,9 @@ int64_t freak_ui_measure_text_word(freak_word text,int64_t size,int64_t bold,int
 '''
 
 
+INPUT_STDOUT = ['PASS caret editing', 'PASS focus keys', 'PASS shortcuts']
+
+
 def emit(args: argparse.Namespace, root: Path, source: Path, backend: str,
          generated: Path, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
     if args.probe:
@@ -117,7 +120,8 @@ def main() -> None:
     records: list[dict] = []
     cases = [('external-public-consumer', consumer, consumer / 'src/main.fk', legacy.PURE_STDOUT, False),
              ('declared-pure-test', copied, copied / 'tests/pure.fk', [], False),
-             ('shared-private-state-replay', copied, copied / 'tests/replay.fk', legacy.REPLAY_STDOUT, True)]
+             ('shared-private-state-replay', copied, copied / 'tests/replay.fk', legacy.REPLAY_STDOUT, True),
+             ('keyboard-editing-replay', copied, copied / 'tests/replay_input.fk', INPUT_STDOUT, True)]
     for case, graph_root, source, expected, use_mock in cases:
         for backend in ('c', 'llvm'):
             generated = work / f'{case}.{"c" if backend == "c" else "ll"}'
