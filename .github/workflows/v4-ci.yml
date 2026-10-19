@@ -133,6 +133,32 @@ jobs:
           --smoke int_inline_codegen_smoke.fk
           --smoke borrowck_candidate_scaling_smoke.fk
 
+  v4-lsp-server:
+    name: freak-lsp language server (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Clang (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm -y
+
+      - name: Build freak-lsp and run its JSON-RPC contracts
+        run: python -u tests/v4_lsp_server.py
+
   v4-runtime-helpers:
     name: V4 native runtime helpers (${{ matrix.os }})
     strategy:
