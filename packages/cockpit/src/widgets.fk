@@ -45,7 +45,10 @@ use self::state::{
     cockpit_ui_caret_epoch,
     cockpit_ui_input_allowed,
     cockpit_ui_input_is_focused,
+    cockpit_ui_delta_ms,
     cockpit_ui_input_scroll,
+    cockpit_ui_memory_get,
+    cockpit_ui_memory_set,
     cockpit_ui_key_pressed,
     cockpit_ui_modal_active,
     cockpit_ui_modal_scope,
@@ -59,10 +62,14 @@ use self::state::{
     cockpit_ui_popup_widget,
     cockpit_ui_scroll_value
 }
+use self::motion::{
+    cockpit_approach
+}
 use self::theme::{
     cockpit_color_a,
     cockpit_color_b,
     cockpit_color_g,
+    cockpit_color_mix,
     cockpit_color_r,
     cockpit_theme_accent,
     cockpit_theme_accent_hover,
@@ -124,14 +131,18 @@ task cockpit_widget_button(window: int, layout: ByteBuffer, theme: int, text: wo
     height = cockpit_layout_last_height()
     pilot x = cockpit_layout_last_x()
     pilot y = cockpit_layout_last_y()
-    pilot hovered = cockpit_ui_pointer_inside(x, y, width, height)
-    pilot color = cockpit_theme_get(theme, cockpit_theme_surface)
-    if hovered { color = cockpit_theme_get(theme, cockpit_theme_accent_hover) }
+    pilot widget_id = cockpit_ui_next_widget()
+    pilot hovered = cockpit_ui_input_allowed() and cockpit_ui_pointer_inside(x, y, width, height)
+    -- Hover fades in over ~90 ms and out over the same time.
+    pilot target = 0
+    if hovered { target = 1000 }
+    pilot glow = cockpit_approach(cockpit_ui_memory_get(widget_id, 4, target), target, cockpit_ui_delta_ms(), 90)
+    cockpit_ui_memory_set(widget_id, 4, glow)
+    pilot color = cockpit_color_mix(cockpit_theme_get(theme, cockpit_theme_surface), cockpit_theme_get(theme, cockpit_theme_accent_hover), glow)
     cockpit_draw_fill(window, x, y, width, height, color)
     cockpit_draw_stroke(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_border), 1)
     pilot text_width = ui::measure_text(text, font_size, 1, 0)
     pilot ignored = cockpit_draw_text(window, text, x + (width - text_width) / 2, y + 8, cockpit_theme_get(theme, cockpit_theme_text), font_size, true)
-    pilot widget_id = cockpit_ui_next_widget()
     give back cockpit_ui_clicked_inside(x, y, width, height)
 }
 

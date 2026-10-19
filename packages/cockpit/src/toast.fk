@@ -1,0 +1,183 @@
+use self::containers::{
+    cockpit_values_get_int,
+    cockpit_values_new,
+    cockpit_values_push_int,
+    cockpit_values_release,
+    cockpit_values_set_int,
+    cockpit_words_new,
+    cockpit_words_push,
+    cockpit_words_release,
+    cockpit_words_get,
+    cockpit_words_set
+}
+use self::motion::{
+    cockpit_ease,
+    cockpit_ease_out_cubic
+}
+use self::state::{
+    cockpit_clip_pop,
+    cockpit_clip_push,
+    cockpit_ui_clicked_inside
+}
+use self::theme::{
+    cockpit_color_b,
+    cockpit_color_g,
+    cockpit_color_mix,
+    cockpit_color_r,
+    cockpit_theme_accent,
+    cockpit_theme_bg,
+    cockpit_theme_border,
+    cockpit_theme_danger,
+    cockpit_theme_font_size,
+    cockpit_theme_get,
+    cockpit_theme_success,
+    cockpit_theme_surface,
+    cockpit_theme_text
+}
+
+-- COCKPIT toasts: short notifications stacked in the bottom-right corner.
+-- They draw automatically at end-frame, slide in, fade out and dismiss on click.
+
+fixed pilot cockpit_toast_info = 0
+fixed pilot cockpit_toast_success = 1
+fixed pilot cockpit_toast_danger = 2
+fixed pilot cockpit_toast_slots = 8
+
+pilot cockpit_toast_texts = 0
+-- Per slot: kind (-1 = empty), created_ms, duration_ms, creation order.
+pilot cockpit_toast_meta = 0
+pilot cockpit_toast_serial = 0
+pilot cockpit_toast_theme = 0
+
+task cockpit_toasts_reset() -> void {
+    cockpit_toasts_release()
+    cockpit_toast_texts = cockpit_words_new()
+    cockpit_toast_meta = cockpit_values_new()
+    repeat cockpit_toast_slots times {
+        cockpit_words_push(cockpit_toast_texts, "")
+        cockpit_values_push_int(cockpit_toast_meta, 0 - 1)
+        cockpit_values_push_int(cockpit_toast_meta, 0)
+        cockpit_values_push_int(cockpit_toast_meta, 0)
+        cockpit_values_push_int(cockpit_toast_meta, 0)
+    }
+}
+
+task cockpit_toasts_release() -> void {
+    if cockpit_toast_texts != 0 { cockpit_words_release(cockpit_toast_texts) cockpit_toast_texts = 0 }
+    if cockpit_toast_meta != 0 { cockpit_values_release(cockpit_toast_meta) cockpit_toast_meta = 0 }
+}
+
+task cockpit_toast(text: word, kind: int) -> void { cockpit_toast_timed(text, kind, 3000) }
+
+-- Shows `text` for `duration_ms`. When all slots are busy the oldest toast is replaced.
+task cockpit_toast_timed(text: word, kind: int, duration_ms: int) -> void {
+    if cockpit_toast_meta == 0 { give back }
+    if kind < 0 or kind > 2 { kind = cockpit_toast_info }
+    pilot slot = 0 - 1
+    pilot oldest = 0
+    pilot index = 0
+    repeat cockpit_toast_slots times {
+        if slot < 0 and cockpit_values_get_int(cockpit_toast_meta, index * 4) < 0 { slot = index }
+        if cockpit_values_get_int(cockpit_toast_meta, index * 4 + 3) < cockpit_values_get_int(cockpit_toast_meta, oldest * 4 + 3) { oldest = index }
+        index += 1
+    }
+    if slot < 0 { slot = oldest }
+    cockpit_toast_serial += 1
+    cockpit_words_set(cockpit_toast_texts, slot, text)
+    cockpit_values_set_int(cockpit_toast_meta, slot * 4, kind)
+    cockpit_values_set_int(cockpit_toast_meta, slot * 4 + 1, time::now_ms())
+    cockpit_values_set_int(cockpit_toast_meta, slot * 4 + 2, duration_ms)
+    cockpit_values_set_int(cockpit_toast_meta, slot * 4 + 3, cockpit_toast_serial)
+}
+
+task cockpit_toast_count() -> int {
+    if cockpit_toast_meta == 0 { give back 0 }
+    pilot count = 0
+    pilot index = 0
+    repeat cockpit_toast_slots times {
+        if cockpit_values_get_int(cockpit_toast_meta, index * 4) >= 0 { count += 1 }
+        index += 1
+    }
+    give back count
+}
+
+task cockpit_toasts_clear() -> void {
+    if cockpit_toast_meta == 0 { give back }
+    pilot index = 0
+    repeat cockpit_toast_slots times {
+        cockpit_values_set_int(cockpit_toast_meta, index * 4, 0 - 1)
+        index += 1
+    }
+}
+
+-- The active slot created next after creation order `after`, or -1.
+task cockpit_toast_next(after: int) -> int {
+    pilot best = 0 - 1
+    pilot index = 0
+    repeat cockpit_toast_slots times {
+        pilot order = cockpit_values_get_int(cockpit_toast_meta, index * 4 + 3)
+        if cockpit_values_get_int(cockpit_toast_meta, index * 4) >= 0 and order > after {
+            if best < 0 or order < cockpit_values_get_int(cockpit_toast_meta, best * 4 + 3) { best = index }
+        }
+        index += 1
+    }
+    give back best
+}
+
+task cockpit_toasts_draw(window: int) -> void {
+    if cockpit_toast_meta == 0 or cockpit_toast_theme == 0 { give back }
+    pilot theme = cockpit_toast_theme
+    pilot now = time::now_ms()
+    pilot index = 0
+    repeat cockpit_toast_slots times {
+        pilot age = now - cockpit_values_get_int(cockpit_toast_meta, index * 4 + 1)
+        if cockpit_values_get_int(cockpit_toast_meta, index * 4) >= 0 and age >= cockpit_values_get_int(cockpit_toast_meta, index * 4 + 2) { cockpit_values_set_int(cockpit_toast_meta, index * 4, 0 - 1) }
+        index += 1
+    }
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
+    pilot height = font_size + 20
+    pilot screen_w = ui::get_width(window)
+    pilot bottom = ui::get_height(window) - 12
+    -- Newest at the bottom: walk newest-first by drawing in reverse creation order.
+    pilot total = cockpit_toast_count()
+    pilot drawn = 0
+    pilot cursor = 0
+    repeat total times {
+        pilot slot = cockpit_toast_next(cursor)
+        if slot >= 0 {
+            cursor = cockpit_values_get_int(cockpit_toast_meta, slot * 4 + 3)
+            pilot position_from_bottom = total - 1 - drawn
+            cockpit_toast_draw_one(window, theme, slot, now, bottom - (position_from_bottom + 1) * (height + 8), height, screen_w, font_size)
+            drawn += 1
+        }
+    }
+}
+
+task cockpit_toast_draw_one(window: int, theme: int, slot: int, now: int, y: int, height: int, screen_w: int, font_size: int) -> void {
+    pilot text = cockpit_words_get(cockpit_toast_texts, slot)
+    pilot kind = cockpit_values_get_int(cockpit_toast_meta, slot * 4)
+    pilot created = cockpit_values_get_int(cockpit_toast_meta, slot * 4 + 1)
+    pilot duration = cockpit_values_get_int(cockpit_toast_meta, slot * 4 + 2)
+    pilot age = now - created
+    pilot width = ui::measure_text(text, font_size, 0, 0) + 36
+    -- Slide in from the right over 220 ms; fade toward the background in the last 300 ms.
+    pilot slide = cockpit_ease(cockpit_ease_out_cubic, age * 1000 / 220)
+    pilot x = screen_w - 12 - width * slide / 1000
+    pilot fade = 0
+    if duration - age < 300 { fade = 1000 - (duration - age) * 1000 / 300 }
+    pilot stripe = cockpit_theme_get(theme, cockpit_theme_accent)
+    if kind == cockpit_toast_success { stripe = cockpit_theme_get(theme, cockpit_theme_success) }
+    if kind == cockpit_toast_danger { stripe = cockpit_theme_get(theme, cockpit_theme_danger) }
+    pilot bg = cockpit_theme_get(theme, cockpit_theme_bg)
+    pilot surface = cockpit_color_mix(cockpit_theme_get(theme, cockpit_theme_surface), bg, fade)
+    stripe = cockpit_color_mix(stripe, bg, fade)
+    pilot fg = cockpit_color_mix(cockpit_theme_get(theme, cockpit_theme_text), bg, fade)
+    pilot border = cockpit_color_mix(cockpit_theme_get(theme, cockpit_theme_border), bg, fade)
+    cockpit_clip_push(window, x, y, width, height)
+    ui::fill_rect(window, x, y, width, height, cockpit_color_r(surface), cockpit_color_g(surface), cockpit_color_b(surface), 255)
+    ui::fill_rect(window, x, y, 5, height, cockpit_color_r(stripe), cockpit_color_g(stripe), cockpit_color_b(stripe), 255)
+    ui::stroke_rect(window, x, y, width, height, cockpit_color_r(border), cockpit_color_g(border), cockpit_color_b(border), 255, 1)
+    pilot ignored = ui::draw_text(window, text, x + 18, y + 10, cockpit_color_r(fg), cockpit_color_g(fg), cockpit_color_b(fg), font_size, false, false)
+    cockpit_clip_pop(window)
+    if cockpit_ui_clicked_inside(x, y, width, height) { cockpit_values_set_int(cockpit_toast_meta, slot * 4, 0 - 1) }
+}

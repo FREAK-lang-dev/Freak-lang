@@ -23,6 +23,9 @@ SOURCE_ORDER = (
     "theme.fk",
     "state.fk",
     "widgets.fk",
+    "motion.fk",
+    "controls.fk",
+    "toast.fk",
     "ui.fk",
 )
 
@@ -92,6 +95,8 @@ task fake_ui_clear(handle: int, r: int, g: int, b: int, a: int) -> void {}
 task fake_ui_fill_rect(handle: int, x: int, y: int, width: int, height: int, r: int, g: int, b: int, a: int) -> void {}
 task fake_ui_stroke_rect(handle: int, x: int, y: int, width: int, height: int, r: int, g: int, b: int, a: int, thickness: int) -> void {}
 task fake_ui_draw_text(handle: int, text: word, x: int, y: int, r: int, g: int, b: int, size: int, bold: bool, italic: bool) -> int { give back text.length() * 7 }
+task fake_ui_fill_circle(handle: int, x: int, y: int, radius: int, r: int, g: int, b: int, a: int) -> void {}
+task fake_ui_draw_line(handle: int, x1: int, y1: int, x2: int, y2: int, r: int, g: int, b: int, a: int, thickness: int) -> void {}
 task fake_ui_measure_text(text: word, size: int, bold: int, italic: int) -> int { give back text.length() * 7 }
 '''
 
@@ -586,7 +591,7 @@ def main() -> int:
             assert stats["byte_buffer_growths"] == 0, stats
             assert stats["byte_buffer_releases"] == 1, stats
 
-        for example in ("smoke.fk", "showcase.fk", "calculator.fk", "settings.fk"):
+        for example in ("smoke.fk", "showcase.fk", "calculator.fk", "settings.fk", "mission_control.fk"):
             aggregate_source = aggregate(
                 source_paths + [package / "examples" / example],
                 root / f"cockpit_{example}",

@@ -70,6 +70,9 @@ pilot cockpit_ui_last_focusable = -1
 pilot cockpit_ui_frame_last_focusable = -1
 pilot cockpit_ui_submit_widget = -1
 pilot cockpit_ui_last_input_widget = -1
+pilot cockpit_ui_memory = 0
+pilot cockpit_ui_delta_ms_value = 16
+pilot cockpit_ui_frame_ms = 0
 
 
 pilot cockpit_popup_items = 0
@@ -160,6 +163,11 @@ task cockpit_ui_reset() -> void {
     cockpit_ui_keys_pressed = array_new()
     repeat 64 times { array_push(cockpit_ui_keys_pressed, "0") }
     cockpit_ui_keys_pressed_count = 0
+    if cockpit_ui_memory != 0 { array_release(cockpit_ui_memory) }
+    cockpit_ui_memory = array_new()
+    repeat 576 times { array_push(cockpit_ui_memory, "-1") }
+    cockpit_ui_frame_ms = 0
+    cockpit_ui_delta_ms_value = 16
     cockpit_ui_caret = 0 - 1
     cockpit_ui_input_scroll = 0
     cockpit_ui_focus_wrap = false
@@ -279,13 +287,17 @@ task cockpit_ui_key_down(key: int) -> bool {
 }
 
 -- True when the key went down (or auto-repeated) during this frame.
-task cockpit_ui_key_pressed(key: int) -> bool {
+task cockpit_ui_key_pressed(key: int) -> bool { give back cockpit_ui_key_presses(key) > 0 }
+
+-- How many times the key went down (including auto-repeat) during this frame.
+task cockpit_ui_key_presses(key: int) -> int {
+    pilot count = 0
     pilot index = 0
     repeat cockpit_ui_keys_pressed_count times {
-        if cockpit_values_get_int(cockpit_ui_keys_pressed, index) == key { give back true }
+        if cockpit_values_get_int(cockpit_ui_keys_pressed, index) == key { count += 1 }
         index += 1
     }
-    give back false
+    give back count
 }
 
 -- A shortcut matches when the key was pressed this frame with exactly these modifiers held.
@@ -578,6 +590,41 @@ task cockpit_widget_input_submitted() -> bool {
 
 -- True when any text input currently owns the keyboard.
 task cockpit_ui_text_focused() -> bool { give back cockpit_ui_focused_input >= 0 }
+
+-- Per-widget integer memory keyed by the stable sequential widget id.
+-- Ids beyond the table, or never written, read back as `fallback`.
+-- Slots 512..575 back the 64 caller-chosen cockpit_animate slots.
+fixed pilot cockpit_ui_memory_slots = 576
+
+-- Values are stored with a widget-kind tag so a different widget that later
+-- lands on the same id (e.g. after switching tabs) starts fresh. Values must
+-- stay within 0..999999999.
+task cockpit_ui_memory_get(widget_id: int, kind: int, fallback: int) -> int {
+    if cockpit_ui_memory == 0 or widget_id < 0 or widget_id >= cockpit_ui_memory_slots { give back fallback }
+    pilot stored = cockpit_values_get_int(cockpit_ui_memory, widget_id)
+    if stored < 0 or stored / 1000000000 != kind { give back fallback }
+    give back stored % 1000000000
+}
+
+task cockpit_ui_memory_set(widget_id: int, kind: int, value: int) -> void {
+    if cockpit_ui_memory == 0 or widget_id < 0 or widget_id >= cockpit_ui_memory_slots { give back }
+    if value < 0 { value = 0 }
+    if value > 999999999 { value = 999999999 }
+    pilot stored = kind * 1000000000 + value
+    if cockpit_values_get_int(cockpit_ui_memory, widget_id) != stored { cockpit_values_set_int(cockpit_ui_memory, widget_id, stored) }
+}
+
+-- Milliseconds since the previous frame, clamped to 0..100 so a stall never teleports animations.
+task cockpit_ui_delta_ms() -> int { give back cockpit_ui_delta_ms_value }
+
+task cockpit_ui_tick_clock() -> void {
+    pilot now = time::now_ms()
+    if cockpit_ui_frame_ms == 0 { cockpit_ui_delta_ms_value = 16 }
+    else { cockpit_ui_delta_ms_value = now - cockpit_ui_frame_ms }
+    if cockpit_ui_delta_ms_value < 0 { cockpit_ui_delta_ms_value = 0 }
+    if cockpit_ui_delta_ms_value > 100 { cockpit_ui_delta_ms_value = 100 }
+    cockpit_ui_frame_ms = now
+}
 
 task cockpit_ui_should_close() -> bool { give back cockpit_ui_quit }
 

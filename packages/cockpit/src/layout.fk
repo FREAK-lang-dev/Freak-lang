@@ -4,6 +4,11 @@
 
 fixed pilot cockpit_layout_vertical = 0
 fixed pilot cockpit_layout_horizontal = 1
+-- Grid contexts store their column count as direction = grid_base + columns.
+fixed pilot cockpit_layout_grid_base = 100
+fixed pilot cockpit_align_start = 0
+fixed pilot cockpit_align_center = 1
+fixed pilot cockpit_align_end = 2
 fixed pilot cockpit_layout_record_bytes = 80
 fixed pilot cockpit_layout_max_depth = 32
 
@@ -14,6 +19,9 @@ pilot cockpit_layout_rect_w = 0
 pilot cockpit_layout_rect_h = 0
 pilot cockpit_layout_consumed_w = 0
 pilot cockpit_layout_consumed_h = 0
+pilot cockpit_layout_cell_x = 0
+pilot cockpit_layout_cell_y = 0
+pilot cockpit_layout_cell_w = 0
 
 task cockpit_layout_capacity() -> int {
     give back cockpit_layout_record_bytes * cockpit_layout_max_depth
@@ -84,6 +92,10 @@ task cockpit_layout_begin_frame(layout: ByteBuffer, width: int, height: int, pad
 task cockpit_layout_remaining_width(layout: ByteBuffer) -> int {
     pilot direction = cockpit_layout_field(layout, 6)
     pilot width = cockpit_layout_field(layout, 2)
+    if direction >= cockpit_layout_grid_base {
+        cockpit_layout_grid_next(layout)
+        give back cockpit_layout_cell_w
+    }
     if direction == cockpit_layout_horizontal {
         pilot used = cockpit_layout_field(layout, 4) - cockpit_layout_field(layout, 0)
         pilot remaining = width - used
@@ -96,6 +108,12 @@ task cockpit_layout_remaining_width(layout: ByteBuffer) -> int {
 task cockpit_layout_remaining_height(layout: ByteBuffer) -> int {
     pilot direction = cockpit_layout_field(layout, 6)
     pilot height = cockpit_layout_field(layout, 3)
+    if direction >= cockpit_layout_grid_base {
+        cockpit_layout_grid_next(layout)
+        pilot left = cockpit_layout_field(layout, 1) + height - cockpit_layout_cell_y
+        if left < 0 { give back 0 }
+        give back left
+    }
     if direction == cockpit_layout_vertical {
         pilot used = cockpit_layout_field(layout, 5) - cockpit_layout_field(layout, 1)
         pilot remaining = height - used
@@ -139,6 +157,22 @@ task cockpit_layout_allocate(layout: ByteBuffer, width: int, height: int) -> voi
     pilot count = cockpit_layout_field(layout, 8)
     pilot cross_max = cockpit_layout_field(layout, 9)
 
+    if direction >= cockpit_layout_grid_base {
+        cockpit_layout_grid_next(layout)
+        if count % (direction - cockpit_layout_grid_base) == 0 and count > 0 { cross_max = 0 }
+        cursor_y = cockpit_layout_cell_y
+        pilot cell_h = y + max_h - cursor_y
+        if cell_h < 0 { cell_h = 0 }
+        if width > cockpit_layout_cell_w { width = cockpit_layout_cell_w }
+        if height > cell_h { height = cell_h }
+        cockpit_layout_rect_x = cockpit_layout_cell_x
+        cockpit_layout_rect_y = cursor_y
+        cockpit_layout_rect_w = width
+        cockpit_layout_rect_h = height
+        if height > cross_max { cross_max = height }
+        cockpit_layout_replace_top(layout, x, y, max_w, max_h, cursor_x, cursor_y, direction, gap, count + 1, cross_max)
+        give back
+    }
     if count > 0 {
         if direction == cockpit_layout_horizontal { cursor_x += gap }
         else { cursor_y += gap }
@@ -168,7 +202,9 @@ task cockpit_layout_begin_row(layout: ByteBuffer, height: int, gap: int) -> void
     cockpit_layout_begin_child(layout, cockpit_layout_remaining_width(layout), height, cockpit_layout_horizontal, gap)
 }
 
+-- A width of 0 or less fills the remaining width (or the current grid cell).
 task cockpit_layout_begin_column(layout: ByteBuffer, width: int, gap: int) -> void {
+    if width <= 0 { width = cockpit_layout_remaining_width(layout) }
     cockpit_layout_begin_child(layout, width, cockpit_layout_remaining_height(layout), cockpit_layout_vertical, gap)
 }
 
@@ -178,7 +214,10 @@ task cockpit_layout_begin_child(layout: ByteBuffer, width: int, height: int, dir
     pilot y = cockpit_layout_field(layout, 5)
     pilot available_w = cockpit_layout_remaining_width(layout)
     pilot available_h = cockpit_layout_remaining_height(layout)
-    if cockpit_layout_field(layout, 8) > 0 {
+    if cockpit_layout_field(layout, 6) >= cockpit_layout_grid_base {
+        x = cockpit_layout_cell_x
+        y = cockpit_layout_cell_y
+    } else if cockpit_layout_field(layout, 8) > 0 {
         pilot parent_gap = cockpit_layout_field(layout, 7)
         if cockpit_layout_field(layout, 6) == cockpit_layout_horizontal { x += parent_gap available_w -= parent_gap }
         else { y += parent_gap available_h -= parent_gap }
@@ -202,7 +241,10 @@ task cockpit_layout_end(layout: ByteBuffer) -> void {
     pilot cursor_y = cockpit_layout_field(layout, 5)
     pilot direction = cockpit_layout_field(layout, 6)
     pilot cross_max = cockpit_layout_field(layout, 9)
-    if direction == cockpit_layout_horizontal {
+    if direction >= cockpit_layout_grid_base {
+        cockpit_layout_consumed_w = cockpit_layout_field(layout, 2)
+        cockpit_layout_consumed_h = cursor_y - y + cross_max
+    } else if direction == cockpit_layout_horizontal {
         cockpit_layout_consumed_w = cursor_x - x
         cockpit_layout_consumed_h = cross_max
     } else {
@@ -211,6 +253,43 @@ task cockpit_layout_end(layout: ByteBuffer) -> void {
     }
     layout.truncate(layout.length() - cockpit_layout_record_bytes)
     cockpit_layout_allocate(layout, cockpit_layout_consumed_w, cockpit_layout_consumed_h)
+}
+
+-- Where the next grid cell goes, without consuming it.
+task cockpit_layout_grid_next(layout: ByteBuffer) -> void {
+    pilot columns = cockpit_layout_field(layout, 6) - cockpit_layout_grid_base
+    if columns < 1 { columns = 1 }
+    pilot gap = cockpit_layout_field(layout, 7)
+    pilot count = cockpit_layout_field(layout, 8)
+    pilot cell_w = (cockpit_layout_field(layout, 2) - gap * (columns - 1)) / columns
+    if cell_w < 0 { cell_w = 0 }
+    pilot column = count % columns
+    pilot row_y = cockpit_layout_field(layout, 5)
+    if column == 0 and count > 0 { row_y += cockpit_layout_field(layout, 9) + gap }
+    cockpit_layout_cell_x = cockpit_layout_field(layout, 0) + column * (cell_w + gap)
+    cockpit_layout_cell_y = row_y
+    cockpit_layout_cell_w = cell_w
+}
+
+-- Equal-width cells filled left to right, wrapping every `columns` widgets.
+-- Each row is as tall as its tallest cell. Close with cockpit_layout_end.
+task cockpit_layout_begin_grid(layout: ByteBuffer, columns: int, gap: int) -> void {
+    if columns < 1 { columns = 1 }
+    if columns > 64 { columns = 64 }
+    cockpit_layout_begin_child(layout, cockpit_layout_remaining_width(layout), cockpit_layout_remaining_height(layout), cockpit_layout_grid_base + columns, gap)
+}
+
+-- A row whose content of `content_width` pixels starts at the start, center or end.
+task cockpit_layout_begin_row_aligned(layout: ByteBuffer, height: int, content_width: int, align: int) -> void {
+    cockpit_layout_begin_row(layout, height, 0)
+    if cockpit_layout_error != 0 { give back }
+    pilot width = cockpit_layout_field(layout, 2)
+    pilot offset = 0
+    if align == cockpit_align_center { offset = (width - content_width) / 2 }
+    if align == cockpit_align_end { offset = width - content_width }
+    if offset < 0 { offset = 0 }
+    pilot x = cockpit_layout_field(layout, 0)
+    cockpit_layout_replace_top(layout, x, cockpit_layout_field(layout, 1), width, cockpit_layout_field(layout, 3), x + offset, cockpit_layout_field(layout, 5), cockpit_layout_horizontal, 0, 0, 0)
 }
 
 task cockpit_layout_last_x() -> int { give back cockpit_layout_rect_x }

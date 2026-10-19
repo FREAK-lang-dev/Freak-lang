@@ -1,7 +1,9 @@
 use self::layout::{
     cockpit_layout_begin_column,
     cockpit_layout_begin_frame,
+    cockpit_layout_begin_grid,
     cockpit_layout_begin_row,
+    cockpit_layout_begin_row_aligned,
     cockpit_layout_end
 }
 use self::state::{
@@ -13,6 +15,8 @@ use self::state::{
     cockpit_ui_feed_event,
     cockpit_ui_keys_down,
     cockpit_ui_keys_pressed,
+    cockpit_ui_memory,
+    cockpit_ui_tick_clock,
     cockpit_ui_poll_result,
     cockpit_ui_reset
 }
@@ -26,6 +30,12 @@ use self::theme::{
     cockpit_theme_get,
     cockpit_theme_padding
 }
+use self::toast::{
+    cockpit_toast_theme,
+    cockpit_toasts_draw,
+    cockpit_toasts_release,
+    cockpit_toasts_reset
+}
 use self::widgets::{
     cockpit_popup_draw
 }
@@ -38,19 +48,25 @@ task cockpit_ui_open(title: word, width: int, height: int, resizable: bool) -> i
     pilot window = ui::create_window(title, width, height, resize_flag)
     if window == 0 { give back 0 }
     cockpit_ui_reset()
+    cockpit_toasts_reset()
     give back window
 }
 
 task cockpit_ui_close(window: int) -> void {
     ui::destroy_window(window)
+    cockpit_toasts_release()
+    cockpit_toast_theme = 0
     if cockpit_ui_edits != 0 { array_release(cockpit_ui_edits) cockpit_ui_edits = 0 }
     if cockpit_ui_clip_stack != 0 { array_release(cockpit_ui_clip_stack) cockpit_ui_clip_stack = 0 }
     if cockpit_ui_keys_down != 0 { array_release(cockpit_ui_keys_down) cockpit_ui_keys_down = 0 }
+    if cockpit_ui_memory != 0 { array_release(cockpit_ui_memory) cockpit_ui_memory = 0 }
     if cockpit_ui_keys_pressed != 0 { array_release(cockpit_ui_keys_pressed) cockpit_ui_keys_pressed = 0 }
 }
 
 task cockpit_ui_begin_frame(window: int, layout: ByteBuffer, theme: int) -> void {
     cockpit_ui_clip_depth = 0
+    cockpit_ui_tick_clock()
+    cockpit_toast_theme = theme
     cockpit_ui_begin_events()
     pilot event_count = ui::poll_events(window)
     cockpit_ui_poll_result(event_count)
@@ -70,6 +86,7 @@ task cockpit_ui_begin_frame(window: int, layout: ByteBuffer, theme: int) -> void
 
 task cockpit_ui_end_frame(window: int) -> void {
     if cockpit_ui_clip_depth != 0 { cockpit_fail("COCKPIT unclosed clipped container") }
+    cockpit_toasts_draw(window)
     cockpit_popup_draw(window)
     ui::end_frame(window)
 }
@@ -80,6 +97,14 @@ task cockpit_row_begin(layout: ByteBuffer, height: int, gap: int) -> void {
 
 task cockpit_column_begin(layout: ByteBuffer, width: int, gap: int) -> void {
     cockpit_layout_begin_column(layout, width, gap)
+}
+
+task cockpit_grid_begin(layout: ByteBuffer, columns: int, gap: int) -> void {
+    cockpit_layout_begin_grid(layout, columns, gap)
+}
+
+task cockpit_row_begin_aligned(layout: ByteBuffer, height: int, content_width: int, align: int) -> void {
+    cockpit_layout_begin_row_aligned(layout, height, content_width, align)
 }
 
 task cockpit_container_end(layout: ByteBuffer) -> void {

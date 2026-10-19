@@ -1,0 +1,271 @@
+use self::containers::{
+    cockpit_values_new,
+    cockpit_values_push_int,
+    cockpit_values_release,
+    cockpit_words_new,
+    cockpit_words_push,
+    cockpit_words_release
+}
+use self::controls::{
+    cockpit_chart_y,
+    cockpit_widget_badge,
+    cockpit_widget_bar_chart,
+    cockpit_widget_collapsing,
+    cockpit_widget_list,
+    cockpit_widget_radio,
+    cockpit_widget_sparkline,
+    cockpit_widget_stepper,
+    cockpit_widget_toggle
+}
+use self::layout::{
+    cockpit_align_center,
+    cockpit_align_end,
+    cockpit_layout_allocate,
+    cockpit_layout_begin_frame,
+    cockpit_layout_begin_grid,
+    cockpit_layout_begin_row_aligned,
+    cockpit_layout_capacity,
+    cockpit_layout_end,
+    cockpit_layout_last_width,
+    cockpit_layout_last_x,
+    cockpit_layout_last_y,
+    cockpit_layout_release,
+    cockpit_layout_status
+}
+use self::motion::{
+    cockpit_animate,
+    cockpit_animate_reset,
+    cockpit_approach,
+    cockpit_ease,
+    cockpit_ease_in_quad,
+    cockpit_ease_linear,
+    cockpit_ease_out_back,
+    cockpit_ease_out_bounce,
+    cockpit_ease_out_quad,
+    cockpit_lerp
+}
+use self::state::{
+    cockpit_fail,
+    cockpit_key_down,
+    cockpit_ui_begin_events,
+    cockpit_ui_delta_ms_value,
+    cockpit_ui_feed_event,
+    cockpit_ui_memory_get
+}
+use self::theme::{
+    cockpit_color_mix,
+    cockpit_color_r,
+    cockpit_color_rgba,
+    cockpit_theme_bg,
+    cockpit_theme_copy,
+    cockpit_theme_dark,
+    cockpit_theme_for_mood,
+    cockpit_theme_get,
+    cockpit_theme_release,
+    cockpit_theme_set,
+    cockpit_theme_success
+}
+use self::toast::{
+    cockpit_toast,
+    cockpit_toast_count,
+    cockpit_toast_success,
+    cockpit_toast_theme,
+    cockpit_toast_timed,
+    cockpit_toasts_clear,
+    cockpit_toasts_draw
+}
+use self::ui::{
+    cockpit_ui_close,
+    cockpit_ui_open
+}
+
+-- Deterministic replay of the 0.2.0 layout, motion, control and toast surface.
+-- The mock platform window is 320x240 and measures each byte as 7 pixels.
+
+task click_at(x: int, y: int) -> void {
+    cockpit_ui_feed_event(4, 0, 0, 1, 0, x, y, 0)
+    cockpit_ui_feed_event(4, 0, 0, 1, 1, x, y, 0)
+}
+
+task hover_at(x: int, y: int) -> void {
+    cockpit_ui_feed_event(4, 0, 0, 0, 0, x, y, 0)
+}
+
+task next_frame(layout: ByteBuffer) -> void {
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+}
+
+task check_int(actual: int, wanted: int, label: word) -> void {
+    if actual != wanted { cockpit_fail("widget replay " + label + ": got " + word_from_int(actual) + " want " + word_from_int(wanted)) }
+}
+
+task replay_layout(layout: ByteBuffer) -> void {
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    cockpit_layout_begin_grid(layout, 3, 10)
+    cockpit_layout_allocate(layout, 100, 20)
+    check_int(cockpit_layout_last_x(), 0, "grid cell 0 x")
+    check_int(cockpit_layout_last_width(), 60, "grid cell clamps to column")
+    cockpit_layout_allocate(layout, 10, 30)
+    check_int(cockpit_layout_last_x(), 70, "grid cell 1 x")
+    cockpit_layout_allocate(layout, 60, 5)
+    check_int(cockpit_layout_last_x(), 140, "grid cell 2 x")
+    cockpit_layout_allocate(layout, 60, 10)
+    check_int(cockpit_layout_last_x(), 0, "grid wraps x")
+    check_int(cockpit_layout_last_y(), 40, "grid row uses tallest cell")
+    cockpit_layout_end(layout)
+    cockpit_layout_allocate(layout, 10, 10)
+    check_int(cockpit_layout_last_y(), 50, "grid consumed height")
+
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    cockpit_layout_begin_row_aligned(layout, 20, 50, cockpit_align_center)
+    cockpit_layout_allocate(layout, 50, 10)
+    check_int(cockpit_layout_last_x(), 75, "centered row")
+    cockpit_layout_end(layout)
+    cockpit_layout_begin_row_aligned(layout, 20, 50, cockpit_align_end)
+    cockpit_layout_allocate(layout, 50, 10)
+    check_int(cockpit_layout_last_x(), 150, "end-aligned row")
+    cockpit_layout_end(layout)
+    check_int(cockpit_layout_status(layout), 0, "layout status")
+    say "PASS layout"
+}
+
+task replay_motion() -> void {
+    check_int(cockpit_ease(cockpit_ease_linear, 250), 250, "linear")
+    check_int(cockpit_ease(cockpit_ease_in_quad, 500), 250, "in quad")
+    check_int(cockpit_ease(cockpit_ease_out_quad, 500), 750, "out quad")
+    check_int(cockpit_ease(cockpit_ease_out_back, 500), 1088, "out back overshoots")
+    check_int(cockpit_ease(cockpit_ease_out_back, 0), 0, "out back start")
+    check_int(cockpit_ease(cockpit_ease_out_bounce, 500), 765, "out bounce")
+    check_int(cockpit_ease(cockpit_ease_out_bounce, 2000), 1000, "ease clamps")
+    check_int(cockpit_lerp(100, 300, 250), 150, "lerp")
+    check_int(cockpit_approach(0, 1000, 16, 160), 100, "approach step")
+    check_int(cockpit_approach(950, 1000, 16, 160), 1000, "approach clamps")
+    check_int(cockpit_color_r(cockpit_color_mix(cockpit_color_rgba(0, 0, 0, 255), cockpit_color_rgba(200, 100, 50, 255), 500)), 100, "color mix")
+    cockpit_ui_delta_ms_value = 50
+    check_int(cockpit_animate(3, 1000, 100), 1000, "first animate snaps")
+    cockpit_animate_reset(3, 0)
+    check_int(cockpit_animate(3, 1000, 100), 500, "animate half")
+    check_int(cockpit_animate(3, 1000, 100), 1000, "animate done")
+    say "PASS motion"
+}
+
+task replay_controls(window: int, layout: ByteBuffer, theme: int) -> void {
+    pilot items = cockpit_words_new()
+    cockpit_words_push(items, "Alpha")
+    cockpit_words_push(items, "Bravo")
+    cockpit_words_push(items, "Charlie")
+
+    -- Radio rows are 22 pixels tall with the dark theme's 14 px font.
+    next_frame(layout)
+    click_at(5, 30)
+    check_int(cockpit_widget_radio(window, layout, theme, 0, items), 1, "radio click")
+
+    -- The knob (widget 0) eases from the old side: 50 ms then 60 ms of a 120 ms slide.
+    next_frame(layout)
+    click_at(5, 5)
+    if not cockpit_widget_toggle(window, layout, theme, "Shields", false) { cockpit_fail("toggle click") }
+    check_int(cockpit_ui_memory_get(0, 1, 0 - 5), 416, "toggle knob starts moving")
+    cockpit_ui_delta_ms_value = 60
+    next_frame(layout)
+    if not cockpit_widget_toggle(window, layout, theme, "Shields", true) { cockpit_fail("toggle holds") }
+    check_int(cockpit_ui_memory_get(0, 1, 0 - 5), 916, "toggle knob continues")
+
+    -- Stepper: 32 px buttons around a 38 px value field.
+    next_frame(layout)
+    click_at(80, 10)
+    check_int(cockpit_widget_stepper(window, layout, theme, 5, 0, 10, 2), 7, "stepper plus")
+    next_frame(layout)
+    click_at(10, 10)
+    check_int(cockpit_widget_stepper(window, layout, theme, 1, 0, 10, 2), 0, "stepper clamps")
+    next_frame(layout)
+    hover_at(50, 10)
+    cockpit_ui_feed_event(5, 0, 0, 0, 0, 50, 10, 1)
+    check_int(cockpit_widget_stepper(window, layout, theme, 4, 0, 10, 3), 7, "stepper wheel")
+
+    -- List rows are 26 px; three visible rows of ten items.
+    pilot many = cockpit_words_new()
+    repeat 10 times { cockpit_words_push(many, "Row") }
+    next_frame(layout)
+    click_at(10, 60)
+    check_int(cockpit_widget_list(window, layout, theme, 0, many, 3), 2, "list click")
+    next_frame(layout)
+    hover_at(10, 5)
+    cockpit_ui_feed_event(5, 0, 0, 0, 0, 10, 5, 0 - 1)
+    click_at(10, 5)
+    check_int(cockpit_widget_list(window, layout, theme, 2, many, 3), 1, "list wheel then click")
+    next_frame(layout)
+    hover_at(10, 5)
+    cockpit_ui_feed_event(2, cockpit_key_down, 0, 0, 1, 0, 0, 0)
+    cockpit_ui_feed_event(2, cockpit_key_down, 0, 0, 1, 0, 0, 0)
+    cockpit_ui_feed_event(2, cockpit_key_down, 0, 0, 1, 0, 0, 0)
+    cockpit_ui_feed_event(2, cockpit_key_down, 0, 0, 0, 0, 0, 0)
+    check_int(cockpit_widget_list(window, layout, theme, 1, many, 3), 4, "list arrow keys")
+    check_int(cockpit_ui_memory_get(0, 2, 0 - 5), 2, "list keeps selection visible")
+    cockpit_words_release(many)
+
+    next_frame(layout)
+    click_at(10, 5)
+    if not cockpit_widget_collapsing(window, layout, theme, "Advanced", false) { cockpit_fail("collapsing opens") }
+
+    pilot series = cockpit_values_new()
+    cockpit_values_push_int(series, 3)
+    cockpit_values_push_int(series, 9)
+    cockpit_values_push_int(series, 0 - 2)
+    cockpit_values_push_int(series, 5)
+    check_int(cockpit_chart_y(5, 0, 10, 0, 11), 5, "chart scale")
+    check_int(cockpit_chart_y(7, 7, 7, 0, 11), 5, "flat chart centers")
+    next_frame(layout)
+    hover_at(60, 20)
+    cockpit_widget_sparkline(window, layout, theme, series, 120, 40)
+    cockpit_widget_bar_chart(window, layout, theme, series, items, 160, 80)
+    cockpit_widget_bar_chart(window, layout, theme, series, 0, 0, 60)
+    cockpit_widget_badge(window, layout, theme, "LIVE", cockpit_theme_get(theme, cockpit_theme_success))
+    check_int(cockpit_layout_status(layout), 0, "chart layout")
+    cockpit_values_release(series)
+    cockpit_words_release(items)
+    say "PASS controls"
+}
+
+task replay_toasts(window: int, theme: int) -> void {
+    cockpit_toast_theme = theme
+    cockpit_toast("Saved", cockpit_toast_success)
+    check_int(cockpit_toast_count(), 1, "toast added")
+    cockpit_toast_timed("Gone", 0, 0)
+    check_int(cockpit_toast_count(), 2, "timed toast added")
+    cockpit_ui_begin_events()
+    cockpit_toasts_draw(window)
+    check_int(cockpit_toast_count(), 1, "expired toast removed")
+    repeat 12 times { cockpit_toast("Spam", 7) }
+    check_int(cockpit_toast_count(), 8, "toast slots bounded")
+    cockpit_toasts_draw(window)
+    cockpit_toasts_clear()
+    check_int(cockpit_toast_count(), 0, "toasts cleared")
+    say "PASS toasts"
+}
+
+task replay_themes(theme: int) -> void {
+    pilot muvluv = cockpit_theme_for_mood("mono_no_aware")
+    check_int(cockpit_color_r(cockpit_theme_get(muvluv, cockpit_theme_bg)), 10, "muvluv theme")
+    pilot copy_of = cockpit_theme_copy(theme)
+    cockpit_theme_set(copy_of, cockpit_theme_bg, 7)
+    check_int(cockpit_theme_get(copy_of, cockpit_theme_bg), 7, "theme set")
+    check_int(cockpit_color_r(cockpit_theme_get(theme, cockpit_theme_bg)), 22, "copy is independent")
+    cockpit_theme_release(copy_of)
+    cockpit_theme_release(muvluv)
+    say "PASS themes"
+}
+
+task main() {
+    pilot window = cockpit_ui_open("Widget replay", 320, 240, true)
+    pilot theme = cockpit_theme_dark()
+    pilot layout = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    replay_layout(layout)
+    replay_motion()
+    replay_controls(window, layout, theme)
+    replay_toasts(window, theme)
+    replay_themes(theme)
+    cockpit_layout_release(layout)
+    cockpit_theme_release(theme)
+    cockpit_ui_close(window)
+}

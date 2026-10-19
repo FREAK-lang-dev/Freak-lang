@@ -1,0 +1,375 @@
+use self::containers::{
+    cockpit_values_get_int,
+    cockpit_values_length,
+    cockpit_words_get,
+    cockpit_words_length
+}
+use self::layout::{
+    cockpit_layout_allocate,
+    cockpit_layout_last_height,
+    cockpit_layout_last_width,
+    cockpit_layout_last_x,
+    cockpit_layout_last_y,
+    cockpit_layout_remaining_width
+}
+use self::motion::{
+    cockpit_approach
+}
+use self::state::{
+    cockpit_clip_contains,
+    cockpit_clip_pop,
+    cockpit_clip_push,
+    cockpit_key_down,
+    cockpit_key_up,
+    cockpit_ui_clicked_inside,
+    cockpit_ui_delta_ms,
+    cockpit_ui_input_allowed,
+    cockpit_ui_key_pressed,
+    cockpit_ui_key_presses,
+    cockpit_ui_memory_get,
+    cockpit_ui_memory_set,
+    cockpit_ui_next_widget,
+    cockpit_ui_pointer_inside,
+    cockpit_ui_pointer_x,
+    cockpit_ui_pointer_y,
+    cockpit_ui_scroll_value,
+    cockpit_ui_text_focused
+}
+use self::theme::{
+    cockpit_color_a,
+    cockpit_color_b,
+    cockpit_color_g,
+    cockpit_color_mix,
+    cockpit_color_r,
+    cockpit_theme_accent,
+    cockpit_theme_accent_hover,
+    cockpit_theme_bg,
+    cockpit_theme_border,
+    cockpit_theme_font_size,
+    cockpit_theme_get,
+    cockpit_theme_muted,
+    cockpit_theme_surface,
+    cockpit_theme_text
+}
+use self::widgets::{
+    cockpit_draw_fill,
+    cockpit_draw_stroke,
+    cockpit_draw_text
+}
+
+-- COCKPIT 0.2 controls: choice widgets, lists, sections and charts.
+-- Caller-owned values go in and come back out; scroll and animation state
+-- lives in per-widget memory keyed by stable call order.
+
+task cockpit_draw_circle(window: int, cx: int, cy: int, radius: int, color: int) -> void {
+    cockpit_clip_push(window, cockpit_layout_last_x(), cockpit_layout_last_y(), cockpit_layout_last_width(), cockpit_layout_last_height())
+    ui::fill_circle(window, cx, cy, radius, cockpit_color_r(color), cockpit_color_g(color), cockpit_color_b(color), cockpit_color_a(color))
+    cockpit_clip_pop(window)
+}
+
+task cockpit_draw_line(window: int, x1: int, y1: int, x2: int, y2: int, color: int, thickness: int) -> void {
+    ui::draw_line(window, x1, y1, x2, y2, cockpit_color_r(color), cockpit_color_g(color), cockpit_color_b(color), cockpit_color_a(color), thickness)
+}
+
+-- One option per row. Returns the selected index.
+task cockpit_widget_radio(window: int, layout: ByteBuffer, theme: int, selected: int, items: int) -> int {
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
+    pilot widget_id = cockpit_ui_next_widget()
+    pilot next_selected = selected
+    pilot index = 0
+    repeat cockpit_words_length(items) times {
+        pilot text = cockpit_words_get(items, index)
+        pilot box = font_size + 4
+        cockpit_layout_allocate(layout, box + 8 + ui::measure_text(text, font_size, 0, 0), box + 4)
+        pilot x = cockpit_layout_last_x()
+        pilot y = cockpit_layout_last_y()
+        pilot radius = box / 2
+        pilot ring = cockpit_theme_get(theme, cockpit_theme_border)
+        if cockpit_ui_pointer_inside(x, y, cockpit_layout_last_width(), cockpit_layout_last_height()) { ring = cockpit_theme_get(theme, cockpit_theme_accent_hover) }
+        cockpit_draw_circle(window, x + radius, y + 2 + radius, radius, ring)
+        cockpit_draw_circle(window, x + radius, y + 2 + radius, radius - 2, cockpit_theme_get(theme, cockpit_theme_surface))
+        if index == selected { cockpit_draw_circle(window, x + radius, y + 2 + radius, radius - 5, cockpit_theme_get(theme, cockpit_theme_accent)) }
+        pilot ignored = cockpit_draw_text(window, text, x + box + 8, y + 4, cockpit_theme_get(theme, cockpit_theme_text), font_size, false)
+        if cockpit_ui_clicked_inside(x, y, cockpit_layout_last_width(), cockpit_layout_last_height()) { next_selected = index }
+        index += 1
+    }
+    give back next_selected
+}
+
+-- A sliding switch. The knob eases between sides over ~120 ms.
+task cockpit_widget_toggle(window: int, layout: ByteBuffer, theme: int, text: word, on: bool) -> bool {
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
+    pilot track_h = font_size + 6
+    pilot track_w = track_h * 2
+    cockpit_layout_allocate(layout, track_w + 10 + ui::measure_text(text, font_size, 0, 0), track_h + 4)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y() + 2
+    pilot widget_id = cockpit_ui_next_widget()
+    pilot next_on = on
+    if cockpit_ui_clicked_inside(cockpit_layout_last_x(), cockpit_layout_last_y(), cockpit_layout_last_width(), cockpit_layout_last_height()) { next_on = not on }
+    pilot start = 0
+    if on { start = 1000 }
+    pilot target = 0
+    if next_on { target = 1000 }
+    pilot position = cockpit_approach(cockpit_ui_memory_get(widget_id, 1, start), target, cockpit_ui_delta_ms(), 120)
+    cockpit_ui_memory_set(widget_id, 1, position)
+    pilot track = cockpit_color_mix(cockpit_theme_get(theme, cockpit_theme_border), cockpit_theme_get(theme, cockpit_theme_accent), position)
+    pilot radius = track_h / 2
+    cockpit_draw_circle(window, x + radius, y + radius, radius, track)
+    cockpit_draw_circle(window, x + track_w - radius, y + radius, radius, track)
+    cockpit_draw_fill(window, x + radius, y, track_w - radius * 2, track_h, track)
+    pilot knob_x = x + radius + (track_w - radius * 2) * position / 1000
+    cockpit_draw_circle(window, knob_x, y + radius, radius - 3, cockpit_theme_get(theme, cockpit_theme_text))
+    pilot ignored = cockpit_draw_text(window, text, x + track_w + 10, y + 3, cockpit_theme_get(theme, cockpit_theme_text), font_size, false)
+    give back next_on
+}
+
+-- [-] value [+]. The mouse wheel also steps while hovered. Values clamp to the range.
+task cockpit_widget_stepper(window: int, layout: ByteBuffer, theme: int, value: int, minimum: int, maximum: int, step: int) -> int {
+    if maximum < minimum { give back minimum }
+    if step <= 0 { step = 1 }
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
+    pilot height = font_size + 18
+    pilot button = height
+    pilot field = ui::measure_text(word_from_int(maximum), font_size, 1, 0)
+    pilot low = ui::measure_text(word_from_int(minimum), font_size, 1, 0)
+    if low > field { field = low }
+    field += 24
+    cockpit_layout_allocate(layout, button * 2 + field, height)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    pilot width = cockpit_layout_last_width()
+    pilot widget_id = cockpit_ui_next_widget()
+    if cockpit_ui_clicked_inside(x, y, button, height) { value -= step }
+    if cockpit_ui_clicked_inside(x + width - button, y, button, height) { value += step }
+    if cockpit_ui_input_allowed() and cockpit_ui_pointer_inside(x, y, width, height) and cockpit_clip_contains(cockpit_ui_pointer_x(), cockpit_ui_pointer_y()) { value += cockpit_ui_scroll_value * step }
+    if value < minimum { value = minimum }
+    if value > maximum { value = maximum }
+    pilot surface = cockpit_theme_get(theme, cockpit_theme_surface)
+    pilot border = cockpit_theme_get(theme, cockpit_theme_border)
+    pilot text_color = cockpit_theme_get(theme, cockpit_theme_text)
+    cockpit_draw_fill(window, x, y, width, height, surface)
+    cockpit_draw_stroke(window, x, y, width, height, border, 1)
+    pilot minus = surface
+    if cockpit_ui_pointer_inside(x, y, button, height) { minus = cockpit_theme_get(theme, cockpit_theme_accent_hover) }
+    pilot plus = surface
+    if cockpit_ui_pointer_inside(x + width - button, y, button, height) { plus = cockpit_theme_get(theme, cockpit_theme_accent_hover) }
+    cockpit_draw_fill(window, x, y, button, height, minus)
+    cockpit_draw_fill(window, x + width - button, y, button, height, plus)
+    cockpit_draw_stroke(window, x, y, button, height, border, 1)
+    cockpit_draw_stroke(window, x + width - button, y, button, height, border, 1)
+    pilot ignored_minus = cockpit_draw_text(window, "-", x + (button - ui::measure_text("-", font_size, 1, 0)) / 2, y + 8, text_color, font_size, true)
+    pilot ignored_plus = cockpit_draw_text(window, "+", x + width - button + (button - ui::measure_text("+", font_size, 1, 0)) / 2, y + 8, text_color, font_size, true)
+    pilot label = word_from_int(value)
+    pilot ignored_value = cockpit_draw_text(window, label, x + (width - ui::measure_text(label, font_size, 1, 0)) / 2, y + 8, text_color, font_size, true)
+    give back value
+}
+
+-- A scrollable, selectable list showing `visible_rows` rows. Click selects;
+-- the wheel scrolls; Up/Down move the selection while the pointer is over it.
+task cockpit_widget_list(window: int, layout: ByteBuffer, theme: int, selected: int, items: int, visible_rows: int) -> int {
+    pilot count = cockpit_words_length(items)
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
+    pilot row_h = font_size + 12
+    if visible_rows < 1 { visible_rows = 1 }
+    cockpit_layout_allocate(layout, cockpit_layout_remaining_width(layout), row_h * visible_rows)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    pilot width = cockpit_layout_last_width()
+    pilot height = cockpit_layout_last_height()
+    pilot widget_id = cockpit_ui_next_widget()
+    pilot max_scroll = count - visible_rows
+    if max_scroll < 0 { max_scroll = 0 }
+    pilot scroll = cockpit_ui_memory_get(widget_id, 2, 0)
+    pilot hovered = cockpit_ui_input_allowed() and cockpit_ui_pointer_inside(x, y, width, height) and cockpit_clip_contains(cockpit_ui_pointer_x(), cockpit_ui_pointer_y())
+    if hovered { scroll -= cockpit_ui_scroll_value }
+    if hovered and not cockpit_ui_text_focused() and count > 0 {
+        if cockpit_ui_key_pressed(cockpit_key_down) {
+            selected += cockpit_ui_key_presses(cockpit_key_down)
+            if selected >= count { selected = count - 1 }
+            if selected >= scroll + visible_rows { scroll = selected - visible_rows + 1 }
+        }
+        if cockpit_ui_key_pressed(cockpit_key_up) {
+            selected -= cockpit_ui_key_presses(cockpit_key_up)
+            if selected < 0 { selected = 0 }
+            if selected < scroll { scroll = selected }
+        }
+    }
+    if scroll > max_scroll { scroll = max_scroll }
+    if scroll < 0 { scroll = 0 }
+    cockpit_draw_fill(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_surface))
+    pilot row = 0
+    pilot next_selected = selected
+    repeat visible_rows times {
+        pilot item = scroll + row
+        if item < count {
+            pilot row_y = y + row * row_h
+            if item == selected { cockpit_draw_fill(window, x, row_y, width, row_h, cockpit_theme_get(theme, cockpit_theme_accent)) }
+            else if cockpit_ui_pointer_inside(x, row_y, width, row_h) { cockpit_draw_fill(window, x, row_y, width, row_h, cockpit_theme_get(theme, cockpit_theme_border)) }
+            pilot ignored = cockpit_draw_text(window, cockpit_words_get(items, item), x + 8, row_y + 6, cockpit_theme_get(theme, cockpit_theme_text), font_size, false)
+            if cockpit_ui_clicked_inside(x, row_y, width, row_h) { next_selected = item }
+        }
+        row += 1
+    }
+    if count > visible_rows {
+        pilot thumb_h = height * visible_rows / count
+        if thumb_h < 8 { thumb_h = 8 }
+        pilot thumb_y = y + (height - thumb_h) * scroll / max_scroll
+        cockpit_draw_fill(window, x + width - 4, thumb_y, 4, thumb_h, cockpit_theme_get(theme, cockpit_theme_muted))
+    }
+    cockpit_draw_stroke(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_border), 1)
+    cockpit_ui_memory_set(widget_id, 2, scroll)
+    give back next_selected
+}
+
+-- A clickable section header. Draw the section body only while it returns true.
+task cockpit_widget_collapsing(window: int, layout: ByteBuffer, theme: int, title: word, open: bool) -> bool {
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
+    pilot height = font_size + 14
+    cockpit_layout_allocate(layout, cockpit_layout_remaining_width(layout), height)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    pilot width = cockpit_layout_last_width()
+    pilot widget_id = cockpit_ui_next_widget()
+    if cockpit_ui_clicked_inside(x, y, width, height) { open = not open }
+    pilot fill = cockpit_theme_get(theme, cockpit_theme_surface)
+    if cockpit_ui_pointer_inside(x, y, width, height) { fill = cockpit_color_mix(fill, cockpit_theme_get(theme, cockpit_theme_accent), 200) }
+    cockpit_draw_fill(window, x, y, width, height, fill)
+    pilot marker = "▸ "
+    if open { marker = "▾ " }
+    pilot ignored = cockpit_draw_text(window, marker + title, x + 8, y + 6, cockpit_theme_get(theme, cockpit_theme_text), font_size, true)
+    give back open
+}
+
+-- A small rounded label in any color, e.g. cockpit_theme_get(theme, cockpit_theme_success).
+task cockpit_widget_badge(window: int, layout: ByteBuffer, theme: int, text: word, color: int) -> void {
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size) - 2
+    if font_size < 8 { font_size = 8 }
+    pilot height = font_size + 8
+    cockpit_layout_allocate(layout, ui::measure_text(text, font_size, 1, 0) + height, height)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    pilot width = cockpit_layout_last_width()
+    pilot radius = height / 2
+    cockpit_draw_circle(window, x + radius, y + radius, radius, color)
+    cockpit_draw_circle(window, x + width - radius, y + radius, radius, color)
+    cockpit_draw_fill(window, x + radius, y, width - radius * 2, height, color)
+    pilot ignored = cockpit_draw_text(window, text, x + radius, y + 4, cockpit_theme_get(theme, cockpit_theme_bg), font_size, true)
+}
+
+task cockpit_chart_max(values: int) -> int {
+    pilot extreme = 0
+    pilot index = 0
+    repeat cockpit_values_length(values) times {
+        if index == 0 or cockpit_values_get_int(values, index) > extreme { extreme = cockpit_values_get_int(values, index) }
+        index += 1
+    }
+    give back extreme
+}
+
+task cockpit_chart_min(values: int) -> int {
+    pilot extreme = 0
+    pilot index = 0
+    repeat cockpit_values_length(values) times {
+        if index == 0 or cockpit_values_get_int(values, index) < extreme { extreme = cockpit_values_get_int(values, index) }
+        index += 1
+    }
+    give back extreme
+}
+
+-- The y pixel for `value` inside a chart band from `top` with `height` pixels.
+task cockpit_chart_y(value: int, low: int, high: int, top: int, height: int) -> int {
+    if high <= low { give back top + height / 2 }
+    give back top + height - 1 - (value - low) * (height - 1) / (high - low)
+}
+
+-- A compact line chart of an integer series (cockpit_values_* array).
+-- Hovering shows the nearest point's value.
+task cockpit_widget_sparkline(window: int, layout: ByteBuffer, theme: int, values: int, width: int, height: int) -> void {
+    if width <= 0 { width = cockpit_layout_remaining_width(layout) }
+    cockpit_layout_allocate(layout, width, height)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    width = cockpit_layout_last_width()
+    height = cockpit_layout_last_height()
+    cockpit_draw_fill(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_surface))
+    pilot count = cockpit_values_length(values)
+    if count == 0 or width < 4 or height < 4 { give back }
+    pilot low = cockpit_chart_min(values)
+    pilot high = cockpit_chart_max(values)
+    pilot inner_x = x + 2
+    pilot inner_w = width - 4
+    pilot inner_y = y + 2
+    pilot inner_h = height - 4
+    pilot color = cockpit_theme_get(theme, cockpit_theme_accent)
+    cockpit_clip_push(window, x, y, width, height)
+    pilot previous_x = inner_x
+    pilot previous_y = cockpit_chart_y(cockpit_values_get_int(values, 0), low, high, inner_y, inner_h)
+    pilot index = 1
+    repeat count - 1 times {
+        pilot point_x = inner_x + index * (inner_w - 1) / (count - 1)
+        pilot point_y = cockpit_chart_y(cockpit_values_get_int(values, index), low, high, inner_y, inner_h)
+        cockpit_draw_line(window, previous_x, previous_y, point_x, point_y, color, 2)
+        previous_x = point_x
+        previous_y = point_y
+        index += 1
+    }
+    ui::fill_circle(window, previous_x, previous_y, 3, cockpit_color_r(color), cockpit_color_g(color), cockpit_color_b(color), 255)
+    if cockpit_ui_pointer_inside(x, y, width, height) {
+        pilot nearest = 0
+        if count > 1 { nearest = ((cockpit_ui_pointer_x() - inner_x) * (count - 1) + (inner_w - 1) / 2) / (inner_w - 1) }
+        if nearest < 0 { nearest = 0 }
+        if nearest >= count { nearest = count - 1 }
+        pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size) - 2
+        pilot fg = cockpit_theme_get(theme, cockpit_theme_text)
+        pilot ignored = ui::draw_text(window, word_from_int(cockpit_values_get_int(values, nearest)), x + 4, y + 2, cockpit_color_r(fg), cockpit_color_g(fg), cockpit_color_b(fg), font_size, true, false)
+    }
+    cockpit_clip_pop(window)
+}
+
+-- Vertical bars scaled to the largest value (negative values draw as zero).
+-- `labels` is a cockpit_words_* array or 0 for none. Hovered bars show their value.
+task cockpit_widget_bar_chart(window: int, layout: ByteBuffer, theme: int, values: int, labels: int, width: int, height: int) -> void {
+    if width <= 0 { width = cockpit_layout_remaining_width(layout) }
+    cockpit_layout_allocate(layout, width, height)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    width = cockpit_layout_last_width()
+    height = cockpit_layout_last_height()
+    cockpit_draw_fill(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_surface))
+    pilot count = cockpit_values_length(values)
+    if count == 0 { give back }
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size) - 2
+    pilot label_h = 0
+    if labels != 0 { label_h = font_size + 6 }
+    pilot top = y + font_size + 6
+    pilot band = height - label_h - (top - y) - 2
+    if band < 1 { band = 1 }
+    pilot high = cockpit_chart_max(values)
+    if high < 1 { high = 1 }
+    pilot slot = width / count
+    pilot gap = slot / 5
+    pilot index = 0
+    repeat count times {
+        pilot value = cockpit_values_get_int(values, index)
+        if value < 0 { value = 0 }
+        pilot bar_h = value * band / high
+        pilot bar_x = x + index * slot + gap / 2
+        pilot bar_w = slot - gap
+        if bar_w < 1 { bar_w = 1 }
+        pilot bar_y = top + band - bar_h
+        pilot hovered = cockpit_ui_pointer_inside(bar_x, top, bar_w, band)
+        pilot color = cockpit_theme_get(theme, cockpit_theme_accent)
+        if hovered { color = cockpit_theme_get(theme, cockpit_theme_accent_hover) }
+        cockpit_draw_fill(window, bar_x, bar_y, bar_w, bar_h, color)
+        if hovered {
+            pilot shown = word_from_int(cockpit_values_get_int(values, index))
+            pilot ignored_value = cockpit_draw_text(window, shown, bar_x + (bar_w - ui::measure_text(shown, font_size, 1, 0)) / 2, bar_y - font_size - 4, cockpit_theme_get(theme, cockpit_theme_text), font_size, true)
+        }
+        if labels != 0 and index < cockpit_words_length(labels) {
+            pilot label = cockpit_words_get(labels, index)
+            pilot ignored_label = cockpit_draw_text(window, label, bar_x + (bar_w - ui::measure_text(label, font_size, 0, 0)) / 2, top + band + 4, cockpit_theme_get(theme, cockpit_theme_muted), font_size, false)
+        }
+        index += 1
+    }
+}
