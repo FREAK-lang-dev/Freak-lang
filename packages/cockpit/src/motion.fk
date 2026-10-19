@@ -1,0 +1,82 @@
+use self::state::{
+    cockpit_ui_delta_ms,
+    cockpit_ui_memory_get,
+    cockpit_ui_memory_set
+}
+
+-- COCKPIT motion: integer easing in permille (0..1000) plus frame-timed tweens.
+
+fixed pilot cockpit_ease_linear = 0
+fixed pilot cockpit_ease_in_quad = 1
+fixed pilot cockpit_ease_out_quad = 2
+fixed pilot cockpit_ease_in_out_quad = 3
+fixed pilot cockpit_ease_out_cubic = 4
+fixed pilot cockpit_ease_out_back = 5
+fixed pilot cockpit_ease_out_bounce = 6
+
+task cockpit_ease(kind: int, t: int) -> int {
+    if t <= 0 { give back 0 }
+    if t >= 1000 { give back 1000 }
+    pilot u = 1000 - t
+    if kind == cockpit_ease_in_quad { give back t * t / 1000 }
+    if kind == cockpit_ease_out_quad { give back 1000 - u * u / 1000 }
+    if kind == cockpit_ease_in_out_quad {
+        if t < 500 { give back 2 * t * t / 1000 }
+        give back 1000 - 2 * u * u / 1000
+    }
+    if kind == cockpit_ease_out_cubic { give back 1000 - u * u * u / 1000000 }
+    if kind == cockpit_ease_out_back {
+        -- 1 + 2.70158 (t-1)^3 + 1.70158 (t-1)^2, overshooting past 1000 before settling.
+        give back 1000 - 2702 * u * u * u / 1000000000 + 1702 * u * u / 1000000
+    }
+    if kind == cockpit_ease_out_bounce {
+        if t < 364 { give back 75625 * t * t / 10000000 }
+        if t < 727 {
+            pilot a = t - 545
+            give back 75625 * a * a / 10000000 + 750
+        }
+        if t < 909 {
+            pilot b = t - 818
+            give back 75625 * b * b / 10000000 + 938
+        }
+        pilot c = t - 955
+        give back 75625 * c * c / 10000000 + 984
+    }
+    give back t
+}
+
+task cockpit_lerp(from: int, to: int, t: int) -> int {
+    give back from + (to - from) * t / 1000
+}
+
+-- Moves `current` toward `target` at a speed that covers 0..1000 in `duration_ms`.
+task cockpit_approach(current: int, target: int, delta_ms: int, duration_ms: int) -> int {
+    if duration_ms <= 0 { give back target }
+    pilot step = 1000 * delta_ms / duration_ms
+    if step < 1 { step = 1 }
+    if current < target {
+        current += step
+        if current > target { current = target }
+    } else if current > target {
+        current -= step
+        if current < target { current = target }
+    }
+    give back current
+}
+
+-- A frame-timed tween in one of 64 caller-chosen slots. Returns the linear
+-- progress (0..1000) toward `target`; feed it through cockpit_ease for curves.
+task cockpit_animate(slot: int, target: int, duration_ms: int) -> int {
+    if slot < 0 or slot >= 64 { give back target }
+    pilot key = 512 + slot
+    pilot current = cockpit_ui_memory_get(key, 3, target)
+    current = cockpit_approach(current, target, cockpit_ui_delta_ms(), duration_ms)
+    cockpit_ui_memory_set(key, 3, current)
+    give back current
+}
+
+-- Snap a slot to a value without animating (e.g. when a screen opens).
+task cockpit_animate_reset(slot: int, value: int) -> void {
+    if slot < 0 or slot >= 64 { give back }
+    cockpit_ui_memory_set(512 + slot, 3, value)
+}

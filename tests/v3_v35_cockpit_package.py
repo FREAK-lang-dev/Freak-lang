@@ -53,6 +53,7 @@ int64_t freak_ui_measure_text_word(freak_word text,int64_t size,int64_t bold,int
 
 
 INPUT_STDOUT = ['PASS caret editing', 'PASS focus keys', 'PASS shortcuts']
+WIDGETS_STDOUT = ['PASS layout', 'PASS motion', 'PASS controls', 'PASS toasts', 'PASS themes']
 
 
 def emit(args: argparse.Namespace, root: Path, source: Path, backend: str,
@@ -121,7 +122,8 @@ def main() -> None:
     cases = [('external-public-consumer', consumer, consumer / 'src/main.fk', legacy.PURE_STDOUT, False),
              ('declared-pure-test', copied, copied / 'tests/pure.fk', [], False),
              ('shared-private-state-replay', copied, copied / 'tests/replay.fk', legacy.REPLAY_STDOUT, True),
-             ('keyboard-editing-replay', copied, copied / 'tests/replay_input.fk', INPUT_STDOUT, True)]
+             ('keyboard-editing-replay', copied, copied / 'tests/replay_input.fk', INPUT_STDOUT, True),
+             ('widgets-motion-toast-replay', copied, copied / 'tests/replay_widgets.fk', WIDGETS_STDOUT, True)]
     for case, graph_root, source, expected, use_mock in cases:
         for backend in ('c', 'llvm'):
             generated = work / f'{case}.{"c" if backend == "c" else "ll"}'
@@ -150,7 +152,7 @@ def main() -> None:
     # Each declared example parses its real self imports and links against the
     # same platform ABI. The deterministic poll closes the example's own window
     # on its first frame; interactive Windows behavior is a separate gate.
-    for example in ('smoke', 'showcase', 'calculator', 'settings'):
+    for example in ('smoke', 'showcase', 'calculator', 'settings', 'mission_control'):
         for backend in ('c', 'llvm'):
             generated = work / f'example-{example}.{"c" if backend == "c" else "ll"}'
             source = copied / f'examples/{example}.fk'

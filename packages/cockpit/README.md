@@ -58,11 +58,14 @@ and column layout, themes, indexed event processing, labels, buttons,
 checkboxes, text inputs, sliders, separators, progress bars, tabs, popup
 dropdowns, clipped panels/scrolling, tooltips and modal input capture.
 
-Text input applies delivered character/backspace events in order. Backspace
-removes a UTF-8 scalar; grapheme navigation, selection, clipboard and IME
-composition require a richer text model. The current platform event queue is
-bounded to 64 events; COCKPIT's replay storage holds 256 delivered edits. The
-package cannot recover events discarded by the platform.
+Text input applies delivered events in order. Inputs keep a UTF-8 caret:
+Left/Right move by scalar, Up/Down jump to the start/end, a click places the
+caret, Backspace and Delete remove one scalar, and long text scrolls
+horizontally. Tab and Shift+Tab move focus between inputs (wrapping at the
+ends), Enter submits and Escape releases the keyboard. Selection, clipboard
+and IME composition still need a richer text model. The platform event queue
+is bounded to 64 events; COCKPIT's replay storage holds 256 delivered edits.
+The package cannot recover events discarded by the platform.
 
 Keep widget call order stable so sequential widget identifiers preserve focus
 and dragging. Callers own widget values, themes and item arrays. The event and
@@ -102,14 +105,69 @@ The native UI implementation currently ships only for Windows. C and LLVM
 source transpilation remain useful portability contracts, but this package
 does not claim a native macOS or Linux window backend or a retained widget tree.
 
+## New in 0.2.0
+
+**Keyboard.** `cockpit_widget_input_ex(window, layout, theme, text, width,
+placeholder, password)` adds hint text and password masking.
+`cockpit_widget_input_submitted()` is true when the input drawn just before it
+received Enter. For app shortcuts, `cockpit_ui_shortcut(key, ctrl, shift, alt)`
+matches a key pressed this frame with exactly those modifiers held, e.g.
+`cockpit_ui_shortcut(cockpit_key_letter("S"), true, false, false)` for Ctrl+S.
+`cockpit_ui_key_pressed`, `cockpit_ui_key_presses` and `cockpit_ui_key_down`
+give raw access; `cockpit_ui_text_focused()` says whether an input owns the
+keyboard. Key codes: `cockpit_key_letter("A")`, `cockpit_key_digit(0)`,
+`cockpit_key_function(1)` and the named `cockpit_key_*` constants. Escape also
+dismisses an open dropdown.
+
+**Controls.**
+
+- `cockpit_widget_radio(window, layout, theme, selected, items)` returns the chosen index.
+- `cockpit_widget_toggle(window, layout, theme, text, on)` is an animated switch.
+- `cockpit_widget_stepper(window, layout, theme, value, min, max, step)` has -/+ buttons and wheel stepping.
+- `cockpit_widget_list(window, layout, theme, selected, items, visible_rows)` scrolls with the wheel and moves with Up/Down while hovered.
+- `cockpit_widget_collapsing(window, layout, theme, title, open)` returns whether to draw the section body.
+- `cockpit_widget_badge(window, layout, theme, text, color)` draws a pill label.
+- `cockpit_widget_sparkline(window, layout, theme, values, width, height)` and
+  `cockpit_widget_bar_chart(window, layout, theme, values, labels, width, height)`
+  chart a `cockpit_values_*` series and show values on hover. `labels` may be 0.
+
+Toggle animation and list scrolling live in per-widget memory keyed by call
+order, like focus. A widget that lands on another kind's id starts fresh.
+
+**Toasts.** `cockpit_toast(text, cockpit_toast_success)` (or `_info`,
+`_danger`) shows a notification in the bottom-right corner for 3 seconds;
+`cockpit_toast_timed` sets the duration. Toasts draw at end-frame with the
+frame's theme, slide in, fade out and dismiss on click. Up to 8 show at once.
+Swap themes between frames, after `cockpit_ui_end_frame`.
+
+**Layout.** `cockpit_grid_begin(layout, columns, gap)` places widgets in
+equal-width cells, wrapping rows that are as tall as their tallest cell; a
+`cockpit_column_begin(layout, 0, gap)` inside a cell stacks several widgets
+there (width 0 now means "fill"). `cockpit_row_begin_aligned(layout, height,
+content_width, cockpit_align_center)` (or `_start`, `_end`) offsets a row's
+content. Both close with `cockpit_container_end(layout)`.
+
+**Themes.** `cockpit_theme_muvluv()` is red on black.
+`cockpit_theme_for_mood("chill" | "focused" | "hype" | "muv_luv" |
+"mono_no_aware")` picks the matching theme. `cockpit_theme_copy` and
+`cockpit_theme_set(theme, field, color)` customize one; `cockpit_color_mix(a, b,
+permille)` blends colors.
+
+**Motion.** `cockpit_ease(cockpit_ease_out_back, t)` maps permille progress
+through linear, quad, cubic, back and bounce curves. `cockpit_animate(slot,
+target, duration_ms)` tweens one of 64 slots toward a target using the frame
+clock (`cockpit_ui_delta_ms()`); `cockpit_animate_reset` snaps it. Buttons now
+fade their hover color.
+
 Examples:
 
 - `examples/smoke.fk` — bounded 30-frame lifecycle smoke
 - `examples/showcase.fk` — the supported widget/layout surface
 - `examples/calculator.fk` — procedural calculator state
 - `examples/settings.fk` — name, notification toggle, slider, theme dropdown and confirmation modal; settings apply to the current session
+- `examples/mission_control.fk` — the 0.2.0 tour: grid dashboard, live sparkline, bar chart, list, radio, toggles, stepper, a Tab/Enter form, mood themes, Ctrl+L/Ctrl+T shortcuts, an eased readiness bar and toasts
 
-The calculator, settings and showcase run until window close. The separate
+The calculator, settings, showcase and mission control run until window close. The separate
 smoke is bounded to 30 frames.
 
 `freak test --manifest-path=packages/cockpit/hangar.toml` runs the declared pure
@@ -119,6 +177,6 @@ can be selected explicitly with the same manifest.
 `python -u tests/v3_v35_cockpit_package.py --repo . --freak <fresh-freak>
 --clang <clang> --evidence <report.json>` checks a separate declared consumer,
 private export rejection, and shared state through C and LLVM. Its deterministic
-replay supplies drawing/event functions at the native platform ABI and keeps
+replays (`tests/replay.fk`, `tests/replay_input.fk`, `tests/replay_widgets.fk`) supply drawing/event functions at the native platform ABI and keeps
 the package source unchanged. `--runtime-root` selects the exact runtime
 payload. This replay does not replace the Windows native window gate.

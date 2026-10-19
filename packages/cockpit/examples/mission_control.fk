@@ -1,0 +1,222 @@
+use self::containers::{
+    cockpit_values_get_int,
+    cockpit_values_length,
+    cockpit_values_new,
+    cockpit_values_push_int,
+    cockpit_values_release,
+    cockpit_values_set_int,
+    cockpit_words_new,
+    cockpit_words_push,
+    cockpit_words_release
+}
+use self::controls::{
+    cockpit_widget_badge,
+    cockpit_widget_bar_chart,
+    cockpit_widget_collapsing,
+    cockpit_widget_list,
+    cockpit_widget_radio,
+    cockpit_widget_sparkline,
+    cockpit_widget_stepper,
+    cockpit_widget_toggle
+}
+use self::layout::{
+    cockpit_align_end,
+    cockpit_layout_capacity,
+    cockpit_layout_release
+}
+use self::motion::{
+    cockpit_animate,
+    cockpit_animate_reset,
+    cockpit_ease,
+    cockpit_ease_out_back
+}
+use self::state::{
+    cockpit_fail,
+    cockpit_key_escape,
+    cockpit_key_letter,
+    cockpit_ui_key_pressed,
+    cockpit_ui_shortcut,
+    cockpit_ui_should_close,
+    cockpit_widget_input_submitted
+}
+use self::theme::{
+    cockpit_theme_danger,
+    cockpit_theme_for_mood,
+    cockpit_theme_gap,
+    cockpit_theme_get,
+    cockpit_theme_release,
+    cockpit_theme_success
+}
+use self::toast::{
+    cockpit_toast,
+    cockpit_toast_danger,
+    cockpit_toast_info,
+    cockpit_toast_success
+}
+use self::ui::{
+    cockpit_column_begin,
+    cockpit_container_end,
+    cockpit_grid_begin,
+    cockpit_row_begin_aligned,
+    cockpit_ui_begin_frame,
+    cockpit_ui_close,
+    cockpit_ui_end_frame,
+    cockpit_ui_open
+}
+use self::widgets::{
+    cockpit_modal_begin,
+    cockpit_modal_close,
+    cockpit_modal_end,
+    cockpit_modal_open,
+    cockpit_widget_button,
+    cockpit_widget_heading,
+    cockpit_widget_input_ex,
+    cockpit_widget_label,
+    cockpit_widget_progress
+}
+
+-- COCKPIT 0.2 mission control: grid dashboard, charts, lists, toggles, a
+-- keyboard-driven callsign form, mood themes and toasts. Ctrl+L launches,
+-- Ctrl+T cycles the mood, Escape closes the launch dialog.
+
+task mood_name(index: int) -> word {
+    if index == 0 { give back "mono_no_aware" }
+    if index == 1 { give back "focused" }
+    if index == 2 { give back "muv_luv" }
+    if index == 3 { give back "hype" }
+    give back "chill"
+}
+
+task main() {
+    pilot window = cockpit_ui_open("COCKPIT 0.2 Mission Control", 860, 620, true)
+    if window == 0 { cockpit_fail("mission control window creation failed") }
+    pilot layout: ByteBuffer = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    pilot mood = 0
+    pilot theme = cockpit_theme_for_mood(mood_name(mood))
+
+    pilot units_list = cockpit_words_new()
+    cockpit_words_push(units_list, "Valkyries")
+    cockpit_words_push(units_list, "Storm Vanguard")
+    cockpit_words_push(units_list, "Black Wolves")
+    cockpit_words_push(units_list, "Zeus Wolf")
+    cockpit_words_push(units_list, "Scarlet Twins")
+    cockpit_words_push(units_list, "Cerberus")
+    cockpit_words_push(units_list, "Tactical Armor 7")
+    pilot formations = cockpit_words_new()
+    cockpit_words_push(formations, "Arrowhead")
+    cockpit_words_push(formations, "Wedge")
+    cockpit_words_push(formations, "Box")
+    pilot sectors = cockpit_words_new()
+    cockpit_words_push(sectors, "N")
+    cockpit_words_push(sectors, "E")
+    cockpit_words_push(sectors, "S")
+    cockpit_words_push(sectors, "W")
+    pilot contacts = cockpit_values_new()
+    cockpit_values_push_int(contacts, 12)
+    cockpit_values_push_int(contacts, 30)
+    cockpit_values_push_int(contacts, 7)
+    cockpit_values_push_int(contacts, 19)
+    pilot signal = cockpit_values_new()
+    pilot sample = 0
+    repeat 32 times {
+        cockpit_values_push_int(signal, 50 + (sample * 37) % 41 - (sample * 13) % 17)
+        sample += 1
+    }
+
+    pilot unit_choice = 0
+    pilot formation = 0
+    pilot units = 12
+    pilot shields = true
+    pilot autopilot = false
+    pilot advanced = false
+    pilot callsign = ""
+    pilot passcode = ""
+    pilot tick = 0
+
+    repeat until cockpit_ui_should_close() {
+        cockpit_ui_begin_frame(window, layout, theme)
+        if not cockpit_ui_should_close() {
+            tick += 1
+            pilot change_mood = false
+            if tick % 20 == 0 {
+                -- Scroll the signal trace left and append a new reading.
+                pilot index = 0
+                repeat cockpit_values_length(signal) - 1 times {
+                    cockpit_values_set_int(signal, index, cockpit_values_get_int(signal, index + 1))
+                    index += 1
+                }
+                cockpit_values_set_int(signal, cockpit_values_length(signal) - 1, 50 + (tick * 37) % 41 - (tick * 13) % 17)
+            }
+            pilot gap = cockpit_theme_get(theme, cockpit_theme_gap)
+            cockpit_widget_heading(window, layout, theme, "Mission Control")
+            cockpit_grid_begin(layout, 3, gap)
+
+            cockpit_widget_label(window, layout, theme, "Unit")
+            cockpit_widget_label(window, layout, theme, "Formation")
+            cockpit_widget_label(window, layout, theme, "Systems")
+
+            unit_choice = cockpit_widget_list(window, layout, theme, unit_choice, units_list, 5)
+            cockpit_column_begin(layout, 0, 2)
+            formation = cockpit_widget_radio(window, layout, theme, formation, formations)
+            cockpit_container_end(layout)
+            shields = cockpit_widget_toggle(window, layout, theme, "Shields", shields)
+
+            cockpit_widget_label(window, layout, theme, "Units: " + word_from_int(units))
+            units = cockpit_widget_stepper(window, layout, theme, units, 1, 24, 1)
+            autopilot = cockpit_widget_toggle(window, layout, theme, "Autopilot", autopilot)
+
+            cockpit_widget_sparkline(window, layout, theme, signal, 0, 70)
+            cockpit_widget_bar_chart(window, layout, theme, contacts, sectors, 0, 90)
+            if shields { cockpit_widget_badge(window, layout, theme, "SHIELDS UP", cockpit_theme_get(theme, cockpit_theme_success)) }
+            else { cockpit_widget_badge(window, layout, theme, "EXPOSED", cockpit_theme_get(theme, cockpit_theme_danger)) }
+            cockpit_container_end(layout)
+
+            advanced = cockpit_widget_collapsing(window, layout, theme, "Pilot registration", advanced)
+            if advanced {
+                callsign = cockpit_widget_input_ex(window, layout, theme, callsign, 360, "Callsign (Tab to the next field)", false)
+                passcode = cockpit_widget_input_ex(window, layout, theme, passcode, 360, "Passcode (Enter to register)", true)
+                if cockpit_widget_input_submitted() {
+                    if callsign.length() == 0 { cockpit_toast("A callsign is required.", cockpit_toast_danger) }
+                    else { cockpit_toast("Registered " + callsign + ".", cockpit_toast_success) }
+                }
+            }
+
+            cockpit_row_begin_aligned(layout, 40, 280, cockpit_align_end)
+            if cockpit_widget_button(window, layout, theme, "Change mood", 130) or cockpit_ui_shortcut(cockpit_key_letter("T"), true, false, false) {
+                change_mood = true
+            }
+            if cockpit_widget_button(window, layout, theme, "Launch", 140) or cockpit_ui_shortcut(cockpit_key_letter("L"), true, false, false) { cockpit_modal_open() }
+            cockpit_container_end(layout)
+
+            if cockpit_modal_begin(window, layout, theme, 380, 190) {
+                cockpit_widget_heading(window, layout, theme, "Confirm sortie")
+                cockpit_widget_label(window, layout, theme, word_from_int(units) + " units will launch in formation.")
+                -- The readiness bar springs in with an overshooting ease.
+                pilot ready = cockpit_ease(cockpit_ease_out_back, cockpit_animate(0, 1000, 500))
+                cockpit_widget_progress(window, layout, theme, ready, "Readiness")
+                if cockpit_widget_button(window, layout, theme, "Go", 100) {
+                    cockpit_modal_close()
+                    cockpit_toast("Sortie launched.", cockpit_toast_success)
+                }
+                if cockpit_ui_key_pressed(cockpit_key_escape) { cockpit_modal_close() }
+                cockpit_modal_end(window, layout)
+            } else { cockpit_animate_reset(0, 0) }
+            cockpit_ui_end_frame(window)
+            -- Swap themes between frames: this frame's widgets and toasts drew with the old one.
+            if change_mood {
+                mood = (mood + 1) % 5
+                cockpit_theme_release(theme)
+                theme = cockpit_theme_for_mood(mood_name(mood))
+                cockpit_toast("Mood: " + mood_name(mood), cockpit_toast_info)
+            }
+        }
+    }
+    cockpit_values_release(signal)
+    cockpit_values_release(contacts)
+    cockpit_words_release(sectors)
+    cockpit_words_release(formations)
+    cockpit_words_release(units_list)
+    cockpit_theme_release(theme)
+    cockpit_layout_release(layout)
+    cockpit_ui_close(window)
+}

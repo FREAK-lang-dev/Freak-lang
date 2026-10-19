@@ -1,8 +1,10 @@
 use self::containers::{
     cockpit_values_get_int,
+    cockpit_values_length,
     cockpit_values_new,
     cockpit_values_push_int,
-    cockpit_values_release
+    cockpit_values_release,
+    cockpit_values_set_int
 }
 
 -- COCKPIT V3 compatibility: themes are explicitly owned scalar arrays.
@@ -28,6 +30,17 @@ task cockpit_color_r(color: int) -> int { give back color % 256 }
 task cockpit_color_g(color: int) -> int { give back (color / 256) % 256 }
 task cockpit_color_b(color: int) -> int { give back (color / 65536) % 256 }
 task cockpit_color_a(color: int) -> int { give back (color / 16777216) % 256 }
+
+-- Blends two colors channel by channel; t is permille (0 = a, 1000 = b).
+task cockpit_color_mix(a: int, b: int, t: int) -> int {
+    if t < 0 { t = 0 }
+    if t > 1000 { t = 1000 }
+    pilot red = cockpit_color_r(a) + (cockpit_color_r(b) - cockpit_color_r(a)) * t / 1000
+    pilot green = cockpit_color_g(a) + (cockpit_color_g(b) - cockpit_color_g(a)) * t / 1000
+    pilot blue = cockpit_color_b(a) + (cockpit_color_b(b) - cockpit_color_b(a)) * t / 1000
+    pilot alpha = cockpit_color_a(a) + (cockpit_color_a(b) - cockpit_color_a(a)) * t / 1000
+    give back cockpit_color_rgba(red, green, blue, alpha)
+}
 
 task cockpit_theme_make(bg: int, surface: int, border: int, text: int, muted: int, accent: int, accent_hover: int, danger: int, success: int, font_size: int, padding: int, gap: int) -> int {
     pilot theme = cockpit_values_new()
@@ -60,6 +73,35 @@ task cockpit_theme_terminal() -> int {
 
 task cockpit_theme_alternative() -> int {
     give back cockpit_theme_make(cockpit_color_rgba(12, 15, 35, 255), cockpit_color_rgba(25, 30, 60, 255), cockpit_color_rgba(60, 50, 100, 255), cockpit_color_rgba(220, 220, 240, 255), cockpit_color_rgba(140, 130, 180, 255), cockpit_color_rgba(255, 45, 120, 255), cockpit_color_rgba(255, 80, 150, 255), cockpit_color_rgba(255, 60, 60, 255), cockpit_color_rgba(60, 220, 160, 255), 14, 14, 10)
+}
+
+-- Red on black. You know what you've done.
+task cockpit_theme_muvluv() -> int {
+    give back cockpit_theme_make(cockpit_color_rgba(10, 4, 6, 255), cockpit_color_rgba(28, 10, 14, 255), cockpit_color_rgba(90, 20, 30, 255), cockpit_color_rgba(240, 225, 225, 255), cockpit_color_rgba(160, 110, 115, 255), cockpit_color_rgba(200, 16, 46, 255), cockpit_color_rgba(235, 50, 75, 255), cockpit_color_rgba(255, 70, 40, 255), cockpit_color_rgba(120, 200, 140, 255), 14, 12, 8)
+}
+
+-- Bible moods: chill, focused, hype, muv_luv, mono_no_aware. Unknown moods are focused.
+task cockpit_theme_for_mood(mood: word) -> int {
+    if mood == "chill" { give back cockpit_theme_light() }
+    if mood == "hype" { give back cockpit_theme_terminal() }
+    if mood == "muv_luv" { give back cockpit_theme_alternative() }
+    if mood == "mono_no_aware" { give back cockpit_theme_muvluv() }
+    give back cockpit_theme_dark()
+}
+
+task cockpit_theme_set(theme: int, field: int, value: int) -> void {
+    cockpit_values_set_int(theme, field, value)
+}
+
+-- An independent copy the caller releases separately.
+task cockpit_theme_copy(theme: int) -> int {
+    pilot duplicate = cockpit_values_new()
+    pilot index = 0
+    repeat cockpit_values_length(theme) times {
+        cockpit_values_push_int(duplicate, cockpit_values_get_int(theme, index))
+        index += 1
+    }
+    give back duplicate
 }
 
 task cockpit_theme_get(theme: int, field: int) -> int {
