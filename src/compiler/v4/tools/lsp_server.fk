@@ -1,0 +1,1221 @@
+-- ===================================================================
+-- freak-lsp - Maverick language server (JSON-RPC 2.0 over stdio)
+-- ===================================================================
+-- The V4 crates already answer editor queries (hover, definition,
+-- document symbols, completion, diagnostics) through the incremental query
+-- engine; freak_lsp keeps them per document. This entry point is the
+-- transport: it reads Content-Length framed JSON-RPC, keeps documents in
+-- freak_lsp, asks the editor queries, and writes LSP JSON back.
+--
+-- Byte I/O and JSON string escapes live in tools/lsp_stdio.c (lspio::*).
+-- Everything else, including JSON navigation and position mapping, is FREAK.
+-- Build with: python src/compiler/v4/build_lsp.py
+
+-- String literals treat {name} as interpolation, so JSON braces are spliced in.
+pilot lsp_lb = "{"
+pilot lsp_server_initialized = false
+pilot lsp_server_shutdown = false
+pilot lsp_server_running = true
+
+-- Diagnostics come from two places, like rust-analyzer's live analysis plus
+-- `cargo check`: the shipping compiler's `freak check` on open/save, and the
+-- live Maverick (V4) front end on every edit. Maverick is strict V4, so it
+-- flags V3-only forms such as root statements; it is opt-in until V4 ships.
+pilot lsp_compiler_path = "freak"
+pilot lsp_compiler_enabled = true
+pilot lsp_compiler_state = 0
+pilot lsp_maverick_diagnostics = false
+pilot lsp_check_uris = 0
+pilot lsp_check_items = 0
+
+-- -------------------------------------------------------------------
+-- JSON reading. Values are addressed by their byte offset in the body.
+-- -------------------------------------------------------------------
+
+task lsp_json_skip_ws(text: word, start: int) -> int {
+    pilot i = start
+    repeat until i >= text.length() {
+        pilot b = lspio::byte_at(text, i)
+        if b != 32 and b != 9 and b != 10 and b != 13 {
+            give back i
+        }
+        i += 1
+    }
+    give back i
+}
+
+task lsp_json_value_end(text: word, start: int) -> int {
+    pilot b = lspio::byte_at(text, start)
+    if b == 34 {
+        give back lspio::json_string_end(text, start)
+    }
+    if b == 123 or b == 91 {
+        pilot depth = 0
+        pilot i = start
+        repeat until i >= text.length() {
+            pilot c = lspio::byte_at(text, i)
+            if c == 34 {
+                i = lspio::json_string_end(text, i)
+            } else {
+                if c == 123 or c == 91 {
+                    depth += 1
+                }
+                if c == 125 or c == 93 {
+                    depth -= 1
+                    if depth == 0 {
+                        give back i + 1
+                    }
+                }
+                i += 1
+            }
+        }
+        give back i
+    }
+    pilot j = start
+    repeat until j >= text.length() {
+        pilot d = lspio::byte_at(text, j)
+        if d == 44 or d == 125 or d == 93 or d == 32 or d == 9 or d == 10 or d == 13 {
+            give back j
+        }
+        j += 1
+    }
+    give back j
+}
+
+-- Offset of the value for `key` in the object at `obj`, or -1.
+task lsp_json_member(text: word, obj: int, key: word) -> int {
+    if obj < 0 or lspio::byte_at(text, obj) != 123 {
+        give back 0 - 1
+    }
+    pilot i = obj + 1
+    repeat until i >= text.length() {
+        i = lsp_json_skip_ws(text, i)
+        pilot b = lspio::byte_at(text, i)
+        if b == 125 or b != 34 {
+            give back 0 - 1
+        }
+        pilot name: word = lspio::json_unescape(text, i)
+        i = lsp_json_skip_ws(text, lspio::json_string_end(text, i))
+        if lspio::byte_at(text, i) != 58 {
+            give back 0 - 1
+        }
+        i = lsp_json_skip_ws(text, i + 1)
+        if name == key {
+            give back i
+        }
+        i = lsp_json_skip_ws(text, lsp_json_value_end(text, i))
+        if lspio::byte_at(text, i) == 44 {
+            i += 1
+        }
+    }
+    give back 0 - 1
+}
+
+-- Follows a dotted path such as "params.textDocument.uri".
+task lsp_json_path(text: word, obj: int, path: word) -> int {
+    pilot at = obj
+    pilot start = 0
+    repeat until start > path.length() {
+        pilot dot = lspio::find_byte(path, 46, start)
+        if dot < 0 {
+            dot = path.length()
+        }
+        at = lsp_json_member(text, at, path.substring(start, dot - start))
+        if at < 0 {
+            give back 0 - 1
+        }
+        start = dot + 1
+    }
+    give back at
+}
+
+task lsp_json_raw(text: word, at: int) -> word {
+    if at < 0 {
+        give back "null"
+    }
+    give back text.substring(at, lsp_json_value_end(text, at) - at)
+}
+
+task lsp_json_string_at(text: word, at: int) -> word {
+    if at < 0 or lspio::byte_at(text, at) != 34 {
+        give back ""
+    }
+    give back lspio::json_unescape(text, at)
+}
+
+task lsp_json_int_at(text: word, at: int) -> int {
+    if at < 0 {
+        give back 0
+    }
+    pilot raw = lsp_json_raw(text, at)
+    pilot negative = false
+    pilot i = 0
+    if raw.starts_with("-") {
+        negative = true
+        i = 1
+    }
+    pilot value = 0
+    repeat until i >= raw.length() {
+        pilot b = lspio::byte_at(raw, i)
+        if b < 48 or b > 57 {
+            i = raw.length()
+        } else {
+            value = value * 10 + (b - 48)
+            i += 1
+        }
+    }
+    if negative {
+        give back 0 - value
+    }
+    give back value
+}
+
+-- -------------------------------------------------------------------
+-- JSON writing
+-- -------------------------------------------------------------------
+
+task lsp_json_str(value: word) -> word {
+    pilot escaped: word = lspio::json_escape(value)
+    give back "\"" + escaped + "\""
+}
+
+task lsp_json_position(line: int, character_pos: int) -> word {
+    give back (lsp_lb + "\"line\":") + word_from_int(line) + ",\"character\":" + word_from_int(character_pos) + "}"
+}
+
+-- -------------------------------------------------------------------
+-- Positions. LSP columns count UTF-16 code units; the V4 crates use byte
+-- offsets. Convert at the boundary so non-ASCII lines stay aligned.
+-- -------------------------------------------------------------------
+
+task lsp_utf8_width(lead: int) -> int {
+    if lead >= 240 { give back 4 }
+    if lead >= 224 { give back 3 }
+    if lead >= 192 { give back 2 }
+    give back 1
+}
+
+task lsp_offset_from_position(text: word, line: int, column: int) -> int {
+    pilot i = 0
+    pilot current = 0
+    repeat until current >= line {
+        pilot nl = lspio::find_byte(text, 10, i)
+        if nl < 0 {
+            give back text.length()
+        }
+        i = nl + 1
+        current += 1
+    }
+    pilot units = 0
+    repeat until units >= column or i >= text.length() {
+        pilot b = lspio::byte_at(text, i)
+        if b == 10 or b == 13 {
+            give back i
+        }
+        pilot width = lsp_utf8_width(b)
+        i += width
+        if width == 4 {
+            units += 2
+        } else {
+            units += 1
+        }
+    }
+    if i > text.length() {
+        give back text.length()
+    }
+    give back i
+}
+
+task lsp_position_json(text: word, offset: int) -> word {
+    pilot limit = offset
+    if limit > text.length() {
+        limit = text.length()
+    }
+    if limit < 0 {
+        limit = 0
+    }
+    pilot line = 0
+    pilot line_start = 0
+    pilot i = 0
+    repeat until i >= limit {
+        pilot nl = lspio::find_byte(text, 10, i)
+        if nl < 0 or nl >= limit {
+            i = limit
+        } else {
+            line += 1
+            line_start = nl + 1
+            i = nl + 1
+        }
+    }
+    pilot units = 0
+    pilot j = line_start
+    repeat until j >= limit {
+        pilot width = lsp_utf8_width(lspio::byte_at(text, j))
+        j += width
+        if width == 4 {
+            units += 2
+        } else {
+            units += 1
+        }
+    }
+    give back lsp_json_position(line, units)
+}
+
+task lsp_range_json(text: word, start_pos: int, end_pos: int) -> word {
+    give back (lsp_lb + "\"start\":") + lsp_position_json(text, start_pos) + ",\"end\":" + lsp_position_json(text, end_pos) + "}"
+}
+
+task lsp_span_range_json(text: word, span: word) -> word {
+    give back lsp_range_json(text, v4_span_start(span), v4_span_end(span))
+}
+
+-- -------------------------------------------------------------------
+-- Messages
+-- -------------------------------------------------------------------
+
+task lsp_send(body: word) -> void {
+    lspio::write_message(body)
+}
+
+task lsp_respond(id_raw: word, payload: word) -> void {
+    lsp_send((lsp_lb + "\"jsonrpc\":\"2.0\",\"id\":") + id_raw + ",\"result\":" + payload + "}")
+}
+
+task lsp_respond_error(id_raw: word, code: int, message: word) -> void {
+    lsp_send((lsp_lb + "\"jsonrpc\":\"2.0\",\"id\":") + id_raw + (",\"error\":" + lsp_lb + "\"code\":") + word_from_int(code) + ",\"message\":" + lsp_json_str(message) + "}}")
+}
+
+task lsp_notify(method: word, params: word) -> void {
+    lsp_send((lsp_lb + "\"jsonrpc\":\"2.0\",\"method\":") + lsp_json_str(method) + ",\"params\":" + params + "}")
+}
+
+task lsp_log_message(kind: int, message: word) -> void {
+    lsp_notify("window/logMessage", (lsp_lb + "\"type\":") + word_from_int(kind) + ",\"message\":" + lsp_json_str(message) + "}")
+}
+
+-- -------------------------------------------------------------------
+-- Kind mapping
+-- -------------------------------------------------------------------
+
+task lsp_symbol_kind(kind: word) -> int {
+    pilot k = kind.to_lower()
+    if k == "task" or k == "extern task" or k == "extern" { give back 12 }
+    if k == "method" { give back 6 }
+    if k == "shape" { give back 23 }
+    if k == "route" or k == "variant" { give back 10 }
+    if k == "case" or k == "route case" { give back 22 }
+    if k == "doctrine" { give back 11 }
+    if k == "impl" { give back 5 }
+    if k == "alias" { give back 26 }
+    if k == "const" or k == "fixed" { give back 14 }
+    if k == "field" { give back 8 }
+    if k == "module" or k == "use" { give back 2 }
+    give back 13
+}
+
+task lsp_completion_kind(kind: word) -> int {
+    pilot k = kind.to_lower()
+    if k == "keyword" { give back 14 }
+    if k == "type" { give back 7 }
+    if k == "task" or k == "extern task" or k == "extern" { give back 3 }
+    if k == "method" { give back 2 }
+    if k == "shape" { give back 22 }
+    if k == "route" or k == "variant" { give back 13 }
+    if k == "case" or k == "route case" { give back 20 }
+    if k == "doctrine" { give back 8 }
+    if k == "alias" { give back 7 }
+    if k == "const" or k == "fixed" { give back 21 }
+    if k == "field" { give back 5 }
+    if k == "module" or k == "use" { give back 9 }
+    if k == "snippet" { give back 15 }
+    give back 6
+}
+
+-- -------------------------------------------------------------------
+-- Documents
+-- -------------------------------------------------------------------
+
+task lsp_document_text(uri: word) -> word {
+    pilot doc_id = v4_lsp_document_id_or_missing(uri)
+    if doc_id < 0 {
+        give back ""
+    }
+    give back v4_lsp_document_text(doc_id)
+}
+
+task lsp_maverick_items(uri: word, text: word) -> word {
+    pilot items = ""
+    pilot set_id = v4_diagnostics_text_cached(uri, text)
+    if set_id < 0 {
+        give back ""
+    }
+    pilot count = v4_diagnostics_count(set_id)
+    pilot i = 0
+    repeat until i >= count {
+        pilot diag = v4_diagnostics_diag(set_id, i)
+        pilot severity = v4_diag_severity(diag)
+        pilot lsp_severity = 1
+        if severity == v4_diag_warning { lsp_severity = 2 }
+        if severity == v4_diag_note { lsp_severity = 3 }
+        pilot message = v4_diag_message(diag)
+        pilot help = v4_diag_help(diag)
+        if help != "" {
+            message = message + "\nhelp: " + help
+        }
+        if items != "" {
+            items = items + ","
+        }
+        items = items + "{\"range\":" + lsp_span_range_json(text, v4_diag_span(diag))
+        items = items + ",\"severity\":" + word_from_int(lsp_severity)
+        items = items + ",\"source\":\"maverick\""
+        items = items + ",\"message\":" + lsp_json_str(message) + "}"
+        i += 1
+    }
+    give back items
+}
+
+task lsp_check_slot(uri: word) -> int {
+    if lsp_check_uris == 0 {
+        lsp_check_uris = array_new()
+        lsp_check_items = array_new()
+    }
+    pilot i = 0
+    pilot count = array_len(lsp_check_uris)
+    repeat until i >= count {
+        pilot known: word = array_get(lsp_check_uris, i)
+        if known == uri {
+            give back i
+        }
+        i += 1
+    }
+    array_push(lsp_check_uris, uri)
+    array_push(lsp_check_items, "")
+    give back count
+}
+
+task lsp_publish_diagnostics(uri: word) -> void {
+    pilot doc_id = v4_lsp_document_id_or_missing(uri)
+    if doc_id < 0 {
+        give back
+    }
+    pilot text = v4_lsp_document_text(doc_id)
+    pilot version = v4_lsp_document_revision(doc_id)
+    pilot items: word = array_get(lsp_check_items, lsp_check_slot(uri))
+    if lsp_maverick_diagnostics {
+        pilot live = lsp_maverick_items(uri, text)
+        if live != "" {
+            if items != "" {
+                items = items + ","
+            }
+            items = items + live
+        }
+    }
+    lsp_notify("textDocument/publishDiagnostics", "{\"uri\":" + lsp_json_str(uri) + ",\"version\":" + word_from_int(version) + ",\"diagnostics\":[" + items + "]}")
+}
+
+-- -------------------------------------------------------------------
+-- `freak check`
+-- -------------------------------------------------------------------
+
+task lsp_shell_quote(value: word) -> word {
+    if lspio::is_windows() {
+        give back "\"" + value + "\""
+    }
+    give back "'" + value.replace("'", "'\\''") + "'"
+}
+
+task lsp_last_separator(path: word) -> int {
+    pilot i = path.length() - 1
+    repeat until i < 0 {
+        pilot b = lspio::byte_at(path, i)
+        if b == 47 or b == 92 {
+            give back i
+        }
+        i -= 1
+    }
+    give back 0 - 1
+}
+
+task lsp_compiler_command(dir: word, args: word) -> word {
+    if lspio::is_windows() {
+        pilot line = ""
+        if dir != "" {
+            line = "cd /d " + lsp_shell_quote(dir) + " && "
+        }
+        give back "\"" + line + "set \"NO_COLOR=1\"&& " + lsp_shell_quote(lsp_compiler_path) + " " + args + " <NUL 2>&1\""
+    }
+    pilot line = ""
+    if dir != "" {
+        line = "cd " + lsp_shell_quote(dir) + " && "
+    }
+    give back line + "NO_COLOR=1 " + lsp_shell_quote(lsp_compiler_path) + " " + args + " </dev/null 2>&1"
+}
+
+task lsp_compiler_ready() -> bool {
+    if not lsp_compiler_enabled {
+        give back false
+    }
+    if lsp_compiler_state == 0 {
+        pilot probe: word = lspio::run_capture(lsp_compiler_command("", "version"))
+        if lsp_strip_ansi(probe).trim().starts_with("freak ") {
+            lsp_compiler_state = 1
+        } else {
+            lsp_compiler_state = 2
+            lsp_log_message(3, "FREAK compiler '" + lsp_compiler_path + "' not found; `freak check` diagnostics are off. Set the compiler path, or enable live Maverick diagnostics.")
+        }
+    }
+    give back lsp_compiler_state == 1
+}
+
+task lsp_strip_ansi(line: word) -> word {
+    if lspio::find_byte(line, 27, 0) < 0 {
+        give back line
+    }
+    pilot out = ""
+    pilot i = 0
+    repeat until i >= line.length() {
+        pilot b = lspio::byte_at(line, i)
+        if b == 27 {
+            i += 1
+            repeat until i >= line.length() or lspio::byte_at(line, i) == 109 {
+                i += 1
+            }
+            i += 1
+        } else {
+            pilot next = lspio::find_byte(line, 27, i)
+            if next < 0 {
+                next = line.length()
+            }
+            out = out + line.substring(i, next - i)
+            i = next
+        }
+    }
+    give back out
+}
+
+-- "type error: unknown binding 'x' (line 3)" -> severity and message.
+task lsp_check_head_message(line: word) -> word {
+    pilot colon = v4_index_of_from(line, ":", 0)
+    if colon <= 0 {
+        give back ""
+    }
+    pilot head = line.substring(0, colon)
+    if not (head.ends_with("error") or head.ends_with("warning")) or head.contains(" -->") {
+        give back ""
+    }
+    pilot message = line.substring(colon + 1, line.length() - colon - 1).trim()
+    pilot suffix = lsp_find_text(message, "(line ")
+    if suffix > 0 and message.ends_with(")") {
+        message = message.substring(0, suffix).trim()
+    }
+    give back message
+}
+
+task lsp_check_items_from(output: word, text: word, base: word) -> word {
+    pilot items = ""
+    pilot pending = ""
+    pilot pending_severity = 1
+    pilot start = 0
+    repeat until start >= output.length() {
+        pilot nl = lspio::find_byte(output, 10, start)
+        if nl < 0 {
+            nl = output.length()
+        }
+        pilot line = lsp_strip_ansi(output.substring(start, nl - start))
+        if line.ends_with("\r") {
+            line = line.substring(0, line.length() - 1)
+        }
+        start = nl + 1
+        pilot trimmed = line.trim()
+        if trimmed.starts_with("--> ") and pending != "" {
+            -- " --> file.fk:2:1"
+            pilot where = trimmed.substring(4, trimmed.length() - 4)
+            pilot col_sep = lsp_last_colon(where)
+            pilot line_sep = lsp_last_colon(where.substring(0, col_sep))
+            if col_sep > 0 and line_sep > 0 {
+                pilot file = where.substring(0, line_sep)
+                pilot line_no = lsp_json_int_at(where, line_sep + 1) - 1
+                pilot col_no = lsp_json_int_at(where, col_sep + 1) - 1
+                pilot message = pending
+                if file != base {
+                    message = where + ": " + message
+                    line_no = 0
+                    col_no = 0
+                }
+                if line_no < 0 { line_no = 0 }
+                if col_no < 0 { col_no = 0 }
+                pilot line_start = lsp_offset_from_position(text, line_no, 0)
+                pilot line_end = line_start
+                repeat until line_end >= text.length() or lspio::byte_at(text, line_end) == 10 or lspio::byte_at(text, line_end) == 13 {
+                    line_end += 1
+                }
+                -- The checker points at column 1; underline the statement.
+                pilot first = line_start + col_no
+                if col_no == 0 {
+                    repeat until first >= line_end or (lspio::byte_at(text, first) != 32 and lspio::byte_at(text, first) != 9) {
+                        first += 1
+                    }
+                }
+                pilot last = line_end
+                repeat until last <= first or (lspio::byte_at(text, last - 1) != 32 and lspio::byte_at(text, last - 1) != 9) {
+                    last -= 1
+                }
+                if first > line_end { first = line_end }
+                if last <= first { last = first }
+                if items != "" { items = items + "," }
+                items = items + "{\"range\":" + lsp_range_json(text, first, last)
+                items = items + ",\"severity\":" + word_from_int(pending_severity)
+                items = items + ",\"source\":\"freak check\""
+                items = items + ",\"message\":" + lsp_json_str(message) + "}"
+            }
+            pending = ""
+        } else {
+            pilot message = lsp_check_head_message(trimmed)
+            if message != "" {
+                pending = message
+                pending_severity = 1
+                if trimmed.substring(0, v4_index_of_from(trimmed, ":", 0)).ends_with("warning") {
+                    pending_severity = 2
+                }
+            }
+        }
+    }
+    give back items
+}
+
+task lsp_find_text(text: word, needle: word) -> int {
+    pilot i = 0
+    repeat until i + needle.length() > text.length() {
+        if text.substring(i, needle.length()) == needle {
+            give back i
+        }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task lsp_last_colon(text: word) -> int {
+    pilot i = text.length() - 1
+    repeat until i < 0 {
+        if lspio::byte_at(text, i) == 58 {
+            give back i
+        }
+        i -= 1
+    }
+    give back 0 - 1
+}
+
+task lsp_run_check(uri: word) -> void {
+    pilot slot = lsp_check_slot(uri)
+    if not lsp_compiler_ready() {
+        give back
+    }
+    pilot path: word = lspio::uri_to_path(uri)
+    if path == "" or not lspio::file_exists(path) {
+        give back
+    }
+    pilot sep = lsp_last_separator(path)
+    pilot dir = ""
+    pilot base = path
+    if sep >= 0 {
+        dir = path.substring(0, sep + 1)
+        base = path.substring(sep + 1, path.length() - sep - 1)
+    }
+    pilot output: word = lspio::run_capture(lsp_compiler_command(dir, "check " + lsp_shell_quote(base)))
+    pilot saved = fs::read(path)
+    array_set(lsp_check_items, slot, lsp_check_items_from(output, saved, base))
+}
+
+task lsp_did_open(body: word, params: int) -> void {
+    pilot uri = lsp_json_string_at(body, lsp_json_path(body, params, "textDocument.uri"))
+    pilot text = lsp_json_string_at(body, lsp_json_path(body, params, "textDocument.text"))
+    if v4_lsp_document_id_or_missing(uri) >= 0 {
+        v4_lsp_change_document(uri, text)
+    } else {
+        v4_lsp_open_document(uri, text)
+    }
+    lsp_run_check(uri)
+    lsp_publish_diagnostics(uri)
+}
+
+task lsp_did_change(body: word, params: int) -> void {
+    pilot uri = lsp_json_string_at(body, lsp_json_path(body, params, "textDocument.uri"))
+    pilot changes = lsp_json_member(body, params, "contentChanges")
+    if changes < 0 {
+        give back
+    }
+    -- Full sync: the last change carries the whole document.
+    pilot text = ""
+    pilot found = false
+    pilot i = lsp_json_skip_ws(body, changes + 1)
+    repeat until i >= body.length() or lspio::byte_at(body, i) != 123 {
+        pilot text_at = lsp_json_member(body, i, "text")
+        if text_at >= 0 {
+            text = lsp_json_string_at(body, text_at)
+            found = true
+        }
+        i = lsp_json_skip_ws(body, lsp_json_value_end(body, i))
+        if lspio::byte_at(body, i) == 44 {
+            i = lsp_json_skip_ws(body, i + 1)
+        }
+    }
+    if not found {
+        give back
+    }
+    v4_lsp_change_document(uri, text)
+    lsp_publish_diagnostics(uri)
+}
+
+task lsp_did_save(body: word, params: int) -> void {
+    pilot uri = lsp_json_string_at(body, lsp_json_path(body, params, "textDocument.uri"))
+    lsp_run_check(uri)
+    lsp_publish_diagnostics(uri)
+}
+
+task lsp_did_close(body: word, params: int) -> void {
+    pilot uri = lsp_json_string_at(body, lsp_json_path(body, params, "textDocument.uri"))
+    array_set(lsp_check_items, lsp_check_slot(uri), "")
+    lsp_notify("textDocument/publishDiagnostics", (lsp_lb + "\"uri\":") + lsp_json_str(uri) + ",\"diagnostics\":[]}")
+}
+
+-- -------------------------------------------------------------------
+-- Requests
+-- -------------------------------------------------------------------
+
+task lsp_initialize_result() -> word {
+    pilot caps = (lsp_lb + "\"textDocumentSync\":" + lsp_lb + "\"openClose\":true,\"change\":1,\"save\":" + lsp_lb + "\"includeText\":false}}")
+    caps = caps + ",\"hoverProvider\":true"
+    caps = caps + ",\"definitionProvider\":true"
+    caps = caps + ",\"documentSymbolProvider\":true"
+    caps = caps + (",\"completionProvider\":" + lsp_lb + "\"triggerCharacters\":[\".\",\":\"],\"resolveProvider\":false}")
+    caps = caps + "}"
+    give back (lsp_lb + "\"capabilities\":") + caps + (",\"serverInfo\":" + lsp_lb + "\"name\":\"freak-lsp\",\"version\":\"maverick\"}}")
+}
+
+-- initializationOptions, shared with the bundled Python server:
+-- compilerPath, compilerDiagnostics, plus maverickDiagnostics.
+task lsp_read_options(body: word, options: int) -> void {
+    pilot path = lsp_json_string_at(body, lsp_json_member(body, options, "compilerPath"))
+    if path != "" {
+        lsp_compiler_path = path
+    }
+    if lsp_json_raw(body, lsp_json_member(body, options, "compilerDiagnostics")) == "false" {
+        lsp_compiler_enabled = false
+    }
+    if lsp_json_raw(body, lsp_json_member(body, options, "maverickDiagnostics")) == "true" {
+        lsp_maverick_diagnostics = true
+    }
+}
+
+-- Target document text and byte offset for a TextDocumentPositionParams request.
+task lsp_request_uri(body: word, params: int) -> word {
+    give back lsp_json_string_at(body, lsp_json_path(body, params, "textDocument.uri"))
+}
+
+task lsp_request_offset(body: word, params: int, text: word) -> int {
+    pilot line = lsp_json_int_at(body, lsp_json_path(body, params, "position.line"))
+    pilot column = lsp_json_int_at(body, lsp_json_path(body, params, "position.character"))
+    give back lsp_offset_from_position(text, line, column)
+}
+
+task lsp_hover(body: word, params: int) -> word {
+    pilot uri = lsp_request_uri(body, params)
+    if v4_lsp_document_id_or_missing(uri) < 0 { give back "null" }
+    pilot text = lsp_document_text(uri)
+    pilot offset = lsp_request_offset(body, params, text)
+    pilot hover_id = v4_hover_text_cached(uri, text, offset)
+    if hover_id < 0 { give back "null" }
+    pilot markdown = v4_hover_markdown(hover_id)
+    if markdown == "" { give back "null" }
+    give back (lsp_lb + "\"contents\":" + lsp_lb + "\"kind\":\"markdown\",\"value\":") + lsp_json_str(markdown) + "}}"
+}
+
+task lsp_definition(body: word, params: int) -> word {
+    pilot uri = lsp_request_uri(body, params)
+    if v4_lsp_document_id_or_missing(uri) < 0 { give back "null" }
+    pilot text = lsp_document_text(uri)
+    pilot offset = lsp_request_offset(body, params, text)
+    pilot defn_id = v4_definition_at_text_cached(uri, text, offset)
+    if defn_id < 0 { give back "null" }
+    if v4_definition_at_found(defn_id) == 0 { give back "null" }
+    give back (lsp_lb + "\"uri\":") + lsp_json_str(uri) + ",\"range\":" + lsp_span_range_json(text, v4_definition_at_span(defn_id)) + "}"
+}
+
+-- The V4 symbol span covers the declaration; select its name inside it.
+task lsp_name_range_json(text: word, span: word, name: word) -> word {
+    pilot start_pos = v4_span_start(span)
+    pilot end_pos = v4_span_end(span)
+    if name != "" and end_pos > start_pos {
+        pilot at = lsp_find_text(text.substring(start_pos, end_pos - start_pos), name)
+        if at >= 0 {
+            give back lsp_range_json(text, start_pos + at, start_pos + at + name.length())
+        }
+    }
+    give back lsp_range_json(text, start_pos, end_pos)
+}
+
+task lsp_document_symbols(body: word, params: int) -> word {
+    pilot uri = lsp_request_uri(body, params)
+    if v4_lsp_document_id_or_missing(uri) < 0 { give back "[]" }
+    pilot text = lsp_document_text(uri)
+    pilot doc_id = v4_document_symbols_text_cached(uri, text)
+    if doc_id < 0 { give back "[]" }
+    pilot out = ""
+    pilot count = v4_document_symbol_count(doc_id)
+    pilot i = 0
+    repeat until i >= count {
+        pilot name = v4_document_symbol_name(doc_id, i)
+        pilot kind = v4_document_symbol_kind(doc_id, i)
+        pilot span = v4_document_symbol_span(doc_id, i)
+        if out != "" { out = out + "," }
+        out = out + (lsp_lb + "\"name\":") + lsp_json_str(name)
+        out = out + ",\"detail\":" + lsp_json_str(v4_document_symbol_type(doc_id, i))
+        out = out + ",\"kind\":" + word_from_int(lsp_symbol_kind(kind))
+        out = out + ",\"range\":" + lsp_span_range_json(text, span)
+        out = out + ",\"selectionRange\":" + lsp_name_range_json(text, span, name) + "}"
+        i += 1
+    }
+    give back "[" + out + "]"
+}
+
+task lsp_completion(body: word, params: int) -> word {
+    pilot uri = lsp_request_uri(body, params)
+    if v4_lsp_document_id_or_missing(uri) < 0 { give back "[]" }
+    pilot text = lsp_document_text(uri)
+    pilot offset = lsp_request_offset(body, params, text)
+    pilot completion_id = v4_completion_text_cached(uri, text, offset)
+    if completion_id < 0 { give back "[]" }
+    pilot out = ""
+    pilot count = v4_completion_count(completion_id)
+    pilot i = 0
+    repeat until i >= count {
+        pilot label = v4_completion_label(completion_id, i)
+        if out != "" { out = out + "," }
+        out = out + (lsp_lb + "\"label\":") + lsp_json_str(label)
+        out = out + ",\"kind\":" + word_from_int(lsp_completion_kind(v4_completion_kind(completion_id, i)))
+        out = out + ",\"detail\":" + lsp_json_str(v4_completion_detail(completion_id, i))
+        out = out + ",\"insertText\":" + lsp_json_str(v4_completion_insert_text(completion_id, i)) + "}"
+        i += 1
+    }
+    give back (lsp_lb + "\"isIncomplete\":false,\"items\":[") + out + "]}"
+}
+
+-- -------------------------------------------------------------------
+-- Dispatch
+-- -------------------------------------------------------------------
+
+task lsp_handle_request(body: word, method: word, id_raw: word, params: int) -> void {
+    if method == "freak/sync" {
+        -- Supervisor heartbeat: everything before it has been answered.
+        pilot recycle = "false"
+        if lspio::rss_mb() >= lspio::env_int("FREAK_LSP_WORKER_MB", 1024) {
+            recycle = "true"
+        }
+        lsp_respond(id_raw, lsp_lb + "\"recycle\":" + recycle + "}")
+        give back
+    }
+    if method == "initialize" {
+        lsp_server_initialized = true
+        lsp_read_options(body, lsp_json_member(body, params, "initializationOptions"))
+        lsp_respond(id_raw, lsp_initialize_result())
+        give back
+    }
+    if not lsp_server_initialized {
+        lsp_respond_error(id_raw, 0 - 32002, "server not initialized")
+        give back
+    }
+    if lsp_server_shutdown {
+        lsp_respond_error(id_raw, 0 - 32600, "server is shutting down")
+        give back
+    }
+    if method == "shutdown" {
+        lsp_server_shutdown = true
+        lsp_respond(id_raw, "null")
+        give back
+    }
+    if method == "textDocument/hover" {
+        lsp_respond(id_raw, lsp_hover(body, params))
+        give back
+    }
+    if method == "textDocument/definition" {
+        lsp_respond(id_raw, lsp_definition(body, params))
+        give back
+    }
+    if method == "textDocument/documentSymbol" {
+        lsp_respond(id_raw, lsp_document_symbols(body, params))
+        give back
+    }
+    if method == "textDocument/completion" {
+        lsp_respond(id_raw, lsp_completion(body, params))
+        give back
+    }
+    lsp_respond_error(id_raw, 0 - 32601, "method not found: " + method)
+}
+
+task lsp_handle_notification(body: word, method: word, params: int) -> void {
+    if method == "exit" {
+        lsp_server_running = false
+        give back
+    }
+    if not lsp_server_initialized or lsp_server_shutdown {
+        give back
+    }
+    if method == "textDocument/didOpen" {
+        lsp_did_open(body, params)
+        give back
+    }
+    if method == "textDocument/didChange" {
+        lsp_did_change(body, params)
+        give back
+    }
+    if method == "textDocument/didSave" {
+        lsp_did_save(body, params)
+        give back
+    }
+    if method == "textDocument/didClose" {
+        lsp_did_close(body, params)
+        give back
+    }
+    -- initialized, $/cancelRequest, $/setTrace and friends need no answer.
+}
+
+task lsp_handle_message(body: word) -> void {
+    pilot root = lsp_json_skip_ws(body, 0)
+    if lspio::byte_at(body, root) != 123 {
+        lsp_respond_error("null", 0 - 32700, "parse error")
+        give back
+    }
+    pilot method = lsp_json_string_at(body, lsp_json_member(body, root, "method"))
+    pilot id_at = lsp_json_member(body, root, "id")
+    pilot params = lsp_json_member(body, root, "params")
+    if method == "" {
+        -- A response to a server request; this server sends none that need one.
+        give back
+    }
+    if id_at >= 0 {
+        lsp_handle_request(body, method, lsp_json_raw(body, id_at), params)
+    } else {
+        lsp_handle_notification(body, method, params)
+    }
+}
+
+-- Reads one framed message from the client, or from the worker. Returns ""
+-- at end of input.
+task lsp_read_message_from(worker: bool) -> word {
+    pilot length = 0 - 1
+    repeat until false {
+        pilot line = ""
+        pilot eof = false
+        if worker {
+            line = lspio::worker_read_line()
+            eof = lspio::worker_at_eof()
+        } else {
+            line = lspio::read_line()
+            eof = lspio::at_eof()
+        }
+        if eof {
+            give back ""
+        }
+        if line == "" {
+            if length >= 0 {
+                if worker {
+                    pilot from_worker: word = lspio::worker_read_exact(length)
+                    give back from_worker
+                }
+                pilot body: word = lspio::read_exact(length)
+                give back body
+            }
+        } else {
+            if line.starts_with("Content-Length:") or line.starts_with("content-length:") or line.starts_with("CONTENT-LENGTH:") {
+                length = lsp_json_int_at(line, lsp_json_skip_ws(line, 15))
+            }
+            lspio::release(line)
+        }
+    }
+    give back ""
+}
+
+task lsp_read_message() -> word {
+    give back lsp_read_message_from(false)
+}
+
+-- -------------------------------------------------------------------
+-- Supervisor. The bootstrap runtime does not reclaim words yet, so the
+-- analysis worker grows with every edit. The supervisor forwards traffic,
+-- keeps the open documents, and replaces the worker when it reports that
+-- it is too large or when it crashes, replaying initialize and didOpen.
+-- -------------------------------------------------------------------
+
+pilot sup_init_params = ""
+pilot sup_client_initialized = false
+pilot sup_shutdown = false
+pilot sup_doc_uris = 0
+pilot sup_doc_texts = 0
+pilot sup_sync_count = 0
+pilot sup_pending_answered = false
+pilot sup_failures = 0
+
+task sup_doc_slot(uri: word) -> int {
+    if sup_doc_uris == 0 {
+        sup_doc_uris = array_new()
+        sup_doc_texts = array_new()
+    }
+    pilot i = 0
+    pilot count = array_len(sup_doc_uris)
+    repeat until i >= count {
+        pilot known: word = array_get(sup_doc_uris, i)
+        if known == uri {
+            give back i
+        }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task sup_doc_store(uri: word, text: word) -> void {
+    pilot slot = sup_doc_slot(uri)
+    if slot < 0 {
+        slot = sup_doc_slot("")
+    }
+    if slot >= 0 {
+        array_set(sup_doc_uris, slot, uri)
+    }
+    if slot < 0 {
+        array_push(sup_doc_uris, uri)
+        array_push(sup_doc_texts, text)
+        give back
+    }
+    pilot old: word = array_get(sup_doc_texts, slot)
+    array_set(sup_doc_texts, slot, text)
+    lspio::release(old)
+}
+
+task sup_doc_forget(uri: word) -> void {
+    pilot slot = sup_doc_slot(uri)
+    if slot < 0 {
+        give back
+    }
+    -- Closed slots keep an empty uri and are reused by the next open.
+    pilot old: word = array_get(sup_doc_texts, slot)
+    array_set(sup_doc_uris, slot, "")
+    array_set(sup_doc_texts, slot, "")
+    lspio::release(old)
+}
+
+-- Mirrors document state from client traffic.
+task sup_track(body: word, root: int, method: word) -> void {
+    pilot params = lsp_json_member(body, root, "params")
+    if method == "initialize" {
+        sup_init_params = lsp_json_raw(body, params)
+        give back
+    }
+    if method == "initialized" {
+        sup_client_initialized = true
+        give back
+    }
+    if method == "shutdown" {
+        sup_shutdown = true
+        give back
+    }
+    if method == "textDocument/didOpen" {
+        pilot uri = lsp_json_string_at(body, lsp_json_path(body, params, "textDocument.uri"))
+        sup_doc_store(uri, lsp_json_string_at(body, lsp_json_path(body, params, "textDocument.text")))
+        give back
+    }
+    if method == "textDocument/didChange" {
+        pilot uri = lsp_json_string_at(body, lsp_json_path(body, params, "textDocument.uri"))
+        pilot changes = lsp_json_member(body, params, "contentChanges")
+        if changes < 0 {
+            give back
+        }
+        pilot last = 0 - 1
+        pilot i = lsp_json_skip_ws(body, changes + 1)
+        repeat until i >= body.length() or lspio::byte_at(body, i) != 123 {
+            pilot text_at = lsp_json_member(body, i, "text")
+            if text_at >= 0 {
+                last = text_at
+            }
+            i = lsp_json_skip_ws(body, lsp_json_value_end(body, i))
+            if lspio::byte_at(body, i) == 44 {
+                i = lsp_json_skip_ws(body, i + 1)
+            }
+        }
+        if last >= 0 {
+            sup_doc_store(uri, lsp_json_string_at(body, last))
+        }
+        give back
+    }
+    if method == "textDocument/didClose" {
+        sup_doc_forget(lsp_json_string_at(body, lsp_json_path(body, params, "textDocument.uri")))
+    }
+}
+
+-- Forwards worker output to the client until the response to `marker`.
+-- 0 = synced, 1 = synced and the worker asked to be replaced, 2 = worker gone.
+task sup_drain(marker: word, pending_id: word) -> int {
+    repeat until false {
+        pilot body = lsp_read_message_from(true)
+        if body == "" {
+            give back 2
+        }
+        pilot root = lsp_json_skip_ws(body, 0)
+        pilot id_raw = "null"
+        pilot has_method: bool = lsp_json_member(body, root, "method") >= 0
+        pilot id_at = lsp_json_member(body, root, "id")
+        if id_at >= 0 {
+            id_raw = lsp_json_raw(body, id_at)
+        }
+        if not has_method and id_raw == marker {
+            pilot recycle: bool = lsp_json_raw(body, lsp_json_path(body, root, "result.recycle")) == "true"
+            lspio::release(body)
+            if recycle {
+                give back 1
+            }
+            give back 0
+        }
+        if not has_method and id_raw.starts_with("\"freak-replay") {
+            lspio::release(body)
+        } else {
+            if not has_method and id_raw == pending_id {
+                sup_pending_answered = true
+            }
+            lspio::write_message(body)
+            lspio::release(body)
+        }
+    }
+    give back 2
+}
+
+task sup_sync(pending_id: word) -> int {
+    sup_sync_count += 1
+    pilot marker = "\"freak-sync-" + word_from_int(sup_sync_count) + "\""
+    lspio::worker_send(lsp_lb + "\"jsonrpc\":\"2.0\",\"id\":" + marker + ",\"method\":\"freak/sync\"}")
+    give back sup_drain(marker, pending_id)
+}
+
+task sup_replay_open(uri: word, text: word) -> void {
+    pilot open = lsp_lb + "\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":" + lsp_lb + "\"textDocument\":" + lsp_lb + "\"uri\":" + lsp_json_str(uri)
+    open = open + ",\"languageId\":\"freak\",\"version\":0,\"text\":" + lsp_json_str(text) + "}}}"
+    lspio::worker_send(open)
+    lspio::release(open)
+}
+
+-- Starts a worker and brings it to the client's current state.
+task sup_start_worker(replay_documents: bool) -> bool {
+    if not lspio::worker_spawn() {
+        lspio::log("could not start the analysis worker")
+        give back false
+    }
+    if sup_init_params == "" {
+        give back true
+    }
+    lspio::worker_send(lsp_lb + "\"jsonrpc\":\"2.0\",\"id\":\"freak-replay-init\",\"method\":\"initialize\",\"params\":" + sup_init_params + "}")
+    if sup_client_initialized {
+        lspio::worker_send(lsp_lb + "\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":" + lsp_lb + "}}")
+    }
+    if replay_documents and sup_doc_uris != 0 {
+        pilot i = 0
+        repeat until i >= array_len(sup_doc_uris) {
+            pilot uri: word = array_get(sup_doc_uris, i)
+            pilot text: word = array_get(sup_doc_texts, i)
+            if uri != "" {
+                sup_replay_open(uri, text)
+            }
+            i += 1
+        }
+    }
+    give back true
+}
+
+
+task sup_restart(reason: word) -> bool {
+    lspio::worker_wait()
+    sup_failures += 1
+    lspio::log("restarting the analysis worker: " + reason)
+    -- A document that crashes the worker on open would crash every replay.
+    pilot replay: bool = sup_failures < 3
+    if not replay {
+        lspio::log("worker keeps failing; restarting without reopening documents")
+    }
+    if not sup_start_worker(replay) {
+        give back false
+    }
+    pilot synced = sup_sync("")
+    if synced == 2 {
+        give back sup_restart("worker failed during replay")
+    }
+    give back true
+}
+
+task sup_main() -> int {
+    lspio::init()
+    if not sup_start_worker(false) {
+        give back 1
+    }
+    repeat until false {
+        pilot body = lsp_read_message()
+        if body == "" {
+            lspio::worker_wait()
+            if sup_shutdown { give back 0 }
+            give back 1
+        }
+        pilot root = lsp_json_skip_ws(body, 0)
+        pilot method = lsp_json_string_at(body, lsp_json_member(body, root, "method"))
+        pilot pending_id = ""
+        pilot id_at = lsp_json_member(body, root, "id")
+        if id_at >= 0 and method != "" {
+            pending_id = lsp_json_raw(body, id_at)
+        }
+        sup_track(body, root, method)
+        lspio::worker_send(body)
+        lspio::release(body)
+        if method == "exit" {
+            lspio::worker_wait()
+            if sup_shutdown { give back 0 }
+            give back 1
+        }
+        sup_pending_answered = false
+        pilot synced = sup_sync(pending_id)
+        if synced == 0 {
+            sup_failures = 0
+        }
+        if synced == 2 {
+            if pending_id != "" and not sup_pending_answered {
+                lsp_respond_error(pending_id, 0 - 32603, "freak-lsp analysis worker crashed on this request; it has been restarted")
+            }
+            if not sup_restart("worker exited unexpectedly") {
+                give back 1
+            }
+        }
+        if synced == 1 and not sup_shutdown {
+            if not sup_restart("memory budget reached") {
+                give back 1
+            }
+            sup_failures = 0
+        }
+        lspio::release(method)
+    }
+    give back 1
+}
+
+task lsp_server_main() -> int {
+    if not lspio::is_worker() {
+        give back sup_main()
+    }
+    lspio::init()
+    repeat until not lsp_server_running {
+        pilot body = lsp_read_message()
+        if body == "" {
+            if lspio::at_eof() {
+                if lsp_server_shutdown { give back 0 }
+                give back 1
+            }
+        } else {
+            lsp_handle_message(body)
+        }
+    }
+    if lsp_server_shutdown { give back 0 }
+    give back 1
+}
+
+process::exit(lsp_server_main())
