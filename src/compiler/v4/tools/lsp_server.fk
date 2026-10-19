@@ -399,7 +399,6 @@ task lsp_publish_diagnostics(uri: word) -> void {
         give back
     }
     pilot text = v4_lsp_document_text(doc_id)
-    pilot version = v4_lsp_document_revision(doc_id)
     pilot items: word = array_get(lsp_check_items, lsp_check_slot(uri))
     if lsp_maverick_diagnostics {
         pilot live = lsp_maverick_items(uri, text)
@@ -410,7 +409,7 @@ task lsp_publish_diagnostics(uri: word) -> void {
             items = items + live
         }
     }
-    lsp_notify("textDocument/publishDiagnostics", "{\"uri\":" + lsp_json_str(uri) + ",\"version\":" + word_from_int(version) + ",\"diagnostics\":[" + items + "]}")
+    lsp_notify("textDocument/publishDiagnostics", "{\"uri\":" + lsp_json_str(uri) + ",\"diagnostics\":[" + items + "]}")
 }
 
 -- -------------------------------------------------------------------
@@ -1132,6 +1131,11 @@ task sup_restart(reason: word) -> bool {
     lspio::worker_wait()
     sup_failures += 1
     lspio::log("restarting the analysis worker: " + reason)
+    -- A worker that cannot start at all would otherwise restart forever.
+    if sup_failures > 5 {
+        lspio::log("analysis worker keeps failing; giving up")
+        give back false
+    }
     -- A document that crashes the worker on open would crash every replay.
     pilot replay: bool = sup_failures < 3
     if not replay {
