@@ -44,10 +44,41 @@ The **Bootstrap V4** finish line is considered met when all of the following rem
 - `freak_driver` stays limited to source orchestration, core query access, diagnostics, and restore accessors needed by snapshot restore.
 - `freak_editor` owns semantic-at, hover, definition, document-symbol, and completion fact storage plus their query APIs.
 - `freak_snapshot` owns snapshot formats, manifests, diffs, health reports, restore coordination, and invalidation contract reporting.
-- `freak_lsp` stays transport-facing and wraps compiler results as line-protocol `ok|...` or `error|...` envelopes.
+- `freak_lsp` stays transport-facing and wraps compiler results as line-protocol `ok|...` or `error|...` envelopes; `tools/lsp_server.fk` serves the same queries over JSON-RPC.
 - `src/compiler/v4/tests` continues to exercise the bootstrap slice end to end, including query invalidation, LSP dispatch, unit snapshot restore/diff/health, and the current typed MIR lowering smoke set.
 
 Anything beyond this marker belongs to the next phase: richer language coverage, deeper Meiya borrow analysis, and backend/codegen integration. Do not push those concerns back into `freak_driver` to move faster; that is how the rewrite loop returns.
+
+## Language server (freak-lsp)
+
+`tools/lsp_server.fk` is a stdio Language Server Protocol server built from
+the V4 crates. It speaks JSON-RPC 2.0 with Content-Length framing and answers
+from the same incremental queries as the `freak_lsp` facade.
+
+```sh
+python src/compiler/v4/build_lsp.py          # writes build/freak-lsp(.exe)
+python tests/v4_lsp_server.py                # builds, then runs the contracts
+python tests/v4_lsp_server.py build/freak-lsp --compiler path/to/freak
+```
+
+- Requests: `initialize`, `shutdown`, `textDocument/hover`, `definition`,
+  `documentSymbol` and `completion` (trigger characters `.` and `:`).
+- Documents: full sync via `didOpen`, `didChange`, `didSave` and `didClose`.
+  LSP UTF-16 columns are converted to the crates' byte offsets.
+- Diagnostics: `freak check` runs on open and save, as in the Python server.
+  Live Maverick diagnostics on every edit are opt-in
+  (`maverickDiagnostics: true`), because strict V4 still rejects V3 forms
+  such as root statements. `initializationOptions` also accepts the Python
+  server's `compilerPath` and `compilerDiagnostics`.
+- Memory: the bootstrap runtime does not reclaim words, so a supervisor
+  process forwards traffic to an analysis worker and replaces it, replaying
+  `initialize` and the open documents, when the worker passes
+  `FREAK_LSP_WORKER_MB` (default 1024) or crashes. A request that was in
+  flight during a crash receives error -32603.
+
+`tools/lsp_stdio.c` holds the only C: byte-exact framing, JSON string
+escapes, URI decoding, `freak check` capture and worker process control.
+Protocol logic, JSON navigation and position mapping are FREAK.
 
 ## MIR authority and construction boundary
 

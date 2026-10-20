@@ -838,7 +838,7 @@ FFI completion (phase C):
 
 ## Tier 7: editor and IDE
 
-- [ ] **L** `freak_lsp` over real JSON-RPC (today it is a line protocol)
+- [x] **L** `freak_lsp` over real JSON-RPC: `tools/lsp_server.fk` (`freak-lsp`) serves hover, definition, symbols, completion and diagnostics over stdio; not yet packaged in releases
 - [ ] **M** References, rename, signature help
 - [ ] **M** Diagnostics push on edit without full rebuild
 - [ ] **L** VS Code extension (Sortie IDE phase 1)
