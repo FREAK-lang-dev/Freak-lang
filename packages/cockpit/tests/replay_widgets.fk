@@ -1,7 +1,9 @@
 use self::containers::{
+    cockpit_values_get_int,
     cockpit_values_new,
     cockpit_values_push_int,
     cockpit_values_release,
+    cockpit_words_get,
     cockpit_words_new,
     cockpit_words_push,
     cockpit_words_release
@@ -50,7 +52,9 @@ use self::state::{
     cockpit_ui_begin_events,
     cockpit_ui_delta_ms_value,
     cockpit_ui_feed_event,
-    cockpit_ui_memory_get
+    cockpit_ui_memory_get,
+    cockpit_ui_modal_active,
+    cockpit_ui_mouse_clicked_value
 }
 use self::theme::{
     cockpit_color_mix,
@@ -68,9 +72,13 @@ use self::theme::{
 use self::toast::{
     cockpit_toast,
     cockpit_toast_count,
+    cockpit_toast_info,
+    cockpit_toast_rects,
     cockpit_toast_success,
+    cockpit_toast_texts,
     cockpit_toast_theme,
     cockpit_toast_timed,
+    cockpit_toasts_capture_click,
     cockpit_toasts_clear,
     cockpit_toasts_draw
 }
@@ -118,13 +126,19 @@ task replay_layout(layout: ByteBuffer) -> void {
     check_int(cockpit_layout_last_y(), 50, "grid consumed height")
 
     cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
-    cockpit_layout_begin_row_aligned(layout, 20, 50, cockpit_align_center)
+    cockpit_layout_begin_row_aligned(layout, 20, 50, cockpit_align_center, 0)
     cockpit_layout_allocate(layout, 50, 10)
     check_int(cockpit_layout_last_x(), 75, "centered row")
     cockpit_layout_end(layout)
-    cockpit_layout_begin_row_aligned(layout, 20, 50, cockpit_align_end)
+    cockpit_layout_begin_row_aligned(layout, 20, 50, cockpit_align_end, 0)
     cockpit_layout_allocate(layout, 50, 10)
     check_int(cockpit_layout_last_x(), 150, "end-aligned row")
+    cockpit_layout_end(layout)
+    -- Two 40 px children and a 10 px gap end flush with the right edge.
+    cockpit_layout_begin_row_aligned(layout, 20, 90, cockpit_align_end, 10)
+    cockpit_layout_allocate(layout, 40, 10)
+    cockpit_layout_allocate(layout, 40, 10)
+    check_int(cockpit_layout_last_x() + 40, 200, "aligned row keeps its gap")
     cockpit_layout_end(layout)
     check_int(cockpit_layout_status(layout), 0, "layout status")
     say "PASS layout"
@@ -241,6 +255,43 @@ task replay_toasts(window: int, theme: int) -> void {
     cockpit_toasts_draw(window)
     cockpit_toasts_clear()
     check_int(cockpit_toast_count(), 0, "toasts cleared")
+
+    -- A full table reuses an expired slot before replacing the oldest live toast.
+    cockpit_toast("First", cockpit_toast_info)
+    repeat 6 times { cockpit_toast("Spam", cockpit_toast_info) }
+    cockpit_toast_timed("Gone", cockpit_toast_info, 0)
+    cockpit_toast("Newest", cockpit_toast_info)
+    if cockpit_words_get(cockpit_toast_texts, 0) != "First" { cockpit_fail("expired slot not reclaimed") }
+    if cockpit_words_get(cockpit_toast_texts, 7) != "Newest" { cockpit_fail("new toast slot") }
+    cockpit_toasts_clear()
+
+    -- Clicking a toast dismisses it and the page never sees the click, even under a modal.
+    pilot pass = 0
+    repeat 2 times {
+        cockpit_ui_modal_active = pass == 1
+        cockpit_toast("Click me", cockpit_toast_info)
+        cockpit_ui_begin_events()
+        cockpit_toasts_draw(window)
+        pilot tx = cockpit_values_get_int(cockpit_toast_rects, 0)
+        pilot ty = cockpit_values_get_int(cockpit_toast_rects, 1)
+        cockpit_ui_begin_events()
+        click_at(tx + 1, ty + 1)
+        cockpit_toasts_capture_click()
+        check_int(cockpit_toast_count(), 0, "toast dismissed by click")
+        if cockpit_ui_mouse_clicked_value { cockpit_fail("toast click reached the page") }
+        pass += 1
+    }
+    cockpit_ui_modal_active = false
+    -- Clicks elsewhere still reach the page.
+    cockpit_toast("Stay", cockpit_toast_info)
+    cockpit_ui_begin_events()
+    cockpit_toasts_draw(window)
+    cockpit_ui_begin_events()
+    click_at(5, 5)
+    cockpit_toasts_capture_click()
+    check_int(cockpit_toast_count(), 1, "toast kept")
+    if not cockpit_ui_mouse_clicked_value { cockpit_fail("page click swallowed") }
+    cockpit_toasts_clear()
     say "PASS toasts"
 }
 

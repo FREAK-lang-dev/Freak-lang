@@ -17,7 +17,10 @@ use self::motion::{
 use self::state::{
     cockpit_clip_pop,
     cockpit_clip_push,
-    cockpit_ui_clicked_inside
+    cockpit_ui_click_x,
+    cockpit_ui_click_y,
+    cockpit_ui_consume_click,
+    cockpit_ui_mouse_clicked_value
 }
 use self::theme::{
     cockpit_color_b,
@@ -46,6 +49,8 @@ fixed pilot cockpit_toast_slots = 8
 pilot cockpit_toast_texts = 0
 -- Per slot: kind (-1 = empty), created_ms, duration_ms, creation order.
 pilot cockpit_toast_meta = 0
+-- Per slot: the x, y, width and height it was last drawn at (width 0 = none).
+pilot cockpit_toast_rects = 0
 pilot cockpit_toast_serial = 0
 pilot cockpit_toast_theme = 0
 
@@ -53,6 +58,8 @@ task cockpit_toasts_reset() -> void {
     cockpit_toasts_release()
     cockpit_toast_texts = cockpit_words_new()
     cockpit_toast_meta = cockpit_values_new()
+    cockpit_toast_rects = cockpit_values_new()
+    repeat cockpit_toast_slots * 4 times { cockpit_values_push_int(cockpit_toast_rects, 0) }
     repeat cockpit_toast_slots times {
         cockpit_words_push(cockpit_toast_texts, "")
         cockpit_values_push_int(cockpit_toast_meta, 0 - 1)
@@ -65,6 +72,7 @@ task cockpit_toasts_reset() -> void {
 task cockpit_toasts_release() -> void {
     if cockpit_toast_texts != 0 { cockpit_words_release(cockpit_toast_texts) cockpit_toast_texts = 0 }
     if cockpit_toast_meta != 0 { cockpit_values_release(cockpit_toast_meta) cockpit_toast_meta = 0 }
+    if cockpit_toast_rects != 0 { cockpit_values_release(cockpit_toast_rects) cockpit_toast_rects = 0 }
 }
 
 task cockpit_toast(text: word, kind: int) -> void { cockpit_toast_timed(text, kind, 3000) }
@@ -76,8 +84,11 @@ task cockpit_toast_timed(text: word, kind: int, duration_ms: int) -> void {
     pilot slot = 0 - 1
     pilot oldest = 0
     pilot index = 0
+    pilot now = time::now_ms()
     repeat cockpit_toast_slots times {
-        if slot < 0 and cockpit_values_get_int(cockpit_toast_meta, index * 4) < 0 { slot = index }
+        -- Empty slots, and toasts that expired since the last draw, are free.
+        pilot free = cockpit_values_get_int(cockpit_toast_meta, index * 4) < 0 or now - cockpit_values_get_int(cockpit_toast_meta, index * 4 + 1) >= cockpit_values_get_int(cockpit_toast_meta, index * 4 + 2)
+        if slot < 0 and free { slot = index }
         if cockpit_values_get_int(cockpit_toast_meta, index * 4 + 3) < cockpit_values_get_int(cockpit_toast_meta, oldest * 4 + 3) { oldest = index }
         index += 1
     }
@@ -85,9 +96,31 @@ task cockpit_toast_timed(text: word, kind: int, duration_ms: int) -> void {
     cockpit_toast_serial += 1
     cockpit_words_set(cockpit_toast_texts, slot, text)
     cockpit_values_set_int(cockpit_toast_meta, slot * 4, kind)
-    cockpit_values_set_int(cockpit_toast_meta, slot * 4 + 1, time::now_ms())
+    cockpit_values_set_int(cockpit_toast_meta, slot * 4 + 1, now)
     cockpit_values_set_int(cockpit_toast_meta, slot * 4 + 2, duration_ms)
     cockpit_values_set_int(cockpit_toast_meta, slot * 4 + 3, cockpit_toast_serial)
+    cockpit_values_set_int(cockpit_toast_rects, slot * 4 + 2, 0)
+}
+
+-- Runs after this frame's events and before any widget: a click on a toast
+-- (as drawn last frame) dismisses it and never reaches the page or a modal.
+task cockpit_toasts_capture_click() -> void {
+    if cockpit_toast_meta == 0 or not cockpit_ui_mouse_clicked_value { give back }
+    pilot index = 0
+    repeat cockpit_toast_slots times {
+        pilot rx = cockpit_values_get_int(cockpit_toast_rects, index * 4)
+        pilot ry = cockpit_values_get_int(cockpit_toast_rects, index * 4 + 1)
+        pilot rw = cockpit_values_get_int(cockpit_toast_rects, index * 4 + 2)
+        pilot rh = cockpit_values_get_int(cockpit_toast_rects, index * 4 + 3)
+        if cockpit_values_get_int(cockpit_toast_meta, index * 4) >= 0 and rw > 0 {
+            if cockpit_ui_click_x >= rx and cockpit_ui_click_x < rx + rw and cockpit_ui_click_y >= ry and cockpit_ui_click_y < ry + rh {
+                cockpit_values_set_int(cockpit_toast_meta, index * 4, 0 - 1)
+                cockpit_values_set_int(cockpit_toast_rects, index * 4 + 2, 0)
+                cockpit_ui_consume_click()
+            }
+        }
+        index += 1
+    }
 }
 
 task cockpit_toast_count() -> int {
@@ -179,5 +212,8 @@ task cockpit_toast_draw_one(window: int, theme: int, slot: int, now: int, y: int
     ui::stroke_rect(window, x, y, width, height, cockpit_color_r(border), cockpit_color_g(border), cockpit_color_b(border), 255, 1)
     pilot ignored = ui::draw_text(window, text, x + 18, y + 10, cockpit_color_r(fg), cockpit_color_g(fg), cockpit_color_b(fg), font_size, false, false)
     cockpit_clip_pop(window)
-    if cockpit_ui_clicked_inside(x, y, width, height) { cockpit_values_set_int(cockpit_toast_meta, slot * 4, 0 - 1) }
+    cockpit_values_set_int(cockpit_toast_rects, slot * 4, x)
+    cockpit_values_set_int(cockpit_toast_rects, slot * 4 + 1, y)
+    cockpit_values_set_int(cockpit_toast_rects, slot * 4 + 2, width)
+    cockpit_values_set_int(cockpit_toast_rects, slot * 4 + 3, height)
 }

@@ -144,8 +144,8 @@ Swap themes between frames, after `cockpit_ui_end_frame`.
 equal-width cells, wrapping rows that are as tall as their tallest cell; a
 `cockpit_column_begin(layout, 0, gap)` inside a cell stacks several widgets
 there (width 0 now means "fill"). `cockpit_row_begin_aligned(layout, height,
-content_width, cockpit_align_center)` (or `_start`, `_end`) offsets a row's
-content. Both close with `cockpit_container_end(layout)`.
+content_width, cockpit_align_center, gap)` (or `_start`, `_end`) offsets a row's
+content; `content_width` includes the gaps between children. Both close with `cockpit_container_end(layout)`.
 
 **Themes.** `cockpit_theme_muvluv()` is red on black.
 `cockpit_theme_for_mood("chill" | "focused" | "hype" | "muv_luv" |
@@ -177,6 +177,6 @@ can be selected explicitly with the same manifest.
 `python -u tests/v3_v35_cockpit_package.py --repo . --freak <fresh-freak>
 --clang <clang> --evidence <report.json>` checks a separate declared consumer,
 private export rejection, and shared state through C and LLVM. Its deterministic
-replays (`tests/replay.fk`, `tests/replay_input.fk`, `tests/replay_widgets.fk`) supply drawing/event functions at the native platform ABI and keeps
+replays (`tests/replay.fk`, `tests/replay_input.fk`, `tests/replay_widgets.fk`) supply drawing/event functions at the native platform ABI and keep
 the package source unchanged. `--runtime-root` selects the exact runtime
 payload. This replay does not replace the Windows native window gate.

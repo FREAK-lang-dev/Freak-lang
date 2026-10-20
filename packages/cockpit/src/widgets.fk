@@ -40,6 +40,7 @@ use self::state::{
     cockpit_ui_edit_input,
     cockpit_ui_focused_input,
     cockpit_ui_initial_focus,
+    cockpit_text_boundary,
     cockpit_text_mask,
     cockpit_ui_caret,
     cockpit_ui_caret_epoch,
@@ -193,7 +194,7 @@ task cockpit_widget_input_ex(window: int, layout: ByteBuffer, theme: int, text: 
     if focused { border = cockpit_theme_get(theme, cockpit_theme_accent) }
     cockpit_draw_stroke(window, x, y, width, height, border, 1)
     pilot scroll = 0
-    if focused { scroll = cockpit_ui_input_scroll }
+    if focused and cockpit_ui_caret >= 0 { scroll = cockpit_ui_input_scroll }
     pilot shown = next_text
     if password { shown = cockpit_text_mask(next_text) }
     if next_text.length() == 0 and not focused and placeholder.length() > 0 {
@@ -202,7 +203,7 @@ task cockpit_widget_input_ex(window: int, layout: ByteBuffer, theme: int, text: 
         pilot ignored = cockpit_draw_text(window, shown, x + 8 - scroll, y + 8, cockpit_theme_get(theme, cockpit_theme_text), font_size, false)
     }
     if focused {
-        pilot before = next_text.substring(0, cockpit_ui_caret)
+        pilot before = next_text.substring(0, cockpit_text_boundary(next_text, cockpit_ui_caret))
         if password { before = cockpit_text_mask(before) }
         pilot caret_x = x + 8 - scroll + ui::measure_text(before, font_size, 0, 0)
         -- Solid while typing, then a 530 ms blink.

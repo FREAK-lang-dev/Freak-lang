@@ -280,8 +280,10 @@ task cockpit_layout_begin_grid(layout: ByteBuffer, columns: int, gap: int) -> vo
 }
 
 -- A row whose content of `content_width` pixels starts at the start, center or end.
-task cockpit_layout_begin_row_aligned(layout: ByteBuffer, height: int, content_width: int, align: int) -> void {
-    cockpit_layout_begin_row(layout, height, 0)
+-- `content_width` includes the `gap` between children.
+task cockpit_layout_begin_row_aligned(layout: ByteBuffer, height: int, content_width: int, align: int, gap: int) -> void {
+    if gap < 0 { gap = 0 }
+    cockpit_layout_begin_row(layout, height, gap)
     if cockpit_layout_error != 0 { give back }
     pilot width = cockpit_layout_field(layout, 2)
     pilot offset = 0
@@ -289,7 +291,7 @@ task cockpit_layout_begin_row_aligned(layout: ByteBuffer, height: int, content_w
     if align == cockpit_align_end { offset = width - content_width }
     if offset < 0 { offset = 0 }
     pilot x = cockpit_layout_field(layout, 0)
-    cockpit_layout_replace_top(layout, x, cockpit_layout_field(layout, 1), width, cockpit_layout_field(layout, 3), x + offset, cockpit_layout_field(layout, 5), cockpit_layout_horizontal, 0, 0, 0)
+    cockpit_layout_replace_top(layout, x, cockpit_layout_field(layout, 1), width, cockpit_layout_field(layout, 3), x + offset, cockpit_layout_field(layout, 5), cockpit_layout_horizontal, gap, 0, 0)
 }
 
 task cockpit_layout_last_x() -> int { give back cockpit_layout_rect_x }

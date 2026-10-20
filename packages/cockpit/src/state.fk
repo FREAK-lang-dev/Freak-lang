@@ -37,6 +37,8 @@ fixed pilot cockpit_edit_submit = -8
 fixed pilot cockpit_edit_tab = -9
 fixed pilot cockpit_edit_back_tab = -10
 fixed pilot cockpit_edit_escape = -11
+-- A consumed edit that every input skips.
+fixed pilot cockpit_edit_none = 0
 
 pilot cockpit_ui_quit = false
 pilot cockpit_ui_mouse_x_value = 0
@@ -344,6 +346,19 @@ task cockpit_ui_input_allowed() -> bool {
     give back (not cockpit_ui_modal_active or cockpit_ui_modal_scope or cockpit_ui_popup_scope) and (cockpit_ui_popup_widget < 0 or cockpit_ui_popup_scope)
 }
 
+-- An overlay (a toast) claims this frame's click before page widgets run:
+-- buttons see no click, inputs see no click edit and keep their focus.
+task cockpit_ui_consume_click() -> void {
+    if not cockpit_ui_mouse_clicked_value { give back }
+    cockpit_ui_mouse_clicked_value = false
+    cockpit_ui_focused_input = cockpit_ui_initial_focus
+    pilot index = 0
+    repeat cockpit_ui_edit_count times {
+        if cockpit_values_get_int(cockpit_ui_edits, index * 3) == cockpit_edit_click { cockpit_values_set_int(cockpit_ui_edits, index * 3, cockpit_edit_none) }
+        index += 1
+    }
+}
+
 task cockpit_ui_clicked_inside(x: int, y: int, width: int, height: int) -> bool {
     give back cockpit_ui_input_allowed() and cockpit_ui_mouse_clicked_value and cockpit_clip_contains(cockpit_ui_click_x, cockpit_ui_click_y) and cockpit_ui_click_x >= x and cockpit_ui_click_x < x + width and cockpit_ui_click_y >= y and cockpit_ui_click_y < y + height
 }
@@ -472,6 +487,8 @@ task cockpit_ui_register_focusable(widget_id: int) -> void {
 -- Shift+Tab with no focused widget selects the last focusable widget.
 task cockpit_ui_resolve_tabs() -> void {
     if cockpit_ui_edits == 0 { give back }
+    -- A wrap that no focusable widget claimed during the previous frame expires.
+    cockpit_ui_focus_wrap = false
     pilot index = 0
     repeat cockpit_ui_edit_count times {
         pilot offset = index * 3
@@ -499,9 +516,10 @@ task cockpit_ui_edit_input(text: word, widget_id: int, x: int, y: int, width: in
     pilot focused = cockpit_ui_initial_focus == widget_id
     pilot caret = text.length()
     pilot scroll = 0
-    if focused {
+    -- A caret of -1 marks a fresh focus transfer: start unscrolled.
+    if focused and cockpit_ui_caret >= 0 {
         scroll = cockpit_ui_input_scroll
-        if cockpit_ui_caret >= 0 { caret = cockpit_text_boundary(text, cockpit_ui_caret) }
+        caret = cockpit_text_boundary(text, cockpit_ui_caret)
     }
     pilot next_text = text
     pilot index = 0
@@ -539,7 +557,7 @@ task cockpit_ui_edit_input(text: word, widget_id: int, x: int, y: int, width: in
                 caret = next_text.length()
                 scroll = 0
             } else { focused = target == widget_id }
-        } else if focused {
+        } else if focused and edit != cockpit_edit_none {
             if edit == cockpit_edit_backspace {
                 if caret > 0 {
                     pilot start = cockpit_text_prev(next_text, caret)
