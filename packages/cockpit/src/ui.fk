@@ -32,6 +32,7 @@ use self::theme::{
 }
 use self::toast::{
     cockpit_toast_theme,
+    cockpit_toasts_capture_click,
     cockpit_toasts_draw,
     cockpit_toasts_release,
     cockpit_toasts_reset
@@ -78,6 +79,7 @@ task cockpit_ui_begin_frame(window: int, layout: ByteBuffer, theme: int) -> void
         cockpit_ui_feed_event(kind, ui::event_key(index), ui::event_character(index), ui::event_button(index), pressed, ui::event_mouse_x(index), ui::event_mouse_y(index), ui::event_scroll_dy(index))
         index += 1
     }
+    cockpit_toasts_capture_click()
     ui::begin_frame(window)
     pilot bg = cockpit_theme_get(theme, cockpit_theme_bg)
     ui::clear(window, cockpit_color_r(bg), cockpit_color_g(bg), cockpit_color_b(bg), cockpit_color_a(bg))
@@ -103,8 +105,8 @@ task cockpit_grid_begin(layout: ByteBuffer, columns: int, gap: int) -> void {
     cockpit_layout_begin_grid(layout, columns, gap)
 }
 
-task cockpit_row_begin_aligned(layout: ByteBuffer, height: int, content_width: int, align: int) -> void {
-    cockpit_layout_begin_row_aligned(layout, height, content_width, align)
+task cockpit_row_begin_aligned(layout: ByteBuffer, height: int, content_width: int, align: int, gap: int) -> void {
+    cockpit_layout_begin_row_aligned(layout, height, content_width, align, gap)
 }
 
 task cockpit_container_end(layout: ByteBuffer) -> void {

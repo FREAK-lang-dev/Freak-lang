@@ -294,7 +294,7 @@ task cockpit_widget_sparkline(window: int, layout: ByteBuffer, theme: int, value
     height = cockpit_layout_last_height()
     cockpit_draw_fill(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_surface))
     pilot count = cockpit_values_length(values)
-    if count == 0 or width < 4 or height < 4 { give back }
+    if count == 0 or width < 6 or height < 4 { give back }
     pilot low = cockpit_chart_min(values)
     pilot high = cockpit_chart_max(values)
     pilot inner_x = x + 2

@@ -171,6 +171,16 @@ task replay_focus_keys(window: int, layout: ByteBuffer, theme: int) -> void {
     first = cockpit_widget_input(window, layout, theme, first, 180)
     check_text(first, "A134", "tab from nothing")
 
+    -- An unclaimed Tab wrap expires when no input draws in the next frame.
+    cockpit_ui_focus_input(0 - 1)
+    next_frame(layout)
+    press_key(cockpit_key_tab)
+    next_frame(layout)
+    next_frame(layout)
+    first = cockpit_widget_input(window, layout, theme, first, 180)
+    if cockpit_ui_text_focused() { cockpit_fail("stale tab wrap took focus") }
+    cockpit_ui_focus_input(0)
+
     -- Enter submits the most recent input; Escape releases the keyboard.
     next_frame(layout)
     press_key(cockpit_key_enter)

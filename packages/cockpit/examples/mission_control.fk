@@ -181,7 +181,7 @@ task main() {
                 }
             }
 
-            cockpit_row_begin_aligned(layout, 40, 280, cockpit_align_end)
+            cockpit_row_begin_aligned(layout, 40, 130 + gap + 140, cockpit_align_end, gap)
             if cockpit_widget_button(window, layout, theme, "Change mood", 130) or cockpit_ui_shortcut(cockpit_key_letter("T"), true, false, false) {
                 change_mood = true
             }
