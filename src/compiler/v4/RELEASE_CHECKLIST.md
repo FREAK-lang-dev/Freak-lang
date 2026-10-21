@@ -108,11 +108,11 @@ The open tier 1 correctness rows were re-run with `build_v4.py` at `525114f`
 | `pilot x = 1` then `x = 5` | builds, exits 5 (pilots mutable by default) | decision 14 closed |
 | `check result r { ok(v) -> ... err(e) -> ... }` | builds and runs | V3.5 row ticked |
 | `repeat while` and bare `while` | build and run | V3.5 row split and ticked |
-| `3 \|> inc \|> dbl` | lowers to `dbl(inc(3))` (decision 9) | ticked |
-| `pilot n: int = 2.5` | rejected by name; `.to_int()` converts explicitly | ticked |
+| `3 \|> inc \|> dbl` | `native rvalue not yet supported: Unknown` | still open |
+| `pilot n: int = 2.5` | builds, exits 2 (silent truncation) | still open |
 | `0xFF` | `native rvalue not yet supported: Unknown` (no longer read as 0) | still open, text updated |
 | unknown name, unknown task call | `native type not yet supported: unknown`, no span | still open |
-| `task greet() { ... }` | builds as `-> void` (decision 13) | ticked |
+| `task greet() { ... }` | `native type not yet supported: unknown` | still open |
 | `task main(args: List<word>)` | `native type not yet supported: List<word>` | still open |
 | `for each i in 0..4`, `repeat 4 times with i`, C-style `for` | rejected (Meiya resource error, or unknown native type) | still open |
 
