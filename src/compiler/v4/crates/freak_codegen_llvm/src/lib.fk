@@ -1553,6 +1553,12 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
         if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_ptr_cast {
             give back target + " = getelementptr i8, ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ", i64 0"
         }
+        if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_num_convert {
+            -- The checked helper lines are indented and newline-terminated;
+            -- the caller adds both back around this single instruction slot.
+            pilot lines = v4_codegen_llvm_numeric_conversion_lines(v4_mir_rvalue_ty(mir_id, body_id, operand), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id), v4_codegen_llvm_rvalue_value(mir_id, body_id, operand), target)
+            give back v4_slice(lines, 2, lines.length() - 1)
+        }
         pilot numeric_kind = v4_codegen_llvm_numeric_kind(v4_mir_rvalue_ty(mir_id, body_id, operand))
         if numeric_kind != "" and numeric_kind != "num" {
             v4_codegen_llvm_numeric_runtime_used = true
@@ -2392,7 +2398,8 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
         }
     }
     if kind == v4_mir_rvalue_unary {
-        if op != v4_mir_unary_neg and op != v4_mir_unary_not and op != v4_mir_unary_ptr_is_null and op != v4_mir_unary_deref and op != v4_mir_unary_ptr_offset and op != v4_mir_unary_ptr_cast { give back "unsupported native unary operator: " + op }
+        if op != v4_mir_unary_neg and op != v4_mir_unary_not and op != v4_mir_unary_ptr_is_null and op != v4_mir_unary_deref and op != v4_mir_unary_ptr_offset and op != v4_mir_unary_ptr_cast and op != v4_mir_unary_num_convert { give back "unsupported native unary operator: " + op }
+        if op == v4_mir_unary_num_convert and (not v4_ty_is_float(v4_mir_rvalue_ty(mir_id, body_id, lhs)) or v4_codegen_llvm_numeric_kind(type_text) == "" or v4_codegen_llvm_numeric_kind(type_text) == "num") { give back "invalid native numeric conversion operand" }
         if op == v4_mir_unary_neg {
             pilot operand_ty = v4_mir_rvalue_ty(mir_id, body_id, lhs)
             if v4_codegen_llvm_numeric_kind(operand_ty) == "" or type_text != operand_ty { give back "invalid native numeric negation operand" }

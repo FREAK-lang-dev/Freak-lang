@@ -108,11 +108,11 @@ The open tier 1 correctness rows were re-run with `build_v4.py` at `525114f`
 | `pilot x = 1` then `x = 5` | builds, exits 5 (pilots mutable by default) | decision 14 closed |
 | `check result r { ok(v) -> ... err(e) -> ... }` | builds and runs | V3.5 row ticked |
 | `repeat while` and bare `while` | build and run | V3.5 row split and ticked |
-| `3 \|> inc \|> dbl` | `native rvalue not yet supported: Unknown` | still open |
-| `pilot n: int = 2.5` | builds, exits 2 (silent truncation) | still open |
+| `3 \|> inc \|> dbl` | lowers to `dbl(inc(3))` (decision 9) | ticked |
+| `pilot n: int = 2.5` | rejected by name; `.to_int()` converts explicitly | ticked |
 | `0xFF` | `native rvalue not yet supported: Unknown` (no longer read as 0) | still open, text updated |
 | unknown name, unknown task call | `native type not yet supported: unknown`, no span | still open |
-| `task greet() { ... }` | `native type not yet supported: unknown` | still open |
+| `task greet() { ... }` | builds as `-> void` (decision 13) | ticked |
 | `task main(args: List<word>)` | `native type not yet supported: List<word>` | still open |
 | `for each i in 0..4`, `repeat 4 times with i`, C-style `for` | rejected (Meiya resource error, or unknown native type) | still open |
 
@@ -565,14 +565,14 @@ PR #143 handoff-7 dispositions and remaining performance work:
 
 Correctness:
 
-- [ ] **M** `|>`: the pre-Word baseline silently dropped it (`3 |> inc |> dbl` returned 3 with zero diagnostics); merged `116dae0` rejects it only as `native rvalue not yet supported: Unknown`. Lower it, or reject it by name
+- [x] **M** `|>`: the pre-Word baseline silently dropped it (`3 |> inc |> dbl` returned 3 with zero diagnostics). Decision 9: lowered. `a |> f(b)` is `f(a, b)`; pipes bind loosest and chain left, a line that starts with `|>` continues the one above, and a target that is not a task is reported by name. Evidence: `prerelease_tier1_decisions_smoke.fk`
 - [x] **S** `training arc ... max N sessions`: the ignored-cap bug at merged `116dae0` is fixed. Built-MIR owns a distinct typed counter, a condition-first/re-evaluated-cap branch and a shared increment for normal completion and `continue`. The checklist repro now exits 3; never-true, zero/negative, early exit, nested/sibling, changing/effectful/numeric caps and owned-Word loops pass the 18-program native matrix at O0/O2/O3 with both ownership audits and ASan/UBSan
 - [x] **M** An `if` / `else if` / `else` chain with every branch giving back builds and publishes a canonical module. Checked construction compaction removes only the completed join/diagnostic continuation; strict CFG and snapshot/native admission remain. Eight native programs cover long/nested chains, mixed live exits, loop exits, Word returns and same-line tails; seven adverse contracts preserve later source errors, missing-return/condition diagnostics and atomic hostile-endpoint rejection
-- [ ] **S** A num is accepted where an int is required (initialiser, assignment, argument, return value) and the fraction is dropped with no diagnostic: `pilot n: int = 2.5` gives 2. V3 rejects all four. Needs a decision: `checked_numeric_execute_smoke.fk` (cases 24 to 39, 45 and 46) deliberately admits implicit num-to-int conversion with a runtime range check and truncation, so rejecting it here would contradict that contract. Either reject it by name and move those cases to an explicit conversion rvalue (A3), or keep the checked conversion and document it in the migration guide
+- [x] **S** A num was accepted where an int is required (initialiser, assignment, argument, return value) and the fraction was dropped with no diagnostic. Decided 2026-10-21: rejected by name like V3, with help naming the explicit conversion. `num.to_int()`, `.to_uint()` and `.to_tiny()` truncate toward zero and trap when the value does not fit (MIR `NumConvert`). `checked_numeric_execute_smoke.fk` cases 24 to 39, 43, 45 and 46 and `examples/checked_numerics.fk` now convert explicitly. Evidence: `prerelease_tier1_decisions_smoke.fk`, checked numerical native gate
 - [x] **S** `0xFF` was read as `0` with no diagnostic, then rejected only as `native rvalue not yet supported: Unknown`. The lexer now rejects it by name (`hexadecimal literals are not part of FREAK: 0xFF`), with binary, octal and letter-glued forms (`0b101`, `12abc`) named too and the whole literal as the span. Evidence: `prerelease_tier1_named_diagnostics_smoke.fk`
 - [x] **S** `fixed pilot` reassignment is rejected by name (`fixed pilot cannot be modified`, at `525114f`); `grounded pilot` is immutable too. The authored immutable prefix is carried through HIR, MIR, diagnostics and snapshots (#155, #159)
 - [x] **S** An unknown name was reported only by codegen, as `native type not yet supported: unknown`, with no span and no name; same for a call to an unknown task. MIR Build now reports `unknown name: x` and `unknown task: f` on the identifier's own span before codegen. Evidence: `prerelease_tier1_named_diagnostics_smoke.fk`. Moving the check into Resolve is A1/A3 work
-- [ ] **S** A task with no return type (`task greet() { ... }`, and `task main()`) fails with that same codegen message. Accept it as `-> void` like V3, or reject it by name (decision 13)
+- [x] **S** A task with no return type (`task greet() { ... }`, and `task main()`, which exits 0) failed with that same codegen message. Decision 13: it is `-> void`, like V3; `give back 3` inside one is a named return type mismatch. Evidence: `prerelease_tier1_decisions_smoke.fk`, `task_return_semantic_boundary_smoke.fk`
 - [x] **S** `sessions` remains an admitted V4 pilot name: the heading matches its final suffix and the binary operand scanner recognizes the binding. `until sessions >= 3 max 10 sessions` executes with exit 3 at O0/O2/O3. V3 reserves the word; this fix follows the checklist's right-matching alternative
 - [x] **S** A `pilot` in an inner block may shadow an outer pilot, as V3 allows (decision 12). At `525114f` the shadow builds and each scope sees its own value. Parameters and the callable's outer body share one scope, so redeclaring a parameter there is still rejected (#155)
 - [x] **S** Same-line statements after an ordinary conditional chain are retained, including `}give back` adjacency. The completed-chain range stops before a following statement or semicolon, attaches only the immediate `else`, and keeps malformed-header recovery bounded. Original mixed-return/live-tail and discarded-call sources remain regression cases; a wrong later call is still diagnosed
@@ -688,7 +688,7 @@ Closures:
 
 Language surface V3 has:
 
-- [ ] **M** `|>` pipe (lowering; the silent drop is tracked in tier 1)
+- [x] **M** `|>` pipe (lowered in tier 1, decision 9)
 - [ ] **M** `eventually` (V3 emits inline; decide inline or true deferred)
 - [ ] **M** `isekai` blocks
 - [ ] **M** `foreshadow` / `payoff`
@@ -852,7 +852,7 @@ FFI completion (phase C):
 - [ ] **M** Homebrew, Scoop, Winget packages updated
 - [ ] **M** Packaged runtime objects for the V4 link path
 - [ ] **S** Version bump and name for the V4 release; `tools/release_version.py check`. The 0.15.0 "Maverick" bump was the V3.5 release and does not count
-- [ ] **M** Migration guide: what changes for V3 programs. Known so far: missing task return types still fail; strict mode excludes top-level statements; keywords reserved in lowercase only; `TRUE` / `Yes` mean true (V3 reads them as false); semicolons and `pilot mut` accepted in the merged checkpoint; pilots are mutable by default and inner blocks may shadow (decisions 12 and 14, closed). Resolve decision 13 before documenting missing return types
+- [ ] **M** Migration guide: what changes for V3 programs. Known so far: a task with no return type is `-> void` (decision 13); num never narrows to an integer implicitly, use `.to_int()` / `.to_uint()` / `.to_tiny()`; `|>` binds looser than every other operator, so `1 + 2 |> f` is `f(3)`; strict mode excludes top-level statements; keywords reserved in lowercase only; `TRUE` / `Yes` mean true (V3 reads them as false); semicolons and `pilot mut` accepted in the merged checkpoint; pilots are mutable by default and inner blocks may shadow (decisions 12 and 14, closed).
 - [ ] **M** README, bible section 0.2, conformance audit, V4 README all in sync (bible 7.x implemented-versus-planned API scope: #116)
 - [ ] **S** `compiler-v3-final` tag after V3's Last Sortie gates
 - [ ] **M** Security review of generated-code memory safety claims before the README says "memory safe"
@@ -869,11 +869,11 @@ FFI completion (phase C):
 6. Whether V4 keeps any C backend for compatibility (manifesto says optional).
 7. Which tier 5 features are release blockers and which ship later.
 8. Whether A2 (`TypeId` everywhere, then the TIR view) is a release blocker or lands after self-hosting together with the tier 6 internals rewrite.
-9. `|>`: lower it now or reject it by name.
+9. Closed (2026-10-21): `|>` is lowered now.
 10. Closed for the admitted scalar write path: checked range failure, with exact native regressions; broader ABI admission remains separate.
 11. Whether to split `freak_ty` into builder and authority (A5), decided after A1.
 12. Closed (V3.5 semantics, #155): inner blocks may shadow an outer pilot, as V3 allows; a callable's parameters and outer body share one scope.
-13. A task with no return type: accept as `-> void`, or require the type.
+13. Closed (2026-10-21): a task with no return type is `-> void`, as in V3.
 14. Closed (V3.5 semantics, #155): ordinary `pilot` is mutable under both borrow modes, as bible §1.1 says; `pilot mut` is a synonym; `fixed pilot` and contextual `grounded pilot` are immutable. V4 matches at `525114f`. The §4 borrow-checker note describing V3's strict rule needs the same update.
 15. Closed for direction (2026-10-05): the long-term toolchain is one `freak` binary with LLVM and LLD built in, accepting the larger download. Timing stays deferred (backend delivery lane).
 16. Closed for direction: one LLVM major per release, changed at most twice a year, never the newest major before it has point releases.

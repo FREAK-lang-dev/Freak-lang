@@ -84,7 +84,7 @@ task v4_task_return_invalidation_probe() -> void {
 task v4_task_return_source_text() -> word {
     pilot src = "task keep<'a>(lend 'a value: maybe<[word;2]>) -> lend 'a maybe< [word; 2] > "
     src = src + v4_task_return_braces("\n    give back lend value\n") + "\n"
-    src = src + "task implicit() " + v4_task_return_braces(" give back 7 ") + "\n"
+    src = src + "task implicit() " + v4_task_return_braces(" pilot n = 7 ") + "\n"
     src = src + "task arrow() => true\n"
     give back src
 }

@@ -1,0 +1,97 @@
+-- Tier 1 decisions (2026-10-21): a task with no return type is void, |> lowers
+-- to a call, and num never narrows to an integer without an explicit .to_int().
+-- One source pipeline per process keeps each case within arena limits.
+task v4_tier1_decisions_assert(condition: bool, label: word) -> void {
+    if not condition { panic("tier1 decisions: " + label) }
+}
+
+task v4_tier1_decisions_source(mode: word) -> word {
+    pilot open = chr(123)
+    pilot close = chr(125)
+    pilot body = "give back 0\n"
+    pilot extra = ""
+    if mode == "narrow-init" { body = "pilot n: int = 2.5\n give back n\n" }
+    if mode == "narrow-assign" { body = "pilot v: num = 2.5\n pilot mut n: int = 0\n n = v\n give back n\n" }
+    if mode == "narrow-arg" {
+        extra = "task takes(x: int) -> int " + open + " give back x " + close + "\n"
+        body = "give back takes(2.5)\n"
+    }
+    if mode == "narrow-return" {
+        extra = "task back(x: num) -> int " + open + " give back x " + close + "\n"
+        body = "give back back(2.5)\n"
+    }
+    if mode == "narrow-tiny" { body = "pilot t: tiny = 2.5\n give back 0\n" }
+    if mode == "convert" { body = "pilot v: num = 2.5\n pilot f: float32 = 7.5\n pilot n: int = v.to_int()\n pilot u: uint = v.to_uint()\n pilot t: tiny = f.to_tiny()\n give back n\n" }
+    if mode == "convert-args" { body = "pilot v: num = 2.5\n give back v.to_int(1)\n" }
+    if mode == "void-task" {
+        extra = "task hello() " + open + "\n say \"hi\"\n" + close + "\n"
+        body = "hello()\n give back 0\n"
+    }
+    if mode == "void-value" {
+        extra = "task bad() " + open + " give back 3 " + close + "\n"
+        body = "bad()\n give back 0\n"
+    }
+    if mode == "pipe" {
+        extra = "task inc(x: int) -> int " + open + " give back x + 1 " + close + "\ntask add(x: int, y: int) -> int " + open + " give back x + y " + close + "\n"
+        body = "pilot a = 3 |> inc |> add(2)\n pilot b = 1\n |> inc\n give back a + b\n"
+    }
+    if mode == "pipe-unknown" { body = "give back 3 |> nope\n" }
+    if mode == "pipe-target" { body = "give back 3 |> 5\n" }
+    give back extra + "task main() -> int " + open + "\n " + body + close + "\n"
+}
+
+task v4_tier1_decisions_expected(mode: word) -> word {
+    if mode == "narrow-init" { give back "local declaration type mismatch" }
+    if mode == "narrow-assign" { give back "assignment type mismatch" }
+    if mode == "narrow-arg" { give back "call argument type mismatch" }
+    if mode == "narrow-return" { give back "return type mismatch" }
+    if mode == "narrow-tiny" { give back "local declaration type mismatch" }
+    if mode == "convert-args" { give back "to_int takes no arguments" }
+    if mode == "void-value" { give back "return type mismatch" }
+    if mode == "pipe-unknown" { give back "unknown task: nope" }
+    if mode == "pipe-target" { give back "pipe target is not a task name" }
+    give back ""
+}
+
+task v4_tier1_decisions_run() -> void {
+    pilot mode = "narrow-init"
+    if process::args_count() > 1 { mode = process::arg(1) }
+    pilot source = v4_tier1_decisions_source(mode)
+    pilot expected = v4_tier1_decisions_expected(mode)
+    pilot stream = v4_lex_text(0, source)
+    v4_tier1_decisions_assert(v4_lex_diag_count(stream) == 0, "clean lex " + mode)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot front = v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty)
+    v4_tier1_decisions_assert(front == 0, "clean front end " + mode)
+    if mode == "void-task" or mode == "void-value" {
+        pilot name = "hello"
+        if mode == "void-value" { name = "bad" }
+        pilot sig = v4_ty_task_signature_id_for_name(ty, name)
+        v4_tier1_decisions_assert(sig >= 0 and v4_ty_signature_return_type(ty, sig) == "void", "no return type means void for " + name)
+    }
+    pilot mir = v4_mir_lower_ty(0, ty)
+    if expected == "" {
+        v4_tier1_decisions_assert(v4_mir_diag_count(mir) == 0, "clean MIR for " + mode + ", got " + word_from_int(v4_mir_diag_count(mir)))
+        pilot borrow = v4_borrowck_check_mir(0, mir)
+        v4_tier1_decisions_assert(v4_borrowck_diag_count(borrow) == 0, "clean borrowck for " + mode)
+        say "tier1-decisions " + mode + "=passed"
+        give back
+    }
+    v4_tier1_decisions_assert(v4_mir_diag_count(mir) == 1, "one MIR diagnostic for " + mode + ", got " + word_from_int(v4_mir_diag_count(mir)))
+    pilot diag = v4_mir_diag(mir, 0)
+    v4_tier1_decisions_assert(v4_diag_message(diag) == expected, "MIR message " + mode + ": " + v4_diag_message(diag))
+    if mode.starts_with("narrow-") {
+        pilot method = ".to_int()"
+        if mode == "narrow-tiny" { method = ".to_tiny()" }
+        v4_tier1_decisions_assert(v4_diag_help(diag).contains(method), "narrowing help names " + method + ": " + v4_diag_help(diag))
+    }
+    if mode == "pipe-unknown" {
+        pilot span = v4_diag_span(diag)
+        v4_tier1_decisions_assert(v4_slice(source, v4_span_start(span), v4_span_end(span)) == "nope", "pipe target span")
+    }
+    say "tier1-decisions " + mode + "=passed"
+}
+v4_tier1_decisions_run()
