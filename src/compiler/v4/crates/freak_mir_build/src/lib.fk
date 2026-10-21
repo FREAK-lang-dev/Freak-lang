@@ -1068,16 +1068,7 @@ task v4_mir_assignment_target_context(mir_id: int, body_id: int, place_id: int) 
     give back v4_mir_place_text(mir_id, body_id, place_id)
 }
 
--- FREAK never drops a fraction silently: a float-family value may not flow
--- into an integer-family slot (V3 rejects the same four sites).
-task v4_mir_is_float_narrowing(expected_ty: word, actual_ty: word) -> bool {
-    give back v4_ty_is_integer(expected_ty) and v4_ty_is_float(actual_ty)
-}
-
 task v4_mir_types_compatible(mir_id: int, body_id: int, expected_ty: word, actual_ty: word) -> bool {
-    if v4_mir_is_float_narrowing(expected_ty, actual_ty) {
-        give back false
-    }
     give back v4_ty_types_compatible_with_context(v4_mir_ty_id(mir_id), v4_mir_body_signature_id(mir_id, body_id), expected_ty, actual_ty)
 }
 
@@ -2063,9 +2054,6 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
                 }
             }
             if next_env == v4_ty_generic_env_fail {
-                pilot context = callee_name + " argument " + word_from_int(lower_arg_idx + 1)
-                v4_mir_add_type_mismatch_error(mir_id, expr_span, "call argument type mismatch", context + " expects " + expected_ty + " but got " + actual_match_ty, context, expected_ty, actual_match_ty)
-            } else if v4_mir_is_float_narrowing(v4_ty_apply_generic_env(expected_ty, next_env), actual_match_ty) {
                 pilot context = callee_name + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "call argument type mismatch", context + " expects " + expected_ty + " but got " + actual_match_ty, context, expected_ty, actual_match_ty)
             } else {
