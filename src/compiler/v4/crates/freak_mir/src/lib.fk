@@ -74,6 +74,7 @@ pilot v4_mir_unary_ptr_is_null = "PtrIsNull"
 pilot v4_mir_unary_deref = "Deref"
 pilot v4_mir_unary_ptr_offset = "PtrOffset"
 pilot v4_mir_unary_ptr_cast = "PtrCast"
+pilot v4_mir_unary_num_convert = "NumConvert"
 pilot v4_mir_call_raw_ptr_write = "#RawPtrWrite"
 pilot v4_mir_call_say_literal = "#SayLiteral"
 
