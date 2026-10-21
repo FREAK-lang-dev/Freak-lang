@@ -3211,6 +3211,10 @@ task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
         }
         give back v4_ty_types_compatible(v4_ty_lend_target_type(expected_ty), v4_ty_lend_target_type(actual_ty))
     }
+    if v4_ty_is_integer(expected_ty) and v4_ty_is_float(actual_ty) {
+        -- FREAK never drops a fraction silently; use .to_int() and friends.
+        give back false
+    }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
         give back true
     }
@@ -9417,6 +9421,9 @@ task v4_ty_match_signature_type_env_between_signatures_mode(ty_id: int, doctrine
         }
         give back v4_ty_generic_env_fail
     }
+    if v4_ty_is_integer(expected_ty) and v4_ty_is_float(actual_ty) {
+        give back v4_ty_generic_env_fail
+    }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
         give back env
     }
@@ -12259,6 +12266,9 @@ task v4_ty_match_signature_type_env_mode(ty_id: int, sig_id: int, expected_ty: w
         if allow_dyn_coerce or v4_ty_is_dyn_type(actual_ty) {
             give back v4_ty_match_type_can_coerce_to_dyn_env(ty_id, sig_id, expected_ty, actual_ty, env)
         }
+        give back v4_ty_generic_env_fail
+    }
+    if v4_ty_is_integer(expected_ty) and v4_ty_is_float(actual_ty) {
         give back v4_ty_generic_env_fail
     }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {

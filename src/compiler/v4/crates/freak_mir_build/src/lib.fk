@@ -5750,6 +5750,13 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back closure_rvalue
     }
 
+    -- `|>` binds looser than every other operator, including `or else` and
+    -- `lend`, so it splits the expression before they do.
+    pilot pipe_rvalue = v4_mir_try_lower_pipe_expr(mir_id, body_id, stream_id, first, last, expr_span)
+    if pipe_rvalue >= 0 {
+        give back pipe_rvalue
+    }
+
     pilot or_else_rvalue = v4_mir_try_lower_or_else_expr(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
     if or_else_rvalue >= 0 {
         give back or_else_rvalue
@@ -5758,11 +5765,6 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot lend_rvalue = v4_mir_try_lower_lend_expr(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
     if lend_rvalue >= 0 {
         give back lend_rvalue
-    }
-
-    pilot pipe_rvalue = v4_mir_try_lower_pipe_expr(mir_id, body_id, stream_id, first, last, expr_span)
-    if pipe_rvalue >= 0 {
-        give back pipe_rvalue
     }
 
     pilot route_ctor_rvalue = v4_mir_try_lower_route_payload_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
