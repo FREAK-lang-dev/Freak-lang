@@ -1,4 +1,8 @@
 pilot v4_mir_control_diagnostic_depth: int = 0
+-- `a |> f(b)` lowers as `f(a, b)`. The pipe sets the receiver's token range
+-- here just before checking the call; v4_mir_check_call_args takes it at entry.
+pilot v4_mir_pipe_receiver_start: int = 0 - 1
+pilot v4_mir_pipe_receiver_end: int = 0 - 1
 pilot v4_mir_check_arm_depth: int = 0
 -- ===================================================================
 -- freak_mir_build - stateless V4 HIR+TY to Built-MIR construction
@@ -717,13 +721,19 @@ task v4_mir_statement_end(stream_id: int, start_token: int, end_token: int) -> i
                 }
             }
         } else if tok_type == v4_tok_trivia and v4_lex_token_value(stream_id, idx) == "\n" {
-            if depth == 0 {
+            -- A line that starts with |> continues the pipe chain above it.
+            if depth == 0 and not v4_mir_line_continues_pipe(stream_id, idx, end_token) {
                 give back idx
             }
         }
         idx += 1
     }
     give back end_token
+}
+
+task v4_mir_line_continues_pipe(stream_id: int, newline_token: int, end_token: int) -> bool {
+    pilot next = v4_mir_next_nontrivia(stream_id, newline_token + 1, end_token)
+    give back next < end_token and v4_lex_token_syntax_value(stream_id, next) == "|>"
 }
 
 task v4_mir_expr_text(stream_id: int, start_token: int, end_token: int) -> word {
@@ -1966,7 +1976,13 @@ task v4_mir_check_lend_call_arg(mir_id: int, expr_span: word, callee_name: word,
 }
 
 task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, callee_name: word, sig_id: int, open_token: int, close_token: int) -> word {
-    if sig_id < 0 or open_token < 0 or close_token <= open_token {
+    pilot pipe_start = v4_mir_pipe_receiver_start
+    pilot pipe_end = v4_mir_pipe_receiver_end
+    v4_mir_pipe_receiver_start = 0 - 1
+    v4_mir_pipe_receiver_end = 0 - 1
+    pilot has_pipe = pipe_start >= 0 and pipe_end > pipe_start
+    pilot has_parens = open_token >= 0 and close_token > open_token
+    if sig_id < 0 or (not has_parens and not has_pipe) {
         give back v4_mir_call_check_result("", "")
     }
 
@@ -1974,7 +1990,9 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
     pilot caller_sig_id = v4_mir_body_signature_id(mir_id, body_id)
     pilot expected_count = v4_ty_signature_fixed_param_count(ty_id, sig_id)
     pilot variadic = v4_ty_signature_is_variadic(ty_id, sig_id)
-    pilot actual_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    pilot token_arg_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    pilot actual_count = token_arg_count
+    if has_pipe { actual_count += 1 }
     if variadic {
         if actual_count < expected_count {
             v4_mir_add_type_error(mir_id, expr_span, "call arity mismatch", callee_name + " expects at least " + word_from_int(expected_count) + " arguments but got " + word_from_int(actual_count))
@@ -1989,8 +2007,19 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
     pilot named_seen = false
     pilot next_positional = 0
     pilot plan_arg_idx = 0
+    if has_pipe {
+        -- The piped value is always the first positional argument.
+        if expected_count > 0 {
+            planned_slots = v4_mir_call_arg_slot_set(planned_slots, expected_count, 0, pipe_start, pipe_end)
+            next_positional = 1
+        } else if variadic {
+            variadic_payload = v4_mir_call_arg_segment_payload_append(variadic_payload, pipe_start, pipe_end)
+        } else {
+            extra_payload = v4_mir_call_arg_segment_payload_append(extra_payload, pipe_start, pipe_end)
+        }
+    }
     pilot arg_start = v4_mir_skip_trivia(stream_id, open_token + 1)
-    repeat until plan_arg_idx >= actual_count {
+    repeat until plan_arg_idx >= token_arg_count {
         pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
         pilot arg_label = v4_mir_call_arg_label(stream_id, arg_start, arg_end)
         pilot value_start = arg_start
@@ -5564,6 +5593,81 @@ task v4_mir_try_lower_computed_call(mir_id: int, body_id: int, stream_id: int, f
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, v4_mir_expr_text(stream_id, first, last + 1), "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
 }
 
+-- The last top-level `|>` in [first, last], or -1. Pipes bind loosest and
+-- associate left, so `a |> f |> g` splits as `(a |> f) |> g`.
+task v4_mir_find_pipe_op(stream_id: int, first: int, last: int) -> int {
+    pilot idx = last
+    pilot depth = 0
+    repeat until idx < first {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
+            if val == ")" or val == "]" or val == "}" {
+                depth += 1
+            } else if val == "(" or val == "[" or val == "{" {
+                if depth > 0 { depth -= 1 }
+            } else if depth == 0 and val == "|>" {
+                give back idx
+            }
+        }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
+-- `value |> f` is `f(value)` and `value |> f(b, c)` is `f(value, b, c)`.
+task v4_mir_try_lower_pipe_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
+    pilot op = v4_mir_find_pipe_op(stream_id, first, last)
+    if op < 0 {
+        give back 0 - 1
+    }
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    pilot receiver_first = v4_mir_skip_trivia(stream_id, first)
+    pilot target = v4_mir_next_nontrivia(stream_id, op + 1, last + 1)
+    if receiver_first >= op or target > last {
+        v4_mir_add_type_error(mir_id, v4_lex_token_span(stream_id, op), "pipe needs a value and a task", "write value |> task or value |> task(more, args)")
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+    }
+    pilot target_name = v4_lex_token_value(stream_id, target)
+    pilot after_target = v4_mir_next_nontrivia(stream_id, target + 1, last + 1)
+    pilot open_token = 0 - 1
+    pilot close_token = 0 - 1
+    pilot shape_ok: bool = v4_lex_token_type(stream_id, target) == v4_tok_ident
+    if shape_ok and after_target <= last {
+        shape_ok = v4_lex_token_syntax_value(stream_id, after_target) == "("
+        if shape_ok {
+            open_token = after_target
+            close_token = v4_mir_find_matching_paren(stream_id, open_token, last + 1)
+            shape_ok = close_token == last
+        }
+    }
+    pilot sig_id = 0 - 1
+    if shape_ok {
+        sig_id = v4_mir_signature_id_for_name(mir_id, target_name)
+    }
+    if sig_id < 0 {
+        pilot receiver_ignored = v4_mir_lower_expr(mir_id, body_id, stream_id, first, op)
+        if shape_ok {
+            v4_mir_add_type_error(mir_id, v4_lex_token_span(stream_id, target), "unknown task: " + target_name, "the right side of |> must name a task; no task called " + target_name + " is declared or imported")
+        } else {
+            v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, target, last + 1), "pipe target is not a task name", "write value |> task or value |> task(more, args)")
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+    }
+    pilot callee_name = v4_mir_resolved_callee_name(mir_id, target_name)
+    v4_mir_warn_unwinder_call_site(mir_id, expr_span, sig_id)
+    v4_mir_pipe_receiver_start = first
+    v4_mir_pipe_receiver_end = op
+    pilot call_check = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, target_name, sig_id, open_token, close_token)
+    pilot generic_env = v4_mir_call_check_result_env(call_check)
+    pilot args_payload = v4_mir_call_check_result_args(call_check)
+    pilot return_ty = v4_ty_signature_return_type_for_env(v4_mir_ty_id(mir_id), sig_id, generic_env)
+    return_ty = v4_mir_call_result_type(return_ty)
+    pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, callee_name, 0 - 1, 0 - 1, expr_span, return_ty)
+    v4_mir_set_rvalue_abi(mir_id, body_id, call_rvalue, v4_mir_signature_call_abi(mir_id, sig_id))
+    v4_mir_build_set_call_args(mir_id, body_id, call_rvalue, args_payload)
+    give back call_rvalue
+}
+
 task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, expected_ty: word) -> int {
     pilot first = v4_mir_skip_trivia(stream_id, start_token)
     pilot last = v4_mir_last_nontrivia_before(stream_id, end_token)
@@ -5602,6 +5706,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot lend_rvalue = v4_mir_try_lower_lend_expr(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
     if lend_rvalue >= 0 {
         give back lend_rvalue
+    }
+
+    pilot pipe_rvalue = v4_mir_try_lower_pipe_expr(mir_id, body_id, stream_id, first, last, expr_span)
+    if pipe_rvalue >= 0 {
+        give back pipe_rvalue
     }
 
     pilot route_ctor_rvalue = v4_mir_try_lower_route_payload_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)

@@ -6172,9 +6172,8 @@ task v4_ty_task_return_from_hir(hir_id: int, hir_item: int) -> word {
     if form == "" {
         give back v4_ty_nonordinary_hir_item_return_fallback(hir_id, hir_item)
     }
-    -- Implicit block tasks have no declared return fact. TY keeps its current
-    -- conservative unknown fallback until block return inference owns it.
-    give back v4_ty_unknown
+    -- A block task with no `->` returns void (decision 13, like V3).
+    give back v4_ty_void
 }
 
 task v4_ty_const_signature_id_for_name(ty_id: int, const_name: word) -> int {
