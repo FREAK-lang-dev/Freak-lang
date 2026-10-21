@@ -101,6 +101,7 @@ task v4_prerelease_boundary_run() -> void {
     if mode == "diagnostic" { type_errors = 1 }
     pilot mir_errors = type_errors
     if prefix == "closure" and mode == "cr" { mir_errors = 1 }
+    if prefix == "local-pair" and (mode == "cr" or mode == "block-comment") { mir_errors = 1 }
     v4_prerelease_boundary_assert(v4_ty_diag_count(ty) == type_errors and v4_mir_diag_count(mir) == mir_errors, "exact TY/MIR counts")
     if prefix == "closure" and mode == "cr" {
         v4_prerelease_boundary_assert(v4_diag_message(v4_mir_diag(mir, 0)) == "Meiya keeps this closure capture immutable" and v4_diag_help(v4_mir_diag(mir, 0)) == "use a mut closure when grounded must be changed through the closure environment", "non-declaration keeps the real closure capture diagnostic")
