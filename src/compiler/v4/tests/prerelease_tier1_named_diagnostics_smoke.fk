@@ -11,6 +11,7 @@ task v4_tier1_named_source(mode: word) -> word {
     pilot extra = ""
     if mode == "hex" { body = "pilot n = 0xFF\n give back n\n" }
     if mode == "binary" { body = "pilot n = 0b101\n give back n\n" }
+    if mode == "octal" { body = "pilot n = 0o17\n give back n\n" }
     if mode == "glued" { body = "pilot n = 12abc\n give back n\n" }
     if mode == "unknown-name" { body = "give back nope\n" }
     if mode == "unknown-task" { body = "give back nope_task(1)\n" }
@@ -24,6 +25,7 @@ task v4_tier1_named_source(mode: word) -> word {
 task v4_tier1_named_expected(mode: word) -> word {
     if mode == "hex" { give back "hexadecimal literals are not part of FREAK: 0xFF" }
     if mode == "binary" { give back "binary literals are not part of FREAK: 0b101" }
+    if mode == "octal" { give back "octal literals are not part of FREAK: 0o17" }
     if mode == "glued" { give back "malformed number literal: 12abc" }
     if mode == "unknown-name" { give back "unknown name: nope" }
     if mode == "unknown-task" { give back "unknown task: nope_task" }
@@ -41,11 +43,15 @@ task v4_tier1_named_run() -> void {
     pilot source = v4_tier1_named_source(mode)
     pilot expected = v4_tier1_named_expected(mode)
     pilot stream = v4_lex_text(0, source)
-    if mode == "hex" or mode == "binary" or mode == "glued" {
+    if mode == "hex" or mode == "binary" or mode == "octal" or mode == "glued" {
         v4_tier1_named_assert(v4_lex_diag_count(stream) == 1, "one lex diagnostic for " + mode)
         pilot diag = v4_lex_diag(stream, 0)
         v4_tier1_named_assert(v4_diag_message(diag) == expected, "lex message " + mode + ": " + v4_diag_message(diag))
-        v4_tier1_named_assert(expected.ends_with(v4_tier1_named_span_text(source, diag)), "lex span covers the literal " + mode)
+        pilot literal = "0xFF"
+        if mode == "binary" { literal = "0b101" }
+        if mode == "octal" { literal = "0o17" }
+        if mode == "glued" { literal = "12abc" }
+        v4_tier1_named_assert(v4_tier1_named_span_text(source, diag) == literal, "lex span is exactly the literal " + mode)
         say "tier1-named " + mode + "=passed"
         give back
     }

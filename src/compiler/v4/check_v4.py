@@ -12688,6 +12688,7 @@ EXECUTABLE_SMOKES = [
      'expect': ['tier1-named hex=passed'],
      'runtime_cases': [{'argv': ['hex'], 'expect': ['tier1-named hex=passed']},
                        {'argv': ['binary'], 'expect': ['tier1-named binary=passed']},
+                       {'argv': ['octal'], 'expect': ['tier1-named octal=passed']},
                        {'argv': ['glued'], 'expect': ['tier1-named glued=passed']},
                        {'argv': ['unknown-name'], 'expect': ['tier1-named unknown-name=passed']},
                        {'argv': ['unknown-task'], 'expect': ['tier1-named unknown-task=passed']},
