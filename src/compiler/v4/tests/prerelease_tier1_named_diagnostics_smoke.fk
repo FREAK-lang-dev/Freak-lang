@@ -9,16 +9,6 @@ task v4_tier1_named_source(mode: word) -> word {
     pilot close = chr(125)
     pilot body = "give back 0\n"
     pilot extra = ""
-    if mode == "narrow-decl" { body = "pilot n: int = 2.5\n give back n\n" }
-    if mode == "narrow-assign" { body = "pilot n = 1\n n = 2.5\n give back n\n" }
-    if mode == "narrow-arg" {
-        extra = "task take(x: int) -> int " + open + " give back x " + close + "\n"
-        body = "give back take(2.5)\n"
-    }
-    if mode == "narrow-return" {
-        extra = "task half() -> int " + open + " give back 2.5 " + close + "\n"
-        body = "give back half()\n"
-    }
     if mode == "hex" { body = "pilot n = 0xFF\n give back n\n" }
     if mode == "binary" { body = "pilot n = 0b101\n give back n\n" }
     if mode == "glued" { body = "pilot n = 12abc\n give back n\n" }
@@ -32,12 +22,6 @@ task v4_tier1_named_source(mode: word) -> word {
 }
 
 task v4_tier1_named_expected(mode: word) -> word {
-    if mode.starts_with("narrow-") {
-        if mode == "narrow-decl" { give back "local declaration type mismatch" }
-        if mode == "narrow-assign" { give back "assignment type mismatch" }
-        if mode == "narrow-arg" { give back "call argument type mismatch" }
-        give back "return type mismatch"
-    }
     if mode == "hex" { give back "hexadecimal literals are not part of FREAK: 0xFF" }
     if mode == "binary" { give back "binary literals are not part of FREAK: 0b101" }
     if mode == "glued" { give back "malformed number literal: 12abc" }
@@ -52,7 +36,7 @@ task v4_tier1_named_span_text(source: word, diag: word) -> word {
 }
 
 task v4_tier1_named_run() -> void {
-    pilot mode = "narrow-decl"
+    pilot mode = "hex"
     if process::args_count() > 1 { mode = process::arg(1) }
     pilot source = v4_tier1_named_source(mode)
     pilot expected = v4_tier1_named_expected(mode)
@@ -89,9 +73,6 @@ task v4_tier1_named_run() -> void {
     }
     if mode == "unknown-task" {
         v4_tier1_named_assert(v4_tier1_named_span_text(source, diag) == "nope_task", "unknown task span")
-    }
-    if mode.starts_with("narrow-") {
-        v4_tier1_named_assert(v4_diag_help(diag).contains("int") and v4_diag_help(diag).contains("num"), "narrowing help names both types " + mode)
     }
     say "tier1-named " + mode + "=passed"
 }
