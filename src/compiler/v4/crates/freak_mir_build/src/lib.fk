@@ -5820,6 +5820,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
 -- A plain identifier that is not a local, not a resolved symbol and has no
 -- value type is reported by name here, before codegen sees an unknown type.
 task v4_mir_is_unknown_plain_name(mir_id: int, name: word) -> bool {
+    -- Report only the first error: a name left unbound by an earlier
+    -- rejected binding (a failed pattern, say) must not cascade.
+    if v4_mir_diag_count(mir_id) > 0 {
+        give back false
+    }
     if v4_resolve_lookup_any(v4_ty_resolve_id(v4_mir_ty_id(mir_id)), name) >= 0 {
         give back false
     }
