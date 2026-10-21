@@ -377,7 +377,11 @@ task v35_while_contract_run(mode: int) -> void {
         give back
     }
 
-    if v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) != 0 {
+    -- Legacy launch-shaped closures have no MIR lowering; MIR names the
+    -- unknown callee instead of lowering it silently.
+    pilot expected_mir = 0
+    if mode == 80 or mode == 81 { expected_mir = 1 }
+    if v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) != expected_mir {
         pilot diagnostic_lex = 0
         repeat until diagnostic_lex >= v4_lex_diag_count(stream) { say "v35-while-contract lex " + v4_diag_message(v4_lex_diag(stream, diagnostic_lex)); diagnostic_lex += 1 }
         pilot diagnostic_parse = 0
@@ -391,7 +395,10 @@ task v35_while_contract_run(mode: int) -> void {
         pilot diagnostic_mir = 0
         repeat until diagnostic_mir >= v4_mir_diag_count(mir) { say "v35-while-contract mir " + v4_diag_message(v4_mir_diag(mir, diagnostic_mir)); diagnostic_mir += 1 }
     }
-    v35_while_contract_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) == 0, "clean frontend")
+    v35_while_contract_assert(v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == expected_mir, "clean frontend")
+    if expected_mir == 1 {
+        v35_while_contract_assert(v4_diag_message(v4_mir_diag(mir, 0)) == "unknown task: launch", "legacy launch callee named by MIR")
+    }
     if (mode >= 38 and mode <= 59) or mode == 77 or mode == 80 or mode == 81 {
         v35_while_contract_assert(v4_mir_pattern_is_simple_local("While") and v4_mir_pattern_is_simple_local("WHILE") and not v4_mir_pattern_is_simple_local("while"), "exact pattern binding spelling")
         pilot token = 0
