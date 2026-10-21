@@ -5817,12 +5817,24 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
 }
 
+task v4_mir_has_error(mir_id: int) -> bool {
+    pilot idx = 0
+    repeat until idx >= v4_mir_diag_count(mir_id) {
+        if word_to_int(v4_diag_part(v4_mir_diag(mir_id, idx), 0)) >= v4_diag_error {
+            give back true
+        }
+        idx += 1
+    }
+    give back false
+}
+
 -- A plain identifier that is not a local, not a resolved symbol and has no
 -- value type is reported by name here, before codegen sees an unknown type.
 task v4_mir_is_unknown_plain_name(mir_id: int, name: word) -> bool {
     -- Report only the first error: a name left unbound by an earlier
-    -- rejected binding (a failed pattern, say) must not cascade.
-    if v4_mir_diag_count(mir_id) > 0 {
+    -- rejected binding (a failed pattern, say) must not cascade. Warnings
+    -- (an unwinder call site, say) do not suppress it.
+    if v4_mir_has_error(mir_id) {
         give back false
     }
     if v4_resolve_lookup_any(v4_ty_resolve_id(v4_mir_ty_id(mir_id)), name) >= 0 {
