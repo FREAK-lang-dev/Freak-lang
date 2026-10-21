@@ -1,0 +1,98 @@
+-- Tier 1 silent miscompiles are reported by name, with a span, before codegen.
+-- One source pipeline per process keeps each case within arena limits.
+task v4_tier1_named_assert(condition: bool, label: word) -> void {
+    if not condition { panic("tier1 named diagnostics: " + label) }
+}
+
+task v4_tier1_named_source(mode: word) -> word {
+    pilot open = chr(123)
+    pilot close = chr(125)
+    pilot body = "give back 0\n"
+    pilot extra = ""
+    if mode == "narrow-decl" { body = "pilot n: int = 2.5\n give back n\n" }
+    if mode == "narrow-assign" { body = "pilot n = 1\n n = 2.5\n give back n\n" }
+    if mode == "narrow-arg" {
+        extra = "task take(x: int) -> int " + open + " give back x " + close + "\n"
+        body = "give back take(2.5)\n"
+    }
+    if mode == "narrow-return" {
+        extra = "task half() -> int " + open + " give back 2.5 " + close + "\n"
+        body = "give back half()\n"
+    }
+    if mode == "hex" { body = "pilot n = 0xFF\n give back n\n" }
+    if mode == "binary" { body = "pilot n = 0b101\n give back n\n" }
+    if mode == "glued" { body = "pilot n = 12abc\n give back n\n" }
+    if mode == "unknown-name" { body = "give back nope\n" }
+    if mode == "unknown-task" { body = "give back nope_task(1)\n" }
+    if mode == "widen" {
+        extra = "task twice(x: num) -> num " + open + " give back x * 2 " + close + "\n"
+        body = "pilot a: num = 3\n a = 4\n pilot b = twice(5)\n pilot c = 255\n pilot d = 7u\n give back c\n"
+    }
+    give back extra + "task main() -> int " + open + "\n " + body + close + "\n"
+}
+
+task v4_tier1_named_expected(mode: word) -> word {
+    if mode.starts_with("narrow-") {
+        if mode == "narrow-decl" { give back "local declaration type mismatch" }
+        if mode == "narrow-assign" { give back "assignment type mismatch" }
+        if mode == "narrow-arg" { give back "call argument type mismatch" }
+        give back "return type mismatch"
+    }
+    if mode == "hex" { give back "hexadecimal literals are not part of FREAK: 0xFF" }
+    if mode == "binary" { give back "binary literals are not part of FREAK: 0b101" }
+    if mode == "glued" { give back "malformed number literal: 12abc" }
+    if mode == "unknown-name" { give back "unknown name: nope" }
+    if mode == "unknown-task" { give back "unknown task: nope_task" }
+    give back ""
+}
+
+task v4_tier1_named_span_text(source: word, diag: word) -> word {
+    pilot span = v4_diag_span(diag)
+    give back v4_slice(source, v4_span_start(span), v4_span_end(span))
+}
+
+task v4_tier1_named_run() -> void {
+    pilot mode = "narrow-decl"
+    if process::args_count() > 1 { mode = process::arg(1) }
+    pilot source = v4_tier1_named_source(mode)
+    pilot expected = v4_tier1_named_expected(mode)
+    pilot stream = v4_lex_text(0, source)
+    if mode == "hex" or mode == "binary" or mode == "glued" {
+        v4_tier1_named_assert(v4_lex_diag_count(stream) == 1, "one lex diagnostic for " + mode)
+        pilot diag = v4_lex_diag(stream, 0)
+        v4_tier1_named_assert(v4_diag_message(diag) == expected, "lex message " + mode + ": " + v4_diag_message(diag))
+        v4_tier1_named_assert(expected.ends_with(v4_tier1_named_span_text(source, diag)), "lex span covers the literal " + mode)
+        say "tier1-named " + mode + "=passed"
+        give back
+    }
+    v4_tier1_named_assert(v4_lex_diag_count(stream) == 0, "clean lex " + mode)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot front = v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty)
+    v4_tier1_named_assert(front == 0, "clean front end " + mode)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    if mode == "widen" {
+        v4_tier1_named_assert(v4_mir_diag_count(mir) == 0, "widening stays admitted")
+        pilot borrow = v4_borrowck_check_mir(0, mir)
+        v4_tier1_named_assert(v4_borrowck_diag_count(borrow) == 0, "widening borrowck clean")
+        say "tier1-named " + mode + "=passed"
+        give back
+    }
+    v4_tier1_named_assert(v4_mir_diag_count(mir) == 1, "one MIR diagnostic for " + mode + ", got " + word_from_int(v4_mir_diag_count(mir)))
+    pilot diag = v4_mir_diag(mir, 0)
+    v4_tier1_named_assert(v4_diag_message(diag) == expected, "MIR message " + mode + ": " + v4_diag_message(diag))
+    v4_tier1_named_assert(v4_span_end(v4_diag_span(diag)) > v4_span_start(v4_diag_span(diag)), "MIR span " + mode)
+    if mode == "unknown-name" {
+        v4_tier1_named_assert(v4_tier1_named_span_text(source, diag) == "nope", "unknown name span")
+    }
+    if mode == "unknown-task" {
+        v4_tier1_named_assert(v4_tier1_named_span_text(source, diag) == "nope_task", "unknown task span")
+    }
+    if mode.starts_with("narrow-") {
+        v4_tier1_named_assert(v4_diag_help(diag).contains("int") and v4_diag_help(diag).contains("num"), "narrowing help names both types " + mode)
+    }
+    say "tier1-named " + mode + "=passed"
+}
+v4_tier1_named_run()
