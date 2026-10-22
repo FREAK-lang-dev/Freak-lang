@@ -834,6 +834,23 @@ task v4_mir_block_first_stmt(mir_id: int, body_id: int, block_id: int) -> int {
     give back v4_mir_block_next_stmt_linear(mir_id, body_id, block_id, 0 - 1)
 }
 
+-- The block statement index keeps each block's last statement beside its
+-- first one; without a ready index this is the same linear walk.
+task v4_mir_block_last_stmt(mir_id: int, body_id: int, block_id: int) -> int {
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back 0 - 1 }
+    if block_id >= 0 and block_id < v4_mir_body_block_count(mir_id, body_id) and v4_mir_block_stmt_index_is_ready(mir_id, body_id) {
+        v4_mir_block_stmt_lookup_steps += 1
+        give back word_to_int(array_get(v4_mir_block_stmt_index_handle(mir_id, body_id), 3 + 11 * block_id + 1))
+    }
+    pilot last = 0 - 1
+    pilot stmt_id = v4_mir_block_next_stmt_linear(mir_id, body_id, block_id, 0 - 1)
+    repeat until stmt_id < 0 {
+        last = stmt_id
+        stmt_id = v4_mir_block_next_stmt_linear(mir_id, body_id, block_id, stmt_id)
+    }
+    give back last
+}
+
 task v4_mir_block_next_stmt_linear(mir_id: int, body_id: int, block_id: int, stmt_id: int) -> int {
     if not v4_mir_lookup_body_exists(mir_id, body_id) { give back 0 - 1 }
     pilot next = stmt_id + 1
@@ -4572,18 +4589,27 @@ task v4_mir_word_local_scope_exits_before_stmt(mir_id: int, body_id: int, local_
     give back v4_mir_scope_contains(local_scope, v4_mir_stmt_scope_span(mir_id, body_id, previous_stmt)) and not v4_mir_scope_contains(local_scope, v4_mir_stmt_scope_span(mir_id, body_id, next_stmt))
 }
 
-task v4_mir_word_local_scope_exits_on_edge(mir_id: int, body_id: int, local_id: int, source_block: int, target_block: int) -> bool {
-    pilot source_scope = v4_mir_block_scope_span(mir_id, body_id, source_block)
-    pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, source_block)
-    repeat until stmt_id < 0 {
-        source_scope = v4_mir_stmt_scope_span(mir_id, body_id, stmt_id)
-        stmt_id = v4_mir_block_next_stmt(mir_id, body_id, source_block, stmt_id)
-    }
-    pilot target_scope = v4_mir_block_scope_span(mir_id, body_id, target_block)
-    stmt_id = v4_mir_block_first_stmt(mir_id, body_id, target_block)
-    if stmt_id >= 0 { target_scope = v4_mir_stmt_scope_span(mir_id, body_id, stmt_id) }
+-- An edge leaves the scope of its source block's last statement (or the
+-- block's own scope when empty) and enters its target's first statement.
+task v4_mir_edge_source_scope(mir_id: int, body_id: int, source_block: int) -> word {
+    pilot stmt_id = v4_mir_block_last_stmt(mir_id, body_id, source_block)
+    if stmt_id >= 0 { give back v4_mir_stmt_scope_span(mir_id, body_id, stmt_id) }
+    give back v4_mir_block_scope_span(mir_id, body_id, source_block)
+}
+
+task v4_mir_edge_target_scope(mir_id: int, body_id: int, target_block: int) -> word {
+    pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, target_block)
+    if stmt_id >= 0 { give back v4_mir_stmt_scope_span(mir_id, body_id, stmt_id) }
+    give back v4_mir_block_scope_span(mir_id, body_id, target_block)
+}
+
+task v4_mir_word_local_scope_exits_between(mir_id: int, body_id: int, local_id: int, source_scope: word, target_scope: word) -> bool {
     pilot local_scope = v4_mir_local_scope_span(mir_id, body_id, local_id)
     give back v4_mir_scope_contains(local_scope, source_scope) and not v4_mir_scope_contains(local_scope, target_scope)
+}
+
+task v4_mir_word_local_scope_exits_on_edge(mir_id: int, body_id: int, local_id: int, source_block: int, target_block: int) -> bool {
+    give back v4_mir_word_local_scope_exits_between(mir_id, body_id, local_id, v4_mir_edge_source_scope(mir_id, body_id, source_block), v4_mir_edge_target_scope(mir_id, body_id, target_block))
 }
 
 
