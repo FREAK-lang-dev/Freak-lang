@@ -1,0 +1,55 @@
+-- Tier 1 entry contract: like V3, main takes no parameters and returns int
+-- or void. Both rules are named on main's own span before codegen.
+task v4_tier1_entry_assert(condition: bool, label: word) -> void {
+    if not condition { panic("tier1 entry: " + label) }
+}
+
+task v4_tier1_entry_source(mode: word) -> word {
+    pilot open = chr(123)
+    pilot close = chr(125)
+    if mode == "param-int" { give back "task main(seed: int) -> int " + open + "\n give back seed\n" + close + "\n" }
+    if mode == "param-word" { give back "task main(name: word) " + open + "\n say name\n" + close + "\n" }
+    if mode == "return-word" { give back "task main() -> word " + open + "\n give back \"x\"\n" + close + "\n" }
+    if mode == "return-bool" { give back "task main() -> bool " + open + "\n give back true\n" + close + "\n" }
+    if mode == "void" { give back "task main() " + open + "\n say \"hi\"\n" + close + "\n" }
+    if mode == "library" { give back "task helper(n: int) -> word " + open + "\n give back \"x\"\n" + close + "\n" }
+    give back "task main() -> int " + open + "\n give back process::args_count()\n" + close + "\n"
+}
+
+task v4_tier1_entry_expected(mode: word) -> word {
+    if mode == "param-int" or mode == "param-word" { give back "main must not declare parameters" }
+    if mode == "return-word" { give back "main must return int or void, got word" }
+    if mode == "return-bool" { give back "main must return int or void, got bool" }
+    give back ""
+}
+
+task v4_tier1_entry_run() -> void {
+    pilot mode = "param-int"
+    if process::args_count() > 1 { mode = process::arg(1) }
+    pilot source = v4_tier1_entry_source(mode)
+    pilot expected = v4_tier1_entry_expected(mode)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot front = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty)
+    v4_tier1_entry_assert(front == 0, "clean front end " + mode)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    v4_tier1_entry_assert(v4_mir_diag_count(mir) == 0, "clean MIR " + mode)
+    pilot diag = v4_codegen_llvm_native_entry_diag(mir)
+    if expected == "" {
+        v4_tier1_entry_assert(diag == "", "entry admitted " + mode + ": " + diag)
+        say "tier1-entry " + mode + "=passed"
+        give back
+    }
+    v4_tier1_entry_assert(diag != "", "entry rejected " + mode)
+    v4_tier1_entry_assert(v4_diag_severity(diag) == v4_diag_error, "entry error severity " + mode)
+    v4_tier1_entry_assert(v4_diag_message(diag) == expected, "entry message " + mode + ": " + v4_diag_message(diag))
+    pilot span = v4_diag_span(diag)
+    v4_tier1_entry_assert(v4_span_start(span) == 0 and v4_span_end(span) > 10, "entry span covers main " + mode)
+    v4_tier1_entry_assert(v4_slice(source, v4_span_start(span), v4_span_start(span) + 9) == "task main", "entry span starts at main " + mode)
+    v4_tier1_entry_assert(v4_diag_help(diag) != "", "entry help " + mode)
+    say "tier1-entry " + mode + "=passed"
+}
+v4_tier1_entry_run()

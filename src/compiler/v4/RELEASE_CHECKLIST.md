@@ -606,7 +606,7 @@ Correctness:
 - [x] **S** `sessions` remains an admitted V4 pilot name: the heading matches its final suffix and the binary operand scanner recognizes the binding. `until sessions >= 3 max 10 sessions` executes with exit 3 at O0/O2/O3. V3 reserves the word; this fix follows the checklist's right-matching alternative
 - [x] **S** A `pilot` in an inner block may shadow an outer pilot, as V3 allows (decision 12). At `525114f` the shadow builds and each scope sees its own value. Parameters and the callable's outer body share one scope, so redeclaring a parameter there is still rejected (#155)
 - [x] **S** Same-line statements after an ordinary conditional chain are retained, including `}give back` adjacency. The completed-chain range stops before a following statement or semicolon, attaches only the immediate `else`, and keeps malformed-header recovery bounded. Original mixed-return/live-tail and discarded-call sources remain regression cases; a wrong later call is still diagnosed
-- [ ] **S** Sweep the remaining tier 4 surface forms for the same failure (accepted, no diagnostic, wrong code). `eventually`, `isekai` and `PLUS ULTRA` are rejected today, though with misleading messages. The `training arc` cap above was found this way
+- [x] **S** Sweep the remaining tier 4 surface forms for the same failure (accepted, no diagnostic, wrong code). The `training arc` cap above was found this way. The 2026-10-22 sweep built 27 V3 surface repros with `build_v4.py`: none miscompiled. `training arc`, `repeat N times`, `when`, `hai`/`iie`, `trust me` and top-level `@annotation` tasks run correctly; the rest were rejected, most with misleading messages (an unknown shape for `eventually`, an unknown name for `isekai` exports, codegen's `native rvalue not yet supported: Unknown` for statement prefixes and anime operators). The parser now names each unlowered form on its own tokens (`eventually blocks are not supported by V4 yet`): `eventually`, `isekai`, `foreshadow`, `payoff`, `sadly`, `for science,`, `knowing this will hurt,`, `deus_ex_machina`, `launch`, `PLUS ULTRA`, `FINAL FORM`, `NAKAMA`, `TSUNDERE` and annotations on local bindings. Lowering them stays in tier 4/5. Evidence: `prerelease_tier1_surface_sweep_smoke.fk`
 
 Scaling (residual, on `main`):
 
@@ -632,7 +632,7 @@ Words (checkpoint W2 to W4):
 
 Entry and build:
 
-- [ ] **S** Source `main` with parameters: ABI decision and lowering remain open; typed process-argument access and C entry setup are implemented
+- [x] **S** Source `main` with parameters. Decided 2026-10-22 to match V3: `main` takes no parameters and returns int or void (or never). `main must not declare parameters` and `main must return int or void, got T` are reported on main's span before codegen, with help naming `process::args_count()` and `process::arg(i)`, which already read arguments; the codegen fence stays as a backstop. Evidence: `prerelease_tier1_entry_smoke.fk`, the build-command check in `codegen_llvm_execute_smoke`
 - [x] **M** `process::arg`, `process::args_count`, `fs::read` as typed intrinsics
 - [ ] **M** Complete default compiler panic unwind/cleanup and runtime honor failures; explicit abort/message/status plus checked overflow, divide-zero and bounds paths are implemented
 - [x] **M** Integer overflow, divide-by-zero, and bounds behavior defined and tested in native code
