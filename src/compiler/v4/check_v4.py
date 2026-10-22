@@ -12735,6 +12735,8 @@ EXECUTABLE_SMOKES = [
                        {'argv': ['launch'], 'expect': ['tier1-surface launch=passed']},
                        {'argv': ['control-for-each'], 'expect': ['tier1-surface control-for-each=passed']},
                        {'argv': ['control-names'], 'expect': ['tier1-surface control-names=passed']},
+                       {'argv': ['control-split-lines'], 'expect': ['tier1-surface control-split-lines=passed']},
+                       {'argv': ['control-launch-closure'], 'expect': ['tier1-surface control-launch-closure=passed']},
                        {'argv': ['control-attributes'], 'expect': ['tier1-surface control-attributes=passed']}]},
     {'name': 'Prerelease tier 1 decisions: void tasks, pipe, explicit narrowing',
      'fixture': 'prerelease_tier1_decisions_smoke.fk',
