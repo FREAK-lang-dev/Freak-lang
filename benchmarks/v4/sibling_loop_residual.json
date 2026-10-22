@@ -591,5 +591,81 @@
     2638
    ]
   }
+ },
+ "module_identity": {
+  "method": "v4_scale_bench.py module.ll from the before and after instrumented compilers, sha256 per shape and size",
+  "rows": {
+   "calls_16": {
+    "before_sha256": "e1ec0b01af14f57989d80f8652b363c0abb3227232f4b7868481d73fd1556a19",
+    "after_sha256": "e1ec0b01af14f57989d80f8652b363c0abb3227232f4b7868481d73fd1556a19",
+    "identical": true
+   },
+   "calls_200": {
+    "before_sha256": "77047213c5b4d5a0786705313a88d41dac972b9855d06a8359ea927e4d32af31",
+    "after_sha256": "77047213c5b4d5a0786705313a88d41dac972b9855d06a8359ea927e4d32af31",
+    "identical": true
+   },
+   "calls_800": {
+    "before_sha256": "5287ea8269a720c433f51466d06d1a528e76e218421f7bf9a6c7a307974d9001",
+    "after_sha256": "5287ea8269a720c433f51466d06d1a528e76e218421f7bf9a6c7a307974d9001",
+    "identical": true
+   },
+   "long_16": {
+    "before_sha256": "4ba6f0fc9b853e57f3a3c4b65f4219506e0eb20767c2647f5cb86163bb8cc19e",
+    "after_sha256": "4ba6f0fc9b853e57f3a3c4b65f4219506e0eb20767c2647f5cb86163bb8cc19e",
+    "identical": true
+   },
+   "long_200": {
+    "before_sha256": "7e87a7a4d4017563b5feb37ca60d71118f906e7d1891574a3d2a8c5c8b2ff8ea",
+    "after_sha256": "7e87a7a4d4017563b5feb37ca60d71118f906e7d1891574a3d2a8c5c8b2ff8ea",
+    "identical": true
+   },
+   "long_800": {
+    "before_sha256": "6f8ce23e2cd8f31f6610f0db831d4020373d795731f21f66a35edb84ee4a9a14",
+    "after_sha256": "6f8ce23e2cd8f31f6610f0db831d4020373d795731f21f66a35edb84ee4a9a14",
+    "identical": true
+   },
+   "loops_16": {
+    "before_sha256": "e05832e73dec6f24f847d05c4b80e115134e4029df8ed2e7809a2b3ce8ecf313",
+    "after_sha256": "e05832e73dec6f24f847d05c4b80e115134e4029df8ed2e7809a2b3ce8ecf313",
+    "identical": true
+   },
+   "loops_200": {
+    "before_sha256": "868fa556852f8eb6bedb2689923b34ad858b5c0a95e70fe8f323b3653182ee33",
+    "after_sha256": "868fa556852f8eb6bedb2689923b34ad858b5c0a95e70fe8f323b3653182ee33",
+    "identical": true
+   },
+   "loops_800": {
+    "before_sha256": null,
+    "after_sha256": "76785953667ed08da56cb52131f3684909b72e7c2634746414d199dc12ec0428",
+    "identical": false,
+    "note": "before exceeded the 2048 MiB benchmark memory limit, so there is no before module"
+   },
+   "tasks_16": {
+    "before_sha256": "1d4dd7a4d705cb361282fc4e84e5b8f48eeaec2d4629fba9f2e5b88016fe5598",
+    "after_sha256": "1d4dd7a4d705cb361282fc4e84e5b8f48eeaec2d4629fba9f2e5b88016fe5598",
+    "identical": true
+   },
+   "tasks_200": {
+    "before_sha256": "12719297e4279b3bfce1805b4f0179c00641f4585435e841659e211ae0e113d7",
+    "after_sha256": "12719297e4279b3bfce1805b4f0179c00641f4585435e841659e211ae0e113d7",
+    "identical": true
+   },
+   "tasks_800": {
+    "before_sha256": "16293d120c96e210aa32c26ff51f43f2d63cb632b113e2813b27d378a25c649d",
+    "after_sha256": "16293d120c96e210aa32c26ff51f43f2d63cb632b113e2813b27d378a25c649d",
+    "identical": true
+   },
+   "loops_128": {
+    "before_sha256": "8bc0afbd0f3f1c1e2e792c52017c4f54212126acd8268c80d1be3842eaff04af",
+    "after_sha256": "8bc0afbd0f3f1c1e2e792c52017c4f54212126acd8268c80d1be3842eaff04af",
+    "identical": true
+   },
+   "loops_64": {
+    "before_sha256": "8fd3913aa374f63881e048ae10a12994c73ee0d1cb85253bfc8f2224eaad57cf",
+    "after_sha256": "8fd3913aa374f63881e048ae10a12994c73ee0d1cb85253bfc8f2224eaad57cf",
+    "identical": true
+   }
+  }
  }
 }

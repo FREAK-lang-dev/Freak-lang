@@ -17,7 +17,7 @@ V3 cells show the range of its two runs (one for each V4 side).
 
 V4 now grows 2.5x to 2.6x per doubling from 64 loops up. V3 grows 3.6x to 4.1x. The gap narrows with size: V4 is 1.16x V3 at 256 loops and should overtake it beyond that. At 16 loops V4 still pays a fixed cost of about 0.03 s that does not depend on the loop count.
 
-On the `loops`, `tasks`, `long` and `calls` shapes, at every measured size, the emitted LLVM module is byte-identical before and after. The full `check_v4.py` run passes.
+On the `loops`, `tasks`, `long` and `calls` shapes, at every size where both compilers finish, the emitted LLVM module is byte-identical before and after. The per-module SHA-256 pairs are under `module_identity` in the JSON. At 800 loops only the new compiler finishes: the old one exceeds the 2048 MiB memory limit. The full `check_v4.py` run passes.
 
 ## What changed
 
