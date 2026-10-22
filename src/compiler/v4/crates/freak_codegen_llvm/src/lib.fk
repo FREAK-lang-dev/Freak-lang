@@ -3104,6 +3104,11 @@ task v4_codegen_llvm_owned_scope_exit_lines(mir_id: int, body_id: int, source_sc
     }
     v4_codegen_llvm_scope_cells_push(source_cells, source_scope)
     v4_codegen_llvm_scope_cells_push(target_cells, target_scope)
+    if array_len(source_cells) != 4 or array_len(target_cells) != 4 {
+        array_release(source_cells)
+        array_release(target_cells)
+        give back "*"
+    }
     pilot parts = v4_codegen_llvm_cleanup_fragment_new()
     pilot row = 0
     repeat until row >= array_len(rows) {
