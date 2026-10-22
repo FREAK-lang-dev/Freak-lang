@@ -215,6 +215,17 @@ task borrow_cfg_run() -> void {
     -- Codegen may reuse only the latest check of an unchanged MIR.
     pilot reuse: bool = refused >= 0 and v4_borrowck_result_is_current(refused, v4_borrowck_mir_id(refused))
     reuse = reuse and not v4_borrowck_result_is_current(chain, v4_borrowck_mir_id(chain)) and not v4_borrowck_result_is_current(refused, v4_borrowck_mir_id(chain))
+    -- An in-place slot edit with unchanged counts must also force a fresh check.
+    if reuse {
+        pilot edit_mir = v4_borrowck_mir_id(refused)
+        pilot edit_body = v4_mir_body_count(edit_mir) - 1
+        pilot edit_stmt = 0
+        pilot original_rvalue = v4_mir_stmt_rvalue(edit_mir, edit_body, edit_stmt)
+        v4_mir_restore_stmt_slot(edit_mir, edit_body, edit_stmt, v4_mir_stmt_kind(edit_mir, edit_body, edit_stmt), v4_mir_stmt_lhs(edit_mir, edit_body, edit_stmt), v4_mir_stmt_rhs(edit_mir, edit_body, edit_stmt), v4_mir_stmt_span(edit_mir, edit_body, edit_stmt), v4_mir_stmt_block(edit_mir, edit_body, edit_stmt), v4_mir_stmt_place(edit_mir, edit_body, edit_stmt), original_rvalue + 1)
+        reuse = not v4_borrowck_result_is_current(refused, edit_mir)
+        v4_mir_restore_stmt_slot(edit_mir, edit_body, edit_stmt, v4_mir_stmt_kind(edit_mir, edit_body, edit_stmt), v4_mir_stmt_lhs(edit_mir, edit_body, edit_stmt), v4_mir_stmt_rhs(edit_mir, edit_body, edit_stmt), v4_mir_stmt_span(edit_mir, edit_body, edit_stmt), v4_mir_stmt_block(edit_mir, edit_body, edit_stmt), v4_mir_stmt_place(edit_mir, edit_body, edit_stmt), original_rvalue)
+        reuse = reuse and v4_borrowck_result_is_current(refused, edit_mir)
+    }
 
     say "borrow-cfg semantic=" + word_from_bool(semantic) + " drops=" + word_from_bool(drops) + " repairs=" + word_from_bool(repairs) + " reaches=" + word_from_bool(reaches)
     say "borrow-cfg bounded=" + word_from_bool(bounded) + " diagnostics=" + word_from_bool(diagnostics) + " reuse=" + word_from_bool(reuse)

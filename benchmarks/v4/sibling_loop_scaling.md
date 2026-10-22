@@ -2,7 +2,7 @@
 
 This checkpoint compares `main` at `2cee8686f8988a18b391060f5eab3e1eef9840a1` (before) with this branch (after). The pinned rows use `74a992e`. `e0c4dff` adds only the supplied-borrow reuse guard; the `tasks3200` row and the V3 comparison were taken on it.
 
-Setup: one Linux x64 host with Ubuntu Clang 18.1.3, using the [superlinear checkpoint](compiler_superlinear_speed.md) method (`v4_scale_bench.py --check`, three ordinary `-O2` runs per side, medians per metric). Raw rows are in the [JSON report](sibling_loop_scaling.json).
+Setup: one Linux x64 host (Intel Xeon @ 2.80GHz, 4 vCPU) with Ubuntu Clang 18.1.3, using the [superlinear checkpoint](compiler_superlinear_speed.md) method (`v4_scale_bench.py --check`, three ordinary `-O2` runs per side, medians per metric). Raw rows are in the [JSON report](sibling_loop_scaling.json).
 
 ## Sibling loops (#161)
 
@@ -90,14 +90,17 @@ These numbers measure compiler execution only, not the runtime of generated prog
 
 ## Reproduce
 
-Run from each checkout:
+Build each side into its own work directory, then pass one named compiler to the comparison. `V3` is a V3 binary built from `build/freakc_v3.fk.c` with the `ci.yml` steps. The JSON records the binary hashes, the CPU and the exact commands used here.
 
 ```sh
 python -B -u v4_scale_bench.py --shapes tasks long calls --sizes 400 800 1600 --check \
   --timeout 300 --build-timeout 300 --mem-limit-mb 2048 --output-limit-mb 64 \
-  --work /tmp/freak-loops-run-1 --json /tmp/freak-loops-run-1.json
-python -B -u benchmarks/v4/v3_compare.py --v3 <v3 binary> --v4 /tmp/freak-loops-run-1/compiler/*/v4c \
-  --shapes tasks long calls --sizes 200 800 1600 --repeats 3
-python -B -u benchmarks/v4/v3_compare.py --v3 <v3 binary> --v4 /tmp/freak-loops-run-1/compiler/*/v4c \
-  --shapes loops --sizes 16 64 128 --repeats 3
+  --work /tmp/freak-scale-branch-1 --json /tmp/freak-scale-branch-1.json
+V4C=$(ls /tmp/freak-scale-branch-1/compiler/*/v4c | head -n 1)
+python -B -u benchmarks/v4/v3_compare.py --v3 "$V3" --v4 "$V4C" \
+  --shapes tasks long calls --sizes 200 800 1600 --repeats 3 --json /tmp/v3-compare.json
+python -B -u benchmarks/v4/v3_compare.py --v3 "$V3" --v4 "$V4C" \
+  --shapes loops --sizes 16 64 128 --repeats 3 --json /tmp/v3-compare-loops.json
 ```
+
+Use a separate `--work` path for the baseline checkout, and repeat the scale run three times per side.

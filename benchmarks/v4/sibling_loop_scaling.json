@@ -2126,5 +2126,18 @@
    64
   ],
   "exit": 124
+ },
+ "v3_compare_provenance": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz, 4 vCPU",
+  "v3_binary_sha256": "ffb774fb2e87756a40f7eba15df1a43b5a26cf84f4a019aae773047cd1ea4573",
+  "v3_build": "two V3 generations from build/freakc_v3.fk.c (sha256 730fec42445c17c3b243b3880c76be8942eb31ba8666c28b265330a3b5e1016f) with the ci.yml steps, Ubuntu clang 18.1.3",
+  "v4_binary_sha256": "21fa52c914033937f3acf38f9020254e84f61e60df53ebd7660b17c7c402e743",
+  "v4_build": "v4_scale_bench.py instrumented compiler at e0c4dff",
+  "commands": [
+   "python -B -u benchmarks/v4/v3_compare.py --v3 V3 --v4 V4C --shapes tasks long calls --sizes 200 800 1600 --repeats 3 --timeout 600",
+   "python -B -u benchmarks/v4/v3_compare.py --v3 V3 --v4 V4C --shapes loops --sizes 16 64 128 --repeats 3 --timeout 600"
+  ],
+  "ratio": "v4_median / v3_median; below 1 means V4 is faster",
+  "correctness": "a cell is reported only when every V3 and V4 run exits 0 with a non-empty module (V4 also v4-errors=0)"
  }
 }
