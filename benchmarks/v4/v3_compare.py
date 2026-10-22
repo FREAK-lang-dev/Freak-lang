@@ -13,7 +13,8 @@ Run from the repository root after building both compilers::
         --v4 /tmp/v4b/compiler/*/v4c --shapes tasks long calls loops \\
         --sizes 200 800 1600 --repeats 3 --json /tmp/v3_compare.json
 
-Each cell is the median wall time of ``--repeats`` runs. A row is reported
+Each cell is the median wall time of ``--repeats`` runs; samples alternate
+which compiler runs first, and the JSON records the order. A row is reported
 only when both compilers exit 0; failures are kept in the JSON.
 """
 
@@ -68,6 +69,9 @@ def main() -> int:
     parser.add_argument("--triple", default="x86_64-unknown-linux-gnu")
     parser.add_argument("--json", type=Path)
     args = parser.parse_args()
+    # Runs change into the scratch source directory, so pin both tools first.
+    v3 = args.v3.resolve()
+    v4 = args.v4.resolve()
 
     rows = []
     print(f"{'shape':>6} {'size':>6} {'lines':>7} {'v3 s':>8} {'v4 s':>8} {'v4/v3':>7}")
@@ -77,15 +81,19 @@ def main() -> int:
                 text, _, _ = bench.GENERATORS[shape](size)
                 source = Path(scratch) / f"{shape}_{size}.fk"
                 source.write_text(text, encoding="utf-8")
-                row = {"shape": shape, "size": size, "lines": text.count("\n"), "v3": [], "v4": []}
-                for _ in range(args.repeats):
-                    for name, runner in (("v3", lambda: run_v3(args.v3, source, args.timeout)),
-                                         ("v4", lambda: run_v4(args.v4, source, args.triple, args.timeout))):
+                row = {"shape": shape, "size": size, "lines": text.count("\n"), "v3": [], "v4": [], "order": []}
+                runners = {"v3": lambda path: run_v3(v3, path, args.timeout),
+                           "v4": lambda path: run_v4(v4, path, args.triple, args.timeout)}
+                for sample in range(args.repeats):
+                    # Alternate which compiler goes first so cache warmth is shared.
+                    order = ("v3", "v4") if sample % 2 == 0 else ("v4", "v3")
+                    row["order"].append(list(order))
+                    for name in order:
                         try:
-                            elapsed, ok, module_bytes, code = runner()
+                            elapsed, ok, module_bytes, code = runners[name](source)
                         except subprocess.TimeoutExpired:
                             elapsed, ok, module_bytes, code = args.timeout, False, 0, "timeout"
-                        row[name].append({"seconds": elapsed, "ok": ok, "module_bytes": module_bytes, "exit": code})
+                        row[name].append({"sample": sample, "seconds": elapsed, "ok": ok, "module_bytes": module_bytes, "exit": code})
                 both = all(run["ok"] for run in row["v3"] + row["v4"])
                 if both:
                     row["v3_median"] = statistics.median(run["seconds"] for run in row["v3"])
@@ -98,7 +106,7 @@ def main() -> int:
                 rows.append(row)
     if args.json:
         args.json.write_text(json.dumps({"host": platform.platform(), "python": platform.python_version(),
-                                         "v3": str(args.v3), "v4": str(args.v4), "repeats": args.repeats,
+                                         "v3": str(v3), "v4": str(v4), "repeats": args.repeats,
                                          "rows": rows}, indent=2) + "\n", encoding="utf-8")
     return 0 if all("ratio" in row for row in rows) else 1
 

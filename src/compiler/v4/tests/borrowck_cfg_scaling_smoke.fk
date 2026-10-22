@@ -212,9 +212,12 @@ task borrow_cfg_run() -> void {
     pilot refused = borrow_cfg_check(33, refused_source)
     pilot diagnostics: bool = refused >= 0 and v4_borrowck_diag_count(refused) == 1
     if diagnostics { diagnostics = v4_diag_message(v4_borrowck_diag(refused, 0)) == "Meiya refuses a use of an unavailable word binding" }
+    -- Codegen may reuse only the latest check of an unchanged MIR.
+    pilot reuse: bool = refused >= 0 and v4_borrowck_result_is_current(refused, v4_borrowck_mir_id(refused))
+    reuse = reuse and not v4_borrowck_result_is_current(chain, v4_borrowck_mir_id(chain)) and not v4_borrowck_result_is_current(refused, v4_borrowck_mir_id(chain))
 
     say "borrow-cfg semantic=" + word_from_bool(semantic) + " drops=" + word_from_bool(drops) + " repairs=" + word_from_bool(repairs) + " reaches=" + word_from_bool(reaches)
-    say "borrow-cfg bounded=" + word_from_bool(bounded) + " diagnostics=" + word_from_bool(diagnostics)
+    say "borrow-cfg bounded=" + word_from_bool(bounded) + " diagnostics=" + word_from_bool(diagnostics) + " reuse=" + word_from_bool(reuse)
 }
 
 borrow_cfg_run()
