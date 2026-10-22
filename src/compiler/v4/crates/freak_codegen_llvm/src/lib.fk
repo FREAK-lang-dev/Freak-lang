@@ -40,6 +40,11 @@ pilot v4_codegen_llvm_fragment_error = ""
 -- This transient mode is used only while sealing a fresh checked MIR plan.
 -- Module readers consume sealed text and never revisit this mutable context.
 pilot v4_codegen_llvm_active_owned_mir = 0 - 1
+-- Body-scoped list of owned Word locals, highest ID first, held while one
+-- body is lowered so per-statement and per-edge cleanup skip non-Word locals.
+pilot v4_codegen_llvm_owned_locals = 0 - 1
+pilot v4_codegen_llvm_owned_locals_mir = 0 - 1
+pilot v4_codegen_llvm_owned_locals_body = 0 - 1
 pilot v4_codegen_llvm_active_word_borrow = 0 - 1
 pilot v4_codegen_llvm_native_errors = 0
 pilot v4_codegen_llvm_diags = 0
@@ -1924,6 +1929,7 @@ task v4_codegen_llvm_block_terminator_line(mir_id: int, body_id: int, block_id: 
 }
 
 task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
+    if v4_codegen_llvm_active_owned_mir == mir_id { v4_codegen_llvm_owned_locals_begin(mir_id, body_id) }
     pilot parts = v4_codegen_llvm_fragment_new()
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_body_header(mir_id, body_id) + " {\nentry:\n")
     pilot ty_id = v4_mir_ty_id(mir_id)
@@ -1966,6 +1972,7 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
         block_id += 1
     }
     v4_codegen_llvm_fragment_push(parts, "}")
+    v4_codegen_llvm_owned_locals_end()
     give back v4_codegen_llvm_fragment_finish(parts)
 }
 
@@ -2991,12 +2998,55 @@ task v4_codegen_llvm_word_drop_local_lines(mir_id: int, body_id: int, local: int
     give back out
 }
 
-task v4_codegen_llvm_word_drop_all_lines(mir_id: int, body_id: int, site: word) -> word {
-    pilot parts = v4_codegen_llvm_cleanup_fragment_new()
+task v4_codegen_llvm_owned_locals_end() -> void {
+    if v4_codegen_llvm_owned_locals >= 0 { array_release(v4_codegen_llvm_owned_locals) }
+    v4_codegen_llvm_owned_locals = 0 - 1
+    v4_codegen_llvm_owned_locals_mir = 0 - 1
+    v4_codegen_llvm_owned_locals_body = 0 - 1
+}
+
+task v4_codegen_llvm_owned_locals_begin(mir_id: int, body_id: int) -> void {
+    v4_codegen_llvm_owned_locals_end()
+    pilot rows = array_new()
+    if rows < 0 { give back }
     pilot local = v4_mir_body_local_count(mir_id, body_id) - 1
     repeat until local < 0 {
-        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, local, site))
+        if v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local) {
+            pilot before = array_len(rows)
+            array_push(rows, word_from_int(local))
+            if array_len(rows) != before + 1 {
+                array_release(rows)
+                give back
+            }
+        }
         local -= 1
+    }
+    v4_codegen_llvm_owned_locals = rows
+    v4_codegen_llvm_owned_locals_mir = mir_id
+    v4_codegen_llvm_owned_locals_body = body_id
+}
+
+-- The cached rows for this body, or -1 when the cold all-local scan applies.
+task v4_codegen_llvm_owned_locals_for(mir_id: int, body_id: int) -> int {
+    if v4_codegen_llvm_owned_locals >= 0 and v4_codegen_llvm_owned_locals_mir == mir_id and v4_codegen_llvm_owned_locals_body == body_id { give back v4_codegen_llvm_owned_locals }
+    give back 0 - 1
+}
+
+task v4_codegen_llvm_word_drop_all_lines(mir_id: int, body_id: int, site: word) -> word {
+    pilot parts = v4_codegen_llvm_cleanup_fragment_new()
+    pilot rows = v4_codegen_llvm_owned_locals_for(mir_id, body_id)
+    if rows >= 0 {
+        pilot row = 0
+        repeat until row >= array_len(rows) {
+            v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, word_to_int(array_get(rows, row)), site))
+            row += 1
+        }
+    } else {
+        pilot local = v4_mir_body_local_count(mir_id, body_id) - 1
+        repeat until local < 0 {
+            v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, local, site))
+            local -= 1
+        }
     }
     pilot out = word_join(parts)
     array_release(parts)
@@ -3006,12 +3056,22 @@ task v4_codegen_llvm_word_drop_all_lines(mir_id: int, body_id: int, site: word) 
 task v4_codegen_llvm_word_scope_before_stmt_lines(mir_id: int, body_id: int, previous_stmt: int, next_stmt: int) -> word {
     if previous_stmt < 0 { give back "" }
     pilot parts = v4_codegen_llvm_cleanup_fragment_new()
+    pilot rows = v4_codegen_llvm_owned_locals_for(mir_id, body_id)
+    pilot row = 0
     pilot local = v4_mir_body_local_count(mir_id, body_id) - 1
+    if rows >= 0 {
+        local = 0 - 1
+        if array_len(rows) > 0 { local = word_to_int(array_get(rows, 0)) }
+    }
     repeat until local < 0 {
         if v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local) and v4_mir_word_local_scope_exits_before_stmt(mir_id, body_id, local, previous_stmt, next_stmt) {
             v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, local, "stmt." + word_from_int(next_stmt)))
         }
-        local -= 1
+        if rows >= 0 {
+            row += 1
+            local = 0 - 1
+            if row < array_len(rows) { local = word_to_int(array_get(rows, row)) }
+        } else { local -= 1 }
     }
     pilot out = word_join(parts)
     array_release(parts)
@@ -3020,12 +3080,22 @@ task v4_codegen_llvm_word_scope_before_stmt_lines(mir_id: int, body_id: int, pre
 
 task v4_codegen_llvm_word_scope_edge_lines(mir_id: int, body_id: int, source: int, target: int, arm: int) -> word {
     pilot parts = v4_codegen_llvm_cleanup_fragment_new()
+    pilot rows = v4_codegen_llvm_owned_locals_for(mir_id, body_id)
+    pilot row = 0
     pilot local = v4_mir_body_local_count(mir_id, body_id) - 1
+    if rows >= 0 {
+        local = 0 - 1
+        if array_len(rows) > 0 { local = word_to_int(array_get(rows, 0)) }
+    }
     repeat until local < 0 {
         if v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local) and v4_mir_word_local_scope_exits_on_edge(mir_id, body_id, local, source, target) {
             v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, local, "edge." + word_from_int(source) + "." + word_from_int(arm)))
         }
-        local -= 1
+        if rows >= 0 {
+            row += 1
+            local = 0 - 1
+            if row < array_len(rows) { local = word_to_int(array_get(rows, row)) }
+        } else { local -= 1 }
     }
     pilot out = word_join(parts)
     array_release(parts)
