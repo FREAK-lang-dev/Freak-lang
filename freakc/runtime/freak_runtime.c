@@ -939,8 +939,18 @@ const char* freak_word_to_cstr(freak_word w) {
 freak_word freak_word_from_int(int64_t n) {
     char* buf = (char*)malloc(32);
     if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
-    int len = snprintf(buf, 32, "%lld", (long long)n);
-    if (len < 0) len = 0;
+    /* Same text as "%lld", without the printf machinery. */
+    char digits[24];
+    int count = 0;
+    uint64_t magnitude = n < 0 ? (uint64_t)0 - (uint64_t)n : (uint64_t)n;
+    do {
+        digits[count++] = (char)('0' + (int)(magnitude % 10));
+        magnitude /= 10;
+    } while (magnitude != 0);
+    int len = 0;
+    if (n < 0) buf[len++] = '-';
+    while (count > 0) buf[len++] = digits[--count];
+    buf[len] = '\0';
     return freak_word_own(buf, (size_t)len);
 }
 
