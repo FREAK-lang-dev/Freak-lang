@@ -96,8 +96,8 @@ new cleanup policy must not be added to codegen.
 Status reconciliation; one tier 1 row added, no tier or line changes.
 Checked on `main` at `10f53f8` (2026-10-22).
 
-- **Four of the five open tier 1 rows are closed.** PR #220: `main` follows
-  V3 (no parameters; int or void return), and the error is named on main's
+- **All five tier 1 rows open at 3.4 are closed.** PR #220: `main` follows
+  V3 (no parameters; int, void or never return), and the error is named on main's
   span before codegen. The tier 4 surface sweep built 27 V3 forms and found
   no silent miscompile. The parser now names the 14 forms V4 does not lower
   yet. PR #222: default `panic` ends the main sortie (exact `PANIC:` report,
@@ -108,8 +108,8 @@ Checked on `main` at `10f53f8` (2026-10-22).
   grows 1.9x to 2.3x per doubling (0.437 s at 22,403 lines).
 - **One tier 1 row remains**, added by #221: sibling-loop bodies are still
   5x to 6.5x slower than V3 (owned Word locals × CFG edges).
-- **Pipe precedence is settled** as loosest. The maintainer left the call
-  open on 2026-10-22, and this revision drops the "switch if preferred" note.
+- **Pipe precedence is settled** as loosest. The maintainer confirmed it on
+  2026-10-22, and this revision drops the "switch if preferred" note.
 
 ## What changed in revision 3.4
 
