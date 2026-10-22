@@ -46,6 +46,7 @@ pilot v4_codegen_llvm_supplied_borrow = 0 - 1
 pilot v4_codegen_llvm_owned_locals = 0 - 1
 pilot v4_codegen_llvm_owned_locals_mir = 0 - 1
 pilot v4_codegen_llvm_owned_locals_body = 0 - 1
+pilot v4_codegen_llvm_owned_scopes = 0 - 1
 pilot v4_codegen_llvm_active_word_borrow = 0 - 1
 pilot v4_codegen_llvm_native_errors = 0
 pilot v4_codegen_llvm_diags = 0
@@ -3013,6 +3014,8 @@ task v4_codegen_llvm_word_drop_local_lines(mir_id: int, body_id: int, local: int
 
 task v4_codegen_llvm_owned_locals_end() -> void {
     if v4_codegen_llvm_owned_locals >= 0 { array_release(v4_codegen_llvm_owned_locals) }
+    if v4_codegen_llvm_owned_scopes >= 0 { array_release(v4_codegen_llvm_owned_scopes) }
+    v4_codegen_llvm_owned_scopes = 0 - 1
     v4_codegen_llvm_owned_locals = 0 - 1
     v4_codegen_llvm_owned_locals_mir = 0 - 1
     v4_codegen_llvm_owned_locals_body = 0 - 1
@@ -3034,9 +3037,86 @@ task v4_codegen_llvm_owned_locals_begin(mir_id: int, body_id: int) -> void {
         }
         local -= 1
     }
+    -- Each owned row's lexical scope, parsed once: four cells per row
+    -- (present flag, file, start, end), read by the scope-exit cleanup.
+    pilot scopes = array_new()
+    if scopes < 0 {
+        array_release(rows)
+        give back
+    }
+    pilot row = 0
+    repeat until row >= array_len(rows) {
+        v4_codegen_llvm_scope_cells_push(scopes, v4_mir_local_scope_span(mir_id, body_id, word_to_int(array_get(rows, row))))
+        row += 1
+    }
+    if array_len(scopes) != array_len(rows) * 4 {
+        array_release(scopes)
+        array_release(rows)
+        give back
+    }
+    v4_codegen_llvm_owned_scopes = scopes
     v4_codegen_llvm_owned_locals = rows
     v4_codegen_llvm_owned_locals_mir = mir_id
     v4_codegen_llvm_owned_locals_body = body_id
+}
+
+-- The four cells v4_mir_scope_contains reads from one span.
+task v4_codegen_llvm_scope_cells_push(cells: int, span: word) -> void {
+    if span == (V4_NO_SPAN) {
+        array_push(cells, "0")
+        array_push(cells, "")
+        array_push(cells, "0")
+        array_push(cells, "0")
+        give back
+    }
+    array_push(cells, "1")
+    array_push(cells, v4_span_file(span))
+    array_push(cells, word_from_int(v4_span_start(span)))
+    array_push(cells, word_from_int(v4_span_end(span)))
+}
+
+-- v4_mir_scope_contains(outer, inner) on parsed cells: outer is row `outer`
+-- of `outer_cells`, inner is row 0 of `inner_cells`.
+task v4_codegen_llvm_scope_cells_contain(outer_cells: int, outer: int, inner_cells: int) -> bool {
+    pilot base = outer * 4
+    pilot outer_present: word = array_get(outer_cells, base)
+    pilot inner_present: word = array_get(inner_cells, 0)
+    if outer_present != "1" or inner_present != "1" { give back false }
+    pilot outer_file: word = array_get(outer_cells, base + 1)
+    pilot inner_file: word = array_get(inner_cells, 1)
+    if outer_file != inner_file { give back false }
+    give back word_to_int(array_get(outer_cells, base + 2)) <= word_to_int(array_get(inner_cells, 2)) and word_to_int(array_get(outer_cells, base + 3)) >= word_to_int(array_get(inner_cells, 3))
+}
+
+-- Drops for the cached owned rows whose scope contains `source_scope` but
+-- not `target_scope` (v4_mir_word_local_scope_exits_between), in row order.
+-- Returns "*" when the cached rows do not apply.
+task v4_codegen_llvm_owned_scope_exit_lines(mir_id: int, body_id: int, source_scope: word, target_scope: word, site: word) -> word {
+    pilot rows = v4_codegen_llvm_owned_locals_for(mir_id, body_id)
+    pilot scopes = v4_codegen_llvm_owned_scopes
+    if rows < 0 or scopes < 0 or array_len(scopes) != array_len(rows) * 4 { give back "*" }
+    pilot source_cells = array_new()
+    pilot target_cells = array_new()
+    if source_cells < 0 or target_cells < 0 {
+        if source_cells >= 0 { array_release(source_cells) }
+        if target_cells >= 0 { array_release(target_cells) }
+        give back "*"
+    }
+    v4_codegen_llvm_scope_cells_push(source_cells, source_scope)
+    v4_codegen_llvm_scope_cells_push(target_cells, target_scope)
+    pilot parts = v4_codegen_llvm_cleanup_fragment_new()
+    pilot row = 0
+    repeat until row >= array_len(rows) {
+        if v4_codegen_llvm_scope_cells_contain(scopes, row, source_cells) and not v4_codegen_llvm_scope_cells_contain(scopes, row, target_cells) {
+            v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, word_to_int(array_get(rows, row)), site))
+        }
+        row += 1
+    }
+    array_release(source_cells)
+    array_release(target_cells)
+    pilot out = word_join(parts)
+    array_release(parts)
+    give back out
 }
 
 -- The cached rows for this body, or -1 when the cold all-local scan applies.
@@ -3068,6 +3148,8 @@ task v4_codegen_llvm_word_drop_all_lines(mir_id: int, body_id: int, site: word) 
 
 task v4_codegen_llvm_word_scope_before_stmt_lines(mir_id: int, body_id: int, previous_stmt: int, next_stmt: int) -> word {
     if previous_stmt < 0 { give back "" }
+    pilot cached = v4_codegen_llvm_owned_scope_exit_lines(mir_id, body_id, v4_mir_stmt_scope_span(mir_id, body_id, previous_stmt), v4_mir_stmt_scope_span(mir_id, body_id, next_stmt), "stmt." + word_from_int(next_stmt))
+    if cached != "*" { give back cached }
     pilot parts = v4_codegen_llvm_cleanup_fragment_new()
     pilot rows = v4_codegen_llvm_owned_locals_for(mir_id, body_id)
     pilot row = 0
@@ -3092,6 +3174,8 @@ task v4_codegen_llvm_word_scope_before_stmt_lines(mir_id: int, body_id: int, pre
 }
 
 task v4_codegen_llvm_word_scope_edge_lines(mir_id: int, body_id: int, source: int, target: int, arm: int) -> word {
+    pilot cached = v4_codegen_llvm_owned_scope_exit_lines(mir_id, body_id, v4_mir_edge_source_scope(mir_id, body_id, source), v4_mir_edge_target_scope(mir_id, body_id, target), "edge." + word_from_int(source) + "." + word_from_int(arm))
+    if cached != "*" { give back cached }
     pilot parts = v4_codegen_llvm_cleanup_fragment_new()
     pilot rows = v4_codegen_llvm_owned_locals_for(mir_id, body_id)
     pilot row = 0
