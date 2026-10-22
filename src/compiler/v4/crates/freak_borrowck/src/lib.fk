@@ -160,6 +160,13 @@ pilot v4_borrowck_mention_skipped_blocks = 0
 -- cells per block that each walk resets behind itself, and decimal ids for
 -- the seen indices.
 pilot v4_borrowck_mention_skeleton = 0 - 1
+-- Body-scoped local name index, open while check_mir checks one body (MIR is
+-- not mutated in between). Buckets hold first local id + 1 per name; counts
+-- hold, at each name's first local, how many locals share that name.
+pilot v4_borrowck_name_index_mir = 0 - 1
+pilot v4_borrowck_name_index_body = 0 - 1
+pilot v4_borrowck_name_index_buckets = 0 - 1
+pilot v4_borrowck_name_index_counts = 0 - 1
 pilot v4_borrowck_mention_seen = 0 - 1
 pilot v4_borrowck_mention_ids = 0 - 1
 pilot v4_borrowck_mention_seen_busy = false
@@ -2203,7 +2210,9 @@ task v4_borrowck_local_mode_for_path(mir_id: int, body_id: int, path_text: word)
     }
     pilot binding = v4_borrowck_word_path_local(mir_id, body_id, root)
     if binding >= 0 { give back v4_mir_local_mode(mir_id, body_id, binding) }
-    give back v4_mir_local_mode_for_name(mir_id, body_id, root)
+    pilot local_id = v4_borrowck_find_local(mir_id, body_id, root)
+    if local_id < 0 { give back v4_ty_param_mode_value }
+    give back v4_mir_local_mode(mir_id, body_id, local_id)
 }
 
 task v4_borrowck_lend_holder_mode_for_projection(mir_id: int, body_id: int, path_text: word, skip_leaf: bool) -> word {
@@ -4594,9 +4603,97 @@ task v4_borrowck_use_diag_span(mir_id: int, body_id: int, stmt_id: int) -> word 
 }
 
 -- A shadowed owned word has a private binding path, distinct from its display name.
+task v4_borrowck_name_index_end() -> void {
+    if v4_borrowck_name_index_buckets >= 0 { array_release(v4_borrowck_name_index_buckets) }
+    if v4_borrowck_name_index_counts >= 0 { array_release(v4_borrowck_name_index_counts) }
+    v4_borrowck_name_index_buckets = 0 - 1
+    v4_borrowck_name_index_counts = 0 - 1
+    v4_borrowck_name_index_mir = 0 - 1
+    v4_borrowck_name_index_body = 0 - 1
+}
+
+task v4_borrowck_name_index_bucket(mir_id: int, body_id: int, buckets: int, name: word) -> int {
+    pilot capacity = array_len(buckets)
+    if capacity <= 0 { give back 0 - 1 }
+    pilot bucket = name.checksum() % capacity
+    if bucket < 0 { bucket = 0 - bucket }
+    pilot visited = 0
+    repeat until visited >= capacity {
+        pilot first = word_to_int(array_get(buckets, bucket)) - 1
+        if first < 0 or v4_mir_local_name(mir_id, body_id, first) == name { give back bucket }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back 0 - 1
+}
+
+task v4_borrowck_name_index_begin(mir_id: int, body_id: int) -> void {
+    v4_borrowck_name_index_end()
+    pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+    if local_count <= 8 { give back }
+    pilot buckets = array_new()
+    pilot counts = array_new()
+    pilot built: bool = buckets >= 0 and counts >= 0
+    pilot cell = 0
+    repeat until cell >= local_count * 2 + 1 or not built {
+        array_push(buckets, "0")
+        cell += 1
+        built = array_len(buckets) == cell
+    }
+    cell = 0
+    repeat until cell >= local_count or not built {
+        array_push(counts, "0")
+        cell += 1
+        built = array_len(counts) == cell
+    }
+    pilot local_id = 0
+    repeat until local_id >= local_count or not built {
+        pilot bucket = v4_borrowck_name_index_bucket(mir_id, body_id, buckets, v4_mir_local_name(mir_id, body_id, local_id))
+        if bucket < 0 {
+            built = false
+        } else {
+            pilot first = word_to_int(array_get(buckets, bucket)) - 1
+            if first < 0 {
+                array_set(buckets, bucket, word_from_int(local_id + 1))
+                first = local_id
+            }
+            array_set(counts, first, word_from_int(word_to_int(array_get(counts, first)) + 1))
+        }
+        local_id += 1
+    }
+    if not built {
+        array_release(buckets)
+        array_release(counts)
+        give back
+    }
+    v4_borrowck_name_index_buckets = buckets
+    v4_borrowck_name_index_counts = counts
+    v4_borrowck_name_index_mir = mir_id
+    v4_borrowck_name_index_body = body_id
+}
+
+task v4_borrowck_name_index_ready(mir_id: int, body_id: int) -> bool {
+    give back v4_borrowck_name_index_buckets >= 0 and mir_id == v4_borrowck_name_index_mir and body_id == v4_borrowck_name_index_body and array_len(v4_borrowck_name_index_counts) == v4_mir_body_local_count(mir_id, body_id)
+}
+
+-- v4_mir_find_local through the index when it is open for this body.
+task v4_borrowck_find_local(mir_id: int, body_id: int, name: word) -> int {
+    if not v4_borrowck_name_index_ready(mir_id, body_id) { give back v4_mir_find_local(mir_id, body_id, name) }
+    pilot bucket = v4_borrowck_name_index_bucket(mir_id, body_id, v4_borrowck_name_index_buckets, name)
+    if bucket < 0 { give back v4_mir_find_local(mir_id, body_id, name) }
+    give back word_to_int(array_get(v4_borrowck_name_index_buckets, bucket)) - 1
+}
+
 task v4_borrowck_word_local_path(mir_id: int, body_id: int, local_id: int) -> word {
     pilot name = v4_mir_local_name(mir_id, body_id, local_id)
     if not v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) { give back name }
+    if v4_borrowck_name_index_ready(mir_id, body_id) {
+        pilot first = v4_borrowck_find_local(mir_id, body_id, name)
+        if first >= 0 {
+            if word_to_int(array_get(v4_borrowck_name_index_counts, first)) > 1 { give back "@word-local:" + word_from_int(local_id) }
+            give back name
+        }
+    }
     pilot candidate = 0
     repeat until candidate >= v4_mir_body_local_count(mir_id, body_id) {
         if candidate != local_id and v4_mir_local_name(mir_id, body_id, candidate) == name { give back "@word-local:" + word_from_int(local_id) }
@@ -4612,7 +4709,7 @@ task v4_borrowck_word_path_local(mir_id: int, body_id: int, text: word) -> int {
         if raw == word_from_int(local_id) and local_id >= 0 and local_id < v4_mir_body_local_count(mir_id, body_id) and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) { give back local_id }
         give back 0 - 1
     }
-    pilot local_id = v4_mir_find_local(mir_id, body_id, text)
+    pilot local_id = v4_borrowck_find_local(mir_id, body_id, text)
     if local_id >= 0 and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) { give back local_id }
     give back 0 - 1
 }
@@ -7607,6 +7704,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         pilot result_id = v4_borrowck_add_result(borrow_id, def_id, body_name, status, 0, 0, 0)
         if v4_borrowck_place_address_graph_is_bounded(mir_id, body_idx) {
             v4_borrowck_reach_cache_begin(mir_id, body_idx)
+            v4_borrowck_name_index_begin(mir_id, body_idx)
             v4_borrowck_collect_body_paths(borrow_id, result_id, mir_id, body_idx)
             v4_borrowck_check_fixed_bindings(borrow_id, result_id, mir_id, body_idx)
             v4_borrowck_check_lend_contracts(borrow_id, result_id, mir_id, body_idx)
@@ -7623,6 +7721,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
             v4_borrowck_check_explicit_loan_moves(borrow_id, result_id, mir_id, body_idx)
             v4_borrowck_check_partial_moves(borrow_id, result_id, mir_id, body_idx)
             v4_borrowck_check_word_binding_uses(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_name_index_end()
             v4_borrowck_reach_cache_end()
         } else {
             v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, V4_NO_SPAN, "Meiya cannot prove the place address plan within available resources", body_name))
