@@ -1,0 +1,220 @@
+-- Sibling-loop CFG work: the drop-state table, the move-repair memo and the
+-- reachability rows must agree with the cold scanners they replace, and their
+-- work must stay bounded where the cold walks grow with every loop.
+-- References are the cold tasks kept in Meiya: local_moved_without_reinit,
+-- local_moved_on_any_exit, move_repaired_on_all_paths_seen and the uncached
+-- block_reaches scan (no cache is open outside check_mir).
+
+task borrow_cfg_semantic_source() -> word {
+    pilot open = "{"
+    pilot close = "}"
+    pilot src = "task eat(value: word) -> int " + open + "\n give back value.length()\n" + close + "\n"
+    src = src + "task branch(ready: bool) -> int " + open + "\n pilot w = \"ab\"\n pilot n = 0\n if ready " + open + "\n n = eat(w)\n" + close + " else " + open + "\n n = 1\n" + close + "\n give back n\n" + close + "\n"
+    src = src + "task reinit() -> int " + open + "\n pilot w = \"a\"\n pilot t = eat(w)\n w = \"bb\"\n t = t + eat(w)\n give back t\n" + close + "\n"
+    src = src + "task looped(limit: int) -> int " + open + "\n pilot t = 0\n pilot k = 0\n training arc until k >= limit max 4 sessions " + open + "\n k += 1\n pilot w = \"abc\"\n if k > 1 " + open + "\n t = t + eat(w)\n" + close + "\n" + close + "\n give back t\n" + close + "\n"
+    src = src + "task nested(limit: int) -> int " + open + "\n pilot t = 0\n pilot outer = 0\n training arc until outer >= limit max 3 sessions " + open + "\n outer += 1\n pilot inner = 0\n training arc until inner >= 2 max 3 sessions " + open + "\n inner += 1\n pilot w = \"xy\"\n t = t + eat(w)\n" + close + "\n" + close + "\n pilot kept = \"keep\"\n if limit > 1 " + open + "\n give back t + eat(kept)\n" + close + "\n give back t\n" + close + "\n"
+    src = src + "task chain() -> int " + open + "\n pilot t = 0\n"
+    pilot loop = 0
+    repeat until loop >= 4 {
+        pilot id = word_from_int(loop)
+        src = src + " pilot k" + id + " = 0\n training arc until k" + id + " >= 1 max 2 sessions " + open + "\n k" + id + " += 1\n pilot w" + id + " = \"ab\"\n t = t + eat(w" + id + ")\n say k" + id + "\n" + close + "\n"
+        loop += 1
+    }
+    src = src + " give back t\n" + close + "\n"
+    src = src + "task main() -> int " + open + "\n give back branch(true) + reinit() + looped(3) + nested(2) + chain()\n" + close + "\n"
+    give back src
+}
+
+-- Sibling loops whose word moves are repaired each iteration. The path-seen
+-- walk visits 2^loops paths here; the memo visits each block once per query.
+task borrow_cfg_chain_source(loops: int) -> word {
+    pilot open = "{"
+    pilot close = "}"
+    pilot src = "task eat(value: word) -> int " + open + "\n give back value.length()\n" + close + "\n"
+    src = src + "task main() -> int " + open + "\n pilot t = 0\n"
+    pilot loop = 0
+    repeat until loop >= loops {
+        pilot id = word_from_int(loop)
+        src = src + " pilot k" + id + " = 0\n training arc until k" + id + " >= 1 max 2 sessions " + open + "\n k" + id + " += 1\n pilot w" + id + " = \"ab\"\n t = t + eat(w" + id + ")\n" + close + "\n"
+        loop += 1
+    }
+    src = src + " give back t % 200\n" + close + "\n"
+    give back src
+}
+
+task borrow_cfg_check(file_id: int, source: word) -> int {
+    pilot stream = v4_lex_text(file_id, source)
+    pilot tree = v4_parse_stream(file_id, stream)
+    pilot hir = v4_hir_lower_tree(file_id, tree)
+    pilot resolved = v4_resolve_lower_hir(file_id, hir)
+    pilot ty = v4_ty_lower_resolve(file_id, resolved)
+    pilot mir = v4_mir_lower_ty(file_id, ty)
+    if v4_parse_diag_count(tree) != 0 or v4_hir_diag_count(hir) != 0 or v4_resolve_diag_count(resolved) != 0 or v4_ty_diag_count(ty) != 0 or v4_mir_diag_count(mir) != 0 { give back 0 - 1 }
+    give back v4_borrowck_check_mir(file_id, mir)
+}
+
+-- Expected drop rows from the cold per-local scan, in collect order.
+task borrow_cfg_cold_drops(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> word {
+    pilot out = ""
+    pilot local_idx = v4_mir_body_local_count(mir_id, body_id) - 1
+    repeat until local_idx < 0 {
+        pilot local_mode = v4_mir_local_mode(mir_id, body_id, local_idx)
+        pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_idx)
+        pilot local_name = v4_borrowck_word_local_path(mir_id, body_id, local_idx)
+        if local_mode != v4_ty_param_mode_lend and local_mode != v4_ty_param_mode_lend_mut and not v4_ty_is_lend_type(local_ty) {
+            if not v4_borrowck_local_moved_without_reinit(borrow_id, result_id, mir_id, body_id, local_name) {
+                pilot drop_kind = v4_borrowck_path_drop
+                if v4_borrowck_local_moved_on_any_exit(borrow_id, result_id, mir_id, body_id, local_name) { drop_kind = v4_borrowck_path_drop_if }
+                out = out + drop_kind + ":" + local_name + ";"
+            }
+        }
+        local_idx -= 1
+    }
+    give back out
+}
+
+task borrow_cfg_recorded_drops(borrow_id: int, result_id: int) -> word {
+    pilot out = ""
+    pilot path = 0
+    repeat until path >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        pilot kind = v4_borrowck_path_kind(borrow_id, result_id, path)
+        if kind == v4_borrowck_path_drop or kind == v4_borrowck_path_drop_if { out = out + kind + ":" + v4_borrowck_path_text(borrow_id, result_id, path) + ";" }
+        path += 1
+    }
+    give back out
+}
+
+-- Every move against every use: memoised answer equals the path-seen walk.
+task borrow_cfg_repairs_match(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
+    pilot compared = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    pilot move_idx = 0
+    repeat until move_idx >= path_count {
+        if v4_borrowck_path_kind(borrow_id, result_id, move_idx) == v4_borrowck_path_move {
+            pilot move_stmt = v4_borrowck_path_stmt(borrow_id, result_id, move_idx)
+            pilot move_block = v4_borrowck_path_block(borrow_id, result_id, move_idx)
+            pilot move_text = v4_borrowck_path_text(borrow_id, result_id, move_idx)
+            pilot use_idx = 0
+            repeat until use_idx >= path_count {
+                pilot use_stmt = v4_borrowck_path_stmt(borrow_id, result_id, use_idx)
+                pilot use_block = v4_borrowck_path_block(borrow_id, result_id, use_idx)
+                if use_idx != move_idx and use_stmt >= 0 and move_stmt >= 0 {
+                    pilot repaired: bool = false
+                    if v4_borrowck_word_path_local(mir_id, body_id, move_text) >= 0 { repaired = v4_borrowck_stmt_repairs_move(borrow_id, result_id, move_text, move_stmt, move_block) }
+                    pilot cold: bool = v4_borrowck_move_repaired_on_all_paths_seen(borrow_id, result_id, mir_id, body_id, move_block, move_stmt, move_text, use_stmt, use_block, repaired, "")
+                    if v4_borrowck_move_repaired_before_use(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block) != cold { give back 0 - 1 }
+                    compared += 1
+                }
+                use_idx += 1
+            }
+        }
+        move_idx += 1
+    }
+    give back compared
+}
+
+-- Cached rows against the cold scan for every block pair, including bounds.
+task borrow_cfg_reaches_match(mir_id: int, body_id: int) -> bool {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    pilot cold = array_new()
+    pilot start = 0 - 1
+    repeat until start > block_count {
+        pilot wanted = 0 - 1
+        repeat until wanted > block_count {
+            array_push(cold, word_from_bool(v4_borrowck_block_reaches(mir_id, body_id, start, wanted)))
+            wanted += 1
+        }
+        start += 1
+    }
+    pilot rows = v4_borrowck_reach_cache_rows_built
+    v4_borrowck_reach_cache_begin(mir_id, body_id)
+    pilot same = true
+    pilot cell = 0
+    start = 0 - 1
+    repeat until start > block_count {
+        pilot wanted = 0 - 1
+        repeat until wanted > block_count {
+            pilot expected: word = array_get(cold, cell)
+            if word_from_bool(v4_borrowck_block_reaches(mir_id, body_id, start, wanted)) != expected { same = false }
+            cell += 1
+            wanted += 1
+        }
+        start += 1
+    }
+    -- One row per valid start block (one block bodies keep the cold scan).
+    pilot expected_rows = rows + block_count
+    if block_count <= 1 { expected_rows = rows }
+    same = same and v4_borrowck_reach_cache_rows_built == expected_rows
+    v4_borrowck_reach_cache_end()
+    array_release(cold)
+    give back same
+}
+
+task borrow_cfg_run() -> void {
+    pilot borrow = borrow_cfg_check(31, borrow_cfg_semantic_source())
+    pilot semantic: bool = borrow >= 0 and v4_borrowck_diag_count(borrow) == 0
+    pilot drops = true
+    pilot repairs = true
+    pilot reaches = true
+    pilot compared = 0
+    pilot drop_rows = 0
+    if semantic {
+        pilot mir = v4_borrowck_mir_id(borrow)
+        pilot body = 0
+        repeat until body >= v4_mir_body_count(mir) {
+            pilot result_id = v4_borrowck_lookup_result(borrow, v4_mir_body_def(mir, body))
+            pilot recorded = borrow_cfg_recorded_drops(borrow, result_id)
+            if recorded != borrow_cfg_cold_drops(borrow, result_id, mir, body) { drops = false }
+            if recorded != "" { drop_rows += 1 }
+            pilot matched = borrow_cfg_repairs_match(borrow, result_id, mir, body)
+            if matched < 0 { repairs = false } else { compared += matched }
+            reaches = reaches and borrow_cfg_reaches_match(mir, body)
+            body += 1
+        }
+    }
+    -- The branch, reinit, looped and nested bodies all drop something.
+    drops = drops and drop_rows >= 4
+    repairs = repairs and compared > 0
+
+    -- 24 sibling loops: the path-seen walk would take 2^24 paths per query.
+    pilot builds = v4_borrowck_drop_table_builds
+    pilot queries = v4_borrowck_repair_memo_queries
+    pilot fallbacks = v4_borrowck_drop_table_fallbacks + v4_borrowck_repair_memo_fallbacks
+    pilot chain = borrow_cfg_check(32, borrow_cfg_chain_source(24))
+    pilot bounded: bool = chain >= 0 and v4_borrowck_diag_count(chain) == 0
+    bounded = bounded and v4_borrowck_drop_table_builds > builds
+    if bounded {
+        -- From the first loop's move to the last loop's move: every path through
+        -- the 23 loops in between. The memo answers it in one block-linear walk.
+        pilot chain_mir = v4_borrowck_mir_id(chain)
+        pilot chain_body = v4_mir_body_count(chain_mir) - 1
+        pilot chain_result = v4_borrowck_lookup_result(chain, v4_mir_body_def(chain_mir, chain_body))
+        pilot first_move = 0 - 1
+        pilot last_move = 0 - 1
+        pilot path = 0
+        repeat until path >= v4_borrowck_result_path_count(chain, chain_result) {
+            if v4_borrowck_path_kind(chain, chain_result, path) == v4_borrowck_path_move {
+                if first_move < 0 { first_move = path }
+                last_move = path
+            }
+            path += 1
+        }
+        bounded = first_move >= 0 and last_move > first_move
+        if bounded {
+            pilot walked: bool = v4_borrowck_move_repaired_before_use(chain, chain_result, chain_mir, chain_body, v4_borrowck_path_stmt(chain, chain_result, first_move), v4_borrowck_path_block(chain, chain_result, first_move), v4_borrowck_path_text(chain, chain_result, first_move), v4_borrowck_path_stmt(chain, chain_result, last_move), v4_borrowck_path_block(chain, chain_result, last_move))
+        }
+    }
+    bounded = bounded and v4_borrowck_repair_memo_queries > queries
+    bounded = bounded and v4_borrowck_drop_table_fallbacks + v4_borrowck_repair_memo_fallbacks == fallbacks
+
+    -- A moved word reused by the next iteration is still refused, once per loop.
+    pilot refused_source = "task eat(value: word) -> int " + "{" + "\n give back value.length()\n" + "}" + "\ntask main() -> int " + "{" + "\n pilot t = 0\n pilot w = \"ab\"\n pilot k = 0\n training arc until k >= 2 max 3 sessions " + "{" + "\n k += 1\n t = t + eat(w)\n" + "}" + "\n give back t\n" + "}" + "\n"
+    pilot refused = borrow_cfg_check(33, refused_source)
+    pilot diagnostics: bool = refused >= 0 and v4_borrowck_diag_count(refused) == 1
+    if diagnostics { diagnostics = v4_diag_message(v4_borrowck_diag(refused, 0)) == "Meiya refuses a use of an unavailable word binding" }
+
+    say "borrow-cfg semantic=" + word_from_bool(semantic) + " drops=" + word_from_bool(drops) + " repairs=" + word_from_bool(repairs) + " reaches=" + word_from_bool(reaches)
+    say "borrow-cfg bounded=" + word_from_bool(bounded) + " diagnostics=" + word_from_bool(diagnostics)
+}
+
+borrow_cfg_run()

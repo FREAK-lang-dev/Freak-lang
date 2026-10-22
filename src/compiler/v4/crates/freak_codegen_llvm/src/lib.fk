@@ -3109,19 +3109,23 @@ task v4_codegen_llvm_word_borrow_plan_error(borrow_id: int, mir_id: int) -> word
         if v4_diag_severity(v4_borrowck_diag(borrow_id, diag)) >= v4_diag_error { give back "Meiya errors prevent native word ownership lowering" }
         diag += 1
     }
+    pilot results = v4_borrowck_result_def_index_new(borrow_id)
+    pilot error = ""
     pilot body = 0
-    repeat until body >= v4_mir_body_count(mir_id) {
-        pilot borrow_result = v4_borrowck_lookup_result(borrow_id, v4_mir_body_def(mir_id, body))
-        if borrow_result < 0 or v4_borrowck_result_status(borrow_id, borrow_result) != "clean" { give back "missing clean Meiya result for native word ownership lowering" }
-        pilot local = 0
-        repeat until local >= v4_mir_body_local_count(mir_id, body) {
-            pilot drop_kind = v4_borrowck_word_local_drop_kind(borrow_id, borrow_result, mir_id, body, local)
-            if drop_kind != "" and drop_kind != v4_borrowck_path_drop and drop_kind != v4_borrowck_path_drop_if { give back "invalid native word local drop fact" }
-            local += 1
+    repeat until body >= v4_mir_body_count(mir_id) or error != "" {
+        pilot borrow_result = v4_borrowck_result_def_index_find(results, borrow_id, v4_mir_body_def(mir_id, body))
+        if borrow_result < 0 or v4_borrowck_result_status(borrow_id, borrow_result) != "clean" { error = "missing clean Meiya result for native word ownership lowering" } else {
+            pilot local = 0
+            repeat until local >= v4_mir_body_local_count(mir_id, body) or error != "" {
+                pilot drop_kind = v4_borrowck_word_local_drop_kind(borrow_id, borrow_result, mir_id, body, local)
+                if drop_kind != "" and drop_kind != v4_borrowck_path_drop and drop_kind != v4_borrowck_path_drop_if { error = "invalid native word local drop fact" }
+                local += 1
+            }
         }
         body += 1
     }
-    give back ""
+    if results >= 0 { array_release(results) }
+    give back error
 }
 
 task v4_codegen_llvm_mir_has_owned_words(mir_id: int) -> bool {

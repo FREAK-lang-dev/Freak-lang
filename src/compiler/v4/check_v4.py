@@ -67,6 +67,7 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "borrowck_candidate_scaling_smoke.fk",
         "mir_predecessor_scaling_smoke.fk",
         "mir_never_summary_scaling_smoke.fk",
+        "borrowck_cfg_scaling_smoke.fk",
         "parse_closure_index_smoke.fk",
         "mir_for_each_scope_contract_smoke.fk",
         "say_err_execute_smoke.fk",
@@ -898,6 +899,17 @@ EXECUTABLE_SMOKES = [
             "mir-never capture-overwrite=true capture-type-reads-bounded=true handles-stable=true",
             "mir-never compaction-removal=true success-invalidates=true failed-atomic=true independent-finalize=true",
             "mir-never exhaustion-cold=true readonly-fallback=true recovery=true cells-per-body=4 extra-handles=0",
+        ],
+    },
+    {
+        "name": "Meiya sibling-loop CFG work and cold equivalence",
+        "fixture": "borrowck_cfg_scaling_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "borrow-cfg semantic=true drops=true repairs=true reaches=true",
+            "borrow-cfg bounded=true diagnostics=true",
         ],
     },
     {
@@ -15604,6 +15616,7 @@ def check_snapshot_inventories() -> None:
             "borrowck_candidate_scaling_smoke.fk",
             "mir_predecessor_scaling_smoke.fk",
         "mir_never_summary_scaling_smoke.fk",
+            "borrowck_cfg_scaling_smoke.fk",
             "parse_closure_index_smoke.fk",
             "mir_for_each_scope_contract_smoke.fk",
             "say_err_execute_smoke.fk",
