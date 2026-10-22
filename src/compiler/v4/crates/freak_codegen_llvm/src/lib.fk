@@ -2555,7 +2555,8 @@ task v4_codegen_llvm_lower_owned_mir_with_panic(file_id: int, mir_id: int, polic
 }
 
 -- The build tool has just run Meiya on this MIR. Reuse those facts instead of
--- a second identical check_mir; any other borrow file gets a fresh check.
+-- a second identical check_mir; a result that is not the latest check, or
+-- whose MIR shape changed since, gets a fresh check.
 task v4_codegen_llvm_lower_owned_mir_with_borrow(file_id: int, mir_id: int, policy: word, borrow_id: int) -> int {
     v4_codegen_llvm_supplied_borrow = borrow_id
     pilot codegen_id = v4_codegen_llvm_lower_mir_policy(file_id, mir_id, true, policy)
@@ -2617,7 +2618,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         }
         pilot borrow_id = v4_codegen_llvm_supplied_borrow
         v4_codegen_llvm_supplied_borrow = 0 - 1
-        if borrow_id < 0 or v4_borrowck_mir_id(borrow_id) != mir_id { borrow_id = v4_borrowck_check_mir(file_id, mir_id) }
+        if not v4_borrowck_result_is_current(borrow_id, mir_id) { borrow_id = v4_borrowck_check_mir(file_id, mir_id) }
         error = v4_codegen_llvm_word_borrow_plan_error(borrow_id, mir_id)
         if error != "" {
             array_set(v4_codegen_llvm_native_errors, codegen_id, error)

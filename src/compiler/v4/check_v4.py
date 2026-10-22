@@ -909,7 +909,7 @@ EXECUTABLE_SMOKES = [
         "memory_limit_mb": 64,
         "expect": [
             "borrow-cfg semantic=true drops=true repairs=true reaches=true",
-            "borrow-cfg bounded=true diagnostics=true",
+            "borrow-cfg bounded=true diagnostics=true reuse=true",
         ],
     },
     {

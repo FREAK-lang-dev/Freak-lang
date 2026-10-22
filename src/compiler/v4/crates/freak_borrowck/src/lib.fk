@@ -146,6 +146,8 @@ pilot v4_borrowck_reach_cache_cell_limit = 1048576
 pilot v4_borrowck_reach_cache_rows_built = 0
 pilot v4_borrowck_reach_cache_hits = 0
 pilot v4_borrowck_reach_cache_cold_queries = 0
+pilot v4_borrowck_last_check_borrow = 0 - 1
+pilot v4_borrowck_last_check_shape = ""
 pilot v4_borrowck_mention_mir = 0 - 1
 pilot v4_borrowck_mention_body = 0 - 1
 pilot v4_borrowck_mention_blocks = 0 - 1
@@ -7399,10 +7401,49 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
     give back conflicts
 }
 
+-- A cheap MIR shape: per-body element counts plus a checksum of the block
+-- records. Codegen reuses a supplied Meiya result only when it is the latest
+-- check and the MIR still has the shape it was checked with; appended
+-- statements, blocks, rvalues, places or locals and changed terminators all
+-- force a fresh check_mir.
+task v4_borrowck_mir_shape(mir_id: int) -> word {
+    pilot parts = array_new()
+    if parts < 0 { give back "" }
+    array_push(parts, word_from_int(mir_id) + ":" + word_from_int(v4_mir_body_count(mir_id)))
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot blocks = v4_mir_body_block_count(mir_id, body)
+        pilot records = array_new()
+        if records < 0 {
+            array_release(parts)
+            give back ""
+        }
+        pilot block = 0
+        repeat until block >= blocks {
+            array_push(records, v4_mir_body_block(mir_id, body, block) + "\n")
+            block += 1
+        }
+        array_push(parts, ";" + word_from_int(blocks) + "," + word_from_int(v4_mir_body_stmt_count(mir_id, body)) + "," + word_from_int(v4_mir_body_rvalue_count(mir_id, body)) + "," + word_from_int(v4_mir_body_place_count(mir_id, body)) + "," + word_from_int(v4_mir_body_local_count(mir_id, body)) + "," + word_from_int(word_join(records).checksum()))
+        array_release(records)
+        body += 1
+    }
+    pilot out = word_join(parts)
+    array_release(parts)
+    give back out
+}
+
+task v4_borrowck_result_is_current(borrow_id: int, mir_id: int) -> bool {
+    if borrow_id < 0 or borrow_id != v4_borrowck_last_check_borrow or v4_borrowck_mir_id(borrow_id) != mir_id { give back false }
+    pilot current = v4_borrowck_mir_shape(mir_id)
+    give back current != "" and current == v4_borrowck_last_check_shape
+}
+
 task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
     v4_borrowck_init()
     v4_borrowck_provenance_scratch_reset()
     pilot borrow_id = v4_borrowck_file_new(file_id, mir_id)
+    v4_borrowck_last_check_borrow = borrow_id
+    v4_borrowck_last_check_shape = v4_borrowck_mir_shape(mir_id)
     v4_borrowck_copy_mir_diags(borrow_id, mir_id)
     pilot word_preflight = v4_mir_word_plan_preflight(mir_id)
     if word_preflight == "" { word_preflight = v4_mir_control_plan_preflight(mir_id) }
