@@ -103,7 +103,7 @@ def main() -> int:
     parser.add_argument("--compiler-opt", type=int, choices=(0, 1, 2, 3), default=0,
                         help="bootstrap compiler optimization level (default: 0)")
     parser.add_argument("--panic", choices=("unwind", "abort"), default="unwind",
-                        help="program panic policy (default: unwind; native panic requires abort)")
+                        help="program panic policy (default: unwind, which ends main as panicked with exit status 101; abort raises SIGABRT)")
     args = parser.parse_args()
     clang = shutil.which("clang")
     if clang is None:

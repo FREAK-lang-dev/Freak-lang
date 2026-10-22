@@ -414,10 +414,10 @@ task v35_while_contract_run(mode: int) -> void {
         v35_while_contract_assert(seen_name, "positive case contains a noncanonical identifier")
     }
     if mode == 37 {
-        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
-        v35_while_contract_assert(v4_codegen_llvm_native_module_error(rejected) == "native panic unwind is not yet supported; use --panic=abort", "existing panic policy remains conservative")
-        v35_while_contract_assert(v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "conservative policy has no module")
-        say "v35-while-contract case=37 frontend=true panic-policy=conservative module=false"
+        pilot defaulted = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v35_while_contract_assert(v4_codegen_llvm_native_module_error(defaulted) == "", "default panic policy ends the main sortie")
+        v35_while_contract_assert(v4_codegen_llvm_module_text(defaulted, v4_target_spec_new("x86_64-unknown-linux-gnu")).contains("@freak_v4_panic_unwind(i64"), "default policy uses the unwind helper")
+        say "v35-while-contract case=37 frontend=true panic-policy=main-sortie module=true"
         give back
     }
     pilot body = v4_mir_lookup_body_name(mir, "main")

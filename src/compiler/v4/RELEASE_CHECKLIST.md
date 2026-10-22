@@ -634,7 +634,7 @@ Entry and build:
 
 - [x] **S** Source `main` with parameters. Decided 2026-10-22 to match V3: `main` takes no parameters and returns int or void (or never). `main must not declare parameters` and `main must return int or void, got T` are reported on main's span before codegen, with help naming `process::args_count()` and `process::arg(i)`, which already read arguments; the codegen fence stays as a backstop. Evidence: `prerelease_tier1_entry_smoke.fk`, the build-command check in `codegen_llvm_execute_smoke`
 - [x] **M** `process::arg`, `process::args_count`, `fs::read` as typed intrinsics
-- [ ] **M** Complete default compiler panic unwind/cleanup and runtime honor failures; explicit abort/message/status plus checked overflow, divide-zero and bounds paths are implemented
+- [x] **M** Default panic policy. Decided 2026-10-22 (maintainer): tier 1 unwinds the main sortie only. A default build now accepts `panic(...)`: `freak_v4_panic_unwind` writes the same exact `PANIC: ` report, flushes every output stream so earlier `say` output survives, and exits with status 101 without atexit handlers or leak checks; `--panic=abort` keeps the reviewed abort helper (SIGABRT, Windows status 3). Tier 1 programs have no `catch`, `eventually`, sorties or user destructors, so an unwind would only release memory just before exit. Landing pads, cleanup of owned values on the panic path and `trust me` runtime honor failures move to the tier 5 panic rows and A4. No frame is unwound, so nothing crosses a foreign boundary; a panic inside an `@extern_callback` body also ends the process with 101 rather than abort until the tier 5 trampoline row lands. Evidence: the default-panic case in `codegen_llvm_execute_smoke`'s build-command check, `panic_abort_semantic_smoke.fk`, `panic_abort_short_circuit_smoke.fk`, `v35_while_contract_smoke.fk` case 37
 - [x] **M** Integer overflow, divide-by-zero, and bounds behavior defined and tested in native code
 
 ## Tier 2: V4 compiles V4
@@ -780,7 +780,7 @@ Concurrency (phase D, nothing started):
 - [ ] **L** `Send` / `Sync` proof for captures and `Shared`
 - [ ] **M** `thread::spawn`, `Atomic<T>`, LLVM atomics
 - [ ] **L** Cross-thread capture rejection in Meiya
-- [ ] **M** Panic, unwind and cancellation semantics across tasks
+- [ ] **M** Panic, unwind and cancellation semantics across tasks, including landing pads that run cleanup on the panic path (moved from tier 1 on 2026-10-22; tier 1 ends the main sortie without unwinding frames)
 
 Advanced types (phase E, nothing started):
 

@@ -16,11 +16,10 @@ static _Noreturn void freak_v4_panic_word_fail(const char *reason) {
     abort();
 }
 
-_Noreturn void freak_v4_panic_abort(int64_t message) {
+static void freak_v4_panic_report(int64_t message) {
 #ifdef _WIN32
-    /* Abort is intentional, deterministic and noninteractive. Binary mode
-       preserves the sized payload instead of translating its newline bytes. */
-    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    /* Binary mode preserves the sized payload instead of translating its
+       newline bytes. */
     (void)_setmode(_fileno(stderr), _O_BINARY);
 #endif
     if (!message) freak_v4_panic_word_fail("word value has been consumed");
@@ -38,5 +37,21 @@ _Noreturn void freak_v4_panic_abort(int64_t message) {
     if (length) (void)fwrite((const void *)(uintptr_t)message, 1, length, stderr);
     (void)fputc('\n', stderr);
     (void)fflush(stderr);
+}
+
+_Noreturn void freak_v4_panic_abort(int64_t message) {
+#ifdef _WIN32
+    /* Abort is intentional, deterministic and noninteractive. */
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
+    freak_v4_panic_report(message);
     abort();
+}
+
+_Noreturn void freak_v4_panic_unwind(int64_t message) {
+    freak_v4_panic_report(message);
+    /* The main sortie ends as panicked. Output written before the panic is
+       kept; atexit handlers and leak checks do not run, as with abort. */
+    (void)fflush(NULL);
+    _Exit(FREAK_V4_PANIC_EXIT_STATUS);
 }
