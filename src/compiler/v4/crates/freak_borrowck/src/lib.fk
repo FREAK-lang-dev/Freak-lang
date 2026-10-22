@@ -7414,10 +7414,13 @@ task v4_borrowck_handle_digest(handle: int) -> word {
     pilot index = 0
     repeat until index >= array_len(handle) {
         pilot item: word = array_get(handle, index)
-        array_push(parts, item + "\n")
+        array_push(parts, word_from_int(item.length()) + ":" + item)
         index += 1
     }
-    pilot out = word_from_int(array_len(handle)) + ":" + word_from_int(word_join(parts).checksum())
+    -- Each item carries its byte length, so item boundaries are part of the encoding.
+    -- Two checksums over different starting states keep a false match negligible.
+    pilot encoded = word_join(parts)
+    pilot out = word_from_int(array_len(handle)) + ":" + word_from_int(encoded.length()) + ":" + word_from_int(encoded.checksum()) + ":" + word_from_int(("#" + encoded).checksum())
     array_release(parts)
     give back out
 }
@@ -7429,10 +7432,10 @@ task v4_borrowck_mir_shape(mir_id: int) -> word {
     pilot body = 0
     repeat until body >= v4_mir_body_count(mir_id) {
         array_push(parts, ";" + v4_borrowck_handle_digest(v4_mir_body_blocks_handle(mir_id, body)))
-        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_stmt_kinds_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_blocks_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_places_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_rvalues_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_lhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_rhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_scope_spans_handle(mir_id, body)))
-        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_place_kinds_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_bases_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_fields_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_indices_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_tys_handle(mir_id, body)))
-        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_kinds_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_ops_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_lhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_rhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_tys_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_args_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body)))
-        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_local_tys_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_modes_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_scope_spans_handle(mir_id, body)))
+        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_stmt_kinds_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_blocks_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_places_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_rvalues_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_lhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_rhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_scope_spans_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_spans_handle(mir_id, body)))
+        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_place_kinds_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_bases_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_fields_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_indices_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_tys_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_texts_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_spans_handle(mir_id, body)))
+        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_kinds_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_ops_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_lhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_rhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_tys_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_args_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_texts_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_spans_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_abis_handle(mir_id, body)))
+        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_local_tys_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_modes_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_scope_spans_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_names_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_spans_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_binding_prefixes_handle(mir_id, body)))
         body += 1
     }
     pilot out = word_join(parts)

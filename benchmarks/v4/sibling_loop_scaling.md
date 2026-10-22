@@ -78,8 +78,8 @@ On every pinned row and every run, the emitted LLVM module hashes are identical 
 
 Results by input size:
 
-- **Small inputs:** V4 is within 15% of V3.
-- **800 lines and up:** V4 is 2.4x to 6x faster, because V3 itself grows superlinearly on these shapes.
+- **Small inputs (size 200):** V4 is between about 4% faster and 15.5% slower than V3.
+- **tasks, long and calls at sizes 800 and 1600:** V4 is 2.4x to 6x faster, because V3 itself grows superlinearly on these shapes.
 - **Sibling-loop bodies:** V4 is still 5x to 6.5x slower than V3. This is the residual row in the release checklist.
 
 The historical handoff-7 figure, 1.7x to 2.6x slower, is superseded for the tasks, long and calls shapes.
