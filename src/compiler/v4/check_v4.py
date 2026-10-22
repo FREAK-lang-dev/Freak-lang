@@ -12934,8 +12934,8 @@ EXECUTABLE_SMOKES = [
                         'expect': ['v35-while-contract case=36 frontend=true positive=2 inverted=0 '
                                    'restore=true']},
                        {'argv': ['37'],
-                        'expect': ['v35-while-contract case=37 frontend=true panic-policy=conservative '
-                                   'module=false']},
+                        'expect': ['v35-while-contract case=37 frontend=true panic-policy=main-sortie '
+                                   'module=true']},
                        {'argv': ['38'],
                         'expect': ['v35-while-contract case=38 frontend=true positive=0 inverted=0 '
                                    'restore=true']},
@@ -17392,6 +17392,26 @@ def check_v4_build_command() -> None:
             raise RuntimeError("warning-only V4 build did not report zero errors")
         if expected_success and "extern import unwinds across the FFI boundary" not in result.stdout:
             raise RuntimeError("warning-only V4 build did not retain its unwinder warning")
+    # Default panic=unwind ends the main sortie as panicked: output written
+    # before the panic survives, stderr carries the exact report, status 101.
+    panic_source = RUNTIME_BUILD_ROOT / "llvm_panic_unwind.fk"
+    panic_source.write_text(
+        'task check(n: int) -> int {\n if n > 2 { panic("too big: " + word_from_int(n)) }\n give back n\n}\n'
+        'task main() -> int {\n say "before"\n pilot a = check(1)\n pilot b = check(5)\n say "after"\n give back a + b\n}\n',
+        encoding="utf-8",
+    )
+    panic_executable = RUNTIME_BUILD_ROOT / ("llvm_panic_unwind.exe" if sys.platform == "win32" else "llvm_panic_unwind.native")
+    panic_executable.unlink(missing_ok=True)
+    built = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(panic_source), "-o", str(panic_executable)],
+        label="V4 build command: default panic", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if built.returncode != 0 or not panic_executable.exists():
+        raise RuntimeError(f"V4 default panic policy rejected a panicking program:\n{built.stdout}{built.stderr}")
+    panicked = run_with_heartbeat([str(panic_executable)], label="V4 default panic execute", timeout_seconds=10, memory_limit_mb=128)
+    if (panicked.returncode, panicked.stdout.replace("\r\n", "\n"), panicked.stderr) != (101, "before\n", "PANIC: too big: 5\n"):
+        raise RuntimeError(f"V4 default panic did not end main as panicked: exit={panicked.returncode} stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
+    print("V4 default panic: main-sortie unwind exit=101")
     # Exercise the actual bootstrap/tool boundary as well as plan-level facts:
     # rejected body/entry symbols and cross-target conventions publish no LLVM.
     contract_cases = [

@@ -82,7 +82,8 @@ task v4_panic_semantic_run() -> void {
     v4_panic_assert(module != "" and v4_codegen_llvm_panic_policy(accepted) == "abort", "sealed policy")
     pilot defaulted = v4_codegen_llvm_lower_owned_mir(0, mir)
     if panic_count > 0 {
-        v4_panic_assert(v4_codegen_llvm_native_module_error(defaulted) == "native panic unwind is not yet supported; use --panic=abort" and v4_codegen_llvm_module_text(defaulted, target) == "", "default named fence")
+        pilot unwound = v4_codegen_llvm_module_text(defaulted, target)
+        v4_panic_assert(v4_codegen_llvm_native_module_error(defaulted) == "" and unwound.contains("declare void @freak_v4_panic_unwind(i64) noreturn") and not unwound.contains("@freak_v4_panic_abort"), "default main-sortie unwind")
         v4_panic_assert(module.contains("@freak_v4_panic_abort(i64)") and module.contains("noreturn"), "reviewed helper")
     } else { v4_panic_assert(v4_codegen_llvm_native_module_error(defaulted) == "", "panic-free default") }
     v4_panic_assert(v4_codegen_llvm_panic_policy(defaulted) == "unwind" and v4_codegen_llvm_module_text(accepted, target) == module, "mode interleave")

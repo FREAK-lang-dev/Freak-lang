@@ -34,6 +34,8 @@ pilot v4_codegen_llvm_word_global_lines = 0
 pilot v4_codegen_llvm_native_entry_lines = 0
 pilot v4_codegen_llvm_word_runtime_lines = 0
 pilot v4_codegen_llvm_numeric_runtime_used = false
+-- Policy of the module being lowered; selects the panic helper.
+pilot v4_codegen_llvm_active_panic_policy = "abort"
 pilot v4_codegen_llvm_fragment_error = ""
 -- This transient mode is used only while sealing a fresh checked MIR plan.
 -- Module readers consume sealed text and never revisit this mutable context.
@@ -1744,7 +1746,7 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                         call_line = v4_codegen_llvm_scalar_sum_bridge_instruction(mir_id, body_idx, rvalue_idx, v4_codegen_llvm_temp_value(body_idx, rvalue_idx))
                     }
                     if v4_mir_rvalue_is_builtin_control(mir_id, body_idx, rvalue_idx) {
-                        call_symbol = "@freak_v4_panic_abort"
+                        call_symbol = v4_codegen_llvm_panic_symbol()
                         call_line = v4_codegen_llvm_panic_instruction(mir_id, body_idx, rvalue_idx)
                     }
                     v4_codegen_llvm_add_call(codegen_id, body_name, call_name, call_symbol, call_link, call_abi, call_cc, call_return, call_expr, call_line)
@@ -2578,7 +2580,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         give back codegen_id
     }
     pilot control_error = v4_mir_control_plan_preflight(mir_id)
-    if control_error == "" and v4_codegen_llvm_mir_has_panic(mir_id) and policy == "unwind" { control_error = "native panic unwind is not yet supported; use --panic=abort" }
+    v4_codegen_llvm_active_panic_policy = sealed_policy
     if control_error != "" {
         array_set(v4_codegen_llvm_native_errors, codegen_id, control_error)
         give back codegen_id
@@ -2635,7 +2637,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         -- scalar facade must not mint an untracked owned handle through FFI.
         if native_error == "" { native_error = v4_codegen_llvm_word_runtime_symbol_error(codegen_id) }
         if owned_words { runtime = runtime + v4_codegen_llvm_scalar_sum_runtime_lines(mir_id) }
-        if v4_codegen_llvm_mir_has_panic(mir_id) { runtime = runtime + "declare void @freak_v4_panic_abort(i64) noreturn\n" }
+        if v4_codegen_llvm_mir_has_panic(mir_id) { runtime = runtime + "declare void " + v4_codegen_llvm_panic_symbol() + "(i64) noreturn\n" }
         if v4_codegen_llvm_numeric_runtime_used { runtime = runtime + v4_codegen_llvm_numeric_runtime_declarations() }
         if native_error == "" { native_error = v4_codegen_llvm_numeric_runtime_symbol_error(codegen_id) }
         array_set(v4_codegen_llvm_word_runtime_lines, codegen_id, runtime)
@@ -3999,7 +4001,17 @@ task v4_codegen_llvm_mir_has_panic(mir: int) -> bool {
     give back false
 }
 
+-- Default unwind ends the main sortie as panicked. Tier 1 programs have no
+-- catch, eventually, sorties or user destructors, so nothing can observe the
+-- cleanup an unwind would run; the helper flushes output and exits with 101.
+-- Landing pads arrive with those features (and the A4 Runtime MIR transform).
+-- --panic=abort keeps the reviewed abort helper.
+task v4_codegen_llvm_panic_symbol() -> word {
+    if v4_codegen_llvm_active_panic_policy == "unwind" { give back "@freak_v4_panic_unwind" }
+    give back "@freak_v4_panic_abort"
+}
+
 task v4_codegen_llvm_panic_instruction(mir: int, body: int, value: int) -> word {
     pilot message = v4_mir_rvalue_call_arg(mir, body, value, 0)
-    give back "call void @freak_v4_panic_abort(i64 " + v4_codegen_llvm_rvalue_value(mir, body, message) + ") noreturn"
+    give back "call void " + v4_codegen_llvm_panic_symbol() + "(i64 " + v4_codegen_llvm_rvalue_value(mir, body, message) + ") noreturn"
 }
