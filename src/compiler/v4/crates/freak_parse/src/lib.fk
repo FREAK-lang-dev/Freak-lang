@@ -1841,6 +1841,18 @@ task v4_parse_surface_next(stream_id: int, idx: int) -> int {
     give back at
 }
 
+-- Like v4_parse_surface_next, but a newline ends the phrase: the words of
+-- PLUS ULTRA or knowing this will hurt never join across statements.
+task v4_parse_surface_next_inline(stream_id: int, idx: int) -> int {
+    pilot at = idx
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until at >= count or v4_lex_token_type(stream_id, at) != v4_tok_trivia {
+        if v4_lex_token_value(stream_id, at) == "\n" { give back count }
+        at += 1
+    }
+    give back at
+}
+
 task v4_parse_surface_is(stream_id: int, idx: int, value: word) -> bool {
     if idx >= v4_lex_token_count(stream_id) { give back false }
     pilot token_type = v4_lex_token_type(stream_id, idx)
@@ -1884,14 +1896,19 @@ task v4_parse_validate_unsupported_surface(tree_id: int, stream_id: int) -> void
                     form = "deus_ex_machina blocks are"
                     help = "write the block's statements directly until V4 lowers miracles"
                 } else if value == "launch" {
-                    form = "launch visibility is"
-                    help = "remove launch; V4 builds one file, so every task is already visible inside it"
+                    -- Only the visibility prefix; V3's launch(...) closure
+                    -- spelling keeps its own MIR diagnostic.
+                    pilot item_at = v4_parse_surface_next(stream_id, idx + 1)
+                    if v4_parse_surface_is(stream_id, item_at, "task") or v4_parse_surface_is(stream_id, item_at, "shape") or v4_parse_surface_is(stream_id, item_at, "fixed") or v4_parse_surface_is(stream_id, item_at, "pilot") or v4_parse_surface_is(stream_id, item_at, "route") or v4_parse_surface_is(stream_id, item_at, "doctrine") or v4_parse_surface_is(stream_id, item_at, "alias") or v4_parse_surface_is(stream_id, item_at, "impl") or v4_parse_surface_is(stream_id, item_at, "extern") {
+                        form = "launch visibility is"
+                        help = "remove launch; V4 builds one file, so every task is already visible inside it"
+                    }
                 } else if value == "NAKAMA" or value == "TSUNDERE" {
                     form = "the " + value + " operator is"
                     help = "write the arithmetic out with ordinary operators"
                 } else if value == "for" {
-                    pilot science = v4_parse_surface_next(stream_id, idx + 1)
-                    pilot comma = v4_parse_surface_next(stream_id, science + 1)
+                    pilot science = v4_parse_surface_next_inline(stream_id, idx + 1)
+                    pilot comma = v4_parse_surface_next_inline(stream_id, science + 1)
                     if v4_parse_surface_is(stream_id, science, "science") and v4_parse_surface_is(stream_id, comma, ",") {
                         form = "the for science, prefix is"
                         help = "remove the prefix; the statement after it is ordinary code"
@@ -1900,7 +1917,7 @@ task v4_parse_validate_unsupported_surface(tree_id: int, stream_id: int) -> void
                 }
             } else if token_type == v4_tok_ident {
                 if value == "PLUS" or value == "FINAL" {
-                    pilot second = v4_parse_surface_next(stream_id, idx + 1)
+                    pilot second = v4_parse_surface_next_inline(stream_id, idx + 1)
                     pilot wanted = "ULTRA"
                     if value == "FINAL" { wanted = "FORM" }
                     if v4_parse_surface_is(stream_id, second, wanted) {
@@ -1909,14 +1926,14 @@ task v4_parse_validate_unsupported_surface(tree_id: int, stream_id: int) -> void
                         last = second
                     }
                 } else if value == "knowing" {
-                    pilot this_at = v4_parse_surface_next(stream_id, idx + 1)
-                    pilot will_at = v4_parse_surface_next(stream_id, this_at + 1)
-                    pilot hurt_at = v4_parse_surface_next(stream_id, will_at + 1)
+                    pilot this_at = v4_parse_surface_next_inline(stream_id, idx + 1)
+                    pilot will_at = v4_parse_surface_next_inline(stream_id, this_at + 1)
+                    pilot hurt_at = v4_parse_surface_next_inline(stream_id, will_at + 1)
                     if v4_parse_surface_is(stream_id, this_at, "this") and v4_parse_surface_is(stream_id, will_at, "will") and v4_parse_surface_is(stream_id, hurt_at, "hurt") {
                         form = "the knowing this will hurt, prefix is"
                         help = "remove the prefix; the statement after it is ordinary code"
                         last = hurt_at
-                        pilot comma_at = v4_parse_surface_next(stream_id, hurt_at + 1)
+                        pilot comma_at = v4_parse_surface_next_inline(stream_id, hurt_at + 1)
                         if v4_parse_surface_is(stream_id, comma_at, ",") { last = comma_at }
                     }
                 }

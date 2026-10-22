@@ -22,6 +22,8 @@ task v4_tier1_surface_body(mode: word) -> word {
     if mode == "tsundere" { give back "pilot u = 5 TSUNDERE\n" }
     if mode == "local-annotation" { give back "@protagonist\n pilot hero = 1\n" }
     if mode == "control-for-each" { give back "pilot t = 0\n for each i in 0..3 " + open + " t += i " + close + "\n" }
+    if mode == "control-launch-closure" { give back "pilot callback = launch(x: int) -> int => x\n" }
+    if mode == "control-split-lines" { give back "pilot PLUS = 1\n say PLUS\n ULTRA()\n pilot knowing = 2\n say knowing\n this()\n" }
     if mode == "control-names" { give back "pilot science = 1\n pilot knowing = science\n pilot PLUS = knowing\n say PLUS\n" }
     give back ""
 }
