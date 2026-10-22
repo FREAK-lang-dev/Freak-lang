@@ -110,6 +110,7 @@ pilot v4_borrowck_path_canon_cache_cursor = 0
 pilot v4_borrowck_path_canon_cache_evictions = 0
 pilot v4_borrowck_path_canon_value_cache_cursor = 0
 pilot v4_borrowck_path_canon_value_cache_evictions = 0
+pilot v4_borrowck_path_canon_direct_hits = 0
 pilot v4_borrowck_copy_cache_mir_ids = 0
 pilot v4_borrowck_copy_cache_sig_ids = 0
 pilot v4_borrowck_copy_cache_types = 0
@@ -136,6 +137,37 @@ pilot v4_borrowck_mutable_exclusivity_candidate_visits = 0
 pilot v4_borrowck_mutable_exclusivity_candidate_build_steps = 0
 pilot v4_borrowck_mutable_exclusivity_candidate_builds = 0
 pilot v4_borrowck_mutable_exclusivity_candidate_fallbacks = 0
+pilot v4_borrowck_reach_cache_mir = 0 - 1
+pilot v4_borrowck_reach_cache_body = 0 - 1
+pilot v4_borrowck_reach_cache_block_count = 0
+pilot v4_borrowck_reach_cache_offsets = 0 - 1
+pilot v4_borrowck_reach_cache_cells = 0 - 1
+pilot v4_borrowck_reach_cache_cell_limit = 1048576
+pilot v4_borrowck_reach_cache_rows_built = 0
+pilot v4_borrowck_reach_cache_hits = 0
+pilot v4_borrowck_reach_cache_cold_queries = 0
+pilot v4_borrowck_drop_table_active = false
+pilot v4_borrowck_drop_table_capacity = 0
+pilot v4_borrowck_drop_table_buckets = 0 - 1
+pilot v4_borrowck_drop_table_slot_names = 0 - 1
+pilot v4_borrowck_drop_table_slot_heads = 0 - 1
+pilot v4_borrowck_drop_table_slot_tails = 0 - 1
+pilot v4_borrowck_drop_table_slot_linear = 0 - 1
+pilot v4_borrowck_drop_table_entry_blocks = 0 - 1
+pilot v4_borrowck_drop_table_entry_states = 0 - 1
+pilot v4_borrowck_drop_table_entry_next = 0 - 1
+pilot v4_borrowck_drop_table_block_states = 0 - 1
+pilot v4_borrowck_drop_table_block_edges = 0 - 1
+pilot v4_borrowck_drop_table_exit_reachable = false
+pilot v4_borrowck_drop_table_builds = 0
+pilot v4_borrowck_drop_table_fallbacks = 0
+pilot v4_borrowck_drop_table_walks = 0
+pilot v4_borrowck_drop_table_skipped_walks = 0
+pilot v4_borrowck_holder_unknown = "@unknown-holder?"
+pilot v4_borrowck_repair_memo_open = 0 - 1
+pilot v4_borrowck_repair_memo_repaired = 0 - 1
+pilot v4_borrowck_repair_memo_queries = 0
+pilot v4_borrowck_repair_memo_fallbacks = 0
 pilot v4_borrowck_ready = 0
 
 task v4_borrowck_init() -> void {
@@ -1003,6 +1035,24 @@ task v4_borrowck_path_canon(path_text: word) -> word {
         give back ""
     }
 
+    -- Most paths carry no whitespace and are already canonical. Answer them
+    -- in one scan, without the bounded caches: once a body has more distinct
+    -- paths than the caches hold, every lookup would otherwise miss after
+    -- comparing against all cached rows.
+    pilot has_space = false
+    pilot scan_idx = 0
+    repeat until scan_idx >= path_text.length() or has_space {
+        pilot scan_ch = path_text.char_at(scan_idx)
+        if scan_ch == " " or scan_ch == "\t" or scan_ch == "\r" or scan_ch == "\n" {
+            has_space = true
+        }
+        scan_idx += 1
+    }
+    if not has_space {
+        v4_borrowck_path_canon_direct_hits += 1
+        give back path_text
+    }
+
     pilot cache_id = 0
     repeat until cache_id >= array_len(v4_borrowck_path_canon_inputs) {
         pilot cached_input: word = array_get(v4_borrowck_path_canon_inputs, cache_id)
@@ -1685,6 +1735,13 @@ task v4_borrowck_projection_paths_may_alias(left: word, right: word) -> bool {
         }
     }
     give back true
+}
+
+-- The canonical text up to its first projection: the part every path that
+-- paths_overlap accepts must share.
+task v4_borrowck_path_overlap_root(path_text: word) -> word {
+    pilot canonical = v4_borrowck_path_canon(path_text)
+    give back v4_slice(canonical, 0, v4_borrowck_path_projection_end(canonical, 0))
 }
 
 task v4_borrowck_paths_overlap(left: word, right: word) -> bool {
@@ -4072,6 +4129,101 @@ task v4_borrowck_mark_seen_index(seen: int, index: int) -> bool {
     give back true
 }
 
+-- Body-scoped reachability rows. check_mir opens the cache for one body after
+-- its paths are collected and closes it before the next body; MIR is not
+-- mutated in between. Each row is one full BFS from its start block, stored in
+-- one flat cell table, so repeated queries from the same block cost one read.
+-- Rows stop being added at the cell limit; later queries use the cold BFS.
+
+task v4_borrowck_reach_cache_end() -> void {
+    if v4_borrowck_reach_cache_offsets >= 0 { array_release(v4_borrowck_reach_cache_offsets) }
+    if v4_borrowck_reach_cache_cells >= 0 { array_release(v4_borrowck_reach_cache_cells) }
+    v4_borrowck_reach_cache_offsets = 0 - 1
+    v4_borrowck_reach_cache_cells = 0 - 1
+    v4_borrowck_reach_cache_mir = 0 - 1
+    v4_borrowck_reach_cache_body = 0 - 1
+    v4_borrowck_reach_cache_block_count = 0
+}
+
+task v4_borrowck_reach_cache_begin(mir_id: int, body_id: int) -> void {
+    v4_borrowck_reach_cache_end()
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if block_count <= 1 { give back }
+    pilot offsets = array_new()
+    if offsets < 0 { give back }
+    pilot cells = array_new()
+    if cells < 0 {
+        array_release(offsets)
+        give back
+    }
+    pilot block_id = 0
+    repeat until block_id >= block_count {
+        array_push(offsets, "-1")
+        block_id += 1
+    }
+    if array_len(offsets) != block_count {
+        array_release(cells)
+        array_release(offsets)
+        give back
+    }
+    v4_borrowck_reach_cache_offsets = offsets
+    v4_borrowck_reach_cache_cells = cells
+    v4_borrowck_reach_cache_mir = mir_id
+    v4_borrowck_reach_cache_body = body_id
+    v4_borrowck_reach_cache_block_count = block_count
+}
+
+task v4_borrowck_reach_cache_row(mir_id: int, body_id: int, start_block: int) -> int {
+    if v4_borrowck_reach_cache_offsets < 0 or mir_id != v4_borrowck_reach_cache_mir or body_id != v4_borrowck_reach_cache_body { give back 0 - 1 }
+    pilot block_count = v4_borrowck_reach_cache_block_count
+    if block_count != v4_mir_body_block_count(mir_id, body_id) or start_block < 0 or start_block >= block_count { give back 0 - 1 }
+    pilot offset = word_to_int(array_get(v4_borrowck_reach_cache_offsets, start_block))
+    if offset >= 0 { give back offset }
+    pilot cells = v4_borrowck_reach_cache_cells
+    offset = array_len(cells)
+    if offset + block_count > v4_borrowck_reach_cache_cell_limit { give back 0 - 1 }
+    pilot cell = 0
+    repeat until cell >= block_count {
+        array_push(cells, "0")
+        cell += 1
+    }
+    if array_len(cells) != offset + block_count { give back 0 - 1 }
+    -- Same successor rule as the cold scan below; the start block is included.
+    pilot queue = array_new()
+    if queue < 0 { give back 0 - 1 }
+    array_set(cells, offset + start_block, "1")
+    array_push(queue, word_from_int(start_block))
+    pilot cursor = 0
+    repeat until cursor >= array_len(queue) {
+        pilot block_id = word_to_int(array_get(queue, cursor))
+        cursor += 1
+        pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+        pilot terminator = v4_mir_block_terminator(block_record)
+        pilot first = 0 - 1
+        pilot second = 0 - 1
+        if terminator == v4_mir_term_goto or terminator == v4_mir_term_if { first = v4_mir_block_target(block_record) }
+        if terminator == v4_mir_term_if { second = v4_mir_block_else_target(block_record) }
+        if first >= 0 and first < block_count {
+            pilot first_cell: word = array_get(cells, offset + first)
+            if first_cell == "0" {
+                array_set(cells, offset + first, "1")
+                array_push(queue, word_from_int(first))
+            }
+        }
+        if second >= 0 and second < block_count {
+            pilot second_cell: word = array_get(cells, offset + second)
+            if second_cell == "0" {
+                array_set(cells, offset + second, "1")
+                array_push(queue, word_from_int(second))
+            }
+        }
+    }
+    array_release(queue)
+    array_set(v4_borrowck_reach_cache_offsets, start_block, word_from_int(offset))
+    v4_borrowck_reach_cache_rows_built += 1
+    give back offset
+}
+
 task v4_borrowck_block_reaches(mir_id: int, body_id: int, start_block: int, wanted_block: int) -> bool {
     if start_block < 0 or wanted_block < 0 {
         give back false
@@ -4080,6 +4232,13 @@ task v4_borrowck_block_reaches(mir_id: int, body_id: int, start_block: int, want
     if start_block >= block_count or wanted_block >= block_count {
         give back false
     }
+    pilot cached_row = v4_borrowck_reach_cache_row(mir_id, body_id, start_block)
+    if cached_row >= 0 {
+        v4_borrowck_reach_cache_hits += 1
+        pilot reached: word = array_get(v4_borrowck_reach_cache_cells, cached_row + wanted_block)
+        give back reached == "1"
+    }
+    v4_borrowck_reach_cache_cold_queries += 1
 
     pilot seen = array_new()
     pilot queue = array_new()
@@ -4222,13 +4381,161 @@ task v4_borrowck_move_repaired_on_all_paths_seen(borrow_id: int, result_id: int,
     give back true
 }
 
+-- The path-seen walk above explores every CFG path from the move, so a chain
+-- of sibling loops costs 2^loops walks. Its answer for a state does not depend
+-- on the path that reached it:
+--   * an open (unrepaired) state is false exactly when some open path from it
+--     reaches the use, an invalid block, a repaired state that is false, or a
+--     state already on the path. That last case is an open cycle through the
+--     state itself, so it is false from every path;
+--   * a repaired state is false exactly when it reaches an invalid target
+--     without passing the use (revisits answer true).
+-- So each block's open answer is memoised (gray while on the walk), and a
+-- repaired answer is one breadth-first reach. Scratch is per query.
+
+-- Scan one block after start_stmt: 0 or 1 when the use is reached unrepaired
+-- or repaired, otherwise 2 or 3 for the state the block leaves.
+task v4_borrowck_repair_scan_block(borrow_id: int, result_id: int, mir_id: int, body_id: int, block_id: int, start_stmt: int, move_text: word, use_stmt: int, use_block: int, repaired: bool) -> int {
+    pilot current_repaired = repaired
+    pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, block_id)
+    repeat until stmt_id < 0 {
+        if stmt_id > start_stmt {
+            if block_id == use_block and stmt_id == use_stmt {
+                if current_repaired { give back 1 }
+                give back 0
+            }
+            if v4_borrowck_stmt_repairs_move(borrow_id, result_id, move_text, stmt_id, block_id) {
+                current_repaired = true
+            }
+        }
+        stmt_id = v4_mir_block_next_stmt(mir_id, body_id, block_id, stmt_id)
+    }
+    if current_repaired { give back 3 }
+    give back 2
+}
+
+task v4_borrowck_repair_memo_repaired_block(borrow_id: int, result_id: int, mir_id: int, body_id: int, block_id: int, move_text: word, use_stmt: int, use_block: int) -> bool {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if block_id < 0 or block_id >= block_count { give back false }
+    pilot memo = v4_borrowck_repair_memo_repaired
+    pilot known: word = array_get(memo, block_id)
+    if known == "t" { give back true }
+    if known == "f" { give back false }
+    pilot queue = array_new()
+    if queue < 0 { give back v4_borrowck_move_repaired_on_all_paths_seen(borrow_id, result_id, mir_id, body_id, block_id, 0 - 1, move_text, use_stmt, use_block, true, "") }
+    pilot seen = array_new()
+    v4_borrowck_mark_seen_index(seen, block_id)
+    array_push(queue, word_from_int(block_id))
+    pilot cursor = 0
+    pilot valid = true
+    repeat until cursor >= array_len(queue) or not valid {
+        pilot current = word_to_int(array_get(queue, cursor))
+        cursor += 1
+        pilot current_known: word = array_get(memo, current)
+        if current_known == "f" {
+            valid = false
+        } else if current_known != "t" and v4_borrowck_repair_scan_block(borrow_id, result_id, mir_id, body_id, current, 0 - 1, move_text, use_stmt, use_block, true) == 3 {
+            pilot block_record = v4_mir_body_block(mir_id, body_id, current)
+            pilot terminator = v4_mir_block_terminator(block_record)
+            pilot edge = 0
+            repeat until edge >= 2 or not valid {
+                pilot next = 0 - 2
+                if edge == 0 and (terminator == v4_mir_term_goto or terminator == v4_mir_term_if) { next = v4_mir_block_target(block_record) }
+                if edge == 1 and terminator == v4_mir_term_if { next = v4_mir_block_else_target(block_record) }
+                if next != 0 - 2 {
+                    if next < 0 or next >= block_count or use_block < 0 {
+                        valid = false
+                    } else if v4_borrowck_mark_seen_index(seen, next) {
+                        array_push(queue, word_from_int(next))
+                    }
+                }
+                edge += 1
+            }
+        }
+    }
+    -- A true answer covers every block the reach visited (each one's own reach
+    -- was explored here); a false one is recorded for the start only.
+    if valid {
+        cursor = 0
+        repeat until cursor >= array_len(queue) {
+            array_set(memo, word_to_int(array_get(queue, cursor)), "t")
+            cursor += 1
+        }
+    } else { array_set(memo, block_id, "f") }
+    array_release(seen)
+    array_release(queue)
+    give back valid
+}
+
+task v4_borrowck_repair_memo_walk(borrow_id: int, result_id: int, mir_id: int, body_id: int, block_id: int, start_stmt: int, move_text: word, use_stmt: int, use_block: int, repaired: bool) -> bool {
+    if block_id < 0 or use_block < 0 { give back false }
+    if block_id >= v4_mir_body_block_count(mir_id, body_id) { give back false }
+    if repaired and start_stmt < 0 { give back v4_borrowck_repair_memo_repaired_block(borrow_id, result_id, mir_id, body_id, block_id, move_text, use_stmt, use_block) }
+    pilot memo = v4_borrowck_repair_memo_open
+    if start_stmt < 0 {
+        pilot known: word = array_get(memo, block_id)
+        if known == "t" { give back true }
+        if known == "f" or known == "g" { give back false }
+        array_set(memo, block_id, "g")
+    }
+    pilot outcome = v4_borrowck_repair_scan_block(borrow_id, result_id, mir_id, body_id, block_id, start_stmt, move_text, use_stmt, use_block, repaired)
+    pilot answer = true
+    if outcome == 0 {
+        answer = false
+    } else if outcome == 1 {
+        answer = true
+    } else {
+        pilot current_repaired = outcome == 3
+        pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+        pilot terminator = v4_mir_block_terminator(block_record)
+        if terminator == v4_mir_term_goto {
+            answer = v4_borrowck_repair_memo_walk(borrow_id, result_id, mir_id, body_id, v4_mir_block_target(block_record), 0 - 1, move_text, use_stmt, use_block, current_repaired)
+        } else if terminator == v4_mir_term_if {
+            pilot target_repaired = v4_borrowck_repair_memo_walk(borrow_id, result_id, mir_id, body_id, v4_mir_block_target(block_record), 0 - 1, move_text, use_stmt, use_block, current_repaired)
+            pilot else_repaired = v4_borrowck_repair_memo_walk(borrow_id, result_id, mir_id, body_id, v4_mir_block_else_target(block_record), 0 - 1, move_text, use_stmt, use_block, current_repaired)
+            answer = target_repaired and else_repaired
+        }
+    }
+    if start_stmt < 0 {
+        if answer { array_set(memo, block_id, "t") } else { array_set(memo, block_id, "f") }
+    }
+    give back answer
+}
+
 task v4_borrowck_move_repaired_before_use(borrow_id: int, result_id: int, mir_id: int, body_id: int, move_stmt: int, move_block: int, move_text: word, use_stmt: int, use_block: int) -> bool {
     if move_stmt < 0 or use_stmt < 0 {
         give back false
     }
     pilot repaired: bool = false
     if v4_borrowck_word_path_local(mir_id, body_id, move_text) >= 0 { repaired = v4_borrowck_stmt_repairs_move(borrow_id, result_id, move_text, move_stmt, move_block) }
-    give back v4_borrowck_move_repaired_on_all_paths_seen(borrow_id, result_id, mir_id, body_id, move_block, move_stmt, move_text, use_stmt, use_block, repaired, "")
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    pilot open_memo = array_new()
+    pilot repaired_memo = array_new()
+    pilot ready = open_memo >= 0 and repaired_memo >= 0 and block_count > 0
+    pilot cell = 0
+    repeat until cell >= block_count or not ready {
+        array_push(open_memo, "u")
+        array_push(repaired_memo, "u")
+        cell += 1
+    }
+    if ready { ready = array_len(open_memo) == block_count and array_len(repaired_memo) == block_count }
+    if not ready {
+        if open_memo >= 0 { array_release(open_memo) }
+        if repaired_memo >= 0 { array_release(repaired_memo) }
+        v4_borrowck_repair_memo_fallbacks += 1
+        give back v4_borrowck_move_repaired_on_all_paths_seen(borrow_id, result_id, mir_id, body_id, move_block, move_stmt, move_text, use_stmt, use_block, repaired, "")
+    }
+    pilot previous_open = v4_borrowck_repair_memo_open
+    pilot previous_repaired = v4_borrowck_repair_memo_repaired
+    v4_borrowck_repair_memo_open = open_memo
+    v4_borrowck_repair_memo_repaired = repaired_memo
+    v4_borrowck_repair_memo_queries += 1
+    pilot answer = v4_borrowck_repair_memo_walk(borrow_id, result_id, mir_id, body_id, move_block, move_stmt, move_text, use_stmt, use_block, repaired)
+    v4_borrowck_repair_memo_open = previous_open
+    v4_borrowck_repair_memo_repaired = previous_repaired
+    array_release(repaired_memo)
+    array_release(open_memo)
+    give back answer
 }
 
 task v4_borrowck_is_no_span(span: word) -> bool {
@@ -6061,7 +6368,328 @@ task v4_borrowck_local_moved_on_any_exit(borrow_id: int, result_id: int, mir_id:
     give back v4_borrowck_local_has_exit_state(borrow_id, result_id, mir_id, body_id, local_name, false)
 }
 
+-- Request-scoped drop-state table for one body. The cold drop scan asks, for
+-- every local, which state each block leaves it in, rescanning every path of
+-- the block and canonicalising both texts each time: locals x paths. The table
+-- reads every statement path once, in the same block/statement/path order,
+-- keyed by the canonical local name, so each block's final state for a local
+-- is one lookup and locals with no move/write effect skip the walk entirely.
+-- Released before collect_drop_paths returns; the cold scanners remain the
+-- reference and the fallback.
+
+task v4_borrowck_drop_table_release() -> void {
+    if v4_borrowck_drop_table_buckets >= 0 { array_release(v4_borrowck_drop_table_buckets) }
+    if v4_borrowck_drop_table_slot_names >= 0 { array_release(v4_borrowck_drop_table_slot_names) }
+    if v4_borrowck_drop_table_slot_heads >= 0 { array_release(v4_borrowck_drop_table_slot_heads) }
+    if v4_borrowck_drop_table_slot_tails >= 0 { array_release(v4_borrowck_drop_table_slot_tails) }
+    if v4_borrowck_drop_table_slot_linear >= 0 { array_release(v4_borrowck_drop_table_slot_linear) }
+    if v4_borrowck_drop_table_entry_blocks >= 0 { array_release(v4_borrowck_drop_table_entry_blocks) }
+    if v4_borrowck_drop_table_entry_states >= 0 { array_release(v4_borrowck_drop_table_entry_states) }
+    if v4_borrowck_drop_table_entry_next >= 0 { array_release(v4_borrowck_drop_table_entry_next) }
+    if v4_borrowck_drop_table_block_states >= 0 { array_release(v4_borrowck_drop_table_block_states) }
+    if v4_borrowck_drop_table_block_edges >= 0 { array_release(v4_borrowck_drop_table_block_edges) }
+    v4_borrowck_drop_table_buckets = 0 - 1
+    v4_borrowck_drop_table_slot_names = 0 - 1
+    v4_borrowck_drop_table_slot_heads = 0 - 1
+    v4_borrowck_drop_table_slot_tails = 0 - 1
+    v4_borrowck_drop_table_slot_linear = 0 - 1
+    v4_borrowck_drop_table_entry_blocks = 0 - 1
+    v4_borrowck_drop_table_entry_states = 0 - 1
+    v4_borrowck_drop_table_entry_next = 0 - 1
+    v4_borrowck_drop_table_block_states = 0 - 1
+    v4_borrowck_drop_table_block_edges = 0 - 1
+    v4_borrowck_drop_table_capacity = 0
+    v4_borrowck_drop_table_exit_reachable = false
+    v4_borrowck_drop_table_active = false
+}
+
+task v4_borrowck_drop_table_bucket(key: word) -> int {
+    pilot capacity = v4_borrowck_drop_table_capacity
+    pilot bucket: int = key.checksum() % capacity
+    pilot visited = 0
+    repeat until visited >= capacity {
+        pilot slot = word_to_int(array_get(v4_borrowck_drop_table_buckets, bucket)) - 1
+        if slot < 0 { give back bucket }
+        pilot name: word = array_get(v4_borrowck_drop_table_slot_names, slot)
+        if name == key { give back bucket }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back 0 - 1
+}
+
+-- The canonical key of a path or local name, matching path_exact_local: an
+-- empty raw text never matches, so it has no key.
+task v4_borrowck_drop_table_lookup(text: word) -> int {
+    if text == "" { give back 0 - 1 }
+    pilot bucket = v4_borrowck_drop_table_bucket(v4_borrowck_path_canon(text))
+    if bucket < 0 { give back 0 - 1 }
+    give back word_to_int(array_get(v4_borrowck_drop_table_buckets, bucket)) - 1
+}
+
+task v4_borrowck_drop_table_intern(text: word) -> bool {
+    if text == "" { give back true }
+    pilot key = v4_borrowck_path_canon(text)
+    pilot bucket = v4_borrowck_drop_table_bucket(key)
+    if bucket < 0 { give back false }
+    if word_to_int(array_get(v4_borrowck_drop_table_buckets, bucket)) > 0 { give back true }
+    pilot slot = array_len(v4_borrowck_drop_table_slot_names)
+    array_push(v4_borrowck_drop_table_slot_names, key)
+    array_push(v4_borrowck_drop_table_slot_heads, "-1")
+    array_push(v4_borrowck_drop_table_slot_tails, "-1")
+    array_push(v4_borrowck_drop_table_slot_linear, "-1")
+    array_set(v4_borrowck_drop_table_buckets, bucket, word_from_int(slot + 1))
+    give back array_len(v4_borrowck_drop_table_slot_linear) == slot + 1
+}
+
+-- Record that block_id leaves slot in state; a later statement of the same
+-- block overrides the earlier one, as in local_state_after_block.
+task v4_borrowck_drop_table_set_block_state(slot: int, block_id: int, state: word) -> void {
+    pilot tail = word_to_int(array_get(v4_borrowck_drop_table_slot_tails, slot))
+    if tail >= 0 and word_to_int(array_get(v4_borrowck_drop_table_entry_blocks, tail)) == block_id {
+        array_set(v4_borrowck_drop_table_entry_states, tail, state)
+        give back
+    }
+    pilot entry = array_len(v4_borrowck_drop_table_entry_blocks)
+    array_push(v4_borrowck_drop_table_entry_blocks, word_from_int(block_id))
+    array_push(v4_borrowck_drop_table_entry_states, state)
+    array_push(v4_borrowck_drop_table_entry_next, "-1")
+    if tail < 0 { array_set(v4_borrowck_drop_table_slot_heads, slot, word_from_int(entry)) } else { array_set(v4_borrowck_drop_table_entry_next, tail, word_from_int(entry)) }
+    array_set(v4_borrowck_drop_table_slot_tails, slot, word_from_int(entry))
+}
+
+-- One statement: every move, then every write, exactly as the cold per-local
+-- statement test (a statement that both moves and writes a local leaves it
+-- initialized). block_id < 0 records the single-block linear statement order.
+task v4_borrowck_drop_table_stmt(borrow_id: int, result_id: int, stmt_id: int, block_id: int) -> void {
+    pilot pass = 0
+    repeat until pass >= 2 {
+        pilot wanted_kind = v4_borrowck_path_move
+        pilot state = "0"
+        if pass == 1 {
+            wanted_kind = v4_borrowck_path_write
+            state = "1"
+        }
+        pilot path_id = v4_borrowck_stmt_path_first(borrow_id, result_id, stmt_id)
+        repeat until path_id < 0 {
+            if v4_borrowck_path_kind(borrow_id, result_id, path_id) == wanted_kind {
+                pilot slot = v4_borrowck_drop_table_lookup(v4_borrowck_path_text(borrow_id, result_id, path_id))
+                if slot >= 0 {
+                    if block_id < 0 { array_set(v4_borrowck_drop_table_slot_linear, slot, state) } else { v4_borrowck_drop_table_set_block_state(slot, block_id, state) }
+                }
+            }
+            path_id = v4_borrowck_stmt_path_next(borrow_id, result_id, stmt_id, path_id)
+        }
+        pass += 1
+    }
+}
+
+task v4_borrowck_drop_table_build(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> bool {
+    v4_borrowck_drop_table_release()
+    pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if local_count <= 0 or block_count <= 0 { give back false }
+    pilot capacity = 16
+    repeat until capacity >= local_count * 2 { capacity *= 2 }
+    v4_borrowck_drop_table_buckets = array_new()
+    v4_borrowck_drop_table_slot_names = array_new()
+    v4_borrowck_drop_table_slot_heads = array_new()
+    v4_borrowck_drop_table_slot_tails = array_new()
+    v4_borrowck_drop_table_slot_linear = array_new()
+    v4_borrowck_drop_table_entry_blocks = array_new()
+    v4_borrowck_drop_table_entry_states = array_new()
+    v4_borrowck_drop_table_entry_next = array_new()
+    v4_borrowck_drop_table_block_states = array_new()
+    v4_borrowck_drop_table_block_edges = array_new()
+    if v4_borrowck_drop_table_block_edges < 0 { give back false }
+    if v4_borrowck_drop_table_buckets < 0 or v4_borrowck_drop_table_slot_names < 0 or v4_borrowck_drop_table_slot_heads < 0 or v4_borrowck_drop_table_slot_tails < 0 or v4_borrowck_drop_table_slot_linear < 0 or v4_borrowck_drop_table_entry_blocks < 0 or v4_borrowck_drop_table_entry_states < 0 or v4_borrowck_drop_table_entry_next < 0 or v4_borrowck_drop_table_block_states < 0 { give back false }
+    v4_borrowck_drop_table_capacity = capacity
+    pilot cell = 0
+    repeat until cell >= capacity {
+        array_push(v4_borrowck_drop_table_buckets, "0")
+        cell += 1
+    }
+    -- Three cells per block: terminator class (goto, if, unreachable or
+    -- exit), target and else target, read once from the block record.
+    cell = 0
+    repeat until cell >= block_count {
+        array_push(v4_borrowck_drop_table_block_states, "-1")
+        pilot edge_record = v4_mir_body_block(mir_id, body_id, cell)
+        pilot edge_terminator = v4_mir_block_terminator(edge_record)
+        pilot edge_class = "x"
+        pilot edge_target = "-1"
+        pilot edge_else = "-1"
+        if edge_terminator == v4_mir_term_goto {
+            edge_class = "g"
+            edge_target = word_from_int(v4_mir_block_target(edge_record))
+        } else if edge_terminator == v4_mir_term_if {
+            edge_class = "i"
+            edge_target = word_from_int(v4_mir_block_target(edge_record))
+            edge_else = word_from_int(v4_mir_block_else_target(edge_record))
+        } else if edge_terminator == v4_mir_term_unreachable {
+            edge_class = "u"
+        }
+        array_push(v4_borrowck_drop_table_block_edges, edge_class)
+        array_push(v4_borrowck_drop_table_block_edges, edge_target)
+        array_push(v4_borrowck_drop_table_block_edges, edge_else)
+        cell += 1
+    }
+    if array_len(v4_borrowck_drop_table_buckets) != capacity or array_len(v4_borrowck_drop_table_block_states) != block_count or array_len(v4_borrowck_drop_table_block_edges) != block_count * 3 { give back false }
+    pilot local_idx = 0
+    repeat until local_idx >= local_count {
+        if not v4_borrowck_drop_table_intern(v4_borrowck_word_local_path(mir_id, body_id, local_idx)) { give back false }
+        local_idx += 1
+    }
+    if block_count == 1 {
+        pilot stmt_idx = 0
+        pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+        repeat until stmt_idx >= stmt_count {
+            v4_borrowck_drop_table_stmt(borrow_id, result_id, stmt_idx, 0 - 1)
+            stmt_idx += 1
+        }
+    }
+    pilot block_id = 0
+    repeat until block_id >= block_count {
+        pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, block_id)
+        repeat until stmt_id < 0 {
+            v4_borrowck_drop_table_stmt(borrow_id, result_id, stmt_id, block_id)
+            stmt_id = v4_mir_block_next_stmt(mir_id, body_id, block_id, stmt_id)
+        }
+        block_id += 1
+    }
+    -- A local no statement moves or writes keeps its initial state on every
+    -- path, so its walk only asks whether any exit is reachable from block 0.
+    v4_borrowck_drop_table_exit_reachable = false
+    pilot reach_seen = array_new()
+    pilot reach_queue = array_new()
+    if reach_seen < 0 or reach_queue < 0 {
+        array_release(reach_queue)
+        array_release(reach_seen)
+        give back false
+    }
+    v4_borrowck_mark_seen_index(reach_seen, 0)
+    array_push(reach_queue, "0")
+    pilot cursor = 0
+    repeat until cursor >= array_len(reach_queue) or v4_borrowck_drop_table_exit_reachable {
+        pilot current = word_to_int(array_get(reach_queue, cursor))
+        pilot block_record = v4_mir_body_block(mir_id, body_id, current)
+        pilot terminator = v4_mir_block_terminator(block_record)
+        if terminator == v4_mir_term_goto or terminator == v4_mir_term_if {
+            pilot first = v4_mir_block_target(block_record)
+            if first >= 0 and first < block_count and v4_borrowck_mark_seen_index(reach_seen, first) { array_push(reach_queue, word_from_int(first)) }
+            if terminator == v4_mir_term_if {
+                pilot second = v4_mir_block_else_target(block_record)
+                if second >= 0 and second < block_count and v4_borrowck_mark_seen_index(reach_seen, second) { array_push(reach_queue, word_from_int(second)) }
+            }
+        } else if terminator != v4_mir_term_unreachable {
+            v4_borrowck_drop_table_exit_reachable = true
+        }
+        cursor += 1
+    }
+    array_release(reach_queue)
+    array_release(reach_seen)
+    v4_borrowck_drop_table_active = true
+    v4_borrowck_drop_table_builds += 1
+    give back true
+}
+
+-- local_has_exit_state through the table: same (block, state) worklist, with
+-- each block's effect read from the slot's entries instead of rescanned.
+task v4_borrowck_drop_table_has_exit_state(mir_id: int, body_id: int, slot: int, initially_initialized: bool, wanted_initialized: bool) -> bool {
+    pilot head = 0 - 1
+    if slot >= 0 { head = word_to_int(array_get(v4_borrowck_drop_table_slot_heads, slot)) }
+    if head < 0 {
+        v4_borrowck_drop_table_skipped_walks += 1
+        give back initially_initialized == wanted_initialized and v4_borrowck_drop_table_exit_reachable
+    }
+    v4_borrowck_drop_table_walks += 1
+    pilot block_states = v4_borrowck_drop_table_block_states
+    pilot entry = head
+    repeat until entry < 0 {
+        array_set(block_states, word_to_int(array_get(v4_borrowck_drop_table_entry_blocks, entry)), array_get(v4_borrowck_drop_table_entry_states, entry))
+        entry = word_to_int(array_get(v4_borrowck_drop_table_entry_next, entry))
+    }
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    pilot seen = array_new()
+    pilot pending_blocks = array_new()
+    pilot pending_states = array_new()
+    v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, 0, initially_initialized)
+    pilot found = false
+    pilot pending_id = 0
+    repeat until pending_id >= array_len(pending_blocks) or found {
+        pilot block_id = word_to_int(array_get(pending_blocks, pending_id))
+        pilot initialized_text: word = array_get(pending_states, pending_id)
+        pilot current_initialized: bool = initialized_text == "true"
+        pilot block_state: word = array_get(block_states, block_id)
+        if block_state == "0" { current_initialized = false }
+        if block_state == "1" { current_initialized = true }
+        pilot edges = v4_borrowck_drop_table_block_edges
+        pilot edge_class: word = array_get(edges, block_id * 3)
+        if edge_class == "g" {
+            v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, word_to_int(array_get(edges, block_id * 3 + 1)), current_initialized)
+        } else if edge_class == "i" {
+            v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, word_to_int(array_get(edges, block_id * 3 + 1)), current_initialized)
+            v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, word_to_int(array_get(edges, block_id * 3 + 2)), current_initialized)
+        } else if edge_class == "x" {
+            if current_initialized == wanted_initialized { found = true }
+        }
+        pending_id += 1
+    }
+    array_release(pending_states)
+    array_release(pending_blocks)
+    array_release(seen)
+    entry = head
+    repeat until entry < 0 {
+        array_set(block_states, word_to_int(array_get(v4_borrowck_drop_table_entry_blocks, entry)), "-1")
+        entry = word_to_int(array_get(v4_borrowck_drop_table_entry_next, entry))
+    }
+    give back found
+}
+
+task v4_borrowck_drop_table_moved_without_reinit(mir_id: int, body_id: int, local_name: word, slot: int, initially_initialized: bool) -> bool {
+    if v4_mir_body_block_count(mir_id, body_id) == 1 {
+        if v4_mir_block_terminator(v4_mir_body_block(mir_id, body_id, 0)) == v4_mir_term_unreachable { give back true }
+        pilot initialized = initially_initialized
+        if slot >= 0 {
+            pilot linear: word = array_get(v4_borrowck_drop_table_slot_linear, slot)
+            if linear == "0" { initialized = false }
+            if linear == "1" { initialized = true }
+        }
+        give back not initialized
+    }
+    give back not v4_borrowck_drop_table_has_exit_state(mir_id, body_id, slot, initially_initialized, true)
+}
+
 task v4_borrowck_collect_drop_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> void {
+    if not v4_borrowck_drop_table_build(borrow_id, result_id, mir_id, body_id) {
+        v4_borrowck_drop_table_release()
+        v4_borrowck_drop_table_fallbacks += 1
+        v4_borrowck_collect_drop_paths_cold(borrow_id, result_id, mir_id, body_id)
+        give back
+    }
+    pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+    pilot local_idx = local_count - 1
+    repeat until local_idx < 0 {
+        pilot local_mode = v4_mir_local_mode(mir_id, body_id, local_idx)
+        pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_idx)
+        pilot local_name = v4_borrowck_word_local_path(mir_id, body_id, local_idx)
+        if local_mode != v4_ty_param_mode_lend and local_mode != v4_ty_param_mode_lend_mut and not v4_ty_is_lend_type(local_ty) {
+            pilot slot = v4_borrowck_drop_table_lookup(local_name)
+            pilot initially_initialized: bool = v4_borrowck_local_initially_initialized(mir_id, body_id, local_name)
+            if not v4_borrowck_drop_table_moved_without_reinit(mir_id, body_id, local_name, slot, initially_initialized) {
+                pilot drop_kind = v4_borrowck_path_drop
+                if v4_borrowck_drop_table_has_exit_state(mir_id, body_id, slot, initially_initialized, false) {
+                    drop_kind = v4_borrowck_path_drop_if
+                }
+                v4_borrowck_add_path(borrow_id, result_id, drop_kind, local_name, 0 - 1, 0 - 1)
+            }
+        }
+        local_idx -= 1
+    }
+    v4_borrowck_drop_table_release()
+}
+
+task v4_borrowck_collect_drop_paths_cold(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> void {
     pilot local_count = v4_mir_body_local_count(mir_id, body_id)
     pilot local_idx = local_count - 1
     repeat until local_idx < 0 {
@@ -6207,6 +6835,35 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
     }
     if not has_loan { give back 0 }
     pilot candidates = v4_borrowck_mutable_candidates_new(borrow_id, result_id, mir_id, body_id, path_count)
+    -- A loan's explicit holder depends only on the loan row; remember it per
+    -- loan instead of re-deriving it for every write it is compared with.
+    pilot holders = array_new()
+    if holders >= 0 {
+        pilot holder_cell = 0
+        repeat until holder_cell >= path_count {
+            array_push(holders, v4_borrowck_holder_unknown)
+            holder_cell += 1
+        }
+        if array_len(holders) != path_count {
+            array_release(holders)
+            holders = 0 - 1
+        }
+    }
+    -- Overlapping paths share their root (paths_overlap compares equal texts,
+    -- prefixes ending at a projection, or projections under one root), so a
+    -- root mismatch disproves overlap before the full comparison.
+    pilot roots = array_new()
+    if roots >= 0 {
+        pilot root_cell = 0
+        repeat until root_cell >= path_count {
+            array_push(roots, v4_borrowck_path_overlap_root(v4_borrowck_path_text(borrow_id, result_id, root_cell)))
+            root_cell += 1
+        }
+        if array_len(roots) != path_count {
+            array_release(roots)
+            roots = 0 - 1
+        }
+    }
     pilot write_idx = 0
     repeat until write_idx >= path_count {
         v4_borrowck_mutable_exclusivity_path_probes += 1
@@ -6244,12 +6901,24 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
                         }
                     } else if loan_stmt >= 0 and write_stmt >= 0 and loan_block >= 0 and write_block >= 0 and loan_block != write_block {
                         pilot loan_spans = v4_borrowck_loan_spans_successors(mir_id, body_id, loan_stmt)
-                        if v4_borrowck_explicit_loan_holder(mir_id, body_id, loan_stmt, loan_text) != "" {
+                        pilot loan_holder = v4_borrowck_holder_unknown
+                        if holders >= 0 { loan_holder = array_get(holders, loan_idx) }
+                        if loan_holder == v4_borrowck_holder_unknown {
+                            loan_holder = v4_borrowck_explicit_loan_holder(mir_id, body_id, loan_stmt, loan_text)
+                            if holders >= 0 { array_set(holders, loan_idx, loan_holder) }
+                        }
+                        if loan_holder != "" {
                             loan_spans = true
                         }
+                        -- Overlap is the cheaper pure test; reachability only for overlapping paths.
+                        if loan_spans and roots >= 0 {
+                            pilot loan_root: word = array_get(roots, loan_idx)
+                            pilot write_root: word = array_get(roots, write_idx)
+                            if loan_root != write_root { loan_spans = false }
+                        }
                         if loan_spans {
-                            if v4_borrowck_block_reaches(mir_id, body_id, loan_block, write_block) {
-                                if v4_borrowck_paths_overlap(loan_text, write_text) {
+                            if v4_borrowck_paths_overlap(loan_text, write_text) {
+                                if v4_borrowck_block_reaches(mir_id, body_id, loan_block, write_block) {
                                     if v4_borrowck_explicit_loan_live_at_write(mir_id, body_id, loan_stmt, loan_text, write_stmt, write_block) {
                                         loan_conflicts = true
                                         help = v4_borrowck_cross_block_conflict_help(loan_text, loan_stmt, loan_block, write_text, write_stmt, write_block)
@@ -6281,6 +6950,8 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
         }
         write_idx += 1
     }
+    if roots >= 0 { array_release(roots) }
+    if holders >= 0 { array_release(holders) }
     array_release(candidates)
     give back conflicts
 }
@@ -6681,9 +7352,10 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                     pilot use_text = v4_borrowck_path_text(borrow_id, result_id, use_idx)
                     pilot move_conflicts = false
                     pilot help = ""
+                    -- Every test here is pure: the cheap overlap test runs first.
                     if move_stmt >= 0 and use_stmt >= 0 and move_block == use_block and move_stmt < use_stmt {
-                        if not v4_borrowck_move_repaired_before_use(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block) {
-                            if v4_borrowck_paths_overlap(move_text, use_text) {
+                        if v4_borrowck_paths_overlap(move_text, use_text) {
+                            if not v4_borrowck_move_repaired_before_use(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block) {
                                 move_conflicts = true
                                 help = v4_borrowck_partial_move_conflict_help(move_text, move_stmt, use_text, use_stmt)
                             }
@@ -6691,9 +7363,9 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                     } else if move_stmt >= 0 and use_stmt >= 0 and move_block >= 0 and use_block >= 0 {
                         -- Earlier same-block uses are only after the move through a loop backedge.
                         if move_block != use_block or v4_borrowck_block_can_cycle(mir_id, body_id, move_block) {
-                            if not v4_borrowck_move_repaired_before_use(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block) {
-                                if v4_borrowck_block_reaches(mir_id, body_id, move_block, use_block) {
-                                    if v4_borrowck_paths_overlap(move_text, use_text) {
+                            if v4_borrowck_paths_overlap(move_text, use_text) {
+                                if not v4_borrowck_move_repaired_before_use(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block) {
+                                    if v4_borrowck_block_reaches(mir_id, body_id, move_block, use_block) {
                                         move_conflicts = true
                                         help = v4_borrowck_cross_block_partial_move_help(move_text, move_stmt, move_block, use_text, use_stmt, use_block)
                                     }
@@ -6748,6 +7420,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         }
         pilot result_id = v4_borrowck_add_result(borrow_id, def_id, body_name, status, 0, 0, 0)
         if v4_borrowck_place_address_graph_is_bounded(mir_id, body_idx) {
+            v4_borrowck_reach_cache_begin(mir_id, body_idx)
             v4_borrowck_collect_body_paths(borrow_id, result_id, mir_id, body_idx)
             v4_borrowck_check_fixed_bindings(borrow_id, result_id, mir_id, body_idx)
             v4_borrowck_check_lend_contracts(borrow_id, result_id, mir_id, body_idx)
@@ -6764,6 +7437,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
             v4_borrowck_check_explicit_loan_moves(borrow_id, result_id, mir_id, body_idx)
             v4_borrowck_check_partial_moves(borrow_id, result_id, mir_id, body_idx)
             v4_borrowck_check_word_binding_uses(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_reach_cache_end()
         } else {
             v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, V4_NO_SPAN, "Meiya cannot prove the place address plan within available resources", body_name))
             v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
