@@ -6718,11 +6718,25 @@ task v4_borrowck_drop_table_build(borrow_id: int, result_id: int, mir_id: int, b
 -- local_has_exit_state through the table: same (block, state) worklist, with
 -- each block's effect read from the slot's entries instead of rescanned.
 task v4_borrowck_drop_table_has_exit_state(mir_id: int, body_id: int, slot: int, initially_initialized: bool, wanted_initialized: bool) -> bool {
+    pilot wanted = 0
+    if wanted_initialized { wanted = 1 }
+    pilot found = v4_borrowck_drop_table_exit_states(mir_id, body_id, slot, initially_initialized, wanted)
+    if wanted_initialized { give back found >= 2 }
+    give back found == 1 or found == 3
+}
+
+-- Which exit states the walk reaches: 2 for initialized, 1 for moved, summed.
+-- wanted is 1 or 0 to stop at that state, or 2 to look for both; each answer
+-- equals the single-state walk, since the (block, state) queue is the same and
+-- this walk has no failure path.
+task v4_borrowck_drop_table_exit_states(mir_id: int, body_id: int, slot: int, initially_initialized: bool, wanted: int) -> int {
     pilot head = 0 - 1
     if slot >= 0 { head = word_to_int(array_get(v4_borrowck_drop_table_slot_heads, slot)) }
     if head < 0 {
         v4_borrowck_drop_table_skipped_walks += 1
-        give back initially_initialized == wanted_initialized and v4_borrowck_drop_table_exit_reachable
+        if not v4_borrowck_drop_table_exit_reachable { give back 0 }
+        if initially_initialized { give back 2 }
+        give back 1
     }
     v4_borrowck_drop_table_walks += 1
     pilot block_states = v4_borrowck_drop_table_block_states
@@ -6745,9 +6759,11 @@ task v4_borrowck_drop_table_has_exit_state(mir_id: int, body_id: int, slot: int,
         }
     }
     v4_borrowck_walk_push(seen, ids, pending, block_count, 0, initially_initialized)
-    pilot found = false
+    pilot found_initialized = false
+    pilot found_moved = false
+    pilot settled = false
     pilot pending_id = 0
-    repeat until pending_id >= array_len(pending) or found {
+    repeat until pending_id >= array_len(pending) or settled {
         pilot state_index = word_to_int(array_get(pending, pending_id))
         pilot block_id = state_index / 2
         pilot current_initialized: bool = state_index - block_id * 2 == 1
@@ -6762,7 +6778,8 @@ task v4_borrowck_drop_table_has_exit_state(mir_id: int, body_id: int, slot: int,
             v4_borrowck_walk_push(seen, ids, pending, block_count, word_to_int(array_get(edges, block_id * 3 + 1)), current_initialized)
             v4_borrowck_walk_push(seen, ids, pending, block_count, word_to_int(array_get(edges, block_id * 3 + 2)), current_initialized)
         } else if edge_class == "x" {
-            if current_initialized == wanted_initialized { found = true }
+            if current_initialized { found_initialized = true } else { found_moved = true }
+            settled = (wanted == 1 and found_initialized) or (wanted == 0 and found_moved) or (found_initialized and found_moved)
         }
         pending_id += 1
     }
@@ -6773,6 +6790,9 @@ task v4_borrowck_drop_table_has_exit_state(mir_id: int, body_id: int, slot: int,
         array_set(block_states, word_to_int(array_get(v4_borrowck_drop_table_entry_blocks, entry)), "-1")
         entry = word_to_int(array_get(v4_borrowck_drop_table_entry_next, entry))
     }
+    pilot found = 0
+    if found_initialized { found += 2 }
+    if found_moved { found += 1 }
     give back found
 }
 
@@ -6808,12 +6828,23 @@ task v4_borrowck_collect_drop_paths(borrow_id: int, result_id: int, mir_id: int,
         if local_mode != v4_ty_param_mode_lend and local_mode != v4_ty_param_mode_lend_mut and not v4_ty_is_lend_type(local_ty) {
             pilot slot = v4_borrowck_drop_table_lookup(local_name)
             pilot initially_initialized: bool = v4_borrowck_local_initially_initialized(mir_id, body_id, local_name)
-            if not v4_borrowck_drop_table_moved_without_reinit(mir_id, body_id, local_name, slot, initially_initialized) {
-                pilot drop_kind = v4_borrowck_path_drop
-                if v4_borrowck_drop_table_has_exit_state(mir_id, body_id, slot, initially_initialized, false) {
-                    drop_kind = v4_borrowck_path_drop_if
+            if v4_mir_body_block_count(mir_id, body_id) == 1 {
+                if not v4_borrowck_drop_table_moved_without_reinit(mir_id, body_id, local_name, slot, initially_initialized) {
+                    pilot drop_kind = v4_borrowck_path_drop
+                    if v4_borrowck_drop_table_has_exit_state(mir_id, body_id, slot, initially_initialized, false) {
+                        drop_kind = v4_borrowck_path_drop_if
+                    }
+                    v4_borrowck_add_path(borrow_id, result_id, drop_kind, local_name, 0 - 1, 0 - 1)
                 }
-                v4_borrowck_add_path(borrow_id, result_id, drop_kind, local_name, 0 - 1, 0 - 1)
+            } else {
+                -- One walk answers both questions: alive at some exit, then
+                -- also moved at some exit.
+                pilot exits = v4_borrowck_drop_table_exit_states(mir_id, body_id, slot, initially_initialized, 2)
+                if exits >= 2 {
+                    pilot drop_kind = v4_borrowck_path_drop
+                    if exits == 3 { drop_kind = v4_borrowck_path_drop_if }
+                    v4_borrowck_add_path(borrow_id, result_id, drop_kind, local_name, 0 - 1, 0 - 1)
+                }
             }
         }
         local_idx -= 1
