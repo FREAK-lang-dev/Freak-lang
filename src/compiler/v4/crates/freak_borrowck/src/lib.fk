@@ -7296,17 +7296,115 @@ task v4_borrowck_word_temporary_loan_completes_before_move(mir_id: int, body_id:
     give back available >= 0
 }
 
+-- Paths that can overlap share their overlap root (see
+-- v4_borrowck_path_overlap_root), so pairwise checks only need to visit the
+-- rows with the same root. The chain lists them in ascending row order:
+-- rows 0..P-1 hold the next row with the same root (or -1), rows P..2P-1 the
+-- first row of each row's root. Returns -1 when it cannot be built; callers
+-- then keep the full scan.
+task v4_borrowck_root_chain_new(borrow_id: int, result_id: int, path_count: int) -> int {
+    if path_count <= 0 or path_count > 1048576 { give back 0 - 1 }
+    pilot chain = array_new()
+    pilot buckets = array_new()
+    pilot slot_roots = array_new()
+    pilot slot_first = array_new()
+    pilot slot_last = array_new()
+    pilot row_slot = array_new()
+    if chain < 0 or buckets < 0 or slot_roots < 0 or slot_first < 0 or slot_last < 0 or row_slot < 0 {
+        if chain >= 0 { array_release(chain) }
+        if buckets >= 0 { array_release(buckets) }
+        if slot_roots >= 0 { array_release(slot_roots) }
+        if slot_first >= 0 { array_release(slot_first) }
+        if slot_last >= 0 { array_release(slot_last) }
+        if row_slot >= 0 { array_release(row_slot) }
+        give back 0 - 1
+    }
+    pilot capacity = path_count * 2 + 1
+    pilot filled = 0
+    repeat until filled >= capacity {
+        array_push(buckets, "0")
+        filled += 1
+    }
+    filled = 0
+    repeat until filled >= path_count * 2 {
+        array_push(chain, "-1")
+        filled += 1
+    }
+    pilot failed: bool = array_len(buckets) != capacity or array_len(chain) != path_count * 2
+    pilot row = 0
+    repeat until row >= path_count or failed {
+        pilot root = v4_borrowck_path_overlap_root(v4_borrowck_path_text(borrow_id, result_id, row))
+        pilot bucket: int = root.checksum() % capacity
+        if bucket < 0 { bucket = 0 - bucket }
+        pilot slot = 0 - 1
+        pilot probes = 0
+        repeat until slot >= 0 or probes > capacity {
+            pilot stored = word_to_int(array_get(buckets, bucket)) - 1
+            if stored < 0 {
+                stored = array_len(slot_roots)
+                array_push(slot_roots, root)
+                array_push(slot_first, word_from_int(row))
+                array_push(slot_last, word_from_int(row))
+                array_set(buckets, bucket, word_from_int(stored + 1))
+                slot = stored
+            } else {
+                pilot stored_root: word = array_get(slot_roots, stored)
+                if stored_root == root {
+                    slot = stored
+                    pilot last = word_to_int(array_get(slot_last, slot))
+                    array_set(chain, last, word_from_int(row))
+                    array_set(slot_last, slot, word_from_int(row))
+                } else {
+                    bucket = (bucket + 1) % capacity
+                    probes += 1
+                }
+            }
+        }
+        if slot < 0 { failed = true } else { array_push(row_slot, word_from_int(slot)) }
+        row += 1
+    }
+    if not failed and array_len(row_slot) == path_count {
+        row = 0
+        repeat until row >= path_count {
+            array_set(chain, path_count + row, array_get(slot_first, word_to_int(array_get(row_slot, row))))
+            row += 1
+        }
+    } else { failed = true }
+    array_release(buckets)
+    array_release(slot_roots)
+    array_release(slot_first)
+    array_release(slot_last)
+    array_release(row_slot)
+    if failed {
+        array_release(chain)
+        give back 0 - 1
+    }
+    give back chain
+}
+
+-- The first candidate row for `row`: its root group, or row 0 without a chain.
+task v4_borrowck_root_chain_first(chain: int, path_count: int, row: int) -> int {
+    if chain < 0 { give back 0 }
+    give back word_to_int(array_get(chain, path_count + row))
+}
+
+task v4_borrowck_root_chain_next(chain: int, row: int) -> int {
+    if chain < 0 { give back row + 1 }
+    give back word_to_int(array_get(chain, row))
+}
+
 task v4_borrowck_check_explicit_loan_moves(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    pilot chain = v4_borrowck_root_chain_new(borrow_id, result_id, path_count)
     pilot move_idx = 0
     repeat until move_idx >= path_count {
         if v4_borrowck_path_kind(borrow_id, result_id, move_idx) == v4_borrowck_path_move {
             pilot move_stmt = v4_borrowck_path_stmt(borrow_id, result_id, move_idx)
             pilot move_block = v4_borrowck_path_block(borrow_id, result_id, move_idx)
             pilot move_text = v4_borrowck_path_text(borrow_id, result_id, move_idx)
-            pilot loan_idx = 0
-            repeat until loan_idx >= path_count {
+            pilot loan_idx = v4_borrowck_root_chain_first(chain, path_count, move_idx)
+            repeat until loan_idx >= path_count or loan_idx < 0 {
                 if v4_borrowck_path_is_loan_kind(v4_borrowck_path_kind(borrow_id, result_id, loan_idx)) {
                     pilot loan_stmt = v4_borrowck_path_stmt(borrow_id, result_id, loan_idx)
                     pilot loan_block = v4_borrowck_path_block(borrow_id, result_id, loan_idx)
@@ -7338,25 +7436,27 @@ task v4_borrowck_check_explicit_loan_moves(borrow_id: int, result_id: int, mir_i
                         loan_idx = path_count
                     }
                 }
-                loan_idx += 1
+                if loan_idx < path_count { loan_idx = v4_borrowck_root_chain_next(chain, loan_idx) }
             }
         }
         move_idx += 1
     }
+    if chain >= 0 { array_release(chain) }
     give back conflicts
 }
 
 task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    pilot chain = v4_borrowck_root_chain_new(borrow_id, result_id, path_count)
     pilot move_idx = 0
     repeat until move_idx >= path_count {
         if v4_borrowck_path_kind(borrow_id, result_id, move_idx) == v4_borrowck_path_move {
             pilot move_stmt = v4_borrowck_path_stmt(borrow_id, result_id, move_idx)
             pilot move_block = v4_borrowck_path_block(borrow_id, result_id, move_idx)
             pilot move_text = v4_borrowck_path_text(borrow_id, result_id, move_idx)
-            pilot use_idx = 0
-            repeat until use_idx >= path_count {
+            pilot use_idx = v4_borrowck_root_chain_first(chain, path_count, move_idx)
+            repeat until use_idx >= path_count or use_idx < 0 {
                 if use_idx != move_idx and v4_borrowck_path_is_move_use_kind(v4_borrowck_path_kind(borrow_id, result_id, use_idx)) {
                     pilot use_stmt = v4_borrowck_path_stmt(borrow_id, result_id, use_idx)
                     pilot use_block = v4_borrowck_path_block(borrow_id, result_id, use_idx)
@@ -7393,11 +7493,12 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                         use_idx = path_count
                     }
                 }
-                use_idx += 1
+                if use_idx < path_count { use_idx = v4_borrowck_root_chain_next(chain, use_idx) }
             }
         }
         move_idx += 1
     }
+    if chain >= 0 { array_release(chain) }
     give back conflicts
 }
 

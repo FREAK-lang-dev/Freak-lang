@@ -2149,6 +2149,27 @@ freak_word freak_word_substring(freak_word w, int64_t start, int64_t len) {
 }
 
 int64_t freak_word_to_int(freak_word w) {
+    /* Fast path for the common short decimal (array handles, ids). At most
+     * 18 digits cannot overflow, so the result equals strtoll's. Anything
+     * else (whitespace, '+', long or empty text) still goes to strtoll. */
+    const char* text = w.data;
+    if (text) {
+        const char* p = text;
+        int negative = 0;
+        if (*p == '-') { negative = 1; p++; }
+        if (*p >= '0' && *p <= '9') {
+            int64_t value = 0;
+            int digits = 0;
+            while (*p >= '0' && *p <= '9' && digits < 19) {
+                value = value * 10 + (int64_t)(*p - '0');
+                p++;
+                digits++;
+            }
+            if (digits <= 18 && !(*p >= '0' && *p <= '9')) {
+                return negative ? -value : value;
+            }
+        }
+    }
     return strtoll(w.data, NULL, 10);
 }
 
