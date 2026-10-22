@@ -6661,6 +6661,8 @@ task v4_borrowck_drop_table_moved_without_reinit(mir_id: int, body_id: int, loca
 }
 
 task v4_borrowck_collect_drop_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> void {
+    -- No locals, or no blocks to leave, records no drop in the cold scan either.
+    if v4_mir_body_local_count(mir_id, body_id) <= 0 or v4_mir_body_block_count(mir_id, body_id) <= 0 { give back }
     if not v4_borrowck_drop_table_build(borrow_id, result_id, mir_id, body_id) {
         v4_borrowck_drop_table_release()
         v4_borrowck_drop_table_fallbacks += 1
@@ -7453,6 +7455,67 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
 
     v4_borrowck_store_provenance_telemetry(borrow_id)
     give back borrow_id
+}
+
+-- Request-scoped def -> first result table for callers that look up every
+-- body: cell 0 is the capacity, then one cell per bucket holding result + 1.
+-- The caller releases it; -1 means use v4_borrowck_lookup_result.
+task v4_borrowck_result_def_index_new(borrow_id: int) -> int {
+    pilot count = v4_borrowck_result_count(borrow_id)
+    pilot capacity = 16
+    repeat until capacity >= count * 2 { capacity *= 2 }
+    pilot index = array_new()
+    if index < 0 { give back 0 - 1 }
+    array_push(index, word_from_int(capacity))
+    pilot cell = 0
+    repeat until cell >= capacity {
+        array_push(index, "0")
+        cell += 1
+    }
+    if array_len(index) != capacity + 1 {
+        array_release(index)
+        give back 0 - 1
+    }
+    pilot result_idx = 0
+    repeat until result_idx >= count {
+        pilot def_id = v4_borrowck_result_def(borrow_id, result_idx)
+        pilot bucket: int = def_id.checksum() % capacity
+        pilot placed = false
+        pilot visited = 0
+        repeat until placed or visited >= capacity {
+            pilot previous = word_to_int(array_get(index, 1 + bucket)) - 1
+            if previous < 0 {
+                array_set(index, 1 + bucket, word_from_int(result_idx + 1))
+                placed = true
+            } else if v4_borrowck_result_def(borrow_id, previous) == def_id {
+                -- The first physical result keeps the key, as in the linear scan.
+                placed = true
+            }
+            bucket = (bucket + 1) % capacity
+            visited += 1
+        }
+        if not placed {
+            array_release(index)
+            give back 0 - 1
+        }
+        result_idx += 1
+    }
+    give back index
+}
+
+task v4_borrowck_result_def_index_find(index: int, borrow_id: int, def_id: word) -> int {
+    if index < 0 { give back v4_borrowck_lookup_result(borrow_id, def_id) }
+    pilot capacity = word_to_int(array_get(index, 0))
+    pilot bucket: int = def_id.checksum() % capacity
+    pilot visited = 0
+    repeat until visited >= capacity {
+        pilot result_idx = word_to_int(array_get(index, 1 + bucket)) - 1
+        if result_idx < 0 { give back 0 - 1 }
+        if v4_borrowck_result_def(borrow_id, result_idx) == def_id { give back result_idx }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back 0 - 1
 }
 
 task v4_borrowck_lookup_result(borrow_id: int, def_id: word) -> int {
