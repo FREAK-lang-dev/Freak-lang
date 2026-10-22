@@ -146,6 +146,13 @@ pilot v4_borrowck_reach_cache_cell_limit = 1048576
 pilot v4_borrowck_reach_cache_rows_built = 0
 pilot v4_borrowck_reach_cache_hits = 0
 pilot v4_borrowck_reach_cache_cold_queries = 0
+pilot v4_borrowck_mention_mir = 0 - 1
+pilot v4_borrowck_mention_body = 0 - 1
+pilot v4_borrowck_mention_blocks = 0 - 1
+pilot v4_borrowck_mention_budget = 0
+pilot v4_borrowck_mention_failed = false
+pilot v4_borrowck_mention_tables = 0
+pilot v4_borrowck_mention_skipped_blocks = 0
 pilot v4_borrowck_drop_table_active = false
 pilot v4_borrowck_drop_table_capacity = 0
 pilot v4_borrowck_drop_table_buckets = 0 - 1
@@ -8167,6 +8174,125 @@ task v4_borrowck_word_stmt_initializes_local(mir_id: int, body_id: int, stmt_id:
     give back place >= 0 and v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_local and v4_mir_place_base(mir_id, body_id, place) == local_id
 }
 
+-- Body-scoped local mention sets for the Word state walk. Each block entry is
+-- ",id,id," and over-approximates every local that any statement of the
+-- block can read, move, or write, following the same rvalue and place edges
+-- as the use-state and move-count walks with the same per-statement depth and
+-- visit bounds. An entry is "*" when the scan hit a bound or a malformed
+-- node. A walk that enters an unmentioned block with the local unavailable
+-- keeps it unavailable through the block and its edges, so it can skip the
+-- per-statement transfer. Opened around the per-local walks; MIR is not
+-- mutated in between.
+
+task v4_borrowck_mention_end() -> void {
+    if v4_borrowck_mention_blocks >= 0 { array_release(v4_borrowck_mention_blocks) }
+    v4_borrowck_mention_blocks = 0 - 1
+    v4_borrowck_mention_mir = 0 - 1
+    v4_borrowck_mention_body = 0 - 1
+}
+
+task v4_borrowck_mention_place(mir_id: int, body_id: int, place: int, depth: int) -> word {
+    v4_borrowck_mention_budget -= 1
+    if depth > 256 or v4_borrowck_mention_budget < 0 or place < 0 or place >= v4_mir_body_place_count(mir_id, body_id) {
+        v4_borrowck_mention_failed = true
+        give back ""
+    }
+    pilot kind = v4_mir_place_kind(mir_id, body_id, place)
+    if kind == v4_mir_place_local { give back word_from_int(v4_mir_place_base(mir_id, body_id, place)) + "," }
+    if kind == v4_mir_place_field or kind == v4_mir_place_index {
+        pilot out = v4_borrowck_mention_place(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place), depth + 1)
+        if kind == v4_mir_place_index { out = out + v4_borrowck_mention_rvalue(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), depth + 1) }
+        give back out
+    }
+    if kind == v4_mir_place_deref { give back v4_borrowck_mention_rvalue(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), depth + 1) }
+    if kind == v4_mir_place_return { give back "" }
+    v4_borrowck_mention_failed = true
+    give back ""
+}
+
+task v4_borrowck_mention_rvalue(mir_id: int, body_id: int, value: int, depth: int) -> word {
+    v4_borrowck_mention_budget -= 1
+    if depth > 256 or v4_borrowck_mention_budget < 0 {
+        v4_borrowck_mention_failed = true
+        give back ""
+    }
+    if value < 0 { give back "" }
+    if value >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        v4_borrowck_mention_failed = true
+        give back ""
+    }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
+    if kind == v4_mir_rvalue_use_local { give back word_from_int(v4_mir_rvalue_local_id(mir_id, body_id, value)) + "," }
+    if kind == v4_mir_rvalue_use_place { give back v4_borrowck_mention_place(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), depth + 1) }
+    pilot out = ""
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot child = 0
+        repeat until child >= v4_mir_rvalue_aggregate_child_count(mir_id, body_id, value) or v4_borrowck_mention_failed {
+            out = out + v4_borrowck_mention_rvalue(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, value, child), depth + 1)
+            child += 1
+        }
+        give back out
+    }
+    if kind == v4_mir_rvalue_call {
+        pilot callee = v4_borrowck_call_callee_rvalue(mir_id, body_id, value)
+        if callee >= 0 { out = v4_borrowck_mention_rvalue(mir_id, body_id, callee, depth + 1) }
+        pilot count = v4_mir_rvalue_call_arg_count(mir_id, body_id, value)
+        pilot arg = 0
+        repeat until arg >= count or v4_borrowck_mention_failed {
+            out = out + v4_borrowck_mention_rvalue(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, value, arg), depth + 1)
+            arg += 1
+        }
+        if count > 0 or callee >= 0 { give back out }
+    }
+    out = out + v4_borrowck_mention_rvalue(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), depth + 1)
+    give back out + v4_borrowck_mention_rvalue(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), depth + 1)
+}
+
+task v4_borrowck_mention_begin(mir_id: int, body_id: int) -> void {
+    v4_borrowck_mention_end()
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if block_count <= 1 { give back }
+    pilot entries = array_new()
+    if entries < 0 { give back }
+    pilot block = 0
+    repeat until block >= block_count {
+        array_push(entries, ",")
+        block += 1
+    }
+    if array_len(entries) != block_count {
+        array_release(entries)
+        give back
+    }
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body_id) {
+        block = v4_mir_stmt_block(mir_id, body_id, stmt)
+        if block < 0 or block >= block_count {
+            array_release(entries)
+            give back
+        }
+        v4_borrowck_mention_budget = 8192
+        v4_borrowck_mention_failed = false
+        pilot text = v4_borrowck_mention_rvalue(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt), 0)
+        pilot place = v4_mir_stmt_place(mir_id, body_id, stmt)
+        if place >= 0 { text = text + v4_borrowck_mention_place(mir_id, body_id, place, 0) }
+        pilot current: word = array_get(entries, block)
+        if v4_borrowck_mention_failed or current == "*" { array_set(entries, block, "*") } else { array_set(entries, block, current + text) }
+        stmt += 1
+    }
+    v4_borrowck_mention_blocks = entries
+    v4_borrowck_mention_mir = mir_id
+    v4_borrowck_mention_body = body_id
+    v4_borrowck_mention_tables += 1
+}
+
+task v4_borrowck_mention_misses(mir_id: int, body_id: int, block: int, local_id: int) -> bool {
+    if v4_borrowck_mention_blocks < 0 or mir_id != v4_borrowck_mention_mir or body_id != v4_borrowck_mention_body { give back false }
+    if block < 0 or block >= array_len(v4_borrowck_mention_blocks) { give back false }
+    pilot entry: word = array_get(v4_borrowck_mention_blocks, block)
+    if entry == "*" { give back false }
+    give back not entry.contains("," + word_from_int(local_id) + ",")
+}
+
 task v4_borrowck_word_local_state_walk(mir_id: int, body_id: int, local_id: int, wanted_initialized: bool, check_reads: bool) -> int {
     pilot blocks = array_new()
     pilot states = array_new()
@@ -8195,6 +8321,10 @@ task v4_borrowck_word_local_state_walk(mir_id: int, body_id: int, local_id: int,
         pilot state_text: word = array_get(states, cursor)
         pilot initialized: bool = state_text == "true"
         pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, block)
+        if not initialized and v4_borrowck_mention_misses(mir_id, body_id, block, local_id) {
+            v4_borrowck_mention_skipped_blocks += 1
+            stmt_id = 0 - 1
+        }
         pilot previous = 0 - 1
         repeat until stmt_id < 0 {
             if previous >= 0 and v4_mir_word_local_scope_exits_before_stmt(mir_id, body_id, local_id, previous, stmt_id) { initialized = false }
@@ -8223,12 +8353,16 @@ task v4_borrowck_word_local_state_walk(mir_id: int, body_id: int, local_id: int,
         if term == v4_mir_term_goto or term == v4_mir_term_if {
             pilot target = v4_mir_block_target(record)
             pilot target_initialized: bool = initialized
-            if v4_mir_word_local_scope_exits_on_edge(mir_id, body_id, local_id, block, target) { target_initialized = false }
+            if target_initialized {
+                if v4_mir_word_local_scope_exits_on_edge(mir_id, body_id, local_id, block, target) { target_initialized = false }
+            }
             if not v4_borrowck_word_enqueue_state(seen, blocks, states, block_count, target, target_initialized) { queue_failed = true }
             if term == v4_mir_term_if {
                 target = v4_mir_block_else_target(record)
                 target_initialized = initialized
-                if v4_mir_word_local_scope_exits_on_edge(mir_id, body_id, local_id, block, target) { target_initialized = false }
+                if target_initialized {
+                    if v4_mir_word_local_scope_exits_on_edge(mir_id, body_id, local_id, block, target) { target_initialized = false }
+                }
                 if not v4_borrowck_word_enqueue_state(seen, blocks, states, block_count, target, target_initialized) { queue_failed = true }
             }
         } else if term != v4_mir_term_unreachable and initialized == wanted_initialized { found = true }
@@ -8397,6 +8531,7 @@ task v4_borrowck_check_word_binding_uses(borrow_id: int, result_id: int, mir_id:
         }
         value += 1
     }
+    v4_borrowck_mention_begin(mir_id, body_id)
     pilot local_id = 0
     repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
         if v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) {
@@ -8411,6 +8546,7 @@ task v4_borrowck_check_word_binding_uses(borrow_id: int, result_id: int, mir_id:
         }
         local_id += 1
     }
+    v4_borrowck_mention_end()
 }
 
 -- Exact admitted scalar Sum carriers cannot store a FREAK lend. This fact is
