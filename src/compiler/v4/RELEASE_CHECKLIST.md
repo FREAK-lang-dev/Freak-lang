@@ -1,4 +1,7 @@
-# FREAK V4 release checklist (revision 3.4)
+# FREAK V4 release checklist (revision 3.5)
+
+Revision 3.5 reconciles status on 2026-10-22 against `main` at `10f53f8`;
+see "What changed in revision 3.5" below.
 
 Revision 3.4 reconciles status only, on 2026-10-22 against `main` at
 `448a81e`; see "What changed in revision 3.4" below.
@@ -51,8 +54,8 @@ focused19@`bea7372` receipts retain their actual revisions and qualified input
 transfers. Green gates do not prove renewed speed or asymptotic growth rates.
 
 Checked capability rows below cover the admitted owned-Word and closed scalar
-Sum slices. General aggregates, arbitrary source-main parameters, default
-panic unwind/cleanup, self-hosting, full V3 parity and distribution remain open.
+Sum slices. General aggregates, panic-path cleanup (landing pads),
+self-hosting, full V3 parity and distribution remain open.
 The private C panic-context proof establishes only its helper ABI scope.
 
 Revision 3.1 first batch landed in merged PR #145:
@@ -88,6 +91,26 @@ The remaining correctness rows and A4 Runtime MIR transform stay separately
 tracked. The reviewed U0 unwind plan must integrate with A4 ownership facts;
 new cleanup policy must not be added to codegen.
 
+## What changed in revision 3.5
+
+Status reconciliation; one tier 1 row added, no tier or line changes.
+Checked on `main` at `10f53f8` (2026-10-22).
+
+- **Four of the five open tier 1 rows are closed.** PR #220: `main` follows
+  V3 (no parameters; int or void return), and the error is named on main's
+  span before codegen. The tier 4 surface sweep built 27 V3 forms and found
+  no silent miscompile. The parser now names the 14 forms V4 does not lower
+  yet. PR #222: default `panic` ends the main sortie (exact `PANIC:` report,
+  output flushed, exit 101), and landing pads move to the tier 5 panic row
+  (maintainer decision, 2026-10-22). PR #221: compile time is within 15% of
+  V3 at about 1,000 lines and 2.4x to 6x faster above 3,227 lines. The #161
+  sibling-loop pattern drops from over 300 s to 0.65 s at 64 loops. TY
+  grows 1.9x to 2.3x per doubling (0.437 s at 22,403 lines).
+- **One tier 1 row remains**, added by #221: sibling-loop bodies are still
+  5x to 6.5x slower than V3 (owned Word locals × CFG edges).
+- **Pipe precedence is settled** as loosest. The maintainer left the call
+  open on 2026-10-22, and this revision drops the "switch if preferred" note.
+
 ## What changed in revision 3.4
 
 Status reconciliation only; no scope, tier or line changes. Checked on
@@ -104,8 +127,7 @@ Status reconciliation only; no scope, tier or line changes. Checked on
   TY scaling, `main` with parameters, and panic unwind.
 - **Pipe precedence** is loosest (`1 + 2 |> f` is `f(3)`, and
   `m or else 0 |> f` pipes the whole fallback). V3's postfix parse read the
-  first as `1 + f(2)`. The migration note records it. Switching to V3's
-  binding is a small change if the maintainer prefers it.
+  first as `1 + f(2)`. The migration note records it.
 - **0.15.1 released** on 2026-10-18 (V3.5 lane, Windows registry fixes,
   registry Hangar). #177 stays open for what 0.15.1 did not finish.
 - **freak-lsp** (tier 7) is on `main` (`9db1476`, `dfc9bec`) as the row
