@@ -155,6 +155,14 @@ pilot v4_borrowck_mention_budget = 0
 pilot v4_borrowck_mention_failed = false
 pilot v4_borrowck_mention_tables = 0
 pilot v4_borrowck_mention_skipped_blocks = 0
+-- Walk tables opened with the mention window: four cells per block (first
+-- statement, terminator, target, else target), an all-"0" seen table of two
+-- cells per block that each walk resets behind itself, and decimal ids for
+-- the seen indices.
+pilot v4_borrowck_mention_skeleton = 0 - 1
+pilot v4_borrowck_mention_seen = 0 - 1
+pilot v4_borrowck_mention_ids = 0 - 1
+pilot v4_borrowck_mention_seen_busy = false
 pilot v4_borrowck_drop_table_active = false
 pilot v4_borrowck_drop_table_capacity = 0
 pilot v4_borrowck_drop_table_buckets = 0 - 1
@@ -167,6 +175,8 @@ pilot v4_borrowck_drop_table_entry_states = 0 - 1
 pilot v4_borrowck_drop_table_entry_next = 0 - 1
 pilot v4_borrowck_drop_table_block_states = 0 - 1
 pilot v4_borrowck_drop_table_block_edges = 0 - 1
+pilot v4_borrowck_drop_table_seen = 0 - 1
+pilot v4_borrowck_drop_table_ids = 0 - 1
 pilot v4_borrowck_drop_table_exit_reachable = false
 pilot v4_borrowck_drop_table_builds = 0
 pilot v4_borrowck_drop_table_fallbacks = 0
@@ -6397,6 +6407,9 @@ task v4_borrowck_drop_table_release() -> void {
     if v4_borrowck_drop_table_entry_next >= 0 { array_release(v4_borrowck_drop_table_entry_next) }
     if v4_borrowck_drop_table_block_states >= 0 { array_release(v4_borrowck_drop_table_block_states) }
     if v4_borrowck_drop_table_block_edges >= 0 { array_release(v4_borrowck_drop_table_block_edges) }
+    v4_borrowck_walk_tables_release(0 - 1, v4_borrowck_drop_table_seen, v4_borrowck_drop_table_ids)
+    v4_borrowck_drop_table_seen = 0 - 1
+    v4_borrowck_drop_table_ids = 0 - 1
     v4_borrowck_drop_table_buckets = 0 - 1
     v4_borrowck_drop_table_slot_names = 0 - 1
     v4_borrowck_drop_table_slot_heads = 0 - 1
@@ -6597,6 +6610,9 @@ task v4_borrowck_drop_table_build(borrow_id: int, result_id: int, mir_id: int, b
     }
     array_release(reach_queue)
     array_release(reach_seen)
+    -- Optional: walks without these tables allocate their own.
+    v4_borrowck_drop_table_seen = v4_borrowck_walk_seen_new(block_count)
+    v4_borrowck_drop_table_ids = v4_borrowck_walk_ids_new(block_count)
     v4_borrowck_drop_table_active = true
     v4_borrowck_drop_table_builds += 1
     give back true
@@ -6619,34 +6635,42 @@ task v4_borrowck_drop_table_has_exit_state(mir_id: int, body_id: int, slot: int,
         entry = word_to_int(array_get(v4_borrowck_drop_table_entry_next, entry))
     }
     pilot block_count = v4_mir_body_block_count(mir_id, body_id)
-    pilot seen = array_new()
-    pilot pending_blocks = array_new()
-    pilot pending_states = array_new()
-    v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, 0, initially_initialized)
+    pilot seen = v4_borrowck_drop_table_seen
+    pilot ids = v4_borrowck_drop_table_ids
+    pilot shared_seen: bool = seen >= 0 and array_len(seen) == block_count * 2
+    if not shared_seen { seen = array_new() }
+    pilot pending = array_new()
+    if not shared_seen and seen >= 0 {
+        pilot prepared = 0
+        repeat until prepared >= block_count * 2 {
+            array_push(seen, "0")
+            prepared += 1
+        }
+    }
+    v4_borrowck_walk_push(seen, ids, pending, block_count, 0, initially_initialized)
     pilot found = false
     pilot pending_id = 0
-    repeat until pending_id >= array_len(pending_blocks) or found {
-        pilot block_id = word_to_int(array_get(pending_blocks, pending_id))
-        pilot initialized_text: word = array_get(pending_states, pending_id)
-        pilot current_initialized: bool = initialized_text == "true"
+    repeat until pending_id >= array_len(pending) or found {
+        pilot state_index = word_to_int(array_get(pending, pending_id))
+        pilot block_id = state_index / 2
+        pilot current_initialized: bool = state_index - block_id * 2 == 1
         pilot block_state: word = array_get(block_states, block_id)
         if block_state == "0" { current_initialized = false }
         if block_state == "1" { current_initialized = true }
         pilot edges = v4_borrowck_drop_table_block_edges
         pilot edge_class: word = array_get(edges, block_id * 3)
         if edge_class == "g" {
-            v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, word_to_int(array_get(edges, block_id * 3 + 1)), current_initialized)
+            v4_borrowck_walk_push(seen, ids, pending, block_count, word_to_int(array_get(edges, block_id * 3 + 1)), current_initialized)
         } else if edge_class == "i" {
-            v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, word_to_int(array_get(edges, block_id * 3 + 1)), current_initialized)
-            v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, word_to_int(array_get(edges, block_id * 3 + 2)), current_initialized)
+            v4_borrowck_walk_push(seen, ids, pending, block_count, word_to_int(array_get(edges, block_id * 3 + 1)), current_initialized)
+            v4_borrowck_walk_push(seen, ids, pending, block_count, word_to_int(array_get(edges, block_id * 3 + 2)), current_initialized)
         } else if edge_class == "x" {
             if current_initialized == wanted_initialized { found = true }
         }
         pending_id += 1
     }
-    array_release(pending_states)
-    array_release(pending_blocks)
-    array_release(seen)
+    if shared_seen { v4_borrowck_walk_seen_clear(seen, pending) } else { array_release(seen) }
+    array_release(pending)
     entry = head
     repeat until entry < 0 {
         array_set(block_states, word_to_int(array_get(v4_borrowck_drop_table_entry_blocks, entry)), "-1")
@@ -8340,6 +8364,11 @@ task v4_borrowck_word_stmt_initializes_local(mir_id: int, body_id: int, stmt_id:
 task v4_borrowck_mention_end() -> void {
     if v4_borrowck_mention_blocks >= 0 { array_release(v4_borrowck_mention_blocks) }
     v4_borrowck_mention_blocks = 0 - 1
+    v4_borrowck_walk_tables_release(v4_borrowck_mention_skeleton, v4_borrowck_mention_seen, v4_borrowck_mention_ids)
+    v4_borrowck_mention_skeleton = 0 - 1
+    v4_borrowck_mention_seen = 0 - 1
+    v4_borrowck_mention_ids = 0 - 1
+    v4_borrowck_mention_seen_busy = false
     v4_borrowck_mention_mir = 0 - 1
     v4_borrowck_mention_body = 0 - 1
 }
@@ -8460,45 +8489,158 @@ task v4_borrowck_mention_begin(mir_id: int, body_id: int) -> void {
     v4_borrowck_mention_mir = mir_id
     v4_borrowck_mention_body = body_id
     v4_borrowck_mention_tables += 1
+    v4_borrowck_mention_seen = v4_borrowck_walk_seen_new(block_count)
+    v4_borrowck_mention_ids = v4_borrowck_walk_ids_new(block_count)
+    v4_borrowck_mention_skeleton = v4_borrowck_walk_skeleton_new(mir_id, body_id, block_count)
+}
+
+-- Shared walk tables. A table that could not be built stays -1 and its walk
+-- uses the per-walk path instead.
+task v4_borrowck_walk_tables_release(skeleton: int, seen: int, ids: int) -> void {
+    if skeleton >= 0 { array_release(skeleton) }
+    if seen >= 0 { array_release(seen) }
+    if ids >= 0 { array_release(ids) }
+}
+
+task v4_borrowck_walk_seen_new(block_count: int) -> int {
+    pilot seen = array_new()
+    if seen < 0 { give back 0 - 1 }
+    pilot cell = 0
+    repeat until cell >= block_count * 2 {
+        array_push(seen, "0")
+        cell += 1
+        if array_len(seen) != cell {
+            array_release(seen)
+            give back 0 - 1
+        }
+    }
+    give back seen
+}
+
+task v4_borrowck_walk_ids_new(block_count: int) -> int {
+    pilot ids = array_new()
+    if ids < 0 { give back 0 - 1 }
+    pilot cell = 0
+    repeat until cell >= block_count * 2 {
+        array_push(ids, word_from_int(cell))
+        cell += 1
+        if array_len(ids) != cell {
+            array_release(ids)
+            give back 0 - 1
+        }
+    }
+    give back ids
+}
+
+task v4_borrowck_walk_skeleton_new(mir_id: int, body_id: int, block_count: int) -> int {
+    pilot skeleton = array_new()
+    if skeleton < 0 { give back 0 - 1 }
+    pilot block = 0
+    repeat until block >= block_count {
+        pilot record = v4_mir_body_block(mir_id, body_id, block)
+        pilot term = v4_mir_block_terminator(record)
+        array_push(skeleton, word_from_int(v4_mir_block_first_stmt(mir_id, body_id, block)))
+        array_push(skeleton, term)
+        pilot target = "-1"
+        pilot else_target = "-1"
+        if term == v4_mir_term_goto or term == v4_mir_term_if { target = word_from_int(v4_mir_block_target(record)) }
+        if term == v4_mir_term_if { else_target = word_from_int(v4_mir_block_else_target(record)) }
+        array_push(skeleton, target)
+        array_push(skeleton, else_target)
+        block += 1
+        if array_len(skeleton) != block * 4 {
+            array_release(skeleton)
+            give back 0 - 1
+        }
+    }
+    give back skeleton
+}
+
+-- Queue one (block, state) once. The queue holds seen indices, so the walk can
+-- clear exactly the cells it set.
+task v4_borrowck_walk_push(seen: int, ids: int, queue: int, block_count: int, block: int, initialized: bool) -> bool {
+    if block < 0 or block >= block_count { give back false }
+    pilot index = v4_borrowck_drop_state_index(block, initialized)
+    if index < 0 or index >= array_len(seen) { give back false }
+    pilot previous: word = array_get(seen, index)
+    if previous == "1" { give back true }
+    pilot count = array_len(queue)
+    if ids >= 0 and index < array_len(ids) { array_push(queue, array_get(ids, index)) } else { array_push(queue, word_from_int(index)) }
+    if array_len(queue) != count + 1 { give back false }
+    array_set(seen, index, "1")
+    pilot stored: word = array_get(seen, index)
+    give back stored == "1"
+}
+
+task v4_borrowck_walk_seen_clear(seen: int, queue: int) -> void {
+    pilot cursor = 0
+    repeat until cursor >= array_len(queue) {
+        pilot index = word_to_int(array_get(queue, cursor))
+        if index >= 0 and index < array_len(seen) { array_set(seen, index, "0") }
+        cursor += 1
+    }
 }
 
 task v4_borrowck_mention_misses(mir_id: int, body_id: int, block: int, local_id: int) -> bool {
+    give back v4_borrowck_mention_misses_text(mir_id, body_id, block, "," + word_from_int(local_id) + ",")
+}
+
+task v4_borrowck_mention_misses_text(mir_id: int, body_id: int, block: int, needle: word) -> bool {
     if v4_borrowck_mention_blocks < 0 or mir_id != v4_borrowck_mention_mir or body_id != v4_borrowck_mention_body { give back false }
     if block < 0 or block >= array_len(v4_borrowck_mention_blocks) { give back false }
     pilot entry: word = array_get(v4_borrowck_mention_blocks, block)
     if entry == "*" { give back false }
-    give back not entry.contains("," + word_from_int(local_id) + ",")
+    give back not entry.contains(needle)
 }
 
 task v4_borrowck_word_local_state_walk(mir_id: int, body_id: int, local_id: int, wanted_initialized: bool, check_reads: bool) -> int {
-    pilot blocks = array_new()
-    pilot states = array_new()
-    pilot seen = array_new()
-    if blocks < 0 or states < 0 or seen < 0 {
-        array_release(seen)
-        array_release(states)
-        array_release(blocks)
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    -- The mention window's tables serve walks of its own body; any other walk,
+    -- or a nested one, builds its own seen table.
+    pilot in_window: bool = v4_borrowck_mention_blocks >= 0 and mir_id == v4_borrowck_mention_mir and body_id == v4_borrowck_mention_body
+    pilot skeleton = 0 - 1
+    pilot seen = 0 - 1
+    pilot ids = 0 - 1
+    pilot shared_seen: bool = false
+    if in_window {
+        skeleton = v4_borrowck_mention_skeleton
+        ids = v4_borrowck_mention_ids
+        if skeleton >= 0 and array_len(skeleton) != block_count * 4 { skeleton = 0 - 1 }
+        if v4_borrowck_mention_seen >= 0 and not v4_borrowck_mention_seen_busy and array_len(v4_borrowck_mention_seen) == block_count * 2 {
+            seen = v4_borrowck_mention_seen
+            shared_seen = true
+            v4_borrowck_mention_seen_busy = true
+        }
+    }
+    pilot queue = array_new()
+    if not shared_seen { seen = array_new() }
+    if queue < 0 or seen < 0 {
+        if shared_seen { v4_borrowck_mention_seen_busy = false } else { array_release(seen) }
+        array_release(queue)
         give back 0 - 1
     }
-    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
     pilot initially_initialized: bool = local_id < v4_mir_body_callable_param_count(mir_id, body_id)
-    pilot prepared = 0
     pilot queue_failed: bool = false
-    repeat until prepared >= block_count * 2 or queue_failed {
-        array_push(seen, "0")
-        if array_len(seen) != prepared + 1 { queue_failed = true }
-        prepared += 1
+    if not shared_seen {
+        pilot prepared = 0
+        repeat until prepared >= block_count * 2 or queue_failed {
+            array_push(seen, "0")
+            if array_len(seen) != prepared + 1 { queue_failed = true }
+            prepared += 1
+        }
     }
-    if not queue_failed { queue_failed = not v4_borrowck_word_enqueue_state(seen, blocks, states, block_count, 0, initially_initialized) }
+    if not queue_failed { queue_failed = not v4_borrowck_walk_push(seen, ids, queue, block_count, 0, initially_initialized) }
+    pilot needle = "," + word_from_int(local_id) + ","
     pilot cursor = 0
     pilot found = false
     pilot invalid_use: bool = false
-    repeat until cursor >= array_len(blocks) or (found and not check_reads) or queue_failed or invalid_use {
-        pilot block = word_to_int(array_get(blocks, cursor))
-        pilot state_text: word = array_get(states, cursor)
-        pilot initialized: bool = state_text == "true"
-        pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, block)
-        if not initialized and v4_borrowck_mention_misses(mir_id, body_id, block, local_id) {
+    repeat until cursor >= array_len(queue) or (found and not check_reads) or queue_failed or invalid_use {
+        pilot state_index = word_to_int(array_get(queue, cursor))
+        pilot block = state_index / 2
+        pilot initialized: bool = state_index - block * 2 == 1
+        pilot stmt_id = 0 - 1
+        if skeleton >= 0 { stmt_id = word_to_int(array_get(skeleton, block * 4)) } else { stmt_id = v4_mir_block_first_stmt(mir_id, body_id, block) }
+        if not initialized and v4_borrowck_mention_misses_text(mir_id, body_id, block, needle) {
             v4_borrowck_mention_skipped_blocks += 1
             stmt_id = 0 - 1
         }
@@ -8525,29 +8667,42 @@ task v4_borrowck_word_local_state_walk(mir_id: int, body_id: int, local_id: int,
             previous = stmt_id
             stmt_id = v4_mir_block_next_stmt(mir_id, body_id, block, stmt_id)
         }
-        pilot record = v4_mir_body_block(mir_id, body_id, block)
-        pilot term = v4_mir_block_terminator(record)
+        pilot term = ""
+        pilot target = 0 - 1
+        pilot else_target = 0 - 1
+        if skeleton >= 0 {
+            term = array_get(skeleton, block * 4 + 1)
+            if term == v4_mir_term_goto or term == v4_mir_term_if { target = word_to_int(array_get(skeleton, block * 4 + 2)) }
+            if term == v4_mir_term_if { else_target = word_to_int(array_get(skeleton, block * 4 + 3)) }
+        } else {
+            pilot record = v4_mir_body_block(mir_id, body_id, block)
+            term = v4_mir_block_terminator(record)
+            if term == v4_mir_term_goto or term == v4_mir_term_if { target = v4_mir_block_target(record) }
+            if term == v4_mir_term_if { else_target = v4_mir_block_else_target(record) }
+        }
         if term == v4_mir_term_goto or term == v4_mir_term_if {
-            pilot target = v4_mir_block_target(record)
             pilot target_initialized: bool = initialized
             if target_initialized {
                 if v4_mir_word_local_scope_exits_on_edge(mir_id, body_id, local_id, block, target) { target_initialized = false }
             }
-            if not v4_borrowck_word_enqueue_state(seen, blocks, states, block_count, target, target_initialized) { queue_failed = true }
+            if not v4_borrowck_walk_push(seen, ids, queue, block_count, target, target_initialized) { queue_failed = true }
             if term == v4_mir_term_if {
-                target = v4_mir_block_else_target(record)
                 target_initialized = initialized
                 if target_initialized {
-                    if v4_mir_word_local_scope_exits_on_edge(mir_id, body_id, local_id, block, target) { target_initialized = false }
+                    if v4_mir_word_local_scope_exits_on_edge(mir_id, body_id, local_id, block, else_target) { target_initialized = false }
                 }
-                if not v4_borrowck_word_enqueue_state(seen, blocks, states, block_count, target, target_initialized) { queue_failed = true }
+                if not v4_borrowck_walk_push(seen, ids, queue, block_count, else_target, target_initialized) { queue_failed = true }
             }
         } else if term != v4_mir_term_unreachable and initialized == wanted_initialized { found = true }
         cursor += 1
     }
-    array_release(seen)
-    array_release(states)
-    array_release(blocks)
+    if shared_seen {
+        v4_borrowck_walk_seen_clear(seen, queue)
+        v4_borrowck_mention_seen_busy = false
+    } else {
+        array_release(seen)
+    }
+    array_release(queue)
     if invalid_use { give back 0 - 2 }
     if queue_failed or v4_borrowck_word_plan_resource_failed { give back 0 - 1 }
     if found { give back 1 }
@@ -8568,23 +8723,6 @@ task v4_borrowck_word_local_drop_kind(borrow_id: int, result_id: int, mir_id: in
 }
 
 
-
-task v4_borrowck_word_enqueue_state(seen: int, blocks: int, states: int, block_count: int, block: int, initialized: bool) -> bool {
-    if block < 0 or block >= block_count { give back false }
-    pilot index = v4_borrowck_drop_state_index(block, initialized)
-    if index < 0 or index >= array_len(seen) { give back false }
-    pilot previous: word = array_get(seen, index)
-    if previous == "1" { give back true }
-    pilot count = array_len(blocks)
-    if count != array_len(states) { give back false }
-    array_push(blocks, word_from_int(block))
-    if array_len(blocks) != count + 1 { give back false }
-    array_push(states, word_from_bool(initialized))
-    if array_len(states) != count + 1 { give back false }
-    array_set(seen, index, "1")
-    pilot stored: word = array_get(seen, index)
-    give back stored == "1"
-}
 
 -- Evaluate uses in runtime order so a repeated transfer within one call cannot pass.
 task v4_borrowck_word_place_use_state(mir_id: int, body_id: int, place: int, local_id: int, initialized: bool, borrowed: bool, depth: int) -> int {
