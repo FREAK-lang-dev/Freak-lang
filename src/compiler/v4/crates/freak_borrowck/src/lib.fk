@@ -7401,30 +7401,38 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
     give back conflicts
 }
 
--- A cheap MIR shape: per-body element counts plus a checksum of the block
--- records. Codegen reuses a supplied Meiya result only when it is the latest
--- check and the MIR still has the shape it was checked with; appended
--- statements, blocks, rvalues, places or locals and changed terminators all
--- force a fresh check_mir.
+-- A MIR content digest: per-body element counts plus checksums of the
+-- block records and of every statement, place, rvalue and local column
+-- Meiya reads. Codegen reuses a supplied Meiya result only when it is the
+-- latest check and the MIR still has the digest it was checked with, so
+-- appended or restored slots, changed operands and changed terminators all
+-- force a fresh check_mir. The cost is linear in the MIR.
+task v4_borrowck_handle_digest(handle: int) -> word {
+    if handle < 0 { give back "x" }
+    pilot parts = array_new()
+    if parts < 0 { give back "" }
+    pilot index = 0
+    repeat until index >= array_len(handle) {
+        pilot item: word = array_get(handle, index)
+        array_push(parts, item + "\n")
+        index += 1
+    }
+    pilot out = word_from_int(array_len(handle)) + ":" + word_from_int(word_join(parts).checksum())
+    array_release(parts)
+    give back out
+}
+
 task v4_borrowck_mir_shape(mir_id: int) -> word {
     pilot parts = array_new()
     if parts < 0 { give back "" }
     array_push(parts, word_from_int(mir_id) + ":" + word_from_int(v4_mir_body_count(mir_id)))
     pilot body = 0
     repeat until body >= v4_mir_body_count(mir_id) {
-        pilot blocks = v4_mir_body_block_count(mir_id, body)
-        pilot records = array_new()
-        if records < 0 {
-            array_release(parts)
-            give back ""
-        }
-        pilot block = 0
-        repeat until block >= blocks {
-            array_push(records, v4_mir_body_block(mir_id, body, block) + "\n")
-            block += 1
-        }
-        array_push(parts, ";" + word_from_int(blocks) + "," + word_from_int(v4_mir_body_stmt_count(mir_id, body)) + "," + word_from_int(v4_mir_body_rvalue_count(mir_id, body)) + "," + word_from_int(v4_mir_body_place_count(mir_id, body)) + "," + word_from_int(v4_mir_body_local_count(mir_id, body)) + "," + word_from_int(word_join(records).checksum()))
-        array_release(records)
+        array_push(parts, ";" + v4_borrowck_handle_digest(v4_mir_body_blocks_handle(mir_id, body)))
+        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_stmt_kinds_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_blocks_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_places_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_rvalues_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_lhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_rhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_stmt_scope_spans_handle(mir_id, body)))
+        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_place_kinds_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_bases_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_fields_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_indices_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_place_tys_handle(mir_id, body)))
+        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_kinds_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_ops_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_lhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_rhs_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_tys_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_args_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body)))
+        array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_local_tys_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_modes_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_scope_spans_handle(mir_id, body)))
         body += 1
     }
     pilot out = word_join(parts)
@@ -8293,22 +8301,16 @@ task v4_borrowck_mention_begin(mir_id: int, body_id: int) -> void {
     v4_borrowck_mention_end()
     pilot block_count = v4_mir_body_block_count(mir_id, body_id)
     if block_count <= 1 { give back }
-    pilot entries = array_new()
-    if entries < 0 { give back }
-    pilot block = 0
-    repeat until block >= block_count {
-        array_push(entries, ",")
-        block += 1
-    }
-    if array_len(entries) != block_count {
-        array_release(entries)
-        give back
-    }
+    -- Pass one scans each statement once; pass two joins each block's texts
+    -- once, so long blocks cost linear copying.
+    pilot texts = array_new()
+    if texts < 0 { give back }
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
     pilot stmt = 0
-    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body_id) {
-        block = v4_mir_stmt_block(mir_id, body_id, stmt)
-        if block < 0 or block >= block_count {
-            array_release(entries)
+    repeat until stmt >= stmt_count {
+        pilot owner = v4_mir_stmt_block(mir_id, body_id, stmt)
+        if owner < 0 or owner >= block_count {
+            array_release(texts)
             give back
         }
         v4_borrowck_mention_budget = 8192
@@ -8316,9 +8318,39 @@ task v4_borrowck_mention_begin(mir_id: int, body_id: int) -> void {
         pilot text = v4_borrowck_mention_rvalue(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt), 0)
         pilot place = v4_mir_stmt_place(mir_id, body_id, stmt)
         if place >= 0 { text = text + v4_borrowck_mention_place(mir_id, body_id, place, 0) }
-        pilot current: word = array_get(entries, block)
-        if v4_borrowck_mention_failed or current == "*" { array_set(entries, block, "*") } else { array_set(entries, block, current + text) }
+        if v4_borrowck_mention_failed { text = "*" }
+        array_push(texts, text)
         stmt += 1
+    }
+    pilot entries = array_new()
+    if entries < 0 or array_len(texts) != stmt_count {
+        array_release(entries)
+        array_release(texts)
+        give back
+    }
+    pilot block = 0
+    repeat until block >= block_count {
+        pilot parts = array_new()
+        pilot entry = "*"
+        if parts >= 0 {
+            array_push(parts, ",")
+            pilot wild: bool = false
+            stmt = v4_mir_block_first_stmt(mir_id, body_id, block)
+            repeat until stmt < 0 or wild {
+                pilot text: word = array_get(texts, stmt)
+                if text == "*" { wild = true } else { array_push(parts, text) }
+                stmt = v4_mir_block_next_stmt(mir_id, body_id, block, stmt)
+            }
+            if not wild { entry = word_join(parts) }
+            array_release(parts)
+        }
+        array_push(entries, entry)
+        block += 1
+    }
+    array_release(texts)
+    if array_len(entries) != block_count {
+        array_release(entries)
+        give back
     }
     v4_borrowck_mention_blocks = entries
     v4_borrowck_mention_mir = mir_id
