@@ -40,6 +40,7 @@ pilot v4_codegen_llvm_fragment_error = ""
 -- This transient mode is used only while sealing a fresh checked MIR plan.
 -- Module readers consume sealed text and never revisit this mutable context.
 pilot v4_codegen_llvm_active_owned_mir = 0 - 1
+pilot v4_codegen_llvm_supplied_borrow = 0 - 1
 -- Body-scoped list of owned Word locals, highest ID first, held while one
 -- body is lowered so per-statement and per-edge cleanup skip non-Word locals.
 pilot v4_codegen_llvm_owned_locals = 0 - 1
@@ -2553,6 +2554,15 @@ task v4_codegen_llvm_lower_owned_mir_with_panic(file_id: int, mir_id: int, polic
     give back v4_codegen_llvm_lower_mir_policy(file_id, mir_id, true, policy)
 }
 
+-- The build tool has just run Meiya on this MIR. Reuse those facts instead of
+-- a second identical check_mir; any other borrow file gets a fresh check.
+task v4_codegen_llvm_lower_owned_mir_with_borrow(file_id: int, mir_id: int, policy: word, borrow_id: int) -> int {
+    v4_codegen_llvm_supplied_borrow = borrow_id
+    pilot codegen_id = v4_codegen_llvm_lower_mir_policy(file_id, mir_id, true, policy)
+    v4_codegen_llvm_supplied_borrow = 0 - 1
+    give back codegen_id
+}
+
 task v4_codegen_llvm_panic_policy(codegen_id: int) -> word {
     if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "" }
     give back array_get(v4_codegen_llvm_panic_policies, codegen_id)
@@ -2605,7 +2615,9 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
             v4_codegen_llvm_active_owned_mir = 0 - 1
             give back codegen_id
         }
-        pilot borrow_id = v4_borrowck_check_mir(file_id, mir_id)
+        pilot borrow_id = v4_codegen_llvm_supplied_borrow
+        v4_codegen_llvm_supplied_borrow = 0 - 1
+        if borrow_id < 0 or v4_borrowck_mir_id(borrow_id) != mir_id { borrow_id = v4_borrowck_check_mir(file_id, mir_id) }
         error = v4_codegen_llvm_word_borrow_plan_error(borrow_id, mir_id)
         if error != "" {
             array_set(v4_codegen_llvm_native_errors, codegen_id, error)

@@ -16,6 +16,7 @@ Each shape stresses a different cost:
     impl    shapes, impl tasks, aliases      -> alias/shape/type signature lookups
     say     many string literals             -> literal tables, module globals
     mixed   all of the above together
+    loops   sibling loops in one body        -> CFG walks in Meiya and cleanup
 
 "Size" is a count of generated units, not lines; the line count is reported.
 Every generated program has a known exit code, checked with --check, so the
@@ -153,8 +154,21 @@ def gen_mixed(n: int):
     return src, 9, "bench ok\n"
 
 
+def gen_loops(n: int):
+    """One body with n sibling loops; each moves a fresh word and prints (#161)."""
+    out = ["task eat(w: word) -> int {\n    give back w.length()\n}\n",
+           "task main() -> int {\n    pilot t = 0\n"]
+    for i in range(n):
+        out.append(f"    pilot k{i} = 0\n"
+                   f"    training arc until k{i} >= 1 max 2 sessions {{\n"
+                   f"        k{i} += 1\n        pilot w{i} = \"ab\"\n"
+                   f"        t = t + eat(w{i})\n        say k{i}\n    }}\n")
+    out.append("    give back t % 200\n}\n")
+    return "".join(out), (2 * n) % 200, "1\n" * n
+
+
 GENERATORS = {"tasks": gen_tasks, "long": gen_long, "calls": gen_calls,
-              "impl": gen_impl, "say": gen_say, "mixed": gen_mixed}
+              "impl": gen_impl, "say": gen_say, "mixed": gen_mixed, "loops": gen_loops}
 
 
 def load_build(repo: Path):
@@ -224,7 +238,7 @@ INSTRUMENTATION_POINTS = [
     ("ty", "int64_t ty = freak_v4_ty_lower_resolve(((int64_t)0), resolve);", "freak_v4_ty_diag_count(ty)"),
     ("mir", "int64_t mir = freak_v4_mir_lower_ty(((int64_t)0), ty);", "freak_v4_mir_diag_count(mir)"),
     ("borrowck", "int64_t borrowck = freak_v4_borrowck_check_mir(((int64_t)0), mir);", "freak_v4_borrowck_diag_count(borrowck)"),
-    ("codegen", "int64_t codegen = freak_v4_codegen_llvm_lower_owned_mir_with_panic(((int64_t)0), mir, freak_v4_build_llvm_panic_policy());", "freak_v4_codegen_llvm_diag_count(codegen)"),
+    ("codegen", "int64_t codegen = freak_v4_codegen_llvm_lower_owned_mir_with_borrow(((int64_t)0), mir, freak_v4_build_llvm_panic_policy(), borrowck);", "freak_v4_codegen_llvm_diag_count(codegen)"),
     ("module", "freak_word module = freak_v4_codegen_llvm_module_text(codegen, target_spec);", "0"),
 ]
 

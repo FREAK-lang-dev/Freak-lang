@@ -2122,7 +2122,7 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, freak_word 
         ):
             declarations += f"static int64_t freak_v4_{function}(int64_t id, int64_t previous) {{ return id; }}\n"
         declarations += "static freak_word freak_v4_build_llvm_panic_policy(void) { return freak_word_lit(\"unwind\"); }\n"
-        declarations += "static int64_t freak_v4_codegen_llvm_lower_owned_mir_with_panic(int64_t id, int64_t previous, freak_word policy) { return id; }\n"
+        declarations += "static int64_t freak_v4_codegen_llvm_lower_owned_mir_with_borrow(int64_t id, int64_t previous, freak_word policy, int64_t borrow) { return id; }\n"
         for stage in STAGES[:-1]:
             prefix = "codegen_llvm" if stage == "codegen" else stage
             declarations += f"static int64_t freak_v4_{prefix}_diag_count(int64_t id) {{ return 0; }}\n"
