@@ -281,8 +281,10 @@ the tier-1 preview.
 
 ### Owned word checkpoint (W2)
 
-The build tool uses `v4_codegen_llvm_lower_owned_mir_with_panic` with the
-selected panic policy and fresh Meiya facts before sealing a module. This path
+The build tool uses `v4_codegen_llvm_lower_owned_mir_with_borrow` with the
+selected panic policy and the Meiya facts its borrowck stage just produced for
+the same MIR (other callers of `v4_codegen_llvm_lower_owned_mir_with_panic` get
+a fresh check) before sealing a module. This path
 carries sized UTF-8/NUL word
 values through locals, ordinary value parameters and returns, assignment,
 concatenation, equality, display and the closed read-only intrinsic inventory.
