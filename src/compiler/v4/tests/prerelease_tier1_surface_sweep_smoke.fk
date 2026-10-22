@@ -1,0 +1,99 @@
+-- Tier 1 surface sweep: V3 forms V4 does not lower yet are named on their
+-- own tokens by the parser, instead of failing later with unrelated messages
+-- (or, for statement prefixes, reaching codegen). One source per process.
+task v4_tier1_surface_assert(condition: bool, label: word) -> void {
+    if not condition { panic("tier1 surface: " + label) }
+}
+
+task v4_tier1_surface_body(mode: word) -> word {
+    pilot open = chr(123)
+    pilot close = chr(125)
+    if mode == "eventually" { give back "eventually " + open + " say 1 " + close + "\n" }
+    if mode == "isekai" { give back "isekai " + open + " pilot a = 1 " + close + " bringing back " + open + " a " + close + "\n" }
+    if mode == "foreshadow" { give back "foreshadow pilot debt = 0\n" }
+    if mode == "payoff" { give back "pilot debt = 0\n payoff debt\n" }
+    if mode == "sadly" { give back "sadly say 1\n" }
+    if mode == "science" { give back "for science, say 1\n" }
+    if mode == "knowing" { give back "knowing this will hurt, say 1\n" }
+    if mode == "deus" { give back "deus_ex_machina \"why\" " + open + " say 1 " + close + "\n" }
+    if mode == "plus-ultra" { give back "pilot u = PLUS ULTRA 5\n" }
+    if mode == "final-form" { give back "pilot u = FINAL FORM 5\n" }
+    if mode == "nakama" { give back "pilot u = 1 NAKAMA 2\n" }
+    if mode == "tsundere" { give back "pilot u = 5 TSUNDERE\n" }
+    if mode == "local-annotation" { give back "@protagonist\n pilot hero = 1\n" }
+    if mode == "control-for-each" { give back "pilot t = 0\n for each i in 0..3 " + open + " t += i " + close + "\n" }
+    if mode == "control-names" { give back "pilot science = 1\n pilot knowing = science\n pilot PLUS = knowing\n say PLUS\n" }
+    give back ""
+}
+
+task v4_tier1_surface_source(mode: word) -> word {
+    pilot open = chr(123)
+    pilot close = chr(125)
+    if mode == "launch" { give back "launch task shown() -> int " + open + " give back 3 " + close + "\ntask main() -> int " + open + " give back shown() " + close + "\n" }
+    if mode == "control-attributes" {
+        give back "@deprecated\ntask old() -> int " + open + " give back 3 " + close + "\nextern [C] " + open + "\n @link_name(\"abs\")\n task c_abs(v: std::ffi::c_int) -> std::ffi::c_int\n" + close + "\ntask main() -> int " + open + " give back old() " + close + "\n"
+    }
+    give back "task main() -> int " + open + "\n " + v4_tier1_surface_body(mode) + " give back 0\n" + close + "\n"
+}
+
+task v4_tier1_surface_expected(mode: word) -> word {
+    if mode == "eventually" { give back "eventually blocks are not supported by V4 yet" }
+    if mode == "isekai" { give back "isekai blocks are not supported by V4 yet" }
+    if mode == "foreshadow" { give back "foreshadow is not supported by V4 yet" }
+    if mode == "payoff" { give back "payoff is not supported by V4 yet" }
+    if mode == "sadly" { give back "the sadly prefix is not supported by V4 yet" }
+    if mode == "science" { give back "the for science, prefix is not supported by V4 yet" }
+    if mode == "knowing" { give back "the knowing this will hurt, prefix is not supported by V4 yet" }
+    if mode == "deus" { give back "deus_ex_machina blocks are not supported by V4 yet" }
+    if mode == "plus-ultra" { give back "the PLUS ULTRA operator is not supported by V4 yet" }
+    if mode == "final-form" { give back "the FINAL FORM operator is not supported by V4 yet" }
+    if mode == "nakama" { give back "the NAKAMA operator is not supported by V4 yet" }
+    if mode == "tsundere" { give back "the TSUNDERE operator is not supported by V4 yet" }
+    if mode == "local-annotation" { give back "annotations on local bindings are not supported by V4 yet" }
+    if mode == "launch" { give back "launch visibility is not supported by V4 yet" }
+    give back ""
+}
+
+task v4_tier1_surface_spelled(mode: word) -> word {
+    if mode == "eventually" { give back "eventually" }
+    if mode == "isekai" { give back "isekai" }
+    if mode == "foreshadow" { give back "foreshadow" }
+    if mode == "payoff" { give back "payoff" }
+    if mode == "sadly" { give back "sadly" }
+    if mode == "science" { give back "for science," }
+    if mode == "knowing" { give back "knowing this will hurt," }
+    if mode == "deus" { give back "deus_ex_machina" }
+    if mode == "plus-ultra" { give back "PLUS ULTRA" }
+    if mode == "final-form" { give back "FINAL FORM" }
+    if mode == "nakama" { give back "NAKAMA" }
+    if mode == "tsundere" { give back "TSUNDERE" }
+    if mode == "local-annotation" { give back "@protagonist" }
+    if mode == "launch" { give back "launch" }
+    give back ""
+}
+
+task v4_tier1_surface_run() -> void {
+    pilot mode = "eventually"
+    if process::args_count() > 1 { mode = process::arg(1) }
+    pilot source = v4_tier1_surface_source(mode)
+    pilot expected = v4_tier1_surface_expected(mode)
+    pilot stream = v4_lex_text(0, source)
+    v4_tier1_surface_assert(v4_lex_diag_count(stream) == 0, "clean lex " + mode)
+    pilot tree = v4_parse_stream(0, stream)
+    if expected == "" {
+        v4_tier1_surface_assert(v4_parse_diag_count(tree) == 0, "control parses cleanly " + mode + ": " + word_from_int(v4_parse_diag_count(tree)))
+        say "tier1-surface " + mode + "=passed"
+        give back
+    }
+    v4_tier1_surface_assert(v4_parse_diag_count(tree) >= 1, "named parse diagnostic " + mode)
+    pilot diag = v4_parse_diag(tree, 0)
+    pilot message = expected
+    pilot spelled = v4_tier1_surface_spelled(mode)
+    v4_tier1_surface_assert(v4_diag_severity(diag) == v4_diag_error, "error severity " + mode)
+    v4_tier1_surface_assert(v4_diag_message(diag) == message, "message " + mode + ": " + v4_diag_message(diag))
+    pilot span = v4_diag_span(diag)
+    v4_tier1_surface_assert(v4_slice(source, v4_span_start(span), v4_span_end(span)) == spelled, "span is the form's own tokens " + mode)
+    v4_tier1_surface_assert(v4_diag_help(diag) != "", "help " + mode)
+    say "tier1-surface " + mode + "=passed"
+}
+v4_tier1_surface_run()

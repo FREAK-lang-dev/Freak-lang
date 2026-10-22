@@ -3469,6 +3469,23 @@ task v4_codegen_llvm_native_entry_error(mir_id: int) -> word {
     give back ""
 }
 
+-- The user-facing form of the entry contract above: a named, spanned error
+-- on the main task itself, reported before codegen. Like V3, main takes no
+-- parameters; programs read their arguments through typed process calls.
+task v4_codegen_llvm_native_entry_diag(mir_id: int) -> word {
+    pilot main_id = v4_codegen_llvm_find_mir_body(mir_id, "main")
+    if main_id < 0 { give back "" }
+    pilot span = v4_mir_word_source_body_span(v4_mir_ty_id(mir_id), v4_mir_body_def(mir_id, main_id))
+    if v4_mir_body_callable_param_count(mir_id, main_id) != 0 {
+        give back v4_diag_new(v4_diag_error, span, "main must not declare parameters", "read command-line arguments inside main with process::args_count() and process::arg(i)")
+    }
+    pilot return_ty = v4_mir_body_callable_return_type(mir_id, main_id)
+    if return_ty != v4_ty_int and return_ty != v4_ty_void and return_ty != v4_ty_never {
+        give back v4_diag_new(v4_diag_error, span, "main must return int or void, got " + return_ty, "give back an int exit status, or leave the return type off for void")
+    }
+    give back ""
+}
+
 -- The generated entry owns both the C ABI name and the private source-task
 -- name. A library without an entry may still declare an external main.
 task v4_codegen_llvm_native_entry_symbol_error(codegen_id: int) -> word {

@@ -1831,11 +1831,123 @@ task v4_parse_validate_while_keyword_uses(tree_id: int, stream_id: int) -> void 
     }
 }
 
+-- Next non-trivia token at or after idx, or the token count.
+task v4_parse_surface_next(stream_id: int, idx: int) -> int {
+    pilot at = idx
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until at >= count or v4_lex_token_type(stream_id, at) != v4_tok_trivia {
+        at += 1
+    }
+    give back at
+}
+
+task v4_parse_surface_is(stream_id: int, idx: int, value: word) -> bool {
+    if idx >= v4_lex_token_count(stream_id) { give back false }
+    pilot token_type = v4_lex_token_type(stream_id, idx)
+    if token_type == v4_tok_trivia or token_type == v4_tok_eof { give back false }
+    give back v4_lex_token_syntax_value(stream_id, idx) == value
+}
+
+-- V3 surface forms V4 does not lower yet. Without this scan they were
+-- accepted by the parser and failed later with unrelated messages (an unknown
+-- shape for `eventually`, an unknown name for `isekai` exports, codegen's
+-- `native rvalue not yet supported` for prefixes and anime operators). Each
+-- is named here, on its own tokens, before anything else runs.
+task v4_parse_validate_unsupported_surface(tree_id: int, stream_id: int) -> void {
+    pilot idx = 0
+    pilot count = v4_lex_token_count(stream_id)
+    pilot depth = 0
+    repeat until idx >= count {
+        pilot token_type = v4_lex_token_type(stream_id, idx)
+        if token_type != v4_tok_trivia and token_type != v4_tok_eof {
+            pilot value = v4_lex_token_syntax_value(stream_id, idx)
+            pilot span = v4_lex_token_span(stream_id, idx)
+            pilot form = ""
+            pilot help = ""
+            pilot last = idx
+            if value == "{" { depth += 1 }
+            if value == "}" and depth > 0 { depth -= 1 }
+            if token_type == v4_tok_keyword {
+                if value == "eventually" {
+                    form = "eventually blocks are"
+                    help = "V3 runs an eventually block inline where it is written; move the statements there until V4 lowers deferred blocks"
+                } else if value == "isekai" {
+                    form = "isekai blocks are"
+                    help = "declare the values you would bring back with pilot in the enclosing scope"
+                } else if value == "foreshadow" or value == "payoff" {
+                    form = value + " is"
+                    help = "use an ordinary pilot binding until V4 tracks narrative debt"
+                } else if value == "sadly" {
+                    form = "the sadly prefix is"
+                    help = "remove the prefix; the statement after it is ordinary code"
+                } else if value == "deus_ex_machina" {
+                    form = "deus_ex_machina blocks are"
+                    help = "write the block's statements directly until V4 lowers miracles"
+                } else if value == "launch" {
+                    form = "launch visibility is"
+                    help = "remove launch; V4 builds one file, so every task is already visible inside it"
+                } else if value == "NAKAMA" or value == "TSUNDERE" {
+                    form = "the " + value + " operator is"
+                    help = "write the arithmetic out with ordinary operators"
+                } else if value == "for" {
+                    pilot science = v4_parse_surface_next(stream_id, idx + 1)
+                    pilot comma = v4_parse_surface_next(stream_id, science + 1)
+                    if v4_parse_surface_is(stream_id, science, "science") and v4_parse_surface_is(stream_id, comma, ",") {
+                        form = "the for science, prefix is"
+                        help = "remove the prefix; the statement after it is ordinary code"
+                        last = comma
+                    }
+                }
+            } else if token_type == v4_tok_ident {
+                if value == "PLUS" or value == "FINAL" {
+                    pilot second = v4_parse_surface_next(stream_id, idx + 1)
+                    pilot wanted = "ULTRA"
+                    if value == "FINAL" { wanted = "FORM" }
+                    if v4_parse_surface_is(stream_id, second, wanted) {
+                        form = "the " + value + " " + wanted + " operator is"
+                        help = "write the arithmetic out with ordinary operators"
+                        last = second
+                    }
+                } else if value == "knowing" {
+                    pilot this_at = v4_parse_surface_next(stream_id, idx + 1)
+                    pilot will_at = v4_parse_surface_next(stream_id, this_at + 1)
+                    pilot hurt_at = v4_parse_surface_next(stream_id, will_at + 1)
+                    if v4_parse_surface_is(stream_id, this_at, "this") and v4_parse_surface_is(stream_id, will_at, "will") and v4_parse_surface_is(stream_id, hurt_at, "hurt") {
+                        form = "the knowing this will hurt, prefix is"
+                        help = "remove the prefix; the statement after it is ordinary code"
+                        last = hurt_at
+                        pilot comma_at = v4_parse_surface_next(stream_id, hurt_at + 1)
+                        if v4_parse_surface_is(stream_id, comma_at, ",") { last = comma_at }
+                    }
+                }
+            } else if token_type == v4_tok_symbol and value == "@" and depth > 0 {
+                pilot name_at = v4_parse_surface_next(stream_id, idx + 1)
+                pilot item_at = v4_parse_surface_next(stream_id, name_at + 1)
+                if name_at < count and v4_lex_token_type(stream_id, name_at) == v4_tok_ident {
+                    if v4_parse_surface_is(stream_id, item_at, "pilot") or v4_parse_surface_is(stream_id, item_at, "fixed") or v4_parse_surface_is(stream_id, item_at, "grounded") {
+                        form = "annotations on local bindings are"
+                        help = "move the annotation to a top-level task or shape, or remove it"
+                        last = name_at
+                    }
+                }
+            }
+            if form != "" {
+                pilot end_span = v4_lex_token_span(stream_id, last)
+                pilot whole = v4_span_new(v4_span_file(span), v4_span_start(span), v4_span_end(end_span))
+                v4_parse_add_diag(tree_id, v4_diag_error, whole, form + " not supported by V4 yet", help)
+                idx = last
+            }
+        }
+        idx += 1
+    }
+}
+
 task v4_parse_stream(file_id: int, stream_id: int) -> int {
     v4_parse_init()
     pilot tree_id = v4_parse_tree_new(file_id, stream_id)
     pilot root_id = v4_parse_add_node(tree_id, v4_node_source_file, word_from_int(file_id), V4_NO_SPAN, 0 - 1)
     v4_parse_validate_while_keyword_uses(tree_id, stream_id)
+    v4_parse_validate_unsupported_surface(tree_id, stream_id)
     pilot idx = 0
     pilot count = v4_lex_token_count(stream_id)
 

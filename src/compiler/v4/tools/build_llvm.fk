@@ -79,6 +79,13 @@ task v4_build_llvm_source(source: word) -> void {
         diag_borrowck += 1
     }
     if v4_build_llvm_abort(errors, "borrowck") { give back }
+    pilot entry_diag = v4_codegen_llvm_native_entry_diag(mir)
+    if entry_diag != "" {
+        say "v4-build-stage=entry diagnostics=1"
+        say entry_diag
+        v4_build_llvm_abort(1, "entry")
+        give back
+    }
     pilot codegen = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, v4_build_llvm_panic_policy())
     errors += v4_codegen_llvm_diag_count(codegen)
     say "v4-build-stage=codegen diagnostics=" + word_from_int(v4_codegen_llvm_diag_count(codegen))
