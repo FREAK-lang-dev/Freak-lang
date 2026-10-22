@@ -1,4 +1,7 @@
-# FREAK V4 release checklist (revision 3.3)
+# FREAK V4 release checklist (revision 3.4)
+
+Revision 3.4 reconciles status only, on 2026-10-22 against `main` at
+`448a81e`; see "What changed in revision 3.4" below.
 
 Revision 3.3 reconciles status only, on 2026-10-13 against `main` at
 `525114fc5441c59481eb93067aeec8abee99d9be`; see "What changed in revision
@@ -84,6 +87,33 @@ These results do not complete the preview or the release checklist.
 The remaining correctness rows and A4 Runtime MIR transform stay separately
 tracked. The reviewed U0 unwind plan must integrate with A4 ownership facts;
 new cleanup policy must not be added to codegen.
+
+## What changed in revision 3.4
+
+Status reconciliation only; no scope, tier or line changes. Checked on
+`main` at `448a81e` (2026-10-22), 55 commits after `525114f`.
+
+- **Tier 1 decisions landed.** PR #217 names `0xFF`, other non-decimal
+  literals and unknown names/tasks with spans. PR #218 carries the
+  maintainer's 2026-10-21 decisions: a task with no return type is
+  `-> void` (decision 13 closed), `|>` lowers to a call (decision 9 closed),
+  and num never narrows to an integer implicitly; `.to_int()`, `.to_uint()`
+  and `.to_tiny()` convert explicitly. Narrowing is rejected in every TY
+  compatibility path, including shape fields and generic matching. Five
+  tier 1 rows remain open: compile-time overhead, the tier 4 surface sweep,
+  TY scaling, `main` with parameters, and panic unwind.
+- **Pipe precedence** is loosest (`1 + 2 |> f` is `f(3)`, and
+  `m or else 0 |> f` pipes the whole fallback). V3's postfix parse read the
+  first as `1 + f(2)`. The migration note records it. Switching to V3's
+  binding is a small change if the maintainer prefers it.
+- **0.15.1 released** on 2026-10-18 (V3.5 lane, Windows registry fixes,
+  registry Hangar). #177 stays open for what 0.15.1 did not finish.
+- **freak-lsp** (tier 7) is on `main` (`9db1476`, `dfc9bec`) as the row
+  already recorded. It is still not packaged in release archives.
+- **PR #149 merged** (`286f522`), closing #148. #124 and #169 are closed too.
+  New V4-relevant issues are in the tracked-issues table.
+- **Committed build outputs**: six remain, at different paths from the ones
+  the tier 8 row named. The row now lists them.
 
 ## What changed in revision 3.3
 
@@ -223,7 +253,7 @@ scaling to done, and recorded the `|>` finding.
 | Self-hosted | 1, 2 | V4 compiles V4 |
 | Replaces V3 | 1 to 4, 8, A0, A1, A4 | "V4 release": everything V3 ships today, on the new compiler |
 | Bible-complete | 1 to 8, A0 to A4 | The 1.0 the audit describes |
-| V3.5 (on the V3 toolchain) | its own plan | V3 builds V4 natively, real packages, loops, an HTTP floor. Shipped as 0.15.0 on 2026-10-12; unfinished promises are tracked in #177 for 0.15.1. Gates no V4 line; adds the V3.5 rows below |
+| V3.5 (on the V3 toolchain) | its own plan | V3 builds V4 natively, real packages, loops, an HTTP floor. Shipped as 0.15.0 on 2026-10-12 and 0.15.1 on 2026-10-18; unfinished promises stay tracked in #177. Gates no V4 line; adds the V3.5 rows below |
 | Self-contained toolchain | B0 to B4 | One binary with LLVM and LLD; no Clang for users where the platform allows. After Replaces V3; gates no other line |
 
 The replacement line follows `docs/bootstrap-map.md`: self-hosting, shipped-V3
@@ -857,7 +887,7 @@ FFI completion (phase C):
 - [ ] **S** `compiler-v3-final` tag after V3's Last Sortie gates
 - [ ] **M** Security review of generated-code memory safety claims before the README says "memory safe"
 - [ ] **S** Rename `crates/` if you are going to (cheapest before release)
-- [ ] **S** Remove committed build outputs (`.exe`, `.pdb`, `.ilk` under `tests/` and `self_hosted/`)
+- [ ] **S** Remove committed build outputs: six at revision 3.4 (`build/freak.exe`, `build/hangar.exe`, `hello.exe`, and `muvluv.exe`/`.ilk`/`.pdb` under `packages/muvluv/src/`)
 
 ## Open decisions only the maintainers can make
 
@@ -884,7 +914,7 @@ FFI completion (phase C):
 
 ## Tracked issues
 
-Open GitHub issues at revision 3.3 and the rows they belong to. The 0.15.1
+Open GitHub issues at revision 3.4 and the rows they belong to. The 0.15.1
 tracker #177 is V3 shipping work; it names the V4-only issues below as
 separately ranked and moves no row here.
 
@@ -894,14 +924,13 @@ separately ranked and moves no row here.
 | #163 | Alias-route MIR snapshots fail validation for a clean program | Tier 3 routes |
 | #161 | Numeric-loop emission scaling under the resource limit | Tier 1 compile-time overhead |
 | #167 | `while` reservation after grouped multiline member separators | V3.5 lane `while` row |
-| #124 | Four inherited HIR snapshot and lookup P2 findings | A1 |
-| #148, PR #149 | Bind optional historical benchmark baselines to compiler provenance | Tier 4 performance lab |
+| #209, #210, #211 | Historical benchmark flags, artifact rehash, archive device names | Tier 4 performance lab |
 | #160 | Toolchain-manager dispatchers in the native Clang alias witness | Tier 8 (test tooling) |
 | #123 | Index `for` loops | V3.5 lane remaining syntax |
 | #104 | Enum-style surface for finite named values (needs design) | No row; candidate for decision 7 |
 | #116 | Bible 7.x API listings: implemented versus planned | Tier 8 docs sync |
 | #114 | Validate shipping V3 on Android Termux | Not a V4 row; keep distinct from tier 8 Linux arm64 |
-| #169 | Diagnostic voice packs in the shipping CLI (V3) | Tier 5 error voices follow it on V4 |
+| #190 | Pin CI and release actions to immutable commits | Tier 8 CI row |
 
 ## Appendix: re-measuring the progress numbers
 
