@@ -32,3 +32,5 @@ void freak_v4_process_shutdown_args(void);
    fatal. Both output pointers are required and must designate distinct slots.
    The adapter deliberately avoids platform-dependent C struct return ABIs. */
 void freak_v4_fs_read(int64_t path, int64_t *out_is_ok, int64_t *out_payload);
+int64_t freak_v4_fs_read_or_empty(int64_t path);
+int64_t freak_v4_process_arg_or_empty(int64_t index);

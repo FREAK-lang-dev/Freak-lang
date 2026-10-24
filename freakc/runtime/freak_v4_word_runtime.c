@@ -300,3 +300,160 @@ int64_t freak_v4_word_contains(int64_t value, int64_t needle) {
     }
     return 0;
 }
+
+static int64_t freak_v4_word_copy_bytes(const unsigned char* data, size_t length) {
+    char* copy = (char*)malloc(length + 1);
+    if (!copy) freak_v4_word_panic("out of memory copying owned storage");
+    if (length) memcpy(copy, data, length);
+    copy[length] = '\0';
+    return freak_v4_word_adopt(copy, length);
+}
+
+int64_t freak_v4_word_snapshot_escape(int64_t value) {
+    size_t length = freak_v4_word_size(value);
+    const unsigned char* data = freak_v4_word_data(value);
+    (void)freak_v4_word_count(data, length);
+    size_t escaped = length;
+    for (size_t i = 0; i < length; i++) {
+        unsigned char ch = data[i];
+        if (ch == '%' || ch == '|' || ch == '\n' || ch == '\r') {
+            if (escaped > SIZE_MAX - 3) freak_v4_word_panic("snapshot escape overflow");
+            escaped += 2;
+        }
+    }
+    char* out = (char*)malloc(escaped + 1);
+    if (!out) freak_v4_word_panic("out of memory copying owned storage");
+    size_t at = 0;
+    for (size_t i = 0; i < length; i++) {
+        const char* code = NULL;
+        switch (data[i]) {
+            case '%': code = "%25"; break;
+            case '|': code = "%7C"; break;
+            case '\n': code = "%0A"; break;
+            case '\r': code = "%0D"; break;
+            default: break;
+        }
+        if (code) { memcpy(out + at, code, 3); at += 3; }
+        else out[at++] = (char)data[i];
+    }
+    out[at] = '\0';
+    return freak_v4_word_adopt(out, at);
+}
+
+int64_t freak_v4_word_snapshot_unescape(int64_t value) {
+    size_t length = freak_v4_word_size(value);
+    const unsigned char* data = freak_v4_word_data(value);
+    (void)freak_v4_word_count(data, length);
+    char* out = (char*)malloc(length + 1);
+    if (!out) freak_v4_word_panic("out of memory copying owned storage");
+    size_t at = 0, i = 0;
+    while (i < length) {
+        if (data[i] == '%' && length - i > 2) {
+            char decoded = 0;
+            if (data[i + 1] == '2' && data[i + 2] == '5') decoded = '%';
+            else if (data[i + 1] == '7' && data[i + 2] == 'C') decoded = '|';
+            else if (data[i + 1] == '0' && data[i + 2] == 'A') decoded = '\n';
+            else if (data[i + 1] == '0' && data[i + 2] == 'D') decoded = '\r';
+            if (decoded) { out[at++] = decoded; i += 3; continue; }
+        }
+        out[at++] = (char)data[i++];
+    }
+    out[at] = '\0';
+    return freak_v4_word_adopt(out, at);
+}
+
+static int64_t freak_v4_word_snapshot_count(int64_t value, unsigned char separator) {
+    size_t length = freak_v4_word_size(value);
+    const unsigned char* data = freak_v4_word_data(value);
+    (void)freak_v4_word_count(data, length);
+    if (!length) return 0;
+    int64_t count = 1;
+    for (size_t i = 0; i < length; i++) {
+        if (data[i] == separator) count++;
+    }
+    return count;
+}
+
+static int64_t freak_v4_word_snapshot_piece(int64_t value, int64_t wanted, unsigned char separator) {
+    size_t length = freak_v4_word_size(value);
+    const unsigned char* data = freak_v4_word_data(value);
+    (void)freak_v4_word_count(data, length);
+    if (wanted < 0) return freak_v4_word_copy_bytes(data, 0);
+    int64_t piece = 0;
+    size_t start = 0;
+    for (size_t i = 0; i < length; i++) {
+        if (data[i] == separator) {
+            if (piece == wanted) return freak_v4_word_copy_bytes(data + start, i - start);
+            piece++;
+            start = i + 1;
+        }
+    }
+    if (piece == wanted) return freak_v4_word_copy_bytes(data + start, length - start);
+    return freak_v4_word_copy_bytes(data, 0);
+}
+
+int64_t freak_v4_word_snapshot_line_count(int64_t value) {
+    return freak_v4_word_snapshot_count(value, '\n');
+}
+
+int64_t freak_v4_word_snapshot_line(int64_t value, int64_t wanted) {
+    return freak_v4_word_snapshot_piece(value, wanted, '\n');
+}
+
+int64_t freak_v4_word_snapshot_field_count(int64_t value) {
+    return freak_v4_word_snapshot_count(value, '|');
+}
+
+int64_t freak_v4_word_snapshot_field_raw(int64_t value, int64_t wanted) {
+    return freak_v4_word_snapshot_piece(value, wanted, '|');
+}
+
+/* Bootstrap word.checksum(): the same stable 63-bit FNV-1a as V1's
+   freak_word_checksum, so hash tables in the compiler crates keep their
+   layout when V4 builds them. */
+int64_t freak_v4_word_checksum(int64_t value) {
+    size_t length = freak_v4_word_size(value);
+    const unsigned char* data = freak_v4_word_data(value);
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (size_t i = 0; i < length; i++) {
+        hash ^= (uint64_t)data[i];
+        hash *= UINT64_C(1099511628211);
+    }
+    return (int64_t)(hash & UINT64_C(0x7fffffffffffffff));
+}
+
+/* Bootstrap chr(code): the one-scalar word for a Unicode code point, as V1's
+   freak_char_to_word. Surrogates and values past U+10FFFF are rejected. */
+int64_t freak_v4_word_chr(int64_t code) {
+    if (code < 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) {
+        freak_v4_word_panic("chr code point is not a Unicode scalar value");
+    }
+    unsigned char buf[4];
+    size_t len = 0;
+    uint32_t c = (uint32_t)code;
+    if (c <= 0x7F) {
+        buf[0] = (unsigned char)c; len = 1;
+    } else if (c <= 0x7FF) {
+        buf[0] = (unsigned char)(0xC0 | (c >> 6));
+        buf[1] = (unsigned char)(0x80 | (c & 0x3F));
+        len = 2;
+    } else if (c <= 0xFFFF) {
+        buf[0] = (unsigned char)(0xE0 | (c >> 12));
+        buf[1] = (unsigned char)(0x80 | ((c >> 6) & 0x3F));
+        buf[2] = (unsigned char)(0x80 | (c & 0x3F));
+        len = 3;
+    } else {
+        buf[0] = (unsigned char)(0xF0 | (c >> 18));
+        buf[1] = (unsigned char)(0x80 | ((c >> 12) & 0x3F));
+        buf[2] = (unsigned char)(0x80 | ((c >> 6) & 0x3F));
+        buf[3] = (unsigned char)(0x80 | (c & 0x3F));
+        len = 4;
+    }
+    return freak_v4_word_from_bytes((int64_t)(uintptr_t)buf, (int64_t)len);
+}
+
+/* Bootstrap word_to_num(text): strtod over the owned bytes, as V1. */
+double freak_v4_word_to_num(int64_t value) {
+    (void)freak_v4_word_scalar_count(value);
+    return freak_word_to_num(freak_llvm_word_view(value));
+}

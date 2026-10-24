@@ -312,11 +312,13 @@ task cli_doctor_runtime_missing(runtime_dir: word) -> word {
     if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/llhttp.c") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/llhttp.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/llhttp.h") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/llhttp.h") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_word_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_word_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_compiler_array_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_compiler_array_runtime.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_numeric_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_numeric_runtime.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_unicode_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_unicode_runtime.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_system_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_system_runtime.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_panic_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_panic_runtime.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_word_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_word_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_compiler_array_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_compiler_array_runtime.h") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_numeric_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_numeric_runtime.h") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_unicode_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_unicode_runtime.h") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_unicode_lower_tables.h") { missing = cli_doctor_append_missing(missing, "freak_v4_unicode_lower_tables.h") }

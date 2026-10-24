@@ -726,7 +726,10 @@ class PureGateTests(unittest.TestCase):
                 "v4_mir_body_callable_abi": lambda mir, body: "",
                 "v4_codegen_llvm_calling_convention": convention_query,
                 "v4_mir_body_callable_return_type": lambda mir, body: 0,
-            }, {"v4_ty_never": -1, "v4_ty_void": -2})
+                # Strict modules carry no bootstrap module init or globals.
+                "v4_mir_module_init_body": lambda mir: -1,
+                "v4_codegen_llvm_global_release_lines": lambda mir: "",
+            }, {"v4_ty_never": -1, "v4_ty_void": -2, "v4_mir_module_init_name": "freak.module.init"})
             self.assertEqual(calls, [""])
             self.assertIn("%rc = call ccc i64 @freak.user.main()\n", emitted)
             self.assertIn("%rc32 = trunc i64 %rc to i32\n  ret i32 %rc32\n", emitted)
@@ -987,7 +990,7 @@ class PureGateTests(unittest.TestCase):
                          tuple("freakc/runtime/" + name for name in (*gate.RUNTIME_SOURCES, *gate.RUNTIME_HEADERS)) + gate.RUNTIME_VENDOR_HEADERS)
         self.assertEqual(tuple((gate.ROOT / gate.BOOTSTRAP_MANIFEST).read_text().splitlines()),
                          tuple("crates/" + crate + "/src/lib.fk" for crate in gate.CRATES))
-        self.assertEqual((len(gate.CRATES), len(gate.RUNTIME_SOURCES), len(gate.RUNTIME_HEADERS), len(gate.RUNTIME_VENDOR_HEADERS)), (22, 7, 11, 6))
+        self.assertEqual((len(gate.CRATES), len(gate.RUNTIME_SOURCES), len(gate.RUNTIME_HEADERS), len(gate.RUNTIME_VENDOR_HEADERS)), (22, 8, 12, 6))
         for name in (gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST, gate.RUNTIME_INVENTORY_READER, *gate.RUNTIME_VENDOR_HEADERS):
             self.assertIn(name, names)
         self.assertNotIn("v4_typed_os_inventory", sys.modules)
@@ -1084,7 +1087,7 @@ class PureGateTests(unittest.TestCase):
                     include = "-I" + str(frozen / "freakc/runtime")
                     self.assertEqual(include in argv, not label.startswith("link-"), "include paths belong only to C inputs")
                     if label.startswith("link-"):
-                        module_path = Path(argv[argv.index("-o")-8])
+                        module_path = Path(argv[argv.index("-o")-1-len(gate.RUNTIME_SOURCES)])
                         self.assertEqual(module_path.suffix,".ll")
                         self.assertEqual(module_path.name.endswith(".link.ll"),host=="darwin")
                         self.assertTrue(module_path.read_bytes().startswith(('target triple = "'+wanted_target+'"\n').encode()))
@@ -1137,9 +1140,9 @@ class PureGateTests(unittest.TestCase):
                     pins=gate.run_gate(compiler,work,frozen,report,supports)
                 self.assertEqual(dict(os.environ),previous)
                 pins.final_pins(); report["complete"]=True; gate.validate_report(report,sanitize)
-                self.assertEqual(len(callbacks),224 if sanitize else (209 if host=="win32" else (216 if host=="darwin" else 215)))
-                self.assertEqual(builds, {"bootstrap":2,"runtime":21,"capability":3,"module":27,"deployment":int(host=="darwin")})
-                self.assertEqual(len(report["binary_hashes"]),53)
+                self.assertEqual(len(callbacks),227 if sanitize else (212 if host=="win32" else (219 if host=="darwin" else 218)))
+                self.assertEqual(builds, {"bootstrap":2,"runtime":len(gate.OPTS) * len(gate.RUNTIME_SOURCES),"capability":3,"module":27,"deployment":int(host=="darwin")})
+                self.assertEqual(len(report["binary_hashes"]),32 + len(gate.OPTS) * len(gate.RUNTIME_SOURCES))
                 self.assertEqual(len(report["artifact_hashes"]),57 if host=="darwin" else 46)
                 self.assertEqual(report["native_link_target"],link_target)
                 for row in report["emissions"]:

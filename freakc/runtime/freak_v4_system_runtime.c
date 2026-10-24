@@ -332,3 +332,18 @@ void freak_v4_fs_read(int64_t path, int64_t *out_is_ok, int64_t *out_payload) {
     *out_payload = owner;
     *out_is_ok = 1;
 }
+
+/* Bootstrap process::arg: V1 word semantics, "" when the index is out of range. */
+int64_t freak_v4_process_arg_or_empty(int64_t index) {
+    return freak_v4_process_arg(index);
+}
+
+/* Bootstrap fs::read: V1 word semantics, the file text or "" on failure. */
+int64_t freak_v4_fs_read_or_empty(int64_t path) {
+    int64_t is_ok = 0;
+    int64_t payload = 0;
+    freak_v4_fs_read(path, &is_ok, &payload);
+    if (is_ok) return payload;
+    freak_v4_word_drop(payload);
+    return freak_v4_word_from_bytes(0, 0);
+}

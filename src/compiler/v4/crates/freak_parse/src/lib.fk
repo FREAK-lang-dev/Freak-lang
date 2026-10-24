@@ -1001,6 +1001,7 @@ task v4_parse_alias_target_span(tree_id: int, node_id: int) -> word {
 }
 
 task v4_parse_const_type(tree_id: int, node_id: int) -> word {
+    if v4_parse_node_kind(tree_id, node_id) == v4_node_root_pilot { give back v4_parse_root_pilot_type(tree_id, node_id) }
     if v4_parse_node_kind(tree_id, node_id) != v4_node_const {
         give back ""
     }
@@ -1015,13 +1016,16 @@ task v4_parse_const_type(tree_id: int, node_id: int) -> word {
 }
 
 task v4_parse_const_type_span(tree_id: int, node_id: int) -> word {
-    if v4_parse_node_kind(tree_id, node_id) != v4_node_const { give back V4_NO_SPAN }
+    pilot kind = v4_parse_node_kind(tree_id, node_id)
+    if kind != v4_node_const and kind != v4_node_root_pilot { give back V4_NO_SPAN }
     pilot stream = v4_parse_stream_id(tree_id)
     pilot start = v4_parse_node_start_token(tree_id, node_id)
     pilot end = v4_parse_node_end_token(tree_id, node_id)
     if start < 0 or end <= start { give back V4_NO_SPAN }
     -- Match const_type's search bounds, even for recovered declarations.
-    pilot pilot_token = v4_parse_skip_trivia(stream, start + 1)
+    -- A root pilot has no modifier token: `pilot` is its first token.
+    pilot pilot_token = start
+    if kind == v4_node_const { pilot_token = v4_parse_skip_trivia(stream, start + 1) }
     pilot equals = v4_parse_find_top_level_token(stream, pilot_token + 1, end, "=")
     if equals < 0 { give back V4_NO_SPAN }
     pilot colon = v4_parse_find_top_level_token(stream, pilot_token + 1, equals, ":")
@@ -1065,6 +1069,7 @@ task v4_parse_root_pilot_value_end(stream_id: int, first: int, end_token: int) -
 }
 
 task v4_parse_const_init(tree_id: int, node_id: int) -> word {
+    if v4_parse_node_kind(tree_id, node_id) == v4_node_root_pilot { give back v4_parse_root_pilot_init(tree_id, node_id) }
     if v4_parse_node_kind(tree_id, node_id) != v4_node_const {
         give back ""
     }

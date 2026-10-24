@@ -321,8 +321,10 @@ Private process/filesystem adapters have separate C runtime probes; typed
 The centralized `freakc.v4_native_runtime` inventory determines native link
 inputs and benchmark provenance. Root initialization uses an explicit per-file
 bootstrap compatibility mode (`build_v4.py --bootstrap-root`); strict language
-mode remains the default. The mode parses root `pilot` globals and root
-statements; their HIR-to-codegen lowering is the next tier 2 slice.
+mode remains the default. In that mode root `pilot` globals become module
+globals (scalars and words) and root statements run, with the global
+initializers, in a synthetic `freak.module.init` body before `main`; a file
+with no `main` builds as a script.
 
 ### Persisted interpolation checkpoint (W3)
 

@@ -4737,6 +4737,16 @@ task v4_borrowck_add_place_path(borrow_id: int, result_id: int, mir_id: int, bod
     v4_borrowck_add_path(borrow_id, result_id, path_kind, text, stmt_id, block_id)
 }
 
+-- A lent literal names no place. Its text is the literal's value (a word
+-- literal "read " reads as read), so it must not become a loan path.
+task v4_borrowck_lend_of_literal(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if rvalue_id < 0 { give back false }
+    pilot source_id = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    if source_id < 0 { give back false }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, source_id)
+    give back kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_char
+}
+
 task v4_borrowck_lend_source_text(mir_id: int, body_id: int, rvalue_id: int) -> word {
     if rvalue_id < 0 {
         give back ""
@@ -6246,7 +6256,9 @@ task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: 
     } else if rvalue_kind == v4_mir_rvalue_capture_borrow or rvalue_kind == v4_mir_rvalue_capture_borrow_mut {
         v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_capture_path_kind(rvalue_kind), v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
     } else if rvalue_kind == v4_mir_rvalue_lend or rvalue_kind == v4_mir_rvalue_lend_mut {
-        v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_lend_path_kind(mir_id, body_id, rvalue_id), v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+        if not v4_borrowck_lend_of_literal(mir_id, body_id, rvalue_id) {
+            v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_lend_path_kind(mir_id, body_id, rvalue_id), v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+        }
         pilot source = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
         if v4_mir_rvalue_kind(mir_id, body_id, source) == v4_mir_rvalue_use_place {
             v4_borrowck_collect_place_address_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, source), 0)
@@ -6308,7 +6320,9 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
             v4_borrowck_add_path(borrow_id, result_id, capture_kind, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
         }
     } else if rvalue_kind == v4_mir_rvalue_lend or rvalue_kind == v4_mir_rvalue_lend_mut {
-        v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_lend_path_kind(mir_id, body_id, rvalue_id), v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+        if not v4_borrowck_lend_of_literal(mir_id, body_id, rvalue_id) {
+            v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_lend_path_kind(mir_id, body_id, rvalue_id), v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+        }
         pilot source = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
         if v4_mir_rvalue_kind(mir_id, body_id, source) == v4_mir_rvalue_use_place {
             v4_borrowck_collect_place_address_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, source), 0)
@@ -7351,7 +7365,7 @@ task v4_borrowck_word_loan_place_state(mir_id: int, body_id: int, place: int, lo
         give back base
     }
     if kind == v4_mir_place_deref { give back v4_borrowck_word_loan_rvalue_state(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, active, false, depth + 1) }
-    if kind == v4_mir_place_return { give back 0 }
+    if kind == v4_mir_place_return or kind == v4_mir_place_global { give back 0 }
     give back -1
 }
 
@@ -8361,7 +8375,7 @@ task v4_borrowck_place_word_local_move_count_depth(mir_id: int, body_id: int, pl
         give back count
     }
     if kind == v4_mir_place_deref { give back v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, false, depth + 1) }
-    if kind == v4_mir_place_return { give back 0 }
+    if kind == v4_mir_place_return or kind == v4_mir_place_global { give back 0 }
     v4_borrowck_word_plan_resource_failed = true
     give back 0 - 1
 }
@@ -8517,7 +8531,7 @@ task v4_borrowck_mention_place(mir_id: int, body_id: int, place: int, depth: int
         give back out
     }
     if kind == v4_mir_place_deref { give back v4_borrowck_mention_rvalue(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), depth + 1) }
-    if kind == v4_mir_place_return { give back "" }
+    if kind == v4_mir_place_return or kind == v4_mir_place_global { give back "" }
     v4_borrowck_mention_failed = true
     give back ""
 }
@@ -8877,7 +8891,8 @@ task v4_borrowck_word_place_use_state(mir_id: int, body_id: int, place: int, loc
         give back state
     }
     if kind == v4_mir_place_deref { give back v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, initialized, false, depth + 1) }
-    if kind == v4_mir_place_return { if initialized { give back 1 } give back 0 }
+    -- A Global destination is a sink like the return slot: storing moves in.
+    if kind == v4_mir_place_return or kind == v4_mir_place_global { if initialized { give back 1 } give back 0 }
     give back 0 - 2
 }
 task v4_borrowck_word_rvalue_use_state(mir_id: int, body_id: int, value: int, local_id: int, initialized: bool, borrowed: bool, depth: int) -> int {

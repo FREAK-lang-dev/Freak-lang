@@ -11,6 +11,11 @@ pilot v4_hir_shape = "Shape"
 pilot v4_hir_route = "Route"
 pilot v4_hir_alias = "Alias"
 pilot v4_hir_const = "Const"
+-- Bootstrap-mode root `pilot`: a mutable module global with its own identity.
+pilot v4_hir_global = "Global"
+-- Bootstrap-mode executable root statement. It owns word plans only; it
+-- declares nothing, so resolve and TY never see it as a symbol.
+pilot v4_hir_root_stmt = "RootStatement"
 pilot v4_hir_impl = "Impl"
 pilot v4_hir_doctrine = "Doctrine"
 pilot v4_hir_import = "Import"
@@ -1310,12 +1315,23 @@ task v4_hir_const_annotation_values_handle(hir_id: int) -> int {
     give back word_to_int(array_get(v4_hir_const_annotation_values, hir_id))
 }
 
+-- Root Const and Global items share the binding annotation layout.
+-- Bootstrap mode is a per-file parse choice; later stages read it here.
+task v4_hir_file_is_bootstrap(hir_id: int) -> bool {
+    if not v4_hir_file_exists(hir_id) { give back false }
+    give back v4_expand_tree_is_bootstrap(v4_hir_expansion_id(hir_id))
+}
+
+task v4_hir_kind_is_root_binding(kind: word) -> bool {
+    give back kind == v4_hir_const or kind == v4_hir_global
+}
+
 task v4_hir_const_annotation_value(hir_id: int, item_id: int, column: int) -> word {
     if not v4_hir_file_exists(hir_id) or item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
         if column == 0 or column == 3 { give back "" }
         give back V4_NO_SPAN
     }
-    if v4_hir_item_kind(hir_id, item_id) != v4_hir_const {
+    if not v4_hir_kind_is_root_binding(v4_hir_item_kind(hir_id, item_id)) {
         if column == 0 or column == 3 { give back "" }
         give back V4_NO_SPAN
     }
@@ -1354,7 +1370,31 @@ task v4_hir_const_binding_prefix(hir_id: int, item_id: int) -> word {
     give back v4_hir_const_annotation_value(hir_id, item_id, 3)
 }
 
+task v4_hir_lower_global_annotation(hir_id: int, item_id: int) -> void {
+    pilot expansion = v4_hir_item_expansion_id(hir_id)
+    pilot node = v4_hir_item_parse_node(hir_id, item_id)
+    pilot surface = v4_expand_const_type(expansion, node)
+    pilot type_span = v4_expand_const_type_span(expansion, node)
+    pilot name_span = v4_hir_item_span(hir_id, item_id)
+    pilot stream = v4_hir_item_stream_id(hir_id)
+    if stream >= 0 {
+        pilot first = v4_hir_first_token_at_or_after(stream, v4_span_start(name_span))
+        pilot last = v4_hir_first_token_at_or_after(stream, v4_span_end(name_span))
+        if last <= first { last = v4_lex_token_count(stream) }
+        if first >= 0 and last > first {
+            pilot name_token = v4_hir_skip_trivia(stream, first + 1, last)
+            if name_token < last and v4_lex_token_syntax_value(stream, name_token) == "mut" { name_token = v4_hir_skip_trivia(stream, name_token + 1, last) }
+            if name_token < last { name_span = v4_lex_token_span(stream, name_token) }
+        }
+    }
+    v4_hir_store_const_annotation(hir_id, item_id, surface, type_span, name_span, "pilot")
+}
+
 task v4_hir_lower_const_annotation(hir_id: int, item_id: int) -> void {
+    if v4_hir_item_kind(hir_id, item_id) == v4_hir_global {
+        v4_hir_lower_global_annotation(hir_id, item_id)
+        give back
+    }
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_const { give back }
     pilot expansion = v4_hir_item_expansion_id(hir_id)
     pilot node = v4_hir_item_parse_node(hir_id, item_id)
@@ -1392,7 +1432,7 @@ task v4_hir_const_annotation_total() -> int {
     repeat until hir_id >= v4_hir_file_count() {
         pilot item = 0
         repeat until item >= v4_hir_item_count(hir_id) {
-            if v4_hir_item_kind(hir_id, item) == v4_hir_const { total += 1 }
+            if v4_hir_kind_is_root_binding(v4_hir_item_kind(hir_id, item)) { total += 1 }
             item += 1
         }
         hir_id += 1
@@ -1408,7 +1448,7 @@ task v4_hir_snapshot_const_annotation_is_valid(line: word) -> bool {
     if v4_hir_snapshot_field_count(line) != 7 { give back false }
     if not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 1)) or not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 2)) { give back false }
     pilot prefix = v4_hir_snapshot_field(line, 6)
-    if prefix != "fixed pilot" and prefix != "grounded pilot" { give back false }
+    if prefix != "fixed pilot" and prefix != "grounded pilot" and prefix != "pilot" { give back false }
     pilot surface = v4_hir_snapshot_field(line, 3)
     pilot type_span = v4_hir_snapshot_field(line, 4)
     pilot name_span = v4_hir_snapshot_field(line, 5)
@@ -1422,7 +1462,7 @@ task v4_hir_snapshot_const_annotation_slots_are_valid(records: int, files: int, 
         pilot idx = 0
         repeat until idx >= array_len(records) {
             pilot line: word = array_get(records, idx)
-            if line.starts_with("hir-item|") and v4_hir_snapshot_field(line, 3) == v4_hir_const { give back false }
+            if line.starts_with("hir-item|") and v4_hir_kind_is_root_binding(v4_hir_snapshot_field(line, 3)) { give back false }
             idx += 1
         }
         give back true
@@ -1479,7 +1519,7 @@ task v4_hir_snapshot_const_annotation_slots_are_valid(records: int, files: int, 
                     pilot slot = (word_to_int(array_get(file_rows, owner * 3 + 2)) + item) * 3
                     pilot kind = v4_hir_snapshot_field(line, 3)
                     array_set(item_rows, slot, kind)
-                    if kind == v4_hir_const {
+                    if v4_hir_kind_is_root_binding(kind) {
                         const_count += 1
                         pilot span = v4_hir_snapshot_field(line, 6)
                         pilot source: word = array_get(file_rows, owner * 3)
@@ -1506,7 +1546,11 @@ task v4_hir_snapshot_const_annotation_slots_are_valid(records: int, files: int, 
                     pilot parent: word = array_get(item_rows, slot + 1)
                     pilot type_span = v4_hir_snapshot_field(line, 4)
                     pilot name_span = v4_hir_snapshot_field(line, 5)
-                    if kind != v4_hir_const or seen != "0" or not v4_hir_snapshot_span_is_contained(name_span, parent) { valid = false }
+                    if not v4_hir_kind_is_root_binding(kind) or seen != "0" or not v4_hir_snapshot_span_is_contained(name_span, parent) { valid = false }
+                    -- A bootstrap global is always `pilot`; a const never is.
+                    pilot prefix = v4_hir_snapshot_field(line, 6)
+                    if kind == v4_hir_global and prefix != "pilot" { valid = false }
+                    if kind != v4_hir_global and prefix == "pilot" { valid = false }
                     if (type_span != V4_NO_SPAN) {
                         if not v4_hir_snapshot_span_is_contained(type_span, parent) { valid = false }
                         if name_span != parent and v4_span_start(type_span) < v4_span_end(name_span) { valid = false }
@@ -1521,7 +1565,7 @@ task v4_hir_snapshot_const_annotation_slots_are_valid(records: int, files: int, 
     repeat until idx >= items or not valid {
         pilot kind: word = array_get(item_rows, idx * 3)
         pilot seen: word = array_get(item_rows, idx * 3 + 2)
-        if kind == v4_hir_const and seen != "1" { valid = false }
+        if v4_hir_kind_is_root_binding(kind) and seen != "1" { valid = false }
         idx += 1
     }
     array_release(file_rows)
@@ -1585,7 +1629,7 @@ task v4_hir_const_type(hir_id: int, item_id: int) -> word {
 }
 
 task v4_hir_const_init(hir_id: int, item_id: int) -> word {
-    if v4_hir_item_kind(hir_id, item_id) != v4_hir_const {
+    if not v4_hir_kind_is_root_binding(v4_hir_item_kind(hir_id, item_id)) {
         give back ""
     }
     pilot expansion_id = v4_hir_item_expansion_id(hir_id)
@@ -1855,6 +1899,8 @@ task v4_hir_kind_from_parse(parse_kind: word) -> word {
     if parse_kind == v4_node_route { give back v4_hir_route }
     if parse_kind == v4_node_alias { give back v4_hir_alias }
     if parse_kind == v4_node_const { give back v4_hir_const }
+    if parse_kind == v4_node_root_pilot { give back v4_hir_global }
+    if parse_kind == v4_node_root_stmt { give back v4_hir_root_stmt }
     if parse_kind == v4_node_impl { give back v4_hir_impl }
     if parse_kind == v4_node_doctrine { give back v4_hir_doctrine }
     if parse_kind == v4_node_use { give back v4_hir_import }
@@ -1891,11 +1937,6 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     pilot node_count = v4_expand_node_count(expansion_id)
     repeat until node_idx >= node_count {
         pilot parse_kind = v4_expand_node_kind(expansion_id, node_idx)
-        if parse_kind == v4_node_root_pilot or parse_kind == v4_node_root_stmt {
-            pilot what = "root statements"
-            if parse_kind == v4_node_root_pilot { what = "root pilot globals" }
-            v4_hir_add_diag(hir_id, v4_diag_new(v4_diag_error, v4_expand_node_span(expansion_id, node_idx), what + " are not lowered yet", "bootstrap mode parses them; HIR lowering is the next tier 2 row"))
-        }
         if v4_hir_should_lower_parse_node(parse_kind) {
             pilot hir_kind = v4_hir_kind_from_parse(parse_kind)
             pilot item_name = v4_expand_node_value(expansion_id, node_idx)
@@ -2223,7 +2264,7 @@ task v4_hir_snapshot() -> word {
             array_push(parts, "\n")
             array_push(parts, v4_hir_snapshot_item_line(hir_id, item_id))
             v4_hir_word_snapshot_append(parts, hir_id, item_id)
-            if v4_hir_item_kind(hir_id, item_id) == v4_hir_const {
+            if v4_hir_kind_is_root_binding(v4_hir_item_kind(hir_id, item_id)) {
                 array_push(parts, "\n")
                 array_push(parts, v4_hir_snapshot_const_annotation_line(hir_id, item_id))
             }
@@ -6374,7 +6415,7 @@ task v4_hir_word_plan_number(hir_id: int, column: int) -> int {
 }
 
 task v4_hir_word_owner_kind(kind: word) -> bool {
-    give back kind == v4_hir_task or kind == v4_hir_impl or kind == v4_hir_const
+    give back kind == v4_hir_task or kind == v4_hir_impl or kind == v4_hir_const or kind == v4_hir_global or kind == v4_hir_root_stmt
 }
 
 task v4_hir_word_literal_count(hir_id: int, item_id: int) -> int {
@@ -6610,6 +6651,7 @@ task v4_hir_word_plan_scan_item(hir_id: int, item: int, fill: bool) -> void {
     pilot limit = v4_hir_first_token_at_or_after(stream, v4_span_end(span))
     pilot phase = 1
     if kind == v4_hir_impl { phase = 0 }
+    if kind == v4_hir_root_stmt { phase = 2 }
     pilot depth = 0
     pilot method_depth = 0
     pilot arrow: bool = false
@@ -6625,7 +6667,12 @@ task v4_hir_word_plan_scan_item(hir_id: int, item: int, fill: bool) -> void {
             v4_hir_word_plan_scan_literal(hir_id, item, stream, index, fill)
         } else if token_type == v4_tok_symbol {
                 if phase == 1 and depth == method_depth {
-                    if kind == v4_hir_const and value == "=" { phase = 2 } else if kind != v4_hir_const and (value == "{" or value == "=>") { phase = 2 arrow = value == "=>" }
+                    if v4_hir_kind_is_root_binding(kind) and value == "=" {
+                        phase = 2
+                    } else if not v4_hir_kind_is_root_binding(kind) and (value == "{" or value == "=>") {
+                        phase = 2
+                        arrow = value == "=>"
+                    }
                 }
                 if value == "(" or value == "[" or value == "{" { depth += 1 } else if value == ")" or value == "]" or value == "}" { depth -= 1 }
                 if kind == v4_hir_impl and phase == 2 and not arrow and value == "}" and depth == method_depth { phase = 0 }
@@ -6798,9 +6845,16 @@ task v4_hir_word_snapshot_build(records: int) -> int {
     pilot created = 0
     repeat until created >= 5 {
         pilot handle = array_new()
-        if handle < 0 { v4_hir_word_snapshot_release(ticket) give back -1 }
+        if handle < 0 {
+            v4_hir_word_snapshot_release(ticket)
+            give back -1
+        }
         array_push(ticket, word_from_int(handle))
-        if array_len(ticket) != created + 1 { array_release(handle) v4_hir_word_snapshot_release(ticket) give back -1 }
+        if array_len(ticket) != created + 1 {
+            array_release(handle)
+            v4_hir_word_snapshot_release(ticket)
+            give back -1
+        }
         created += 1
     }
     pilot fs = word_to_int(array_get(ticket, 0))
@@ -6976,7 +7030,10 @@ task v4_hir_word_snapshot_build(records: int) -> int {
         index += 1
     }
     if valid { valid = v4_hir_word_snapshot_crossfacts(ticket) }
-    if not valid { v4_hir_word_snapshot_release(ticket) give back -1 }
+    if not valid {
+        v4_hir_word_snapshot_release(ticket)
+        give back -1
+    }
     give back ticket
 }
 
@@ -7173,7 +7230,10 @@ task v4_hir_word_snapshot_restore_plans(ticket: int) -> void {
             pilot target_base = literal_base + literal * 6
             array_set(values, target_base, word_from_int(word_to_int(array_get(ls, source_base)) - item_offset))
             pilot column = 1
-            repeat until column >= 4 { array_set(values, target_base + column, array_get(ls, source_base + column)) column += 1 }
+            repeat until column >= 4 {
+                array_set(values, target_base + column, array_get(ls, source_base + column))
+                column += 1
+            }
             array_set(values, target_base + 4, word_from_int(word_to_int(array_get(ls, source_base + 4)) - piece_offset))
             array_set(values, target_base + 5, array_get(ls, source_base + 5))
             literal += 1
@@ -7183,7 +7243,10 @@ task v4_hir_word_snapshot_restore_plans(ticket: int) -> void {
             pilot source_base = (piece_offset + piece) * 6
             pilot target_base = piece_base + piece * 5
             pilot column = 0
-            repeat until column >= 3 { array_set(values, target_base + column, array_get(ps, source_base + column)) column += 1 }
+            repeat until column >= 3 {
+                array_set(values, target_base + column, array_get(ps, source_base + column))
+                column += 1
+            }
             array_set(values, target_base + 3, word_from_int(word_to_int(array_get(ps, source_base + 3)) - part_offset))
             array_set(values, target_base + 4, array_get(ps, source_base + 4))
             piece += 1
@@ -7206,7 +7269,7 @@ task v4_hir_word_snapshot_restore_plans(ticket: int) -> void {
 -- A sole literal somewhere inside a constant expression does not prove its
 -- value. Admit only a direct string initializer through this HIR-owned fact.
 task v4_hir_word_constant_is_single_literal(hir: int, item: int) -> bool {
-    if v4_hir_item_kind(hir, item) != v4_hir_const or v4_hir_word_literal_count(hir, item) != 1 { give back false }
+    if not v4_hir_kind_is_root_binding(v4_hir_item_kind(hir, item)) or v4_hir_word_literal_count(hir, item) != 1 { give back false }
     pilot stream = v4_hir_item_stream_id(hir)
     if stream < 0 { give back false }
     pilot span = v4_hir_item_span(hir, item)

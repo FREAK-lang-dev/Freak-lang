@@ -60,11 +60,13 @@ templates/v35/lib/hangar.toml|templates/v35/lib/hangar.toml
 templates/v35/lib/src/greet.fk|templates/v35/lib/src/greet.fk
 templates/v35/lib/tests/greeting_test.fk|templates/v35/lib/tests/greeting_test.fk
 freakc/runtime/freak_v4_word_runtime.c|runtime/freak_v4_word_runtime.c
+freakc/runtime/freak_v4_compiler_array_runtime.c|runtime/freak_v4_compiler_array_runtime.c
 freakc/runtime/freak_v4_numeric_runtime.c|runtime/freak_v4_numeric_runtime.c
 freakc/runtime/freak_v4_unicode_runtime.c|runtime/freak_v4_unicode_runtime.c
 freakc/runtime/freak_v4_system_runtime.c|runtime/freak_v4_system_runtime.c
 freakc/runtime/freak_v4_panic_runtime.c|runtime/freak_v4_panic_runtime.c
 freakc/runtime/freak_v4_word_runtime.h|runtime/freak_v4_word_runtime.h
+freakc/runtime/freak_v4_compiler_array_runtime.h|runtime/freak_v4_compiler_array_runtime.h
 freakc/runtime/freak_v4_numeric_runtime.h|runtime/freak_v4_numeric_runtime.h
 freakc/runtime/freak_v4_unicode_runtime.h|runtime/freak_v4_unicode_runtime.h
 freakc/runtime/freak_v4_unicode_lower_tables.h|runtime/freak_v4_unicode_lower_tables.h

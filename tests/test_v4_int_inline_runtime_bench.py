@@ -604,8 +604,8 @@ class IntRuntimeOracles(unittest.TestCase):
 
     def test_runtime_identity_matches_declared_sources_headers_and_frozen_bytes(self):
         clean = report()
-        self.assertEqual(len(clean["runtime_sources"]), 7)
-        self.assertEqual(len(clean["runtime_headers"]), 11)
+        self.assertEqual(len(clean["runtime_sources"]), 8)
+        self.assertEqual(len(clean["runtime_headers"]), 12)
         self.assertEqual(len(clean["runtime_vendor_headers"]), 6)
         gate.validate_runtime_inventory(clean)
         for key in ("runtime_sources", "runtime_headers", "runtime_vendor_headers"):

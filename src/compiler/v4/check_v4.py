@@ -143,6 +143,7 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "prerelease_tier1_entry_smoke.fk",
         "prerelease_tier1_surface_sweep_smoke.fk",
         "prerelease_tier2_bootstrap_mode_smoke.fk",
+        "prerelease_tier2_bootstrap_snapshot_smoke.fk",
         "interpolation_hir_smoke.fk",
         "interpolation_mir_smoke.fk",
         "interpolation_diagnostics_smoke.fk",
@@ -12774,6 +12775,17 @@ EXECUTABLE_SMOKES = [
                        {'argv': ['done'], 'expect': ['tier2-mode done=passed']},
                        {'argv': ['if-else'], 'expect': ['tier2-mode if-else=passed']},
                        {'argv': ['multiline'], 'expect': ['tier2-mode multiline=passed']}]},
+    {'name': 'Prerelease tier 2 bootstrap snapshots: mode, globals and module init restore',
+     'fixture': 'prerelease_tier2_bootstrap_snapshot_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['tier2-snapshot roundtrip=passed'],
+     'runtime_cases': [
+                       {'argv': ['roundtrip'], 'expect': ['tier2-snapshot roundtrip=passed']},
+                       {'argv': ['global-prefix'], 'expect': ['tier2-snapshot global-prefix=passed']},
+                       {'argv': ['const-prefix'], 'expect': ['tier2-snapshot const-prefix=passed']}]},
     {'name': 'Prerelease tier 1 decisions: void tasks, pipe, explicit narrowing',
      'fixture': 'prerelease_tier1_decisions_smoke.fk',
      'timeout': 60,
@@ -15716,6 +15728,7 @@ def check_snapshot_inventories() -> None:
             "prerelease_tier1_entry_smoke.fk",
             "prerelease_tier1_surface_sweep_smoke.fk",
             "prerelease_tier2_bootstrap_mode_smoke.fk",
+            "prerelease_tier2_bootstrap_snapshot_smoke.fk",
             "interpolation_hir_smoke.fk",
             "interpolation_mir_smoke.fk",
             "interpolation_diagnostics_smoke.fk",
@@ -17600,6 +17613,161 @@ def check_v4_build_command() -> None:
         if executed.returncode != 0 or executed.stdout != expected_native_stdout(expected) or executed.stderr:
             raise RuntimeError(f"V4 {label} stdout/exit mismatch:\n{executed.stdout}{executed.stderr}")
         print(f"V4 build command: {label} exact native output")
+    # Tier 2 bootstrap root scope: root pilots become module globals and root
+    # statements run in a module init before main (or alone, for a script).
+    bootstrap_cases = (
+        ("bootstrap_int_globals",
+         'pilot counter = 5\npilot step: int = 2\npilot flag = false\ncounter += 1\n'
+         'if counter > 5 {\n step = 3\n}\ntask bump() -> void {\n counter += step\n}\n'
+         'task main() -> int {\n bump()\n if not flag {\n  flag = true\n  bump()\n }\n give back counter\n}\n',
+         "", 12),
+        ("bootstrap_word_globals",
+         'pilot label = "hello"\npilot count = 0\nsay label\n'
+         'task shout() -> void {\n label = label + "!"\n count += 1\n}\n'
+         'task main() -> int {\n say label\n shout()\n shout()\n say label\n'
+         ' pilot local = "from-" + "local"\n label = local\n say label\n say "count {count}"\n give back count\n}\n',
+         "hello\nhello\nhello!!\nfrom-local\ncount 2\n", 2),
+        ("bootstrap_script",
+         'pilot greeting = "hi"\npilot n = 3\ntask twice(x: int) -> int { give back x * 2 }\n'
+         'say greeting\nn = twice(n)\nrepeat until n <= 0 {\n say "n={n}"\n n -= 2\n}\nsay "done {greeting}"\n',
+         "hi\nn=6\nn=4\nn=2\ndone hi\n", 0),
+        # Bootstrap builtins: private array tickets, word_join (consumes its
+        # ticket) and the snapshot word helpers. Braced calls stay literal.
+        ("bootstrap_arrays",
+         'pilot shared: int = array_new()\n'
+         'task fill(list: int, count: int) -> void {\n'
+         '    pilot i = 0\n'
+         '    repeat until i >= count {\n'
+         '        array_push(list, "item" + word_from_int(i))\n'
+         '        i += 1\n'
+         '    }\n'
+         '}\n'
+         'task main() -> int {\n'
+         '    fill(shared, 3)\n'
+         '    array_set(shared, 1, "middle")\n'
+         '    say array_get(shared, 1)\n'
+         '    pilot first = array_get(shared, 0)\n'
+         '    say first\n'
+         '    say "len {array_len(shared)}"\n'
+         '    pilot payload = "a|b%c\\nsecond|x\\n"\n'
+         '    pilot escaped = payload.snapshot_escape()\n'
+         '    say escaped\n'
+         '    say escaped.snapshot_unescape() == payload\n'
+         '    say payload.snapshot_line_count()\n'
+         '    pilot line = payload.snapshot_line(0)\n'
+         '    say line.snapshot_field_count()\n'
+         '    say line.snapshot_field_raw(1)\n'
+         '    say payload.snapshot_line(9) == ""\n'
+         '    pilot rows = payload.snapshot_lines()\n'
+         '    say "rows {array_len(rows)}"\n'
+         '    say array_get(rows, 1)\n'
+         '    array_release(rows)\n'
+         '    pilot parts = array_new()\n'
+         '    array_push(parts, "x")\n'
+         '    array_push(parts, first)\n'
+         '    say word_join(parts)\n'
+         '    give back array_len(shared)\n'
+         '}\n'
+         ,
+         "middle\nitem0\nlen {array_len(shared)}\na%7Cb%25c%0Asecond%7Cx%0A\ntrue\n3\n2\nb%c\ntrue\nrows {array_len(rows)}\nsecond|x\nxitem0\n", 3),
+        # V1 builtins the crates use: chr, word.checksum (V1's stable FNV-1a),
+        # word_to_num, and V1-shaped process::arg / fs::read ("" on failure).
+        # A "::" inside a string literal is not a route path.
+        ("bootstrap_v1_builtins",
+         'pilot sep = "::"\n'
+         'task main() -> int {\n'
+         '    say "a" + sep + "b" + "::" + "c"\n'
+         '    say chr(65) + chr(233)\n'
+         '    say chr(0).length()\n'
+         '    say "abc".checksum()\n'
+         '    say word_to_num("2.5") + 1.0\n'
+         '    say process::arg(7) == ""\n'
+         '    say fs::read("missing/v4-bootstrap-none.txt") == ""\n'
+         '    pilot read = fs::read_checked("missing/v4-bootstrap-none.txt")\n'
+         '    check result read {\n'
+         '        ok(text) -> { say "read " + text }\n'
+         '        err(error) -> { say "read-failed" }\n'
+         '    }\n'
+         '    give back 0\n'
+         '}\n',
+         "a::b::c\nA\u00e9\n1\n7430836138530658123\n3.5\ntrue\ntrue\nread-failed\n", 0),
+    )
+    for label, source_text, expected, expected_exit in bootstrap_cases:
+        source = RUNTIME_BUILD_ROOT / f"llvm_{label}.fk"
+        source.write_text(source_text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / (label + (".exe" if sys.platform == "win32" else ".native"))
+        output.unlink(missing_ok=True)
+        strict = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 {label} strict build command", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if strict.returncode == 0 or output.exists() or "v4-aborted-after=parse" not in strict.stdout + strict.stderr:
+            raise RuntimeError(f"V4 {label} built without bootstrap mode:\n{strict.stdout}{strict.stderr}")
+        built = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output), "--bootstrap-root"],
+            label=f"V4 {label} build command", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if built.returncode != 0 or not output.exists() or "v4-errors=0" not in built.stdout:
+            raise RuntimeError(f"V4 {label} build failed:\n{built.stdout}{built.stderr}")
+        executed = run_with_heartbeat([str(output)], label=f"V4 {label} execute",
+                                      timeout_seconds=10, memory_limit_mb=128)
+        if executed.returncode != expected_exit or executed.stdout != expected_native_stdout(expected) or executed.stderr:
+            raise RuntimeError(f"V4 {label} stdout/exit mismatch ({executed.returncode}):\n{executed.stdout}{executed.stderr}")
+        print(f"V4 build command: {label} strict-rejected bootstrap-exact")
+    # Multi-file build: sources flatten in the given order, and diagnostics
+    # name the original file, line and column.
+    multi_a = RUNTIME_BUILD_ROOT / "llvm_multi_a.fk"
+    multi_b = RUNTIME_BUILD_ROOT / "llvm_multi_b.fk"
+    multi_a.write_text('task helper() -> int { give back 2 }\n', encoding="utf-8")
+    multi_output = RUNTIME_BUILD_ROOT / ("llvm_multi" + (".exe" if sys.platform == "win32" else ".native"))
+    for broken in (True, False):
+        multi_b.write_text('pilot base = 40\ntask main() -> int {\n give back base + helper()' + (' + missing' if broken else '') + '\n}\n', encoding="utf-8")
+        multi_output.unlink(missing_ok=True)
+        built = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(multi_a), str(multi_b), "-o", str(multi_output), "--bootstrap-root"],
+            label="V4 multi-file build command", timeout_seconds=180, memory_limit_mb=512,
+        )
+        combined = built.stdout + built.stderr
+        if broken:
+            if built.returncode == 0 or multi_output.exists() or "unknown name: missing" not in combined or "llvm_multi_b.fk:3:30" not in combined:
+                raise RuntimeError(f"V4 multi-file build did not map its diagnostic to the original file:\n{combined}")
+            continue
+        if built.returncode != 0 or not multi_output.exists() or "v4-flattened sources=2" not in built.stdout:
+            raise RuntimeError(f"V4 multi-file build failed:\n{combined}")
+        executed = run_with_heartbeat([str(multi_output)], label="V4 multi-file execute", timeout_seconds=10, memory_limit_mb=128)
+        if executed.returncode != 42 or executed.stdout or executed.stderr:
+            raise RuntimeError(f"V4 multi-file program exit mismatch ({executed.returncode})")
+    print("V4 build command: multi-file flatten runs and maps diagnostics to file:line:col")
+    strict_array_source = RUNTIME_BUILD_ROOT / "llvm_strict_array.fk"
+    strict_array_source.write_text('task main() -> int {\n pilot parts = array_new()\n give back array_len(parts)\n}\n', encoding="utf-8")
+    strict_array_output = RUNTIME_BUILD_ROOT / "llvm_strict_array.ll"
+    strict_array_output.unlink(missing_ok=True)
+    rejected = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(strict_array_source), "-o", str(strict_array_output), "--emit-llvm"],
+        label="V4 strict array builtin build command", timeout_seconds=180, memory_limit_mb=512,
+    )
+    combined = rejected.stdout + rejected.stderr
+    if rejected.returncode == 0 or strict_array_output.exists() or "array_new is a compiler builtin that exists only in bootstrap mode" not in combined:
+        raise RuntimeError(f"V4 strict build admitted or misnamed a bootstrap builtin:\n{combined}")
+    print("V4 build command: strict array builtin rejected with bootstrap hint")
+    for label, source_text, reason, stage in (
+        ("const_global", 'pilot counter = 5\nfixed pilot LIMIT: int = counter\ntask main() -> int { give back LIMIT }\n',
+         "constant reads a runtime global", "ty"),
+        ("shape_global", 'shape P { x: int }\npilot origin = P { x: 3 }\ntask main() -> int { give back origin.x }\n',
+         "root pilot type is not supported yet", "mir"),
+    ):
+        source = RUNTIME_BUILD_ROOT / f"llvm_bootstrap_{label}.fk"
+        source.write_text(source_text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"llvm_bootstrap_{label}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output), "--emit-llvm", "--bootstrap-root"],
+            label=f"V4 bootstrap {label} build command", timeout_seconds=180, memory_limit_mb=512,
+        )
+        combined = rejected.stdout + rejected.stderr
+        if rejected.returncode == 0 or output.exists() or reason not in combined or f"v4-aborted-after={stage}" not in combined:
+            raise RuntimeError(f"V4 bootstrap {label} was not rejected by name at {stage}:\n{combined}")
+        print(f"V4 build command: bootstrap {label} rejected at {stage}")
     print("V4 build command: hello world, numeric/owned-word display and warning-only execute, errors stop at their owning stage")
 
 

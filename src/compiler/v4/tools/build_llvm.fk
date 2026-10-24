@@ -107,7 +107,7 @@ task v4_build_llvm_source(source: word) -> void {
         say "v4-native-contract-error=" + native_error
         errors += 1
     }
-    if native_error == "" and v4_codegen_llvm_find_mir_body(mir, "main") < 0 {
+    if native_error == "" and v4_codegen_llvm_find_mir_body(mir, "main") < 0 and v4_mir_module_init_body(mir) < 0 {
         say "v4-native-contract-error=native build requires task main"
         errors += 1
     }
@@ -116,7 +116,10 @@ task v4_build_llvm_source(source: word) -> void {
     say "v4-errors=" + word_from_int(errors)
     if errors != 0 { give back }
     pilot module = v4_codegen_llvm_module_text(codegen, target_spec)
-    if module == "" { say "v4-module-rejected" give back }
+    if module == "" {
+        say "v4-module-rejected"
+        give back
+    }
     say "@@V4-MODULE"
     say module
 }
