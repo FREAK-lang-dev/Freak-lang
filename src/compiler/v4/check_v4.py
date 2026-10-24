@@ -17631,6 +17631,45 @@ def check_v4_build_command() -> None:
          'pilot greeting = "hi"\npilot n = 3\ntask twice(x: int) -> int { give back x * 2 }\n'
          'say greeting\nn = twice(n)\nrepeat until n <= 0 {\n say "n={n}"\n n -= 2\n}\nsay "done {greeting}"\n',
          "hi\nn=6\nn=4\nn=2\ndone hi\n", 0),
+        # Bootstrap builtins: private array tickets, word_join (consumes its
+        # ticket) and the snapshot word helpers. Braced calls stay literal.
+        ("bootstrap_arrays",
+         'pilot shared: int = array_new()\n'
+         'task fill(list: int, count: int) -> void {\n'
+         '    pilot i = 0\n'
+         '    repeat until i >= count {\n'
+         '        array_push(list, "item" + word_from_int(i))\n'
+         '        i += 1\n'
+         '    }\n'
+         '}\n'
+         'task main() -> int {\n'
+         '    fill(shared, 3)\n'
+         '    array_set(shared, 1, "middle")\n'
+         '    say array_get(shared, 1)\n'
+         '    pilot first = array_get(shared, 0)\n'
+         '    say first\n'
+         '    say "len {array_len(shared)}"\n'
+         '    pilot payload = "a|b%c\\nsecond|x\\n"\n'
+         '    pilot escaped = payload.snapshot_escape()\n'
+         '    say escaped\n'
+         '    say escaped.snapshot_unescape() == payload\n'
+         '    say payload.snapshot_line_count()\n'
+         '    pilot line = payload.snapshot_line(0)\n'
+         '    say line.snapshot_field_count()\n'
+         '    say line.snapshot_field_raw(1)\n'
+         '    say payload.snapshot_line(9) == ""\n'
+         '    pilot rows = payload.snapshot_lines()\n'
+         '    say "rows {array_len(rows)}"\n'
+         '    say array_get(rows, 1)\n'
+         '    array_release(rows)\n'
+         '    pilot parts = array_new()\n'
+         '    array_push(parts, "x")\n'
+         '    array_push(parts, first)\n'
+         '    say word_join(parts)\n'
+         '    give back array_len(shared)\n'
+         '}\n'
+         ,
+         "middle\nitem0\nlen {array_len(shared)}\na%7Cb%25c%0Asecond%7Cx%0A\ntrue\n3\n2\nb%c\ntrue\nrows {array_len(rows)}\nsecond|x\nxitem0\n", 3),
     )
     for label, source_text, expected, expected_exit in bootstrap_cases:
         source = RUNTIME_BUILD_ROOT / f"llvm_{label}.fk"
@@ -17654,6 +17693,18 @@ def check_v4_build_command() -> None:
         if executed.returncode != expected_exit or executed.stdout != expected_native_stdout(expected) or executed.stderr:
             raise RuntimeError(f"V4 {label} stdout/exit mismatch ({executed.returncode}):\n{executed.stdout}{executed.stderr}")
         print(f"V4 build command: {label} strict-rejected bootstrap-exact")
+    strict_array_source = RUNTIME_BUILD_ROOT / "llvm_strict_array.fk"
+    strict_array_source.write_text('task main() -> int {\n pilot parts = array_new()\n give back array_len(parts)\n}\n', encoding="utf-8")
+    strict_array_output = RUNTIME_BUILD_ROOT / "llvm_strict_array.ll"
+    strict_array_output.unlink(missing_ok=True)
+    rejected = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(strict_array_source), "-o", str(strict_array_output), "--emit-llvm"],
+        label="V4 strict array builtin build command", timeout_seconds=180, memory_limit_mb=512,
+    )
+    combined = rejected.stdout + rejected.stderr
+    if rejected.returncode == 0 or strict_array_output.exists() or "array_new is a compiler builtin that exists only in bootstrap mode" not in combined:
+        raise RuntimeError(f"V4 strict build admitted or misnamed a bootstrap builtin:\n{combined}")
+    print("V4 build command: strict array builtin rejected with bootstrap hint")
     for label, source_text, reason, stage in (
         ("const_global", 'pilot counter = 5\nfixed pilot LIMIT: int = counter\ntask main() -> int { give back LIMIT }\n',
          "constant reads a runtime global", "ty"),

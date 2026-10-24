@@ -78,7 +78,7 @@ def runtime_inventory_names() -> dict[str, tuple[str, ...]]:
         'runtime_vendor_headers': tuple(name for role, name in rows
                                         if role == 'header' and name.startswith('third_party/')),
     }
-    if tuple(len(group) for group in names.values()) != (7, 11, 6):
+    if tuple(len(group) for group in names.values()) != (8, 12, 6):
         raise RuntimeError('central runtime inventory changed; review the closed plan')
     return names
 

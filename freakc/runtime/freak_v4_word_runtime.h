@@ -55,5 +55,17 @@ int64_t freak_v4_word_starts_with(int64_t value, int64_t prefix);
 int64_t freak_v4_word_ends_with(int64_t value, int64_t suffix);
 int64_t freak_v4_word_contains(int64_t value, int64_t needle);
 
+/* Snapshot payload helpers (tier 2 bootstrap builtins). Inputs borrow; word
+   results are fresh owners. Fields split on '|', lines on LF; both bytes are
+   ASCII, so every piece of valid UTF-8 stays valid. Escape maps % | LF CR to
+   %25 %7C %0A %0D; unescape reverses exactly those four codes. Empty input
+   has zero lines and zero fields; a missing line or field is an empty word. */
+int64_t freak_v4_word_snapshot_escape(int64_t value);
+int64_t freak_v4_word_snapshot_unescape(int64_t value);
+int64_t freak_v4_word_snapshot_line_count(int64_t value);
+int64_t freak_v4_word_snapshot_line(int64_t value, int64_t wanted);
+int64_t freak_v4_word_snapshot_field_count(int64_t value);
+int64_t freak_v4_word_snapshot_field_raw(int64_t value, int64_t wanted);
+
 /* Unicode casing requires pinned tables and contextual mappings. No to_lower
    entry is provided by this owned-storage slice. */

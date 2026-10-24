@@ -13830,7 +13830,24 @@ task v4_ty_word_literal_value(raw: word) -> word {
 
 -- Compiler-owned word intrinsic contracts; source spelling is resolved by MIR.
 task v4_ty_word_intrinsic_known(kind: word) -> bool {
-    give back kind == "concat" or kind == "equal" or kind == "not_equal" or kind == "say" or kind == "say_err" or kind == "from_int" or kind == "from_bool" or kind == "from_num" or kind == "to_int" or kind == "length" or kind == "bytes" or kind == "char_at" or kind == "slice" or kind == "substring" or kind == "starts_with" or kind == "ends_with" or kind == "contains" or kind == "clone" or kind == "to_lower" or kind == "to_int_maybe"
+    give back kind == "concat" or kind == "equal" or kind == "not_equal" or kind == "say" or kind == "say_err" or kind == "from_int" or kind == "from_bool" or kind == "from_num" or kind == "to_int" or kind == "length" or kind == "bytes" or kind == "char_at" or kind == "slice" or kind == "substring" or kind == "starts_with" or kind == "ends_with" or kind == "contains" or kind == "clone" or kind == "to_lower" or kind == "to_int_maybe" or v4_ty_bootstrap_intrinsic_known(kind)
+}
+
+-- Bootstrap-mode compiler builtins (tier 2): private array tickets and the
+-- snapshot word helpers the V4 crates use. Strict files never see them.
+task v4_ty_bootstrap_intrinsic_known(kind: word) -> bool {
+    give back kind == "array_new" or kind == "array_len" or kind == "array_push" or kind == "array_get" or kind == "array_set" or kind == "array_release" or kind == "word_join" or kind == "snapshot_lines" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line_count" or kind == "snapshot_line" or kind == "snapshot_field_count" or kind == "snapshot_field_raw"
+}
+
+task v4_ty_bootstrap_intrinsic_named_kind(name: word) -> word {
+    if name == "array_new" or name == "array_len" or name == "array_push" or name == "array_get" or name == "array_set" or name == "array_release" or name == "word_join" { give back name }
+    give back ""
+}
+
+task v4_ty_bootstrap_intrinsic_member_kind(receiver_ty: word, method_name: word) -> word {
+    if receiver_ty != v4_ty_word { give back "" }
+    if method_name == "snapshot_lines" or method_name == "snapshot_escape" or method_name == "snapshot_unescape" or method_name == "snapshot_line_count" or method_name == "snapshot_line" or method_name == "snapshot_field_count" or method_name == "snapshot_field_raw" { give back method_name }
+    give back ""
 }
 
 task v4_ty_word_intrinsic_result_type(kind: word) -> word {
@@ -13854,6 +13871,9 @@ task v4_ty_word_intrinsic_result_type(kind: word) -> word {
     if kind == "clone" { give back v4_ty_word }
     if kind == "to_lower" { give back v4_ty_word }
     if kind == "to_int_maybe" { give back v4_ty_maybe_type(v4_ty_int) }
+    if kind == "array_new" or kind == "array_len" or kind == "snapshot_lines" or kind == "snapshot_line_count" or kind == "snapshot_field_count" { give back v4_ty_int }
+    if kind == "array_push" or kind == "array_set" or kind == "array_release" { give back v4_ty_void }
+    if kind == "array_get" or kind == "word_join" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line" or kind == "snapshot_field_raw" { give back v4_ty_word }
     give back v4_ty_unknown
 }
 
@@ -13878,6 +13898,12 @@ task v4_ty_word_intrinsic_param_count(kind: word) -> int {
     if kind == "clone" { give back 1 }
     if kind == "to_lower" { give back 1 }
     if kind == "to_int_maybe" { give back 1 }
+    if kind == "array_new" { give back 0 }
+    if kind == "array_len" or kind == "array_release" or kind == "word_join" { give back 1 }
+    if kind == "array_push" or kind == "array_get" { give back 2 }
+    if kind == "array_set" { give back 3 }
+    if kind == "snapshot_lines" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line_count" or kind == "snapshot_field_count" { give back 1 }
+    if kind == "snapshot_line" or kind == "snapshot_field_raw" { give back 2 }
     give back 0 - 1
 }
 
@@ -13952,6 +13978,28 @@ task v4_ty_word_intrinsic_param_type(kind: word, param_id: int) -> word {
     }
     if kind == "to_int_maybe" {
         if param_id == 0 { give back v4_ty_word }
+    }
+    -- Array tickets are ints; stored words are borrowed and copied in.
+    if kind == "array_len" or kind == "array_release" or kind == "word_join" {
+        if param_id == 0 { give back v4_ty_int }
+    }
+    if kind == "array_push" {
+        if param_id == 0 { give back v4_ty_int }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "array_get" {
+        if param_id == 0 or param_id == 1 { give back v4_ty_int }
+    }
+    if kind == "array_set" {
+        if param_id == 0 or param_id == 1 { give back v4_ty_int }
+        if param_id == 2 { give back v4_ty_word }
+    }
+    if kind == "snapshot_lines" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line_count" or kind == "snapshot_field_count" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "snapshot_line" or kind == "snapshot_field_raw" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_int }
     }
     give back v4_ty_unknown
 }

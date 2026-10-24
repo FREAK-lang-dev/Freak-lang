@@ -2,6 +2,7 @@
 # marker, and vendor attribution needed by the private runtime snapshot.
 source freak_llvm_runtime.c
 source freak_v4_word_runtime.c
+source freak_v4_compiler_array_runtime.c
 source freak_v4_numeric_runtime.c
 source freak_v4_unicode_runtime.c
 source freak_v4_system_runtime.c
@@ -9,6 +10,7 @@ source freak_v4_panic_runtime.c
 source freak_runtime.c
 header freak_runtime.h
 header freak_v4_word_runtime.h
+header freak_v4_compiler_array_runtime.h
 header freak_v4_numeric_runtime.h
 header freak_v4_unicode_runtime.h
 header freak_v4_unicode_lower_tables.h

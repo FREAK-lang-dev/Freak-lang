@@ -300,3 +300,110 @@ int64_t freak_v4_word_contains(int64_t value, int64_t needle) {
     }
     return 0;
 }
+
+static int64_t freak_v4_word_copy_bytes(const unsigned char* data, size_t length) {
+    char* copy = (char*)malloc(length + 1);
+    if (!copy) freak_v4_word_panic("out of memory copying owned storage");
+    if (length) memcpy(copy, data, length);
+    copy[length] = '\0';
+    return freak_v4_word_adopt(copy, length);
+}
+
+int64_t freak_v4_word_snapshot_escape(int64_t value) {
+    size_t length = freak_v4_word_size(value);
+    const unsigned char* data = freak_v4_word_data(value);
+    (void)freak_v4_word_count(data, length);
+    size_t escaped = length;
+    for (size_t i = 0; i < length; i++) {
+        unsigned char ch = data[i];
+        if (ch == '%' || ch == '|' || ch == '\n' || ch == '\r') {
+            if (escaped > SIZE_MAX - 3) freak_v4_word_panic("snapshot escape overflow");
+            escaped += 2;
+        }
+    }
+    char* out = (char*)malloc(escaped + 1);
+    if (!out) freak_v4_word_panic("out of memory copying owned storage");
+    size_t at = 0;
+    for (size_t i = 0; i < length; i++) {
+        const char* code = NULL;
+        switch (data[i]) {
+            case '%': code = "%25"; break;
+            case '|': code = "%7C"; break;
+            case '\n': code = "%0A"; break;
+            case '\r': code = "%0D"; break;
+            default: break;
+        }
+        if (code) { memcpy(out + at, code, 3); at += 3; }
+        else out[at++] = (char)data[i];
+    }
+    out[at] = '\0';
+    return freak_v4_word_adopt(out, at);
+}
+
+int64_t freak_v4_word_snapshot_unescape(int64_t value) {
+    size_t length = freak_v4_word_size(value);
+    const unsigned char* data = freak_v4_word_data(value);
+    (void)freak_v4_word_count(data, length);
+    char* out = (char*)malloc(length + 1);
+    if (!out) freak_v4_word_panic("out of memory copying owned storage");
+    size_t at = 0, i = 0;
+    while (i < length) {
+        if (data[i] == '%' && length - i > 2) {
+            char decoded = 0;
+            if (data[i + 1] == '2' && data[i + 2] == '5') decoded = '%';
+            else if (data[i + 1] == '7' && data[i + 2] == 'C') decoded = '|';
+            else if (data[i + 1] == '0' && data[i + 2] == 'A') decoded = '\n';
+            else if (data[i + 1] == '0' && data[i + 2] == 'D') decoded = '\r';
+            if (decoded) { out[at++] = decoded; i += 3; continue; }
+        }
+        out[at++] = (char)data[i++];
+    }
+    out[at] = '\0';
+    return freak_v4_word_adopt(out, at);
+}
+
+static int64_t freak_v4_word_snapshot_count(int64_t value, unsigned char separator) {
+    size_t length = freak_v4_word_size(value);
+    const unsigned char* data = freak_v4_word_data(value);
+    (void)freak_v4_word_count(data, length);
+    if (!length) return 0;
+    int64_t count = 1;
+    for (size_t i = 0; i < length; i++) {
+        if (data[i] == separator) count++;
+    }
+    return count;
+}
+
+static int64_t freak_v4_word_snapshot_piece(int64_t value, int64_t wanted, unsigned char separator) {
+    size_t length = freak_v4_word_size(value);
+    const unsigned char* data = freak_v4_word_data(value);
+    (void)freak_v4_word_count(data, length);
+    if (wanted < 0) return freak_v4_word_copy_bytes(data, 0);
+    int64_t piece = 0;
+    size_t start = 0;
+    for (size_t i = 0; i < length; i++) {
+        if (data[i] == separator) {
+            if (piece == wanted) return freak_v4_word_copy_bytes(data + start, i - start);
+            piece++;
+            start = i + 1;
+        }
+    }
+    if (piece == wanted) return freak_v4_word_copy_bytes(data + start, length - start);
+    return freak_v4_word_copy_bytes(data, 0);
+}
+
+int64_t freak_v4_word_snapshot_line_count(int64_t value) {
+    return freak_v4_word_snapshot_count(value, '\n');
+}
+
+int64_t freak_v4_word_snapshot_line(int64_t value, int64_t wanted) {
+    return freak_v4_word_snapshot_piece(value, wanted, '\n');
+}
+
+int64_t freak_v4_word_snapshot_field_count(int64_t value) {
+    return freak_v4_word_snapshot_count(value, '|');
+}
+
+int64_t freak_v4_word_snapshot_field_raw(int64_t value, int64_t wanted) {
+    return freak_v4_word_snapshot_piece(value, wanted, '|');
+}

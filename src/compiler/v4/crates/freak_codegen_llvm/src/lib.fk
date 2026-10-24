@@ -2717,6 +2717,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         -- scalar facade must not mint an untracked owned handle through FFI.
         if native_error == "" { native_error = v4_codegen_llvm_word_runtime_symbol_error(codegen_id) }
         if owned_words { runtime = runtime + v4_codegen_llvm_scalar_sum_runtime_lines(mir_id) }
+        runtime = runtime + v4_codegen_llvm_bootstrap_runtime_declarations(mir_id)
         if v4_codegen_llvm_mir_has_panic(mir_id) { runtime = runtime + "declare void " + v4_codegen_llvm_panic_symbol() + "(i64) noreturn\n" }
         if v4_codegen_llvm_numeric_runtime_used { runtime = runtime + v4_codegen_llvm_numeric_runtime_declarations() }
         if native_error == "" { native_error = v4_codegen_llvm_numeric_runtime_symbol_error(codegen_id) }
@@ -2907,7 +2908,37 @@ task v4_codegen_llvm_word_bool_intrinsic(kind: word) -> bool {
 
 task v4_codegen_llvm_word_intrinsic_symbol(kind: word) -> word {
     if kind == "not_equal" { kind = "equal" }
+    if kind.starts_with("array_") { give back "@freak_v4_compiler_" + kind }
+    if kind == "word_join" { give back "@freak_v4_compiler_array_join" }
+    if kind == "snapshot_lines" { give back "@freak_v4_compiler_array_snapshot_lines" }
     give back "@freak_v4_word_" + kind
+}
+
+-- Bootstrap builtins link the private compiler-array runtime and the
+-- snapshot word helpers. Declarations appear only when a module uses them.
+task v4_codegen_llvm_mir_uses_bootstrap_intrinsics(mir_id: int) -> bool {
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
+            if v4_ty_bootstrap_intrinsic_known(v4_mir_word_intrinsic_kind(mir_id, body, value)) { give back true }
+            value += 1
+        }
+        body += 1
+    }
+    give back false
+}
+
+task v4_codegen_llvm_bootstrap_runtime_declarations(mir_id: int) -> word {
+    if not v4_codegen_llvm_mir_uses_bootstrap_intrinsics(mir_id) { give back "" }
+    pilot out = "declare i64 @freak_v4_compiler_array_new()\ndeclare i64 @freak_v4_compiler_array_len(i64)\n"
+    out = out + "declare void @freak_v4_compiler_array_push(i64, i64)\ndeclare i64 @freak_v4_compiler_array_get(i64, i64)\n"
+    out = out + "declare void @freak_v4_compiler_array_set(i64, i64, i64)\ndeclare void @freak_v4_compiler_array_release(i64)\n"
+    out = out + "declare i64 @freak_v4_compiler_array_join(i64)\ndeclare i64 @freak_v4_compiler_array_snapshot_lines(i64)\n"
+    out = out + "declare void @freak_v4_compiler_array_shutdown()\n"
+    out = out + "declare i64 @freak_v4_word_snapshot_escape(i64)\ndeclare i64 @freak_v4_word_snapshot_unescape(i64)\n"
+    out = out + "declare i64 @freak_v4_word_snapshot_line_count(i64)\ndeclare i64 @freak_v4_word_snapshot_line(i64, i64)\n"
+    give back out + "declare i64 @freak_v4_word_snapshot_field_count(i64)\ndeclare i64 @freak_v4_word_snapshot_field_raw(i64, i64)\n"
 }
 
 task v4_codegen_llvm_word_arg_temp(body_id: int, rvalue_id: int, arg_id: int) -> word {
@@ -2937,7 +2968,7 @@ task v4_codegen_llvm_word_intrinsic_instruction(mir_id: int, body_id: int, rvalu
         args = "i64 %word.bool." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
     }
     pilot symbol = v4_codegen_llvm_word_intrinsic_symbol(kind)
-    if kind == "say" or kind == "say_err" { give back "call void " + symbol + "(" + args + ")" }
+    if v4_ty_word_intrinsic_result_type(kind) == v4_ty_void { give back "call void " + symbol + "(" + args + ")" }
     if v4_codegen_llvm_word_bool_intrinsic(kind) {
         pilot raw = target + ".word.bool"
         pilot comparison = "ne"
@@ -3608,13 +3639,13 @@ task v4_codegen_llvm_word_runtime_symbol_error(codegen_id: int) -> word {
     pilot body = 0
     repeat until body >= v4_codegen_llvm_body_count(codegen_id) {
         pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body)
-        if symbol.starts_with("@freak_v4_word_") { give back "native owned word runtime symbol conflict: " + symbol }
+        if symbol.starts_with("@freak_v4_word_") or symbol.starts_with("@freak_v4_compiler_array_") { give back "native owned word runtime symbol conflict: " + symbol }
         body += 1
     }
     pilot decl = 0
     repeat until decl >= v4_codegen_llvm_decl_count(codegen_id) {
         pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl)
-        if symbol.starts_with("@freak_v4_word_") { give back "native owned word runtime symbol conflict: " + symbol }
+        if symbol.starts_with("@freak_v4_word_") or symbol.starts_with("@freak_v4_compiler_array_") { give back "native owned word runtime symbol conflict: " + symbol }
         decl += 1
     }
     give back ""
@@ -4157,6 +4188,9 @@ task v4_codegen_llvm_global_release_lines(mir_id: int) -> word {
         }
         idx += 1
     }
+    -- Arrays still alive at exit drop their cells, so the ownership audit sees
+    -- only words the program itself leaked.
+    if v4_codegen_llvm_mir_uses_bootstrap_intrinsics(mir_id) { out = out + "  call void @freak_v4_compiler_array_shutdown()\n" }
     give back out
 }
 
