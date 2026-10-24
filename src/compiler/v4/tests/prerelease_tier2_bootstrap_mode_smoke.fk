@@ -13,6 +13,8 @@ task v4_tier2_mode_source(mode: word) -> word {
     if mode == "strict-stmt" or mode == "stmt" { give back "say \"boot\"\n" + main_task }
     if mode == "mut" { give back "pilot mut label = \"x\"\n" + main_task }
     if mode == "if-else" { give back "if 1 > 0 " + open + "\n say \"a\"\n" + close + "\nelse " + open + "\n say \"b\"\n" + close + "\n" + main_task }
+    if mode == "semi" { give back "pilot count = 5;\n" + main_task }
+    if mode == "done" { give back "if 1 > 0 " + open + "\n say \"a\"\ndone\n" + main_task }
     if mode == "multiline" { give back "say(\n \"a\"\n)\n" + main_task }
     if mode == "incomplete" { give back "pilot counter\n" + main_task }
     give back main_task
@@ -76,7 +78,7 @@ task v4_tier2_mode_run() -> void {
         v4_tier2_mode_assert(v4_parse_node_kind(tree, 1) == v4_node_bootstrap_mode, "marker is node 1 " + mode)
         v4_tier2_mode_assert(v4_parse_diag_count(tree) == 0, "bootstrap parse clean " + mode)
         v4_tier2_mode_assert(v4_tier2_mode_count_kind(tree, v4_node_task) == 1, "main parsed " + mode)
-        if mode == "pilot" or mode == "mut" {
+        if mode == "pilot" or mode == "mut" or mode == "semi" {
             pilot node = v4_tier2_mode_first_kind(tree, v4_node_root_pilot)
             v4_tier2_mode_assert(node >= 0 and v4_tier2_mode_count_kind(tree, v4_node_root_pilot) == 1, "one root pilot " + mode)
             if mode == "pilot" {
@@ -84,6 +86,8 @@ task v4_tier2_mode_run() -> void {
                 v4_tier2_mode_assert(v4_parse_root_pilot_type(tree, node) == "int", "pilot type: " + v4_parse_root_pilot_type(tree, node))
                 v4_tier2_mode_assert(v4_parse_root_pilot_init(tree, node) == "5", "pilot init: " + v4_parse_root_pilot_init(tree, node))
                 v4_tier2_mode_assert(v4_span_end(v4_parse_node_span(tree, node)) == 22, "pilot span ends before comment")
+            } else if mode == "semi" {
+                v4_tier2_mode_assert(v4_parse_root_pilot_init(tree, node) == "5", "semicolon dropped from init: " + v4_parse_root_pilot_init(tree, node))
             } else {
                 v4_tier2_mode_assert(v4_parse_node_value(tree, node) == "label", "mut name: " + v4_parse_node_value(tree, node))
                 v4_tier2_mode_assert(v4_parse_root_pilot_type(tree, node) == "", "mut untyped")
