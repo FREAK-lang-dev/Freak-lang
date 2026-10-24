@@ -1,0 +1,11 @@
+use std::test::{test_assert_word, test_assert_int}
+use self::muvluv::{tier_name, required_power, tier_threat}
+
+task main() {
+    test_assert_word("tier 1 name", "Soldier", tier_name(1))
+    test_assert_word("tier 7 name", "BRAIN", tier_name(7))
+    test_assert_word("unknown tier", "Unknown", tier_name(42))
+    test_assert_int("tank power", 100, required_power(4))
+    test_assert_word("laser threat", "CRITICAL", tier_threat(5))
+    test_assert_word("brain threat", "EXTINCTION", tier_threat(7))
+}
