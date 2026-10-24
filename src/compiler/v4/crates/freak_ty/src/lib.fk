@@ -24,6 +24,8 @@ pilot v4_ty_never = "never"
 
 pilot v4_ty_task_sig = "task-signature"
 pilot v4_ty_const_sig = "const-signature"
+-- Bootstrap-mode root `pilot` global: typed like a constant, but mutable.
+pilot v4_ty_global_sig = "global-signature"
 pilot v4_ty_shape_sig = "shape-signature"
 pilot v4_ty_route_sig = "route-signature"
 pilot v4_ty_alias_sig = "alias-signature"
@@ -279,9 +281,14 @@ task v4_ty_signature_index_category(sig_kind: word) -> int {
     if sig_kind == v4_ty_shape_sig { give back v4_ty_signature_index_shape }
     if sig_kind == v4_ty_route_sig { give back v4_ty_signature_index_route }
     if sig_kind == v4_ty_doctrine_sig { give back v4_ty_signature_index_doctrine }
-    if sig_kind == v4_ty_const_sig { give back v4_ty_signature_index_const }
+    if sig_kind == v4_ty_const_sig or sig_kind == v4_ty_global_sig { give back v4_ty_signature_index_const }
     if sig_kind == v4_ty_task_sig { give back v4_ty_signature_index_task }
     give back 0 - 1
+}
+
+-- Root Const and Global signatures share declared/inferred value typing.
+task v4_ty_sig_kind_is_root_binding(sig_kind: word) -> bool {
+    give back sig_kind == v4_ty_const_sig or sig_kind == v4_ty_global_sig
 }
 
 task v4_ty_signature_index_is_type(sig_kind: word) -> bool {
@@ -695,7 +702,7 @@ task v4_ty_signature_display(ty_id: int, sig_id: int) -> word {
     }
     pilot display = v4_ty_signature_source_display(ty_id, sig_id)
     pilot sig_kind: word = array_get(v4_ty_kinds_handle(ty_id), sig_id)
-    if sig_kind == v4_ty_const_sig {
+    if v4_ty_sig_kind_is_root_binding(sig_kind) {
         if v4_ty_const_declared_type_for_sig(ty_id, sig_id) == "" {
             pilot inferred_ty: word = v4_ty_const_value_type_for_sig(ty_id, sig_id)
             if inferred_ty != v4_ty_unknown {
@@ -3515,6 +3522,7 @@ task v4_ty_binary_result(op: word, left_ty: word, right_ty: word) -> word {
 task v4_ty_kind_for_symbol(symbol_kind: word) -> word {
     if symbol_kind == v4_hir_task { give back v4_ty_task_sig }
     if symbol_kind == v4_hir_const { give back v4_ty_const_sig }
+    if symbol_kind == v4_hir_global { give back v4_ty_global_sig }
     if symbol_kind == v4_hir_shape { give back v4_ty_shape_sig }
     if symbol_kind == v4_hir_route { give back v4_ty_route_sig }
     if symbol_kind == v4_hir_alias { give back v4_ty_alias_sig }
@@ -3532,6 +3540,9 @@ task v4_ty_display_for_symbol(symbol_kind: word, symbol_name: word) -> word {
     }
     if symbol_kind == v4_hir_const {
         give back "fixed pilot " + symbol_name
+    }
+    if symbol_kind == v4_hir_global {
+        give back "pilot " + symbol_name
     }
     if symbol_kind == v4_hir_shape {
         give back "shape " + symbol_name
@@ -6206,7 +6217,7 @@ task v4_ty_const_declared_type_for_sig(ty_id: int, sig_id: int) -> word {
     if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
         give back ""
     }
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_const_sig {
+    if not v4_ty_sig_kind_is_root_binding(v4_ty_signature_kind(ty_id, sig_id)) {
         give back ""
     }
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
@@ -6221,7 +6232,7 @@ task v4_ty_const_init_text_for_sig(ty_id: int, sig_id: int) -> word {
     if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
         give back ""
     }
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_const_sig {
+    if not v4_ty_sig_kind_is_root_binding(v4_ty_signature_kind(ty_id, sig_id)) {
         give back ""
     }
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
@@ -6246,6 +6257,11 @@ task v4_ty_const_equals_token(ty_id: int, sig_id: int) -> int {
     pilot fixed_token = v4_ty_next_nontrivia(stream_id, start_token, end_token)
     if fixed_token >= end_token {
         give back 0 - 1
+    }
+    -- A bootstrap root global starts at `pilot` itself (no modifier).
+    if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_global_sig {
+        if v4_lex_token_syntax_value(stream_id, fixed_token) != "pilot" { give back 0 - 1 }
+        give back v4_ty_find_top_level_token(stream_id, fixed_token + 1, end_token, "=")
     }
     pilot modifier = v4_lex_token_syntax_value(stream_id, fixed_token)
     if modifier != "fixed" and modifier != "grounded" {
@@ -7582,7 +7598,7 @@ task v4_ty_const_integer_text_for_sig_seen(ty_id: int, sig_id: int, seen_consts:
     if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
         give back v4_ty_unknown
     }
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_const_sig {
+    if not v4_ty_sig_kind_is_root_binding(v4_ty_signature_kind(ty_id, sig_id)) {
         give back v4_ty_unknown
     }
 
@@ -7649,7 +7665,7 @@ task v4_ty_const_cycle_path_for_sig(ty_id: int, sig_id: int, seen_consts: word) 
     if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
         give back ""
     }
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_const_sig {
+    if not v4_ty_sig_kind_is_root_binding(v4_ty_signature_kind(ty_id, sig_id)) {
         give back ""
     }
 
@@ -7686,7 +7702,7 @@ task v4_ty_validate_const_cycles(ty_id: int) -> void {
     pilot sig_id = 0
     pilot sig_count = v4_ty_signature_count(ty_id)
     repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_const_sig {
+        if v4_ty_sig_kind_is_root_binding(v4_ty_signature_kind(ty_id, sig_id)) {
             pilot cycle_path = v4_ty_const_cycle_path_for_sig(ty_id, sig_id, "")
             if cycle_path != "" {
                 pilot const_name = v4_ty_signature_name(ty_id, sig_id)
@@ -7698,11 +7714,29 @@ task v4_ty_validate_const_cycles(ty_id: int) -> void {
     }
 }
 
+-- A compile-time constant cannot read a bootstrap global: the global only
+-- gets its value when the module init runs.
+task v4_ty_validate_const_reads_no_global(ty_id: int, sig_id: int, stream_id: int, start_token: int, end_token: int) -> void {
+    pilot token_id = start_token
+    repeat until token_id >= end_token {
+        pilot dep_name = v4_ty_const_dep_name_at_token(ty_id, stream_id, token_id, start_token, end_token)
+        if dep_name != "" {
+            pilot dep_sig = v4_ty_const_signature_id_for_name(ty_id, dep_name)
+            if dep_sig >= 0 and v4_ty_signature_kind(ty_id, dep_sig) == v4_ty_global_sig {
+                pilot span = v4_ty_span_from_tokens(stream_id, token_id, token_id + 1)
+                v4_ty_add_error_diag(ty_id, span, "constant reads a runtime global", v4_ty_const_binding_prefix(ty_id, sig_id) + " " + v4_ty_signature_name(ty_id, sig_id) + " is fixed at compile time, but pilot " + dep_name + " only gets its value when the module init runs")
+                give back
+            }
+        }
+        token_id += 1
+    }
+}
+
 task v4_ty_validate_const_initializers(ty_id: int) -> void {
     pilot sig_id = 0
     pilot sig_count = v4_ty_signature_count(ty_id)
     repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_const_sig {
+        if v4_ty_sig_kind_is_root_binding(v4_ty_signature_kind(ty_id, sig_id)) {
             pilot const_name = v4_ty_signature_name(ty_id, sig_id)
             pilot declared_ty = v4_ty_const_declared_type_for_sig(ty_id, sig_id)
             pilot stream_id = v4_ty_signature_stream_id(ty_id)
@@ -7710,6 +7744,9 @@ task v4_ty_validate_const_initializers(ty_id: int) -> void {
             pilot init_end = v4_ty_const_init_end_token(ty_id, sig_id)
             if stream_id >= 0 and init_start >= 0 and init_end > init_start {
                 v4_ty_validate_const_expr_seen(ty_id, sig_id, stream_id, init_start, init_end, v4_ty_const_cycle_seen_append("", const_name))
+                if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_global_sig {
+                    v4_ty_validate_const_reads_no_global(ty_id, sig_id, stream_id, init_start, init_end)
+                }
             }
             if declared_ty != "" {
                 declared_ty = v4_ty_canonical_type(ty_id, declared_ty)
@@ -9532,7 +9569,7 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, symbol_def
         give back "task " + symbol_name + v4_ty_hir_item_generic_text(hir_id, hir_item) + "(...) -> " + v4_ty_task_return_from_hir(hir_id, hir_item)
     }
     pilot generic_text = v4_ty_hir_item_generic_text(hir_id, hir_item)
-    if symbol_kind == v4_hir_const {
+    if v4_hir_kind_is_root_binding(symbol_kind) {
         pilot const_ty = v4_hir_const_type(hir_id, hir_item)
         if const_ty != "" {
             give back v4_hir_const_binding_prefix(hir_id, hir_item) + " " + symbol_name + ": " + const_ty

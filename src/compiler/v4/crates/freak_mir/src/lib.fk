@@ -104,6 +104,8 @@ pilot v4_mir_place_local = "Local"
 pilot v4_mir_place_field = "Field"
 pilot v4_mir_place_index = "Index"
 pilot v4_mir_place_deref = "Deref"
+-- A bootstrap-mode root `pilot` global: text is its name, no base or index.
+pilot v4_mir_place_global = "Global"
 pilot v4_mir_place_return = "Return"
 pilot v4_mir_place_unknown = "Unknown"
 pilot v4_mir_snapshot_format = "freak-mir-snapshot-v10"
@@ -2174,10 +2176,84 @@ task v4_mir_body_impl_method_index(mir_id: int, body_id: int, part: int) -> int 
     give back v4_ty_impl_method_index_for_def(v4_mir_ty_id(mir_id), v4_mir_body_def(mir_id, body_id), part)
 }
 
+-- The synthetic bootstrap-mode module initializer: void, no parameters,
+-- language ABI, run once before main. Its def has no TY signature row.
+pilot v4_mir_module_init_name = "freak.module.init"
+pilot v4_mir_module_init_def = "module-init"
+
+-- Bootstrap root globals are TY global signatures; MIR names them for codegen.
+task v4_mir_symbol_global_sig(mir_id: int, name: word) -> int {
+    if not v4_mir_file_exists(mir_id) or name == "" { give back 0 - 1 }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig = v4_ty_const_signature_id_for_name(ty_id, name)
+    if sig >= 0 and v4_ty_signature_kind(ty_id, sig) == v4_ty_global_sig { give back sig }
+    give back 0 - 1
+}
+
+task v4_mir_symbol_is_global(mir_id: int, name: word) -> bool {
+    give back v4_mir_symbol_global_sig(mir_id, name) >= 0
+}
+
+-- Globals in TY signature order (source order within the file).
+task v4_mir_global_count(mir_id: int) -> int {
+    if not v4_mir_file_exists(mir_id) { give back 0 }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot count = 0
+    pilot sig = 0
+    repeat until sig >= v4_ty_signature_count(ty_id) {
+        if v4_ty_signature_kind(ty_id, sig) == v4_ty_global_sig { count += 1 }
+        sig += 1
+    }
+    give back count
+}
+
+task v4_mir_global_sig_at(mir_id: int, wanted: int) -> int {
+    if not v4_mir_file_exists(mir_id) or wanted < 0 { give back 0 - 1 }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot seen = 0
+    pilot sig = 0
+    repeat until sig >= v4_ty_signature_count(ty_id) {
+        if v4_ty_signature_kind(ty_id, sig) == v4_ty_global_sig {
+            if seen == wanted { give back sig }
+            seen += 1
+        }
+        sig += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_global_name(mir_id: int, wanted: int) -> word {
+    pilot sig = v4_mir_global_sig_at(mir_id, wanted)
+    if sig < 0 { give back "" }
+    give back v4_ty_signature_name(v4_mir_ty_id(mir_id), sig)
+}
+
+task v4_mir_global_ty(mir_id: int, wanted: int) -> word {
+    pilot sig = v4_mir_global_sig_at(mir_id, wanted)
+    if sig < 0 { give back v4_ty_unknown }
+    give back v4_ty_const_value_type_for_sig(v4_mir_ty_id(mir_id), sig)
+}
+
+task v4_mir_body_is_module_init(mir_id: int, body_id: int) -> bool {
+    if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) { give back false }
+    give back v4_mir_body_def(mir_id, body_id) == v4_mir_module_init_def and v4_mir_body_name(mir_id, body_id) == v4_mir_module_init_name
+}
+
+task v4_mir_module_init_body(mir_id: int) -> int {
+    if not v4_mir_file_exists(mir_id) { give back 0 - 1 }
+    pilot body_id = v4_mir_body_count(mir_id) - 1
+    repeat until body_id < 0 {
+        if v4_mir_body_is_module_init(mir_id, body_id) { give back body_id }
+        body_id -= 1
+    }
+    give back 0 - 1
+}
+
 task v4_mir_body_callable_return_type(mir_id: int, body_id: int) -> word {
     if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
         give back v4_ty_unknown
     }
+    if v4_mir_body_is_module_init(mir_id, body_id) { give back v4_ty_void }
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     if sig_id >= 0 { give back v4_ty_signature_return_type(ty_id, sig_id) }
@@ -2204,6 +2280,7 @@ task v4_mir_body_callable_param_count(mir_id: int, body_id: int) -> int {
         give back 0
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_mir_body_is_module_init(mir_id, body_id) { give back 0 }
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     if sig_id >= 0 { give back v4_ty_signature_fixed_param_count(ty_id, sig_id) }
     pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
@@ -3279,7 +3356,7 @@ task v4_mir_snapshot_stmt_kind_is_known(kind: word) -> bool {
 }
 
 task v4_mir_snapshot_place_kind_is_known(kind: word) -> bool {
-    give back kind == v4_mir_place_local or kind == v4_mir_place_field or kind == v4_mir_place_index or kind == v4_mir_place_deref or kind == v4_mir_place_return or kind == v4_mir_place_unknown
+    give back kind == v4_mir_place_local or kind == v4_mir_place_field or kind == v4_mir_place_index or kind == v4_mir_place_deref or kind == v4_mir_place_return or kind == v4_mir_place_global or kind == v4_mir_place_unknown
 }
 
 task v4_mir_snapshot_rvalue_kind_is_known(kind: word) -> bool {
