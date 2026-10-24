@@ -1,6 +1,7 @@
 -- Tier 2 bootstrap mode: strict root scope stays the default (bible 17.4).
 -- Bootstrap mode is explicit per file and admits V3 root pilots and root
--- statements as their own parse nodes; HIR names them until they lower.
+-- statements as their own parse nodes; HIR lowers them to Global and
+-- RootStatement items, which MIR runs in the module init.
 task v4_tier2_mode_assert(condition: bool, label: word) -> void {
     if not condition { panic("tier2 mode: " + label) }
 }
@@ -108,8 +109,20 @@ task v4_tier2_mode_run() -> void {
             v4_tier2_mode_assert(v4_tier2_mode_count_kind(tree, v4_node_root_pilot) == 0, "no root pilot " + mode)
         }
         pilot hir = v4_hir_lower_tree(0, tree)
-        v4_tier2_mode_assert(v4_hir_diag_count(hir) == 1, "HIR names the unlowered root form " + mode)
-        v4_tier2_mode_assert(v4_diag_message(v4_hir_diag(hir, 0)).contains("are not lowered yet"), "HIR message " + mode)
+        v4_tier2_mode_assert(v4_hir_diag_count(hir) == 0, "HIR lowers the root form " + mode)
+        pilot globals = 0
+        pilot root_stmts = 0
+        pilot item = 0
+        repeat until item >= v4_hir_item_count(hir) {
+            if v4_hir_item_kind(hir, item) == v4_hir_global { globals += 1 }
+            if v4_hir_item_kind(hir, item) == v4_hir_root_stmt { root_stmts += 1 }
+            item += 1
+        }
+        if mode == "pilot" or mode == "mut" or mode == "semi" {
+            v4_tier2_mode_assert(globals == 1 and root_stmts == 0, "one HIR global " + mode)
+        } else {
+            v4_tier2_mode_assert(globals == 0 and root_stmts == 1, "one HIR root statement " + mode)
+        }
     }
     say "tier2-mode " + mode + "=passed"
 }

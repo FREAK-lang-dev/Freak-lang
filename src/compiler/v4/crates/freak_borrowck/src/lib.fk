@@ -7351,7 +7351,7 @@ task v4_borrowck_word_loan_place_state(mir_id: int, body_id: int, place: int, lo
         give back base
     }
     if kind == v4_mir_place_deref { give back v4_borrowck_word_loan_rvalue_state(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, active, false, depth + 1) }
-    if kind == v4_mir_place_return { give back 0 }
+    if kind == v4_mir_place_return or kind == v4_mir_place_global { give back 0 }
     give back -1
 }
 
@@ -8361,7 +8361,7 @@ task v4_borrowck_place_word_local_move_count_depth(mir_id: int, body_id: int, pl
         give back count
     }
     if kind == v4_mir_place_deref { give back v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, false, depth + 1) }
-    if kind == v4_mir_place_return { give back 0 }
+    if kind == v4_mir_place_return or kind == v4_mir_place_global { give back 0 }
     v4_borrowck_word_plan_resource_failed = true
     give back 0 - 1
 }
@@ -8517,7 +8517,7 @@ task v4_borrowck_mention_place(mir_id: int, body_id: int, place: int, depth: int
         give back out
     }
     if kind == v4_mir_place_deref { give back v4_borrowck_mention_rvalue(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), depth + 1) }
-    if kind == v4_mir_place_return { give back "" }
+    if kind == v4_mir_place_return or kind == v4_mir_place_global { give back "" }
     v4_borrowck_mention_failed = true
     give back ""
 }
@@ -8877,7 +8877,8 @@ task v4_borrowck_word_place_use_state(mir_id: int, body_id: int, place: int, loc
         give back state
     }
     if kind == v4_mir_place_deref { give back v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, initialized, false, depth + 1) }
-    if kind == v4_mir_place_return { if initialized { give back 1 } give back 0 }
+    -- A Global destination is a sink like the return slot: storing moves in.
+    if kind == v4_mir_place_return or kind == v4_mir_place_global { if initialized { give back 1 } give back 0 }
     give back 0 - 2
 }
 task v4_borrowck_word_rvalue_use_state(mir_id: int, body_id: int, value: int, local_id: int, initialized: bool, borrowed: bool, depth: int) -> int {

@@ -17600,6 +17600,65 @@ def check_v4_build_command() -> None:
         if executed.returncode != 0 or executed.stdout != expected_native_stdout(expected) or executed.stderr:
             raise RuntimeError(f"V4 {label} stdout/exit mismatch:\n{executed.stdout}{executed.stderr}")
         print(f"V4 build command: {label} exact native output")
+    # Tier 2 bootstrap root scope: root pilots become module globals and root
+    # statements run in a module init before main (or alone, for a script).
+    bootstrap_cases = (
+        ("bootstrap_int_globals",
+         'pilot counter = 5\npilot step: int = 2\npilot flag = false\ncounter += 1\n'
+         'if counter > 5 {\n step = 3\n}\ntask bump() -> void {\n counter += step\n}\n'
+         'task main() -> int {\n bump()\n if not flag {\n  flag = true\n  bump()\n }\n give back counter\n}\n',
+         "", 12),
+        ("bootstrap_word_globals",
+         'pilot label = "hello"\npilot count = 0\nsay label\n'
+         'task shout() -> void {\n label = label + "!"\n count += 1\n}\n'
+         'task main() -> int {\n say label\n shout()\n shout()\n say label\n'
+         ' pilot local = "from-" + "local"\n label = local\n say label\n say "count {count}"\n give back count\n}\n',
+         "hello\nhello\nhello!!\nfrom-local\ncount 2\n", 2),
+        ("bootstrap_script",
+         'pilot greeting = "hi"\npilot n = 3\ntask twice(x: int) -> int { give back x * 2 }\n'
+         'say greeting\nn = twice(n)\nrepeat until n <= 0 {\n say "n={n}"\n n -= 2\n}\nsay "done {greeting}"\n',
+         "hi\nn=6\nn=4\nn=2\ndone hi\n", 0),
+    )
+    for label, source_text, expected, expected_exit in bootstrap_cases:
+        source = RUNTIME_BUILD_ROOT / f"llvm_{label}.fk"
+        source.write_text(source_text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / (label + (".exe" if sys.platform == "win32" else ".native"))
+        output.unlink(missing_ok=True)
+        strict = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 {label} strict build command", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if strict.returncode == 0 or output.exists() or "v4-aborted-after=parse" not in strict.stdout + strict.stderr:
+            raise RuntimeError(f"V4 {label} built without bootstrap mode:\n{strict.stdout}{strict.stderr}")
+        built = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output), "--bootstrap-root"],
+            label=f"V4 {label} build command", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if built.returncode != 0 or not output.exists() or "v4-errors=0" not in built.stdout:
+            raise RuntimeError(f"V4 {label} build failed:\n{built.stdout}{built.stderr}")
+        executed = run_with_heartbeat([str(output)], label=f"V4 {label} execute",
+                                      timeout_seconds=10, memory_limit_mb=128)
+        if executed.returncode != expected_exit or executed.stdout != expected_native_stdout(expected) or executed.stderr:
+            raise RuntimeError(f"V4 {label} stdout/exit mismatch ({executed.returncode}):\n{executed.stdout}{executed.stderr}")
+        print(f"V4 build command: {label} strict-rejected bootstrap-exact")
+    for label, source_text, reason, stage in (
+        ("const_global", 'pilot counter = 5\nfixed pilot LIMIT: int = counter\ntask main() -> int { give back LIMIT }\n',
+         "constant reads a runtime global", "ty"),
+        ("shape_global", 'shape P { x: int }\npilot origin = P { x: 3 }\ntask main() -> int { give back origin.x }\n',
+         "root pilot type is not supported yet", "mir"),
+    ):
+        source = RUNTIME_BUILD_ROOT / f"llvm_bootstrap_{label}.fk"
+        source.write_text(source_text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"llvm_bootstrap_{label}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output), "--emit-llvm", "--bootstrap-root"],
+            label=f"V4 bootstrap {label} build command", timeout_seconds=180, memory_limit_mb=512,
+        )
+        combined = rejected.stdout + rejected.stderr
+        if rejected.returncode == 0 or output.exists() or reason not in combined or f"v4-aborted-after={stage}" not in combined:
+            raise RuntimeError(f"V4 bootstrap {label} was not rejected by name at {stage}:\n{combined}")
+        print(f"V4 build command: bootstrap {label} rejected at {stage}")
     print("V4 build command: hello world, numeric/owned-word display and warning-only execute, errors stop at their owning stage")
 
 
