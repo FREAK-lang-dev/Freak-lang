@@ -143,12 +143,13 @@ task v4_prerelease_boundary_run() -> void {
                 v4_prerelease_boundary_assert(v4_hir_item_kind(hir, idx) != v4_hir_const, "rejected pair publishes no Const")
                 idx += 1
             }
-            if errors == 2 { v4_prerelease_boundary_diag(ty, 1, "unexpected token at top level", "pilot") }
+            if errors == 2 { v4_prerelease_boundary_diag(ty, 1, "root pilot needs bootstrap mode", "strict root scope allows declarations and fixed pilot constants only (bible 17.4); use fixed pilot, or build this file with bootstrap mode") }
         } else {
             -- These existing fixed recovery diagnostics remain deliberately exact.
             v4_prerelease_boundary_diag(ty, 0, "incomplete syntax node", "expected name after fixed pilot")
             v4_prerelease_boundary_diag(ty, 1, "incomplete syntax node", "expected = in fixed pilot")
-            v4_prerelease_boundary_diag(ty, 2, "unexpected token at top level", "pilot")
+            -- The stray root pilot is named: strict mode keeps it out (bible 17.4).
+            v4_prerelease_boundary_diag(ty, 2, "root pilot needs bootstrap mode", "strict root scope allows declarations and fixed pilot constants only (bible 17.4); use fixed pilot, or build this file with bootstrap mode")
             v4_prerelease_boundary_assert(v4_hir_item_kind(hir, 0) == v4_hir_const and v4_hir_const_binding_prefix(hir, 0) == "fixed pilot", "fixed recovered Const is preserved")
         }
     }
