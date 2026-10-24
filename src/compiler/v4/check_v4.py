@@ -12767,6 +12767,8 @@ EXECUTABLE_SMOKES = [
                        {'argv': ['pilot'], 'expect': ['tier2-mode pilot=passed']},
                        {'argv': ['mut'], 'expect': ['tier2-mode mut=passed']},
                        {'argv': ['stmt'], 'expect': ['tier2-mode stmt=passed']},
+                       {'argv': ['semi'], 'expect': ['tier2-mode semi=passed']},
+                       {'argv': ['done'], 'expect': ['tier2-mode done=passed']},
                        {'argv': ['if-else'], 'expect': ['tier2-mode if-else=passed']},
                        {'argv': ['multiline'], 'expect': ['tier2-mode multiline=passed']}]},
     {'name': 'Prerelease tier 1 decisions: void tasks, pipe, explicit narrowing',

@@ -1050,7 +1050,18 @@ task v4_parse_root_pilot_type(tree_id: int, node_id: int) -> word {
 task v4_parse_root_pilot_init(tree_id: int, node_id: int) -> word {
     pilot first = v4_parse_root_pilot_name_token(tree_id, node_id)
     if first < 0 { give back "" }
-    give back v4_parse_const_init_from_tokens(v4_parse_stream_id(tree_id), first, v4_parse_node_end_token(tree_id, node_id))
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    give back v4_parse_const_init_from_tokens(stream_id, first, v4_parse_root_pilot_value_end(stream_id, first, v4_parse_node_end_token(tree_id, node_id)))
+}
+
+-- End of a root pilot's initializer: drops trailing trivia and one `;`.
+task v4_parse_root_pilot_value_end(stream_id: int, first: int, end_token: int) -> int {
+    pilot last = end_token
+    repeat until last <= first or not v4_parse_token_is_trivia(stream_id, last - 1) { last -= 1 }
+    if last > first and v4_lex_token_type(stream_id, last - 1) == v4_tok_symbol and v4_lex_token_value(stream_id, last - 1) == ";" {
+        last -= 1
+    }
+    give back last
 }
 
 task v4_parse_const_init(tree_id: int, node_id: int) -> word {
@@ -2029,7 +2040,7 @@ task v4_parse_skip_root_statement(stream_id: int, start_token: int) -> int {
             pilot val = v4_lex_token_value(stream_id, idx)
             if val == "{" or val == "(" or val == "[" {
                 depth += 1
-            } else if val == "}" or val == ")" or val == "]" {
+            } else if val == "}" or val == ")" or val == "]" or (val == "done" and v4_lex_token_type(stream_id, idx) == v4_tok_keyword) {
                 if depth > 0 { depth -= 1 }
             }
         }
