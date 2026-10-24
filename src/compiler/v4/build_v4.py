@@ -125,10 +125,12 @@ def main() -> int:
         require_distinct_output(args.source, args.output)
         compiler = bootstrap(clang, args.compiler_opt)
         root_mode = "bootstrap" if args.bootstrap_root else "strict"
-        if args.panic == "unwind" and root_mode == "strict":
+        if root_mode != "strict":
+            module = emit_module(compiler, args.source, target, args.panic, root_mode=root_mode)
+        elif args.panic == "unwind":
             module = emit_module(compiler, args.source, target)
         else:
-            module = emit_module(compiler, args.source, target, args.panic, root_mode)
+            module = emit_module(compiler, args.source, target, args.panic)
         # Compilation can take time; recheck an output that changed after the
         # initial preflight before creating directories, writing or linking.
         require_distinct_output(args.source, args.output)

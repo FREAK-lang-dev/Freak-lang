@@ -232,7 +232,7 @@ def require_success(result, label):
 
 INSTRUMENTATION_POINTS = [
     ("lex", "int64_t stream = freak_v4_lex_text(((int64_t)0), source);", "freak_v4_lex_diag_count(stream)"),
-    ("parse", "int64_t tree = freak_v4_parse_stream(((int64_t)0), stream);", "freak_v4_parse_diag_count(tree)"),
+    ("parse", "int64_t tree = freak_v4_parse_stream_mode(((int64_t)0), stream, freak_v4_build_llvm_root_mode());", "freak_v4_parse_diag_count(tree)"),
     ("hir", "int64_t hir = freak_v4_hir_lower_tree(((int64_t)0), tree);", "freak_v4_hir_diag_count(hir)"),
     ("resolve", "int64_t resolve = freak_v4_resolve_lower_hir(((int64_t)0), hir);", "freak_v4_resolve_diag_count(resolve)"),
     ("ty", "int64_t ty = freak_v4_ty_lower_resolve(((int64_t)0), resolve);", "freak_v4_ty_diag_count(ty)"),
