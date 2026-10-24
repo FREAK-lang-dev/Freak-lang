@@ -5030,9 +5030,26 @@ task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: i
     give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_construct, expr_text, v4_mir_route_case_text(route_name, case_name), expr_span, result_ty, children_handle)
 }
 
+-- A route case path holds no literals. Without this, the joined token
+-- text of "a" + "::" + b would read as a path with a "::" inside a string.
+task v4_mir_range_has_literal_text(stream_id: int, first: int, last: int) -> bool {
+    pilot idx = first
+    repeat until idx > last {
+        pilot kind = v4_lex_token_type(stream_id, idx)
+        if kind == v4_tok_string or kind == v4_tok_char {
+            give back true
+        }
+        idx += 1
+    }
+    give back false
+}
+
 task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
     pilot last_type = v4_lex_token_type(stream_id, last)
     if last_type != v4_tok_ident and last_type != v4_tok_keyword {
+        give back 0 - 1
+    }
+    if v4_mir_range_has_literal_text(stream_id, first, last) {
         give back 0 - 1
     }
 
@@ -10110,6 +10127,12 @@ task v4_mir_try_lower_system_named_intrinsic(mir: int, body: int, stream: int, f
     if v4_lex_token_syntax_value(stream, opening) != "(" or v4_mir_find_matching_paren(stream, opening, last + 1) != last { give back -1 }
     pilot name = root + "::" + v4_lex_token_syntax_value(stream, member)
     pilot kind = v4_ty_system_intrinsic_named_kind(v4_mir_ty_id(mir), name)
+    -- Bootstrap files spell the result-returning read as V1 does.
+    pilot checked_read: bool = false
+    if kind == "" and name == "fs::read_checked" and v4_mir_file_is_bootstrap(mir) {
+        kind = v4_ty_system_intrinsic_named_kind(v4_mir_ty_id(mir), "fs::read")
+        checked_read = kind != ""
+    }
     if kind == "" or v4_mir_find_local_visible_at(mir, body, root, v4_span_start(span)) >= 0 or v4_mir_find_local_visible_at(mir, body, name, v4_span_start(span)) >= 0 { give back -1 }
     pilot actual = v4_mir_call_arg_count(stream, opening, last)
     if actual != v4_ty_system_intrinsic_param_count(kind) { v4_mir_add_type_error(mir, span, "system intrinsic argument count mismatch", name + " expects " + word_from_int(v4_ty_system_intrinsic_param_count(kind)) + " arguments, got " + word_from_int(actual)) }
@@ -10128,6 +10151,11 @@ task v4_mir_try_lower_system_named_intrinsic(mir: int, body: int, stream: int, f
         args = v4_mir_call_args_payload_append(args, value)
         argument += 1
         start = v4_mir_skip_trivia(stream, end + 1)
+    }
+    pilot bootstrap_kind = ""
+    if v4_mir_file_is_bootstrap(mir) and not checked_read { bootstrap_kind = v4_ty_bootstrap_system_word_kind(kind) }
+    if bootstrap_kind != "" {
+        give back v4_mir_add_word_intrinsic(mir, body, bootstrap_kind, args, v4_mir_expr_text(stream, first, last + 1), span)
     }
     pilot identity = v4_mir_system_intrinsic_identity(kind)
     pilot call = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_call, v4_mir_expr_text(stream, first, last + 1), identity, -1, -1, span, v4_ty_system_intrinsic_result_type(kind))

@@ -17670,6 +17670,27 @@ def check_v4_build_command() -> None:
          '}\n'
          ,
          "middle\nitem0\nlen {array_len(shared)}\na%7Cb%25c%0Asecond%7Cx%0A\ntrue\n3\n2\nb%c\ntrue\nrows {array_len(rows)}\nsecond|x\nxitem0\n", 3),
+        # V1 builtins the crates use: chr, word.checksum (V1's stable FNV-1a),
+        # word_to_num, and V1-shaped process::arg / fs::read ("" on failure).
+        # A "::" inside a string literal is not a route path.
+        ("bootstrap_v1_builtins",
+         'pilot sep = "::"\n'
+         'task main() -> int {\n'
+         '    say "a" + sep + "b" + "::" + "c"\n'
+         '    say chr(65) + chr(233)\n'
+         '    say chr(0).length()\n'
+         '    say "abc".checksum()\n'
+         '    say word_to_num("2.5") + 1.0\n'
+         '    say process::arg(7) == ""\n'
+         '    say fs::read("missing/v4-bootstrap-none.txt") == ""\n'
+         '    pilot read = fs::read_checked("missing/v4-bootstrap-none.txt")\n'
+         '    check result read {\n'
+         '        ok(text) -> { say "read " + text }\n'
+         '        err(error) -> { say "read-failed" }\n'
+         '    }\n'
+         '    give back 0\n'
+         '}\n',
+         "a::b::c\nA\u00e9\n1\n7430836138530658123\n3.5\ntrue\ntrue\nread-failed\n", 0),
     )
     for label, source_text, expected, expected_exit in bootstrap_cases:
         source = RUNTIME_BUILD_ROOT / f"llvm_{label}.fk"

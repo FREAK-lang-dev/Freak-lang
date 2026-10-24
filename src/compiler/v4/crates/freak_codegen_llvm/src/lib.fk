@@ -2911,6 +2911,8 @@ task v4_codegen_llvm_word_intrinsic_symbol(kind: word) -> word {
     if kind.starts_with("array_") { give back "@freak_v4_compiler_" + kind }
     if kind == "word_join" { give back "@freak_v4_compiler_array_join" }
     if kind == "snapshot_lines" { give back "@freak_v4_compiler_array_snapshot_lines" }
+    if kind == "process_arg_word" { give back "@freak_v4_process_arg_or_empty" }
+    if kind == "fs_read_word" { give back "@freak_v4_fs_read_or_empty" }
     give back "@freak_v4_word_" + kind
 }
 
@@ -2938,6 +2940,7 @@ task v4_codegen_llvm_bootstrap_runtime_declarations(mir_id: int) -> word {
     out = out + "declare void @freak_v4_compiler_array_shutdown()\n"
     out = out + "declare i64 @freak_v4_word_snapshot_escape(i64)\ndeclare i64 @freak_v4_word_snapshot_unescape(i64)\n"
     out = out + "declare i64 @freak_v4_word_snapshot_line_count(i64)\ndeclare i64 @freak_v4_word_snapshot_line(i64, i64)\n"
+    out = out + "declare i64 @freak_v4_word_checksum(i64)\ndeclare i64 @freak_v4_word_chr(i64)\ndeclare double @freak_v4_word_to_num(i64)\ndeclare i64 @freak_v4_process_arg_or_empty(i64)\ndeclare i64 @freak_v4_fs_read_or_empty(i64)\n"
     give back out + "declare i64 @freak_v4_word_snapshot_field_count(i64)\ndeclare i64 @freak_v4_word_snapshot_field_raw(i64, i64)\n"
 }
 
@@ -2969,6 +2972,7 @@ task v4_codegen_llvm_word_intrinsic_instruction(mir_id: int, body_id: int, rvalu
     }
     pilot symbol = v4_codegen_llvm_word_intrinsic_symbol(kind)
     if v4_ty_word_intrinsic_result_type(kind) == v4_ty_void { give back "call void " + symbol + "(" + args + ")" }
+    if v4_ty_word_intrinsic_result_type(kind) == v4_ty_num { give back target + " = call double " + symbol + "(" + args + ")" }
     if v4_codegen_llvm_word_bool_intrinsic(kind) {
         pilot raw = target + ".word.bool"
         pilot comparison = "ne"

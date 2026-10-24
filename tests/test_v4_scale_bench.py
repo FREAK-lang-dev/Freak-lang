@@ -2000,9 +2000,9 @@ class FrozenRuntimeInventory(unittest.TestCase):
         exports = [{f"unique_{i}"} for i in range(len(self.sources))]
         with patch.object(self.benchmark, "defined_symbols", side_effect=exports):
             tool, manifest = self.benchmark.build_tool(self.repo, self.work / "runs", False, 30, self.build)
-        self.assertEqual(len(manifest["runtime_objects"]), 7)
+        self.assertEqual(len(manifest["runtime_objects"]), len(self.sources))
         self.assertEqual(manifest["runtime_hashes"], self.expected_runtime_hashes)
-        self.assertEqual(manifest["runtime_symbols"], [f"unique_{i}" for i in range(7)])
+        self.assertEqual(manifest["runtime_symbols"], [f"unique_{i}" for i in range(len(self.sources))])
         self.assertEqual(manifest["runtime_collisions"], [])
         self.assertEqual(manifest["symbol_tool"], self.symbol_tool)
         for name, digest in manifest["runtime_hashes"].items():
