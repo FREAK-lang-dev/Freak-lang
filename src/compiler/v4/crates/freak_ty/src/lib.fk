@@ -692,7 +692,7 @@ task v4_ty_signature_source_display(ty_id: int, sig_id: int) -> word {
 task v4_ty_const_binding_prefix(ty_id: int, sig_id: int) -> word {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     pilot prefix = v4_hir_const_binding_prefix(hir_id, v4_ty_signature_hir_item(ty_id, sig_id))
-    if prefix == "grounded pilot" { give back prefix }
+    if prefix == "grounded pilot" or prefix == "pilot" { give back prefix }
     give back "fixed pilot"
 }
 
@@ -13127,6 +13127,7 @@ task v4_ty_snapshot_field_has_key(line: word, field_id: int, wanted_key: word) -
 task v4_ty_snapshot_signature_kind_is_supported(sig_kind: word) -> bool {
     if sig_kind == v4_ty_task_sig { give back true }
     if sig_kind == v4_ty_const_sig { give back true }
+    if sig_kind == v4_ty_global_sig { give back true }
     if sig_kind == v4_ty_shape_sig { give back true }
     if sig_kind == v4_ty_route_sig { give back true }
     if sig_kind == v4_ty_alias_sig { give back true }

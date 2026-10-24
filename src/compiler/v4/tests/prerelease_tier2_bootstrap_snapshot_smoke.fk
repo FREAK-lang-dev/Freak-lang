@@ -1,0 +1,102 @@
+-- Tier 2 snapshots: a bootstrap file's mode marker, HIR Global and
+-- RootStatement items, global annotations, TY global signatures, MIR Global
+-- places and the module-init body all survive snapshot and restore.
+task v4_tier2_snap_assert(condition: bool, label: word) -> void {
+    if not condition { panic("tier2 snapshot: " + label) }
+}
+
+task v4_tier2_snap_source() -> word {
+    pilot open = chr(123)
+    pilot close = chr(125)
+    give back "pilot counter = 5\npilot label: word = \"hi\"\ncounter += 1\ntask main() -> int " + open + "\n say label\n give back counter\n" + close + "\n"
+}
+
+-- Rebuilds the first annotation line of one HIR file with another prefix.
+task v4_tier2_snap_with_prefix(payload: word, owner: int, prefix: word) -> word {
+    pilot lines = v4_hir_snapshot_index_lines(payload)
+    pilot parts = array_new()
+    pilot done_one = false
+    pilot idx = 0
+    repeat until idx >= array_len(lines) {
+        if idx > 0 { array_push(parts, "\n") }
+        pilot line: word = array_get(lines, idx)
+        if not done_one and line.starts_with("hir-const-annotation|" + word_from_int(owner) + "|") {
+            pilot rebuilt = v4_hir_snapshot_field_raw(line, 0)
+            pilot field = 1
+            repeat until field >= 6 {
+                rebuilt = rebuilt + "|" + v4_hir_snapshot_field_raw(line, field)
+                field += 1
+            }
+            array_push(parts, rebuilt + "|" + v4_hir_snapshot_escape(prefix))
+            done_one = true
+        } else {
+            array_push(parts, line)
+        }
+        idx += 1
+    }
+    -- parts borrows line words; join while their owner is still alive.
+    pilot out = word_join(parts)
+    array_release(parts)
+    array_release(lines)
+    give back out
+}
+
+task v4_tier2_snap_run() -> void {
+    pilot mode = "roundtrip"
+    if process::args_count() > 1 { mode = process::arg(1) }
+    pilot source = v4_tier2_snap_source()
+    pilot file = v4_source_add("tier2-snapshot.fk", source)
+    pilot stream = v4_lex_text(file, source)
+    pilot tree = v4_parse_stream_mode(file, stream, v4_parse_mode_bootstrap)
+    pilot hir = v4_hir_lower_tree(file, tree)
+    pilot resolve = v4_resolve_lower_hir(file, hir)
+    pilot ty = v4_ty_lower_resolve(file, resolve)
+    pilot mir = v4_mir_lower_ty(file, ty)
+    v4_tier2_snap_assert(v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) == 0, "clean lowering")
+    pilot parse_payload = v4_parse_snapshot()
+    pilot hir_payload = v4_hir_snapshot()
+    pilot resolve_payload = v4_resolve_snapshot()
+    pilot ty_payload = v4_ty_snapshot()
+    pilot mir_payload = v4_mir_snapshot()
+    if mode == "roundtrip" {
+        v4_tier2_snap_assert(parse_payload.contains("|" + v4_node_bootstrap_mode + "|"), "mode marker in parse payload")
+        v4_tier2_snap_assert(hir_payload.contains("|" + v4_hir_global + "|counter|"), "HIR Global item")
+        v4_tier2_snap_assert(hir_payload.contains("|" + v4_hir_root_stmt + "|"), "HIR RootStatement item")
+        v4_tier2_snap_assert(hir_payload.contains("|word|") and hir_payload.contains("|pilot"), "global annotation record")
+        v4_tier2_snap_assert(ty_payload.contains("|" + v4_ty_global_sig + "|counter|pilot counter|"), "TY global signature")
+        v4_tier2_snap_assert(ty_payload.contains("|" + v4_ty_global_sig + "|label|pilot label: word|"), "typed TY global signature")
+        v4_tier2_snap_assert(mir_payload.contains(v4_mir_module_init_name), "MIR module-init body")
+        v4_tier2_snap_assert(mir_payload.contains("|" + v4_mir_place_global + "|"), "MIR Global place")
+        v4_tier2_snap_assert(v4_parse_snapshot_restore(parse_payload).starts_with("parse-snapshot-restore ok=1"), "parse restore")
+        v4_tier2_snap_assert(v4_parse_tree_is_bootstrap(tree), "restored tree keeps bootstrap mode")
+        v4_tier2_snap_assert(v4_hir_snapshot_restore(hir_payload).starts_with("hir-snapshot-restore ok=1"), "HIR restore")
+        v4_tier2_snap_assert(v4_hir_const_binding_prefix(hir, 0) == "pilot" and v4_hir_const_type(hir, 1) == "word", "restored global annotations")
+        v4_tier2_snap_assert(v4_resolve_snapshot_restore(resolve_payload).starts_with("resolve-snapshot-restore ok=1"), "resolve restore")
+        v4_tier2_snap_assert(v4_ty_snapshot_restore(ty_payload).starts_with("ty-snapshot-restore ok=1"), "TY restore")
+        v4_tier2_snap_assert(v4_mir_snapshot_restore(mir_payload).starts_with("mir-snapshot-restore ok=1"), "MIR restore")
+        v4_tier2_snap_assert(v4_parse_snapshot() == parse_payload and v4_hir_snapshot() == hir_payload and v4_resolve_snapshot() == resolve_payload, "front payloads stable")
+        v4_tier2_snap_assert(v4_ty_snapshot() == ty_payload and v4_mir_snapshot() == mir_payload, "TY and MIR payloads stable")
+    } else if mode == "global-prefix" {
+        -- A global annotation that claims `fixed pilot` is rejected and the
+        -- live HIR state does not change.
+        pilot tampered = v4_tier2_snap_with_prefix(hir_payload, hir, "fixed pilot")
+        v4_tier2_snap_assert(tampered != hir_payload, "tampered payload differs")
+        v4_tier2_snap_assert(v4_hir_snapshot_restore(tampered).starts_with("hir-snapshot-restore ok=0"), "fixed prefix on a global rejected")
+        v4_tier2_snap_assert(v4_hir_snapshot() == hir_payload, "HIR state unchanged")
+    } else if mode == "const-prefix" {
+        -- `pilot` on a strict const annotation is rejected.
+        pilot strict_source = "fixed pilot LIMIT: int = 4\ntask main() -> int " + chr(123) + " give back LIMIT " + chr(125) + "\n"
+        pilot strict_file = v4_source_add("tier2-snapshot-strict.fk", strict_source)
+        pilot strict_tree = v4_parse_stream(strict_file, v4_lex_text(strict_file, strict_source))
+        pilot strict_hir = v4_hir_lower_tree(strict_file, strict_tree)
+        v4_tier2_snap_assert(v4_hir_diag_count(strict_hir) == 0, "strict const lowers")
+        pilot strict_payload = v4_hir_snapshot()
+        v4_tier2_snap_assert(v4_hir_snapshot_restore(strict_payload).starts_with("hir-snapshot-restore ok=1"), "strict payload restores")
+        v4_tier2_snap_assert(v4_hir_snapshot_restore(v4_tier2_snap_with_prefix(strict_payload, strict_hir, "pilot")).starts_with("hir-snapshot-restore ok=0"), "pilot prefix on a const rejected")
+        v4_tier2_snap_assert(v4_hir_snapshot() == strict_payload, "HIR state unchanged")
+    } else {
+        panic("tier2 snapshot: unknown mode " + mode)
+    }
+    say "tier2-snapshot " + mode + "=passed"
+}
+v4_tier2_snap_run()
