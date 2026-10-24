@@ -13836,17 +13836,25 @@ task v4_ty_word_intrinsic_known(kind: word) -> bool {
 -- Bootstrap-mode compiler builtins (tier 2): private array tickets and the
 -- snapshot word helpers the V4 crates use. Strict files never see them.
 task v4_ty_bootstrap_intrinsic_known(kind: word) -> bool {
-    give back kind == "array_new" or kind == "array_len" or kind == "array_push" or kind == "array_get" or kind == "array_set" or kind == "array_release" or kind == "word_join" or kind == "snapshot_lines" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line_count" or kind == "snapshot_line" or kind == "snapshot_field_count" or kind == "snapshot_field_raw"
+    give back kind == "array_new" or kind == "array_len" or kind == "array_push" or kind == "array_get" or kind == "array_set" or kind == "array_release" or kind == "word_join" or kind == "snapshot_lines" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line_count" or kind == "snapshot_line" or kind == "snapshot_field_count" or kind == "snapshot_field_raw" or kind == "checksum" or kind == "process_arg_word" or kind == "fs_read_word" or kind == "chr" or kind == "to_num"
 }
 
 task v4_ty_bootstrap_intrinsic_named_kind(name: word) -> word {
-    if name == "array_new" or name == "array_len" or name == "array_push" or name == "array_get" or name == "array_set" or name == "array_release" or name == "word_join" { give back name }
+    if name == "array_new" or name == "array_len" or name == "array_push" or name == "array_get" or name == "array_set" or name == "array_release" or name == "word_join" or name == "chr" { give back name }
+    if name == "word_to_num" { give back "to_num" }
     give back ""
 }
 
 task v4_ty_bootstrap_intrinsic_member_kind(receiver_ty: word, method_name: word) -> word {
     if receiver_ty != v4_ty_word { give back "" }
-    if method_name == "snapshot_lines" or method_name == "snapshot_escape" or method_name == "snapshot_unescape" or method_name == "snapshot_line_count" or method_name == "snapshot_line" or method_name == "snapshot_field_count" or method_name == "snapshot_field_raw" { give back method_name }
+    if method_name == "snapshot_lines" or method_name == "snapshot_escape" or method_name == "snapshot_unescape" or method_name == "snapshot_line_count" or method_name == "snapshot_line" or method_name == "snapshot_field_count" or method_name == "snapshot_field_raw" or method_name == "checksum" { give back method_name }
+    give back ""
+}
+
+-- Bootstrap files keep V1's process::arg and fs::read: a word, "" on failure.
+task v4_ty_bootstrap_system_word_kind(system_kind: word) -> word {
+    if system_kind == "process_arg" { give back "process_arg_word" }
+    if system_kind == "fs_read" { give back "fs_read_word" }
     give back ""
 }
 
@@ -13871,7 +13879,9 @@ task v4_ty_word_intrinsic_result_type(kind: word) -> word {
     if kind == "clone" { give back v4_ty_word }
     if kind == "to_lower" { give back v4_ty_word }
     if kind == "to_int_maybe" { give back v4_ty_maybe_type(v4_ty_int) }
-    if kind == "array_new" or kind == "array_len" or kind == "snapshot_lines" or kind == "snapshot_line_count" or kind == "snapshot_field_count" { give back v4_ty_int }
+    if kind == "array_new" or kind == "array_len" or kind == "snapshot_lines" or kind == "snapshot_line_count" or kind == "snapshot_field_count" or kind == "checksum" { give back v4_ty_int }
+    if kind == "process_arg_word" or kind == "fs_read_word" or kind == "chr" { give back v4_ty_word }
+    if kind == "to_num" { give back v4_ty_num }
     if kind == "array_push" or kind == "array_set" or kind == "array_release" { give back v4_ty_void }
     if kind == "array_get" or kind == "word_join" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line" or kind == "snapshot_field_raw" { give back v4_ty_word }
     give back v4_ty_unknown
@@ -13902,7 +13912,7 @@ task v4_ty_word_intrinsic_param_count(kind: word) -> int {
     if kind == "array_len" or kind == "array_release" or kind == "word_join" { give back 1 }
     if kind == "array_push" or kind == "array_get" { give back 2 }
     if kind == "array_set" { give back 3 }
-    if kind == "snapshot_lines" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line_count" or kind == "snapshot_field_count" { give back 1 }
+    if kind == "snapshot_lines" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line_count" or kind == "snapshot_field_count" or kind == "checksum" or kind == "process_arg_word" or kind == "fs_read_word" or kind == "chr" or kind == "to_num" { give back 1 }
     if kind == "snapshot_line" or kind == "snapshot_field_raw" { give back 2 }
     give back 0 - 1
 }
@@ -13994,8 +14004,11 @@ task v4_ty_word_intrinsic_param_type(kind: word, param_id: int) -> word {
         if param_id == 0 or param_id == 1 { give back v4_ty_int }
         if param_id == 2 { give back v4_ty_word }
     }
-    if kind == "snapshot_lines" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line_count" or kind == "snapshot_field_count" {
+    if kind == "snapshot_lines" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line_count" or kind == "snapshot_field_count" or kind == "checksum" or kind == "fs_read_word" or kind == "to_num" {
         if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "process_arg_word" or kind == "chr" {
+        if param_id == 0 { give back v4_ty_int }
     }
     if kind == "snapshot_line" or kind == "snapshot_field_raw" {
         if param_id == 0 { give back v4_ty_word }

@@ -407,3 +407,53 @@ int64_t freak_v4_word_snapshot_field_count(int64_t value) {
 int64_t freak_v4_word_snapshot_field_raw(int64_t value, int64_t wanted) {
     return freak_v4_word_snapshot_piece(value, wanted, '|');
 }
+
+/* Bootstrap word.checksum(): the same stable 63-bit FNV-1a as V1's
+   freak_word_checksum, so hash tables in the compiler crates keep their
+   layout when V4 builds them. */
+int64_t freak_v4_word_checksum(int64_t value) {
+    size_t length = freak_v4_word_size(value);
+    const unsigned char* data = freak_v4_word_data(value);
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (size_t i = 0; i < length; i++) {
+        hash ^= (uint64_t)data[i];
+        hash *= UINT64_C(1099511628211);
+    }
+    return (int64_t)(hash & UINT64_C(0x7fffffffffffffff));
+}
+
+/* Bootstrap chr(code): the one-scalar word for a Unicode code point, as V1's
+   freak_char_to_word. Surrogates and values past U+10FFFF are rejected. */
+int64_t freak_v4_word_chr(int64_t code) {
+    if (code < 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) {
+        freak_v4_word_panic("chr code point is not a Unicode scalar value");
+    }
+    unsigned char buf[4];
+    size_t len = 0;
+    uint32_t c = (uint32_t)code;
+    if (c <= 0x7F) {
+        buf[0] = (unsigned char)c; len = 1;
+    } else if (c <= 0x7FF) {
+        buf[0] = (unsigned char)(0xC0 | (c >> 6));
+        buf[1] = (unsigned char)(0x80 | (c & 0x3F));
+        len = 2;
+    } else if (c <= 0xFFFF) {
+        buf[0] = (unsigned char)(0xE0 | (c >> 12));
+        buf[1] = (unsigned char)(0x80 | ((c >> 6) & 0x3F));
+        buf[2] = (unsigned char)(0x80 | (c & 0x3F));
+        len = 3;
+    } else {
+        buf[0] = (unsigned char)(0xF0 | (c >> 18));
+        buf[1] = (unsigned char)(0x80 | ((c >> 12) & 0x3F));
+        buf[2] = (unsigned char)(0x80 | ((c >> 6) & 0x3F));
+        buf[3] = (unsigned char)(0x80 | (c & 0x3F));
+        len = 4;
+    }
+    return freak_v4_word_from_bytes((int64_t)(uintptr_t)buf, (int64_t)len);
+}
+
+/* Bootstrap word_to_num(text): strtod over the owned bytes, as V1. */
+double freak_v4_word_to_num(int64_t value) {
+    (void)freak_v4_word_scalar_count(value);
+    return freak_word_to_num(freak_llvm_word_view(value));
+}

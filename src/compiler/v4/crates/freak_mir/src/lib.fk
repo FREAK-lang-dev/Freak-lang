@@ -5224,11 +5224,19 @@ task v4_mir_restore_reserve_needed(needed: int) -> bool {
         pilot handle = array_new()
         if handle < 0 { available = false } else {
             array_push(reservations, word_from_int(handle))
-            if array_len(reservations) != held + 1 { array_release(handle) available = false } else { held += 1 }
+            if array_len(reservations) != held + 1 {
+                array_release(handle)
+                available = false
+            } else {
+                held += 1
+            }
         }
     }
     pilot index = 0
-    repeat until index >= held { array_release(word_to_int(array_get(reservations, index))) index += 1 }
+    repeat until index >= held {
+        array_release(word_to_int(array_get(reservations, index)))
+        index += 1
+    }
     array_release(reservations)
     give back available
 }
