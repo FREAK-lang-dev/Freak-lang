@@ -1891,6 +1891,11 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     pilot node_count = v4_expand_node_count(expansion_id)
     repeat until node_idx >= node_count {
         pilot parse_kind = v4_expand_node_kind(expansion_id, node_idx)
+        if parse_kind == v4_node_root_pilot or parse_kind == v4_node_root_stmt {
+            pilot what = "root statements"
+            if parse_kind == v4_node_root_pilot { what = "root pilot globals" }
+            v4_hir_add_diag(hir_id, v4_diag_new(v4_diag_error, v4_expand_node_span(expansion_id, node_idx), what + " are not lowered yet", "bootstrap mode parses them; HIR lowering is the next tier 2 row"))
+        }
         if v4_hir_should_lower_parse_node(parse_kind) {
             pilot hir_kind = v4_hir_kind_from_parse(parse_kind)
             pilot item_name = v4_expand_node_value(expansion_id, node_idx)
