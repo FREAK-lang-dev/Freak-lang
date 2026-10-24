@@ -2075,8 +2075,12 @@ task v4_parse_parse_root_pilot(tree_id: int, stream_id: int, token_id: int, root
         v4_parse_add_incomplete(tree_id, item_node, item_span, "expected name after pilot")
     } else if v4_parse_find_top_level_token(stream_id, name_start, end_token, "=") < 0 {
         v4_parse_add_incomplete(tree_id, item_node, item_span, "expected = in root pilot")
-    } else if v4_parse_const_init_from_tokens(stream_id, name_start, end_token) == "" {
-        v4_parse_add_incomplete(tree_id, item_node, item_span, "expected initializer after =")
+    } else {
+        -- Look for a value token: an empty word "" has no text but is a value.
+        pilot equals = v4_parse_find_top_level_token(stream_id, name_start, end_token, "=")
+        if v4_parse_skip_trivia(stream_id, equals + 1) >= v4_parse_root_pilot_value_end(stream_id, name_start, end_token) {
+            v4_parse_add_incomplete(tree_id, item_node, item_span, "expected initializer after =")
+        }
     }
     v4_parse_parse_closures_in_item(tree_id, stream_id, token_id, end_token, item_node)
     give back end_token
