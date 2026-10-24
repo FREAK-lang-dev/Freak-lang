@@ -73,12 +73,17 @@ def bootstrap(clang: str, compiler_opt: int = 0) -> Path:
     return executable
 
 
-def emit_module(compiler: Path, source: Path, target: str, panic: str = "unwind") -> str:
+def emit_module(compiler: Path, source: Path, target: str, panic: str = "unwind",
+                root_mode: str = "strict") -> str:
     if panic not in ("unwind", "abort"):
         raise RuntimeError(f"unsupported V4 panic policy: {panic}")
+    if root_mode not in ("strict", "bootstrap"):
+        raise RuntimeError(f"unsupported V4 root mode: {root_mode}")
     command = [str(compiler), str(source.resolve()), target]
-    if panic != "unwind":
+    if panic != "unwind" or root_mode != "strict":
         command.append(panic)
+    if root_mode != "strict":
+        command.append(root_mode)
     result = checks.run_with_heartbeat(
         command,
         label=f"V4 compile: {source.name}", timeout_seconds=900,
@@ -104,6 +109,9 @@ def main() -> int:
                         help="bootstrap compiler optimization level (default: 0)")
     parser.add_argument("--panic", choices=("unwind", "abort"), default="unwind",
                         help="program panic policy (default: unwind, which ends main as panicked with exit status 101; abort raises SIGABRT)")
+    parser.add_argument("--bootstrap-root", action="store_true",
+                        help="parse this file in bootstrap compatibility mode: V3 root pilot "
+                             "globals and root statements (default: strict root scope, bible 17.4)")
     args = parser.parse_args()
     clang = shutil.which("clang")
     if clang is None:
@@ -116,10 +124,11 @@ def main() -> int:
     try:
         require_distinct_output(args.source, args.output)
         compiler = bootstrap(clang, args.compiler_opt)
-        if args.panic == "unwind":
+        root_mode = "bootstrap" if args.bootstrap_root else "strict"
+        if args.panic == "unwind" and root_mode == "strict":
             module = emit_module(compiler, args.source, target)
         else:
-            module = emit_module(compiler, args.source, target, args.panic)
+            module = emit_module(compiler, args.source, target, args.panic, root_mode)
         # Compilation can take time; recheck an output that changed after the
         # initial preflight before creating directories, writing or linking.
         require_distinct_output(args.source, args.output)

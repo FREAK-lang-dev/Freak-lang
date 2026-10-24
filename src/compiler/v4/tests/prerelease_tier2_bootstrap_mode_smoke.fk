@@ -1,0 +1,104 @@
+-- Tier 2 bootstrap mode: strict root scope stays the default (bible 17.4).
+-- Bootstrap mode is explicit per file and admits V3 root pilots and root
+-- statements as their own parse nodes; HIR names them until they lower.
+task v4_tier2_mode_assert(condition: bool, label: word) -> void {
+    if not condition { panic("tier2 mode: " + label) }
+}
+
+task v4_tier2_mode_source(mode: word) -> word {
+    pilot open = chr(123)
+    pilot close = chr(125)
+    pilot main_task = "task main() -> int " + open + "\n give back 0\n" + close + "\n"
+    if mode == "strict-pilot" or mode == "pilot" { give back "pilot counter: int = 5 -- note\n" + main_task }
+    if mode == "strict-stmt" or mode == "stmt" { give back "say \"boot\"\n" + main_task }
+    if mode == "mut" { give back "pilot mut label = \"x\"\n" + main_task }
+    if mode == "if-else" { give back "if 1 > 0 " + open + "\n say \"a\"\n" + close + "\nelse " + open + "\n say \"b\"\n" + close + "\n" + main_task }
+    if mode == "multiline" { give back "say(\n \"a\"\n)\n" + main_task }
+    if mode == "incomplete" { give back "pilot counter\n" + main_task }
+    give back main_task
+}
+
+task v4_tier2_mode_parse_mode(mode: word) -> word {
+    if mode == "strict-pilot" or mode == "strict-stmt" or mode == "strict-clean" { give back v4_parse_mode_strict }
+    if mode == "unknown" { give back "loose" }
+    give back v4_parse_mode_bootstrap
+}
+
+task v4_tier2_mode_count_kind(tree: int, kind: word) -> int {
+    pilot count = 0
+    pilot node = 0
+    repeat until node >= v4_parse_node_count(tree) {
+        if v4_parse_node_kind(tree, node) == kind { count += 1 }
+        node += 1
+    }
+    give back count
+}
+
+task v4_tier2_mode_first_kind(tree: int, kind: word) -> int {
+    pilot node = 0
+    repeat until node >= v4_parse_node_count(tree) {
+        if v4_parse_node_kind(tree, node) == kind { give back node }
+        node += 1
+    }
+    give back 0 - 1
+}
+
+task v4_tier2_mode_run() -> void {
+    pilot mode = "strict-pilot"
+    if process::args_count() > 1 { mode = process::arg(1) }
+    pilot source = v4_tier2_mode_source(mode)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream_mode(0, stream, v4_tier2_mode_parse_mode(mode))
+    if mode == "strict-pilot" {
+        v4_tier2_mode_assert(v4_parse_tree_mode(tree) == v4_parse_mode_strict, "strict tree mode")
+        v4_tier2_mode_assert(v4_parse_diag_count(tree) == 1, "one strict pilot diag")
+        pilot diag = v4_parse_diag(tree, 0)
+        v4_tier2_mode_assert(v4_diag_message(diag) == "root pilot needs bootstrap mode", "strict pilot message: " + v4_diag_message(diag))
+        v4_tier2_mode_assert(v4_span_start(v4_diag_span(diag)) == 0 and v4_span_end(v4_diag_span(diag)) == 22, "strict pilot span")
+        v4_tier2_mode_assert(v4_tier2_mode_count_kind(tree, v4_node_task) == 1, "main still parsed")
+    } else if mode == "strict-stmt" {
+        v4_tier2_mode_assert(v4_parse_diag_count(tree) == 1, "one strict statement diag")
+        v4_tier2_mode_assert(v4_diag_message(v4_parse_diag(tree, 0)) == "unexpected token at top level", "strict statement message")
+    } else if mode == "strict-clean" {
+        v4_tier2_mode_assert(v4_parse_diag_count(tree) == 0, "strict clean")
+        v4_tier2_mode_assert(v4_tier2_mode_count_kind(tree, v4_node_bootstrap_mode) == 0, "no strict marker")
+        pilot plain = v4_parse_stream(0, v4_lex_text(0, source))
+        v4_tier2_mode_assert(v4_parse_tree_mode(plain) == v4_parse_mode_strict, "default parse is strict")
+    } else if mode == "unknown" {
+        v4_tier2_mode_assert(v4_parse_diag_count(tree) == 1, "unknown mode diag")
+        v4_tier2_mode_assert(v4_diag_message(v4_parse_diag(tree, 0)) == "unknown parse mode", "unknown mode message")
+        v4_tier2_mode_assert(v4_parse_tree_mode(tree) == v4_parse_mode_strict, "unknown mode stays strict")
+    } else if mode == "incomplete" {
+        v4_tier2_mode_assert(v4_parse_diag_count(tree) == 1, "incomplete diag")
+        v4_tier2_mode_assert(v4_diag_help(v4_parse_diag(tree, 0)) == "expected = in root pilot", "incomplete help: " + v4_diag_help(v4_parse_diag(tree, 0)))
+    } else {
+        v4_tier2_mode_assert(v4_parse_tree_mode(tree) == v4_parse_mode_bootstrap, "bootstrap tree mode " + mode)
+        v4_tier2_mode_assert(v4_parse_node_kind(tree, 1) == v4_node_bootstrap_mode, "marker is node 1 " + mode)
+        v4_tier2_mode_assert(v4_parse_diag_count(tree) == 0, "bootstrap parse clean " + mode)
+        v4_tier2_mode_assert(v4_tier2_mode_count_kind(tree, v4_node_task) == 1, "main parsed " + mode)
+        if mode == "pilot" or mode == "mut" {
+            pilot node = v4_tier2_mode_first_kind(tree, v4_node_root_pilot)
+            v4_tier2_mode_assert(node >= 0 and v4_tier2_mode_count_kind(tree, v4_node_root_pilot) == 1, "one root pilot " + mode)
+            if mode == "pilot" {
+                v4_tier2_mode_assert(v4_parse_node_value(tree, node) == "counter", "pilot name")
+                v4_tier2_mode_assert(v4_parse_root_pilot_type(tree, node) == "int", "pilot type: " + v4_parse_root_pilot_type(tree, node))
+                v4_tier2_mode_assert(v4_parse_root_pilot_init(tree, node) == "5", "pilot init: " + v4_parse_root_pilot_init(tree, node))
+                v4_tier2_mode_assert(v4_span_end(v4_parse_node_span(tree, node)) == 22, "pilot span ends before comment")
+            } else {
+                v4_tier2_mode_assert(v4_parse_node_value(tree, node) == "label", "mut name: " + v4_parse_node_value(tree, node))
+                v4_tier2_mode_assert(v4_parse_root_pilot_type(tree, node) == "", "mut untyped")
+                v4_tier2_mode_assert(v4_parse_root_pilot_init(tree, node) == "x", "mut init text: " + v4_parse_root_pilot_init(tree, node))
+            }
+            pilot snapshot = v4_parse_snapshot()
+            v4_tier2_mode_assert(snapshot.contains("|" + v4_node_bootstrap_mode + "|"), "mode in parse snapshot")
+        } else {
+            v4_tier2_mode_assert(v4_tier2_mode_count_kind(tree, v4_node_root_stmt) == 1, "one root statement " + mode)
+            v4_tier2_mode_assert(v4_tier2_mode_count_kind(tree, v4_node_root_pilot) == 0, "no root pilot " + mode)
+        }
+        pilot hir = v4_hir_lower_tree(0, tree)
+        v4_tier2_mode_assert(v4_hir_diag_count(hir) == 1, "HIR names the unlowered root form " + mode)
+        v4_tier2_mode_assert(v4_diag_message(v4_hir_diag(hir, 0)).contains("are not lowered yet"), "HIR message " + mode)
+    }
+    say "tier2-mode " + mode + "=passed"
+}
+v4_tier2_mode_run()

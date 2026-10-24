@@ -664,7 +664,7 @@ Entry and build:
 
 - [ ] **L** Root `pilot` globals with distinct HIR/TY/MIR identity (about 700 in the crates; V4 rejects a top-level `pilot` today)
 - [ ] **L** Root statements and synthetic module-init body, run once before `main`
-- [ ] **M** Explicit per-file bootstrap mode; strict mode stays default (bible 17.4)
+- [x] **M** Explicit per-file bootstrap mode; strict mode stays default (bible 17.4). `v4_parse_stream_mode` takes `strict` or `bootstrap`; a bootstrap tree carries a `BootstrapMode` marker as node 1, so the mode travels in parse snapshots. Bootstrap mode parses root `pilot` as `RootPilotDecl` and root statements as `RootStmt`; HIR names both as not lowered yet until the next two rows land. Strict mode names a root `pilot` (`root pilot needs bootstrap mode`). Only the uncached build pipeline selects it (`build_v4.py --bootstrap-root`); driver and editor queries stay strict. Smoke: `prerelease_tier2_bootstrap_mode_smoke.fk`
 - [ ] **M** Mode and global facts in versioned snapshots
 - [ ] **L** Array-handle builtins: `array_new`, `push`, `get`, `set`, `len`, `release` (about 4,700 call sites)
 - [ ] **M** `word_join` and the `word.snapshot_*` primitives

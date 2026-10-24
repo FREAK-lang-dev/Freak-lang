@@ -14,6 +14,13 @@ task v4_build_llvm_panic_policy() -> word {
     give back process::arg(3)
 }
 
+-- Root scope mode for the one source file. Missing means strict (bible 17.4);
+-- "bootstrap" is the explicit per-file compatibility mode for compiler crates.
+task v4_build_llvm_root_mode() -> word {
+    if process::args_count() < 5 { give back v4_parse_mode_strict }
+    give back process::arg(4)
+}
+
 task v4_build_llvm_source(source: word) -> void {
     pilot errors = 0
     pilot stream = v4_lex_text(0, source)
@@ -25,7 +32,7 @@ task v4_build_llvm_source(source: word) -> void {
         diag_stream += 1
     }
     if v4_build_llvm_abort(errors, "lex") { give back }
-    pilot tree = v4_parse_stream(0, stream)
+    pilot tree = v4_parse_stream_mode(0, stream, v4_build_llvm_root_mode())
     say "v4-build-stage=parse diagnostics=" + word_from_int(v4_parse_diag_count(tree))
     pilot diag_tree = 0
     repeat until diag_tree >= v4_parse_diag_count(tree) {
@@ -126,6 +133,11 @@ task v4_build_llvm_run() -> void {
     if panic_policy != "unwind" and panic_policy != "abort" {
         say "v4-native-contract-error=unsupported V4 panic policy: " + panic_policy
         v4_build_llvm_abort(1, "panic-policy")
+        give back
+    }
+    if not v4_parse_mode_is_known(v4_build_llvm_root_mode()) {
+        say "v4-native-contract-error=unsupported V4 root mode: " + v4_build_llvm_root_mode()
+        v4_build_llvm_abort(1, "root-mode")
         give back
     }
     pilot source_read = fs::read_checked(process::arg(1))

@@ -319,8 +319,10 @@ semantic, restored-call, loan and editor cases retain 64 MiB/1,024 handles.
 Private process/filesystem adapters have separate C runtime probes; typed
 `process::arg` and `fs::read` still need their language Result ABI.
 The centralized `freakc.v4_native_runtime` inventory determines native link
-inputs and benchmark provenance. Root initialization is planned as an explicit
-bootstrap compatibility mode; strict language mode remains the default.
+inputs and benchmark provenance. Root initialization uses an explicit per-file
+bootstrap compatibility mode (`build_v4.py --bootstrap-root`); strict language
+mode remains the default. The mode parses root `pilot` globals and root
+statements; their HIR-to-codegen lowering is the next tier 2 slice.
 
 ### Persisted interpolation checkpoint (W3)
 
