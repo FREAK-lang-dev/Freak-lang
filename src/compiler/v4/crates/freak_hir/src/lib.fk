@@ -1426,7 +1426,7 @@ task v4_hir_const_annotation_total() -> int {
     repeat until hir_id >= v4_hir_file_count() {
         pilot item = 0
         repeat until item >= v4_hir_item_count(hir_id) {
-            if v4_hir_item_kind(hir_id, item) == v4_hir_const { total += 1 }
+            if v4_hir_kind_is_root_binding(v4_hir_item_kind(hir_id, item)) { total += 1 }
             item += 1
         }
         hir_id += 1
@@ -1442,7 +1442,7 @@ task v4_hir_snapshot_const_annotation_is_valid(line: word) -> bool {
     if v4_hir_snapshot_field_count(line) != 7 { give back false }
     if not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 1)) or not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 2)) { give back false }
     pilot prefix = v4_hir_snapshot_field(line, 6)
-    if prefix != "fixed pilot" and prefix != "grounded pilot" { give back false }
+    if prefix != "fixed pilot" and prefix != "grounded pilot" and prefix != "pilot" { give back false }
     pilot surface = v4_hir_snapshot_field(line, 3)
     pilot type_span = v4_hir_snapshot_field(line, 4)
     pilot name_span = v4_hir_snapshot_field(line, 5)
@@ -1456,7 +1456,7 @@ task v4_hir_snapshot_const_annotation_slots_are_valid(records: int, files: int, 
         pilot idx = 0
         repeat until idx >= array_len(records) {
             pilot line: word = array_get(records, idx)
-            if line.starts_with("hir-item|") and v4_hir_snapshot_field(line, 3) == v4_hir_const { give back false }
+            if line.starts_with("hir-item|") and v4_hir_kind_is_root_binding(v4_hir_snapshot_field(line, 3)) { give back false }
             idx += 1
         }
         give back true
@@ -1513,7 +1513,7 @@ task v4_hir_snapshot_const_annotation_slots_are_valid(records: int, files: int, 
                     pilot slot = (word_to_int(array_get(file_rows, owner * 3 + 2)) + item) * 3
                     pilot kind = v4_hir_snapshot_field(line, 3)
                     array_set(item_rows, slot, kind)
-                    if kind == v4_hir_const {
+                    if v4_hir_kind_is_root_binding(kind) {
                         const_count += 1
                         pilot span = v4_hir_snapshot_field(line, 6)
                         pilot source: word = array_get(file_rows, owner * 3)
@@ -1540,7 +1540,11 @@ task v4_hir_snapshot_const_annotation_slots_are_valid(records: int, files: int, 
                     pilot parent: word = array_get(item_rows, slot + 1)
                     pilot type_span = v4_hir_snapshot_field(line, 4)
                     pilot name_span = v4_hir_snapshot_field(line, 5)
-                    if kind != v4_hir_const or seen != "0" or not v4_hir_snapshot_span_is_contained(name_span, parent) { valid = false }
+                    if not v4_hir_kind_is_root_binding(kind) or seen != "0" or not v4_hir_snapshot_span_is_contained(name_span, parent) { valid = false }
+                    -- A bootstrap global is always `pilot`; a const never is.
+                    pilot prefix = v4_hir_snapshot_field(line, 6)
+                    if kind == v4_hir_global and prefix != "pilot" { valid = false }
+                    if kind != v4_hir_global and prefix == "pilot" { valid = false }
                     if (type_span != V4_NO_SPAN) {
                         if not v4_hir_snapshot_span_is_contained(type_span, parent) { valid = false }
                         if name_span != parent and v4_span_start(type_span) < v4_span_end(name_span) { valid = false }
@@ -1555,7 +1559,7 @@ task v4_hir_snapshot_const_annotation_slots_are_valid(records: int, files: int, 
     repeat until idx >= items or not valid {
         pilot kind: word = array_get(item_rows, idx * 3)
         pilot seen: word = array_get(item_rows, idx * 3 + 2)
-        if kind == v4_hir_const and seen != "1" { valid = false }
+        if v4_hir_kind_is_root_binding(kind) and seen != "1" { valid = false }
         idx += 1
     }
     array_release(file_rows)
@@ -2254,7 +2258,7 @@ task v4_hir_snapshot() -> word {
             array_push(parts, "\n")
             array_push(parts, v4_hir_snapshot_item_line(hir_id, item_id))
             v4_hir_word_snapshot_append(parts, hir_id, item_id)
-            if v4_hir_item_kind(hir_id, item_id) == v4_hir_const {
+            if v4_hir_kind_is_root_binding(v4_hir_item_kind(hir_id, item_id)) {
                 array_push(parts, "\n")
                 array_push(parts, v4_hir_snapshot_const_annotation_line(hir_id, item_id))
             }
