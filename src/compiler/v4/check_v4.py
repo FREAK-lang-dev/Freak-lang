@@ -17693,6 +17693,30 @@ def check_v4_build_command() -> None:
         if executed.returncode != expected_exit or executed.stdout != expected_native_stdout(expected) or executed.stderr:
             raise RuntimeError(f"V4 {label} stdout/exit mismatch ({executed.returncode}):\n{executed.stdout}{executed.stderr}")
         print(f"V4 build command: {label} strict-rejected bootstrap-exact")
+    # Multi-file build: sources flatten in the given order, and diagnostics
+    # name the original file, line and column.
+    multi_a = RUNTIME_BUILD_ROOT / "llvm_multi_a.fk"
+    multi_b = RUNTIME_BUILD_ROOT / "llvm_multi_b.fk"
+    multi_a.write_text('task helper() -> int { give back 2 }\n', encoding="utf-8")
+    multi_output = RUNTIME_BUILD_ROOT / ("llvm_multi" + (".exe" if sys.platform == "win32" else ".native"))
+    for broken in (True, False):
+        multi_b.write_text('pilot base = 40\ntask main() -> int {\n give back base + helper()' + (' + missing' if broken else '') + '\n}\n', encoding="utf-8")
+        multi_output.unlink(missing_ok=True)
+        built = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(multi_a), str(multi_b), "-o", str(multi_output), "--bootstrap-root"],
+            label="V4 multi-file build command", timeout_seconds=180, memory_limit_mb=512,
+        )
+        combined = built.stdout + built.stderr
+        if broken:
+            if built.returncode == 0 or multi_output.exists() or "unknown name: missing" not in combined or "llvm_multi_b.fk:3:30" not in combined:
+                raise RuntimeError(f"V4 multi-file build did not map its diagnostic to the original file:\n{combined}")
+            continue
+        if built.returncode != 0 or not multi_output.exists() or "v4-flattened sources=2" not in built.stdout:
+            raise RuntimeError(f"V4 multi-file build failed:\n{combined}")
+        executed = run_with_heartbeat([str(multi_output)], label="V4 multi-file execute", timeout_seconds=10, memory_limit_mb=128)
+        if executed.returncode != 42 or executed.stdout or executed.stderr:
+            raise RuntimeError(f"V4 multi-file program exit mismatch ({executed.returncode})")
+    print("V4 build command: multi-file flatten runs and maps diagnostics to file:line:col")
     strict_array_source = RUNTIME_BUILD_ROOT / "llvm_strict_array.fk"
     strict_array_source.write_text('task main() -> int {\n pilot parts = array_new()\n give back array_len(parts)\n}\n', encoding="utf-8")
     strict_array_output = RUNTIME_BUILD_ROOT / "llvm_strict_array.ll"

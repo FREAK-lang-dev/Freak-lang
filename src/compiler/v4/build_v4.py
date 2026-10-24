@@ -14,6 +14,10 @@ import check_v4 as checks
 from freakc.v4_native_runtime import SOURCE_NAMES
 
 
+# Multi-file builds swap this for a map back to each original source.
+annotate_diagnostics = lambda text: text
+
+
 def require_distinct_output(source: Path, output: Path) -> None:
     """Reject canonical-path and physical-file aliases before modifying output."""
     try:
@@ -95,13 +99,66 @@ def emit_module(compiler: Path, source: Path, target: str, panic: str = "unwind"
     marker = markers[0]
     prefix = result.stdout[:marker.start()]
     module = result.stdout[marker.end():]
-    print(prefix.strip())
+    print(annotate_diagnostics(prefix.strip()))
     return module
+
+
+class FlattenedSource:
+    """Several sources joined in order, with a byte map back to each file."""
+
+    def __init__(self, paths: list[Path]):
+        self.paths = paths
+        self.starts: list[int] = []
+        self.texts: list[bytes] = []
+        parts: list[bytes] = []
+        offset = 0
+        for path in paths:
+            data = path.read_bytes()
+            if not data.endswith(b"\n"):
+                data += b"\n"
+            self.starts.append(offset)
+            self.texts.append(data)
+            parts.append(data)
+            offset += len(data)
+        self.data = b"".join(parts)
+
+    def locate(self, offset: int) -> str:
+        index = 0
+        while index + 1 < len(self.starts) and self.starts[index + 1] <= offset:
+            index += 1
+        local = offset - self.starts[index]
+        text = self.texts[index][:local]
+        line = text.count(b"\n") + 1
+        column = local - (text.rfind(b"\n") + 1) + 1
+        return f"{display_path(self.paths[index])}:{line}:{column}"
+
+    def annotate(self, output: str) -> str:
+        """Follow every diagnostic record with its original file:line:col."""
+        lines = []
+        for line in output.splitlines():
+            lines.append(line)
+            match = re.match(r"^\d+\|\d+@(\d+):\d+\|", line)
+            if match:
+                lines.append("  --> " + self.locate(int(match.group(1))))
+        return "\n".join(lines) + ("\n" if output.endswith("\n") else "")
+
+
+def display_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(checks.repo_root()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def compiler_sources(entry: Path) -> list[Path]:
+    """The V4 crates in CRATE_ORDER, then the entry tool (self-hosting input)."""
+    return [*checks.crate_paths(), entry]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", type=Path)
+    parser.add_argument("source", type=Path, nargs="+",
+                        help="one source, or several flattened in the given order")
     parser.add_argument("-o", "--output", type=Path, required=True)
     parser.add_argument("--emit-llvm", action="store_true", help="write .ll without linking")
     parser.add_argument("--target", default=None, help="canonical freak_target triple")
@@ -112,12 +169,34 @@ def main() -> int:
     parser.add_argument("--bootstrap-root", action="store_true",
                         help="parse this file in bootstrap compatibility mode: V3 root pilot "
                              "globals and root statements (default: strict root scope, bible 17.4)")
+    parser.add_argument("--with-crates", action="store_true",
+                        help="prepend the V4 crates in CRATE_ORDER (bootstrap-sources.manifest) "
+                             "to the sources; implies --bootstrap-root")
     args = parser.parse_args()
     clang = shutil.which("clang")
     if clang is None:
         parser.error("clang is required")
-    if not args.source.is_file():
-        parser.error(f"source file does not exist: {args.source}")
+    for source in args.source:
+        if not source.is_file():
+            parser.error(f"source file does not exist: {source}")
+    sources = list(args.source)
+    if args.with_crates:
+        sources = [*checks.crate_paths(), *sources]
+        args.bootstrap_root = True
+    flattened = None
+    if len(sources) > 1:
+        # Real module loading is later work; until then the build input is
+        # one file, and diagnostics map back to each original source.
+        flattened = FlattenedSource(sources)
+        flat_root = checks.RUNTIME_BUILD_ROOT / "flatten"
+        flat_root.mkdir(parents=True, exist_ok=True)
+        args.source = flat_root / (args.output.name + ".flat.fk")
+        args.source.write_bytes(flattened.data)
+        global annotate_diagnostics
+        annotate_diagnostics = flattened.annotate
+        print(f"v4-flattened sources={len(sources)} bytes={len(flattened.data)}")
+    else:
+        args.source = sources[0]
     target = args.target or host_target()
     if not args.emit_llvm and target != host_target():
         parser.error("native linking currently supports the host TargetSpec; use --emit-llvm for cross targets")
@@ -160,7 +239,10 @@ def main() -> int:
                 raise RuntimeError(f"LLVM native link failed:\n{result.stdout}{result.stderr}")
         print(f"built {args.output}")
     except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
+        message = str(exc)
+        if flattened is not None:
+            message = flattened.annotate(message)
+        print(message, file=sys.stderr)
         return 1
     return 0
 
