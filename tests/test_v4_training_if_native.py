@@ -44,7 +44,7 @@ class TrainingRuntimeInventory(unittest.TestCase):
     def test_exact_declared_groups_match_physical_frozen_inputs(self):
         report = frozen_report()
         self.assertEqual({key:len(names) for key,names in gate.runtime_inventory_names().items()},
-                         {'runtime_sources':7, 'runtime_headers':11, 'runtime_vendor_headers':6})
+                         {'runtime_sources':8, 'runtime_headers':12, 'runtime_vendor_headers':6})
         gate.validate_runtime_inventory(report)
         self.assertTrue(all('\\' not in key for key in report['inputs_before']))
 

@@ -278,6 +278,11 @@ task v4_expand_alias_target_span(expansion_id: int, node_id: int) -> word {
     give back v4_parse_alias_target_span(v4_expand_parse_tree_id(expansion_id), node_id)
 }
 
+-- Bootstrap root mode travels with the parse tree an expansion wraps.
+task v4_expand_tree_is_bootstrap(expansion_id: int) -> bool {
+    give back v4_parse_tree_is_bootstrap(v4_expand_parse_tree_id(expansion_id))
+}
+
 task v4_expand_const_type(expansion_id: int, node_id: int) -> word {
     give back v4_parse_const_type(v4_expand_parse_tree_id(expansion_id), node_id)
 }

@@ -24,8 +24,8 @@ PREFIX = "typed-os-entry-execute stages=clean v9-restore=true old-seal=true fres
 AUDIT_FLAGS = ("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1", "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
 SANITIZER_FLAGS = ("-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer")
 DARWIN_DEPLOYMENT_SOURCE = "/* Observe the selected Clang deployment target; no executable. */\n"
-RUNTIME_SOURCES = ("freak_llvm_runtime.c", "freak_v4_word_runtime.c", "freak_v4_numeric_runtime.c", "freak_v4_unicode_runtime.c", "freak_v4_system_runtime.c", "freak_v4_panic_runtime.c", "freak_runtime.c")
-RUNTIME_HEADERS = ("freak_runtime.h", "freak_v4_word_runtime.h", "freak_v4_numeric_runtime.h", "freak_v4_unicode_runtime.h", "freak_v4_unicode_lower_tables.h", "freak_v4_system_runtime.h", "freak_v4_panic_runtime.h", "freak_v35_process.inc", "freak_v35_fs.inc", "freak_v35_json.inc", "freak_v35_http.inc")
+RUNTIME_SOURCES = ("freak_llvm_runtime.c", "freak_v4_word_runtime.c", "freak_v4_compiler_array_runtime.c", "freak_v4_numeric_runtime.c", "freak_v4_unicode_runtime.c", "freak_v4_system_runtime.c", "freak_v4_panic_runtime.c", "freak_runtime.c")
+RUNTIME_HEADERS = ("freak_runtime.h", "freak_v4_word_runtime.h", "freak_v4_compiler_array_runtime.h", "freak_v4_numeric_runtime.h", "freak_v4_unicode_runtime.h", "freak_v4_unicode_lower_tables.h", "freak_v4_system_runtime.h", "freak_v4_panic_runtime.h", "freak_v35_process.inc", "freak_v35_fs.inc", "freak_v35_json.inc", "freak_v35_http.inc")
 RUNTIME_VENDOR_HEADERS = ("third_party/llhttp/freak_amalgamation.inc", "third_party/llhttp/include/llhttp.h", "third_party/llhttp/src/llhttp.h", "third_party/llhttp/src/api.c", "third_party/llhttp/src/http.c", "third_party/llhttp/src/llhttp.c")
 BOOTSTRAP_MANIFEST = "src/compiler/v4/bootstrap-sources.manifest"
 RUNTIME_MANIFEST = "src/compiler/v4/native-runtime.manifest"
@@ -720,7 +720,7 @@ def runtime_input_names(root):
     headers = tuple(name for role, name in rows if role == "header" and not name.startswith("third_party/"))
     vendors = tuple(name for role, name in rows if role == "header" and name.startswith("third_party/"))
     require((sources, headers, vendors) == (RUNTIME_SOURCES, RUNTIME_HEADERS, RUNTIME_VENDOR_HEADERS),
-            "exact ordered 7-source/11-local-header/6-vendor-header runtime inventory")
+            "exact ordered 8-source/12-local-header/6-vendor-header runtime inventory")
     names = []
     for name in (*sources, *headers, *vendors):
         path = module.runtime_file(root / "freakc/runtime", name)
@@ -954,7 +954,7 @@ def validate_report(report, sanitize):
     require(report.get("complete") is True and report.get("data_sha256") == DATA_SHA and report.get("scope") == SCOPE, "no complete proof without closed protocol")
     require(report.get("compiler_process_contract") == {"seconds":60, "memory_mib":64, "live_handles":1024}, "SDK contract changed")
     require(report.get("guarded_job_counts") == {"bootstrap":2, "compiler":34,
-            "native_and_clang":53 + 3 * COUNTS[host] + (15 if sanitize else 6) + int(host == "darwin")}, "exact guarded stage counts")
+            "native_and_clang":32 + len(OPTS) * len(RUNTIME_SOURCES) + 3 * COUNTS[host] + (15 if sanitize else 6) + int(host == "darwin")}, "exact guarded stage counts")
     sources = report.get("source_hashes", {})
     require(sources and sources == report.get("final_source_hashes") == report.get("final_frozen_source_hashes"), "complete source conservation")
     require(report.get("fixture_facts") == report.get("final_fixture_facts"), "fixture conservation")
@@ -986,7 +986,7 @@ def validate_report(report, sanitize):
                 probe["module_sha256"] == report["artifact_hashes"].get(str(work / "darwin-deployment-probe.ll")) == sha(work / "darwin-deployment-probe.ll"), "Darwin probe source/module identity")
     else:
         require(selected == target and "darwin_deployment_probe" not in report, "ordinary native target has no Darwin probe")
-    require(set(report["binary_hashes"]) == expected_images and len(expected_images) == 53 and
+    require(set(report["binary_hashes"]) == expected_images and len(expected_images) == 32 + len(OPTS) * len(RUNTIME_SOURCES) and
             set(report["artifact_hashes"]) == expected_artifacts and len(expected_artifacts) == (57 if host == "darwin" else 46),
             "complete closed generated-source/module/image inventory")
     require(all(re.fullmatch(r"[0-9a-f]{64}", value) for value in (*report["binary_hashes"].values(), *report["artifact_hashes"].values(), *sources.values())), "persisted SHA256 shape")

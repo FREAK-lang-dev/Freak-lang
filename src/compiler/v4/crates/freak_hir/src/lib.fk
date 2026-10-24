@@ -1316,6 +1316,12 @@ task v4_hir_const_annotation_values_handle(hir_id: int) -> int {
 }
 
 -- Root Const and Global items share the binding annotation layout.
+-- Bootstrap mode is a per-file parse choice; later stages read it here.
+task v4_hir_file_is_bootstrap(hir_id: int) -> bool {
+    if not v4_hir_file_exists(hir_id) { give back false }
+    give back v4_expand_tree_is_bootstrap(v4_hir_expansion_id(hir_id))
+}
+
 task v4_hir_kind_is_root_binding(kind: word) -> bool {
     give back kind == v4_hir_const or kind == v4_hir_global
 }
