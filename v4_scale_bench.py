@@ -230,17 +230,28 @@ def require_success(result, label):
                            + (result.stdout + result.stderr)[-4000:])
 
 
+# The compiler is the V3.5-generated C for the crates plus tools/build_llvm.fk
+# (src/compiler/v4/v35_seed.py). Each stage is one call inside
+# v4_build_llvm_source; the diagnostics expression reads that call's result.
+SOURCE_ENTRY = "void __freak_user_v4_build_llvm_source(freak_word __freak_param_0) {"
+RUN_ENTRY = "void __freak_user_v4_build_llvm_run(void) {"
 INSTRUMENTATION_POINTS = [
-    ("lex", "int64_t stream = freak_v4_lex_text(((int64_t)0), source);", "freak_v4_lex_diag_count(stream)"),
-    ("parse", "int64_t tree = freak_v4_parse_stream_mode(((int64_t)0), stream, freak_v4_build_llvm_root_mode());", "freak_v4_parse_diag_count(tree)"),
-    ("hir", "int64_t hir = freak_v4_hir_lower_tree(((int64_t)0), tree);", "freak_v4_hir_diag_count(hir)"),
-    ("resolve", "int64_t resolve = freak_v4_resolve_lower_hir(((int64_t)0), hir);", "freak_v4_resolve_diag_count(resolve)"),
-    ("ty", "int64_t ty = freak_v4_ty_lower_resolve(((int64_t)0), resolve);", "freak_v4_ty_diag_count(ty)"),
-    ("mir", "int64_t mir = freak_v4_mir_lower_ty(((int64_t)0), ty);", "freak_v4_mir_diag_count(mir)"),
-    ("borrowck", "int64_t borrowck = freak_v4_borrowck_check_mir(((int64_t)0), mir);", "freak_v4_borrowck_diag_count(borrowck)"),
-    ("codegen", "int64_t codegen = freak_v4_codegen_llvm_lower_owned_mir_with_borrow(((int64_t)0), mir, freak_v4_build_llvm_panic_policy(), borrowck);", "freak_v4_codegen_llvm_diag_count(codegen)"),
-    ("module", "freak_word module = freak_v4_codegen_llvm_module_text(codegen, target_spec);", "0"),
+    ("lex", "v4_lex_text", "__freak_user_v4_lex_diag_count(__freak_result)"),
+    ("parse", "v4_parse_stream_mode", "__freak_user_v4_parse_diag_count(__freak_result)"),
+    ("hir", "v4_hir_lower_tree", "__freak_user_v4_hir_diag_count(__freak_result)"),
+    ("resolve", "v4_resolve_lower_hir", "__freak_user_v4_resolve_diag_count(__freak_result)"),
+    ("ty", "v4_ty_lower_resolve", "__freak_user_v4_ty_diag_count(__freak_result)"),
+    ("mir", "v4_mir_lower_ty", "__freak_user_v4_mir_diag_count(__freak_result)"),
+    ("borrowck", "v4_borrowck_check_mir", "__freak_user_v4_borrowck_diag_count(__freak_result)"),
+    ("codegen", "v4_codegen_llvm_lower_owned_mir_with_borrow",
+     "__freak_user_v4_codegen_llvm_diag_count(__freak_result)"),
+    ("module", "v4_codegen_llvm_module_text", "0"),
 ]
+
+
+def stage_call(callee: str) -> re.Pattern:
+    """V3.5 lowers each call to `T __freak_result = __freak_user_<callee>(args);`."""
+    return re.compile(r"(?:int64_t|freak_word) __freak_result = __freak_user_" + callee + r"\([^;]*\);")
 
 NATIVE_MEASUREMENT = r'''
 #include <stdio.h>
@@ -287,19 +298,22 @@ static void v4_bench_report(const char *stage, double started, long long diagnos
 
 
 def instrument(source: str) -> str:
-    source_marker = "static void freak_v4_build_llvm_source(freak_word source) {"
-    marker = "static void freak_v4_build_llvm_run(void) {"
-    if source.count(source_marker) != 1 or source.count(marker) != 1:
+    if source.count(SOURCE_ENTRY) != 1 or source.count(RUN_ENTRY) != 1:
         raise RuntimeError("generated C entrypoint changed; update benchmark instrumentation")
-    source = source.replace(source_marker, NATIVE_MEASUREMENT + "\n" + source_marker)
-    source = source.replace(marker, marker + "\n    atexit(v4_bench_final);")
-    for stage, statement, diagnostics in INSTRUMENTATION_POINTS:
-        if source.count(statement) != 1:
+    start = source.index(SOURCE_ENTRY)
+    end = source.index(RUN_ENTRY)
+    if end < start:
+        raise RuntimeError("generated C entrypoint order changed; update benchmark instrumentation")
+    body = source[start:end]
+    for stage, callee, diagnostics in INSTRUMENTATION_POINTS:
+        matches = stage_call(callee).findall(body)
+        if len(matches) != 1:
             raise RuntimeError(f"generated C {stage} boundary changed; update instrumentation")
-        source = source.replace(statement,
-            f"double v4_bench_{stage}_started = v4_bench_clock();\n    {statement}\n"
-            f'    v4_bench_report("{stage}", v4_bench_{stage}_started, {diagnostics});')
-    return source
+        body = body.replace(matches[0],
+            f"double v4_bench_{stage}_started = v4_bench_clock();\n{matches[0]}\n"
+            f'v4_bench_report("{stage}", v4_bench_{stage}_started, {diagnostics});')
+    source = source[:start] + NATIVE_MEASUREMENT + "\n" + body + source[end:]
+    return source.replace(RUN_ENTRY, RUN_ENTRY + "\n    atexit(v4_bench_final);")
 
 
 def symbol_file_provenance(path: Path) -> dict:
@@ -812,12 +826,13 @@ def build_tool(repo, work, profile, timeout, build):
     build.checks.run_with_heartbeat = bounded_bootstrap
     try:
         try:
-            build.bootstrap(clang)
+            compiler = build.bootstrap(clang)
         except SystemExit as error:
             raise RuntimeError(f"bootstrap failed with exit {error.code}; evidence: {compiler_dir}") from error
     finally:
         build.checks.run_with_heartbeat = original_runner
-    original = repo / "build/v4_smoke/build_llvm.fk.c"
+    # v35_seed keeps the generated C next to the tool it linked.
+    original = Path(compiler).with_name(Path(compiler).stem + ".fk.c")
     frozen = compiler_dir / "compiler-original.c"
     frozen.write_bytes(original.read_bytes())
     measured = compiler_dir / "compiler-measured.c"
