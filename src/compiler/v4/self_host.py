@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -28,7 +29,8 @@ import time
 import build_v4
 import check_v4 as checks
 
-MODULE_MARKER = "@@V4-MODULE\n"
+# Windows text-mode stdout may end the marker line with CRLF.
+MODULE_MARKER = re.compile(rb"^@@V4-MODULE\r?\n", re.MULTILINE)
 
 
 def timed(command: list[str], stdout_path: Path, label: str) -> int:
@@ -53,17 +55,25 @@ def timed(command: list[str], stdout_path: Path, label: str) -> int:
     return process.returncode
 
 
-def split_module(stdout_path: Path, label: str) -> bytes:
+def diagnostic_prefix(stdout_path: Path) -> str:
+    """The compiler's report: stdout before the module marker, or all of it."""
     data = stdout_path.read_bytes()
-    marker = MODULE_MARKER.encode()
-    if data.count(marker) != 1:
-        raise RuntimeError(f"{label}: expected one module marker")
-    prefix, module = data.split(marker)
-    text = prefix.decode("utf-8", "replace")
-    print(text.strip())
+    match = MODULE_MARKER.search(data)
+    return data[:match.start() if match else len(data)].decode("utf-8", "replace").strip()
+
+
+def split_module(stdout_path: Path, label: str) -> bytes | None:
+    data = stdout_path.read_bytes()
+    markers = list(MODULE_MARKER.finditer(data))
+    text = diagnostic_prefix(stdout_path)
+    print(text)
+    if len(markers) != 1:
+        print(f"{label}: expected one module marker, found {len(markers)}", file=sys.stderr)
+        return None
     if "v4-errors=0" not in text:
-        raise RuntimeError(f"{label}: compile reported errors")
-    return module
+        print(f"{label}: compile reported errors", file=sys.stderr)
+        return None
+    return data[markers[0].end():]
 
 
 def main() -> int:
@@ -88,8 +98,11 @@ def main() -> int:
     stage0_out = work / "stage0.out"
     code = timed([str(tool), str(flat), target, "unwind", "bootstrap"], stage0_out, "stage 0 compile")
     if code != 0:
+        print(diagnostic_prefix(stage0_out)[-4000:], file=sys.stderr)
         return 1
     stage0 = split_module(stage0_out, "stage 0")
+    if stage0 is None:
+        return 1
     stage0_ll = work / "stage0.ll"
     stage0_ll.write_bytes(stage0)
 
@@ -105,8 +118,11 @@ def main() -> int:
     stage2_out = work / "stage2.out"
     code = timed([str(stage1), str(flat), target, "unwind", "bootstrap"], stage2_out, "stage 2 compile")
     if code != 0:
+        print(diagnostic_prefix(stage2_out)[-4000:], file=sys.stderr)
         return 1
     stage2 = split_module(stage2_out, "stage 2")
+    if stage2 is None:
+        return 1
     (work / "stage2.ll").write_bytes(stage2)
 
     digest0 = hashlib.sha256(stage0).hexdigest()
