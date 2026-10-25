@@ -572,46 +572,48 @@ These runs intentionally use strict mode on one crate at a time, without its
 cross-crate definitions. They inspect compiler diagnostics; they do not verify,
 link or run emitted LLVM. Diagnostics are inherited between stages, so columns
 are stage totals, not independent defects. Unknown calls and zero codegen
-messages do not establish executable support. Missing stage counts mean the
-bounded probe did not finish that stage.
+messages do not establish executable support.
 
-The probe compiler was built at `4f895d6`; each input SHA-256 is recorded in
-the saved JSON, including the captured working-tree source. Every process has a
-2 GiB memory limit. The first seven completed small crates
-used a 900-second timeout; later probes use 60 seconds. An initial 900-second
-freak_lex probe exceeded 2 GiB during Meiya; the resumed bounded run completed
-MIR but timed out in Meiya. These probes overlap the full gate, so elapsed times
-are not treated as benchmark results.
+Re-measured on 2026-10-25 with `benchmarks/v4/meiya_error_heavy.py`: a probe
+built from `tools/build_llvm.fk` that keeps going after errors and stops after
+Meiya, a 2 GiB memory limit and a 60 s timeout per crate. Every crate now
+finishes Meiya; the slowest is `freak_ty` at 13.9 s and 494 MiB peak. Times,
+peaks and a before/after comparison are in
+[meiya_error_heavy.md](../../../benchmarks/v4/meiya_error_heavy.md). At the
+previous baseline (probe built at `4f895d6`) freak_lex, parse, expand, hir, mir,
+borrowck, codegen_llvm, query, editor and snapshot did not finish Meiya, and
+freak_ty did not finish MIR.
 
-| Crate | Parse | MIR | Meiya | Codegen | Probe result |
-| --- | ---: | ---: | ---: | ---: | --- |
-| freak_span | 2 | 22 | 51 | 0 | counts recorded |
-| freak_diag | 8 | 10 | 16 | 0 | counts recorded |
-| freak_macro_api | 23 | 28 | 176 | 0 | counts recorded |
-| freak_arena | 3 | 3 | 3 | 0 | counts recorded |
-| freak_intern | 2 | 2 | 2 | 0 | counts recorded |
-| freak_session | 6 | 9 | 15 | 0 | counts recorded |
-| freak_target | 32 | 48 | 126 | 0 | counts recorded |
-| freak_lex | 45 | 60 | - | - | borrowck timeout |
-| freak_parse | 67 | 85 | - | - | borrowck memory limit |
-| freak_expand | 13 | 14 | - | - | borrowck timeout |
-| freak_hir | 131 | 169 | - | - | borrowck memory limit |
-| freak_resolve | 24 | 41 | 129 | 0 | counts recorded |
-| freak_ty | 126 | - | - | - | mir memory limit |
-| freak_mir | 193 | 239 | - | - | borrowck timeout |
-| freak_mir_build | 12 | 17 | 52 | 0 | counts recorded |
-| freak_borrowck | 152 | 248 | - | - | borrowck timeout |
-| freak_codegen_llvm | 28 | 44 | - | - | borrowck timeout |
-| freak_query | 56 | 69 | - | - | borrowck timeout |
-| freak_driver | 5 | 5 | 83 | 0 | counts recorded |
-| freak_editor | 51 | 102 | - | - | borrowck timeout |
-| freak_snapshot | 90 | 150 | - | - | borrowck timeout |
-| freak_lsp | 31 | 34 | 144 | 0 | counts recorded |
+| Crate | Parse | MIR | Meiya | Probe result |
+| --- | ---: | ---: | ---: | --- |
+| freak_span | 2 | 2 | 14 | Meiya finished |
+| freak_diag | 4 | 4 | 9 | Meiya finished |
+| freak_macro_api | 20 | 20 | 231 | Meiya finished |
+| freak_arena | 3 | 3 | 3 | Meiya finished |
+| freak_intern | 2 | 2 | 2 | Meiya finished |
+| freak_session | 6 | 6 | 8 | Meiya finished |
+| freak_target | 32 | 32 | 88 | Meiya finished |
+| freak_lex | 24 | 30 | 152 | Meiya finished |
+| freak_parse | 36 | 38 | 256 | Meiya finished |
+| freak_expand | 8 | 8 | 42 | Meiya finished |
+| freak_hir | 80 | 91 | 812 | Meiya finished |
+| freak_resolve | 14 | 19 | 122 | Meiya finished |
+| freak_ty | 105 | 110 | 2,374 | Meiya finished |
+| freak_mir | 139 | 162 | 1,373 | Meiya finished |
+| freak_mir_build | 17 | 28 | 1,989 | Meiya finished |
+| freak_borrowck | 180 | 191 | 1,376 | Meiya finished |
+| freak_codegen_llvm | 39 | 55 | 758 | Meiya finished |
+| freak_query | 27 | 33 | 169 | Meiya finished |
+| freak_driver | 6 | 6 | 103 | Meiya finished |
+| freak_editor | 51 | 61 | 62 | Meiya finished |
+| freak_snapshot | 14 | 26 | 986 | Meiya finished |
+| freak_lsp | 4 | 4 | 131 | Meiya finished |
 
-The first crate, `freak_span`, reports unsupported root pilots and word methods.
-The larger strict runs also expose downstream memory/time limits. Those limits
-remain visible here; the token index and runnable scalar programs do not prove
-self-hosting or bounded error-tolerant Meiya on all compiler crates.
+Strict mode still reports root pilots, array-handle builtins and moved words in
+these crates; the flattened bootstrap build of all 22 crates reports 0 in every
+stage. A synthetic task that moves one word in 800 sibling branches finishes
+Meiya in 22 s at 332 MiB; Meiya cost grows about quadratically with the number
+of moves of one word in one task (one CFG walk per move).
 
 ## W1 hello-world follow-up
 

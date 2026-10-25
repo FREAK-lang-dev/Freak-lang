@@ -1,0 +1,2180 @@
+{
+  "schema": "freak.v4.meiya-error-heavy.v1",
+  "before": {
+    "label": "before",
+    "head": "5ffec3042444b398c318547d8e21c696432db5a7",
+    "memory_mib": 2048,
+    "timeout_s": 60.0,
+    "probe_sha256": "af36af14b0a8f87cec8edb2ed3ce83810571d186db954fcda31dfcae4dd1029d",
+    "crates": {
+      "freak_span": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.15,
+        "peak_rss_mb": 10,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.02
+          },
+          "parse": {
+            "diagnostics": 2,
+            "seconds": 0.01
+          },
+          "hir": {
+            "diagnostics": 2,
+            "seconds": 0.0
+          },
+          "resolve": {
+            "diagnostics": 2,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 2,
+            "seconds": 0.01
+          },
+          "mir": {
+            "diagnostics": 2,
+            "seconds": 0.04
+          },
+          "borrowck": {
+            "diagnostics": 14,
+            "seconds": 0.05
+          }
+        },
+        "tail": [
+          "v4-errors=24",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "1d8b8001784597ab5451ed1310f263f41d7abe16abf98f3de19010ebed46fc5f",
+        "lines": 200
+      },
+      "freak_diag": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.05,
+        "peak_rss_mb": 0,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "parse": {
+            "diagnostics": 4,
+            "seconds": 0.0
+          },
+          "hir": {
+            "diagnostics": 4,
+            "seconds": 0.0
+          },
+          "resolve": {
+            "diagnostics": 4,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 4,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 4,
+            "seconds": 0.02
+          },
+          "borrowck": {
+            "diagnostics": 9,
+            "seconds": 0.01
+          }
+        },
+        "tail": [
+          "v4-errors=29",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "e3b925c19b770429a4367bdd792693ab09414ee15273b93ac310598276dbe215",
+        "lines": 78
+      },
+      "freak_macro_api": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.51,
+        "peak_rss_mb": 27,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.05
+          },
+          "parse": {
+            "diagnostics": 20,
+            "seconds": 0.01
+          },
+          "hir": {
+            "diagnostics": 20,
+            "seconds": 0.01
+          },
+          "resolve": {
+            "diagnostics": 20,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 20,
+            "seconds": 0.02
+          },
+          "mir": {
+            "diagnostics": 20,
+            "seconds": 0.17
+          },
+          "borrowck": {
+            "diagnostics": 231,
+            "seconds": 0.24
+          }
+        },
+        "tail": [
+          "v4-errors=331",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "9f0076ad851e19b0af8a3be64ea3b6b134a3ce8ed699e14b6cf9e4d4218c582e",
+        "lines": 583
+      },
+      "freak_arena": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.05,
+        "peak_rss_mb": 0,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "parse": {
+            "diagnostics": 3,
+            "seconds": 0.0
+          },
+          "hir": {
+            "diagnostics": 3,
+            "seconds": 0.0
+          },
+          "resolve": {
+            "diagnostics": 3,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 3,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 3,
+            "seconds": 0.02
+          },
+          "borrowck": {
+            "diagnostics": 3,
+            "seconds": 0.02
+          }
+        },
+        "tail": [
+          "v4-errors=18",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "27e5062ba02263a8fd54eae7baadfe2a9d8488e377f546d66c40bf983d34a42a",
+        "lines": 96
+      },
+      "freak_intern": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.05,
+        "peak_rss_mb": 0,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "parse": {
+            "diagnostics": 2,
+            "seconds": 0.0
+          },
+          "hir": {
+            "diagnostics": 2,
+            "seconds": 0.0
+          },
+          "resolve": {
+            "diagnostics": 2,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 2,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 2,
+            "seconds": 0.01
+          },
+          "borrowck": {
+            "diagnostics": 2,
+            "seconds": 0.01
+          }
+        },
+        "tail": [
+          "v4-errors=12",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "3acf169d29703b9b3afb9d0129ae4b73af09f6859b1eedca5cb3d7541c5227af",
+        "lines": 57
+      },
+      "freak_session": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.1,
+        "peak_rss_mb": 6,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.02
+          },
+          "parse": {
+            "diagnostics": 6,
+            "seconds": 0.0
+          },
+          "hir": {
+            "diagnostics": 6,
+            "seconds": 0.0
+          },
+          "resolve": {
+            "diagnostics": 6,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 6,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 6,
+            "seconds": 0.03
+          },
+          "borrowck": {
+            "diagnostics": 8,
+            "seconds": 0.03
+          }
+        },
+        "tail": [
+          "v4-errors=38",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "9a29186efb795d482ce22cb2db883e4fae675ffa69e86e7378e8dd24cd63be3e",
+        "lines": 178
+      },
+      "freak_target": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.3,
+        "peak_rss_mb": 19,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.04
+          },
+          "parse": {
+            "diagnostics": 32,
+            "seconds": 0.01
+          },
+          "hir": {
+            "diagnostics": 32,
+            "seconds": 0.01
+          },
+          "resolve": {
+            "diagnostics": 32,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 32,
+            "seconds": 0.01
+          },
+          "mir": {
+            "diagnostics": 32,
+            "seconds": 0.09
+          },
+          "borrowck": {
+            "diagnostics": 88,
+            "seconds": 0.12
+          }
+        },
+        "tail": [
+          "v4-errors=248",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "e8aadfc86a1ff74094e3463163f52f623af228e7b35d10f86c2d644fa3883e8b",
+        "lines": 367
+      },
+      "freak_lex": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.96,
+        "peak_rss_mb": 48,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.08
+          },
+          "parse": {
+            "diagnostics": 24,
+            "seconds": 0.02
+          },
+          "hir": {
+            "diagnostics": 24,
+            "seconds": 0.02
+          },
+          "resolve": {
+            "diagnostics": 24,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 24,
+            "seconds": 0.02
+          },
+          "mir": {
+            "diagnostics": 30,
+            "seconds": 0.25
+          },
+          "borrowck": {
+            "diagnostics": 152,
+            "seconds": 0.55
+          }
+        },
+        "tail": [
+          "v4-errors=278",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "508771981f34730450a3e4d4ad320182504531cfe1cc966a62cd7ae097ef07a7",
+        "lines": 1044
+      },
+      "freak_parse": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 1.82,
+        "peak_rss_mb": 94,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.16
+          },
+          "parse": {
+            "diagnostics": 36,
+            "seconds": 0.05
+          },
+          "hir": {
+            "diagnostics": 36,
+            "seconds": 0.05
+          },
+          "resolve": {
+            "diagnostics": 36,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 36,
+            "seconds": 0.05
+          },
+          "mir": {
+            "diagnostics": 38,
+            "seconds": 0.63
+          },
+          "borrowck": {
+            "diagnostics": 256,
+            "seconds": 0.85
+          }
+        },
+        "tail": [
+          "v4-errors=438",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "dd37bebf4ce081b116cd13b4208255b2f3dca03863346d25f3163871bf9d5f1f",
+        "lines": 2534
+      },
+      "freak_expand": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.36,
+        "peak_rss_mb": 24,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.04
+          },
+          "parse": {
+            "diagnostics": 8,
+            "seconds": 0.01
+          },
+          "hir": {
+            "diagnostics": 8,
+            "seconds": 0.01
+          },
+          "resolve": {
+            "diagnostics": 8,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 8,
+            "seconds": 0.02
+          },
+          "mir": {
+            "diagnostics": 8,
+            "seconds": 0.09
+          },
+          "borrowck": {
+            "diagnostics": 42,
+            "seconds": 0.16
+          }
+        },
+        "tail": [
+          "v4-errors=82",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "b215f6b1978b3df4abf253c48a1919f2e9100cf977a499ab9b63032f99f5a317",
+        "lines": 548
+      },
+      "freak_hir": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 7.14,
+        "peak_rss_mb": 283,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.47
+          },
+          "parse": {
+            "diagnostics": 80,
+            "seconds": 0.19
+          },
+          "hir": {
+            "diagnostics": 80,
+            "seconds": 0.17
+          },
+          "resolve": {
+            "diagnostics": 80,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 80,
+            "seconds": 0.1
+          },
+          "mir": {
+            "diagnostics": 91,
+            "seconds": 2.34
+          },
+          "borrowck": {
+            "diagnostics": 812,
+            "seconds": 3.84
+          }
+        },
+        "tail": [
+          "v4-errors=1223",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "c3bc0c358899be2a70b929f81dea3c78222e09a19831b183d39a333c75239a0d",
+        "lines": 7304
+      },
+      "freak_resolve": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.66,
+        "peak_rss_mb": 34,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.06
+          },
+          "parse": {
+            "diagnostics": 14,
+            "seconds": 0.02
+          },
+          "hir": {
+            "diagnostics": 14,
+            "seconds": 0.02
+          },
+          "resolve": {
+            "diagnostics": 14,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 14,
+            "seconds": 0.02
+          },
+          "mir": {
+            "diagnostics": 19,
+            "seconds": 0.29
+          },
+          "borrowck": {
+            "diagnostics": 122,
+            "seconds": 0.25
+          }
+        },
+        "tail": [
+          "v4-errors=197",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "3f2d2c7275d270bcb66906a7e34dd6249f8df6b7475754aed95318d769a97fec",
+        "lines": 997
+      },
+      "freak_ty": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 16.59,
+        "peak_rss_mb": 512,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 1.08
+          },
+          "parse": {
+            "diagnostics": 105,
+            "seconds": 0.34
+          },
+          "hir": {
+            "diagnostics": 105,
+            "seconds": 0.27
+          },
+          "resolve": {
+            "diagnostics": 105,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 105,
+            "seconds": 0.27
+          },
+          "mir": {
+            "diagnostics": 110,
+            "seconds": 4.84
+          },
+          "borrowck": {
+            "diagnostics": 2374,
+            "seconds": 9.7
+          }
+        },
+        "tail": [
+          "v4-errors=2904",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "9637773f9ccfc8b877e2e88bd16d1a79faaf5b8fd20e1fcab43ac7336a5af7f1",
+        "lines": 14210
+      },
+      "freak_mir": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 31.51,
+        "peak_rss_mb": 516,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.72
+          },
+          "parse": {
+            "diagnostics": 139,
+            "seconds": 0.2
+          },
+          "hir": {
+            "diagnostics": 139,
+            "seconds": 0.16
+          },
+          "resolve": {
+            "diagnostics": 139,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 139,
+            "seconds": 0.12
+          },
+          "mir": {
+            "diagnostics": 162,
+            "seconds": 3.5
+          },
+          "borrowck": {
+            "diagnostics": 1373,
+            "seconds": 26.75
+          }
+        },
+        "tail": [
+          "v4-errors=2091",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "cda502a9baf493899d9dce2f3213b5fe67d0bc56c291564551def0a3ab8dd196",
+        "lines": 6926
+      },
+      "freak_mir_build": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 12.25,
+        "peak_rss_mb": 382,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.82
+          },
+          "parse": {
+            "diagnostics": 17,
+            "seconds": 0.26
+          },
+          "hir": {
+            "diagnostics": 17,
+            "seconds": 0.23
+          },
+          "resolve": {
+            "diagnostics": 17,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 17,
+            "seconds": 0.19
+          },
+          "mir": {
+            "diagnostics": 28,
+            "seconds": 4.25
+          },
+          "borrowck": {
+            "diagnostics": 1989,
+            "seconds": 6.44
+          }
+        },
+        "tail": [
+          "v4-errors=2085",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "bdf2d37911cc220fc9c4936cc1c5fe3d52f93c16e6f9108f11876eb9a8f89068",
+        "lines": 10474
+      },
+      "freak_borrowck": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 8.36,
+        "peak_rss_mb": 330,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.65
+          },
+          "parse": {
+            "diagnostics": 179,
+            "seconds": 0.22
+          },
+          "hir": {
+            "diagnostics": 179,
+            "seconds": 0.18
+          },
+          "resolve": {
+            "diagnostics": 179,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 179,
+            "seconds": 0.16
+          },
+          "mir": {
+            "diagnostics": 190,
+            "seconds": 3.27
+          },
+          "borrowck": {
+            "diagnostics": 1342,
+            "seconds": 3.83
+          }
+        },
+        "tail": [
+          "v4-errors=2248",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "ecd2bec3c90d716b2bbf8ecac8867d701d5635c734b533ce1ab82aabc4e2f877",
+        "lines": 9037
+      },
+      "freak_codegen_llvm": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 5.37,
+        "peak_rss_mb": 203,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.47
+          },
+          "parse": {
+            "diagnostics": 39,
+            "seconds": 0.13
+          },
+          "hir": {
+            "diagnostics": 39,
+            "seconds": 0.11
+          },
+          "resolve": {
+            "diagnostics": 39,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 39,
+            "seconds": 0.07
+          },
+          "mir": {
+            "diagnostics": 55,
+            "seconds": 1.67
+          },
+          "borrowck": {
+            "diagnostics": 758,
+            "seconds": 2.89
+          }
+        },
+        "tail": [
+          "v4-errors=969",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "1b7864eb5ac8b372068ea5ef6778fdd22b7ceb4897c97b46d4c0171d04c0a879",
+        "lines": 4367
+      },
+      "freak_query": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 2.93,
+        "peak_rss_mb": 69,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.1
+          },
+          "parse": {
+            "diagnostics": 27,
+            "seconds": 0.03
+          },
+          "hir": {
+            "diagnostics": 27,
+            "seconds": 0.03
+          },
+          "resolve": {
+            "diagnostics": 27,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 27,
+            "seconds": 0.02
+          },
+          "mir": {
+            "diagnostics": 33,
+            "seconds": 0.34
+          },
+          "borrowck": {
+            "diagnostics": 169,
+            "seconds": 2.38
+          }
+        },
+        "tail": [
+          "v4-errors=310",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "ada0e55e88f786580af471b7ae138b09290353d9bbb0c8d39b08daf349500c29",
+        "lines": 1530
+      },
+      "freak_driver": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.46,
+        "peak_rss_mb": 28,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.05
+          },
+          "parse": {
+            "diagnostics": 6,
+            "seconds": 0.02
+          },
+          "hir": {
+            "diagnostics": 6,
+            "seconds": 0.01
+          },
+          "resolve": {
+            "diagnostics": 6,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 6,
+            "seconds": 0.01
+          },
+          "mir": {
+            "diagnostics": 6,
+            "seconds": 0.16
+          },
+          "borrowck": {
+            "diagnostics": 103,
+            "seconds": 0.18
+          }
+        },
+        "tail": [
+          "v4-errors=133",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "2fe90436fe16171feedce15583c48fce261e7e663cc5357c67754a93b854e5bc",
+        "lines": 785
+      },
+      "freak_editor": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 1.82,
+        "peak_rss_mb": 103,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.23
+          },
+          "parse": {
+            "diagnostics": 51,
+            "seconds": 0.08
+          },
+          "hir": {
+            "diagnostics": 51,
+            "seconds": 0.07
+          },
+          "resolve": {
+            "diagnostics": 51,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 51,
+            "seconds": 0.06
+          },
+          "mir": {
+            "diagnostics": 61,
+            "seconds": 1.11
+          },
+          "borrowck": {
+            "diagnostics": 62,
+            "seconds": 0.24
+          }
+        },
+        "tail": [
+          "v4-errors=327",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "6d520bff64b6bb3d308881114901a25d35e75155d02218af0e22edeb516513fd",
+        "lines": 3572
+      },
+      "freak_snapshot": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 6.49,
+        "peak_rss_mb": 190,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.34
+          },
+          "parse": {
+            "diagnostics": 14,
+            "seconds": 0.11
+          },
+          "hir": {
+            "diagnostics": 14,
+            "seconds": 0.1
+          },
+          "resolve": {
+            "diagnostics": 14,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 14,
+            "seconds": 0.06
+          },
+          "mir": {
+            "diagnostics": 26,
+            "seconds": 1.37
+          },
+          "borrowck": {
+            "diagnostics": 986,
+            "seconds": 4.48
+          }
+        },
+        "tail": [
+          "v4-errors=1068",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "9b49cd3cff3ddb8bda2ed5a5db7c4b74a9848c87a29fa8349f88a836e3155c1a",
+        "lines": 4670
+      },
+      "freak_lsp": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.76,
+        "peak_rss_mb": 37,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.05
+          },
+          "parse": {
+            "diagnostics": 4,
+            "seconds": 0.02
+          },
+          "hir": {
+            "diagnostics": 4,
+            "seconds": 0.02
+          },
+          "resolve": {
+            "diagnostics": 4,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 4,
+            "seconds": 0.03
+          },
+          "mir": {
+            "diagnostics": 4,
+            "seconds": 0.2
+          },
+          "borrowck": {
+            "diagnostics": 131,
+            "seconds": 0.42
+          }
+        },
+        "tail": [
+          "v4-errors=151",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "ce98807cb6920e36632d66cd68b3ac5bea841dcdd40463bc639a3e2aa10ff283",
+        "lines": 952
+      }
+    },
+    "synthetic": {
+      "100": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 6.78,
+        "peak_rss_mb": 54,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.03
+          },
+          "parse": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "hir": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "resolve": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 0,
+            "seconds": 0.08
+          },
+          "borrowck": {
+            "diagnostics": 100,
+            "seconds": 6.61
+          }
+        },
+        "tail": [
+          "v4-errors=100",
+          "v4-aborted-after=borrowck"
+        ]
+      },
+      "200": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 62.54,
+        "peak_rss_mb": 326,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.05
+          },
+          "parse": {
+            "diagnostics": 0,
+            "seconds": 0.02
+          },
+          "hir": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "resolve": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 0,
+            "seconds": 0.22
+          },
+          "borrowck": {
+            "diagnostics": 200,
+            "seconds": 62.18
+          }
+        },
+        "tail": [
+          "v4-errors=200",
+          "v4-aborted-after=borrowck"
+        ]
+      },
+      "400": {
+        "outcome": "timeout",
+        "exit": -9,
+        "seconds": 120.07,
+        "peak_rss_mb": 607,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.12
+          },
+          "parse": {
+            "diagnostics": 0,
+            "seconds": 0.05
+          },
+          "hir": {
+            "diagnostics": 0,
+            "seconds": 0.02
+          },
+          "resolve": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 0,
+            "seconds": 0.64
+          }
+        },
+        "tail": []
+      },
+      "800": {
+        "outcome": "timeout",
+        "exit": -9,
+        "seconds": 120.11,
+        "peak_rss_mb": 686,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.18
+          },
+          "parse": {
+            "diagnostics": 0,
+            "seconds": 0.08
+          },
+          "hir": {
+            "diagnostics": 0,
+            "seconds": 0.05
+          },
+          "resolve": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 0,
+            "seconds": 1.84
+          }
+        },
+        "tail": []
+      }
+    }
+  },
+  "after": {
+    "label": "after",
+    "head": "5ffec3042444b398c318547d8e21c696432db5a7",
+    "memory_mib": 2048,
+    "timeout_s": 60.0,
+    "probe_sha256": "fb88e99c745b82eddcb67969427cc8786cc83c094bd65db61f94e0a629f6d14f",
+    "crates": {
+      "freak_span": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.1,
+        "peak_rss_mb": 6,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.02
+          },
+          "parse": {
+            "diagnostics": 2,
+            "seconds": 0.01
+          },
+          "hir": {
+            "diagnostics": 2,
+            "seconds": 0.01
+          },
+          "resolve": {
+            "diagnostics": 2,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 2,
+            "seconds": 0.01
+          },
+          "mir": {
+            "diagnostics": 2,
+            "seconds": 0.03
+          },
+          "borrowck": {
+            "diagnostics": 14,
+            "seconds": 0.04
+          }
+        },
+        "tail": [
+          "v4-errors=24",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "1d8b8001784597ab5451ed1310f263f41d7abe16abf98f3de19010ebed46fc5f",
+        "lines": 200
+      },
+      "freak_diag": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.05,
+        "peak_rss_mb": 0,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "parse": {
+            "diagnostics": 4,
+            "seconds": 0.0
+          },
+          "hir": {
+            "diagnostics": 4,
+            "seconds": 0.0
+          },
+          "resolve": {
+            "diagnostics": 4,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 4,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 4,
+            "seconds": 0.01
+          },
+          "borrowck": {
+            "diagnostics": 9,
+            "seconds": 0.01
+          }
+        },
+        "tail": [
+          "v4-errors=29",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "e3b925c19b770429a4367bdd792693ab09414ee15273b93ac310598276dbe215",
+        "lines": 78
+      },
+      "freak_macro_api": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.46,
+        "peak_rss_mb": 27,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.05
+          },
+          "parse": {
+            "diagnostics": 20,
+            "seconds": 0.02
+          },
+          "hir": {
+            "diagnostics": 20,
+            "seconds": 0.01
+          },
+          "resolve": {
+            "diagnostics": 20,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 20,
+            "seconds": 0.02
+          },
+          "mir": {
+            "diagnostics": 20,
+            "seconds": 0.15
+          },
+          "borrowck": {
+            "diagnostics": 231,
+            "seconds": 0.2
+          }
+        },
+        "tail": [
+          "v4-errors=331",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "9f0076ad851e19b0af8a3be64ea3b6b134a3ce8ed699e14b6cf9e4d4218c582e",
+        "lines": 583
+      },
+      "freak_arena": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.05,
+        "peak_rss_mb": 0,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "parse": {
+            "diagnostics": 3,
+            "seconds": 0.0
+          },
+          "hir": {
+            "diagnostics": 3,
+            "seconds": 0.0
+          },
+          "resolve": {
+            "diagnostics": 3,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 3,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 3,
+            "seconds": 0.01
+          },
+          "borrowck": {
+            "diagnostics": 3,
+            "seconds": 0.01
+          }
+        },
+        "tail": [
+          "v4-errors=18",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "27e5062ba02263a8fd54eae7baadfe2a9d8488e377f546d66c40bf983d34a42a",
+        "lines": 96
+      },
+      "freak_intern": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.06,
+        "peak_rss_mb": 2,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "parse": {
+            "diagnostics": 2,
+            "seconds": 0.0
+          },
+          "hir": {
+            "diagnostics": 2,
+            "seconds": 0.0
+          },
+          "resolve": {
+            "diagnostics": 2,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 2,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 2,
+            "seconds": 0.01
+          },
+          "borrowck": {
+            "diagnostics": 2,
+            "seconds": 0.01
+          }
+        },
+        "tail": [
+          "v4-errors=12",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "3acf169d29703b9b3afb9d0129ae4b73af09f6859b1eedca5cb3d7541c5227af",
+        "lines": 57
+      },
+      "freak_session": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.1,
+        "peak_rss_mb": 8,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "parse": {
+            "diagnostics": 6,
+            "seconds": 0.0
+          },
+          "hir": {
+            "diagnostics": 6,
+            "seconds": 0.0
+          },
+          "resolve": {
+            "diagnostics": 6,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 6,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 6,
+            "seconds": 0.02
+          },
+          "borrowck": {
+            "diagnostics": 8,
+            "seconds": 0.02
+          }
+        },
+        "tail": [
+          "v4-errors=38",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "9a29186efb795d482ce22cb2db883e4fae675ffa69e86e7378e8dd24cd63be3e",
+        "lines": 178
+      },
+      "freak_target": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.36,
+        "peak_rss_mb": 20,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.03
+          },
+          "parse": {
+            "diagnostics": 32,
+            "seconds": 0.01
+          },
+          "hir": {
+            "diagnostics": 32,
+            "seconds": 0.01
+          },
+          "resolve": {
+            "diagnostics": 32,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 32,
+            "seconds": 0.01
+          },
+          "mir": {
+            "diagnostics": 32,
+            "seconds": 0.09
+          },
+          "borrowck": {
+            "diagnostics": 88,
+            "seconds": 0.17
+          }
+        },
+        "tail": [
+          "v4-errors=248",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "e8aadfc86a1ff74094e3463163f52f623af228e7b35d10f86c2d644fa3883e8b",
+        "lines": 367
+      },
+      "freak_lex": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 1.01,
+        "peak_rss_mb": 48,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.09
+          },
+          "parse": {
+            "diagnostics": 24,
+            "seconds": 0.03
+          },
+          "hir": {
+            "diagnostics": 24,
+            "seconds": 0.02
+          },
+          "resolve": {
+            "diagnostics": 24,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 24,
+            "seconds": 0.02
+          },
+          "mir": {
+            "diagnostics": 30,
+            "seconds": 0.33
+          },
+          "borrowck": {
+            "diagnostics": 152,
+            "seconds": 0.5
+          }
+        },
+        "tail": [
+          "v4-errors=278",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "508771981f34730450a3e4d4ad320182504531cfe1cc966a62cd7ae097ef07a7",
+        "lines": 1044
+      },
+      "freak_parse": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 1.82,
+        "peak_rss_mb": 94,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.2
+          },
+          "parse": {
+            "diagnostics": 36,
+            "seconds": 0.07
+          },
+          "hir": {
+            "diagnostics": 36,
+            "seconds": 0.06
+          },
+          "resolve": {
+            "diagnostics": 36,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 36,
+            "seconds": 0.05
+          },
+          "mir": {
+            "diagnostics": 38,
+            "seconds": 0.59
+          },
+          "borrowck": {
+            "diagnostics": 256,
+            "seconds": 0.79
+          }
+        },
+        "tail": [
+          "v4-errors=438",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "dd37bebf4ce081b116cd13b4208255b2f3dca03863346d25f3163871bf9d5f1f",
+        "lines": 2534
+      },
+      "freak_expand": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.35,
+        "peak_rss_mb": 24,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.04
+          },
+          "parse": {
+            "diagnostics": 8,
+            "seconds": 0.01
+          },
+          "hir": {
+            "diagnostics": 8,
+            "seconds": 0.01
+          },
+          "resolve": {
+            "diagnostics": 8,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 8,
+            "seconds": 0.02
+          },
+          "mir": {
+            "diagnostics": 8,
+            "seconds": 0.12
+          },
+          "borrowck": {
+            "diagnostics": 42,
+            "seconds": 0.13
+          }
+        },
+        "tail": [
+          "v4-errors=82",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "b215f6b1978b3df4abf253c48a1919f2e9100cf977a499ab9b63032f99f5a317",
+        "lines": 548
+      },
+      "freak_hir": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 6.58,
+        "peak_rss_mb": 276,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.53
+          },
+          "parse": {
+            "diagnostics": 80,
+            "seconds": 0.19
+          },
+          "hir": {
+            "diagnostics": 80,
+            "seconds": 0.19
+          },
+          "resolve": {
+            "diagnostics": 80,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 80,
+            "seconds": 0.12
+          },
+          "mir": {
+            "diagnostics": 91,
+            "seconds": 2.62
+          },
+          "borrowck": {
+            "diagnostics": 812,
+            "seconds": 2.89
+          }
+        },
+        "tail": [
+          "v4-errors=1223",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "c3bc0c358899be2a70b929f81dea3c78222e09a19831b183d39a333c75239a0d",
+        "lines": 7304
+      },
+      "freak_resolve": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.76,
+        "peak_rss_mb": 34,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.07
+          },
+          "parse": {
+            "diagnostics": 14,
+            "seconds": 0.03
+          },
+          "hir": {
+            "diagnostics": 14,
+            "seconds": 0.02
+          },
+          "resolve": {
+            "diagnostics": 14,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 14,
+            "seconds": 0.02
+          },
+          "mir": {
+            "diagnostics": 19,
+            "seconds": 0.32
+          },
+          "borrowck": {
+            "diagnostics": 122,
+            "seconds": 0.27
+          }
+        },
+        "tail": [
+          "v4-errors=197",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "3f2d2c7275d270bcb66906a7e34dd6249f8df6b7475754aed95318d769a97fec",
+        "lines": 997
+      },
+      "freak_ty": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 13.88,
+        "peak_rss_mb": 494,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.93
+          },
+          "parse": {
+            "diagnostics": 105,
+            "seconds": 0.34
+          },
+          "hir": {
+            "diagnostics": 105,
+            "seconds": 0.26
+          },
+          "resolve": {
+            "diagnostics": 105,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 105,
+            "seconds": 0.26
+          },
+          "mir": {
+            "diagnostics": 110,
+            "seconds": 5.14
+          },
+          "borrowck": {
+            "diagnostics": 2374,
+            "seconds": 6.88
+          }
+        },
+        "tail": [
+          "v4-errors=2904",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "9637773f9ccfc8b877e2e88bd16d1a79faaf5b8fd20e1fcab43ac7336a5af7f1",
+        "lines": 14210
+      },
+      "freak_mir": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 10.73,
+        "peak_rss_mb": 386,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.86
+          },
+          "parse": {
+            "diagnostics": 139,
+            "seconds": 0.23
+          },
+          "hir": {
+            "diagnostics": 139,
+            "seconds": 0.21
+          },
+          "resolve": {
+            "diagnostics": 139,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 139,
+            "seconds": 0.13
+          },
+          "mir": {
+            "diagnostics": 162,
+            "seconds": 3.17
+          },
+          "borrowck": {
+            "diagnostics": 1373,
+            "seconds": 6.08
+          }
+        },
+        "tail": [
+          "v4-errors=2091",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "cda502a9baf493899d9dce2f3213b5fe67d0bc56c291564551def0a3ab8dd196",
+        "lines": 6926
+      },
+      "freak_mir_build": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 10.31,
+        "peak_rss_mb": 376,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.81
+          },
+          "parse": {
+            "diagnostics": 17,
+            "seconds": 0.28
+          },
+          "hir": {
+            "diagnostics": 17,
+            "seconds": 0.24
+          },
+          "resolve": {
+            "diagnostics": 17,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 17,
+            "seconds": 0.21
+          },
+          "mir": {
+            "diagnostics": 28,
+            "seconds": 4.2
+          },
+          "borrowck": {
+            "diagnostics": 1989,
+            "seconds": 4.51
+          }
+        },
+        "tail": [
+          "v4-errors=2085",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "bdf2d37911cc220fc9c4936cc1c5fe3d52f93c16e6f9108f11876eb9a8f89068",
+        "lines": 10474
+      },
+      "freak_borrowck": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 9.69,
+        "peak_rss_mb": 333,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.7
+          },
+          "parse": {
+            "diagnostics": 180,
+            "seconds": 0.3
+          },
+          "hir": {
+            "diagnostics": 180,
+            "seconds": 0.26
+          },
+          "resolve": {
+            "diagnostics": 180,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 180,
+            "seconds": 0.18
+          },
+          "mir": {
+            "diagnostics": 191,
+            "seconds": 4.26
+          },
+          "borrowck": {
+            "diagnostics": 1376,
+            "seconds": 3.91
+          }
+        },
+        "tail": [
+          "v4-errors=2287",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "8d8fd5ef1be4f3dad00b055c4fcc4a899222e4a7fda021b6bfb96e62def4ad2c",
+        "lines": 9206
+      },
+      "freak_codegen_llvm": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 4.76,
+        "peak_rss_mb": 199,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.56
+          },
+          "parse": {
+            "diagnostics": 39,
+            "seconds": 0.12
+          },
+          "hir": {
+            "diagnostics": 39,
+            "seconds": 0.11
+          },
+          "resolve": {
+            "diagnostics": 39,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 39,
+            "seconds": 0.07
+          },
+          "mir": {
+            "diagnostics": 55,
+            "seconds": 1.63
+          },
+          "borrowck": {
+            "diagnostics": 758,
+            "seconds": 2.24
+          }
+        },
+        "tail": [
+          "v4-errors=969",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "1b7864eb5ac8b372068ea5ef6778fdd22b7ceb4897c97b46d4c0171d04c0a879",
+        "lines": 4367
+      },
+      "freak_query": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 1.07,
+        "peak_rss_mb": 55,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.11
+          },
+          "parse": {
+            "diagnostics": 27,
+            "seconds": 0.03
+          },
+          "hir": {
+            "diagnostics": 27,
+            "seconds": 0.03
+          },
+          "resolve": {
+            "diagnostics": 27,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 27,
+            "seconds": 0.02
+          },
+          "mir": {
+            "diagnostics": 33,
+            "seconds": 0.31
+          },
+          "borrowck": {
+            "diagnostics": 169,
+            "seconds": 0.54
+          }
+        },
+        "tail": [
+          "v4-errors=310",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "ada0e55e88f786580af471b7ae138b09290353d9bbb0c8d39b08daf349500c29",
+        "lines": 1530
+      },
+      "freak_driver": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.46,
+        "peak_rss_mb": 28,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.05
+          },
+          "parse": {
+            "diagnostics": 6,
+            "seconds": 0.02
+          },
+          "hir": {
+            "diagnostics": 6,
+            "seconds": 0.02
+          },
+          "resolve": {
+            "diagnostics": 6,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 6,
+            "seconds": 0.01
+          },
+          "mir": {
+            "diagnostics": 6,
+            "seconds": 0.15
+          },
+          "borrowck": {
+            "diagnostics": 103,
+            "seconds": 0.17
+          }
+        },
+        "tail": [
+          "v4-errors=133",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "2fe90436fe16171feedce15583c48fce261e7e663cc5357c67754a93b854e5bc",
+        "lines": 785
+      },
+      "freak_editor": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 1.58,
+        "peak_rss_mb": 103,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.23
+          },
+          "parse": {
+            "diagnostics": 51,
+            "seconds": 0.08
+          },
+          "hir": {
+            "diagnostics": 51,
+            "seconds": 0.07
+          },
+          "resolve": {
+            "diagnostics": 51,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 51,
+            "seconds": 0.07
+          },
+          "mir": {
+            "diagnostics": 61,
+            "seconds": 0.9
+          },
+          "borrowck": {
+            "diagnostics": 62,
+            "seconds": 0.21
+          }
+        },
+        "tail": [
+          "v4-errors=327",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "6d520bff64b6bb3d308881114901a25d35e75155d02218af0e22edeb516513fd",
+        "lines": 3572
+      },
+      "freak_snapshot": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 4.62,
+        "peak_rss_mb": 176,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.45
+          },
+          "parse": {
+            "diagnostics": 14,
+            "seconds": 0.14
+          },
+          "hir": {
+            "diagnostics": 14,
+            "seconds": 0.1
+          },
+          "resolve": {
+            "diagnostics": 14,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 14,
+            "seconds": 0.07
+          },
+          "mir": {
+            "diagnostics": 26,
+            "seconds": 1.44
+          },
+          "borrowck": {
+            "diagnostics": 986,
+            "seconds": 2.37
+          }
+        },
+        "tail": [
+          "v4-errors=1068",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "9b49cd3cff3ddb8bda2ed5a5db7c4b74a9848c87a29fa8349f88a836e3155c1a",
+        "lines": 4670
+      },
+      "freak_lsp": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.66,
+        "peak_rss_mb": 36,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.05
+          },
+          "parse": {
+            "diagnostics": 4,
+            "seconds": 0.02
+          },
+          "hir": {
+            "diagnostics": 4,
+            "seconds": 0.02
+          },
+          "resolve": {
+            "diagnostics": 4,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 4,
+            "seconds": 0.02
+          },
+          "mir": {
+            "diagnostics": 4,
+            "seconds": 0.19
+          },
+          "borrowck": {
+            "diagnostics": 131,
+            "seconds": 0.35
+          }
+        },
+        "tail": [
+          "v4-errors=151",
+          "v4-aborted-after=borrowck"
+        ],
+        "source_sha256": "ce98807cb6920e36632d66cd68b3ac5bea841dcdd40463bc639a3e2aa10ff283",
+        "lines": 952
+      }
+    },
+    "synthetic": {
+      "100": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 0.51,
+        "peak_rss_mb": 18,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.02
+          },
+          "parse": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "hir": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "resolve": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 0,
+            "seconds": 0.12
+          },
+          "borrowck": {
+            "diagnostics": 100,
+            "seconds": 0.32
+          }
+        },
+        "tail": [
+          "v4-errors=100",
+          "v4-aborted-after=borrowck"
+        ]
+      },
+      "200": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 1.57,
+        "peak_rss_mb": 40,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.06
+          },
+          "parse": {
+            "diagnostics": 0,
+            "seconds": 0.02
+          },
+          "hir": {
+            "diagnostics": 0,
+            "seconds": 0.01
+          },
+          "resolve": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 0,
+            "seconds": 0.25
+          },
+          "borrowck": {
+            "diagnostics": 200,
+            "seconds": 1.19
+          }
+        },
+        "tail": [
+          "v4-errors=200",
+          "v4-aborted-after=borrowck"
+        ]
+      },
+      "400": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 5.48,
+        "peak_rss_mb": 106,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.1
+          },
+          "parse": {
+            "diagnostics": 0,
+            "seconds": 0.04
+          },
+          "hir": {
+            "diagnostics": 0,
+            "seconds": 0.03
+          },
+          "resolve": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 0,
+            "seconds": 0.61
+          },
+          "borrowck": {
+            "diagnostics": 400,
+            "seconds": 4.63
+          }
+        },
+        "tail": [
+          "v4-errors=400",
+          "v4-aborted-after=borrowck"
+        ]
+      },
+      "800": {
+        "outcome": "meiya finished",
+        "exit": 0,
+        "seconds": 21.61,
+        "peak_rss_mb": 332,
+        "stages": {
+          "lex": {
+            "diagnostics": 0,
+            "seconds": 0.17
+          },
+          "parse": {
+            "diagnostics": 0,
+            "seconds": 0.07
+          },
+          "hir": {
+            "diagnostics": 0,
+            "seconds": 0.03
+          },
+          "resolve": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "ty": {
+            "diagnostics": 0,
+            "seconds": 0.0
+          },
+          "mir": {
+            "diagnostics": 0,
+            "seconds": 1.95
+          },
+          "borrowck": {
+            "diagnostics": 800,
+            "seconds": 19.32
+          }
+        },
+        "tail": [
+          "v4-errors=800",
+          "v4-aborted-after=borrowck"
+        ]
+      }
+    },
+    "note": "after = this branch's Meiya on main 5ffec30 (freak_borrowck source includes the change)"
+  }
+}
