@@ -17703,6 +17703,28 @@ def check_v4_build_command() -> None:
         ("bootstrap_global_task_infer",
          'task make() -> int { give back 9 }\npilot n = make()\ntask main() -> int { give back n }\n', "", 9),
         ("bootstrap_process_arg_word", 'pilot self_path: word = process::arg(0)\nsay self_path != ""\n', "true\n", 0),
+        # Bootstrap word reads share one refcounted handle, so changing a
+        # copy must leave the original alone; char_at/substring keep V1's
+        # lenient rules (out of range gives "", substring(start, count)
+        # clamps), and length() counts scalars, not bytes.
+        ("bootstrap_word_share_v1_index",
+         'pilot g: word = "ab"\n'
+         'task main() -> int {\n'
+         '    pilot a: word = "h\u00e9llo"\n'
+         '    pilot mut b = a\n'
+         '    b = b + "!"\n'
+         '    pilot mut c = g\n'
+         '    c = c + "c"\n'
+         '    say a\n'
+         '    say b\n'
+         '    say g + " " + c\n'
+         '    say a.char_at(1)\n'
+         '    say a.char_at(99) == ""\n'
+         '    say a.substring(3, 99)\n'
+         '    say g.substring(5, 1) == ""\n'
+         '    give back a.length()\n'
+         '}\n',
+         "h\u00e9llo\nh\u00e9llo!\nab abc\n\u00e9\ntrue\nlo\ntrue\n", 5),
     )
     for label, source_text, expected, expected_exit in bootstrap_cases:
         source = RUNTIME_BUILD_ROOT / f"llvm_{label}.fk"
