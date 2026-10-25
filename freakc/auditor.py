@@ -2383,7 +2383,7 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "src" / "cli" / "doctor.fk",
             (
                 "modules_expected\\\": 15",
-                "files_expected\\\": 35",
+                "files_expected\\\": 37",
                 "FREAK_V3_ABI",
                 "FREAK_V3_RUNTIME_API",
                 "runtime_api",
