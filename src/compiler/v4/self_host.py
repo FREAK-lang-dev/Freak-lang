@@ -2,14 +2,15 @@
 """Check that V4 compiles itself to a fixed point (tier 2, stages 1 and 2).
 
 Steps:
-  stage 0  the Python-built V4 tool compiles the 22 crates plus
-           tools/build_llvm.fk (bootstrap mode) to an LLVM module
+  stage 0  the V4 tool built by native V3.5 (v35_seed.py; no Python
+           compiler) compiles the 22 crates plus tools/build_llvm.fk
+           (bootstrap mode) to an LLVM module
   stage 1  that module is linked into a native V4 compiler
   stage 2  the stage 1 compiler compiles the same sources again
 
 With --check-build, the stage 1 compiler then runs check_v4.py's V4
 build-command checks (the programs check_v4 compiles with the V4 tool), in
-place of the Python-built tool. --stage1 runs only those checks with an
+place of the V3.5-built tool. --stage1 runs only those checks with an
 existing stage 1 binary.
 
 The run passes when every stage reports 0 diagnostics and the stage 2
@@ -119,7 +120,7 @@ def main() -> int:
     flat.write_bytes(build_v4.FlattenedSource(build_v4.compiler_sources(checks.V4_ROOT / "tools" / "build_llvm.fk")).data)
     print(f"flattened compiler: {flat} ({flat.stat().st_size} bytes)")
 
-    # Stage 0 is always the Python-built compiler, even if FREAK_V4_COMPILER is set.
+    # Stage 0 is always the V3.5-built compiler, even if FREAK_V4_COMPILER is set.
     tool = build_v4.bootstrap(clang, allow_prebuilt=False)
     stage0_out = work / "stage0.out"
     code = timed([str(tool), str(flat), target, "unwind", "bootstrap"], stage0_out, "stage 0 compile")

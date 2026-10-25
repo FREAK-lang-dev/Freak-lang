@@ -1553,7 +1553,7 @@ task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
         if name == "slice" or name == "to_word" { give back true }
     }
     if receiver_type == "word" {
-        if name == "length" or name == "checksum" or name == "trim" { give back true }
+        if name == "length" or name == "byte_length" or name == "checksum" or name == "trim" { give back true }
         if name == "to_upper" or name == "to_lower" or name == "replace" { give back true }
         if name == "char_at" or name == "substring" or name == "contains" { give back true }
         if name == "starts_with" or name == "ends_with" { give back true }
@@ -1586,7 +1586,7 @@ task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
         give back "void"
     }
     if name == "snapshot_lines" { give back "int" }
-    if name == "to_int" or name == "parse_int" or name == "length" or name == "checksum" or name == "snapshot_line_count" or name == "snapshot_field_count" { give back "int" }
+    if name == "to_int" or name == "parse_int" or name == "length" or name == "byte_length" or name == "checksum" or name == "snapshot_line_count" or name == "snapshot_field_count" { give back "int" }
     if name == "contains" or name == "starts_with" or name == "ends_with" { give back "bool" }
     if name == "to_num" or name == "parse_num" { give back "num" }
     give back "word"

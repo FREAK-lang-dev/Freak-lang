@@ -436,6 +436,7 @@ task is_ast_word(id: word) -> bool {
     if kind == EXPR_METHOD {
         pilot mname: word = array_get(ast_expr_vals, i)
         if mname == "length" { give back false }
+        if mname == "byte_length" { give back false }
         if mname == "to_int" { give back false }
         if mname == "starts_with" { give back false }
         if mname == "ends_with" { give back false }

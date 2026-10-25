@@ -55,11 +55,10 @@ def build_probe(out_dir: Path) -> Path:
         raise SystemExit("tools/build_llvm.fk abort task changed; update meiya_error_heavy.py")
     fixture = out_dir / "meiya_probe.fk"
     fixture.write_text(source.replace(ABORT, KEEP_GOING), encoding="utf-8")
-    c_source, _ = checks.transpile_fixture(checks.flattened_crates(), fixture)
-    runtime = checks.RUNTIME_ROOT / "freak_runtime.c"
-    checks.RUNTIME_BUILD_ROOT.mkdir(parents=True, exist_ok=True)
-    executable, _ = checks.compile_runtime_smoke(
-        "clang", f"-I{checks.RUNTIME_ROOT}", runtime, checks.read_text(runtime), fixture, c_source, ())
+    import v35_seed
+
+    # Built by the native V3.5 compiler, like the V4 compiler itself.
+    executable = v35_seed.build_tool("clang", fixture, "meiya_probe")
     probe = out_dir / "meiya_probe"
     shutil.copy(executable, probe)
     return probe

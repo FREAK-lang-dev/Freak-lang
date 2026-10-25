@@ -3304,6 +3304,11 @@ int64_t freak_llvm_word_length(int64_t a) {
     return (int64_t)freak_llvm_word_size(a);
 }
 
+int64_t freak_llvm_word_byte_length(int64_t a) {
+    if (!a) return 0;
+    return (int64_t)freak_llvm_word_size(a);
+}
+
 int64_t freak_llvm_word_checksum(int64_t a) {
     const char* sa = (const char*)a;
     if (!sa) sa = "";
