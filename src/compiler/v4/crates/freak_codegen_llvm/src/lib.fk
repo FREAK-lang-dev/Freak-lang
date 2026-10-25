@@ -2966,7 +2966,7 @@ task v4_codegen_llvm_mir_uses_bootstrap_intrinsics(mir_id: int) -> bool {
 
 task v4_codegen_llvm_bootstrap_runtime_declarations(mir_id: int) -> word {
     pilot v1_words = ""
-    if v4_ty_file_is_bootstrap(v4_mir_ty_id(mir_id)) { v1_words = "declare i64 @freak_v4_word_v1_char_at(i64, i64)\ndeclare i64 @freak_v4_word_v1_substring(i64, i64, i64)\ndeclare i64 @freak_v4_word_v1_share(i64)\n" }
+    if v4_ty_file_is_bootstrap(v4_mir_ty_id(mir_id)) { v1_words = "declare void @freak_v4_word_v1_mode()\ndeclare i64 @freak_v4_word_v1_char_at(i64, i64)\ndeclare i64 @freak_v4_word_v1_substring(i64, i64, i64)\ndeclare i64 @freak_v4_word_v1_share(i64)\n" }
     if not v4_codegen_llvm_mir_uses_bootstrap_intrinsics(mir_id) { give back v1_words }
     pilot out = v1_words + "declare i64 @freak_v4_compiler_array_new()\ndeclare i64 @freak_v4_compiler_array_len(i64)\n"
     out = out + "declare void @freak_v4_compiler_array_push(i64, i64)\ndeclare i64 @freak_v4_compiler_array_get(i64, i64)\n"
@@ -4186,6 +4186,13 @@ task v4_codegen_llvm_runtime_symbol_error(codegen_id: int, symbol: word, params:
     give back ""
 }
 
+-- A bootstrap program trusts the runtime's cached scalar counts, which V1
+-- words effectively had; strict programs revalidate UTF-8 on every read.
+task v4_codegen_llvm_bootstrap_entry_line(mir_id: int) -> word {
+    if v4_ty_file_is_bootstrap(v4_mir_ty_id(mir_id)) { give back "  call void @freak_v4_word_v1_mode()\n" }
+    give back ""
+}
+
 task v4_codegen_llvm_native_entry(mir_id: int) -> word {
     pilot main_id = v4_codegen_llvm_find_mir_body(mir_id, "main")
     -- A bootstrap-mode script without main runs its root statements only.
@@ -4193,6 +4200,7 @@ task v4_codegen_llvm_native_entry(mir_id: int) -> word {
         pilot script = "define i32 @main(i32 %argc, ptr %argv) {\nentry:\n"
         script = script + "  %argc.ext = sext i32 %argc to i64\n  %argv.int = ptrtoint ptr %argv to i64\n"
         script = script + "  call void @freak_llvm_setup_args(i64 %argc.ext, i64 %argv.int)\n"
+        script = script + v4_codegen_llvm_bootstrap_entry_line(mir_id)
         if v4_codegen_llvm_mir_uses_typed_process(mir_id) { script = script + "  call void @freak_v4_process_setup_args(i64 %argc.ext, i64 %argv.int)\n" }
         script = script + "  call void " + v4_codegen_llvm_callable_symbol(mir_id, v4_mir_module_init_name) + "()\n"
         give back script + v4_codegen_llvm_global_release_lines(mir_id) + "  ret i32 0\n}\n"
@@ -4201,6 +4209,7 @@ task v4_codegen_llvm_native_entry(mir_id: int) -> word {
     pilot out = "define i32 @main(i32 %argc, ptr %argv) {\nentry:\n"
     out = out + "  %argc.ext = sext i32 %argc to i64\n  %argv.int = ptrtoint ptr %argv to i64\n"
     out = out + "  call void @freak_llvm_setup_args(i64 %argc.ext, i64 %argv.int)\n"
+    out = out + v4_codegen_llvm_bootstrap_entry_line(mir_id)
     if v4_codegen_llvm_mir_uses_typed_process(mir_id) { out = out + "  call void @freak_v4_process_setup_args(i64 %argc.ext, i64 %argv.int)\n" }
     -- Bootstrap mode: globals and root statements run once, before main.
     if v4_mir_module_init_body(mir_id) >= 0 { out = out + "  call void " + v4_codegen_llvm_callable_symbol(mir_id, v4_mir_module_init_name) + "()\n" }

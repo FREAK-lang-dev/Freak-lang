@@ -6609,7 +6609,9 @@ task v4_mir_sum_rows_are_sensitive(ty: int, definition: word, locals: int, value
     repeat until row >= array_len(values) {
         pilot value: word = array_get(values, row)
         if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(value, 10)) or v4_mir_snapshot_field(value, 4) == v4_mir_rvalue_sum_take { give back true }
-        if v4_mir_snapshot_field(value, 13).starts_with("builtin::system::") or v4_mir_snapshot_field(value, 6).starts_with("builtin::system::") or v4_mir_snapshot_field(value, 13) == "builtin::word::to_int_maybe" or v4_mir_snapshot_field(value, 6) == "builtin::word::to_int_maybe" { give back true }
+        -- Only a call row's op is an identity (a word literal's op is its text).
+        pilot call_row: bool = v4_mir_snapshot_field(value, 4) == v4_mir_rvalue_call
+        if v4_mir_snapshot_field(value, 13).starts_with("builtin::system::") or (call_row and v4_mir_snapshot_field(value, 6).starts_with("builtin::system::")) or v4_mir_snapshot_field(value, 13) == "builtin::word::to_int_maybe" or (call_row and v4_mir_snapshot_field(value, 6) == "builtin::word::to_int_maybe") { give back true }
         row += 1
     }
     give back false
@@ -6854,7 +6856,8 @@ task v4_mir_body_has_scalar_sum(mir: int, body: int) -> bool {
     row = 0
     repeat until row >= v4_mir_body_rvalue_count(mir, body) {
         if v4_ty_is_native_scalar_sum(ty, v4_mir_rvalue_ty(mir, body, row)) or v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_sum_take { give back true }
-        if v4_mir_rvalue_builtin_method(mir, body, row).starts_with("builtin::system::") or v4_mir_rvalue_op(mir, body, row).starts_with("builtin::system::") or v4_mir_rvalue_builtin_method(mir, body, row) == "builtin::word::to_int_maybe" or v4_mir_rvalue_op(mir, body, row) == "builtin::word::to_int_maybe" { give back true }
+        pilot call_row: bool = v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_call
+        if v4_mir_rvalue_builtin_method(mir, body, row).starts_with("builtin::system::") or (call_row and v4_mir_rvalue_op(mir, body, row).starts_with("builtin::system::")) or v4_mir_rvalue_builtin_method(mir, body, row) == "builtin::word::to_int_maybe" or (call_row and v4_mir_rvalue_op(mir, body, row) == "builtin::word::to_int_maybe") { give back true }
         row += 1
     }
     give back false

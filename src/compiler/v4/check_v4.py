@@ -17791,6 +17791,11 @@ def check_v4_build_command() -> None:
          "root pilot type is not supported yet", "mir"),
         ("root_local_annotation", 'if true {\n    pilot x: int = "text"\n    say x\n}\n',
          "local declaration type mismatch", "mir"),
+        # An explicit lend of a word local loans the local itself (no
+        # bootstrap copy), so MIR accepts it and only native codegen stops,
+        # exactly as in strict mode.
+        ("word_lend_local", 'task size(w: lend word) -> int { give back 4 }\ntask main() -> int {\n    pilot a: word = "abcd"\n    give back size(lend a)\n}\n',
+         "native borrowed word local storage is not yet supported", "codegen"),
     ):
         source = RUNTIME_BUILD_ROOT / f"llvm_bootstrap_{label}.fk"
         source.write_text(source_text, encoding="utf-8")

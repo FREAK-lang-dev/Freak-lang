@@ -6,10 +6,14 @@
    byte length is recorded in the existing owned-word registry. This is not a
    public C ABI for FREAK word and never authorizes arbitrary foreign pointers.
 
-   All word-returning operations allocate a fresh, independently owned value,
-   including empty words and boolean conversions. Inputs are borrowed except
-   drop, which consumes an owner. The compiler implements single-owner moves;
-   clone is the only operation that duplicates ownership. Zero is a consumed
+   Word-returning operations allocate a fresh, independently owned value,
+   including empty words and boolean conversions, with one exception:
+   freak_v4_word_v1_share (bootstrap mode only) returns the same allocation
+   with one more owner. Each owner is dropped once; the bytes are freed when
+   the last owner drops, and appending to a shared word copies it first.
+   Inputs are borrowed except drop, which consumes an owner. The compiler
+   implements single-owner moves; clone and v1_share are the only operations
+   that duplicate ownership. Zero is a consumed
    cleanup sentinel: drop(0) is legal, but observations require a live word.
 
    Ordinary native word values are constructed through this API. Legacy V3
@@ -54,6 +58,9 @@ int64_t freak_v4_word_substring(int64_t value, int64_t start, int64_t count);
 /* Bootstrap-mode V1 indexing: out-of-range gives "", substring clamps. */
 int64_t freak_v4_word_v1_char_at(int64_t value, int64_t scalar_index);
 int64_t freak_v4_word_v1_substring(int64_t value, int64_t start, int64_t count);
+/* Bootstrap-mode entry: trust cached scalar counts from here on. */
+void freak_v4_word_v1_mode(void);
+/* Bootstrap-mode copy: one more owner of the same allocation (see above). */
 int64_t freak_v4_word_v1_share(int64_t value);
 int64_t freak_v4_word_starts_with(int64_t value, int64_t prefix);
 int64_t freak_v4_word_ends_with(int64_t value, int64_t suffix);

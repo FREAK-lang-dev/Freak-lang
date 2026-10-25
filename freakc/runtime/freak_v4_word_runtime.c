@@ -80,10 +80,19 @@ static const unsigned char* freak_v4_word_data(int64_t value) {
     return (const unsigned char*)(uintptr_t)value;
 }
 
+/* Set once by a bootstrap-mode entry. Only then are cached scalar counts
+ * trusted; otherwise every observation revalidates UTF-8, so storage that
+ * changed behind the runtime still reaches the named panic. */
+static int freak_v4_word_cache_trusted = 0;
+
+void freak_v4_word_v1_mode(void) {
+    freak_v4_word_cache_trusted = 1;
+}
+
 static size_t freak_v4_word_scalar_count(int64_t value) {
     size_t length = freak_v4_word_size(value);
     size_t count;
-    if (freak_llvm_word_scalar_cache_get(value, &count)) return count;
+    if (freak_v4_word_cache_trusted && freak_llvm_word_scalar_cache_get(value, &count)) return count;
     count = freak_v4_word_count(freak_v4_word_data(value), length);
     freak_llvm_word_scalar_cache_set(value, count);
     return count;
