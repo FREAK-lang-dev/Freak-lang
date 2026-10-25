@@ -1961,14 +1961,14 @@ class FrozenRuntimeInventory(unittest.TestCase):
             payload = f"frozen contents for {name}\n".encode()
             path.write_bytes(payload)
             self.expected_runtime_hashes[name] = hashlib.sha256(payload).hexdigest()
-        original = self.repo / "build/v4_smoke/build_llvm.fk.c"
-        original.parent.mkdir(parents=True)
-        original.write_text("original compiler\n")
+        compiler = self.repo / "build/v4_smoke/v35_seed/freak_v4_compiler/freak_v4_compiler"
+        compiler.parent.mkdir(parents=True)
+        compiler.with_name("freak_v4_compiler.fk.c").write_text("original compiler\n")
         spec = importlib.util.spec_from_file_location("frozen_runtime_benchmark", ROOT / "v4_scale_bench.py")
         self.benchmark = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.benchmark)
         self.build = SimpleNamespace(checks=SimpleNamespace(run_with_heartbeat=object()),
-                                     bootstrap=lambda clang: None)
+                                     bootstrap=lambda clang: compiler)
         self.jobs = []
 
         def job(build, command, directory, label, *args, **kwargs):
@@ -2109,31 +2109,20 @@ class BenchmarkFailures(unittest.TestCase):
         declarations = """
 #include <stdint.h>
 typedef struct { const char *data; int64_t len; } freak_word;
-static const char *freak_argv[] = {"tool", "source", "target"};
 static freak_word freak_word_lit(const char *text) { return (freak_word){text, 0}; }
-static int64_t freak_v4_lex_text(int64_t id, freak_word source) { return id; }
-static freak_word freak_v4_target_spec_new(freak_word target) { return target; }
-static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, freak_word target) { return (freak_word){0}; }
 """
-        for stage, function in (
-            ("hir", "hir_lower_tree"),
-            ("resolve", "resolve_lower_hir"), ("ty", "ty_lower_resolve"),
-            ("mir", "mir_lower_ty"), ("borrowck", "borrowck_check_mir"),
-        ):
-            declarations += f"static int64_t freak_v4_{function}(int64_t id, int64_t previous) {{ return id; }}\n"
-        declarations += "static freak_word freak_v4_build_llvm_root_mode(void) { return freak_word_lit(\"strict\"); }\n"
-        declarations += "static int64_t freak_v4_parse_stream_mode(int64_t id, int64_t previous, freak_word mode) { return id; }\n"
-        declarations += "static freak_word freak_v4_build_llvm_panic_policy(void) { return freak_word_lit(\"unwind\"); }\n"
-        declarations += "static int64_t freak_v4_codegen_llvm_lower_owned_mir_with_borrow(int64_t id, int64_t previous, freak_word policy, int64_t borrow) { return id; }\n"
+        calls = []
+        for stage, callee, _ in benchmark.INSTRUMENTATION_POINTS:
+            result = "freak_word" if stage == "module" else "int64_t"
+            declarations += f"static {result} __freak_user_{callee}(int64_t id) {{ return ({result}){{0}}; }}\n"
+            calls.append(f"{{ int64_t __freak_call_arg_0 = 0;\n{result} __freak_result = "
+                         f"__freak_user_{callee}(__freak_call_arg_0);\n(void)__freak_result; }}")
         for stage in STAGES[:-1]:
             prefix = "codegen_llvm" if stage == "codegen" else stage
-            declarations += f"static int64_t freak_v4_{prefix}_diag_count(int64_t id) {{ return 0; }}\n"
-        source = declarations + "static void freak_v4_build_llvm_source(freak_word source) {\n"
-        source += 'freak_word target_spec = freak_v4_target_spec_new(freak_word_lit("target"));\n'
-        source += "\n".join(statement for _, statement, _ in benchmark.INSTRUMENTATION_POINTS)
-        source += "\n}\nstatic void freak_v4_build_llvm_run(void) {\n"
-        source += "freak_v4_build_llvm_source((freak_word){0});\n}\n"
-        source += "int main(void) { freak_v4_build_llvm_run(); return 0; }\n"
+            declarations += f"static int64_t __freak_user_v4_{prefix}_diag_count(int64_t id) {{ return 0; }}\n"
+        source = declarations + benchmark.SOURCE_ENTRY + "\n" + "\n".join(calls) + "\n}\n"
+        source += benchmark.RUN_ENTRY + "\n__freak_user_v4_build_llvm_source((freak_word){0});\n}\n"
+        source += "int main(void) { __freak_user_v4_build_llvm_run(); return 0; }\n"
         c_path, binary = self.work / "measured.c", self.work / "measured"
         c_path.write_text(benchmark.instrument(source))
         compiled = subprocess.run([
@@ -2154,20 +2143,20 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, freak_word 
         benchmark = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(benchmark)
         build = benchmark.load_build(ROOT)
-        generated, uses_ui = build.checks.transpile_fixture(
-            build.checks.flattened_crates(), build.checks.V4_ROOT / "tools" / "build_llvm.fk",
-        )
-        self.assertFalse(uses_ui)
+        clang = self.require_native_tools("clang")["clang"]
+        compiler = build.bootstrap(clang)
+        generated = compiler.with_name(compiler.stem + ".fk.c").read_text(encoding="utf-8")
         measured = benchmark.instrument(generated)
         for stage in STAGES:
             self.assertEqual(measured.count(f'v4_bench_report("{stage}",'), 1)
-        source_entry = "static void freak_v4_build_llvm_source(freak_word source) {"
-        self.assertLess(measured.index("static double v4_bench_clock"), measured.index(source_entry))
-        self.assertIn("static void freak_v4_build_llvm_run(void) {\n    atexit(v4_bench_final);", measured)
-        module_statement = "freak_word module = freak_v4_codegen_llvm_module_text(codegen, target_spec);"
-        self.assertIn(module_statement, measured)
+        self.assertLess(measured.index("static double v4_bench_clock"), measured.index(benchmark.SOURCE_ENTRY))
+        self.assertIn(benchmark.RUN_ENTRY + "\n    atexit(v4_bench_final);", measured)
+        module_call = "__freak_user_v4_codegen_llvm_module_text("
+        self.assertEqual(generated.count("freak_word __freak_result = " + module_call), 1)
         with self.assertRaisesRegex(RuntimeError, "generated C module boundary changed"):
-            benchmark.instrument(generated.replace(module_statement, module_statement.replace("target_spec", "changed_target")))
+            benchmark.instrument(generated.replace("freak_word __freak_result = " + module_call,
+                                                   "freak_word __freak_result = __freak_user_v4_changed("))
+
 
     def test_diagnostics_fail_even_with_zero_compiler_exit(self):
         tool = self.fake_tool("print('v4-build-stage=lex diagnostics=1')\n")
