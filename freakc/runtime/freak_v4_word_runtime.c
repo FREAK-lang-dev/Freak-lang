@@ -81,7 +81,12 @@ static const unsigned char* freak_v4_word_data(int64_t value) {
 }
 
 static size_t freak_v4_word_scalar_count(int64_t value) {
-    return freak_v4_word_count(freak_v4_word_data(value), freak_v4_word_size(value));
+    size_t length = freak_v4_word_size(value);
+    size_t count;
+    if (freak_llvm_word_scalar_cache_get(value, &count)) return count;
+    count = freak_v4_word_count(freak_v4_word_data(value), length);
+    freak_llvm_word_scalar_cache_set(value, count);
+    return count;
 }
 
 static int64_t freak_v4_word_adopt(char* data, size_t length) {
@@ -105,12 +110,22 @@ int64_t freak_v4_word_from_bytes(int64_t data, int64_t byte_length) {
         freak_v4_word_panic("byte source range overflow");
     }
     const unsigned char* source = (const unsigned char*)(uintptr_t)data;
-    (void)freak_v4_word_count(source, length);
+    size_t count = freak_v4_word_count(source, length);
     char* copy = (char*)malloc(length + 1);
     if (!copy) freak_v4_word_panic("out of memory copying owned storage");
     if (length) memcpy(copy, source, length);
     copy[length] = '\0';
-    return freak_v4_word_adopt(copy, length);
+    int64_t result = freak_v4_word_adopt(copy, length);
+    freak_llvm_word_scalar_cache_set(result, count);
+    return result;
+}
+
+/* Bootstrap-mode word copies share the immutable allocation, as V1 words
+ * did; each owner still drops its own share. */
+int64_t freak_v4_word_v1_share(int64_t value) {
+    (void)freak_v4_word_size(value);
+    int64_t shared = freak_llvm_word_share(value);
+    return shared ? shared : freak_v4_word_clone(value);
 }
 
 int64_t freak_v4_word_clone(int64_t value) {
@@ -235,6 +250,10 @@ static int64_t freak_v4_word_copy_scalar_range(
         int64_t value, size_t start, size_t end) {
     size_t length = freak_v4_word_size(value);
     const unsigned char* data = freak_v4_word_data(value);
+    /* An all-ASCII word has one byte per scalar. */
+    if (freak_v4_word_scalar_count(value) == length) {
+        return freak_v4_word_from_bytes((int64_t)(uintptr_t)(data + start), (int64_t)(end - start));
+    }
     size_t offset = 0, scalar = 0, byte_start = 0, byte_end = 0;
     while (scalar < end) {
         if (scalar == start) byte_start = offset;
@@ -270,6 +289,28 @@ int64_t freak_v4_word_substring(int64_t value, int64_t start, int64_t count) {
         freak_v4_word_panic("substring range out of bounds");
     }
     return freak_v4_word_copy_scalar_range(value, (size_t)start, (size_t)start + (size_t)count);
+}
+
+/* Bootstrap mode keeps V1's lenient indexing, which the V4 crates were
+ * written against: an index outside the word gives "", and a substring
+ * count past the end is clamped. Indexes stay scalar, matching length(). */
+int64_t freak_v4_word_v1_char_at(int64_t value, int64_t scalar_index) {
+    size_t count = freak_v4_word_scalar_count(value);
+    if (scalar_index < 0 || (uint64_t)scalar_index >= (uint64_t)count) {
+        return freak_v4_word_from_bytes((int64_t)(uintptr_t)"", 0);
+    }
+    size_t index = (size_t)scalar_index;
+    return freak_v4_word_copy_scalar_range(value, index, index + 1);
+}
+
+int64_t freak_v4_word_v1_substring(int64_t value, int64_t start, int64_t count) {
+    size_t length = freak_v4_word_scalar_count(value);
+    if (start < 0 || count <= 0 || (uint64_t)start >= (uint64_t)length) {
+        return freak_v4_word_from_bytes((int64_t)(uintptr_t)"", 0);
+    }
+    size_t first = (size_t)start;
+    size_t end = (uint64_t)count > (uint64_t)(length - first) ? length : first + (size_t)count;
+    return freak_v4_word_copy_scalar_range(value, first, end);
 }
 
 int64_t freak_v4_word_starts_with(int64_t value, int64_t prefix) {

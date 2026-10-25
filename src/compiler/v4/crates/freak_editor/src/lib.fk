@@ -1940,7 +1940,10 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                     kind = "Local"
                     def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, root_name)
                     pilot param_def = v4_editor_word_root_param_def(ty_id, mir_id, body_id, local_id)
-                    if param_def != "" { kind = "Parameter" def_id = param_def }
+                    if param_def != "" {
+                        kind = "Parameter"
+                        def_id = param_def
+                    }
                     type_display = v4_editor_local_type_display_at(mir_id, body_id, local_id, offset)
                 }
             } else if part == 0 and v4_hir_word_path_part_count(plan_hir, literal, piece) == 1 {

@@ -1954,7 +1954,10 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
         node_idx += 1
     }
 
-    if not v4_hir_build_word_plans(hir_id) { v4_hir_file_len = hir_id give back -1 }
+    if not v4_hir_build_word_plans(hir_id) {
+        v4_hir_file_len = hir_id
+        give back -1
+    }
     if v4_hir_finalize_lookup_indexes(hir_id) == false {
         v4_hir_file_len = hir_id
         give back 0 - 1
@@ -6518,7 +6521,10 @@ task v4_hir_word_plan_escape_issue(raw: word) -> word {
 task v4_hir_word_plan_decode_literal(raw: word) -> word {
     if not raw.contains("\\") { give back raw }
     pilot parts = array_new()
-    if parts < 0 { v4_hir_word_build_failed = true give back "" }
+    if parts < 0 {
+        v4_hir_word_build_failed = true
+        give back ""
+    }
     pilot index = 0
     pilot count = 0
     repeat until index >= raw.length() or v4_hir_word_build_failed {
@@ -6865,7 +6871,8 @@ task v4_hir_word_snapshot_build(records: int) -> int {
     -- Counts cannot exceed physically indexed records, so these fixed-width
     -- multiplications cannot amplify a forged decimal count into allocation.
     if not v4_hir_word_snapshot_reserve(fs, files * 5) or not v4_hir_word_snapshot_reserve(its, items * 7) or not v4_hir_word_snapshot_reserve(ls, literals * 7) or not v4_hir_word_snapshot_reserve(ps, pieces * 6) or not v4_hir_word_snapshot_reserve(ns, parts * 3) {
-        v4_hir_word_snapshot_release(ticket) give back -1
+        v4_hir_word_snapshot_release(ticket)
+        give back -1
     }
     pilot valid = true
     pilot index = 0
@@ -6886,7 +6893,8 @@ task v4_hir_word_snapshot_build(records: int) -> int {
     repeat until index >= files {
         pilot count = word_to_int(array_get(fs, index * 5 + 2))
         if count < 0 or count > items - total { valid = false } else {
-            array_set(fs, index * 5 + 1, word_from_int(total)) total += count
+            array_set(fs, index * 5 + 1, word_from_int(total))
+            total += count
         }
         index += 1
     }
@@ -6970,7 +6978,8 @@ task v4_hir_word_snapshot_build(records: int) -> int {
         pilot seen: word = array_get(ls, base + 6)
         pilot count = word_to_int(array_get(ls, base + 5))
         if seen != "1" or count < 0 or count > pieces - total { valid = false } else {
-            array_set(ls, base + 4, word_from_int(total)) total += count
+            array_set(ls, base + 4, word_from_int(total))
+            total += count
         }
         index += 1
     }
@@ -7003,7 +7012,8 @@ task v4_hir_word_snapshot_build(records: int) -> int {
         pilot seen: word = array_get(ps, base + 5)
         pilot count = word_to_int(array_get(ps, base + 4))
         if seen != "1" or count < 0 or count > parts - total { valid = false } else {
-            array_set(ps, base + 3, word_from_int(total)) total += count
+            array_set(ps, base + 3, word_from_int(total))
+            total += count
         }
         index += 1
     }

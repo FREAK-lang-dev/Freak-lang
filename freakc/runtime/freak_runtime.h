@@ -101,6 +101,11 @@ size_t freak_llvm_word_size(int64_t pointer);
    unknown or consumed pointers. Returns 1 and writes length only for a live
    owned value; otherwise returns 0 and leaves the output unchanged. */
 int64_t freak_llvm_word_owned_size(int64_t pointer, size_t* length);
+/* Scalar-count cache for owned words; V4 length/char_at stay O(1) on reuse. */
+int64_t freak_llvm_word_scalar_cache_get(int64_t pointer, size_t* count);
+void freak_llvm_word_scalar_cache_set(int64_t pointer, size_t count);
+/* Adds an owner to an immutable owned word; 0 when it is not owned. */
+int64_t freak_llvm_word_share(int64_t pointer);
 freak_word freak_llvm_word_view(int64_t pointer);
 /* Consumes the C owner bookkeeping when heap=true; borrowed results must be
    C strings or the runtime's static char_at byte words. */
