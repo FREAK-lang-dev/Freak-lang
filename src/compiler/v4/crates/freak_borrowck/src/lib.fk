@@ -194,6 +194,7 @@ pilot v4_borrowck_repair_memo_open = 0 - 1
 pilot v4_borrowck_repair_memo_repaired = 0 - 1
 pilot v4_borrowck_repair_memo_queries = 0
 pilot v4_borrowck_repair_memo_fallbacks = 0
+pilot v4_borrowck_repair_summary_answers = 0
 pilot v4_borrowck_ready = 0
 
 task v4_borrowck_init() -> void {
@@ -4570,6 +4571,167 @@ task v4_borrowck_move_repaired_before_use(borrow_id: int, result_id: int, mir_id
     give back answer
 }
 
+-- Per-move repair summary for check_partial_moves. The memo walk above costs
+-- one CFG walk per move/use pair, so a task that moves one word many times
+-- (common on error-heavy strict input) pays moves x uses x body. When every
+-- terminator target is in range, a repaired state can never answer false, so
+-- the answer for one use only needs the move's open region: the blocks entered
+-- unrepaired from the move block's successors. That region does not depend on
+-- the use, so it is built once per move:
+--   * cell "u": not entered unrepaired;
+--   * cell "o": entered unrepaired and has no repair of the move;
+--   * cell "r": entered unrepaired and repairs the move (a terminal state);
+--   * cell "g": on the walk (gray); cell block_count is "1" when the region
+--     holds an unrepaired cycle, which makes every open answer false.
+-- The next block_count cells are the move block's reachability row ("1" when
+-- reachable, the move block included), the same answer as block_reaches but
+-- without its row cache, which large error-heavy bodies outgrow.
+-- A use then needs two block scans: the move block after the move, and the use
+-- block from its start when the region entered it.
+task v4_borrowck_body_targets_in_range(mir_id: int, body_id: int) -> bool {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    pilot block_id = 0
+    repeat until block_id >= block_count {
+        pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+        pilot terminator = v4_mir_block_terminator(block_record)
+        if terminator == v4_mir_term_goto or terminator == v4_mir_term_if {
+            pilot target = v4_mir_block_target(block_record)
+            if target < 0 or target >= block_count { give back false }
+        }
+        if terminator == v4_mir_term_if {
+            pilot else_target = v4_mir_block_else_target(block_record)
+            if else_target < 0 or else_target >= block_count { give back false }
+        }
+        block_id += 1
+    }
+    give back true
+}
+
+task v4_borrowck_move_repair_summary_visit(borrow_id: int, result_id: int, mir_id: int, body_id: int, summary: int, block_id: int, move_text: word) -> void {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    pilot known: word = array_get(summary, block_id)
+    if known == "g" {
+        array_set(summary, block_count, "1")
+        give back
+    }
+    if known != "u" { give back }
+    if v4_borrowck_repair_scan_block(borrow_id, result_id, mir_id, body_id, block_id, 0 - 1, move_text, 0 - 1, 0 - 1, false) == 3 {
+        array_set(summary, block_id, "r")
+        give back
+    }
+    array_set(summary, block_id, "g")
+    pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+    pilot terminator = v4_mir_block_terminator(block_record)
+    if terminator == v4_mir_term_goto or terminator == v4_mir_term_if {
+        v4_borrowck_move_repair_summary_visit(borrow_id, result_id, mir_id, body_id, summary, v4_mir_block_target(block_record), move_text)
+    }
+    if terminator == v4_mir_term_if {
+        v4_borrowck_move_repair_summary_visit(borrow_id, result_id, mir_id, body_id, summary, v4_mir_block_else_target(block_record), move_text)
+    }
+    array_set(summary, block_id, "o")
+}
+
+-- Returns -1 when the summary cannot answer exactly (allocation failure, a
+-- target out of range or a move outside the body); callers then keep the memo walk.
+-- targets_in_range is body_targets_in_range for this body, computed once per body.
+task v4_borrowck_move_repair_summary_new(borrow_id: int, result_id: int, mir_id: int, body_id: int, move_block: int, move_text: word, targets_in_range: bool) -> int {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if move_block < 0 or move_block >= block_count { give back 0 - 1 }
+    if not targets_in_range { give back 0 - 1 }
+    pilot summary = array_new()
+    if summary < 0 { give back 0 - 1 }
+    pilot cell = 0
+    repeat until cell >= block_count {
+        array_push(summary, "u")
+        cell += 1
+    }
+    array_push(summary, "0")
+    cell = 0
+    repeat until cell >= block_count {
+        array_push(summary, "0")
+        cell += 1
+    }
+    if array_len(summary) != block_count + block_count + 1 {
+        array_release(summary)
+        give back 0 - 1
+    }
+    pilot queue = array_new()
+    if queue < 0 {
+        array_release(summary)
+        give back 0 - 1
+    }
+    pilot reach_base = block_count + 1
+    array_set(summary, reach_base + move_block, "1")
+    array_push(queue, word_from_int(move_block))
+    pilot cursor = 0
+    repeat until cursor >= array_len(queue) {
+        pilot current = word_to_int(array_get(queue, cursor))
+        cursor += 1
+        pilot current_record = v4_mir_body_block(mir_id, body_id, current)
+        pilot current_terminator = v4_mir_block_terminator(current_record)
+        pilot edge = 0
+        repeat until edge >= 2 {
+            pilot next = 0 - 1
+            if edge == 0 and (current_terminator == v4_mir_term_goto or current_terminator == v4_mir_term_if) { next = v4_mir_block_target(current_record) }
+            if edge == 1 and current_terminator == v4_mir_term_if { next = v4_mir_block_else_target(current_record) }
+            if next >= 0 {
+                pilot seen: word = array_get(summary, reach_base + next)
+                if seen == "0" {
+                    array_set(summary, reach_base + next, "1")
+                    array_push(queue, word_from_int(next))
+                }
+            }
+            edge += 1
+        }
+    }
+    array_release(queue)
+    pilot block_record = v4_mir_body_block(mir_id, body_id, move_block)
+    pilot terminator = v4_mir_block_terminator(block_record)
+    if terminator == v4_mir_term_goto or terminator == v4_mir_term_if {
+        v4_borrowck_move_repair_summary_visit(borrow_id, result_id, mir_id, body_id, summary, v4_mir_block_target(block_record), move_text)
+    }
+    if terminator == v4_mir_term_if {
+        v4_borrowck_move_repair_summary_visit(borrow_id, result_id, mir_id, body_id, summary, v4_mir_block_else_target(block_record), move_text)
+    }
+    give back summary
+}
+
+-- block_reaches(move_block, use_block) from the summary's row.
+task v4_borrowck_move_repair_summary_reaches(mir_id: int, body_id: int, summary: int, move_block: int, use_block: int) -> bool {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if summary < 0 or array_len(summary) != block_count + block_count + 1 { give back v4_borrowck_block_reaches(mir_id, body_id, move_block, use_block) }
+    if use_block < 0 or use_block >= block_count { give back false }
+    pilot reached: word = array_get(summary, block_count + 1 + use_block)
+    give back reached == "1"
+}
+
+-- Same answer as move_repaired_before_use; summary comes from
+-- move_repair_summary_new for this move's block and text (or -1).
+task v4_borrowck_move_repaired_before_use_summary(borrow_id: int, result_id: int, mir_id: int, body_id: int, move_stmt: int, move_block: int, move_text: word, use_stmt: int, use_block: int, summary: int) -> bool {
+    if move_stmt < 0 or use_stmt < 0 {
+        give back false
+    }
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if summary < 0 or use_block < 0 or use_block >= block_count or move_block < 0 or move_block >= block_count {
+        give back v4_borrowck_move_repaired_before_use(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block)
+    }
+    v4_borrowck_repair_summary_answers += 1
+    pilot repaired: bool = false
+    if v4_borrowck_word_path_local(mir_id, body_id, move_text) >= 0 { repaired = v4_borrowck_stmt_repairs_move(borrow_id, result_id, move_text, move_stmt, move_block) }
+    pilot tail = v4_borrowck_repair_scan_block(borrow_id, result_id, mir_id, body_id, move_block, move_stmt, move_text, use_stmt, use_block, repaired)
+    if tail == 0 { give back false }
+    if tail != 2 { give back true }
+    pilot cycle: word = array_get(summary, block_count)
+    if cycle == "1" { give back false }
+    pilot entered: word = array_get(summary, use_block)
+    if entered == "u" { give back true }
+    pilot at_use = v4_borrowck_repair_scan_block(borrow_id, result_id, mir_id, body_id, use_block, 0 - 1, move_text, use_stmt, use_block, false)
+    if at_use == 0 { give back false }
+    if at_use == 1 { give back true }
+    -- The use is not in its block's statement list; keep the walk's answer.
+    give back v4_borrowck_move_repaired_before_use(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block)
+}
+
 task v4_borrowck_is_no_span(span: word) -> bool {
     give back v4_span_start(span) == 0 and v4_span_end(span) == 0
 }
@@ -7619,12 +7781,15 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
     pilot conflicts = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
     pilot chain = v4_borrowck_root_chain_new(borrow_id, result_id, path_count)
+    pilot targets_in_range = v4_borrowck_body_targets_in_range(mir_id, body_id)
     pilot move_idx = 0
     repeat until move_idx >= path_count {
         if v4_borrowck_path_kind(borrow_id, result_id, move_idx) == v4_borrowck_path_move {
             pilot move_stmt = v4_borrowck_path_stmt(borrow_id, result_id, move_idx)
             pilot move_block = v4_borrowck_path_block(borrow_id, result_id, move_idx)
             pilot move_text = v4_borrowck_path_text(borrow_id, result_id, move_idx)
+            -- Built on the first repair question for this move, released after its uses.
+            pilot summary = 0 - 2
             pilot use_idx = v4_borrowck_root_chain_first(chain, path_count, move_idx)
             repeat until use_idx >= path_count or use_idx < 0 {
                 if use_idx != move_idx and v4_borrowck_path_is_move_use_kind(v4_borrowck_path_kind(borrow_id, result_id, use_idx)) {
@@ -7636,7 +7801,8 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                     -- Every test here is pure: the cheap overlap test runs first.
                     if move_stmt >= 0 and use_stmt >= 0 and move_block == use_block and move_stmt < use_stmt {
                         if v4_borrowck_paths_overlap(move_text, use_text) {
-                            if not v4_borrowck_move_repaired_before_use(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block) {
+                            if summary == 0 - 2 { summary = v4_borrowck_move_repair_summary_new(borrow_id, result_id, mir_id, body_id, move_block, move_text, targets_in_range) }
+                            if not v4_borrowck_move_repaired_before_use_summary(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block, summary) {
                                 move_conflicts = true
                                 help = v4_borrowck_partial_move_conflict_help(move_text, move_stmt, use_text, use_stmt)
                             }
@@ -7645,8 +7811,10 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                         -- Earlier same-block uses are only after the move through a loop backedge.
                         if move_block != use_block or v4_borrowck_block_can_cycle(mir_id, body_id, move_block) {
                             if v4_borrowck_paths_overlap(move_text, use_text) {
-                                if not v4_borrowck_move_repaired_before_use(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block) {
-                                    if v4_borrowck_block_reaches(mir_id, body_id, move_block, use_block) {
+                                if summary == 0 - 2 { summary = v4_borrowck_move_repair_summary_new(borrow_id, result_id, mir_id, body_id, move_block, move_text, targets_in_range) }
+                                -- The summary's reach row answers first; the repair question runs last.
+                                if v4_borrowck_move_repair_summary_reaches(mir_id, body_id, summary, move_block, use_block) {
+                                    if not v4_borrowck_move_repaired_before_use_summary(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block, summary) {
                                         move_conflicts = true
                                         help = v4_borrowck_cross_block_partial_move_help(move_text, move_stmt, move_block, use_text, use_stmt, use_block)
                                     }
@@ -7665,6 +7833,7 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                 }
                 if use_idx < path_count { use_idx = v4_borrowck_root_chain_next(chain, use_idx) }
             }
+            if summary >= 0 { array_release(summary) }
         }
         move_idx += 1
     }

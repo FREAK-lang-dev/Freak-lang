@@ -84,7 +84,8 @@ task borrow_cfg_recorded_drops(borrow_id: int, result_id: int) -> word {
     give back out
 }
 
--- Every move against every use: memoised answer equals the path-seen walk.
+-- Every move against every use: the memoised and per-move summary answers
+-- equal the path-seen walk.
 task borrow_cfg_repairs_match(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot compared = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
@@ -94,6 +95,7 @@ task borrow_cfg_repairs_match(borrow_id: int, result_id: int, mir_id: int, body_
             pilot move_stmt = v4_borrowck_path_stmt(borrow_id, result_id, move_idx)
             pilot move_block = v4_borrowck_path_block(borrow_id, result_id, move_idx)
             pilot move_text = v4_borrowck_path_text(borrow_id, result_id, move_idx)
+            pilot summary = v4_borrowck_move_repair_summary_new(borrow_id, result_id, mir_id, body_id, move_block, move_text, v4_borrowck_body_targets_in_range(mir_id, body_id))
             pilot use_idx = 0
             repeat until use_idx >= path_count {
                 pilot use_stmt = v4_borrowck_path_stmt(borrow_id, result_id, use_idx)
@@ -103,10 +105,13 @@ task borrow_cfg_repairs_match(borrow_id: int, result_id: int, mir_id: int, body_
                     if v4_borrowck_word_path_local(mir_id, body_id, move_text) >= 0 { repaired = v4_borrowck_stmt_repairs_move(borrow_id, result_id, move_text, move_stmt, move_block) }
                     pilot cold: bool = v4_borrowck_move_repaired_on_all_paths_seen(borrow_id, result_id, mir_id, body_id, move_block, move_stmt, move_text, use_stmt, use_block, repaired, "")
                     if v4_borrowck_move_repaired_before_use(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block) != cold { give back 0 - 1 }
+                    if v4_borrowck_move_repaired_before_use_summary(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block, summary) != cold { give back 0 - 1 }
+                    if v4_borrowck_move_repair_summary_reaches(mir_id, body_id, summary, move_block, use_block) != v4_borrowck_block_reaches(mir_id, body_id, move_block, use_block) { give back 0 - 1 }
                     compared += 1
                 }
                 use_idx += 1
             }
+            if summary >= 0 { array_release(summary) }
         }
         move_idx += 1
     }
@@ -175,6 +180,8 @@ task borrow_cfg_run() -> void {
     -- The branch, reinit, looped and nested bodies all drop something.
     drops = drops and drop_rows >= 4
     repairs = repairs and compared > 0
+    -- The comparison above reached the summary answer, not only its fallback.
+    repairs = repairs and v4_borrowck_repair_summary_answers > 0
 
     -- 24 sibling loops: the path-seen walk would take 2^24 paths per query.
     pilot builds = v4_borrowck_drop_table_builds
