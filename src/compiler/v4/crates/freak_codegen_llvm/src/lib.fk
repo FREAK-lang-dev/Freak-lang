@@ -2856,6 +2856,8 @@ task v4_codegen_llvm_mir_uses_typed_process(mir: int) -> bool {
         repeat until value >= v4_mir_body_rvalue_count(mir, body) {
             pilot kind = v4_mir_system_intrinsic_kind(mir, body, value)
             if kind == "process_arg" or kind == "args_count" { give back true }
+            -- process::arg in bootstrap mode reads the same argv snapshot.
+            if v4_mir_word_intrinsic_kind(mir, body, value) == "process_arg_word" { give back true }
             value += 1
         }
         body += 1
@@ -2869,6 +2871,7 @@ task v4_codegen_llvm_scalar_sum_runtime_lines(mir: int) -> word {
     pilot parser_used = false
     pilot arg_used = false
     pilot count_used = false
+    pilot arg_word_used = false
     pilot fs_used = false
     pilot body = 0
     repeat until body >= v4_mir_body_count(mir) {
@@ -2892,6 +2895,7 @@ task v4_codegen_llvm_scalar_sum_runtime_lines(mir: int) -> word {
             if kind == "process_arg" { arg_used = true }
             if kind == "args_count" { count_used = true }
             if kind == "fs_read" { fs_used = true }
+            if v4_mir_word_intrinsic_kind(mir, body, value) == "process_arg_word" { arg_word_used = true }
             value += 1
         }
         body += 1
@@ -2902,7 +2906,7 @@ task v4_codegen_llvm_scalar_sum_runtime_lines(mir: int) -> word {
     if parser_used { out = out + "declare void @freak_v4_word_parse_int_checked(i64, ptr, ptr)\n" }
     if arg_used { out = out + "declare void @freak_v4_process_arg_checked(i64, ptr, ptr)\n" }
     if count_used { out = out + "declare i64 @freak_v4_process_args_count()\n" }
-    if arg_used or count_used { out = out + "declare void @freak_v4_process_setup_args(i64, i64)\n" }
+    if arg_used or count_used or arg_word_used { out = out + "declare void @freak_v4_process_setup_args(i64, i64)\n" }
     if fs_used { out = out + "declare void @freak_v4_fs_read(i64, ptr, ptr)\n" }
     give back out
 }

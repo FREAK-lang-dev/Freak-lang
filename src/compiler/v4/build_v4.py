@@ -208,13 +208,14 @@ def main() -> int:
     else:
         args.source = sources[0]
     try:
-        return build(args, parser, clang, flattened)
+        return build(args, parser, clang, flattened, sources)
     finally:
         if flattened is not None and not os.environ.get("FREAK_V4_KEEP_FLAT"):
             args.source.unlink(missing_ok=True)
 
 
-def build(args: argparse.Namespace, parser: argparse.ArgumentParser, clang: str, flattened: FlattenedSource | None) -> int:
+def build(args: argparse.Namespace, parser: argparse.ArgumentParser, clang: str, flattened: FlattenedSource | None,
+          sources: list[Path]) -> int:
     target = args.target or host_target()
     if not args.emit_llvm and target != host_target():
         parser.error("native linking currently supports the host TargetSpec; use --emit-llvm for cross targets")
@@ -231,6 +232,8 @@ def build(args: argparse.Namespace, parser: argparse.ArgumentParser, clang: str,
         # Compilation can take time; recheck an output that changed after the
         # initial preflight before creating directories, writing or linking.
         require_distinct_output(args.source, args.output)
+        for source in sources:
+            require_distinct_output(source, args.output)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         if args.emit_llvm:
             llvm_path = args.output

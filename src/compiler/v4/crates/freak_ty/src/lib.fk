@@ -6613,6 +6613,11 @@ task v4_ty_const_task_call_return_type_seen(ty_id: int, owner_sig: int, stream_i
         give back v4_ty_unknown
     }
     if not v4_ty_signature_has_attribute(ty_id, sig_id, "const") {
+        -- A global initializer is a runtime call: a nongeneric task's
+        -- declared return type is its value type.
+        if v4_ty_signature_kind(ty_id, owner_sig) == v4_ty_global_sig and v4_ty_signature_generic_count(ty_id, sig_id) == 0 {
+            give back v4_ty_canonical_type(ty_id, v4_ty_signature_return_type(ty_id, sig_id))
+        }
         give back v4_ty_unknown
     }
 
