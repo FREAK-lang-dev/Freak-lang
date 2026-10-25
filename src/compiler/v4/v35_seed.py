@@ -43,6 +43,13 @@ def work_root() -> Path:
     return checks.RUNTIME_BUILD_ROOT / "v35_seed"
 
 
+def _label(path: Path) -> str:
+    try:
+        return checks.rel(path.resolve())
+    except ValueError:
+        return str(path)
+
+
 def _digest(*parts: bytes | str) -> str:
     sha = hashlib.sha256()
     for part in parts:
@@ -144,9 +151,9 @@ def build_tool(clang: str, entry: Path, name: str, opt: int = 0,
     flat.write_text(text, encoding="utf-8", newline="\n")
     emitted = work / f"{name}.fk.c"
     emitted.unlink(missing_ok=True)
-    _run([str(compiler), str(flat), "--c", HOST_PROFILE], f"V3.5 transpile: {checks.rel(entry)}")
+    _run([str(compiler), str(flat), "--c", HOST_PROFILE], f"V3.5 transpile: {_label(entry)}")
     if not emitted.is_file():
-        raise RuntimeError(f"V3.5 wrote no C for {checks.rel(entry)}")
+        raise RuntimeError(f"V3.5 wrote no C for {_label(entry)}")
     output.unlink(missing_ok=True)
     _clang_c(clang, [emitted, _runtime_c(), *extra_sources], output, opt,
              f"V4 tool compile: {name}", extra, libraries)
