@@ -12,12 +12,23 @@ import tempfile
 
 import check_v4 as checks
 
-# Loaders that import this file by path (the review guards) may not have its
-# directory on sys.path; v35_seed sits next to it.
-if str(Path(__file__).resolve().parent) not in sys.path:
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-import v35_seed  # noqa: E402
 from freakc.v4_native_runtime import SOURCE_NAMES
+
+
+def v35_seed_module():
+    """v35_seed, imported on first use.
+
+    Gates that load this file through a frozen-source importer and never
+    build the compiler must not need v35_seed in their closure. Loaders that
+    import this file by path may not have its directory on sys.path."""
+    if "v35_seed" not in sys.modules:
+        here = str(Path(__file__).resolve().parent)
+        if here not in sys.path:
+            sys.path.insert(0, here)
+    import v35_seed
+    # Share this file's check_v4, which tests may have loaded under another name.
+    v35_seed.checks = checks
+    return v35_seed
 
 
 # Multi-file builds swap this for a map back to each original source.
@@ -86,7 +97,7 @@ def bootstrap(clang: str, compiler_opt: int = 0, allow_prebuilt: bool = True) ->
         return prebuilt
     entry = checks.V4_ROOT / "tools" / "build_llvm.fk"
     name = f"freak_v4_compiler_O{compiler_opt}" if compiler_opt else "freak_v4_compiler"
-    return v35_seed.build_tool(clang, entry, name, opt=compiler_opt)
+    return v35_seed_module().build_tool(clang, entry, name, opt=compiler_opt)
 
 
 def emit_module(compiler: Path, source: Path, target: str, panic: str = "unwind",
