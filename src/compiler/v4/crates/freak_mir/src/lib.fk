@@ -5529,7 +5529,8 @@ task v4_mir_control_body_rows_error(ty: int, definition: word, blocks: int, stat
         pilot op = v4_mir_snapshot_field(line, 6)
         pilot kind = v4_mir_snapshot_field(line, 4)
         pilot value_ty = v4_mir_snapshot_field(line, 10)
-        if identity.starts_with("builtin::control::") or op.starts_with("builtin::control::") {
+        -- Only a call row's op is an identity; other rows carry display text.
+        if identity.starts_with("builtin::control::") or (kind == v4_mir_rvalue_call and op.starts_with("builtin::control::")) {
             if not v4_mir_control_panic_row_is_valid(line, values) { error = "invalid native control intrinsic identity" }
         }
         if value_ty == v4_ty_never {
@@ -6294,8 +6295,11 @@ task v4_mir_sum_row_intrinsic_error(ty: int, values: int, locals: int, value: in
     pilot row: word = array_get(values, value)
     pilot identity = v4_mir_snapshot_field(row, 13)
     pilot op = v4_mir_snapshot_field(row, 6)
-    pilot system: bool = identity.starts_with("builtin::system::") or op.starts_with("builtin::system::")
-    pilot parser: bool = identity == "builtin::word::to_int_maybe" or op == "builtin::word::to_int_maybe"
+    -- The op of a call row is its identity; any other row's op is display
+    -- text, so a word literal such as "builtin::system::" is not a call.
+    pilot call_row: bool = v4_mir_snapshot_field(row, 4) == v4_mir_rvalue_call
+    pilot system: bool = identity.starts_with("builtin::system::") or (call_row and op.starts_with("builtin::system::"))
+    pilot parser: bool = identity == "builtin::word::to_int_maybe" or (call_row and op == "builtin::word::to_int_maybe")
     if not system and not parser { give back "" }
     pilot kind = v4_mir_builtin_system_identity_kind(identity)
     if parser { kind = "to_int_maybe" }
