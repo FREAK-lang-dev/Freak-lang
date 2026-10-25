@@ -532,6 +532,25 @@ jobs:
           path: ${{ runner.temp }}/v4-benchmark-smoke.json
           if-no-files-found: ignore
 
+  v4-self-host:
+    name: V4 self-host (fixed point, build checks on stage 1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      # Stage 0 (the Python-built V4) needs about 6 GB; stage 2 about 2 GB.
+      - name: Self-host to a fixed point, then run the V4 build checks on stage 1
+        run: python -u src/compiler/v4/self_host.py --check-build
+
   v4-runtime-linux:
     name: V4 runtime linux (${{ matrix.shard }})
     strategy:

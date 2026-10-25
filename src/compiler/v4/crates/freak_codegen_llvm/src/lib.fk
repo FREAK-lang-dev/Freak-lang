@@ -1562,7 +1562,7 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
     }
     if v4_codegen_llvm_active_owned_mir == mir_id and kind == v4_mir_rvalue_const_word {
         pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
-        give back target + " = call i64 @freak_v4_word_from_bytes(i64 ptrtoint (ptr " + v4_codegen_llvm_word_literal_symbol(body_id, rvalue_id) + " to i64), i64 " + word_from_int(text.length()) + ")"
+        give back target + " = call i64 @freak_v4_word_from_bytes(i64 ptrtoint (ptr " + v4_codegen_llvm_word_literal_symbol(body_id, rvalue_id) + " to i64), i64 " + word_from_int(text.byte_length()) + ")"
     }
     if kind == v4_mir_rvalue_use_local {
         pilot local_id = v4_codegen_llvm_rvalue_local(mir_id, body_id, rvalue_id)
@@ -2975,7 +2975,7 @@ task v4_codegen_llvm_bootstrap_runtime_declarations(mir_id: int) -> word {
     out = out + "declare void @freak_v4_compiler_array_shutdown()\n"
     out = out + "declare i64 @freak_v4_word_snapshot_escape(i64)\ndeclare i64 @freak_v4_word_snapshot_unescape(i64)\n"
     out = out + "declare i64 @freak_v4_word_snapshot_line_count(i64)\ndeclare i64 @freak_v4_word_snapshot_line(i64, i64)\n"
-    out = out + "declare i64 @freak_v4_word_checksum(i64)\ndeclare i64 @freak_v4_word_chr(i64)\ndeclare double @freak_v4_word_to_num(i64)\ndeclare i64 @freak_v4_process_arg_or_empty(i64)\ndeclare i64 @freak_v4_fs_read_or_empty(i64)\n"
+    out = out + "declare i64 @freak_v4_word_checksum(i64)\ndeclare i64 @freak_v4_word_byte_length(i64)\ndeclare i64 @freak_v4_word_chr(i64)\ndeclare double @freak_v4_word_to_num(i64)\ndeclare i64 @freak_v4_process_arg_or_empty(i64)\ndeclare i64 @freak_v4_fs_read_or_empty(i64)\n"
     give back out + "declare i64 @freak_v4_word_snapshot_field_count(i64)\ndeclare i64 @freak_v4_word_snapshot_field_raw(i64, i64)\n"
 }
 
@@ -3756,7 +3756,7 @@ task v4_codegen_llvm_word_globals(mir_id: int) -> word {
         repeat until rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
             if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_const_word {
                 pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
-                v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_literal_symbol(body_id, rvalue_id) + " = private unnamed_addr constant [" + word_from_int(text.length() + 1) + " x i8] c\"" + v4_codegen_llvm_word_literal_escape(text) + "\\00\", align 1\n")
+                v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_literal_symbol(body_id, rvalue_id) + " = private unnamed_addr constant [" + word_from_int(text.byte_length() + 1) + " x i8] c\"" + v4_codegen_llvm_word_literal_escape(text) + "\\00\", align 1\n")
             }
             rvalue_id += 1
         }

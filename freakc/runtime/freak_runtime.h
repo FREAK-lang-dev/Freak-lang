@@ -590,6 +590,7 @@ int64_t freak_llvm_process_executable_path(void);
 
 /* Stable, allocation-free FNV-1a checksum for persisted compiler data. */
 int64_t freak_word_checksum(freak_word w);
+int64_t freak_word_byte_length(freak_word w);
 
 /* Linear-time wire-format helpers used by compiler snapshots. Each returned
    word is produced with at most one allocation. */

@@ -54,7 +54,25 @@ def host_target() -> str:
     raise RuntimeError(f"no V4 TargetSpec for {sys.platform}/{machine}")
 
 
+# A prebuilt V4 compiler (for example the self-built stage 1 from
+# self_host.py) replaces the Python-built one for every build and check.
+COMPILER_ENV = "FREAK_V4_COMPILER"
+
+
+def prebuilt_compiler() -> Path | None:
+    value = os.environ.get(COMPILER_ENV, "")
+    if not value:
+        return None
+    path = Path(value).resolve()
+    if not path.is_file() or not os.access(path, os.X_OK):
+        raise RuntimeError(f"{COMPILER_ENV} is not an executable file: {value}")
+    return path
+
+
 def bootstrap(clang: str, compiler_opt: int = 0) -> Path:
+    prebuilt = prebuilt_compiler()
+    if prebuilt is not None:
+        return prebuilt
     fixture = checks.V4_ROOT / "tools" / "build_llvm.fk"
     c_source, uses_ui = checks.transpile_fixture(checks.flattened_crates(), fixture)
     if uses_ui:
@@ -164,6 +182,9 @@ def main() -> int:
     parser.add_argument("--target", default=None, help="canonical freak_target triple")
     parser.add_argument("--compiler-opt", type=int, choices=(0, 1, 2, 3), default=0,
                         help="bootstrap compiler optimization level (default: 0)")
+    parser.add_argument("--compiler", type=Path, default=None,
+                        help=f"use this prebuilt V4 compiler instead of building one with Python "
+                             f"(same as setting {COMPILER_ENV})")
     parser.add_argument("--panic", choices=("unwind", "abort"), default="unwind",
                         help="program panic policy (default: unwind, which ends main as panicked with exit status 101; abort raises SIGABRT)")
     parser.add_argument("--bootstrap-root", action="store_true",
@@ -173,6 +194,8 @@ def main() -> int:
                         help="prepend the V4 crates in CRATE_ORDER (bootstrap-sources.manifest) "
                              "to the sources; implies --bootstrap-root")
     args = parser.parse_args()
+    if args.compiler is not None:
+        os.environ[COMPILER_ENV] = str(args.compiler)
     clang = shutil.which("clang")
     if clang is None:
         parser.error("clang is required")

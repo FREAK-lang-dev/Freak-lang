@@ -1493,6 +1493,7 @@ class CEmitter:
             "replace": ("freak_word_replace", 2, False),
             "char_at": ("freak_word_char_at", 1, False),
             "checksum": ("freak_word_checksum", 0, False),
+            "byte_length": ("freak_word_byte_length", 0, False),
             "snapshot_escape": ("freak_word_snapshot_escape", 0, False),
             "snapshot_unescape": ("freak_word_snapshot_unescape", 0, False),
             "snapshot_line_count": ("freak_word_snapshot_line_count", 0, False),
@@ -2052,6 +2053,7 @@ class CEmitter:
             METHOD_RETURN_TYPES = {
                 "length": "int64_t",
                 "checksum": "int64_t",
+                "byte_length": "int64_t",
                 "snapshot_line_count": "int64_t",
                 "snapshot_lines": "int64_t",
                 "snapshot_field_count": "int64_t",

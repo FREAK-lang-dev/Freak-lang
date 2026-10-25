@@ -2001,6 +2001,12 @@ static int64_t freak_stable_checksum_bytes(const unsigned char* data, size_t len
     return (int64_t)(hash & UINT64_C(0x7fffffffffffffff));
 }
 
+/* Bootstrap word.byte_length(): the UTF-8 byte count, which V1's length()
+   also returns. V4 bootstrap length() counts scalars, so byte sizes use this. */
+int64_t freak_word_byte_length(freak_word w) {
+    return (int64_t)w.length;
+}
+
 int64_t freak_word_checksum(freak_word w) {
     if (!w.data || w.length == 0) {
         return freak_stable_checksum_bytes((const unsigned char*)"", 0);

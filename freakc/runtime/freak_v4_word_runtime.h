@@ -78,6 +78,7 @@ int64_t freak_v4_word_snapshot_line(int64_t value, int64_t wanted);
 int64_t freak_v4_word_snapshot_field_count(int64_t value);
 int64_t freak_v4_word_snapshot_field_raw(int64_t value, int64_t wanted);
 int64_t freak_v4_word_checksum(int64_t value);
+int64_t freak_v4_word_byte_length(int64_t value);
 int64_t freak_v4_word_chr(int64_t code);
 double freak_v4_word_to_num(int64_t value);
 
