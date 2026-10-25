@@ -23,8 +23,9 @@ The pool is single-threaded; no allocator/adoption callback may reenter it.
 Checked output pointers must be nonnull unowned writable slots disjoint from runtime
 and input storage. Word arguments must be live native V4 registry owners.
 Borrowed C literals, C `array_get` views, and arbitrary foreign pointers are
-not admitted Word inputs. This bridge allocates exact sized copies and uses
-`freak_llvm_word_try_adopt_sized` once per fresh allocation. It does not use
+not admitted Word inputs. Stores allocate exact sized copies and use
+`freak_llvm_word_try_adopt_sized` once per fresh allocation; a get adds a
+registry reference (`freak_llvm_word_share`) to the stored cell instead. It does not use
 `word_view`, C `word_clone`, or `word_take`: C cloning a native nonheap view
 does not clone, and taking a borrowed C array cell creates conflicting owners.
 Registry adoption is idempotent for an existing pointer/length, not a retain.
@@ -61,7 +62,7 @@ future typed lowering must preserve the ticket/Word distinction.
 | `len(ticket)` | Invalid/stale returns0 | Same |
 | `push(ticket, word)` | Invalid/stale no-op; live input cloned; resource named exit1 | Ordinary C arrays borrow; snapshot C arrays clone |
 | `set(ticket, index, word)` | Invalid/stale no-op; live OOB exact legacy exit1; clone before replacing | Every private cell owns, unlike ordinary C arrays |
-| `get(ticket, index)` | Fresh owner; invalid/stale/OOB fresh owning empty | Legacy C returns a borrowed cell/empty literal |
+| `get(ticket, index)` | New owner sharing the stored allocation (one more reference; no copy, since words are immutable and an append to a shared word copies first); invalid/stale/OOB fresh owning empty | Legacy C returns a borrowed cell/empty literal |
 | `release(ticket)` | Invalid/stale no-op; valid drops all cells | Private behavior consistently matches owned storage |
 | `join(ticket)` | Fresh owner and consumes ticket on success; invalid fresh owning empty | C `word_join` already consumes its collector |
 | `snapshot_lines(word)` | Borrow source; empty has0rows; LF split preserves blanks/trailing/CR/NUL; `-1` on rollback | Uses native registered row owners, not C heap views |

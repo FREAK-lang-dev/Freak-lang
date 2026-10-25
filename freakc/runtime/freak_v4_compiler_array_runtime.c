@@ -204,7 +204,13 @@ int64_t freak_v4_compiler_array_get_checked(int64_t ticket, int64_t index, int64
     if (slot < 0) return FREAK_V4_COMPILER_ARRAY_INVALID;
     v4_compiler_array *array = &v4_arrays[slot];
     if (index < 0 || index >= array->length) return FREAK_V4_COMPILER_ARRAY_INDEX;
-    *out = v4_array_clone(array->cells[index]);
+    /* Words are immutable (an append to a shared word copies it first), so a
+       get shares the stored allocation instead of copying its bytes. */
+    int64_t cell = array->cells[index];
+    size_t length;
+    if (!v4_array_word_size(cell, &length)) return FREAK_V4_COMPILER_ARRAY_RESOURCE;
+    *out = freak_llvm_word_share(cell);
+    if (!*out) *out = v4_array_clone(cell);
     return *out ? FREAK_V4_COMPILER_ARRAY_OK : FREAK_V4_COMPILER_ARRAY_RESOURCE;
 }
 
