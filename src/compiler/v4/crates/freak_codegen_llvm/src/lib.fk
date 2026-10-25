@@ -2933,9 +2933,9 @@ task v4_codegen_llvm_word_bool_intrinsic(kind: word) -> bool {
 
 -- Bootstrap files keep V1's lenient char_at and substring (see the runtime).
 task v4_codegen_llvm_word_intrinsic_symbol_for(mir_id: int, kind: word) -> word {
-    if v4_mir_file_is_bootstrap(mir_id) and (kind == "char_at" or kind == "substring") { give back "@freak_v4_word_v1_" + kind }
+    if v4_ty_file_is_bootstrap(v4_mir_ty_id(mir_id)) and (kind == "char_at" or kind == "substring") { give back "@freak_v4_word_v1_" + kind }
     -- Bootstrap word copies share the immutable allocation, as V1 did.
-    if v4_mir_file_is_bootstrap(mir_id) and kind == "clone" { give back "@freak_v4_word_v1_share" }
+    if v4_ty_file_is_bootstrap(v4_mir_ty_id(mir_id)) and kind == "clone" { give back "@freak_v4_word_v1_share" }
     give back v4_codegen_llvm_word_intrinsic_symbol(kind)
 }
 
@@ -2966,7 +2966,7 @@ task v4_codegen_llvm_mir_uses_bootstrap_intrinsics(mir_id: int) -> bool {
 
 task v4_codegen_llvm_bootstrap_runtime_declarations(mir_id: int) -> word {
     pilot v1_words = ""
-    if v4_mir_file_is_bootstrap(mir_id) { v1_words = "declare i64 @freak_v4_word_v1_char_at(i64, i64)\ndeclare i64 @freak_v4_word_v1_substring(i64, i64, i64)\ndeclare i64 @freak_v4_word_v1_share(i64)\n" }
+    if v4_ty_file_is_bootstrap(v4_mir_ty_id(mir_id)) { v1_words = "declare i64 @freak_v4_word_v1_char_at(i64, i64)\ndeclare i64 @freak_v4_word_v1_substring(i64, i64, i64)\ndeclare i64 @freak_v4_word_v1_share(i64)\n" }
     if not v4_codegen_llvm_mir_uses_bootstrap_intrinsics(mir_id) { give back v1_words }
     pilot out = v1_words + "declare i64 @freak_v4_compiler_array_new()\ndeclare i64 @freak_v4_compiler_array_len(i64)\n"
     out = out + "declare void @freak_v4_compiler_array_push(i64, i64)\ndeclare i64 @freak_v4_compiler_array_get(i64, i64)\n"
