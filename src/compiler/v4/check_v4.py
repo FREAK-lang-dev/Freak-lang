@@ -17698,6 +17698,11 @@ def check_v4_build_command() -> None:
          'task make() -> int { give back 7 }\npilot count: int = make()\ntask main() -> int { give back count }\n', "", 7),
         ("bootstrap_script_args", 'pilot n: int = process::args_count()\nsay n\n', "1\n", 0),
         ("bootstrap_root_give_back", 'say "a"\ngive back\nsay "b"\n', "a\n", 0),
+        # An unannotated global takes an ordinary task's return type, and a
+        # bootstrap process::arg reads the real argv snapshot.
+        ("bootstrap_global_task_infer",
+         'task make() -> int { give back 9 }\npilot n = make()\ntask main() -> int { give back n }\n', "", 9),
+        ("bootstrap_process_arg_word", 'pilot self_path: word = process::arg(0)\nsay self_path != ""\n', "true\n", 0),
     )
     for label, source_text, expected, expected_exit in bootstrap_cases:
         source = RUNTIME_BUILD_ROOT / f"llvm_{label}.fk"
