@@ -17706,7 +17706,9 @@ def check_v4_build_command() -> None:
         # Bootstrap word reads share one refcounted handle, so changing a
         # copy must leave the original alone; char_at/substring keep V1's
         # lenient rules (out of range gives "", substring(start, count)
-        # clamps), and length() counts scalars, not bytes.
+        # clamps), and length() counts scalars, not bytes; byte_length()
+        # counts bytes (codegen sizes non-ASCII literals with it, so a
+        # self-built compiler emits the same module as the Python-built one).
         ("bootstrap_word_share_v1_index",
          'pilot g: word = "ab"\n'
          'task main() -> int {\n'
@@ -17722,9 +17724,10 @@ def check_v4_build_command() -> None:
          '    say a.char_at(99) == ""\n'
          '    say a.substring(3, 99)\n'
          '    say g.substring(5, 1) == ""\n'
+         '    say a.byte_length()\n'
          '    give back a.length()\n'
          '}\n',
-         "h\u00e9llo\nh\u00e9llo!\nab abc\n\u00e9\ntrue\nlo\ntrue\n", 5),
+         "h\u00e9llo\nh\u00e9llo!\nab abc\n\u00e9\ntrue\nlo\ntrue\n6\n", 5),
     )
     for label, source_text, expected, expected_exit in bootstrap_cases:
         source = RUNTIME_BUILD_ROOT / f"llvm_{label}.fk"

@@ -458,6 +458,11 @@ int64_t freak_v4_word_snapshot_field_raw(int64_t value, int64_t wanted) {
     return freak_v4_word_snapshot_piece(value, wanted, '|');
 }
 
+/* Bootstrap word.byte_length(): the UTF-8 byte count (V1's length()). */
+int64_t freak_v4_word_byte_length(int64_t value) {
+    return (int64_t)freak_v4_word_size(value);
+}
+
 /* Bootstrap word.checksum(): the same stable 63-bit FNV-1a as V1's
    freak_word_checksum, so hash tables in the compiler crates keep their
    layout when V4 builds them. */

@@ -7,6 +7,11 @@ Steps:
   stage 1  that module is linked into a native V4 compiler
   stage 2  the stage 1 compiler compiles the same sources again
 
+With --check-build, the stage 1 compiler then runs check_v4.py's V4
+build-command checks (the programs check_v4 compiles with the V4 tool), in
+place of the Python-built tool. --stage1 runs only those checks with an
+existing stage 1 binary.
+
 The run passes when every stage reports 0 diagnostics and the stage 2
 module is byte-identical to the stage 0 module. A stage 2 binary built
 from it would then be the stage 1 binary, so the bootstrap is a fixed
@@ -76,17 +81,37 @@ def split_module(stdout_path: Path, label: str) -> bytes | None:
     return data[markers[0].end():]
 
 
+def check_build_with(stage1: Path) -> int:
+    """Run check_v4's build-command checks with stage 1 as the V4 compiler."""
+    os.environ[build_v4.COMPILER_ENV] = str(stage1)
+    started = time.monotonic()
+    checks.RUNTIME_BUILD_ROOT.mkdir(parents=True, exist_ok=True)
+    try:
+        checks.check_v4_build_command()
+    except (RuntimeError, AssertionError) as exc:
+        print(f"FAIL: build-command checks on stage 1: {exc}", file=sys.stderr)
+        return 1
+    print(f"build-command checks passed on stage 1 ({time.monotonic() - started:.1f}s)")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--work", type=Path, default=checks.RUNTIME_BUILD_ROOT / "self_host",
                         help="directory for the flat source, modules and stage 1 binary")
     parser.add_argument("--opt", type=int, choices=(0, 1, 2, 3), default=1,
                         help="clang optimization level for the stage 1 link (default 1)")
+    parser.add_argument("--check-build", action="store_true",
+                        help="after the fixed point, run check_v4's build-command checks on stage 1")
+    parser.add_argument("--stage1", type=Path, default=None,
+                        help="skip the bootstrap and run the build-command checks on this stage 1 binary")
     args = parser.parse_args()
     clang = shutil.which("clang")
     if clang is None:
         print("clang is required", file=sys.stderr)
         return 1
+    if args.stage1 is not None:
+        return check_build_with(args.stage1.resolve())
     target = build_v4.host_target()
     work = args.work.resolve()
     work.mkdir(parents=True, exist_ok=True)
@@ -133,6 +158,8 @@ def main() -> int:
         print("FAIL: stage 2 module differs from stage 0 (no fixed point)", file=sys.stderr)
         return 1
     print("fixed point: stage 2 module is byte-identical to stage 0")
+    if args.check_build:
+        return check_build_with(stage1)
     return 0
 
 
