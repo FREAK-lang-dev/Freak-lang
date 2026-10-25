@@ -10136,7 +10136,7 @@ task v4_mir_lower_word_intrinsic_args(mir_id: int, body_id: int, stream_id: int,
 }
 
 task v4_mir_file_is_bootstrap(mir_id: int) -> bool {
-    give back v4_hir_file_is_bootstrap(v4_resolve_hir_id(v4_ty_resolve_id(v4_mir_ty_id(mir_id))))
+    give back v4_ty_file_is_bootstrap(v4_mir_ty_id(mir_id))
 }
 
 task v4_mir_try_lower_word_named_intrinsic(mir_id: int, body_id: int, stream_id: int, first: int, last: int, span: word) -> int {

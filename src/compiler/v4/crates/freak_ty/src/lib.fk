@@ -13843,6 +13843,12 @@ task v4_ty_word_intrinsic_known(kind: word) -> bool {
 
 -- Bootstrap-mode compiler builtins (tier 2): private array tickets and the
 -- snapshot word helpers the V4 crates use. Strict files never see them.
+-- Whether the file behind this TY result was parsed in bootstrap mode.
+-- Post-build consumers (codegen) ask TY rather than the MIR builder.
+task v4_ty_file_is_bootstrap(ty_id: int) -> bool {
+    give back v4_hir_file_is_bootstrap(v4_resolve_hir_id(v4_ty_resolve_id(ty_id)))
+}
+
 task v4_ty_bootstrap_intrinsic_known(kind: word) -> bool {
     give back kind == "array_new" or kind == "array_len" or kind == "array_push" or kind == "array_get" or kind == "array_set" or kind == "array_release" or kind == "word_join" or kind == "snapshot_lines" or kind == "snapshot_escape" or kind == "snapshot_unescape" or kind == "snapshot_line_count" or kind == "snapshot_line" or kind == "snapshot_field_count" or kind == "snapshot_field_raw" or kind == "checksum" or kind == "process_arg_word" or kind == "fs_read_word" or kind == "chr" or kind == "to_num"
 }
