@@ -69,8 +69,11 @@ def prebuilt_compiler() -> Path | None:
     return path
 
 
-def bootstrap(clang: str, compiler_opt: int = 0) -> Path:
-    prebuilt = prebuilt_compiler()
+def bootstrap(clang: str, compiler_opt: int = 0, allow_prebuilt: bool = True) -> Path:
+    """The V4 compiler: the prebuilt one when set, else built with Python.
+
+    allow_prebuilt=False always builds with Python (self_host.py's stage 0)."""
+    prebuilt = prebuilt_compiler() if allow_prebuilt else None
     if prebuilt is not None:
         return prebuilt
     fixture = checks.V4_ROOT / "tools" / "build_llvm.fk"
@@ -244,6 +247,10 @@ def build(args: argparse.Namespace, parser: argparse.ArgumentParser, clang: str,
         parser.error("native linking currently supports the host TargetSpec; use --emit-llvm for cross targets")
     try:
         require_distinct_output(args.source, args.output)
+        # A prebuilt compiler must survive the build too.
+        prebuilt = prebuilt_compiler()
+        if prebuilt is not None:
+            require_distinct_output(prebuilt, args.output)
         compiler = bootstrap(clang, args.compiler_opt)
         root_mode = "bootstrap" if args.bootstrap_root else "strict"
         if root_mode != "strict":
