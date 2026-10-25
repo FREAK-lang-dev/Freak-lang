@@ -119,7 +119,8 @@ def main() -> int:
     flat.write_bytes(build_v4.FlattenedSource(build_v4.compiler_sources(checks.V4_ROOT / "tools" / "build_llvm.fk")).data)
     print(f"flattened compiler: {flat} ({flat.stat().st_size} bytes)")
 
-    tool = build_v4.bootstrap(clang)
+    # Stage 0 is always the Python-built compiler, even if FREAK_V4_COMPILER is set.
+    tool = build_v4.bootstrap(clang, allow_prebuilt=False)
     stage0_out = work / "stage0.out"
     code = timed([str(tool), str(flat), target, "unwind", "bootstrap"], stage0_out, "stage 0 compile")
     if code != 0:
