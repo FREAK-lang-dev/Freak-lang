@@ -357,8 +357,8 @@ task preview_compile(stage_root: word) -> bool {
     pilot mut program_name = "program"
     if preview_windows() { program_name = "program.exe" }
     process::command_arg(command, preview_clang_path(preview_join(stage_root, program_name)))
-    if sources != 7 { process::command_release(command)
-        give back preview_fail("private runtime does not declare seven native sources") }
+    if sources != 8 { process::command_release(command)
+        give back preview_fail("private runtime does not declare eight native sources") }
     preview_capture(command, "native Clang compile/link", 120000, 1048576)
     if preview_error != "" { give back false }
     pilot produced = fs::stat_checked(preview_join(stage_root, program_name))
