@@ -4827,6 +4827,8 @@ task v4_mir_builtin_method_identity_code(identity: word) -> int {
     if kind == "clone" { give back 118 }
     if kind == "to_lower" { give back 119 }
     if kind == "to_int_maybe" { give back 120 }
+    -- Bootstrap-mode intrinsics (tier 2) round-trip through snapshots too.
+    if v4_ty_bootstrap_intrinsic_known(kind) { give back 300 }
     give back 0
 }
 
@@ -6732,15 +6734,22 @@ task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks:
     pilot definition = v4_mir_snapshot_field(header, 3)
     if not v4_mir_sum_rows_are_sensitive(ty, definition, locals, values) { give back "" }
     pilot signature = v4_ty_lookup_signature(ty, definition)
-    if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum body requires an ordinary nongeneric task" }
-    if v4_mir_snapshot_field(header, 4) != v4_ty_signature_name(ty, signature) or v4_mir_snapshot_field(header, 5) != v4_ty_signature_of(ty, definition) { give back "invalid scalar sum task body identity" }
-    pilot parameters = v4_ty_signature_fixed_param_count(ty, signature)
-    if parameters > array_len(locals) { give back "invalid scalar sum task parameter locals" }
-    pilot formal_origin_error = v4_mir_system_intrinsic_formal_rows_error(ty, signature, values)
-    if formal_origin_error != "" { give back formal_origin_error }
-    pilot body_span = v4_mir_word_source_body_span(ty, definition)
-    if body_span == (V4_NO_SPAN) { give back "scalar sum task requires authoritative source scope" }
-    if v4_span_file(body_span) != word_from_int(file) { give back "scalar sum task source file mismatch" }
+    pilot parameters = 0
+    pilot body_span = V4_NO_SPAN
+    if definition == v4_mir_module_init_def {
+        -- The bootstrap module init has no parameters and spans the file.
+        if v4_mir_snapshot_field(header, 4) != v4_mir_module_init_name { give back "invalid scalar sum module init identity" }
+    } else {
+        if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum body requires an ordinary nongeneric task" }
+        if v4_mir_snapshot_field(header, 4) != v4_ty_signature_name(ty, signature) or v4_mir_snapshot_field(header, 5) != v4_ty_signature_of(ty, definition) { give back "invalid scalar sum task body identity" }
+        parameters = v4_ty_signature_fixed_param_count(ty, signature)
+        if parameters > array_len(locals) { give back "invalid scalar sum task parameter locals" }
+        pilot formal_origin_error = v4_mir_system_intrinsic_formal_rows_error(ty, signature, values)
+        if formal_origin_error != "" { give back formal_origin_error }
+        body_span = v4_mir_word_source_body_span(ty, definition)
+        if body_span == (V4_NO_SPAN) { give back "scalar sum task requires authoritative source scope" }
+        if v4_span_file(body_span) != word_from_int(file) { give back "scalar sum task source file mismatch" }
+    }
     pilot row = 0
     repeat until row >= array_len(locals) {
         pilot binding: word = array_get(locals, row)

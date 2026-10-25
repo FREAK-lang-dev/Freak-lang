@@ -17691,6 +17691,13 @@ def check_v4_build_command() -> None:
          '    give back 0\n'
          '}\n',
          "a::b::c\nA\u00e9\n1\n7430836138530658123\n3.5\ntrue\ntrue\nread-failed\n", 0),
+        # A global initializer runs in the module init, so it may call an
+        # ordinary task; a script may read process args; a root give back
+        # ends the module init.
+        ("bootstrap_global_task_init",
+         'task make() -> int { give back 7 }\npilot count: int = make()\ntask main() -> int { give back count }\n', "", 7),
+        ("bootstrap_script_args", 'pilot n: int = process::args_count()\nsay n\n', "1\n", 0),
+        ("bootstrap_root_give_back", 'say "a"\ngive back\nsay "b"\n', "a\n", 0),
     )
     for label, source_text, expected, expected_exit in bootstrap_cases:
         source = RUNTIME_BUILD_ROOT / f"llvm_{label}.fk"
@@ -17755,6 +17762,8 @@ def check_v4_build_command() -> None:
          "constant reads a runtime global", "ty"),
         ("shape_global", 'shape P { x: int }\npilot origin = P { x: 3 }\ntask main() -> int { give back origin.x }\n',
          "root pilot type is not supported yet", "mir"),
+        ("root_local_annotation", 'if true {\n    pilot x: int = "text"\n    say x\n}\n',
+         "local declaration type mismatch", "mir"),
     ):
         source = RUNTIME_BUILD_ROOT / f"llvm_bootstrap_{label}.fk"
         source.write_text(source_text, encoding="utf-8")

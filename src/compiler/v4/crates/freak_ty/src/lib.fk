@@ -7598,7 +7598,8 @@ task v4_ty_const_integer_text_for_sig_seen(ty_id: int, sig_id: int, seen_consts:
     if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
         give back v4_ty_unknown
     }
-    if not v4_ty_sig_kind_is_root_binding(v4_ty_signature_kind(ty_id, sig_id)) {
+    -- A global is mutable, so it never folds into a compile-time integer.
+    if not v4_ty_sig_kind_is_root_binding(v4_ty_signature_kind(ty_id, sig_id)) or v4_ty_signature_kind(ty_id, sig_id) == v4_ty_global_sig {
         give back v4_ty_unknown
     }
 
@@ -7743,8 +7744,10 @@ task v4_ty_validate_const_initializers(ty_id: int) -> void {
             pilot init_start = v4_ty_const_init_start_token(ty_id, sig_id)
             pilot init_end = v4_ty_const_init_end_token(ty_id, sig_id)
             if stream_id >= 0 and init_start >= 0 and init_end > init_start {
-                v4_ty_validate_const_expr_seen(ty_id, sig_id, stream_id, init_start, init_end, v4_ty_const_cycle_seen_append("", const_name))
+                -- A global initializer runs in the module init under the runtime
+                -- call contract; MIR checks it when it lowers the initializer.
                 if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_global_sig {
+                    v4_ty_validate_const_expr_seen(ty_id, sig_id, stream_id, init_start, init_end, v4_ty_const_cycle_seen_append("", const_name))
                     v4_ty_validate_const_reads_no_global(ty_id, sig_id, stream_id, init_start, init_end)
                 }
             }
