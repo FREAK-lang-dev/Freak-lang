@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -29,9 +30,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 V4 = ROOT / "src/compiler/v4"
-sys.path.insert(0, str(V4))
-
-import check_v4 as checks  # noqa: E402
 
 CRATES = (
     "freak_span", "freak_diag", "freak_macro_api", "freak_arena", "freak_intern",
@@ -42,10 +40,16 @@ CRATES = (
 )
 STAGE = re.compile(r"v4-build-stage=(\w+) diagnostics=(\d+)")
 ABORT = 'task v4_build_llvm_abort(errors: int, stage: word) -> bool {\n    if errors <= 0 { give back false }'
-KEEP_GOING = 'task v4_build_llvm_abort(errors: int, stage: word) -> bool {\n    if stage != "borrowck" { give back false }\n    if errors <= 0 { give back false }'
+# Earlier stages never stop the probe; Meiya always does, errors or not. The
+# rest of the original task (report errors, give back true) stays as it is.
+KEEP_GOING = 'task v4_build_llvm_abort(errors: int, stage: word) -> bool {\n    if stage != "borrowck" { give back false }'
 
 
 def build_probe(out_dir: Path) -> Path:
+    # Only the build step imports the bootstrap checks (and their memory).
+    sys.path.insert(0, str(V4))
+    import check_v4 as checks
+
     source = (V4 / "tools/build_llvm.fk").read_text(encoding="utf-8")
     if source.count(ABORT) != 1:
         raise SystemExit("tools/build_llvm.fk abort task changed; update meiya_error_heavy.py")
@@ -61,31 +65,19 @@ def build_probe(out_dir: Path) -> Path:
     return probe
 
 
-def peak_rss_mb(pid: int) -> int:
-    try:
-        for line in Path(f"/proc/{pid}/status").read_text().splitlines():
-            if line.startswith("VmRSS:"):
-                return int(line.split()[1]) // 1024
-    except OSError:
-        pass
-    return 0
-
-
 def run_one(probe: Path, source: Path, memory: int, timeout: float) -> dict:
     start = time.monotonic()
+    # prlimit execs the probe, so this pid is the probe and wait4 reports its peak RSS.
     proc = subprocess.Popen(
         ["prlimit", f"--as={memory}", "--", str(probe), str(source), "x86_64-unknown-linux-gnu", "unwind"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-    peak = [0]
+    timed_out = threading.Event()
 
-    def watch() -> None:
-        while proc.poll() is None:
-            peak[0] = max(peak[0], peak_rss_mb(proc.pid))
-            time.sleep(0.05)
+    def kill() -> None:
+        timed_out.set()
+        proc.kill()
 
-    watcher = threading.Thread(target=watch, daemon=True)
-    watcher.start()
-    timer = threading.Timer(timeout, proc.kill)
+    timer = threading.Timer(timeout, kill)
     timer.start()
     stages: dict[str, dict] = {}
     last = start
@@ -99,14 +91,14 @@ def run_one(probe: Path, source: Path, memory: int, timeout: float) -> dict:
             last = now
         elif line.startswith(("v4-", "FREAK:")):
             tail.append(line.strip())
-    code = proc.wait()
-    timed_out = not timer.is_alive() and code < 0
+    _, status, usage = os.wait4(proc.pid, 0)
     timer.cancel()
-    watcher.join()
-    if "borrowck" in stages:
-        outcome = "meiya finished"
-    elif timed_out:
+    proc.returncode = code = os.waitstatus_to_exitcode(status)
+    proc.stdout.close()
+    if timed_out.is_set():
         outcome = "timeout"
+    elif "borrowck" in stages and code == 0:
+        outcome = "meiya finished"
     elif any("out of memory" in line for line in tail):
         outcome = "memory limit"
     else:
@@ -115,7 +107,7 @@ def run_one(probe: Path, source: Path, memory: int, timeout: float) -> dict:
         "outcome": outcome,
         "exit": code,
         "seconds": round(time.monotonic() - start, 2),
-        "peak_rss_mb": peak[0],
+        "peak_rss_mb": usage.ru_maxrss // 1024,
         "stages": stages,
         "tail": tail[-3:],
     }
@@ -132,7 +124,8 @@ def synthetic_source(moves: int) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--label", required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--build-only", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--memory-mib", type=int, default=2048)
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--synthetic", default="100,200,400,800")
@@ -141,7 +134,15 @@ def main() -> int:
     memory = args.memory_mib * 1024 * 1024
     work = ROOT / "build/v4_smoke/meiya_error_heavy" / args.label
     work.mkdir(parents=True, exist_ok=True)
-    probe = build_probe(work)
+    if args.build_only:
+        build_probe(work)
+        return 0
+    if args.output is None:
+        parser.error("--output is required")
+    # Build in a child process: wait4's peak RSS includes the launcher's RSS at
+    # fork, so the measuring process must stay small.
+    subprocess.run([sys.executable, __file__, "--label", args.label, "--build-only"], check=True)
+    probe = work / "meiya_probe"
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     report: dict = {
         "label": args.label,

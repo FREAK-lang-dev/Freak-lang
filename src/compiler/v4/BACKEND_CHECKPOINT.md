@@ -577,7 +577,7 @@ messages do not establish executable support.
 Re-measured on 2026-10-25 with `benchmarks/v4/meiya_error_heavy.py`: a probe
 built from `tools/build_llvm.fk` that keeps going after errors and stops after
 Meiya, a 2 GiB memory limit and a 60 s timeout per crate. Every crate now
-finishes Meiya; the slowest is `freak_ty` at 13.9 s and 494 MiB peak. Times,
+finishes Meiya; the slowest is `freak_ty` at 13.9 s and 496 MiB peak. Times,
 peaks and a before/after comparison are in
 [meiya_error_heavy.md](../../../benchmarks/v4/meiya_error_heavy.md). At the
 previous baseline (probe built at `4f895d6`) freak_lex, parse, expand, hir, mir,
@@ -612,7 +612,7 @@ freak_ty did not finish MIR.
 Strict mode still reports root pilots, array-handle builtins and moved words in
 these crates; the flattened bootstrap build of all 22 crates reports 0 in every
 stage. A synthetic task that moves one word in 800 sibling branches finishes
-Meiya in 22 s at 332 MiB; Meiya cost grows about quadratically with the number
+Meiya in 19 s at 334 MiB; Meiya cost grows about quadratically with the number
 of moves of one word in one task (one CFG walk per move).
 
 ## W1 hello-world follow-up

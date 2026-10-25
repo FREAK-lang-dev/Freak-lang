@@ -163,6 +163,7 @@ task borrow_cfg_run() -> void {
     pilot reaches = true
     pilot compared = 0
     pilot drop_rows = 0
+    pilot summary_answers = v4_borrowck_repair_summary_answers
     if semantic {
         pilot mir = v4_borrowck_mir_id(borrow)
         pilot body = 0
@@ -181,7 +182,7 @@ task borrow_cfg_run() -> void {
     drops = drops and drop_rows >= 4
     repairs = repairs and compared > 0
     -- The comparison above reached the summary answer, not only its fallback.
-    repairs = repairs and v4_borrowck_repair_summary_answers > 0
+    repairs = repairs and v4_borrowck_repair_summary_answers > summary_answers
 
     -- 24 sibling loops: the path-seen walk would take 2^24 paths per query.
     pilot builds = v4_borrowck_drop_table_builds
