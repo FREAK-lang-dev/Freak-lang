@@ -135,9 +135,9 @@ def validate_report(report: dict, sanitize: bool) -> None:
             or {r['case'] for r in report['compiler_contracts']} != set(ADVERSE_CASES)
             or any(r['status'] != 'pass' for r in report['compiler_contracts'])):
         raise RuntimeError('native report lacks preserved diagnostic/hostile-join contracts')
-    # 2 bootstrap + 21 runtime objects + 9 audit jobs + 7 adverse contracts +
+    # 2 bootstrap + 24 runtime objects + 9 audit jobs + 7 adverse contracts +
     # 26 source reads + 26 emits + 78 links + 78 executions. SAN adds 3 jobs.
-    expected_jobs = 247 + (3 if sanitize else 0) + (1 if report['target'] == 'aarch64-apple-darwin' else 0)
+    expected_jobs = 250 + (3 if sanitize else 0) + (1 if report['target'] == 'aarch64-apple-darwin' else 0)
     if report['jobs'] != expected_jobs or report['inputs_before'] != report['inputs_after']:
         raise RuntimeError('native job count or input conservation differs from the closed plan')
 

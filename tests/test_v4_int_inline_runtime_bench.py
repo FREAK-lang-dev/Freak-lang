@@ -69,7 +69,7 @@ def report(sanitized=False):
     value.update(compiler_head="b" * 40, clang={"sha256": pin}, source_sha256=pin,
                  compiler_inputs={"benchmarks/v4/int_checked_hot_loop.fk": pin},
                  compiler={"binary_sha256": pin, "generated_c_sha256": pin, "live_handle_limit": 1024},
-                 artifact_sha256={f"runtime-{i}": pin for i in range(7)})
+                 artifact_sha256={f"runtime-{i}": pin for i in range(len(gate.runtime_inventory_names()["runtime_sources"]))})
     manifest_key = "src/compiler/v4/native-runtime.manifest"
     value["compiler_inputs"][manifest_key] = gate.sha(ROOT / manifest_key)
     for key, names in gate.runtime_inventory_names().items():
@@ -80,7 +80,7 @@ def report(sanitized=False):
         value["build_flags"][str(opt)] = [f"-O{opt}", "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1", "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1"]
         if sanitized:
             value["build_flags"][str(opt)].append("-fsanitize=address,undefined,float-cast-overflow")
-        value["runtime_objects"][str(opt)] = {f"runtime-{i}": "a" * 64 for i in range(7)}
+        value["runtime_objects"][str(opt)] = {f"runtime-{i}": "a" * 64 for i in range(len(gate.runtime_inventory_names()["runtime_sources"]))}
         for variant in variants:
             for n, seed in gate.BOUNDARY_INPUTS:
                 value["boundaries"].append({"variant": variant, "optimization": opt,
