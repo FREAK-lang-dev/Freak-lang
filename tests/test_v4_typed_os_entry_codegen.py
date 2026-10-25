@@ -729,6 +729,7 @@ class PureGateTests(unittest.TestCase):
                 # Strict modules carry no bootstrap module init or globals.
                 "v4_mir_module_init_body": lambda mir: -1,
                 "v4_codegen_llvm_global_release_lines": lambda mir: "",
+                "v4_codegen_llvm_bootstrap_entry_line": lambda mir: "",
             }, {"v4_ty_never": -1, "v4_ty_void": -2, "v4_mir_module_init_name": "freak.module.init"})
             self.assertEqual(calls, [""])
             self.assertIn("%rc = call ccc i64 @freak.user.main()\n", emitted)
