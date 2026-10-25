@@ -34,7 +34,9 @@ class CompilerOptimizationCache(unittest.TestCase):
         self.enterContext(patch.object(checks, "flattened_crates", return_value="crates"))
         v35 = self.work / "freakc_v35"
         v35.write_bytes(b"v35")
-        self.enterContext(patch.object(build.v35_seed, "v35_compiler", return_value=v35))
+        seed = build.v35_seed_module()
+        self.assertIs(seed.checks, checks)
+        self.enterContext(patch.object(seed, "v35_compiler", return_value=v35))
         self.commands = []
 
         def run_command(command, **kwargs):
