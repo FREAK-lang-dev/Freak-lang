@@ -1351,7 +1351,11 @@ task v4_mir_validate_type_contract(mir_id: int, sig_id: int, stmt_span: word, ty
 
 task v4_mir_signature_id_for_exact_name(mir_id: int, callee_name: word) -> int {
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot sig_idx = 0
+    -- The TY name index gives the first signature with this name, so the
+    -- common case needs no scan. Only when that first one is not callable
+    -- (a const or type shares the name) does the scan go on past it.
+    pilot sig_idx = v4_ty_signature_index_lookup(ty_id, callee_name, v4_ty_signature_index_any_name)
+    if sig_idx < 0 { give back 0 - 1 }
     pilot sig_count = v4_ty_signature_count(ty_id)
     repeat until sig_idx >= sig_count {
         if v4_ty_signature_name(ty_id, sig_idx) == callee_name {

@@ -104,8 +104,9 @@ static void probe_ownership(void) {
     freak_v4_word_drop(input);
     int64_t first = freak_v4_compiler_array_get(array, 0);
     int64_t second = freak_v4_compiler_array_get(array, 0);
-    assert(first != second && first != stored && second != stored);
-    assert(freak_llvm_owned_count == 3);
+    /* A get shares the stored allocation: one registry entry, three owners. */
+    assert(first == stored && second == stored);
+    assert(freak_llvm_owned_count == 1);
     /* Borrowing this exact internal cell proves clone-before-replacement. */
     assert(freak_v4_compiler_array_set_checked(array, 0, stored) == 1);
     assert(v4_arrays[v4_array_slot(array)].cells[0] != stored);
@@ -292,7 +293,13 @@ static void probe_failure_atomicity(void) {
             int64_t status = operation == 0 ? freak_v4_compiler_array_set_checked(array, 0, input) :
                 operation == 1 ? freak_v4_compiler_array_get_checked(array, 0, &out) :
                 freak_v4_compiler_array_join_checked(array, &out);
-            assert(status == 0 && (operation == 0 || out == 0));
+            /* A get allocates nothing, so injected faults cannot fail it. */
+            if (operation == 1) {
+                assert(status == 1 && out == stored);
+                freak_v4_word_drop(out);
+            } else {
+                assert(status == 0 && (operation == 0 || out == 0));
+            }
             assert(v4_array_slot(array) >= 0 && freak_v4_compiler_array_len(array) == 1);
             assert(v4_arrays[v4_array_slot(array)].cells[0] == stored);
             assert(freak_llvm_owned_count == owners && probe_raw_count == raw);
@@ -414,8 +421,10 @@ static int probe_profile(const char *mode) {
 /* exit1 compatibility errors run actual cleanup before both registered owner
    audits. abort paths must skip this atexit hook, including its marker. */
 static int64_t probe_exit_word;
+static freak_llvm_owned_word *probe_saturated_cell;
 static void probe_exit_cleanup(void) {
     probe_fault(0, 0);
+    if (probe_saturated_cell) probe_saturated_cell->refs = 1;
     freak_v4_compiler_array_shutdown();
     freak_v4_word_drop(probe_exit_word);
     probe_clean();
@@ -466,7 +475,15 @@ static int probe_fatal(const char *mode) {
         freak_v4_compiler_array_push(array, probe_exit_word);
         probe_fault(1, 0);
         if (!strcmp(mode, "fatal-set-resource")) freak_v4_compiler_array_set(array, 0, probe_exit_word);
-        else if (!strcmp(mode, "fatal-get-resource")) (void)freak_v4_compiler_array_get(array, 0);
+        else if (!strcmp(mode, "fatal-get-resource")) {
+            /* A get shares the cell; it copies (and can run out of memory)
+               only when the cell's reference count is saturated. */
+            probe_saturated_cell = freak_llvm_owned_find(
+                (void *)(uintptr_t)v4_arrays[v4_array_slot(array)].cells[0], NULL);
+            assert(probe_saturated_cell);
+            probe_saturated_cell->refs = SIZE_MAX;
+            (void)freak_v4_compiler_array_get(array, 0);
+        }
         else if (!strcmp(mode, "fatal-join-resource")) (void)freak_v4_compiler_array_join(array);
         else return 98;
     }

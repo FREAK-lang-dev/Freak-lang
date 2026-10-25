@@ -5,7 +5,7 @@
 /* Compiler-private owned-word storage prerequisite, not List<T> or a public C
    ABI. Tickets are copyable integer identities in a separate encoded domain.
    A valid cell owns one registered V4 word. Inputs borrow; stores copy; gets
-   return a fresh owner. Release drops cells, never nested integer tickets.
+   return a new owner of the stored allocation (words are immutable). Release drops cells, never nested integer tickets.
    The pool is single-threaded and does not support reentrant allocator hooks.
 
    Checked operations return OK, RESOURCE, INVALID or INDEX. A required output
