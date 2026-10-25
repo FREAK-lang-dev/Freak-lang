@@ -10057,6 +10057,8 @@ task v4_mir_bootstrap_word_copy(mir_id: int, body_id: int, read: int, span: word
 
 -- The implicit copy above: its loan and local read sit just before it.
 task v4_mir_bootstrap_word_copy_loan(mir_id: int, body_id: int, value: int) -> int {
+    -- Strict files have no implicit copies; their clones are real.
+    if not v4_mir_file_is_bootstrap(mir_id) { give back 0 - 1 }
     if value < 2 or value >= v4_mir_body_rvalue_count(mir_id, body_id) { give back 0 - 1 }
     if v4_mir_rvalue_kind(mir_id, body_id, value) != v4_mir_rvalue_call or v4_mir_rvalue_builtin_method(mir_id, body_id, value) != v4_mir_word_intrinsic_identity("clone") { give back 0 - 1 }
     pilot loan = value - 1
