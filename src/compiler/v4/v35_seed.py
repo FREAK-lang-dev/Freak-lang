@@ -96,7 +96,8 @@ def v35_compiler(clang: str) -> Path:
     work = work_root() / "v3"
     work.mkdir(parents=True, exist_ok=True)
     aggregate_text = b"".join(path.read_bytes() for path in V3_SOURCES)
-    key = _digest("v35-compiler-v1", clang, SEED_C.read_bytes(), aggregate_text, _runtime_key())
+    key = _digest("v35-compiler-v1", clang, SEED_C.read_bytes(), aggregate_text, _runtime_key(),
+                  *C_FLAGS, *checks.runtime_platform_final_link_args())
     compiler = work / f"freakc_v35{EXE}"
     stamp = work / "freakc_v35.sha256"
     if _cached(stamp, compiler, key):
@@ -141,8 +142,11 @@ def build_tool(clang: str, entry: Path, name: str, opt: int = 0,
     work.mkdir(parents=True, exist_ok=True)
     text = tool_source(entry) if source is None else source
     inputs = [path.read_bytes() for path in (*extra_sources, *key_files)]
+    # Section markers keep an argument from matching one in another section.
     key = _digest("v35-tool-v1", clang, compiler.read_bytes(), text, _runtime_key(), str(opt),
-                  *extra, *libraries, *inputs)
+                  HOST_PROFILE, *C_FLAGS, *checks.runtime_platform_final_link_args(),
+                  "extra", *extra, "sources", *(str(path) for path in extra_sources), *inputs,
+                  "libraries", *libraries, "keys", *(str(path) for path in key_files))
     output = work / f"{name}{EXE}"
     stamp = work / f"{name}.sha256"
     if _cached(stamp, output, key):

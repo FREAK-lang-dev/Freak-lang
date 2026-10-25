@@ -7,7 +7,10 @@
 -- transport: it reads Content-Length framed JSON-RPC, keeps documents in
 -- freak_lsp, asks the editor queries, and writes LSP JSON back.
 --
--- Byte I/O and JSON string escapes live in tools/lsp_stdio.c (lspio_*).
+-- Byte I/O and JSON string escapes live in tools/lsp_stdio.c (lspio_*,
+-- declared below to match tools/lsp_stdio.h). Word results are new runtime
+-- freak_word buffers that the compiled FREAK code owns and releases itself,
+-- like any other word, so this file never frees them by hand.
 -- Everything else, including JSON navigation and position mapping, is FREAK.
 -- Build with: python src/compiler/v4/build_lsp.py
 
