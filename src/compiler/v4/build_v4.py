@@ -183,20 +183,38 @@ def main() -> int:
     if args.with_crates:
         sources = [*checks.crate_paths(), *sources]
         args.bootstrap_root = True
+    try:
+        # Every original source, not only the build input, must survive the build.
+        for source in sources:
+            require_distinct_output(source, args.output)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     flattened = None
     if len(sources) > 1:
         # Real module loading is later work; until then the build input is
-        # one file, and diagnostics map back to each original source.
+        # one file, and diagnostics map back to each original source. Each
+        # build gets its own flat file, so concurrent builds never share one.
         flattened = FlattenedSource(sources)
         flat_root = checks.RUNTIME_BUILD_ROOT / "flatten"
         flat_root.mkdir(parents=True, exist_ok=True)
-        args.source = flat_root / (args.output.name + ".flat.fk")
-        args.source.write_bytes(flattened.data)
+        handle, flat_name = tempfile.mkstemp(prefix=args.output.name + ".", suffix=".flat.fk", dir=flat_root)
+        args.source = Path(flat_name)
+        with os.fdopen(handle, "wb") as flat_file:
+            flat_file.write(flattened.data)
         global annotate_diagnostics
         annotate_diagnostics = flattened.annotate
-        print(f"v4-flattened sources={len(sources)} bytes={len(flattened.data)}")
+        print(f"v4-flattened sources={len(sources)} bytes={len(flattened.data)} input={args.source}")
     else:
         args.source = sources[0]
+    try:
+        return build(args, parser, clang, flattened)
+    finally:
+        if flattened is not None and not os.environ.get("FREAK_V4_KEEP_FLAT"):
+            args.source.unlink(missing_ok=True)
+
+
+def build(args: argparse.Namespace, parser: argparse.ArgumentParser, clang: str, flattened: FlattenedSource | None) -> int:
     target = args.target or host_target()
     if not args.emit_llvm and target != host_target():
         parser.error("native linking currently supports the host TargetSpec; use --emit-llvm for cross targets")

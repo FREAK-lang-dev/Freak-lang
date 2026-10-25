@@ -1033,6 +1033,23 @@ task v4_codegen_llvm_global_definition_lines(mir_id: int) -> word {
     give back out
 }
 
+-- A root global shares the LLVM global namespace with every callable.
+task v4_codegen_llvm_native_global_symbol_error(codegen_id: int, mir_id: int) -> word {
+    pilot idx = 0
+    pilot count = v4_mir_global_count(mir_id)
+    repeat until idx >= count {
+        pilot symbol = v4_codegen_llvm_global_symbol(v4_mir_global_name(mir_id, idx))
+        if v4_codegen_llvm_body_symbol_linear_contains(codegen_id, symbol) { give back "native global symbol conflicts with " + symbol }
+        pilot decl_id = 0
+        repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
+            if v4_codegen_llvm_decl_symbol(codegen_id, decl_id) == symbol { give back "native global symbol conflicts with explicit ABI declaration: " + symbol }
+            decl_id += 1
+        }
+        idx += 1
+    }
+    give back ""
+}
+
 task v4_codegen_llvm_global_symbol(name: word) -> word {
     give back v4_codegen_llvm_symbol("freak.global." + name)
 }
@@ -2698,7 +2715,8 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
     if owned_words and native_error == "" { native_error = v4_codegen_llvm_owned_word_error(mir_id) }
     if native_error == "" { native_error = v4_codegen_llvm_native_entry_error(mir_id) }
     if native_error == "" { native_error = v4_codegen_llvm_native_declaration_symbol_error(codegen_id) }
-    if native_error == "" and v4_codegen_llvm_find_mir_body(mir_id, "main") >= 0 { native_error = v4_codegen_llvm_native_entry_symbol_error(codegen_id) }
+    -- A script initializer generates @main too, so it gets the same check.
+    if native_error == "" and (v4_codegen_llvm_find_mir_body(mir_id, "main") >= 0 or v4_mir_module_init_body(mir_id) >= 0) { native_error = v4_codegen_llvm_native_entry_symbol_error(codegen_id) }
     array_set(v4_codegen_llvm_native_errors, codegen_id, native_error)
     if native_error == "" {
         v4_codegen_llvm_lower_bodies(codegen_id, mir_id)
@@ -2708,6 +2726,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         native_error = v4_codegen_llvm_native_body_symbol_error(codegen_id)
         if native_error == "" { native_error = v4_codegen_llvm_native_duplicate_body_error(codegen_id) }
         if native_error == "" { native_error = v4_codegen_llvm_native_literal_symbol_error(codegen_id, mir_id) }
+        if native_error == "" { native_error = v4_codegen_llvm_native_global_symbol_error(codegen_id, mir_id) }
         if native_error == "" { native_error = v4_codegen_llvm_native_c_width_error(mir_id, ty_id) }
         pilot runtime = ""
         if owned_words and v4_codegen_llvm_mir_has_owned_words(mir_id) {
@@ -2721,6 +2740,8 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         if v4_codegen_llvm_mir_has_panic(mir_id) { runtime = runtime + "declare void " + v4_codegen_llvm_panic_symbol() + "(i64) noreturn\n" }
         if v4_codegen_llvm_numeric_runtime_used { runtime = runtime + v4_codegen_llvm_numeric_runtime_declarations() }
         if native_error == "" { native_error = v4_codegen_llvm_numeric_runtime_symbol_error(codegen_id) }
+        -- Global definitions are sealed with the bodies that read them.
+        runtime = runtime + v4_codegen_llvm_global_definition_lines(mir_id)
         array_set(v4_codegen_llvm_word_runtime_lines, codegen_id, runtime)
         pilot globals = v4_codegen_llvm_word_globals(mir_id)
         pilot entry = v4_codegen_llvm_native_entry(mir_id)
@@ -3733,7 +3754,8 @@ task v4_codegen_llvm_word_globals(mir_id: int) -> word {
 task v4_codegen_llvm_native_entry_error(mir_id: int) -> word {
     pilot main_id = v4_codegen_llvm_find_mir_body(mir_id, "main")
     if main_id < 0 {
-        if v4_codegen_llvm_mir_uses_typed_process(mir_id) { give back "native typed process operations require a generated zero-argument entry" }
+        -- A script initializer gets a generated entry that sets up args.
+        if v4_codegen_llvm_mir_uses_typed_process(mir_id) and v4_mir_module_init_body(mir_id) < 0 { give back "native typed process operations require a generated zero-argument entry" }
         give back ""
     }
     if v4_mir_body_callable_param_count(mir_id, main_id) != 0 {
@@ -4215,7 +4237,6 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
         v4_codegen_llvm_fragment_push(parts, globals)
     }
     v4_codegen_llvm_fragment_push(parts, array_get(v4_codegen_llvm_word_runtime_lines, codegen_id))
-    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_global_definition_lines(v4_codegen_llvm_file_mir_id(codegen_id)))
     pilot declaration_index = v4_codegen_llvm_decl_symbol_index_new(codegen_id)
     pilot decl_id = 0
     repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {

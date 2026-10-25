@@ -7574,6 +7574,13 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     pilot annotation_id = v4_ty_signature_local_annotation_at_offset(ty_id, sig_id, pilot_offset)
     if annotation_id >= 0 {
         declared_ty = v4_ty_signature_local_annotation_type(ty_id, sig_id, annotation_id)
+    } else if sig_id < 0 and v4_mir_body_def(mir_id, body_id) == v4_mir_module_init_def {
+        -- Root statements have no TY signature; read their annotation here.
+        if colon_token >= 0 {
+            pilot annotation = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, colon_token + 1, decl_end))
+            if annotation != "" { declared_ty = v4_ty_canonical_type(ty_id, annotation) }
+            if declared_ty == "" { declared_ty = v4_ty_unknown }
+        }
     } else if sig_id < 0 {
         declared_ty = v4_ty_impl_local_annotation_type_at_offset(ty_id, v4_mir_body_def(mir_id, body_id), pilot_offset)
     }
@@ -9794,11 +9801,16 @@ task v4_mir_lower_root_statement_range(mir_id: int, body_id: int, block_id: int,
                 }
             }
             current_block = v4_mir_lower_statement(mir_id, body_id, current_block, stream_id, idx, stmt_end)
-            if v4_mir_control_block_is_terminal(mir_id, body_id, current_block) { give back current_block }
+            if v4_mir_root_block_is_terminal(mir_id, body_id, current_block) { give back current_block }
             if stmt_end <= idx { idx += 1 } else { idx = next_statement }
         }
     }
     give back current_block
+}
+
+-- A root give back ends the module init; nothing may append to its block.
+task v4_mir_root_block_is_terminal(mir_id: int, body_id: int, block_id: int) -> bool {
+    give back v4_mir_control_block_is_terminal(mir_id, body_id, block_id) or v4_mir_block_has_return_stmt(mir_id, body_id, block_id)
 }
 
 -- One global initializer: an ordinary Assign to the Global place.
@@ -9860,7 +9872,7 @@ task v4_mir_lower_module_init(mir_id: int, hir_id: int, stream_id: int) -> void 
     item = 0
     repeat until item >= item_count {
         pilot kind = v4_hir_item_kind(hir_id, item)
-        if (kind == v4_hir_global or kind == v4_hir_root_stmt) and not v4_mir_control_block_is_terminal(mir_id, body_id, block) {
+        if (kind == v4_hir_global or kind == v4_hir_root_stmt) and not v4_mir_root_block_is_terminal(mir_id, body_id, block) {
             pilot span = v4_hir_item_span(hir_id, item)
             if kind == v4_hir_global {
                 block = v4_mir_lower_global_init(mir_id, body_id, block, stream_id, v4_hir_item_name(hir_id, item), span)
