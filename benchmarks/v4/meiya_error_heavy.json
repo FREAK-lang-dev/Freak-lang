@@ -5,13 +5,13 @@
     "head": "5ffec3042444b398c318547d8e21c696432db5a7",
     "memory_mib": 2048,
     "timeout_s": 60.0,
-    "probe_sha256": "af36af14b0a8f87cec8edb2ed3ce83810571d186db954fcda31dfcae4dd1029d",
+    "probe_sha256": "979c7c5e8065325b71741c6cf563e25cef26eaa72b54b437a4506c8e8b86e888",
     "crates": {
       "freak_span": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.15,
-        "peak_rss_mb": 10,
+        "seconds": 0.1,
+        "peak_rss_mb": 19,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -31,15 +31,15 @@
           },
           "ty": {
             "diagnostics": 2,
-            "seconds": 0.01
+            "seconds": 0.0
           },
           "mir": {
             "diagnostics": 2,
-            "seconds": 0.04
+            "seconds": 0.03
           },
           "borrowck": {
             "diagnostics": 14,
-            "seconds": 0.05
+            "seconds": 0.04
           }
         },
         "tail": [
@@ -52,8 +52,8 @@
       "freak_diag": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.05,
-        "peak_rss_mb": 0,
+        "seconds": 0.03,
+        "peak_rss_mb": 19,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -77,7 +77,7 @@
           },
           "mir": {
             "diagnostics": 4,
-            "seconds": 0.02
+            "seconds": 0.01
           },
           "borrowck": {
             "diagnostics": 9,
@@ -94,20 +94,20 @@
       "freak_macro_api": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.51,
-        "peak_rss_mb": 27,
+        "seconds": 0.58,
+        "peak_rss_mb": 28,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.05
+            "seconds": 0.06
           },
           "parse": {
             "diagnostics": 20,
-            "seconds": 0.01
+            "seconds": 0.02
           },
           "hir": {
             "diagnostics": 20,
-            "seconds": 0.01
+            "seconds": 0.02
           },
           "resolve": {
             "diagnostics": 20,
@@ -119,7 +119,7 @@
           },
           "mir": {
             "diagnostics": 20,
-            "seconds": 0.17
+            "seconds": 0.22
           },
           "borrowck": {
             "diagnostics": 231,
@@ -136,8 +136,8 @@
       "freak_arena": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.05,
-        "peak_rss_mb": 0,
+        "seconds": 0.03,
+        "peak_rss_mb": 19,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -161,11 +161,11 @@
           },
           "mir": {
             "diagnostics": 3,
-            "seconds": 0.02
+            "seconds": 0.01
           },
           "borrowck": {
             "diagnostics": 3,
-            "seconds": 0.02
+            "seconds": 0.01
           }
         },
         "tail": [
@@ -178,8 +178,8 @@
       "freak_intern": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.05,
-        "peak_rss_mb": 0,
+        "seconds": 0.02,
+        "peak_rss_mb": 19,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -203,11 +203,11 @@
           },
           "mir": {
             "diagnostics": 2,
-            "seconds": 0.01
+            "seconds": 0.0
           },
           "borrowck": {
             "diagnostics": 2,
-            "seconds": 0.01
+            "seconds": 0.0
           }
         },
         "tail": [
@@ -220,12 +220,12 @@
       "freak_session": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.1,
-        "peak_rss_mb": 6,
+        "seconds": 0.06,
+        "peak_rss_mb": 19,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.02
+            "seconds": 0.01
           },
           "parse": {
             "diagnostics": 6,
@@ -245,11 +245,11 @@
           },
           "mir": {
             "diagnostics": 6,
-            "seconds": 0.03
+            "seconds": 0.02
           },
           "borrowck": {
             "diagnostics": 8,
-            "seconds": 0.03
+            "seconds": 0.02
           }
         },
         "tail": [
@@ -262,8 +262,8 @@
       "freak_target": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.3,
-        "peak_rss_mb": 19,
+        "seconds": 0.27,
+        "peak_rss_mb": 20,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -287,7 +287,7 @@
           },
           "mir": {
             "diagnostics": 32,
-            "seconds": 0.09
+            "seconds": 0.08
           },
           "borrowck": {
             "diagnostics": 88,
@@ -304,12 +304,12 @@
       "freak_lex": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.96,
+        "seconds": 1.08,
         "peak_rss_mb": 48,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.08
+            "seconds": 0.06
           },
           "parse": {
             "diagnostics": 24,
@@ -329,11 +329,11 @@
           },
           "mir": {
             "diagnostics": 30,
-            "seconds": 0.25
+            "seconds": 0.32
           },
           "borrowck": {
             "diagnostics": 152,
-            "seconds": 0.55
+            "seconds": 0.63
           }
         },
         "tail": [
@@ -346,16 +346,16 @@
       "freak_parse": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 1.82,
-        "peak_rss_mb": 94,
+        "seconds": 1.99,
+        "peak_rss_mb": 95,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.16
+            "seconds": 0.2
           },
           "parse": {
             "diagnostics": 36,
-            "seconds": 0.05
+            "seconds": 0.06
           },
           "hir": {
             "diagnostics": 36,
@@ -367,11 +367,11 @@
           },
           "ty": {
             "diagnostics": 36,
-            "seconds": 0.05
+            "seconds": 0.06
           },
           "mir": {
             "diagnostics": 38,
-            "seconds": 0.63
+            "seconds": 0.77
           },
           "borrowck": {
             "diagnostics": 256,
@@ -388,20 +388,20 @@
       "freak_expand": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.36,
-        "peak_rss_mb": 24,
+        "seconds": 0.37,
+        "peak_rss_mb": 25,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.04
+            "seconds": 0.05
           },
           "parse": {
             "diagnostics": 8,
-            "seconds": 0.01
+            "seconds": 0.02
           },
           "hir": {
             "diagnostics": 8,
-            "seconds": 0.01
+            "seconds": 0.02
           },
           "resolve": {
             "diagnostics": 8,
@@ -417,7 +417,7 @@
           },
           "borrowck": {
             "diagnostics": 42,
-            "seconds": 0.16
+            "seconds": 0.17
           }
         },
         "tail": [
@@ -430,20 +430,20 @@
       "freak_hir": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 7.14,
-        "peak_rss_mb": 283,
+        "seconds": 7.81,
+        "peak_rss_mb": 284,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.47
+            "seconds": 0.57
           },
           "parse": {
             "diagnostics": 80,
-            "seconds": 0.19
+            "seconds": 0.22
           },
           "hir": {
             "diagnostics": 80,
-            "seconds": 0.17
+            "seconds": 0.16
           },
           "resolve": {
             "diagnostics": 80,
@@ -451,15 +451,15 @@
           },
           "ty": {
             "diagnostics": 80,
-            "seconds": 0.1
+            "seconds": 0.11
           },
           "mir": {
             "diagnostics": 91,
-            "seconds": 2.34
+            "seconds": 2.57
           },
           "borrowck": {
             "diagnostics": 812,
-            "seconds": 3.84
+            "seconds": 4.15
           }
         },
         "tail": [
@@ -472,8 +472,8 @@
       "freak_resolve": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.66,
-        "peak_rss_mb": 34,
+        "seconds": 0.51,
+        "peak_rss_mb": 35,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -497,11 +497,11 @@
           },
           "mir": {
             "diagnostics": 19,
-            "seconds": 0.29
+            "seconds": 0.18
           },
           "borrowck": {
             "diagnostics": 122,
-            "seconds": 0.25
+            "seconds": 0.22
           }
         },
         "tail": [
@@ -514,20 +514,20 @@
       "freak_ty": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 16.59,
+        "seconds": 18.06,
         "peak_rss_mb": 512,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 1.08
+            "seconds": 0.89
           },
           "parse": {
             "diagnostics": 105,
-            "seconds": 0.34
+            "seconds": 0.35
           },
           "hir": {
             "diagnostics": 105,
-            "seconds": 0.27
+            "seconds": 0.31
           },
           "resolve": {
             "diagnostics": 105,
@@ -535,15 +535,15 @@
           },
           "ty": {
             "diagnostics": 105,
-            "seconds": 0.27
+            "seconds": 0.26
           },
           "mir": {
             "diagnostics": 110,
-            "seconds": 4.84
+            "seconds": 4.6
           },
           "borrowck": {
             "diagnostics": 2374,
-            "seconds": 9.7
+            "seconds": 11.62
           }
         },
         "tail": [
@@ -556,20 +556,20 @@
       "freak_mir": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 31.51,
+        "seconds": 33.97,
         "peak_rss_mb": 516,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.72
+            "seconds": 0.61
           },
           "parse": {
             "diagnostics": 139,
-            "seconds": 0.2
+            "seconds": 0.24
           },
           "hir": {
             "diagnostics": 139,
-            "seconds": 0.16
+            "seconds": 0.2
           },
           "resolve": {
             "diagnostics": 139,
@@ -577,15 +577,15 @@
           },
           "ty": {
             "diagnostics": 139,
-            "seconds": 0.12
+            "seconds": 0.15
           },
           "mir": {
             "diagnostics": 162,
-            "seconds": 3.5
+            "seconds": 3.56
           },
           "borrowck": {
             "diagnostics": 1373,
-            "seconds": 26.75
+            "seconds": 29.18
           }
         },
         "tail": [
@@ -598,16 +598,16 @@
       "freak_mir_build": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 12.25,
+        "seconds": 12.48,
         "peak_rss_mb": 382,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.82
+            "seconds": 0.74
           },
           "parse": {
             "diagnostics": 17,
-            "seconds": 0.26
+            "seconds": 0.25
           },
           "hir": {
             "diagnostics": 17,
@@ -619,15 +619,15 @@
           },
           "ty": {
             "diagnostics": 17,
-            "seconds": 0.19
+            "seconds": 0.17
           },
           "mir": {
             "diagnostics": 28,
-            "seconds": 4.25
+            "seconds": 3.78
           },
           "borrowck": {
             "diagnostics": 1989,
-            "seconds": 6.44
+            "seconds": 7.27
           }
         },
         "tail": [
@@ -640,16 +640,16 @@
       "freak_borrowck": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 8.36,
+        "seconds": 8.07,
         "peak_rss_mb": 330,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.65
+            "seconds": 0.62
           },
           "parse": {
             "diagnostics": 179,
-            "seconds": 0.22
+            "seconds": 0.29
           },
           "hir": {
             "diagnostics": 179,
@@ -665,11 +665,11 @@
           },
           "mir": {
             "diagnostics": 190,
-            "seconds": 3.27
+            "seconds": 3.22
           },
           "borrowck": {
             "diagnostics": 1342,
-            "seconds": 3.83
+            "seconds": 3.58
           }
         },
         "tail": [
@@ -682,20 +682,20 @@
       "freak_codegen_llvm": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 5.37,
-        "peak_rss_mb": 203,
+        "seconds": 4.89,
+        "peak_rss_mb": 204,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.47
+            "seconds": 0.38
           },
           "parse": {
             "diagnostics": 39,
-            "seconds": 0.13
+            "seconds": 0.11
           },
           "hir": {
             "diagnostics": 39,
-            "seconds": 0.11
+            "seconds": 0.1
           },
           "resolve": {
             "diagnostics": 39,
@@ -707,11 +707,11 @@
           },
           "mir": {
             "diagnostics": 55,
-            "seconds": 1.67
+            "seconds": 1.45
           },
           "borrowck": {
             "diagnostics": 758,
-            "seconds": 2.89
+            "seconds": 2.75
           }
         },
         "tail": [
@@ -729,7 +729,7 @@
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.1
+            "seconds": 0.09
           },
           "parse": {
             "diagnostics": 27,
@@ -749,11 +749,11 @@
           },
           "mir": {
             "diagnostics": 33,
-            "seconds": 0.34
+            "seconds": 0.38
           },
           "borrowck": {
             "diagnostics": 169,
-            "seconds": 2.38
+            "seconds": 2.36
           }
         },
         "tail": [
@@ -766,7 +766,7 @@
       "freak_driver": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.46,
+        "seconds": 0.45,
         "peak_rss_mb": 28,
         "stages": {
           "lex": {
@@ -779,7 +779,7 @@
           },
           "hir": {
             "diagnostics": 6,
-            "seconds": 0.01
+            "seconds": 0.02
           },
           "resolve": {
             "diagnostics": 6,
@@ -791,11 +791,11 @@
           },
           "mir": {
             "diagnostics": 6,
-            "seconds": 0.16
+            "seconds": 0.14
           },
           "borrowck": {
             "diagnostics": 103,
-            "seconds": 0.18
+            "seconds": 0.21
           }
         },
         "tail": [
@@ -808,8 +808,8 @@
       "freak_editor": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 1.82,
-        "peak_rss_mb": 103,
+        "seconds": 1.71,
+        "peak_rss_mb": 107,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -829,11 +829,11 @@
           },
           "ty": {
             "diagnostics": 51,
-            "seconds": 0.06
+            "seconds": 0.07
           },
           "mir": {
             "diagnostics": 61,
-            "seconds": 1.11
+            "seconds": 1.0
           },
           "borrowck": {
             "diagnostics": 62,
@@ -850,20 +850,20 @@
       "freak_snapshot": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 6.49,
+        "seconds": 6.47,
         "peak_rss_mb": 190,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.34
+            "seconds": 0.29
           },
           "parse": {
             "diagnostics": 14,
-            "seconds": 0.11
+            "seconds": 0.1
           },
           "hir": {
             "diagnostics": 14,
-            "seconds": 0.1
+            "seconds": 0.09
           },
           "resolve": {
             "diagnostics": 14,
@@ -875,11 +875,11 @@
           },
           "mir": {
             "diagnostics": 26,
-            "seconds": 1.37
+            "seconds": 1.41
           },
           "borrowck": {
             "diagnostics": 986,
-            "seconds": 4.48
+            "seconds": 4.5
           }
         },
         "tail": [
@@ -892,12 +892,12 @@
       "freak_lsp": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.76,
+        "seconds": 0.77,
         "peak_rss_mb": 37,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.05
+            "seconds": 0.06
           },
           "parse": {
             "diagnostics": 4,
@@ -905,7 +905,7 @@
           },
           "hir": {
             "diagnostics": 4,
-            "seconds": 0.02
+            "seconds": 0.03
           },
           "resolve": {
             "diagnostics": 4,
@@ -913,15 +913,15 @@
           },
           "ty": {
             "diagnostics": 4,
-            "seconds": 0.03
+            "seconds": 0.02
           },
           "mir": {
             "diagnostics": 4,
-            "seconds": 0.2
+            "seconds": 0.23
           },
           "borrowck": {
             "diagnostics": 131,
-            "seconds": 0.42
+            "seconds": 0.41
           }
         },
         "tail": [
@@ -936,12 +936,12 @@
       "100": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 6.78,
+        "seconds": 6.97,
         "peak_rss_mb": 54,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.03
+            "seconds": 0.02
           },
           "parse": {
             "diagnostics": 0,
@@ -949,7 +949,7 @@
           },
           "hir": {
             "diagnostics": 0,
-            "seconds": 0.01
+            "seconds": 0.0
           },
           "resolve": {
             "diagnostics": 0,
@@ -965,7 +965,7 @@
           },
           "borrowck": {
             "diagnostics": 100,
-            "seconds": 6.61
+            "seconds": 6.85
           }
         },
         "tail": [
@@ -976,12 +976,12 @@
       "200": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 62.54,
+        "seconds": 55.86,
         "peak_rss_mb": 326,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.05
+            "seconds": 0.04
           },
           "parse": {
             "diagnostics": 0,
@@ -1001,11 +1001,11 @@
           },
           "mir": {
             "diagnostics": 0,
-            "seconds": 0.22
+            "seconds": 0.26
           },
           "borrowck": {
             "diagnostics": 200,
-            "seconds": 62.18
+            "seconds": 55.5
           }
         },
         "tail": [
@@ -1016,16 +1016,16 @@
       "400": {
         "outcome": "timeout",
         "exit": -9,
-        "seconds": 120.07,
-        "peak_rss_mb": 607,
+        "seconds": 120.04,
+        "peak_rss_mb": 599,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.12
+            "seconds": 0.09
           },
           "parse": {
             "diagnostics": 0,
-            "seconds": 0.05
+            "seconds": 0.04
           },
           "hir": {
             "diagnostics": 0,
@@ -1041,7 +1041,7 @@
           },
           "mir": {
             "diagnostics": 0,
-            "seconds": 0.64
+            "seconds": 0.59
           }
         },
         "tail": []
@@ -1049,20 +1049,20 @@
       "800": {
         "outcome": "timeout",
         "exit": -9,
-        "seconds": 120.11,
-        "peak_rss_mb": 686,
+        "seconds": 120.04,
+        "peak_rss_mb": 663,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.18
+            "seconds": 0.17
           },
           "parse": {
             "diagnostics": 0,
-            "seconds": 0.08
+            "seconds": 0.07
           },
           "hir": {
             "diagnostics": 0,
-            "seconds": 0.05
+            "seconds": 0.03
           },
           "resolve": {
             "diagnostics": 0,
@@ -1074,7 +1074,7 @@
           },
           "mir": {
             "diagnostics": 0,
-            "seconds": 1.84
+            "seconds": 1.85
           }
         },
         "tail": []
@@ -1083,20 +1083,20 @@
   },
   "after": {
     "label": "after",
-    "head": "5ffec3042444b398c318547d8e21c696432db5a7",
+    "head": "8308d85a1fb6c0239c169ff0766ee33c7a4843bd",
     "memory_mib": 2048,
     "timeout_s": 60.0,
-    "probe_sha256": "fb88e99c745b82eddcb67969427cc8786cc83c094bd65db61f94e0a629f6d14f",
+    "probe_sha256": "dfca1126f4c34ca3918a91c37ef141c2e1cc14c11cd738224714dc7bcb0bd8a1",
     "crates": {
       "freak_span": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.1,
-        "peak_rss_mb": 6,
+        "seconds": 0.12,
+        "peak_rss_mb": 19,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.02
+            "seconds": 0.01
           },
           "parse": {
             "diagnostics": 2,
@@ -1104,7 +1104,7 @@
           },
           "hir": {
             "diagnostics": 2,
-            "seconds": 0.01
+            "seconds": 0.0
           },
           "resolve": {
             "diagnostics": 2,
@@ -1116,11 +1116,11 @@
           },
           "mir": {
             "diagnostics": 2,
-            "seconds": 0.03
+            "seconds": 0.04
           },
           "borrowck": {
             "diagnostics": 14,
-            "seconds": 0.04
+            "seconds": 0.05
           }
         },
         "tail": [
@@ -1133,8 +1133,8 @@
       "freak_diag": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.05,
-        "peak_rss_mb": 0,
+        "seconds": 0.03,
+        "peak_rss_mb": 19,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -1175,16 +1175,16 @@
       "freak_macro_api": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.46,
+        "seconds": 0.42,
         "peak_rss_mb": 27,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.05
+            "seconds": 0.04
           },
           "parse": {
             "diagnostics": 20,
-            "seconds": 0.02
+            "seconds": 0.01
           },
           "hir": {
             "diagnostics": 20,
@@ -1196,11 +1196,11 @@
           },
           "ty": {
             "diagnostics": 20,
-            "seconds": 0.02
+            "seconds": 0.01
           },
           "mir": {
             "diagnostics": 20,
-            "seconds": 0.15
+            "seconds": 0.14
           },
           "borrowck": {
             "diagnostics": 231,
@@ -1217,8 +1217,8 @@
       "freak_arena": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.05,
-        "peak_rss_mb": 0,
+        "seconds": 0.03,
+        "peak_rss_mb": 19,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -1259,8 +1259,8 @@
       "freak_intern": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.06,
-        "peak_rss_mb": 2,
+        "seconds": 0.02,
+        "peak_rss_mb": 19,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -1288,7 +1288,7 @@
           },
           "borrowck": {
             "diagnostics": 2,
-            "seconds": 0.01
+            "seconds": 0.0
           }
         },
         "tail": [
@@ -1301,8 +1301,8 @@
       "freak_session": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.1,
-        "peak_rss_mb": 8,
+        "seconds": 0.06,
+        "peak_rss_mb": 19,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -1343,7 +1343,7 @@
       "freak_target": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.36,
+        "seconds": 0.25,
         "peak_rss_mb": 20,
         "stages": {
           "lex": {
@@ -1368,11 +1368,11 @@
           },
           "mir": {
             "diagnostics": 32,
-            "seconds": 0.09
+            "seconds": 0.08
           },
           "borrowck": {
             "diagnostics": 88,
-            "seconds": 0.17
+            "seconds": 0.11
           }
         },
         "tail": [
@@ -1385,20 +1385,20 @@
       "freak_lex": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 1.01,
-        "peak_rss_mb": 48,
+        "seconds": 0.97,
+        "peak_rss_mb": 49,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.09
+            "seconds": 0.06
           },
           "parse": {
             "diagnostics": 24,
-            "seconds": 0.03
+            "seconds": 0.02
           },
           "hir": {
             "diagnostics": 24,
-            "seconds": 0.02
+            "seconds": 0.03
           },
           "resolve": {
             "diagnostics": 24,
@@ -1406,15 +1406,15 @@
           },
           "ty": {
             "diagnostics": 24,
-            "seconds": 0.02
+            "seconds": 0.03
           },
           "mir": {
             "diagnostics": 30,
-            "seconds": 0.33
+            "seconds": 0.28
           },
           "borrowck": {
             "diagnostics": 152,
-            "seconds": 0.5
+            "seconds": 0.55
           }
         },
         "tail": [
@@ -1427,20 +1427,20 @@
       "freak_parse": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 1.82,
+        "seconds": 2.0,
         "peak_rss_mb": 94,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.2
+            "seconds": 0.16
           },
           "parse": {
             "diagnostics": 36,
-            "seconds": 0.07
+            "seconds": 0.05
           },
           "hir": {
             "diagnostics": 36,
-            "seconds": 0.06
+            "seconds": 0.05
           },
           "resolve": {
             "diagnostics": 36,
@@ -1452,11 +1452,11 @@
           },
           "mir": {
             "diagnostics": 38,
-            "seconds": 0.59
+            "seconds": 0.81
           },
           "borrowck": {
             "diagnostics": 256,
-            "seconds": 0.79
+            "seconds": 0.88
           }
         },
         "tail": [
@@ -1469,12 +1469,12 @@
       "freak_expand": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.35,
-        "peak_rss_mb": 24,
+        "seconds": 0.28,
+        "peak_rss_mb": 25,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.04
+            "seconds": 0.03
           },
           "parse": {
             "diagnostics": 8,
@@ -1494,11 +1494,11 @@
           },
           "mir": {
             "diagnostics": 8,
-            "seconds": 0.12
+            "seconds": 0.09
           },
           "borrowck": {
             "diagnostics": 42,
-            "seconds": 0.13
+            "seconds": 0.12
           }
         },
         "tail": [
@@ -1511,20 +1511,20 @@
       "freak_hir": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 6.58,
-        "peak_rss_mb": 276,
+        "seconds": 6.33,
+        "peak_rss_mb": 277,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.53
+            "seconds": 0.5
           },
           "parse": {
             "diagnostics": 80,
-            "seconds": 0.19
+            "seconds": 0.17
           },
           "hir": {
             "diagnostics": 80,
-            "seconds": 0.19
+            "seconds": 0.14
           },
           "resolve": {
             "diagnostics": 80,
@@ -1532,15 +1532,15 @@
           },
           "ty": {
             "diagnostics": 80,
-            "seconds": 0.12
+            "seconds": 0.1
           },
           "mir": {
             "diagnostics": 91,
-            "seconds": 2.62
+            "seconds": 2.5
           },
           "borrowck": {
             "diagnostics": 812,
-            "seconds": 2.89
+            "seconds": 2.91
           }
         },
         "tail": [
@@ -1553,8 +1553,8 @@
       "freak_resolve": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.76,
-        "peak_rss_mb": 34,
+        "seconds": 0.5,
+        "peak_rss_mb": 35,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -1562,7 +1562,7 @@
           },
           "parse": {
             "diagnostics": 14,
-            "seconds": 0.03
+            "seconds": 0.02
           },
           "hir": {
             "diagnostics": 14,
@@ -1578,11 +1578,11 @@
           },
           "mir": {
             "diagnostics": 19,
-            "seconds": 0.32
+            "seconds": 0.17
           },
           "borrowck": {
             "diagnostics": 122,
-            "seconds": 0.27
+            "seconds": 0.21
           }
         },
         "tail": [
@@ -1595,16 +1595,16 @@
       "freak_ty": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 13.88,
-        "peak_rss_mb": 494,
+        "seconds": 13.93,
+        "peak_rss_mb": 496,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.93
+            "seconds": 0.94
           },
           "parse": {
             "diagnostics": 105,
-            "seconds": 0.34
+            "seconds": 0.3
           },
           "hir": {
             "diagnostics": 105,
@@ -1616,15 +1616,15 @@
           },
           "ty": {
             "diagnostics": 105,
-            "seconds": 0.26
+            "seconds": 0.27
           },
           "mir": {
             "diagnostics": 110,
-            "seconds": 5.14
+            "seconds": 4.85
           },
           "borrowck": {
             "diagnostics": 2374,
-            "seconds": 6.88
+            "seconds": 7.28
           }
         },
         "tail": [
@@ -1637,20 +1637,20 @@
       "freak_mir": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 10.73,
+        "seconds": 10.94,
         "peak_rss_mb": 386,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.86
+            "seconds": 0.56
           },
           "parse": {
             "diagnostics": 139,
-            "seconds": 0.23
+            "seconds": 0.19
           },
           "hir": {
             "diagnostics": 139,
-            "seconds": 0.21
+            "seconds": 0.19
           },
           "resolve": {
             "diagnostics": 139,
@@ -1658,15 +1658,15 @@
           },
           "ty": {
             "diagnostics": 139,
-            "seconds": 0.13
+            "seconds": 0.12
           },
           "mir": {
             "diagnostics": 162,
-            "seconds": 3.17
+            "seconds": 3.12
           },
           "borrowck": {
             "diagnostics": 1373,
-            "seconds": 6.08
+            "seconds": 6.71
           }
         },
         "tail": [
@@ -1679,8 +1679,8 @@
       "freak_mir_build": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 10.31,
-        "peak_rss_mb": 376,
+        "seconds": 10.63,
+        "peak_rss_mb": 377,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -1688,11 +1688,11 @@
           },
           "parse": {
             "diagnostics": 17,
-            "seconds": 0.28
+            "seconds": 0.24
           },
           "hir": {
             "diagnostics": 17,
-            "seconds": 0.24
+            "seconds": 0.21
           },
           "resolve": {
             "diagnostics": 17,
@@ -1700,15 +1700,15 @@
           },
           "ty": {
             "diagnostics": 17,
-            "seconds": 0.21
+            "seconds": 0.15
           },
           "mir": {
             "diagnostics": 28,
-            "seconds": 4.2
+            "seconds": 3.37
           },
           "borrowck": {
             "diagnostics": 1989,
-            "seconds": 4.51
+            "seconds": 5.82
           }
         },
         "tail": [
@@ -1721,20 +1721,20 @@
       "freak_borrowck": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 9.69,
-        "peak_rss_mb": 333,
+        "seconds": 7.54,
+        "peak_rss_mb": 334,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.7
+            "seconds": 0.62
           },
           "parse": {
             "diagnostics": 180,
-            "seconds": 0.3
+            "seconds": 0.26
           },
           "hir": {
             "diagnostics": 180,
-            "seconds": 0.26
+            "seconds": 0.17
           },
           "resolve": {
             "diagnostics": 180,
@@ -1742,15 +1742,15 @@
           },
           "ty": {
             "diagnostics": 180,
-            "seconds": 0.18
+            "seconds": 0.15
           },
           "mir": {
             "diagnostics": 191,
-            "seconds": 4.26
+            "seconds": 3.18
           },
           "borrowck": {
             "diagnostics": 1376,
-            "seconds": 3.91
+            "seconds": 3.13
           }
         },
         "tail": [
@@ -1763,20 +1763,20 @@
       "freak_codegen_llvm": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 4.76,
+        "seconds": 4.37,
         "peak_rss_mb": 199,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.56
+            "seconds": 0.35
           },
           "parse": {
             "diagnostics": 39,
-            "seconds": 0.12
+            "seconds": 0.11
           },
           "hir": {
             "diagnostics": 39,
-            "seconds": 0.11
+            "seconds": 0.1
           },
           "resolve": {
             "diagnostics": 39,
@@ -1784,15 +1784,15 @@
           },
           "ty": {
             "diagnostics": 39,
-            "seconds": 0.07
+            "seconds": 0.06
           },
           "mir": {
             "diagnostics": 55,
-            "seconds": 1.63
+            "seconds": 1.59
           },
           "borrowck": {
             "diagnostics": 758,
-            "seconds": 2.24
+            "seconds": 2.13
           }
         },
         "tail": [
@@ -1805,12 +1805,12 @@
       "freak_query": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 1.07,
-        "peak_rss_mb": 55,
+        "seconds": 1.18,
+        "peak_rss_mb": 56,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.11
+            "seconds": 0.09
           },
           "parse": {
             "diagnostics": 27,
@@ -1830,11 +1830,11 @@
           },
           "mir": {
             "diagnostics": 33,
-            "seconds": 0.31
+            "seconds": 0.36
           },
           "borrowck": {
             "diagnostics": 169,
-            "seconds": 0.54
+            "seconds": 0.64
           }
         },
         "tail": [
@@ -1847,7 +1847,7 @@
       "freak_driver": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.46,
+        "seconds": 0.4,
         "peak_rss_mb": 28,
         "stages": {
           "lex": {
@@ -1860,7 +1860,7 @@
           },
           "hir": {
             "diagnostics": 6,
-            "seconds": 0.02
+            "seconds": 0.03
           },
           "resolve": {
             "diagnostics": 6,
@@ -1868,15 +1868,15 @@
           },
           "ty": {
             "diagnostics": 6,
-            "seconds": 0.01
+            "seconds": 0.0
           },
           "mir": {
             "diagnostics": 6,
-            "seconds": 0.15
+            "seconds": 0.14
           },
           "borrowck": {
             "diagnostics": 103,
-            "seconds": 0.17
+            "seconds": 0.16
           }
         },
         "tail": [
@@ -1889,20 +1889,20 @@
       "freak_editor": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 1.58,
-        "peak_rss_mb": 103,
+        "seconds": 1.89,
+        "peak_rss_mb": 107,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.23
+            "seconds": 0.26
           },
           "parse": {
             "diagnostics": 51,
-            "seconds": 0.08
+            "seconds": 0.1
           },
           "hir": {
             "diagnostics": 51,
-            "seconds": 0.07
+            "seconds": 0.09
           },
           "resolve": {
             "diagnostics": 51,
@@ -1914,11 +1914,11 @@
           },
           "mir": {
             "diagnostics": 61,
-            "seconds": 0.9
+            "seconds": 1.1
           },
           "borrowck": {
             "diagnostics": 62,
-            "seconds": 0.21
+            "seconds": 0.26
           }
         },
         "tail": [
@@ -1931,20 +1931,20 @@
       "freak_snapshot": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 4.62,
+        "seconds": 4.43,
         "peak_rss_mb": 176,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.45
+            "seconds": 0.29
           },
           "parse": {
             "diagnostics": 14,
-            "seconds": 0.14
+            "seconds": 0.1
           },
           "hir": {
             "diagnostics": 14,
-            "seconds": 0.1
+            "seconds": 0.09
           },
           "resolve": {
             "diagnostics": 14,
@@ -1952,15 +1952,15 @@
           },
           "ty": {
             "diagnostics": 14,
-            "seconds": 0.07
+            "seconds": 0.06
           },
           "mir": {
             "diagnostics": 26,
-            "seconds": 1.44
+            "seconds": 1.4
           },
           "borrowck": {
             "diagnostics": 986,
-            "seconds": 2.37
+            "seconds": 2.46
           }
         },
         "tail": [
@@ -1973,20 +1973,20 @@
       "freak_lsp": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.66,
-        "peak_rss_mb": 36,
+        "seconds": 0.98,
+        "peak_rss_mb": 37,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.05
+            "seconds": 0.09
           },
           "parse": {
             "diagnostics": 4,
-            "seconds": 0.02
+            "seconds": 0.03
           },
           "hir": {
             "diagnostics": 4,
-            "seconds": 0.02
+            "seconds": 0.04
           },
           "resolve": {
             "diagnostics": 4,
@@ -1994,15 +1994,15 @@
           },
           "ty": {
             "diagnostics": 4,
-            "seconds": 0.02
+            "seconds": 0.03
           },
           "mir": {
             "diagnostics": 4,
-            "seconds": 0.19
+            "seconds": 0.33
           },
           "borrowck": {
             "diagnostics": 131,
-            "seconds": 0.35
+            "seconds": 0.46
           }
         },
         "tail": [
@@ -2017,8 +2017,8 @@
       "100": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 0.51,
-        "peak_rss_mb": 18,
+        "seconds": 0.41,
+        "peak_rss_mb": 19,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -2042,11 +2042,11 @@
           },
           "mir": {
             "diagnostics": 0,
-            "seconds": 0.12
+            "seconds": 0.08
           },
           "borrowck": {
             "diagnostics": 100,
-            "seconds": 0.32
+            "seconds": 0.29
           }
         },
         "tail": [
@@ -2057,12 +2057,12 @@
       "200": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 1.57,
+        "seconds": 1.35,
         "peak_rss_mb": 40,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.06
+            "seconds": 0.04
           },
           "parse": {
             "diagnostics": 0,
@@ -2082,11 +2082,11 @@
           },
           "mir": {
             "diagnostics": 0,
-            "seconds": 0.25
+            "seconds": 0.2
           },
           "borrowck": {
             "diagnostics": 200,
-            "seconds": 1.19
+            "seconds": 1.08
           }
         },
         "tail": [
@@ -2097,20 +2097,20 @@
       "400": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 5.48,
-        "peak_rss_mb": 106,
+        "seconds": 5.08,
+        "peak_rss_mb": 107,
         "stages": {
           "lex": {
             "diagnostics": 0,
-            "seconds": 0.1
+            "seconds": 0.08
           },
           "parse": {
             "diagnostics": 0,
-            "seconds": 0.04
+            "seconds": 0.03
           },
           "hir": {
             "diagnostics": 0,
-            "seconds": 0.03
+            "seconds": 0.02
           },
           "resolve": {
             "diagnostics": 0,
@@ -2122,11 +2122,11 @@
           },
           "mir": {
             "diagnostics": 0,
-            "seconds": 0.61
+            "seconds": 0.58
           },
           "borrowck": {
             "diagnostics": 400,
-            "seconds": 4.63
+            "seconds": 4.36
           }
         },
         "tail": [
@@ -2137,8 +2137,8 @@
       "800": {
         "outcome": "meiya finished",
         "exit": 0,
-        "seconds": 21.61,
-        "peak_rss_mb": 332,
+        "seconds": 19.36,
+        "peak_rss_mb": 334,
         "stages": {
           "lex": {
             "diagnostics": 0,
@@ -2162,11 +2162,11 @@
           },
           "mir": {
             "diagnostics": 0,
-            "seconds": 1.95
+            "seconds": 1.58
           },
           "borrowck": {
             "diagnostics": 800,
-            "seconds": 19.32
+            "seconds": 17.5
           }
         },
         "tail": [
@@ -2174,7 +2174,6 @@
           "v4-aborted-after=borrowck"
         ]
       }
-    },
-    "note": "after = this branch's Meiya on main 5ffec30 (freak_borrowck source includes the change)"
+    }
   }
 }
