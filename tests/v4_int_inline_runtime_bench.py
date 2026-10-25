@@ -848,7 +848,7 @@ def validate_historical_native(report: dict) -> None:
                 or report["artifact_sha256"].get(str(optimized)) != optimized_sha or not optimized_sha):
             raise GateError("historical native/optimized artifacts are not sealed to their exact optimization")
         object_paths = derivative.get("runtime_object_paths", {}).get(key, [])
-        if len(object_paths) != 7 or set(object_paths) != set(report["runtime_objects"][key]):
+        if len(object_paths) != len(report["runtime_sources"]) or set(object_paths) != set(report["runtime_objects"][key]):
             raise GateError("historical native link did not use the matched runtime object inventory")
         commands = [
             ("link_job_serials", f"link historical-baseline O{opt}",
@@ -914,7 +914,7 @@ def validate_report(report: dict) -> None:
             raise GateError("optimization or required audit flags missing")
         if report["sanitized"] and "-fsanitize=address,undefined,float-cast-overflow" not in flags:
             raise GateError("mandatory sanitizer native build flags missing")
-        if len(report["runtime_objects"].get(str(opt), {})) != 7:
+        if len(report["runtime_objects"].get(str(opt), {})) != len(report["runtime_sources"]):
             raise GateError("incomplete frozen native runtime object inventory")
         if any(not digest(value) or report["artifact_sha256"].get(path) != value
                for path, value in report["runtime_objects"][str(opt)].items()):

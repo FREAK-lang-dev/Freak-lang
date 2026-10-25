@@ -22,7 +22,7 @@ def frozen_report(sanitize=False):
               'compiler_process_contract': {'memory_limit_mib':64, 'live_handle_limit':1024, 'timeout_seconds':60},
               'bootstrap_process_contract': {'memory_limit_mib':1024, 'live_handle_limit':1024, 'timeout_seconds':120},
               'programs': [], 'controls': [], 'compiler_contracts': [], 'sanitizers': sanitize,
-              'target':'x86_64-unknown-linux-gnu', 'jobs':247 + (3 if sanitize else 0)}
+              'target':'x86_64-unknown-linux-gnu', 'jobs':250 + (3 if sanitize else 0)}
     for key, group in paths.items():
         report[key] = {name: gate.sha(path) for name, path in group.items()}
         report['inputs_before'].update({path.relative_to(ROOT).as_posix(): gate.sha(path) for path in group.values()})
