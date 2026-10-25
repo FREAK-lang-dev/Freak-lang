@@ -2884,6 +2884,11 @@ typedef struct freak_llvm_owned_word {
     void* pointer;
     size_t length;
     size_t capacity;
+    /* Cached scalar count, valid while scalar_length == length. */
+    size_t scalar_length;
+    size_t scalar_count;
+    /* Owners sharing this immutable allocation (bootstrap word copies). */
+    size_t refs;
     struct freak_llvm_owned_word* next;
 } freak_llvm_owned_word;
 
@@ -3014,6 +3019,9 @@ int64_t freak_llvm_word_try_adopt_sized(int64_t pointer, size_t length) {
     owned->pointer = (void*)pointer;
     owned->length = length;
     owned->capacity = owned->length + 1;
+    owned->scalar_length = SIZE_MAX;
+    owned->scalar_count = 0;
+    owned->refs = 1;
     owned->next = freak_llvm_owned_buckets[bucket];
     freak_llvm_owned_buckets[bucket] = owned;
     freak_llvm_owned_count += 1;
@@ -3045,6 +3053,30 @@ int64_t freak_llvm_word_owned_size(int64_t pointer, size_t* length) {
     if (!owned) return 0;
     *length = owned->length;
     return 1;
+}
+
+int64_t freak_llvm_word_share(int64_t pointer) {
+    if (!pointer) return 0;
+    freak_llvm_owned_word* owned = freak_llvm_owned_find((void*)(uintptr_t)pointer, NULL);
+    if (!owned || owned->refs == SIZE_MAX) return 0;
+    owned->refs += 1;
+    return pointer;
+}
+
+int64_t freak_llvm_word_scalar_cache_get(int64_t pointer, size_t* count) {
+    if (!pointer || !count) return 0;
+    freak_llvm_owned_word* owned = freak_llvm_owned_find((void*)(uintptr_t)pointer, NULL);
+    if (!owned || owned->scalar_length != owned->length) return 0;
+    *count = owned->scalar_count;
+    return 1;
+}
+
+void freak_llvm_word_scalar_cache_set(int64_t pointer, size_t count) {
+    if (!pointer) return;
+    freak_llvm_owned_word* owned = freak_llvm_owned_find((void*)(uintptr_t)pointer, NULL);
+    if (!owned) return;
+    owned->scalar_length = owned->length;
+    owned->scalar_count = count;
 }
 
 size_t freak_llvm_word_size(int64_t pointer) {
@@ -3109,6 +3141,10 @@ void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement) {
     while (*link) {
         freak_llvm_owned_word* owned = *link;
         if (owned->pointer == (void*)previous) {
+            if (owned->refs > 1) {
+                owned->refs -= 1;
+                return;
+            }
             *link = owned->next;
             free(owned->pointer);
             free(owned);
@@ -3148,6 +3184,12 @@ int64_t freak_llvm_word_append_owned(int64_t previous, int64_t suffix, int64_t r
         }
     }
     freak_concat_audit_append(suffix_length);
+    /* A shared allocation is immutable: append into a fresh copy and give up
+       this owner's share of the old one. */
+    if (owned && owned->refs > 1) {
+        owned->refs -= 1;
+        owned = NULL;
+    }
 
     if (!owned) {
         size_t capacity = freak_word_append_capacity(required);

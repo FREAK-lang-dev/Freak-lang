@@ -51,6 +51,10 @@ int64_t freak_v4_word_char_at(int64_t value, int64_t scalar_index);
 /* slice uses scalar [start,end); substring uses scalar (start,count). */
 int64_t freak_v4_word_slice(int64_t value, int64_t start, int64_t end);
 int64_t freak_v4_word_substring(int64_t value, int64_t start, int64_t count);
+/* Bootstrap-mode V1 indexing: out-of-range gives "", substring clamps. */
+int64_t freak_v4_word_v1_char_at(int64_t value, int64_t scalar_index);
+int64_t freak_v4_word_v1_substring(int64_t value, int64_t start, int64_t count);
+int64_t freak_v4_word_v1_share(int64_t value);
 int64_t freak_v4_word_starts_with(int64_t value, int64_t prefix);
 int64_t freak_v4_word_ends_with(int64_t value, int64_t suffix);
 int64_t freak_v4_word_contains(int64_t value, int64_t needle);

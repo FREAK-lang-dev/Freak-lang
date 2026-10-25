@@ -759,9 +759,9 @@ task v4_parse_use_alias_from_tokens(stream_id: int, start_token: int, end_token:
 }
 
 task v4_parse_use_binding_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
-    pilot alias = v4_parse_use_alias_from_tokens(stream_id, start_token, end_token)
-    if alias != "" {
-        give back alias
+    pilot alias_text = v4_parse_use_alias_from_tokens(stream_id, start_token, end_token)
+    if alias_text != "" {
+        give back alias_text
     }
     give back v4_parse_path_leaf(v4_parse_use_path_from_tokens(stream_id, start_token, end_token))
 }

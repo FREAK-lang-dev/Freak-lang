@@ -1572,10 +1572,10 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
     if v4_codegen_llvm_rvalue_is_global_read(mir_id, body_id, rvalue_id) {
         pilot global_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
         pilot global_symbol = v4_codegen_llvm_global_symbol(v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
-        -- A word global keeps its owner; each read yields an owned clone.
+        -- A word global keeps its owner; each read yields a shared owned copy.
         if v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) == v4_ty_word {
             pilot held = "%global.held." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
-            give back held + " = load i64, ptr " + global_symbol + "\n  " + target + " = call i64 @freak_v4_word_clone(i64 " + held + ")"
+            give back held + " = load i64, ptr " + global_symbol + "\n  " + target + " = call i64 @freak_v4_word_v1_share(i64 " + held + ")"
         }
         give back target + " = load " + global_ty + ", ptr " + global_symbol
     }
@@ -1807,7 +1807,7 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                     pilot call_args = v4_codegen_llvm_call_args(mir_id, body_idx, rvalue_idx)
                     pilot call_line = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")" + v4_codegen_llvm_ffi_call_suffix(call_abi)
                     if v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_rvalue_is_builtin_word(mir_id, body_idx, rvalue_idx) {
-                        call_symbol = v4_codegen_llvm_word_intrinsic_symbol(v4_mir_word_intrinsic_kind(mir_id, body_idx, rvalue_idx))
+                        call_symbol = v4_codegen_llvm_word_intrinsic_symbol_for(mir_id, v4_mir_word_intrinsic_kind(mir_id, body_idx, rvalue_idx))
                         call_line = v4_codegen_llvm_word_intrinsic_instruction(mir_id, body_idx, rvalue_idx, v4_codegen_llvm_temp_value(body_idx, rvalue_idx))
                     }
                     if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_scalar_sum_bridge_kind(mir_id, body_idx, rvalue_idx) != "" {
@@ -2118,8 +2118,8 @@ task v4_codegen_llvm_task_pointer_contains_word(type_text: word, depth: int) -> 
 
 task v4_codegen_llvm_native_type_error_depth(type_text: word, allow_void: bool, depth: int) -> word {
     if depth > 32 { give back "native function pointer type nesting exceeds supported depth" }
-    pilot alias = v4_ty_normalize_ffi_alias_type(type_text)
-    if alias != "" { type_text = alias }
+    pilot alias_text = v4_ty_normalize_ffi_alias_type(type_text)
+    if alias_text != "" { type_text = alias_text }
     if v4_codegen_llvm_active_owned_mir >= 0 {
         if v4_mir_scalar_sum_kind(v4_codegen_llvm_active_owned_mir, type_text) != "" {
             if depth != 0 { give back "native scalar sum callback contracts are not yet supported" }
@@ -2931,6 +2931,14 @@ task v4_codegen_llvm_word_bool_intrinsic(kind: word) -> bool {
     give back kind == "equal" or kind == "not_equal" or kind == "starts_with" or kind == "ends_with" or kind == "contains"
 }
 
+-- Bootstrap files keep V1's lenient char_at and substring (see the runtime).
+task v4_codegen_llvm_word_intrinsic_symbol_for(mir_id: int, kind: word) -> word {
+    if v4_mir_file_is_bootstrap(mir_id) and (kind == "char_at" or kind == "substring") { give back "@freak_v4_word_v1_" + kind }
+    -- Bootstrap word copies share the immutable allocation, as V1 did.
+    if v4_mir_file_is_bootstrap(mir_id) and kind == "clone" { give back "@freak_v4_word_v1_share" }
+    give back v4_codegen_llvm_word_intrinsic_symbol(kind)
+}
+
 task v4_codegen_llvm_word_intrinsic_symbol(kind: word) -> word {
     if kind == "not_equal" { kind = "equal" }
     if kind.starts_with("array_") { give back "@freak_v4_compiler_" + kind }
@@ -2957,8 +2965,10 @@ task v4_codegen_llvm_mir_uses_bootstrap_intrinsics(mir_id: int) -> bool {
 }
 
 task v4_codegen_llvm_bootstrap_runtime_declarations(mir_id: int) -> word {
-    if not v4_codegen_llvm_mir_uses_bootstrap_intrinsics(mir_id) { give back "" }
-    pilot out = "declare i64 @freak_v4_compiler_array_new()\ndeclare i64 @freak_v4_compiler_array_len(i64)\n"
+    pilot v1_words = ""
+    if v4_mir_file_is_bootstrap(mir_id) { v1_words = "declare i64 @freak_v4_word_v1_char_at(i64, i64)\ndeclare i64 @freak_v4_word_v1_substring(i64, i64, i64)\ndeclare i64 @freak_v4_word_v1_share(i64)\n" }
+    if not v4_codegen_llvm_mir_uses_bootstrap_intrinsics(mir_id) { give back v1_words }
+    pilot out = v1_words + "declare i64 @freak_v4_compiler_array_new()\ndeclare i64 @freak_v4_compiler_array_len(i64)\n"
     out = out + "declare void @freak_v4_compiler_array_push(i64, i64)\ndeclare i64 @freak_v4_compiler_array_get(i64, i64)\n"
     out = out + "declare void @freak_v4_compiler_array_set(i64, i64, i64)\ndeclare void @freak_v4_compiler_array_release(i64)\n"
     out = out + "declare i64 @freak_v4_compiler_array_join(i64)\ndeclare i64 @freak_v4_compiler_array_snapshot_lines(i64)\n"
@@ -2995,7 +3005,7 @@ task v4_codegen_llvm_word_intrinsic_instruction(mir_id: int, body_id: int, rvalu
     if kind == "from_bool" {
         args = "i64 %word.bool." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
     }
-    pilot symbol = v4_codegen_llvm_word_intrinsic_symbol(kind)
+    pilot symbol = v4_codegen_llvm_word_intrinsic_symbol_for(mir_id, kind)
     if v4_ty_word_intrinsic_result_type(kind) == v4_ty_void { give back "call void " + symbol + "(" + args + ")" }
     if v4_ty_word_intrinsic_result_type(kind) == v4_ty_num { give back target + " = call double " + symbol + "(" + args + ")" }
     if v4_codegen_llvm_word_bool_intrinsic(kind) {
