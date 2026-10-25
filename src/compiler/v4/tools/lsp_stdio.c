@@ -88,10 +88,6 @@ void lspio_write_message(freak_word body) {
     lspio_stream_send(stdout, body);
 }
 
-void lspio_release(freak_word text) {
-    freak_word_release_owned(&text);
-}
-
 void lspio_log(freak_word message) {
     fputs("[freak-lsp] ", stderr);
     if (message.length) fwrite(message.data, 1, message.length, stderr);

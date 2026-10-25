@@ -32,20 +32,28 @@ class CompilerOptimizationCache(unittest.TestCase):
         for attribute, value in (("RUNTIME_BUILD_ROOT", self.cache), ("RUNTIME_ROOT", runtime)):
             self.enterContext(patch.object(checks, attribute, value))
         self.enterContext(patch.object(checks, "flattened_crates", return_value="crates"))
-        self.transpile = self.enterContext(patch.object(
-            checks, "transpile_fixture", return_value=("int main(void) { return 0; }\n", False)))
+        v35 = self.work / "freakc_v35"
+        v35.write_bytes(b"v35")
+        self.enterContext(patch.object(build.v35_seed, "v35_compiler", return_value=v35))
         self.commands = []
 
-        def compile_command(command, **kwargs):
-            # Model Clang's artifact only; keep the real production cache path,
-            # key, source writes and lookup so a collision causes a test failure.
+        def run_command(command, **kwargs):
+            # Model V3.5 (writes <input>.c) and Clang (writes -o) only; keep the
+            # real production cache path, key, source writes and lookup so a
+            # collision causes a test failure.
             self.commands.append(command)
-            output = Path(command[command.index("-o") + 1])
-            flags = [item for item in command if item.startswith("-O")]
-            output.write_bytes(flags[-1].encode("ascii"))
+            if command[0] == str(v35):
+                Path(command[1] + ".c").write_text("int main(void) { return 0; }\n", encoding="utf-8")
+            else:
+                output = Path(command[command.index("-o") + 1])
+                flags = [item for item in command if item.startswith("-O")]
+                output.write_bytes(flags[-1].encode("ascii"))
             return subprocess.CompletedProcess(command, 0, "", "")
 
-        self.run = self.enterContext(patch.object(checks, "run_with_heartbeat", side_effect=compile_command))
+        self.run = self.enterContext(patch.object(checks, "run_with_heartbeat", side_effect=run_command))
+
+    def compiles(self):
+        return [command for command in self.commands if command[0] == "test-clang"]
 
     def test_levels_reuse_their_own_compiler_without_replacing_default(self):
         default = build.bootstrap("test-clang")
@@ -59,11 +67,11 @@ class CompilerOptimizationCache(unittest.TestCase):
                 self.assertEqual(executable.read_bytes(), f"-O{level}".encode("ascii"))
                 self.assertEqual(default.read_bytes(), default_bytes)
                 self.assertEqual(checks.RUNTIME_BUILD_ROOT, self.cache)
-        self.assertEqual(len(self.commands), 4)
+        self.assertEqual(len(self.compiles()), 4)
         for level in (3, 2, 1, 0):
             self.assertEqual(build.bootstrap("test-clang", level), artifacts[level])
         self.assertEqual(build.bootstrap("test-clang"), default)
-        self.assertEqual(len(self.commands), 4, "unchanged compiler levels should hit their cache")
+        self.assertEqual(len(self.compiles()), 4, "unchanged compiler levels should hit their cache")
         self.assertEqual(default_bytes, b"-O0")
 
     def test_compiler_flags_invalidate_cache_even_in_same_directory(self):
@@ -83,21 +91,25 @@ class CompilerOptimizationCache(unittest.TestCase):
         self.assertFalse(compiled)
         self.assertEqual(len(self.commands), 2)
 
-    def test_failed_optimized_build_restores_default_cache_root(self):
+    def test_source_change_rebuilds_the_compiler(self):
+        build.bootstrap("test-clang")
+        with patch.object(checks, "flattened_crates", return_value="changed crates"):
+            build.bootstrap("test-clang")
+        self.assertEqual(len(self.compiles()), 2)
+
+    def test_failed_optimized_build_leaves_no_cache_stamp(self):
         for failure in (RuntimeError("compiler interrupted"),
                         subprocess.CompletedProcess([], 1, "", "compiler failed")):
             with self.subTest(failure=failure), contextlib.redirect_stdout(io.StringIO()):
                 if isinstance(failure, RuntimeError):
                     self.run.side_effect = failure
-                    expected = RuntimeError
                 else:
                     self.run.side_effect = None
                     self.run.return_value = failure
-                    expected = SystemExit
-                with self.assertRaises(expected):
+                with self.assertRaises(RuntimeError):
                     build.bootstrap("test-clang", 2)
                 self.assertEqual(checks.RUNTIME_BUILD_ROOT, self.cache)
-                self.assertFalse(self.cache.joinpath("build_llvm.compile.sha256").exists())
+                self.assertEqual(list(self.cache.rglob("*.sha256")), [])
 
 
 class CompilerOptimizationCommand(unittest.TestCase):

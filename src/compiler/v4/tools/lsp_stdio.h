@@ -25,7 +25,6 @@ freak_word lspio_uri_to_path(freak_word uri);
 bool lspio_file_exists(freak_word path);
 freak_word lspio_run_capture(freak_word command);
 
-void lspio_release(freak_word text);
 bool lspio_is_worker(void);
 int64_t lspio_env_int(freak_word name, int64_t fallback);
 int64_t lspio_rss_mb(void);

@@ -11,6 +11,12 @@ import sys
 import tempfile
 
 import check_v4 as checks
+
+# Loaders that import this file by path (the review guards) may not have its
+# directory on sys.path; v35_seed sits next to it.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import v35_seed  # noqa: E402
 from freakc.v4_native_runtime import SOURCE_NAMES
 
 
@@ -55,7 +61,7 @@ def host_target() -> str:
 
 
 # A prebuilt V4 compiler (for example the self-built stage 1 from
-# self_host.py) replaces the Python-built one for every build and check.
+# self_host.py) replaces the V3.5-built one for every build and check.
 COMPILER_ENV = "FREAK_V4_COMPILER"
 
 
@@ -70,32 +76,17 @@ def prebuilt_compiler() -> Path | None:
 
 
 def bootstrap(clang: str, compiler_opt: int = 0, allow_prebuilt: bool = True) -> Path:
-    """The V4 compiler: the prebuilt one when set, else built with Python.
+    """The V4 compiler: the prebuilt one when set, else built by V3.5.
 
-    allow_prebuilt=False always builds with Python (self_host.py's stage 0)."""
+    V3.5 is itself built from the committed seed C (see v35_seed.py), so no
+    Python compiler is involved. allow_prebuilt=False always builds it
+    (self_host.py's stage 0)."""
     prebuilt = prebuilt_compiler() if allow_prebuilt else None
     if prebuilt is not None:
         return prebuilt
-    fixture = checks.V4_ROOT / "tools" / "build_llvm.fk"
-    c_source, uses_ui = checks.transpile_fixture(checks.flattened_crates(), fixture)
-    if uses_ui:
-        raise RuntimeError("V4 bootstrap unexpectedly requires UI")
-    runtime = checks.RUNTIME_ROOT / "freak_runtime.c"
-    # Optimized compiler builds have separate artifacts from the O0 smoke
-    # harness. The shared compiler cache already includes extra compiler flags.
-    smoke_build_root = checks.RUNTIME_BUILD_ROOT
-    if compiler_opt:
-        checks.RUNTIME_BUILD_ROOT = smoke_build_root / f"compiler_O{compiler_opt}"
-    try:
-        checks.RUNTIME_BUILD_ROOT.mkdir(parents=True, exist_ok=True)
-        executable, _ = checks.compile_runtime_smoke(
-            clang, f"-I{checks.RUNTIME_ROOT}", runtime,
-            checks.read_text(runtime), fixture, c_source,
-            (f"-O{compiler_opt}",) if compiler_opt else (),
-        )
-    finally:
-        checks.RUNTIME_BUILD_ROOT = smoke_build_root
-    return executable
+    entry = checks.V4_ROOT / "tools" / "build_llvm.fk"
+    name = f"freak_v4_compiler_O{compiler_opt}" if compiler_opt else "freak_v4_compiler"
+    return v35_seed.build_tool(clang, entry, name, opt=compiler_opt)
 
 
 def emit_module(compiler: Path, source: Path, target: str, panic: str = "unwind",
