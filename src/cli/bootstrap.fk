@@ -215,7 +215,7 @@ task cli_bootstrap_runtime(content: word) -> bool {
             if array_len(cli_bootstrap_runtime_paths) > 256 { give back cli_bootstrap_fail("native runtime inventory exceeds 256 inputs") }
         }
     }
-    if source_count != 7 or markers != 2 { give back cli_bootstrap_fail("native runtime requires seven sources and both ABI/API markers") }
+    if source_count != 8 or markers != 2 { give back cli_bootstrap_fail("native runtime requires eight sources and both ABI/API markers") }
     give back true
 }
 
