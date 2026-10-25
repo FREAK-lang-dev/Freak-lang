@@ -18,7 +18,7 @@ module is byte-identical to the stage 0 module. A stage 2 binary built
 from it would then be the stage 1 binary, so the bootstrap is a fixed
 point. Each compile prints its wall time and peak memory.
 
-This takes about 20 minutes and needs about 6 GB free for stage 0.
+This takes about 20 minutes; stage 0 needs about 2 GB.
 """
 from __future__ import annotations
 
