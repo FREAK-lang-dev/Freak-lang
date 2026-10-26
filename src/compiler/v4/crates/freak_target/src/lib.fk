@@ -307,6 +307,99 @@ task v4_target_c_integer_llvm_carrier(descriptor: word) -> word {
     give back ""
 }
 
+-- Aggregate layout (tier 3). Sizes and alignments are answered per target
+-- for the LLVM scalar carriers codegen emits, and C struct rules (each field
+-- at the next multiple of its alignment, size rounded to the largest field
+-- alignment) place fields. Codegen asks these; it never guesses offsets.
+-- Unknown carriers and malformed member lists fail closed with -1 / "".
+task v4_target_carrier_size(target_spec: word, carrier: word) -> int {
+    if not v4_target_spec_valid(target_spec) { give back 0 - 1 }
+    if carrier == "i1" or carrier == "i8" { give back 1 }
+    if carrier == "i16" { give back 2 }
+    if carrier == "i32" or carrier == "float" { give back 4 }
+    if carrier == "i64" or carrier == "double" { give back 8 }
+    if carrier == "ptr" {
+        pilot width = v4_target_spec_pointer_width(target_spec)
+        if width <= 0 { give back 0 - 1 }
+        give back width / 8
+    }
+    give back 0 - 1
+}
+
+-- The four registered targets align every scalar carrier to its size.
+task v4_target_carrier_align(target_spec: word, carrier: word) -> int {
+    give back v4_target_carrier_size(target_spec, carrier)
+}
+
+task v4_target_align_up(value: int, align: int) -> int {
+    if align <= 1 { give back value }
+    pilot rem = value % align
+    if rem == 0 { give back value }
+    give back value + align - rem
+}
+
+-- members: "size:align" entries joined by ",". Result: "size|align|offsets"
+-- with offsets joined by ","; an empty member list is a zero-size, align-1
+-- aggregate. Any malformed entry gives "".
+task v4_target_struct_layout(target_spec: word, members: word) -> word {
+    if not v4_target_spec_valid(target_spec) { give back "" }
+    pilot offsets = ""
+    pilot position = 0
+    pilot max_align = 1
+    pilot start = 0
+    pilot count = 0
+    if members != "" {
+        repeat until start > members.length() {
+            pilot stop = v4_target_index_of_from(members, ",", start)
+            if stop < 0 { stop = members.length() }
+            pilot colon = v4_target_index_of_from(members, ":", start)
+            if colon < 0 or colon >= stop { give back "" }
+            pilot size = v4_target_nonnegative_int_range(members, start, colon)
+            pilot align = v4_target_nonnegative_int_range(members, colon + 1, stop)
+            if size < 0 or align <= 0 { give back "" }
+            position = v4_target_align_up(position, align)
+            if count > 0 { offsets = offsets + "," }
+            offsets = offsets + word_from_int(position)
+            position += size
+            if position > 1099511627776 { give back "" }
+            if align > max_align { max_align = align }
+            count += 1
+            start = stop + 1
+        }
+    }
+    give back word_from_int(v4_target_align_up(position, max_align)) + "|" + word_from_int(max_align) + "|" + offsets
+}
+
+task v4_target_layout_part(layout: word, wanted: int) -> word {
+    pilot part = 0
+    pilot start = 0
+    repeat until part >= wanted {
+        pilot bar = v4_target_index_of_from(layout, "|", start)
+        if bar < 0 { give back "" }
+        start = bar + 1
+        part += 1
+    }
+    pilot stop = v4_target_index_of_from(layout, "|", start)
+    if stop < 0 { stop = layout.length() }
+    give back v4_target_slice(layout, start, stop)
+}
+
+task v4_target_layout_size(layout: word) -> int {
+    if layout == "" { give back 0 - 1 }
+    pilot text = v4_target_layout_part(layout, 0)
+    give back v4_target_nonnegative_int_range(text, 0, text.length())
+}
+
+task v4_target_layout_align(layout: word) -> int {
+    if layout == "" { give back 0 - 1 }
+    pilot text = v4_target_layout_part(layout, 1)
+    give back v4_target_nonnegative_int_range(text, 0, text.length())
+}
+
+task v4_target_layout_offsets(layout: word) -> word {
+    give back v4_target_layout_part(layout, 2)
+}
+
 task v4_target_release_name(target_spec: word) -> word {
     pilot triple = v4_target_spec_triple(target_spec)
     if triple == v4_target_triple_linux_x86_64 { give back "linux-x64" }

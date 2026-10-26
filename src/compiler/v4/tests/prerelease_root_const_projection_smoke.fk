@@ -107,9 +107,10 @@ task v4_prerelease_root_projection_run() -> void {
     if projected_boundary and not mutation {
         pilot codegen = v4_codegen_llvm_lower_owned_mir(0, mir)
         pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
-        pilot expected_native = "native rvalue not yet supported: UsePlace"
-        -- The earlier branch-local shape construction seals the first error.
-        if mode == "after-shadow-read" { expected_native = "native rvalue not yet supported: Construct" }
+        -- Shapes lower natively now; the constant root itself stays a named
+        -- unsupported place (an index step is named before its root).
+        pilot expected_native = "native place not yet supported: Unknown"
+        if mode.starts_with("index-") { expected_native = "native place not yet supported: Index" }
         v4_prerelease_root_projection_assert(v4_codegen_llvm_native_module_error(codegen) == expected_native and v4_codegen_llvm_module_text(codegen, target) == "", "root projection emits no unsupported native module " + argument)
     }
     say "prerelease-root-projection " + argument + "=passed"

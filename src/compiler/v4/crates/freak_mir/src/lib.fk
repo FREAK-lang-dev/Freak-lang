@@ -1357,6 +1357,28 @@ task v4_mir_place_field(mir_id: int, body_id: int, place_id: int) -> word {
     give back array_get(v4_mir_body_place_fields_handle(mir_id, body_id), place_id)
 }
 
+-- Sealed shape facts for native lowering. A shape type is a concrete
+-- (non-generic) shape signature; its field slot is the declaration index,
+-- the same order Construct children use. Anything else answers -1.
+task v4_mir_shape_signature(mir_id: int, type_text: word) -> int {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if type_text == "" or type_text == v4_ty_unknown or v4_ty_is_generic_instance_type(type_text) { give back 0 - 1 }
+    pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, type_text))
+    if sig_id < 0 { give back 0 - 1 }
+    if v4_ty_signature_generic_count(ty_id, sig_id) > 0 { give back 0 - 1 }
+    give back sig_id
+}
+
+task v4_mir_place_shape_field_slot(mir_id: int, body_id: int, place_id: int) -> int {
+    if v4_mir_place_kind(mir_id, body_id, place_id) != v4_mir_place_field { give back 0 - 1 }
+    pilot base = v4_mir_place_base(mir_id, body_id, place_id)
+    if base < 0 or base >= place_id { give back 0 - 1 }
+    pilot base_ty = v4_mir_place_ty(mir_id, body_id, base)
+    if v4_mir_shape_signature(mir_id, base_ty) < 0 { give back 0 - 1 }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    give back v4_ty_shape_field_id_for_name(ty_id, v4_ty_canonical_type(ty_id, base_ty), v4_mir_place_field(mir_id, body_id, place_id))
+}
+
 task v4_mir_place_index(mir_id: int, body_id: int, place_id: int) -> int {
     give back word_to_int(array_get(v4_mir_body_place_indices_handle(mir_id, body_id), place_id))
 }
