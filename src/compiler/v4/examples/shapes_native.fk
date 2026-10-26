@@ -1,0 +1,47 @@
+shape Point { x: int, y: int }
+shape Pixel { r: tiny, flag: bool, weight: num, small: float32, tag: char, count: uint }
+shape Rect { origin: Point, size: Point, label_id: int }
+shape Empty { }
+
+task make_point(x: int, y: int) -> Point {
+    give back Point { y: y, x: x }
+}
+
+task area(r: Rect) -> int {
+    give back r.size.x * r.size.y
+}
+
+task moved(p: Point, dx: int) -> Point {
+    pilot q = p
+    q.x = q.x + dx
+    give back q
+}
+
+task main() -> int {
+    pilot p = make_point(3, 4)
+    say p.x
+    say p.y
+    p.x = 10
+    say p.x + p.y
+    pilot r = Rect { origin: Point { x: 1, y: 2 }, size: make_point(5, 6), label_id: 9 }
+    r.size.y = 10
+    say r.origin.y
+    say r.size.x * r.size.y
+    pilot o = r.origin
+    say o.x
+    pilot m = moved(o, 41)
+    say m.x
+    pilot px = Pixel { r: 200, flag: true, weight: 2.5, small: 1.5, tag: 'Z', count: 7 }
+    say px.r == 200
+    say px.flag
+    say px.weight
+    say px.small > 1.0
+    say px.count == 7u
+    px.flag = false
+    say px.flag
+    pilot e = Empty { }
+    pilot lid = r.label_id
+    say lid
+    say area(Rect { origin: m, size: make_point(2, 3), label_id: 0 })
+    give back lid - 9
+}

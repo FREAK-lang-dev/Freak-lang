@@ -17352,6 +17352,103 @@ def check_checked_source_runtime(clang: str) -> None:
     print(expected.strip())
 
 
+
+NATIVE_LAYOUT_TRIPLES = (
+    "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-w64-windows-gnu",
+)
+NATIVE_SHAPES_EXPECTED = "3\n4\n14\n2\n50\n1\n42\ntrue\ntrue\n2.5\ntrue\ntrue\nfalse\n9\n6\n"
+
+
+def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
+    notes = {}
+    for match in re.finditer(r"^; freak\.layout (\S+) size=(\d+) align=(\d+) offsets=([\d,]*)$", module, re.MULTILINE):
+        offsets = [int(part) for part in match.group(4).split(",") if part]
+        notes[match.group(1)] = (int(match.group(2)), int(match.group(3)), offsets)
+    return notes
+
+
+def check_native_layout_oracle(module: str, triple: str) -> int:
+    """Compare freak_target's layout notes with Clang's DataLayout for triple."""
+    clang = shutil.which("clang")
+    notes = native_layout_notes(module)
+    types = re.findall(r'^(%"freak\.shape\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
+    if not notes or len(notes) != len(types):
+        raise RuntimeError(f"V4 shape module for {triple} has no matching layout notes")
+    lines = [f"{name} = type {body}" for name, body in types]
+    expected = []
+    for index, (name, (size, align, offsets)) in enumerate(sorted(notes.items())):
+        probes = [("size", f"getelementptr ({name}, ptr null, i32 1)", size),
+                  ("align", f"getelementptr ({{ i1, {name} }}, ptr null, i32 0, i32 1)", align)]
+        for field, offset in enumerate(offsets):
+            probes.append((f"f{field}", f"getelementptr ({name}, ptr null, i32 0, i32 {field})", offset))
+        for label, expression, value in probes:
+            function = f"probe_{index}_{label}"
+            lines.append(f"define i64 @{function}() {{ ret i64 ptrtoint (ptr {expression} to i64) }}")
+            expected.append((function, value, name, label))
+    probe = RUNTIME_BUILD_ROOT / f"shape_layout_{triple}.ll"
+    probe.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    result = run_with_heartbeat(
+        [clang, f"--target={triple}", "-O2", "-S", "-emit-llvm", str(probe), "-o", "-"],
+        label=f"V4 shape layout oracle {triple}", timeout_seconds=60, memory_limit_mb=512,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Clang rejected the shape layout probe for {triple}:\n{result.stderr}")
+    folded = dict(re.findall(r"define[^@]*@(probe_\w+)\(\)[^{]*\{\s*ret i64 (\d+)", result.stdout))
+    for function, value, name, label in expected:
+        if folded.get(function) != str(value):
+            raise RuntimeError(f"freak_target layout disagrees with Clang on {triple}: {name} {label} "
+                               f"freak_target={value} clang={folded.get(function)}")
+    return len(expected)
+
+
+def check_v4_native_shapes() -> None:
+    """Tier 3 shapes: build and run natively; check layouts on all targets."""
+    from build_v4 import host_target
+
+    source = V4_ROOT / "examples" / "shapes_native.fk"
+    executable = RUNTIME_BUILD_ROOT / ("tier3_native_shapes.exe" if sys.platform == "win32" else "tier3_native_shapes.native")
+    executable.unlink(missing_ok=True)
+    built = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(executable)],
+        label="V4 build command: native shapes", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if built.returncode != 0 or not executable.exists():
+        raise RuntimeError(f"V4 rejected the native shapes program:\n{built.stdout}{built.stderr}")
+    ran = run_with_heartbeat([str(executable)], label="V4 native shapes execute", timeout_seconds=10, memory_limit_mb=128)
+    if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != NATIVE_SHAPES_EXPECTED:
+        raise RuntimeError(f"V4 native shapes printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
+    probes = 0
+    for triple in NATIVE_LAYOUT_TRIPLES:
+        module_path = RUNTIME_BUILD_ROOT / f"tier3_native_shapes_{triple}.ll"
+        module_path.unlink(missing_ok=True)
+        emitted = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+            label=f"V4 shape module {triple}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not module_path.exists():
+            raise RuntimeError(f"V4 could not emit the shapes module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+        probes += check_native_layout_oracle(module_path.read_text(encoding="utf-8"), triple)
+    rejected_cases = (
+        ("tier3_shape_word_field", "shape Named { name: word, n: int }\n"
+         "task main() -> int { pilot a = Named { name: \"x\", n: 1 }\n give back a.n }\n",
+         "native shape fields that own words are not yet supported: Named.name"),
+        ("tier3_shape_generic", "shape Box<T> { v: T }\n"
+         "task main() -> int { pilot b: Box<int> = Box { v: 1 }\n give back b.v }\n",
+         "native generic shapes need monomorphization: Box<int>"),
+    )
+    for stem, text, reason in rejected_cases:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 shape case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    print(f"V4 native shapes: run=exact layout-probes={probes} targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+
 def check_v4_build_command() -> None:
     from build_v4 import bootstrap, host_target
 
@@ -17463,6 +17560,7 @@ def check_v4_build_command() -> None:
     if (panicked.returncode, panicked.stdout.replace("\r\n", "\n"), panicked.stderr) != (101, "before\n", "PANIC: too big: 5\n"):
         raise RuntimeError(f"V4 default panic did not end main as panicked: exit={panicked.returncode} stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
     print("V4 default panic: main-sortie unwind exit=101")
+    check_v4_native_shapes()
     # Exercise the actual bootstrap/tool boundary as well as plan-level facts:
     # rejected body/entry symbols and cross-target conventions publish no LLVM.
     contract_cases = [
