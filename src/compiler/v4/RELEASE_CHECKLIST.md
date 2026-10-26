@@ -682,8 +682,8 @@ Entry and build:
 
 Aggregates:
 
-- [ ] **L** Target layout queries in `freak_target` (size, align, field offsets); never guessed
-- [ ] **L** Shapes: struct types, construction, field read/write (front done)
+- [x] **L** Target layout queries in `freak_target` (size, align, field offsets); never guessed. `v4_target_carrier_size` / `_align` answer per target for every scalar carrier codegen emits, and `v4_target_struct_layout` places fields by C struct rules. Codegen emits one `; freak.layout` note per shape from these queries, and `check_v4_native_shapes` has Clang fold the same offsets, sizes and alignments from its own DataLayout on all four `freak_target` triples (76 probes agree)
+- [x] **L** Shapes: struct types, construction, field read/write (front done). A concrete shape lowers to a named LLVM struct in declaration order; `Construct` evaluates its fields in source order and assembles them with `insertvalue`; field reads and writes walk the MIR field chain with one `getelementptr` per step (`v4_mir_place_shape_field_slot` is the sealed slot fact), including nested shapes, shape locals, parameters and returns. Fields that own words are named (`native shape fields that own words are not yet supported`) until the drops row lands; generic shapes are named until monomorphization; shape operators wait for doctrine lowering. Program: `examples/shapes_native.fk`, run by `check_v4_native_shapes`
 - [ ] **M** Tuples: literal, slot access, destructuring (front done)
 - [ ] **M** Fixed arrays `[T; N]`: literal, repeat-fill, index, destructuring (front done)
 - [ ] **L** Routes and variants: tag plus payload, constructors (front done)
@@ -725,7 +725,7 @@ Collections and loops:
 - [ ] **L** `Map<K, V>`: literal, access, mutation
 - [ ] **M** `Set<T>`
 - [ ] **M** `for each` over lists, with pattern bindings (front done)
-- [ ] **S** Decision: does `for each x in xs` consume `xs`? (Meiya currently says yes)
+- [x] **S** Decision: does `for each x in xs` consume `xs`? Closed 2026-10-25 (maintainer): no, the loop lends `xs`, as V3 does; Meiya's move rule changes with the `for each` row above
 - [x] **S** `with growth` loop form: runs natively, and a body that does not change the condition's pilot is rejected (`training arc with growth must mutate condition subject`)
 - [ ] **M** Map and list destructuring
 
@@ -916,7 +916,7 @@ FFI completion (phase C):
 
 1. Closed for delivery order: Preview first, then V3 replacement (table at the top).
 2. Closed: Word indexing and slicing use character semantics, as the bible specifies.
-3. Whether `for each` consumes its source.
+3. Closed (2026-10-25): `for each` lends its source, as V3 does; it does not consume it.
 4. `eventually`: inline as V3, or true deferred.
 5. Revive or drop `feat/v4-runtime-core`.
 6. Whether V4 keeps any C backend for compatibility (manifesto says optional).
