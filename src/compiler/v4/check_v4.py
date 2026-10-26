@@ -17435,6 +17435,9 @@ def check_v4_native_shapes() -> None:
         ("tier3_shape_generic", "shape Box<T> { v: T }\n"
          "task main() -> int { pilot b: Box<int> = Box { v: 1 }\n give back b.v }\n",
          "native generic shapes need monomorphization: Box<int>"),
+        ("tier3_shape_c_abi", "use std::ffi::c_double\n@layout(C)\nshape Pair { a: c_double, b: c_double }\n"
+         "extern [C] {\n    task take_pair(p: Pair) -> c_double\n}\ntask main() -> int { give back 0 }\n",
+         "native shape C ABI by value is not yet supported: Pair"),
     )
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
