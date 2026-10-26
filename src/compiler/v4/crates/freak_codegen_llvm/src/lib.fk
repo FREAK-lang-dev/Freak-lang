@@ -2387,6 +2387,9 @@ task v4_codegen_llvm_native_c_surface_error_depth(ty_id: int, surface: word, c_b
     if alias_name == "c_int" or alias_name == "c_uint" or alias_name == "c_long" or alias_name == "c_ulong" or alias_name == "wchar" or alias_name == "c_char" or alias_name == "c_uchar" or alias_name == "c_bool" { give back "native C scalar ABI not yet supported: " + surface }
     if c_boundary and v4_codegen_llvm_active_owned_mir >= 0 and surface == v4_ty_word { give back "native owned word C ABI is not yet supported" }
     if c_boundary and v4_ty_is_native_scalar_sum(ty_id, surface) { give back "native scalar sum C ABI is not yet supported" }
+    -- Aggregates cross C boundaries only after the C ABI row classifies them
+    -- (sret/byval/register splits); a raw LLVM aggregate is not the C ABI.
+    if c_boundary and v4_ty_shape_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, surface)) >= 0 { give back "native shape C ABI by value is not yet supported: " + surface }
     if c_boundary and (surface == v4_ty_bool or surface == v4_ty_tiny or surface == v4_ty_char) { give back "native C scalar ABI not yet supported: " + surface }
     if v4_ty_is_surface_ffi_alias_type(surface) { give back "" }
     if v4_ty_is_raw_pointer_type(surface) { give back v4_codegen_llvm_native_c_surface_error_depth(ty_id, v4_ty_raw_pointer_target_type(surface), false, depth + 1) }
