@@ -34,6 +34,15 @@ pilot v4_codegen_llvm_word_global_lines = 0
 pilot v4_codegen_llvm_native_entry_lines = 0
 pilot v4_codegen_llvm_word_runtime_lines = 0
 pilot v4_codegen_llvm_shape_lines = 0
+-- Per-request shape memos. Nested shapes repeat (S1 holds two S0s, S2 two
+-- S1s, ...), so validation and layout answer each shape once instead of
+-- walking the full value tree. Validation keys include the nesting depth so
+-- the depth limit stays exact; the layout memo is keyed by target + records.
+pilot v4_codegen_llvm_shape_ok = ","
+pilot v4_codegen_llvm_shape_ok_mir = 0 - 1
+pilot v4_codegen_llvm_shape_visiting = ","
+pilot v4_codegen_llvm_layout_memo_key = ""
+pilot v4_codegen_llvm_layout_memo = ""
 pilot v4_codegen_llvm_numeric_runtime_used = false
 -- Policy of the module being lowered; selects the panic helper.
 pilot v4_codegen_llvm_active_panic_policy = "abort"
@@ -2192,11 +2201,29 @@ task v4_codegen_llvm_shape_type_name(mir_id: int, type_text: word) -> word {
 task v4_codegen_llvm_native_shape_error(mir_id: int, type_text: word, depth: int) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
     if type_text == "" or type_text == v4_ty_unknown { give back "-" }
-    pilot any_sig = v4_ty_shape_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, type_text))
+    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
+    pilot any_sig = v4_ty_shape_signature_id_for_name(ty_id, canonical)
     if any_sig < 0 { give back "-" }
     pilot sig_id = v4_mir_shape_signature(mir_id, type_text)
     if sig_id < 0 { give back "native generic shapes need monomorphization: " + type_text }
     if depth > 32 { give back "native shape nesting exceeds supported depth: " + type_text }
+    if v4_codegen_llvm_shape_ok_mir != mir_id {
+        v4_codegen_llvm_shape_ok_mir = mir_id
+        v4_codegen_llvm_shape_ok = ","
+        v4_codegen_llvm_shape_visiting = ","
+    }
+    pilot ok_key = "," + canonical + "@" + word_from_int(depth) + ","
+    if v4_codegen_llvm_shape_ok.contains(ok_key) { give back "" }
+    if v4_codegen_llvm_shape_visiting.contains("," + canonical + ",") { give back "native shape contains itself by value: " + type_text }
+    pilot saved_visiting = v4_codegen_llvm_shape_visiting
+    v4_codegen_llvm_shape_visiting = saved_visiting + canonical + ","
+    pilot error = v4_codegen_llvm_native_shape_fields_error(mir_id, ty_id, sig_id, type_text, depth)
+    v4_codegen_llvm_shape_visiting = saved_visiting
+    if error == "" { v4_codegen_llvm_shape_ok = v4_codegen_llvm_shape_ok + canonical + "@" + word_from_int(depth) + "," }
+    give back error
+}
+
+task v4_codegen_llvm_native_shape_fields_error(mir_id: int, ty_id: int, sig_id: int, type_text: word, depth: int) -> word {
     pilot field = 0
     repeat until field >= v4_ty_shape_field_count(ty_id, sig_id) {
         pilot field_ty = v4_ty_shape_field_type(ty_id, sig_id, field)
@@ -2304,6 +2331,24 @@ task v4_codegen_llvm_member_count(members: word) -> int {
 -- freak_target layout of one shape record (recursing through nested shapes).
 task v4_codegen_llvm_shape_layout(records: word, name: word, target_spec: word, depth: int) -> word {
     if depth > 32 { give back "" }
+    pilot key = target_spec + "\n" + records
+    if key != v4_codegen_llvm_layout_memo_key {
+        v4_codegen_llvm_layout_memo_key = key
+        v4_codegen_llvm_layout_memo = ""
+    }
+    pilot memo_id = 0
+    pilot memo_count = v4_codegen_llvm_record_count(v4_codegen_llvm_layout_memo)
+    repeat until memo_id >= memo_count {
+        pilot memo_line = v4_codegen_llvm_record_line(v4_codegen_llvm_layout_memo, memo_id)
+        if v4_codegen_llvm_record_field(memo_line, 0) == name { give back v4_codegen_llvm_record_field(memo_line, 1) }
+        memo_id += 1
+    }
+    pilot layout = v4_codegen_llvm_shape_layout_compute(records, name, target_spec, depth)
+    if layout != "" { v4_codegen_llvm_layout_memo = v4_codegen_llvm_layout_memo + name + "\t" + layout + "\n" }
+    give back layout
+}
+
+task v4_codegen_llvm_shape_layout_compute(records: word, name: word, target_spec: word, depth: int) -> word {
     pilot line_id = 0
     pilot count = v4_codegen_llvm_record_count(records)
     repeat until line_id >= count {
@@ -2793,7 +2838,14 @@ task v4_codegen_llvm_native_place_error(mir_id: int, body_id: int, place_id: int
         if v4_codegen_llvm_active_owned_mir != mir_id { give back "native place not yet supported: " + kind }
         pilot base_error = v4_codegen_llvm_native_place_error(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id), depth + 1)
         if base_error != "" { give back base_error }
-        if v4_mir_place_shape_field_slot(mir_id, body_id, place_id) < 0 { give back "native field place needs a concrete shape base: " + v4_mir_place_text(mir_id, body_id, place_id) }
+        pilot slot = v4_mir_place_shape_field_slot(mir_id, body_id, place_id)
+        if slot < 0 { give back "native field place needs a concrete shape base: " + v4_mir_place_text(mir_id, body_id, place_id) }
+        -- Loads and stores use the place's recorded type, so it must be the
+        -- declared field type or the access width would not match the slot.
+        pilot ty_id = v4_mir_ty_id(mir_id)
+        pilot base_ty = v4_mir_place_ty(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id))
+        pilot declared = v4_ty_shape_field_type(ty_id, v4_mir_shape_signature(mir_id, base_ty), slot)
+        if v4_ty_canonical_type(ty_id, declared) != v4_ty_canonical_type(ty_id, v4_mir_place_ty(mir_id, body_id, place_id)) { give back "native field place type differs from the declared field type: " + v4_mir_place_text(mir_id, body_id, place_id) }
         give back ""
     }
     give back "native place not yet supported: " + kind
@@ -2934,6 +2986,8 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
     }
     v4_codegen_llvm_active_owned_mir = 0 - 1
     v4_codegen_llvm_active_word_borrow = 0 - 1
+    -- MIR IDs can be reused on restore, so shape memos start fresh per request.
+    v4_codegen_llvm_shape_ok_mir = 0 - 1
     if v4_mir_file_exists(mir_id) == false {
         v4_codegen_llvm_add_diag(codegen_id, "missing mir for llvm lowering")
         give back codegen_id
