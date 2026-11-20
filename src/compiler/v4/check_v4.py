@@ -17357,6 +17357,8 @@ NATIVE_LAYOUT_TRIPLES = (
     "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-w64-windows-gnu",
 )
 NATIVE_SHAPES_EXPECTED = "3\n4\n14\n2\n50\n1\n42\ntrue\ntrue\n2.5\ntrue\ntrue\nfalse\n9\n6\n"
+NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\nfalse\n4\n"
+NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
 
 
 def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
@@ -17405,29 +17407,40 @@ def check_v4_native_shapes() -> None:
     """Tier 3 shapes: build and run natively; check layouts on all targets."""
     from build_v4 import host_target
 
-    source = V4_ROOT / "examples" / "shapes_native.fk"
-    executable = RUNTIME_BUILD_ROOT / ("tier3_native_shapes.exe" if sys.platform == "win32" else "tier3_native_shapes.native")
-    executable.unlink(missing_ok=True)
-    built = run_with_heartbeat(
-        [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(executable)],
-        label="V4 build command: native shapes", timeout_seconds=180, memory_limit_mb=512,
-    )
-    if built.returncode != 0 or not executable.exists():
-        raise RuntimeError(f"V4 rejected the native shapes program:\n{built.stdout}{built.stderr}")
-    ran = run_with_heartbeat([str(executable)], label="V4 native shapes execute", timeout_seconds=10, memory_limit_mb=128)
-    if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != NATIVE_SHAPES_EXPECTED:
-        raise RuntimeError(f"V4 native shapes printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
     probes = 0
-    for triple in NATIVE_LAYOUT_TRIPLES:
-        module_path = RUNTIME_BUILD_ROOT / f"tier3_native_shapes_{triple}.ll"
-        module_path.unlink(missing_ok=True)
-        emitted = run_with_heartbeat(
-            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
-            label=f"V4 shape module {triple}", timeout_seconds=180, memory_limit_mb=512,
+    programs = (
+        ("shapes", "shapes_native.fk", NATIVE_SHAPES_EXPECTED),
+        ("aggregates", "aggregates_native.fk", NATIVE_AGGREGATES_EXPECTED),
+    )
+    for stem, file_name, expected in programs:
+        source = V4_ROOT / "examples" / file_name
+        executable = RUNTIME_BUILD_ROOT / (f"tier3_native_{stem}.exe" if sys.platform == "win32" else f"tier3_native_{stem}.native")
+        executable.unlink(missing_ok=True)
+        built = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(executable)],
+            label=f"V4 build command: native {stem}", timeout_seconds=180, memory_limit_mb=512,
         )
-        if emitted.returncode != 0 or not module_path.exists():
-            raise RuntimeError(f"V4 could not emit the shapes module for {triple}:\n{emitted.stdout}{emitted.stderr}")
-        probes += check_native_layout_oracle(module_path.read_text(encoding="utf-8"), triple)
+        if built.returncode != 0 or not executable.exists():
+            raise RuntimeError(f"V4 rejected the native {stem} program:\n{built.stdout}{built.stderr}")
+        ran = run_with_heartbeat([str(executable)], label=f"V4 native {stem} execute", timeout_seconds=10, memory_limit_mb=128)
+        if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != expected:
+            raise RuntimeError(f"V4 native {stem} printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
+        if stem == "aggregates":
+            # Any argument makes the program index past the end of a [int; 4].
+            panicked = run_with_heartbeat([str(executable), "out-of-bounds"], label="V4 native bounds check", timeout_seconds=10, memory_limit_mb=128)
+            if panicked.returncode != 101 or NATIVE_AGGREGATES_PANIC not in panicked.stdout + panicked.stderr:
+                raise RuntimeError(f"V4 native bounds check did not panic: exit={panicked.returncode} "
+                                   f"stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
+        for triple in NATIVE_LAYOUT_TRIPLES:
+            module_path = RUNTIME_BUILD_ROOT / f"tier3_native_{stem}_{triple}.ll"
+            module_path.unlink(missing_ok=True)
+            emitted = run_with_heartbeat(
+                [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+                label=f"V4 {stem} module {triple}", timeout_seconds=180, memory_limit_mb=512,
+            )
+            if emitted.returncode != 0 or not module_path.exists():
+                raise RuntimeError(f"V4 could not emit the {stem} module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+            probes += check_native_layout_oracle(module_path.read_text(encoding="utf-8"), triple)
     rejected_cases = (
         ("tier3_shape_word_field", "shape Named { name: word, n: int }\n"
          "task main() -> int { pilot a = Named { name: \"x\", n: 1 }\n give back a.n }\n",
@@ -17438,6 +17451,9 @@ def check_v4_native_shapes() -> None:
         ("tier3_shape_c_abi", "use std::ffi::c_double\n@layout(C)\nshape Pair { a: c_double, b: c_double }\n"
          "extern [C] {\n    task take_pair(p: Pair) -> c_double\n}\ntask main() -> int { give back 0 }\n",
          "native shape C ABI by value is not yet supported: Pair"),
+        ("tier3_array_c_abi", "use std::ffi::c_double\n"
+         "extern [C] {\n    task take_values(values: [c_double; 2]) -> c_double\n}\ntask main() -> int { give back 0 }\n",
+         "native tuple and array C ABI by value is not yet supported: [c_double;2]"),
     )
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
@@ -17450,7 +17466,8 @@ def check_v4_native_shapes() -> None:
         )
         if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
             raise RuntimeError(f"V4 shape case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
-    print(f"V4 native shapes: run=exact layout-probes={probes} targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+    print(f"V4 native shapes: programs={len(programs)} run=exact bounds=panics layout-probes={probes} "
+          f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
 
 def check_v4_build_command() -> None:
     from build_v4 import bootstrap, host_target
