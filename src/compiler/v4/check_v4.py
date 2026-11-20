@@ -17357,7 +17357,7 @@ NATIVE_LAYOUT_TRIPLES = (
     "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-w64-windows-gnu",
 )
 NATIVE_SHAPES_EXPECTED = "3\n4\n14\n2\n50\n1\n42\ntrue\ntrue\n2.5\ntrue\ntrue\nfalse\n9\n6\n"
-NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\nfalse\nfill\n6\n6\nfill\n7\nfill\n0\ntrue\n4\n"
+NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\nfalse\nfill\n6\n6\nfill\n7\nfill\n0\ntrue\ntrue\n4\n"
 NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
 
 
@@ -17464,6 +17464,11 @@ def check_v4_native_shapes() -> None:
          "    pilot a: [[[int; 64]; 64]; 64] = [[[1; 64]; 64]; 64]\n"
          "    pilot b: [[[uint; 64]; 64]; 64] = a\n    give back 0\n}\n",
          "native aggregate conversion exceeds the supported slot budget: [[[int;64];64];64] to [[[uint;64];64];64]"),
+        # A flat array past the leaf budget is rejected the same way.
+        ("tier3_flat_conversion_budget", "task main() -> int {\n"
+         "    pilot a: [int; 8192] = [0; 8192]\n"
+         "    pilot b: [uint; 8192] = a\n    give back 0\n}\n",
+         "native aggregate conversion exceeds the supported slot budget: [int;8192] to [uint;8192]"),
     )
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
