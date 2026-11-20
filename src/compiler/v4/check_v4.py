@@ -17360,6 +17360,7 @@ NATIVE_SHAPES_EXPECTED = "3\n4\n14\n2\n50\n1\n42\ntrue\ntrue\n2.5\ntrue\ntrue\nf
 NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\nfalse\nfill\n6\n6\nfill\n7\nslot\nfill\n6\nfill\n0\ntrue\ntrue\n4\n"
 NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
 NATIVE_ROUTES_EXPECTED = ("2\n0\ntrue\ntrue\ntrue\n41\nfalse\n9\n9\n12\n15\n0\n46\n54\n25\n15\n-21\n1\n73\n36\n3\n25\ntrue\nfalse\n")
+NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\norigin:12\n0\nfalse\ntrue\n2\n"
 
 
 def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
@@ -17474,6 +17475,7 @@ def check_v4_native_shapes() -> None:
         ("shapes", "shapes_native.fk", NATIVE_SHAPES_EXPECTED),
         ("aggregates", "aggregates_native.fk", NATIVE_AGGREGATES_EXPECTED),
         ("routes", "routes_native.fk", NATIVE_ROUTES_EXPECTED),
+        ("methods", "methods_native.fk", NATIVE_METHODS_EXPECTED),
     )
     for stem, file_name, expected in programs:
         source = V4_ROOT / "examples" / file_name
@@ -17572,6 +17574,21 @@ def check_v4_native_shapes() -> None:
          "task id(c: Compass) -> int {\n    when c {\n        Compass::East -> give back 1\n        _ -> give back 0\n    }\n    give back 9\n}\n"
          "task main() -> int { give back id(East) }\n",
          "native route constants are not yet supported: East"),
+        ("tier3_method_temporary_lend", "shape P { x: int }\nimpl P {\n    task peek(lend self) -> int { give back self.x }\n}\n"
+         "task main() -> int { give back P { x: 1 }.peek() }\n",
+         "lend receiver must be a place"),
+        ("tier3_method_word_receiver", "shape Named { name: word, n: int }\nimpl Named {\n    task count(lend self) -> int { give back self.n }\n}\n"
+         "task main() -> int { pilot a = Named { name: \"x\", n: 1 }\n give back a.count() }\n",
+         "native shape fields that own words are not yet supported: Named.name"),
+        ("tier3_method_value_to_lend_self", "shape P { x: int }\nimpl P {\n    task peek(lend self) -> int { give back self.x }\n}\n"
+         "task main() -> int { pilot p = P { x: 1 }\n give back P::peek(p) }\n",
+         "unsupported native conversion: P to lend P"),
+        ("tier3_lend_shape_param", "shape P { x: int }\ntask peek(lend p: P) -> int { give back p.x }\n"
+         "task main() -> int { pilot p = P { x: 1 }\n give back peek(lend p) }\n",
+         "native lend parameters currently support only immutable word parameters"),
+        ("tier3_lend_shape_local", "shape P { x: int }\n"
+         "task main() -> int { pilot p = P { x: 1 }\n pilot l = lend p\n give back p.x }\n",
+         "native borrowed aggregate local storage is not yet supported"),
     )
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
