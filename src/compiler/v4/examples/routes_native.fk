@@ -1,0 +1,162 @@
+route Compass { North / East / South / West }
+
+@repr(u8)
+variant Signal {
+    Low = 3, Mid, High = 200, Peak
+}
+
+@repr(i16)
+variant Offset { Back = 0 - 2, Here, Ahead = 7 }
+
+shape Point { x: int, y: int }
+
+route Shape {
+    Circle { r: float, center: Point }
+    Rect { x: int, y: int, w: int, h: int }
+    Dot { x: int, y: int }
+    Empty
+}
+
+route Packet {
+    Bytes { data: [tiny; 4], len: int }
+    Pair { pair: (int, bool) }
+    Flag { on: bool, mark: char, level: float32 }
+    Wrapped { inner: Shape, heading: Compass }
+}
+
+shape Robot { name_id: int, facing: Compass, last: Shape }
+
+task turn(c: Compass) -> Compass {
+    when c {
+        Compass::North -> give back Compass::East
+        Compass::East -> give back Compass::South
+        Compass::South -> give back Compass::West
+        Compass::West -> give back Compass::North
+    }
+    give back c
+}
+
+task compass_id(c: Compass) -> int {
+    when c {
+        Compass::North -> give back 0
+        Compass::East -> give back 1
+        Compass::South -> give back 2
+        Compass::West -> give back 3
+    }
+    give back 0 - 1
+}
+
+task signal_rank(s: Signal) -> int {
+    when s {
+        Signal::Low -> give back 1
+        Signal::Mid -> give back 2
+        Signal::High -> give back 3
+        Signal::Peak -> give back 4
+    }
+    give back 0
+}
+
+task offset_step(o: Offset) -> int {
+    when o {
+        Offset::Back -> give back 0 - 1
+        Offset::Here -> give back 0
+        Offset::Ahead -> give back 1
+    }
+    give back 99
+}
+
+task area(s: Shape) -> int {
+    when s {
+        Shape::Circle { r, center } -> give back center.x + center.y
+        Shape::Rect { w, h } -> give back w * h
+        Shape::Dot { x, y } -> give back x + y
+        Shape::Empty -> give back 0
+    }
+    give back 0 - 1
+}
+
+-- Rect and Dot both start with x and y, so a payload read of x is the same
+-- slot whichever of the two cases is live.
+task left(s: Shape) -> int {
+    when s {
+        Shape::Rect { x } -> give back x
+        Shape::Dot { x } -> give back x
+        _ -> give back 0 - 1
+    }
+    give back 0 - 1
+}
+
+task make_rect(n: int) -> Shape {
+    give back Shape::Rect { x: n, y: n + 1, w: n * 2, h: 3 }
+}
+
+task scale(s: Shape, k: int) -> Shape {
+    when s {
+        Shape::Rect { x, y, w, h } -> give back Shape::Rect { x: x, y: y, w: w * k, h: h * k }
+        Shape::Dot { x, y } -> give back Shape::Dot { x: x * k, y: y * k }
+        _ -> give back Shape::Empty
+    }
+    give back Shape::Empty
+}
+
+task packet_score(p: Packet) -> int {
+    when p {
+        Packet::Bytes { data, len } -> give back data[0] + data[3] + len
+        Packet::Pair { pair } -> {
+            if pair.1 { give back pair.0 }
+            give back 0 - pair.0
+        }
+        Packet::Flag { on, mark, level } -> {
+            if on and mark == 'z' and level > 1.0 { give back 1 }
+            give back 0
+        }
+        Packet::Wrapped { inner, heading } -> give back area(inner) * 10 + compass_id(heading)
+    }
+    give back 0 - 1
+}
+
+task main() -> int {
+    -- Routes move like shapes: each use below gets its own value.
+    pilot c = Compass::South
+    say compass_id(c)
+    say compass_id(turn(turn(Compass::South)))
+    pilot c2 = Compass::South
+    pilot south = Compass::South
+    say c2 == south
+    pilot c3 = Compass::South
+    say c3 != turn(Compass::South)
+    pilot north = Compass::North
+    say turn(Compass::West) == north
+    say signal_rank(Signal::Peak) * 10 + signal_rank(Signal::Low)
+    pilot hi = Signal::High
+    pilot peak = Signal::Peak
+    say hi == peak
+    say offset_step(Offset::Back) + offset_step(Offset::Ahead) * 10
+    say area(Shape::Circle { r: 1.5, center: Point { x: 4, y: 5 } })
+    say area(make_rect(2))
+    say area(Shape::Dot { x: 7, y: 8 })
+    say area(Shape::Empty)
+    say left(make_rect(6)) + left(Shape::Dot { x: 40, y: 1 })
+    say area(scale(make_rect(1), 3))
+    say area(scale(Shape::Dot { x: 2, y: 3 }, 5))
+    say packet_score(Packet::Bytes { data: [1, 2, 3, 4], len: 10 })
+    say packet_score(Packet::Pair { pair: (21, false) })
+    say packet_score(Packet::Flag { on: true, mark: 'z', level: 2.5 })
+    say packet_score(Packet::Wrapped { inner: Shape::Dot { x: 3, y: 4 }, heading: Compass::West })
+    -- Routes as shape fields and array elements, built in a loop that
+    -- reuses one construct slot per site.
+    pilot mut bot = Robot { name_id: 9, facing: Compass::North, last: Shape::Empty }
+    pilot mut shapes: [Shape; 3] = [Shape::Empty, Shape::Empty, Shape::Empty]
+    pilot mut i = 0
+    repeat until i >= 3 {
+        shapes[i] = Shape::Dot { x: i, y: i * 10 }
+        i += 1
+    }
+    bot.facing = turn(turn(turn(Compass::North)))
+    bot.last = Shape::Rect { x: 0, y: 0, w: 5, h: 5 }
+    say area(shapes[0]) + area(shapes[1]) + area(bot.last)
+    say compass_id(bot.facing)
+    pilot pair: (Compass, Shape) = (Compass::East, make_rect(4))
+    say compass_id(pair.0) + area(pair.1)
+    give back 0
+}

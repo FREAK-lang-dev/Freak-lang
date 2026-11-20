@@ -17359,6 +17359,7 @@ NATIVE_LAYOUT_TRIPLES = (
 NATIVE_SHAPES_EXPECTED = "3\n4\n14\n2\n50\n1\n42\ntrue\ntrue\n2.5\ntrue\ntrue\nfalse\n9\n6\n"
 NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\nfalse\nfill\n6\n6\nfill\n7\nslot\nfill\n6\nfill\n0\ntrue\ntrue\n4\n"
 NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
+NATIVE_ROUTES_EXPECTED = ("2\n0\ntrue\ntrue\ntrue\n41\nfalse\n9\n9\n12\n15\n0\n46\n54\n25\n15\n-21\n1\n73\n36\n3\n25\n")
 
 
 def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
@@ -17369,15 +17370,38 @@ def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
     return notes
 
 
+def native_payload_notes(module: str) -> dict[str, tuple[int, int, list[str]]]:
+    """Route payload notes: union size, union alignment and each case struct."""
+    notes = {}
+    for match in re.finditer(r"^; freak\.payload (\S+) size=(\d+) align=(\d+) cases=(.+)$", module, re.MULTILINE):
+        notes[match.group(1)] = (int(match.group(2)), int(match.group(3)), match.group(4).split(" | "))
+    return notes
+
+
+def native_align_up(value: int, align: int) -> int:
+    return (value + align - 1) // align * align
+
+
 def check_native_layout_oracle(module: str, triple: str) -> int:
     """Compare freak_target's layout notes with Clang's DataLayout for triple."""
     clang = shutil.which("clang")
     notes = native_layout_notes(module)
-    types = re.findall(r'^(%"freak\.shape\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
-    if not notes or len(notes) != len(types):
+    payloads = native_payload_notes(module)
+    types = re.findall(r'^(%"freak\.(?:shape|route)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
+    if not notes or len(notes) != len(types) or not set(payloads) <= set(notes):
         raise RuntimeError(f"V4 shape module for {triple} has no matching layout notes")
+    bodies = dict(types)
     lines = [f"{name} = type {body}" for name, body in types]
     expected = []
+
+    def size_align_probes(prefix: str, llvm_type: str) -> list[tuple[str, str]]:
+        return [(f"{prefix}_size", f"getelementptr ({llvm_type}, ptr null, i32 1)"),
+                (f"{prefix}_align", f"getelementptr ({{ i1, {llvm_type} }}, ptr null, i32 0, i32 1)")]
+
+    # A route's payload storage must be what a C union of its case structs
+    # would be, and it must sit after the tag by C struct rules. Clang folds
+    # each case struct and the tag on its own; Python applies the C rules.
+    unions = []
     for index, (name, (size, align, offsets)) in enumerate(sorted(notes.items())):
         probes = [("size", f"getelementptr ({name}, ptr null, i32 1)", size),
                   ("align", f"getelementptr ({{ i1, {name} }}, ptr null, i32 0, i32 1)", align)]
@@ -17387,6 +17411,13 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
             function = f"probe_{index}_{label}"
             lines.append(f"define i64 @{function}() {{ ret i64 ptrtoint (ptr {expression} to i64) }}")
             expected.append((function, value, name, label))
+        if name in payloads:
+            tag = bodies[name][1:-1].split(",")[0].strip()
+            members = [("tag", tag)] + [(f"case{case}", text) for case, text in enumerate(payloads[name][2])]
+            for prefix, llvm_type in members:
+                for label, expression in size_align_probes(f"{prefix}", llvm_type):
+                    lines.append(f"define i64 @union_{index}_{label}() {{ ret i64 ptrtoint (ptr {expression} to i64) }}")
+            unions.append((index, name, len(members) - 1))
     probe = RUNTIME_BUILD_ROOT / f"shape_layout_{triple}.ll"
     probe.write_text("\n".join(lines) + "\n", encoding="utf-8")
     result = run_with_heartbeat(
@@ -17400,7 +17431,32 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
         if folded.get(function) != str(value):
             raise RuntimeError(f"freak_target layout disagrees with Clang on {triple}: {name} {label} "
                                f"freak_target={value} clang={folded.get(function)}")
-    return len(expected)
+    folded_unions = dict(re.findall(r"define[^@]*@(union_\w+)\(\)[^{]*\{\s*ret i64 (\d+)", result.stdout))
+    checked = 0
+    for index, name, cases in unions:
+        def folded_value(label: str) -> int:
+            value = folded_unions.get(f"union_{index}_{label}")
+            if value is None:
+                raise RuntimeError(f"Clang did not fold the route payload probe {label} for {name} on {triple}")
+            return int(value)
+        case_sizes = [folded_value(f"case{case}_size") for case in range(cases)]
+        case_aligns = [folded_value(f"case{case}_align") for case in range(cases)]
+        union_align = max(case_aligns)
+        union_size = native_align_up(max(case_sizes), union_align)
+        tag_size, tag_align = folded_value("tag_size"), folded_value("tag_align")
+        payload_offset = native_align_up(tag_size, union_align)
+        route_align = max(tag_align, union_align)
+        size, align, offsets = notes[name]
+        claims = (("payload size", payloads[name][0], union_size), ("payload align", payloads[name][1], union_align),
+                  ("payload offset", offsets[1] if len(offsets) > 1 else -1, payload_offset),
+                  ("route size", size, native_align_up(payload_offset + union_size, route_align)),
+                  ("route align", align, route_align))
+        for label, claimed, c_rule in claims:
+            if claimed != c_rule:
+                raise RuntimeError(f"route payload layout is not the C union rule on {triple}: {name} {label} "
+                                   f"freak_target={claimed} clang+C={c_rule}")
+            checked += 1
+    return len(expected) + checked
 
 
 def check_v4_native_shapes() -> None:
@@ -17411,6 +17467,7 @@ def check_v4_native_shapes() -> None:
     programs = (
         ("shapes", "shapes_native.fk", NATIVE_SHAPES_EXPECTED),
         ("aggregates", "aggregates_native.fk", NATIVE_AGGREGATES_EXPECTED),
+        ("routes", "routes_native.fk", NATIVE_ROUTES_EXPECTED),
     )
     for stem, file_name, expected in programs:
         source = V4_ROOT / "examples" / file_name
@@ -17469,6 +17526,32 @@ def check_v4_native_shapes() -> None:
          "    pilot a: [int; 8192] = [0; 8192]\n"
          "    pilot b: [uint; 8192] = a\n    give back 0\n}\n",
          "native aggregate conversion exceeds the supported slot budget: [int;8192] to [uint;8192]"),
+        ("tier3_route_word_payload", "route Msg {\n    Text { body: word }\n    Quit\n}\n"
+         "task main() -> int {\n    pilot m = Msg::Quit\n    give back 0\n}\n",
+         "native route payload fields that own words are not yet supported: Msg::Text.body"),
+        ("tier3_route_generic", "route Opt<T> {\n    Has { v: T }\n    Not\n}\n"
+         "task main() -> int {\n    pilot o: Opt<int> = Opt::Has { v: 1 }\n    give back 0\n}\n",
+         "native generic routes need monomorphization: Opt<int>"),
+        ("tier3_route_c_abi", "@repr(i32)\nvariant Mode { A, B }\nextern [C] {\n    task set_mode(m: Mode) -> void\n}\n"
+         "task main() -> int { give back 0 }\n",
+         "native route C ABI is not yet supported: Mode"),
+        ("tier3_route_payload_equality", "route Pt {\n    Dot { x: int }\n    None\n}\n"
+         "task main() -> int {\n    pilot a = Pt::Dot { x: 1 }\n    pilot b = Pt::Dot { x: 2 }\n    if a == b { give back 1 }\n    give back 0\n}\n",
+         "native route equality with payloads needs doctrine lowering"),
+        ("tier3_route_repr_range", "@repr(u8)\nvariant Big { Small = 1, Huge = 300 }\n"
+         "task main() -> int {\n    pilot b = Big::Small\n    give back 0\n}\n",
+         "native route discriminant does not fit @repr(u8): Big::Huge = 300"),
+        ("tier3_route_duplicate_tag", "route Dup { A = 1, B = 1 }\n"
+         "task main() -> int {\n    pilot d = Dup::A\n    give back 0\n}\n",
+         "native route discriminants must be distinct: Dup::A and Dup::B are both 1"),
+        ("tier3_route_shared_field", "route Mix {\n    P { a: bool, x: int }\n    Q { x: int }\n}\n"
+         "task pick(m: Mix) -> int {\n    when m {\n        Mix::P { x } -> give back x\n        Mix::Q { x } -> give back x\n    }\n    give back 0\n}\n"
+         "task main() -> int { give back pick(Mix::Q { x: 3 }) }\n",
+         "native route payload fields shared by cases at different offsets are not yet supported: _when_subject.x"),
+        ("tier3_route_constant", "route Compass { North / East }\nfixed pilot START: Compass = Compass::East\n"
+         "task id(c: Compass) -> int {\n    when c {\n        Compass::East -> give back 1\n        _ -> give back 0\n    }\n    give back 9\n}\n"
+         "task main() -> int { give back id(START) }\n",
+         "native route constants are not yet supported: START"),
     )
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
