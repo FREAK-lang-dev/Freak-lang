@@ -17390,6 +17390,12 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
     types = re.findall(r'^(%"freak\.(?:shape|route)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
     if not notes or len(notes) != len(types) or not set(payloads) <= set(notes):
         raise RuntimeError(f"V4 shape module for {triple} has no matching layout notes")
+    # A route with payload storage after its tag must say how that storage is
+    # laid out, or its C union checks below would be skipped.
+    unnoted = [name for name, body in types
+               if name.startswith('%"freak.route.') and "," in body and name not in payloads]
+    if unnoted:
+        raise RuntimeError(f"V4 shape module for {triple} has payload routes without payload notes: {', '.join(unnoted)}")
     bodies = dict(types)
     lines = [f"{name} = type {body}" for name, body in types]
     expected = []
@@ -17497,7 +17503,17 @@ def check_v4_native_shapes() -> None:
             )
             if emitted.returncode != 0 or not module_path.exists():
                 raise RuntimeError(f"V4 could not emit the {stem} module for {triple}:\n{emitted.stdout}{emitted.stderr}")
-            probes += check_native_layout_oracle(module_path.read_text(encoding="utf-8"), triple)
+            module_text = module_path.read_text(encoding="utf-8")
+            probes += check_native_layout_oracle(module_text, triple)
+            if "; freak.payload " in module_text:
+                stripped = re.sub(r"^; freak\.payload .*\n", "", module_text, flags=re.MULTILINE)
+                try:
+                    check_native_layout_oracle(stripped, triple)
+                except RuntimeError as error:
+                    if "without payload notes" not in str(error):
+                        raise
+                else:
+                    raise RuntimeError(f"V4 layout oracle accepted {stem} for {triple} without its payload notes")
     rejected_cases = (
         ("tier3_shape_word_field", "shape Named { name: word, n: int }\n"
          "task main() -> int { pilot a = Named { name: \"x\", n: 1 }\n give back a.n }\n",
