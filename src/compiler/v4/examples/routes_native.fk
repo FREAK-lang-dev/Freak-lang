@@ -46,6 +46,15 @@ task compass_id(c: Compass) -> int {
     give back 0 - 1
 }
 
+task is_vertical(c: Compass) -> bool {
+    check route c {
+        Compass::North -> give back true
+        Compass::South -> give back true
+        _ -> give back false
+    }
+    give back false
+}
+
 task signal_rank(s: Signal) -> int {
     when s {
         Signal::Low -> give back 1
@@ -158,5 +167,7 @@ task main() -> int {
     say compass_id(bot.facing)
     pilot pair: (Compass, Shape) = (Compass::East, make_rect(4))
     say compass_id(pair.0) + area(pair.1)
+    say is_vertical(Compass::North)
+    say is_vertical(Compass::East)
     give back 0
 }
