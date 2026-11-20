@@ -111,14 +111,15 @@ task v4_typed_place_run() -> void {
         v4_typed_place_assert(v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_use_place and v4_mir_place_kind(mir, body, place) == v4_mir_place_index and v4_mir_place_index(mir, body, place) != value, "acyclic index before hostile mutation")
         array_set(word_to_int(array_get(v4_mir_place_indices_index_handle(mir), body)), place, word_from_int(value))
         pilot malformed = v4_mir_snapshot()
-        v4_typed_place_assert(malformed != snapshot and v4_mir_place_index(mir, body, place) == value and v4_mir_rvalue_lhs(mir, body, value) == place and v4_mir_word_plan_preflight(mir) == "", "real mixed place rvalue cycle bypasses rvalue-only preflight")
+        v4_typed_place_assert(malformed != snapshot and v4_mir_place_index(mir, body, place) == value and v4_mir_rvalue_lhs(mir, body, value) == place and v4_mir_word_plan_preflight(mir) != "", "real mixed place rvalue cycle is rejected by the place-aware preflight")
         v4_typed_place_assert(not v4_borrowck_place_address_graph_is_bounded(mir, body), "combined graph resource bound rejects cycle")
         pilot failed = v4_borrowck_check_mir(0, mir)
         pilot failed_result = v4_borrowck_lookup_result(failed, v4_mir_body_def(mir, body))
         pilot named: bool = false
         row = 0
         repeat until row >= v4_borrowck_diag_count(failed) {
-            if v4_diag_message(v4_borrowck_diag(failed, row)) == "Meiya cannot prove the place address plan within available resources" { named = true }
+            -- The place-aware word preflight now names the cycle before Meiya walks it.
+            if v4_diag_message(v4_borrowck_diag(failed, row)) == "invalid native word ownership rvalue graph" { named = true }
             row += 1
         }
         v4_typed_place_assert(named and v4_borrowck_result_status(failed, failed_result) == v4_borrowck_blocked and v4_borrowck_result_path_count(failed, failed_result) == 0, "cycle fails before recursive legacy path collection")
