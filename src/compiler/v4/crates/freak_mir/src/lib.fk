@@ -4954,6 +4954,15 @@ task v4_mir_word_plan_preflight(mir_id: int) -> word {
                     if right_depth > depth { depth = right_depth }
                     cost += word_to_int(array_get(cost_words, rhs))
                 }
+                if kind == v4_mir_rvalue_use_place and lhs >= 0 {
+                    -- Index and pointer operands of the place are children too.
+                    pilot operands = v4_mir_place_operand_payload(mir_id, body, lhs, value)
+                    if operands == "?" {
+                        if word_body { error = "invalid native word ownership rvalue graph" }
+                        operands = ""
+                    }
+                    if args == "" { args = operands } else if operands != "" { args = args + "," + operands }
+                }
                 pilot arg = 0
                 repeat until arg >= v4_mir_call_args_payload_count(args) {
                     pilot child = word_to_int(v4_mir_snapshot_comma_part(args, arg))
@@ -4978,6 +4987,31 @@ task v4_mir_word_plan_preflight(mir_id: int) -> word {
         body += 1
     }
     give back v4_mir_scalar_sum_plan_preflight(mir_id)
+}
+
+-- The rvalues a place read evaluates: array indexes and dereferenced
+-- pointers along its field/index chain, as a comma payload. Graph budgets
+-- count them as children so a[a[...]] chains stay bounded. "?" marks a
+-- malformed chain (an operand that is not an earlier rvalue).
+task v4_mir_place_operand_payload(mir_id: int, body_id: int, place_id: int, before: int) -> word {
+    pilot out = ""
+    pilot place = place_id
+    pilot steps = 0
+    repeat until place < 0 {
+        if place >= v4_mir_body_place_count(mir_id, body_id) or steps > 64 { give back "?" }
+        pilot kind = v4_mir_place_kind(mir_id, body_id, place)
+        if kind == v4_mir_place_index or kind == v4_mir_place_deref {
+            pilot operand = v4_mir_place_index(mir_id, body_id, place)
+            if operand >= before { give back "?" }
+            if operand >= 0 {
+                if out != "" { out = out + "," }
+                out = out + word_from_int(operand)
+            }
+        }
+        if kind == v4_mir_place_field or kind == v4_mir_place_index { place = v4_mir_place_base(mir_id, body_id, place) } else { place = 0 - 1 }
+        steps += 1
+    }
+    give back out
 }
 
 -- Ordinary facts may use a canonical zero-width anchor; scopes must be nonempty.

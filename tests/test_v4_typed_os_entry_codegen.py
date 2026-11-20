@@ -352,7 +352,8 @@ class PureGateTests(unittest.TestCase):
                                "v4_mir_shape_ctor_name":lambda *args:public,
                                "v4_mir_signature_id_for_name":lambda *args:-1,
                                "v4_mir_rvalue_kind":lambda *args:"Unknown",
-                               "v4_codegen_llvm_scalar_sum_rvalue_is_supported":lambda *args:False})
+                               "v4_codegen_llvm_scalar_sum_rvalue_is_supported":lambda *args:False,
+                               "v4_codegen_llvm_is_literal_aggregate":lambda kind:kind in ("Construct", "Tuple", "Array")})
                 ordinary = source_task_ast(Parser, builder, "v4_mir_try_lower_named_call")
                 self.assertEqual(evaluate_source_branch(ordinary, [0,0,0,0,5,"span"], leaves, {}), -1)
                 fallback = source_task_ast(Parser, builder, "v4_mir_lower_expr_expected").body.statements[-1]
@@ -462,6 +463,7 @@ class PureGateTests(unittest.TestCase):
                 "v4_mir_signature_id_for_name": lambda mir_id, name: -1,
                 "v4_mir_rvalue_kind": lambda mir_id, body, value: "Unknown",
                 "v4_codegen_llvm_scalar_sum_rvalue_is_supported": lambda *args: False,
+                "v4_codegen_llvm_is_literal_aggregate": lambda kind: kind in ("Construct", "Tuple", "Array"),
             }
             intrinsic = source_task_ast(Parser, builder, "v4_mir_try_lower_system_named_intrinsic")
             ordinary = source_task_ast(Parser, builder, "v4_mir_try_lower_named_call")
