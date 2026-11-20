@@ -931,6 +931,9 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
         give back "%" + v4_codegen_llvm_mangle_name(ty_name)
     }
 
+    if v4_codegen_llvm_active_owned_mir >= 0 and (v4_ty_is_tuple_type(ty_name) or v4_ty_is_fixed_array_type(ty_name)) {
+        give back v4_codegen_llvm_literal_aggregate_type(v4_codegen_llvm_active_owned_mir, ty_name)
+    }
     if ty_name.length() > 0 and ty_name.char_at(0) == "(" {
         give back "ptr"
     }
@@ -1173,7 +1176,7 @@ task v4_codegen_llvm_rvalue_operand(mir_id: int, body_id: int, rvalue_id: int) -
     if kind == v4_mir_rvalue_use_local {
         give back operand_ty + " " + v4_codegen_llvm_temp_value(body_id, rvalue_id)
     }
-    if kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_construct {
+    if kind == v4_mir_rvalue_use_place or v4_codegen_llvm_is_literal_aggregate(kind) {
         give back operand_ty + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id)
     }
     if kind == v4_mir_rvalue_use_symbol and v4_mir_symbol_is_global(mir_id, text) {
@@ -1232,7 +1235,7 @@ task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> 
         if v4_codegen_llvm_active_owned_mir == mir_id { give back v4_codegen_llvm_temp_value(body_id, rvalue_id) }
         give back "%" + v4_codegen_llvm_mangle_name(v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
     }
-    if kind == v4_mir_rvalue_construct and v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) == 0 { give back "zeroinitializer" }
+    if v4_codegen_llvm_is_literal_aggregate(kind) and v4_codegen_llvm_aggregate_literal_is_zero(mir_id, body_id, rvalue_id) { give back "zeroinitializer" }
     if kind == v4_mir_rvalue_use_symbol and v4_mir_symbol_is_global(mir_id, text) {
         give back v4_codegen_llvm_temp_value(body_id, rvalue_id)
     }
@@ -1354,7 +1357,7 @@ task v4_codegen_llvm_rvalue_needs_instruction(mir_id: int, body_id: int, rvalue_
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) { give back true }
     if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_use_place) { give back true }
-    if v4_codegen_llvm_active_owned_mir == mir_id and kind == v4_mir_rvalue_construct { give back v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) > 0 }
+    if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_literal_aggregate(kind) { give back not v4_codegen_llvm_aggregate_literal_is_zero(mir_id, body_id, rvalue_id) }
     if (kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float) and v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) == "float" { give back true }
     if v4_codegen_llvm_rvalue_is_global_read(mir_id, body_id, rvalue_id) { give back true }
     give back kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_use_local
@@ -1486,10 +1489,13 @@ task v4_codegen_llvm_numeric_conversion_lines(source_ty: word, target_ty: word, 
 }
 
 task v4_codegen_llvm_expected_lines(mir_id: int, body_id: int, rvalue_id: int, expected_ty: word, temp: word) -> word {
+    pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if v4_codegen_llvm_aggregate_conversion_needed(mir_id, actual_ty, expected_ty) { give back v4_codegen_llvm_aggregate_conversion_lines(mir_id, actual_ty, expected_ty, v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id), temp, 0) }
     give back v4_codegen_llvm_numeric_conversion_lines(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id), expected_ty, v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id), temp)
 }
 
 task v4_codegen_llvm_expected_value(mir_id: int, body_id: int, rvalue_id: int, expected_ty: word, temp: word) -> word {
+    if v4_codegen_llvm_aggregate_conversion_needed(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id), expected_ty) { give back temp }
     if v4_codegen_llvm_numeric_cast_opcode(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id), expected_ty) != "" { give back temp }
     give back v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id)
 }
@@ -1933,7 +1939,7 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
                 give back value_lines + "  store " + v4_codegen_llvm_type(global_ty) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, global_ty, expected_temp) + ", ptr " + v4_codegen_llvm_global_symbol(v4_mir_place_text(mir_id, body_id, place_id)) + "\n"
             }
         }
-        if kind == v4_mir_stmt_assign and place_id >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_field {
+        if kind == v4_mir_stmt_assign and place_id >= 0 and (v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_field or v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_index) {
             pilot field_ty = v4_mir_place_ty(mir_id, body_id, place_id)
             pilot out = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
             out = out + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, field_ty, expected_temp)
@@ -2188,61 +2194,137 @@ task v4_codegen_llvm_native_type_error_depth(type_text: word, allow_void: bool, 
     give back "native type not yet supported: " + type_text
 }
 
--- Shapes (tier 3). A concrete shape lowers to a named LLVM struct whose
--- fields follow declaration order; freak_target answers its layout. Fields
--- must be scalars, raw or task pointers, or nested shapes: fields that own
--- words need aggregate drops (a later row) and are named here.
+-- Aggregates (tier 3). A concrete shape lowers to a named LLVM struct whose
+-- fields follow declaration order, a tuple to a literal struct, and a fixed
+-- array [T; N] to [N x T]; freak_target answers every layout. Slots must be
+-- scalars, raw or task pointers, or nested aggregates: slots that own words
+-- need aggregate drops (a later row) and are named here.
 task v4_codegen_llvm_shape_type_name(mir_id: int, type_text: word) -> word {
     pilot symbol = v4_codegen_llvm_symbol("freak.shape." + v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text))
     give back "%" + v4_slice(symbol, 1, symbol.length())
 }
 
--- "-" when type_text is not a shape at all; "" for a supported shape.
+-- A fixed array length as a decimal count, or -1 when it is not a known
+-- non-negative integer constant.
+task v4_codegen_llvm_fixed_array_length(mir_id: int, type_text: word) -> int {
+    pilot text = v4_ty_fixed_array_length_normalized_text(v4_mir_ty_id(mir_id), type_text)
+    if text == "" or text == v4_ty_unknown or text.length() > 9 { give back 0 - 1 }
+    pilot value = 0
+    pilot idx = 0
+    repeat until idx >= text.length() {
+        pilot digit = v4_index_of_from("0123456789", text.char_at(idx), 0)
+        if digit < 0 { give back 0 - 1 }
+        value = value * 10 + digit
+        idx += 1
+    }
+    give back value
+}
+
+-- "shape", "tuple", "array" or "" (not an admitted native aggregate).
+task v4_codegen_llvm_aggregate_kind(mir_id: int, type_text: word) -> word {
+    if type_text == "" or type_text == v4_ty_unknown { give back "" }
+    if v4_ty_is_tuple_type(type_text) { give back "tuple" }
+    if v4_ty_is_fixed_array_type(type_text) { give back "array" }
+    if v4_mir_shape_signature(mir_id, type_text) >= 0 { give back "shape" }
+    give back ""
+}
+
+task v4_codegen_llvm_aggregate_slot_count(mir_id: int, type_text: word) -> int {
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "tuple" { give back v4_ty_tuple_slot_count(type_text) }
+    if kind == "array" { give back v4_codegen_llvm_fixed_array_length(mir_id, type_text) }
+    if kind == "shape" { give back v4_ty_shape_field_count(v4_mir_ty_id(mir_id), v4_mir_shape_signature(mir_id, type_text)) }
+    give back 0 - 1
+}
+
+task v4_codegen_llvm_aggregate_slot_type(mir_id: int, type_text: word, slot: int) -> word {
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "tuple" { give back v4_ty_tuple_slot_type(type_text, slot) }
+    if kind == "array" { give back v4_ty_fixed_array_element_type(type_text) }
+    if kind == "shape" { give back v4_ty_shape_field_type(v4_mir_ty_id(mir_id), v4_mir_shape_signature(mir_id, type_text), slot) }
+    give back v4_ty_unknown
+}
+
+-- LLVM text for a tuple or fixed array (shapes use their named type).
+task v4_codegen_llvm_literal_aggregate_type(mir_id: int, type_text: word) -> word {
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "array" {
+        pilot length = v4_codegen_llvm_fixed_array_length(mir_id, type_text)
+        if length < 0 { give back "ptr" }
+        give back "[" + word_from_int(length) + " x " + v4_codegen_llvm_type(v4_ty_fixed_array_element_type(type_text)) + "]"
+    }
+    pilot out = "{ "
+    pilot slot = 0
+    repeat until slot >= v4_ty_tuple_slot_count(type_text) {
+        if slot > 0 { out = out + ", " }
+        out = out + v4_codegen_llvm_type(v4_ty_tuple_slot_type(type_text, slot))
+        slot += 1
+    }
+    give back out + " }"
+}
+
+-- One aggregate slot: scalars, pointers and nested aggregates only.
+task v4_codegen_llvm_native_slot_error(mir_id: int, slot_ty: word, context: word, depth: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if slot_ty == "" or slot_ty == v4_ty_unknown { give back "native aggregate slot type is unresolved: " + context }
+    if v4_ty_is_lend_type(slot_ty) { give back "native aggregate lend slots are not yet supported: " + context }
+    if v4_ty_is_native_scalar_sum(ty_id, slot_ty) { give back "native aggregate maybe/result slots are not yet supported: " + context }
+    if v4_ty_is_native_owned_value(ty_id, slot_ty) {
+        if v4_mir_shape_signature(mir_id, v4_slice(context, 0, v4_index_of_from(context, ".", 0))) >= 0 { give back "native shape fields that own words are not yet supported: " + context }
+        give back "native aggregate slots that own words are not yet supported: " + context
+    }
+    give back v4_codegen_llvm_native_type_error_depth(slot_ty, false, depth + 1)
+}
+
+-- "-" when type_text is not an aggregate at all; "" when it is supported.
 task v4_codegen_llvm_native_shape_error(mir_id: int, type_text: word, depth: int) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
     if type_text == "" or type_text == v4_ty_unknown { give back "-" }
-    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
-    pilot any_sig = v4_ty_shape_signature_id_for_name(ty_id, canonical)
-    if any_sig < 0 { give back "-" }
-    pilot sig_id = v4_mir_shape_signature(mir_id, type_text)
-    if sig_id < 0 { give back "native generic shapes need monomorphization: " + type_text }
-    if depth > 32 { give back "native shape nesting exceeds supported depth: " + type_text }
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "" {
+        if v4_ty_shape_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, type_text)) >= 0 { give back "native generic shapes need monomorphization: " + type_text }
+        give back "-"
+    }
+    if depth > 32 { give back "native aggregate nesting exceeds supported depth: " + type_text }
     if v4_codegen_llvm_shape_ok_mir != mir_id {
         v4_codegen_llvm_shape_ok_mir = mir_id
         v4_codegen_llvm_shape_ok = ","
         v4_codegen_llvm_shape_visiting = ","
     }
+    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
     pilot ok_key = "," + canonical + "@" + word_from_int(depth) + ","
     if v4_codegen_llvm_shape_ok.contains(ok_key) { give back "" }
     if v4_codegen_llvm_shape_visiting.contains("," + canonical + ",") { give back "native shape contains itself by value: " + type_text }
     pilot saved_visiting = v4_codegen_llvm_shape_visiting
     v4_codegen_llvm_shape_visiting = saved_visiting + canonical + ","
-    pilot error = v4_codegen_llvm_native_shape_fields_error(mir_id, ty_id, sig_id, type_text, depth)
+    pilot error = v4_codegen_llvm_native_aggregate_slots_error(mir_id, ty_id, kind, type_text, depth)
     v4_codegen_llvm_shape_visiting = saved_visiting
     if error == "" { v4_codegen_llvm_shape_ok = v4_codegen_llvm_shape_ok + canonical + "@" + word_from_int(depth) + "," }
     give back error
 }
 
-task v4_codegen_llvm_native_shape_fields_error(mir_id: int, ty_id: int, sig_id: int, type_text: word, depth: int) -> word {
-    pilot field = 0
-    repeat until field >= v4_ty_shape_field_count(ty_id, sig_id) {
-        pilot field_ty = v4_ty_shape_field_type(ty_id, sig_id, field)
-        pilot context = type_text + "." + v4_ty_shape_field_name(ty_id, sig_id, field)
-        if field_ty == "" or field_ty == v4_ty_unknown { give back "native shape field type is unresolved: " + context }
-        if v4_ty_is_lend_type(field_ty) { give back "native shape lend fields are not yet supported: " + context }
-        if v4_ty_is_native_scalar_sum(ty_id, field_ty) { give back "native shape maybe/result fields are not yet supported: " + context }
-        if v4_ty_is_native_owned_value(ty_id, field_ty) { give back "native shape fields that own words are not yet supported: " + context }
-        pilot error = v4_codegen_llvm_native_type_error_depth(field_ty, false, depth + 1)
+task v4_codegen_llvm_native_aggregate_slots_error(mir_id: int, ty_id: int, kind: word, type_text: word, depth: int) -> word {
+    if kind == "array" {
+        pilot length = v4_codegen_llvm_fixed_array_length(mir_id, type_text)
+        if length < 0 { give back "native fixed array length is not a known constant: " + type_text }
+        if length > 1048576 { give back "native fixed arrays longer than 1048576 elements are not yet supported: " + type_text }
+        give back v4_codegen_llvm_native_slot_error(mir_id, v4_ty_fixed_array_element_type(type_text), type_text + "[]", depth)
+    }
+    pilot slot = 0
+    repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) {
+        pilot context = type_text + "." + word_from_int(slot)
+        if kind == "shape" { context = type_text + "." + v4_ty_shape_field_name(ty_id, v4_mir_shape_signature(mir_id, type_text), slot) }
+        pilot error = v4_codegen_llvm_native_slot_error(mir_id, v4_codegen_llvm_aggregate_slot_type(mir_id, type_text, slot), context, depth)
         if error != "" { give back error }
-        field += 1
+        slot += 1
     }
     give back ""
 }
 
--- One record per supported concrete shape: "<llvm name>\t<member>,<member>"
--- where a member is a scalar carrier or a nested shape's LLVM name. Records
--- are joined by newlines; module_text turns them into type definitions and
--- freak_target layout notes.
+-- One record per supported concrete shape: "<llvm name>\t<member>\t..."
+-- where a member is the LLVM type of a field. Records are joined by
+-- newlines; module_text turns them into type definitions and freak_target
+-- layout notes.
 task v4_codegen_llvm_shape_records(mir_id: int) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot parts = v4_codegen_llvm_fragment_new()
@@ -2251,14 +2333,13 @@ task v4_codegen_llvm_shape_records(mir_id: int) -> word {
         if v4_ty_signature_kind(ty_id, sig) == v4_ty_shape_sig and v4_ty_signature_generic_count(ty_id, sig) == 0 {
             pilot name = v4_ty_signature_name(ty_id, sig)
             if v4_mir_shape_signature(mir_id, name) == sig and v4_codegen_llvm_native_shape_error(mir_id, name, 0) == "" {
-                pilot members = ""
+                pilot record = v4_codegen_llvm_shape_type_name(mir_id, name)
                 pilot field = 0
                 repeat until field >= v4_ty_shape_field_count(ty_id, sig) {
-                    if field > 0 { members = members + "," }
-                    members = members + v4_codegen_llvm_type(v4_ty_shape_field_type(ty_id, sig, field))
+                    record = record + "\t" + v4_codegen_llvm_type(v4_ty_shape_field_type(ty_id, sig, field))
                     field += 1
                 }
-                v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_shape_type_name(mir_id, name) + "\t" + members + "\n")
+                v4_codegen_llvm_fragment_push(parts, record + "\n")
             }
         }
         sig += 1
@@ -2282,13 +2363,6 @@ task v4_codegen_llvm_record_line(records: word, wanted: int) -> word {
     give back v4_slice(records, start, stop)
 }
 
-task v4_codegen_llvm_record_field(line: word, wanted: int) -> word {
-    pilot tab = v4_index_of_from(line, "\t", 0)
-    if tab < 0 { give back "" }
-    if wanted == 0 { give back v4_slice(line, 0, tab) }
-    give back v4_slice(line, tab + 1, line.length())
-}
-
 task v4_codegen_llvm_record_count(records: word) -> int {
     pilot count = 0
     pilot start = 0
@@ -2301,36 +2375,46 @@ task v4_codegen_llvm_record_count(records: word) -> int {
     give back count
 }
 
-task v4_codegen_llvm_member_at(members: word, wanted: int) -> word {
-    pilot member = 0
+-- Tab-separated part of a record: 0 is the name, then one per member.
+task v4_codegen_llvm_record_part(line: word, wanted: int) -> word {
+    pilot part = 0
     pilot start = 0
-    repeat until member >= wanted {
-        pilot comma = v4_index_of_from(members, ",", start)
-        if comma < 0 { give back "" }
-        start = comma + 1
-        member += 1
+    repeat until part >= wanted {
+        pilot tab = v4_index_of_from(line, "\t", start)
+        if tab < 0 { give back "" }
+        start = tab + 1
+        part += 1
     }
-    pilot stop = v4_index_of_from(members, ",", start)
-    if stop < 0 { stop = members.length() }
-    give back v4_slice(members, start, stop)
+    pilot stop = v4_index_of_from(line, "\t", start)
+    if stop < 0 { stop = line.length() }
+    give back v4_slice(line, start, stop)
 }
 
-task v4_codegen_llvm_member_count(members: word) -> int {
-    if members == "" { give back 0 }
+task v4_codegen_llvm_record_part_count(line: word) -> int {
     pilot count = 1
     pilot start = 0
-    repeat until start >= members.length() {
-        pilot comma = v4_index_of_from(members, ",", start)
-        if comma < 0 { give back count }
+    repeat until start >= line.length() {
+        pilot tab = v4_index_of_from(line, "\t", start)
+        if tab < 0 { give back count }
         count += 1
-        start = comma + 1
+        start = tab + 1
     }
     give back count
 }
 
--- freak_target layout of one shape record (recursing through nested shapes).
-task v4_codegen_llvm_shape_layout(records: word, name: word, target_spec: word, depth: int) -> word {
-    if depth > 32 { give back "" }
+task v4_codegen_llvm_layout_entry(layout: word) -> word {
+    pilot size = v4_target_layout_size(layout)
+    pilot align = v4_target_layout_align(layout)
+    if size < 0 or align <= 0 { give back "" }
+    give back word_from_int(size) + ":" + word_from_int(align)
+}
+
+-- freak_target layout of an LLVM type as codegen emits it: a carrier, a
+-- named shape (looked up in the records), "{ a, b }" or "[N x T]". Named
+-- shapes are memoized per target and record set: nested shapes repeat.
+task v4_codegen_llvm_llvm_type_layout(records: word, text: word, target_spec: word, depth: int) -> word {
+    if depth > 64 { give back "" }
+    if not text.starts_with("%") { give back v4_codegen_llvm_llvm_type_layout_uncached(records, text, target_spec, depth) }
     pilot key = target_spec + "\n" + records
     if key != v4_codegen_llvm_layout_memo_key {
         v4_codegen_llvm_layout_memo_key = key
@@ -2340,45 +2424,81 @@ task v4_codegen_llvm_shape_layout(records: word, name: word, target_spec: word, 
     pilot memo_count = v4_codegen_llvm_record_count(v4_codegen_llvm_layout_memo)
     repeat until memo_id >= memo_count {
         pilot memo_line = v4_codegen_llvm_record_line(v4_codegen_llvm_layout_memo, memo_id)
-        if v4_codegen_llvm_record_field(memo_line, 0) == name { give back v4_codegen_llvm_record_field(memo_line, 1) }
+        if v4_codegen_llvm_record_part(memo_line, 0) == text { give back v4_codegen_llvm_record_part(memo_line, 1) }
         memo_id += 1
     }
-    pilot layout = v4_codegen_llvm_shape_layout_compute(records, name, target_spec, depth)
-    if layout != "" { v4_codegen_llvm_layout_memo = v4_codegen_llvm_layout_memo + name + "\t" + layout + "\n" }
+    pilot layout = v4_codegen_llvm_llvm_type_layout_uncached(records, text, target_spec, depth)
+    if layout != "" { v4_codegen_llvm_layout_memo = v4_codegen_llvm_layout_memo + text + "\t" + layout + "\n" }
     give back layout
 }
 
-task v4_codegen_llvm_shape_layout_compute(records: word, name: word, target_spec: word, depth: int) -> word {
-    pilot line_id = 0
-    pilot count = v4_codegen_llvm_record_count(records)
-    repeat until line_id >= count {
-        pilot line = v4_codegen_llvm_record_line(records, line_id)
-        if v4_codegen_llvm_record_field(line, 0) == name {
-            pilot members = v4_codegen_llvm_record_field(line, 1)
-            pilot entries = ""
-            pilot member = 0
-            repeat until member >= v4_codegen_llvm_member_count(members) {
-                pilot carrier = v4_codegen_llvm_member_at(members, member)
-                pilot size = 0
-                pilot align = 0
-                if carrier.starts_with("%") {
-                    pilot nested = v4_codegen_llvm_shape_layout(records, carrier, target_spec, depth + 1)
-                    size = v4_target_layout_size(nested)
-                    align = v4_target_layout_align(nested)
-                } else {
-                    size = v4_target_carrier_size(target_spec, carrier)
-                    align = v4_target_carrier_align(target_spec, carrier)
+task v4_codegen_llvm_llvm_type_layout_uncached(records: word, text: word, target_spec: word, depth: int) -> word {
+    if text.starts_with("%") {
+        pilot line_id = 0
+        pilot count = v4_codegen_llvm_record_count(records)
+        repeat until line_id >= count {
+            pilot line = v4_codegen_llvm_record_line(records, line_id)
+            if v4_codegen_llvm_record_part(line, 0) == text {
+                pilot entries = ""
+                pilot member = 1
+                repeat until member >= v4_codegen_llvm_record_part_count(line) {
+                    pilot entry = v4_codegen_llvm_layout_entry(v4_codegen_llvm_llvm_type_layout(records, v4_codegen_llvm_record_part(line, member), target_spec, depth + 1))
+                    if entry == "" { give back "" }
+                    if member > 1 { entries = entries + "," }
+                    entries = entries + entry
+                    member += 1
                 }
-                if size < 0 or align <= 0 { give back "" }
-                if member > 0 { entries = entries + "," }
-                entries = entries + word_from_int(size) + ":" + word_from_int(align)
-                member += 1
+                give back v4_target_struct_layout(target_spec, entries)
             }
-            give back v4_target_struct_layout(target_spec, entries)
+            line_id += 1
         }
-        line_id += 1
+        give back ""
     }
-    give back ""
+    if text.starts_with("{") {
+        if text == "{" + "  }" or text == "{" + "}" { give back v4_target_struct_layout(target_spec, "") }
+        pilot entries = ""
+        pilot nesting = 0
+        pilot start = 2
+        pilot idx = 2
+        pilot stop = text.length() - 2
+        repeat until idx > stop {
+            pilot ch = ""
+            if idx < stop { ch = text.char_at(idx) }
+            if ch == "{" or ch == "[" { nesting += 1 }
+            if ch == "}" or ch == "]" { nesting -= 1 }
+            if idx == stop or (ch == "," and nesting == 0) {
+                pilot entry = v4_codegen_llvm_layout_entry(v4_codegen_llvm_llvm_type_layout(records, v4_slice(text, start, idx), target_spec, depth + 1))
+                if entry == "" { give back "" }
+                if entries != "" { entries = entries + "," }
+                entries = entries + entry
+                start = idx + 2
+            }
+            idx += 1
+        }
+        give back v4_target_struct_layout(target_spec, entries)
+    }
+    if text.starts_with("[") {
+        -- "[N x T]": the length ends at the first space.
+        pilot cross = v4_index_of_from(text, " ", 1)
+        if cross < 2 or v4_slice(text, cross, cross + 3) != " x " { give back "" }
+        pilot length = 0
+        pilot idx = 1
+        repeat until idx >= cross {
+            pilot digit = v4_index_of_from("0123456789", text.char_at(idx), 0)
+            if digit < 0 { give back "" }
+            length = length * 10 + digit
+            idx += 1
+        }
+        pilot element = v4_codegen_llvm_llvm_type_layout(records, v4_slice(text, cross + 3, text.length() - 1), target_spec, depth + 1)
+        pilot size = v4_target_layout_size(element)
+        pilot align = v4_target_layout_align(element)
+        if size < 0 or align <= 0 { give back "" }
+        give back word_from_int(size * length) + "|" + word_from_int(align) + "|0"
+    }
+    pilot size = v4_target_carrier_size(target_spec, text)
+    pilot align = v4_target_carrier_align(target_spec, text)
+    if size < 0 or align <= 0 { give back "" }
+    give back word_from_int(size) + "|" + word_from_int(align) + "|0"
 }
 
 -- Type definitions plus one "; freak.layout" note per shape. The note is the
@@ -2389,16 +2509,15 @@ task v4_codegen_llvm_shape_module_lines(records: word, target_spec: word) -> wor
     pilot count = v4_codegen_llvm_record_count(records)
     repeat until line_id >= count {
         pilot line = v4_codegen_llvm_record_line(records, line_id)
-        pilot name = v4_codegen_llvm_record_field(line, 0)
-        pilot members = v4_codegen_llvm_record_field(line, 1)
-        pilot idx = 0
+        pilot name = v4_codegen_llvm_record_part(line, 0)
         pilot spaced = ""
-        repeat until idx >= v4_codegen_llvm_member_count(members) {
-            if idx > 0 { spaced = spaced + ", " }
-            spaced = spaced + v4_codegen_llvm_member_at(members, idx)
-            idx += 1
+        pilot member = 1
+        repeat until member >= v4_codegen_llvm_record_part_count(line) {
+            if member > 1 { spaced = spaced + ", " }
+            spaced = spaced + v4_codegen_llvm_record_part(line, member)
+            member += 1
         }
-        pilot layout = v4_codegen_llvm_shape_layout(records, name, target_spec, 0)
+        pilot layout = v4_codegen_llvm_llvm_type_layout(records, name, target_spec, 0)
         out = out + name + " = type { " + spaced + " }\n"
         out = out + "; freak.layout " + name + " size=" + word_from_int(v4_target_layout_size(layout)) + " align=" + word_from_int(v4_target_layout_align(layout)) + " offsets=" + v4_target_layout_offsets(layout) + "\n"
         line_id += 1
@@ -2411,8 +2530,8 @@ task v4_codegen_llvm_shape_layout_error(records: word, target_spec: word) -> wor
     pilot line_id = 0
     pilot count = v4_codegen_llvm_record_count(records)
     repeat until line_id >= count {
-        pilot name = v4_codegen_llvm_record_field(v4_codegen_llvm_record_line(records, line_id), 0)
-        if v4_codegen_llvm_shape_layout(records, name, target_spec, 0) == "" { give back "native shape layout is not available for this target: " + name }
+        pilot name = v4_codegen_llvm_record_part(v4_codegen_llvm_record_line(records, line_id), 0)
+        if v4_codegen_llvm_llvm_type_layout(records, name, target_spec, 0) == "" { give back "native shape layout is not available for this target: " + name }
         line_id += 1
     }
     give back ""
@@ -2435,6 +2554,7 @@ task v4_codegen_llvm_native_c_surface_error_depth(ty_id: int, surface: word, c_b
     -- Aggregates cross C boundaries only after the C ABI row classifies them
     -- (sret/byval/register splits); a raw LLVM aggregate is not the C ABI.
     if c_boundary and v4_ty_shape_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, surface)) >= 0 { give back "native shape C ABI by value is not yet supported: " + surface }
+    if c_boundary and (v4_ty_is_tuple_type(surface) or v4_ty_is_fixed_array_type(surface)) { give back "native tuple and array C ABI by value is not yet supported: " + surface }
     if c_boundary and (surface == v4_ty_bool or surface == v4_ty_tiny or surface == v4_ty_char) { give back "native C scalar ABI not yet supported: " + surface }
     if v4_ty_is_surface_ffi_alias_type(surface) { give back "" }
     if v4_ty_is_raw_pointer_type(surface) { give back v4_codegen_llvm_native_c_surface_error_depth(ty_id, v4_ty_raw_pointer_target_type(surface), false, depth + 1) }
@@ -2614,7 +2734,63 @@ task v4_codegen_llvm_native_conversion_error(actual: word, expected: word) -> wo
     if actual_kind != "" and expected_kind != "" { give back "" }
     if v4_ty_is_lend_type(actual) and v4_ty_lend_target_type(actual) == expected and v4_codegen_llvm_active_owned_mir >= 0 { give back "" }
     if v4_ty_types_compatible(expected, actual) and v4_codegen_llvm_type(actual) == v4_codegen_llvm_type(expected) { give back "" }
+    if v4_codegen_llvm_active_owned_mir >= 0 and v4_codegen_llvm_aggregate_conversion_ok(v4_codegen_llvm_active_owned_mir, actual, expected, 0) { give back "" }
     give back "unsupported native conversion: " + actual + " to " + expected
+}
+
+-- Tuple and fixed array values convert slot by slot when every slot pair is
+-- equal, numeric (the checker already narrowed literals such as (1, 0.5)),
+-- or itself a convertible aggregate.
+task v4_codegen_llvm_aggregate_conversion_ok(mir_id: int, actual: word, expected: word, depth: int) -> bool {
+    if depth > 32 { give back false }
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, actual)
+    if (kind != "tuple" and kind != "array") or v4_codegen_llvm_aggregate_kind(mir_id, expected) != kind { give back false }
+    pilot slots = v4_codegen_llvm_aggregate_slot_count(mir_id, actual)
+    if slots < 0 or slots > 256 or slots != v4_codegen_llvm_aggregate_slot_count(mir_id, expected) { give back false }
+    pilot slot = 0
+    repeat until slot >= slots {
+        pilot from = v4_codegen_llvm_aggregate_slot_type(mir_id, actual, slot)
+        pilot to = v4_codegen_llvm_aggregate_slot_type(mir_id, expected, slot)
+        pilot same: bool = from == to or (v4_codegen_llvm_type(from) == v4_codegen_llvm_type(to) and v4_ty_types_compatible(to, from))
+        pilot numeric: bool = v4_codegen_llvm_numeric_kind(from) != "" and v4_codegen_llvm_numeric_kind(to) != ""
+        if not same and not numeric and not v4_codegen_llvm_aggregate_conversion_ok(mir_id, from, to, depth + 1) { give back false }
+        if kind == "array" { slot = slots } else { slot += 1 }
+    }
+    give back true
+}
+
+task v4_codegen_llvm_aggregate_conversion_needed(mir_id: int, actual: word, expected: word) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id or actual == expected { give back false }
+    if v4_codegen_llvm_type(actual) == v4_codegen_llvm_type(expected) { give back false }
+    give back v4_codegen_llvm_aggregate_conversion_ok(mir_id, actual, expected, 0)
+}
+
+task v4_codegen_llvm_aggregate_conversion_lines(mir_id: int, actual: word, expected: word, value: word, temp: word, depth: int) -> word {
+    pilot out = ""
+    pilot previous = "undef"
+    pilot slots = v4_codegen_llvm_aggregate_slot_count(mir_id, actual)
+    pilot slot = 0
+    repeat until slot >= slots {
+        pilot from = v4_codegen_llvm_aggregate_slot_type(mir_id, actual, slot)
+        pilot to = v4_codegen_llvm_aggregate_slot_type(mir_id, expected, slot)
+        pilot part = temp + ".x" + word_from_int(slot)
+        out = out + "  " + part + " = extractvalue " + v4_codegen_llvm_type(actual) + " " + value + ", " + word_from_int(slot) + "\n"
+        pilot converted = part
+        pilot cast = temp + ".c" + word_from_int(slot)
+        if v4_codegen_llvm_aggregate_conversion_needed(mir_id, from, to) {
+            out = out + v4_codegen_llvm_aggregate_conversion_lines(mir_id, from, to, part, cast, depth + 1)
+            converted = cast
+        } else if v4_codegen_llvm_numeric_cast_opcode(from, to) != "" {
+            out = out + v4_codegen_llvm_numeric_conversion_lines(from, to, part, cast)
+            converted = cast
+        }
+        pilot name = temp + ".i" + word_from_int(slot)
+        if slot == slots - 1 { name = temp }
+        out = out + "  " + name + " = insertvalue " + v4_codegen_llvm_type(expected) + " " + previous + ", " + v4_codegen_llvm_type(to) + " " + converted + ", " + word_from_int(slot) + "\n"
+        previous = name
+        slot += 1
+    }
+    give back out
 }
 
 -- This gate applies to every native body, including a scalar helper in an
@@ -2690,7 +2866,7 @@ task v4_codegen_llvm_native_symbol_value_error(mir_id: int, text: word, type_tex
 
 task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-    if kind != v4_mir_rvalue_const_int and kind != v4_mir_rvalue_const_float and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_const_bool and kind != v4_mir_rvalue_const_char and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_use_symbol and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_call and not (v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_use_place or v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id))) {
+    if kind != v4_mir_rvalue_const_int and kind != v4_mir_rvalue_const_float and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_const_bool and kind != v4_mir_rvalue_const_char and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_use_symbol and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_call and not (v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_lend or v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_use_place or v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id))) {
         give back "native rvalue not yet supported: " + kind
     }
     pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
@@ -2708,22 +2884,12 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
     error = v4_codegen_llvm_native_type_error(type_text, kind == v4_mir_rvalue_call)
     if error != "" { give back error }
     pilot llvm_type = v4_codegen_llvm_type(type_text)
-    if kind == v4_mir_rvalue_construct {
-        pilot sig_id = v4_mir_shape_signature(mir_id, type_text)
-        if sig_id < 0 { give back "native construct needs a concrete shape: " + type_text }
-        pilot ty_id = v4_mir_ty_id(mir_id)
-        pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
-        if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) != field_count { give back "invalid native shape construct: " + type_text }
-        pilot field = 0
-        repeat until field >= field_count {
-            pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, field)
-            error = v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, child), v4_ty_shape_field_type(ty_id, sig_id, field))
-            if error != "" { give back error }
-            field += 1
-        }
+    if v4_codegen_llvm_is_literal_aggregate(kind) {
+        error = v4_codegen_llvm_aggregate_literal_error(mir_id, body_id, rvalue_id)
+        if error != "" { give back error }
     }
     if kind == v4_mir_rvalue_use_place {
-        if v4_mir_place_kind(mir_id, body_id, lhs) != v4_mir_place_field { give back "native place reads support only shape fields" }
+        if v4_mir_place_kind(mir_id, body_id, lhs) != v4_mir_place_field and v4_mir_place_kind(mir_id, body_id, lhs) != v4_mir_place_index { give back "native place reads support only aggregate fields and elements" }
         if v4_mir_place_ty(mir_id, body_id, lhs) != type_text { give back "invalid native place operand" }
     }
     if kind == v4_mir_rvalue_const_int {
@@ -2827,25 +2993,99 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
     give back ""
 }
 
--- Field chains end at a local, a global or a dereferenced pointer. Index
--- places (arrays, lists) are later rows.
+-- The struct slot a Field place selects: a shape field's declaration index
+-- or a tuple position. -1 when the base is not a native shape or tuple.
+task v4_codegen_llvm_place_slot(mir_id: int, body_id: int, place_id: int) -> int {
+    if v4_mir_place_kind(mir_id, body_id, place_id) != v4_mir_place_field { give back 0 - 1 }
+    pilot base = v4_mir_place_base(mir_id, body_id, place_id)
+    if base < 0 or base >= place_id { give back 0 - 1 }
+    pilot base_ty = v4_mir_place_ty(mir_id, body_id, base)
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, base_ty)
+    if kind == "shape" { give back v4_mir_place_shape_field_slot(mir_id, body_id, place_id) }
+    if kind != "tuple" { give back 0 - 1 }
+    pilot name = v4_mir_place_field(mir_id, body_id, place_id)
+    if name == "" or name.length() > 6 { give back 0 - 1 }
+    pilot value = 0
+    pilot idx = 0
+    repeat until idx >= name.length() {
+        pilot digit = v4_index_of_from("0123456789", name.char_at(idx), 0)
+        if digit < 0 { give back 0 - 1 }
+        value = value * 10 + digit
+        idx += 1
+    }
+    if value >= v4_ty_tuple_slot_count(base_ty) { give back 0 - 1 }
+    give back value
+}
+
+-- The constant value of an index operand, or -1 when it is not a plain
+-- non-negative integer literal.
+task v4_codegen_llvm_const_index(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_const_int { give back 0 - 1 }
+    pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
+    if text == "" or text.length() > 9 { give back 0 - 1 }
+    pilot value = 0
+    pilot idx = 0
+    repeat until idx >= text.length() {
+        pilot digit = v4_index_of_from("0123456789", text.char_at(idx), 0)
+        if digit < 0 { give back 0 - 1 }
+        value = value * 10 + digit
+        idx += 1
+    }
+    give back value
+}
+
+-- An Index place needs a runtime bounds check unless its index is a
+-- literal already inside the fixed length.
+task v4_codegen_llvm_index_needs_check(mir_id: int, body_id: int, place_id: int) -> bool {
+    pilot length = v4_codegen_llvm_fixed_array_length(mir_id, v4_mir_place_ty(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id)))
+    pilot value = v4_codegen_llvm_const_index(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place_id))
+    give back value < 0 or value >= length
+}
+
+task v4_codegen_llvm_mir_has_index_checks(mir_id: int) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back false }
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot place = 0
+        repeat until place >= v4_mir_body_place_count(mir_id, body) {
+            if v4_mir_place_kind(mir_id, body, place) == v4_mir_place_index and v4_codegen_llvm_index_needs_check(mir_id, body, place) { give back true }
+            place += 1
+        }
+        body += 1
+    }
+    give back false
+}
+
+-- Field and index chains end at a local, a global or a dereferenced
+-- pointer. Index places address fixed arrays only; lists are a later row.
 task v4_codegen_llvm_native_place_error(mir_id: int, body_id: int, place_id: int, depth: int) -> word {
     if depth > 64 { give back "native place nesting exceeds supported depth" }
     if place_id < 0 or place_id >= v4_mir_body_place_count(mir_id, body_id) { give back "invalid native place reference" }
     pilot kind = v4_mir_place_kind(mir_id, body_id, place_id)
     if kind == v4_mir_place_local or kind == v4_mir_place_global or kind == v4_mir_place_deref { give back "" }
-    if kind == v4_mir_place_field {
+    if kind == v4_mir_place_field or kind == v4_mir_place_index {
         if v4_codegen_llvm_active_owned_mir != mir_id { give back "native place not yet supported: " + kind }
-        pilot base_error = v4_codegen_llvm_native_place_error(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id), depth + 1)
+        pilot base = v4_mir_place_base(mir_id, body_id, place_id)
+        if base < 0 or base >= place_id { give back "invalid native place reference" }
+        pilot base_error = v4_codegen_llvm_native_place_error(mir_id, body_id, base, depth + 1)
         if base_error != "" { give back base_error }
-        pilot slot = v4_mir_place_shape_field_slot(mir_id, body_id, place_id)
-        if slot < 0 { give back "native field place needs a concrete shape base: " + v4_mir_place_text(mir_id, body_id, place_id) }
-        -- Loads and stores use the place's recorded type, so it must be the
-        -- declared field type or the access width would not match the slot.
-        pilot ty_id = v4_mir_ty_id(mir_id)
-        pilot base_ty = v4_mir_place_ty(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id))
-        pilot declared = v4_ty_shape_field_type(ty_id, v4_mir_shape_signature(mir_id, base_ty), slot)
-        if v4_ty_canonical_type(ty_id, declared) != v4_ty_canonical_type(ty_id, v4_mir_place_ty(mir_id, body_id, place_id)) { give back "native field place type differs from the declared field type: " + v4_mir_place_text(mir_id, body_id, place_id) }
+        if kind == v4_mir_place_field {
+            pilot slot = v4_codegen_llvm_place_slot(mir_id, body_id, place_id)
+            if slot < 0 { give back "native field place needs a concrete shape or tuple base: " + v4_mir_place_text(mir_id, body_id, place_id) }
+            -- Loads and stores use the place's recorded type, so it must be the
+            -- declared slot type or the access width would not match the slot.
+            pilot ty_id = v4_mir_ty_id(mir_id)
+            pilot declared = v4_codegen_llvm_aggregate_slot_type(mir_id, v4_mir_place_ty(mir_id, body_id, base), slot)
+            if v4_ty_canonical_type(ty_id, declared) != v4_ty_canonical_type(ty_id, v4_mir_place_ty(mir_id, body_id, place_id)) { give back "native field place type differs from the declared field type: " + v4_mir_place_text(mir_id, body_id, place_id) }
+            give back ""
+        }
+        pilot base_ty = v4_mir_place_ty(mir_id, body_id, base)
+        if v4_codegen_llvm_aggregate_kind(mir_id, base_ty) != "array" { give back "native index places support only fixed arrays: " + v4_mir_place_text(mir_id, body_id, place_id) }
+        pilot index = v4_mir_place_index(mir_id, body_id, place_id)
+        if index < 0 or index >= v4_mir_body_rvalue_count(mir_id, body_id) { give back "invalid native place reference" }
+        pilot index_ty = v4_mir_rvalue_ty(mir_id, body_id, index)
+        if index_ty != v4_ty_int and index_ty != v4_ty_uint { give back "native array index must be int or uint: " + v4_mir_place_text(mir_id, body_id, place_id) }
+        if v4_mir_place_ty(mir_id, body_id, place_id) != v4_ty_fixed_array_element_type(base_ty) { give back "invalid native index place type" }
         give back ""
     }
     give back "native place not yet supported: " + kind
@@ -2863,7 +3103,7 @@ task v4_codegen_llvm_native_mir_error(mir_id: int) -> word {
         pilot place_id = 0
         repeat until place_id >= v4_mir_body_place_count(mir_id, body_id) {
             pilot kind = v4_mir_place_kind(mir_id, body_id, place_id)
-            if kind == v4_mir_place_field {
+            if kind == v4_mir_place_field or kind == v4_mir_place_index {
                 pilot place_error = v4_codegen_llvm_native_place_error(mir_id, body_id, place_id, 0)
                 if place_error != "" { give back place_error }
             } else if kind != v4_mir_place_local and kind != v4_mir_place_deref and kind != v4_mir_place_return and kind != v4_mir_place_global { give back "native place not yet supported: " + kind }
@@ -3053,7 +3293,8 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         if native_error == "" { native_error = v4_codegen_llvm_native_global_symbol_error(codegen_id, mir_id) }
         if native_error == "" { native_error = v4_codegen_llvm_native_c_width_error(mir_id, ty_id) }
         pilot runtime = ""
-        if owned_words and v4_codegen_llvm_mir_has_owned_words(mir_id) {
+        pilot index_checks: bool = owned_words and v4_codegen_llvm_mir_has_index_checks(mir_id)
+        if owned_words and (v4_codegen_llvm_mir_has_owned_words(mir_id) or index_checks) {
             runtime = v4_codegen_llvm_word_runtime_declarations()
         }
         -- Private word helpers are reserved even for scalar-only modules: a
@@ -3061,7 +3302,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         if native_error == "" { native_error = v4_codegen_llvm_word_runtime_symbol_error(codegen_id) }
         if owned_words { runtime = runtime + v4_codegen_llvm_scalar_sum_runtime_lines(mir_id) }
         runtime = runtime + v4_codegen_llvm_bootstrap_runtime_declarations(mir_id)
-        if v4_codegen_llvm_mir_has_panic(mir_id) { runtime = runtime + "declare void " + v4_codegen_llvm_panic_symbol() + "(i64) noreturn\n" }
+        if v4_codegen_llvm_mir_has_panic(mir_id) or index_checks { runtime = runtime + "declare void " + v4_codegen_llvm_panic_symbol() + "(i64) noreturn\n" }
         if v4_codegen_llvm_numeric_runtime_used { runtime = runtime + v4_codegen_llvm_numeric_runtime_declarations() }
         if native_error == "" { native_error = v4_codegen_llvm_numeric_runtime_symbol_error(codegen_id) }
         -- Global definitions are sealed with the bodies that read them.
@@ -3069,6 +3310,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         array_set(v4_codegen_llvm_word_runtime_lines, codegen_id, runtime)
         if owned_words { array_set(v4_codegen_llvm_shape_lines, codegen_id, v4_codegen_llvm_shape_records(mir_id)) }
         pilot globals = v4_codegen_llvm_word_globals(mir_id)
+        if index_checks { globals = globals + v4_codegen_llvm_bounds_globals() }
         pilot entry = v4_codegen_llvm_native_entry(mir_id)
         if native_error == "" and entry != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_setup_args", "i64, i64") }
         if native_error == "" and globals != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_say", "i64") }
@@ -3374,8 +3616,45 @@ task v4_codegen_llvm_place_address(parts: int, mir_id: int, body_id: int, place_
     pilot base = v4_mir_place_base(mir_id, body_id, place_id)
     pilot base_pointer = v4_codegen_llvm_place_address(parts, mir_id, body_id, base, site)
     pilot temp = "%place." + word_from_int(body_id) + "." + word_from_int(place_id) + "." + site
-    v4_codegen_llvm_fragment_push(parts, "  " + temp + " = getelementptr inbounds " + v4_codegen_llvm_type(v4_mir_place_ty(mir_id, body_id, base)) + ", ptr " + base_pointer + ", i32 0, i32 " + word_from_int(v4_mir_place_shape_field_slot(mir_id, body_id, place_id)) + "\n")
+    pilot base_llvm = v4_codegen_llvm_type(v4_mir_place_ty(mir_id, body_id, base))
+    if kind == v4_mir_place_index {
+        pilot index = v4_mir_place_index(mir_id, body_id, place_id)
+        v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, index, v4_codegen_llvm_temp_value(body_id, index), false)
+        pilot index_value = v4_codegen_llvm_rvalue_value(mir_id, body_id, index)
+        if v4_codegen_llvm_index_needs_check(mir_id, body_id, place_id) {
+            pilot length = word_from_int(v4_codegen_llvm_fixed_array_length(mir_id, v4_mir_place_ty(mir_id, body_id, base)))
+            pilot label = "bounds." + word_from_int(body_id) + "." + word_from_int(place_id) + "." + site
+            v4_codegen_llvm_fragment_push(parts, "  %" + label + ".in = icmp ult i64 " + index_value + ", " + length + "\n")
+            v4_codegen_llvm_fragment_push(parts, "  br i1 %" + label + ".in, label %" + label + ".ok, label %" + label + ".fail\n" + label + ".fail:\n")
+            v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_bounds_panic_lines("%" + label, index_value, length))
+            v4_codegen_llvm_fragment_push(parts, "  unreachable\n" + label + ".ok:\n")
+        }
+        v4_codegen_llvm_fragment_push(parts, "  " + temp + " = getelementptr inbounds " + base_llvm + ", ptr " + base_pointer + ", i64 0, i64 " + index_value + "\n")
+        give back temp
+    }
+    v4_codegen_llvm_fragment_push(parts, "  " + temp + " = getelementptr inbounds " + base_llvm + ", ptr " + base_pointer + ", i32 0, i32 " + word_from_int(v4_codegen_llvm_place_slot(mir_id, body_id, place_id)) + "\n")
     give back temp
+}
+
+-- "index <i> out of bounds (len <n>)", the V3 runtime wording, built from
+-- two private byte constants and handed to the panic helper.
+task v4_codegen_llvm_bounds_panic_lines(prefix: word, index_value: word, length: word) -> word {
+    pilot out = "  " + prefix + ".m0 = call i64 @freak_v4_word_from_bytes(i64 ptrtoint (ptr @freak.bounds.head to i64), i64 6)\n"
+    out = out + "  " + prefix + ".m1 = call i64 @freak_v4_word_from_int(i64 " + index_value + ")\n"
+    out = out + "  " + prefix + ".m2 = call i64 @freak_v4_word_concat(i64 " + prefix + ".m0, i64 " + prefix + ".m1)\n"
+    out = out + "  " + prefix + ".m3 = call i64 @freak_v4_word_from_bytes(i64 ptrtoint (ptr @freak.bounds.tail to i64), i64 20)\n"
+    out = out + "  " + prefix + ".m4 = call i64 @freak_v4_word_concat(i64 " + prefix + ".m2, i64 " + prefix + ".m3)\n"
+    out = out + "  " + prefix + ".m5 = call i64 @freak_v4_word_from_int(i64 " + length + ")\n"
+    out = out + "  " + prefix + ".m6 = call i64 @freak_v4_word_concat(i64 " + prefix + ".m4, i64 " + prefix + ".m5)\n"
+    out = out + "  " + prefix + ".m7 = call i64 @freak_v4_word_from_bytes(i64 ptrtoint (ptr @freak.bounds.close to i64), i64 1)\n"
+    out = out + "  " + prefix + ".m8 = call i64 @freak_v4_word_concat(i64 " + prefix + ".m6, i64 " + prefix + ".m7)\n"
+    give back out + "  call void " + v4_codegen_llvm_panic_symbol() + "(i64 " + prefix + ".m8) noreturn\n"
+}
+
+task v4_codegen_llvm_bounds_globals() -> word {
+    pilot out = "@freak.bounds.head = private unnamed_addr constant [7 x i8] c\"index \\00\", align 1\n"
+    out = out + "@freak.bounds.tail = private unnamed_addr constant [21 x i8] c\" out of bounds (len \\00\", align 1\n"
+    give back out + "@freak.bounds.close = private unnamed_addr constant [2 x i8] c\")\\00\", align 1\n"
 }
 
 -- Children evaluate in source order (ascending rvalue IDs); the struct is
@@ -3398,23 +3677,75 @@ task v4_codegen_llvm_collect_construct_lines(parts: int, mir_id: int, body_id: i
             emitted += 1
         }
     }
-    pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot shape_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
-    pilot sig_id = v4_mir_shape_signature(mir_id, shape_ty)
-    pilot llvm_ty = v4_codegen_llvm_type(shape_ty)
+    pilot aggregate_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot llvm_ty = v4_codegen_llvm_type(aggregate_ty)
+    pilot slots = v4_codegen_llvm_aggregate_slot_count(mir_id, aggregate_ty)
     pilot previous = "undef"
-    pilot field = 0
-    repeat until field >= count {
-        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, field)
-        pilot field_ty = v4_ty_shape_field_type(ty_id, sig_id, field)
-        pilot cast = "%agg." + word_from_int(body_id) + "." + word_from_int(rvalue_id) + "." + word_from_int(field) + ".cast"
-        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, child, field_ty, cast))
-        pilot name = "%agg." + word_from_int(body_id) + "." + word_from_int(rvalue_id) + "." + word_from_int(field)
-        if field == count - 1 { name = target }
-        v4_codegen_llvm_fragment_push(parts, "  " + name + " = insertvalue " + llvm_ty + " " + previous + ", " + v4_codegen_llvm_type(field_ty) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, child, field_ty, cast) + ", " + word_from_int(field) + "\n")
+    pilot slot = 0
+    repeat until slot >= slots {
+        -- A repeat fill [v; N] has one child and reuses its value.
+        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
+        if count == slots { child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, slot) }
+        pilot slot_ty = v4_codegen_llvm_aggregate_slot_type(mir_id, aggregate_ty, slot)
+        pilot cast = "%agg." + word_from_int(body_id) + "." + word_from_int(rvalue_id) + "." + word_from_int(slot) + ".cast"
+        if count == slots or slot == 0 {
+            v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, child, slot_ty, cast))
+        } else {
+            cast = "%agg." + word_from_int(body_id) + "." + word_from_int(rvalue_id) + ".0.cast"
+        }
+        pilot name = "%agg." + word_from_int(body_id) + "." + word_from_int(rvalue_id) + "." + word_from_int(slot)
+        if slot == slots - 1 { name = target }
+        v4_codegen_llvm_fragment_push(parts, "  " + name + " = insertvalue " + llvm_ty + " " + previous + ", " + v4_codegen_llvm_type(slot_ty) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, child, slot_ty, cast) + ", " + word_from_int(slot) + "\n")
         previous = name
-        field += 1
+        slot += 1
     }
+}
+
+task v4_codegen_llvm_is_literal_aggregate(kind: word) -> bool {
+    give back kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_array
+}
+
+-- Empty shapes, unit tuples and zero-length arrays have no slots to fill;
+-- a repeat fill of a zero literal ([0; N], [false; N]) is all zero bytes.
+task v4_codegen_llvm_aggregate_literal_is_zero(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot slots = v4_codegen_llvm_aggregate_slot_count(mir_id, type_text)
+    if slots == 0 { give back true }
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_array or v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) != 1 or slots < 2 { give back false }
+    pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, child)
+    pilot text = v4_mir_rvalue_text(mir_id, body_id, child)
+    if v4_mir_rvalue_ty(mir_id, body_id, child) != v4_ty_fixed_array_element_type(type_text) { give back false }
+    if kind == v4_mir_rvalue_const_int { give back v4_codegen_llvm_const_index(mir_id, body_id, child) == 0 }
+    if kind == v4_mir_rvalue_const_bool { give back v4_mir_bool_literal_value(text) == "false" }
+    give back false
+}
+
+-- Construct, tuple and array literals: one child per slot, or one child
+-- repeated across a fixed array (bounded, since each copy is an insertvalue).
+task v4_codegen_llvm_aggregate_literal_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot aggregate = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == v4_mir_rvalue_construct and aggregate != "shape" { give back "native construct needs a concrete shape: " + type_text }
+    if kind == v4_mir_rvalue_tuple and aggregate != "tuple" { give back "invalid native tuple literal type: " + type_text }
+    if kind == v4_mir_rvalue_array and aggregate != "array" { give back "native array literals need a fixed array type: " + type_text }
+    pilot slots = v4_codegen_llvm_aggregate_slot_count(mir_id, type_text)
+    pilot count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+    pilot fill: bool = kind == v4_mir_rvalue_array and count == 1 and slots > 1
+    if count != slots and not fill {
+        if kind == v4_mir_rvalue_construct { give back "invalid native shape construct: " + type_text }
+        give back "invalid native aggregate literal: " + type_text
+    }
+    if slots > 256 and not v4_codegen_llvm_aggregate_literal_is_zero(mir_id, body_id, rvalue_id) { give back "native aggregate literals with more than 256 slots are not yet supported (except zero fills): " + type_text }
+    pilot slot = 0
+    repeat until slot >= count {
+        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, slot)
+        pilot error = v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, child), v4_codegen_llvm_aggregate_slot_type(mir_id, type_text, slot))
+        if error != "" { give back error }
+        slot += 1
+    }
+    give back ""
 }
 
 -- Place reads, aggregate literals and Sum checks/takes. One call site keeps
@@ -3427,8 +3758,8 @@ task v4_codegen_llvm_collect_owned_special_lines(parts: int, mir_id: int, body_i
         v4_codegen_llvm_fragment_push(parts, "  " + target + " = load " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) + ", ptr " + address + "\n")
         give back true
     }
-    if kind == v4_mir_rvalue_construct {
-        v4_codegen_llvm_collect_construct_lines(parts, mir_id, body_id, rvalue_id, target)
+    if v4_codegen_llvm_is_literal_aggregate(kind) {
+        if not v4_codegen_llvm_aggregate_literal_is_zero(mir_id, body_id, rvalue_id) { v4_codegen_llvm_collect_construct_lines(parts, mir_id, body_id, rvalue_id, target) }
         give back true
     }
     if kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take { give back v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts, mir_id, body_id, rvalue_id, target, kind) }
@@ -3815,9 +4146,8 @@ task v4_codegen_llvm_word_tree_mark_is_valid(mir_id: int, body_id: int, rvalue_i
                     }
                 }
                 if kind == v4_mir_rvalue_use_place {
-                    pilot pointer = v4_codegen_llvm_place_root_pointer(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value))
-                    if pointer >= 0 { v4_codegen_llvm_fragment_push(pending, word_from_int(pointer)) }
-                } else if kind == v4_mir_rvalue_construct {
+                    v4_codegen_llvm_push_place_operands(pending, mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value))
+                } else if v4_codegen_llvm_is_literal_aggregate(kind) {
                     pilot arg = 0
                     repeat until arg >= v4_mir_rvalue_call_arg_count(mir_id, body_id, value) {
                         v4_codegen_llvm_fragment_push(pending, word_from_int(v4_mir_rvalue_call_arg(mir_id, body_id, value, arg)))
@@ -3838,18 +4168,21 @@ task v4_codegen_llvm_word_tree_mark_is_valid(mir_id: int, body_id: int, rvalue_i
     give back valid and v4_codegen_llvm_fragment_error == ""
 }
 
--- The pointer operand a place chain dereferences at its root, or -1.
-task v4_codegen_llvm_place_root_pointer(mir_id: int, body_id: int, place_id: int) -> int {
+-- Rvalues a place chain evaluates: index operands and the pointer a
+-- dereferenced root reads, outermost step first.
+task v4_codegen_llvm_push_place_operands(pending: int, mir_id: int, body_id: int, place_id: int) -> void {
     pilot place = place_id
     pilot steps = 0
     repeat until place < 0 or steps > 64 {
         pilot kind = v4_mir_place_kind(mir_id, body_id, place)
-        if kind == v4_mir_place_deref { give back v4_mir_place_index(mir_id, body_id, place) }
-        if kind != v4_mir_place_field { give back 0 - 1 }
+        if kind == v4_mir_place_deref or kind == v4_mir_place_index {
+            pilot operand = v4_mir_place_index(mir_id, body_id, place)
+            if operand >= 0 { v4_codegen_llvm_fragment_push(pending, word_from_int(operand)) }
+        }
+        if kind != v4_mir_place_field and kind != v4_mir_place_index { give back }
         place = v4_mir_place_base(mir_id, body_id, place)
         steps += 1
     }
-    give back 0 - 1
 }
 
 task v4_codegen_llvm_word_body_trees_are_valid(mir_id: int, body_id: int) -> bool {
@@ -3862,7 +4195,16 @@ task v4_codegen_llvm_word_body_trees_are_valid(mir_id: int, body_id: int) -> boo
         valid = v4_codegen_llvm_word_tree_mark_is_valid(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt), seen)
         if valid and v4_mir_stmt_kind(mir_id, body_id, stmt) == v4_mir_stmt_assign {
             pilot place = v4_mir_stmt_place(mir_id, body_id, stmt)
-            if place >= 0 and (v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_deref or v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_field) { valid = v4_codegen_llvm_word_tree_mark_is_valid(mir_id, body_id, v4_codegen_llvm_place_root_pointer(mir_id, body_id, place), seen) }
+            if place >= 0 {
+                pilot operands = v4_codegen_llvm_fragment_new()
+                v4_codegen_llvm_push_place_operands(operands, mir_id, body_id, place)
+                pilot operand = 0
+                repeat until operand >= array_len(operands) or not valid {
+                    valid = v4_codegen_llvm_word_tree_mark_is_valid(mir_id, body_id, word_to_int(array_get(operands, operand)), seen)
+                    operand += 1
+                }
+                array_release(operands)
+            }
         }
         stmt += 1
     }

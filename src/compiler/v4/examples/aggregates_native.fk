@@ -1,0 +1,56 @@
+shape Point { x: int, y: int }
+shape Grid { cells: [int; 4], origin: (int, int), corner: Point }
+shape Mixed { flag: bool, pair: (tiny, int), bytes: [tiny; 3], tail: (bool, float32), points: [Point; 2] }
+
+task pair(a: int, b: int) -> (int, int) {
+    give back (a, b)
+}
+
+task sum4(values: [int; 4]) -> int {
+    pilot mut total = 0
+    pilot mut i = 0
+    repeat until i >= 4 {
+        total = total + values[i]
+        i += 1
+    }
+    give back total
+}
+
+task swap(p: (int, bool)) -> (bool, int) {
+    give back (p.1, p.0)
+}
+
+task main() -> int {
+    pilot t = pair(3, 4)
+    say t.0 + t.1
+    pilot (x, y) = t
+    say x * y
+    pilot mut arr: [int; 3] = [10, 20, 30]
+    say arr[1]
+    pilot fill: [int; 4] = [7; 4]
+    say fill[3]
+    arr[2] = 5
+    pilot [p, q, r] = arr
+    say p + q + r
+    pilot mut g = Grid { cells: [1, 2, 3, 4], origin: (5, 6), corner: Point { x: 7, y: 8 } }
+    say sum4(g.cells)
+    g.cells[2] = 30
+    say g.cells[2]
+    say g.origin.1 + g.corner.y
+    g.origin.0 = 50
+    say g.origin.0
+    pilot s = swap((9, true))
+    say s.0
+    say s.1
+    pilot mut grid: [[int; 2]; 2] = [[1, 2], [3, 4]]
+    grid[1][0] = 33
+    say grid[1][0] + grid[0][1]
+    pilot m = Mixed { flag: true, pair: (2, 40), bytes: [1; 3], tail: (false, 0.5), points: [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }] }
+    say m.pair.1 + m.points[1].x
+    say m.tail.0
+    -- Any argument indexes past the end: the bounds check panics.
+    pilot mut k = 3
+    if process::args_count() > 1 { k = 7 }
+    say g.cells[k]
+    give back 0
+}
