@@ -368,20 +368,20 @@ task v4_panic_contract_run() -> void {
         }
         v4_panic_contract_assert(released == room, "exact policy pressure room")
         pilot pressured = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
-        if room < 49 {
+        if room < 50 {
             v4_panic_contract_assert(v4_codegen_llvm_native_module_error(pressured) == "native codegen plan arena allocation failed", "pressure must fail named")
         } else {
-            v4_panic_contract_assert(room == 49 and v4_codegen_llvm_native_module_error(pressured) == "" and v4_codegen_llvm_panic_policy(pressured) == "abort", "exact constructor capacity admits plan")
+            v4_panic_contract_assert(room == 50 and v4_codegen_llvm_native_module_error(pressured) == "" and v4_codegen_llvm_panic_policy(pressured) == "abort", "exact constructor capacity admits plan")
         }
         pilot row = 0
         repeat until row >= array_len(retained) { array_release(word_to_int(array_get(retained, row))); row += 1 }
         array_release(retained)
         v4_panic_contract_assert(v4_codegen_llvm_panic_policy(accepted) == "abort" and v4_codegen_llvm_module_text(accepted, target) == before, "old seal after allocation failure")
-        if room == 49 { v4_panic_contract_assert(v4_codegen_llvm_module_text(pressured, target) == before, "exact capacity sealed module") }
+        if room == 50 { v4_panic_contract_assert(v4_codegen_llvm_module_text(pressured, target) == before, "exact capacity sealed module") }
         pilot recovered = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
         v4_panic_contract_assert(v4_codegen_llvm_native_module_error(recovered) == "" and v4_codegen_llvm_module_text(recovered, target) == before, "capacity recovery")
-        if room == 49 {
-            say "panic-contract pressure=49 admitted=true old-seal=true recovery=true"
+        if room == 50 {
+            say "panic-contract pressure=50 admitted=true old-seal=true recovery=true"
         } else {
             say "panic-contract pressure=" + word_from_int(room) + " named-failure=true old-seal=true recovery=true"
         }

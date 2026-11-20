@@ -11767,11 +11767,11 @@ EXECUTABLE_SMOKES = [
                        {'argv': ['pressure', '40'],
                         'expect': ['panic-contract pressure=40 named-failure=true old-seal=true '
                                    'recovery=true']},
-                       {'argv': ['pressure', '48'],
-                        'expect': ['panic-contract pressure=48 named-failure=true old-seal=true '
-                                   'recovery=true']},
                        {'argv': ['pressure', '49'],
-                        'expect': ['panic-contract pressure=49 admitted=true old-seal=true recovery=true']},
+                        'expect': ['panic-contract pressure=49 named-failure=true old-seal=true '
+                                   'recovery=true']},
+                       {'argv': ['pressure', '50'],
+                        'expect': ['panic-contract pressure=50 admitted=true old-seal=true recovery=true']},
                        {'argv': ['compact-pressure', '0'],
                         'expect': ['panic-contract compact-pressure=0 named-failure=true atomic=true '
                                    'old-seal=true recovery=true']},
