@@ -907,6 +907,10 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
     if v4_codegen_llvm_active_owned_mir >= 0 and v4_mir_shape_signature(v4_codegen_llvm_active_owned_mir, ty_name) >= 0 {
         give back v4_codegen_llvm_shape_type_name(v4_codegen_llvm_active_owned_mir, ty_name)
     }
+    if v4_codegen_llvm_active_owned_mir >= 0 {
+        pilot route_sig = v4_codegen_llvm_route_signature(v4_codegen_llvm_active_owned_mir, ty_name)
+        if route_sig >= 0 { give back v4_codegen_llvm_route_type_name(v4_codegen_llvm_active_owned_mir, route_sig) }
+    }
 
     if v4_ty_is_generic_instance_type(ty_name) {
         pilot base = v4_ty_generic_base_name(ty_name)
@@ -1383,7 +1387,7 @@ task v4_codegen_llvm_rvalue_operand(mir_id: int, body_id: int, rvalue_id: int) -
     if kind == v4_mir_rvalue_use_place or v4_codegen_llvm_is_literal_aggregate(kind) {
         give back operand_ty + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id)
     }
-    if kind == v4_mir_rvalue_use_symbol and v4_mir_symbol_is_global(mir_id, text) {
+    if kind == v4_mir_rvalue_use_symbol and (v4_mir_symbol_is_global(mir_id, text) or v4_codegen_llvm_route_case_symbol(mir_id, body_id, rvalue_id) >= 0) {
         give back operand_ty + " " + v4_codegen_llvm_temp_value(body_id, rvalue_id)
     }
     if kind == v4_mir_rvalue_use_symbol {
@@ -1440,6 +1444,7 @@ task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> 
         give back "%" + v4_codegen_llvm_mangle_name(v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
     }
     if v4_codegen_llvm_is_literal_aggregate(kind) and v4_codegen_llvm_aggregate_literal_is_zero(mir_id, body_id, rvalue_id) { give back "zeroinitializer" }
+    if v4_codegen_llvm_route_case_symbol(mir_id, body_id, rvalue_id) >= 0 { give back v4_codegen_llvm_temp_value(body_id, rvalue_id) }
     if kind == v4_mir_rvalue_use_symbol and v4_mir_symbol_is_global(mir_id, text) {
         give back v4_codegen_llvm_temp_value(body_id, rvalue_id)
     }
@@ -1562,6 +1567,7 @@ task v4_codegen_llvm_rvalue_needs_instruction(mir_id: int, body_id: int, rvalue_
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) { give back true }
     if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_use_place) { give back true }
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_literal_aggregate(kind) { give back not v4_codegen_llvm_aggregate_literal_is_zero(mir_id, body_id, rvalue_id) }
+    if v4_codegen_llvm_route_case_symbol(mir_id, body_id, rvalue_id) >= 0 { give back true }
     if (kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float) and v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) == "float" { give back true }
     if v4_codegen_llvm_rvalue_is_global_read(mir_id, body_id, rvalue_id) { give back true }
     give back kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_use_local
@@ -2260,7 +2266,10 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_body_header(mir_id, body_id) + " {\nentry:\n")
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
-    if v4_codegen_llvm_active_owned_mir == mir_id { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_scalar_sum_bridge_slots(mir_id, body_id)) }
+    if v4_codegen_llvm_active_owned_mir == mir_id {
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_scalar_sum_bridge_slots(mir_id, body_id))
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_route_slots(mir_id, body_id))
+    }
     pilot local_id = 0
     repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
         pilot local_ty = v4_codegen_llvm_type(v4_mir_local_ty(mir_id, body_id, local_id))
@@ -2492,8 +2501,10 @@ task v4_codegen_llvm_native_shape_error(mir_id: int, type_text: word, depth: int
     pilot ty_id = v4_mir_ty_id(mir_id)
     if type_text == "" or type_text == v4_ty_unknown { give back "-" }
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "" and v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 { kind = "route" }
     if kind == "" {
         if v4_ty_shape_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, type_text)) >= 0 { give back "native generic shapes need monomorphization: " + type_text }
+        if v4_ty_route_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, type_text)) >= 0 { give back "native generic routes need monomorphization: " + type_text }
         give back "-"
     }
     if depth > 32 { give back "native aggregate nesting exceeds supported depth: " + type_text }
@@ -2521,6 +2532,7 @@ task v4_codegen_llvm_native_aggregate_slots_error(mir_id: int, ty_id: int, kind:
         if length > 1048576 { give back "native fixed arrays longer than 1048576 elements are not yet supported: " + type_text }
         give back v4_codegen_llvm_native_slot_error(mir_id, v4_ty_fixed_array_element_type(type_text), type_text + "[]", depth)
     }
+    if kind == "route" { give back v4_codegen_llvm_native_route_error(mir_id, v4_codegen_llvm_route_signature(mir_id, type_text), depth) }
     pilot slot = 0
     repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) {
         pilot context = type_text + "." + word_from_int(slot)
@@ -2530,6 +2542,371 @@ task v4_codegen_llvm_native_aggregate_slots_error(mir_id: int, ty_id: int, kind:
         slot += 1
     }
     give back ""
+}
+
+-- Routes (tier 3). A concrete route lowers to a named struct { tag, payload }.
+-- The tag is the @repr width (i32 without @repr, i64 when a discriminant
+-- needs it) and holds the TY discriminant of the case. Each payload case is a
+-- literal struct of its fields in declaration order; the payload member is
+-- storage sized and aligned by freak_target's C union rules over all cases.
+-- Fieldless routes have no payload member.
+task v4_codegen_llvm_route_signature(mir_id: int, type_text: word) -> int {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if type_text == "" or type_text == v4_ty_unknown or v4_ty_is_generic_instance_type(type_text) { give back 0 - 1 }
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, type_text))
+    if sig_id < 0 or v4_ty_signature_generic_count(ty_id, sig_id) > 0 { give back 0 - 1 }
+    give back sig_id
+}
+
+task v4_codegen_llvm_route_type_name(mir_id: int, sig: int) -> word {
+    pilot symbol = v4_codegen_llvm_symbol("freak.route." + v4_ty_signature_name(v4_mir_ty_id(mir_id), sig))
+    give back "%" + v4_slice(symbol, 1, symbol.length())
+}
+
+task v4_codegen_llvm_route_tag_type(mir_id: int, sig: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot repr = v4_ty_signature_repr_kind(ty_id, sig)
+    if repr != "" { give back "i" + v4_slice(repr, 1, repr.length()) }
+    pilot case_id = 0
+    repeat until case_id >= v4_ty_route_case_count(ty_id, sig) {
+        pilot text = v4_ty_route_case_discriminant_value_by_sig(ty_id, sig, case_id)
+        if text != "" {
+            pilot value = word_to_int(text)
+            if value < 0 - 2147483648 or value > 2147483647 { give back "i64" }
+        }
+        case_id += 1
+    }
+    give back "i32"
+}
+
+-- The tag constant for a case, as signed LLVM text in the tag width.
+task v4_codegen_llvm_route_tag_value(mir_id: int, sig: int, case_id: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot text = v4_ty_route_case_discriminant_value_by_sig(ty_id, sig, case_id)
+    pilot repr = v4_ty_signature_repr_kind(ty_id, sig)
+    if text == "" or not repr.starts_with("u") or repr == "u64" { give back text }
+    pilot value = word_to_int(text)
+    pilot span = 256
+    if repr == "u16" { span = 65536 }
+    if repr == "u32" { span = 4294967296 }
+    if value >= span / 2 { give back word_from_int(value - span) }
+    give back text
+}
+
+task v4_codegen_llvm_route_case_id(mir_id: int, sig: int, case_name: word) -> int {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    give back v4_ty_route_case_id_for_name(ty_id, v4_ty_signature_name(ty_id, sig), case_name)
+}
+
+task v4_codegen_llvm_route_case_name(mir_id: int, sig: int, case_id: int) -> word {
+    give back v4_ty_route_case_name(v4_mir_ty_id(mir_id), sig, case_id)
+}
+
+-- Fields of a case; 0 for a fieldless case.
+task v4_codegen_llvm_route_field_count(mir_id: int, sig: int, case_id: int) -> int {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot route_name = v4_ty_signature_name(ty_id, sig)
+    pilot case_name = v4_ty_route_case_name(ty_id, sig, case_id)
+    if not v4_ty_route_case_has_payload(ty_id, route_name, case_name) { give back 0 }
+    give back v4_ty_route_case_field_count(ty_id, route_name, case_name)
+}
+
+task v4_codegen_llvm_route_field_type(mir_id: int, sig: int, case_id: int, field: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    give back v4_ty_route_case_field_type(ty_id, v4_ty_signature_name(ty_id, sig), v4_ty_route_case_name(ty_id, sig, case_id), field)
+}
+
+-- The literal struct one payload case stores: "{ A, B }", or "{}" with no fields.
+task v4_codegen_llvm_route_case_struct(mir_id: int, sig: int, case_id: int) -> word {
+    pilot count = v4_codegen_llvm_route_field_count(mir_id, sig, case_id)
+    if count <= 0 { give back "{" + "}" }
+    pilot out = "{ "
+    pilot field = 0
+    repeat until field >= count {
+        if field > 0 { out = out + ", " }
+        out = out + v4_codegen_llvm_type(v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field))
+        field += 1
+    }
+    give back out + " }"
+}
+
+task v4_codegen_llvm_route_has_payload(mir_id: int, sig: int) -> bool {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot case_id = 0
+    repeat until case_id >= v4_ty_route_case_count(ty_id, sig) {
+        if v4_ty_route_case_has_payload(ty_id, v4_ty_signature_name(ty_id, sig), v4_ty_route_case_name(ty_id, sig, case_id)) { give back true }
+        case_id += 1
+    }
+    give back false
+}
+
+-- Discriminants must be distinct compile-time integers that fit the tag;
+-- payload fields must be native slots that own no words.
+task v4_codegen_llvm_native_route_error(mir_id: int, sig: int, depth: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot route_name = v4_ty_signature_name(ty_id, sig)
+    pilot repr = v4_ty_signature_repr_kind(ty_id, sig)
+    if v4_ty_signature_repr(ty_id, sig) != "" and repr == "" { give back "native route @repr is not a known integer width: " + route_name }
+    pilot low = 0 - 9223372036854775807 - 1
+    pilot high = 9223372036854775807
+    if repr == "i8" or repr == "i16" or repr == "i32" {
+        pilot bits = word_to_int(v4_slice(repr, 1, repr.length()))
+        high = 1
+        repeat until bits <= 1 {
+            high = high * 2
+            bits -= 1
+        }
+        low = 0 - high
+        high = high - 1
+    }
+    if repr == "u8" or repr == "u16" or repr == "u32" {
+        pilot bits = word_to_int(v4_slice(repr, 1, repr.length()))
+        high = 1
+        repeat until bits <= 0 {
+            high = high * 2
+            bits -= 1
+        }
+        low = 0
+        high = high - 1
+    }
+    if repr == "u64" {
+        low = 0
+    }
+    pilot count = v4_ty_route_case_count(ty_id, sig)
+    pilot case_id = 0
+    repeat until case_id >= count {
+        pilot case_name = v4_ty_route_case_name(ty_id, sig, case_id)
+        pilot context = route_name + "::" + case_name
+        pilot explicit_text = v4_ty_route_case_explicit_discriminant_text_by_sig(ty_id, sig, case_id)
+        if explicit_text != "" {
+            pilot resolved = v4_ty_const_integer_text_from_expr(ty_id, explicit_text)
+            if resolved == "" or resolved == v4_ty_unknown or v4_codegen_llvm_integer_literal_error(v4_ty_int, resolved) != "" { give back "native route discriminant is not a 64-bit compile-time integer: " + context }
+        }
+        pilot text = v4_ty_route_case_discriminant_value_by_sig(ty_id, sig, case_id)
+        if text == "" { give back "native route discriminant is not a 64-bit compile-time integer: " + context }
+        pilot value = word_to_int(text)
+        if value < low or value > high {
+            if repr == "" { give back "native route discriminant overflows int: " + context }
+            give back "native route discriminant does not fit @repr(" + repr + "): " + context + " = " + text
+        }
+        pilot other = 0
+        repeat until other >= case_id {
+            if v4_ty_route_case_discriminant_value_by_sig(ty_id, sig, other) == text { give back "native route discriminants must be distinct: " + route_name + "::" + v4_ty_route_case_name(ty_id, sig, other) + " and " + context + " are both " + text }
+            other += 1
+        }
+        pilot field = 0
+        pilot fields = v4_codegen_llvm_route_field_count(mir_id, sig, case_id)
+        repeat until field >= fields {
+            pilot field_ty = v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field)
+            pilot field_context = context + "." + v4_ty_route_case_field_name(ty_id, route_name, case_name, field)
+            if field_ty != "" and field_ty != v4_ty_unknown and v4_ty_is_native_owned_value(ty_id, field_ty) { give back "native route payload fields that own words are not yet supported: " + field_context }
+            pilot error = v4_codegen_llvm_native_slot_error(mir_id, field_ty, field_context, depth)
+            if error != "" { give back error }
+            field += 1
+        }
+        case_id += 1
+    }
+    give back ""
+}
+
+-- A route-typed UseSymbol naming one of its cases: a unit value, or the tag
+-- operand MIR builds for a payload pattern test.
+task v4_codegen_llvm_route_case_symbol(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 or v4_codegen_llvm_active_owned_mir != mir_id or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_use_symbol { give back 0 - 1 }
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+    if sig < 0 { give back 0 - 1 }
+    pilot case_name = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    pilot next_case = v4_mir_path_right(case_name)
+    repeat until next_case == "" {
+        case_name = next_case
+        next_case = v4_mir_path_right(case_name)
+    }
+    give back v4_codegen_llvm_route_case_id(mir_id, sig, case_name)
+}
+
+-- The case a Construct of a route builds, or -1.
+task v4_codegen_llvm_route_construct_case(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_construct { give back 0 - 1 }
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+    if sig < 0 { give back 0 - 1 }
+    pilot case_name = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    pilot next_case = v4_mir_path_right(case_name)
+    repeat until next_case == "" {
+        case_name = next_case
+        next_case = v4_mir_path_right(case_name)
+    }
+    give back v4_codegen_llvm_route_case_id(mir_id, sig, case_name)
+}
+
+task v4_codegen_llvm_route_construct_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, type_text)
+    pilot case_id = v4_codegen_llvm_route_construct_case(mir_id, body_id, rvalue_id)
+    if case_id < 0 { give back "invalid native route construct: " + v4_mir_rvalue_op(mir_id, body_id, rvalue_id) }
+    pilot fields = v4_codegen_llvm_route_field_count(mir_id, sig, case_id)
+    if fields != v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) { give back "invalid native route construct: " + v4_mir_rvalue_op(mir_id, body_id, rvalue_id) }
+    pilot field = 0
+    repeat until field >= fields {
+        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, field)
+        pilot error = v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, child), v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field))
+        if error != "" { give back error }
+        field += 1
+    }
+    give back ""
+}
+
+-- A payload Field place names a field, not its case. It resolves when one
+-- case declares the name, or when every case declaring it puts it at the
+-- same position after identically typed fields (so at the same offset).
+-- Gives back case * 65536 + field, -1 when no case has it, -2 if ambiguous.
+task v4_codegen_llvm_route_field_slot(mir_id: int, sig: int, field_name: word) -> int {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot route_name = v4_ty_signature_name(ty_id, sig)
+    pilot found = 0 - 1
+    pilot found_case = 0 - 1
+    pilot case_id = 0
+    repeat until case_id >= v4_ty_route_case_count(ty_id, sig) {
+        pilot field = 0 - 1
+        if v4_codegen_llvm_route_field_count(mir_id, sig, case_id) > 0 { field = v4_ty_route_case_field_id_for_name(ty_id, route_name, v4_ty_route_case_name(ty_id, sig, case_id), field_name) }
+        if field >= 0 {
+            if found_case < 0 {
+                found_case = case_id
+                found = field
+            } else {
+                if field != found { give back 0 - 2 }
+                pilot prior = 0
+                repeat until prior > field {
+                    if v4_codegen_llvm_route_field_type(mir_id, sig, case_id, prior) != v4_codegen_llvm_route_field_type(mir_id, sig, found_case, prior) { give back 0 - 2 }
+                    prior += 1
+                }
+            }
+        }
+        case_id += 1
+    }
+    if found_case < 0 { give back 0 - 1 }
+    give back found_case * 65536 + found
+}
+
+task v4_codegen_llvm_route_field_place_error(mir_id: int, body_id: int, place_id: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot base = v4_mir_place_base(mir_id, body_id, place_id)
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_mir_place_ty(mir_id, body_id, base))
+    pilot name = v4_mir_place_field(mir_id, body_id, place_id)
+    pilot slot = v4_codegen_llvm_route_field_slot(mir_id, sig, name)
+    pilot text = v4_mir_place_text(mir_id, body_id, place_id)
+    if slot == 0 - 2 { give back "native route payload fields shared by cases at different offsets are not yet supported: " + text }
+    if slot < 0 { give back "native route payload place names no field: " + text }
+    pilot declared = v4_codegen_llvm_route_field_type(mir_id, sig, slot / 65536, slot % 65536)
+    if v4_ty_canonical_type(ty_id, declared) != v4_ty_canonical_type(ty_id, v4_mir_place_ty(mir_id, body_id, place_id)) { give back "native field place type differs from the declared field type: " + text }
+    give back ""
+}
+
+-- Payload storage is member 1; the case struct is read in place there.
+task v4_codegen_llvm_route_field_address(parts: int, mir_id: int, body_id: int, place_id: int, base_pointer: word, temp: word) -> word {
+    pilot base = v4_mir_place_base(mir_id, body_id, place_id)
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_mir_place_ty(mir_id, body_id, base))
+    pilot slot = v4_codegen_llvm_route_field_slot(mir_id, sig, v4_mir_place_field(mir_id, body_id, place_id))
+    v4_codegen_llvm_fragment_push(parts, "  " + temp + ".payload = getelementptr inbounds " + v4_codegen_llvm_route_type_name(mir_id, sig) + ", ptr " + base_pointer + ", i32 0, i32 1\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + temp + " = getelementptr inbounds " + v4_codegen_llvm_route_case_struct(mir_id, sig, slot / 65536) + ", ptr " + temp + ".payload, i32 0, i32 " + word_from_int(slot % 65536) + "\n")
+    give back temp
+}
+
+task v4_codegen_llvm_route_slot(body_id: int, rvalue_id: int) -> word {
+    give back "%route.tmp." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+}
+
+-- One entry-block slot per payload construct, reused when a loop repeats it.
+task v4_codegen_llvm_route_slots(mir_id: int, body_id: int) -> word {
+    pilot out = ""
+    pilot value = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_codegen_llvm_route_construct_case(mir_id, body_id, value) >= 0 {
+            out = out + "  " + v4_codegen_llvm_route_slot(body_id, value) + " = alloca " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, value)) + "\n"
+        }
+        value += 1
+    }
+    give back out
+}
+
+-- Fields (already evaluated in source order) assemble into the case struct;
+-- the zeroed slot then takes the tag and the payload and is read back whole.
+task v4_codegen_llvm_route_construct_lines(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, type_text)
+    pilot case_id = v4_codegen_llvm_route_construct_case(mir_id, body_id, rvalue_id)
+    pilot llvm_ty = v4_codegen_llvm_type(type_text)
+    pilot case_struct = v4_codegen_llvm_route_case_struct(mir_id, sig, case_id)
+    pilot prefix = "%route." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+    pilot out = ""
+    pilot previous = "undef"
+    pilot fields = v4_codegen_llvm_route_field_count(mir_id, sig, case_id)
+    pilot field = 0
+    repeat until field >= fields {
+        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, field)
+        pilot field_ty = v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field)
+        pilot cast = prefix + "." + word_from_int(field) + ".cast"
+        out = out + v4_codegen_llvm_expected_lines(mir_id, body_id, child, field_ty, cast)
+        pilot name = prefix + "." + word_from_int(field)
+        out = out + "  " + name + " = insertvalue " + case_struct + " " + previous + ", " + v4_codegen_llvm_type(field_ty) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, child, field_ty, cast) + ", " + word_from_int(field) + "\n"
+        previous = name
+        field += 1
+    }
+    pilot slot = v4_codegen_llvm_route_slot(body_id, rvalue_id)
+    out = out + "  store " + llvm_ty + " zeroinitializer, ptr " + slot + "\n"
+    out = out + "  store " + v4_codegen_llvm_route_tag_type(mir_id, sig) + " " + v4_codegen_llvm_route_tag_value(mir_id, sig, case_id) + ", ptr " + slot + "\n"
+    if fields > 0 {
+        out = out + "  " + prefix + ".payload = getelementptr inbounds " + llvm_ty + ", ptr " + slot + ", i32 0, i32 1\n"
+        out = out + "  store " + case_struct + " " + previous + ", ptr " + prefix + ".payload\n"
+    }
+    give back out + "  " + target + " = load " + llvm_ty + ", ptr " + slot + "\n"
+}
+
+-- Route == and != compare tags. That is the whole equality for fieldless
+-- routes and exactly a case test when one side names a case (MIR's pattern
+-- tests); other payload equality needs doctrine lowering.
+task v4_codegen_llvm_route_binary_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot lhs_ty = v4_mir_rvalue_ty(mir_id, body_id, lhs)
+    pilot rhs_ty = v4_mir_rvalue_ty(mir_id, body_id, rhs)
+    pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    if op != v4_mir_bin_eq and op != v4_mir_bin_ne { give back "native route operators need doctrine lowering" }
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, lhs_ty)
+    if sig < 0 or sig != v4_codegen_llvm_route_signature(mir_id, rhs_ty) or v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) != v4_ty_bool { give back "invalid native route comparison" }
+    if v4_codegen_llvm_route_has_payload(mir_id, sig) and v4_codegen_llvm_route_case_symbol(mir_id, body_id, lhs) < 0 and v4_codegen_llvm_route_case_symbol(mir_id, body_id, rhs) < 0 { give back "native route equality with payloads needs doctrine lowering" }
+    give back ""
+}
+
+task v4_codegen_llvm_route_is_binary(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_binary { give back false }
+    give back v4_codegen_llvm_route_signature(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))) >= 0
+}
+
+-- Unit case values and tag comparisons. Called once from the special-kind
+-- helper so the recursive collector's frame stays as it is.
+task v4_codegen_llvm_collect_route_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
+    if kind == v4_mir_rvalue_use_symbol {
+        pilot case_id = v4_codegen_llvm_route_case_symbol(mir_id, body_id, rvalue_id)
+        if case_id < 0 { give back false }
+        pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+        v4_codegen_llvm_fragment_push(parts, "  " + target + " = insertvalue " + v4_codegen_llvm_route_type_name(mir_id, sig) + " zeroinitializer, " + v4_codegen_llvm_route_tag_type(mir_id, sig) + " " + v4_codegen_llvm_route_tag_value(mir_id, sig, case_id) + ", 0\n")
+        give back true
+    }
+    if not v4_codegen_llvm_route_is_binary(mir_id, body_id, rvalue_id) { give back false }
+    pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, lhs, v4_codegen_llvm_temp_value(body_id, lhs), false)
+    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, rhs, v4_codegen_llvm_temp_value(body_id, rhs), false)
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_mir_rvalue_ty(mir_id, body_id, lhs))
+    pilot llvm_ty = v4_codegen_llvm_route_type_name(mir_id, sig)
+    pilot tag_ty = v4_codegen_llvm_route_tag_type(mir_id, sig)
+    pilot predicate = "eq"
+    if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_bin_ne { predicate = "ne" }
+    pilot out = "  " + target + ".ltag = extractvalue " + llvm_ty + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, lhs) + ", 0\n"
+    out = out + "  " + target + ".rtag = extractvalue " + llvm_ty + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, rhs) + ", 0\n"
+    v4_codegen_llvm_fragment_push(parts, out + "  " + target + " = icmp " + predicate + " " + tag_ty + " " + target + ".ltag, " + target + ".rtag\n")
+    give back true
 }
 
 -- One record per supported concrete shape: "<llvm name>\t<member>\t..."
@@ -2549,6 +2926,20 @@ task v4_codegen_llvm_shape_records(mir_id: int) -> word {
                 repeat until field >= v4_ty_shape_field_count(ty_id, sig) {
                     record = record + "\t" + v4_codegen_llvm_type(v4_ty_shape_field_type(ty_id, sig, field))
                     field += 1
+                }
+                v4_codegen_llvm_fragment_push(parts, record + "\n")
+            }
+        }
+        -- A route record is its tag, then one "|"-marked union member per
+        -- payload case; module_text sizes the payload storage per target.
+        if v4_ty_signature_kind(ty_id, sig) == v4_ty_route_sig and v4_ty_signature_generic_count(ty_id, sig) == 0 {
+            pilot name = v4_ty_signature_name(ty_id, sig)
+            if v4_codegen_llvm_route_signature(mir_id, name) == sig and v4_codegen_llvm_native_shape_error(mir_id, name, 0) == "" {
+                pilot record = v4_codegen_llvm_route_type_name(mir_id, sig) + "\t" + v4_codegen_llvm_route_tag_type(mir_id, sig)
+                pilot case_id = 0
+                repeat until case_id >= v4_ty_route_case_count(ty_id, sig) {
+                    if v4_ty_route_case_has_payload(ty_id, name, v4_ty_route_case_name(ty_id, sig, case_id)) { record = record + "\t|" + v4_codegen_llvm_route_case_struct(mir_id, sig, case_id) }
+                    case_id += 1
                 }
                 v4_codegen_llvm_fragment_push(parts, record + "\n")
             }
@@ -2620,6 +3011,38 @@ task v4_codegen_llvm_layout_entry(layout: word) -> word {
     give back word_from_int(size) + ":" + word_from_int(align)
 }
 
+-- The payload union of a route record: "" without "|" members, "-" when a
+-- case has no layout or the union alignment has no integer carrier.
+task v4_codegen_llvm_record_union_layout(records: word, line: word, target_spec: word, depth: int) -> word {
+    pilot entries = ""
+    pilot member = 1
+    repeat until member >= v4_codegen_llvm_record_part_count(line) {
+        pilot part = v4_codegen_llvm_record_part(line, member)
+        if part.starts_with("|") {
+            pilot entry = v4_codegen_llvm_layout_entry(v4_codegen_llvm_llvm_type_layout(records, v4_slice(part, 1, part.length()), target_spec, depth + 1))
+            if entry == "" { give back "-" }
+            if entries != "" { entries = entries + "," }
+            entries = entries + entry
+        }
+        member += 1
+    }
+    if entries == "" { give back "" }
+    pilot layout = v4_target_union_layout(target_spec, entries)
+    if v4_codegen_llvm_union_storage_type(layout, target_spec) == "" { give back "-" }
+    give back layout
+}
+
+-- "[n x iA]": an array of the integer carrier whose freak_target size and
+-- alignment are the union alignment has exactly the union's layout.
+task v4_codegen_llvm_union_storage_type(layout: word, target_spec: word) -> word {
+    pilot size = v4_target_layout_size(layout)
+    pilot align = v4_target_layout_align(layout)
+    if size < 0 or (align != 1 and align != 2 and align != 4 and align != 8) { give back "" }
+    pilot carrier = "i" + word_from_int(align * 8)
+    if v4_target_carrier_size(target_spec, carrier) != align or v4_target_carrier_align(target_spec, carrier) != align { give back "" }
+    give back "[" + word_from_int(size / align) + " x " + carrier + "]"
+}
+
 -- freak_target layout of an LLVM type as codegen emits it: a carrier, a
 -- named shape (looked up in the records), "{ a, b }" or "[N x T]". Named
 -- shapes are memoized per target and record set: nested shapes repeat.
@@ -2653,12 +3076,18 @@ task v4_codegen_llvm_llvm_type_layout_uncached(records: word, text: word, target
                 pilot entries = ""
                 pilot member = 1
                 repeat until member >= v4_codegen_llvm_record_part_count(line) {
-                    pilot entry = v4_codegen_llvm_layout_entry(v4_codegen_llvm_llvm_type_layout(records, v4_codegen_llvm_record_part(line, member), target_spec, depth + 1))
-                    if entry == "" { give back "" }
-                    if member > 1 { entries = entries + "," }
-                    entries = entries + entry
-                    member += 1
+                    pilot part = v4_codegen_llvm_record_part(line, member)
+                    if part.starts_with("|") { member = v4_codegen_llvm_record_part_count(line) } else {
+                        pilot entry = v4_codegen_llvm_layout_entry(v4_codegen_llvm_llvm_type_layout(records, part, target_spec, depth + 1))
+                        if entry == "" { give back "" }
+                        if member > 1 { entries = entries + "," }
+                        entries = entries + entry
+                        member += 1
+                    }
                 }
+                pilot payload = v4_codegen_llvm_record_union_layout(records, line, target_spec, depth)
+                if payload == "-" { give back "" }
+                if payload != "" { entries = entries + "," + v4_codegen_llvm_layout_entry(payload) }
                 give back v4_target_struct_layout(target_spec, entries)
             }
             line_id += 1
@@ -2726,15 +3155,29 @@ task v4_codegen_llvm_shape_module_lines(records: word, target_spec: word) -> wor
         pilot line = v4_codegen_llvm_record_line(records, line_id)
         pilot name = v4_codegen_llvm_record_part(line, 0)
         pilot spaced = ""
+        pilot cases = ""
         pilot member = 1
         repeat until member >= v4_codegen_llvm_record_part_count(line) {
-            if member > 1 { spaced = spaced + ", " }
-            spaced = spaced + v4_codegen_llvm_record_part(line, member)
+            pilot part = v4_codegen_llvm_record_part(line, member)
+            if part.starts_with("|") {
+                if cases != "" { cases = cases + " | " }
+                cases = cases + v4_slice(part, 1, part.length())
+            } else {
+                if member > 1 { spaced = spaced + ", " }
+                spaced = spaced + part
+            }
             member += 1
+        }
+        pilot payload = ""
+        if cases != "" {
+            payload = v4_codegen_llvm_record_union_layout(records, line, target_spec, 0)
+            spaced = spaced + ", " + v4_codegen_llvm_union_storage_type(payload, target_spec)
         }
         pilot layout = v4_codegen_llvm_llvm_type_layout(records, name, target_spec, 0)
         out = out + name + " = type { " + spaced + " }\n"
         out = out + "; freak.layout " + name + " size=" + word_from_int(v4_target_layout_size(layout)) + " align=" + word_from_int(v4_target_layout_align(layout)) + " offsets=" + v4_target_layout_offsets(layout) + "\n"
+        -- Each case struct of a route, for the oracle's C union check.
+        if cases != "" { out = out + "; freak.payload " + name + " size=" + word_from_int(v4_target_layout_size(payload)) + " align=" + word_from_int(v4_target_layout_align(payload)) + " cases=" + cases + "\n" }
         line_id += 1
     }
     if out != "" { out = out + "\n" }
@@ -2772,6 +3215,8 @@ task v4_codegen_llvm_native_c_surface_error_depth(ty_id: int, surface: word, c_b
     -- (sret/byval/register splits); a raw LLVM aggregate is not the C ABI.
     if c_boundary and v4_ty_shape_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, surface)) >= 0 { give back "native shape C ABI by value is not yet supported: " + surface }
     if c_boundary and (v4_ty_is_tuple_type(surface) or v4_ty_is_fixed_array_type(surface)) { give back "native tuple and array C ABI by value is not yet supported: " + surface }
+    -- A native route is a { tag, payload } struct, not a C enum integer.
+    if c_boundary and v4_ty_route_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, surface)) >= 0 { give back "native route C ABI is not yet supported: " + surface }
     if c_boundary and (surface == v4_ty_bool or surface == v4_ty_tiny or surface == v4_ty_char) { give back "native C scalar ABI not yet supported: " + surface }
     if v4_ty_is_surface_ffi_alias_type(surface) { give back "" }
     if v4_ty_is_raw_pointer_type(surface) { give back v4_codegen_llvm_native_c_surface_error_depth(ty_id, v4_ty_raw_pointer_target_type(surface), false, depth + 1) }
@@ -3205,6 +3650,13 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
         pilot local_id = v4_codegen_llvm_rvalue_local(mir_id, body_id, rvalue_id)
         if local_id < 0 or local_id >= v4_mir_body_local_count(mir_id, body_id) or v4_mir_local_ty(mir_id, body_id, local_id) != type_text { give back "invalid native local operand" }
     }
+    if kind == v4_mir_rvalue_use_symbol and v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 and not v4_mir_symbol_is_global(mir_id, v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) {
+        if v4_codegen_llvm_route_case_symbol(mir_id, body_id, rvalue_id) < 0 {
+            if v4_ty_const_signature_id_for_name(v4_mir_ty_id(mir_id), v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) >= 0 { give back "native route constants are not yet supported: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
+            give back "invalid native route case: " + v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+        }
+        give back ""
+    }
     if kind == v4_mir_rvalue_use_symbol and v4_mir_symbol_is_global(mir_id, v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) {
         if type_text == v4_ty_word and v4_codegen_llvm_active_owned_mir != mir_id { give back "native word globals need the owned word path" }
     } else if kind == v4_mir_rvalue_use_symbol {
@@ -3217,6 +3669,7 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
     if kind == v4_mir_rvalue_binary {
         pilot lhs_ty = v4_mir_rvalue_ty(mir_id, body_id, lhs)
         pilot rhs_ty = v4_mir_rvalue_ty(mir_id, body_id, rhs)
+        if v4_codegen_llvm_route_signature(mir_id, lhs_ty) >= 0 or v4_codegen_llvm_route_signature(mir_id, rhs_ty) >= 0 { give back v4_codegen_llvm_route_binary_error(mir_id, body_id, rvalue_id) }
         if v4_mir_shape_signature(mir_id, lhs_ty) >= 0 or v4_mir_shape_signature(mir_id, rhs_ty) >= 0 { give back "native shape operators need doctrine lowering" }
         if v4_codegen_llvm_aggregate_kind(mir_id, lhs_ty) != "" or v4_codegen_llvm_aggregate_kind(mir_id, rhs_ty) != "" { give back "native tuple and array operators need doctrine lowering" }
         -- The bounded Sum checkpoint exposes tag checks and proven takes,
@@ -3361,6 +3814,7 @@ task v4_codegen_llvm_native_place_error(mir_id: int, body_id: int, place_id: int
         if base < 0 or base >= place_id { give back "invalid native place reference" }
         pilot base_error = v4_codegen_llvm_native_place_error(mir_id, body_id, base, depth + 1)
         if base_error != "" { give back base_error }
+        if kind == v4_mir_place_field and v4_codegen_llvm_route_signature(mir_id, v4_mir_place_ty(mir_id, body_id, base)) >= 0 { give back v4_codegen_llvm_route_field_place_error(mir_id, body_id, place_id) }
         if kind == v4_mir_place_field {
             pilot slot = v4_codegen_llvm_place_slot(mir_id, body_id, place_id)
             if slot < 0 { give back "native field place needs a concrete shape or tuple base: " + v4_mir_place_text(mir_id, body_id, place_id) }
@@ -3924,6 +4378,7 @@ task v4_codegen_llvm_place_address(parts: int, mir_id: int, body_id: int, place_
         v4_codegen_llvm_fragment_push(parts, "  " + temp + " = getelementptr inbounds " + base_llvm + ", ptr " + base_pointer + ", i64 0, i64 " + index_value + "\n")
         give back temp
     }
+    if v4_codegen_llvm_route_signature(mir_id, v4_mir_place_ty(mir_id, body_id, base)) >= 0 { give back v4_codegen_llvm_route_field_address(parts, mir_id, body_id, place_id, base_pointer, temp) }
     v4_codegen_llvm_fragment_push(parts, "  " + temp + " = getelementptr inbounds " + base_llvm + ", ptr " + base_pointer + ", i32 0, i32 " + word_from_int(v4_codegen_llvm_place_slot(mir_id, body_id, place_id)) + "\n")
     give back temp
 }
@@ -3970,6 +4425,10 @@ task v4_codegen_llvm_collect_construct_lines(parts: int, mir_id: int, body_id: i
         }
     }
     pilot aggregate_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if v4_codegen_llvm_route_construct_case(mir_id, body_id, rvalue_id) >= 0 {
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_route_construct_lines(mir_id, body_id, rvalue_id, target))
+        give back
+    }
     pilot llvm_ty = v4_codegen_llvm_type(aggregate_ty)
     pilot slots = v4_codegen_llvm_aggregate_slot_count(mir_id, aggregate_ty)
     if slots == 0 {
@@ -4035,6 +4494,7 @@ task v4_codegen_llvm_aggregate_literal_error(mir_id: int, body_id: int, rvalue_i
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     pilot aggregate = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == v4_mir_rvalue_construct and v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 { give back v4_codegen_llvm_route_construct_error(mir_id, body_id, rvalue_id) }
     if kind == v4_mir_rvalue_construct and aggregate != "shape" { give back "native construct needs a concrete shape: " + type_text }
     if kind == v4_mir_rvalue_tuple and aggregate != "tuple" { give back "invalid native tuple literal type: " + type_text }
     if kind == v4_mir_rvalue_array and aggregate != "array" { give back "native array literals need a fixed array type: " + type_text }
@@ -4067,6 +4527,7 @@ task v4_codegen_llvm_collect_owned_special_lines(parts: int, mir_id: int, body_i
         v4_codegen_llvm_fragment_push(parts, "  " + target + " = load " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) + ", ptr " + address + "\n")
         give back true
     }
+    if (kind == v4_mir_rvalue_use_symbol or kind == v4_mir_rvalue_binary) and v4_codegen_llvm_collect_route_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back true }
     if v4_codegen_llvm_is_literal_aggregate(kind) {
         if not v4_codegen_llvm_aggregate_literal_is_zero(mir_id, body_id, rvalue_id) { v4_codegen_llvm_collect_construct_lines(parts, mir_id, body_id, rvalue_id, target) }
         give back true

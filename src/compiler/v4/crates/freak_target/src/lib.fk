@@ -409,6 +409,37 @@ task v4_target_struct_layout(target_spec: word, members: word) -> word {
     give back word_from_int(v4_target_align_up(position, max_align)) + "|" + word_from_int(max_align) + "|" + offsets
 }
 
+-- C union rules over the same "size:align" member list: every member sits
+-- at offset 0, the alignment is the largest member alignment and the size
+-- is the largest member size rounded up to it. Routes store their payload
+-- cases this way. Result: "size|align|offsets" like struct layouts.
+task v4_target_union_layout(target_spec: word, members: word) -> word {
+    if not v4_target_spec_valid(target_spec) { give back "" }
+    pilot offsets = ""
+    pilot largest = 0
+    pilot max_align = 1
+    pilot start = 0
+    pilot count = 0
+    if members != "" {
+        repeat until start > members.length() {
+            pilot stop = v4_target_index_of_from(members, ",", start)
+            if stop < 0 { stop = members.length() }
+            pilot colon = v4_target_index_of_from(members, ":", start)
+            if colon < 0 or colon >= stop { give back "" }
+            pilot size = v4_target_nonnegative_int_range(members, start, colon)
+            pilot align = v4_target_nonnegative_int_range(members, colon + 1, stop)
+            if size < 0 or align <= 0 or size > 1099511627776 { give back "" }
+            if count > 0 { offsets = offsets + "," }
+            offsets = offsets + "0"
+            if size > largest { largest = size }
+            if align > max_align { max_align = align }
+            count += 1
+            start = stop + 1
+        }
+    }
+    give back word_from_int(v4_target_align_up(largest, max_align)) + "|" + word_from_int(max_align) + "|" + offsets
+}
+
 task v4_target_layout_part(layout: word, wanted: int) -> word {
     pilot part = 0
     pilot start = 0
