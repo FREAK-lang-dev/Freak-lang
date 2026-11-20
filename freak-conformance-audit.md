@@ -397,7 +397,17 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Field access `instance.field` | ✅ | ✅ | |
 | `Foo { field: value }` instantiation | ✅ | ✅ | |
 | Method calls `instance.method()` | ✅ | ✅ | |
-| `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | V4 lowers concrete impl UFCS calls like `Pilot::boost(ship, bonus: 3)`, generic-owner `Box<int>::take(box)`, and doctrine-bound calls like `T::score(value, bonus: 2)` into MIR with receiver/value arguments plus arity and receiver-type diagnostics. Doctrine-bound static calls such as `T::baseline()` carry instantiated doctrine arguments through editor facts; body generics outrank same-named global aliases, and overlapping bound methods produce an ambiguity diagnostic instead of declaration-order dispatch. Production backend parity still expands |
+| `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | V4 lowers concrete impl UFCS calls like `Pilot::boost(ship, bonus: 3)`, generic-owner `Box<int>::take(box)`, and doctrine-bound calls like `T::score(value, bonus: 2)` into MIR with receiver/value arguments plus arity and receiver-type diagnostics. Doctrine-bound static calls such as `T::baseline()` carry instantiated doctrine arguments through editor facts; body generics outrank same-named global aliases, and overlapping bound methods produce an ambiguity diagnostic instead of declaration-order dispatch. Concrete UFCS calls lower natively, and a `lend self` / `lend mut self` receiver takes an explicit `lend p` / `lend mut p`; a plain value passed to a lend receiver is refused natively by name. Generic-owner and doctrine-bound UFCS backend parity still expands |
+
+V4 native code now runs concrete impl instance methods on shapes: by-value
+`self`, and `lend self` / `lend mut self` receivers passed as a pointer to the
+caller's storage (local, field, element or tuple-slot places), so writes
+through `lend mut self` are visible afterwards. Method calls auto-lend their
+receiver place in MIR, so Meiya sees a loan instead of a move; a temporary
+receiver of a lend method is named (`lend receiver must be a place`).
+Receivers whose shapes own words, generic impls, dyn and doctrine-bound calls,
+and lend parameters other than `self` remain fenced by name
+(`examples/methods_native.fk`, `check_v4_native_shapes`).
 
 The V3 LLVM and C paths execute concrete shape construction, fields, methods,
 and owned word/nested-shape cleanup. The typed storage runtime is shared;

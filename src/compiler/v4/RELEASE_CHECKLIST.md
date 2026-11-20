@@ -703,7 +703,7 @@ C ABI (roadmap M6; fenced by name today, blocker B01):
 
 Methods and generics:
 
-- [ ] **M** Impl methods with `self`, `lend self`, `lend mut self` receivers
+- [x] **M** Impl methods with `self`, `lend self`, `lend mut self` receivers. An instance call `p.m(...)` resolves to the concrete impl body `T::m`; a by-value `self` passes the shape value, and `lend self` / `lend mut self` pass a pointer to the receiver's storage (a local, a field or element place, a tuple slot, or a lent `self` again), whose slot in the callee holds that pointer, so writes through `lend mut self` (fields or the whole `self`) reach the caller. MIR wraps the receiver of a lend method in a `Lend`/`LendMut` rvalue, so Meiya checks a loan, not a move; a temporary receiver is named at MIR (`lend receiver must be a place`), and concrete UFCS accepts an explicit `lend p` / `lend mut p` receiver. Chained calls, methods returning shapes, and calls between methods work. Named: receivers whose shapes own words (the shape fields row), generic impls (monomorphization), dyn and doctrine-bound calls (`unsupported native call target`), lend parameters other than `self` and lend locals or returns (the `lend` ABI row), a value passed to a lend receiver (`unsupported native conversion: P to lend P`). An impl method without `->` still has an `unknown` return type in TY and is refused natively, so void methods spell `-> void`. Program: `examples/methods_native.fk`, run by `check_v4_native_shapes` with five rejection cases
 - [ ] **XL** Generic monomorphization for tasks, shapes, routes (needs the A3 substitution facts)
 - [ ] **M** Doctrine-bound calls `T::method()` and UFCS in native code (front done)
 - [ ] **L** `dyn Doctrine`: fat pointer plus vtable (front done)
