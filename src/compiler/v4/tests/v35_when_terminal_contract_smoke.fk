@@ -411,7 +411,7 @@ task v35_when_terminal_run(case_id: int, target_name: word, emit: bool) -> void 
     v35_when_terminal_assert(v4_borrowck_diag_count(borrow) == 0, "real Meiya cleanliness")
     pilot sealed = v4_codegen_llvm_lower_owned_mir(0, mir)
     pilot module = v4_codegen_llvm_module_text(sealed, target)
-    pilot frontend_only: bool = case_id == 7 or case_id == 8 or case_id == 9 or case_id == 15 or case_id == 20 or (case_id >= 51 and case_id <= 57) or case_id == 87 or case_id == 89 or case_id == 93
+    pilot frontend_only: bool = case_id == 7 or case_id == 8 or case_id == 9 or case_id == 15 or (case_id >= 51 and case_id <= 57) or case_id == 87 or case_id == 89 or case_id == 93
     if not frontend_only {
         if v4_codegen_llvm_native_module_error(sealed) != "" { say "when-terminal native-error=" + v4_codegen_llvm_native_module_error(sealed) }
         v35_when_terminal_assert(v4_codegen_llvm_native_module_error(sealed) == "" and v4_codegen_llvm_diag_count(sealed) == 0 and module != "", "supported scalar owned native module")
