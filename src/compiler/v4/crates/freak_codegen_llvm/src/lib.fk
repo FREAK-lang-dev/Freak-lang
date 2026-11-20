@@ -3417,10 +3417,10 @@ task v4_codegen_llvm_collect_construct_lines(parts: int, mir_id: int, body_id: i
     }
 }
 
--- Place reads and aggregate literals, kept out of the recursive collector's
--- frame for the same reason as the Sum helper above: scalar expression depth
--- must keep its existing stack contract.
-task v4_codegen_llvm_collect_owned_aggregate_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
+-- Place reads, aggregate literals and Sum checks/takes. One call site keeps
+-- these out of the recursive collector's frame: every extra call there costs
+-- stack per expression level (Windows' 1 MB stack runs the depth contract).
+task v4_codegen_llvm_collect_owned_special_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
     if kind == v4_mir_rvalue_use_place {
         pilot place = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
         pilot address = v4_codegen_llvm_place_address(parts, mir_id, body_id, place, "r" + word_from_int(rvalue_id))
@@ -3431,16 +3431,14 @@ task v4_codegen_llvm_collect_owned_aggregate_lines(parts: int, mir_id: int, body
         v4_codegen_llvm_collect_construct_lines(parts, mir_id, body_id, rvalue_id, target)
         give back true
     }
+    if kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take { give back v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts, mir_id, body_id, rvalue_id, target, kind) }
     give back false
 }
 
 task v4_codegen_llvm_collect_owned_rvalue_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, borrowed: bool) -> void {
     if rvalue_id < 0 { give back }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-    if (kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_construct) and v4_codegen_llvm_collect_owned_aggregate_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back }
-    if kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take {
-        if v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back }
-    }
+    if v4_codegen_llvm_collect_owned_special_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back }
     if kind == v4_mir_rvalue_lend {
         pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
         v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, child, v4_codegen_llvm_temp_value(body_id, child), true)
