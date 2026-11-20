@@ -172,7 +172,8 @@ task v35_while_map_run(mode: int) -> void {
     pilot snapshot = v4_mir_snapshot()
     v35_while_map_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot, "exact MIR restoration including diagnostics and source boundaries")
     pilot generated = v4_codegen_llvm_lower_owned_mir(0, mir)
-    if mode != 18 and mode != 31 {
+    -- Mode 17's shape == lowers through its impl Eq method, so it publishes too.
+    if mode != 17 and mode != 18 and mode != 31 {
         v35_while_map_assert(v4_codegen_llvm_native_module_error(generated) != "" and v4_codegen_llvm_module_text(generated, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "aggregate or invalid native module remains refused")
     } else {
         v35_while_map_assert(v4_codegen_llvm_native_module_error(generated) == "" and v4_codegen_llvm_module_text(generated, v4_target_spec_new("x86_64-unknown-linux-gnu")) != "", "scalar body adjacency retains native module support")
