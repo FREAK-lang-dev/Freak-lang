@@ -69,6 +69,10 @@ task main() -> int {
     say zeros[1]
     pilot signed: (int, bool) = (8, true)
     say widen(signed)
+    -- A nested conversion with matching LLVM carriers still converts per leaf.
+    pilot nested: [[int; 2]; 2] = [[3; 2]; 2]
+    pilot unsigned: [[uint; 2]; 2] = nested
+    say unsigned[1][1] == 3
     -- Any argument indexes past the end: the bounds check panics.
     pilot mut k = 3
     if process::args_count() > 1 { k = 7 }
