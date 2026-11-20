@@ -59,7 +59,8 @@ task main() -> int {
     say m.tail.0
     -- A repeat fill runs its value once, even for an empty array.
     pilot once: [int; 3] = [marker(); 3]
-    say once[0] + once[2]
+    say once[0]
+    say once[2]
     -- A compound store reuses the read's address: marker runs once.
     once[marker() - 5] += 1
     say once[1]

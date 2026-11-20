@@ -2579,6 +2579,15 @@ task v4_codegen_llvm_native_c_surface_error_depth(ty_id: int, surface: word, c_b
         give back ""
     }
     if v4_ty_is_fixed_array_type(surface) { give back v4_codegen_llvm_native_c_surface_error_depth(ty_id, v4_ty_fixed_array_element_type(surface), c_boundary, depth + 1) }
+    if v4_ty_is_tuple_type(surface) {
+        pilot slot = 0
+        repeat until slot >= v4_ty_tuple_slot_count(surface) {
+            pilot slot_error = v4_codegen_llvm_native_c_surface_error_depth(ty_id, v4_ty_tuple_slot_type(surface, slot), false, depth + 1)
+            if slot_error != "" { give back slot_error }
+            slot += 1
+        }
+        give back ""
+    }
     pilot alias_lookup = v4_ty_alias_lookup_type_from_surface_type(ty_id, surface)
     if alias_lookup != "" {
         pilot target = v4_ty_alias_target_type(ty_id, alias_lookup)
@@ -2740,18 +2749,26 @@ task v4_codegen_llvm_native_conversion_error(actual: word, expected: word) -> wo
     pilot expected_kind = v4_codegen_llvm_numeric_kind(expected)
     if actual_kind != "" and expected_kind != "" { give back "" }
     if v4_ty_is_lend_type(actual) and v4_ty_lend_target_type(actual) == expected and v4_codegen_llvm_active_owned_mir >= 0 { give back "" }
+    -- Aggregates are planned before the compatibility shortcut so the leaf
+    -- budget also covers conversions whose LLVM carriers already match.
+    if v4_codegen_llvm_active_owned_mir >= 0 {
+        pilot aggregate = v4_codegen_llvm_aggregate_kind(v4_codegen_llvm_active_owned_mir, actual)
+        if aggregate == "tuple" or aggregate == "array" {
+            if v4_codegen_llvm_aggregate_conversion_ok(v4_codegen_llvm_active_owned_mir, actual, expected) { give back "" }
+            if v4_codegen_llvm_aggregate_conversion_leaves(v4_codegen_llvm_active_owned_mir, actual, expected, 0) == 0 - 2 { give back "native aggregate conversion exceeds the supported slot budget: " + actual + " to " + expected }
+        }
+    }
     if v4_ty_types_compatible(expected, actual) and v4_codegen_llvm_type(actual) == v4_codegen_llvm_type(expected) { give back "" }
-    if v4_codegen_llvm_active_owned_mir >= 0 and v4_codegen_llvm_aggregate_conversion_ok(v4_codegen_llvm_active_owned_mir, actual, expected) { give back "" }
     give back "unsupported native conversion: " + actual + " to " + expected
 }
 
 -- Tuple and fixed array values convert slot by slot when every slot pair is
 -- equal, numeric (the checker already narrowed literals such as (1, 0.5)),
 -- or itself a convertible aggregate. The answer is the number of leaf slots
--- the conversion emits, or -1 when there is no plan. Nested arrays multiply,
+-- the conversion emits, -1 when there is no plan, or -2 past the slot budget. Nested arrays multiply,
 -- so the total is capped to keep one conversion from exploding the IR.
 task v4_codegen_llvm_aggregate_conversion_leaves(mir_id: int, actual: word, expected: word, depth: int) -> int {
-    if depth > 32 { give back -1 }
+    if depth > 32 { give back 0 - 2 }
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, actual)
     if (kind != "tuple" and kind != "array") or v4_codegen_llvm_aggregate_kind(mir_id, expected) != kind { give back -1 }
     pilot slots = v4_codegen_llvm_aggregate_slot_count(mir_id, actual)
@@ -2763,17 +2780,20 @@ task v4_codegen_llvm_aggregate_conversion_leaves(mir_id: int, actual: word, expe
         pilot from = v4_codegen_llvm_aggregate_slot_type(mir_id, actual, slot)
         pilot to = v4_codegen_llvm_aggregate_slot_type(mir_id, expected, slot)
         pilot leaves = 1
-        pilot same: bool = from == to or (v4_codegen_llvm_type(from) == v4_codegen_llvm_type(to) and v4_ty_types_compatible(to, from))
+        -- Nested aggregates are counted even when their LLVM carriers match:
+        -- [[int; 64]; 64] to [[uint; 64]; 64] still converts every leaf.
+        pilot nested = v4_codegen_llvm_aggregate_kind(mir_id, from)
+        pilot same: bool = from == to or (nested != "tuple" and nested != "array" and v4_codegen_llvm_type(from) == v4_codegen_llvm_type(to) and v4_ty_types_compatible(to, from))
         pilot numeric: bool = v4_codegen_llvm_numeric_kind(from) != "" and v4_codegen_llvm_numeric_kind(to) != ""
         if not same and not numeric { leaves = v4_codegen_llvm_aggregate_conversion_leaves(mir_id, from, to, depth + 1) }
-        if leaves < 0 { give back -1 }
+        if leaves < 0 { give back leaves }
         if leaves < 1 { leaves = 1 }
         if kind == "array" {
-            if slots > budget / leaves { give back -1 }
+            if slots > budget / leaves { give back 0 - 2 }
             give back slots * leaves
         }
         total = total + leaves
-        if total > budget { give back -1 }
+        if total > budget { give back 0 - 2 }
         slot += 1
     }
     give back total

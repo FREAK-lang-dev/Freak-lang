@@ -17357,7 +17357,7 @@ NATIVE_LAYOUT_TRIPLES = (
     "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-w64-windows-gnu",
 )
 NATIVE_SHAPES_EXPECTED = "3\n4\n14\n2\n50\n1\n42\ntrue\ntrue\n2.5\ntrue\ntrue\nfalse\n9\n6\n"
-NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\nfalse\nfill\n12\nfill\n7\nfill\n0\ntrue\n4\n"
+NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\nfalse\nfill\n6\n6\nfill\n7\nfill\n0\ntrue\n4\n"
 NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
 
 
@@ -17454,6 +17454,16 @@ def check_v4_native_shapes() -> None:
         ("tier3_array_c_abi", "use std::ffi::c_double\n"
          "extern [C] {\n    task take_values(values: [c_double; 2]) -> c_double\n}\ntask main() -> int { give back 0 }\n",
          "native tuple and array C ABI by value is not yet supported: [c_double;2]"),
+        # A callback nested in a tuple still crosses the C boundary.
+        ("tier3_tuple_callback_c_abi", "use std::ffi::c_double\n@layout(C)\nshape Pair { a: c_double, b: c_double }\n"
+         "task relay(pair: (int, extern [C] task(p: Pair) -> c_double)) -> int { give back pair.0 }\n"
+         "task main() -> int { give back 0 }\n",
+         "native shape C ABI by value is not yet supported: Pair"),
+        # Matching LLVM carriers do not skip the leaf budget: 64^3 int-to-uint checks.
+        ("tier3_nested_conversion_budget", "task main() -> int {\n"
+         "    pilot a: [[[int; 64]; 64]; 64] = [[[1; 64]; 64]; 64]\n"
+         "    pilot b: [[[uint; 64]; 64]; 64] = a\n    give back 0\n}\n",
+         "native aggregate conversion exceeds the supported slot budget: [[[int;64];64];64] to [[[uint;64];64];64]"),
     )
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
