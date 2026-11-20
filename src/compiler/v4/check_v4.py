@@ -17552,6 +17552,10 @@ def check_v4_native_shapes() -> None:
          "task id(c: Compass) -> int {\n    when c {\n        Compass::East -> give back 1\n        _ -> give back 0\n    }\n    give back 9\n}\n"
          "task main() -> int { give back id(START) }\n",
          "native route constants are not yet supported: START"),
+        ("tier3_route_constant_shadows_case", "route Compass { North / East }\nfixed pilot East: Compass = Compass::North\n"
+         "task id(c: Compass) -> int {\n    when c {\n        Compass::East -> give back 1\n        _ -> give back 0\n    }\n    give back 9\n}\n"
+         "task main() -> int { give back id(East) }\n",
+         "native route constants are not yet supported: East"),
     )
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"

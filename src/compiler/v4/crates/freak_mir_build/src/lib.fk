@@ -5107,6 +5107,11 @@ task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int,
         if v4_mir_find_local_visible_at(mir_id, body_id, first_value, v4_span_start(expr_span)) >= 0 {
             give back 0 - 1
         }
+        -- A root constant or global with a case's spelling shadows the bare
+        -- case shorthand just as a local does.
+        if v4_ty_const_signature_id_for_name(ty_id, first_value) >= 0 or v4_mir_symbol_is_global(mir_id, first_value) {
+            give back 0 - 1
+        }
         if v4_ty_route_has_case(ty_id, expected_ty, first_value) {
             if v4_ty_route_case_has_payload(ty_id, expected_ty, first_value) {
                 v4_mir_add_type_error(mir_id, expr_span, "route payload constructor needs fields", expected_ty + "::" + first_value + " expects named fields")

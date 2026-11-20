@@ -2717,6 +2717,9 @@ task v4_codegen_llvm_route_case_symbol(mir_id: int, body_id: int, rvalue_id: int
     if sig < 0 { give back 0 - 1 }
     pilot case_name = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
     pilot next_case = v4_mir_path_right(case_name)
+    -- A bare name is a binding (a constant or global that happens to share a
+    -- case's spelling), never a case: cases are always path-qualified.
+    if next_case == "" { give back 0 - 1 }
     repeat until next_case == "" {
         case_name = next_case
         next_case = v4_mir_path_right(case_name)
