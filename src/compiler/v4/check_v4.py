@@ -17483,6 +17483,138 @@ def check_v4_native_shapes() -> None:
             raise RuntimeError(f"V4 shape case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
     print(f"V4 native shapes: programs={len(programs)} run=exact bounds=panics layout-probes={probes} "
           f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+    check_v4_native_c_widths()
+
+NATIVE_C_WIDTHS_HELPERS = """int cw_add_int(int a, int b) { return a + b; }
+unsigned cw_shift_uint(unsigned a) { return a << 4; }
+long cw_negate_long(long a) { return -a; }
+unsigned long cw_echo_ulong(unsigned long a) { return a; }
+short cw_negate_short(short a) { return (short)-a; }
+unsigned short cw_ushort_max(void) { return (unsigned short)65535; }
+char cw_echo_char(char a) { return a; }
+_Bool cw_char_is_negative(char a) { return a < 0; }
+unsigned char cw_add_uchar(unsigned char a, unsigned char b) { return (unsigned char)(a + b); }
+_Bool cw_is_even(int a) { return a % 2 == 0; }
+_Bool cw_not(_Bool a) { return !a; }
+long cw_mix(short a, int b, long c, unsigned char d, double e) { return a + b + c + d + (long)(e * 2.0); }
+static int recorded;
+void cw_record(int a) { recorded = a; }
+int cw_recorded(void) { return recorded; }
+"""
+
+NATIVE_C_WIDTHS_PANIC = "FREAK V4: int to C int32 conversion out of range"
+
+
+def native_c_widths_expected(triple: str) -> str:
+    # Plain C char is unsigned only on AArch64 Linux among the four targets.
+    negative = "no" if triple == "aarch64-unknown-linux-gnu" else "yes"
+    return ("add_int=-2\nadd_int_min=-2147483648\nshift_uint=4294967280\nnegate_long=7\n"
+            "echo_ulong=4294967295\nnegate_short=-1234\nushort_max=65535\necho_char=200\n"
+            f"char_is_negative={negative}\nadd_uchar=44\nis_even_10=yes\nis_even_7=no\nnot_yes=no\n"
+            "mix=69942\nrecorded=-2147483648\n")
+
+
+def native_c_signatures(text: str, keyword: str) -> dict[str, str]:
+    """Map each cw_* function to `ret(params)` with names and noundef removed."""
+    signatures = {}
+    for line in text.splitlines():
+        match = re.match(rf"^{keyword} (?:dso_local )?(?:ccc )?(.*?) @(cw_\w+)\((.*?)\)", line)
+        if not match:
+            continue
+        result, name, params = match.groups()
+        cleaned = [re.sub(r" %\w+$", "", part.replace("noundef ", "")) for part in params.split(", ") if part]
+        signatures[name] = result.replace("noundef ", "") + "(" + ", ".join(cleaned) + ")"
+    return signatures
+
+
+def check_v4_native_c_widths() -> None:
+    """Tier 3 C widths: real C on the host, Clang's own signatures on all four targets."""
+    from build_v4 import host_target, native_link_command
+
+    clang = shutil.which("clang")
+    source = V4_ROOT / "examples" / "c_widths_native.fk"
+    helpers = RUNTIME_BUILD_ROOT / "tier3_c_widths_helpers.c"
+    helpers.write_text(NATIVE_C_WIDTHS_HELPERS, encoding="utf-8")
+    compared = 0
+    for triple in NATIVE_LAYOUT_TRIPLES:
+        module_path = RUNTIME_BUILD_ROOT / f"tier3_c_widths_{triple}.ll"
+        module_path.unlink(missing_ok=True)
+        emitted = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+            label=f"V4 C widths module {triple}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not module_path.exists():
+            raise RuntimeError(f"V4 could not emit the C widths module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+        module = module_path.read_text(encoding="utf-8")
+        oracle = run_with_heartbeat(
+            [clang, f"--target={triple}", "-O0", "-w", "-S", "-emit-llvm", str(helpers), "-o", "-"],
+            label=f"V4 C widths oracle {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if oracle.returncode != 0:
+            raise RuntimeError(f"Clang rejected the C widths helpers for {triple}:\n{oracle.stderr}")
+        ours = native_c_signatures(module, "declare")
+        theirs = native_c_signatures(oracle.stdout, "define")
+        if len(theirs) != 14 or ours != theirs:
+            raise RuntimeError(f"V4 C width signatures disagree with Clang on {triple}:\nV4: {ours}\nClang: {theirs}")
+        compared += len(theirs)
+        # Same plan text on every target; only the shims and declarations differ.
+        assembled = run_with_heartbeat(
+            [clang, f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
+            label=f"V4 C widths object {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if assembled.returncode != 0:
+            raise RuntimeError(f"Clang rejected the V4 C widths module for {triple}:\n{assembled.stderr}")
+    host = host_target()
+    module_path = RUNTIME_BUILD_ROOT / f"tier3_c_widths_{host}.ll"
+    executable = RUNTIME_BUILD_ROOT / ("tier3_c_widths.exe" if sys.platform == "win32" else "tier3_c_widths.native")
+    executable.unlink(missing_ok=True)
+    command = native_link_command(clang, module_path, executable)
+    command.insert(command.index("-o"), str(helpers))
+    linked = run_with_heartbeat(command, label="V4 C widths link", timeout_seconds=180, memory_limit_mb=1024)
+    if linked.returncode != 0 or not executable.exists():
+        raise RuntimeError(f"V4 C widths program did not link with real C:\n{linked.stdout}{linked.stderr}")
+    ran = run_with_heartbeat([str(executable)], label="V4 native C widths execute", timeout_seconds=10, memory_limit_mb=128)
+    if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != native_c_widths_expected(host):
+        raise RuntimeError(f"V4 native C widths printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
+    # Any argument passes 3000000000 to a C int: checked, never truncated.
+    failed = run_with_heartbeat([str(executable), "narrow"], label="V4 native C width check", timeout_seconds=10, memory_limit_mb=128)
+    if failed.returncode != 1 or NATIVE_C_WIDTHS_PANIC not in failed.stderr or "recorded=" in failed.stdout:
+        raise RuntimeError(f"V4 native C width narrowing was not checked: exit={failed.returncode} "
+                           f"stdout={failed.stdout!r} stderr={failed.stderr!r}")
+    rejected_cases = (
+        ("tier3_c_width_value", "extern [C] { task f(a: std::ffi::c_int) -> std::ffi::c_int }\n"
+         "task main() -> int {\n pilot g = f\n give back 0\n}\n",
+         "native C width extern task values are not yet supported: f"),
+        ("tier3_c_width_callback", "@extern_callback(\"C\")\ntask cb(v: std::ffi::c_int) -> std::ffi::c_int { give back v }\n"
+         "task main() -> int { give back 0 }\n",
+         "native C scalar ABI not yet supported: std::ffi::c_int"),
+        ("tier3_c_width_wchar", "extern [C] { task f(a: std::ffi::wchar) -> std::ffi::c_int }\n"
+         "task main() -> int { give back 0 }\n",
+         "native C scalar ABI not yet supported: std::ffi::wchar"),
+        ("tier3_c_width_pointer", "extern [C] { task f(a: *mut std::ffi::c_int) -> std::ffi::c_int }\n"
+         "task main() -> int { give back 0 }\n",
+         "native C scalar ABI not yet supported: std::ffi::c_int"),
+        ("tier3_c_width_link_alias", "extern [C] {\n task f(a: std::ffi::c_int) -> std::ffi::c_int\n"
+         " @link_name(\"f\")\n task g(a: std::ffi::c_isize) -> std::ffi::c_int\n}\n"
+         "task main() -> int { give back f(1) + g(2) }\n",
+         "native declaration symbol has incompatible signatures: @f"),
+        ("tier3_c_width_reserved", "extern [C] {\n @link_name(\"freak_v4_cabi_check_int32\")\n"
+         " task f(a: std::ffi::c_isize) -> std::ffi::c_isize\n}\ntask main() -> int { give back f(1) }\n",
+         "native private runtime symbol conflict: @freak_v4_cabi_check_int32"),
+    )
+    for stem, text, reason in rejected_cases:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 C width case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    print(f"V4 native C widths: run=exact narrowing=checked clang-signatures={compared} "
+          f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
 
 def check_v4_build_command() -> None:
     from build_v4 import bootstrap, host_target
@@ -17613,15 +17745,17 @@ def check_v4_build_command() -> None:
             'native literal global symbol conflicts with callable symbol: @".str.0.0"',
         ),
         (
+            # Direct extern declarations lower C widths (check_v4_native_c_widths);
+            # FREAK-side signatures and locals keep the named fence.
             "c_int_width", host_target(),
-            'extern [C] { task echo_c_int(value: std::ffi::c_int) -> std::ffi::c_int }\n'
+            'task echo_c_int(value: std::ffi::c_int) -> std::ffi::c_int { give back value }\n'
             'task main() -> int { if echo_c_int(0 - 1) < 0 { give back 42 }\n give back 7 }\n',
             "native C scalar ABI not yet supported: std::ffi::c_int",
         ),
         (
             "c_long_width", host_target(),
-            'extern [C] { task outside() -> std::ffi::c_long }\n'
-            'task main() -> int { give back outside() }\n',
+            'extern [C] { task outside() -> std::ffi::c_isize }\n'
+            'task main() -> int {\n pilot value: std::ffi::c_long = outside()\n give back value\n}\n',
             "native C scalar ABI not yet supported: std::ffi::c_long",
         ),
         (

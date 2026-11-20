@@ -1,0 +1,50 @@
+-- Tier 3: C scalar widths at extern boundaries.
+-- Inside FREAK the std::ffi integer aliases are FREAK int/uint/tiny/bool;
+-- at the extern call they are lowered at the target's C width with the
+-- target's sign/zero extension. Narrowing is checked: any program argument
+-- passes 3000000000 to a C int and must fail instead of truncating.
+-- check_v4_native_c_widths links this with real C helpers.
+
+extern [C] {
+    task cw_add_int(a: std::ffi::c_int, b: std::ffi::c_int) -> std::ffi::c_int
+    task cw_shift_uint(a: std::ffi::c_uint) -> std::ffi::c_uint
+    task cw_negate_long(a: std::ffi::c_long) -> std::ffi::c_long
+    task cw_echo_ulong(a: std::ffi::c_ulong) -> std::ffi::c_ulong
+    task cw_negate_short(a: std::ffi::c_short) -> std::ffi::c_short
+    task cw_ushort_max() -> std::ffi::c_ushort
+    task cw_echo_char(a: std::ffi::c_char) -> std::ffi::c_char
+    task cw_char_is_negative(a: std::ffi::c_char) -> std::ffi::c_bool
+    task cw_add_uchar(a: std::ffi::c_uchar, b: std::ffi::c_uchar) -> std::ffi::c_uchar
+    task cw_is_even(a: std::ffi::c_int) -> std::ffi::c_bool
+    task cw_not(a: std::ffi::c_bool) -> std::ffi::c_bool
+    task cw_mix(a: std::ffi::c_short, b: std::ffi::c_int, c: std::ffi::c_long, d: std::ffi::c_uchar, e: std::ffi::c_double) -> std::ffi::c_long
+    task cw_record(a: std::ffi::c_int) -> void
+    task cw_recorded() -> std::ffi::c_int
+}
+
+task show_bool(label: word, value: bool) -> void {
+    if value { say label + "=yes" } else { say label + "=no" }
+}
+
+task main() -> int {
+    say "add_int=" + word_from_int(cw_add_int(0 - 5, 3))
+    say "add_int_min=" + word_from_int(cw_add_int(0 - 2147483647, 0 - 1))
+    say "shift_uint=" + word_from_int(cw_shift_uint(268435455))
+    say "negate_long=" + word_from_int(cw_negate_long(0 - 7))
+    say "echo_ulong=" + word_from_int(cw_echo_ulong(4294967295))
+    say "negate_short=" + word_from_int(cw_negate_short(1234))
+    say "ushort_max=" + word_from_int(cw_ushort_max())
+    pilot high: tiny = 200
+    say "echo_char=" + word_from_int(cw_echo_char(high))
+    show_bool("char_is_negative", cw_char_is_negative(high))
+    say "add_uchar=" + word_from_int(cw_add_uchar(200, 100))
+    show_bool("is_even_10", cw_is_even(10))
+    show_bool("is_even_7", cw_is_even(7))
+    show_bool("not_yes", cw_not(true))
+    say "mix=" + word_from_int(cw_mix(0 - 300, 70000, 0 - 9, 250, 0.5))
+    pilot count = process::args_count()
+    pilot wide = 3000000000
+    if count > 1 { cw_record(wide) } else { cw_record(0 - 2147483648) }
+    say "recorded=" + word_from_int(cw_recorded())
+    give back 0
+}

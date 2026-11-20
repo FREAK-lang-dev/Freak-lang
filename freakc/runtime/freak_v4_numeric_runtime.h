@@ -56,6 +56,14 @@ double freak_v4_num_from_int(int64_t value);
 double freak_v4_num_from_uint(uint64_t value);
 double freak_v4_num_from_tiny(uint8_t value);
 
+/* C scalar widths at extern boundaries. Each check returns its argument
+ * unchanged when the value fits the named C width and fails otherwise;
+ * generated code truncates only after a successful check. */
+int64_t freak_v4_cabi_check_int32(int64_t value);
+int64_t freak_v4_cabi_check_int16(int64_t value);
+uint64_t freak_v4_cabi_check_uint32(uint64_t value);
+uint64_t freak_v4_cabi_check_uint16(uint64_t value);
+
 #ifdef __cplusplus
 }
 #endif

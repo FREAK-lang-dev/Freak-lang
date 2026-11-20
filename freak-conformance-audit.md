@@ -217,7 +217,13 @@ void and supported raw pointers on the four 64-bit targets. Unsupported C
 scalar widths and variadic promotions receive named errors, including through
 raw aliases, callback signatures, pointer payloads, local annotations and casts.
 Real C-helper guards check negative and greater-than-32-bit values, floating
-widths, pointer transport and callbacks. General B01 C-width lowering remains open.
+widths, pointer transport and callbacks. Tier 3 (B01) now lowers `c_int`,
+`c_uint`, `c_long`, `c_ulong`, `c_short`, `c_ushort`, `c_char`, `c_uchar` and
+`c_bool` on direct extern declarations at the target's C width, with Clang's
+sign/zero extension attributes and checked narrowing (`check_v4_native_c_widths`:
+real C on the host, Clang signatures on all four targets). C widths in FREAK
+signatures, locals, pointees, callbacks and function types, `wchar` and
+variadic promotions keep their named errors.
 Validated target layout descriptors now distinguish signed/unsigned C int32
 from LP64 long64 and Windows LLP64 long32, without changing TargetSpec v1.
 The four-target header-free Clang IR/object oracle agrees with these storage
@@ -805,7 +811,7 @@ completion remain open.
 | `std::narrative` (death flags, foreshadow logs) | ❌ | 📖 V4 | depends on §5 enforcement |
 | `std::test` | ⚠️ | 📖 V4 framework | Ordinary assertion helpers ship with current V3.5 native project tests. `test "name" { expect ... to be ... }` blocks remain planned; the Python regression harness is a separate developer tool. |
 | `Shared::new`, `Weak::upgrade`, `size_of<T>()` | ❌ | 📖 V4 | depends on §4 |
-| `std::ffi` C boundary types | ⚠️ | 📖 V4 | V4 normalizes core scalar aliases (`c_int`, `c_size`, `c_double`, `wchar`, etc.) through TY/codegen; target-width fidelity and the broader std::ffi surface still expand |
+| `std::ffi` C boundary types | ⚠️ | 📖 V4 | V4 normalizes core scalar aliases (`c_int`, `c_size`, `c_double`, `wchar`, etc.) through TY/codegen. Direct extern declarations lower the C integer aliases (plus `c_short`/`c_ushort`) at the target's C width with extension attributes and checked narrowing; other positions, `wchar` and the broader std::ffi surface still expand |
 | `std::http` (HTTP/1.1 client) | ✅ | ✅ | [std/http.fk](std/http.fk) |
 | `std::http_server` (synchronous HTTP/1 transport) | ✅ | V3.5 bounded floor | [Bible §7](freak-full-bible.md#L1849), [public wrappers](std/http_server.fk#L21), [owned parser](freakc/runtime/freak_v35_http.inc#L404) and [response framing](freakc/runtime/freak_v35_http.inc#L503); [deployment profile](docs/v35-http-floor.md). Strict framing, binary bodies, owned request tickets and application-owned routing. C/LLVM O0/O2/O3 Linux checks pass; native platform and exact archive CI remain required. |
 | `std::json` | ✅ | ✅ | [std/json.fk](std/json.fk) |

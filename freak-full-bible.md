@@ -2317,7 +2317,7 @@ leaking the whole tree after closing one tab.
 
 ```
 use std::ffi::{
-    c_int, c_uint, c_long, c_ulong, c_size, c_isize,
+    c_int, c_uint, c_long, c_ulong, c_short, c_ushort, c_size, c_isize,
     c_float, c_double, c_char, c_uchar, c_bool, c_void,
     usize, isize, wchar
 }
@@ -3100,7 +3100,7 @@ task say_c_string(s: *const tiny) -> result<void, word> {
 
 FFI-safe types:
 
-- Fixed-width C aliases from `std::ffi`: `c_int`, `c_uint`, `c_long`, `c_ulong`, `c_size`, `c_isize`, `c_float`, `c_double`, `c_char`, `c_uchar`, `c_bool`, `c_void`, `usize`, `isize`, `wchar`.
+- Fixed-width C aliases from `std::ffi`: `c_int`, `c_uint`, `c_long`, `c_ulong`, `c_short`, `c_ushort`, `c_size`, `c_isize`, `c_float`, `c_double`, `c_char`, `c_uchar`, `c_bool`, `c_void`, `usize`, `isize`, `wchar`.
 - Raw pointers: `*T`, `*const T`, `*mut T`.
 - `void` as a return type.
 - `@layout(C)` shapes whose fields are all FFI-safe.
@@ -3118,8 +3118,13 @@ the BETA are no longer the main threat."
 V4 implementation status: validated target descriptors now expose signedness,
 size, alignment and LLVM carriers for C int32, LP64 long64 and Windows LLP64
 long32. Four header-free Clang IR/object pairs verify those layout facts and
-ordinary C direct/indirect signatures. Native admission of these C-width aliases
-still requires target-bound typing and lowering; the existing named fences remain.
+ordinary C direct/indirect signatures. Direct extern declarations now lower
+`c_int`, `c_uint`, `c_long`, `c_ulong`, `c_short`, `c_ushort`, `c_char`,
+`c_uchar` and `c_bool` at the target's C width with the C ABI's sign/zero
+extension; a FREAK value that does not fit the C width fails the call instead
+of being truncated. Inside FREAK these aliases behave as `int`, `uint`, `tiny`
+and `bool`. C widths elsewhere (FREAK task signatures, locals, pointees,
+callbacks), `wchar` and variadic calls keep their named fences.
 
 ### 16.2 extern Blocks and Calling Conventions
 

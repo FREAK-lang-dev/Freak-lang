@@ -917,10 +917,10 @@ task v4_ty_surface_ffi_alias_name(type_text: word) -> word {
 
 task v4_ty_normalize_ffi_alias_type(type_text: word) -> word {
     pilot alias_name = v4_ty_surface_ffi_alias_name(type_text)
-    if alias_name == "c_int" or alias_name == "c_long" or alias_name == "c_isize" or alias_name == "isize" {
+    if alias_name == "c_int" or alias_name == "c_long" or alias_name == "c_short" or alias_name == "c_isize" or alias_name == "isize" {
         give back v4_ty_int
     }
-    if alias_name == "c_uint" or alias_name == "c_ulong" or alias_name == "c_size" or alias_name == "usize" {
+    if alias_name == "c_uint" or alias_name == "c_ulong" or alias_name == "c_ushort" or alias_name == "c_size" or alias_name == "usize" {
         give back v4_ty_uint
     }
     if alias_name == "c_float" {
