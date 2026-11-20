@@ -242,3 +242,31 @@ double freak_v4_num_from_uint(uint64_t value) {
 double freak_v4_num_from_tiny(uint8_t value) {
     return (double)value;
 }
+
+int64_t freak_v4_cabi_check_int32(int64_t value) {
+    if (value < INT32_MIN || value > INT32_MAX) {
+        freak_v4_numeric_fail("int to C int32 conversion out of range");
+    }
+    return value;
+}
+
+int64_t freak_v4_cabi_check_int16(int64_t value) {
+    if (value < INT16_MIN || value > INT16_MAX) {
+        freak_v4_numeric_fail("int to C int16 conversion out of range");
+    }
+    return value;
+}
+
+uint64_t freak_v4_cabi_check_uint32(uint64_t value) {
+    if (value > UINT32_MAX) {
+        freak_v4_numeric_fail("uint to C uint32 conversion out of range");
+    }
+    return value;
+}
+
+uint64_t freak_v4_cabi_check_uint16(uint64_t value) {
+    if (value > UINT16_MAX) {
+        freak_v4_numeric_fail("uint to C uint16 conversion out of range");
+    }
+    return value;
+}

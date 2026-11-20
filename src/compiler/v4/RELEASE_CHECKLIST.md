@@ -340,7 +340,7 @@ existing chain provably cannot express the fact. TIR stays a view.
 - [x] Named errors for every unsupported native rvalue, place and type (no invalid LLVM published)
 - [x] Duplicate LLVM body symbols rejected before publication, with and without callbacks
 - [x] Extern symbol collisions with bodies, literals and `main` rejected by name
-- [x] C boundary fence: only pointer-sized integers, floats, void and raw pointers admitted; other C widths fail by name
+- [x] C boundary fence: only pointer-sized integers, floats, void and raw pointers admitted; other C widths fail by name (tier 3 now admits the C integer widths on direct extern declarations; every other position keeps this fence)
 - [x] Build refuses an output path that names the input source
 - [x] Extern-member return types as HIR facts (HIR snapshot v10)
 - [x] `repeat N times` on scalars, native
@@ -696,8 +696,8 @@ Aggregates:
 
 C ABI (roadmap M6; fenced by name today, blocker B01):
 
-- [ ] **L** C scalar widths: `c_int`, `c_long`, `c_short`, `c_char` and unsigned forms lowered at target width, not `i64`
-- [ ] **M** Sign and zero extension attributes and default argument promotions
+- [x] **L** C scalar widths: `c_int`, `c_long`, `c_short`, `c_char` and unsigned forms lowered at target width, not `i64`. A direct extern declaration whose parameters or return use `c_int`, `c_uint`, `c_long`, `c_ulong`, `c_short`, `c_ushort`, `c_char`, `c_uchar` or `c_bool` is declared at the C width from `freak_target` (`v4_target_c_scalar_carrier`: `c_long` is i32 on `x86_64-w64-windows-gnu`, i64 on the LP64 targets) and gets an internal `freak.cabi.*` shim with the FREAK signature (TY keeps these aliases as int/uint/tiny/bool). The shim narrows through checked runtime helpers (`freak_v4_cabi_check_int32` and friends: an out-of-range value fails with `int to C int32 conversion out of range`, exit 1, like the other checked conversions) and widens the C result by its signedness. `c_short`/`c_ushort` are new `std::ffi` aliases. Still fenced by name: C widths in FREAK task signatures, locals, pointees, casts, aliases, callbacks and function types (`native C scalar ABI not yet supported: ...`), extern task values (`native C width extern task values are not yet supported: f`), `wchar`, and variadics. Program: `examples/c_widths_native.fk`, linked with real C by `check_v4_native_c_widths`, which also matches every declaration against Clang's own signatures on all four `freak_target` triples
+- [ ] **M** Sign and zero extension attributes and default argument promotions. Extension attributes done with the C widths row: `v4_target_c_scalar_extension` puts `signext`/`zeroext` on i1/i8/i16 parameters and returns where Clang does (x86_64 Linux and Apple arm64 extend all three, Windows x64 only `_Bool`, AArch64 Linux none), checked against Clang on all four targets. Default argument promotions only apply to variadic calls, which stay fenced until the variadic row
 - [ ] **M** Native C variadic calls
 - [ ] **M** Callback ABI details in both directions for the widened set
 

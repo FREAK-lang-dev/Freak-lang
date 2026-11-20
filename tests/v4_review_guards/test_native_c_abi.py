@@ -101,10 +101,16 @@ task main() -> int {
             self.assertEqual((executed.returncode, executed.stdout, executed.stderr), (42, b"", b""))
 
     def test_unimplemented_c_widths_fail_before_native_publication(self):
-        """Raw aliases, callbacks, pointer payloads and casts cannot erase the fence."""
-        cases = []
-        for scalar in ("c_int", "c_uint", "c_long", "c_ulong", "c_char", "c_uchar", "c_bool", "wchar"):
-            cases.append((scalar, f'extern [C] {{ task outside(value: std::ffi::{scalar}) -> std::ffi::{scalar} }}\n',
+        """Raw aliases, callbacks, pointer payloads and casts cannot erase the fence.
+
+        Direct extern declarations lower the C integer widths
+        (check_v4_native_c_widths runs them against real C); wchar and every
+        FREAK-side position stay fenced by name.
+        """
+        cases = [("wchar", 'extern [C] { task outside(value: std::ffi::wchar) -> std::ffi::wchar }\n',
+                  "native C scalar ABI not yet supported:")]
+        for scalar in ("c_int", "c_uint", "c_long", "c_ulong", "c_short", "c_ushort", "c_char", "c_uchar", "c_bool"):
+            cases.append((f"task_{scalar}", f'task inside(value: std::ffi::{scalar}) -> std::ffi::{scalar} {{ give back value }}\n',
                           "native C scalar ABI not yet supported:"))
         cases.extend([
             ("alias", 'alias Width = std::ffi::c_int\nextern [C] { task outside(value: Width) -> Width }\n', "native C scalar ABI not yet supported:"),

@@ -950,13 +950,14 @@ task v4_codegen_llvm_signature_params(ty_id: int, sig_id: int) -> word {
         give back ""
     }
 
+    pilot c_width: bool = v4_codegen_llvm_signature_is_c_width_decl(ty_id, sig_id)
     pilot parts = v4_codegen_llvm_fragment_new()
     pilot param_idx = 0
     repeat until param_idx >= count {
         if param_idx > 0 {
             v4_codegen_llvm_fragment_push(parts, ", ")
         }
-        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_type(v4_ty_signature_param_type(ty_id, sig_id, param_idx)))
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_c_width_param_text(ty_id, sig_id, param_idx, c_width))
         param_idx += 1
     }
     if variadic {
@@ -966,6 +967,209 @@ task v4_codegen_llvm_signature_params(ty_id: int, sig_id: int) -> word {
         v4_codegen_llvm_fragment_push(parts, "...")
     }
     give back v4_codegen_llvm_fragment_finish(parts)
+}
+
+-- C scalar widths (tier 3, roadmap M6). TY carries the std::ffi C integer
+-- aliases as FREAK int/uint/tiny/bool. A direct extern declaration keeps a
+-- `$P.key$` / `$R.key$` marker in the target-neutral plan; module_text
+-- replaces it with the target's C carrier and extension attribute and adds an
+-- internal shim with the FREAK signature. FREAK call sites call the shim,
+-- which checks every narrowing conversion, calls C, and widens the result.
+task v4_codegen_llvm_c_width_key(surface: word) -> word {
+    pilot name = v4_ty_surface_ffi_alias_name(surface)
+    if name == "c_int" or name == "c_uint" or name == "c_long" or name == "c_ulong" or name == "c_short" or name == "c_ushort" { give back name }
+    if name == "c_char" or name == "c_uchar" or name == "c_bool" { give back name }
+    give back ""
+}
+
+task v4_codegen_llvm_signature_is_c_width_decl(ty_id: int, sig_id: int) -> bool {
+    if v4_ty_signature_call_abi(ty_id, sig_id) == "" { give back false }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig and v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 { give back false }
+    if v4_ty_signature_has_extern_callback(ty_id, sig_id) or v4_ty_signature_is_variadic(ty_id, sig_id) { give back false }
+    if v4_codegen_llvm_c_width_key(v4_ty_signature_return_surface_type(ty_id, sig_id)) != "" { give back true }
+    pilot param = 0
+    repeat until param >= v4_ty_signature_fixed_param_count(ty_id, sig_id) {
+        if v4_codegen_llvm_c_width_key(v4_ty_signature_param_surface_type(ty_id, sig_id, param)) != "" { give back true }
+        param += 1
+    }
+    give back false
+}
+
+task v4_codegen_llvm_c_width_param_text(ty_id: int, sig_id: int, param: int, c_width: bool) -> word {
+    if c_width {
+        pilot key = v4_codegen_llvm_c_width_key(v4_ty_signature_param_surface_type(ty_id, sig_id, param))
+        if key != "" { give back "$P." + key + "$" }
+    }
+    give back v4_codegen_llvm_type(v4_ty_signature_param_type(ty_id, sig_id, param))
+}
+
+task v4_codegen_llvm_signature_return_text(ty_id: int, sig_id: int) -> word {
+    if v4_codegen_llvm_signature_is_c_width_decl(ty_id, sig_id) {
+        pilot key = v4_codegen_llvm_c_width_key(v4_ty_signature_return_surface_type(ty_id, sig_id))
+        if key != "" { give back "$R." + key + "$" }
+    }
+    give back v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_id))
+}
+
+task v4_codegen_llvm_c_width_shim_symbol(symbol: word) -> word {
+    if symbol.starts_with("@\"") { give back "@\"freak.cabi." + v4_slice(symbol, 2, symbol.length()) }
+    give back v4_codegen_llvm_symbol("freak.cabi." + v4_slice(symbol, 1, symbol.length()))
+}
+
+-- Direct calls to a C-width declaration go through its shim.
+task v4_codegen_llvm_call_signature_symbol(mir_id: int, ty_id: int, sig_id: int) -> word {
+    pilot symbol = v4_codegen_llvm_signature_symbol(mir_id, ty_id, sig_id)
+    if v4_codegen_llvm_signature_is_c_width_decl(ty_id, sig_id) { give back v4_codegen_llvm_c_width_shim_symbol(symbol) }
+    give back symbol
+}
+
+task v4_codegen_llvm_c_width_marker_key(part: word) -> word {
+    if part.length() < 5 or v4_slice(part, part.length() - 1, part.length()) != "$" { give back "" }
+    if not part.starts_with("$P.") and not part.starts_with("$R.") { give back "" }
+    give back v4_slice(part, 3, part.length() - 1)
+}
+
+-- The FREAK carrier TY gives each admitted key.
+task v4_codegen_llvm_c_width_freak_carrier(key: word) -> word {
+    if key == "c_bool" { give back "i1" }
+    if key == "c_char" or key == "c_uchar" { give back "i8" }
+    give back "i64"
+}
+
+-- The declared C type of one plan part, with its extension attribute where
+-- LLVM wants it (before a return type, after a parameter type).
+task v4_codegen_llvm_c_width_declared(part: word, target_spec: word) -> word {
+    pilot key = v4_codegen_llvm_c_width_marker_key(part)
+    if key == "" { give back part }
+    pilot carrier = v4_target_c_scalar_carrier(target_spec, key)
+    pilot ext = v4_target_c_scalar_extension(target_spec, key)
+    if ext == "" { give back carrier }
+    if part.starts_with("$R.") { give back ext + " " + carrier }
+    give back carrier + " " + ext
+}
+
+task v4_codegen_llvm_c_width_check_symbol(carrier: word, is_signed: bool) -> word {
+    if is_signed { give back "@freak_v4_cabi_check_int" + v4_slice(carrier, 1, carrier.length()) }
+    give back "@freak_v4_cabi_check_uint" + v4_slice(carrier, 1, carrier.length())
+}
+
+task v4_codegen_llvm_c_width_runtime_declarations() -> word {
+    pilot out = ""
+    pilot width = 0
+    repeat until width >= 2 {
+        pilot carrier = "i32"
+        if width == 1 { carrier = "i16" }
+        out = out + "declare i64 " + v4_codegen_llvm_c_width_check_symbol(carrier, true) + "(i64)\n"
+        out = out + "declare i64 " + v4_codegen_llvm_c_width_check_symbol(carrier, false) + "(i64)\n"
+        width += 1
+    }
+    give back out
+}
+
+task v4_codegen_llvm_decl_has_c_width(codegen_id: int, decl_id: int) -> bool {
+    give back v4_codegen_llvm_decl_return(codegen_id, decl_id).starts_with("$R.") or v4_codegen_llvm_decl_params(codegen_id, decl_id).contains("$P.")
+}
+
+-- Plan parameter lists are ", "-separated LLVM scalar types or markers.
+task v4_codegen_llvm_c_width_part_end(text: word, start: int) -> int {
+    pilot found = v4_index_of_from(text, ",", start)
+    if found < 0 { give back text.length() }
+    give back found
+}
+
+task v4_codegen_llvm_c_width_part_error(part: word, target_spec: word) -> word {
+    pilot key = v4_codegen_llvm_c_width_marker_key(part)
+    if key == "" { give back "" }
+    if v4_target_c_scalar_carrier(target_spec, key) == "" or v4_target_c_scalar_signedness(target_spec, key) < 0 { give back "native C scalar width is not available for this target: " + key }
+    give back ""
+}
+
+task v4_codegen_llvm_c_width_target_error(codegen_id: int, target_spec: word) -> word {
+    pilot decl_id = 0
+    repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
+        if v4_codegen_llvm_decl_has_c_width(codegen_id, decl_id) {
+            pilot error = v4_codegen_llvm_c_width_part_error(v4_codegen_llvm_decl_return(codegen_id, decl_id), target_spec)
+            if error != "" { give back error }
+            pilot params_text = v4_codegen_llvm_decl_params(codegen_id, decl_id)
+            pilot start = 0
+            repeat until start >= params_text.length() {
+                pilot stop = v4_codegen_llvm_c_width_part_end(params_text, start)
+                error = v4_codegen_llvm_c_width_part_error(v4_slice(params_text, start, stop), target_spec)
+                if error != "" { give back error }
+                start = stop + 2
+            }
+        }
+        decl_id += 1
+    }
+    give back ""
+}
+
+-- One real declaration at the target's C widths plus the internal shim that
+-- FREAK call sites use. Narrowing goes through the checked runtime helpers;
+-- the C result widens by the C type's signedness.
+task v4_codegen_llvm_c_width_module_lines(codegen_id: int, decl_id: int, target_spec: word) -> word {
+    pilot cc = v4_codegen_llvm_decl_cc(codegen_id, decl_id)
+    pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl_id)
+    pilot ret = v4_codegen_llvm_decl_return(codegen_id, decl_id)
+    pilot params_text = v4_codegen_llvm_decl_params(codegen_id, decl_id)
+    pilot suffix = v4_codegen_llvm_ffi_call_suffix(v4_codegen_llvm_decl_abi(codegen_id, decl_id))
+    pilot line = v4_codegen_llvm_decl_line(codegen_id, decl_id)
+    pilot noreturn: bool = v4_slice(line, line.length() - 9, line.length()) == " noreturn"
+    if noreturn { suffix = suffix + " noreturn" }
+    pilot declared = ""
+    pilot shim_params = ""
+    pilot body = ""
+    pilot args = ""
+    pilot index = 0
+    pilot start = 0
+    repeat until start >= params_text.length() {
+        pilot stop = v4_codegen_llvm_c_width_part_end(params_text, start)
+        pilot part = v4_slice(params_text, start, stop)
+        pilot sep = ""
+        if index > 0 { sep = ", " }
+        pilot slot = word_from_int(index)
+        pilot arg = "%a" + slot
+        pilot key = v4_codegen_llvm_c_width_marker_key(part)
+        pilot shim_ty = part
+        if key != "" {
+            shim_ty = v4_codegen_llvm_c_width_freak_carrier(key)
+            pilot carrier = v4_target_c_scalar_carrier(target_spec, key)
+            if carrier != shim_ty {
+                body = body + "  %k" + slot + " = call i64 " + v4_codegen_llvm_c_width_check_symbol(carrier, v4_target_c_scalar_signedness(target_spec, key) == 1) + "(i64 " + arg + ")\n"
+                body = body + "  %c" + slot + " = trunc i64 %k" + slot + " to " + carrier + "\n"
+                arg = "%c" + slot
+            }
+        }
+        pilot c_part = v4_codegen_llvm_c_width_declared(part, target_spec)
+        declared = declared + sep + c_part
+        shim_params = shim_params + sep + shim_ty + " %a" + slot
+        args = args + sep + c_part + " " + arg
+        index += 1
+        start = stop + 2
+    }
+    pilot ret_key = v4_codegen_llvm_c_width_marker_key(ret)
+    pilot shim_ret = ret
+    pilot ret_carrier = ret
+    if ret_key != "" {
+        shim_ret = v4_codegen_llvm_c_width_freak_carrier(ret_key)
+        ret_carrier = v4_target_c_scalar_carrier(target_spec, ret_key)
+    }
+    pilot c_ret = v4_codegen_llvm_c_width_declared(ret, target_spec)
+    pilot call = "call " + cc + " " + c_ret + " " + symbol + "(" + args + ")" + suffix
+    if ret == "void" {
+        body = body + "  " + call + "\n"
+        if noreturn { body = body + "  unreachable\n" } else { body = body + "  ret void\n" }
+    } else if ret_carrier != shim_ret {
+        pilot widen = "zext"
+        if v4_target_c_scalar_signedness(target_spec, ret_key) == 1 { widen = "sext" }
+        body = body + "  %r = " + call + "\n  %w = " + widen + " " + ret_carrier + " %r to " + shim_ret + "\n  ret " + shim_ret + " %w\n"
+    } else {
+        body = body + "  %r = " + call + "\n  ret " + shim_ret + " %r\n"
+    }
+    pilot attrs = " alwaysinline nounwind"
+    if noreturn { attrs = attrs + " noreturn" }
+    pilot out = "declare " + cc + " " + c_ret + " " + symbol + "(" + declared + ")" + suffix + "\n"
+    give back out + "define internal " + cc + " " + shim_ret + " " + v4_codegen_llvm_c_width_shim_symbol(symbol) + "(" + shim_params + ")" + attrs + " {\nentry:\n" + body + "}\n"
 }
 
 task v4_codegen_llvm_signature_named_params(ty_id: int, sig_id: int) -> word {
@@ -1027,7 +1231,7 @@ task v4_codegen_llvm_signature_line(mir_id: int, ty_id: int, sig_id: int) -> wor
 
     pilot abi = v4_ty_signature_call_abi(ty_id, sig_id)
     pilot cc = v4_codegen_llvm_calling_convention(abi)
-    pilot return_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_id))
+    pilot return_ty = v4_codegen_llvm_signature_return_text(ty_id, sig_id)
     pilot params = v4_codegen_llvm_signature_params(ty_id, sig_id)
     pilot symbol = v4_codegen_llvm_signature_symbol(mir_id, ty_id, sig_id)
     pilot suffix = ""
@@ -1565,7 +1769,7 @@ task v4_codegen_llvm_call_instruction(mir_id: int, body_id: int, rvalue_id: int,
         call_symbol = v4_codegen_llvm_rvalue_value(mir_id, body_id, target_rvalue)
     } else {
         if call_sig >= 0 {
-            call_symbol = v4_codegen_llvm_signature_symbol(mir_id, ty_id, call_sig)
+            call_symbol = v4_codegen_llvm_call_signature_symbol(mir_id, ty_id, call_sig)
         } else { call_symbol = v4_codegen_llvm_callable_symbol(mir_id, call_symbol_name) }
     }
     pilot call_args = v4_codegen_llvm_call_args(mir_id, body_id, rvalue_id)
@@ -1794,7 +1998,7 @@ task v4_codegen_llvm_lower_signatures(codegen_id: int, mir_id: int, ty_id: int) 
             pilot sig_name = v4_ty_signature_name(ty_id, sig_idx)
             pilot sig_abi = v4_ty_signature_call_abi(ty_id, sig_idx)
             pilot sig_cc = v4_codegen_llvm_calling_convention(sig_abi)
-            pilot sig_return = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_idx))
+            pilot sig_return = v4_codegen_llvm_signature_return_text(ty_id, sig_idx)
             pilot sig_params = v4_codegen_llvm_signature_params(ty_id, sig_idx)
             pilot sig_symbol = v4_codegen_llvm_signature_symbol(mir_id, ty_id, sig_idx)
             pilot sig_link = v4_codegen_llvm_signature_link_name(ty_id, sig_idx)
@@ -1829,7 +2033,7 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                     } else {
                         if call_sig >= 0 {
                             call_link = v4_codegen_llvm_signature_link_name(v4_mir_ty_id(mir_id), call_sig)
-                            call_symbol = v4_codegen_llvm_signature_symbol(mir_id, v4_mir_ty_id(mir_id), call_sig)
+                            call_symbol = v4_codegen_llvm_call_signature_symbol(mir_id, v4_mir_ty_id(mir_id), call_sig)
                         } else { call_symbol = v4_codegen_llvm_callable_symbol(mir_id, call_symbol_name) }
                         if call_name == v4_mir_call_say_literal { call_symbol = "@freak_llvm_say" }
                     }
@@ -2554,12 +2758,14 @@ task v4_codegen_llvm_native_type_error(type_text: word, allow_void: bool) -> wor
 
 -- Canonical MIR types erase the declared C widths. Inspect raw TY surfaces
 -- only while sealing, after bodies/callbacks have retained their plan oracles.
--- The current native scalar ABI proves pointer-width integers and floats;
--- C32/platform integers and extension attributes remain conservatively fenced.
+-- Direct extern declarations lower the C integer widths themselves (see
+-- v4_codegen_llvm_signature_is_c_width_decl) and skip this fence for those
+-- positions; everywhere else (FREAK signatures, locals, pointees, callbacks,
+-- function types, aliases) C widths and wchar remain fenced by name.
 task v4_codegen_llvm_native_c_surface_error_depth(ty_id: int, surface: word, c_boundary: bool, depth: int) -> word {
     if depth > 32 { give back "native C ABI surface nesting exceeds supported depth" }
     pilot alias_name = v4_ty_surface_ffi_alias_name(surface)
-    if alias_name == "c_int" or alias_name == "c_uint" or alias_name == "c_long" or alias_name == "c_ulong" or alias_name == "wchar" or alias_name == "c_char" or alias_name == "c_uchar" or alias_name == "c_bool" { give back "native C scalar ABI not yet supported: " + surface }
+    if alias_name == "c_int" or alias_name == "c_uint" or alias_name == "c_long" or alias_name == "c_ulong" or alias_name == "c_short" or alias_name == "c_ushort" or alias_name == "wchar" or alias_name == "c_char" or alias_name == "c_uchar" or alias_name == "c_bool" { give back "native C scalar ABI not yet supported: " + surface }
     if c_boundary and v4_codegen_llvm_active_owned_mir >= 0 and surface == v4_ty_word { give back "native owned word C ABI is not yet supported" }
     if c_boundary and v4_ty_is_native_scalar_sum(ty_id, surface) { give back "native scalar sum C ABI is not yet supported" }
     -- Aggregates cross C boundaries only after the C ABI row classifies them
@@ -2611,11 +2817,15 @@ task v4_codegen_llvm_native_c_width_error(mir_id: int, ty_id: int) -> word {
         if v4_codegen_llvm_signature_is_callable(ty_id, sig) {
             pilot boundary: bool = v4_ty_signature_call_abi(ty_id, sig) != "" or v4_ty_signature_has_extern_callback(ty_id, sig)
             if boundary and v4_ty_signature_is_variadic(ty_id, sig) { give back "native C variadic ABI not yet supported" }
-            pilot error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_signature_return_surface_type(ty_id, sig), boundary)
+            -- A direct extern declaration lowers C widths itself; every
+            -- other position keeps the named fence.
+            pilot c_width: bool = v4_codegen_llvm_signature_is_c_width_decl(ty_id, sig)
+            pilot error = ""
+            if not c_width or v4_codegen_llvm_c_width_key(v4_ty_signature_return_surface_type(ty_id, sig)) == "" { error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_signature_return_surface_type(ty_id, sig), boundary) }
             if error != "" { give back error }
             pilot param = 0
             repeat until param >= v4_ty_signature_fixed_param_count(ty_id, sig) {
-                error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_signature_param_surface_type(ty_id, sig, param), boundary)
+                if not c_width or v4_codegen_llvm_c_width_key(v4_ty_signature_param_surface_type(ty_id, sig, param)) == "" { error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_signature_param_surface_type(ty_id, sig, param), boundary) }
                 if error != "" { give back error }
                 param += 1
             }
@@ -2633,6 +2843,10 @@ task v4_codegen_llvm_native_c_width_error(mir_id: int, ty_id: int) -> word {
     repeat until body >= v4_mir_body_count(mir_id) {
         pilot rvalue = 0
         repeat until rvalue >= v4_mir_body_rvalue_count(mir_id, body) {
+            if v4_mir_rvalue_kind(mir_id, body, rvalue) == v4_mir_rvalue_use_symbol {
+                pilot named = v4_ty_task_signature_id_for_name(ty_id, v4_mir_rvalue_text(mir_id, body, rvalue))
+                if named >= 0 and v4_codegen_llvm_signature_is_c_width_decl(ty_id, named) { give back "native C width extern task values are not yet supported: " + v4_mir_rvalue_text(mir_id, body, rvalue) }
+            }
             if v4_mir_rvalue_kind(mir_id, body, rvalue) == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body, rvalue) == v4_mir_unary_ptr_cast {
                 pilot target_surface = v4_ty_raw_pointer_cast_target_surface(v4_mir_rvalue_text(mir_id, body, rvalue))
                 if target_surface == v4_ty_unknown { give back "native C ABI pointer cast surface is unresolved" }
@@ -4519,6 +4733,8 @@ task v4_codegen_llvm_numeric_reserved_symbol_error(symbol: word) -> word {
     if symbol == "@freak_llvm_word_owned_size" or symbol.starts_with("@freak_v4_process_") or symbol.starts_with("@freak_v4_fs_") or symbol.starts_with("@freak_v4_panic_") { give back "native private runtime symbol conflict: " + symbol }
     -- Bounds-check message globals; LLVM accepts both spellings as one name.
     if symbol.starts_with("@freak.bounds.") or symbol.starts_with("@\"freak.bounds.") { give back "native private runtime symbol conflict: " + symbol }
+    -- C-width shims and their checked narrowing helpers.
+    if symbol.starts_with("@freak_v4_cabi_") or symbol.starts_with("@freak.cabi.") or symbol.starts_with("@\"freak.cabi.") { give back "native private runtime symbol conflict: " + symbol }
     give back ""
 }
 
@@ -5047,6 +5263,8 @@ task v4_codegen_llvm_native_target_error(codegen_id: int, target_spec: word) -> 
         if native_error != "" { give back native_error }
         body_id += 1
     }
+    native_error = v4_codegen_llvm_c_width_target_error(codegen_id, target_spec)
+    if native_error != "" { give back native_error }
     give back v4_codegen_llvm_shape_layout_error(array_get(v4_codegen_llvm_shape_lines, codegen_id), target_spec)
 }
 
@@ -5140,6 +5358,7 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_shape_module_lines(array_get(v4_codegen_llvm_shape_lines, codegen_id), target_spec))
     v4_codegen_llvm_fragment_push(parts, array_get(v4_codegen_llvm_word_runtime_lines, codegen_id))
     pilot declaration_index = v4_codegen_llvm_decl_symbol_index_new(codegen_id)
+    pilot c_width_used: bool = false
     pilot decl_id = 0
     repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
         pilot line = v4_codegen_llvm_decl_line(codegen_id, decl_id)
@@ -5153,8 +5372,14 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
             }
         }
         if v4_codegen_llvm_starts_with(line, "declare ") and not supplied and first == decl_id {
-            v4_codegen_llvm_fragment_push(parts, line)
-            v4_codegen_llvm_fragment_push(parts, "\n")
+            if v4_codegen_llvm_decl_has_c_width(codegen_id, decl_id) {
+                if not c_width_used { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_c_width_runtime_declarations()) }
+                c_width_used = true
+                v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_c_width_module_lines(codegen_id, decl_id, target_spec))
+            } else {
+                v4_codegen_llvm_fragment_push(parts, line)
+                v4_codegen_llvm_fragment_push(parts, "\n")
+            }
         }
         decl_id += 1
     }

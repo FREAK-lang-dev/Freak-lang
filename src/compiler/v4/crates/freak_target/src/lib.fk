@@ -307,6 +307,45 @@ task v4_target_c_integer_llvm_carrier(descriptor: word) -> word {
     give back ""
 }
 
+-- C scalar ABI at extern boundaries (tier 3, roadmap M6). Keys are the bare
+-- std::ffi names a direct extern declaration admits. The carrier is the C
+-- width on this target (c_long and c_ulong follow the data model); the
+-- extension attribute is what Clang puts on a parameter or return of that C
+-- type: x86_64 SysV and Apple arm64 extend i1/i8/i16, the Microsoft x64 ABI
+-- extends only _Bool, and AAPCS64 Linux extends nothing. Unknown keys and
+-- invalid targets fail closed with "" / -1.
+task v4_target_c_scalar_carrier(target_spec: word, scalar_key: word) -> word {
+    if not v4_target_spec_valid(target_spec) { give back "" }
+    if scalar_key == "c_bool" { give back "i1" }
+    if scalar_key == "c_char" or scalar_key == "c_uchar" { give back "i8" }
+    if scalar_key == "c_short" or scalar_key == "c_ushort" { give back "i16" }
+    give back v4_target_c_integer_llvm_carrier(v4_target_c_integer_descriptor(target_spec, scalar_key))
+}
+
+-- 1 signed, 0 unsigned, -1 unknown. Plain C char is unsigned on AArch64
+-- Linux and signed on the other three registered targets.
+task v4_target_c_scalar_signedness(target_spec: word, scalar_key: word) -> int {
+    if v4_target_c_scalar_carrier(target_spec, scalar_key) == "" { give back 0 - 1 }
+    if scalar_key == "c_bool" or scalar_key == "c_uchar" or scalar_key == "c_ushort" { give back 0 }
+    if scalar_key == "c_short" { give back 1 }
+    if scalar_key == "c_char" {
+        if v4_target_field(target_spec, 3) == v4_target_arch_aarch64 and v4_target_field(target_spec, 4) == v4_target_os_linux { give back 0 }
+        give back 1
+    }
+    give back v4_target_c_integer_signedness(v4_target_c_integer_descriptor(target_spec, scalar_key))
+}
+
+task v4_target_c_scalar_extension(target_spec: word, scalar_key: word) -> word {
+    pilot carrier = v4_target_c_scalar_carrier(target_spec, scalar_key)
+    if carrier != "i1" and carrier != "i8" and carrier != "i16" { give back "" }
+    pilot arch = v4_target_field(target_spec, 3)
+    pilot os = v4_target_field(target_spec, 4)
+    if arch == v4_target_arch_aarch64 and os == v4_target_os_linux { give back "" }
+    if os == v4_target_os_windows and carrier != "i1" { give back "" }
+    if v4_target_c_scalar_signedness(target_spec, scalar_key) == 1 { give back "signext" }
+    give back "zeroext"
+}
+
 -- Aggregate layout (tier 3). Sizes and alignments are answered per target
 -- for the LLVM scalar carriers codegen emits, and C struct rules (each field
 -- at the next multiple of its alignment, size rounded to the largest field
