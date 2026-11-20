@@ -25,6 +25,11 @@ task marker() -> int {
     give back 6
 }
 
+task slot() -> int {
+    say "slot"
+    give back 1
+}
+
 task widen(p: (uint, bool)) -> bool {
     give back p.1 and p.0 == 8
 }
@@ -63,6 +68,9 @@ task main() -> int {
     say once[2]
     -- A compound store reuses the read's address: marker runs once.
     once[marker() - 5] += 1
+    say once[1]
+    -- A plain store evaluates its target before its value.
+    once[slot()] = marker()
     say once[1]
     pilot none: [int; 0] = [marker(); 0]
     pilot zeros: [int; 3] = [0, 0, 0]

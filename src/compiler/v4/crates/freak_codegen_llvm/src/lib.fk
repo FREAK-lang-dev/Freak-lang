@@ -1941,15 +1941,19 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
         }
         if kind == v4_mir_stmt_assign and place_id >= 0 and (v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_field or v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_index) {
             pilot field_ty = v4_mir_place_ty(mir_id, body_id, place_id)
-            pilot out = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
-            out = out + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, field_ty, expected_temp)
             pilot parts = v4_codegen_llvm_fragment_new()
             pilot address = ""
             pilot read = v4_codegen_llvm_stmt_compound_read(mir_id, body_id, stmt_id)
             -- The read already evaluated the index operands; reuse its address.
+            -- Otherwise the target (index operands and bounds checks) is
+            -- evaluated before the value, in MIR's source order.
             if read >= 0 { address = "%place." + word_from_int(body_id) + "." + word_from_int(place_id) + ".r" + word_from_int(read) } else { address = v4_codegen_llvm_place_address(parts, mir_id, body_id, place_id, "s" + word_from_int(stmt_id)) }
-            out = out + word_join(parts)
+            pilot target_lines = word_join(parts)
             array_release(parts)
+            pilot value_lines = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
+            value_lines = value_lines + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, field_ty, expected_temp)
+            pilot out = ""
+            if read >= 0 { out = value_lines + target_lines } else { out = target_lines + value_lines }
             give back out + "  store " + v4_codegen_llvm_type(field_ty) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, field_ty, expected_temp) + ", ptr " + address + "\n"
         }
         pilot local_id = 0 - 1
