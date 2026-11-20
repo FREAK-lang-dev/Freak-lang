@@ -1,0 +1,102 @@
+-- Impl methods with self, lend self and lend mut self receivers.
+-- A by-value self is the shape value; a lend receiver is a pointer to the
+-- caller's storage, so writes through lend mut self are visible afterwards.
+shape Point { x: int, y: int }
+shape Rect { origin: Point, size: Point }
+shape Gauge { level: num, hits: int }
+
+impl Point {
+    task sum(self) -> int {
+        give back self.x + self.y + self.peek()
+    }
+    task scaled(self, k: int) -> Point {
+        give back Point { x: self.x * k, y: self.y * k }
+    }
+    task peek(lend self) -> int {
+        give back self.x
+    }
+    task total(lend self) -> int {
+        give back self.peek() + self.y
+    }
+    task doubled(lend self) -> Point {
+        give back Point { x: self.x * 2, y: self.y * 2 }
+    }
+    task bump(lend mut self, dx: int) -> void {
+        self.x = self.x + dx
+    }
+    task bump_both(lend mut self, dx: int, dy: int) -> void {
+        self.bump(dx)
+        self.y = self.y + dy
+        if self.peek() > 100 { self.x = 100 }
+    }
+    task reset(lend mut self) -> void {
+        self = Point { x: 0, y: 0 }
+    }
+    task tag(lend self, prefix: word) -> word {
+        give back prefix + ":" + self.x.to_word()
+    }
+}
+
+impl Rect {
+    task grow(lend mut self, d: int) -> void {
+        self.size.bump(d)
+        self.size.y = self.size.y + d
+    }
+    task area(lend self) -> int {
+        give back self.size.x * self.size.y
+    }
+    task moved(self, dx: int) -> Rect {
+        pilot r = self
+        r.origin.bump(dx)
+        give back r
+    }
+}
+
+impl Gauge {
+    task add(lend mut self, amount: num) -> void {
+        self.level = self.level + amount
+        self.hits = self.hits + 1
+    }
+    task full(lend self) -> bool {
+        give back self.level >= 1.0
+    }
+}
+
+task main() -> int {
+    pilot p = Point { x: 3, y: 4 }
+    say p.peek()
+    p.bump(10)
+    say p.x
+    p.bump_both(dy: 2, dx: 1)
+    say p.total()
+    say p.doubled().scaled(3).sum()
+    say Point { x: 1, y: 2 }.scaled(5).sum()
+    pilot r = Rect { origin: Point { x: 1, y: 2 }, size: Point { x: 3, y: 4 } }
+    r.grow(2)
+    say r.area()
+    r.origin.bump(10)
+    say r.origin.x
+    pilot m = Rect { origin: Point { x: 1, y: 1 }, size: Point { x: 2, y: 2 } }.moved(5)
+    say m.origin.x
+    say m.area()
+    pilot pts: [Point; 3] = [Point { x: 1, y: 1 }, Point { x: 2, y: 2 }, Point { x: 3, y: 3 }]
+    pilot i = 2
+    pts[i].bump(40)
+    say pts[2].x
+    pilot pair = (Point { x: 7, y: 8 }, 3)
+    pair.0.bump(pair.1)
+    say pair.0.x
+    say Point::peek(lend r.origin)
+    Point::bump(lend mut r.origin, 1)
+    say r.origin.x
+    say r.origin.tag("origin")
+    r.size.reset()
+    say r.area()
+    pilot g = Gauge { level: 0.25, hits: 0 }
+    g.add(0.5)
+    say g.full()
+    g.add(0.5)
+    say g.full()
+    say g.hits
+    give back p.peek() - 14
+}

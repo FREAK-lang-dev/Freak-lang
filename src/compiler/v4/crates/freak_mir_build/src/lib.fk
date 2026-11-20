@@ -2802,7 +2802,14 @@ task v4_mir_check_ufcs_method_args(mir_id: int, body_id: int, stream_id: int, ex
         pilot receiver_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, receiver_start, first_end, receiver_ty)
         call_args = v4_mir_call_args_payload_append(call_args, receiver_rvalue)
         pilot actual_receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
-        if not v4_ty_types_compatible(receiver_ty, actual_receiver_ty) {
+        -- An explicit `lend p` / `lend mut p` receiver satisfies a lend self
+        -- or lend mut self method, as it would any borrowed parameter.
+        pilot receiver_mode = v4_ty_impl_method_param_mode(ty_id, hir_item, method_id, 0)
+        pilot compared_receiver_ty = actual_receiver_ty
+        if (receiver_mode == v4_ty_param_mode_lend or receiver_mode == v4_ty_param_mode_lend_mut) and v4_ty_is_lend_type(actual_receiver_ty) {
+            compared_receiver_ty = v4_mir_check_lend_call_arg(mir_id, expr_span, label, "self", receiver_mode, actual_receiver_ty)
+        }
+        if not v4_ty_types_compatible(receiver_ty, compared_receiver_ty) {
             v4_mir_add_type_mismatch_error(mir_id, expr_span, "UFCS receiver type mismatch", label + " receiver expects " + receiver_ty + " but got " + actual_receiver_ty, label + " receiver", receiver_ty, actual_receiver_ty)
         } else {
             v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, receiver_ty, receiver_rvalue, label + " receiver")
@@ -3719,6 +3726,8 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
         give back call_rvalue
     }
     pilot method_ref = v4_mir_find_method_ref(mir_id, receiver_ty, method_name, true)
+    -- The receiver loan comes before the explicit arguments, in call order.
+    pilot call_receiver = v4_mir_impl_receiver_operand(mir_id, body_id, receiver_rvalue, receiver_ty, method_ref, expr_span)
     pilot bound_method_ref = ""
     pilot bound_method_ambiguous = false
     pilot any_ref = ""
@@ -3761,11 +3770,35 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     if owner_generics_rejected {
         result_ty = v4_ty_unknown
     }
-    pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, receiver_ty + "." + method_name, receiver_rvalue, 0 - 1, expr_span, result_ty)
-    pilot call_args = v4_mir_call_args_payload_append("", receiver_rvalue)
+    pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, receiver_ty + "." + method_name, call_receiver, 0 - 1, expr_span, result_ty)
+    pilot call_args = v4_mir_call_args_payload_append("", call_receiver)
     call_args = v4_mir_call_args_payload_concat(call_args, explicit_args_payload)
     v4_mir_build_set_call_args(mir_id, body_id, call_rvalue, call_args)
     give back call_rvalue
+}
+
+-- A concrete impl method declared `lend self` or `lend mut self` borrows its
+-- receiver place, exactly as an explicit `lend p` / `lend mut p` argument
+-- would, so Meiya sees a loan instead of a move. A by-value `self` keeps the
+-- receiver operand. Only places can be loaned; a temporary receiver is named.
+task v4_mir_impl_receiver_operand(mir_id: int, body_id: int, receiver_rvalue: int, receiver_ty: word, method_ref: word, expr_span: word) -> int {
+    if receiver_rvalue < 0 or method_ref == "" { give back receiver_rvalue }
+    pilot mode = v4_ty_impl_method_param_mode(v4_mir_ty_id(mir_id), v4_mir_method_ref_hir_item(method_ref), v4_mir_method_ref_method_id(method_ref), 0)
+    if mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut { give back receiver_rvalue }
+    if not v4_ty_is_known(receiver_ty) or v4_ty_is_lend_type(receiver_ty) { give back receiver_rvalue }
+    if not v4_mir_lend_source_is_place(mir_id, body_id, receiver_rvalue) {
+        v4_mir_add_type_error(mir_id, expr_span, "lend receiver must be a place", "a " + mode + " self method borrows its receiver; store the value in a pilot first")
+        give back receiver_rvalue
+    }
+    pilot kind = v4_mir_rvalue_lend
+    if mode == v4_ty_param_mode_lend_mut {
+        kind = v4_mir_rvalue_lend_mut
+        if v4_mir_rvalue_kind(mir_id, body_id, receiver_rvalue) == v4_mir_rvalue_use_place {
+            v4_mir_check_root_const_place_mutation(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, receiver_rvalue))
+        }
+    }
+    pilot text = mode + " " + v4_mir_rvalue_text(mir_id, body_id, receiver_rvalue)
+    give back v4_mir_add_rvalue(mir_id, body_id, kind, text, mode, receiver_rvalue, 0 - 1, expr_span, v4_ty_lend_type(receiver_ty, mode))
 }
 
 task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
