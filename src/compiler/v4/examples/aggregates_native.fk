@@ -20,6 +20,15 @@ task swap(p: (int, bool)) -> (bool, int) {
     give back (p.1, p.0)
 }
 
+task marker() -> int {
+    say "fill"
+    give back 6
+}
+
+task widen(p: (uint, bool)) -> bool {
+    give back p.1 and p.0 == 8
+}
+
 task main() -> int {
     pilot t = pair(3, 4)
     say t.0 + t.1
@@ -48,6 +57,17 @@ task main() -> int {
     pilot m = Mixed { flag: true, pair: (2, 40), bytes: [1; 3], tail: (false, 0.5), points: [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }] }
     say m.pair.1 + m.points[1].x
     say m.tail.0
+    -- A repeat fill runs its value once, even for an empty array.
+    pilot once: [int; 3] = [marker(); 3]
+    say once[0] + once[2]
+    -- A compound store reuses the read's address: marker runs once.
+    once[marker() - 5] += 1
+    say once[1]
+    pilot none: [int; 0] = [marker(); 0]
+    pilot zeros: [int; 3] = [0, 0, 0]
+    say zeros[1]
+    pilot signed: (int, bool) = (8, true)
+    say widen(signed)
     -- Any argument indexes past the end: the bounds check panics.
     pilot mut k = 3
     if process::args_count() > 1 { k = 7 }
