@@ -6445,9 +6445,9 @@ task v4_mir_sum_row_value_error(ty: int, values: int, locals: int, value: int) -
             if lhs < 0 or lhs >= value { give back "invalid scalar sum constructor operand" }
             pilot expected = v4_ty_native_sum_case_type(ty, v4_mir_snapshot_field(row, 10), op)
             if kind == v4_mir_rvalue_some {
-                if family != "maybe" or op != "Some" or v4_ty_canonical_type(ty, v4_mir_control_row_type(values, lhs)) != expected { give back "scalar Some requires an exact payload" }
+                if family != "maybe" or op != "Some" or v4_mir_control_row_type(values, lhs) != expected { give back "scalar Some requires an exact payload" }
             } else {
-                if family != "result" or expected == v4_ty_unknown or v4_ty_canonical_type(ty, v4_mir_control_row_type(values, lhs)) != expected { give back "scalar Result requires an exact payload" }
+                if family != "result" or expected == v4_ty_unknown or v4_mir_control_row_type(values, lhs) != expected { give back "scalar Result requires an exact payload" }
                 if (kind == v4_mir_rvalue_ok and op != "Ok") or (kind == v4_mir_rvalue_err and op != "Err") { give back "invalid scalar Result constructor tag" }
             }
             -- An owned word payload moves in from exactly one owned source.
@@ -6474,9 +6474,9 @@ task v4_mir_sum_row_value_error(ty: int, values: int, locals: int, value: int) -
         } else {
             pilot taken = v4_ty_native_sum_case_type(ty, v4_mir_control_row_type(values, lhs), op)
             if source_family == "maybe" {
-                if (kind == v4_mir_rvalue_sum_take and op != "TakeSome") or (kind == v4_mir_rvalue_try and op != "TryMaybe") or taken == v4_ty_unknown or v4_ty_canonical_type(ty, v4_mir_snapshot_field(row, 10)) != taken { give back "invalid scalar maybe extraction" }
+                if (kind == v4_mir_rvalue_sum_take and op != "TakeSome") or (kind == v4_mir_rvalue_try and op != "TryMaybe") or taken == v4_ty_unknown or v4_mir_snapshot_field(row, 10) != taken { give back "invalid scalar maybe extraction" }
             } else if source_family == "result" {
-                if (kind == v4_mir_rvalue_sum_take and op != "TakeOk" and op != "TakeErr") or (kind == v4_mir_rvalue_try and op != "TryResult") or taken == v4_ty_unknown or v4_ty_canonical_type(ty, v4_mir_snapshot_field(row, 10)) != taken { give back "invalid scalar Result extraction" }
+                if (kind == v4_mir_rvalue_sum_take and op != "TakeOk" and op != "TakeErr") or (kind == v4_mir_rvalue_try and op != "TryResult") or taken == v4_ty_unknown or v4_mir_snapshot_field(row, 10) != taken { give back "invalid scalar Result extraction" }
             } else { give back "unsupported scalar sum extraction carrier" }
             pilot source_local = v4_mir_sum_row_local(values, locals, lhs)
             pilot local_row: word = array_get(locals, source_local)

@@ -128,6 +128,20 @@ task main() -> int {
         ok(values) -> say values[2]
         err(n) -> say n
     }
+    -- Destructuring arms bind from the taken payload.
+    pilot t2: maybe<(int, bool)> = some((6, false))
+    check t2 {
+        got (n, flag) -> {
+            say n
+            say flag
+        }
+        nobody -> say "none"
+    }
+    pilot wing: result<[int; 2], word> = ok([4, 8])
+    check result wing {
+        ok([low, high]) -> say low + high
+        err(msg) -> say msg
+    }
     pilot heading: maybe<Dir> = some(Dir::South)
     check heading {
         got dir -> {
