@@ -2252,7 +2252,48 @@ task v4_ty_native_scalar_sum_kind(ty_id: int, type_text: word) -> word {
     }
     if base == "maybe" and v4_ty_generic_arg_count(canonical) == 1 and v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 0)) == v4_ty_int { give back "MaybeInt" }
     if base == "result" and v4_ty_generic_arg_count(canonical) == 2 and v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 0)) == v4_ty_word and v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 1)) == v4_ty_word { give back "ResultWordWord" }
+    -- General carriers keep the same Sum representation over every payload
+    -- V4 lowers by value. The two closed kinds above keep their names: the
+    -- typed runtime bridges are contracts on exactly those carriers.
+    if base == "maybe" and v4_ty_generic_arg_count(canonical) == 1 and v4_ty_native_sum_payload_admitted(ty_id, v4_ty_generic_arg(canonical, 0)) { give back "Maybe" }
+    if base == "result" and v4_ty_generic_arg_count(canonical) == 2 and v4_ty_native_sum_payload_admitted(ty_id, v4_ty_generic_arg(canonical, 0)) and v4_ty_native_sum_payload_admitted(ty_id, v4_ty_generic_arg(canonical, 1)) { give back "Result" }
     give back ""
+}
+
+-- A payload a native Sum carrier may hold: a scalar, a word, or a concrete
+-- tuple, fixed array, shape or route. Codegen still validates an aggregate's
+-- own slots and names what it cannot lower. Nested Sums, collections,
+-- pointers, lends and generic aggregates are not admitted.
+task v4_ty_native_sum_payload_admitted(ty_id: int, type_text: word) -> bool {
+    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
+    if canonical == v4_ty_int or canonical == v4_ty_uint or canonical == v4_ty_tiny or canonical == v4_ty_num or canonical == v4_ty_float or canonical == v4_ty_float32 or canonical == v4_ty_bool or canonical == v4_ty_char or canonical == v4_ty_word { give back true }
+    if canonical == "" or canonical == v4_ty_unknown or v4_ty_is_generic_instance_type(canonical) { give back false }
+    if v4_ty_is_tuple_type(canonical) or v4_ty_is_fixed_array_type(canonical) { give back true }
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, canonical)
+    if shape_sig >= 0 { give back v4_ty_signature_generic_count(ty_id, shape_sig) == 0 }
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, canonical)
+    if route_sig >= 0 { give back v4_ty_signature_generic_count(ty_id, route_sig) == 0 }
+    give back false
+}
+
+-- "maybe" or "result" for an authenticated carrier kind, else "".
+task v4_ty_native_sum_family(kind: word) -> word {
+    if kind == "MaybeInt" or kind == "Maybe" { give back "maybe" }
+    if kind == "ResultWordWord" or kind == "Result" { give back "result" }
+    give back ""
+}
+
+-- The canonical payload an op names on an authenticated carrier:
+-- Some/TakeSome/TryMaybe and Ok/TakeOk/TryResult name the first payload,
+-- Err/TakeErr the result's error payload. Unknown for any other pairing.
+task v4_ty_native_sum_case_type(ty_id: int, type_text: word, op: word) -> word {
+    pilot family = v4_ty_native_sum_family(v4_ty_native_scalar_sum_kind(ty_id, type_text))
+    if family == "" { give back v4_ty_unknown }
+    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
+    if family == "maybe" and (op == "Some" or op == "TakeSome" or op == "TryMaybe") { give back v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 0)) }
+    if family == "result" and (op == "Ok" or op == "TakeOk" or op == "TryResult") { give back v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 0)) }
+    if family == "result" and (op == "Err" or op == "TakeErr") { give back v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 1)) }
+    give back v4_ty_unknown
 }
 
 task v4_ty_is_native_scalar_sum(ty_id: int, type_text: word) -> bool {
@@ -2265,6 +2306,8 @@ task v4_ty_native_scalar_sum_payload_type(ty_id: int, type_text: word) -> word {
     pilot kind = v4_ty_native_scalar_sum_kind(ty_id, type_text)
     if kind == "MaybeInt" { give back v4_ty_int }
     if kind == "ResultWordWord" { give back v4_ty_word }
+    if kind == "Maybe" { give back v4_ty_native_sum_case_type(ty_id, type_text, "Some") }
+    if kind == "Result" { give back v4_ty_native_sum_case_type(ty_id, type_text, "Ok") }
     give back v4_ty_unknown
 }
 

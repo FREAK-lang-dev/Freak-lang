@@ -859,6 +859,7 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
         pilot carrier = v4_mir_scalar_sum_kind(v4_codegen_llvm_active_owned_mir, ty_name)
         if carrier == "MaybeInt" { give back "%freak_maybe_int" }
         if carrier == "ResultWordWord" { give back "%freak_result_word_word" }
+        if carrier != "" { give back v4_codegen_llvm_sum_type_name(v4_codegen_llvm_active_owned_mir, ty_name) }
     }
     if v4_ty_is_lend_type(ty_name) and v4_ty_lend_target_type(ty_name) == v4_ty_word { give back "i64" }
     if v4_codegen_llvm_active_owned_mir >= 0 and v4_codegen_llvm_is_aggregate_lend(v4_codegen_llvm_active_owned_mir, ty_name) { give back "ptr" }
@@ -2394,8 +2395,7 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
             }
             if v4_codegen_llvm_active_owned_mir == mir_id and kind == v4_mir_stmt_expr and v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_lend {
                 pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
-                pilot child_kind = v4_mir_rvalue_kind(mir_id, body_id, child)
-                if child_kind == v4_mir_rvalue_const_word or child_kind == v4_mir_rvalue_call or child_kind == v4_mir_rvalue_sum_take or v4_codegen_llvm_rvalue_is_global_read(mir_id, body_id, child) { out = out + "  call void @freak_v4_word_drop(i64 " + v4_codegen_llvm_rvalue_value(mir_id, body_id, child) + ")\n" }
+                if v4_codegen_llvm_lend_word_temporary_is_fresh(mir_id, body_id, child) { out = out + "  call void @freak_v4_word_drop(i64 " + v4_codegen_llvm_rvalue_value(mir_id, body_id, child) + ")\n" }
             }
             give back out
         }
@@ -2593,8 +2593,10 @@ task v4_codegen_llvm_native_type_error_depth(type_text: word, allow_void: bool, 
     pilot alias_text = v4_ty_normalize_ffi_alias_type(type_text)
     if alias_text != "" { type_text = alias_text }
     if v4_codegen_llvm_active_owned_mir >= 0 {
-        if v4_mir_scalar_sum_kind(v4_codegen_llvm_active_owned_mir, type_text) != "" {
+        pilot sum_kind = v4_mir_scalar_sum_kind(v4_codegen_llvm_active_owned_mir, type_text)
+        if sum_kind != "" {
             if depth != 0 { give back "native scalar sum callback contracts are not yet supported" }
+            if sum_kind == "Maybe" or sum_kind == "Result" { give back v4_codegen_llvm_native_sum_error(v4_codegen_llvm_active_owned_mir, type_text, depth) }
             give back ""
         }
         if v4_ty_is_raw_pointer_type(type_text) and v4_mir_scalar_sum_kind(v4_codegen_llvm_active_owned_mir, v4_ty_raw_pointer_target_type(type_text)) != "" { give back "native scalar sum raw storage contracts are not yet supported" }
@@ -3258,7 +3260,7 @@ task v4_codegen_llvm_shape_records(mir_id: int) -> word {
     }
     pilot out = word_join(parts)
     array_release(parts)
-    give back out
+    give back out + v4_codegen_llvm_sum_records(mir_id)
 }
 
 task v4_codegen_llvm_record_line(records: word, wanted: int) -> word {
@@ -3955,7 +3957,7 @@ task v4_codegen_llvm_native_symbol_value_error(mir_id: int, text: word, type_tex
 task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_aggregate_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back v4_codegen_llvm_native_aggregate_lend_error(mir_id, body_id, rvalue_id) }
-    if kind != v4_mir_rvalue_const_int and kind != v4_mir_rvalue_const_float and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_const_bool and kind != v4_mir_rvalue_const_char and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_use_symbol and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_call and not (v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_lend or v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_use_place or v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id))) {
+    if kind != v4_mir_rvalue_const_int and kind != v4_mir_rvalue_const_float and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_const_bool and kind != v4_mir_rvalue_const_char and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_use_symbol and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_call and not (v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_lend or v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_use_place or v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) or v4_codegen_llvm_or_else_is_supported(mir_id, body_id, rvalue_id))) {
         give back "native rvalue not yet supported: " + kind
     }
     pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
@@ -4438,25 +4440,172 @@ task v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id: int, body_id: int, v
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
     pilot carrier = v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, value))
     if carrier != "" { give back kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err }
-    if kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take {
+    if kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try {
         give back v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value))) != ""
     }
     give back false
 }
 
+-- General Sum carriers (tier 3). maybe<T> lowers to a named struct
+-- { i1, T } and result<T, E> to { i1, T, E }; when T and E are the same
+-- type they share one payload field, as the closed result<word,word> slice
+-- does, and the tag tells them apart. An inactive payload field is zero.
+-- freak_target answers every layout through the shape records.
+task v4_codegen_llvm_sum_type_name(mir_id: int, type_text: word) -> word {
+    pilot symbol = v4_codegen_llvm_symbol("freak.sum." + v4_codegen_llvm_compact_type(v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text)))
+    give back "%" + v4_slice(symbol, 1, symbol.length())
+}
+
+task v4_codegen_llvm_compact_type(text: word) -> word {
+    pilot parts = v4_codegen_llvm_fragment_new()
+    pilot idx = 0
+    repeat until idx >= text.length() {
+        pilot ch = text.char_at(idx)
+        if ch != " " { v4_codegen_llvm_fragment_push(parts, ch) }
+        idx += 1
+    }
+    give back v4_codegen_llvm_fragment_finish(parts)
+}
+
+-- The struct field an op reads or writes: 1 for Some/Ok, and for Err 1 when
+-- the error payload has exactly the ok payload's type, else 2. Sharing only
+-- on equal types keeps a word field from ever holding a non-word value.
+task v4_codegen_llvm_sum_field(mir_id: int, type_text: word, op: word) -> word {
+    if op != "Err" and op != "TakeErr" { give back "1" }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_native_sum_case_type(ty_id, type_text, "Err") == v4_ty_native_sum_case_type(ty_id, type_text, "Ok") { give back "1" }
+    give back "2"
+}
+
+-- The one field of a general carrier that can own a word ("" when none):
+-- word payloads of a result share field 1 when both cases are words.
+task v4_codegen_llvm_sum_word_field(mir_id: int, type_text: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_native_sum_family(v4_mir_scalar_sum_kind(mir_id, type_text)) == "maybe" {
+        if v4_ty_native_sum_case_type(ty_id, type_text, "Some") == v4_ty_word { give back "1" }
+        give back ""
+    }
+    if v4_ty_native_sum_case_type(ty_id, type_text, "Ok") == v4_ty_word { give back "1" }
+    if v4_ty_native_sum_case_type(ty_id, type_text, "Err") == v4_ty_word { give back v4_codegen_llvm_sum_field(mir_id, type_text, "Err") }
+    give back ""
+}
+
+-- Every payload LLVM type of a carrier, in field order, tab separated.
+task v4_codegen_llvm_sum_payload_fields(mir_id: int, type_text: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_native_sum_family(v4_mir_scalar_sum_kind(mir_id, type_text)) == "maybe" { give back v4_codegen_llvm_type(v4_ty_native_sum_case_type(ty_id, type_text, "Some")) }
+    pilot ok_field = v4_codegen_llvm_type(v4_ty_native_sum_case_type(ty_id, type_text, "Ok"))
+    if v4_codegen_llvm_sum_field(mir_id, type_text, "Err") == "1" { give back ok_field }
+    give back ok_field + "\t" + v4_codegen_llvm_type(v4_ty_native_sum_case_type(ty_id, type_text, "Err"))
+}
+
+-- "" when every payload lowers natively; otherwise the payload's own error.
+task v4_codegen_llvm_native_sum_error(mir_id: int, type_text: word, depth: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot family = v4_ty_native_sum_family(v4_mir_scalar_sum_kind(mir_id, type_text))
+    pilot first = "Some"
+    if family == "result" { first = "Ok" }
+    pilot error = v4_codegen_llvm_native_sum_payload_error(mir_id, v4_ty_native_sum_case_type(ty_id, type_text, first), type_text, depth)
+    if error != "" or family != "result" { give back error }
+    give back v4_codegen_llvm_native_sum_payload_error(mir_id, v4_ty_native_sum_case_type(ty_id, type_text, "Err"), type_text, depth)
+}
+
+-- A word payload is owned by its carrier; any other payload follows the
+-- aggregate slot rules (so slots that own words are still named).
+task v4_codegen_llvm_native_sum_payload_error(mir_id: int, payload: word, type_text: word, depth: int) -> word {
+    if payload == v4_ty_word { give back "" }
+    give back v4_codegen_llvm_native_slot_error(mir_id, payload, type_text, depth)
+}
+
+-- One shape record per general carrier a body uses, for the type
+-- definitions and "; freak.layout" notes (the closed kinds keep their own).
+task v4_codegen_llvm_sum_records(mir_id: int) -> word {
+    pilot seen = ""
+    pilot out = ""
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot candidates = v4_codegen_llvm_fragment_new()
+        v4_codegen_llvm_fragment_push(candidates, v4_mir_body_callable_return_type(mir_id, body))
+        pilot row = 0
+        repeat until row >= v4_mir_body_local_count(mir_id, body) {
+            v4_codegen_llvm_fragment_push(candidates, v4_mir_local_ty(mir_id, body, row))
+            row += 1
+        }
+        row = 0
+        repeat until row >= v4_mir_body_rvalue_count(mir_id, body) {
+            v4_codegen_llvm_fragment_push(candidates, v4_mir_rvalue_ty(mir_id, body, row))
+            row += 1
+        }
+        row = 0
+        repeat until row >= array_len(candidates) {
+            pilot type_text: word = array_get(candidates, row)
+            pilot kind = v4_mir_scalar_sum_kind(mir_id, type_text)
+            if kind == "Maybe" or kind == "Result" {
+                pilot name = v4_codegen_llvm_sum_type_name(mir_id, type_text)
+                if not seen.contains("\n" + name + "\n") {
+                    seen = seen + "\n" + name + "\n"
+                    out = out + name + "\ti1\t" + v4_codegen_llvm_sum_payload_fields(mir_id, type_text) + "\n"
+                }
+            }
+            row += 1
+        }
+        array_release(candidates)
+        body += 1
+    }
+    give back out
+}
+
 task v4_codegen_llvm_scalar_sum_instruction(mir_id: int, body_id: int, value: int, target: word) -> word {
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
     pilot child = v4_mir_rvalue_lhs(mir_id, body_id, value)
-    if kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take {
+    if kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try {
         pilot field = "0"
-        if kind == v4_mir_rvalue_sum_take { field = "1" }
+        if kind != v4_mir_rvalue_check { field = v4_codegen_llvm_sum_field(mir_id, v4_mir_rvalue_ty(mir_id, body_id, child), v4_mir_rvalue_op(mir_id, body_id, value)) }
         give back target + " = extractvalue " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, child)) + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, child) + ", " + field
     }
-    pilot carrier = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, value))
+    pilot sum_ty = v4_mir_rvalue_ty(mir_id, body_id, value)
+    pilot carrier = v4_codegen_llvm_type(sum_ty)
     if kind == v4_mir_rvalue_nobody { give back target + " = insertvalue " + carrier + " zeroinitializer, i1 false, 0" }
     pilot tag = "false"
     if kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok { tag = "true" }
-    give back target + ".tag = insertvalue " + carrier + " zeroinitializer, i1 " + tag + ", 0\n  " + target + " = insertvalue " + carrier + " " + target + ".tag, i64 " + v4_codegen_llvm_rvalue_value(mir_id, body_id, child) + ", 1"
+    pilot op = "Some"
+    if kind == v4_mir_rvalue_ok { op = "Ok" }
+    if kind == v4_mir_rvalue_err { op = "Err" }
+    pilot payload = v4_codegen_llvm_type(v4_ty_native_sum_case_type(v4_mir_ty_id(mir_id), sum_ty, op))
+    give back target + ".tag = insertvalue " + carrier + " zeroinitializer, i1 " + tag + ", 0\n  " + target + " = insertvalue " + carrier + " " + target + ".tag, " + payload + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, child) + ", " + v4_codegen_llvm_sum_field(mir_id, sum_ty, op)
+}
+
+-- `source or else fallback` on a native carrier. The fallback is evaluated
+-- only on the empty edge; there an error payload the carrier still owns is
+-- released. The source itself is moved in, per Meiya's transfer fact.
+task v4_codegen_llvm_or_else_is_supported(mir_id: int, body_id: int, value: int) -> bool {
+    if v4_mir_rvalue_kind(mir_id, body_id, value) != v4_mir_rvalue_or_else { give back false }
+    pilot source = v4_mir_rvalue_lhs(mir_id, body_id, value)
+    give back source >= 0 and v4_mir_rvalue_rhs(mir_id, body_id, value) >= 0 and v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, source)) != ""
+}
+
+task v4_codegen_llvm_collect_or_else_lines(parts: int, mir_id: int, body_id: int, value: int, target: word) -> void {
+    pilot source = v4_mir_rvalue_lhs(mir_id, body_id, value)
+    pilot fallback = v4_mir_rvalue_rhs(mir_id, body_id, value)
+    pilot sum_ty = v4_mir_rvalue_ty(mir_id, body_id, source)
+    pilot carrier = v4_codegen_llvm_type(sum_ty)
+    pilot family = v4_ty_native_sum_family(v4_mir_scalar_sum_kind(mir_id, sum_ty))
+    pilot present = "Some"
+    if family == "result" { present = "Ok" }
+    pilot payload_ty = v4_ty_native_sum_case_type(v4_mir_ty_id(mir_id), sum_ty, present)
+    pilot payload = v4_codegen_llvm_type(payload_ty)
+    pilot label = "orelse." + word_from_int(body_id) + "." + word_from_int(value)
+    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, source, v4_codegen_llvm_temp_value(body_id, source), false)
+    pilot held = v4_codegen_llvm_rvalue_value(mir_id, body_id, source)
+    v4_codegen_llvm_fragment_push(parts, "  %" + label + ".tag = extractvalue " + carrier + " " + held + ", 0\n  br i1 %" + label + ".tag, label %" + label + ".some, label %" + label + ".none\n" + label + ".none:\n")
+    if family == "result" and v4_ty_native_sum_case_type(v4_mir_ty_id(mir_id), sum_ty, "Err") == v4_ty_word {
+        v4_codegen_llvm_fragment_push(parts, "  %" + label + ".err = extractvalue " + carrier + " " + held + ", " + v4_codegen_llvm_sum_field(mir_id, sum_ty, "Err") + "\n  call void @freak_v4_word_drop(i64 %" + label + ".err)\n")
+    }
+    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, fallback, v4_codegen_llvm_temp_value(body_id, fallback), false)
+    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, fallback, payload_ty, "%" + label + ".fallback"))
+    v4_codegen_llvm_fragment_push(parts, "  br label %" + label + ".none.end\n" + label + ".none.end:\n  br label %" + label + ".join\n" + label + ".some:\n")
+    v4_codegen_llvm_fragment_push(parts, "  %" + label + ".payload = extractvalue " + carrier + " " + held + ", 1\n  br label %" + label + ".join\n" + label + ".join:\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + target + " = phi " + payload + " [ %" + label + ".payload, %" + label + ".some ], [ " + v4_codegen_llvm_expected_value(mir_id, body_id, fallback, payload_ty, "%" + label + ".fallback") + ", %" + label + ".none.end ]\n")
 }
 
 task v4_codegen_llvm_scalar_sum_bridge_kind(mir_id: int, body_id: int, value: int) -> word {
@@ -4519,6 +4668,13 @@ task v4_codegen_llvm_owned_temporary_drop(mir: int, body: int, value: int, site:
     if carrier == "ResultWordWord" {
         pilot temp = "%sum.discard." + site
         give back "  " + temp + " = extractvalue %freak_result_word_word " + v4_codegen_llvm_rvalue_value(mir, body, value) + ", 1\n  call void @freak_v4_word_drop(i64 " + temp + ")\n"
+    }
+    if carrier != "" {
+        pilot sum_ty = v4_mir_rvalue_ty(mir, body, value)
+        pilot field = v4_codegen_llvm_sum_word_field(mir, sum_ty)
+        if field == "" { give back "" }
+        pilot temp = "%sum.discard." + site
+        give back "  " + temp + " = extractvalue " + v4_codegen_llvm_type(sum_ty) + " " + v4_codegen_llvm_rvalue_value(mir, body, value) + ", " + field + "\n  call void @freak_v4_word_drop(i64 " + temp + ")\n"
     }
     give back "  call void @freak_v4_word_drop(i64 " + v4_codegen_llvm_rvalue_value(mir, body, value) + ")\n"
 }
@@ -4604,7 +4760,15 @@ task v4_codegen_llvm_word_rvalue_is_owned(mir_id: int, body_id: int, rvalue_id: 
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
     if v4_codegen_llvm_rvalue_is_global_read(mir_id, body_id, rvalue_id) { give back true }
-    give back kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err
+    give back kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err
+}
+
+-- A word a loan observes that no local owns: the full expression releases
+-- it after the observer. Sum extractions and `or else` yield fresh owners.
+task v4_codegen_llvm_lend_word_temporary_is_fresh(mir_id: int, body_id: int, child: int) -> bool {
+    pilot child_kind = v4_mir_rvalue_kind(mir_id, body_id, child)
+    if child_kind == v4_mir_rvalue_const_word or child_kind == v4_mir_rvalue_call or child_kind == v4_mir_rvalue_sum_take or child_kind == v4_mir_rvalue_try or child_kind == v4_mir_rvalue_or_else { give back true }
+    give back v4_codegen_llvm_rvalue_is_global_read(mir_id, body_id, child)
 }
 
 task v4_codegen_llvm_word_flag_slot(local_id: int) -> word {
@@ -4707,11 +4871,11 @@ task v4_codegen_llvm_word_intrinsic_instruction(mir_id: int, body_id: int, rvalu
 -- Keep Sum-only Word construction out of the ordinary recursive collector's
 -- frame: scalar expression depth must retain the existing stack contract.
 task v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
-    if (kind != v4_mir_rvalue_check and kind != v4_mir_rvalue_sum_take) or v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))) == "" { give back false }
+    if (kind != v4_mir_rvalue_check and kind != v4_mir_rvalue_sum_take and kind != v4_mir_rvalue_try) or v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))) == "" { give back false }
     pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
     v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, child, v4_codegen_llvm_temp_value(body_id, child), true)
     v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_scalar_sum_instruction(mir_id, body_id, rvalue_id, target) + "\n")
-    if kind == v4_mir_rvalue_sum_take {
+    if kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try {
         pilot local = v4_mir_rvalue_local_id(mir_id, body_id, child)
         v4_codegen_llvm_fragment_push(parts, "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n")
     }
@@ -4993,7 +5157,11 @@ task v4_codegen_llvm_collect_owned_special_lines(parts: int, mir_id: int, body_i
         if not v4_codegen_llvm_aggregate_literal_is_zero(mir_id, body_id, rvalue_id) { v4_codegen_llvm_collect_construct_lines(parts, mir_id, body_id, rvalue_id, target) }
         give back true
     }
-    if kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take { give back v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts, mir_id, body_id, rvalue_id, target, kind) }
+    if kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try { give back v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts, mir_id, body_id, rvalue_id, target, kind) }
+    if kind == v4_mir_rvalue_or_else and v4_codegen_llvm_or_else_is_supported(mir_id, body_id, rvalue_id) {
+        v4_codegen_llvm_collect_or_else_lines(parts, mir_id, body_id, rvalue_id, target)
+        give back true
+    }
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut { give back v4_codegen_llvm_collect_aggregate_lend_lines(parts, mir_id, body_id, rvalue_id, target) }
     give back false
 }
@@ -5078,8 +5246,7 @@ task v4_codegen_llvm_collect_owned_rvalue_lines(parts: int, mir_id: int, body_id
             pilot arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id)
             if v4_mir_rvalue_kind(mir_id, body_id, arg) == v4_mir_rvalue_lend {
                 pilot child = v4_mir_rvalue_lhs(mir_id, body_id, arg)
-                pilot child_kind = v4_mir_rvalue_kind(mir_id, body_id, child)
-                if v4_mir_rvalue_ty(mir_id, body_id, child) == v4_ty_word and (child_kind == v4_mir_rvalue_const_word or child_kind == v4_mir_rvalue_call or child_kind == v4_mir_rvalue_sum_take or v4_codegen_llvm_rvalue_is_global_read(mir_id, body_id, child)) {
+                if v4_mir_rvalue_ty(mir_id, body_id, child) == v4_ty_word and v4_codegen_llvm_lend_word_temporary_is_fresh(mir_id, body_id, child) {
                     v4_codegen_llvm_fragment_push(parts, "  call void @freak_v4_word_drop(i64 " + v4_codegen_llvm_rvalue_value(mir_id, body_id, child) + ")\n")
                 }
             }
@@ -5091,11 +5258,13 @@ task v4_codegen_llvm_collect_owned_rvalue_lines(parts: int, mir_id: int, body_id
 task v4_codegen_llvm_word_drop_local_lines(mir_id: int, body_id: int, local: int, site: word) -> word {
     if not v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local) { give back "" }
     pilot carrier = v4_mir_scalar_sum_kind(mir_id, v4_mir_local_ty(mir_id, body_id, local))
-    if carrier == "MaybeInt" { give back "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n" }
+    pilot field = "1"
+    if carrier != "" and carrier != "ResultWordWord" { field = v4_codegen_llvm_sum_word_field(mir_id, v4_mir_local_ty(mir_id, body_id, local)) }
+    if carrier == "MaybeInt" or field == "" { give back "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n" }
     pilot temp = "%word.drop." + site + "." + word_from_int(local)
     pilot out = "  " + temp + ".live = load i1, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n"
     pilot local_ty = v4_mir_local_ty(mir_id, body_id, local)
-    if v4_codegen_llvm_type_owns_words(mir_id, local_ty) and v4_ty_canonical_type(v4_mir_ty_id(mir_id), local_ty) != v4_ty_word {
+    if carrier == "" and v4_codegen_llvm_type_owns_words(mir_id, local_ty) and v4_ty_canonical_type(v4_mir_ty_id(mir_id), local_ty) != v4_ty_word {
         -- A live aggregate releases each word leaf; a moved one drops zeros.
         pilot llvm_ty = v4_codegen_llvm_type(local_ty)
         out = out + "  " + temp + ".carrier = load " + llvm_ty + ", ptr " + v4_codegen_llvm_local_slot(local) + "\n"
@@ -5103,9 +5272,11 @@ task v4_codegen_llvm_word_drop_local_lines(mir_id: int, body_id: int, local: int
         out = out + v4_codegen_llvm_aggregate_word_drop_lines(mir_id, local_ty, temp + ".owned", temp)
         give back out + "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n"
     }
-    if carrier == "ResultWordWord" {
-        out = out + "  " + temp + ".carrier = load %freak_result_word_word, ptr " + v4_codegen_llvm_local_slot(local) + "\n"
-        out = out + "  " + temp + ".value = extractvalue %freak_result_word_word " + temp + ".carrier, 1\n"
+    -- A carrier owns at most one word field (the closed result shares field 1).
+    if carrier != "" {
+        pilot carrier_ty = v4_codegen_llvm_type(local_ty)
+        out = out + "  " + temp + ".carrier = load " + carrier_ty + ", ptr " + v4_codegen_llvm_local_slot(local) + "\n"
+        out = out + "  " + temp + ".value = extractvalue " + carrier_ty + " " + temp + ".carrier, " + field + "\n"
     } else { out = out + "  " + temp + ".value = load i64, ptr " + v4_codegen_llvm_local_slot(local) + "\n" }
     out = out + "  " + temp + ".owned = select i1 " + temp + ".live, i64 " + temp + ".value, i64 0\n"
     out = out + "  call void @freak_v4_word_drop(i64 " + temp + ".owned)\n"
@@ -5335,18 +5506,26 @@ task v4_codegen_llvm_word_borrow_plan_error(borrow_id: int, mir_id: int) -> word
     give back error
 }
 
+-- A word, or a native carrier with a word payload field.
+task v4_codegen_llvm_type_holds_word(mir_id: int, type_text: word) -> bool {
+    if type_text == v4_ty_word { give back true }
+    pilot carrier = v4_mir_scalar_sum_kind(mir_id, type_text)
+    if carrier == "ResultWordWord" { give back true }
+    give back (carrier == "Maybe" or carrier == "Result") and v4_codegen_llvm_sum_word_field(mir_id, type_text) != ""
+}
+
 task v4_codegen_llvm_mir_has_owned_words(mir_id: int) -> bool {
     pilot body = 0
     repeat until body >= v4_mir_body_count(mir_id) {
-        if v4_mir_body_callable_return_type(mir_id, body) == v4_ty_word or v4_mir_scalar_sum_kind(mir_id, v4_mir_body_callable_return_type(mir_id, body)) == "ResultWordWord" { give back true }
+        if v4_codegen_llvm_type_holds_word(mir_id, v4_mir_body_callable_return_type(mir_id, body)) { give back true }
         pilot local = 0
         repeat until local >= v4_mir_body_local_count(mir_id, body) {
-            if v4_mir_local_ty(mir_id, body, local) == v4_ty_word or v4_mir_scalar_sum_kind(mir_id, v4_mir_local_ty(mir_id, body, local)) == "ResultWordWord" { give back true }
+            if v4_codegen_llvm_type_holds_word(mir_id, v4_mir_local_ty(mir_id, body, local)) { give back true }
             local += 1
         }
         pilot value = 0
         repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
-            if v4_mir_rvalue_ty(mir_id, body, value) == v4_ty_word or v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body, value)) == "ResultWordWord" or v4_mir_rvalue_is_builtin_word(mir_id, body, value) { give back true }
+            if v4_codegen_llvm_type_holds_word(mir_id, v4_mir_rvalue_ty(mir_id, body, value)) or v4_mir_rvalue_is_builtin_word(mir_id, body, value) { give back true }
             value += 1
         }
         body += 1
@@ -5673,7 +5852,7 @@ task v4_codegen_llvm_owned_word_error(mir_id: int) -> word {
                 pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
                 -- A UsePlace word is a borrowed read of an aggregate slot
                 -- (v4_codegen_llvm_aggregate_word_ownership_error).
-                if kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_call and kind != v4_mir_rvalue_sum_take and kind != v4_mir_rvalue_use_place and not v4_codegen_llvm_rvalue_is_global_read(mir_id, body, value) { give back "native owned word rvalue not yet supported: " + kind }
+                if kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_call and kind != v4_mir_rvalue_sum_take and kind != v4_mir_rvalue_try and kind != v4_mir_rvalue_or_else and kind != v4_mir_rvalue_use_place and not v4_codegen_llvm_rvalue_is_global_read(mir_id, body, value) { give back "native owned word rvalue not yet supported: " + kind }
             }
             value += 1
         }
