@@ -1,0 +1,91 @@
+-- Native closures: a closure value is { code ptr, env ptr }. The environment
+-- is a per-site entry-block struct in the creating frame; borrow and mut
+-- captures hold a pointer to the captured storage, copy and move captures
+-- hold the value. A call passes the environment first.
+shape Point { x: int, y: int }
+
+-- A closure in an ordinary task, called before the task returns.
+task scaled(n: int) -> int {
+    pilot k: int = 7
+    pilot times_k = |v: int| => v * k
+    give back times_k(n)
+}
+
+-- A borrowed word parameter captured by borrow.
+task show(lend title: word, n: int) -> int {
+    pilot tag = |k: int| {
+        say title
+        give back k + n
+    }
+    give back tag(1)
+}
+
+task main() -> int {
+    pilot base: int = 10
+    -- No captures; the return type is inferred from the arrow body.
+    pilot doubled = |x: int| => x * 2
+    say doubled(21)
+    -- Borrow (Callable), copy (Callable) and move (OneShot) captures.
+    pilot add_base = |x: int| => x + base
+    say add_base(5)
+    pilot mut v: int = 1
+    pilot snap = copy |_| => v
+    v = 5
+    say snap()
+    say v
+    pilot flag: bool = true
+    pilot pick = move |n: int| {
+        if flag { give back n }
+        give back 0 - n
+    }
+    say pick(9)
+    -- A mutable capture (MutCallable) writes through to the owner.
+    pilot mut count: int = 0
+    pilot bump = mut |step: int| { count += step }
+    bump(3)
+    bump(4)
+    say count
+    pilot mut c = Point { x: 1, y: 1 }
+    pilot set_y = mut |y: int| { c.y = y }
+    set_y(9)
+    say c.y
+    -- Several parameters, num and bool results.
+    pilot sum3 = |a: int, b: int| => a + b + base
+    say sum3(1, 2)
+    pilot scale: num = 1.5
+    pilot grow = |f: num| => f * scale
+    say grow(4.0)
+    pilot above = |n: int| => n > base
+    say above(11)
+    -- Shapes: a captured shape, a shape parameter and a shape result.
+    pilot p = Point { x: 3, y: 4 }
+    pilot area = |_| => p.x * p.y
+    say area()
+    pilot dot = |q: Point| => q.x * q.y + base
+    say dot(p)
+    pilot b = Point { x: 10, y: 20 }
+    pilot take = move |m: int| => b.x * m + b.y
+    say take(2)
+    pilot shift = |dx: int| => Point { x: dx + 1, y: dx + 2 }
+    pilot moved = shift(10)
+    say moved.x
+    say moved.y
+    -- A word captured by borrow stays owned by its binding.
+    pilot title: word = "Takemikazuchi"
+    pilot loud = |_| { say title + "!" }
+    loud()
+    loud()
+    say title.length()
+    say show(lend title, 2)
+    -- A closure created in a loop, a copied Callable, and another task.
+    pilot mut total: int = 0
+    repeat 3 times {
+        pilot inc = |n: int| => n + base
+        total = inc(total)
+    }
+    say total
+    pilot again = snap
+    say again()
+    say scaled(6)
+    give back 0
+}
