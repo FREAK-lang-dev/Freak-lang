@@ -17472,7 +17472,7 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
     return len(expected) + checked
 
 
-NATIVE_ABI_NOTE = re.compile(r"^; freak\.abi (@\S+) (%\S+) size=(\d+) align=(\d+) type=(.+)$")
+NATIVE_ABI_NOTE = re.compile(r"^; freak\.abi (@\S+) (%\S+) size=(\d+) align=(\d+) type=(.+?)(?: pass=(lend|lend_mut))?$")
 
 
 def check_native_abi_oracle(module: str, triple: str) -> int:
@@ -17481,6 +17481,9 @@ def check_native_abi_oracle(module: str, triple: str) -> int:
     Every aggregate parameter and sret result is a pointer whose header says
     align A dereferenceable(S); each one carries a `; freak.abi` note, and
     Clang must fold the same size and ABI alignment for its type on triple.
+    A by-value copy and an sret slot are `noalias`. A `lend` parameter
+    (note pass=lend) is the caller's place: `nonnull`, never `noalias`; a
+    `lend mut` parameter (pass=lend_mut) is `noalias nonnull`.
     """
     clang = shutil.which("clang")
     lines = module.splitlines()
@@ -17495,7 +17498,7 @@ def check_native_abi_oracle(module: str, triple: str) -> int:
             pending = []
             continue
         header = line
-        pointers = re.findall(r"ptr noalias (?:sret\((.+?)\) )?(align \d+(?: dereferenceable\(\d+\))?|\$freak\.abi\.attrs [^$]*\$) (%[\w.]+)", header)
+        pointers = re.findall(r"ptr (noalias )?(nonnull )?(?:sret\((.+?)\) )?(align \d+(?: dereferenceable\(\d+\))?|\$freak\.abi\.attrs [^$]*\$) (%[\w.]+)", header)
         symbol = re.match(r"define [^@]*(@(?:\"[^\"]+\"|[\w.]+))\(", header)
         if "$freak.abi.attrs" in header:
             raise RuntimeError(f"V4 ABI module for {triple} left an unresolved ABI marker: {header}")
@@ -17503,15 +17506,20 @@ def check_native_abi_oracle(module: str, triple: str) -> int:
             continue
         if symbol is None or len(pointers) != len(pending):
             raise RuntimeError(f"V4 ABI notes do not match the aggregate pointers on {triple}: {header}")
-        by_name = {name: (sret, attrs) for sret, attrs, name in pointers}
-        for sym, name, size, align, llvm_type in pending:
+        by_name = {name: (bool(noalias), bool(nonnull), sret, attrs) for noalias, nonnull, sret, attrs, name in pointers}
+        for sym, name, size, align, llvm_type, passing in pending:
             if sym != symbol.group(1) or name not in by_name:
                 raise RuntimeError(f"V4 ABI note {sym} {name} does not describe {symbol.group(1)} on {triple}")
-            sret, attrs = by_name[name]
+            noalias, nonnull, sret, attrs = by_name[name]
             wanted = f"align {align}" + (f" dereferenceable({size})" if int(size) else "")
-            if attrs != wanted or (name == "%ret") != bool(sret) or (sret and sret != llvm_type):
+            # Copies and sret slots are exclusive; a loan is nonnull, and only
+            # lend mut is exclusive (Meiya refuses overlapping mutable lends).
+            aliasing = {None: (True, False), "lend": (False, True), "lend_mut": (True, True)}[passing]
+            if (attrs != wanted or (name == "%ret") != bool(sret) or (sret and sret != llvm_type)
+                    or (noalias, nonnull) != aliasing or (passing and sret)):
                 raise RuntimeError(f"V4 ABI header disagrees with its note on {triple}: {sym} {name} "
-                                   f"note=({wanted}, {llvm_type}) header=({attrs}, sret={sret or 'none'})")
+                                   f"note=({wanted}, {llvm_type}, pass={passing or 'value'}) "
+                                   f"header=({attrs}, sret={sret or 'none'}, noalias={noalias}, nonnull={nonnull})")
             claims.append((sym, name, int(size), int(align), llvm_type))
         pending = []
     if not claims:

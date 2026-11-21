@@ -861,7 +861,7 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
         if carrier == "ResultWordWord" { give back "%freak_result_word_word" }
     }
     if v4_ty_is_lend_type(ty_name) and v4_ty_lend_target_type(ty_name) == v4_ty_word { give back "i64" }
-    if v4_codegen_llvm_active_owned_mir >= 0 and v4_codegen_llvm_is_aggregate_lend(v4_codegen_llvm_active_owned_mir, ty_name) { give back "ptr" }
+    if v4_codegen_llvm_active_owned_mir >= 0 and v4_codegen_llvm_is_place_lend(v4_codegen_llvm_active_owned_mir, ty_name) { give back "ptr" }
     pilot ffi_alias = v4_ty_normalize_ffi_alias_type(ty_name)
     if ffi_alias != "" {
         ty_name = ffi_alias
@@ -1418,7 +1418,7 @@ task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> 
     if kind == v4_mir_rvalue_const_char {
         give back v4_codegen_llvm_char_literal_codepoint(text)
     }
-    if v4_codegen_llvm_active_owned_mir == mir_id and kind == v4_mir_rvalue_lend and not v4_codegen_llvm_is_aggregate_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+    if v4_codegen_llvm_active_owned_mir == mir_id and kind == v4_mir_rvalue_lend and not v4_codegen_llvm_is_place_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
         give back v4_codegen_llvm_rvalue_value(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     }
     if (kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float) and v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) == "float" { give back v4_codegen_llvm_temp_value(body_id, rvalue_id) }
@@ -1478,7 +1478,7 @@ task v4_codegen_llvm_variadic_arg_promoted_type(mir_id: int, body_id: int, call_
     if sig_id < 0 {
         pilot callee_body = v4_codegen_llvm_find_mir_body(mir_id, v4_codegen_llvm_call_callee_name(mir_id, body_id, call_rvalue_id))
         if callee_body >= 0 {
-            if arg_id == 0 and v4_codegen_llvm_local_is_lent_receiver(mir_id, callee_body, 0) { give back v4_ty_lend_type(v4_mir_body_callable_param_type(mir_id, callee_body, 0), v4_mir_body_callable_param_mode(mir_id, callee_body, 0)) }
+            if v4_codegen_llvm_local_is_lent_param(mir_id, callee_body, arg_id) { give back v4_ty_lend_type(v4_mir_body_callable_param_type(mir_id, callee_body, arg_id), v4_mir_body_callable_param_mode(mir_id, callee_body, arg_id)) }
             give back v4_mir_body_callable_param_type(mir_id, callee_body, arg_id)
         }
         pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_id, call_rvalue_id)
@@ -1496,6 +1496,10 @@ task v4_codegen_llvm_variadic_arg_promoted_type(mir_id: int, body_id: int, call_
         give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
     }
 
+    -- A lend parameter of a FREAK task with a body takes the caller's place
+    -- pointer, so the argument is the loan itself, not a copy.
+    pilot lent_callee = v4_codegen_llvm_find_mir_body(mir_id, call_name)
+    if lent_callee >= 0 and v4_codegen_llvm_local_is_lent_param(mir_id, lent_callee, arg_id) { give back v4_ty_lend_type(v4_ty_signature_param_type(ty_id, sig_id, arg_id), v4_ty_signature_param_mode(ty_id, sig_id, arg_id)) }
     if v4_ty_signature_is_variadic(ty_id, sig_id) == false {
         give back v4_ty_signature_param_type(ty_id, sig_id, arg_id)
     }
@@ -1607,7 +1611,7 @@ task v4_codegen_llvm_body_uses_sret(mir_id: int, body_id: int) -> bool {
 
 task v4_codegen_llvm_param_is_aggregate(mir_id: int, body_id: int, param_id: int) -> bool {
     if v4_mir_body_callable_abi(mir_id, body_id) != "" or param_id >= v4_mir_body_callable_param_count(mir_id, body_id) { give back false }
-    if v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, param_id) { give back false }
+    if v4_codegen_llvm_local_is_lent_param(mir_id, body_id, param_id) { give back false }
     give back v4_codegen_llvm_is_abi_aggregate(mir_id, v4_mir_body_callable_param_type(mir_id, body_id, param_id))
 }
 
@@ -1997,7 +2001,6 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
     if kind == v4_mir_rvalue_use_local {
         pilot local_id = v4_codegen_llvm_rvalue_local(mir_id, body_id, rvalue_id)
         pilot local_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
-        if v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, local_id) { give back target + ".self = load ptr, ptr " + v4_codegen_llvm_local_slot(local_id) + "\n  " + target + " = load " + local_ty + ", ptr " + target + ".self" }
         give back target + " = load " + local_ty + ", ptr " + v4_codegen_llvm_local_slot(local_id)
     }
     if v4_codegen_llvm_rvalue_is_global_read(mir_id, body_id, rvalue_id) {
@@ -2276,7 +2279,13 @@ task v4_codegen_llvm_body_header(mir_id: int, body_id: int) -> word {
         if param_id > 0 { v4_codegen_llvm_fragment_push(parts, ", ") }
         pilot param_ty = v4_codegen_llvm_type(v4_mir_body_callable_param_type(mir_id, body_id, param_id))
         if v4_codegen_llvm_param_is_aggregate(mir_id, body_id, param_id) { param_ty = "ptr noalias " + v4_codegen_llvm_abi_attrs_marker(param_ty) }
-        if v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, param_id) { param_ty = "ptr" }
+        -- A lend parameter points at the caller's storage: never null, aligned
+        -- and dereferenceable for its type, and only `lend mut` is exclusive.
+        if v4_codegen_llvm_local_is_lent_param(mir_id, body_id, param_id) {
+            pilot exclusive = ""
+            if v4_mir_body_callable_param_mode(mir_id, body_id, param_id) == v4_ty_param_mode_lend_mut { exclusive = "noalias " }
+            param_ty = "ptr " + exclusive + "nonnull " + v4_codegen_llvm_abi_attrs_marker(param_ty)
+        }
         v4_codegen_llvm_fragment_push(parts, param_ty + " %arg." + word_from_int(param_id))
         param_id += 1
     }
@@ -2379,11 +2388,6 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
             value_lines = value_lines + "  store " + local_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n"
             give back value_lines + "  store i1 true, ptr " + v4_codegen_llvm_word_flag_slot(local_id) + "\n"
         }
-        if v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, local_id) {
-            -- Replacing a whole lend mut self writes the caller's storage.
-            pilot pointer = "%self." + word_from_int(body_id) + "." + word_from_int(stmt_id)
-            give back value_lines + "  " + pointer + " = load ptr, ptr " + v4_codegen_llvm_local_slot(local_id) + "\n  store " + local_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + ", ptr " + pointer + "\n"
-        }
         give back value_lines + "  store " + local_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n"
     }
     if kind == v4_mir_stmt_expr or kind == v4_mir_stmt_branch or kind == v4_mir_stmt_loop {
@@ -2480,10 +2484,10 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
     pilot local_id = 0
     repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
         pilot local_ty = v4_codegen_llvm_type(v4_mir_local_ty(mir_id, body_id, local_id))
-        -- A lend self / lend mut self slot holds the caller's storage pointer.
-        if v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, local_id) { local_ty = "ptr" }
-        pilot aggregate_param: bool = v4_codegen_llvm_param_is_aggregate(mir_id, body_id, local_id)
-        -- An aggregate parameter's storage is the caller's copy itself.
+        -- An aggregate parameter's storage is the caller's copy itself, and a
+        -- lend parameter's storage is the caller's own place, so reads and
+        -- writes of the local (through `lend mut`) reach that place directly.
+        pilot aggregate_param: bool = v4_codegen_llvm_param_is_aggregate(mir_id, body_id, local_id) or v4_codegen_llvm_local_is_lent_param(mir_id, body_id, local_id)
         if aggregate_param { v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = getelementptr inbounds i8, ptr %arg." + word_from_int(local_id) + ", i64 0\n") } else { v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = alloca " + local_ty + "\n") }
         if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local_id) {
             pilot initial_value = "0"
@@ -2600,9 +2604,10 @@ task v4_codegen_llvm_native_type_error_depth(type_text: word, allow_void: bool, 
         if v4_ty_is_raw_pointer_type(type_text) and v4_mir_scalar_sum_kind(v4_codegen_llvm_active_owned_mir, v4_ty_raw_pointer_target_type(type_text)) != "" { give back "native scalar sum raw storage contracts are not yet supported" }
     }
     if v4_codegen_llvm_active_owned_mir >= 0 and v4_ty_is_lend_type(type_text) and v4_ty_lend_mode(type_text) == v4_ty_param_mode_lend and v4_ty_lend_target_type(type_text) == v4_ty_word { give back "" }
-    -- An aggregate loan is a pointer to its storage; only receiver loans
-    -- reach a native call (callback and slot surfaces stay fenced by depth).
+    -- An aggregate or scalar loan is a pointer to its storage; callback and
+    -- slot surfaces stay fenced by depth.
     if v4_codegen_llvm_active_owned_mir >= 0 and depth == 0 and v4_codegen_llvm_is_aggregate_lend(v4_codegen_llvm_active_owned_mir, type_text) { give back v4_codegen_llvm_native_shape_error(v4_codegen_llvm_active_owned_mir, v4_ty_lend_target_type(type_text), 0) }
+    if v4_codegen_llvm_active_owned_mir >= 0 and depth == 0 and v4_codegen_llvm_is_place_lend(v4_codegen_llvm_active_owned_mir, type_text) { give back "" }
     if type_text == v4_ty_int or type_text == v4_ty_uint or type_text == v4_ty_tiny or type_text == v4_ty_num or type_text == v4_ty_float or type_text == v4_ty_float32 or type_text == v4_ty_bool or type_text == v4_ty_char or type_text == v4_ty_word { give back "" }
     if allow_void and (type_text == v4_ty_void or type_text == v4_ty_never) { give back "" }
     -- Opaque raw pointer values do not require an aggregate layout. Operations
@@ -3101,7 +3106,7 @@ task v4_codegen_llvm_route_field_slot(mir_id: int, sig: int, field_name: word) -
 task v4_codegen_llvm_route_field_place_error(mir_id: int, body_id: int, place_id: int) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot base = v4_mir_place_base(mir_id, body_id, place_id)
-    pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_mir_place_ty(mir_id, body_id, base))
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_codegen_llvm_place_referent_ty(mir_id, body_id, base))
     pilot slot = v4_codegen_llvm_route_place_slot(mir_id, body_id, place_id, sig)
     pilot text = v4_mir_place_text(mir_id, body_id, place_id)
     if slot == 0 - 2 { give back "native route payload fields shared by cases at different offsets are not yet supported: " + text }
@@ -3114,7 +3119,7 @@ task v4_codegen_llvm_route_field_place_error(mir_id: int, body_id: int, place_id
 -- Payload storage is member 1; the case struct is read in place there.
 task v4_codegen_llvm_route_field_address(parts: int, mir_id: int, body_id: int, place_id: int, base_pointer: word, temp: word) -> word {
     pilot base = v4_mir_place_base(mir_id, body_id, place_id)
-    pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_mir_place_ty(mir_id, body_id, base))
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_codegen_llvm_place_referent_ty(mir_id, body_id, base))
     pilot slot = v4_codegen_llvm_route_place_slot(mir_id, body_id, place_id, sig)
     v4_codegen_llvm_fragment_push(parts, "  " + temp + ".payload = getelementptr inbounds " + v4_codegen_llvm_route_type_name(mir_id, sig) + ", ptr " + base_pointer + ", i32 0, i32 1\n")
     v4_codegen_llvm_fragment_push(parts, "  " + temp + " = getelementptr inbounds " + v4_codegen_llvm_route_case_struct(mir_id, sig, slot / 65536) + ", ptr " + temp + ".payload, i32 0, i32 " + word_from_int(slot % 65536) + "\n")
@@ -3526,7 +3531,13 @@ task v4_codegen_llvm_abi_resolve(text: word, records: word, target_spec: word) -
                 v4_codegen_llvm_fragment_push(parts, attrs)
                 pilot name_stop = stop + 2
                 repeat until name_stop >= header_end or text.char_at(name_stop) == "," or text.char_at(name_stop) == ")" { name_stop += 1 }
-                notes = notes + "; freak.abi " + symbol + " " + v4_slice(text, stop + 2, name_stop) + " size=" + word_from_int(size) + " align=" + word_from_int(align) + " type=" + llvm_ty + "\n"
+                -- A lend parameter (`nonnull`, plus `noalias` for lend mut) says so.
+                pilot pass = ""
+                if start >= 8 and v4_slice(text, start - 8, start) == "nonnull " {
+                    pass = " pass=lend"
+                    if start >= 16 and v4_slice(text, start - 16, start - 8) == "noalias " { pass = " pass=lend_mut" }
+                }
+                notes = notes + "; freak.abi " + symbol + " " + v4_slice(text, stop + 2, name_stop) + " size=" + word_from_int(size) + " align=" + word_from_int(align) + " type=" + llvm_ty + pass + "\n"
             }
             emitted = stop + 1
             start = v4_index_of_from(text, "$", emitted)
@@ -3763,7 +3774,7 @@ task v4_codegen_llvm_native_conversion_error(actual: word, expected: word) -> wo
     pilot actual_kind = v4_codegen_llvm_numeric_kind(actual)
     pilot expected_kind = v4_codegen_llvm_numeric_kind(expected)
     if actual_kind != "" and expected_kind != "" { give back "" }
-    if v4_ty_is_lend_type(actual) and v4_ty_lend_target_type(actual) == expected and v4_codegen_llvm_active_owned_mir >= 0 and not v4_codegen_llvm_is_aggregate_lend(v4_codegen_llvm_active_owned_mir, actual) { give back "" }
+    if v4_ty_is_lend_type(actual) and v4_ty_lend_target_type(actual) == expected and v4_codegen_llvm_active_owned_mir >= 0 and not v4_codegen_llvm_is_place_lend(v4_codegen_llvm_active_owned_mir, actual) { give back "" }
     -- Aggregates are planned before the compatibility shortcut so the leaf
     -- budget also covers conversions whose LLVM carriers already match.
     if v4_codegen_llvm_active_owned_mir >= 0 {
@@ -3954,7 +3965,7 @@ task v4_codegen_llvm_native_symbol_value_error(mir_id: int, text: word, type_tex
 
 task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-    if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_aggregate_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back v4_codegen_llvm_native_aggregate_lend_error(mir_id, body_id, rvalue_id) }
+    if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_place_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back v4_codegen_llvm_native_aggregate_lend_error(mir_id, body_id, rvalue_id) }
     if kind != v4_mir_rvalue_const_int and kind != v4_mir_rvalue_const_float and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_const_bool and kind != v4_mir_rvalue_const_char and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_use_symbol and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_call and not (v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_lend or v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_use_place or v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id))) {
         give back "native rvalue not yet supported: " + kind
     }
@@ -4098,7 +4109,7 @@ task v4_codegen_llvm_place_slot(mir_id: int, body_id: int, place_id: int) -> int
     if v4_mir_place_kind(mir_id, body_id, place_id) != v4_mir_place_field { give back 0 - 1 }
     pilot base = v4_mir_place_base(mir_id, body_id, place_id)
     if base < 0 or base >= place_id { give back 0 - 1 }
-    pilot base_ty = v4_mir_place_ty(mir_id, body_id, base)
+    pilot base_ty = v4_codegen_llvm_place_referent_ty(mir_id, body_id, base)
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, base_ty)
     if kind == "shape" { give back v4_mir_place_shape_field_slot(mir_id, body_id, place_id) }
     if kind != "tuple" { give back 0 - 1 }
@@ -4136,7 +4147,7 @@ task v4_codegen_llvm_const_index(mir_id: int, body_id: int, rvalue_id: int) -> i
 -- An Index place needs a runtime bounds check unless its index is a
 -- literal already inside the fixed length.
 task v4_codegen_llvm_index_needs_check(mir_id: int, body_id: int, place_id: int) -> bool {
-    pilot length = v4_codegen_llvm_fixed_array_length(mir_id, v4_mir_place_ty(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id)))
+    pilot length = v4_codegen_llvm_fixed_array_length(mir_id, v4_codegen_llvm_place_referent_ty(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id)))
     pilot value = v4_codegen_llvm_const_index(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place_id))
     give back value < 0 or value >= length
 }
@@ -4173,18 +4184,18 @@ task v4_codegen_llvm_native_place_error(mir_id: int, body_id: int, place_id: int
         if base < 0 or base >= place_id { give back "invalid native place reference" }
         pilot base_error = v4_codegen_llvm_native_place_error(mir_id, body_id, base, depth + 1)
         if base_error != "" { give back base_error }
-        if kind == v4_mir_place_field and v4_codegen_llvm_route_signature(mir_id, v4_mir_place_ty(mir_id, body_id, base)) >= 0 { give back v4_codegen_llvm_route_field_place_error(mir_id, body_id, place_id) }
+        pilot base_ty = v4_codegen_llvm_place_referent_ty(mir_id, body_id, base)
+        if kind == v4_mir_place_field and v4_codegen_llvm_route_signature(mir_id, base_ty) >= 0 { give back v4_codegen_llvm_route_field_place_error(mir_id, body_id, place_id) }
         if kind == v4_mir_place_field {
             pilot slot = v4_codegen_llvm_place_slot(mir_id, body_id, place_id)
             if slot < 0 { give back "native field place needs a concrete shape or tuple base: " + v4_mir_place_text(mir_id, body_id, place_id) }
             -- Loads and stores use the place's recorded type, so it must be the
             -- declared slot type or the access width would not match the slot.
             pilot ty_id = v4_mir_ty_id(mir_id)
-            pilot declared = v4_codegen_llvm_aggregate_slot_type(mir_id, v4_mir_place_ty(mir_id, body_id, base), slot)
+            pilot declared = v4_codegen_llvm_aggregate_slot_type(mir_id, base_ty, slot)
             if v4_ty_canonical_type(ty_id, declared) != v4_ty_canonical_type(ty_id, v4_mir_place_ty(mir_id, body_id, place_id)) { give back "native field place type differs from the declared field type: " + v4_mir_place_text(mir_id, body_id, place_id) }
             give back ""
         }
-        pilot base_ty = v4_mir_place_ty(mir_id, body_id, base)
         if v4_codegen_llvm_aggregate_kind(mir_id, base_ty) != "array" { give back "native index places support only fixed arrays: " + v4_mir_place_text(mir_id, body_id, place_id) }
         pilot index = v4_mir_place_index(mir_id, body_id, place_id)
         if index < 0 or index >= v4_mir_body_rvalue_count(mir_id, body_id) { give back "invalid native place reference" }
@@ -4224,8 +4235,12 @@ task v4_codegen_llvm_native_mir_error(mir_id: int) -> word {
         repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
             error = v4_codegen_llvm_native_type_error(v4_mir_local_ty(mir_id, body_id, local_id), false)
             if error != "" { give back error }
-            if v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value and not v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, local_id) {
-                if v4_codegen_llvm_active_owned_mir != mir_id or local_id >= v4_mir_body_callable_param_count(mir_id, body_id) or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_lend or v4_mir_local_ty(mir_id, body_id, local_id) != v4_ty_word { give back "native lend parameters currently support only immutable word parameters" }
+            pilot local_mode = v4_mir_local_mode(mir_id, body_id, local_id)
+            if local_mode != v4_ty_param_mode_value and not v4_codegen_llvm_local_is_lent_param(mir_id, body_id, local_id) {
+                if local_id >= v4_mir_body_callable_param_count(mir_id, body_id) { give back "native lend locals are not yet supported" }
+                error = v4_codegen_llvm_lend_param_error(mir_id, local_mode, v4_mir_local_ty(mir_id, body_id, local_id), v4_mir_body_callable_abi(mir_id, body_id) != "")
+                if error == "" and v4_mir_local_ty(mir_id, body_id, local_id) != v4_ty_word { error = "native lend parameter mode does not match its callable contract" }
+                if error != "" { give back error }
             }
             local_id += 1
         }
@@ -4275,9 +4290,10 @@ task v4_codegen_llvm_native_mir_error(mir_id: int) -> word {
             repeat until param_id >= v4_ty_signature_fixed_param_count(ty_id, sig_id) {
                 error = v4_codegen_llvm_native_type_error(v4_ty_signature_param_type(ty_id, sig_id, param_id), false)
                 if error != "" { give back error }
-                if v4_ty_signature_param_mode(ty_id, sig_id, param_id) != v4_ty_param_mode_value {
-                    if v4_codegen_llvm_active_owned_mir != mir_id or v4_ty_signature_param_mode(ty_id, sig_id, param_id) != v4_ty_param_mode_lend or v4_ty_signature_param_type(ty_id, sig_id, param_id) != v4_ty_word { give back "native lend parameters currently support only immutable word parameters" }
-                }
+                -- Extern declarations and @extern_callback tasks are C boundaries.
+                pilot c_boundary: bool = v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig or v4_ty_signature_has_extern_callback(ty_id, sig_id)
+                error = v4_codegen_llvm_lend_param_error(mir_id, v4_ty_signature_param_mode(ty_id, sig_id, param_id), v4_ty_signature_param_type(ty_id, sig_id, param_id), c_boundary)
+                if error != "" { give back error }
                 param_id += 1
             }
         }
@@ -4723,7 +4739,7 @@ task v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts: int, mir_id: int, bod
 -- dereferenced root evaluates its pointer operand first.
 task v4_codegen_llvm_place_address(parts: int, mir_id: int, body_id: int, place_id: int, site: word) -> word {
     pilot kind = v4_mir_place_kind(mir_id, body_id, place_id)
-    if kind == v4_mir_place_local { give back v4_codegen_llvm_local_address(parts, mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id), "%place." + word_from_int(body_id) + "." + word_from_int(place_id) + "." + site) }
+    if kind == v4_mir_place_local { give back v4_codegen_llvm_local_slot(v4_mir_place_base(mir_id, body_id, place_id)) }
     if kind == v4_mir_place_global { give back v4_codegen_llvm_global_symbol(v4_mir_place_text(mir_id, body_id, place_id)) }
     if kind == v4_mir_place_deref {
         pilot pointer = v4_mir_place_index(mir_id, body_id, place_id)
@@ -4733,13 +4749,20 @@ task v4_codegen_llvm_place_address(parts: int, mir_id: int, body_id: int, place_
     pilot base = v4_mir_place_base(mir_id, body_id, place_id)
     pilot base_pointer = v4_codegen_llvm_place_address(parts, mir_id, body_id, base, site)
     pilot temp = "%place." + word_from_int(body_id) + "." + word_from_int(place_id) + "." + site
-    pilot base_llvm = v4_codegen_llvm_type(v4_mir_place_ty(mir_id, body_id, base))
+    -- A projection of a borrowed local (`lend T`) reads through the address
+    -- that local holds.
+    if v4_codegen_llvm_is_place_lend(mir_id, v4_mir_place_ty(mir_id, body_id, base)) {
+        v4_codegen_llvm_fragment_push(parts, "  " + temp + ".ref = load ptr, ptr " + base_pointer + "\n")
+        base_pointer = temp + ".ref"
+    }
+    pilot base_ty = v4_codegen_llvm_place_referent_ty(mir_id, body_id, base)
+    pilot base_llvm = v4_codegen_llvm_type(base_ty)
     if kind == v4_mir_place_index {
         pilot index = v4_mir_place_index(mir_id, body_id, place_id)
         v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, index, v4_codegen_llvm_temp_value(body_id, index), false)
         pilot index_value = v4_codegen_llvm_rvalue_value(mir_id, body_id, index)
         if v4_codegen_llvm_index_needs_check(mir_id, body_id, place_id) {
-            pilot length = word_from_int(v4_codegen_llvm_fixed_array_length(mir_id, v4_mir_place_ty(mir_id, body_id, base)))
+            pilot length = word_from_int(v4_codegen_llvm_fixed_array_length(mir_id, base_ty))
             pilot label = "bounds." + word_from_int(body_id) + "." + word_from_int(place_id) + "." + site
             v4_codegen_llvm_fragment_push(parts, "  %" + label + ".in = icmp ult i64 " + index_value + ", " + length + "\n")
             v4_codegen_llvm_fragment_push(parts, "  br i1 %" + label + ".in, label %" + label + ".ok, label %" + label + ".fail\n" + label + ".fail:\n")
@@ -4749,7 +4772,7 @@ task v4_codegen_llvm_place_address(parts: int, mir_id: int, body_id: int, place_
         v4_codegen_llvm_fragment_push(parts, "  " + temp + " = getelementptr inbounds " + base_llvm + ", ptr " + base_pointer + ", i64 0, i64 " + index_value + "\n")
         give back temp
     }
-    if v4_codegen_llvm_route_signature(mir_id, v4_mir_place_ty(mir_id, body_id, base)) >= 0 { give back v4_codegen_llvm_route_field_address(parts, mir_id, body_id, place_id, base_pointer, temp) }
+    if v4_codegen_llvm_route_signature(mir_id, base_ty) >= 0 { give back v4_codegen_llvm_route_field_address(parts, mir_id, body_id, place_id, base_pointer, temp) }
     v4_codegen_llvm_fragment_push(parts, "  " + temp + " = getelementptr inbounds " + base_llvm + ", ptr " + base_pointer + ", i32 0, i32 " + word_from_int(v4_codegen_llvm_place_slot(mir_id, body_id, place_id)) + "\n")
     give back temp
 }
@@ -4913,35 +4936,61 @@ task v4_codegen_llvm_is_aggregate_lend(mir_id: int, type_text: word) -> bool {
     give back v4_codegen_llvm_aggregate_kind(mir_id, v4_ty_lend_target_type(type_text)) != ""
 }
 
--- The `self` parameter of an impl method declared `lend self` or
--- `lend mut self` over a native aggregate: the callee receives a pointer and
--- its slot stores that pointer, so field writes through `lend mut self`
--- reach the caller's storage. Other lend parameters keep the word-only fence.
-task v4_codegen_llvm_local_is_lent_receiver(mir_id: int, body_id: int, local_id: int) -> bool {
-    if v4_codegen_llvm_active_owned_mir != mir_id or local_id != 0 { give back false }
-    if v4_mir_body_callable_param_count(mir_id, body_id) <= 0 or v4_mir_body_impl_method_index(mir_id, body_id, 0) < 0 { give back false }
-    if v4_mir_body_callable_param_name(mir_id, body_id, 0) != "self" or v4_mir_local_name(mir_id, body_id, 0) != "self" { give back false }
-    pilot mode = v4_mir_body_callable_param_mode(mir_id, body_id, 0)
+-- Storage a native loan points at: a shape, tuple, fixed array, concrete
+-- route, or a scalar (bool, char and the integer and float carriers).
+task v4_codegen_llvm_is_lendable_storage(mir_id: int, type_text: word) -> bool {
+    if v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 { give back true }
+    give back type_text == v4_ty_int or type_text == v4_ty_uint or type_text == v4_ty_tiny or type_text == v4_ty_num or type_text == v4_ty_float or type_text == v4_ty_float32 or type_text == v4_ty_bool or type_text == v4_ty_char
+}
+
+-- `lend T` / `lend mut T` over lendable storage is the address of that
+-- storage (`ptr`). Word loans are not place loans: they keep the i64 handle.
+task v4_codegen_llvm_is_place_lend(mir_id: int, type_text: word) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id or not v4_ty_is_lend_type(type_text) { give back false }
+    give back v4_codegen_llvm_is_lendable_storage(mir_id, v4_ty_lend_target_type(type_text))
+}
+
+-- The type a projection of this place addresses: a borrowed (`lend T`)
+-- place is read through, so its projections address T.
+task v4_codegen_llvm_place_referent_ty(mir_id: int, body_id: int, place_id: int) -> word {
+    pilot type_text = v4_mir_place_ty(mir_id, body_id, place_id)
+    if v4_codegen_llvm_is_place_lend(mir_id, type_text) { give back v4_ty_lend_target_type(type_text) }
+    give back type_text
+}
+
+-- A `lend` / `lend mut` parameter (`self` included) of a FREAK task over
+-- lendable storage. The caller passes the address of its own place and the
+-- parameter's local is that place, so writes through `lend mut` reach the
+-- caller. Word `lend` parameters keep their handle; `lend mut` words and C
+-- boundaries stay fenced (v4_codegen_llvm_lend_param_error).
+task v4_codegen_llvm_local_is_lent_param(mir_id: int, body_id: int, local_id: int) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id or local_id < 0 or local_id >= v4_mir_body_callable_param_count(mir_id, body_id) { give back false }
+    if v4_mir_body_callable_abi(mir_id, body_id) != "" { give back false }
+    pilot mode = v4_mir_body_callable_param_mode(mir_id, body_id, local_id)
     if mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut { give back false }
-    give back v4_mir_local_mode(mir_id, body_id, 0) == mode and v4_codegen_llvm_aggregate_kind(mir_id, v4_mir_local_ty(mir_id, body_id, 0)) != ""
+    give back v4_mir_local_mode(mir_id, body_id, local_id) == mode and v4_codegen_llvm_is_lendable_storage(mir_id, v4_mir_local_ty(mir_id, body_id, local_id))
 }
 
--- The storage address of a local: its slot, or the pointer a lent receiver
--- slot holds (loaded into temp).
-task v4_codegen_llvm_local_address(parts: int, mir_id: int, body_id: int, local_id: int, temp: word) -> word {
-    if not v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, local_id) { give back v4_codegen_llvm_local_slot(local_id) }
-    v4_codegen_llvm_fragment_push(parts, "  " + temp + " = load ptr, ptr " + v4_codegen_llvm_local_slot(local_id) + "\n")
-    give back temp
+-- Why a lend parameter mode cannot lower natively, or "" when it can.
+task v4_codegen_llvm_lend_param_error(mir_id: int, mode: word, type_text: word, c_boundary: bool) -> word {
+    if mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut { give back "" }
+    -- An immutable word loan is its handle, on either side of a boundary.
+    if v4_codegen_llvm_active_owned_mir == mir_id and type_text == v4_ty_word and mode == v4_ty_param_mode_lend { give back "" }
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back "native lend parameters currently support only immutable word parameters" }
+    if c_boundary { give back "native lend parameters across the C ABI are not yet supported: " + type_text }
+    if type_text == v4_ty_word { give back "native lend mut word parameters are not yet supported" }
+    if v4_codegen_llvm_is_lendable_storage(mir_id, type_text) { give back "" }
+    give back "native lend parameters are not yet supported for " + type_text
 }
 
--- `lend p` / `lend mut p` over an aggregate place: the address of that
+-- `lend p` / `lend mut p` over a lendable place: the address of that
 -- place. The loaned value is never read, so only index operands evaluate.
 task v4_codegen_llvm_collect_aggregate_lend_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word) -> bool {
-    if not v4_codegen_llvm_is_aggregate_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back false }
+    if not v4_codegen_llvm_is_place_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back false }
     pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
     pilot address = ""
     if v4_mir_rvalue_kind(mir_id, body_id, child) == v4_mir_rvalue_use_local {
-        address = v4_codegen_llvm_local_address(parts, mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, child), "%lend." + word_from_int(body_id) + "." + word_from_int(rvalue_id))
+        address = v4_codegen_llvm_local_slot(v4_mir_rvalue_local_id(mir_id, body_id, child))
     } else {
         address = v4_codegen_llvm_place_address(parts, mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, child), "l" + word_from_int(rvalue_id))
     }
@@ -5466,6 +5515,17 @@ task v4_codegen_llvm_word_body_trees_are_valid(mir_id: int, body_id: int) -> boo
     give back valid
 }
 
+-- `lend word` (any lifetime): a borrowed handle, never dropped by its holder.
+task v4_codegen_llvm_is_shared_word_lend(type_text: word) -> bool {
+    give back v4_ty_is_lend_type(type_text) and v4_ty_lend_mode(type_text) == v4_ty_param_mode_lend and v4_ty_lend_target_type(type_text) == v4_ty_word
+}
+
+-- Two word carriers with the same ownership: equal types, or two shared
+-- loans whose lifetimes differ only in name (a call site erases them).
+task v4_codegen_llvm_word_handles_match(left: word, right: word) -> bool {
+    give back left == right or (v4_codegen_llvm_is_shared_word_lend(left) and v4_codegen_llvm_is_shared_word_lend(right))
+}
+
 task v4_codegen_llvm_type_is_word_handle(type_text: word) -> bool {
     give back type_text == v4_ty_word or (v4_ty_is_lend_type(type_text) and v4_ty_lend_target_type(type_text) == v4_ty_word)
 }
@@ -5519,7 +5579,7 @@ task v4_codegen_llvm_word_boundary_types_error(mir_id: int, body_id: int) -> wor
                 }
             }
         }
-        if (v4_codegen_llvm_type_is_word_handle(actual) or v4_codegen_llvm_type_is_word_handle(expected)) and actual != expected { give back "native word ownership boundary has incompatible types" }
+        if (v4_codegen_llvm_type_is_word_handle(actual) or v4_codegen_llvm_type_is_word_handle(expected)) and not v4_codegen_llvm_word_handles_match(actual, expected) { give back "native word ownership boundary has incompatible types" }
         stmt += 1
     }
     pilot value = 0
@@ -5536,7 +5596,7 @@ task v4_codegen_llvm_word_boundary_types_error(mir_id: int, body_id: int) -> wor
             if call_name != v4_mir_call_raw_ptr_write {
                 pilot expected_return = v4_codegen_llvm_word_call_return_type(mir_id, body_id, value)
                 pilot actual_return = v4_mir_rvalue_ty(mir_id, body_id, value)
-                if (v4_codegen_llvm_type_is_word_handle(expected_return) or v4_codegen_llvm_type_is_word_handle(actual_return)) and expected_return != actual_return { give back "native word call return does not match its callable ownership contract" }
+                if (v4_codegen_llvm_type_is_word_handle(expected_return) or v4_codegen_llvm_type_is_word_handle(actual_return)) and not v4_codegen_llvm_word_handles_match(expected_return, actual_return) { give back "native word call return does not match its callable ownership contract" }
             }
             pilot arg = 0
             repeat until arg >= v4_mir_rvalue_call_arg_count(mir_id, body_id, value) {
@@ -5548,7 +5608,7 @@ task v4_codegen_llvm_word_boundary_types_error(mir_id: int, body_id: int) -> wor
                     if not v4_codegen_llvm_type_is_word_handle(actual) or not v4_codegen_llvm_type_is_word_handle(expected) { give back "native word call argument does not match its callable ownership contract" }
                     pilot mode = v4_codegen_llvm_word_call_param_mode(mir_id, body_id, value, arg)
                     if mode == v4_ty_param_mode_value and actual != v4_ty_word { give back "native owned word argument cannot be a borrowed handle" }
-                    if mode == v4_ty_param_mode_lend and (v4_mir_rvalue_kind(mir_id, body_id, child) != v4_mir_rvalue_lend or actual != "lend word") { give back "native borrowed word argument requires an immutable loan" }
+                    if mode == v4_ty_param_mode_lend and not v4_codegen_llvm_is_shared_word_lend(actual) { give back "native borrowed word argument requires an immutable loan" }
                 }
                 arg += 1
             }
@@ -5611,7 +5671,7 @@ task v4_codegen_llvm_aggregate_word_ownership_error(mir_id: int, body: int) -> w
         pilot place = v4_mir_stmt_place(mir_id, body, stmt)
         if (kind == v4_mir_stmt_assign or kind == v4_mir_stmt_local) and place >= 0 and v4_codegen_llvm_type_owns_words(mir_id, v4_mir_place_ty(mir_id, body, place)) {
             pilot place_kind = v4_mir_place_kind(mir_id, body, place)
-            pilot through_receiver: bool = place_kind == v4_mir_place_local and v4_codegen_llvm_local_is_lent_receiver(mir_id, body, v4_mir_place_base(mir_id, body, place))
+            pilot through_receiver: bool = place_kind == v4_mir_place_local and v4_codegen_llvm_local_is_lent_param(mir_id, body, v4_mir_place_base(mir_id, body, place))
             if place_kind == v4_mir_place_field or place_kind == v4_mir_place_index or through_receiver { give back "native stores into aggregate slots that own words are not yet supported: " + v4_mir_place_text(mir_id, body, place) }
         }
         stmt += 1
@@ -5627,12 +5687,18 @@ task v4_codegen_llvm_owned_word_error(mir_id: int) -> word {
         pilot aggregate_error = v4_codegen_llvm_aggregate_word_ownership_error(mir_id, body)
         if aggregate_error != "" { give back aggregate_error }
         if not v4_codegen_llvm_word_body_trees_are_valid(mir_id, body) { give back "native ownership rvalue must have one evaluation site" }
-        if v4_codegen_llvm_is_aggregate_lend(mir_id, v4_mir_body_callable_return_type(mir_id, body)) { give back "native borrowed aggregate returns are not yet supported" }
-        if v4_ty_is_lend_type(v4_mir_body_callable_return_type(mir_id, body)) { give back "native borrowed word returns are not yet supported" }
+        -- A borrowed return is the address of a place (or an immutable word's
+        -- handle) the callee received through a loan; it transfers nothing.
+        pilot return_ty = v4_mir_body_callable_return_type(mir_id, body)
+        if v4_ty_is_lend_type(return_ty) and not v4_codegen_llvm_is_place_lend(mir_id, return_ty) and not v4_codegen_llvm_is_shared_word_lend(return_ty) { give back "native borrowed word returns are not yet supported" }
         pilot local = 0
         repeat until local >= v4_mir_body_local_count(mir_id, body) {
-            if v4_codegen_llvm_is_aggregate_lend(mir_id, v4_mir_local_ty(mir_id, body, local)) { give back "native borrowed aggregate local storage is not yet supported" }
-            if v4_ty_is_lend_type(v4_mir_local_ty(mir_id, body, local)) { give back "native borrowed word local storage is not yet supported" }
+            -- A borrowed local holds the loan it was given and never drops it.
+            -- Lend-typed parameters (`p: lend T`) are not lend modes and stay fenced.
+            pilot local_ty = v4_mir_local_ty(mir_id, body, local)
+            pilot param: bool = local < v4_mir_body_callable_param_count(mir_id, body)
+            if v4_codegen_llvm_is_place_lend(mir_id, local_ty) and param { give back "native lend-typed parameters are not yet supported; declare the mode instead (lend p: T)" }
+            if v4_ty_is_lend_type(local_ty) and not v4_codegen_llvm_is_place_lend(mir_id, local_ty) and (param or not v4_codegen_llvm_is_shared_word_lend(local_ty)) { give back "native borrowed word local storage is not yet supported" }
             local += 1
         }
         pilot value = 0

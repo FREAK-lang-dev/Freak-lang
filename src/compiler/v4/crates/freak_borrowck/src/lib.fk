@@ -2038,9 +2038,64 @@ task v4_borrowck_call_return_lend_leaf_count(mir_id: int, body_id: int, rvalue_i
     if v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_static_never(mir_id, body_id, rvalue_id) { give back 0 }
     -- Word intrinsics return fresh owners or scalars; no result keeps a loan.
     if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) { give back 0 }
+    -- A result that is plain data (or an owned word) holds no loan, whatever
+    -- the callee borrowed: `p.peek()` returning int ends the receiver loan.
+    if v4_borrowck_type_holds_no_loan(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id), true) { give back 0 }
     pilot sig_id = v4_borrowck_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
     if sig_id < 0 { give back 0 - 1 }
     give back v4_ty_signature_return_lend_leaf_count(v4_mir_ty_id(mir_id), sig_id)
+}
+
+-- Plain data: scalars, and tuples, fixed arrays and concrete shapes and
+-- routes built only from scalars (and owned words when words_ok). A value of
+-- such a type cannot hold a loan or a capturing closure. Unknown, generic,
+-- lend, closure, function, pointer and collection types are never plain.
+task v4_borrowck_type_holds_no_loan(mir_id: int, type_text: word, words_ok: bool) -> bool {
+    give back v4_borrowck_type_holds_no_loan_depth(v4_mir_ty_id(mir_id), type_text, words_ok, 0)
+}
+
+task v4_borrowck_type_holds_no_loan_depth(ty_id: int, surface: word, words_ok: bool, depth: int) -> bool {
+    if depth > 16 or not v4_ty_is_known(surface) or v4_ty_is_lend_type(surface) { give back false }
+    pilot type_text = v4_ty_canonical_type(ty_id, surface)
+    if not v4_ty_is_known(type_text) or v4_ty_is_lend_type(type_text) { give back false }
+    if type_text == v4_ty_int or type_text == v4_ty_uint or type_text == v4_ty_tiny or type_text == v4_ty_num or type_text == v4_ty_float or type_text == v4_ty_float32 or type_text == v4_ty_bool or type_text == v4_ty_char or type_text == v4_ty_void { give back true }
+    if type_text == v4_ty_word { give back words_ok }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot = 0
+        repeat until slot >= v4_ty_tuple_slot_count(type_text) {
+            if not v4_borrowck_type_holds_no_loan_depth(ty_id, v4_ty_tuple_slot_type(type_text, slot), words_ok, depth + 1) { give back false }
+            slot += 1
+        }
+        give back true
+    }
+    if v4_ty_is_fixed_array_type(type_text) { give back v4_borrowck_type_holds_no_loan_depth(ty_id, v4_ty_fixed_array_element_type(type_text), words_ok, depth + 1) }
+    if v4_ty_is_generic_instance_type(type_text) { give back false }
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, type_text)
+    if shape_sig >= 0 {
+        if v4_ty_signature_generic_count(ty_id, shape_sig) > 0 { give back false }
+        pilot field = 0
+        repeat until field >= v4_ty_shape_field_count(ty_id, shape_sig) {
+            if not v4_borrowck_type_holds_no_loan_depth(ty_id, v4_ty_shape_field_surface_type(ty_id, shape_sig, field), words_ok, depth + 1) { give back false }
+            field += 1
+        }
+        give back true
+    }
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, type_text)
+    if route_sig >= 0 {
+        if v4_ty_signature_generic_count(ty_id, route_sig) > 0 { give back false }
+        pilot case_id = 0
+        repeat until case_id >= v4_ty_route_case_count(ty_id, route_sig) {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field = 0
+            repeat until field >= v4_ty_route_case_field_count(ty_id, type_text, case_name) {
+                if not v4_borrowck_type_holds_no_loan_depth(ty_id, v4_ty_route_case_field_surface_type(ty_id, type_text, case_name, field), words_ok, depth + 1) { give back false }
+                field += 1
+            }
+            case_id += 1
+        }
+        give back true
+    }
+    give back false
 }
 
 task v4_borrowck_call_return_lend_leaf_projection_at(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> word {
@@ -2606,6 +2661,10 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
     }
     if kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut {
         give back true
+    }
+    -- Plain data read or computed from a loan is a copy; it borrows nothing.
+    if v4_borrowck_type_holds_no_loan(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id), false) {
+        give back false
     }
     if kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move {
         if v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {

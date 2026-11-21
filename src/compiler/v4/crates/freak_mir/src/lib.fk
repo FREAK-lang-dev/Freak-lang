@@ -1380,6 +1380,8 @@ task v4_mir_place_shape_field_slot(mir_id: int, body_id: int, place_id: int) -> 
     pilot base = v4_mir_place_base(mir_id, body_id, place_id)
     if base < 0 or base >= place_id { give back 0 - 1 }
     pilot base_ty = v4_mir_place_ty(mir_id, body_id, base)
+    -- A field of a borrowed place (`lend T`) is the field of its referent.
+    if v4_ty_is_lend_type(base_ty) { base_ty = v4_ty_lend_target_type(base_ty) }
     if v4_mir_shape_signature(mir_id, base_ty) < 0 { give back 0 - 1 }
     pilot ty_id = v4_mir_ty_id(mir_id)
     give back v4_ty_shape_field_id_for_name(ty_id, v4_ty_canonical_type(ty_id, base_ty), v4_mir_place_field(mir_id, body_id, place_id))
