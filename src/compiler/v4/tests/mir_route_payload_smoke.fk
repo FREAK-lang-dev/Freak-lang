@@ -120,6 +120,11 @@ task v4_mir_route_payload_bad_pattern_duplicate_source() -> word {
     give back src
 }
 
+task v4_mir_route_payload_yes(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
 task v4_mir_route_payload_find_branch_stmt(mir_id: int, body_id: int, condition: word) -> int {
     pilot stmt_id = 0
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
@@ -164,12 +169,16 @@ pilot v4_mir_route_payload_event_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payloa
 
 pilot v4_mir_route_payload_score_def = v4_resolve_def_for_name(v4_mir_route_payload_resolve, "score")
 pilot v4_mir_route_payload_score_body = v4_mir_lookup_body(v4_mir_route_payload_mir, v4_mir_route_payload_score_def)
-pilot v4_mir_route_payload_arm0_stmt = v4_mir_route_payload_find_branch_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "event == Event::Key and event.code == 9")
+-- The arm's tag test and payload test are a chain of two branches: the
+-- payload is read only on the tag test's then edge.
+pilot v4_mir_route_payload_arm0_stmt = v4_mir_route_payload_find_branch_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "event == Event::Key")
+pilot v4_mir_route_payload_arm0_payload_stmt = v4_mir_route_payload_find_branch_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "event.code == 9")
 pilot v4_mir_route_payload_arm1_stmt = v4_mir_route_payload_find_branch_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "event == Key")
 pilot v4_mir_route_payload_arm0_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_stmt)
 pilot v4_mir_route_payload_arm1_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_stmt)
-pilot v4_mir_route_payload_arm0_lhs = v4_mir_rvalue_lhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rvalue)
-pilot v4_mir_route_payload_arm0_rhs = v4_mir_rvalue_rhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rvalue)
+pilot v4_mir_route_payload_arm0_lhs = v4_mir_route_payload_arm0_rvalue
+pilot v4_mir_route_payload_arm0_rhs = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_payload_stmt)
+pilot v4_mir_route_payload_arm0_then = "then#" + word_from_int(v4_mir_stmt_block(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_payload_stmt)) + " "
 pilot v4_mir_route_payload_code_stmt = v4_mir_route_payload_find_local_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "code")
 pilot v4_mir_route_payload_held_stmt = v4_mir_route_payload_find_local_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "held")
 pilot v4_mir_route_payload_code_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_stmt)
@@ -194,6 +203,9 @@ say "route-payload-arm0-lhs=" + v4_mir_stmt_lhs(v4_mir_route_payload_mir, v4_mir
 say "route-payload-arm0-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rvalue)
 say "route-payload-arm0-rvalue-op=" + v4_mir_rvalue_op(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rvalue)
 say "route-payload-arm0-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rvalue)
+say "route-payload-arm0-chained=" + v4_mir_route_payload_yes(v4_mir_stmt_rhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_stmt).starts_with(v4_mir_route_payload_arm0_then))
+say "route-payload-arm0-payload-kind=" + v4_mir_stmt_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_payload_stmt)
+say "route-payload-arm0-payload-target=" + v4_mir_route_payload_yes(v4_mir_stmt_rhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_payload_stmt).starts_with("arm#"))
 say "route-payload-arm1-kind=" + v4_mir_stmt_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_stmt)
 say "route-payload-arm1-lhs=" + v4_mir_stmt_lhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_stmt)
 say "route-payload-arm1-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rvalue)
