@@ -93,6 +93,30 @@ impl Grid {
     }
 }
 
+-- A lent route receiver reaches its payload through the case patterns.
+route Shape { Circle { r: int }, Rect { w: int, h: int }, Dot }
+impl Copy for Shape {
+}
+impl Shape {
+    task area(lend self) -> int {
+        when self {
+            Shape::Circle { r } -> give back 3 * r * r
+            Shape::Rect { w, h } -> give back w * h
+            Shape::Dot -> give back 0
+        }
+        give back 0 - 1
+    }
+    task grow(lend mut self, d: int) -> void {
+        when self {
+            Shape::Circle { r } -> { self = Shape::Circle { r: r + d } }
+            _ -> { }
+        }
+    }
+}
+impl Eq for Shape {
+    task equals(lend self, other: Shape) -> bool { give back self.area() == other.area() }
+}
+
 -- Built-in comparisons keep their meaning: this impl never runs for ints.
 impl Ord for int {
     task compare(self, other: int) -> Order { give back Order::Greater }
@@ -187,5 +211,11 @@ task main() -> int {
     cells[1] = 20
     say cells[1] < cells[2]
     say cells[0] < cells[2]
+    pilot circle = Shape::Circle { r: 2 }
+    pilot rect = Shape::Rect { w: 3, h: 4 }
+    say circle == rect
+    circle.grow(1)
+    say circle.area()
+    say circle == rect
     give back sum.x + g[1]
 }
