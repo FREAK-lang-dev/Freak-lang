@@ -2627,6 +2627,8 @@ task v4_codegen_llvm_native_type_error_depth(type_text: word, allow_void: bool, 
     if v4_codegen_llvm_active_owned_mir >= 0 {
         pilot shape_error = v4_codegen_llvm_native_shape_error(v4_codegen_llvm_active_owned_mir, type_text, depth)
         if shape_error != "-" { give back shape_error }
+        pilot sum_error = v4_codegen_llvm_unadmitted_sum_error(v4_codegen_llvm_active_owned_mir, type_text)
+        if sum_error != "" { give back sum_error }
     }
     give back "native type not yet supported: " + type_text
 }
@@ -3956,6 +3958,10 @@ task v4_codegen_llvm_native_symbol_value_error(mir_id: int, text: word, type_tex
 
 task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if v4_codegen_llvm_active_owned_mir == mir_id {
+        pilot sum_error = v4_codegen_llvm_unadmitted_sum_error(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+        if sum_error != "" { give back sum_error }
+    }
     if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_aggregate_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back v4_codegen_llvm_native_aggregate_lend_error(mir_id, body_id, rvalue_id) }
     if kind != v4_mir_rvalue_const_int and kind != v4_mir_rvalue_const_float and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_const_bool and kind != v4_mir_rvalue_const_char and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_use_symbol and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_call and not (v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_lend or v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_use_place or v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) or v4_codegen_llvm_or_else_is_supported(mir_id, body_id, rvalue_id))) {
         give back "native rvalue not yet supported: " + kind
@@ -4497,6 +4503,32 @@ task v4_codegen_llvm_sum_payload_fields(mir_id: int, type_text: word) -> word {
     pilot ok_field = v4_codegen_llvm_type(v4_ty_native_sum_case_type(ty_id, type_text, "Ok"))
     if v4_codegen_llvm_sum_field(mir_id, type_text, "Err") == "1" { give back ok_field }
     give back ok_field + "\t" + v4_codegen_llvm_type(v4_ty_native_sum_case_type(ty_id, type_text, "Err"))
+}
+
+-- A builtin maybe/result spelling whose payloads freak_ty does not admit as
+-- a native carrier: name the payload instead of the constructor. "" for any
+-- other type, including an admitted carrier.
+task v4_codegen_llvm_unadmitted_sum_error(mir_id: int, type_text: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
+    if canonical == "" or not v4_ty_is_generic_instance_type(canonical) or v4_mir_scalar_sum_kind(mir_id, canonical) != "" { give back "" }
+    pilot base = v4_ty_generic_base_name(canonical)
+    if (base != "maybe" and base != "result") or v4_ty_type_signature_id_for_name(ty_id, base) >= 0 { give back "" }
+    pilot arg = 0
+    repeat until arg >= v4_ty_generic_arg_count(canonical) {
+        pilot payload = v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, arg))
+        if not v4_ty_native_sum_payload_admitted(ty_id, payload) {
+            if v4_ty_is_generic_instance_type(payload) {
+                pilot payload_base = v4_ty_generic_base_name(payload)
+                if payload_base == "maybe" or payload_base == "result" { give back "native nested maybe/result payloads are not yet supported: " + canonical }
+            }
+            pilot shape_error = v4_codegen_llvm_native_shape_error(mir_id, payload, 0)
+            if shape_error != "-" and shape_error != "" { give back shape_error }
+            give back "native maybe/result payload is not yet supported: " + payload
+        }
+        arg += 1
+    }
+    give back ""
 }
 
 -- "" when every payload lowers natively; otherwise the payload's own error.
