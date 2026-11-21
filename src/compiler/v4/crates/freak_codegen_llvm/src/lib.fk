@@ -4906,11 +4906,15 @@ task v4_codegen_llvm_call_callee_name(mir_id: int, body_id: int, rvalue_id: int)
     give back name
 }
 
--- A loan of a native shape, tuple or fixed array is a pointer to the loaned
--- storage. Word loans keep their i64 handle.
+-- A loan of a native shape, tuple, fixed array or concrete route is a
+-- pointer to the loaned storage. Word loans keep their i64 handle.
 task v4_codegen_llvm_is_aggregate_lend(mir_id: int, type_text: word) -> bool {
     if not v4_ty_is_lend_type(type_text) { give back false }
-    give back v4_codegen_llvm_aggregate_kind(mir_id, v4_ty_lend_target_type(type_text)) != ""
+    give back v4_codegen_llvm_is_lendable_storage(mir_id, v4_ty_lend_target_type(type_text))
+}
+
+task v4_codegen_llvm_is_lendable_storage(mir_id: int, type_text: word) -> bool {
+    give back v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0
 }
 
 -- The `self` parameter of an impl method declared `lend self` or
@@ -4923,7 +4927,7 @@ task v4_codegen_llvm_local_is_lent_receiver(mir_id: int, body_id: int, local_id:
     if v4_mir_body_callable_param_name(mir_id, body_id, 0) != "self" or v4_mir_local_name(mir_id, body_id, 0) != "self" { give back false }
     pilot mode = v4_mir_body_callable_param_mode(mir_id, body_id, 0)
     if mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut { give back false }
-    give back v4_mir_local_mode(mir_id, body_id, 0) == mode and v4_codegen_llvm_aggregate_kind(mir_id, v4_mir_local_ty(mir_id, body_id, 0)) != ""
+    give back v4_mir_local_mode(mir_id, body_id, 0) == mode and v4_codegen_llvm_is_lendable_storage(mir_id, v4_mir_local_ty(mir_id, body_id, 0))
 }
 
 -- The storage address of a local: its slot, or the pointer a lent receiver

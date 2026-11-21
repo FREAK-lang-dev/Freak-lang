@@ -1,0 +1,185 @@
+-- Operator doctrines on user shapes and routes (tier 3).
+-- MIR resolves each operator to one call of the impl method, passing the
+-- left operand (or the indexed base) with the receiver mode the impl
+-- declares; codegen only sees calls, loans and route tag tests.
+route Order { Less, Equal, Greater }
+route Dir { North, East, South, West }
+
+doctrine Copy {
+}
+doctrine Add { task add(self, other: Self) -> Self }
+doctrine Sub { task sub(self, other: Self) -> Self }
+doctrine Mul { task mul(self, other: Self) -> Self }
+doctrine Div { task div(lend self, other: Self) -> Self }
+doctrine Neg { task neg(self) -> Self }
+doctrine Eq { task equals(lend self, other: Self) -> bool }
+doctrine Ord { task compare(lend self, other: Self) -> Order }
+doctrine Index { task index(lend self, i: uint) -> int }
+doctrine IndexMut { task index_mut(lend mut self, i: uint, value: int) -> void }
+
+shape V { x: int, y: int }
+shape Pair { a: V, b: V }
+shape Ver { major: int, minor: int }
+shape Grid { cells: [int; 4], writes: int }
+shape Board { id: int, grid: Grid }
+shape Probe { hits: int }
+
+impl Copy for V {
+}
+impl Copy for Ver {
+}
+impl Copy for Dir {
+}
+impl Copy for Probe {
+}
+
+impl Add for V { task add(self, other: V) -> V { give back V { x: self.x + other.x, y: self.y + other.y } } }
+impl Sub for V { task sub(self, other: V) -> V { give back V { x: self.x - other.x, y: self.y - other.y } } }
+impl Mul for V { task mul(self, other: V) -> V { give back V { x: self.x * other.x, y: self.y * other.y } } }
+impl Div for V { task div(lend self, other: V) -> V { give back V { x: self.x / other.x, y: self.y / other.y } } }
+impl Neg for V { task neg(self) -> V { give back V { x: 0 - self.x, y: 0 - self.y } } }
+impl Eq for V { task equals(lend self, other: V) -> bool { give back self.x == other.x and self.y == other.y } }
+
+impl Ord for Ver {
+    task compare(lend self, other: Ver) -> Order {
+        if self.major < other.major { give back Order::Less }
+        if self.major > other.major { give back Order::Greater }
+        if self.minor < other.minor { give back Order::Less }
+        if self.minor > other.minor { give back Order::Greater }
+        give back Order::Equal
+    }
+}
+
+impl Neg for Dir {
+    task neg(self) -> Dir {
+        when self {
+            Dir::North -> give back Dir::South
+            Dir::South -> give back Dir::North
+            Dir::East -> give back Dir::West
+            Dir::West -> give back Dir::East
+        }
+        give back self
+    }
+}
+impl Eq for Dir {
+    task equals(lend self, other: Dir) -> bool {
+        give back self.rank() == other.rank()
+    }
+}
+impl Dir {
+    task rank(lend self) -> int {
+        when self {
+            Dir::North -> give back 0
+            Dir::East -> give back 1
+            Dir::South -> give back 2
+            Dir::West -> give back 3
+        }
+        give back 9
+    }
+}
+
+impl Index for Grid { task index(lend self, i: uint) -> int { give back self.cells[i] } }
+impl IndexMut for Grid {
+    task index_mut(lend mut self, i: uint, value: int) -> void {
+        self.cells[i] = value
+        self.writes = self.writes + 1
+    }
+}
+impl Grid {
+    task bump(lend mut self, i: uint) -> int {
+        pilot old = self.cells[i]
+        self[i] = old + 10
+        give back self[i]
+    }
+}
+
+-- A lend mut self operator writes its left operand in place.
+impl Eq for Probe {
+    task equals(lend mut self, other: Probe) -> bool {
+        self.hits = self.hits + 1
+        give back self.hits == other.hits
+    }
+}
+
+task weigh(v: V) -> int { give back v.x * 10 + v.y }
+task combine(a: V, b: V) -> V { give back a + b - V { x: 1, y: 1 } }
+
+task main() -> int {
+    pilot a = V { x: 1, y: 2 }
+    pilot b = V { x: 3, y: 4 }
+    pilot c = a + b
+    say c.x
+    pilot d = (a + b) * b - a
+    say d.y
+    pilot n = -d
+    say n.x
+    pilot q = d / b
+    say q.y
+    say a == b
+    say a != b
+    say weigh(a + b)
+    pilot m = combine(a, b)
+    say m.y
+    pilot pair = Pair { a: a, b: b }
+    pilot ps = pair.a + pair.b
+    say ps.x
+    pilot want = V { x: 4, y: 6 }
+    pilot sum = a + b
+    if sum == want { say "sum matches" }
+    pilot acc = a
+    acc += b
+    acc = acc + b
+    say acc.x
+    pilot row: [V; 2] = [a, b]
+    pilot rs = row[0] + row[1]
+    say rs.y
+    pilot t = (a, b)
+    pilot ts = t.0 * t.1
+    say ts.y
+    pilot k = 0
+    while acc != a + a and k < 3 { k += 1 }
+    say k
+    pilot v1 = Ver { major: 1, minor: 2 }
+    pilot v2 = Ver { major: 1, minor: 5 }
+    pilot v3 = Ver { major: 2, minor: 0 }
+    say v1 < v2
+    say v1 > v2
+    say v1 <= v1
+    say v1 >= v2
+    say v3 > v2
+    pilot steps = 0
+    pilot cur = v1
+    while cur < v3 {
+        cur.minor = cur.minor + 4
+        if cur.minor > 9 { cur = Ver { major: cur.major + 1, minor: 0 } }
+        steps += 1
+    }
+    say steps
+    pilot east = Dir::East
+    pilot west = Dir::West
+    pilot flipped = -east
+    say flipped == west
+    say flipped == east
+    pilot g = Grid { cells: [1, 2, 3, 4], writes: 0 }
+    say g[2]
+    pilot i: uint = 3
+    g[i] = 40
+    pilot s = g[1] + g[i]
+    g[0] = s
+    say g[0]
+    say g.writes
+    pilot bd = Board { id: 7, grid: Grid { cells: [5, 6, 7, 8], writes: 0 } }
+    say bd.grid[1]
+    bd.grid[1] = 60
+    say bd.grid.bump(1)
+    say bd.grid.writes
+    pilot probe = Probe { hits: 0 }
+    pilot two = Probe { hits: 2 }
+    say probe == two
+    say probe == two
+    say probe.hits
+    pilot cells: [int; 3] = [1, 2, 3]
+    cells[1] = 20
+    say cells[1] < cells[2]
+    give back sum.x + g[1]
+}
