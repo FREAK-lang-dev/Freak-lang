@@ -2268,12 +2268,56 @@ task v4_ty_native_sum_payload_admitted(ty_id: int, type_text: word) -> bool {
     pilot canonical = v4_ty_canonical_type(ty_id, type_text)
     if canonical == v4_ty_int or canonical == v4_ty_uint or canonical == v4_ty_tiny or canonical == v4_ty_num or canonical == v4_ty_float or canonical == v4_ty_float32 or canonical == v4_ty_bool or canonical == v4_ty_char or canonical == v4_ty_word { give back true }
     if canonical == "" or canonical == v4_ty_unknown or v4_ty_is_generic_instance_type(canonical) { give back false }
-    if v4_ty_is_tuple_type(canonical) or v4_ty_is_fixed_array_type(canonical) { give back true }
+    -- An aggregate that holds a word by value has no native drop yet, so it
+    -- keeps the general (non-carrier) Sum facts instead of the sealed proof.
+    if v4_ty_is_tuple_type(canonical) or v4_ty_is_fixed_array_type(canonical) { give back not v4_ty_native_sum_payload_holds_word(ty_id, canonical, 0) }
     pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, canonical)
-    if shape_sig >= 0 { give back v4_ty_signature_generic_count(ty_id, shape_sig) == 0 }
+    if shape_sig >= 0 { give back v4_ty_signature_generic_count(ty_id, shape_sig) == 0 and not v4_ty_native_sum_payload_holds_word(ty_id, canonical, 0) }
     pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, canonical)
-    if route_sig >= 0 { give back v4_ty_signature_generic_count(ty_id, route_sig) == 0 }
+    if route_sig >= 0 { give back v4_ty_signature_generic_count(ty_id, route_sig) == 0 and not v4_ty_native_sum_payload_holds_word(ty_id, canonical, 0) }
     give back false
+}
+
+-- True when a word lives anywhere inside type_text by value (tuple slots,
+-- array elements, shape fields, route payload fields); unresolved is true.
+task v4_ty_native_sum_payload_holds_word(ty_id: int, type_text: word, depth: int) -> bool {
+    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
+    if depth > 32 or canonical == "" or canonical == v4_ty_unknown { give back true }
+    if canonical == v4_ty_word { give back true }
+    if v4_ty_is_raw_pointer_type(canonical) or v4_ty_is_copy_type(canonical) { give back false }
+    if v4_ty_is_tuple_type(canonical) {
+        pilot slot = 0
+        repeat until slot >= v4_ty_tuple_slot_count(canonical) {
+            if v4_ty_native_sum_payload_holds_word(ty_id, v4_ty_tuple_slot_type(canonical, slot), depth + 1) { give back true }
+            slot += 1
+        }
+        give back false
+    }
+    if v4_ty_is_fixed_array_type(canonical) { give back v4_ty_native_sum_payload_holds_word(ty_id, v4_ty_fixed_array_element_type(canonical), depth + 1) }
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, canonical)
+    if shape_sig >= 0 {
+        pilot field = 0
+        repeat until field >= v4_ty_shape_field_count(ty_id, shape_sig) {
+            if v4_ty_native_sum_payload_holds_word(ty_id, v4_ty_shape_field_type(ty_id, shape_sig, field), depth + 1) { give back true }
+            field += 1
+        }
+        give back false
+    }
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, canonical)
+    if route_sig >= 0 {
+        pilot case_id = 0
+        repeat until case_id >= v4_ty_route_case_count(ty_id, route_sig) {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field = 0
+            repeat until field >= v4_ty_route_case_field_count(ty_id, canonical, case_name) {
+                if v4_ty_native_sum_payload_holds_word(ty_id, v4_ty_route_case_field_surface_type(ty_id, canonical, case_name, field), depth + 1) { give back true }
+                field += 1
+            }
+            case_id += 1
+        }
+        give back false
+    }
+    give back true
 }
 
 -- "maybe" or "result" for an authenticated carrier kind, else "".
