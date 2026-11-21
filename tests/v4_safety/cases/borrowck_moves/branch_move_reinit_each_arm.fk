@@ -1,0 +1,17 @@
+-- Every route reinitializes before the read.
+-- expect: check
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot mut a = "hi"
+    if process::args_count() > 1 {
+        eat(a)
+        a = "one"
+    } else {
+        eat(a)
+        a = "two"
+    }
+    say a
+    give back 0
+}

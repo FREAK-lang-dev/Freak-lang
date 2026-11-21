@@ -1,0 +1,13 @@
+-- 256.0.to_tiny() traps.
+-- Checked arithmetic traps instead of wrapping. args_count() is 1 here, so
+-- the operands are runtime values the optimizer cannot fold away.
+-- expect: panic
+-- exit: nonzero
+-- panic: out of range
+
+task main() -> int {
+    pilot z: num = 256.0
+    pilot t: tiny = z.to_tiny()
+    pilot c: int = t
+    give back c
+}

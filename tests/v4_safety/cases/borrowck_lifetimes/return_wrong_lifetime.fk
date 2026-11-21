@@ -1,0 +1,9 @@
+-- y belongs to 'b, which is not known to outlive 'a.
+-- expect: reject borrowck
+-- error: Meiya refuses a returned loan from the wrong lifetime
+-- error: pick promises 'a but y belongs to 'b
+
+shape P { x: int }
+
+task pick<'a, 'b>(lend 'a x: P, lend 'b y: P) -> lend 'a P { give back lend y }
+task main() -> int { give back 0 }

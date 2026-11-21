@@ -1,0 +1,15 @@
+-- expect: reject borrowck
+-- error: Meiya carries that partial move across the CFG
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = "hi"
+    pilot n = process::args_count()
+    when n {
+        1 -> eat(a)
+        _ -> say "x"
+    }
+    say a
+    give back 0
+}

@@ -1,0 +1,12 @@
+-- expect: reject borrowck
+-- error: a.name was moved
+
+shape N { name: word, n: int }
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = N { name: "q", n: 1 }
+    eat(a.name)
+    eat(a.name)
+    give back 0
+}

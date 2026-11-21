@@ -1,0 +1,14 @@
+-- Rebinding a shape moves it (bible 4.1 example: pilot b = a; say a.name).
+-- bible: 4.1
+-- expect: reject borrowck
+-- error: a was moved at statement 1, so statement 2 cannot use a.x yet
+-- at: 12:5
+
+shape P { x: int }
+
+task main() -> int {
+    pilot a = P { x: 1 }
+    pilot b = a
+    say a.x
+    give back 0
+}

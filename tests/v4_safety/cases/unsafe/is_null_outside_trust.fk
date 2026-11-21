@@ -1,0 +1,15 @@
+-- Null checks do not dereference, so they need no trust me.
+-- expect: check
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    if p.is_null() { give back 1 }
+    free(p)
+    give back 0
+}

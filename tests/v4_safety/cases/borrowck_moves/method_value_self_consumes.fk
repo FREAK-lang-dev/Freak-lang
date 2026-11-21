@@ -1,0 +1,14 @@
+-- A by-value self receiver consumes the value.
+-- expect: reject borrowck
+-- error: n was moved at statement 1, so statement 2 cannot use n yet
+
+shape Named { name: word }
+impl Named {
+    task take(self) -> int { give back 0 }
+}
+task main() -> int {
+    pilot n = Named { name: "a" }
+    pilot a = n.take()
+    pilot b = n.take()
+    give back 0
+}

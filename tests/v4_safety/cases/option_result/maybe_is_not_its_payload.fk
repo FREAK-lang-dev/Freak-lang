@@ -1,0 +1,9 @@
+-- maybe<int> never silently unwraps.
+-- expect: reject mir
+-- error: v expects int but got maybe<int>
+
+task main() -> int {
+    pilot m: maybe<int> = some(3)
+    pilot v: int = m
+    give back v
+}

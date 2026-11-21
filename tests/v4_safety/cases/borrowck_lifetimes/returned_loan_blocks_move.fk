@@ -1,0 +1,14 @@
+-- expect: reject borrowck
+-- error: Meiya refuses this move while the value is borrowed
+
+task eat(w: word) -> int { give back 0 }
+
+task pass(lend p: word) -> lend word { give back lend p }
+task look(lend p: word) -> int { give back 0 }
+task main() -> int {
+    pilot a = "x"
+    pilot r = pass(lend a)
+    eat(a)
+    pilot n = look(r)
+    give back 0
+}

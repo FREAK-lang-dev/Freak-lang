@@ -1,0 +1,7 @@
+-- expect: reject ty
+-- error: Yuuko found a repeated closure parameter
+
+task main() -> int {
+    pilot f = |x: int, x: int| => x
+    give back 0
+}

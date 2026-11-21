@@ -1,0 +1,12 @@
+-- expect: reject borrowck
+-- error: Meiya refuses to move out through a lend holder
+
+shape Named { name: word }
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = Named { name: "q" }
+    pilot r = lend a
+    eat(r.name)
+    give back 0
+}

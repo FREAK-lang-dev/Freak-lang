@@ -1,0 +1,10 @@
+-- expect: reject mir
+-- error: mutable borrowed call argument needs lend mut
+
+shape P { x: int }
+
+task poke(lend mut p: P) -> int { give back p.x }
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    give back poke(lend a)
+}

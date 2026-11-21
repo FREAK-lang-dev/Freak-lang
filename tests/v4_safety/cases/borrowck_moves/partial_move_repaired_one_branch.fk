@@ -1,0 +1,16 @@
+-- A repair on only one route does not count.
+-- expect: reject borrowck
+-- error: Meiya carries that partial move across the CFG
+-- error: a.name was moved
+
+shape N { name: word, n: int }
+task eat(w: word) -> int { give back 0 }
+
+task take(x: N) -> int { give back 0 }
+task main() -> int {
+    pilot mut a = N { name: "q", n: 1 }
+    eat(a.name)
+    if process::args_count() > 1 { a.name = "r" }
+    take(a)
+    give back 0
+}

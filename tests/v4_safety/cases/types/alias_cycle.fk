@@ -1,0 +1,6 @@
+-- expect: reject ty
+-- error: Yuuko alias loop
+
+alias A = B
+alias B = A
+task main() -> int { give back 0 }

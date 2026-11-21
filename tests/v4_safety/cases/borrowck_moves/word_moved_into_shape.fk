@@ -1,0 +1,12 @@
+-- Building a shape from a word moves the word into the field.
+-- expect: reject borrowck
+-- error: w was moved
+
+shape N { name: word, n: int }
+
+task main() -> int {
+    pilot w = "a"
+    pilot n = N { name: w, n: 1 }
+    say w
+    give back 0
+}

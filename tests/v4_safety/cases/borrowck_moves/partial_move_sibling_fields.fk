@@ -1,0 +1,12 @@
+-- Disjoint fields move independently.
+-- expect: check
+
+shape Pair { name: word, tag: word }
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = Pair { name: "q", tag: "t" }
+    eat(a.name)
+    eat(a.tag)
+    give back 0
+}

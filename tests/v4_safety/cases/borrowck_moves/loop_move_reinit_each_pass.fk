@@ -1,0 +1,14 @@
+-- Each pass moves and then reinitializes, so the backedge is clean.
+-- expect: check
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot mut a = "hi"
+    repeat 3 times {
+        eat(a)
+        a = "again"
+    }
+    say a
+    give back 0
+}

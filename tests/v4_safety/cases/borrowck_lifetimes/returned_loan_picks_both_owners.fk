@@ -1,0 +1,15 @@
+-- With two shared sources, the result keeps both owners on loan.
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+
+shape P { x: int }
+
+task pick<'a>(lend 'a x: P, lend 'a y: P) -> lend 'a P { give back lend x }
+task main() -> int {
+    pilot mut a = P { x: 1 }
+    pilot mut b = P { x: 2 }
+    pilot r = pick(lend a, lend b)
+    b.x = 7
+    pilot k = r.x
+    give back k
+}

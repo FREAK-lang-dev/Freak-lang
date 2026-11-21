@@ -1,0 +1,9 @@
+-- expect: check
+
+task main() -> int {
+    pilot k = 100
+    pilot f = |x: int| => x > k
+    pilot o = f(102)
+    k = 101
+    give back k
+}

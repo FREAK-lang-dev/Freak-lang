@@ -1,0 +1,10 @@
+-- Moving a word that was never assigned.
+-- known: #245 reading an uninitialized local passes every frontend stage
+-- expect: reject frontend
+-- error: w
+
+task eat(w: word) -> int { give back 0 }
+task main() -> int {
+    pilot w: word
+    give back eat(w)
+}

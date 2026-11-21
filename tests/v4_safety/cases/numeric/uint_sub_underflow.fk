@@ -1,0 +1,14 @@
+-- 0u - 1u.
+-- Checked arithmetic traps instead of wrapping. args_count() is 1 here, so
+-- the operands are runtime values the optimizer cannot fold away.
+-- expect: panic
+-- exit: nonzero
+-- panic: uint subtraction underflow
+
+task main() -> int {
+    pilot a: uint = 0u
+    pilot n: uint = process::args_count()
+    pilot b = a - n
+    pilot c: int = b
+    give back c
+}

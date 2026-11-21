@@ -1,0 +1,15 @@
+-- when over a route must be exhaustive unless it has _.
+-- bible: 1.14
+-- expect: reject mir
+-- error: non-exhaustive route when
+-- error: missing C::Blue
+
+route C { Red, Green, Blue }
+task f(c: C) -> int {
+    when c {
+        C::Red -> give back 1
+        C::Green -> give back 2
+    }
+    give back 0
+}
+task main() -> int { give back f(C::Red) }

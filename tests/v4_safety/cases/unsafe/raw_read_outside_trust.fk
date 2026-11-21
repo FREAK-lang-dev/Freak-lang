@@ -1,0 +1,16 @@
+-- Raw pointer reads need a trust me block.
+-- bible: 16.4
+-- expect: reject mir
+-- error: raw-pointer deref needs trust me block
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    pilot v: int = p.read()
+    give back v
+}

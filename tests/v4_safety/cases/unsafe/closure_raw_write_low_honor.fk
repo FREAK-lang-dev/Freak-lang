@@ -1,0 +1,19 @@
+-- A closure written inside a .cadet block still may not write.
+-- known: #246 raw-pointer operations in closure bodies skip the trust me gate
+-- expect: reject mir
+-- error: raw-pointer write requires .pilot or higher
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    trust me "x" on my honor as .cadet {
+        pilot f = |_| { p.write(1t) }
+        f()
+    }
+    give back 0
+}

@@ -1,0 +1,14 @@
+-- Call-only lends expire at the call boundary.
+-- expect: check
+
+shape P { x: int }
+
+task poke(lend mut p: P) -> int {
+    p.x += 1
+    give back p.x
+}
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    pilot k = poke(lend mut a) + poke(lend mut a)
+    give back a.x + k
+}

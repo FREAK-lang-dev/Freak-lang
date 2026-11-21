@@ -1,0 +1,14 @@
+-- The caller's owner stays on loan while the returned lend is used.
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+
+shape P { x: int }
+
+task pass(lend p: P) -> lend P { give back lend p }
+task main() -> int {
+    pilot mut a = P { x: 1 }
+    pilot r = pass(lend a)
+    a.x = 5
+    pilot k = r.x
+    give back k
+}

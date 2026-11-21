@@ -1,0 +1,8 @@
+-- expect: reject mir
+-- error: Meiya cannot store a lend inside a maybe some() yet
+
+task main() -> int {
+    pilot a = "x"
+    pilot m = some(lend a)
+    give back 0
+}

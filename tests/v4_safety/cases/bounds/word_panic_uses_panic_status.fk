@@ -1,0 +1,11 @@
+-- A word bounds failure is a panic (bible 17.1); under the unwind policy it
+-- should leave with the panic status, not abort().
+-- known: #250 word panics abort instead of using the panic status
+-- expect: panic
+-- panic: character index out of bounds
+
+task main() -> int {
+    pilot w = "abc"
+    say w.char_at(5)
+    give back 0
+}

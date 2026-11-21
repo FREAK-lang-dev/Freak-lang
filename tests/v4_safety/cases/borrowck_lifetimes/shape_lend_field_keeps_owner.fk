@@ -1,0 +1,15 @@
+-- shape H<'a> { r: lend 'a P } stores a loan.
+-- bible: 4.3
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+
+shape P { x: int }
+
+shape H<'a> { r: lend 'a P }
+task main() -> int {
+    pilot mut a = P { x: 1 }
+    pilot h = H<'_> { r: lend a }
+    a.x = 2
+    pilot k = h.r.x
+    give back 0
+}

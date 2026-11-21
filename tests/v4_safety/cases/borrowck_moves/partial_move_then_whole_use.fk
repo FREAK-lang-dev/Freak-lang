@@ -1,0 +1,14 @@
+-- Moving one field leaves the whole value unavailable.
+-- expect: reject borrowck
+-- error: a.name was moved at statement 1, so statement 2 cannot use a yet
+
+shape N { name: word, n: int }
+task eat(w: word) -> int { give back 0 }
+
+task take(x: N) -> int { give back 0 }
+task main() -> int {
+    pilot a = N { name: "q", n: 1 }
+    eat(a.name)
+    take(a)
+    give back 0
+}

@@ -1,0 +1,8 @@
+-- A borrowed parameter stays owned by the caller.
+-- expect: reject borrowck
+-- error: Meiya refuses to move out of a borrowed parameter
+
+task eat(w: word) -> int { give back 0 }
+
+task peek(lend w: word) -> int { give back eat(w) }
+task main() -> int { give back 0 }

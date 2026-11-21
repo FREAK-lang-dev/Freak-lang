@@ -1,0 +1,10 @@
+-- Only places can be lent.
+-- expect: reject mir
+-- error: lend source must be a place
+
+shape P { x: int }
+
+task peek(lend p: P) -> int { give back p.x }
+task main() -> int {
+    give back peek(lend P { x: 1 })
+}

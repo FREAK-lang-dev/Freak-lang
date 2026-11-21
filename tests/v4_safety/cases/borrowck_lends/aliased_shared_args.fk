@@ -1,0 +1,10 @@
+-- Two shared lends of one owner in a single call are fine.
+-- expect: check
+
+shape P { x: int }
+
+task both(lend a: P, lend b: P) -> int { give back a.x + b.x }
+task main() -> int {
+    pilot a = P { x: 4 }
+    give back both(lend a, lend a)
+}

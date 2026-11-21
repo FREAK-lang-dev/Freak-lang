@@ -1,0 +1,9 @@
+-- Returning the result of borrow_mut is legal: no guard escapes on err.
+-- bible: 4.4
+-- expect: check
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task f(root: Shared<Ship>) -> result<SharedMut<Ship>, BorrowError> { give back root.borrow_mut() }
+task main() -> int { give back 0 }

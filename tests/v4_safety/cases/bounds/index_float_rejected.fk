@@ -1,0 +1,10 @@
+-- A fractional index never truncates silently; MIR only asks for "numeric".
+-- known: #249 the frontend accepts what only the native backend rejects
+-- expect: reject frontend
+-- error: index
+
+task main() -> int {
+    pilot xs: [int; 2] = [1, 2]
+    pilot f: num = 1.5
+    give back xs[f]
+}

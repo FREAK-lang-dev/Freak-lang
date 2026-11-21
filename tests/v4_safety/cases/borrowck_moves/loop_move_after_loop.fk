@@ -1,0 +1,12 @@
+-- A move after the loop is a single move.
+-- expect: check
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = "hi"
+    pilot mut i = 0
+    while i < 3 { i += 1 }
+    eat(a)
+    give back i
+}

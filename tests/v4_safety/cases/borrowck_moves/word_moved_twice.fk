@@ -1,0 +1,13 @@
+-- A second move of the same word is a use after move.
+-- expect: reject borrowck
+-- error: a was moved at statement 1, so statement 2 cannot use a yet
+-- at: 11:5
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = "hi"
+    eat(a)
+    eat(a)
+    give back 0
+}

@@ -1,0 +1,6 @@
+-- A raw pointer breaks the cycle.
+-- expect: check
+
+@layout(C)
+shape Node { next: *mut Node }
+task main() -> int { give back 0 }

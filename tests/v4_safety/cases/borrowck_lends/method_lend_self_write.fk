@@ -1,0 +1,12 @@
+-- expect: reject borrowck
+-- error: Meiya refuses to mutate an immutable lend parameter
+
+shape P { x: int }
+
+impl P {
+    task bump(lend self) -> int {
+        self.x += 1
+        give back self.x
+    }
+}
+task main() -> int { give back 0 }

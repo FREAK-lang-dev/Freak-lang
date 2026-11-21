@@ -1,0 +1,13 @@
+-- A move inside a loop should point at the move (line 11), not only at the
+-- declaration.
+-- known: #251 Meiya diagnostic wording, duplicates, spans and hints
+-- expect: reject borrowck
+-- error: a
+-- at: 11:22
+
+task eat(w: word) -> int { give back 0 }
+task main() -> int {
+    pilot a = "hi"
+    repeat 3 times { eat(a) }
+    give back 0
+}

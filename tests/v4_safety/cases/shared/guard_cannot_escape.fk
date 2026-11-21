@@ -1,0 +1,10 @@
+-- A live SharedMut guard may not escape its scope.
+-- bible: 4.4
+-- expect: reject borrowck
+-- error: Meiya refuses to let a SharedMut guard escape
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task leak(guard: SharedMut<Ship>) -> SharedMut<Ship> { give back guard }
+task main() -> int { give back 0 }

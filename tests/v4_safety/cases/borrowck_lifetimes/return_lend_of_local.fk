@@ -1,0 +1,11 @@
+-- A loan of a local cannot outlive the local's drop.
+-- expect: reject borrowck
+-- error: Meiya refuses to return a loan of an owned value
+
+shape P { x: int }
+
+task bad() -> lend P {
+    pilot a = P { x: 1 }
+    give back lend a
+}
+task main() -> int { give back 0 }

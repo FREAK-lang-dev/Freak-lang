@@ -1,0 +1,9 @@
+-- The bible's longer<'a> example, both sources share 'a.
+-- bible: 4.3
+-- expect: check
+
+task longer<'a>(lend 'a x: word, lend 'a y: word) -> lend 'a word {
+    if x.length() >= y.length() { give back lend x }
+    give back lend y
+}
+task main() -> int { give back 0 }

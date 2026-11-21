@@ -1,0 +1,11 @@
+-- expect: reject mir
+-- error: check needs maybe source
+
+task main() -> int {
+    pilot n = 3
+    check n {
+        got v -> say v
+        nobody -> say "none"
+    }
+    give back 0
+}

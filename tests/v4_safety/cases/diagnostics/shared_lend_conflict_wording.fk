@@ -1,0 +1,15 @@
+-- The conflicting lend here is a shared one; the message should not call it
+-- an exclusive lend.
+-- known: #251 Meiya diagnostic wording, duplicates, spans and hints
+-- expect: reject borrowck
+-- error: cannot grant an overlapping lend
+
+shape P { x: int }
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    pilot r1 = lend mut a
+    pilot r2 = lend a
+    r1.x = 2
+    pilot k = r2.x
+    give back 0
+}

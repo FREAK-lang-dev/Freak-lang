@@ -1,0 +1,8 @@
+-- expect: reject mir
+-- error: type mismatch
+
+task f() -> result<int, word> { give back ok(1) }
+task main() -> int {
+    pilot v: int = f()
+    give back v
+}

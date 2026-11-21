@@ -1,0 +1,10 @@
+-- Word reads are bounds-checked (character indexes).
+-- expect: panic
+-- exit: nonzero
+-- panic: character index out of bounds
+
+task main() -> int {
+    pilot w = "abc"
+    say w.char_at(5)
+    give back 0
+}

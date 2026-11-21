@@ -1,0 +1,18 @@
+-- Writes require .pilot or higher.
+-- bible: 4
+-- expect: reject mir
+-- error: raw-pointer write requires .pilot or higher; current honor is .cadet
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    trust me "store" on my honor as .cadet {
+        p.write(2t)
+    }
+    give back 0
+}

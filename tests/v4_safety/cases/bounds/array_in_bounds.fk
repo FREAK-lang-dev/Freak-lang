@@ -1,0 +1,10 @@
+-- expect: run
+-- stdout: 13
+
+task main() -> int {
+    pilot mut xs: [int; 3] = [1, 2, 3]
+    pilot i = process::args_count() + 1
+    xs[i] = 10
+    say xs[0] + xs[1] + xs[2]
+    give back 0
+}

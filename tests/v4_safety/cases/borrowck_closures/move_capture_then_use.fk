@@ -1,0 +1,10 @@
+-- A move closure takes ownership of its captures.
+-- expect: reject borrowck
+-- error: t was moved at statement 1, so statement 2 cannot use t yet
+
+task main() -> int {
+    pilot t = "ace"
+    pilot f = move |_| { say t }
+    say t
+    give back 0
+}

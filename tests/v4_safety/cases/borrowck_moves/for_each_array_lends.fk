@@ -1,0 +1,10 @@
+-- Decision 3: for each lends its iterable, so iterating twice is fine.
+-- expect: check
+
+task main() -> int {
+    pilot xs: [int; 3] = [1, 2, 3]
+    pilot mut s = 0
+    for each x in xs { s += x }
+    for each x in xs { s += x }
+    give back s
+}

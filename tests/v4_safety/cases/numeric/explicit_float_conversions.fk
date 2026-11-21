@@ -1,0 +1,26 @@
+-- .to_int/.to_uint/.to_tiny truncate toward zero; negatives clamp to 0 for
+-- the unsigned targets (examples/checked_numerics.fk pins the same contract).
+-- expect: run
+-- stdout: 2
+-- stdout: -2
+-- stdout: 2
+-- stdout: 255
+-- stdout: 0
+
+task main() -> int {
+    pilot f: num = 2.9
+    pilot g: num = -2.9
+    pilot u: uint = f.to_uint()
+    pilot t: tiny = 255.9.to_tiny()
+    pilot h: num = -0.5
+    pilot z: uint = h.to_uint()
+    pilot ui: int = u
+    pilot ti: int = t
+    pilot zi: int = z
+    say f.to_int()
+    say g.to_int()
+    say ui
+    say ti
+    say zi
+    give back 0
+}

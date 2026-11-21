@@ -1,0 +1,13 @@
+-- One unrepaired route keeps the later read blocked.
+-- expect: reject borrowck
+-- error: Meiya carries that partial move across the CFG
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot mut a = "hi"
+    eat(a)
+    if process::args_count() > 1 { a = "one" }
+    say a
+    give back 0
+}

@@ -1,0 +1,10 @@
+-- Plain pilot bindings are mutable (bible 4 status, Phase-1 note).
+-- expect: run
+-- stdout: 2
+
+task main() -> int {
+    pilot a = 1
+    a = 2
+    say a
+    give back 0
+}

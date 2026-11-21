@@ -1,0 +1,11 @@
+-- Reading a Copy sibling of a moved field is fine.
+-- expect: check
+
+shape N { name: word, n: int }
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = N { name: "q", n: 1 }
+    eat(a.name)
+    give back a.n
+}

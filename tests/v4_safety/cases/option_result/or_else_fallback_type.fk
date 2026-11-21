@@ -1,0 +1,8 @@
+-- expect: reject mir
+-- error: or else fallback type mismatch
+
+task main() -> int {
+    pilot m: maybe<int> = some(3)
+    pilot v = m or else "x"
+    give back 0
+}

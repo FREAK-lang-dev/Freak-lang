@@ -1,0 +1,8 @@
+-- Direct infinite-size recursion is forbidden.
+-- bible: 1.14
+-- expect: reject ty
+-- error: Yuuko infinite shape: A contains itself by value via A -> B -> A
+
+shape A { b: B }
+shape B { a: A }
+task main() -> int { give back 0 }

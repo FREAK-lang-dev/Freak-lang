@@ -1,0 +1,11 @@
+-- Character indexes count scalars, not bytes.
+-- expect: run
+-- stdout: é
+-- stdout: 3
+
+task main() -> int {
+    pilot w = "aéb"
+    say w.char_at(1)
+    say w.length()
+    give back 0
+}

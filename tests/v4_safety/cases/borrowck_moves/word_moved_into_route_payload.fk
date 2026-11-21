@@ -1,0 +1,10 @@
+-- expect: reject borrowck
+-- error: w was moved
+
+route M { Text { body: word }, Quit }
+task main() -> int {
+    pilot w = "x"
+    pilot m = M::Text { body: w }
+    say w
+    give back 0
+}

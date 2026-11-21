@@ -1,0 +1,11 @@
+-- Primitives are Copy: rebinding leaves both bindings usable.
+-- bible: 4.1
+-- expect: run
+-- stdout: 2
+
+task main() -> int {
+    pilot a = 1
+    pilot b = a
+    say a + b
+    give back 0
+}

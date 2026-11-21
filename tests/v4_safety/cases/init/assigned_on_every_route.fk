@@ -1,0 +1,7 @@
+-- expect: check
+
+task main() -> int {
+    pilot a: int
+    if process::args_count() > 1 { a = 1 } else { a = 2 }
+    give back a
+}

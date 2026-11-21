@@ -1,0 +1,13 @@
+-- expect: check
+
+shape P { x: int }
+
+task poke(lend mut p: P) -> int {
+    p.x = 3
+    give back p.x
+}
+task main() -> int {
+    pilot mut a = P { x: 1 }
+    pilot k = poke(lend mut a)
+    give back a.x + k
+}

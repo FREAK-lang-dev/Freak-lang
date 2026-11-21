@@ -92,6 +92,32 @@ jobs:
       - name: V4 structural and transpile coverage
         run: python -u src/compiler/v4/check_v4.py --fast
 
+  v4-safety:
+    name: V4 safety suites (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm -y
+
+      - name: Safety runner self-tests
+        run: python -B -u -m unittest discover -s tests/v4_safety -p "test_*.py" -v
+
+      - name: Borrow checker and safety suites
+        run: python -u tests/v4_safety/run_safety.py --json "${{ runner.temp }}/v4-safety.json"
+
   v4-native-platforms:
     name: V4 native backend (${{ matrix.os }})
     strategy:

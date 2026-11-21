@@ -1,0 +1,10 @@
+-- A lend from Shared<T> may not outlive the Shared<T> that produced it.
+-- bible: 4.4
+-- expect: reject borrowck
+-- error: Meiya cannot establish the origin of this returned loan
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task f(root: Shared<Ship>) -> lend Ship { give back root.borrow() }
+task main() -> int { give back 0 }

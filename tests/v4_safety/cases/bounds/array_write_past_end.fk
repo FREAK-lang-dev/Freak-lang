@@ -1,0 +1,10 @@
+-- Stores are checked too; nothing is written out of bounds.
+-- expect: panic
+-- panic: index 3 out of bounds (len 3)
+
+task main() -> int {
+    pilot mut xs: [int; 3] = [1, 2, 3]
+    pilot i = process::args_count() + 2
+    xs[i] = 9
+    give back 0
+}

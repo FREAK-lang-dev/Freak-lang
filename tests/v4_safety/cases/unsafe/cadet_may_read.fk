@@ -1,0 +1,15 @@
+-- expect: check
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    trust me "load" on my honor as .cadet {
+        pilot v: int = p.read()
+    }
+    give back 0
+}

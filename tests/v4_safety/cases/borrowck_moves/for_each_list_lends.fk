@@ -1,0 +1,11 @@
+-- Decision 3: for each lends its iterable (List included), like V3.
+-- known: #247 for each over a List moves the list
+-- expect: check
+
+task main() -> int {
+    pilot xs: List<word> = ["a", "b"]
+    pilot mut s = 0
+    for each x in xs { s += 1 }
+    for each x in xs { s += 1 }
+    give back s
+}

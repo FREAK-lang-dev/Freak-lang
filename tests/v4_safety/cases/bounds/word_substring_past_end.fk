@@ -1,0 +1,9 @@
+-- expect: panic
+-- exit: nonzero
+-- panic: substring range out of bounds
+
+task main() -> int {
+    pilot w = "abc"
+    say w.substring(2, 9)
+    give back 0
+}

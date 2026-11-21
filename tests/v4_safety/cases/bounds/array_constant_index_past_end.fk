@@ -1,0 +1,9 @@
+-- A constant out-of-range index still panics at run time.
+-- expect: panic
+-- panic: index 3 out of bounds (len 3)
+
+task main() -> int {
+    pilot xs: [int; 3] = [1, 2, 3]
+    say xs[3]
+    give back 0
+}

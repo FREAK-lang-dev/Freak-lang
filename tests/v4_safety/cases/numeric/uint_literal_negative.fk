@@ -1,0 +1,9 @@
+-- A negative literal is not a uint.
+-- known: #249 the frontend accepts what only the native backend rejects
+-- expect: reject frontend
+-- error: out of range
+
+task main() -> int {
+    pilot a: uint = -1
+    give back 0
+}

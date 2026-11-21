@@ -1,0 +1,15 @@
+-- Only one mutable lend at a time.
+-- bible: 4.2
+-- expect: reject borrowck
+-- error: Meiya refuses overlapping mutable lends
+
+shape P { x: int }
+
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    pilot r1 = lend mut a
+    pilot r2 = lend mut a
+    r1.x = 2
+    r2.x = 3
+    give back 0
+}

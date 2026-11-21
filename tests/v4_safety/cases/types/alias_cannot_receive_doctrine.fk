@@ -1,0 +1,9 @@
+-- An alias is not a new nominal type.
+-- bible: 1.14
+-- expect: reject ty
+-- error: Yuuko nominality breach: alias Num cannot receive doctrine Show
+
+alias Num = int
+doctrine Show { task show(self) -> int }
+impl Show for Num { task show(self) -> int { give back 0 } }
+task main() -> int { give back 0 }

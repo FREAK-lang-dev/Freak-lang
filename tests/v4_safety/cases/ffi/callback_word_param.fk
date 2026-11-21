@@ -1,0 +1,6 @@
+-- expect: reject ty
+-- error: @extern_callback parameter type is not FFI-safe
+
+@extern_callback("C")
+task cb(w: word) -> std::ffi::c_int { give back 0 }
+task main() -> int { give back 0 }

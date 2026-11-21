@@ -1,0 +1,12 @@
+-- give back of a moved binding is a use after move.
+-- expect: reject borrowck
+-- error: a was moved
+
+task eat(w: word) -> int { give back 0 }
+
+task f() -> word {
+    pilot a = "hi"
+    eat(a)
+    give back a
+}
+task main() -> int { give back 0 }

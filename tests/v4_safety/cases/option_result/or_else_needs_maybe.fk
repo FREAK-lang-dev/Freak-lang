@@ -1,0 +1,8 @@
+-- expect: reject mir
+-- error: or else needs maybe or result source
+
+task main() -> int {
+    pilot n = 3
+    pilot v = n or else 4
+    give back v
+}

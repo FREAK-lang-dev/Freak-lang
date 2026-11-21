@@ -1,0 +1,5 @@
+-- expect: reject mir
+-- error: ok payload type mismatch
+
+task f() -> result<int, word> { give back ok("x") }
+task main() -> int { give back 0 }

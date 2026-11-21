@@ -1,0 +1,12 @@
+-- The span should start at `lend`, not at the space before it.
+-- known: #251 Meiya diagnostic wording, duplicates, spans and hints
+-- expect: reject borrowck
+-- error: Meiya refuses to return a loan of an owned value
+-- at: 10:15
+
+shape P { x: int }
+task bad() -> lend P {
+    pilot a = P { x: 1 }
+    give back lend a
+}
+task main() -> int { give back 0 }

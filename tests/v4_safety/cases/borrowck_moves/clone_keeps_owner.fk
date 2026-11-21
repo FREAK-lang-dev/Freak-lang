@@ -1,0 +1,13 @@
+-- An explicit clone is a new owner; the original stays usable.
+-- bible: 1.12
+-- expect: run
+-- stdout: hi
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = "hi"
+    eat(a.clone())
+    say a
+    give back 0
+}

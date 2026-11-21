@@ -1,0 +1,9 @@
+-- Dynamic containers cannot hold lends yet; this must fail closed.
+-- expect: reject mir
+-- error: Meiya cannot store a lend inside a list yet
+
+task main() -> int {
+    pilot a = "x"
+    pilot xs: List<lend word> = [lend a]
+    give back 0
+}

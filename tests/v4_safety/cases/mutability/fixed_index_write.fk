@@ -1,0 +1,8 @@
+-- expect: reject borrowck
+-- error: fixed pilot cannot be modified
+
+task main() -> int {
+    fixed pilot xs: [int; 2] = [1, 2]
+    xs[0] = 2
+    give back xs[0]
+}

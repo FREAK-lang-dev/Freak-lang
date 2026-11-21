@@ -1,0 +1,17 @@
+-- Pointer arithmetic requires .ace or higher.
+-- expect: reject mir
+-- error: raw-pointer offset requires .ace or higher; current honor is .pilot
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    trust me "math" on my honor as .pilot {
+        pilot q = p.offset(1)
+    }
+    give back 0
+}

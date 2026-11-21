@@ -1,0 +1,19 @@
+-- A nested block's lower level is not lifted by the outer block.
+-- expect: reject mir
+-- error: current honor is .cadet
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    trust me "outer" on my honor as .ace {
+        trust me "inner" on my honor as .cadet {
+            p.write(1t)
+        }
+    }
+    give back 0
+}

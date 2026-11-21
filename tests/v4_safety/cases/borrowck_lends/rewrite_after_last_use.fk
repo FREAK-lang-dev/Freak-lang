@@ -1,0 +1,12 @@
+-- Loans end at their last use, not at the end of the scope.
+-- expect: check
+
+shape P { x: int }
+
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    pilot r = lend a
+    pilot k = r.x
+    a.x = 9
+    give back a.x + k
+}

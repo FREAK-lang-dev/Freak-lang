@@ -1,0 +1,9 @@
+-- expect: reject borrowck
+-- error: w was moved
+
+task main() -> int {
+    pilot w = "a"
+    pilot t = (w, 1)
+    say w
+    give back 0
+}

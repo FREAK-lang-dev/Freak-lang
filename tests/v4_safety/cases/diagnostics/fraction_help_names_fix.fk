@@ -1,0 +1,9 @@
+-- The conversion diagnostic names the explicit fix.
+-- expect: reject mir
+-- error: FREAK never drops a fraction silently; convert explicitly with .to_int(), which traps if the value does not fit
+
+task main() -> int {
+    pilot z: num = 2.5
+    pilot i: int = z
+    give back i
+}

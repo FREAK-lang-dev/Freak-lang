@@ -1,0 +1,8 @@
+-- Tuple slots are checked at compile time.
+-- expect: reject mir
+-- error: tuple slot out of range
+
+task main() -> int {
+    pilot t = (1, 2)
+    give back t.2
+}

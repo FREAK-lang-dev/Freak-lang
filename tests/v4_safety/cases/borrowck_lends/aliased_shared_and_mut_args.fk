@@ -1,0 +1,10 @@
+-- expect: reject borrowck
+-- error: Meiya refuses overlapping mutable lends
+
+shape P { x: int }
+
+task both(lend a: P, lend mut b: P) -> int { give back 0 }
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    give back both(lend a, lend mut a)
+}

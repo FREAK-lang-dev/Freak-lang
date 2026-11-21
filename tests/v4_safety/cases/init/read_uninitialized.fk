@@ -1,0 +1,9 @@
+-- A declared-but-unassigned local must not be readable.
+-- known: #245 reading an uninitialized local passes every frontend stage
+-- expect: reject frontend
+-- error: a
+
+task main() -> int {
+    pilot a: int
+    give back a
+}

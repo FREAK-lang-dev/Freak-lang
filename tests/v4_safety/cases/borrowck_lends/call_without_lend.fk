@@ -1,0 +1,11 @@
+-- Borrowing is explicit at the call site.
+-- expect: reject mir
+-- error: borrowed call argument needs lend
+
+shape P { x: int }
+
+task peek(lend p: P) -> int { give back p.x }
+task main() -> int {
+    pilot a = P { x: 4 }
+    give back peek(a)
+}

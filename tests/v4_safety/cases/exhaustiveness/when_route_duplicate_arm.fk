@@ -1,0 +1,13 @@
+-- expect: reject mir
+-- error: unreachable when arm
+
+route C { Red, Green }
+task f(c: C) -> int {
+    when c {
+        C::Red -> give back 1
+        C::Red -> give back 2
+        C::Green -> give back 3
+    }
+    give back 0
+}
+task main() -> int { give back f(C::Red) }

@@ -1,0 +1,8 @@
+-- A field of a borrowed input may be returned under the input's lifetime.
+-- expect: check
+
+shape P { x: int }
+
+shape Q { p: P }
+task inner<'a>(lend 'a q: Q) -> lend 'a P { give back lend q.p }
+task main() -> int { give back 0 }

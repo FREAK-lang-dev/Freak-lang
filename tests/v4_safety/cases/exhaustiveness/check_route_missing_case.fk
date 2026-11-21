@@ -1,0 +1,12 @@
+-- expect: reject mir
+-- error: non-exhaustive check route
+-- error: missing C::Green, C::Blue
+
+route C { Red, Green, Blue }
+task f(c: C) -> int {
+    check route c {
+        C::Red -> give back 1
+    }
+    give back 0
+}
+task main() -> int { give back f(C::Red) }

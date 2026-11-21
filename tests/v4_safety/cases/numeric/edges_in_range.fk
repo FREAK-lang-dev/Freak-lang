@@ -1,0 +1,16 @@
+-- Values at the edges of each range do not trap.
+-- expect: run
+-- stdout: 9223372036854775807
+-- stdout: -9223372036854775808
+-- stdout: 255
+
+task main() -> int {
+    pilot a = 9223372036854775806 + process::args_count()
+    pilot b = -9223372036854775807 - process::args_count()
+    pilot t: tiny = 254 + process::args_count()
+    pilot c: int = t
+    say a
+    say b
+    say c
+    give back 0
+}

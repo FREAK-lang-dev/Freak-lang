@@ -1,0 +1,7 @@
+-- expect: reject borrowck
+-- error: Meiya refuses a mutable reloan from an immutable lend
+
+shape P { x: int }
+
+task up(lend p: P) -> lend mut P { give back lend mut p }
+task main() -> int { give back 0 }

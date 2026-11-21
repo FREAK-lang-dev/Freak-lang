@@ -1,0 +1,11 @@
+-- expect: reject borrowck
+-- error: Meiya refuses to mutate through an immutable lend
+
+shape P { x: int }
+
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    pilot r = lend a
+    r.x = 2
+    give back 0
+}

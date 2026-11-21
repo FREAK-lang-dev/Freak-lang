@@ -1,0 +1,13 @@
+-- expect: reject borrowck
+-- error: Meiya refuses observation through an exclusive lend
+-- at: 10:5
+
+shape P { x: int }
+
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    pilot r1 = lend mut a
+    say a.x
+    r1.x = 2
+    give back 0
+}

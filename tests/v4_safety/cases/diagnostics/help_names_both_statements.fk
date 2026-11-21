@@ -1,0 +1,12 @@
+-- The help text says which statement holds the loan and which one conflicts.
+-- expect: reject borrowck
+-- error: a stays on loan in block 0 from statement 1, so statement 2 cannot rewrite a.x yet
+
+shape P { x: int }
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    pilot r = lend a
+    a.x = 9
+    pilot k = r.x
+    give back 0
+}

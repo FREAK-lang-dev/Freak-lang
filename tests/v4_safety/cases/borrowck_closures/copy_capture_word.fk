@@ -1,0 +1,9 @@
+-- copy captures need Copy values.
+-- expect: reject mir
+-- error: Yuuko cannot copy this closure capture
+
+task main() -> int {
+    pilot t = "ace"
+    pilot f = copy |_| => t
+    give back 0
+}
