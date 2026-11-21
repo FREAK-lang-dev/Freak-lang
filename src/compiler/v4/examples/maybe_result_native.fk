@@ -115,6 +115,12 @@ task routed(n: int) -> maybe<int> {
     give back some(n)
 }
 
+-- A constructor source of `?` gets one owner local before the branch.
+task lit_maybe(flag: bool) -> maybe<bool> {
+    pilot x = some(flag)?
+    give back some(not x)
+}
+
 task noisy() -> int {
     say "noisy fallback"
     give back 1
@@ -294,6 +300,10 @@ task main() -> int {
     check routed(0) {
         got v -> say v
         nobody -> say "propagated"
+    }
+    check lit_maybe(true) {
+        got v -> say v
+        nobody -> say "none"
     }
     label(1) or else "dropped"
     pilot unused = name_of(1)

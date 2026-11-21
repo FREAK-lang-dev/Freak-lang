@@ -17373,7 +17373,7 @@ NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\nori
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
 NATIVE_MAYBE_RESULT_EXPECTED = ("2.5\n7\nempty\n2\nodd\n3\none\npos\n-4\n51\n4\nfallback evaluated\n9\none/anon\n"
                                 "direct\nkept\n5\n3\n6\nfalse\n12\ntrue\n5\nnone\none\nloud\nsilent\nc\n36\n"
-                                "noisy fallback\n20\n2\npropagated\ntrue\nnone\npos\nneg\none\nanon\ntag\n4\nsouth\nsouth\n1\npropagated\n")
+                                "noisy fallback\n20\n2\npropagated\ntrue\nnone\npos\nneg\none\nanon\ntag\n4\nsouth\nsouth\n1\npropagated\nfalse\n")
 NATIVE_MAYBE_RESULT_EXIT = 17
 
 
@@ -17561,6 +17561,7 @@ def check_v4_native_maybe_result() -> None:
     if ran.returncode != NATIVE_MAYBE_RESULT_EXIT or ran.stdout.replace("\r\n", "\n") != NATIVE_MAYBE_RESULT_EXPECTED:
         raise RuntimeError(f"V4 native maybe/result printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r} stderr={ran.stderr!r}")
     probes = 0
+    objects = 0
     for triple in NATIVE_LAYOUT_TRIPLES:
         module_path = RUNTIME_BUILD_ROOT / f"tier3_native_maybe_result_{triple}.ll"
         module_path.unlink(missing_ok=True)
@@ -17577,6 +17578,14 @@ def check_v4_native_maybe_result() -> None:
         if sorted(carriers) != sorted(set(carriers)) or not {"maybe<Point>", "result<int,word>", "maybe<word>", "result<[int;3],int>"} <= set(carriers):
             raise RuntimeError(f"V4 maybe/result module for {triple} has the wrong carriers: {carriers}")
         probes += check_native_layout_oracle(module_text, triple)
+        # Every target's module must assemble, not only the host's linked one.
+        assembled = run_with_heartbeat(
+            [shutil.which("clang"), f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
+            label=f"V4 maybe/result object {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if assembled.returncode != 0:
+            raise RuntimeError(f"Clang rejected the V4 maybe/result module for {triple}:\n{assembled.stderr}")
+        objects += 1
     rejected_cases = (
         ("tier3_sum_nested", "task main() -> int {\n    pilot a: maybe<maybe<int>> = nobody\n    give back 0\n}\n",
          "native nested maybe/result payloads are not yet supported: maybe<maybe<int>>"),
@@ -17620,7 +17629,7 @@ def check_v4_native_maybe_result() -> None:
         if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
             raise RuntimeError(f"V4 maybe/result case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
     print(f"V4 native maybe/result: run=exact exit={NATIVE_MAYBE_RESULT_EXIT} layout-probes={probes} "
-          f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+          f"targets={len(NATIVE_LAYOUT_TRIPLES)} objects={objects} rejections={len(rejected_cases)}")
 
 
 def check_v4_native_shapes() -> None:
