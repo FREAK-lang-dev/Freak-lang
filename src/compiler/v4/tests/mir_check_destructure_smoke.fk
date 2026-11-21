@@ -111,8 +111,10 @@ say "check-destructure-right-index-text=" + v4_mir_rvalue_text(v4_mir_check_dest
 say "check-destructure-right-index-ty=" + v4_mir_rvalue_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_right_index)
 say "check-destructure-msg-kind=" + v4_mir_rvalue_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_rvalue)
 say "check-destructure-msg-ty=" + v4_mir_rvalue_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_rvalue)
-say "check-destructure-msg-source-field=" + v4_mir_place_field(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_place)
-say "check-destructure-msg-source-ty=" + v4_mir_place_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_place)
+-- result<Wing,word> is a native carrier: the err binding is a proven take.
+say "check-destructure-msg-op=" + v4_mir_rvalue_op(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_rvalue)
+say "check-destructure-msg-source-kind=" + v4_mir_rvalue_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_place)
+say "check-destructure-msg-source-ty=" + v4_mir_rvalue_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_place)
 say "check-destructure-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_destructure_mir))
 say "check-destructure-diagnostic0-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 0))
 say "check-destructure-diagnostic0-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_destructure_mir, 0))
