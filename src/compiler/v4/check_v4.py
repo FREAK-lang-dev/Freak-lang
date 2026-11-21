@@ -17524,7 +17524,7 @@ def check_native_abi_oracle(module: str, triple: str) -> int:
         pending = []
     if not claims:
         return 0
-    types = re.findall(r'^(%"freak\.(?:shape|route)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
     probe_lines = list(types)
     for index, (_, _, _, _, llvm_type) in enumerate(claims):
         probe_lines.append(f"define i64 @abi_{index}_size() {{ ret i64 ptrtoint (ptr getelementptr ({llvm_type}, ptr null, i32 1) to i64) }}")
@@ -17561,6 +17561,7 @@ def check_v4_native_maybe_result() -> None:
     if ran.returncode != NATIVE_MAYBE_RESULT_EXIT or ran.stdout.replace("\r\n", "\n") != NATIVE_MAYBE_RESULT_EXPECTED:
         raise RuntimeError(f"V4 native maybe/result printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r} stderr={ran.stderr!r}")
     probes = 0
+    abi_probes = 0
     objects = 0
     for triple in NATIVE_LAYOUT_TRIPLES:
         module_path = RUNTIME_BUILD_ROOT / f"tier3_native_maybe_result_{triple}.ll"
@@ -17578,6 +17579,15 @@ def check_v4_native_maybe_result() -> None:
         if sorted(carriers) != sorted(set(carriers)) or not {"maybe<Point>", "result<int,word>", "maybe<word>", "result<[int;3],int>"} <= set(carriers):
             raise RuntimeError(f"V4 maybe/result module for {triple} has the wrong carriers: {carriers}")
         probes += check_native_layout_oracle(module_text, triple)
+        # One convention: a maybe/result carrier crosses FREAK calls as a
+        # first-class value; only shapes, tuples, arrays and routes take the
+        # pointer/sret aggregate ABI, and its oracle must agree on those.
+        abi_probes += check_native_abi_oracle(module_text, triple)
+        sum_abi = [line for line in module_text.splitlines() if line.startswith("; freak.abi ") and "freak.sum." in line]
+        sum_headers = [line for line in module_text.splitlines() if line.startswith("define ") and '%"freak.sum.' in line]
+        by_pointer = [line for line in sum_headers if re.search(r'sret\(%"freak\.sum\.', line)]
+        if sum_abi or by_pointer or not any(re.match(r'define [^@]*%"freak\.sum\.[^"]+" @', line) for line in sum_headers):
+            raise RuntimeError(f"V4 maybe/result carriers left the by-value convention on {triple}: {sum_abi + by_pointer}")
         # Every target's module must assemble, not only the host's linked one.
         assembled = run_with_heartbeat(
             [shutil.which("clang"), f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
@@ -17593,9 +17603,9 @@ def check_v4_native_maybe_result() -> None:
          "native generic shapes need monomorphization: Box<int>"),
         ("tier3_sum_word_shape_payload", "shape Named { name: word, n: int }\n"
          "task main() -> int {\n    pilot a: maybe<Named> = nobody\n    give back 0\n}\n",
-         "native shape fields that own words are not yet supported: Named.name"),
+         "native maybe/result aggregate payloads that own words are not yet supported: Named"),
         ("tier3_sum_word_tuple_payload", "task main() -> int {\n    pilot a: maybe<(word, int)> = nobody\n    give back 0\n}\n",
-         "native aggregate slots that own words are not yet supported: (word,int).0"),
+         "native maybe/result aggregate payloads that own words are not yet supported: (word,int)"),
         ("tier3_sum_shape_field", "shape Holder { v: maybe<int> }\n"
          "task main() -> int {\n    pilot h = Holder { v: nobody }\n    give back 0\n}\n",
          "native aggregate maybe/result slots are not yet supported: Holder.v"),
@@ -17628,8 +17638,10 @@ def check_v4_native_maybe_result() -> None:
         )
         if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
             raise RuntimeError(f"V4 maybe/result case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    if abi_probes == 0:
+        raise RuntimeError("V4 maybe/result modules made no aggregate ABI claims for the oracle to check")
     print(f"V4 native maybe/result: run=exact exit={NATIVE_MAYBE_RESULT_EXIT} layout-probes={probes} "
-          f"targets={len(NATIVE_LAYOUT_TRIPLES)} objects={objects} rejections={len(rejected_cases)}")
+          f"abi-probes={abi_probes} targets={len(NATIVE_LAYOUT_TRIPLES)} objects={objects} rejections={len(rejected_cases)}")
 
 
 def check_v4_native_shapes() -> None:
