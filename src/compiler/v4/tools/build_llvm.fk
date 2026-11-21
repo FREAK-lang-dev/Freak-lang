@@ -68,7 +68,7 @@ task v4_build_llvm_source(source: word) -> void {
         diag_ty += 1
     }
     if v4_build_llvm_abort(errors, "ty") { give back }
-    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot mir = v4_mir_lower_ty_with_closure_bodies(0, ty)
     say "v4-build-stage=mir diagnostics=" + word_from_int(v4_mir_diag_count(mir))
     pilot diag_mir = 0
     repeat until diag_mir >= v4_mir_diag_count(mir) {

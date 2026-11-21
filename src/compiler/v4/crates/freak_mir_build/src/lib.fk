@@ -5646,6 +5646,151 @@ task v4_mir_closure_capture_diag(mir_id: int, mode: word, capture_name: word, ca
     }
 }
 
+-- Native closure bodies (tier 3). The build tool asks for them; analysis and
+-- editor MIR keep the first-pass closure aggregate until every consumer
+-- reads closure bodies (A3).
+pilot v4_mir_build_closure_bodies: bool = false
+
+task v4_mir_lower_ty_with_closure_bodies(file_id: int, ty_id: int) -> int {
+    v4_mir_build_closure_bodies = true
+    pilot mir_id = v4_mir_lower_ty(file_id, ty_id)
+    v4_mir_build_closure_bodies = false
+    give back mir_id
+}
+
+task v4_mir_closure_capture_local_mode(mode: word) -> word {
+    if mode == v4_ty_closure_mode_borrow { give back v4_ty_param_mode_lend }
+    if mode == v4_ty_closure_mode_mut { give back v4_ty_param_mode_lend_mut }
+    give back v4_ty_param_mode_value
+}
+
+-- The return type a closure body's returns agree on: void without a value
+-- return, unknown when they disagree.
+task v4_mir_closure_inferred_return(mir_id: int, body_id: int) -> word {
+    pilot inferred = ""
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+            pilot value = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+            pilot value_ty = v4_ty_void
+            if value >= 0 { value_ty = v4_mir_rvalue_ty(mir_id, body_id, value) }
+            if value_ty != v4_ty_never {
+                if inferred == "" { inferred = value_ty } else if inferred != value_ty { give back v4_ty_unknown }
+            }
+        }
+        stmt_id += 1
+    }
+    if inferred == "" { give back v4_ty_void }
+    give back inferred
+}
+
+-- Lower one closure into its own callable body, right where MIR Build meets
+-- it, so the creating body sees the closure's inferred return type. Only
+-- closures directly inside an ordinary task (TY owns their parameters) are
+-- lowered; others keep the aggregate and stay fenced natively. The creating
+-- body's construction state is saved and restored around the nested body.
+task v4_mir_build_lower_closure_body(mir_id: int, body_id: int, stream_id: int, body_marker: int, last: int, expr_span: word, closure_offset: int, closure_ty: word, children_handle: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id < 0 or v4_mir_body_is_closure(mir_id, body_id) { give back closure_ty }
+    pilot capture_count = array_len(children_handle)
+    -- The def keys the closure rvalue's own span, which codegen reads back.
+    pilot def = v4_mir_closure_body_def(v4_mir_body_def(mir_id, body_id), v4_span_start(expr_span), capture_count)
+    pilot existing = v4_mir_lookup_body(mir_id, def)
+    if existing >= 0 { give back v4_mir_body_signature(mir_id, existing) }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    pilot closure_id = v4_hir_closure_at_offset(hir_id, hir_item, closure_offset)
+    if closure_id < 0 { give back closure_ty }
+    pilot param_count = v4_ty_closure_param_count(closure_ty)
+    if param_count > 0 and v4_hir_closure_param_count(hir_id, hir_item, closure_id) != param_count { give back closure_ty }
+    -- C ABI aliases keep their declared widths only at C boundaries.
+    pilot surface_id = 0
+    repeat until surface_id >= param_count {
+        if v4_ty_normalize_ffi_alias_type(v4_hir_closure_param_type(hir_id, hir_item, closure_id, surface_id)) != "" { give back closure_ty }
+        surface_id += 1
+    }
+    pilot name = "freak.closure." + v4_mir_body_name(mir_id, body_id) + "." + word_from_int(v4_span_start(expr_span))
+    pilot closure_body = v4_mir_add_body(mir_id, def, name, closure_ty)
+    if closure_body < 0 { give back closure_ty }
+    pilot param_id = 0
+    repeat until param_id >= param_count {
+        pilot param_name = v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id)
+        -- A `_` parameter still takes its argument slot, under a name no
+        -- source can spell.
+        if param_name == "_" or param_name == "" { param_name = "_#" + word_from_int(param_id) }
+        v4_mir_seed_param_local(mir_id, closure_body, param_name, v4_ty_canonical_type(ty_id, v4_ty_closure_param_type(closure_ty, param_id)), v4_ty_param_mode_value, expr_span, expr_span, "this closure")
+        param_id += 1
+    }
+    pilot capture_id = 0
+    repeat until capture_id >= capture_count {
+        pilot capture: int = word_to_int(array_get(children_handle, capture_id))
+        pilot capture_mode = v4_mir_capture_mode_for_kind(v4_mir_rvalue_kind(mir_id, body_id, capture))
+        v4_mir_seed_param_local(mir_id, closure_body, v4_mir_rvalue_text(mir_id, body_id, capture), v4_mir_rvalue_ty(mir_id, body_id, capture), v4_mir_closure_capture_local_mode(capture_mode), expr_span, expr_span, "this closure")
+        capture_id += 1
+    }
+    -- Every parameter and capture has its own local, in order, or the body
+    -- is not a closure body codegen may read.
+    if v4_mir_body_local_count(mir_id, closure_body) != param_count + capture_count {
+        v4_mir_add_type_error(mir_id, expr_span, "closure body locals could not be seeded", "each closure parameter and capture needs its own name")
+        give back closure_ty
+    }
+    pilot saved_diagnostic_depth = v4_mir_control_diagnostic_depth
+    pilot saved_lend_operand = v4_mir_bootstrap_lend_operand
+    pilot saved_pipe_start = v4_mir_pipe_receiver_start
+    pilot saved_pipe_end = v4_mir_pipe_receiver_end
+    pilot saved_check_depth = v4_mir_check_arm_depth
+    pilot saved_breaks = v4_mir_loop_break_targets
+    pilot saved_continues = v4_mir_loop_continue_targets
+    pilot saved_loop_depth = v4_mir_loop_depth
+    pilot saved_scopes = v4_mir_scope_spans
+    pilot saved_scope_depth = v4_mir_scope_depth
+    pilot saved_trust_depth = v4_mir_trust_me_depth
+    pilot saved_honor = v4_mir_trust_me_honor_ranks
+    pilot saved_wire_depth = v4_mir_control_wire_depth
+    pilot saved_wire_work = v4_mir_control_wire_work
+    pilot saved_probe_depth = v4_mir_control_probe_depth
+    -- Fresh arrays for the nested body; its clear calls release these, not
+    -- the creating body's.
+    v4_mir_loop_break_targets = array_new()
+    v4_mir_loop_continue_targets = array_new()
+    v4_mir_scope_spans = array_new()
+    v4_mir_trust_me_honor_ranks = array_new()
+    v4_mir_bootstrap_lend_operand = false
+    v4_mir_pipe_receiver_start = 0 - 1
+    v4_mir_pipe_receiver_end = 0 - 1
+    v4_mir_control_wire_depth = 0
+    v4_mir_control_wire_work = 0
+    v4_mir_control_probe_depth = 0
+    v4_mir_lower_task_body_token_range(mir_id, closure_body, stream_id, body_marker, last + 1, expr_span)
+    array_release(v4_mir_loop_break_targets)
+    array_release(v4_mir_loop_continue_targets)
+    array_release(v4_mir_scope_spans)
+    array_release(v4_mir_trust_me_honor_ranks)
+    v4_mir_control_diagnostic_depth = saved_diagnostic_depth
+    v4_mir_bootstrap_lend_operand = saved_lend_operand
+    v4_mir_pipe_receiver_start = saved_pipe_start
+    v4_mir_pipe_receiver_end = saved_pipe_end
+    v4_mir_check_arm_depth = saved_check_depth
+    v4_mir_loop_break_targets = saved_breaks
+    v4_mir_loop_continue_targets = saved_continues
+    v4_mir_loop_depth = saved_loop_depth
+    v4_mir_scope_spans = saved_scopes
+    v4_mir_scope_depth = saved_scope_depth
+    v4_mir_trust_me_depth = saved_trust_depth
+    v4_mir_trust_me_honor_ranks = saved_honor
+    v4_mir_control_wire_depth = saved_wire_depth
+    v4_mir_control_wire_work = saved_wire_work
+    v4_mir_control_probe_depth = saved_probe_depth
+    pilot declared = v4_ty_closure_return_type(closure_ty)
+    if declared == v4_ty_unknown {
+        pilot inferred = v4_mir_closure_inferred_return(mir_id, closure_body)
+        closure_ty = v4_slice(closure_ty, 0, closure_ty.length() - declared.length()) + inferred
+        v4_mir_set_body_signature(mir_id, closure_body, closure_ty)
+    }
+    give back closure_ty
+}
+
 task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
     pilot mode = v4_ty_closure_mode_borrow
     pilot open_token = first
@@ -5727,6 +5872,8 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
     pilot closure_ty = v4_mir_closure_type_for_body_offset(mir_id, body_id, closure_offset)
     if not v4_ty_is_closure_type(closure_ty) {
         closure_ty = v4_ty_closure_type_prefix(mode) + "()->" + v4_ty_unknown
+    } else if v4_mir_build_closure_bodies {
+        closure_ty = v4_mir_build_lower_closure_body(mir_id, body_id, stream_id, body_marker, last, expr_span, closure_offset, closure_ty, children_handle)
     }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_closure, expr_text, mode, expr_span, closure_ty, children_handle)

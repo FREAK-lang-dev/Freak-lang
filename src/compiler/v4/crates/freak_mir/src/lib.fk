@@ -2309,12 +2309,110 @@ task v4_mir_module_init_body(mir_id: int) -> int {
     give back 0 - 1
 }
 
+-- Closure bodies (tier 3). A closure lowers to its own callable body whose
+-- def names the creating body, the closure's source offset and its capture
+-- count: "closure:<parent def>@<offset>#<captures>". The body's signature is
+-- the closure type (with its inferred return type). Its locals start with the
+-- closure parameters, in order, then one local per capture in capture order:
+-- a `lend` local for a default (borrow) capture, a `lend mut` local for a mut
+-- capture, and a value local for a copy or move capture. These are the sealed
+-- facts codegen reads; it never rediscovers a capture or its mode.
+pilot v4_mir_closure_def_prefix = "closure:"
+
+task v4_mir_closure_body_def(parent_def: word, offset: int, capture_count: int) -> word {
+    give back v4_mir_closure_def_prefix + parent_def + "@" + word_from_int(offset) + "#" + word_from_int(capture_count)
+}
+
+task v4_mir_body_is_closure(mir_id: int, body_id: int) -> bool {
+    if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) { give back false }
+    give back v4_mir_body_def(mir_id, body_id).starts_with(v4_mir_closure_def_prefix) and v4_ty_is_closure_type(v4_mir_body_signature(mir_id, body_id))
+}
+
+task v4_mir_closure_def_last(def: word, wanted: word) -> int {
+    pilot idx = def.length() - 1
+    repeat until idx < 0 {
+        if def.char_at(idx) == wanted { give back idx }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
+-- The capture count sealed in a closure body's def, or -1.
+task v4_mir_body_closure_capture_count(mir_id: int, body_id: int) -> int {
+    if not v4_mir_body_is_closure(mir_id, body_id) { give back 0 - 1 }
+    pilot def = v4_mir_body_def(mir_id, body_id)
+    pilot hash = v4_mir_closure_def_last(def, "#")
+    if hash < 0 { give back 0 - 1 }
+    pilot raw = v4_slice(def, hash + 1, def.length())
+    if not v4_mir_snapshot_nonnegative_int_is_valid(raw) { give back 0 - 1 }
+    pilot count = word_to_int(raw)
+    if word_from_int(count) != raw { give back 0 - 1 }
+    if v4_mir_body_callable_param_count(mir_id, body_id) + count > v4_mir_body_local_count(mir_id, body_id) { give back 0 - 1 }
+    give back count
+}
+
+-- The closure body local holding capture `capture_id`, or -1.
+task v4_mir_body_closure_capture_local(mir_id: int, body_id: int, capture_id: int) -> int {
+    pilot count = v4_mir_body_closure_capture_count(mir_id, body_id)
+    if capture_id < 0 or capture_id >= count { give back 0 - 1 }
+    give back v4_mir_body_callable_param_count(mir_id, body_id) + capture_id
+}
+
+-- True when a closure body local is one of its captures.
+task v4_mir_body_local_is_closure_capture(mir_id: int, body_id: int, local_id: int) -> bool {
+    pilot count = v4_mir_body_closure_capture_count(mir_id, body_id)
+    if count <= 0 { give back false }
+    pilot first = v4_mir_body_callable_param_count(mir_id, body_id)
+    give back local_id >= first and local_id < first + count
+}
+
+-- The closure body a Closure rvalue created, or -1 when none was lowered.
+task v4_mir_closure_rvalue_body(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 or rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_closure { give back 0 - 1 }
+    pilot def = v4_mir_closure_body_def(v4_mir_body_def(mir_id, body_id), v4_span_start(v4_mir_rvalue_span(mir_id, body_id, rvalue_id)), v4_mir_closure_capture_count(mir_id, body_id, rvalue_id))
+    pilot closure_body = v4_mir_lookup_body(mir_id, def)
+    if closure_body < 0 or not v4_mir_body_is_closure(mir_id, closure_body) { give back 0 - 1 }
+    give back closure_body
+}
+
+-- The creating body's local that capture `capture_id` of a Closure rvalue
+-- names: the binding visible where the closure starts, as MIR Build chose it.
+task v4_mir_closure_capture_local(mir_id: int, body_id: int, rvalue_id: int, capture_id: int) -> int {
+    pilot capture = v4_mir_closure_capture(mir_id, body_id, rvalue_id, capture_id)
+    if capture < 0 { give back 0 - 1 }
+    pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, v4_mir_rvalue_text(mir_id, body_id, capture), v4_span_start(v4_mir_rvalue_span(mir_id, body_id, rvalue_id)))
+    if local_id < 0 or v4_mir_local_ty(mir_id, body_id, local_id) != v4_mir_rvalue_ty(mir_id, body_id, capture) { give back 0 - 1 }
+    give back local_id
+}
+
+-- The callee of a call through a closure value: the call's target child,
+-- whose type is a closure type. Its doctrine names the call path.
+task v4_mir_rvalue_closure_callee(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 or rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call { give back 0 - 1 }
+    pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    if lhs < 0 or lhs >= rvalue_id or not v4_ty_is_closure_type(v4_mir_rvalue_ty(mir_id, body_id, lhs)) { give back 0 - 1 }
+    give back lhs
+}
+
+-- Callable, MutCallable or OneShot for a closure call, "" otherwise.
+task v4_mir_closure_call_doctrine(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot callee = v4_mir_rvalue_closure_callee(mir_id, body_id, rvalue_id)
+    if callee < 0 { give back "" }
+    give back v4_ty_closure_doctrine(v4_mir_rvalue_ty(mir_id, body_id, callee))
+}
+
+task v4_mir_set_body_signature(mir_id: int, body_id: int, signature: word) -> void {
+    if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) { give back }
+    array_set(v4_mir_sigs_handle(mir_id), body_id, signature)
+}
+
 task v4_mir_body_callable_return_type(mir_id: int, body_id: int) -> word {
     if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
         give back v4_ty_unknown
     }
     if v4_mir_body_is_module_init(mir_id, body_id) { give back v4_ty_void }
     pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_mir_body_is_closure(mir_id, body_id) { give back v4_ty_canonical_type(ty_id, v4_ty_closure_return_type(v4_mir_body_signature(mir_id, body_id))) }
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     if sig_id >= 0 { give back v4_ty_signature_return_type(ty_id, sig_id) }
     pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
@@ -2341,6 +2439,7 @@ task v4_mir_body_callable_param_count(mir_id: int, body_id: int) -> int {
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
     if v4_mir_body_is_module_init(mir_id, body_id) { give back 0 }
+    if v4_mir_body_is_closure(mir_id, body_id) { give back v4_ty_closure_param_count(v4_mir_body_signature(mir_id, body_id)) }
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     if sig_id >= 0 { give back v4_ty_signature_fixed_param_count(ty_id, sig_id) }
     pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
@@ -2354,6 +2453,7 @@ task v4_mir_body_callable_param_name(mir_id: int, body_id: int, param_id: int) -
         give back ""
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_mir_body_is_closure(mir_id, body_id) { give back v4_mir_local_name(mir_id, body_id, param_id) }
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     if sig_id >= 0 { give back v4_ty_signature_param_name(ty_id, sig_id, param_id) }
     pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
@@ -2366,6 +2466,7 @@ task v4_mir_body_callable_param_type(mir_id: int, body_id: int, param_id: int) -
         give back v4_ty_unknown
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_mir_body_is_closure(mir_id, body_id) { give back v4_ty_canonical_type(ty_id, v4_ty_closure_param_type(v4_mir_body_signature(mir_id, body_id), param_id)) }
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     if sig_id >= 0 { give back v4_ty_signature_param_type(ty_id, sig_id, param_id) }
     pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
@@ -2378,6 +2479,7 @@ task v4_mir_body_callable_param_mode(mir_id: int, body_id: int, param_id: int) -
         give back v4_ty_param_mode_value
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_mir_body_is_closure(mir_id, body_id) { give back v4_ty_param_mode_value }
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     if sig_id >= 0 { give back v4_ty_signature_param_mode(ty_id, sig_id, param_id) }
     pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
