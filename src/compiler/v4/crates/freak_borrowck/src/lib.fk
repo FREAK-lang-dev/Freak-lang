@@ -8526,6 +8526,37 @@ task v4_borrowck_snapshot_restore(payload: word) -> word {
 
 -- Native owned-word plans use MIR binding IDs, never ambiguous display names.
 pilot v4_borrowck_word_plan_resource_failed: bool = false
+
+-- Owned native storage for move plans: words, the Sum carriers, and shapes,
+-- tuples and fixed arrays that hold a word at any depth. Such an aggregate
+-- local moves as one value; a field read of it is never counted as a move
+-- of the local (native lowering refuses those partial moves by name).
+task v4_borrowck_type_is_owned_storage(mir_id: int, type_text: word) -> bool {
+    give back v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), type_text) or v4_borrowck_aggregate_holds_word(mir_id, type_text, 0)
+}
+
+task v4_borrowck_aggregate_holds_word(mir_id: int, type_text: word, depth: int) -> bool {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if depth > 32 or type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lend_type(type_text) { give back false }
+    if v4_ty_canonical_type(ty_id, type_text) == v4_ty_word { give back depth > 0 }
+    if v4_ty_is_fixed_array_type(type_text) { give back v4_borrowck_aggregate_holds_word(mir_id, v4_ty_fixed_array_element_type(type_text), depth + 1) }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot = 0
+        repeat until slot >= v4_ty_tuple_slot_count(type_text) {
+            if v4_borrowck_aggregate_holds_word(mir_id, v4_ty_tuple_slot_type(type_text, slot), depth + 1) { give back true }
+            slot += 1
+        }
+        give back false
+    }
+    pilot sig = v4_mir_shape_signature(mir_id, type_text)
+    if sig < 0 { give back false }
+    pilot field = 0
+    repeat until field >= v4_ty_shape_field_count(ty_id, sig) {
+        if v4_borrowck_aggregate_holds_word(mir_id, v4_ty_shape_field_type(ty_id, sig, field), depth + 1) { give back true }
+        field += 1
+    }
+    give back false
+}
 task v4_borrowck_place_word_local_move_count_depth(mir_id: int, body_id: int, place: int, local_id: int, borrowed: bool, depth: int) -> int {
     v4_borrowck_word_plan_visit_budget -= 1
     if depth > 256 or v4_borrowck_word_plan_visit_budget < 0 or place < 0 or place >= v4_mir_body_place_count(mir_id, body_id) {
@@ -8534,7 +8565,7 @@ task v4_borrowck_place_word_local_move_count_depth(mir_id: int, body_id: int, pl
     }
     pilot kind = v4_mir_place_kind(mir_id, body_id, place)
     if kind == v4_mir_place_local {
-        if not borrowed and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_place_ty(mir_id, body_id, place)) and v4_mir_place_base(mir_id, body_id, place) == local_id { give back 1 }
+        if not borrowed and v4_borrowck_type_is_owned_storage(mir_id, v4_mir_place_ty(mir_id, body_id, place)) and v4_mir_place_base(mir_id, body_id, place) == local_id { give back 1 }
         give back 0
     }
     if kind == v4_mir_place_field or kind == v4_mir_place_index {
@@ -8565,7 +8596,7 @@ task v4_borrowck_rvalue_word_local_move_count_depth(mir_id: int, body_id: int, v
     }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
     if kind == v4_mir_rvalue_use_local {
-        if borrowed or not v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, value)) { give back 0 }
+        if borrowed or not v4_borrowck_type_is_owned_storage(mir_id, v4_mir_rvalue_ty(mir_id, body_id, value)) { give back 0 }
         if v4_mir_rvalue_local_id(mir_id, body_id, value) == local_id { give back 1 }
         give back 0
     }
