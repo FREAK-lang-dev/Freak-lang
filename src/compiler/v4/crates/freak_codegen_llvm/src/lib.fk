@@ -1635,9 +1635,73 @@ task v4_codegen_llvm_aggregate_abi_slots(mir_id: int, body_id: int) -> word {
                 out = out + "  " + v4_codegen_llvm_abi_ret_slot(body_id, value) + " = alloca " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, value)) + "\n"
             }
         }
+        if v4_codegen_llvm_projection_needs_check(mir_id, body_id, value) {
+            out = out + "  " + v4_codegen_llvm_projection_slot(body_id, value) + " = alloca " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value))) + "\n"
+        }
         value += 1
     }
     give back out
+}
+
+-- Temporary projections (`f(x).y`, `f(x).0`, `f(x)[i]`). A Project reads
+-- one declared slot of a shape or tuple value; its ConstInt child names a
+-- slot in range and its type is that slot's declared type. A ProjectIndex
+-- reads a fixed array element: a literal index in range is extractvalue,
+-- any other index spills the temporary to an entry-block slot and takes the
+-- same bounds check as an Index place.
+task v4_codegen_llvm_native_projection_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back "native temporary projections need the owned aggregate path" }
+    pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+    if lhs < 0 or rhs < 0 or lhs >= rvalue_id or rhs >= rvalue_id { give back "invalid native projection operand" }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot base_ty = v4_mir_rvalue_ty(mir_id, body_id, lhs)
+    pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, base_ty)
+    if op == v4_mir_unary_project_index {
+        if kind != "array" { give back "native temporary index projections support only fixed arrays: " + base_ty }
+        pilot index_ty = v4_mir_rvalue_ty(mir_id, body_id, rhs)
+        if index_ty != v4_ty_int and index_ty != v4_ty_uint { give back "native array index must be int or uint: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
+        if v4_ty_canonical_type(ty_id, result_ty) != v4_ty_canonical_type(ty_id, v4_ty_fixed_array_element_type(base_ty)) { give back "invalid native projection type" }
+        give back ""
+    }
+    if kind != "shape" and kind != "tuple" { give back "native temporary projections need a shape or tuple: " + base_ty }
+    pilot slot = v4_codegen_llvm_const_index(mir_id, body_id, rhs)
+    if slot < 0 or slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, base_ty) { give back "invalid native projection slot" }
+    if v4_ty_canonical_type(ty_id, v4_codegen_llvm_aggregate_slot_type(mir_id, base_ty, slot)) != v4_ty_canonical_type(ty_id, result_ty) { give back "native projection type differs from the declared slot type: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
+    give back ""
+}
+
+task v4_codegen_llvm_projection_slot(body_id: int, rvalue_id: int) -> word {
+    give back "%project." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+}
+
+-- A ProjectIndex whose index is not a literal inside the fixed length.
+task v4_codegen_llvm_projection_needs_check(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_unary or v4_mir_rvalue_op(mir_id, body_id, rvalue_id) != v4_mir_unary_project_index { give back false }
+    pilot length = v4_codegen_llvm_fixed_array_length(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)))
+    pilot value = v4_codegen_llvm_const_index(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id))
+    give back value < 0 or value >= length
+}
+
+task v4_codegen_llvm_projection_instruction(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
+    pilot operand = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    pilot index = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+    pilot base_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, operand))
+    pilot base_value = v4_codegen_llvm_rvalue_value(mir_id, body_id, operand)
+    if not v4_codegen_llvm_projection_needs_check(mir_id, body_id, rvalue_id) { give back target + " = extractvalue " + base_ty + " " + base_value + ", " + word_from_int(v4_codegen_llvm_const_index(mir_id, body_id, index)) }
+    pilot slot = v4_codegen_llvm_projection_slot(body_id, rvalue_id)
+    pilot index_value = v4_codegen_llvm_rvalue_value(mir_id, body_id, index)
+    pilot length = word_from_int(v4_codegen_llvm_fixed_array_length(mir_id, v4_mir_rvalue_ty(mir_id, body_id, operand)))
+    pilot label = "bounds.project." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+    pilot out = "store " + base_ty + " " + base_value + ", ptr " + slot + "\n"
+    out = out + "  %" + label + ".in = icmp ult i64 " + index_value + ", " + length + "\n"
+    out = out + "  br i1 %" + label + ".in, label %" + label + ".ok, label %" + label + ".fail\n" + label + ".fail:\n"
+    out = out + v4_codegen_llvm_bounds_panic_lines("%" + label, index_value, length)
+    out = out + "  unreachable\n" + label + ".ok:\n"
+    out = out + "  %" + label + ".p = getelementptr inbounds " + base_ty + ", ptr " + slot + ", i64 0, i64 " + index_value + "\n"
+    give back out + "  " + target + " = load " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) + ", ptr %" + label + ".p"
 }
 
 -- The caller's copies: each aggregate argument (already converted by its
@@ -1970,6 +2034,7 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
     if kind == v4_mir_rvalue_unary {
         pilot operand = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
         pilot operand_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, operand))
+        if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_project or v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_project_index { give back v4_codegen_llvm_projection_instruction(mir_id, body_id, rvalue_id, target) }
         if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_not {
             give back target + " = xor i1 " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ", true"
         }
@@ -3900,6 +3965,7 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
         }
     }
     if kind == v4_mir_rvalue_unary {
+        if op == v4_mir_unary_project or op == v4_mir_unary_project_index { give back v4_codegen_llvm_native_projection_error(mir_id, body_id, rvalue_id) }
         if op != v4_mir_unary_neg and op != v4_mir_unary_not and op != v4_mir_unary_ptr_is_null and op != v4_mir_unary_deref and op != v4_mir_unary_ptr_offset and op != v4_mir_unary_ptr_cast and op != v4_mir_unary_num_convert { give back "unsupported native unary operator: " + op }
         if op == v4_mir_unary_num_convert and (not v4_ty_is_float(v4_mir_rvalue_ty(mir_id, body_id, lhs)) or v4_codegen_llvm_numeric_kind(type_text) == "" or v4_codegen_llvm_numeric_kind(type_text) == "num") { give back "invalid native numeric conversion operand" }
         if op == v4_mir_unary_neg {
@@ -4005,6 +4071,11 @@ task v4_codegen_llvm_mir_has_index_checks(mir_id: int) -> bool {
         repeat until place >= v4_mir_body_place_count(mir_id, body) {
             if v4_mir_place_kind(mir_id, body, place) == v4_mir_place_index and v4_codegen_llvm_index_needs_check(mir_id, body, place) { give back true }
             place += 1
+        }
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
+            if v4_codegen_llvm_projection_needs_check(mir_id, body, value) { give back true }
+            value += 1
         }
         body += 1
     }

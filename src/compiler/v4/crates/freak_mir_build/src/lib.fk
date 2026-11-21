@@ -5722,6 +5722,105 @@ task v4_mir_try_lower_computed_call(mir_id: int, body_id: int, stream_id: int, f
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, v4_mir_expr_text(stream_id, first, last + 1), "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
 }
 
+-- True for `f(x).y`, `f(x).0.1`, `a.m(x)[i]` and chains of them: one or
+-- more field, tuple-slot or index projections whose root is a call result
+-- (a temporary), never a place and never a parenthesized group.
+task v4_mir_expr_is_call_rooted_projection(stream_id: int, first: int, last: int) -> bool {
+    pilot end_token = last
+    pilot projections = 0
+    pilot steps = 0
+    repeat until end_token <= first or steps > 256 {
+        pilot val = v4_lex_token_syntax_value(stream_id, end_token)
+        if val == ")" {
+            pilot open = v4_mir_find_open_paren_token(stream_id, first, end_token)
+            give back projections > 0 and open > first
+        }
+        if val == "]" {
+            pilot open_index = v4_mir_find_open_index_token(stream_id, first, end_token)
+            if open_index <= first { give back false }
+            end_token = v4_mir_prev_nontrivia(stream_id, open_index - 1, first)
+        } else {
+            pilot tok_type = v4_lex_token_type(stream_id, end_token)
+            if tok_type != v4_tok_ident and tok_type != v4_tok_int and tok_type != v4_tok_float { give back false }
+            pilot dot = v4_mir_prev_nontrivia(stream_id, end_token - 1, first)
+            if dot <= first or v4_lex_token_syntax_value(stream_id, dot) != "." { give back false }
+            end_token = v4_mir_prev_nontrivia(stream_id, dot - 1, first)
+        }
+        projections += 1
+        steps += 1
+    }
+    give back false
+}
+
+-- A projection of a call result reads one slot of that temporary value: the
+-- call is evaluated once, then Project (a field or tuple slot, sealed as a
+-- ConstInt slot child) or ProjectIndex (a fixed array element) reads it.
+-- Nothing borrows the temporary; Meiya sees the call's own moves.
+task v4_mir_try_lower_temporary_projection(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
+    if not v4_mir_expr_is_call_rooted_projection(stream_id, first, last) { give back 0 - 1 }
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    if v4_lex_token_syntax_value(stream_id, last) == "]" {
+        pilot open_index = v4_mir_find_open_index_token(stream_id, first, last)
+        pilot base = v4_mir_lower_expr(mir_id, body_id, stream_id, first, open_index)
+        pilot index = v4_mir_lower_expr(mir_id, body_id, stream_id, open_index + 1, last)
+        pilot base_ty = v4_mir_rvalue_ty(mir_id, body_id, base)
+        pilot index_ty = v4_mir_rvalue_ty(mir_id, body_id, index)
+        pilot element_ty = v4_ty_unknown
+        if v4_ty_is_fixed_array_type(base_ty) {
+            element_ty = v4_ty_fixed_array_element_type(base_ty)
+        } else if v4_ty_is_known(base_ty) {
+            v4_mir_add_type_error(mir_id, expr_span, "index of a temporary needs a fixed array", base_ty + " returned by a call cannot be indexed in place; store it in a pilot first")
+        }
+        if v4_ty_is_known(index_ty) and not v4_ty_is_numeric(index_ty) {
+            v4_mir_add_type_error(mir_id, expr_span, "index expression must be numeric", "got " + index_ty)
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_project_index, base, index, expr_span, element_ty)
+    }
+    pilot dot_token = v4_mir_find_top_level_token(stream_id, first, last + 1, ".")
+    pilot field_name = v4_lex_token_syntax_value(stream_id, last)
+    pilot current = v4_mir_lower_expr(mir_id, body_id, stream_id, first, dot_token)
+    pilot current_ty = v4_mir_rvalue_ty(mir_id, body_id, current)
+    if not v4_ty_is_known(current_ty) { give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown) }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_is_tuple_type(current_ty) {
+        if not v4_mir_is_tuple_slot_chain(field_name) {
+            v4_mir_add_type_error(mir_id, expr_span, "tuple slot must be int literal", "use .0, .1, ... on " + current_ty)
+            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+        }
+        pilot segment_start = 0
+        repeat until segment_start >= field_name.length() {
+            pilot segment_end = v4_mir_tuple_slot_segment_end(field_name, segment_start)
+            pilot slot_name = v4_slice(field_name, segment_start, segment_end)
+            pilot slot_ty = v4_ty_unknown
+            if v4_ty_is_tuple_type(current_ty) {
+                slot_ty = v4_ty_tuple_slot_type(current_ty, word_to_int(slot_name))
+                if not v4_ty_is_known(slot_ty) { v4_mir_add_type_error(mir_id, expr_span, "tuple slot out of range", current_ty + " has no slot " + slot_name) }
+            } else if v4_ty_is_known(current_ty) {
+                v4_mir_add_type_error(mir_id, expr_span, "tuple slot access on non-tuple type", current_ty + " has no tuple slots")
+            }
+            pilot slot_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, slot_name, "", 0 - 1, 0 - 1, expr_span, v4_ty_int)
+            current = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_project, current, slot_rvalue, expr_span, slot_ty)
+            current_ty = slot_ty
+            segment_start = segment_end + 1
+        }
+        give back current
+    }
+    pilot field_id = v4_ty_shape_field_id_for_name(ty_id, v4_ty_canonical_type(ty_id, current_ty), field_name)
+    pilot field_ty = v4_ty_shape_field_type_for_name(ty_id, current_ty, field_name)
+    if field_id < 0 or not v4_ty_is_known(field_ty) {
+        if v4_mir_is_tuple_slot_chain(field_name) {
+            v4_mir_add_type_error(mir_id, expr_span, "tuple slot access on non-tuple type", current_ty + " has no tuple slots")
+        } else if v4_ty_shape_signature_id_for_name(ty_id, current_ty) >= 0 {
+            v4_mir_add_type_error(mir_id, expr_span, "unknown field access", current_ty + " has no field " + field_name)
+        } else {
+            v4_mir_add_type_error(mir_id, expr_span, "field access on non-shape type", current_ty + " has no fields")
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+    }
+    pilot slot_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, word_from_int(field_id), "", 0 - 1, 0 - 1, expr_span, v4_ty_int)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_project, current, slot_rvalue, expr_span, field_ty)
+}
+
 -- The last top-level `|>` in [first, last], or -1. Pipes bind loosest and
 -- associate left, so `a |> f |> g` splits as `(a |> f) |> g`.
 task v4_mir_find_pipe_op(stream_id: int, first: int, last: int) -> int {
@@ -5964,6 +6063,9 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot word_property = v4_mir_try_lower_word_property(mir_id, body_id, stream_id, first, last, expr_span)
     if word_property >= 0 { give back word_property }
 
+    pilot temporary_projection = v4_mir_try_lower_temporary_projection(mir_id, body_id, stream_id, first, last, expr_span)
+    if temporary_projection >= 0 { give back temporary_projection }
+
     pilot computed_call = v4_mir_try_lower_computed_call(mir_id, body_id, stream_id, first, last, expr_span)
     if computed_call >= 0 { give back computed_call }
 
@@ -5980,6 +6082,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     if next_token <= last and v4_lex_token_syntax_value(stream_id, next_token) == "(" {
         pilot close_token = v4_mir_find_matching_paren(stream_id, next_token, last + 1)
+        -- Tokens after the call's `)` must never be dropped silently.
+        if close_token >= 0 and close_token < last {
+            v4_mir_add_type_error(mir_id, expr_span, "unsupported expression after call", "the tokens after " + v4_mir_expr_text(stream_id, first, close_token + 1) + " are not part of a supported call, projection or operator")
+            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+        }
         pilot sig_id = v4_mir_signature_id_for_name(mir_id, first_value)
         if sig_id >= 0 {
             pilot target_name = v4_mir_resolved_callee_name(mir_id, first_value)

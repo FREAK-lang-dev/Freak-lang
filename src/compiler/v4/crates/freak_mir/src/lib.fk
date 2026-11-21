@@ -75,6 +75,12 @@ pilot v4_mir_unary_deref = "Deref"
 pilot v4_mir_unary_ptr_offset = "PtrOffset"
 pilot v4_mir_unary_ptr_cast = "PtrCast"
 pilot v4_mir_unary_num_convert = "NumConvert"
+-- A slot read from a temporary aggregate (a call result), which is not a
+-- place: Project's rhs is a ConstInt child holding the declared slot (shape
+-- fields in declaration order, tuple slots by number); ProjectIndex's rhs is
+-- the index operand into a fixed array.
+pilot v4_mir_unary_project = "Project"
+pilot v4_mir_unary_project_index = "ProjectIndex"
 pilot v4_mir_call_raw_ptr_write = "#RawPtrWrite"
 pilot v4_mir_call_say_literal = "#SayLiteral"
 
