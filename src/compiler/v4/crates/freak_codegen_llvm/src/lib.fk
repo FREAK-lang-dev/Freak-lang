@@ -3958,12 +3958,14 @@ task v4_codegen_llvm_native_symbol_value_error(mir_id: int, text: word, type_tex
 
 task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-    if v4_codegen_llvm_active_owned_mir == mir_id {
-        pilot sum_error = v4_codegen_llvm_unadmitted_sum_error(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
-        if sum_error != "" { give back sum_error }
-    }
     if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_aggregate_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back v4_codegen_llvm_native_aggregate_lend_error(mir_id, body_id, rvalue_id) }
-    if kind != v4_mir_rvalue_const_int and kind != v4_mir_rvalue_const_float and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_const_bool and kind != v4_mir_rvalue_const_char and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_use_symbol and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_call and not (v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_lend or v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_use_place or v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) or v4_codegen_llvm_or_else_is_supported(mir_id, body_id, rvalue_id))) {
+    if kind != v4_mir_rvalue_const_int and kind != v4_mir_rvalue_const_float and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_const_bool and kind != v4_mir_rvalue_const_char and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_use_symbol and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_call and not (v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_lend or v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_use_place or v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) or (kind == v4_mir_rvalue_or_else and v4_codegen_llvm_or_else_is_supported(mir_id, body_id, rvalue_id)))) {
+        -- A Sum operation over a carrier freak_ty does not admit names the payload.
+        if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_or_else) {
+            pilot sum_error = v4_codegen_llvm_unadmitted_sum_error(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+            if sum_error == "" and v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id) >= 0 { sum_error = v4_codegen_llvm_unadmitted_sum_error(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))) }
+            if sum_error != "" { give back sum_error }
+        }
         give back "native rvalue not yet supported: " + kind
     }
     pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
