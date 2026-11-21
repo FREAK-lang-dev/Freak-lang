@@ -17662,6 +17662,11 @@ def check_v4_native_patterns() -> None:
         ("tier3_pattern_rest_not_last", routes + "task f(s: Shape) -> int {\n    when s {\n        Shape::Dot { .., x } -> give back x\n"
          "        _ -> give back 0\n    }\n    give back 2\n}\ntask main() -> int { give back f(Shape::Empty) }\n",
          "route pattern rest must come last"),
+        # A when consumes a Move scrutinee, as Meiya says: the arm tests are
+        # reads, but the subject copy moves the route out of s.
+        ("tier3_pattern_scrutinee_moved", routes + "task main() -> int {\n    pilot s = Shape::Dot { x: 1, y: 2 }\n    when s {\n"
+         "        Shape::Dot { x } -> say x\n        _ -> say 0\n    }\n    when s {\n        _ -> say 1\n    }\n    give back 0\n}\n",
+         "Meiya carries that partial move across the CFG|s was moved"),
         # The bible's built-in `-> route` outcomes are not user routes yet.
         ("tier3_check_route_builtin", "task confess(c: int) -> route {\n    route BadEnd\n}\ntask main() -> int {\n    check route confess(5) {\n"
          "        TrueRoute -> give back 1\n        _ -> give back 0\n    }\n    give back 0\n}\n",
