@@ -56,6 +56,40 @@ task shout(n: int) -> maybe<word> {
 
 task relay(value: result<word, int>) -> result<word, int> { give back value }
 
+alias Count = uint
+
+task count(n: int) -> result<Count, word> {
+    if n > 0 { give back ok(3) }
+    give back err("none")
+}
+
+-- `?` yields the canonical case type of an aliased payload.
+task doubled(n: int) -> result<Count, word> {
+    pilot c = count(n)?
+    give back ok(c + c)
+}
+
+task boxed(n: int) -> maybe<int> { give back some(n * 10) }
+
+-- `?` inside a check subject propagates before the check observes it.
+task boxed_first(n: int) -> maybe<int> {
+    check boxed(first(n)?) {
+        got v -> say v
+        nobody -> say "inner none"
+    }
+    give back some(n)
+}
+
+-- A word taken by `?` or produced by `or else` moves into a new carrier.
+task relay_label(n: int) -> result<word, word> { give back ok(label(n)?) }
+
+task named_or_anon(n: int) -> maybe<word> { give back some(name_of(n) or else "anon") }
+
+task noisy() -> int {
+    say "noisy fallback"
+    give back 1
+}
+
 task fallback_point() -> Point {
     say "fallback evaluated"
     give back Point { x: 9, y: 8 }
@@ -183,6 +217,43 @@ task main() -> int {
         i += 1
     }
     say total
+    -- A discarded `or else` still runs its fallback, only on the empty edge.
+    pilot empty: maybe<int> = nobody
+    empty or else noisy()
+    pilot full: maybe<int> = some(2)
+    full or else noisy()
+    check boxed_first(2) {
+        got v -> say v
+        nobody -> say "propagated"
+    }
+    check boxed_first(0) {
+        got v -> say v
+        nobody -> say "propagated"
+    }
+    check result doubled(1) {
+        ok(c) -> say c == 6
+        err(e) -> say e
+    }
+    check result doubled(0) {
+        ok(c) -> say c == 6
+        err(e) -> say e
+    }
+    check result relay_label(1) {
+        ok(w) -> say w
+        err(e) -> say e
+    }
+    check result relay_label(0) {
+        ok(w) -> say w
+        err(e) -> say e
+    }
+    check named_or_anon(1) {
+        got w -> say w
+        nobody -> say "none"
+    }
+    check named_or_anon(5) {
+        got w -> say w
+        nobody -> say "none"
+    }
     label(1) or else "dropped"
     pilot unused = name_of(1)
     give back total - 19
