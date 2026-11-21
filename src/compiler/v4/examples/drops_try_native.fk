@@ -1,0 +1,74 @@
+-- Tier 3 drops under `?`: the operand of `?` is moved on both edges. The
+-- error edge hands the error word to the caller and the continuing edge
+-- takes the value, so neither edge drops the carrier; other owned locals
+-- still drop once on each edge, including inside a loop and on a branch.
+task label(n: int) -> result<word, word> {
+    if n > 0 { give back ok("pos" + "itive") }
+    give back err("neg" + "ative")
+}
+
+task name_of(n: int) -> maybe<word> {
+    if n == 1 { give back some("o" + "ne") }
+    give back nobody
+}
+
+-- `?` on a result local: the ok word moves into v, the err word to the caller.
+task relay(n: int) -> result<word, word> {
+    pilot held: result<word, word> = label(n)
+    pilot keep = "k" + "eep"
+    pilot v = held?
+    give back ok(v + keep)
+}
+
+-- `?` on a parameter, inside a loop, with another owned local alive.
+task count_up(start: result<word, word>, n: int) -> result<int, word> {
+    pilot extra = "ex" + "tra"
+    pilot w = start?
+    pilot total = 0
+    pilot i = 0
+    repeat until i >= n {
+        pilot r = label(n - i - 1)
+        pilot got = r?
+        total = total + got.length()
+        i += 1
+    }
+    give back ok(total + w.length() + extra.length())
+}
+
+-- `?` on a maybe word local on one branch only.
+task pick(n: int, which: bool) -> maybe<word> {
+    pilot m = name_of(n)
+    if which {
+        pilot s = m?
+        give back some(s + "!")
+    }
+    give back some("other")
+}
+
+task main() -> int {
+    check result relay(1) {
+        ok(v) -> say v
+        err(e) -> say e
+    }
+    check result relay(0) {
+        ok(v) -> say v
+        err(e) -> say e
+    }
+    check result count_up(label(2), 2) {
+        ok(t) -> say t
+        err(e) -> say e
+    }
+    check result count_up(label(0), 2) {
+        ok(t) -> say t
+        err(e) -> say e
+    }
+    check result count_up(label(1), 0) {
+        ok(t) -> say t
+        err(e) -> say e
+    }
+    say pick(1, true) or else "none"
+    say pick(2, true) or else "none"
+    say pick(1, false) or else "none"
+    say pick(2, false) or else "none"
+    give back 0
+}

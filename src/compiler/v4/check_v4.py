@@ -17477,6 +17477,7 @@ NATIVE_CLOSURES_EXPECTED = ("42\n15\n1\n5\n9\n7\n9\n13\n6\ntrue\n12\n22\n40\n11\
 # The FREAK aggregate calling convention: stdout, then main's exit status.
 NATIVE_DROPS_EXPECTED = ("5\n9\n3\n13\n0\nsxxxxx\nh2\n4\ntaken\nrepaired\nl\nr\nsecond\nx1\n12\nmaybe\n3\n3\n"
                          "B\nuno\nnewer\ncd\n1\nrenamed\nreset\n5\n5\n6\n9\n9\n9\n1\n53\n9\nbox\n1\n0\n")
+NATIVE_DROPS_TRY_EXPECTED = "positivekeep\nnegative\nnegative\nnegative\n13\none!\nnone\nother\nother\n"
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
 NATIVE_OPERATORS_EXPECTED = ("4\n22\n-11\n5\nfalse\ntrue\n46\n5\n4\nsum matches\n7\n6\n8\n3\n"
                              "true\nfalse\ntrue\nfalse\ntrue\n2\ntrue\nfalse\n3\n42\n2\n6\n70\n2\n"
@@ -17769,6 +17770,7 @@ def check_v4_native_shapes() -> None:
         ("agg_abi", "agg_abi_native.fk", NATIVE_AGG_ABI_EXPECTED),
         ("operators", "operators_native.fk", (NATIVE_OPERATORS_EXPECTED, NATIVE_OPERATORS_EXIT)),
         ("drops", "drops_native.fk", NATIVE_DROPS_EXPECTED),
+        ("drops_try", "drops_try_native.fk", NATIVE_DROPS_TRY_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -18195,6 +18197,25 @@ def check_v4_native_drops() -> None:
     size = native_function_text(module_text, "size")
     if "icmp eq i32 %word.drop.return" not in size:
         raise RuntimeError("V4 route drops do not test the tag of the case they release")
+    # `?` moves its operand on both edges: relay's result local (1), count_up's
+    # parameter (0) and loop result (6) are never dropped, and no flag is needed.
+    try_source = V4_ROOT / "examples" / "drops_try_native.fk"
+    try_path = RUNTIME_BUILD_ROOT / "tier3_native_drops_try_plan.ll"
+    try_path.unlink(missing_ok=True)
+    emitted = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(try_source), "-o", str(try_path), "--emit-llvm"],
+        label="V4 drops try module", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if emitted.returncode != 0 or not try_path.exists():
+        raise RuntimeError(f"V4 could not emit the drops try module:\n{emitted.stdout}{emitted.stderr}")
+    try_text = try_path.read_text(encoding="utf-8")
+    for function, dropped in (("relay", {2, 3}), ("count_up", {2, 3, 7})):
+        text = native_function_text(try_text, function)
+        rows = NATIVE_DROP_ROW.findall(text)
+        if "alloca i1" in text or {int(local) for _, local in rows} != dropped:
+            raise RuntimeError(f"V4 `?` operands are not moved on both edges in {function}: {rows}")
+    if [int(local) for site, local in NATIVE_DROP_ROW.findall(native_function_text(try_text, "relay")) if site == "return.3"] != [2]:
+        raise RuntimeError("V4 `?` error edge does not drop exactly the other live word")
     rejected_cases = (
         ("tier3_drop_route_literal_discard", "route Msg {\n    Text { body: word }\n    Quit\n}\n"
          "task main() -> int {\n    Msg::Text { body: \"x\" }\n    give back 0\n}\n",
@@ -18214,7 +18235,7 @@ def check_v4_native_drops() -> None:
         )
         if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
             raise RuntimeError(f"V4 drops case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
-    print(f"V4 native drops: sites={len(sites)} ordered={len(ordered)} rejections={len(rejected_cases)}")
+    print(f"V4 native drops: sites={len(sites)} ordered={len(ordered)} try=moved rejections={len(rejected_cases)}")
 
 
 # Tier 3 patterns: when over tuples, fixed arrays and route payloads (nested,
