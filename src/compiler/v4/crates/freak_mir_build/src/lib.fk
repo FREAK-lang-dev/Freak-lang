@@ -1420,6 +1420,12 @@ task v4_mir_resolved_callee_name(mir_id: int, callee_name: word) -> word {
     give back callee_name
 }
 
+-- A closure binding visible at the call shadows a task with its name.
+task v4_mir_closure_local_shadows(mir_id: int, body_id: int, name: word, span: word) -> bool {
+    pilot local = v4_mir_find_local_visible_at(mir_id, body_id, name, v4_span_start(span))
+    give back local >= 0 and v4_ty_is_closure_type(v4_mir_local_ty(mir_id, body_id, local))
+}
+
 task v4_mir_signature_id_for_name(mir_id: int, callee_name: word) -> int {
     pilot sig_id = v4_mir_signature_id_for_exact_name(mir_id, callee_name)
     if sig_id >= 0 {
@@ -4114,6 +4120,11 @@ task v4_mir_try_lower_named_call(mir_id: int, body_id: int, stream_id: int, firs
     if sig_id < 0 {
         give back 0 - 1
     }
+    -- A visible closure binding shadows a task of the same name; the local
+    -- callee path calls the closure.
+    if v4_mir_closure_local_shadows(mir_id, body_id, callee_name, expr_span) {
+        give back 0 - 1
+    }
 
     pilot target_name = v4_mir_resolved_callee_name(mir_id, callee_name)
     v4_mir_warn_unwinder_call_site(mir_id, expr_span, sig_id)
@@ -6135,7 +6146,7 @@ task v4_mir_try_lower_pipe_expr(mir_id: int, body_id: int, stream_id: int, first
         }
     }
     pilot sig_id = 0 - 1
-    if shape_ok {
+    if shape_ok and not v4_mir_closure_local_shadows(mir_id, body_id, target_name, expr_span) {
         sig_id = v4_mir_signature_id_for_name(mir_id, target_name)
     }
     if sig_id < 0 {
@@ -6354,6 +6365,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         pilot close_token = v4_mir_find_matching_paren(stream_id, next_token, last + 1)
         pilot trailing_tokens = close_token >= 0 and close_token < last
         pilot sig_id = v4_mir_signature_id_for_name(mir_id, first_value)
+        if v4_mir_closure_local_shadows(mir_id, body_id, first_value, expr_span) { sig_id = 0 - 1 }
         if sig_id >= 0 and not trailing_tokens {
             pilot target_name = v4_mir_resolved_callee_name(mir_id, first_value)
             v4_mir_warn_unwinder_call_site(mir_id, expr_span, sig_id)

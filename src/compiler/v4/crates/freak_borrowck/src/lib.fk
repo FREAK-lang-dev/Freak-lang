@@ -7808,7 +7808,7 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                     -- Every test here is pure: the cheap overlap test runs first.
                     -- Two calls of one OneShot closure in a statement both run;
                     -- no later statement or backedge sees the second.
-                    if move_stmt >= 0 and use_stmt == move_stmt and move_block == use_block and use_idx > move_idx and v4_borrowck_path_kind(borrow_id, result_id, use_idx) == v4_borrowck_path_move and use_text == move_text and v4_borrowck_name_is_one_shot_closure(mir_id, body_id, move_text) {
+                    if move_stmt >= 0 and use_stmt == move_stmt and move_block == use_block and use_idx > move_idx and v4_borrowck_path_kind(borrow_id, result_id, use_idx) == v4_borrowck_path_move and use_text == move_text and v4_borrowck_name_is_one_shot_closure(mir_id, body_id, move_text, move_stmt) {
                         move_conflicts = true
                         help = move_text + " is a OneShot closure called twice in statement " + word_from_int(move_stmt) + "; its first call consumes it"
                     } else if move_stmt >= 0 and use_stmt >= 0 and move_block == use_block and move_stmt < use_stmt {
@@ -7853,16 +7853,14 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
     give back conflicts
 }
 
-task v4_borrowck_name_is_one_shot_closure(mir_id: int, body_id: int, name: word) -> bool {
-    pilot local = 0
-    repeat until local >= v4_mir_body_local_count(mir_id, body_id) {
-        if v4_mir_local_name(mir_id, body_id, local) == name {
-            pilot local_ty = v4_mir_local_ty(mir_id, body_id, local)
-            if v4_ty_is_closure_type(local_ty) and v4_ty_closure_doctrine(local_ty) == v4_ty_closure_one_shot { give back true }
-        }
-        local += 1
-    }
-    give back false
+-- The binding visible at the statement decides the doctrine, not every
+-- local that shares its name.
+task v4_borrowck_name_is_one_shot_closure(mir_id: int, body_id: int, name: word, stmt_id: int) -> bool {
+    if stmt_id < 0 or stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) { give back false }
+    pilot local = v4_mir_find_local_visible_at(mir_id, body_id, name, v4_span_start(v4_mir_stmt_span(mir_id, body_id, stmt_id)))
+    if local < 0 { give back false }
+    pilot local_ty = v4_mir_local_ty(mir_id, body_id, local)
+    give back v4_ty_is_closure_type(local_ty) and v4_ty_closure_doctrine(local_ty) == v4_ty_closure_one_shot
 }
 
 -- A MIR content digest: per-body element counts plus checksums of the
