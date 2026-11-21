@@ -63,7 +63,8 @@ task v4_route_terminal_run() -> void {
         }
     }
     if mode == "2" { v4_route_terminal_assert(branches == 1 and orphan < 0 and v4_route_terminal_has_diag(mir, missing_message), "missing case stays conditional and diagnosed") }
-    if mode == "3" { v4_route_terminal_assert(branches == 2 and orphan < 0 and v4_route_terminal_has_diag(mir, missing_message), "refutable payload does not prove coverage") }
+    -- Key { code: 9 } is a chain of two branches: the tag, then the payload.
+    if mode == "3" { v4_route_terminal_assert(branches == 3 and orphan < 0 and v4_route_terminal_has_diag(mir, missing_message), "refutable payload does not prove coverage") }
     if mode == "4" { v4_route_terminal_assert(branches == 2 and orphan < 0 and v4_route_terminal_has_diag(mir, "unknown route pattern field") and v4_route_terminal_has_diag(mir, missing_message), "final pattern is checked before publication") }
     if mode == "5" { v4_route_terminal_assert(branches == 1 and orphan < 0 and v4_route_terminal_has_diag(mir, duplicate_message), "duplicate arm diagnostic survives terminal compaction") }
     if mode == "0" or mode == "1" or mode == "6" {
