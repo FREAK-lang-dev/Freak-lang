@@ -5704,13 +5704,19 @@ task v4_mir_build_lower_closure_body(mir_id: int, body_id: int, stream_id: int, 
     if closure_id < 0 { give back closure_ty }
     pilot param_count = v4_ty_closure_param_count(closure_ty)
     if param_count > 0 and v4_hir_closure_param_count(hir_id, hir_item, closure_id) != param_count { give back closure_ty }
-    -- C ABI aliases keep their declared widths only at C boundaries.
+    -- C ABI aliases keep their declared widths only at C boundaries, and the
+    -- canonical closure type erases them; no body means codegen names it.
     pilot surface_id = 0
     repeat until surface_id >= param_count {
-        if v4_ty_normalize_ffi_alias_type(v4_hir_closure_param_type(hir_id, hir_item, closure_id, surface_id)) != "" { give back closure_ty }
+        if v4_mir_closure_param_surface_has_c_abi(mir_id, v4_hir_closure_param_type(hir_id, hir_item, closure_id, surface_id), 0) { give back closure_ty }
         surface_id += 1
     }
     pilot name = "freak.closure." + v4_mir_body_name(mir_id, body_id) + "." + word_from_int(v4_span_start(expr_span))
+    -- Closures declare no result: TY's type carries a guess from the first
+    -- returned token. The body is lowered against an open result and its
+    -- result is sealed from the lowered returns below.
+    pilot provisional = v4_ty_closure_return_type(closure_ty)
+    closure_ty = v4_slice(closure_ty, 0, closure_ty.length() - provisional.length()) + v4_ty_unknown
     pilot closure_body = v4_mir_add_body(mir_id, def, name, closure_ty)
     if closure_body < 0 { give back closure_ty }
     pilot param_id = 0
@@ -5782,13 +5788,36 @@ task v4_mir_build_lower_closure_body(mir_id: int, body_id: int, stream_id: int, 
     v4_mir_control_wire_depth = saved_wire_depth
     v4_mir_control_wire_work = saved_wire_work
     v4_mir_control_probe_depth = saved_probe_depth
-    pilot declared = v4_ty_closure_return_type(closure_ty)
-    if declared == v4_ty_unknown {
-        pilot inferred = v4_mir_closure_inferred_return(mir_id, closure_body)
-        closure_ty = v4_slice(closure_ty, 0, closure_ty.length() - declared.length()) + inferred
-        v4_mir_set_body_signature(mir_id, closure_body, closure_ty)
-    }
+    pilot inferred = v4_mir_closure_inferred_return(mir_id, closure_body)
+    closure_ty = v4_slice(closure_ty, 0, closure_ty.length() - v4_ty_unknown.length()) + inferred
+    v4_mir_set_body_signature(mir_id, closure_body, closure_ty)
+    -- Coverage ran against the open result; run it again on the sealed one so
+    -- a route without `give back` is refused, not given a default value.
+    v4_mir_validate_body_return_coverage(mir_id, closure_body, expr_span)
     give back closure_ty
+}
+
+-- A closure parameter surface that keeps a C width or a C callback ABI: a C
+-- alias, a task function type, or one reached through pointers, arrays,
+-- tuples or type aliases.
+task v4_mir_closure_param_surface_has_c_abi(mir_id: int, surface: word, depth: int) -> bool {
+    if depth > 32 { give back true }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_normalize_ffi_alias_type(surface) != "" { give back true }
+    if v4_ty_is_surface_task_function_type(surface) { give back true }
+    if v4_ty_is_raw_pointer_type(surface) { give back v4_mir_closure_param_surface_has_c_abi(mir_id, v4_ty_raw_pointer_target_type(surface), depth + 1) }
+    if v4_ty_is_fixed_array_type(surface) { give back v4_mir_closure_param_surface_has_c_abi(mir_id, v4_ty_fixed_array_element_type(surface), depth + 1) }
+    if v4_ty_is_tuple_type(surface) {
+        pilot slot = 0
+        repeat until slot >= v4_ty_tuple_slot_count(surface) {
+            if v4_mir_closure_param_surface_has_c_abi(mir_id, v4_ty_tuple_slot_type(surface, slot), depth + 1) { give back true }
+            slot += 1
+        }
+        give back false
+    }
+    pilot alias_lookup = v4_ty_alias_lookup_type_from_surface_type(ty_id, surface)
+    if alias_lookup != "" { give back v4_mir_closure_param_surface_has_c_abi(mir_id, v4_ty_alias_target_type(ty_id, alias_lookup), depth + 1) }
+    give back false
 }
 
 task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {

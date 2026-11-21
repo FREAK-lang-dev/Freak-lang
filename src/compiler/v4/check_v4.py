@@ -17471,9 +17471,9 @@ NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\
 NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
 NATIVE_ROUTES_EXPECTED = ("2\n0\ntrue\ntrue\ntrue\n41\nfalse\n9\n9\n12\n15\n0\n46\n54\n25\n15\n-21\n1\n73\n36\n3\n25\ntrue\nfalse\n")
 NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\norigin:12\n0\nfalse\ntrue\n2\n"
-NATIVE_CLOSURES_BODIES = 17
+NATIVE_CLOSURES_BODIES = 19
 NATIVE_CLOSURES_EXPECTED = ("42\n15\n1\n5\n9\n7\n9\n13\n6\ntrue\n12\n22\n40\n11\n12\n"
-                            "Takemikazuchi!\nTakemikazuchi!\n13\nTakemikazuchi\n3\n30\n1\n42\n")
+                            "Takemikazuchi!\nTakemikazuchi!\n13\nTakemikazuchi\n3\ntrue\n11\n30\n1\n42\n")
 # The FREAK aggregate calling convention: stdout, then main's exit status.
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
 NATIVE_OPERATORS_EXPECTED = ("4\n22\n-11\n5\nfalse\ntrue\n46\n5\n4\nsum matches\n7\n6\n8\n3\n"
@@ -18055,6 +18055,13 @@ def check_v4_native_closures() -> None:
             if not re.match(r"(ptr noalias sret\([^)]*\) [^,]*%ret, )?ptr %env(,|$)", params):
                 raise RuntimeError(f"V4 closure body on {triple} does not take its environment first: {params}")
         probes += check_native_layout_oracle(module_text, triple)
+        # The shape parameter of `dot` and the sret result of `shift` must
+        # each carry their ABI note, so the oracle cannot skip a header that
+        # lost both its attributes and its note.
+        closure_abi = re.findall(r'^; freak\.abi (@"freak\.closure\.[^"]+") (%\S+) size=\d+ align=\d+ type=(.+)$', module_text, re.MULTILINE)
+        if sorted((name, llvm_type) for _, name, llvm_type in closure_abi) != [("%arg.0", '%"freak.shape.Point"'), ("%ret", '%"freak.shape.Point"')] \
+                or len({symbol for symbol, _, _ in closure_abi}) != 2:
+            raise RuntimeError(f"V4 closures module for {triple} lacks the closure aggregate ABI notes: {closure_abi}")
         abi_probes += check_native_abi_oracle(module_text, triple)
         stripped = re.sub(r'^; freak\.layout %"freak\.closure\.env\..*\n', "", module_text, count=1, flags=re.MULTILINE)
         try:
@@ -18104,6 +18111,21 @@ def check_v4_native_closures() -> None:
         ("tier3_closure_rewrite_on_loan", "task main() -> int {\n    pilot mut n: int = 3\n    pilot peek = |_| => n\n"
          "    n = 4\n    say peek()\n    give back 0\n}\n",
          "Meiya refuses this rewrite while the value is borrowed"),
+        # One statement, two OneShot calls: both would run.
+        ("tier3_closure_oneshot_same_statement", "task main() -> int {\n    pilot n: int = 3\n    pilot once = move |_| => n + 1\n"
+         "    say once() + once()\n    give back 0\n}\n",
+         "once is a OneShot closure called twice in statement"),
+        # The sealed result needs a `give back` on every route.
+        ("tier3_closure_missing_return", "task answer() -> int { give back 42 }\ntask main() -> int {\n"
+         "    pilot f = |b: bool| { if b { give back answer() } }\n    pilot r: int = f(false)\n    say r\n    give back 0\n}\n",
+         "missing return"),
+        # A C callback parameter keeps its C widths; no closure body is lowered.
+        ("tier3_closure_c_callback_param", "use std::ffi::c_int\ntask main() -> int {\n    pilot k: int = 2\n"
+         "    pilot f = |g: extern [C] task(v: c_int) -> c_int| => k\n    say k\n    give back 0\n}\n",
+         "native closures are lowered only in ordinary tasks, with FREAK parameter types"),
+        ("tier3_closure_system_intrinsic", "task main() -> int {\n    pilot f = |_| => process::args_count()\n"
+         "    say f()\n    give back 0\n}\n",
+         "native closure bodies with scalar sums or system intrinsics are not yet supported"),
     )
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"

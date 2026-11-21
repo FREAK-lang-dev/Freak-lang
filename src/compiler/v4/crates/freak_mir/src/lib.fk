@@ -2396,9 +2396,28 @@ task v4_mir_closure_rvalue_body(mir_id: int, body_id: int, rvalue_id: int) -> in
 task v4_mir_closure_capture_local(mir_id: int, body_id: int, rvalue_id: int, capture_id: int) -> int {
     pilot capture = v4_mir_closure_capture(mir_id, body_id, rvalue_id, capture_id)
     if capture < 0 { give back 0 - 1 }
-    pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, v4_mir_rvalue_text(mir_id, body_id, capture), v4_span_start(v4_mir_rvalue_span(mir_id, body_id, rvalue_id)))
-    if local_id < 0 or v4_mir_local_ty(mir_id, body_id, local_id) != v4_mir_rvalue_ty(mir_id, body_id, capture) { give back 0 - 1 }
-    give back local_id
+    -- The local this closure initializes is declared after its initializer
+    -- was lowered, so it was not visible to the capture: skip it.
+    pilot bound = 0 - 1
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body_id) or bound >= 0 {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt) == v4_mir_stmt_local and v4_mir_stmt_rvalue(mir_id, body_id, stmt) == rvalue_id {
+            pilot place = v4_mir_stmt_place(mir_id, body_id, stmt)
+            if place >= 0 and v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_local { bound = v4_mir_place_base(mir_id, body_id, place) }
+        }
+        stmt += 1
+    }
+    pilot name = v4_mir_rvalue_text(mir_id, body_id, capture)
+    pilot offset = v4_span_start(v4_mir_rvalue_span(mir_id, body_id, rvalue_id))
+    pilot local_id = v4_mir_body_local_count(mir_id, body_id)
+    repeat until local_id <= 0 {
+        local_id -= 1
+        if local_id != bound and v4_mir_local_name(mir_id, body_id, local_id) == name and v4_mir_local_visible_at(mir_id, body_id, local_id, offset) {
+            if v4_mir_local_ty(mir_id, body_id, local_id) != v4_mir_rvalue_ty(mir_id, body_id, capture) { give back 0 - 1 }
+            give back local_id
+        }
+    }
+    give back 0 - 1
 }
 
 -- The callee of a call through a closure value: the call's target child,
@@ -6966,6 +6985,8 @@ task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks:
         -- The bootstrap module init has no parameters and spans the file.
         if v4_mir_snapshot_field(header, 4) != v4_mir_module_init_name { give back "invalid scalar sum module init identity" }
     } else {
+        -- A closure body has no TY task signature to authenticate its formals.
+        if definition.starts_with(v4_mir_closure_def_prefix) { give back "native closure bodies with scalar sums or system intrinsics are not yet supported" }
         if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_type_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum body requires an ordinary nongeneric task" }
         if v4_mir_snapshot_field(header, 4) != v4_ty_signature_name(ty, signature) or v4_mir_snapshot_field(header, 5) != v4_ty_signature_of(ty, definition) { give back "invalid scalar sum task body identity" }
         parameters = v4_ty_signature_fixed_param_count(ty, signature)

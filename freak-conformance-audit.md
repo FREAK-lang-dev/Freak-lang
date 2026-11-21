@@ -463,7 +463,7 @@ parity. This does not claim native C UI support or general collection fields.
 |---|---|---|---|
 | `\|x\| => expr` lambda syntax | ✅ | ✅ | [freakc/emitter.py:1339-1424](freakc/emitter.py) |
 | Default immutable-borrow capture | ⚠️ | 📖 V4 | V4 MIR emits `CaptureBorrow`; Meiya ties the loan to the stored closure holder and blocks owner rewrites/moves while a later reachable closure use keeps it live. Native builds store a borrow capture as a pointer in a stack environment; nested and escaping closures remain |
-| `copy` closure mode (thread-safe) | ⚠️ | 📖 V4 | V4 MIR emits `CaptureCopy` and rejects non-Copy captured types. Thread-safe `Send`/`Sync` proof and native environment codegen remain, so the full thread-safe promise is not yet complete |
+| `copy` closure mode (thread-safe) | ⚠️ | 📖 V4 | V4 MIR emits `CaptureCopy` and rejects non-Copy captured types. Native builds store a supported copy capture by value in the closure environment (`snap` in `src/compiler/v4/examples/closures_native.fk`). Thread-safe `Send`/`Sync` proof remains, so the full thread-safe promise is not yet complete |
 | `move` closure (OneShot) | ⚠️ | 📖 V4 | V4 TY assigns `closure[OneShot,move]`; MIR emits `CaptureMove`; Meiya consumes the closure local on call and rejects a second invocation |
 | `mut` closure (MutCallable) | ⚠️ | 📖 V4 | V4 TY assigns `closure[MutCallable,mut]`; MIR emits `CaptureBorrowMut`; Meiya enforces exclusive capture access and a non-`mut` closure cannot rewrite an outer binding |
 
