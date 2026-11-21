@@ -7059,44 +7059,26 @@ pilot v4_mir_drop_site_default = 5
 pilot v4_mir_drop_plan_mir = 0 - 1
 pilot v4_mir_drop_plan_sealed: bool = false
 pilot v4_mir_drop_plan_failed = ""
-pilot v4_mir_drop_plan_local_base = 0 - 1
-pilot v4_mir_drop_plan_rvalue_base = 0 - 1
-pilot v4_mir_drop_plan_site_base = 0 - 1
-pilot v4_mir_drop_plan_local_flags = 0 - 1
-pilot v4_mir_drop_plan_rvalue_moves = 0 - 1
-pilot v4_mir_drop_plan_rvalue_partial = 0 - 1
-pilot v4_mir_drop_plan_site_heads = 0 - 1
-pilot v4_mir_drop_plan_site_tails = 0 - 1
-pilot v4_mir_drop_plan_row_bodies = 0 - 1
-pilot v4_mir_drop_plan_row_locals = 0 - 1
-pilot v4_mir_drop_plan_row_modes = 0 - 1
-pilot v4_mir_drop_plan_row_next = 0 - 1
+-- Two arrays hold the whole plan, so it costs two handles whatever the
+-- program size (codegen's admission contracts count handles). The table is
+-- [3 bases per body][a flag per local][move, partial per rvalue][head, tail
+-- per site]; rows are [body, local, mode, next] four cells each.
+pilot v4_mir_drop_plan_table = 0 - 1
+pilot v4_mir_drop_plan_rows = 0 - 1
+pilot v4_mir_drop_plan_body_total = 0
+pilot v4_mir_drop_plan_local_at = 0
+pilot v4_mir_drop_plan_rvalue_at = 0
+pilot v4_mir_drop_plan_site_at = 0
 
 task v4_mir_drop_plan_release() -> void {
-    if v4_mir_drop_plan_local_base >= 0 { array_release(v4_mir_drop_plan_local_base) }
-    if v4_mir_drop_plan_rvalue_base >= 0 { array_release(v4_mir_drop_plan_rvalue_base) }
-    if v4_mir_drop_plan_site_base >= 0 { array_release(v4_mir_drop_plan_site_base) }
-    if v4_mir_drop_plan_local_flags >= 0 { array_release(v4_mir_drop_plan_local_flags) }
-    if v4_mir_drop_plan_rvalue_moves >= 0 { array_release(v4_mir_drop_plan_rvalue_moves) }
-    if v4_mir_drop_plan_rvalue_partial >= 0 { array_release(v4_mir_drop_plan_rvalue_partial) }
-    if v4_mir_drop_plan_site_heads >= 0 { array_release(v4_mir_drop_plan_site_heads) }
-    if v4_mir_drop_plan_site_tails >= 0 { array_release(v4_mir_drop_plan_site_tails) }
-    if v4_mir_drop_plan_row_bodies >= 0 { array_release(v4_mir_drop_plan_row_bodies) }
-    if v4_mir_drop_plan_row_locals >= 0 { array_release(v4_mir_drop_plan_row_locals) }
-    if v4_mir_drop_plan_row_modes >= 0 { array_release(v4_mir_drop_plan_row_modes) }
-    if v4_mir_drop_plan_row_next >= 0 { array_release(v4_mir_drop_plan_row_next) }
-    v4_mir_drop_plan_local_base = 0 - 1
-    v4_mir_drop_plan_rvalue_base = 0 - 1
-    v4_mir_drop_plan_site_base = 0 - 1
-    v4_mir_drop_plan_local_flags = 0 - 1
-    v4_mir_drop_plan_rvalue_moves = 0 - 1
-    v4_mir_drop_plan_rvalue_partial = 0 - 1
-    v4_mir_drop_plan_site_heads = 0 - 1
-    v4_mir_drop_plan_site_tails = 0 - 1
-    v4_mir_drop_plan_row_bodies = 0 - 1
-    v4_mir_drop_plan_row_locals = 0 - 1
-    v4_mir_drop_plan_row_modes = 0 - 1
-    v4_mir_drop_plan_row_next = 0 - 1
+    if v4_mir_drop_plan_table >= 0 { array_release(v4_mir_drop_plan_table) }
+    if v4_mir_drop_plan_rows >= 0 { array_release(v4_mir_drop_plan_rows) }
+    v4_mir_drop_plan_table = 0 - 1
+    v4_mir_drop_plan_rows = 0 - 1
+    v4_mir_drop_plan_body_total = 0
+    v4_mir_drop_plan_local_at = 0
+    v4_mir_drop_plan_rvalue_at = 0
+    v4_mir_drop_plan_site_at = 0
     v4_mir_drop_plan_mir = 0 - 1
     v4_mir_drop_plan_sealed = false
     v4_mir_drop_plan_failed = ""
@@ -7104,12 +7086,13 @@ task v4_mir_drop_plan_release() -> void {
 
 task v4_mir_drop_plan_fill(cells: int, count: int, value: word) -> bool {
     if cells < 0 { give back false }
+    pilot target = array_len(cells) + count
     pilot cell = 0
     repeat until cell >= count {
         array_push(cells, value)
         cell += 1
     }
-    give back array_len(cells) == count
+    give back array_len(cells) == target
 }
 
 -- Start an empty plan for mir_id (replacing any other). False when scratch
@@ -7117,19 +7100,9 @@ task v4_mir_drop_plan_fill(cells: int, count: int, value: word) -> bool {
 task v4_mir_drop_plan_begin(mir_id: int) -> bool {
     v4_mir_drop_plan_release()
     if not v4_mir_file_exists(mir_id) { give back false }
-    v4_mir_drop_plan_local_base = array_new()
-    v4_mir_drop_plan_rvalue_base = array_new()
-    v4_mir_drop_plan_site_base = array_new()
-    v4_mir_drop_plan_local_flags = array_new()
-    v4_mir_drop_plan_rvalue_moves = array_new()
-    v4_mir_drop_plan_rvalue_partial = array_new()
-    v4_mir_drop_plan_site_heads = array_new()
-    v4_mir_drop_plan_site_tails = array_new()
-    v4_mir_drop_plan_row_bodies = array_new()
-    v4_mir_drop_plan_row_locals = array_new()
-    v4_mir_drop_plan_row_modes = array_new()
-    v4_mir_drop_plan_row_next = array_new()
-    if v4_mir_drop_plan_local_base < 0 or v4_mir_drop_plan_rvalue_base < 0 or v4_mir_drop_plan_site_base < 0 or v4_mir_drop_plan_local_flags < 0 or v4_mir_drop_plan_rvalue_moves < 0 or v4_mir_drop_plan_rvalue_partial < 0 or v4_mir_drop_plan_site_heads < 0 or v4_mir_drop_plan_site_tails < 0 or v4_mir_drop_plan_row_bodies < 0 or v4_mir_drop_plan_row_locals < 0 or v4_mir_drop_plan_row_modes < 0 or v4_mir_drop_plan_row_next < 0 {
+    v4_mir_drop_plan_table = array_new()
+    v4_mir_drop_plan_rows = array_new()
+    if v4_mir_drop_plan_table < 0 or v4_mir_drop_plan_rows < 0 {
         v4_mir_drop_plan_release()
         give back false
     }
@@ -7138,20 +7111,26 @@ task v4_mir_drop_plan_begin(mir_id: int) -> bool {
     pilot sites = 0
     pilot body = 0
     repeat until body >= v4_mir_body_count(mir_id) {
-        array_push(v4_mir_drop_plan_local_base, word_from_int(locals))
-        array_push(v4_mir_drop_plan_rvalue_base, word_from_int(values))
-        array_push(v4_mir_drop_plan_site_base, word_from_int(sites))
+        array_push(v4_mir_drop_plan_table, word_from_int(locals))
+        array_push(v4_mir_drop_plan_table, word_from_int(values))
+        array_push(v4_mir_drop_plan_table, word_from_int(sites))
         locals += v4_mir_body_local_count(mir_id, body)
         values += v4_mir_body_rvalue_count(mir_id, body)
         sites += v4_mir_body_stmt_count(mir_id, body) * 3 + v4_mir_body_block_count(mir_id, body) * 3
         body += 1
     }
-    pilot filled: bool = array_len(v4_mir_drop_plan_site_base) == v4_mir_body_count(mir_id)
-    filled = filled and v4_mir_drop_plan_fill(v4_mir_drop_plan_local_flags, locals, "0")
-    filled = filled and v4_mir_drop_plan_fill(v4_mir_drop_plan_rvalue_moves, values, "-1")
-    filled = filled and v4_mir_drop_plan_fill(v4_mir_drop_plan_rvalue_partial, values, "0")
-    filled = filled and v4_mir_drop_plan_fill(v4_mir_drop_plan_site_heads, sites, "-1")
-    filled = filled and v4_mir_drop_plan_fill(v4_mir_drop_plan_site_tails, sites, "-1")
+    pilot filled: bool = array_len(v4_mir_drop_plan_table) == v4_mir_body_count(mir_id) * 3
+    v4_mir_drop_plan_body_total = v4_mir_body_count(mir_id)
+    v4_mir_drop_plan_local_at = v4_mir_body_count(mir_id) * 3
+    v4_mir_drop_plan_rvalue_at = v4_mir_drop_plan_local_at + locals
+    v4_mir_drop_plan_site_at = v4_mir_drop_plan_rvalue_at + values * 2
+    filled = filled and v4_mir_drop_plan_fill(v4_mir_drop_plan_table, locals, "0")
+    pilot value = 0
+    repeat until value >= values or not filled {
+        filled = v4_mir_drop_plan_fill(v4_mir_drop_plan_table, 1, "-1") and v4_mir_drop_plan_fill(v4_mir_drop_plan_table, 1, "0")
+        value += 1
+    }
+    filled = filled and v4_mir_drop_plan_fill(v4_mir_drop_plan_table, sites * 2, "-1")
     if not filled {
         v4_mir_drop_plan_release()
         give back false
@@ -7166,11 +7145,11 @@ task v4_mir_drop_plan_ready(mir_id: int) -> bool {
 
 task v4_mir_drop_plan_open(mir_id: int, body_id: int) -> bool {
     if v4_mir_drop_plan_mir != mir_id or mir_id < 0 or v4_mir_drop_plan_sealed { give back false }
-    give back body_id >= 0 and body_id < array_len(v4_mir_drop_plan_site_base)
+    give back body_id >= 0 and body_id < v4_mir_drop_plan_body_total
 }
 
 task v4_mir_drop_plan_body_valid(mir_id: int, body_id: int) -> bool {
-    give back mir_id >= 0 and v4_mir_drop_plan_mir == mir_id and body_id >= 0 and body_id < array_len(v4_mir_drop_plan_site_base)
+    give back mir_id >= 0 and v4_mir_drop_plan_mir == mir_id and body_id >= 0 and body_id < v4_mir_drop_plan_body_total
 }
 
 task v4_mir_drop_plan_fail(message: word) -> bool {
@@ -7182,24 +7161,24 @@ task v4_mir_drop_plan_fail(message: word) -> bool {
 -- edge and default sites a block index.
 task v4_mir_drop_site_cell(mir_id: int, body_id: int, site: int, index: int) -> int {
     if not v4_mir_drop_plan_body_valid(mir_id, body_id) or index < 0 or site < 0 or site > 5 { give back 0 - 1 }
-    pilot base = word_to_int(array_get(v4_mir_drop_plan_site_base, body_id))
+    pilot base = word_to_int(array_get(v4_mir_drop_plan_table, body_id * 3 + 2))
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    pilot slot = base + stmt_count * 3 + index * 3 + site - 3
     if site < 3 {
         if index >= stmt_count { give back 0 - 1 }
-        give back base + index * 3 + site
-    }
-    if index >= v4_mir_body_block_count(mir_id, body_id) { give back 0 - 1 }
-    give back base + stmt_count * 3 + index * 3 + site - 3
+        slot = base + index * 3 + site
+    } else if index >= v4_mir_body_block_count(mir_id, body_id) { give back 0 - 1 }
+    give back v4_mir_drop_plan_site_at + slot * 2
 }
 
 task v4_mir_drop_local_cell(mir_id: int, body_id: int, local_id: int) -> int {
     if not v4_mir_drop_plan_body_valid(mir_id, body_id) or local_id < 0 or local_id >= v4_mir_body_local_count(mir_id, body_id) { give back 0 - 1 }
-    give back word_to_int(array_get(v4_mir_drop_plan_local_base, body_id)) + local_id
+    give back v4_mir_drop_plan_local_at + word_to_int(array_get(v4_mir_drop_plan_table, body_id * 3)) + local_id
 }
 
 task v4_mir_drop_rvalue_cell(mir_id: int, body_id: int, rvalue_id: int) -> int {
     if not v4_mir_drop_plan_body_valid(mir_id, body_id) or rvalue_id < 0 or rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) { give back 0 - 1 }
-    give back word_to_int(array_get(v4_mir_drop_plan_rvalue_base, body_id)) + rvalue_id
+    give back v4_mir_drop_plan_rvalue_at + (word_to_int(array_get(v4_mir_drop_plan_table, body_id * 3 + 1)) + rvalue_id) * 2
 }
 
 -- An owned local of this body; flag says it carries a runtime drop flag.
@@ -7209,7 +7188,7 @@ task v4_mir_drop_plan_add_owned(mir_id: int, body_id: int, local_id: int, flag: 
     if cell < 0 { give back v4_mir_drop_plan_fail("drop plan local is out of range") }
     pilot state = "1"
     if flag { state = "2" }
-    array_set(v4_mir_drop_plan_local_flags, cell, state)
+    array_set(v4_mir_drop_plan_table, cell, state)
     give back true
 }
 
@@ -7217,10 +7196,10 @@ task v4_mir_drop_plan_add_move(mir_id: int, body_id: int, rvalue_id: int, local_
     if not v4_mir_drop_plan_open(mir_id, body_id) { give back v4_mir_drop_plan_fail("drop plan is not open for this MIR") }
     pilot cell = v4_mir_drop_rvalue_cell(mir_id, body_id, rvalue_id)
     if cell < 0 or v4_mir_drop_local_cell(mir_id, body_id, local_id) < 0 { give back v4_mir_drop_plan_fail("drop plan move is out of range") }
-    pilot previous: word = array_get(v4_mir_drop_plan_rvalue_moves, cell)
+    pilot previous: word = array_get(v4_mir_drop_plan_table, cell)
     if previous != "-1" { give back v4_mir_drop_plan_fail("drop plan rvalue moves twice") }
-    array_set(v4_mir_drop_plan_rvalue_moves, cell, word_from_int(local_id))
-    if partial { array_set(v4_mir_drop_plan_rvalue_partial, cell, "1") }
+    array_set(v4_mir_drop_plan_table, cell, word_from_int(local_id))
+    if partial { array_set(v4_mir_drop_plan_table, cell + 1, "1") }
     give back true
 }
 
@@ -7230,16 +7209,16 @@ task v4_mir_drop_plan_add_drop(mir_id: int, body_id: int, site: int, index: int,
     pilot cell = v4_mir_drop_site_cell(mir_id, body_id, site, index)
     if cell < 0 or v4_mir_drop_local_cell(mir_id, body_id, local_id) < 0 { give back v4_mir_drop_plan_fail("drop plan site is out of range") }
     if mode != v4_mir_drop_mode_drop and mode != v4_mir_drop_mode_drop_if and mode != v4_mir_drop_mode_slot { give back v4_mir_drop_plan_fail("drop plan mode is invalid: " + mode) }
-    pilot row = array_len(v4_mir_drop_plan_row_locals)
-    pilot tail = word_to_int(array_get(v4_mir_drop_plan_site_tails, cell))
+    pilot row = array_len(v4_mir_drop_plan_rows) / 4
+    pilot tail = word_to_int(array_get(v4_mir_drop_plan_table, cell + 1))
     if tail >= 0 and tail != row - 1 { give back v4_mir_drop_plan_fail("drop plan site rows are not contiguous") }
-    array_push(v4_mir_drop_plan_row_bodies, word_from_int(body_id))
-    array_push(v4_mir_drop_plan_row_locals, word_from_int(local_id))
-    array_push(v4_mir_drop_plan_row_modes, mode)
-    array_push(v4_mir_drop_plan_row_next, "-1")
-    if array_len(v4_mir_drop_plan_row_next) != row + 1 or array_len(v4_mir_drop_plan_row_modes) != row + 1 { give back v4_mir_drop_plan_fail("drop plan row scratch exhausted") }
-    if tail < 0 { array_set(v4_mir_drop_plan_site_heads, cell, word_from_int(row)) } else { array_set(v4_mir_drop_plan_row_next, tail, word_from_int(row)) }
-    array_set(v4_mir_drop_plan_site_tails, cell, word_from_int(row))
+    array_push(v4_mir_drop_plan_rows, word_from_int(body_id))
+    array_push(v4_mir_drop_plan_rows, word_from_int(local_id))
+    array_push(v4_mir_drop_plan_rows, mode)
+    array_push(v4_mir_drop_plan_rows, "-1")
+    if array_len(v4_mir_drop_plan_rows) != row * 4 + 4 { give back v4_mir_drop_plan_fail("drop plan row scratch exhausted") }
+    if tail < 0 { array_set(v4_mir_drop_plan_table, cell, word_from_int(row)) } else { array_set(v4_mir_drop_plan_rows, tail * 4 + 3, word_from_int(row)) }
+    array_set(v4_mir_drop_plan_table, cell + 1, word_from_int(row))
     give back true
 }
 
@@ -7249,11 +7228,11 @@ task v4_mir_drop_plan_seal(mir_id: int) -> word {
     if v4_mir_drop_plan_failed != "" { give back v4_mir_drop_plan_failed }
     if v4_mir_drop_plan_mir != mir_id or mir_id < 0 or v4_mir_drop_plan_sealed { give back "drop plan is not open for this MIR" }
     pilot row = 0
-    repeat until row >= array_len(v4_mir_drop_plan_row_locals) {
-        pilot mode: word = array_get(v4_mir_drop_plan_row_modes, row)
-        pilot cell = v4_mir_drop_local_cell(mir_id, word_to_int(array_get(v4_mir_drop_plan_row_bodies, row)), word_to_int(array_get(v4_mir_drop_plan_row_locals, row)))
+    repeat until row * 4 >= array_len(v4_mir_drop_plan_rows) {
+        pilot mode: word = array_get(v4_mir_drop_plan_rows, row * 4 + 2)
+        pilot cell = v4_mir_drop_local_cell(mir_id, word_to_int(array_get(v4_mir_drop_plan_rows, row * 4)), word_to_int(array_get(v4_mir_drop_plan_rows, row * 4 + 1)))
         if cell < 0 { give back "drop plan row local is out of range" }
-        pilot state: word = array_get(v4_mir_drop_plan_local_flags, cell)
+        pilot state: word = array_get(v4_mir_drop_plan_table, cell)
         if mode != v4_mir_drop_mode_slot and state == "0" { give back "drop plan drops a local that owns nothing" }
         if mode == v4_mir_drop_mode_drop_if and state != "2" { give back "drop plan DropIf local has no drop flag" }
         row += 1
@@ -7263,10 +7242,10 @@ task v4_mir_drop_plan_seal(mir_id: int) -> word {
         pilot value = 0
         repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
             pilot cell = v4_mir_drop_rvalue_cell(mir_id, body, value)
-            pilot moved = word_to_int(array_get(v4_mir_drop_plan_rvalue_moves, cell))
-            pilot partial: word = array_get(v4_mir_drop_plan_rvalue_partial, cell)
+            pilot moved = word_to_int(array_get(v4_mir_drop_plan_table, cell))
+            pilot partial: word = array_get(v4_mir_drop_plan_table, cell + 1)
             if moved >= 0 and partial != "1" {
-                pilot state: word = array_get(v4_mir_drop_plan_local_flags, v4_mir_drop_local_cell(mir_id, body, moved))
+                pilot state: word = array_get(v4_mir_drop_plan_table, v4_mir_drop_local_cell(mir_id, body, moved))
                 if state == "0" { give back "drop plan moves a local that owns nothing" }
             }
             value += 1
@@ -7281,7 +7260,7 @@ task v4_mir_drop_local_owned(mir_id: int, body_id: int, local_id: int) -> bool {
     if not v4_mir_drop_plan_ready(mir_id) { give back false }
     pilot cell = v4_mir_drop_local_cell(mir_id, body_id, local_id)
     if cell < 0 { give back false }
-    pilot state: word = array_get(v4_mir_drop_plan_local_flags, cell)
+    pilot state: word = array_get(v4_mir_drop_plan_table, cell)
     give back state != "0"
 }
 
@@ -7289,7 +7268,7 @@ task v4_mir_drop_local_flag(mir_id: int, body_id: int, local_id: int) -> bool {
     if not v4_mir_drop_plan_ready(mir_id) { give back false }
     pilot cell = v4_mir_drop_local_cell(mir_id, body_id, local_id)
     if cell < 0 { give back false }
-    pilot state: word = array_get(v4_mir_drop_plan_local_flags, cell)
+    pilot state: word = array_get(v4_mir_drop_plan_table, cell)
     give back state == "2"
 }
 
@@ -7298,14 +7277,14 @@ task v4_mir_drop_rvalue_moved_local(mir_id: int, body_id: int, rvalue_id: int) -
     if not v4_mir_drop_plan_ready(mir_id) { give back 0 - 1 }
     pilot cell = v4_mir_drop_rvalue_cell(mir_id, body_id, rvalue_id)
     if cell < 0 { give back 0 - 1 }
-    give back word_to_int(array_get(v4_mir_drop_plan_rvalue_moves, cell))
+    give back word_to_int(array_get(v4_mir_drop_plan_table, cell))
 }
 
 task v4_mir_drop_rvalue_is_partial(mir_id: int, body_id: int, rvalue_id: int) -> bool {
     if not v4_mir_drop_plan_ready(mir_id) { give back false }
     pilot cell = v4_mir_drop_rvalue_cell(mir_id, body_id, rvalue_id)
     if cell < 0 { give back false }
-    pilot partial: word = array_get(v4_mir_drop_plan_rvalue_partial, cell)
+    pilot partial: word = array_get(v4_mir_drop_plan_table, cell + 1)
     give back partial == "1"
 }
 
@@ -7313,22 +7292,22 @@ task v4_mir_drop_site_first(mir_id: int, body_id: int, site: int, index: int) ->
     if not v4_mir_drop_plan_ready(mir_id) { give back 0 - 1 }
     pilot cell = v4_mir_drop_site_cell(mir_id, body_id, site, index)
     if cell < 0 { give back 0 - 1 }
-    give back word_to_int(array_get(v4_mir_drop_plan_site_heads, cell))
+    give back word_to_int(array_get(v4_mir_drop_plan_table, cell))
 }
 
 task v4_mir_drop_row_next(row: int) -> int {
-    if row < 0 or row >= array_len(v4_mir_drop_plan_row_next) { give back 0 - 1 }
-    give back word_to_int(array_get(v4_mir_drop_plan_row_next, row))
+    if row < 0 or row * 4 >= array_len(v4_mir_drop_plan_rows) { give back 0 - 1 }
+    give back word_to_int(array_get(v4_mir_drop_plan_rows, row * 4 + 3))
 }
 
 task v4_mir_drop_row_local(row: int) -> int {
-    if row < 0 or row >= array_len(v4_mir_drop_plan_row_locals) { give back 0 - 1 }
-    give back word_to_int(array_get(v4_mir_drop_plan_row_locals, row))
+    if row < 0 or row * 4 >= array_len(v4_mir_drop_plan_rows) { give back 0 - 1 }
+    give back word_to_int(array_get(v4_mir_drop_plan_rows, row * 4 + 1))
 }
 
 task v4_mir_drop_row_mode(row: int) -> word {
-    if row < 0 or row >= array_len(v4_mir_drop_plan_row_modes) { give back "" }
-    give back array_get(v4_mir_drop_plan_row_modes, row)
+    if row < 0 or row * 4 >= array_len(v4_mir_drop_plan_rows) { give back "" }
+    give back array_get(v4_mir_drop_plan_rows, row * 4 + 2)
 }
 
 -- Whether a site holds a row of this mode (DropSlot at a store, say).
