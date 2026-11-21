@@ -153,7 +153,11 @@ say "check-result-branch-op=" + v4_mir_rvalue_op(v4_mir_check_result_mir, v4_mir
 say "check-result-branch-ty=" + v4_mir_rvalue_ty(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_branch_rvalue)
 say "check-result-n-kind=" + v4_mir_rvalue_kind(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_rvalue)
 say "check-result-n-ty=" + v4_mir_rvalue_ty(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_rvalue)
-say "check-result-n-source-field=" + v4_mir_place_field(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_source)
+-- result<int,word> is a native carrier: the ok binding is a proven take.
+say "check-result-n-op=" + v4_mir_rvalue_op(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_rvalue)
+say "check-result-n-source-kind=" + v4_mir_rvalue_kind(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_source)
+say "check-result-n-source-ty=" + v4_mir_rvalue_ty(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_source)
+say "check-result-n-source-local-name=" + v4_mir_local_name(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_rvalue_local_id(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_source))
 say "check-result-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_result_mir))
 
 pilot v4_mir_check_bad_maybe_stream = v4_lex_text(2, v4_mir_check_bad_maybe_source())

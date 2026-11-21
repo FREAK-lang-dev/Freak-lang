@@ -6436,20 +6436,25 @@ task v4_mir_sum_row_value_error(ty: int, values: int, locals: int, value: int) -
     if error != "" { give back error }
     if carrier != "" and kind == v4_mir_rvalue_use_local and v4_mir_sum_row_local(values, locals, value) < 0 { give back "invalid scalar sum local identity" }
     pilot lhs = word_to_int(v4_mir_snapshot_field_raw(row, 7))
+    pilot family = v4_ty_native_sum_family(carrier)
     if carrier != "" and (kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err) {
         if v4_mir_snapshot_field_raw(row, 8) != "-1" or v4_mir_snapshot_field(row, 11) != "" or v4_mir_snapshot_field(row, 12) != "" or v4_mir_snapshot_field(row, 13) != "" { give back "invalid scalar sum constructor shape" }
         if kind == v4_mir_rvalue_nobody {
-            if carrier != "MaybeInt" or op != "Nobody" or lhs != -1 { give back "invalid scalar sum Nobody constructor" }
+            if family != "maybe" or op != "Nobody" or lhs != -1 { give back "invalid scalar sum Nobody constructor" }
         } else {
             if lhs < 0 or lhs >= value { give back "invalid scalar sum constructor operand" }
+            pilot expected = v4_ty_native_sum_case_type(ty, v4_mir_snapshot_field(row, 10), op)
             if kind == v4_mir_rvalue_some {
-                if carrier != "MaybeInt" or op != "Some" or v4_mir_control_row_type(values, lhs) != v4_ty_int { give back "scalar Some requires an exact int payload" }
+                if family != "maybe" or op != "Some" or v4_mir_control_row_type(values, lhs) != expected { give back "scalar Some requires an exact payload" }
             } else {
-                if carrier != "ResultWordWord" or v4_mir_control_row_type(values, lhs) != v4_ty_word { give back "scalar Result requires an owned word payload" }
+                if family != "result" or expected == v4_ty_unknown or v4_mir_control_row_type(values, lhs) != expected { give back "scalar Result requires an exact payload" }
                 if (kind == v4_mir_rvalue_ok and op != "Ok") or (kind == v4_mir_rvalue_err and op != "Err") { give back "invalid scalar Result constructor tag" }
+            }
+            -- An owned word payload moves in from exactly one owned source.
+            if expected == v4_ty_word {
                 pilot payload: word = array_get(values, lhs)
                 pilot payload_kind = v4_mir_snapshot_field(payload, 4)
-                if payload_kind != v4_mir_rvalue_use_local and payload_kind != v4_mir_rvalue_const_word and payload_kind != v4_mir_rvalue_call and payload_kind != v4_mir_rvalue_sum_take { give back "scalar Result requires an owned word expression" }
+                if payload_kind != v4_mir_rvalue_use_local and payload_kind != v4_mir_rvalue_const_word and payload_kind != v4_mir_rvalue_call and payload_kind != v4_mir_rvalue_sum_take and payload_kind != v4_mir_rvalue_try and payload_kind != v4_mir_rvalue_or_else { give back "scalar Result requires an owned word expression" }
                 if payload_kind == v4_mir_rvalue_use_local {
                     pilot binding = v4_mir_sum_row_local(values, locals, lhs)
                     if binding < 0 { give back "invalid scalar Result payload identity" }
@@ -6460,15 +6465,18 @@ task v4_mir_sum_row_value_error(ty: int, values: int, locals: int, value: int) -
         }
     }
     pilot source_carrier = v4_ty_native_scalar_sum_kind(ty, v4_mir_control_row_type(values, lhs))
-    if kind == v4_mir_rvalue_sum_take or (kind == v4_mir_rvalue_check and source_carrier != "") {
+    pilot source_family = v4_ty_native_sum_family(source_carrier)
+    -- A Try over a native carrier is the proven take of its continuing edge.
+    if kind == v4_mir_rvalue_sum_take or (kind == v4_mir_rvalue_check and source_carrier != "") or (kind == v4_mir_rvalue_try and source_carrier != "") {
         if lhs < 0 or lhs >= value or v4_mir_sum_row_local(values, locals, lhs) < 0 or v4_mir_snapshot_field_raw(row, 8) != "-1" or v4_mir_snapshot_field(row, 11) != "" or v4_mir_snapshot_field(row, 12) != "" or v4_mir_snapshot_field(row, 13) != "" { give back "invalid scalar sum observer or extraction shape" }
         if kind == v4_mir_rvalue_check {
-            if v4_mir_snapshot_field(row, 10) != v4_ty_bool or (source_carrier == "MaybeInt" and op != "HasSome") or (source_carrier == "ResultWordWord" and op != "IsOk") { give back "invalid scalar sum tag observer" }
+            if v4_mir_snapshot_field(row, 10) != v4_ty_bool or (source_family == "maybe" and op != "HasSome") or (source_family == "result" and op != "IsOk") { give back "invalid scalar sum tag observer" }
         } else {
-            if source_carrier == "MaybeInt" {
-                if op != "TakeSome" or v4_mir_snapshot_field(row, 10) != v4_ty_int { give back "invalid scalar maybe extraction" }
-            } else if source_carrier == "ResultWordWord" {
-                if (op != "TakeOk" and op != "TakeErr") or v4_mir_snapshot_field(row, 10) != v4_ty_word { give back "invalid scalar Result extraction" }
+            pilot taken = v4_ty_native_sum_case_type(ty, v4_mir_control_row_type(values, lhs), op)
+            if source_family == "maybe" {
+                if (kind == v4_mir_rvalue_sum_take and op != "TakeSome") or (kind == v4_mir_rvalue_try and op != "TryMaybe") or taken == v4_ty_unknown or v4_mir_snapshot_field(row, 10) != taken { give back "invalid scalar maybe extraction" }
+            } else if source_family == "result" {
+                if (kind == v4_mir_rvalue_sum_take and op != "TakeOk" and op != "TakeErr") or (kind == v4_mir_rvalue_try and op != "TryResult") or taken == v4_ty_unknown or v4_mir_snapshot_field(row, 10) != taken { give back "invalid scalar Result extraction" }
             } else { give back "unsupported scalar sum extraction carrier" }
             pilot source_local = v4_mir_sum_row_local(values, locals, lhs)
             pilot local_row: word = array_get(locals, source_local)
@@ -6540,7 +6548,7 @@ task v4_mir_sum_value_state(values: int, locals: int, places: int, value: int, l
         give back state
     }
     if kind == v4_mir_rvalue_use_place { give back v4_mir_sum_place_state(values, locals, places, lhs, local, state, depth + 1) }
-    if kind == v4_mir_rvalue_sum_take {
+    if kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try {
         if v4_mir_sum_row_local(values, locals, lhs) == local {
             pilot expected = 2
             if v4_mir_snapshot_field(row, 6) == "TakeErr" { expected = 3 }
@@ -6728,7 +6736,7 @@ task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) ->
     if v4_mir_builtin_system_identity_kind(identity) != "" or identity == "builtin::word::to_int_maybe" { give back v4_mir_sum_row_intrinsic_error(ty, values, locals, value) }
     if identity != "" or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" { give back "scalar sum calls require a resolved ordinary static task" }
     pilot signature = v4_ty_task_signature_id_for_name(ty, v4_mir_snapshot_field(row, 6))
-    if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum calls require a resolved ordinary static task" }
+    if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_type_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum calls require a resolved ordinary static task" }
     if returned_type != v4_ty_signature_return_type(ty, signature) or v4_mir_snapshot_field(row, 11) != v4_ty_signature_call_abi(ty, signature) or count != v4_ty_signature_fixed_param_count(ty, signature) { give back "invalid scalar sum task call contract" }
     arg = 0
     repeat until arg >= count {
@@ -6840,7 +6848,7 @@ task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks:
         -- The bootstrap module init has no parameters and spans the file.
         if v4_mir_snapshot_field(header, 4) != v4_mir_module_init_name { give back "invalid scalar sum module init identity" }
     } else {
-        if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum body requires an ordinary nongeneric task" }
+        if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_type_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum body requires an ordinary nongeneric task" }
         if v4_mir_snapshot_field(header, 4) != v4_ty_signature_name(ty, signature) or v4_mir_snapshot_field(header, 5) != v4_ty_signature_of(ty, definition) { give back "invalid scalar sum task body identity" }
         parameters = v4_ty_signature_fixed_param_count(ty, signature)
         if parameters > array_len(locals) { give back "invalid scalar sum task parameter locals" }

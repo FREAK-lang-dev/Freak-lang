@@ -8094,9 +8094,12 @@ EXECUTABLE_SMOKES = [
             "check-result-branch-kind=Check",
             "check-result-branch-op=IsOk",
             "check-result-branch-ty=bool",
-            "check-result-n-kind=UsePlace",
+            "check-result-n-kind=SumTake",
             "check-result-n-ty=int",
-            "check-result-n-source-field=ok",
+            "check-result-n-op=TakeOk",
+            "check-result-n-source-kind=UseLocal",
+            "check-result-n-source-ty=result<int,word>",
+            "check-result-n-source-local-name=_check_result_subject",
             "check-result-good-diagnostics=0",
             "check-maybe-bad-source-diagnostics=2",
             "check-maybe-bad-source-message=check needs maybe source",
@@ -8153,10 +8156,11 @@ EXECUTABLE_SMOKES = [
             "check-destructure-right-index-kind=ConstInt",
             "check-destructure-right-index-text=1",
             "check-destructure-right-index-ty=int",
-            "check-destructure-msg-kind=UsePlace",
+            "check-destructure-msg-kind=SumTake",
             "check-destructure-msg-ty=word",
-            "check-destructure-msg-source-field=err",
-            "check-destructure-msg-source-ty=word",
+            "check-destructure-msg-op=TakeErr",
+            "check-destructure-msg-source-kind=UseLocal",
+            "check-destructure-msg-source-ty=result<Wing,word>",
             "check-destructure-diagnostics=4",
             "check-destructure-diagnostic0-message=check maybe arm malformed",
             "check-destructure-diagnostic0-help=use got pattern -> ...",
@@ -17367,6 +17371,10 @@ NATIVE_ROUTES_EXPECTED = ("2\n0\ntrue\ntrue\ntrue\n41\nfalse\n9\n9\n12\n15\n0\n4
 NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\norigin:12\n0\nfalse\ntrue\n2\n"
 # The FREAK aggregate calling convention: stdout, then main's exit status.
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
+NATIVE_MAYBE_RESULT_EXPECTED = ("2.5\n7\nempty\n2\nodd\n3\none\npos\n-4\n51\n4\nfallback evaluated\n9\none/anon\n"
+                                "direct\nkept\n5\n3\n6\nfalse\n12\ntrue\n5\nnone\none\nloud\nsilent\nc\n36\n"
+                                "noisy fallback\n20\n2\npropagated\ntrue\nnone\npos\nneg\none\nanon\ntag\n4\nsouth\nsouth\n1\npropagated\nfalse\n")
+NATIVE_MAYBE_RESULT_EXIT = 17
 
 
 def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
@@ -17394,7 +17402,7 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
     clang = shutil.which("clang")
     notes = native_layout_notes(module)
     payloads = native_payload_notes(module)
-    types = re.findall(r'^(%"freak\.(?:shape|route)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
     if not notes or len(notes) != len(types) or not set(payloads) <= set(notes):
         raise RuntimeError(f"V4 shape module for {triple} has no matching layout notes")
     # A route with payload storage after its tag must say how that storage is
@@ -17516,7 +17524,7 @@ def check_native_abi_oracle(module: str, triple: str) -> int:
         pending = []
     if not claims:
         return 0
-    types = re.findall(r'^(%"freak\.(?:shape|route)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
     probe_lines = list(types)
     for index, (_, _, _, _, llvm_type) in enumerate(claims):
         probe_lines.append(f"define i64 @abi_{index}_size() {{ ret i64 ptrtoint (ptr getelementptr ({llvm_type}, ptr null, i32 1) to i64) }}")
@@ -17536,6 +17544,104 @@ def check_native_abi_oracle(module: str, triple: str) -> int:
             raise RuntimeError(f"freak_target ABI disagrees with Clang on {triple}: {sym} {name} {llvm_type} "
                                f"freak_target=size {size} align {align} clang=size {clang_size} align {clang_align}")
     return len(claims)
+
+
+def check_v4_native_maybe_result() -> None:
+    """Tier 3 general maybe/result: exact run and exit, layouts on all targets, named rejections."""
+    source = V4_ROOT / "examples" / "maybe_result_native.fk"
+    executable = RUNTIME_BUILD_ROOT / ("tier3_native_maybe_result.exe" if sys.platform == "win32" else "tier3_native_maybe_result.native")
+    executable.unlink(missing_ok=True)
+    built = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(executable)],
+        label="V4 build command: native maybe/result", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if built.returncode != 0 or not executable.exists():
+        raise RuntimeError(f"V4 rejected the native maybe/result program:\n{built.stdout}{built.stderr}")
+    ran = run_with_heartbeat([str(executable)], label="V4 native maybe/result execute", timeout_seconds=10, memory_limit_mb=128)
+    if ran.returncode != NATIVE_MAYBE_RESULT_EXIT or ran.stdout.replace("\r\n", "\n") != NATIVE_MAYBE_RESULT_EXPECTED:
+        raise RuntimeError(f"V4 native maybe/result printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r} stderr={ran.stderr!r}")
+    probes = 0
+    abi_probes = 0
+    objects = 0
+    for triple in NATIVE_LAYOUT_TRIPLES:
+        module_path = RUNTIME_BUILD_ROOT / f"tier3_native_maybe_result_{triple}.ll"
+        module_path.unlink(missing_ok=True)
+        emitted = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+            label=f"V4 maybe/result module {triple}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not module_path.exists():
+            raise RuntimeError(f"V4 could not emit the maybe/result module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+        module_text = module_path.read_text(encoding="utf-8")
+        carriers = re.findall(r'^%"freak\.sum\.([^"]+)" = type ', module_text, re.MULTILINE)
+        # Each general carrier is one named struct with a freak_target note; the
+        # closed maybe<int> slice keeps its own runtime name.
+        if sorted(carriers) != sorted(set(carriers)) or not {"maybe<Point>", "result<int,word>", "maybe<word>", "result<[int;3],int>"} <= set(carriers):
+            raise RuntimeError(f"V4 maybe/result module for {triple} has the wrong carriers: {carriers}")
+        probes += check_native_layout_oracle(module_text, triple)
+        # One convention: a maybe/result carrier crosses FREAK calls as a
+        # first-class value; only shapes, tuples, arrays and routes take the
+        # pointer/sret aggregate ABI, and its oracle must agree on those.
+        abi_probes += check_native_abi_oracle(module_text, triple)
+        sum_abi = [line for line in module_text.splitlines() if line.startswith("; freak.abi ") and "freak.sum." in line]
+        sum_headers = [line for line in module_text.splitlines() if line.startswith("define ") and '%"freak.sum.' in line]
+        by_pointer = [line for line in sum_headers if re.search(r'sret\(%"freak\.sum\.', line)]
+        if sum_abi or by_pointer or not any(re.match(r'define [^@]*%"freak\.sum\.[^"]+" @', line) for line in sum_headers):
+            raise RuntimeError(f"V4 maybe/result carriers left the by-value convention on {triple}: {sum_abi + by_pointer}")
+        # Every target's module must assemble, not only the host's linked one.
+        assembled = run_with_heartbeat(
+            [shutil.which("clang"), f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
+            label=f"V4 maybe/result object {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if assembled.returncode != 0:
+            raise RuntimeError(f"Clang rejected the V4 maybe/result module for {triple}:\n{assembled.stderr}")
+        objects += 1
+    rejected_cases = (
+        ("tier3_sum_nested", "task main() -> int {\n    pilot a: maybe<maybe<int>> = nobody\n    give back 0\n}\n",
+         "native nested maybe/result payloads are not yet supported: maybe<maybe<int>>"),
+        ("tier3_sum_generic_payload", "shape Box<T> { v: T }\ntask main() -> int {\n    pilot a: maybe<Box<int>> = nobody\n    give back 0\n}\n",
+         "native generic shapes need monomorphization: Box<int>"),
+        ("tier3_sum_word_shape_payload", "shape Named { name: word, n: int }\n"
+         "task main() -> int {\n    pilot a: maybe<Named> = nobody\n    give back 0\n}\n",
+         "native maybe/result aggregate payloads that own words are not yet supported: Named"),
+        ("tier3_sum_word_tuple_payload", "task main() -> int {\n    pilot a: maybe<(word, int)> = nobody\n    give back 0\n}\n",
+         "native maybe/result aggregate payloads that own words are not yet supported: (word,int)"),
+        ("tier3_sum_shape_field", "shape Holder { v: maybe<int> }\n"
+         "task main() -> int {\n    pilot h = Holder { v: nobody }\n    give back 0\n}\n",
+         "native aggregate maybe/result slots are not yet supported: Holder.v"),
+        ("tier3_sum_array_element", "task main() -> int {\n    pilot a: [maybe<num>; 2] = [nobody, nobody]\n    give back 0\n}\n",
+         "native aggregate maybe/result slots are not yet supported: [maybe<num>;2][]"),
+        ("tier3_sum_equality", "task main() -> int {\n    pilot a: maybe<num> = some(1.0)\n    pilot b: maybe<num> = some(1.0)\n"
+         "    if a == b { give back 1 }\n    give back 0\n}\n",
+         "native scalar sum equality is not yet supported"),
+        ("tier3_sum_lend_param", "task peek(lend v: maybe<num>) -> int { give back 0 }\ntask main() -> int { give back 0 }\n",
+         "borrowed scalar sum storage is not yet supported"),
+        ("tier3_sum_use_after_move", "task main() -> int {\n    pilot a: maybe<num> = some(1.0)\n    pilot b = a\n    pilot c = a\n    give back 0\n}\n",
+         "scalar sum use requires a live owner"),
+        ("tier3_sum_method_return", "shape P { x: int }\nimpl P {\n    task get(lend self) -> maybe<int> { give back some(self.x) }\n}\n"
+         "task main() -> int {\n    pilot p = P { x: 1 }\n    check p.get() {\n        got v -> give back v - 1\n        nobody -> give back 1\n    }\n    give back 2\n}\n",
+         "scalar sum calls require a resolved ordinary static task"),
+        ("tier3_sum_or_else_control_flow", "task pick() -> maybe<int> { give back nobody }\ntask other() -> maybe<int> { give back some(4) }\n"
+         "task run() -> maybe<int> {\n    pilot v = pick() or else (other()?)\n    give back some(v)\n}\ntask main() -> int { give back 0 }\n",
+         "or else fallback with control flow is not yet supported"),
+        ("tier3_sum_c_abi", "extern [C] {\n    task probe(v: maybe<num>) -> std::ffi::c_int\n}\ntask main() -> int { give back 0 }\n",
+         "extern parameter type is not FFI-safe"),
+    )
+    for stem, text, reason in rejected_cases:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 maybe/result case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    if abi_probes == 0:
+        raise RuntimeError("V4 maybe/result modules made no aggregate ABI claims for the oracle to check")
+    print(f"V4 native maybe/result: run=exact exit={NATIVE_MAYBE_RESULT_EXIT} layout-probes={probes} "
+          f"abi-probes={abi_probes} targets={len(NATIVE_LAYOUT_TRIPLES)} objects={objects} rejections={len(rejected_cases)}")
 
 
 def check_v4_native_shapes() -> None:
@@ -17724,6 +17830,7 @@ def check_v4_native_shapes() -> None:
           f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
     check_v4_native_patterns()
     check_v4_native_c_widths()
+    check_v4_native_maybe_result()
 
 
 # Tier 3 patterns: when over tuples, fixed arrays and route payloads (nested,
