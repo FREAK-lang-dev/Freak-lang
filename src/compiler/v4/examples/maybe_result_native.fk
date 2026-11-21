@@ -95,6 +95,26 @@ task pick_tagged<'a>(value: maybe<(int, bool)>, lend 'a label: word) -> int {
     give back 9
 }
 
+task dir_of(n: int) -> maybe<Dir> {
+    if n > 0 { give back some(Dir::South) }
+    give back nobody
+}
+
+task same_dir(d: Dir) -> Dir { give back d }
+
+-- `?` in a when scrutinee and a check route subject propagates first.
+task routed(n: int) -> maybe<int> {
+    when same_dir(dir_of(n)?) {
+        Dir::North -> say "north"
+        Dir::South -> say "south"
+    }
+    check route same_dir(dir_of(n)?) {
+        Dir::North -> say "north"
+        Dir::South -> say "south"
+    }
+    give back some(n)
+}
+
 task noisy() -> int {
     say "noisy fallback"
     give back 1
@@ -267,6 +287,14 @@ task main() -> int {
     pilot tag = "tag"
     pilot tagged: maybe<(int, bool)> = some((4, true))
     say pick_tagged(tagged, lend tag)
+    check routed(1) {
+        got v -> say v
+        nobody -> say "propagated"
+    }
+    check routed(0) {
+        got v -> say v
+        nobody -> say "propagated"
+    }
     label(1) or else "dropped"
     pilot unused = name_of(1)
     give back total - 19
