@@ -371,6 +371,47 @@ checks. Program: `examples/agg_abi_native.fk` (exact output, exit 42); the
 word-owning subset is also audited by `tests/v4_owned_word_codegen.py` under
 ASan, UBSan and both ownership audits.
 
+### C variadic calls and C-width callbacks
+
+The C call plan in `freak_codegen_llvm` covers the calls a FREAK-signature
+shim cannot: a direct call to a variadic extern declaration, and any call
+through an extern function pointer whose spelled parameters or return use a
+C width (`c_int`, `c_uint`, `c_long`, `c_ulong`, `c_short`, `c_ushort`,
+`c_char`, `c_uchar`, `c_bool`).
+
+- **Variadic calls** use LLVM's `call RET (FIXED, ...) @f(...)` form, so the
+  backend applies each target's vararg convention (Apple arm64 puts varargs
+  on the stack; Win64 duplicates floating varargs in integer registers). Each
+  `...` argument takes C's default argument promotions, a TY fact
+  (`v4_ty_variadic_arg_c_type`): `bool` and `tiny` zero-extend to C `int`,
+  `char` passes as `unsigned int`, `float32` extends to `double`; `int`,
+  `uint`, `float`/`num` and raw pointers travel as `long long`,
+  `unsigned long long`, `double` and pointers. Words, tuples, arrays, shapes
+  and routes are rejected by MIR (`variadic call argument is not C vararg
+  safe`).
+- **Fixed C-width arguments** narrow through `@freak.cabi.narrow.KEY` (the
+  same checked helpers as the declaration shims: out of range fails, never
+  truncates) and a C-width result widens through `@freak.cabi.widen.KEY` by
+  its signedness. Body text stays target neutral: `$T.KEY$`, `$P.KEY$` and
+  `$R.KEY$` markers become the target carrier and `signext`/`zeroext` at module
+  assembly, which also defines the helpers.
+- **Callbacks.** An `@extern_callback` task whose signature spells C widths
+  gets a trampoline at the C width that widens each argument, calls the FREAK
+  task and narrows the result (checked). Calls through extern function
+  pointers (C results, parameters, locals, shape fields, tuple slots, array
+  elements, and C-width extern declarations used as task values) take the
+  plan above.
+- **Still fenced by name:** variadic function pointer types and variadic
+  extern task values (`native C variadic function pointers are not yet
+  supported`), variadic `@extern_callback` tasks (TY), C widths in FREAK task
+  types, behind aliases or as pointees, `wchar`, and aggregates by value.
+
+`check_v4_native_c_abi` (from `check_v4_native_shapes`) links
+`examples/c_abi_native.fk` with real C (libc `snprintf`, `va_arg` readers
+with 19 stacked varargs, callbacks both ways), checks the narrowing panics,
+and compares every declaration, trampoline and C call site with Clang's own
+lowering of the same boundary written in C on all four `freak_target` triples.
+
 ### Persisted interpolation checkpoint (W3)
 
 Expanded-AST-to-HIR lowering decodes each word once into a packed plan. Literal
