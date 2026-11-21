@@ -520,6 +520,12 @@ task parse_postfix() -> int {
 task parse_unary() -> int {
     pilot unary_file = current_source_file()
     pilot unary_line = current_source_line()
+    if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "!" {
+        diag_error("prefix '!' is not supported — logical NOT is spelled 'not'", "write 'not' here")
+        advance_tok()
+        pilot op = parse_unary()
+        give back alloc_expr_at(EXPR_UNARYOP, "not", word_from_int(op), "", unary_file, unary_line)
+    }
     if match_tok(TOK_KW, "not") {
         pilot op = parse_unary()
         give back alloc_expr_at(EXPR_UNARYOP, "not", word_from_int(op), "", unary_file, unary_line)
@@ -599,15 +605,46 @@ task parse_comparison() -> int {
     give back left
 }
 
+-- C-family logic operators are not FREAK: '&&', '||' and prefix '!' are
+-- spelled 'and', 'or' and 'not'. Name the FREAK spelling and keep parsing as
+-- if it had been written, so the typo costs one diagnostic, not a cascade.
+task parser_c_logic_op() -> word {
+    if cur_tok_type() != TOK_PUNCT { give back "" }
+    pilot tval = cur_tok_val()
+    if tval == "||" { give back "or" }
+    if tval == "&" and parse_idx + 1 < tokens_count {
+        if array_get(tok_types, parse_idx + 1) == TOK_PUNCT and array_get(tok_vals, parse_idx + 1) == "&" {
+            give back "and"
+        }
+    }
+    give back ""
+}
+
+task parser_take_c_logic_op(freak_op: word) -> void {
+    pilot c_op = "&&"
+    pilot meaning = "AND"
+    if freak_op == "or" {
+        c_op = "||"
+        meaning = "OR"
+    }
+    diag_error(
+        "'" + c_op + "' is not a FREAK operator — logical " + meaning + " is spelled '" + freak_op + "'",
+        "write '" + freak_op + "' here"
+    )
+    advance_tok()
+    if c_op == "&&" { advance_tok() }
+}
+
 task parse_and() -> int {
     pilot left = parse_comparison()
     pilot fin = false
     repeat until fin {
         pilot tval = cur_tok_val()
-        if tval == "and" {
+        pilot c_op = parser_c_logic_op()
+        if tval == "and" or c_op == "and" {
             pilot op_file = current_source_file()
             pilot op_line = current_source_line()
-            advance_tok()
+            if c_op == "and" { parser_take_c_logic_op("and") } else { advance_tok() }
             pilot right = parse_comparison()
             left = alloc_expr_at(EXPR_BINOP, "and", word_from_int(left), word_from_int(right), op_file, op_line)
         } else {
@@ -622,10 +659,11 @@ task parse_expr() -> int {
     pilot fin = false
     repeat until fin {
         pilot tval = cur_tok_val()
-        if tval == "or" {
+        pilot c_op = parser_c_logic_op()
+        if tval == "or" or c_op == "or" {
             pilot op_file = current_source_file()
             pilot op_line = current_source_line()
-            advance_tok()
+            if c_op == "or" { parser_take_c_logic_op("or") } else { advance_tok() }
             pilot right = parse_and()
             left = alloc_expr_at(EXPR_BINOP, "or", word_from_int(left), word_from_int(right), op_file, op_line)
         } else {
