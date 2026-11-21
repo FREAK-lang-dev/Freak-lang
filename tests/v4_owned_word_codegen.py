@@ -27,6 +27,7 @@ EXPECTED = {
     "owned_word_scopes.fk": "shadow\ninner\nsurvivor\nreplacement\ndefault return cleanup\n",
     "owned_word_return_temporary.fk": "first\nsecond\ntransfer\ntransfer\n",
     "owned_word_aggregates.fk": "6\nada!\nada+\n17\nada+\n21\nx#\n8\n8\nr+++\n3\nsecond\n",
+    "drops_try_native.fk": "positivekeep\nnegative\nnegative\nnegative\n13\none!\nnone\nother\nother\n",
     "drops_native.fk": ("5\n9\n3\n13\n0\nsxxxxx\nh2\n4\ntaken\nrepaired\nl\nr\nsecond\nx1\n12\nmaybe\n3\n3\n"
                         "B\nuno\nnewer\ncd\n1\nrenamed\nreset\n5\n5\n6\n9\n9\n9\n1\n53\n9\nbox\n1\n0\n"),
     "word_interpolation.fk": "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n",

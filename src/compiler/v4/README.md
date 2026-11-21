@@ -374,7 +374,10 @@ leaves of the case it holds. A partial move (`p.name`, `pair.0`, a word
 payload binding in `when` or `check route`) nulls the moved leaves in place,
 so the aggregate's later drop and a store that repairs the slot release every
 leaf exactly once; stores into word slots, and whole replacement through a
-`lend mut self`, release the old value first (`DropSlot`). Codegen fails
+`lend mut self`, release the old value first (`DropSlot`). The operand of `?` on a
+`maybe` or `result` carrier is moved on both edges: the error edge hands the
+error word to the caller and the continuing edge takes the value, so neither
+edge drops the carrier. Codegen fails
 closed when the plan does not cover an owned local. Still refused by name:
 projections of word-owning temporaries, repeat fills of words, aggregates
 owning more than 256 words, discarded route values that own words other than
@@ -383,7 +386,8 @@ and `result<word, word>` carriers inside route payloads. Projections of call res
 through the sealed MIR `Project` / `ProjectIndex` unary facts with bounds
 checks. Program: `examples/agg_abi_native.fk` (exact output, exit 42); the
 word-owning subset is also audited by `tests/v4_owned_word_codegen.py` under
-ASan, UBSan and both ownership audits. Drops: `examples/drops_native.fk`
+ASan, UBSan and both ownership audits. Drops: `examples/drops_native.fk` and
+`examples/drops_try_native.fk`
 (early return, reassignment, loops, conditional moves, partial moves and
 repair, slot stores, lent receivers, route payloads), run by
 `check_v4_native_drops` from `check_v4_native_shapes` and by the same
