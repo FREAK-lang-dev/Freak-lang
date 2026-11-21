@@ -17926,6 +17926,7 @@ def check_v4_native_shapes() -> None:
     check_v4_native_patterns()
     check_v4_native_c_widths()
     check_v4_native_maybe_result()
+    check_v4_native_c_abi()
 
 
 # Tier 3 patterns: when over tuples, fixed arrays and route payloads (nested,
@@ -18107,11 +18108,11 @@ def check_v4_native_c_widths() -> None:
         raise RuntimeError(f"V4 native C width narrowing was not checked: exit={failed.returncode} "
                            f"stdout={failed.stdout!r} stderr={failed.stderr!r}")
     rejected_cases = (
-        ("tier3_c_width_value", "extern [C] { task f(a: std::ffi::c_int) -> std::ffi::c_int }\n"
+        # Extern task values and @extern_callback tasks with C widths are
+        # native since the callback row (check_v4_native_c_abi runs them);
+        # C widths in a FREAK task type stay fenced.
+        ("tier3_c_width_freak_task_value", "task f(a: std::ffi::c_int) -> std::ffi::c_int { give back a }\n"
          "task main() -> int {\n pilot g = f\n give back 0\n}\n",
-         "native C width extern task values are not yet supported: f"),
-        ("tier3_c_width_callback", "@extern_callback(\"C\")\ntask cb(v: std::ffi::c_int) -> std::ffi::c_int { give back v }\n"
-         "task main() -> int { give back 0 }\n",
          "native C scalar ABI not yet supported: std::ffi::c_int"),
         ("tier3_c_width_wchar", "extern [C] { task f(a: std::ffi::wchar) -> std::ffi::c_int }\n"
          "task main() -> int { give back 0 }\n",
@@ -18140,6 +18141,285 @@ def check_v4_native_c_widths() -> None:
             raise RuntimeError(f"V4 C width case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
     print(f"V4 native C widths: run=exact narrowing=checked clang-signatures={compared} "
           f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+
+
+# Tier 3 C ABI rows: default argument promotions, native C variadic calls and
+# callbacks over the C widths in both directions. The helpers are real C the
+# program links with; the oracle is the same C boundary written as C, which
+# Clang lowers for each target so its declarations, trampoline definitions and
+# call sites (variadic and through function pointers) can be compared with
+# the V4 module's.
+NATIVE_C_ABI_HELPERS = """#include <stdarg.h>
+#include <stddef.h>
+#include <string.h>
+static const char *const ca_texts[] = { "%d|%d|%c|%.2f|%.1f|%s", "tail", "iiudLUdp", "iiiiiiiiidddddddddd" };
+static char ca_buf[64];
+static unsigned char ca_mark;
+const char *ca_text(int id) { return ca_texts[id]; }
+char *ca_buffer(void) { return ca_buf; }
+_Bool ca_buffer_is(int id) { return id == 0 && strcmp(ca_buf, "200|1|Z|2.25|2.5|tail") == 0; }
+unsigned char *ca_marker(void) { return &ca_mark; }
+long ca_kinds(const char *kinds, ...) {
+    va_list ap;
+    long long acc = 0;
+    va_start(ap, kinds);
+    for (const char *k = kinds; *k; ++k) {
+        if (*k == 'i') acc = acc * 7 + va_arg(ap, int);
+        else if (*k == 'u') acc = acc * 7 + (long long)va_arg(ap, unsigned int);
+        else if (*k == 'L') acc += va_arg(ap, long long) / 1000;
+        else if (*k == 'U') acc += (long long)(va_arg(ap, unsigned long long) % 1000003ULL);
+        else if (*k == 'd') acc = acc * 2 + (long long)(va_arg(ap, double) * 8.0);
+        else if (*k == 'p') acc += va_arg(ap, unsigned char *) == &ca_mark ? 100000 : -1;
+    }
+    va_end(ap);
+    return (long)(acc % 2000000000LL);
+}
+short ca_sum_ints(short count, ...) {
+    va_list ap;
+    long long sum = 0;
+    va_start(ap, count);
+    for (short i = 0; i < count; ++i) sum += va_arg(ap, long long);
+    va_end(ap);
+    return (short)sum;
+}
+double ca_doubles(int count, ...) {
+    va_list ap;
+    double sum = 0.0;
+    va_start(ap, count);
+    for (int i = 0; i < count; ++i) sum += va_arg(ap, double);
+    va_end(ap);
+    return sum;
+}
+short ca_apply_short(short (*cb)(short), short v) { return cb(v); }
+unsigned char ca_apply_uchar(unsigned char (*cb)(unsigned char), unsigned char v) { return cb(v); }
+int ca_apply_char(int (*cb)(char), char v) { return cb(v); }
+int ca_count_if(_Bool (*pred)(int), int limit) {
+    int count = 0;
+    for (int i = 0; i < limit; ++i) count += pred(i) ? 1 : 0;
+    return count;
+}
+unsigned ca_apply_uint(unsigned (*cb)(unsigned), unsigned v) { return cb(v); }
+long ca_apply_long(long (*cb)(long, unsigned long)) { return cb(-70000L, 3000000000UL); }
+static short (*ca_saved)(short);
+void ca_store(short (*cb)(short)) { ca_saved = cb; }
+short (*ca_stored(void))(short) { return ca_saved; }
+short ca_negate_short(short v) { return (short)-v; }
+short (*ca_get_negate(void))(short) { return ca_negate_short; }
+static _Bool ca_is_odd(int v) { return (v & 1) != 0; }
+_Bool (*ca_get_is_odd(void))(int) { return ca_is_odd; }
+"""
+
+NATIVE_C_ABI_ORACLE = """#include <stdarg.h>
+typedef __SIZE_TYPE__ size_t;
+int snprintf(char *buf, size_t size, const char *format, ...);
+const char *ca_text(int id);
+char *ca_buffer(void);
+_Bool ca_buffer_is(int id);
+unsigned char *ca_marker(void);
+long ca_kinds(const char *kinds, ...);
+short ca_sum_ints(short count, ...);
+double ca_doubles(int count, ...);
+short ca_apply_short(short (*cb)(short), short v);
+unsigned char ca_apply_uchar(unsigned char (*cb)(unsigned char), unsigned char v);
+int ca_apply_char(int (*cb)(char), char v);
+int ca_count_if(_Bool (*pred)(int), int limit);
+unsigned ca_apply_uint(unsigned (*cb)(unsigned), unsigned v);
+long ca_apply_long(long (*cb)(long, unsigned long));
+void ca_store(short (*cb)(short));
+short (*ca_stored(void))(short);
+short (*ca_get_negate(void))(short);
+_Bool (*ca_get_is_odd(void))(int);
+short ca_negate_short(short v);
+short __freak_callback_double_short(short v) { return v; }
+unsigned char __freak_callback_bump_uchar(unsigned char v) { return v; }
+int __freak_callback_char_code(char v) { return v; }
+_Bool __freak_callback_is_multiple_of_three(int v) { return v != 0; }
+unsigned __freak_callback_half_uint(unsigned v) { return v; }
+long __freak_callback_mix_long(long a, unsigned long b) { return a + (long)b; }
+short __freak_callback_overflow_short(short v) { return v; }
+void oracle(unsigned char byte, _Bool truth, unsigned mark, float ratio, long long i, unsigned long long u, double d,
+            short s, int n, unsigned un, char c) {
+    snprintf(ca_buffer(), 64, ca_text(0), byte, truth, mark, ratio, d, ca_text(1));
+    ca_buffer_is(n);
+    ca_kinds(ca_text(n), byte, truth, mark, ratio, i, u, d, ca_marker());
+    ca_kinds(ca_text(n), byte, byte, byte, byte, byte, byte, byte, byte, byte, d, d, d, d, d, d, d, d, d, d);
+    ca_sum_ints(s, i, i, i);
+    ca_doubles(n, ratio, d, d, d);
+    ca_apply_short(__freak_callback_double_short, s);
+    ca_apply_uchar(__freak_callback_bump_uchar, byte);
+    ca_apply_char(__freak_callback_char_code, c);
+    ca_count_if(__freak_callback_is_multiple_of_three, n);
+    ca_apply_uint(__freak_callback_half_uint, un);
+    ca_apply_long(__freak_callback_mix_long);
+    ca_store(__freak_callback_double_short);
+    ca_stored()(s);
+    ca_get_negate()(s);
+    ca_get_is_odd()(n);
+    short (*direct)(short) = ca_negate_short;
+    direct(s);
+    ca_negate_short(s); /* the V4 declaration shim's own call */
+}
+"""
+
+NATIVE_C_ABI_EXPECTED = (
+    "snprintf=21\nsnprintf_text=yes\nkinds=-15861341\nstack_kinds=34866080\nsum_ints=-14993\ndoubles=800\n"
+    "apply_short=-600\napply_uchar=250\napply_char=200\ncount_if=4\napply_uint=2000000000\napply_long=2930000\n"
+    "stored=-8000\nnegate=-32768\nis_odd_7=yes\nis_odd_8=no\nextern_value=-1234\n"
+)
+NATIVE_C_ABI_PANIC = "FREAK V4: int to C int16 conversion out of range"
+
+
+def native_c_abi_split_args(text: str) -> list[str]:
+    parts, depth, start = [], 0, 0
+    for index, char in enumerate(text):
+        if char in "([{<":
+            depth += 1
+        elif char in ")]}>":
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append(text[start:index].strip())
+            start = index + 1
+    if text[start:].strip():
+        parts.append(text[start:].strip())
+    return parts
+
+
+def native_c_abi_clean(part: str) -> str:
+    part = re.sub(r"\b(noundef|dso_local|ccc)\b", "", part)
+    return re.sub(r"\s+", " ", part).strip()
+
+
+def native_c_abi_facts(text: str) -> set[tuple[str, str, str]]:
+    """Every C boundary in a module: declarations and trampoline definitions
+    as (kind, name, ret(params)), and C call sites as ("call", callee, shape)
+    with values removed; calls through a pointer have callee "*"."""
+    facts = set()
+    for line in text.splitlines():
+        declared = re.match(r"^(declare|define) (.*?) @(ca_\w+|snprintf|__freak_callback_\w+)\((.*?)\)", line)
+        if declared:
+            kind, result, name, params = declared.groups()
+            if kind == "declare" and name.startswith("__freak_callback_"):
+                continue
+            if kind == "define" and not name.startswith("__freak_callback_"):
+                continue
+            cleaned = [native_c_abi_clean(re.sub(r" %[\w.]+$", "", part)) for part in native_c_abi_split_args(params)]
+            facts.add((kind, name, native_c_abi_clean(result) + "(" + ", ".join(cleaned) + ")"))
+            continue
+        called = re.search(r"\bcall (.*?) (@ca_\w+|@snprintf|%[\w.]+)\((.*)\)", line)
+        if not called:
+            continue
+        result, callee, args = called.groups()
+        shapes = [native_c_abi_clean(" ".join(native_c_abi_clean(arg).split(" ")[:-1])) for arg in native_c_abi_split_args(args)]
+        facts.add(("call", "*" if callee.startswith("%") else callee[1:], native_c_abi_clean(result) + " (" + ", ".join(shapes) + ")"))
+    return facts
+
+
+def check_v4_native_c_abi() -> None:
+    """Tier 3 C ABI rows: real C on the host, Clang's own lowering on all four targets."""
+    from build_v4 import host_target, native_link_command
+
+    clang = shutil.which("clang")
+    source = V4_ROOT / "examples" / "c_abi_native.fk"
+    helpers = RUNTIME_BUILD_ROOT / "tier3_c_abi_helpers.c"
+    helpers.write_text(NATIVE_C_ABI_HELPERS, encoding="utf-8")
+    oracle_source = RUNTIME_BUILD_ROOT / "tier3_c_abi_oracle.c"
+    oracle_source.write_text(NATIVE_C_ABI_ORACLE, encoding="utf-8")
+    compared = 0
+    for triple in NATIVE_LAYOUT_TRIPLES:
+        module_path = RUNTIME_BUILD_ROOT / f"tier3_c_abi_{triple}.ll"
+        module_path.unlink(missing_ok=True)
+        emitted = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+            label=f"V4 C ABI module {triple}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not module_path.exists():
+            raise RuntimeError(f"V4 could not emit the C ABI module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+        module = module_path.read_text(encoding="utf-8")
+        oracle = run_with_heartbeat(
+            [clang, f"--target={triple}", "-O0", "-w", "-S", "-emit-llvm", str(oracle_source), "-o", "-"],
+            label=f"V4 C ABI oracle {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if oracle.returncode != 0:
+            raise RuntimeError(f"Clang rejected the C ABI oracle for {triple}:\n{oracle.stderr}")
+        ours = native_c_abi_facts(module)
+        theirs = native_c_abi_facts(oracle.stdout)
+        # 19 declarations, 7 trampolines, and the distinct call shapes.
+        if sum(1 for fact in theirs if fact[0] != "call") != 26 or ours != theirs:
+            raise RuntimeError(f"V4 C ABI boundaries disagree with Clang on {triple}:\n"
+                               f"V4 only: {sorted(ours - theirs)}\nClang only: {sorted(theirs - ours)}")
+        # Varargs keep LLVM's variadic call form on every target, which is
+        # what lets the backend apply Apple arm64 stack varargs and the Win64
+        # floating-vararg register duplication.
+        if not any(fact[0] == "call" and fact[2].startswith("i32 (ptr, i64, ptr, ...)") for fact in ours):
+            raise RuntimeError(f"V4 snprintf call lost the variadic call form on {triple}")
+        compared += len(theirs)
+        assembled = run_with_heartbeat(
+            [clang, f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
+            label=f"V4 C ABI object {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if assembled.returncode != 0:
+            raise RuntimeError(f"Clang rejected the V4 C ABI module for {triple}:\n{assembled.stderr}")
+    host = host_target()
+    module_path = RUNTIME_BUILD_ROOT / f"tier3_c_abi_{host}.ll"
+    executable = RUNTIME_BUILD_ROOT / ("tier3_c_abi.exe" if sys.platform == "win32" else "tier3_c_abi.native")
+    executable.unlink(missing_ok=True)
+    command = native_link_command(clang, module_path, executable)
+    command.insert(command.index("-o"), str(helpers))
+    linked = run_with_heartbeat(command, label="V4 C ABI link", timeout_seconds=180, memory_limit_mb=1024)
+    if linked.returncode != 0 or not executable.exists():
+        raise RuntimeError(f"V4 C ABI program did not link with real C:\n{linked.stdout}{linked.stderr}")
+    ran = run_with_heartbeat([str(executable)], label="V4 native C ABI execute", timeout_seconds=10, memory_limit_mb=128)
+    if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != NATIVE_C_ABI_EXPECTED:
+        raise RuntimeError(f"V4 native C ABI printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
+    # One argument: a callback result too wide for C short; two: an argument
+    # through an extern function pointer. Both are checked, never truncated.
+    for arguments in (["callback"], ["pointer", "arg"]):
+        failed = run_with_heartbeat([str(executable), *arguments], label="V4 native C ABI check", timeout_seconds=10, memory_limit_mb=128)
+        if failed.returncode != 1 or NATIVE_C_ABI_PANIC not in failed.stderr or "unreachable=" in failed.stdout \
+                or failed.stdout.replace("\r\n", "\n") != NATIVE_C_ABI_EXPECTED:
+            raise RuntimeError(f"V4 native C ABI narrowing was not checked for {arguments}: exit={failed.returncode} "
+                               f"stdout={failed.stdout!r} stderr={failed.stderr!r}")
+    rejected_cases = (
+        ("tier3_c_abi_variadic_callback", "@extern_callback(\"C\")\ntask cb(a: std::ffi::c_int, args: ...) -> std::ffi::c_int { give back a }\n"
+         "task main() -> int { give back 0 }\n", "@extern_callback tasks cannot be variadic"),
+        ("tier3_c_abi_variadic_value", "extern [C] { task f(n: std::ffi::c_isize, args: ...) -> std::ffi::c_isize }\n"
+         "task main() -> int {\n pilot p = f\n give back p(1, 2)\n}\n",
+         "native C variadic function pointers are not yet supported: f"),
+        ("tier3_c_abi_variadic_pointer_type", "extern [C] { task f(cb: extern [C] task(n: std::ffi::c_int, args: ...) -> std::ffi::c_int) -> void }\n"
+         "task main() -> int { give back 0 }\n", "native C variadic function pointers are not yet supported"),
+        ("tier3_c_abi_word_vararg", "extern [C] { task f(n: std::ffi::c_int, args: ...) -> std::ffi::c_int }\n"
+         "task main() -> int { give back f(1, \"text\") }\n", "variadic call argument is not C vararg safe"),
+        ("tier3_c_abi_tuple_vararg", "extern [C] { task f(n: std::ffi::c_int, args: ...) -> std::ffi::c_int }\n"
+         "task main() -> int { give back f(1, (1, 2)) }\n", "variadic call argument is not C vararg safe"),
+        ("tier3_c_abi_freak_task_type", "task g(cb: task(v: std::ffi::c_int) -> std::ffi::c_int) -> int { give back 0 }\n"
+         "task main() -> int { give back 0 }\n", "native C scalar ABI not yet supported: std::ffi::c_int"),
+        ("tier3_c_abi_alias_callback", "alias Cb = extern [C] task(v: std::ffi::c_short) -> std::ffi::c_short\n"
+         "task use(cb: Cb) -> int { give back cb(5) }\ntask main() -> int { give back 0 }\n",
+         "native C scalar ABI not yet supported: std::ffi::c_short"),
+        ("tier3_c_abi_pointee_callback", "extern [C] { task f(cb: extern [C] task(v: *mut std::ffi::c_int) -> std::ffi::c_int) -> void }\n"
+         "task main() -> int { give back 0 }\n", "native C scalar ABI not yet supported: std::ffi::c_int"),
+        ("tier3_c_abi_wchar_callback", "extern [C] { task f(cb: extern [C] task(v: std::ffi::wchar) -> std::ffi::c_int) -> void }\n"
+         "task main() -> int { give back 0 }\n", "native C scalar ABI not yet supported: std::ffi::wchar"),
+        ("tier3_c_abi_bool_callback", "extern [C] { task f(cb: extern [C] task(v: bool) -> std::ffi::c_int) -> void }\n"
+         "task main() -> int { give back 0 }\n", "callback parameter type is not FFI-safe"),
+        ("tier3_c_abi_width_mismatch", "extern [C] { task f(cb: extern [C] task(v: std::ffi::c_int) -> std::ffi::c_int) -> void }\n"
+         "@extern_callback(\"C\")\ntask wide(v: std::ffi::c_isize) -> std::ffi::c_isize { give back v }\n"
+         "task main() -> int {\n f(wide)\n give back 0\n}\n", "callback value must use extern ABI"),
+    )
+    for stem, text, reason in rejected_cases:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 C ABI case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    print(f"V4 native C ABI: run=exact narrowing=checked clang-facts={compared} "
+          f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+
 
 def check_v4_build_command() -> None:
     from build_v4 import bootstrap, host_target
