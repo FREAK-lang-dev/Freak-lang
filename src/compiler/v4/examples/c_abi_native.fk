@@ -1,0 +1,106 @@
+-- Tier 3 C ABI: default argument promotions, native C variadic calls, and
+-- callbacks over the C scalar widths in both directions.
+-- A `...` argument is promoted the way C promotes it (bool and tiny to int,
+-- char to unsigned int, float32 to double; int, uint and float travel as
+-- long long, unsigned long long and double) and the call uses LLVM's
+-- variadic call form, so each target's own vararg convention applies.
+-- @extern_callback tasks with C widths get a trampoline at the C width;
+-- calls through extern function pointers narrow (checked) and widen.
+-- check_v4_native_c_abi links this with real C helpers. With one or two
+-- program arguments it must fail a checked narrowing instead of truncating.
+
+extern [C] {
+    task snprintf(buf: *mut tiny, size: std::ffi::c_size, format: *const tiny, args: ...) -> std::ffi::c_int
+    task ca_text(id: std::ffi::c_int) -> *const tiny
+    task ca_buffer() -> *mut tiny
+    task ca_buffer_is(id: std::ffi::c_int) -> std::ffi::c_bool
+    task ca_marker() -> *mut tiny
+    task ca_kinds(kinds: *const tiny, args: ...) -> std::ffi::c_long
+    task ca_sum_ints(count: std::ffi::c_short, args: ...) -> std::ffi::c_short
+    task ca_doubles(count: std::ffi::c_int, args: ...) -> std::ffi::c_double
+    task ca_apply_short(cb: extern [C] task(v: std::ffi::c_short) -> std::ffi::c_short, v: std::ffi::c_short) -> std::ffi::c_short
+    task ca_apply_uchar(cb: extern [C] task(v: std::ffi::c_uchar) -> std::ffi::c_uchar, v: std::ffi::c_uchar) -> std::ffi::c_uchar
+    task ca_apply_char(cb: extern [C] task(v: std::ffi::c_char) -> std::ffi::c_int, v: std::ffi::c_char) -> std::ffi::c_int
+    task ca_count_if(pred: extern [C] task(v: std::ffi::c_int) -> std::ffi::c_bool, limit: std::ffi::c_int) -> std::ffi::c_int
+    task ca_apply_uint(cb: extern [C] task(v: std::ffi::c_uint) -> std::ffi::c_uint, v: std::ffi::c_uint) -> std::ffi::c_uint
+    task ca_apply_long(cb: extern [C] task(a: std::ffi::c_long, b: std::ffi::c_ulong) -> std::ffi::c_long) -> std::ffi::c_long
+    task ca_store(cb: extern [C] task(v: std::ffi::c_short) -> std::ffi::c_short) -> void
+    task ca_stored() -> extern [C] task(v: std::ffi::c_short) -> std::ffi::c_short
+    task ca_get_negate() -> extern [C] task(v: std::ffi::c_short) -> std::ffi::c_short
+    task ca_get_is_odd() -> extern [C] task(v: std::ffi::c_int) -> std::ffi::c_bool
+    task ca_negate_short(v: std::ffi::c_short) -> std::ffi::c_short
+}
+
+@extern_callback("C")
+task double_short(v: std::ffi::c_short) -> std::ffi::c_short { give back v * 2 }
+
+@extern_callback("C")
+task bump_uchar(v: std::ffi::c_uchar) -> std::ffi::c_uchar { give back v + 50t }
+
+@extern_callback("C")
+task char_code(v: std::ffi::c_char) -> std::ffi::c_int {
+    pilot code: int = v
+    give back code
+}
+
+@extern_callback("C")
+task is_multiple_of_three(v: std::ffi::c_int) -> std::ffi::c_bool { give back v % 3 == 0 }
+
+@extern_callback("C")
+task half_uint(v: std::ffi::c_uint) -> std::ffi::c_uint { give back v / 2u }
+
+@extern_callback("C")
+task mix_long(a: std::ffi::c_long, b: std::ffi::c_ulong) -> std::ffi::c_long {
+    pilot thousands: int = b / 1000u
+    give back a + thousands
+}
+
+@extern_callback("C")
+task overflow_short(v: std::ffi::c_short) -> std::ffi::c_short { give back v * 1000 }
+
+task call_short(cb: extern [C] task(v: std::ffi::c_short) -> std::ffi::c_short, v: int) -> int {
+    give back cb(v)
+}
+
+task show_bool(label: word, value: bool) -> void {
+    if value { say label + "=yes" } else { say label + "=no" }
+}
+
+task main() -> int {
+    pilot byte: tiny = 200t
+    pilot truth: bool = true
+    pilot mark: char = 'Z'
+    pilot ratio: float32 = 2.25
+    pilot big: uint = 18000000000000000000u
+    pilot written = snprintf(ca_buffer(), 64, ca_text(0), byte, truth, mark, ratio, 2.5, ca_text(1))
+    say "snprintf=" + word_from_int(written)
+    show_bool("snprintf_text", ca_buffer_is(0))
+    say "kinds=" + word_from_int(ca_kinds(ca_text(2), byte, truth, mark, ratio, 0 - 9000000000, big, 0.125, ca_marker()))
+    say "stack_kinds=" + word_from_int(ca_kinds(ca_text(3), 1t, 2t, 3t, 4t, 5t, 6t, 7t, 8t, 9t, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0))
+    say "sum_ints=" + word_from_int(ca_sum_ints(3, 0 - 20000, 5000, 7))
+    say "doubles=" + word_from_int((ca_doubles(4, ratio, 0.5, 1.25, 4.0) * 100.0).to_int())
+    say "apply_short=" + word_from_int(ca_apply_short(double_short, 0 - 300))
+    say "apply_uchar=" + word_from_int(ca_apply_uchar(bump_uchar, 200))
+    say "apply_char=" + word_from_int(ca_apply_char(char_code, byte))
+    say "count_if=" + word_from_int(ca_count_if(is_multiple_of_three, 10))
+    say "apply_uint=" + word_from_int(ca_apply_uint(half_uint, 4000000000))
+    say "apply_long=" + word_from_int(ca_apply_long(mix_long))
+    ca_store(double_short)
+    pilot stored = ca_stored()
+    say "stored=" + word_from_int(stored(0 - 4000))
+    pilot negate = ca_get_negate()
+    say "negate=" + word_from_int(call_short(negate, 0 - 32768))
+    -- Meiya moves a task value when it is called, so fetch one per call.
+    pilot is_odd = ca_get_is_odd()
+    show_bool("is_odd_7", is_odd(7))
+    show_bool("is_odd_8", ca_get_is_odd()(8))
+    pilot direct = ca_negate_short
+    say "extern_value=" + word_from_int(direct(1234))
+    pilot count = process::args_count()
+    -- One argument: a callback result that does not fit its C width fails
+    -- the trampoline's check.
+    if count == 2 { say "unreachable=" + word_from_int(ca_apply_short(overflow_short, 100)) }
+    -- Two arguments: so does an argument through an extern function pointer.
+    if count == 3 { say "unreachable=" + word_from_int(call_short(ca_get_negate(), 40000)) }
+    give back 0
+}

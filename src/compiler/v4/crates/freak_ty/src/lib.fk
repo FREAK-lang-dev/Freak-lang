@@ -1455,6 +1455,24 @@ task v4_ty_variadic_arg_promoted_type(ty_id: int, surface_type: word) -> word {
     give back v4_ty_variadic_arg_promoted_type_seen(ty_id, surface_type, "")
 }
 
+-- The C type a value becomes under the default argument promotions when it
+-- crosses `...` (C11 6.5.2.2p6): bool and tiny (unsigned char) promote to
+-- int, char (a 32-bit Unicode scalar, char32_t) to unsigned int, float32 to
+-- double; int and uint travel as long long and unsigned long long, float and
+-- num as double, raw pointers as pointers. "" for anything not vararg safe.
+task v4_ty_variadic_arg_c_type(ty_id: int, surface_type: word) -> word {
+    pilot promoted = v4_ty_variadic_arg_promoted_type(ty_id, surface_type)
+    if promoted == v4_ty_unknown { give back "" }
+    if v4_ty_is_raw_pointer_type(promoted) { give back "pointer" }
+    if promoted == v4_ty_float or promoted == v4_ty_num { give back "c_double" }
+    if promoted == v4_ty_uint { give back "c_ulonglong" }
+    pilot base = v4_ty_canonical_type(ty_id, surface_type)
+    if base == v4_ty_bool or base == v4_ty_tiny { give back "c_int" }
+    if base == v4_ty_char { give back "c_uint" }
+    if base == v4_ty_int { give back "c_longlong" }
+    give back ""
+}
+
 task v4_ty_variadic_arg_help(surface_type: word) -> word {
     if surface_type == v4_ty_word {
         give back "extern variadic calls need scalar std::ffi-style values or raw pointers; word should cross the boundary as *const tiny or another explicit buffer."
