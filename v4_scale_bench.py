@@ -241,7 +241,7 @@ INSTRUMENTATION_POINTS = [
     ("hir", "v4_hir_lower_tree", "__freak_user_v4_hir_diag_count(__freak_result)"),
     ("resolve", "v4_resolve_lower_hir", "__freak_user_v4_resolve_diag_count(__freak_result)"),
     ("ty", "v4_ty_lower_resolve", "__freak_user_v4_ty_diag_count(__freak_result)"),
-    ("mir", "v4_mir_lower_ty", "__freak_user_v4_mir_diag_count(__freak_result)"),
+    ("mir", "v4_mir_lower_ty_with_closure_bodies", "__freak_user_v4_mir_diag_count(__freak_result)"),
     ("borrowck", "v4_borrowck_check_mir", "__freak_user_v4_borrowck_diag_count(__freak_result)"),
     ("codegen", "v4_codegen_llvm_lower_owned_mir_with_borrow",
      "__freak_user_v4_codegen_llvm_diag_count(__freak_result)"),
