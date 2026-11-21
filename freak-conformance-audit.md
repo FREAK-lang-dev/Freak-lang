@@ -405,7 +405,9 @@ caller's storage (local, field, element or tuple-slot places), so writes
 through `lend mut self` are visible afterwards. Method calls auto-lend their
 receiver place in MIR, so Meiya sees a loan instead of a move; a temporary
 receiver of a lend method is named (`lend receiver must be a place`).
-Receivers whose shapes own words, generic impls, dyn and doctrine-bound calls,
+Receivers whose shapes own words now run natively under the aggregate calling
+convention (aggregates by pointer to a caller copy, results through sret);
+word slot stores through a lend, generic impls, dyn and doctrine-bound calls,
 and lend parameters other than `self` remain fenced by name
 (`examples/methods_native.fk`, `check_v4_native_shapes`).
 
