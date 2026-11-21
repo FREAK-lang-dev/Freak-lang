@@ -1,0 +1,127 @@
+-- Tier 3: the FREAK aggregate calling convention.
+-- Shapes, tuples, fixed arrays and routes cross FREAK task boundaries by
+-- value. The caller stores each aggregate argument in a caller-owned copy
+-- and passes a pointer to it; an aggregate result is written through an
+-- sret out pointer the caller provides. Aggregates that own words move into
+-- the callee and the result transfers ownership back to the caller.
+-- check_v4_native_shapes runs this and requires the exact output and exit 42.
+
+shape Vec2 { x: int, y: int }
+shape Segment { from: Vec2, to: Vec2 }
+shape Label { text: word, weight: int }
+shape Card { title: Label, tags: (word, word), score: int }
+
+route Move {
+    Step { by: Vec2 }
+    Jump { to: Vec2, height: int }
+    Stay
+}
+
+impl Vec2 {
+    task plus(self, other: Vec2) -> Vec2 { give back Vec2 { x: self.x + other.x, y: self.y + other.y } }
+    task scaled(self, k: int) -> Vec2 { give back Vec2 { x: self.x * k, y: self.y * k } }
+    task dot(lend self, other: Vec2) -> int { give back self.x * other.x + self.y * other.y }
+}
+
+impl Label {
+    task heavier(self, by: int) -> Label { give back Label { text: self.text + "*", weight: self.weight + by } }
+    task size(lend self) -> int { give back self.text.length + self.weight }
+}
+
+task vec(x: int, y: int) -> Vec2 { give back Vec2 { x: x, y: y } }
+
+task segment(a: Vec2, b: Vec2) -> Segment { give back Segment { from: a, to: b } }
+
+task flipped(s: Segment) -> Segment { give back Segment { from: s.to, to: s.from } }
+
+task length2(s: Segment) -> int {
+    pilot dx = s.to.x - s.from.x
+    pilot dy = s.to.y - s.from.y
+    give back dx * dx + dy * dy
+}
+
+task apply(m: Move, at: Vec2) -> Vec2 {
+    when m {
+        Move::Step { by } -> give back at.plus(by)
+        Move::Jump { to, height } -> give back to.scaled(height)
+        Move::Stay -> give back at
+    }
+    give back at
+}
+
+task walk(moves: [Move; 3], start: Vec2) -> Vec2 {
+    pilot a = apply(moves[0], start)
+    pilot b = apply(moves[1], a)
+    give back apply(moves[2], b)
+}
+
+task spiral(n: int, at: Vec2) -> Vec2 {
+    if n == 0 { give back at }
+    give back spiral(n - 1, at.plus(vec(n, 0 - n)))
+}
+
+task swap(t: (int, Vec2)) -> (Vec2, int) { give back (t.1, t.0) }
+
+task reversed(xs: [int; 4]) -> [int; 4] { give back [xs[3], xs[2], xs[1], xs[0]] }
+
+task label(text: word, weight: int) -> Label { give back Label { text: text, weight: weight } }
+
+task card(title: Label, first: word, second: word) -> Card {
+    give back Card { title: title, tags: (first, second), score: 0 }
+}
+
+task scored(c: Card, by: int) -> Card {
+    c.score = c.score + by
+    give back c
+}
+
+task card_width(c: Card) -> int { give back c.title.text.length + c.tags.0.length + c.tags.1.length }
+
+task heaviest(n: int, l: Label) -> Label {
+    if n == 0 { give back l }
+    give back heaviest(n - 1, l.heavier(n))
+}
+
+task main() -> int {
+    -- Nested aggregates in, nested aggregates out.
+    pilot len = length2(segment(vec(1, 2), vec(4, 6)))
+    say len
+    pilot s = segment(vec(1, 2), vec(4, 6))
+    say flipped(s).from.x
+    say flipped(segment(vec(7, 8), vec(9, 10))).to.y
+    -- An aggregate returned, then read in place.
+    say vec(3, 4).y
+    say swap((5, vec(6, 7))).0.x
+    say reversed([1, 2, 3, 4])[0]
+    pilot i = 2
+    say reversed([10, 20, 30, 40])[i]
+    -- Method chaining on by-value self.
+    say vec(1, 1).plus(vec(2, 3)).scaled(10).x
+    pilot v = vec(2, 5).scaled(3)
+    say v.dot(vec(1, 1))
+    -- Routes and arrays of routes by value.
+    pilot moves: [Move; 3] = [Move::Step { by: vec(1, 0) }, Move::Jump { to: vec(2, 3), height: 2 }, Move::Stay]
+    pilot end = walk(moves, vec(0, 0))
+    say end.x + end.y
+    -- Recursion that passes and returns an aggregate at every level.
+    pilot sp = spiral(4, vec(0, 0))
+    say sp.x
+    say sp.y
+    -- Aggregates that own words move in and transfer back.
+    pilot l = label("ada", 3).heavier(1).heavier(2)
+    say l.text
+    say l.size()
+    pilot h = heaviest(3, label("r", 0))
+    say h.text
+    say h.weight
+    pilot c = scored(card(label("deck", 1), "red", "blue"), 5)
+    say c.title.text
+    say c.tags.1
+    pilot score = c.score
+    say score
+    say card_width(c)
+    pilot mut slot = label("first", 1)
+    slot = label("second", 2)
+    say slot.text
+    give back len - 25 + score + h.weight + end.x * 5 + 11
+}
