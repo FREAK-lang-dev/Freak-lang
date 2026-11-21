@@ -860,8 +860,8 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
         if carrier == "MaybeInt" { give back "%freak_maybe_int" }
         if carrier == "ResultWordWord" { give back "%freak_result_word_word" }
     }
-    if v4_ty_is_lend_type(ty_name) and v4_ty_lend_target_type(ty_name) == v4_ty_word { give back "i64" }
     if v4_codegen_llvm_active_owned_mir >= 0 and v4_codegen_llvm_is_place_lend(v4_codegen_llvm_active_owned_mir, ty_name) { give back "ptr" }
+    if v4_ty_is_lend_type(ty_name) and v4_ty_lend_target_type(ty_name) == v4_ty_word { give back "i64" }
     pilot ffi_alias = v4_ty_normalize_ffi_alias_type(ty_name)
     if ffi_alias != "" {
         ty_name = ffi_alias
@@ -2383,6 +2383,12 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
         pilot value_lines = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
         pilot expected_ty = v4_mir_local_ty(mir_id, body_id, local_id)
         value_lines = value_lines + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, expected_ty, expected_temp)
+        -- Replacing a `lend mut` word releases the caller's old word; the
+        -- caller still owns the slot and its drop flag stays set.
+        if v4_codegen_llvm_local_is_lent_param(mir_id, body_id, local_id) and v4_mir_local_ty(mir_id, body_id, local_id) == v4_ty_word {
+            pilot old = "%lent.old." + word_from_int(body_id) + "." + word_from_int(stmt_id)
+            value_lines = value_lines + "  " + old + " = load i64, ptr " + v4_codegen_llvm_local_slot(local_id) + "\n  call void @freak_v4_word_drop(i64 " + old + ")\n"
+        }
         if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local_id) {
             value_lines = value_lines + v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, local_id, "replace." + word_from_int(stmt_id))
             value_lines = value_lines + "  store " + local_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n"
@@ -4291,7 +4297,7 @@ task v4_codegen_llvm_native_mir_error(mir_id: int) -> word {
                 error = v4_codegen_llvm_native_type_error(v4_ty_signature_param_type(ty_id, sig_id, param_id), false)
                 if error != "" { give back error }
                 -- Extern declarations and @extern_callback tasks are C boundaries.
-                pilot c_boundary: bool = v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig or v4_ty_signature_has_extern_callback(ty_id, sig_id)
+                pilot c_boundary: bool = v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig or v4_ty_signature_call_abi(ty_id, sig_id) != "" or v4_ty_signature_has_extern_callback(ty_id, sig_id)
                 error = v4_codegen_llvm_lend_param_error(mir_id, v4_ty_signature_param_mode(ty_id, sig_id, param_id), v4_ty_signature_param_type(ty_id, sig_id, param_id), c_boundary)
                 if error != "" { give back error }
                 param_id += 1
@@ -4944,10 +4950,12 @@ task v4_codegen_llvm_is_lendable_storage(mir_id: int, type_text: word) -> bool {
 }
 
 -- `lend T` / `lend mut T` over lendable storage is the address of that
--- storage (`ptr`). Word loans are not place loans: they keep the i64 handle.
+-- storage (`ptr`), and so is `lend mut word` (the caller's word slot, which
+-- the callee may replace). A shared word loan keeps its i64 handle.
 task v4_codegen_llvm_is_place_lend(mir_id: int, type_text: word) -> bool {
     if v4_codegen_llvm_active_owned_mir != mir_id or not v4_ty_is_lend_type(type_text) { give back false }
-    give back v4_codegen_llvm_is_lendable_storage(mir_id, v4_ty_lend_target_type(type_text))
+    pilot target = v4_ty_lend_target_type(type_text)
+    give back v4_codegen_llvm_is_lendable_storage(mir_id, target) or (target == v4_ty_word and v4_ty_lend_mode(type_text) == v4_ty_param_mode_lend_mut)
 }
 
 -- The type a projection of this place addresses: a borrowed (`lend T`)
@@ -4968,7 +4976,9 @@ task v4_codegen_llvm_local_is_lent_param(mir_id: int, body_id: int, local_id: in
     if v4_mir_body_callable_abi(mir_id, body_id) != "" { give back false }
     pilot mode = v4_mir_body_callable_param_mode(mir_id, body_id, local_id)
     if mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut { give back false }
-    give back v4_mir_local_mode(mir_id, body_id, local_id) == mode and v4_codegen_llvm_is_lendable_storage(mir_id, v4_mir_local_ty(mir_id, body_id, local_id))
+    if v4_mir_local_mode(mir_id, body_id, local_id) != mode { give back false }
+    pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_id)
+    give back v4_codegen_llvm_is_lendable_storage(mir_id, local_ty) or (local_ty == v4_ty_word and mode == v4_ty_param_mode_lend_mut)
 }
 
 -- Why a lend parameter mode cannot lower natively, or "" when it can.
@@ -4978,8 +4988,7 @@ task v4_codegen_llvm_lend_param_error(mir_id: int, mode: word, type_text: word, 
     if v4_codegen_llvm_active_owned_mir == mir_id and type_text == v4_ty_word and mode == v4_ty_param_mode_lend { give back "" }
     if v4_codegen_llvm_active_owned_mir != mir_id { give back "native lend parameters currently support only immutable word parameters" }
     if c_boundary { give back "native lend parameters across the C ABI are not yet supported: " + type_text }
-    if type_text == v4_ty_word { give back "native lend mut word parameters are not yet supported" }
-    if v4_codegen_llvm_is_lendable_storage(mir_id, type_text) { give back "" }
+    if type_text == v4_ty_word or v4_codegen_llvm_is_lendable_storage(mir_id, type_text) { give back "" }
     give back "native lend parameters are not yet supported for " + type_text
 }
 
@@ -5020,7 +5029,19 @@ task v4_codegen_llvm_native_aggregate_lend_error(mir_id: int, body_id: int, rval
         give back ""
     }
     if child_kind != v4_mir_rvalue_use_place { give back "native aggregate borrows need a local, field or element place" }
-    give back v4_codegen_llvm_native_place_error(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, lhs), 0)
+    pilot place = v4_mir_rvalue_lhs(mir_id, body_id, lhs)
+    error = v4_codegen_llvm_native_place_error(mir_id, body_id, place, 0)
+    if error != "" { give back error }
+    -- A lend mut parameter is noalias, but a callee may also reach a module
+    -- global by name, so exclusive loans of globals stay fenced.
+    pilot root = place
+    pilot steps = 0
+    repeat until steps > 64 or root < 0 or (v4_mir_place_kind(mir_id, body_id, root) != v4_mir_place_field and v4_mir_place_kind(mir_id, body_id, root) != v4_mir_place_index) {
+        root = v4_mir_place_base(mir_id, body_id, root)
+        steps += 1
+    }
+    if mutable_kind and root >= 0 and v4_mir_place_kind(mir_id, body_id, root) == v4_mir_place_global { give back "native lend mut of a module global is not yet supported: " + v4_mir_place_text(mir_id, body_id, place) }
+    give back ""
 }
 
 -- Place reads, aggregate literals and Sum checks/takes. One call site keeps
@@ -5671,7 +5692,8 @@ task v4_codegen_llvm_aggregate_word_ownership_error(mir_id: int, body: int) -> w
         pilot place = v4_mir_stmt_place(mir_id, body, stmt)
         if (kind == v4_mir_stmt_assign or kind == v4_mir_stmt_local) and place >= 0 and v4_codegen_llvm_type_owns_words(mir_id, v4_mir_place_ty(mir_id, body, place)) {
             pilot place_kind = v4_mir_place_kind(mir_id, body, place)
-            pilot through_receiver: bool = place_kind == v4_mir_place_local and v4_codegen_llvm_local_is_lent_param(mir_id, body, v4_mir_place_base(mir_id, body, place))
+            -- A lent word parameter itself is replaced with a drop of the old word.
+            pilot through_receiver: bool = place_kind == v4_mir_place_local and v4_codegen_llvm_local_is_lent_param(mir_id, body, v4_mir_place_base(mir_id, body, place)) and v4_mir_place_ty(mir_id, body, place) != v4_ty_word
             if place_kind == v4_mir_place_field or place_kind == v4_mir_place_index or through_receiver { give back "native stores into aggregate slots that own words are not yet supported: " + v4_mir_place_text(mir_id, body, place) }
         }
         stmt += 1

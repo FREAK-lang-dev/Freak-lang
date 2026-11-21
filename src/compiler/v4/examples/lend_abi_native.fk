@@ -1,0 +1,181 @@
+-- lend / lend mut parameters and borrowed returns (tier 3 lend ABI row).
+-- A lend parameter is the address of the caller's place: writes through
+-- lend mut are visible to the caller, and nothing is copied or dropped.
+shape Point { x: int, y: int }
+shape Rect { origin: Point, size: Point }
+shape Named { name: word, hits: int }
+shape Gauge { level: num, ratio: float32, mark: char, on: bool, small: tiny, big: uint }
+route Dir {
+    Step { dx: int, dy: int }
+    Stay
+}
+
+-- Scalars
+task bump(lend mut n: int, by: int) -> void { n = n + by }
+task doubled(lend n: int) -> int { give back n * 2 }
+task flip(lend mut b: bool) -> void { b = not b }
+task tune(lend mut g: Gauge) -> void {
+    g.level = g.level * 2.0
+    g.ratio = g.ratio + 0.5
+    g.mark = 'z'
+    flip(lend mut g.on)
+    g.small = g.small + 1
+    g.big = g.big + 1
+}
+
+-- Aggregates
+task sum(lend p: Point) -> int { give back p.x + p.y }
+task shift(lend mut p: Point, dx: int) -> void {
+    p.x = p.x + dx
+    bump(lend mut p.y, dx)
+}
+task reset(lend mut p: Point) -> void { p = Point { x: 0, y: 0 } }
+task grow(lend mut r: Rect, d: int) -> void {
+    shift(lend mut r.size, d)
+    r.origin.x = r.origin.x - d
+}
+task area(lend r: Rect) -> int { give back r.size.x * r.size.y }
+task total(lend xs: [int; 4]) -> int {
+    pilot mut acc = 0
+    pilot mut i = 0
+    while i < 4 {
+        acc = acc + xs[i]
+        i = i + 1
+    }
+    give back acc
+}
+task scale(lend mut xs: [int; 4], k: int) -> void {
+    pilot mut i = 0
+    while i < 4 {
+        pilot extra = xs[i] * (k - 1)
+        bump(lend mut xs[i], extra)
+        i = i + 1
+    }
+}
+task swap(lend mut t: (int, int)) -> void {
+    pilot first = t.0
+    t.0 = t.1
+    t.1 = first
+}
+task hits(lend n: Named) -> int { give back n.hits }
+task hit(lend mut n: Named) -> void { n.hits = n.hits + 1 }
+
+-- Routes
+task stop(lend mut d: Dir) -> void { d = Dir::Stay }
+task step(lend mut d: Dir, dx: int) -> void { d = Dir::Step { dx: dx, dy: 0 - dx } }
+task relay(lend mut d: Dir) -> void { stop(lend mut d) }
+task dx_of(d: Dir) -> int {
+    check route d {
+        Dir::Step { dx, .. } -> give back dx
+        Dir::Stay -> give back 0
+    }
+    give back 0 - 1
+}
+
+-- Methods take lend parameters and lend receivers alike.
+impl Point {
+    task peek(lend self) -> int { give back self.x }
+    task nudge(lend mut self, d: int) -> void { shift(lend mut self, d) }
+}
+task peek_twice(lend p: Point) -> int { give back p.peek() + p.peek() }
+
+-- Words: a shared loan is the handle; lend mut is the caller's word slot.
+task wlen(lend w: word) -> int { give back w.length() }
+task append(lend mut w: word, tail: word) -> void { w = w + tail }
+task shout(lend mut w: word) -> void {
+    append(lend mut w, "!")
+    append(lend mut w, "!")
+}
+
+-- Borrowed returns: the address of the place a loan named.
+task bigger<'a>(lend 'a a: Point, lend 'a b: Point) -> lend 'a Point {
+    if sum(lend a) >= sum(lend b) { give back lend a }
+    give back lend b
+}
+task pick(lend mut r: Rect, take_origin: bool) -> lend mut Point {
+    if take_origin { give back lend mut r.origin }
+    give back lend mut r.size
+}
+task larger<'a>(lend 'a a: int, lend 'a b: int) -> lend 'a int {
+    if a >= b { give back lend a }
+    give back lend b
+}
+task longer<'a>(lend 'a x: word, lend 'a y: word) -> lend 'a word {
+    if x.length() >= y.length() { give back lend x }
+    give back lend y
+}
+
+task main() -> int {
+    pilot mut n = 5
+    bump(lend mut n, 3)
+    say n
+    say doubled(lend n)
+    pilot mut g = Gauge { level: 1.5, ratio: 0.25, mark: 'a', on: false, small: 254, big: 7 }
+    tune(lend mut g)
+    say g.level
+    say g.ratio > 0.7 and g.ratio < 0.8
+    say g.mark == 'z'
+    say g.on
+    say g.small == 255
+    say g.big == 8
+
+    pilot mut p = Point { x: 3, y: 4 }
+    say sum(lend p)
+    shift(lend mut p, 10)
+    say p.x
+    say p.y
+    p.nudge(1)
+    say p.peek()
+    say peek_twice(lend p)
+    pilot mut r = Rect { origin: Point { x: 1, y: 1 }, size: Point { x: 2, y: 3 } }
+    grow(lend mut r, 2)
+    say area(lend r)
+    say r.origin.x
+    say sum(lend r.size)
+    reset(lend mut r.origin)
+    say sum(lend r.origin)
+    pilot mut xs: [int; 4] = [1, 2, 3, 4]
+    scale(lend mut xs, 3)
+    say total(lend xs)
+    say xs[3]
+    pilot mut t = (1, 2)
+    swap(lend mut t)
+    say t.0
+    pilot mut who = Named { name: "ada", hits: 1 }
+    hit(lend mut who)
+    hit(lend mut who)
+    say hits(lend who)
+    say who.name
+
+    pilot mut d = Dir::Step { dx: 4, dy: 0 }
+    say dx_of(d)
+    pilot mut e = Dir::Step { dx: 4, dy: 0 }
+    relay(lend mut e)
+    say dx_of(e)
+    pilot mut f = Dir::Stay
+    step(lend mut f, 6)
+    say dx_of(f)
+
+    pilot mut w = "go"
+    shout(lend mut w)
+    say w
+    say wlen(lend w)
+
+    pilot q = Point { x: 20, y: 1 }
+    pilot best = bigger(lend p, lend q)
+    say best.x
+    say sum(best)
+    say sum(bigger(lend q, lend p))
+    pilot corner = pick(lend mut r, false)
+    corner.x = 100
+    bump(lend mut corner.y, 1)
+    say r.size.x
+    say r.size.y
+    pilot a = 4
+    pilot b = 9
+    pilot top = larger(lend a, lend b)
+    say doubled(top)
+    pilot long = longer(lend w, lend who.name)
+    say wlen(long)
+    give back 0
+}
