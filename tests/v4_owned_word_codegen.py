@@ -28,7 +28,7 @@ EXPECTED = {
     "owned_word_return_temporary.fk": "first\nsecond\ntransfer\ntransfer\n",
     "owned_word_aggregates.fk": "6\nada!\nada+\n17\nada+\n21\nx#\n8\n8\nr+++\n3\nsecond\n",
     "lend_abi_native.fk": ("8\n16\n3\ntrue\ntrue\ntrue\ntrue\ntrue\n7\n13\n14\n14\n28\n20\n-1\n9\n0\n30\n12\n2\n3\nada\n"
-                           "4\n0\n6\ngo!!\n4\n14\n29\n29\n100\n6\n18\n4\n"),
+                           "4\n0\n6\ngo!!\n4\n14\n29\n29\n100\n6\n18\n4\ngo!!?\n21\n"),
     "word_interpolation.fk": "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n",
 }
 
