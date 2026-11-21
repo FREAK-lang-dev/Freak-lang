@@ -23,6 +23,7 @@ shape Ver { major: int, minor: int }
 shape Grid { cells: [int; 4], writes: int }
 shape Board { id: int, grid: Grid }
 shape Probe { hits: int }
+shape Tag { name: word, n: int }
 
 impl Copy for V {
 }
@@ -39,6 +40,8 @@ impl Mul for V { task mul(self, other: V) -> V { give back V { x: self.x * other
 impl Div for V { task div(lend self, other: V) -> V { give back V { x: self.x / other.x, y: self.y / other.y } } }
 impl Neg for V { task neg(self) -> V { give back V { x: 0 - self.x, y: 0 - self.y } } }
 impl Eq for V { task equals(lend self, other: V) -> bool { give back self.x == other.x and self.y == other.y } }
+impl Add for Tag { task add(self, other: Tag) -> Tag { give back Tag { name: self.name + other.name, n: self.n + other.n } } }
+impl Eq for Tag { task equals(lend self, other: Tag) -> bool { give back self.n == other.n } }
 
 impl Ord for Ver {
     task compare(lend self, other: Ver) -> Order {
@@ -229,5 +232,11 @@ task main() -> int {
     tiles[pick(1)][pick(0)] -= a
     say tiles[1][0].x
     say tiles[1][1].x
+    pilot t1 = Tag { name: "ab", n: 1 }
+    pilot t2 = Tag { name: "cd", n: 2 }
+    pilot t3 = t1 + t2
+    say t3.name
+    pilot t4 = Tag { name: "x", n: 3 }
+    say t3 == t4
     give back sum.x + g[1]
 }
