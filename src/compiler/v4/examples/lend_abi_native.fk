@@ -100,6 +100,7 @@ task larger<'a>(lend 'a a: int, lend 'a b: int) -> lend 'a int {
     if a >= b { give back lend a }
     give back lend b
 }
+task tail_of(lend mut w: word) -> lend mut word { give back lend mut w }
 task longer<'a>(lend 'a x: word, lend 'a y: word) -> lend 'a word {
     if x.length() >= y.length() { give back lend x }
     give back lend y
@@ -177,5 +178,11 @@ task main() -> int {
     say doubled(top)
     pilot long = longer(lend w, lend who.name)
     say wlen(long)
+    pilot end = tail_of(lend mut w)
+    append(end, "?")
+    say w
+    -- A loan held in a local is the place's address too.
+    pilot view = lend q
+    say sum(view)
     give back 0
 }

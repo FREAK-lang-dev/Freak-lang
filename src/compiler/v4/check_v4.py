@@ -17367,6 +17367,43 @@ NATIVE_ROUTES_EXPECTED = ("2\n0\ntrue\ntrue\ntrue\n41\nfalse\n9\n9\n12\n15\n0\n4
 NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\norigin:12\n0\nfalse\ntrue\n2\n"
 # The FREAK aggregate calling convention: stdout, then main's exit status.
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
+# lend / lend mut parameters and borrowed returns (tier 3 lend ABI row).
+NATIVE_LEND_ABI_EXPECTED = ("8\n16\n3\ntrue\ntrue\ntrue\ntrue\ntrue\n7\n13\n14\n14\n28\n20\n-1\n9\n0\n30\n12\n2\n3\nada\n"
+                            "4\n0\n6\ngo!!\n4\n14\n29\n29\n100\n6\n18\n4\ngo!!?\n21\n")
+# Rejected lend ABI programs: (stem, source, named reason).
+NATIVE_LEND_ABI_REJECTED = (
+    # A lend-typed parameter is not a lend mode.
+    ("tier3_lend_typed_param", "shape P { x: int }\ntask peek(p: lend P) -> int { give back p.x }\n"
+     "task main() -> int { pilot p = P { x: 1 }\n give back peek(lend p) }\n",
+     "native lend-typed parameters are not yet supported; declare the mode instead (lend p: T)"),
+    ("tier3_lend_c_extern", "use std::ffi::c_int\nextern [C] {\n    task takes(lend n: c_int) -> c_int\n}\n"
+     "task main() -> int { give back 0 }\n",
+     "native lend parameters across the C ABI are not yet supported: int"),
+    ("tier3_lend_c_callback", "use std::ffi::c_int\n@extern_callback(\"C\")\ntask cb(lend n: c_int) -> c_int { give back n }\n"
+     "task main() -> int { give back 0 }\n",
+     "native lend parameters across the C ABI are not yet supported: int"),
+    # Word slots of a lent aggregate keep the aggregate row's store fence.
+    ("tier3_lend_word_slot_store", "shape Named { name: word, n: int }\n"
+     "task rename(lend mut p: Named) -> void { p.name = \"y\" }\n"
+     "task main() -> int {\n    pilot mut a = Named { name: \"x\", n: 1 }\n    rename(lend mut a)\n    give back a.n\n}\n",
+     "native stores into aggregate slots that own words are not yet supported: p . name"),
+    # Meiya tracks the loan a borrowed return carries.
+    ("tier3_lend_return_loan_live", "shape P { x: int }\ntask pick(lend mut p: P) -> lend mut P { give back lend mut p }\n"
+     "task main() -> int { pilot mut p = P { x: 1 }\n pilot m = pick(lend mut p)\n say p.x\n m.x = 2\n give back 0 }\n",
+     "Meiya refuses observation through an exclusive lend"),
+    ("tier3_lend_return_owned", "shape P { x: int }\ntask make() -> lend P { pilot p = P { x: 1 }\n give back lend p }\n"
+     "task main() -> int { give back 0 }\n",
+     "Meiya refuses to return a loan of an owned value"),
+    ("tier3_lend_temporary", "task peek(lend n: int) -> int { give back n }\ntask main() -> int { give back peek(lend 3) }\n",
+     "lend source must be a place"),
+    # MIR does not yet project or read a borrowed call result in place.
+    ("tier3_lend_return_projection", "shape P { x: int }\ntask id(lend p: P) -> lend P { give back lend p }\n"
+     "task main() -> int { pilot p = P { x: 1 }\n give back id(lend p).x }\n",
+     "field access on non-shape type"),
+    ("tier3_lend_scalar_read", "task top(lend a: int) -> lend int { give back lend a }\n"
+     "task main() -> int { pilot a = 1\n pilot t = top(lend a)\n pilot v: int = t\n give back v }\n",
+     "local declaration type mismatch"),
+)
 
 
 def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
@@ -17557,6 +17594,7 @@ def check_v4_native_shapes() -> None:
         ("routes", "routes_native.fk", NATIVE_ROUTES_EXPECTED),
         ("methods", "methods_native.fk", NATIVE_METHODS_EXPECTED),
         ("agg_abi", "agg_abi_native.fk", NATIVE_AGG_ABI_EXPECTED),
+        ("lend_abi", "lend_abi_native.fk", NATIVE_LEND_ABI_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -17605,6 +17643,24 @@ def check_v4_native_shapes() -> None:
                             raise
                     else:
                         raise RuntimeError(f"V4 ABI oracle accepted a wrong aggregate size for {triple}: {wanted}")
+            if stem == "lend_abi":
+                # Every lend mode must reach the oracle, and a shared loan
+                # marked noalias or a loan without nonnull must fail.
+                if not re.search(r" pass=lend$", module_text, re.MULTILINE) or not re.search(r" pass=lend_mut$", module_text, re.MULTILINE):
+                    raise RuntimeError(f"V4 lend ABI module for {triple} has no lend or lend mut ABI notes")
+                shared = re.search(r"ptr nonnull (align \d+ dereferenceable\(\d+\) %arg\.\d+)", module_text)
+                exclusive = re.search(r"ptr noalias nonnull (align \d+ dereferenceable\(\d+\) %arg\.\d+)", module_text)
+                if shared is None or exclusive is None:
+                    raise RuntimeError(f"V4 lend ABI module for {triple} has no lend parameter headers")
+                for tampered in (module_text.replace(shared.group(0), "ptr noalias nonnull " + shared.group(1), 1),
+                                 module_text.replace(exclusive.group(0), "ptr noalias " + exclusive.group(1), 1)):
+                    try:
+                        check_native_abi_oracle(tampered, triple)
+                    except RuntimeError as error:
+                        if "header disagrees" not in str(error):
+                            raise
+                    else:
+                        raise RuntimeError(f"V4 ABI oracle accepted a wrong lend pointer attribute for {triple}")
             if "; freak.payload " in module_text:
                 stripped = re.sub(r"^; freak\.payload .*\n", "", module_text, flags=re.MULTILINE)
                 try:
@@ -17635,13 +17691,6 @@ def check_v4_native_shapes() -> None:
         ("tier3_temporary_index_non_array", "task n() -> int { give back 4 }\n"
          "task main() -> int { give back n()[0] }\n",
          "index of a temporary needs a fixed array"),
-        ("tier3_lend_word_shape_param", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
-         "task peek(lend p: Named) -> int { give back p.n }\n"
-         "task main() -> int {\n    pilot a = make(\"x\", 1)\n    give back peek(lend a)\n}\n",
-         "native lend parameters currently support only immutable word parameters"),
-        ("tier3_lend_mut_shape_param", "shape P { x: int }\ntask poke(lend mut p: P) -> int { give back p.x }\n"
-         "task main() -> int { pilot mut p = P { x: 1 }\n give back poke(lend mut p) }\n",
-         "native lend parameters currently support only immutable word parameters"),
         ("tier3_shape_generic", "shape Box<T> { v: T }\n"
          "task main() -> int { pilot b: Box<int> = Box { v: 1 }\n give back b.v }\n",
          "native generic shapes need monomorphization: Box<int>"),
@@ -17708,13 +17757,7 @@ def check_v4_native_shapes() -> None:
         ("tier3_method_value_to_lend_self", "shape P { x: int }\nimpl P {\n    task peek(lend self) -> int { give back self.x }\n}\n"
          "task main() -> int { pilot p = P { x: 1 }\n give back P::peek(p) }\n",
          "unsupported native conversion: P to lend P"),
-        ("tier3_lend_shape_param", "shape P { x: int }\ntask peek(lend p: P) -> int { give back p.x }\n"
-         "task main() -> int { pilot p = P { x: 1 }\n give back peek(lend p) }\n",
-         "native lend parameters currently support only immutable word parameters"),
-        ("tier3_lend_shape_local", "shape P { x: int }\n"
-         "task main() -> int { pilot p = P { x: 1 }\n pilot l = lend p\n give back p.x }\n",
-         "native borrowed aggregate local storage is not yet supported"),
-    )
+    ) + NATIVE_LEND_ABI_REJECTED
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")
