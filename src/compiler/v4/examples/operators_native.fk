@@ -93,6 +93,11 @@ impl Grid {
     }
 }
 
+-- Built-in comparisons keep their meaning: this impl never runs for ints.
+impl Ord for int {
+    task compare(self, other: int) -> Order { give back Order::Greater }
+}
+
 -- A lend mut self operator writes its left operand in place.
 impl Eq for Probe {
     task equals(lend mut self, other: Probe) -> bool {
@@ -181,5 +186,6 @@ task main() -> int {
     pilot cells: [int; 3] = [1, 2, 3]
     cells[1] = 20
     say cells[1] < cells[2]
+    say cells[0] < cells[2]
     give back sum.x + g[1]
 }

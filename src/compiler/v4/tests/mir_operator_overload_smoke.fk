@@ -122,3 +122,69 @@ pilot v4_mir_operator_overload_bad_mir = v4_mir_lower_ty(1, v4_mir_operator_over
 say "operator-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_operator_overload_bad_mir))
 say "operator-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_operator_overload_bad_mir, 0))
 say "operator-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_operator_overload_bad_mir, 0))
+
+-- Ord, Index and IndexMut resolve in MIR: an ordering operator is a tag
+-- test on compare's Order, a[i] calls index and a[i] = x calls index_mut,
+-- each receiver wrapped in the loan its impl declares.
+task v4_mir_operator_overload_ord_index_source() -> word {
+    pilot src = "route Order " + "{" + " Less, Equal, Greater " + "}" + "\n"
+    src = src + "shape Ver " + "{" + " major: int " + "}" + "\n"
+    src = src + "shape Grid " + "{" + " cells: [int; 2] " + "}" + "\n"
+    src = src + "doctrine Ord " + "{" + " task compare(lend self, other: Self) -> Order " + "}" + "\n"
+    src = src + "doctrine Index " + "{" + " task index(lend self, i: uint) -> int " + "}" + "\n"
+    src = src + "doctrine IndexMut " + "{" + " task index_mut(lend mut self, i: uint, value: int) -> void " + "}" + "\n"
+    src = src + "impl Ord for Ver " + "{" + "\n"
+    src = src + "    task compare(lend self, other: Ver) -> Order " + "{" + " give back Order::Equal " + "}" + "\n"
+    src = src + "}" + "\n"
+    src = src + "impl Index for Grid " + "{" + "\n"
+    src = src + "    task index(lend self, i: uint) -> int " + "{" + " give back 0 " + "}" + "\n"
+    src = src + "}" + "\n"
+    src = src + "impl IndexMut for Grid " + "{" + "\n"
+    src = src + "    task index_mut(lend mut self, i: uint, value: int) -> void " + "{" + "\n"
+    src = src + "    }" + "\n"
+    src = src + "}" + "\n"
+    src = src + "task main(a: Ver, b: Ver, g: Grid) -> int " + "{" + "\n"
+    src = src + "    pilot less = a < b\n"
+    src = src + "    pilot most = a <= b\n"
+    src = src + "    pilot cell = g[1]\n"
+    src = src + "    g[0] = 5\n"
+    src = src + "    pilot lo = 1 < 2\n"
+    src = src + "    give back 0\n"
+    src = src + "}" + "\n"
+    give back src
+}
+
+pilot v4_mir_operator_ord_stream = v4_lex_text(2, v4_mir_operator_overload_ord_index_source())
+pilot v4_mir_operator_ord_tree = v4_parse_stream(2, v4_mir_operator_ord_stream)
+pilot v4_mir_operator_ord_hir = v4_hir_lower_tree(2, v4_mir_operator_ord_tree)
+pilot v4_mir_operator_ord_resolve = v4_resolve_lower_hir(2, v4_mir_operator_ord_hir)
+pilot v4_mir_operator_ord_ty = v4_ty_lower_resolve(2, v4_mir_operator_ord_resolve)
+pilot v4_mir_operator_ord_mir = v4_mir_lower_ty(2, v4_mir_operator_ord_ty)
+pilot v4_mir_operator_ord_body = v4_mir_lookup_body(v4_mir_operator_ord_mir, v4_resolve_def_for_name(v4_mir_operator_ord_resolve, "main"))
+
+task v4_mir_operator_ord_fact(label: word, rvalue: int) -> void {
+    pilot mir = v4_mir_operator_ord_mir
+    pilot body = v4_mir_operator_ord_body
+    say label + "=" + v4_mir_rvalue_kind(mir, body, rvalue) + "|" + v4_mir_rvalue_op(mir, body, rvalue) + "|" + v4_mir_rvalue_ty(mir, body, rvalue)
+}
+
+pilot v4_mir_operator_less = v4_mir_stmt_rvalue(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, 0)
+pilot v4_mir_operator_less_call = v4_mir_rvalue_lhs(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, v4_mir_operator_less)
+v4_mir_operator_ord_fact("operator-less", v4_mir_operator_less)
+v4_mir_operator_ord_fact("operator-less-compare", v4_mir_operator_less_call)
+v4_mir_operator_ord_fact("operator-less-receiver", v4_mir_rvalue_lhs(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, v4_mir_operator_less_call))
+v4_mir_operator_ord_fact("operator-less-case", v4_mir_rvalue_rhs(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, v4_mir_operator_less))
+pilot v4_mir_operator_most = v4_mir_stmt_rvalue(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, 1)
+v4_mir_operator_ord_fact("operator-most", v4_mir_operator_most)
+v4_mir_operator_ord_fact("operator-most-case", v4_mir_rvalue_rhs(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, v4_mir_operator_most))
+pilot v4_mir_operator_cell = v4_mir_stmt_rvalue(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, 2)
+v4_mir_operator_ord_fact("operator-index", v4_mir_operator_cell)
+v4_mir_operator_ord_fact("operator-index-receiver", v4_mir_rvalue_lhs(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, v4_mir_operator_cell))
+v4_mir_operator_ord_fact("operator-index-operand", v4_mir_rvalue_rhs(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, v4_mir_operator_cell))
+pilot v4_mir_operator_store = v4_mir_stmt_rvalue(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, 3)
+v4_mir_operator_ord_fact("operator-index-mut", v4_mir_operator_store)
+v4_mir_operator_ord_fact("operator-index-mut-receiver", v4_mir_rvalue_call_arg(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, v4_mir_operator_store, 0))
+v4_mir_operator_ord_fact("operator-index-mut-value", v4_mir_rvalue_call_arg(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, v4_mir_operator_store, 2))
+say "operator-index-mut-args=" + word_from_int(v4_mir_rvalue_call_arg_count(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, v4_mir_operator_store))
+v4_mir_operator_ord_fact("operator-scalar-less", v4_mir_stmt_rvalue(v4_mir_operator_ord_mir, v4_mir_operator_ord_body, 4))
+say "operator-ord-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_operator_ord_mir))
