@@ -8094,9 +8094,12 @@ EXECUTABLE_SMOKES = [
             "check-result-branch-kind=Check",
             "check-result-branch-op=IsOk",
             "check-result-branch-ty=bool",
-            "check-result-n-kind=UsePlace",
+            "check-result-n-kind=SumTake",
             "check-result-n-ty=int",
-            "check-result-n-source-field=ok",
+            "check-result-n-op=TakeOk",
+            "check-result-n-source-kind=UseLocal",
+            "check-result-n-source-ty=result<int,word>",
+            "check-result-n-source-local-name=_check_result_subject",
             "check-result-good-diagnostics=0",
             "check-maybe-bad-source-diagnostics=2",
             "check-maybe-bad-source-message=check needs maybe source",
@@ -8153,10 +8156,11 @@ EXECUTABLE_SMOKES = [
             "check-destructure-right-index-kind=ConstInt",
             "check-destructure-right-index-text=1",
             "check-destructure-right-index-ty=int",
-            "check-destructure-msg-kind=UsePlace",
+            "check-destructure-msg-kind=SumTake",
             "check-destructure-msg-ty=word",
-            "check-destructure-msg-source-field=err",
-            "check-destructure-msg-source-ty=word",
+            "check-destructure-msg-op=TakeErr",
+            "check-destructure-msg-source-kind=UseLocal",
+            "check-destructure-msg-source-ty=result<Wing,word>",
             "check-destructure-diagnostics=4",
             "check-destructure-diagnostic0-message=check maybe arm malformed",
             "check-destructure-diagnostic0-help=use got pattern -> ...",
@@ -17368,7 +17372,7 @@ NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\nori
 # The FREAK aggregate calling convention: stdout, then main's exit status.
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
 NATIVE_MAYBE_RESULT_EXPECTED = ("2.5\n7\nempty\n2\nodd\n3\none\npos\n-4\n51\n4\nfallback evaluated\n9\none/anon\n"
-                                "direct\nkept\n5\n3\ntrue\n5\nnone\none\nloud\nsilent\nc\n36\n")
+                                "direct\nkept\n5\n3\n6\nfalse\n12\ntrue\n5\nnone\none\nloud\nsilent\nc\n36\n")
 NATIVE_MAYBE_RESULT_EXIT = 17
 
 
