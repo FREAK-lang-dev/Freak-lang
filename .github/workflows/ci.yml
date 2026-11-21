@@ -6,9 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# A new push to a pull request cancels its superseded run. Pushes to main are
+# never cancelled mid-run (a newer one waits), so every merge keeps coverage.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -17,7 +19,47 @@ env:
   CLANG_FLAGS: "-w -O2 -D_CRT_SECURE_NO_WARNINGS"
 
 jobs:
+  # Pull requests that only touch V4-only paths (see tools/ci_scope.py) skip
+  # the V3 lanes below; V4 CI and the locked bootstrap still run for them, and
+  # pushes to main always run everything. Fail-closed: any doubt runs V3.
+  scope:
+    name: CI scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      v3: ${{ steps.scope.outputs.v3 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pins that nothing ci.yml runs reads a V4-only path.
+      - name: Scope rules regression tests
+        shell: bash
+        run: python3 -B -u -m unittest tests/test_ci_scope.py -v
+
+      - name: List changed files
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed-files.txt" \
+            || rm -f "$RUNNER_TEMP/changed-files.txt"
+
+      - name: Decide which lanes run
+        id: scope
+        shell: bash
+        run: |
+          python3 -B -u tools/ci_scope.py --event "$GITHUB_EVENT_NAME" --files "$RUNNER_TEMP/changed-files.txt"
+
   build-and-test:
+    name: V3 build and test (${{ matrix.os }})
+    needs: scope
+    if: needs.scope.outputs.v3 == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -391,7 +433,51 @@ jobs:
         shell: bash
         run: python -u tests/v3_performance_lab.py ./build/freak$EXT
 
+  # The ruleset requires "build-and-test (<os>)". This gate reports under
+  # that name so a V4-only pull request (V3 lanes skipped by scope) can merge,
+  # and it fails whenever the scope job or a V3 lane that should run did not
+  # succeed. It also closes the old gap where a failed Windows bootstrap build
+  # left windows-test-suites-a/b/c skipped (and skipped counts as passing).
+  build-and-test-gate:
+    name: build-and-test (${{ matrix.os }})
+    needs: [scope, build-and-test, windows-bootstrap-build]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Check the V3 lanes
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          RUN_V3: ${{ needs.scope.outputs.v3 }}
+          BUILD_RESULT: ${{ needs.build-and-test.result }}
+          WINDOWS_BUILD_RESULT: ${{ needs.windows-bootstrap-build.result }}
+        shell: bash
+        run: |
+          echo "scope=$SCOPE_RESULT v3=$RUN_V3 build-and-test=$BUILD_RESULT windows-bootstrap-build=$WINDOWS_BUILD_RESULT"
+          if [[ "$SCOPE_RESULT" != "success" ]]; then
+            echo "::error::CI scope did not succeed ($SCOPE_RESULT)"; exit 1
+          fi
+          if [[ "$RUN_V3" == "true" ]]; then
+            if [[ "$BUILD_RESULT" != "success" || "$WINDOWS_BUILD_RESULT" != "success" ]]; then
+              echo "::error::V3 lanes did not pass"; exit 1
+            fi
+            echo "V3 lanes passed"
+          elif [[ "$RUN_V3" == "false" ]]; then
+            if [[ "$BUILD_RESULT" != "skipped" || "$WINDOWS_BUILD_RESULT" != "skipped" ]]; then
+              echo "::error::V3 lanes were expected to be skipped"; exit 1
+            fi
+            echo "V4-only pull request: V3 lanes skipped (they run on main)"
+          else
+            echo "::error::unexpected scope output '$RUN_V3'"; exit 1
+          fi
+
   windows-bootstrap-build:
+    needs: scope
+    if: needs.scope.outputs.v3 == 'true'
     runs-on: windows-latest
 
     steps:

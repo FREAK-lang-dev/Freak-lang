@@ -15910,13 +15910,76 @@ def transpile_fixture(base_source: str, fixture: Path) -> tuple[str, bool]:
     return c_source, uses_ui
 
 
+_TRANSPILE_WORKER_BASE: str | None = None
+
+
+def _transpile_worker_init(base_source: str) -> None:
+    global _TRANSPILE_WORKER_BASE
+    _TRANSPILE_WORKER_BASE = base_source
+
+
+def _transpile_worker(fixture_text: str) -> tuple[str, int, bool, list[str] | None]:
+    """Transpile one fixture in a pool worker; return only sizes, never the C."""
+    fixture = Path(fixture_text)
+    assert _TRANSPILE_WORKER_BASE is not None
+    source = fixture_source(_TRANSPILE_WORKER_BASE, fixture)
+    c_source, diagnostics, uses_ui = transpile(source, fixture.with_suffix(".flat.fk"))
+    if diagnostics:
+        return fixture_text, -1, bool(uses_ui), [str(diag) for diag in diagnostics[:40]] + (
+            [f"... {len(diagnostics) - 40} more diagnostics"] if len(diagnostics) > 40 else []
+        )
+    if c_source is None:
+        return fixture_text, -1, bool(uses_ui), ["transpile returned no C source"]
+    return fixture_text, len(c_source), bool(uses_ui), None
+
+
+def fixture_transpile_jobs(count: int) -> int:
+    raw = os.environ.get("FREAK_V4_TRANSPILE_JOBS", "").strip()
+    if raw:
+        try:
+            requested = int(raw)
+        except ValueError:
+            raise SystemExit(f"FREAK_V4_TRANSPILE_JOBS must be an integer, got {raw!r}")
+        if requested < 1:
+            raise SystemExit("FREAK_V4_TRANSPILE_JOBS must be at least 1")
+    else:
+        requested = min(os.cpu_count() or 1, 4)
+    return max(1, min(requested, count))
+
+
 def check_fixture_transpile(base_source: str, fixtures: list[Path]) -> None:
-    for fixture in fixtures:
-        label = rel(fixture)
-        c_source, uses_ui = transpile_fixture(base_source, fixture)
-        print(f"fixture transpile: {label} c_bytes={len(c_source)} uses_ui={uses_ui}")
-        del c_source
-        check_runner_retained_memory()
+    jobs = fixture_transpile_jobs(len(fixtures))
+    if jobs <= 1:
+        for fixture in fixtures:
+            label = rel(fixture)
+            c_source, uses_ui = transpile_fixture(base_source, fixture)
+            print(f"fixture transpile: {label} c_bytes={len(c_source)} uses_ui={uses_ui}")
+            del c_source
+            check_runner_retained_memory()
+        return
+
+    # Each fixture is an independent whole-program transpile of the flattened
+    # crates, so they run in worker processes. Results are reported in fixture
+    # order and the first failure (in that order) stops the check, as before.
+    from concurrent.futures import ProcessPoolExecutor
+
+    print(f"fixture transpile: {len(fixtures)} fixtures on {jobs} workers")
+    with ProcessPoolExecutor(
+        max_workers=jobs,
+        initializer=_transpile_worker_init,
+        initargs=(base_source,),
+    ) as pool:
+        results = pool.map(_transpile_worker, [str(fixture) for fixture in fixtures])
+        for fixture_text, c_bytes, uses_ui, failure in results:
+            label = rel(Path(fixture_text))
+            if failure is not None:
+                print(f"transpile failed: {label}")
+                for line in failure:
+                    print(line)
+                pool.shutdown(wait=False, cancel_futures=True)
+                raise SystemExit(1)
+            print(f"fixture transpile: {label} c_bytes={c_bytes} uses_ui={uses_ui}")
+    check_runner_retained_memory()
 
 
 class BoundedPipeCapture:
@@ -18663,11 +18726,24 @@ def check_executable_smokes(
     check_native_snapshot_lines(clang)
     check_v3_llvm_substring_pipeline(clang, include_arg)
 
+    # Expanded runtime cases of one smoke share its fixture, and the
+    # transpile is a pure function of (crates, fixture). Reuse the previous
+    # fixture's C instead of re-transpiling ~5 MB of C once per argv case.
+    previous_fixture: Path | None = None
+    previous_transpile: tuple[str, bool] | None = None
     for smoke in smoke_execution_cases(smokes):
         fixture = TESTS_ROOT / str(smoke["fixture"])
         label = rel(fixture)
-        c_source, uses_ui = transpile_fixture(base_source, fixture)
-        print(f"fixture transpile: {label} c_bytes={len(c_source)} uses_ui={uses_ui}")
+        if fixture == previous_fixture and previous_transpile is not None:
+            c_source, uses_ui = previous_transpile
+            transpile_mode = "reused"
+        else:
+            previous_transpile = None
+            c_source, uses_ui = transpile_fixture(base_source, fixture)
+            previous_fixture = fixture
+            previous_transpile = (c_source, uses_ui)
+            transpile_mode = "fresh"
+        print(f"fixture transpile: {label} c_bytes={len(c_source)} uses_ui={uses_ui} transpile={transpile_mode}")
         if uses_ui:
             print(f"runtime smoke failed: {label} unexpectedly requires UI")
             raise SystemExit(1)

@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# A new push to a pull request cancels its superseded run (this workflow had
+# no group, so stale runs kept holding runners). Pushes to main are never
+# cancelled mid-run; a newer one waits.
+concurrency:
+  group: v4-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
