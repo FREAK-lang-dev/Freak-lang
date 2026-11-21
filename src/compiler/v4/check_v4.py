@@ -17408,7 +17408,7 @@ NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\
 NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
 NATIVE_ROUTES_EXPECTED = ("2\n0\ntrue\ntrue\ntrue\n41\nfalse\n9\n9\n12\n15\n0\n46\n54\n25\n15\n-21\n1\n73\n36\n3\n25\ntrue\nfalse\n")
 NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\norigin:12\n0\nfalse\ntrue\n2\n"
-NATIVE_CLOSURES_BODIES = 22
+NATIVE_CLOSURES_BODIES = 23
 NATIVE_CLOSURES_EXPECTED = ("42\n15\n1\n5\n9\n7\n9\n13\n6\ntrue\n12\n22\n40\n11\n12\n"
                             "Takemikazuchi!\nTakemikazuchi!\n13\nTakemikazuchi\n3\ntrue\n11\n12\n3\n30\n1\n42\n")
 # The FREAK aggregate calling convention: stdout, then main's exit status.
@@ -18052,6 +18052,10 @@ def check_v4_native_closures() -> None:
         ("tier3_closure_oneshot_same_statement", "task main() -> int {\n    pilot n: int = 3\n    pilot once = move |_| => n + 1\n"
          "    say once() + once()\n    give back 0\n}\n",
          "once is a OneShot closure called twice in statement"),
+        # A OneShot bound outside a loop and called inside it runs once per pass.
+        ("tier3_closure_oneshot_in_loop", "task main() -> int {\n    pilot n: int = 3\n    pilot once = move |_| => n + 1\n"
+         "    repeat 2 times {\n        say once()\n    }\n    give back 0\n}\n",
+         "Meiya remembers the field you already moved"),
         # The sealed result needs a `give back` on every route.
         ("tier3_closure_missing_return", "task answer() -> int { give back 42 }\ntask main() -> int {\n"
          "    pilot f = |b: bool| { if b { give back answer() } }\n    pilot r: int = f(false)\n    say r\n    give back 0\n}\n",
