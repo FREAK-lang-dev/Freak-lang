@@ -1140,7 +1140,7 @@ task v4_mir_types_compatible(mir_id: int, body_id: int, expected_ty: word, actua
     if v4_mir_is_float_narrowing(expected_ty, actual_ty) {
         give back false
     }
-    give back v4_ty_types_compatible_with_context(v4_mir_ty_id(mir_id), v4_mir_body_signature_id(mir_id, body_id), expected_ty, actual_ty)
+    give back v4_ty_types_compatible_with_context(v4_mir_ty_id(mir_id), v4_mir_body_context_signature_id(mir_id, body_id), expected_ty, actual_ty)
 }
 
 task v4_mir_check_dyn_lend_erasure(mir_id: int, stmt_span: word, target_ty: word, source_ty: word, context: word) -> void {
@@ -2065,7 +2065,7 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
     }
 
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot caller_sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot caller_sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
     pilot expected_count = v4_ty_signature_fixed_param_count(ty_id, sig_id)
     pilot variadic = v4_ty_signature_is_variadic(ty_id, sig_id)
     pilot token_arg_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
@@ -2386,7 +2386,7 @@ task v4_mir_find_method_ref(mir_id: int, owner_ty: word, method_name: word, want
 
 task v4_mir_bound_method_candidate_count(mir_id: int, body_id: int, owner_ty: word, method_name: word, want_instance: bool) -> int {
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
     if sig_id < 0 {
         give back 0
     }
@@ -2420,7 +2420,7 @@ task v4_mir_bound_method_candidate_count(mir_id: int, body_id: int, owner_ty: wo
 
 task v4_mir_bound_method_candidate_doctrines(mir_id: int, body_id: int, owner_ty: word, method_name: word, want_instance: bool) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
     if sig_id < 0 {
         give back ""
     }
@@ -2464,7 +2464,7 @@ task v4_mir_find_bound_method_ref(mir_id: int, body_id: int, owner_ty: word, met
         give back ""
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
     pilot generic_id = v4_ty_signature_generic_id_for_name(ty_id, sig_id, owner_ty)
     pilot bound_idx = 0
     pilot bound_count = v4_ty_signature_generic_bound_count(ty_id, sig_id, generic_id)
@@ -2987,7 +2987,7 @@ task v4_mir_check_bound_ufcs_method_args(mir_id: int, body_id: int, stream_id: i
     }
 
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot body_sig = v4_mir_body_signature_id(mir_id, body_id)
+    pilot body_sig = v4_mir_body_context_signature_id(mir_id, body_id)
     pilot doctrine_sig = v4_mir_bound_method_ref_sig_id(method_ref)
     pilot method_id = v4_mir_bound_method_ref_method_id(method_ref)
     pilot doctrine_instance = v4_mir_bound_method_ref_doctrine_instance(method_ref)
@@ -3120,7 +3120,7 @@ task v4_mir_check_bound_method_args(mir_id: int, body_id: int, stream_id: int, e
         v4_mir_add_type_error(mir_id, expr_span, "method call arity drift", label + " takes " + word_from_int(expected_count) + " explicit arguments but got " + word_from_int(actual_count))
     }
 
-    pilot body_sig = v4_mir_body_signature_id(mir_id, body_id)
+    pilot body_sig = v4_mir_body_context_signature_id(mir_id, body_id)
     pilot planned_slots = v4_mir_call_arg_slot_payload_new(expected_count)
     pilot extra_payload = ""
     pilot named_seen = false
@@ -3492,7 +3492,7 @@ task v4_mir_body_impl_declares_type_generic_name(mir_id: int, body_id: int, type
 
 task v4_mir_body_declares_type_generic_name(mir_id: int, body_id: int, type_name: word) -> bool {
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
     if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_name) {
         give back true
     }
@@ -3576,7 +3576,7 @@ task v4_mir_validate_raw_pointer_cast_target(mir_id: int, body_id: int, stream_i
         give back false
     }
 
-    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
     pilot valid = true
     if not v4_mir_type_reference_is_declared_for_body(mir_id, body_id, sig_id, target_pointee) {
         v4_mir_add_type_error(mir_id, expr_span, "cast target type is invalid", target_pointee + " is not a declared value type Yuuko can track through a raw-pointer cast")
@@ -3674,7 +3674,7 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
         } else if offset_target_ty == v4_ty_never {
             v4_mir_add_type_error(mir_id, expr_span, "offset target type must not be never", receiver_ty + ".offset(n) needs an inhabited pointee layout; never has no runtime element Yuuko can advance across")
         } else {
-            pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+            pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
             if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(v4_mir_ty_id(mir_id), sig_id, offset_target_ty) {
                 v4_mir_add_type_error(mir_id, expr_span, "offset target type must be concrete", receiver_ty + ".offset(n) needs a concrete pointee layout before LLVM GEP lowering; generic pointee " + offset_target_ty + " is not sized in V4 yet")
             } else if v4_mir_body_impl_declares_type_generic_name(mir_id, body_id, offset_target_ty) {
@@ -3910,7 +3910,7 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
 
     pilot owner_ty = v4_ty_type_text(stream_id, first, scope_token)
     pilot lookup_owner_ty = owner_ty
-    pilot body_sig = v4_mir_body_signature_id(mir_id, body_id)
+    pilot body_sig = v4_mir_body_context_signature_id(mir_id, body_id)
     if not v4_mir_body_declares_type_generic_name(mir_id, body_id, owner_ty) {
         pilot canonical_owner_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), owner_ty)
         if canonical_owner_ty != "" and canonical_owner_ty != v4_ty_unknown {
@@ -4377,7 +4377,7 @@ task v4_mir_check_fixed_array_repeated_literal(mir_id: int, body_id: int, stream
     if v4_ty_is_known(count_text) and word_to_int(count_text) > 0 {
         if word_to_int(count_text) > 1 and v4_mir_rvalue_contains_mut_lend(mir_id, body_id, value_rvalue) {
             v4_mir_add_type_error(mir_id, expr_span, "fixed-array repeat cannot duplicate lend mut", "write each element explicitly so every slot receives a distinct exclusive loan")
-        } else if not v4_ty_type_is_array_repeatable(v4_mir_ty_id(mir_id), v4_mir_body_signature_id(mir_id, body_id), value_ty) {
+        } else if not v4_ty_type_is_array_repeatable(v4_mir_ty_id(mir_id), v4_mir_body_context_signature_id(mir_id, body_id), value_ty) {
             v4_mir_add_type_error(mir_id, expr_span, "fixed-array repeat value must be Copy or Cloneable", "implement Copy or Cloneable for " + value_ty + ", or write each element explicitly")
         }
     }
@@ -4756,7 +4756,7 @@ task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, firs
     pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, shape_name)
     pilot explicit_shape_instance_valid = true
     if v4_ty_is_generic_instance_type(shape_name) {
-        explicit_shape_instance_valid = v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), expr_span, shape_name, "invalid generic shape instance", "shape constructor " + shape_name)
+        explicit_shape_instance_valid = v4_mir_validate_type_contract(mir_id, v4_mir_body_context_signature_id(mir_id, body_id), expr_span, shape_name, "invalid generic shape instance", "shape constructor " + shape_name)
     }
     pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, shape_name, expected_ty)
     pilot children_handle = array_new()
@@ -5131,7 +5131,7 @@ task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: i
     pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
     pilot explicit_route_instance_valid = true
     if v4_ty_is_generic_instance_type(route_name) {
-        explicit_route_instance_valid = v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), expr_span, route_name, "invalid generic route instance", "route constructor " + route_name + "::" + case_name)
+        explicit_route_instance_valid = v4_mir_validate_type_contract(mir_id, v4_mir_body_context_signature_id(mir_id, body_id), expr_span, route_name, "invalid generic route instance", "route constructor " + route_name + "::" + case_name)
     }
     pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, route_name, expected_ty)
     pilot children_handle = array_new()
@@ -5207,7 +5207,7 @@ task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int,
         }
         pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
         if v4_ty_is_generic_instance_type(route_name) {
-            if not v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), expr_span, route_name, "invalid generic route instance", "route constructor " + route_name + "::" + case_name) {
+            if not v4_mir_validate_type_contract(mir_id, v4_mir_body_context_signature_id(mir_id, body_id), expr_span, route_name, "invalid generic route instance", "route constructor " + route_name + "::" + case_name) {
                 give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
             }
         }
@@ -5427,7 +5427,7 @@ task v4_mir_closure_capture_kind(mode: word) -> word {
 
 task v4_mir_closure_param_names(mir_id: int, body_id: int, closure_offset: int) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
     if sig_id < 0 {
         give back ""
     }
@@ -5449,7 +5449,7 @@ task v4_mir_closure_param_names(mir_id: int, body_id: int, closure_offset: int) 
 
 task v4_mir_closure_type_for_body_offset(mir_id: int, body_id: int, closure_offset: int) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
     if sig_id < 0 {
         give back v4_ty_unknown
     }
@@ -8128,7 +8128,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         pattern_end = colon_token
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
     pilot pilot_offset = v4_span_start(v4_lex_token_span(stream_id, pilot_token))
     pilot annotation_id = v4_ty_signature_local_annotation_at_offset(ty_id, sig_id, pilot_offset)
     if annotation_id >= 0 {
@@ -8149,7 +8149,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     -- declaration identity. Keep the authored modifier in binding_prefix.
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, pilot_token, stmt_end)
     if v4_ty_is_known(declared_ty) {
-        if not v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), stmt_span, declared_ty, "invalid local annotation type", "local declaration " + pattern) {
+        if not v4_mir_validate_type_contract(mir_id, v4_mir_body_context_signature_id(mir_id, body_id), stmt_span, declared_ty, "invalid local annotation type", "local declaration " + pattern) {
             declared_ty = v4_ty_unknown
         }
     }
@@ -10947,7 +10947,7 @@ task v4_mir_word_plan_item_at(mir: int, body: int, span: word) -> int {
 
 task v4_mir_word_plan_body_item(mir: int, body: int) -> int {
     pilot ty = v4_mir_ty_id(mir)
-    pilot signature = v4_mir_body_signature_id(mir, body)
+    pilot signature = v4_mir_body_context_signature_id(mir, body)
     if signature >= 0 { give back v4_ty_signature_hir_item(ty, signature) }
     give back v4_mir_body_impl_method_index(mir, body, 0)
 }

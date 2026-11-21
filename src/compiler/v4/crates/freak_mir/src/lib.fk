@@ -2337,6 +2337,22 @@ task v4_mir_closure_def_last(def: word, wanted: word) -> int {
     give back 0 - 1
 }
 
+-- The def of the body a closure body was lowered from, or "".
+task v4_mir_closure_body_parent_def(mir_id: int, body_id: int) -> word {
+    if not v4_mir_body_is_closure(mir_id, body_id) { give back "" }
+    pilot def = v4_mir_body_def(mir_id, body_id)
+    pilot at = v4_mir_closure_def_last(def, "@")
+    if at <= v4_mir_closure_def_prefix.length() { give back "" }
+    give back v4_slice(def, v4_mir_closure_def_prefix.length(), at)
+}
+
+-- The TY signature whose HIR item, generics and annotations a body's source
+-- belongs to: its own, or for a closure body the signature it was lowered in.
+task v4_mir_body_context_signature_id(mir_id: int, body_id: int) -> int {
+    if v4_mir_body_is_closure(mir_id, body_id) { give back v4_ty_lookup_signature(v4_mir_ty_id(mir_id), v4_mir_closure_body_parent_def(mir_id, body_id)) }
+    give back v4_mir_body_signature_id(mir_id, body_id)
+}
+
 -- The capture count sealed in a closure body's def, or -1.
 task v4_mir_body_closure_capture_count(mir_id: int, body_id: int) -> int {
     if not v4_mir_body_is_closure(mir_id, body_id) { give back 0 - 1 }

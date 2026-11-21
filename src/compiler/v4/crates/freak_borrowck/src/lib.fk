@@ -6584,6 +6584,13 @@ task v4_borrowck_enqueue_drop_state(seen: int, blocks: int, states: int, block_c
     }
 }
 
+-- Parameters and the captured locals of a lowered closure body hold their
+-- values on entry; the closure environment is filled before the body runs.
+task v4_borrowck_local_entry_initialized(mir_id: int, body_id: int, local_id: int) -> bool {
+    if local_id < v4_mir_body_callable_param_count(mir_id, body_id) { give back true }
+    give back v4_mir_body_local_is_closure_capture(mir_id, body_id, local_id)
+}
+
 task v4_borrowck_local_initially_initialized(mir_id: int, body_id: int, local_name: word) -> bool {
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     if sig_id < 0 {
@@ -6591,7 +6598,7 @@ task v4_borrowck_local_initially_initialized(mir_id: int, body_id: int, local_na
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot word_binding = v4_borrowck_word_path_local(mir_id, body_id, local_name)
-    if word_binding >= 0 { give back word_binding < v4_mir_body_callable_param_count(mir_id, body_id) }
+    if word_binding >= 0 { give back v4_borrowck_local_entry_initialized(mir_id, body_id, word_binding) }
     give back v4_ty_signature_param_index_for_name(ty_id, sig_id, local_name) >= 0
 }
 
@@ -8967,7 +8974,7 @@ task v4_borrowck_word_local_state_walk(mir_id: int, body_id: int, local_id: int,
         array_release(queue)
         give back 0 - 1
     }
-    pilot initially_initialized: bool = local_id < v4_mir_body_callable_param_count(mir_id, body_id)
+    pilot initially_initialized: bool = v4_borrowck_local_entry_initialized(mir_id, body_id, local_id)
     pilot queue_failed: bool = false
     if not shared_seen {
         pilot prepared = 0
