@@ -494,7 +494,7 @@ task v35_while_contract_run(mode: int) -> void {
         say "v35-while-contract case=" + word_from_int(mode) + " launch-spelling=true scope=parser snapshot=true"
         give back
     }
-    if mode == 49 or mode == 50 or mode == 66 {
+    if mode == 49 or mode == 50 {
         pilot bounded = v4_codegen_llvm_lower_owned_mir(0, mir)
         v35_while_contract_assert(v4_codegen_llvm_native_module_error(bounded) != "" and v4_codegen_llvm_module_text(bounded, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "aggregate native boundary stays conservative")
     }
@@ -503,8 +503,8 @@ task v35_while_contract_run(mode: int) -> void {
         pilot routed = v4_codegen_llvm_lower_owned_mir(0, mir)
         v35_while_contract_assert(v4_codegen_llvm_native_module_error(routed) == "" and v4_codegen_llvm_module_text(routed, v4_target_spec_new("x86_64-unknown-linux-gnu")) != "", "route while condition publishes natively")
     }
-    -- Shape Eq through its impl method now lowers natively.
-    if (mode >= 60 and mode <= 64) or mode == 67 or mode == 78 or mode == 79 {
+    -- Shape and route Eq through their impl methods now lower natively.
+    if (mode >= 60 and mode <= 64) or mode == 66 or mode == 67 or mode == 78 or mode == 79 {
         pilot published = v4_codegen_llvm_lower_owned_mir(0, mir)
         v35_while_contract_assert(v4_codegen_llvm_native_module_error(published) == "" and v4_codegen_llvm_module_text(published, v4_target_spec_new("x86_64-unknown-linux-gnu")) != "", "shape Eq impl method publishes natively")
     }
