@@ -4528,6 +4528,9 @@ task v4_codegen_llvm_unadmitted_sum_error(mir_id: int, type_text: word) -> word 
             }
             pilot shape_error = v4_codegen_llvm_native_shape_error(mir_id, payload, 0)
             if shape_error != "-" and shape_error != "" { give back shape_error }
+            -- Aggregates drop word leaves by flag, but a carrier payload has
+            -- no leaf drop yet, so it stays fenced rather than leaking.
+            if v4_ty_native_sum_payload_holds_word(ty_id, payload, 0) { give back "native maybe/result aggregate payloads that own words are not yet supported: " + payload }
             give back "native maybe/result payload is not yet supported: " + payload
         }
         arg += 1
