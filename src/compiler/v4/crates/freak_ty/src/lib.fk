@@ -3439,6 +3439,7 @@ task v4_ty_binary_operator_doctrine(op: word) -> word {
     if op == "Div" { give back "Div" }
     if op == "Mod" { give back "Rem" }
     if op == "Eq" or op == "Ne" { give back "Eq" }
+    if op == "Lt" or op == "Gt" or op == "Le" or op == "Ge" { give back "Ord" }
     give back ""
 }
 
@@ -3449,6 +3450,7 @@ task v4_ty_binary_operator_method(op: word) -> word {
     if op == "Div" { give back "div" }
     if op == "Mod" { give back "rem" }
     if op == "Eq" or op == "Ne" { give back "equals" }
+    if op == "Lt" or op == "Gt" or op == "Le" or op == "Ge" { give back "compare" }
     give back ""
 }
 
