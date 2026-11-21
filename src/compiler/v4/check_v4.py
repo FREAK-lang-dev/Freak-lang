@@ -17392,7 +17392,8 @@ NATIVE_OPERATORS_EXPECTED = ("4\n22\n-11\n5\nfalse\ntrue\n46\n5\n4\nsum matches\
 # operators_native.fk gives back sum.x + g[1].
 NATIVE_OPERATORS_EXIT = 6
 NATIVE_MAYBE_RESULT_EXPECTED = ("2.5\n7\nempty\n2\nodd\n3\none\npos\n-4\n51\n4\nfallback evaluated\n9\none/anon\n"
-                                "direct\nkept\n5\n3\n6\nfalse\n12\ntrue\n5\nnone\none\nloud\nsilent\nc\n36\n")
+                                "direct\nkept\n5\n3\n6\nfalse\n12\ntrue\n5\nnone\none\nloud\nsilent\nc\n36\n"
+                                "noisy fallback\n20\n2\npropagated\ntrue\nnone\npos\nneg\none\nanon\n")
 NATIVE_MAYBE_RESULT_EXIT = 17
 
 

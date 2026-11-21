@@ -6454,7 +6454,7 @@ task v4_mir_sum_row_value_error(ty: int, values: int, locals: int, value: int) -
             if expected == v4_ty_word {
                 pilot payload: word = array_get(values, lhs)
                 pilot payload_kind = v4_mir_snapshot_field(payload, 4)
-                if payload_kind != v4_mir_rvalue_use_local and payload_kind != v4_mir_rvalue_const_word and payload_kind != v4_mir_rvalue_call and payload_kind != v4_mir_rvalue_sum_take { give back "scalar Result requires an owned word expression" }
+                if payload_kind != v4_mir_rvalue_use_local and payload_kind != v4_mir_rvalue_const_word and payload_kind != v4_mir_rvalue_call and payload_kind != v4_mir_rvalue_sum_take and payload_kind != v4_mir_rvalue_try and payload_kind != v4_mir_rvalue_or_else { give back "scalar Result requires an owned word expression" }
                 if payload_kind == v4_mir_rvalue_use_local {
                     pilot binding = v4_mir_sum_row_local(values, locals, lhs)
                     if binding < 0 { give back "invalid scalar Result payload identity" }

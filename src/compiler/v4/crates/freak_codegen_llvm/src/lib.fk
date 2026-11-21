@@ -1752,6 +1752,8 @@ task v4_codegen_llvm_rvalue_needs_instruction(mir_id: int, body_id: int, rvalue_
     }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) { give back true }
+    -- `or else` always branches; a discarded one still runs its fallback on the empty edge.
+    if v4_codegen_llvm_active_owned_mir == mir_id and kind == v4_mir_rvalue_or_else and v4_codegen_llvm_or_else_is_supported(mir_id, body_id, rvalue_id) { give back true }
     if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_use_place) { give back true }
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_literal_aggregate(kind) { give back not v4_codegen_llvm_aggregate_literal_is_zero(mir_id, body_id, rvalue_id) }
     if v4_codegen_llvm_route_case_symbol(mir_id, body_id, rvalue_id) >= 0 { give back true }
