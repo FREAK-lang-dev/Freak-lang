@@ -2358,7 +2358,7 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
             -- The read already evaluated the index operands; reuse its address.
             -- Otherwise the target (index operands and bounds checks) is
             -- evaluated before the value, in MIR's source order.
-            if read >= 0 { address = "%place." + word_from_int(body_id) + "." + word_from_int(place_id) + ".r" + word_from_int(read) } else { address = v4_codegen_llvm_place_address(parts, mir_id, body_id, place_id, "s" + word_from_int(stmt_id)) }
+            if read >= 0 { address = "%place." + word_from_int(body_id) + "." + word_from_int(place_id) + "." + v4_codegen_llvm_compound_read_site(mir_id, body_id, stmt_id, read) } else { address = v4_codegen_llvm_place_address(parts, mir_id, body_id, place_id, "s" + word_from_int(stmt_id)) }
             pilot target_lines = word_join(parts)
             array_release(parts)
             pilot value_lines = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
@@ -4906,11 +4906,15 @@ task v4_codegen_llvm_call_callee_name(mir_id: int, body_id: int, rvalue_id: int)
     give back name
 }
 
--- A loan of a native shape, tuple or fixed array is a pointer to the loaned
--- storage. Word loans keep their i64 handle.
+-- A loan of a native shape, tuple, fixed array or concrete route is a
+-- pointer to the loaned storage. Word loans keep their i64 handle.
 task v4_codegen_llvm_is_aggregate_lend(mir_id: int, type_text: word) -> bool {
     if not v4_ty_is_lend_type(type_text) { give back false }
-    give back v4_codegen_llvm_aggregate_kind(mir_id, v4_ty_lend_target_type(type_text)) != ""
+    give back v4_codegen_llvm_is_lendable_storage(mir_id, v4_ty_lend_target_type(type_text))
+}
+
+task v4_codegen_llvm_is_lendable_storage(mir_id: int, type_text: word) -> bool {
+    give back v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0
 }
 
 -- The `self` parameter of an impl method declared `lend self` or
@@ -4923,7 +4927,7 @@ task v4_codegen_llvm_local_is_lent_receiver(mir_id: int, body_id: int, local_id:
     if v4_mir_body_callable_param_name(mir_id, body_id, 0) != "self" or v4_mir_local_name(mir_id, body_id, 0) != "self" { give back false }
     pilot mode = v4_mir_body_callable_param_mode(mir_id, body_id, 0)
     if mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut { give back false }
-    give back v4_mir_local_mode(mir_id, body_id, 0) == mode and v4_codegen_llvm_aggregate_kind(mir_id, v4_mir_local_ty(mir_id, body_id, 0)) != ""
+    give back v4_mir_local_mode(mir_id, body_id, 0) == mode and v4_codegen_llvm_is_lendable_storage(mir_id, v4_mir_local_ty(mir_id, body_id, 0))
 }
 
 -- The storage address of a local: its slot, or the pointer a lent receiver
@@ -5424,19 +5428,47 @@ task v4_codegen_llvm_push_place_operands(pending: int, mir_id: int, body_id: int
 
 -- `a[i] += v` reads and stores one field or element place. The read
 -- evaluates its index and pointer operands once and the store reuses that
--- address, so a[f()] += 1 calls f once. Answers the read rvalue, or -1.
+-- address, so a[f()] += 1 calls f once. The read is the left operand of a
+-- Binary, or the receiver of the operator call MIR builds for an overloaded
+-- `+=` (MIR passes the store's own place there, by value or as a loan).
+-- Answers the read rvalue, or -1.
 task v4_codegen_llvm_stmt_compound_read(mir_id: int, body_id: int, stmt_id: int) -> int {
     pilot rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
     pilot place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
     if rvalue < 0 or place < 0 or v4_mir_stmt_kind(mir_id, body_id, stmt_id) != v4_mir_stmt_assign { give back 0 - 1 }
     pilot place_kind = v4_mir_place_kind(mir_id, body_id, place)
     if place_kind != v4_mir_place_field and place_kind != v4_mir_place_index { give back 0 - 1 }
-    if v4_mir_rvalue_kind(mir_id, body_id, rvalue) != v4_mir_rvalue_binary { give back 0 - 1 }
-    pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue)
-    if op == v4_mir_bin_and or op == v4_mir_bin_or { give back 0 - 1 }
-    pilot read = v4_mir_rvalue_lhs(mir_id, body_id, rvalue)
+    pilot read = v4_codegen_llvm_compound_operator_read(mir_id, body_id, rvalue)
+    if read < 0 {
+        if v4_mir_rvalue_kind(mir_id, body_id, rvalue) != v4_mir_rvalue_binary { give back 0 - 1 }
+        pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue)
+        if op == v4_mir_bin_and or op == v4_mir_bin_or { give back 0 - 1 }
+        read = v4_mir_rvalue_lhs(mir_id, body_id, rvalue)
+    }
     if read < 0 or v4_mir_rvalue_kind(mir_id, body_id, read) != v4_mir_rvalue_use_place or v4_mir_rvalue_lhs(mir_id, body_id, read) != place { give back 0 - 1 }
     give back read
+}
+
+-- The receiver read of a two-operand operator call: its first argument, or
+-- the place read a Lend / LendMut first argument borrows. -1 otherwise.
+task v4_codegen_llvm_compound_operator_read(mir_id: int, body_id: int, rvalue: int) -> int {
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue) != v4_mir_rvalue_call or v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue) != 2 { give back 0 - 1 }
+    pilot receiver = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue, 0)
+    if receiver < 0 or v4_mir_rvalue_lhs(mir_id, body_id, rvalue) != receiver { give back 0 - 1 }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, receiver)
+    if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut { give back v4_mir_rvalue_lhs(mir_id, body_id, receiver) }
+    give back receiver
+}
+
+-- The place-address site the compound read evaluated: `r<read>` for a
+-- value read, `l<loan>` when the operator borrows the place instead.
+task v4_codegen_llvm_compound_read_site(mir_id: int, body_id: int, stmt_id: int, read: int) -> word {
+    pilot rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue) == v4_mir_rvalue_call {
+        pilot receiver = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue, 0)
+        if receiver != read { give back "l" + word_from_int(receiver) }
+    }
+    give back "r" + word_from_int(read)
 }
 
 task v4_codegen_llvm_word_body_trees_are_valid(mir_id: int, body_id: int) -> bool {

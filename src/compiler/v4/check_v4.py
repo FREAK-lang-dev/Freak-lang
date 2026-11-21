@@ -10260,6 +10260,21 @@ EXECUTABLE_SMOKES = [
             "operator-bad-diagnostics=1",
             "operator-bad-message=operator overload argument drift",
             "operator-bad-help=Vector2.add expects Vector2 but got word",
+            "operator-less=Binary|Eq|bool",
+            "operator-less-compare=Call|Ver.compare|Order",
+            "operator-less-receiver=Lend|lend|lend Ver",
+            "operator-less-case=UseSymbol|Order::Less|Order",
+            "operator-most=Binary|Ne|bool",
+            "operator-most-case=UseSymbol|Order::Greater|Order",
+            "operator-index=Call|Grid.index|int",
+            "operator-index-receiver=Lend|lend|lend Grid",
+            "operator-index-operand=ConstInt||uint",
+            "operator-index-mut=Call|Grid.index_mut|void",
+            "operator-index-mut-receiver=LendMut|lend mut|lend mut Grid",
+            "operator-index-mut-value=ConstInt||int",
+            "operator-index-mut-args=3",
+            "operator-scalar-less=Binary|Lt|bool",
+            "operator-ord-diagnostics=0",
         ],
     },
     {
@@ -17367,6 +17382,11 @@ NATIVE_ROUTES_EXPECTED = ("2\n0\ntrue\ntrue\ntrue\n41\nfalse\n9\n9\n12\n15\n0\n4
 NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\norigin:12\n0\nfalse\ntrue\n2\n"
 # The FREAK aggregate calling convention: stdout, then main's exit status.
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
+NATIVE_OPERATORS_EXPECTED = ("4\n22\n-11\n5\nfalse\ntrue\n46\n5\n4\nsum matches\n7\n6\n8\n3\n"
+                             "true\nfalse\ntrue\nfalse\ntrue\n2\ntrue\nfalse\n3\n42\n2\n6\n70\n2\n"
+                             "false\ntrue\n2\nfalse\ntrue\ntrue\n27\nfalse\npick\n24\n1\npick\npick\n0\n3\nabcd\ntrue\n")
+# operators_native.fk gives back sum.x + g[1].
+NATIVE_OPERATORS_EXIT = 6
 
 
 def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
@@ -17549,6 +17569,7 @@ def check_v4_native_shapes() -> None:
         ("routes", "routes_native.fk", NATIVE_ROUTES_EXPECTED),
         ("methods", "methods_native.fk", NATIVE_METHODS_EXPECTED),
         ("agg_abi", "agg_abi_native.fk", NATIVE_AGG_ABI_EXPECTED),
+        ("operators", "operators_native.fk", (NATIVE_OPERATORS_EXPECTED, NATIVE_OPERATORS_EXIT)),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -17706,6 +17727,80 @@ def check_v4_native_shapes() -> None:
         ("tier3_lend_shape_local", "shape P { x: int }\n"
          "task main() -> int { pilot p = P { x: 1 }\n pilot l = lend p\n give back p.x }\n",
          "native borrowed aggregate local storage is not yet supported"),
+        # Operator doctrines (tier 3). Index and IndexMut on a type without
+        # built-in elements are calls, never places.
+        ("tier3_operator_temporary_lend", "shape P { x: int }\ndoctrine Copy {\n}\nimpl Copy for P {\n}\n"
+         "doctrine Add { task add(lend self, other: Self) -> Self }\n"
+         "impl Add for P { task add(lend self, other: P) -> P { give back P { x: self.x + other.x } } }\n"
+         "task main() -> int { pilot a = P { x: 1 }\n pilot b = a + a + a\n give back b.x }\n",
+         "lend receiver must be a place"),
+        ("tier3_operator_ord_int", "shape P { x: int }\ndoctrine Ord { task compare(self, other: Self) -> int }\n"
+         "impl Ord for P { task compare(self, other: P) -> int { give back 0 } }\n"
+         "task main() -> int { pilot a = P { x: 1 }\n pilot b = P { x: 2 }\n if a < b { give back 1 }\n give back 0 }\n",
+         "Ord compare must give back Order"),
+        ("tier3_operator_ord_payload", "route Order { Less, Equal, Greater { by: int } }\nshape P { x: int }\n"
+         "doctrine Ord { task compare(self, other: Self) -> Order }\n"
+         "impl Ord for P { task compare(self, other: P) -> Order { give back Order::Less } }\n"
+         "task main() -> int { pilot a = P { x: 1 }\n pilot b = P { x: 2 }\n if a < b { give back 1 }\n give back 0 }\n",
+         "it must give back a route Order with unit cases Less, Equal and Greater"),
+        # An arrow body leaves compare's return unknown in TY; it is never
+        # taken for an Order, so the comparison cannot skip its tag test.
+        ("tier3_operator_ord_arrow", "route Order { Less, Equal, Greater }\nshape P { x: int }\ndoctrine Copy {\n}\nimpl Copy for P {\n}\n"
+         "doctrine Ord { task compare(self, other: Self) -> Order }\n"
+         "impl Ord for P { task compare(self, other: P) => Order::Less }\n"
+         "task main() -> int { pilot a = P { x: 1 }\n pilot b = P { x: 2 }\n if a < b { give back 1 }\n give back 0 }\n",
+         "Ord compare must give back Order"),
+        ("tier3_operator_index_arrow", "shape G { c: [int; 2] }\ndoctrine Index { task index(self, i: int) -> int }\n"
+         "impl Index for G { task index(self, i: int) => self.c[i] }\n"
+         "task main() -> int { pilot g = G { c: [1, 2] }\n pilot k = g[1]\n give back 0 }\n",
+         "operator impl needs a declared return type"),
+        ("tier3_operator_add_arrow", "shape V { x: int }\ndoctrine Copy {\n}\nimpl Copy for V {\n}\n"
+         "doctrine Add { task add(self, other: Self) -> Self }\n"
+         "impl Add for V { task add(self, other: V) => V { x: self.x + other.x } }\n"
+         "task main() -> int { pilot a = V { x: 1 }\n pilot s = a + a\n give back 0 }\n",
+         "operator impl needs a declared return type"),
+        ("tier3_operator_route_lt","route E { K { v: int }, Q }\n"
+         "task main() -> int { pilot a = E::Q\n pilot b = E::Q\n if a < b { give back 1 }\n give back 0 }\n",
+         "Lt between E and E"),
+        ("tier3_operator_index_mut_value_self", "shape G { c: [int; 2] }\ndoctrine IndexMut { task index_mut(self, i: int, v: int) -> void }\n"
+         "impl IndexMut for G { task index_mut(self, i: int, v: int) -> void { } }\n"
+         "task main() -> int { pilot g = G { c: [1, 2] }\n g[0] = 5\n give back 0 }\n",
+         "IndexMut index_mut needs lend mut self"),
+        ("tier3_operator_index_mut_compound", "shape G { c: [int; 2] }\ndoctrine IndexMut { task index_mut(lend mut self, i: int, v: int) -> void }\n"
+         "impl IndexMut for G { task index_mut(lend mut self, i: int, v: int) -> void { self.c[i] = v } }\n"
+         "task main() -> int { pilot g = G { c: [1, 2] }\n g[0] += 5\n give back 0 }\n",
+         "compound assignment through IndexMut is not yet supported"),
+        ("tier3_operator_index_store_without_mut", "shape G { c: [int; 2] }\ndoctrine Index { task index(self, i: int) -> int }\n"
+         "impl Index for G { task index(self, i: int) -> int { give back self.c[i] } }\n"
+         "task main() -> int { pilot g = G { c: [1, 2] }\n g[0] = 5\n give back 0 }\n",
+         "overloaded index is not a place"),
+        ("tier3_operator_index_projection", "shape P { x: int }\nshape G { c: [P; 2] }\ndoctrine Index { task index(self, i: int) -> P }\n"
+         "impl Index for G { task index(self, i: int) -> P { give back self.c[i] } }\n"
+         "task main() -> int { pilot g = G { c: [P { x: 1 }, P { x: 2 }] }\n give back g[1].x }\n",
+         "overloaded index is not a place"),
+        ("tier3_operator_index_drift", "shape G { c: [int; 2] }\ndoctrine Index { task index(self, i: int) -> int }\n"
+         "impl Index for G { task index(self, i: int) -> int { give back self.c[i] } }\n"
+         "task main() -> int { pilot g = G { c: [1, 2] }\n give back g[true] }\n",
+         "operator overload argument drift"),
+        # The receiver loan is live while the stored value reads the base.
+        ("tier3_operator_index_mut_overlap", "shape G { c: [int; 2] }\ndoctrine Index { task index(lend self, i: int) -> int }\n"
+         "doctrine IndexMut { task index_mut(lend mut self, i: int, v: int) -> void }\n"
+         "impl Index for G { task index(lend self, i: int) -> int { give back self.c[i] } }\n"
+         "impl IndexMut for G { task index_mut(lend mut self, i: int, v: int) -> void { self.c[i] = v } }\n"
+         "task main() -> int { pilot g = G { c: [1, 2] }\n g[0] = g[1]\n give back 0 }\n",
+         "Meiya refuses overlapping mutable lends"),
+        ("tier3_operator_index_mut_fixed", "shape G { c: [int; 2] }\ndoctrine IndexMut { task index_mut(lend mut self, i: int, v: int) -> void }\n"
+         "impl IndexMut for G { task index_mut(lend mut self, i: int, v: int) -> void { self.c[i] = v } }\n"
+         "task main() -> int { fixed pilot g = G { c: [1, 2] }\n g[0] = 5\n give back g.c[0] }\n",
+         "fixed pilot cannot be modified"),
+        ("tier3_operator_lend_operand", "shape V { x: int }\ndoctrine Eq { task equals(lend self, other: lend Self) -> bool }\n"
+         "impl Eq for V { task equals(lend self, other: lend V) -> bool { give back self.x == other.x } }\n"
+         "task main() -> int { pilot a = V { x: 1 }\n if a == a { give back 1 }\n give back 0 }\n",
+         "Meiya cannot store a lend in parameter 1 of Eq::equals yet"),
+        ("tier3_operator_generic_shape", "shape W<T> { v: T }\ndoctrine Add { task add(self, other: Self) -> Self }\n"
+         "impl Add for W<T> { task add(self, other: W<T>) -> W<T> { give back self } }\n"
+         "task main() -> int { pilot a: W<int> = W { v: 1 }\n pilot b: W<int> = W { v: 2 }\n pilot c = a + b\n give back 0 }\n",
+         "native generic shapes need monomorphization: W<int>"),
     )
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"

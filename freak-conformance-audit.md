@@ -411,6 +411,13 @@ word slot stores through a lend, generic impls, dyn and doctrine-bound calls,
 and lend parameters other than `self` remain fenced by name
 (`examples/methods_native.fk`, `check_v4_native_shapes`).
 
+Operator doctrines lower the same way: MIR resolves `+ - * /`, unary `-`,
+`==`/`!=`, `< <= > >=` (Ord's `compare` and a tag test on its `Order`),
+`a[i]` (Index) and `a[i] = x` (IndexMut) on user shapes and routes to one
+impl call whose receiver carries the declared `self` / `lend self` /
+`lend mut self` mode; built-in operators are unchanged
+(`examples/operators_native.fk`, `check_v4_native_shapes`).
+
 The V3 LLVM and C paths execute concrete shape construction, fields, methods,
 and owned word/nested-shape cleanup. The typed storage runtime is shared;
 `tests/v3_array_rescue.py` and `tests/v3_word_ownership.py` exercise native
@@ -425,9 +432,9 @@ parity. This does not claim native C UI support or general collection fields.
 | Operator overloading: `Add` | ✅ | ✅ | [freakc/emitter.py:1750-1800](freakc/emitter.py) |
 | Operator overloading: `Sub`, `Mul`, `Div`, `Neg` | ✅ | ✅ | |
 | Operator overloading: `Eq` | ✅ | ✅ | |
-| Operator overloading: `Ord` (`<`, `>`, `<=`, `>=`) | ⚠️ | 🛠 wired in Python compiler (4 methods: lt/gt/le/ge); V3 emitter still missing — V4 |
-| Operator overloading: `Index` | ✅ | ✅ wired in Python compiler ([freakc/emitter.py:924-934](freakc/emitter.py)); V3 emitter still missing — V4 |
-| Operator overloading: `IndexMut` (`a[i] = x`) | ❌ | 📖 V4 | requires lvalue-assignment rewrite |
+| Operator overloading: `Ord` (`<`, `>`, `<=`, `>=`) | ⚠️ | 🛠 wired in Python compiler (4 methods: lt/gt/le/ge); V4 native code follows the bible's `compare(self, other: Self) -> Order` and lowers each comparison to a tag test on the returned `Order` (`examples/operators_native.fk`); V3 emitter still missing |
+| Operator overloading: `Index` | ✅ | ✅ wired in Python compiler ([freakc/emitter.py:924-934](freakc/emitter.py)); V4 native code calls `index` with the declared receiver mode on types without built-in elements; V3 emitter still missing |
+| Operator overloading: `IndexMut` (`a[i] = x`) | ⚠️ | 📖 V4 | V4 native code lowers `a[i] = x` to `index_mut(lend mut a, i, x)` (bible §1.6 form); compound `a[i] += x` is named, and the Python and V3 compilers still lack it |
 | `dyn Doctrine` dynamic dispatch with vtable | ⚠️ | 📖 V4 | V4 carries dyn type positions, coercion checks, MIR call facts, and editor facts; runtime fat-pointer/vtable codegen is still missing |
 | Multi-bound generics `T: A + B` | ⚠️ | 📖 V4 | V4 parses top-level `+` bounds and carries them through TY/MIR/editor queries, including generic coercion into `dyn Doctrine`; production monomorphization still expands |
 | `dyn` object-safety rules | ⚠️ | 📖 V4 | V4 TY/MIR now diagnose unknown dyn doctrines plus first-pass object-safety failures (`Self` in dispatched signatures and no-receiver methods), and validates concrete/generic coercion into dyn slots; richer `where Self: Sized` nuance and backend vtables still expand |

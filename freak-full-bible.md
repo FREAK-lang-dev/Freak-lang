@@ -99,7 +99,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.3 Primitive types | ⚠️ Partial — `num`/`int`/`word`/`bool`/`void` ship in production; V4 also carries `uint`/`tiny`/`char`/`big`/`float`/`float32`/`never`, `[T;N]`, tuple, and raw-pointer type forms through TY/MIR smokes, with scalar LLVM type plans for primitive carriers; full runtime/backend semantics still expand |
 | §1.4 Compound types (`maybe<T>`, `result<T,E>`) | ✅ Implemented |
 | §1.5 Shapes | ✅ Implemented — V4 also lowers concrete and doctrine-bound UFCS calls through MIR with receiver, argument, and editor diagnostics |
-| §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships; V4 also parses and enforces doctrine bounds plus multi-bound generics across TY/MIR/editor, carries bound static and UFCS calls with instantiated doctrine arguments, preserves body-generic identity over same-named global aliases, diagnoses overlapping bound methods, and provides first-pass `dyn Doctrine` type positions, object-safety diagnostics, coercion checks, MIR method dispatch facts, and editor facts; `Ord`/`Index`/`IndexMut` plus dyn fat-pointer/vtable codegen still expand |
+| §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships, and V4 native code lowers `Ord` (`compare` to `Order`), `Index` and `IndexMut` (`a[i] = x`) on user shapes and routes with the receiver mode each impl declares; V4 also parses and enforces doctrine bounds plus multi-bound generics across TY/MIR/editor, carries bound static and UFCS calls with instantiated doctrine arguments, preserves body-generic identity over same-named global aliases, diagnoses overlapping bound methods, and provides first-pass `dyn Doctrine` type positions, object-safety diagnostics, coercion checks, MIR method dispatch facts, and editor facts; dyn fat-pointer/vtable codegen still expands |
 | §1.7 Control flow | ⚠️ Partial — V4 carries tuple, fixed-array, and route/variant payload pattern destructuring, canonical terminal conditional chains, and condition-first training-session caps plus `with growth` mutation checks; `prob_when` and broader pattern ergonomics remain 🔜 V4 |
 | §1.8 Closures | ⚠️ Partial — V4 carries default/`copy`/`move`/`mut` capture environments through HIR/TY/MIR/Meiya/editor/snapshot/invalidation; nested closure inference, borrowed-return contracts, `Send`/`Sync`, and backend environment codegen remain 🔜 V4 |
 | §1.9 Pipe operator `\|>` | ✅ Implemented |
@@ -292,6 +292,11 @@ doctrine Neg     { task neg(self) -> Self }
 doctrine Eq      { task equals(self, other: Self) -> bool }
 doctrine Ord     { task compare(self, other: Self) -> Order }
 doctrine Index   { task index(self, i: uint) -> T }
+doctrine IndexMut { task index_mut(lend mut self, i: uint, value: T) -> void }
+
+-- compare gives back route Order { Less, Equal, Greater }:
+-- a < b is compare == Less, a >= b is compare != Less (likewise > and <=)
+-- a[i] = x calls index_mut; a[i] reads through index
 
 -- Operator overloading: implement Add and + works
 impl Add for Vector2 {
