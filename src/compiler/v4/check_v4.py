@@ -17408,9 +17408,9 @@ NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\
 NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
 NATIVE_ROUTES_EXPECTED = ("2\n0\ntrue\ntrue\ntrue\n41\nfalse\n9\n9\n12\n15\n0\n46\n54\n25\n15\n-21\n1\n73\n36\n3\n25\ntrue\nfalse\n")
 NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\norigin:12\n0\nfalse\ntrue\n2\n"
-NATIVE_CLOSURES_BODIES = 19
+NATIVE_CLOSURES_BODIES = 22
 NATIVE_CLOSURES_EXPECTED = ("42\n15\n1\n5\n9\n7\n9\n13\n6\ntrue\n12\n22\n40\n11\n12\n"
-                            "Takemikazuchi!\nTakemikazuchi!\n13\nTakemikazuchi\n3\ntrue\n11\n30\n1\n42\n")
+                            "Takemikazuchi!\nTakemikazuchi!\n13\nTakemikazuchi\n3\ntrue\n11\n12\n3\n30\n1\n42\n")
 # The FREAK aggregate calling convention: stdout, then main's exit status.
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
 NATIVE_OPERATORS_EXPECTED = ("4\n22\n-11\n5\nfalse\ntrue\n46\n5\n4\nsum matches\n7\n6\n8\n3\n"
@@ -18060,6 +18060,10 @@ def check_v4_native_closures() -> None:
         ("tier3_closure_c_callback_param", "use std::ffi::c_int\ntask main() -> int {\n    pilot k: int = 2\n"
          "    pilot f = |g: extern [C] task(v: c_int) -> c_int| => k\n    say k\n    give back 0\n}\n",
          "native closures are lowered only in ordinary tasks, with FREAK parameter types"),
+        # A closure binding shadows the task `f`, so a pipe into `f` has no task.
+        ("tier3_closure_shadowed_pipe", "task f(n: int) -> int { give back 100 }\ntask main() -> int {\n    pilot k: int = 5\n"
+         "    pilot f = |x: int| => x + k\n    say 1 |> f\n    give back 0\n}\n",
+         "unknown task: f"),
         ("tier3_closure_system_intrinsic", "task main() -> int {\n    pilot f = |_| => process::args_count()\n"
          "    say f()\n    give back 0\n}\n",
          "native closure bodies with scalar sums or system intrinsics are not yet supported"),

@@ -11,6 +11,11 @@ task scaled(n: int) -> int {
     give back times_k(n)
 }
 
+-- A task the closure binding `bonus` in main shadows.
+task bonus(n: int) -> int {
+    give back 1000
+}
+
 -- A borrowed word parameter captured by borrow.
 task show(lend title: word, n: int) -> int {
     pilot tag = |k: int| {
@@ -85,6 +90,20 @@ task main() -> int {
     if base > 1 {
         pilot base = |n: int| => base + n
         say base(1)
+    }
+    -- A visible closure binding shadows the task `bonus`.
+    pilot bonus = |n: int| => n + base
+    say bonus(2)
+    -- Only the visible binding's doctrine counts: the inner MutCallable
+    -- `once` may be called twice in one statement.
+    pilot once = move |_| => base
+    pilot mut ticks: int = 0
+    if base > 1 {
+        pilot once = mut |_| {
+            ticks += 1
+            give back ticks
+        }
+        say once() + once()
     }
     -- A closure created in a loop, a copied Callable, and another task.
     pilot mut total: int = 0
