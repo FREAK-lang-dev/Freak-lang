@@ -326,6 +326,51 @@ globals (scalars and words) and root statements run, with the global
 initializers, in a synthetic `freak.module.init` body before `main`; a file
 with no `main` builds as a script.
 
+### Aggregate calling convention
+
+Every FREAK-to-FREAK call (abi `""`, so direct tasks, impl methods with a
+by-value `self`, associated calls and FREAK task values) uses one internal
+convention for shapes, tuples, fixed arrays and routes, and it is the same on
+every target:
+
+- **Arguments.** The caller stores the argument value in its own entry-block
+  copy (`%abi.arg.<body>.<rvalue>.<index>`) and passes a pointer to it. The
+  callee's parameter is `ptr noalias align A dereferenceable(S)`, and the
+  callee uses that copy as the parameter's storage, so writes to a by-value
+  parameter never reach the caller's binding.
+- **Results.** A task returning an aggregate returns `void` and takes a first
+  `ptr noalias sret(T) align A dereferenceable(S) %ret`. The caller passes its
+  own entry-block slot (`%abi.ret.<body>.<rvalue>`) and loads the value back;
+  `give back` stores into `%ret`.
+- **Layout.** Body text is target neutral: headers carry an ABI marker, and
+  module assembly replaces it with `align`/`dereferenceable` from the
+  `freak_target` layout queries for the chosen triple (a zero-sized aggregate
+  gets only `align`). Each pointer also gets a `; freak.abi @sym %name size=S
+  align=A type=T` note. `check_v4_native_shapes` has Clang fold the size and
+  ABI alignment of every noted type on all four `freak_target` triples and
+  checks the headers against the notes; sizes are never guessed.
+- **Scalars and words** keep their existing direct convention (words are
+  handles). `lend` and `lend mut` aggregate parameters belong to the lend ABI
+  and stay refused by name; a lent `self` receiver is the caller's place
+  pointer, as before. C ABI (extern and `@extern_callback`) aggregates stay
+  fenced by name.
+
+Ownership follows Meiya: passing an aggregate moves it (Meiya rejects a later
+use), and a returned aggregate transfers ownership to the caller. Aggregates
+may now hold words: each word leaf is found from the type, and a word-owning
+aggregate local carries a drop flag like a word local, so scope exit, early
+return and reassignment release every leaf once, and a moved-out local is
+skipped. Still refused by name for word-owning aggregates: moving one word
+out of its aggregate (`native partial moves out of aggregates that own words`),
+stores into their slots or whole replacement through a lend (`native stores
+into aggregate slots that own words`), projections of word-owning temporaries,
+repeat fills, aggregates owning more than 256 words, and route payloads that
+own words. Projections of call results (`f(x).y`, `f(x).0`, `f(x)[i]`) lower
+through the sealed MIR `Project` / `ProjectIndex` unary facts with bounds
+checks. Program: `examples/agg_abi_native.fk` (exact output, exit 42); the
+word-owning subset is also audited by `tests/v4_owned_word_codegen.py` under
+ASan, UBSan and both ownership audits.
+
 ### Persisted interpolation checkpoint (W3)
 
 Expanded-AST-to-HIR lowering decodes each word once into a packed plan. Literal

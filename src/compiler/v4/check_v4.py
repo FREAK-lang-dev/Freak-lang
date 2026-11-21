@@ -17365,6 +17365,8 @@ NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\
 NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
 NATIVE_ROUTES_EXPECTED = ("2\n0\ntrue\ntrue\ntrue\n41\nfalse\n9\n9\n12\n15\n0\n46\n54\n25\n15\n-21\n1\n73\n36\n3\n25\ntrue\nfalse\n")
 NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\norigin:12\n0\nfalse\ntrue\n2\n"
+# The FREAK aggregate calling convention: stdout, then main's exit status.
+NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
 
 
 def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
@@ -17470,6 +17472,72 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
     return len(expected) + checked
 
 
+NATIVE_ABI_NOTE = re.compile(r"^; freak\.abi (@\S+) (%\S+) size=(\d+) align=(\d+) type=(.+)$")
+
+
+def check_native_abi_oracle(module: str, triple: str) -> int:
+    """Check the FREAK aggregate ABI notes and pointer attributes against Clang.
+
+    Every aggregate parameter and sret result is a pointer whose header says
+    align A dereferenceable(S); each one carries a `; freak.abi` note, and
+    Clang must fold the same size and ABI alignment for its type on triple.
+    """
+    clang = shutil.which("clang")
+    lines = module.splitlines()
+    claims = []
+    pending = []
+    for line in lines:
+        note = NATIVE_ABI_NOTE.match(line)
+        if note:
+            pending.append(note.groups())
+            continue
+        if not line.startswith("define "):
+            pending = []
+            continue
+        header = line
+        pointers = re.findall(r"ptr noalias (?:sret\((.+?)\) )?(align \d+(?: dereferenceable\(\d+\))?|\$freak\.abi\.attrs [^$]*\$) (%[\w.]+)", header)
+        symbol = re.match(r"define [^@]*(@(?:\"[^\"]+\"|[\w.]+))\(", header)
+        if "$freak.abi.attrs" in header:
+            raise RuntimeError(f"V4 ABI module for {triple} left an unresolved ABI marker: {header}")
+        if not pointers and not pending:
+            continue
+        if symbol is None or len(pointers) != len(pending):
+            raise RuntimeError(f"V4 ABI notes do not match the aggregate pointers on {triple}: {header}")
+        by_name = {name: (sret, attrs) for sret, attrs, name in pointers}
+        for sym, name, size, align, llvm_type in pending:
+            if sym != symbol.group(1) or name not in by_name:
+                raise RuntimeError(f"V4 ABI note {sym} {name} does not describe {symbol.group(1)} on {triple}")
+            sret, attrs = by_name[name]
+            wanted = f"align {align}" + (f" dereferenceable({size})" if int(size) else "")
+            if attrs != wanted or (name == "%ret") != bool(sret) or (sret and sret != llvm_type):
+                raise RuntimeError(f"V4 ABI header disagrees with its note on {triple}: {sym} {name} "
+                                   f"note=({wanted}, {llvm_type}) header=({attrs}, sret={sret or 'none'})")
+            claims.append((sym, name, int(size), int(align), llvm_type))
+        pending = []
+    if not claims:
+        return 0
+    types = re.findall(r'^(%"freak\.(?:shape|route)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
+    probe_lines = list(types)
+    for index, (_, _, _, _, llvm_type) in enumerate(claims):
+        probe_lines.append(f"define i64 @abi_{index}_size() {{ ret i64 ptrtoint (ptr getelementptr ({llvm_type}, ptr null, i32 1) to i64) }}")
+        probe_lines.append(f"define i64 @abi_{index}_align() {{ ret i64 ptrtoint (ptr getelementptr ({{ i1, {llvm_type} }}, ptr null, i32 0, i32 1) to i64) }}")
+    probe = RUNTIME_BUILD_ROOT / f"shape_abi_{triple}.ll"
+    probe.write_text("\n".join(probe_lines) + "\n", encoding="utf-8")
+    result = run_with_heartbeat(
+        [clang, f"--target={triple}", "-O2", "-S", "-emit-llvm", str(probe), "-o", "-"],
+        label=f"V4 aggregate ABI oracle {triple}", timeout_seconds=60, memory_limit_mb=512,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Clang rejected the aggregate ABI probe for {triple}:\n{result.stderr}")
+    folded = dict(re.findall(r"define[^@]*@(abi_\w+)\(\)[^{]*\{\s*ret i64 (\d+)", result.stdout))
+    for index, (sym, name, size, align, llvm_type) in enumerate(claims):
+        clang_size, clang_align = folded.get(f"abi_{index}_size"), folded.get(f"abi_{index}_align")
+        if (clang_size, clang_align) != (str(size), str(align)):
+            raise RuntimeError(f"freak_target ABI disagrees with Clang on {triple}: {sym} {name} {llvm_type} "
+                               f"freak_target=size {size} align {align} clang=size {clang_size} align {clang_align}")
+    return len(claims)
+
+
 def check_v4_native_shapes() -> None:
     """Tier 3 shapes: build and run natively; check layouts on all targets."""
     from build_v4 import host_target
@@ -17480,8 +17548,11 @@ def check_v4_native_shapes() -> None:
         ("aggregates", "aggregates_native.fk", NATIVE_AGGREGATES_EXPECTED),
         ("routes", "routes_native.fk", NATIVE_ROUTES_EXPECTED),
         ("methods", "methods_native.fk", NATIVE_METHODS_EXPECTED),
+        ("agg_abi", "agg_abi_native.fk", NATIVE_AGG_ABI_EXPECTED),
     )
+    abi_probes = 0
     for stem, file_name, expected in programs:
+        expected, expected_exit = expected if isinstance(expected, tuple) else (expected, 0)
         source = V4_ROOT / "examples" / file_name
         executable = RUNTIME_BUILD_ROOT / (f"tier3_native_{stem}.exe" if sys.platform == "win32" else f"tier3_native_{stem}.native")
         executable.unlink(missing_ok=True)
@@ -17492,7 +17563,7 @@ def check_v4_native_shapes() -> None:
         if built.returncode != 0 or not executable.exists():
             raise RuntimeError(f"V4 rejected the native {stem} program:\n{built.stdout}{built.stderr}")
         ran = run_with_heartbeat([str(executable)], label=f"V4 native {stem} execute", timeout_seconds=10, memory_limit_mb=128)
-        if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != expected:
+        if ran.returncode != expected_exit or ran.stdout.replace("\r\n", "\n") != expected:
             raise RuntimeError(f"V4 native {stem} printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
         if stem == "aggregates":
             # Any argument makes the program index past the end of a [int; 4].
@@ -17511,6 +17582,21 @@ def check_v4_native_shapes() -> None:
                 raise RuntimeError(f"V4 could not emit the {stem} module for {triple}:\n{emitted.stdout}{emitted.stderr}")
             module_text = module_path.read_text(encoding="utf-8")
             probes += check_native_layout_oracle(module_text, triple)
+            abi_probes += check_native_abi_oracle(module_text, triple)
+            if stem == "agg_abi":
+                # A note that disagrees with its header, and a header and note
+                # that agree on a size the target does not use, must both fail.
+                note_only = re.sub(r"^(; freak\.abi \S+ \S+ size=)(\d+)", lambda m: m.group(1) + str(int(m.group(2)) + 8),
+                                   module_text, count=1, flags=re.MULTILINE)
+                both = module_text.replace(" size=16 ", " size=24 ").replace("dereferenceable(16)", "dereferenceable(24)")
+                for tampered, wanted in ((note_only, "header disagrees"), (both, "disagrees with Clang")):
+                    try:
+                        check_native_abi_oracle(tampered, triple)
+                    except RuntimeError as error:
+                        if wanted not in str(error):
+                            raise
+                    else:
+                        raise RuntimeError(f"V4 ABI oracle accepted a wrong aggregate size for {triple}: {wanted}")
             if "; freak.payload " in module_text:
                 stripped = re.sub(r"^; freak\.payload .*\n", "", module_text, flags=re.MULTILINE)
                 try:
@@ -17521,9 +17607,33 @@ def check_v4_native_shapes() -> None:
                 else:
                     raise RuntimeError(f"V4 layout oracle accepted {stem} for {triple} without its payload notes")
     rejected_cases = (
-        ("tier3_shape_word_field", "shape Named { name: word, n: int }\n"
-         "task main() -> int { pilot a = Named { name: \"x\", n: 1 }\n give back a.n }\n",
-         "native shape fields that own words are not yet supported: Named.name"),
+        # Word fields are native; moving one word out of its aggregate is not.
+        ("tier3_shape_word_partial_move", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
+         "task main() -> int {\n    pilot a = make(\"x\", 1)\n    pilot n = a.name\n    say n\n    give back 0\n}\n",
+         "native partial moves out of aggregates that own words are not yet supported: a . name"),
+        ("tier3_shape_word_field_store", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
+         "task main() -> int {\n    pilot mut a = make(\"x\", 1)\n    a.name = \"y\"\n    give back a.n\n}\n",
+         "native stores into aggregate slots that own words are not yet supported: a . name"),
+        ("tier3_shape_word_temporary_projection", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
+         "task main() -> int { give back make(\"x\", 1).n }\n",
+         "native projections of temporaries that own words are not yet supported: make ( x , 1 ) . n"),
+        ("tier3_shape_word_use_after_move", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
+         "task main() -> int {\n    pilot a = make(\"x\", 1)\n    pilot b = a\n    give back a.n\n}\n",
+         "Meiya remembers the field you already moved"),
+        ("tier3_route_word_shape_payload", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
+         "route Box {\n    Full { item: Named }\n    Empty\n}\n"
+         "task main() -> int {\n    pilot b = Box::Empty\n    give back 0\n}\n",
+         "native route payload fields that own words are not yet supported: Box::Full.item"),
+        ("tier3_temporary_index_non_array", "task n() -> int { give back 4 }\n"
+         "task main() -> int { give back n()[0] }\n",
+         "index of a temporary needs a fixed array"),
+        ("tier3_lend_word_shape_param", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
+         "task peek(lend p: Named) -> int { give back p.n }\n"
+         "task main() -> int {\n    pilot a = make(\"x\", 1)\n    give back peek(lend a)\n}\n",
+         "native lend parameters currently support only immutable word parameters"),
+        ("tier3_lend_mut_shape_param", "shape P { x: int }\ntask poke(lend mut p: P) -> int { give back p.x }\n"
+         "task main() -> int { pilot mut p = P { x: 1 }\n give back poke(lend mut p) }\n",
+         "native lend parameters currently support only immutable word parameters"),
         ("tier3_shape_generic", "shape Box<T> { v: T }\n"
          "task main() -> int { pilot b: Box<int> = Box { v: 1 }\n give back b.v }\n",
          "native generic shapes need monomorphization: Box<int>"),
@@ -17577,9 +17687,16 @@ def check_v4_native_shapes() -> None:
         ("tier3_method_temporary_lend", "shape P { x: int }\nimpl P {\n    task peek(lend self) -> int { give back self.x }\n}\n"
          "task main() -> int { give back P { x: 1 }.peek() }\n",
          "lend receiver must be a place"),
-        ("tier3_method_word_receiver", "shape Named { name: word, n: int }\nimpl Named {\n    task count(lend self) -> int { give back self.n }\n}\n"
-         "task main() -> int { pilot a = Named { name: \"x\", n: 1 }\n give back a.count() }\n",
-         "native shape fields that own words are not yet supported: Named.name"),
+        # A lent word-owning receiver is native; writing its word slots or
+        # replacing it whole through the lend is not.
+        ("tier3_method_word_receiver_store", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
+         "impl Named {\n    task rename(lend mut self) -> int {\n        self.name = \"y\"\n        give back self.n\n    }\n}\n"
+         "task main() -> int {\n    pilot mut a = make(\"x\", 1)\n    give back a.rename()\n}\n",
+         "native stores into aggregate slots that own words are not yet supported: self . name"),
+        ("tier3_method_word_receiver_replace", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
+         "impl Named {\n    task reset(lend mut self) -> int {\n        self = make(\"z\", 0)\n        give back 0\n    }\n}\n"
+         "task main() -> int {\n    pilot mut a = make(\"x\", 1)\n    give back a.reset()\n}\n",
+         "native stores into aggregate slots that own words are not yet supported: self"),
         ("tier3_method_value_to_lend_self", "shape P { x: int }\nimpl P {\n    task peek(lend self) -> int { give back self.x }\n}\n"
          "task main() -> int { pilot p = P { x: 1 }\n give back P::peek(p) }\n",
          "unsupported native conversion: P to lend P"),
@@ -17601,7 +17718,9 @@ def check_v4_native_shapes() -> None:
         )
         if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
             raise RuntimeError(f"V4 shape case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
-    print(f"V4 native shapes: programs={len(programs)} run=exact bounds=panics layout-probes={probes} "
+    if abi_probes == 0:
+        raise RuntimeError("V4 native shapes emitted no aggregate ABI notes")
+    print(f"V4 native shapes: programs={len(programs)} run=exact bounds=panics layout-probes={probes} abi-probes={abi_probes} "
           f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
     check_v4_native_patterns()
     check_v4_native_c_widths()

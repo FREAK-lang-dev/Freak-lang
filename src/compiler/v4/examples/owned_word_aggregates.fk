@@ -1,0 +1,44 @@
+-- Aggregates that own words, passed and returned by value between FREAK tasks.
+-- Moves, returns, recursion, discarded results and reassignment each release
+-- every word leaf exactly once; tests/v4_owned_word_codegen.py runs this under
+-- ASan, UBSan and both ownership audits.
+
+shape Named { name: word, n: int }
+shape Pair { left: Named, right: Named }
+impl Named {
+    task count(lend self) -> int { give back self.n + self.name.length }
+    task bumped(self, k: int) -> Named { give back Named { name: self.name + "+", n: self.n + k } }
+    task shout(lend self) -> word { give back self.name + "!" }
+}
+task make(text: word, n: int) -> Named { give back Named { name: text, n: n } }
+task pair_of(a: Named, b: Named) -> Pair { give back Pair { left: a, right: b } }
+task total(p: Pair) -> int { give back p.left.count() + p.right.count() }
+task tag(t: (word, int)) -> (word, int) { give back (t.0 + "#", t.1 * 2) }
+task names(xs: [word; 3]) -> int { give back xs[0].length + xs[2].length }
+task deep(n: int, acc: Named) -> Named {
+    if n == 0 { give back acc }
+    give back deep(n - 1, acc.bumped(1))
+}
+task main() -> int {
+    pilot a = make("ada", 3)
+    say a.count()
+    say a.shout()
+    pilot b = a.bumped(10)
+    say b.name
+    say b.count()
+    pilot p = pair_of(b, make("zed", 1))
+    say p.left.name
+    say total(p)
+    pilot t = tag(("x", 4))
+    say t.0
+    say t.1
+    say names(["one", "two", "three"])
+    pilot d = deep(3, make("r", 0))
+    say d.name
+    say d.n
+    make("discarded", 0)
+    pilot mut r = make("first", 1)
+    r = make("second", 2)
+    say r.name
+    give back d.n - 3
+}
