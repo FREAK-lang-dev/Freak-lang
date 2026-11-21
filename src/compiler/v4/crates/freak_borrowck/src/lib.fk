@@ -7799,7 +7799,10 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
             pilot summary = 0 - 2
             pilot use_idx = v4_borrowck_root_chain_first(chain, path_count, move_idx)
             repeat until use_idx >= path_count or use_idx < 0 {
-                if use_idx != move_idx and v4_borrowck_path_is_move_use_kind(v4_borrowck_path_kind(borrow_id, result_id, use_idx)) {
+                -- A OneShot call in a loop is its own next use through the
+                -- backedge, unless the loop binds the closure afresh.
+                pilot self_use: bool = use_idx == move_idx and move_stmt >= 0 and move_block >= 0 and v4_borrowck_name_is_one_shot_closure(mir_id, body_id, move_text, move_stmt) and v4_borrowck_block_can_cycle(mir_id, body_id, move_block)
+                if (use_idx != move_idx or self_use) and v4_borrowck_path_is_move_use_kind(v4_borrowck_path_kind(borrow_id, result_id, use_idx)) {
                     pilot use_stmt = v4_borrowck_path_stmt(borrow_id, result_id, use_idx)
                     pilot use_block = v4_borrowck_path_block(borrow_id, result_id, use_idx)
                     pilot use_text = v4_borrowck_path_text(borrow_id, result_id, use_idx)

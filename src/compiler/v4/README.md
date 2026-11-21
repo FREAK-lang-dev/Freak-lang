@@ -461,15 +461,16 @@ Closure rvalue carries the sealed type.
   task function types; no body is lowered), value captures of other owned
   carriers such as scalar sums, closure bodies that use scalar sums or system
   intrinsics, and closure types inside other types. Meiya also refuses two
-  calls of the visible OneShot binding in a single statement. A visible closure
+  calls of the visible OneShot binding in a single statement, and a call
+  in a loop of a OneShot bound outside it. A visible closure
   binding shadows a task of the same name at call sites. Closures inside impl
   methods do not reach codegen yet: MIR finds no TY closure type for a body
   without an ordinary signature and reports the call's arity instead.
 
-Program: `examples/closures_native.fk` (exact output, 22 closure bodies,
+Program: `examples/closures_native.fk` (exact output, 23 closure bodies,
 `valgrind` clean). `check_v4_native_closures` (run by `check_v4_native_shapes`)
 builds and runs it, checks every environment layout and the aggregate ABI
-notes on four targets, and checks 19 rejected cases.
+notes on four targets, and checks 20 rejected cases.
 
 ### Persisted interpolation checkpoint (W3)
 

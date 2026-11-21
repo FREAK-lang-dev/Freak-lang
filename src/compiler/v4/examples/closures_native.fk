@@ -109,7 +109,8 @@ task main() -> int {
     pilot mut total: int = 0
     repeat 3 times {
         pilot inc = |n: int| => n + base
-        total = inc(total)
+        pilot fresh = move |_| => base
+        total = inc(total) + fresh() - base
     }
     say total
     pilot again = snap
