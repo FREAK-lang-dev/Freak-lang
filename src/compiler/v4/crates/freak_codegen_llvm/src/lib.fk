@@ -5683,8 +5683,13 @@ task v4_codegen_llvm_native_closure_type_error(type_text: word) -> word {
     if v4_codegen_llvm_active_owned_mir < 0 { give back "native closures need the owned value path" }
     pilot mir_id = v4_codegen_llvm_active_owned_mir
     pilot return_ty = v4_ty_closure_return_type(type_text)
-    if return_ty == v4_ty_unknown { give back "native closure return type is not inferred: " + type_text }
     pilot param = 0
+    repeat until param >= v4_ty_closure_param_count(type_text) {
+        if v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_closure_param_type(type_text, param)) == v4_ty_unknown { give back "native closure parameters need declared types: " + type_text }
+        param += 1
+    }
+    if return_ty == v4_ty_unknown { give back "native closure return type is not inferred: " + type_text }
+    param = 0
     repeat until param < 0 or param > v4_ty_closure_param_count(type_text) {
         pilot part = return_ty
         pilot allow_void: bool = true
@@ -5727,6 +5732,11 @@ task v4_codegen_llvm_native_closure_rvalue_error(mir_id: int, body_id: int, rval
     if closure_body < 0 {
         if v4_mir_body_is_closure(mir_id, body_id) { give back "native nested closures are not yet supported: " + text }
         give back "native closures are lowered only in ordinary tasks, with FREAK parameter types: " + text
+    }
+    pilot inner_value = 0
+    repeat until inner_value >= v4_mir_body_rvalue_count(mir_id, closure_body) {
+        if v4_mir_rvalue_kind(mir_id, closure_body, inner_value) == v4_mir_rvalue_closure { give back "native nested closures are not yet supported: " + v4_mir_rvalue_text(mir_id, closure_body, inner_value) }
+        inner_value += 1
     }
     pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     if type_text != v4_mir_body_signature(mir_id, closure_body) { give back "invalid native closure type: " + text }
@@ -6514,8 +6524,10 @@ task v4_codegen_llvm_owned_word_error(mir_id: int) -> word {
             if v4_mir_rvalue_ty(mir_id, body, value) == v4_ty_word {
                 pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
                 -- A UsePlace word is a borrowed read of an aggregate slot
-                -- (v4_codegen_llvm_aggregate_word_ownership_error).
-                if kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_call and kind != v4_mir_rvalue_sum_take and kind != v4_mir_rvalue_try and kind != v4_mir_rvalue_or_else and kind != v4_mir_rvalue_use_place and not v4_codegen_llvm_rvalue_is_global_read(mir_id, body, value) { give back "native owned word rvalue not yet supported: " + kind }
+                -- (v4_codegen_llvm_aggregate_word_ownership_error). A closure
+                -- capture is named by v4_codegen_llvm_native_closure_rvalue_error.
+                pilot capture: bool = kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut or kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move
+                if not capture and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_call and kind != v4_mir_rvalue_sum_take and kind != v4_mir_rvalue_try and kind != v4_mir_rvalue_or_else and kind != v4_mir_rvalue_use_place and not v4_codegen_llvm_rvalue_is_global_read(mir_id, body, value) { give back "native owned word rvalue not yet supported: " + kind }
             }
             value += 1
         }
