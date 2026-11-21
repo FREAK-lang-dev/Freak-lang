@@ -6082,13 +6082,9 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     if next_token <= last and v4_lex_token_syntax_value(stream_id, next_token) == "(" {
         pilot close_token = v4_mir_find_matching_paren(stream_id, next_token, last + 1)
-        -- Tokens after the call's `)` must never be dropped silently.
-        if close_token >= 0 and close_token < last {
-            v4_mir_add_type_error(mir_id, expr_span, "unsupported expression after call", "the tokens after " + v4_mir_expr_text(stream_id, first, close_token + 1) + " are not part of a supported call, projection or operator")
-            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
-        }
+        pilot trailing_tokens = close_token >= 0 and close_token < last
         pilot sig_id = v4_mir_signature_id_for_name(mir_id, first_value)
-        if sig_id >= 0 {
+        if sig_id >= 0 and not trailing_tokens {
             pilot target_name = v4_mir_resolved_callee_name(mir_id, first_value)
             v4_mir_warn_unwinder_call_site(mir_id, expr_span, sig_id)
             pilot call_check = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, first_value, sig_id, next_token, close_token)
@@ -6108,6 +6104,12 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
             if v4_ty_bootstrap_intrinsic_named_kind(first_value) != "" { unknown_help = first_value + " is a compiler builtin that exists only in bootstrap mode (build_v4.py --bootstrap-root)" }
             v4_mir_add_type_error(mir_id, v4_lex_token_span(stream_id, first), "unknown task: " + first_value, unknown_help)
             v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, next_token, close_token)
+            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+        }
+        -- Tokens after a call's `)` must never be dropped silently; an
+        -- unknown callee is named above instead.
+        if trailing_tokens {
+            v4_mir_add_type_error(mir_id, expr_span, "unsupported expression after call", "the tokens after " + v4_mir_expr_text(stream_id, first, close_token + 1) + " are not part of a supported call, projection or operator")
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
         }
         pilot callee_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first, next_token)
