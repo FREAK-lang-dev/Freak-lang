@@ -132,6 +132,10 @@ impl Eq for Probe {
 
 task weigh(v: V) -> int { give back v.x * 10 + v.y }
 task combine(a: V, b: V) -> V { give back a + b - V { x: 1, y: 1 } }
+task pick(k: uint) -> uint {
+    say "pick"
+    give back k
+}
 
 task main() -> int {
     pilot a = V { x: 1, y: 2 }
@@ -217,5 +221,13 @@ task main() -> int {
     circle.grow(1)
     say circle.area()
     say circle == rect
+    pilot slots: [V; 3] = [a, b, a]
+    slots[pick(1)] += V { x: 10, y: 20 }
+    say slots[1].y
+    say slots[2].x
+    pilot tiles: [[V; 2]; 2] = [[a, a], [a, b]]
+    tiles[pick(1)][pick(0)] -= a
+    say tiles[1][0].x
+    say tiles[1][1].x
     give back sum.x + g[1]
 }
