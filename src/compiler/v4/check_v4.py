@@ -17384,7 +17384,7 @@ NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\nori
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
 NATIVE_OPERATORS_EXPECTED = ("4\n22\n-11\n5\nfalse\ntrue\n46\n5\n4\nsum matches\n7\n6\n8\n3\n"
                              "true\nfalse\ntrue\nfalse\ntrue\n2\ntrue\nfalse\n3\n42\n2\n6\n70\n2\n"
-                             "false\ntrue\n2\nfalse\ntrue\n")
+                             "false\ntrue\n2\nfalse\ntrue\ntrue\n27\nfalse\n")
 # operators_native.fk gives back sum.x + g[1].
 NATIVE_OPERATORS_EXIT = 6
 
