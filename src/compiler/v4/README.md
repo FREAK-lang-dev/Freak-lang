@@ -108,7 +108,9 @@ partial move of every moving rvalue, and ordered `Drop`, `DropIf` and
 `DropSlot` rows per site (before a statement, on replacement, at a return
 statement, on a true or false edge, and at a default return). Codegen reads
 only that plan to place drops; it no longer asks Meiya per rvalue whether a
-local moved. The planned Runtime MIR transform (`freak_mir_transform`) will
+local moved. The plan packs into two arrays and Meiya's per-body scratch into three,
+so it costs five array handles whatever the program size and lowering keeps
+the handle budget that the panic abort admission contract pins. The planned Runtime MIR transform (`freak_mir_transform`) will
 turn the same facts into explicit statements and cleanup blocks.
 Built, Analysis and Runtime MIR are lifecycle states of one representation;
 this contract does not introduce a new persistent IR or Runtime MIR snapshot.
