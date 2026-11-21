@@ -684,6 +684,13 @@ task v4_lex_text(file_id: int, text: word) -> int {
             pos += sym_len
             col_no += sym_len
             v4_lex_add_token(stream_id, v4_tok_symbol, v4_slice(text, start_pos, pos), v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+        } else if ch == "&" and v4_lex_char_at(text, pos + 1) == "&" {
+            -- C-family '&&' is not FREAK: name the spelling instead of two unknown '&'.
+            pos += 2
+            col_no += 2
+            pilot and_span = v4_span_new(word_from_int(file_id), start_pos, pos)
+            v4_lex_add_token(stream_id, v4_tok_unknown, "&&", and_span, start_line, start_col)
+            v4_lex_add_diag(stream_id, v4_diag_error, and_span, "'&&' is not a FREAK operator; logical AND is spelled 'and'", "write 'and' here")
         } else {
             pos += 1
             col_no += 1
