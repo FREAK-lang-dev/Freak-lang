@@ -336,11 +336,12 @@ task v4_mir_wire_single_try_propagation(mir_id: int, body_id: int, block_id: int
 
     pilot source_id = v4_mir_rvalue_lhs(mir_id, body_id, try_rvalue)
     pilot source_text = v4_mir_rvalue_text(mir_id, body_id, source_id)
-    -- A native carrier is observed and taken through one owner local: a call
-    -- source is evaluated once into a temporary, the branch reads a fresh
-    -- use of that owner, and the continuing Try itself takes the payload.
+    -- A native carrier is observed and taken through one owner local: any
+    -- nonlocal source (a call or a constructor) is evaluated once into a
+    -- temporary, the branch reads a fresh use of that owner, and the
+    -- continuing Try itself takes the payload.
     pilot observed = source_id
-    if v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, source_id)) != "" and v4_mir_rvalue_kind(mir_id, body_id, source_id) == v4_mir_rvalue_call {
+    if v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, source_id)) != "" and v4_mir_rvalue_kind(mir_id, body_id, source_id) != v4_mir_rvalue_use_local {
         v4_mir_capture_control_flow_value(mir_id, body_id, block_id, stmt_span, source_id)
     }
     if v4_mir_try_source_is_native_sum_local(mir_id, body_id, source_id) { observed = v4_mir_clone_use_local(mir_id, body_id, source_id, stmt_span) }
