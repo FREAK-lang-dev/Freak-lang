@@ -8549,11 +8549,34 @@ task v4_borrowck_aggregate_holds_word(mir_id: int, type_text: word, depth: int) 
         give back false
     }
     pilot sig = v4_mir_shape_signature(mir_id, type_text)
-    if sig < 0 { give back false }
+    if sig < 0 { give back v4_borrowck_route_holds_word(mir_id, type_text, depth) }
     pilot field = 0
     repeat until field >= v4_ty_shape_field_count(ty_id, sig) {
         if v4_borrowck_aggregate_holds_word(mir_id, v4_ty_shape_field_type(ty_id, sig, field), depth + 1) { give back true }
         field += 1
+    }
+    give back false
+}
+
+-- A concrete route owns words when some case's payload does.
+task v4_borrowck_route_holds_word(mir_id: int, type_text: word, depth: int) -> bool {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_is_generic_instance_type(type_text) { give back false }
+    pilot sig = v4_ty_route_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, type_text))
+    if sig < 0 or v4_ty_signature_generic_count(ty_id, sig) > 0 { give back false }
+    pilot route_name = v4_ty_signature_name(ty_id, sig)
+    pilot case_id = 0
+    repeat until case_id >= v4_ty_route_case_count(ty_id, sig) {
+        pilot case_name = v4_ty_route_case_name(ty_id, sig, case_id)
+        if v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+            pilot field = 0
+            repeat until field >= v4_ty_route_case_field_count(ty_id, route_name, case_name) {
+                pilot field_ty = v4_ty_route_case_field_type(ty_id, route_name, case_name, field)
+                if v4_ty_canonical_type(ty_id, field_ty) == v4_ty_word or v4_borrowck_aggregate_holds_word(mir_id, field_ty, depth + 1) { give back true }
+                field += 1
+            }
+        }
+        case_id += 1
     }
     give back false
 }
@@ -9442,14 +9465,16 @@ task v4_borrowck_drop_plan_slot_local(mir_id: int, body_id: int, stmt_id: int) -
     pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
     if kind != v4_mir_stmt_local and kind != v4_mir_stmt_assign { give back 0 - 1 }
     pilot place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
-    if place < 0 or not v4_borrowck_type_is_owned_storage(mir_id, v4_mir_place_ty(mir_id, body_id, place)) { give back 0 - 1 }
-    pilot place_kind = v4_mir_place_kind(mir_id, body_id, place)
-    if place_kind == v4_mir_place_field or place_kind == v4_mir_place_index { give back v4_borrowck_drop_plan_place_root(mir_id, body_id, place) }
-    if place_kind == v4_mir_place_local {
-        pilot local = v4_mir_place_base(mir_id, body_id, place)
-        if local >= 0 and local < v4_mir_body_local_count(mir_id, body_id) and v4_mir_local_mode(mir_id, body_id, local) == v4_ty_param_mode_lend_mut { give back local }
+    if place >= 0 {
+        if not v4_borrowck_type_is_owned_storage(mir_id, v4_mir_place_ty(mir_id, body_id, place)) { give back 0 - 1 }
+        pilot place_kind = v4_mir_place_kind(mir_id, body_id, place)
+        if place_kind == v4_mir_place_field or place_kind == v4_mir_place_index { give back v4_borrowck_drop_plan_place_root(mir_id, body_id, place) }
+        if place_kind != v4_mir_place_local { give back 0 - 1 }
     }
-    give back 0 - 1
+    pilot local = v4_borrowck_drop_plan_target_local(mir_id, body_id, stmt_id)
+    if local < 0 or local >= v4_mir_body_local_count(mir_id, body_id) or v4_mir_local_mode(mir_id, body_id, local) != v4_ty_param_mode_lend_mut { give back 0 - 1 }
+    if place < 0 and not v4_borrowck_type_is_owned_storage(mir_id, v4_mir_local_ty(mir_id, body_id, local)) { give back 0 - 1 }
+    give back local
 }
 
 task v4_borrowck_drop_plan_state(cells: int, slot: int) -> int {
@@ -9565,8 +9590,6 @@ task v4_borrowck_drop_plan_block(mir_id: int, body_id: int, block_id: int, emit:
             if emit { give back v4_borrowck_drop_plan_emit_all(mir_id, body_id, v4_mir_drop_site_return, stmt) }
             give back true
         }
-        pilot slot_local = v4_borrowck_drop_plan_slot_local(mir_id, body_id, stmt)
-        if emit and slot_local >= 0 and not v4_mir_drop_plan_add_drop(mir_id, body_id, v4_mir_drop_site_replace, stmt, slot_local, v4_mir_drop_mode_slot) { give back v4_borrowck_drop_plan_fail(v4_mir_drop_plan_failed) }
         pilot written = v4_borrowck_drop_plan_slot_of(v4_borrowck_drop_plan_target_local(mir_id, body_id, stmt))
         if written >= 0 {
             pilot state = v4_borrowck_drop_plan_state(v4_borrowck_drop_plan_cur, written)
@@ -9638,6 +9661,10 @@ task v4_borrowck_drop_plan_body(mir_id: int, body_id: int) -> bool {
         if (kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign) and place >= 0 and v4_mir_place_kind(mir_id, body_id, place) != v4_mir_place_local {
             if not v4_borrowck_drop_plan_walk_place(mir_id, body_id, stmt, 0 - 1, place, true, false, 0) { give back false }
         }
+        -- A store into an owned slot releases the slot's old value in place
+        -- (its moved-out leaves are null), whatever path reaches it.
+        pilot slot_local = v4_borrowck_drop_plan_slot_local(mir_id, body_id, stmt)
+        if slot_local >= 0 and not v4_mir_drop_plan_add_drop(mir_id, body_id, v4_mir_drop_site_replace, stmt, slot_local, v4_mir_drop_mode_slot) { give back v4_borrowck_drop_plan_fail(v4_mir_drop_plan_failed) }
         stmt += 1
     }
     pilot count = array_len(v4_borrowck_drop_plan_owned)

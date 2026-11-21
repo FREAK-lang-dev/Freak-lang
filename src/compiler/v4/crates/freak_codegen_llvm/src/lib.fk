@@ -2703,8 +2703,8 @@ task v4_codegen_llvm_literal_aggregate_type(mir_id: int, type_text: word) -> wor
     give back out + " }"
 }
 
--- True when a native shape, tuple or fixed array holds an owned word at any
--- depth. Routes never do (word payloads stay fenced).
+-- True when a native shape, tuple, fixed array or route holds an owned word
+-- at any depth.
 task v4_codegen_llvm_type_owns_words(mir_id: int, type_text: word) -> bool {
     give back v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) > 0
 }
@@ -2715,7 +2715,7 @@ task v4_codegen_llvm_word_leaf_count(mir_id: int, type_text: word, depth: int) -
     if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) == v4_ty_word { give back 1 }
     if v4_ty_is_lend_type(type_text) { give back 0 }
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
-    if kind == "" { give back 0 }
+    if kind == "" { give back v4_codegen_llvm_route_word_leaf_count(mir_id, type_text, depth) }
     if kind == "array" {
         pilot length = v4_codegen_llvm_fixed_array_length(mir_id, type_text)
         pilot element = v4_codegen_llvm_word_leaf_count(mir_id, v4_ty_fixed_array_element_type(type_text), depth + 1)
@@ -2734,6 +2734,129 @@ task v4_codegen_llvm_word_leaf_count(mir_id: int, type_text: word, depth: int) -
         slot += 1
     }
     give back total
+}
+
+-- A route's word leaves across all its cases (each case reads its own).
+task v4_codegen_llvm_route_word_leaf_count(mir_id: int, type_text: word, depth: int) -> int {
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, type_text)
+    if sig < 0 { give back 0 }
+    pilot total = 0
+    pilot case_id = 0
+    repeat until case_id >= v4_ty_route_case_count(v4_mir_ty_id(mir_id), sig) {
+        pilot field = 0
+        repeat until field >= v4_codegen_llvm_route_field_count(mir_id, sig, case_id) {
+            pilot leaves = v4_codegen_llvm_word_leaf_count(mir_id, v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field), depth + 1)
+            if leaves < 0 { give back leaves }
+            total += leaves
+            if total > 65536 { give back 65537 }
+            field += 1
+        }
+        case_id += 1
+    }
+    give back total
+}
+
+-- Whether a type's drop glue must read memory: a route's payload holds
+-- words of whichever case its tag names.
+task v4_codegen_llvm_type_has_route_words(mir_id: int, type_text: word, depth: int) -> bool {
+    if depth > 32 or v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back false }
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "" { give back v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 }
+    if kind == "array" { give back v4_codegen_llvm_type_has_route_words(mir_id, v4_ty_fixed_array_element_type(type_text), depth + 1) }
+    pilot slot = 0
+    repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) {
+        if v4_codegen_llvm_type_has_route_words(mir_id, v4_codegen_llvm_aggregate_slot_type(mir_id, type_text, slot), depth + 1) { give back true }
+        slot += 1
+    }
+    give back false
+}
+
+-- Drop glue in place: release every word leaf of the value at `address`.
+-- A route releases the leaves of the case its tag names. With `cond` (an
+-- i1 value, or "") each leaf is released only when cond holds.
+task v4_codegen_llvm_drop_glue_at(mir_id: int, type_text: word, address: word, cond: word, temp: word, depth: int) -> word {
+    if depth > 32 { give back "" }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_canonical_type(ty_id, type_text) == v4_ty_word {
+        pilot out = "  " + temp + ".h = load i64, ptr " + address + "\n"
+        pilot handle = temp + ".h"
+        if cond != "" {
+            handle = temp + ".o"
+            out = out + "  " + handle + " = select i1 " + cond + ", i64 " + temp + ".h, i64 0\n"
+        }
+        give back out + "  call void @freak_v4_word_drop(i64 " + handle + ")\n"
+    }
+    if v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back "" }
+    pilot llvm_ty = v4_codegen_llvm_type(type_text)
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    pilot out = ""
+    if kind == "" {
+        pilot sig = v4_codegen_llvm_route_signature(mir_id, type_text)
+        if sig < 0 { give back "" }
+        pilot tag_ty = v4_codegen_llvm_route_tag_type(mir_id, sig)
+        out = "  " + temp + ".tag = load " + tag_ty + ", ptr " + address + "\n"
+        out = out + "  " + temp + ".payload = getelementptr inbounds " + llvm_ty + ", ptr " + address + ", i32 0, i32 1\n"
+        pilot case_id = 0
+        repeat until case_id >= v4_ty_route_case_count(ty_id, sig) {
+            pilot case_struct = v4_codegen_llvm_route_case_struct(mir_id, sig, case_id)
+            pilot case_temp = temp + ".c" + word_from_int(case_id)
+            pilot field = 0
+            pilot fields = v4_codegen_llvm_route_field_count(mir_id, sig, case_id)
+            pilot opened = false
+            pilot live_case = case_temp + ".is"
+            if cond != "" { live_case = case_temp + ".when" }
+            repeat until field >= fields {
+                pilot field_ty = v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field)
+                if v4_codegen_llvm_word_leaf_count(mir_id, field_ty, 0) > 0 {
+                    if not opened {
+                        out = out + "  " + case_temp + ".is = icmp eq " + tag_ty + " " + temp + ".tag, " + v4_codegen_llvm_route_tag_value(mir_id, sig, case_id) + "\n"
+                        if cond != "" { out = out + "  " + live_case + " = and i1 " + cond + ", " + case_temp + ".is\n" }
+                        opened = true
+                    }
+                    pilot field_temp = case_temp + ".f" + word_from_int(field)
+                    out = out + "  " + field_temp + " = getelementptr inbounds " + case_struct + ", ptr " + temp + ".payload, i32 0, i32 " + word_from_int(field) + "\n"
+                    out = out + v4_codegen_llvm_drop_glue_at(mir_id, field_ty, field_temp, live_case, field_temp, depth + 1)
+                }
+                field += 1
+            }
+            case_id += 1
+        }
+        give back out
+    }
+    pilot slot = 0
+    repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) {
+        pilot slot_ty = v4_codegen_llvm_aggregate_slot_type(mir_id, type_text, slot)
+        if v4_codegen_llvm_word_leaf_count(mir_id, slot_ty, 0) > 0 {
+            pilot slot_temp = temp + ".s" + word_from_int(slot)
+            out = out + "  " + slot_temp + " = getelementptr inbounds " + llvm_ty + ", ptr " + address + ", i32 0, i32 " + word_from_int(slot) + "\n"
+            out = out + v4_codegen_llvm_drop_glue_at(mir_id, slot_ty, slot_temp, cond, slot_temp, depth + 1)
+        }
+        slot += 1
+    }
+    give back out
+}
+
+-- Null every word leaf of the value at `address` after a move took it; a
+-- route moved whole is zeroed (its tag then names no live payload).
+task v4_codegen_llvm_null_words_at(mir_id: int, type_text: word, address: word, temp: word, depth: int) -> word {
+    if depth > 32 { give back "" }
+    if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) == v4_ty_word { give back "  store i64 0, ptr " + address + "\n" }
+    if v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back "" }
+    pilot llvm_ty = v4_codegen_llvm_type(type_text)
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "" { give back "  store " + llvm_ty + " zeroinitializer, ptr " + address + "\n" }
+    pilot out = ""
+    pilot slot = 0
+    repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) {
+        pilot slot_ty = v4_codegen_llvm_aggregate_slot_type(mir_id, type_text, slot)
+        if v4_codegen_llvm_word_leaf_count(mir_id, slot_ty, 0) > 0 {
+            pilot slot_temp = temp + ".s" + word_from_int(slot)
+            out = out + "  " + slot_temp + " = getelementptr inbounds " + llvm_ty + ", ptr " + address + ", i32 0, i32 " + word_from_int(slot) + "\n"
+            out = out + v4_codegen_llvm_null_words_at(mir_id, slot_ty, slot_temp, slot_temp, depth + 1)
+        }
+        slot += 1
+    }
+    give back out
 }
 
 -- The extractvalue index path of every word leaf, ";"-separated in slot
@@ -2996,7 +3119,9 @@ task v4_codegen_llvm_native_route_error(mir_id: int, sig: int, depth: int) -> wo
         repeat until field >= fields {
             pilot field_ty = v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field)
             pilot field_context = context + "." + v4_ty_route_case_field_name(ty_id, route_name, case_name, field)
-            if field_ty != "" and field_ty != v4_ty_unknown and (v4_ty_is_native_owned_value(ty_id, field_ty) or v4_codegen_llvm_type_owns_words(mir_id, field_ty)) { give back "native route payload fields that own words are not yet supported: " + field_context }
+            -- Words and word-owning aggregates are native payloads (dropped
+            -- by tag); the maybe/result carriers are not yet.
+            if field_ty != "" and field_ty != v4_ty_unknown and v4_ty_is_native_owned_value(ty_id, field_ty) and v4_ty_canonical_type(ty_id, field_ty) != v4_ty_word { give back "native route payload fields that own words are not yet supported: " + field_context }
             pilot error = v4_codegen_llvm_native_slot_error(mir_id, field_ty, field_context, depth)
             if error != "" { give back error }
             field += 1
@@ -4706,7 +4831,11 @@ task v4_codegen_llvm_scalar_sum_bridge_instruction(mir: int, body: int, value: i
 
 task v4_codegen_llvm_owned_temporary_drop(mir: int, body: int, value: int, site: word) -> word {
     pilot value_ty = v4_mir_rvalue_ty(mir, body, value)
-    if v4_ty_canonical_type(v4_mir_ty_id(mir), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir, value_ty) { give back v4_codegen_llvm_aggregate_word_drop_lines(mir, value_ty, v4_codegen_llvm_rvalue_value(mir, body, value), "%agg.discard." + site) }
+    if v4_ty_canonical_type(v4_mir_ty_id(mir), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir, value_ty) {
+        -- A route's payload is read in memory: the call's result slot.
+        if v4_codegen_llvm_type_has_route_words(mir, value_ty, 0) { give back v4_codegen_llvm_drop_glue_at(mir, value_ty, v4_codegen_llvm_abi_ret_slot(body, value), "", "%agg.discard." + site, 0) }
+        give back v4_codegen_llvm_aggregate_word_drop_lines(mir, value_ty, v4_codegen_llvm_rvalue_value(mir, body, value), "%agg.discard." + site)
+    }
     pilot carrier = v4_mir_scalar_sum_kind(mir, v4_mir_rvalue_ty(mir, body, value))
     if carrier == "MaybeInt" { give back "" }
     if carrier == "ResultWordWord" {
@@ -5315,48 +5444,14 @@ task v4_codegen_llvm_move_clear_line(mir_id: int, body_id: int, rvalue_id: int) 
 task v4_codegen_llvm_place_move_lines(mir_id: int, body_id: int, rvalue_id: int, address: word) -> word {
     if v4_codegen_llvm_active_owned_mir != mir_id { give back "" }
     if not v4_mir_drop_rvalue_is_partial(mir_id, body_id, rvalue_id) { give back v4_codegen_llvm_move_clear_line(mir_id, body_id, rvalue_id) }
-    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
-    if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) == v4_ty_word { give back "  store i64 0, ptr " + address + "\n" }
-    pilot llvm_ty = v4_codegen_llvm_type(type_text)
-    pilot paths = v4_codegen_llvm_word_leaf_paths(mir_id, type_text, "")
-    pilot out = ""
-    pilot leaf = 0
-    pilot start = 0
-    repeat until start > paths.length() or paths == "" {
-        pilot stop = v4_index_of_from(paths, ";", start)
-        if stop < 0 { stop = paths.length() }
-        pilot slot = address + ".moved." + word_from_int(leaf)
-        out = out + "  " + slot + " = getelementptr inbounds " + llvm_ty + ", ptr " + address + ", i32 0, i32 " + v4_codegen_llvm_leaf_gep_path(v4_slice(paths, start, stop)) + "\n"
-        out = out + "  store i64 0, ptr " + slot + "\n"
-        leaf += 1
-        start = stop + 1
-    }
-    give back out
-}
-
--- "0, 1" (an extractvalue path) as GEP indices "0, i32 1".
-task v4_codegen_llvm_leaf_gep_path(path: word) -> word {
-    pilot out = ""
-    pilot start = 0
-    repeat until start > path.length() {
-        pilot stop = v4_index_of_from(path, ",", start)
-        if stop < 0 { stop = path.length() }
-        pilot part = v4_slice(path, start, stop).trim()
-        if out != "" { out = out + ", i32 " }
-        out = out + part
-        start = stop + 1
-    }
-    give back out
+    give back v4_codegen_llvm_null_words_at(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id), address, address + ".moved", 0)
 }
 
 -- A DropSlot row at a store: release the target's old value in place. A
 -- leaf a partial move took is null there, so each leaf is released once.
 task v4_codegen_llvm_slot_replace_lines(mir_id: int, body_id: int, stmt_id: int, type_text: word, address: word) -> word {
     if v4_codegen_llvm_active_owned_mir != mir_id or not v4_mir_drop_site_has_mode(mir_id, body_id, v4_mir_drop_site_replace, stmt_id, v4_mir_drop_mode_slot) { give back "" }
-    pilot temp = "%slot.old." + word_from_int(body_id) + "." + word_from_int(stmt_id)
-    pilot out = "  " + temp + " = load " + v4_codegen_llvm_type(type_text) + ", ptr " + address + "\n"
-    if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) == v4_ty_word { give back out + "  call void @freak_v4_word_drop(i64 " + temp + ")\n" }
-    give back out + v4_codegen_llvm_aggregate_word_drop_lines(mir_id, type_text, temp, temp)
+    give back v4_codegen_llvm_drop_glue_at(mir_id, type_text, address, "", "%slot.old." + word_from_int(body_id) + "." + word_from_int(stmt_id), 0)
 }
 
 -- One Drop or DropIf row: release the local's value (under its flag for
@@ -5374,16 +5469,11 @@ task v4_codegen_llvm_word_drop_local_lines(mir_id: int, body_id: int, local: int
     if conditional { out = "  " + temp + ".live = load i1, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n" }
     pilot local_ty = v4_mir_local_ty(mir_id, body_id, local)
     if carrier == "" and v4_codegen_llvm_type_owns_words(mir_id, local_ty) and v4_ty_canonical_type(v4_mir_ty_id(mir_id), local_ty) != v4_ty_word {
-        -- A live aggregate releases each word leaf; a moved one drops zeros.
-        pilot llvm_ty = v4_codegen_llvm_type(local_ty)
-        out = out + "  " + temp + ".carrier = load " + llvm_ty + ", ptr " + v4_codegen_llvm_local_slot(local) + "\n"
-        pilot owned = temp + ".carrier"
-        if conditional {
-            owned = temp + ".owned"
-            out = out + "  " + owned + " = select i1 " + temp + ".live, " + llvm_ty + " " + temp + ".carrier, " + llvm_ty + " zeroinitializer\n"
-        }
-        out = out + v4_codegen_llvm_aggregate_word_drop_lines(mir_id, local_ty, owned, temp)
-        give back out + clear
+        -- In place: each word leaf (null where a partial move took it), under
+        -- the flag for DropIf; a route releases its tagged case's leaves.
+        pilot cond = ""
+        if conditional { cond = temp + ".live" }
+        give back out + v4_codegen_llvm_drop_glue_at(mir_id, local_ty, v4_codegen_llvm_local_slot(local), cond, temp, 0) + clear
     }
     -- A carrier owns at most one word field (the closed result shares field 1).
     if carrier != "" {
@@ -5436,7 +5526,10 @@ task v4_codegen_llvm_drop_plan_error(mir_id: int) -> word {
         repeat until value >= count {
             pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
             pilot lhs = v4_mir_rvalue_lhs(mir_id, body, value)
-            if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and lhs >= 0 and lhs < count { array_set(lent, lhs, "1") }
+            if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut or kind == v4_mir_rvalue_binary) and lhs >= 0 and lhs < count { array_set(lent, lhs, "1") }
+            -- Binary operands are reads for Meiya (route tag tests among them).
+            pilot rhs = v4_mir_rvalue_rhs(mir_id, body, value)
+            if kind == v4_mir_rvalue_binary and rhs >= 0 and rhs < count { array_set(lent, rhs, "1") }
             value += 1
         }
         pilot error = ""
@@ -5455,6 +5548,9 @@ task v4_codegen_llvm_drop_plan_error(mir_id: int) -> word {
         repeat until stmt >= v4_mir_body_stmt_count(mir_id, body) {
             pilot kind = v4_mir_stmt_kind(mir_id, body, stmt)
             pilot place = v4_mir_stmt_place(mir_id, body, stmt)
+            pilot root = v4_mir_stmt_rvalue(mir_id, body, stmt)
+            -- A discarded route that owns words is released from its call's result slot.
+            if kind == v4_mir_stmt_expr and root >= 0 and v4_codegen_llvm_word_rvalue_is_owned(mir_id, body, root) and v4_codegen_llvm_type_has_route_words(mir_id, v4_mir_rvalue_ty(mir_id, body, root), 0) and not (v4_codegen_llvm_call_is_freak_abi(mir_id, body, root) and v4_codegen_llvm_call_returns_aggregate(mir_id, body, root)) { give back "native discarded route values that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, root) }
             if (kind == v4_mir_stmt_assign or kind == v4_mir_stmt_local) and place >= 0 and v4_codegen_llvm_type_owns_words(mir_id, v4_mir_place_ty(mir_id, body, place)) {
                 pilot place_kind = v4_mir_place_kind(mir_id, body, place)
                 pilot through_receiver: bool = place_kind == v4_mir_place_local and v4_codegen_llvm_local_is_lent_receiver(mir_id, body, v4_mir_place_base(mir_id, body, place))

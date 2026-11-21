@@ -1,0 +1,213 @@
+-- Native drops from Meiya's Runtime drop plan: every word leaf is released
+-- exactly once on early returns, reassignment, loops, conditional moves,
+-- partial moves and their repair, slot stores, lent receivers and route
+-- payloads. tests/v4_owned_word_codegen.py runs it under ASan, UBSan and both
+-- ownership audits; check_v4_native_drops also pins the plan in the IR.
+
+shape Named { name: word, n: int }
+shape Pair { left: Named, right: Named }
+route Msg {
+    Text { body: word, n: int }
+    Both { a: word, b: Named }
+    Quit
+}
+route Envelope {
+    Sealed { inner: Msg, label: word }
+    Empty
+}
+shape Box { tag: word, msg: Msg }
+
+impl Named {
+    task rename(lend mut self, text: word) -> int {
+        self.name = text
+        give back self.n
+    }
+    task reset(lend mut self) -> int {
+        self = Named { name: "reset", n: 0 }
+        give back self.name.length()
+    }
+}
+
+task consume(w: word) -> int { give back w.length() }
+task eat(p: Named) -> int { give back p.n + p.name.length() }
+task named(text: word, n: int) -> Named { give back Named { name: text, n: n } }
+
+-- Early returns: each exit drops exactly the locals still alive there.
+task early(k: int) -> int {
+    pilot a = "alpha"
+    pilot b = "beta"
+    if k == 0 { give back consume(a) }
+    pilot c = "gamma"
+    if k == 1 { give back consume(b) + consume(c) }
+    give back 3
+}
+
+-- Moved on one path only: a runtime drop flag decides the drop.
+task maybe_move(flag: bool) -> int {
+    pilot w = "kept or moved"
+    pilot n = 0
+    if flag { n = consume(w) }
+    give back n
+}
+
+-- Reassignment, loop-scoped locals, break and continue.
+task loops(k: int) -> int {
+    pilot mut acc = "s"
+    pilot total = 0
+    pilot i = 0
+    repeat until i >= k {
+        pilot step = "x"
+        acc = acc + step
+        if i == 2 {
+            i += 1
+            continue
+        }
+        pilot tmp = "t"
+        total += consume(tmp)
+        if i == 4 { break }
+        i += 1
+    }
+    say acc
+    pilot mut held = named("h", 0)
+    pilot j = 0
+    repeat until j >= 3 {
+        held = named("h" + word_from_int(j), j)
+        j += 1
+    }
+    say held.name
+    give back total
+}
+
+-- Partial moves out of shapes, nested shapes, tuples and arrays, the
+-- repair of a moved field, and a whole move after the repair.
+task partial() -> int {
+    pilot mut p = Named { name: "taken", n: 7 }
+    pilot s = p.name
+    say s
+    p.name = "repaired"
+    say p.name
+    pilot q = Pair { left: named("l", 1), right: named("r", 2) }
+    pilot left = q.left
+    say left.name
+    say q.right.name
+    pilot t = ("first", "second", 3)
+    pilot second = t.1
+    say second
+    pilot xs: [word; 3] = ["x0", "x1", "x2"]
+    pilot mid = xs[1]
+    say mid
+    pilot whole = p
+    give back whole.n + q.right.n + t.2
+}
+
+-- A partial move on one path only: the moved leaf is null on that path.
+task partial_branch(flag: bool) -> int {
+    pilot p = Named { name: "maybe", n: 3 }
+    if flag {
+        pilot s = p.name
+        say s
+    }
+    give back p.n
+}
+
+-- Stores into word slots release the old value first.
+task slots() -> int {
+    pilot mut xs: [word; 3] = ["a", "b", "c"]
+    xs[1] = "B"
+    say xs[1]
+    pilot mut t = ("one", 1)
+    t.0 = "uno"
+    say t.0
+    pilot mut p = Named { name: "old", n: 1 }
+    p.name = "new"
+    p.name = p.name + "er"
+    say p.name
+    pilot mut q = Pair { left: named("a", 1), right: named("b", 2) }
+    q.left = named("c", 3)
+    q.right.name = "d"
+    say q.left.name + q.right.name
+    give back t.1
+}
+
+-- Writes through a lent receiver: a word slot, then the whole value.
+task receivers() -> int {
+    pilot mut p = named("old", 4)
+    p.rename("renamed")
+    say p.name
+    p.reset()
+    say p.name
+    give back eat(p)
+}
+
+task make(k: int) -> Msg {
+    if k == 0 { give back Msg::Text { body: "hello", n: 1 } }
+    if k == 1 { give back Msg::Both { a: "left", b: named("right", 2) } }
+    give back Msg::Quit
+}
+
+task size(m: Msg) -> int {
+    when m {
+        Msg::Text { body, n } -> give back body.length() + n
+        Msg::Both { a, b } -> give back a.length() + b.name.length()
+        Msg::Quit -> give back 0
+    }
+    give back 0
+}
+
+task count(m: Msg) -> int {
+    when m {
+        Msg::Text { n, .. } -> give back n
+        _ -> give back 9
+    }
+    give back 0
+}
+
+task open(e: Envelope) -> int {
+    check route e {
+        Sealed { inner: Msg::Text { body, .. }, label } -> give back body.length() * 10 + label.length()
+        Sealed { inner, .. } -> give back size(inner)
+        Empty -> give back 0
+    }
+}
+
+-- Routes whose payloads own words: each case drops its own leaves.
+task routes() -> int {
+    pilot t = make(0)
+    pilot b = make(1)
+    pilot q = make(2)
+    say size(t)
+    say size(b)
+    say count(q)
+    say count(make(1))
+    make(0)
+    make(1)
+    pilot mut r = make(1)
+    r = make(0)
+    say count(r)
+    pilot kept = make(1)
+    pilot e = Envelope::Sealed { inner: make(0), label: "env" }
+    say open(e)
+    say open(Envelope::Sealed { inner: make(1), label: "x" })
+    pilot box = Box { tag: "box", msg: make(1) }
+    say box.tag
+    pilot msgs: [Msg; 2] = [make(0), make(1)]
+    say count(msgs[0])
+    give back 0
+}
+
+task main() -> int {
+    say early(0)
+    say early(1)
+    say early(2)
+    say maybe_move(true)
+    say maybe_move(false)
+    say loops(6)
+    say partial()
+    say partial_branch(true)
+    say partial_branch(false)
+    say slots()
+    say receivers()
+    say eat(named("eat", 2))
+    say routes()
+    give back 0
+}

@@ -17402,6 +17402,8 @@ NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
 NATIVE_ROUTES_EXPECTED = ("2\n0\ntrue\ntrue\ntrue\n41\nfalse\n9\n9\n12\n15\n0\n46\n54\n25\n15\n-21\n1\n73\n36\n3\n25\ntrue\nfalse\n")
 NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\norigin:12\n0\nfalse\ntrue\n2\n"
 # The FREAK aggregate calling convention: stdout, then main's exit status.
+NATIVE_DROPS_EXPECTED = ("5\n9\n3\n13\n0\nsxxxxx\nh2\n4\ntaken\nrepaired\nl\nr\nsecond\nx1\n12\nmaybe\n3\n3\n"
+                         "B\nuno\nnewer\ncd\n1\nrenamed\nreset\n5\n5\n6\n9\n9\n9\n1\n53\n9\nbox\n1\n0\n")
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
 NATIVE_OPERATORS_EXPECTED = ("4\n22\n-11\n5\nfalse\ntrue\n46\n5\n4\nsum matches\n7\n6\n8\n3\n"
                              "true\nfalse\ntrue\nfalse\ntrue\n2\ntrue\nfalse\n3\n42\n2\n6\n70\n2\n"
@@ -17693,6 +17695,7 @@ def check_v4_native_shapes() -> None:
         ("methods", "methods_native.fk", NATIVE_METHODS_EXPECTED),
         ("agg_abi", "agg_abi_native.fk", NATIVE_AGG_ABI_EXPECTED),
         ("operators", "operators_native.fk", (NATIVE_OPERATORS_EXPECTED, NATIVE_OPERATORS_EXIT)),
+        ("drops", "drops_native.fk", NATIVE_DROPS_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -17751,23 +17754,14 @@ def check_v4_native_shapes() -> None:
                 else:
                     raise RuntimeError(f"V4 layout oracle accepted {stem} for {triple} without its payload notes")
     rejected_cases = (
-        # Word fields are native; moving one word out of its aggregate is not.
-        ("tier3_shape_word_partial_move", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
-         "task main() -> int {\n    pilot a = make(\"x\", 1)\n    pilot n = a.name\n    say n\n    give back 0\n}\n",
-         "native partial moves out of aggregates that own words are not yet supported: a . name"),
-        ("tier3_shape_word_field_store", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
-         "task main() -> int {\n    pilot mut a = make(\"x\", 1)\n    a.name = \"y\"\n    give back a.n\n}\n",
-         "native stores into aggregate slots that own words are not yet supported: a . name"),
+        # Word fields, partial moves and slot stores are native (drops row,
+        # examples/drops_native.fk); projections of word temporaries are not.
         ("tier3_shape_word_temporary_projection", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
          "task main() -> int { give back make(\"x\", 1).n }\n",
          "native projections of temporaries that own words are not yet supported: make ( x , 1 ) . n"),
         ("tier3_shape_word_use_after_move", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
          "task main() -> int {\n    pilot a = make(\"x\", 1)\n    pilot b = a\n    give back a.n\n}\n",
          "Meiya remembers the field you already moved"),
-        ("tier3_route_word_shape_payload", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
-         "route Box {\n    Full { item: Named }\n    Empty\n}\n"
-         "task main() -> int {\n    pilot b = Box::Empty\n    give back 0\n}\n",
-         "native route payload fields that own words are not yet supported: Box::Full.item"),
         ("tier3_temporary_index_non_array", "task n() -> int { give back 4 }\n"
          "task main() -> int { give back n()[0] }\n",
          "index of a temporary needs a fixed array"),
@@ -17802,9 +17796,6 @@ def check_v4_native_shapes() -> None:
          "    pilot a: [int; 8192] = [0; 8192]\n"
          "    pilot b: [uint; 8192] = a\n    give back 0\n}\n",
          "native aggregate conversion exceeds the supported slot budget: [int;8192] to [uint;8192]"),
-        ("tier3_route_word_payload", "route Msg {\n    Text { body: word }\n    Quit\n}\n"
-         "task main() -> int {\n    pilot m = Msg::Quit\n    give back 0\n}\n",
-         "native route payload fields that own words are not yet supported: Msg::Text.body"),
         ("tier3_route_generic", "route Opt<T> {\n    Has { v: T }\n    Not\n}\n"
          "task main() -> int {\n    pilot o: Opt<int> = Opt::Has { v: 1 }\n    give back 0\n}\n",
          "native generic routes need monomorphization: Opt<int>"),
@@ -17831,16 +17822,6 @@ def check_v4_native_shapes() -> None:
         ("tier3_method_temporary_lend", "shape P { x: int }\nimpl P {\n    task peek(lend self) -> int { give back self.x }\n}\n"
          "task main() -> int { give back P { x: 1 }.peek() }\n",
          "lend receiver must be a place"),
-        # A lent word-owning receiver is native; writing its word slots or
-        # replacing it whole through the lend is not.
-        ("tier3_method_word_receiver_store", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
-         "impl Named {\n    task rename(lend mut self) -> int {\n        self.name = \"y\"\n        give back self.n\n    }\n}\n"
-         "task main() -> int {\n    pilot mut a = make(\"x\", 1)\n    give back a.rename()\n}\n",
-         "native stores into aggregate slots that own words are not yet supported: self . name"),
-        ("tier3_method_word_receiver_replace", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
-         "impl Named {\n    task reset(lend mut self) -> int {\n        self = make(\"z\", 0)\n        give back 0\n    }\n}\n"
-         "task main() -> int {\n    pilot mut a = make(\"x\", 1)\n    give back a.reset()\n}\n",
-         "native stores into aggregate slots that own words are not yet supported: self"),
         ("tier3_method_value_to_lend_self", "shape P { x: int }\nimpl P {\n    task peek(lend self) -> int { give back self.x }\n}\n"
          "task main() -> int { pilot p = P { x: 1 }\n give back P::peek(p) }\n",
          "unsupported native conversion: P to lend P"),
@@ -17940,9 +17921,84 @@ def check_v4_native_shapes() -> None:
         raise RuntimeError("V4 native shapes emitted no aggregate ABI notes")
     print(f"V4 native shapes: programs={len(programs)} run=exact bounds=panics layout-probes={probes} abi-probes={abi_probes} "
           f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+    check_v4_native_drops()
     check_v4_native_patterns()
     check_v4_native_c_widths()
     check_v4_native_maybe_result()
+
+
+# Tier 3 drops: Meiya's Runtime drop plan, as native code emits it. The drops
+# program itself runs in check_v4_native_shapes (exact output, layouts) and
+# under ASan and both ownership audits in tests/v4_owned_word_codegen.py.
+NATIVE_DROP_ROW = re.compile(r"^  %word\.drop\.(edge\.[0-9]+\.[0-9]+|[a-z]+\.[0-9]+)\.([0-9]+)\.", re.MULTILINE)
+
+
+def native_function_text(module_text: str, name: str) -> str:
+    match = re.search(r"^define [^\n]*@\"?" + re.escape(name) + r"\"?\([^\n]*\{\n(.*?)^\}", module_text, re.MULTILINE | re.DOTALL)
+    if not match:
+        raise RuntimeError(f"V4 drops module has no function {name}")
+    return match.group(1)
+
+
+def check_v4_native_drops() -> None:
+    """Pin drop placement, order, flags and partial-move nulls in the IR."""
+    source = V4_ROOT / "examples" / "drops_native.fk"
+    module_path = RUNTIME_BUILD_ROOT / "tier3_native_drops_plan.ll"
+    module_path.unlink(missing_ok=True)
+    emitted = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm"],
+        label="V4 drops plan module", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if emitted.returncode != 0 or not module_path.exists():
+        raise RuntimeError(f"V4 could not emit the drops module:\n{emitted.stdout}{emitted.stderr}")
+    module_text = module_path.read_text(encoding="utf-8")
+    # Reverse declaration order: within one drop site, local IDs fall.
+    sites: dict[str, list[int]] = {}
+    for function in re.findall(r"^define [^\n]*@\"?([^\"(]+)\"?\(", module_text, re.MULTILINE):
+        for site, local in NATIVE_DROP_ROW.findall(native_function_text(module_text, function)):
+            key = function + ":" + site
+            sites.setdefault(key, [])
+            if int(local) not in sites[key]:
+                sites[key].append(int(local))
+    ordered = [locals_ for locals_ in sites.values() if len(locals_) > 1]
+    if not ordered or any(locals_ != sorted(locals_, reverse=True) for locals_ in ordered):
+        raise RuntimeError(f"V4 drops are not in reverse declaration order: {sites}")
+    early = native_function_text(module_text, "early")
+    # Each return drops exactly what is alive there, without a flag.
+    if "alloca i1" in early or early.count("call void @freak_v4_word_drop") != 5:
+        raise RuntimeError("V4 early returns do not drop each live word statically once")
+    maybe_move = native_function_text(module_text, "maybe_move")
+    if "%word.1.live = alloca i1" not in maybe_move or "select i1 %word.drop.return" not in maybe_move:
+        raise RuntimeError("V4 conditional move lost its DropIf runtime flag")
+    eat = native_function_text(module_text, "eat")
+    if "alloca i1" in eat:
+        raise RuntimeError("V4 gave a drop flag to a local no path moves")
+    partial = native_function_text(module_text, "partial")
+    if partial.count("store i64 0, ptr %place.") < 4 or "%slot.old." not in partial:
+        raise RuntimeError("V4 partial moves do not null their leaves or repairs do not release the old slot")
+    size = native_function_text(module_text, "size")
+    if "icmp eq i32 %word.drop.return" not in size:
+        raise RuntimeError("V4 route drops do not test the tag of the case they release")
+    rejected_cases = (
+        ("tier3_drop_route_literal_discard", "route Msg {\n    Text { body: word }\n    Quit\n}\n"
+         "task main() -> int {\n    Msg::Text { body: \"x\" }\n    give back 0\n}\n",
+         "native discarded route values that own words are not yet supported"),
+        ("tier3_drop_route_carrier_payload", "route Msg {\n    Text { body: result<word, word> }\n    Quit\n}\n"
+         "task main() -> int {\n    pilot m = Msg::Quit\n    give back 0\n}\n",
+         "native route payload fields that own words are not yet supported: Msg::Text.body"),
+    )
+    for stem, text, reason in rejected_cases:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 drops case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    print(f"V4 native drops: sites={len(sites)} ordered={len(ordered)} rejections={len(rejected_cases)}")
 
 
 # Tier 3 patterns: when over tuples, fixed arrays and route payloads (nested,
@@ -17987,9 +18043,6 @@ def check_v4_native_patterns() -> None:
          "task main() -> int { give back f(5) }\n", "unsupported when arm pattern"),
         ("tier3_pattern_shape", "shape Point { x: int, y: int }\ntask f(p: Point) -> int {\n    when p {\n        Point { x, y } -> give back x + y\n    }\n    give back 0\n}\n"
          "task main() -> int { give back f(Point { x: 1, y: 2 }) }\n", "unsupported when arm pattern"),
-        ("tier3_pattern_word_payload", "route Named {\n    Tag { name: word }\n    Blank\n}\ntask f(n: Named) -> int {\n    when n {\n"
-         "        Named::Tag { name } -> give back name.length()\n        Named::Blank -> give back 0\n    }\n    give back 0\n}\n"
-         "task main() -> int { give back f(Named::Blank) }\n", "native route payload fields that own words are not yet supported: Named::Tag.name"),
         # A refutable nested pattern does not cover its outer case.
         ("tier3_pattern_nested_not_exhaustive", routes + "task f(w: Wrap) -> int {\n    when w {\n        Wrap::One { inner: Shape::Empty } -> give back 1\n"
          "        Wrap::Nothing -> give back 0\n    }\n    give back 2\n}\ntask main() -> int { give back f(Wrap::Nothing) }\n",
