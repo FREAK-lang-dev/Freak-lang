@@ -17373,7 +17373,7 @@ NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\nori
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
 NATIVE_MAYBE_RESULT_EXPECTED = ("2.5\n7\nempty\n2\nodd\n3\none\npos\n-4\n51\n4\nfallback evaluated\n9\none/anon\n"
                                 "direct\nkept\n5\n3\n6\nfalse\n12\ntrue\n5\nnone\none\nloud\nsilent\nc\n36\n"
-                                "noisy fallback\n20\n2\npropagated\ntrue\nnone\npos\nneg\none\nanon\n")
+                                "noisy fallback\n20\n2\npropagated\ntrue\nnone\npos\nneg\none\nanon\ntag\n4\n")
 NATIVE_MAYBE_RESULT_EXIT = 17
 
 

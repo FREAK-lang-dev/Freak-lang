@@ -6736,7 +6736,7 @@ task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) ->
     if v4_mir_builtin_system_identity_kind(identity) != "" or identity == "builtin::word::to_int_maybe" { give back v4_mir_sum_row_intrinsic_error(ty, values, locals, value) }
     if identity != "" or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" { give back "scalar sum calls require a resolved ordinary static task" }
     pilot signature = v4_ty_task_signature_id_for_name(ty, v4_mir_snapshot_field(row, 6))
-    if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum calls require a resolved ordinary static task" }
+    if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_type_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum calls require a resolved ordinary static task" }
     if returned_type != v4_ty_signature_return_type(ty, signature) or v4_mir_snapshot_field(row, 11) != v4_ty_signature_call_abi(ty, signature) or count != v4_ty_signature_fixed_param_count(ty, signature) { give back "invalid scalar sum task call contract" }
     arg = 0
     repeat until arg >= count {
@@ -6848,7 +6848,7 @@ task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks:
         -- The bootstrap module init has no parameters and spans the file.
         if v4_mir_snapshot_field(header, 4) != v4_mir_module_init_name { give back "invalid scalar sum module init identity" }
     } else {
-        if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum body requires an ordinary nongeneric task" }
+        if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_type_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum body requires an ordinary nongeneric task" }
         if v4_mir_snapshot_field(header, 4) != v4_ty_signature_name(ty, signature) or v4_mir_snapshot_field(header, 5) != v4_ty_signature_of(ty, definition) { give back "invalid scalar sum task body identity" }
         parameters = v4_ty_signature_fixed_param_count(ty, signature)
         if parameters > array_len(locals) { give back "invalid scalar sum task parameter locals" }
