@@ -9347,3 +9347,472 @@ task v4_borrowck_scalar_sum_call_is_empty(mir: int, body: int, value: int) -> bo
     }
     give back true
 }
+
+-- Runtime drop plan publication (A4 drop facts for native lowering).
+--
+-- For every owned local (value mode, owned storage) Meiya runs a forward
+-- initialization dataflow over the MIR CFG, two bits per local: 1 = may be
+-- initialized, 2 = may be moved or uninitialized. Moves come from the same
+-- transfer rules as the move checker (lends and read-only operands borrow;
+-- an `or else` fallback and a short-circuit right operand move only on some
+-- paths). Writes initialize; a scope exit drops. Each drop site then gets a
+-- row from the local's state there: 1 is Drop, 3 is DropIf (and the local
+-- gets a runtime drop flag), 2 needs nothing. Rows of a site are in reverse
+-- declaration order. Stores into word-owning slots get DropSlot rows, and
+-- moves out of an aggregate's field or element are published as partial
+-- moves, so native code nulls exactly the moved leaves and every later drop
+-- of the aggregate (or a repair store) releases each leaf once.
+pilot v4_borrowck_drop_plan_owned = 0 - 1
+pilot v4_borrowck_drop_plan_index = 0 - 1
+pilot v4_borrowck_drop_plan_eff_heads = 0 - 1
+pilot v4_borrowck_drop_plan_eff_items = 0 - 1
+pilot v4_borrowck_drop_plan_eff_kinds = 0 - 1
+pilot v4_borrowck_drop_plan_eff_next = 0 - 1
+pilot v4_borrowck_drop_plan_entry = 0 - 1
+pilot v4_borrowck_drop_plan_reached = 0 - 1
+pilot v4_borrowck_drop_plan_cur = 0 - 1
+pilot v4_borrowck_drop_plan_next = 0 - 1
+pilot v4_borrowck_drop_plan_flags = 0 - 1
+pilot v4_borrowck_drop_plan_queue = 0 - 1
+pilot v4_borrowck_drop_plan_queued = 0 - 1
+pilot v4_borrowck_drop_plan_budget = 0
+pilot v4_borrowck_drop_plan_error = ""
+
+task v4_borrowck_drop_plan_scratch_release() -> void {
+    if v4_borrowck_drop_plan_owned >= 0 { array_release(v4_borrowck_drop_plan_owned) }
+    if v4_borrowck_drop_plan_index >= 0 { array_release(v4_borrowck_drop_plan_index) }
+    if v4_borrowck_drop_plan_eff_heads >= 0 { array_release(v4_borrowck_drop_plan_eff_heads) }
+    if v4_borrowck_drop_plan_eff_items >= 0 { array_release(v4_borrowck_drop_plan_eff_items) }
+    if v4_borrowck_drop_plan_eff_kinds >= 0 { array_release(v4_borrowck_drop_plan_eff_kinds) }
+    if v4_borrowck_drop_plan_eff_next >= 0 { array_release(v4_borrowck_drop_plan_eff_next) }
+    if v4_borrowck_drop_plan_entry >= 0 { array_release(v4_borrowck_drop_plan_entry) }
+    if v4_borrowck_drop_plan_reached >= 0 { array_release(v4_borrowck_drop_plan_reached) }
+    if v4_borrowck_drop_plan_cur >= 0 { array_release(v4_borrowck_drop_plan_cur) }
+    if v4_borrowck_drop_plan_next >= 0 { array_release(v4_borrowck_drop_plan_next) }
+    if v4_borrowck_drop_plan_flags >= 0 { array_release(v4_borrowck_drop_plan_flags) }
+    if v4_borrowck_drop_plan_queue >= 0 { array_release(v4_borrowck_drop_plan_queue) }
+    if v4_borrowck_drop_plan_queued >= 0 { array_release(v4_borrowck_drop_plan_queued) }
+    v4_borrowck_drop_plan_owned = 0 - 1
+    v4_borrowck_drop_plan_index = 0 - 1
+    v4_borrowck_drop_plan_eff_heads = 0 - 1
+    v4_borrowck_drop_plan_eff_items = 0 - 1
+    v4_borrowck_drop_plan_eff_kinds = 0 - 1
+    v4_borrowck_drop_plan_eff_next = 0 - 1
+    v4_borrowck_drop_plan_entry = 0 - 1
+    v4_borrowck_drop_plan_reached = 0 - 1
+    v4_borrowck_drop_plan_cur = 0 - 1
+    v4_borrowck_drop_plan_next = 0 - 1
+    v4_borrowck_drop_plan_flags = 0 - 1
+    v4_borrowck_drop_plan_queue = 0 - 1
+    v4_borrowck_drop_plan_queued = 0 - 1
+}
+
+task v4_borrowck_drop_plan_fail(message: word) -> bool {
+    if v4_borrowck_drop_plan_error == "" { v4_borrowck_drop_plan_error = message }
+    give back false
+}
+
+task v4_borrowck_drop_plan_push(cells: int, text: word) -> bool {
+    if cells < 0 { give back v4_borrowck_drop_plan_fail("native drop plan scratch allocation failed") }
+    pilot before = array_len(cells)
+    array_push(cells, text)
+    if array_len(cells) != before + 1 { give back v4_borrowck_drop_plan_fail("native drop plan scratch allocation failed") }
+    give back true
+}
+
+-- A local with a drop of its own: owned storage held by value.
+task v4_borrowck_drop_plan_local_is_owned(mir_id: int, body_id: int, local_id: int) -> bool {
+    if local_id < 0 or local_id >= v4_mir_body_local_count(mir_id, body_id) or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value { give back false }
+    pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_id)
+    if v4_ty_is_lend_type(local_ty) { give back false }
+    give back v4_borrowck_type_is_owned_storage(mir_id, local_ty)
+}
+
+task v4_borrowck_drop_plan_slot_of(local_id: int) -> int {
+    if local_id < 0 or local_id >= array_len(v4_borrowck_drop_plan_index) { give back 0 - 1 }
+    give back word_to_int(array_get(v4_borrowck_drop_plan_index, local_id))
+}
+
+-- The local at the root of a field/index chain, or -1.
+task v4_borrowck_drop_plan_place_root(mir_id: int, body_id: int, place: int) -> int {
+    pilot current = place
+    pilot steps = 0
+    repeat until steps > 256 {
+        if current < 0 or current >= v4_mir_body_place_count(mir_id, body_id) { give back 0 - 1 }
+        pilot kind = v4_mir_place_kind(mir_id, body_id, current)
+        if kind == v4_mir_place_local { give back v4_mir_place_base(mir_id, body_id, current) }
+        if kind != v4_mir_place_field and kind != v4_mir_place_index { give back 0 - 1 }
+        current = v4_mir_place_base(mir_id, body_id, current)
+        steps += 1
+    }
+    give back 0 - 1
+}
+
+task v4_borrowck_drop_plan_record(mir_id: int, body_id: int, stmt_id: int, value: int, local_id: int, conditional: bool, partial: bool) -> bool {
+    if not v4_mir_drop_plan_add_move(mir_id, body_id, value, local_id, partial) { give back v4_borrowck_drop_plan_fail(v4_mir_drop_plan_failed) }
+    if partial { give back true }
+    pilot slot = v4_borrowck_drop_plan_slot_of(local_id)
+    if slot < 0 { give back true }
+    pilot kind = "m"
+    if conditional { kind = "c" }
+    pilot item = array_len(v4_borrowck_drop_plan_eff_items)
+    if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_eff_items, word_from_int(slot)) { give back false }
+    if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_eff_kinds, kind) { give back false }
+    if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_eff_next, array_get(v4_borrowck_drop_plan_eff_heads, stmt_id)) { give back false }
+    array_set(v4_borrowck_drop_plan_eff_heads, stmt_id, word_from_int(item))
+    give back true
+}
+
+task v4_borrowck_drop_plan_visit(depth: int) -> bool {
+    v4_borrowck_drop_plan_budget -= 1
+    if depth > 256 or v4_borrowck_drop_plan_budget < 0 { give back v4_borrowck_drop_plan_fail("native drop plan walk exceeds its budget") }
+    give back true
+}
+
+task v4_borrowck_drop_plan_walk_place(mir_id: int, body_id: int, stmt_id: int, value: int, place: int, borrowed: bool, conditional: bool, depth: int) -> bool {
+    if not v4_borrowck_drop_plan_visit(depth) { give back false }
+    if place < 0 or place >= v4_mir_body_place_count(mir_id, body_id) { give back v4_borrowck_drop_plan_fail("native drop plan place is out of range") }
+    pilot kind = v4_mir_place_kind(mir_id, body_id, place)
+    pilot owned: bool = not borrowed and value >= 0 and v4_borrowck_type_is_owned_storage(mir_id, v4_mir_place_ty(mir_id, body_id, place))
+    if kind == v4_mir_place_local {
+        pilot local = v4_mir_place_base(mir_id, body_id, place)
+        if owned and v4_borrowck_drop_plan_slot_of(local) >= 0 { give back v4_borrowck_drop_plan_record(mir_id, body_id, stmt_id, value, local, conditional, false) }
+        give back true
+    }
+    if kind == v4_mir_place_field or kind == v4_mir_place_index {
+        if owned {
+            pilot root = v4_borrowck_drop_plan_place_root(mir_id, body_id, place)
+            if v4_borrowck_drop_plan_slot_of(root) >= 0 and not v4_borrowck_drop_plan_record(mir_id, body_id, stmt_id, value, root, conditional, true) { give back false }
+        }
+        if not v4_borrowck_drop_plan_walk_place(mir_id, body_id, stmt_id, 0 - 1, v4_mir_place_base(mir_id, body_id, place), true, conditional, depth + 1) { give back false }
+        if kind == v4_mir_place_index { give back v4_borrowck_drop_plan_walk(mir_id, body_id, stmt_id, v4_mir_place_index(mir_id, body_id, place), false, conditional, depth + 1) }
+        give back true
+    }
+    if kind == v4_mir_place_deref { give back v4_borrowck_drop_plan_walk(mir_id, body_id, stmt_id, v4_mir_place_index(mir_id, body_id, place), false, conditional, depth + 1) }
+    give back true
+}
+
+-- The move checker's transfer rules (v4_borrowck_rvalue_word_local_move_count_depth),
+-- recording each moving rvalue instead of counting.
+task v4_borrowck_drop_plan_walk(mir_id: int, body_id: int, stmt_id: int, value: int, borrowed: bool, conditional: bool, depth: int) -> bool {
+    if value < 0 { give back true }
+    if not v4_borrowck_drop_plan_visit(depth) { give back false }
+    if value >= v4_mir_body_rvalue_count(mir_id, body_id) { give back v4_borrowck_drop_plan_fail("native drop plan rvalue is out of range") }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
+    if kind == v4_mir_rvalue_use_local {
+        pilot local = v4_mir_rvalue_local_id(mir_id, body_id, value)
+        if not borrowed and v4_borrowck_type_is_owned_storage(mir_id, v4_mir_rvalue_ty(mir_id, body_id, value)) and v4_borrowck_drop_plan_slot_of(local) >= 0 { give back v4_borrowck_drop_plan_record(mir_id, body_id, stmt_id, value, local, conditional, false) }
+        give back true
+    }
+    if kind == v4_mir_rvalue_use_place { give back v4_borrowck_drop_plan_walk_place(mir_id, body_id, stmt_id, value, v4_mir_rvalue_lhs(mir_id, body_id, value), borrowed, conditional, depth + 1) }
+    if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut { give back v4_borrowck_drop_plan_walk(mir_id, body_id, stmt_id, v4_mir_rvalue_lhs(mir_id, body_id, value), true, conditional, depth + 1) }
+    if kind == v4_mir_rvalue_call {
+        pilot callee = v4_borrowck_call_callee_rvalue(mir_id, body_id, value)
+        if callee >= 0 and not v4_borrowck_drop_plan_walk(mir_id, body_id, stmt_id, callee, false, conditional, depth + 1) { give back false }
+        pilot arg_id = 0
+        repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, value) {
+            pilot argument = v4_mir_rvalue_call_arg(mir_id, body_id, value, arg_id)
+            if argument != callee and not v4_borrowck_drop_plan_walk(mir_id, body_id, stmt_id, argument, false, conditional, depth + 1) { give back false }
+            arg_id += 1
+        }
+        if v4_mir_rvalue_call_arg_count(mir_id, body_id, value) == 0 and callee < 0 {
+            if not v4_borrowck_drop_plan_walk(mir_id, body_id, stmt_id, v4_mir_rvalue_lhs(mir_id, body_id, value), false, conditional, depth + 1) { give back false }
+            give back v4_borrowck_drop_plan_walk(mir_id, body_id, stmt_id, v4_mir_rvalue_rhs(mir_id, body_id, value), false, conditional, depth + 1)
+        }
+        give back true
+    }
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot child_id = 0
+        repeat until child_id >= v4_mir_rvalue_aggregate_child_count(mir_id, body_id, value) {
+            if not v4_borrowck_drop_plan_walk(mir_id, body_id, stmt_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, value, child_id), false, conditional, depth + 1) { give back false }
+            child_id += 1
+        }
+        give back true
+    }
+    pilot read_only: bool = kind == v4_mir_rvalue_binary or (kind == v4_mir_rvalue_check and v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value))) != "")
+    -- The right side of `or else`, `and` and `or` runs on some paths only.
+    pilot right_conditional: bool = conditional or kind == v4_mir_rvalue_or_else or (kind == v4_mir_rvalue_binary and (v4_mir_rvalue_op(mir_id, body_id, value) == v4_mir_bin_and or v4_mir_rvalue_op(mir_id, body_id, value) == v4_mir_bin_or))
+    if not v4_borrowck_drop_plan_walk(mir_id, body_id, stmt_id, v4_mir_rvalue_lhs(mir_id, body_id, value), read_only, conditional, depth + 1) { give back false }
+    give back v4_borrowck_drop_plan_walk(mir_id, body_id, stmt_id, v4_mir_rvalue_rhs(mir_id, body_id, value), read_only, right_conditional, depth + 1)
+}
+
+-- The owned local a statement initializes, or -1 (codegen's store target).
+task v4_borrowck_drop_plan_target_local(mir_id: int, body_id: int, stmt_id: int) -> int {
+    pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+    if kind != v4_mir_stmt_local and kind != v4_mir_stmt_assign { give back 0 - 1 }
+    pilot place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+    if place >= 0 {
+        if v4_mir_place_kind(mir_id, body_id, place) != v4_mir_place_local { give back 0 - 1 }
+        give back v4_mir_place_base(mir_id, body_id, place)
+    }
+    give back v4_mir_find_local_visible_at(mir_id, body_id, v4_mir_stmt_lhs(mir_id, body_id, stmt_id), v4_span_start(v4_mir_stmt_span(mir_id, body_id, stmt_id)))
+}
+
+-- The root local of a store into owned storage that is not a whole owned
+-- local (a field or element, or a lent receiver replaced whole), or -1.
+task v4_borrowck_drop_plan_slot_local(mir_id: int, body_id: int, stmt_id: int) -> int {
+    pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+    if kind != v4_mir_stmt_local and kind != v4_mir_stmt_assign { give back 0 - 1 }
+    pilot place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+    if place < 0 or not v4_borrowck_type_is_owned_storage(mir_id, v4_mir_place_ty(mir_id, body_id, place)) { give back 0 - 1 }
+    pilot place_kind = v4_mir_place_kind(mir_id, body_id, place)
+    if place_kind == v4_mir_place_field or place_kind == v4_mir_place_index { give back v4_borrowck_drop_plan_place_root(mir_id, body_id, place) }
+    if place_kind == v4_mir_place_local {
+        pilot local = v4_mir_place_base(mir_id, body_id, place)
+        if local >= 0 and local < v4_mir_body_local_count(mir_id, body_id) and v4_mir_local_mode(mir_id, body_id, local) == v4_ty_param_mode_lend_mut { give back local }
+    }
+    give back 0 - 1
+}
+
+task v4_borrowck_drop_plan_state(cells: int, slot: int) -> int {
+    give back word_to_int(array_get(cells, slot))
+}
+
+task v4_borrowck_drop_plan_emit(mir_id: int, body_id: int, site: int, index: int, slot: int, state: int) -> bool {
+    pilot local = word_to_int(array_get(v4_borrowck_drop_plan_owned, slot))
+    if state == 1 {
+        if not v4_mir_drop_plan_add_drop(mir_id, body_id, site, index, local, v4_mir_drop_mode_drop) { give back v4_borrowck_drop_plan_fail(v4_mir_drop_plan_failed) }
+    }
+    if state == 3 {
+        array_set(v4_borrowck_drop_plan_flags, slot, "1")
+        if not v4_mir_drop_plan_add_drop(mir_id, body_id, site, index, local, v4_mir_drop_mode_drop_if) { give back v4_borrowck_drop_plan_fail(v4_mir_drop_plan_failed) }
+    }
+    give back true
+}
+
+-- Every owned local still alive at a return or default exit.
+task v4_borrowck_drop_plan_emit_all(mir_id: int, body_id: int, site: int, index: int) -> bool {
+    pilot slot = 0
+    repeat until slot >= array_len(v4_borrowck_drop_plan_owned) {
+        if not v4_borrowck_drop_plan_emit(mir_id, body_id, site, index, slot, v4_borrowck_drop_plan_state(v4_borrowck_drop_plan_cur, slot)) { give back false }
+        slot += 1
+    }
+    give back true
+}
+
+-- One CFG edge: scope exits drop (when emitting), then the state joins the
+-- target's entry (when solving).
+task v4_borrowck_drop_plan_edge(mir_id: int, body_id: int, block_id: int, target: int, site: int, emit: bool) -> bool {
+    pilot count = array_len(v4_borrowck_drop_plan_owned)
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if target < 0 or target >= block_count { give back true }
+    pilot source_scope = v4_mir_edge_source_scope(mir_id, body_id, block_id)
+    pilot target_scope = v4_mir_edge_target_scope(mir_id, body_id, target)
+    pilot slot = 0
+    repeat until slot >= count {
+        pilot state = v4_borrowck_drop_plan_state(v4_borrowck_drop_plan_cur, slot)
+        if source_scope != target_scope and state != 0 and v4_mir_word_local_scope_exits_between(mir_id, body_id, word_to_int(array_get(v4_borrowck_drop_plan_owned, slot)), source_scope, target_scope) {
+            if emit and not v4_borrowck_drop_plan_emit(mir_id, body_id, site, block_id, slot, state) { give back false }
+            state = 2
+        }
+        array_set(v4_borrowck_drop_plan_next, slot, word_from_int(state))
+        slot += 1
+    }
+    if emit { give back true }
+    pilot changed: bool = false
+    pilot reached: word = array_get(v4_borrowck_drop_plan_reached, target)
+    if reached != "1" {
+        changed = true
+        array_set(v4_borrowck_drop_plan_reached, target, "1")
+    }
+    slot = 0
+    repeat until slot >= count {
+        pilot cell = target * count + slot
+        pilot old = v4_borrowck_drop_plan_state(v4_borrowck_drop_plan_entry, cell)
+        pilot incoming = v4_borrowck_drop_plan_state(v4_borrowck_drop_plan_next, slot)
+        pilot joined = old
+        if incoming == 1 or incoming == 3 { if joined != 1 and joined != 3 { joined += 1 } }
+        if incoming == 2 or incoming == 3 { if joined != 2 and joined != 3 { joined += 2 } }
+        if joined != old {
+            changed = true
+            array_set(v4_borrowck_drop_plan_entry, cell, word_from_int(joined))
+        }
+        slot += 1
+    }
+    if changed {
+        pilot queued: word = array_get(v4_borrowck_drop_plan_queued, target)
+        if queued != "1" {
+            array_set(v4_borrowck_drop_plan_queued, target, "1")
+            if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_queue, word_from_int(target)) { give back false }
+        }
+    }
+    give back true
+}
+
+-- Run one block from its entry state. Solving propagates to successors;
+-- emitting (after the fixpoint) publishes the block's rows in order.
+task v4_borrowck_drop_plan_block(mir_id: int, body_id: int, block_id: int, emit: bool) -> bool {
+    pilot count = array_len(v4_borrowck_drop_plan_owned)
+    pilot slot = 0
+    repeat until slot >= count {
+        array_set(v4_borrowck_drop_plan_cur, slot, array_get(v4_borrowck_drop_plan_entry, block_id * count + slot))
+        slot += 1
+    }
+    pilot previous = 0 - 1
+    pilot stmt = v4_mir_block_first_stmt(mir_id, body_id, block_id)
+    repeat until stmt < 0 {
+        if previous >= 0 and v4_mir_stmt_scope_span(mir_id, body_id, previous) != v4_mir_stmt_scope_span(mir_id, body_id, stmt) {
+            slot = 0
+            repeat until slot >= count {
+                pilot state = v4_borrowck_drop_plan_state(v4_borrowck_drop_plan_cur, slot)
+                if state != 0 and v4_mir_word_local_scope_exits_before_stmt(mir_id, body_id, word_to_int(array_get(v4_borrowck_drop_plan_owned, slot)), previous, stmt) {
+                    if emit and not v4_borrowck_drop_plan_emit(mir_id, body_id, v4_mir_drop_site_before, stmt, slot, state) { give back false }
+                    array_set(v4_borrowck_drop_plan_cur, slot, "2")
+                }
+                slot += 1
+            }
+        }
+        pilot item = word_to_int(array_get(v4_borrowck_drop_plan_eff_heads, stmt))
+        repeat until item < 0 {
+            pilot moved = word_to_int(array_get(v4_borrowck_drop_plan_eff_items, item))
+            pilot effect: word = array_get(v4_borrowck_drop_plan_eff_kinds, item)
+            pilot state = v4_borrowck_drop_plan_state(v4_borrowck_drop_plan_cur, moved)
+            if state != 0 {
+                if effect == "m" { state = 2 } else if state == 1 { state = 3 }
+                array_set(v4_borrowck_drop_plan_cur, moved, word_from_int(state))
+            }
+            item = word_to_int(array_get(v4_borrowck_drop_plan_eff_next, item))
+        }
+        if v4_mir_stmt_kind(mir_id, body_id, stmt) == v4_mir_stmt_return {
+            if emit { give back v4_borrowck_drop_plan_emit_all(mir_id, body_id, v4_mir_drop_site_return, stmt) }
+            give back true
+        }
+        pilot slot_local = v4_borrowck_drop_plan_slot_local(mir_id, body_id, stmt)
+        if emit and slot_local >= 0 and not v4_mir_drop_plan_add_drop(mir_id, body_id, v4_mir_drop_site_replace, stmt, slot_local, v4_mir_drop_mode_slot) { give back v4_borrowck_drop_plan_fail(v4_mir_drop_plan_failed) }
+        pilot written = v4_borrowck_drop_plan_slot_of(v4_borrowck_drop_plan_target_local(mir_id, body_id, stmt))
+        if written >= 0 {
+            pilot state = v4_borrowck_drop_plan_state(v4_borrowck_drop_plan_cur, written)
+            if emit and not v4_borrowck_drop_plan_emit(mir_id, body_id, v4_mir_drop_site_replace, stmt, written, state) { give back false }
+            if state != 0 { array_set(v4_borrowck_drop_plan_cur, written, "1") }
+        }
+        previous = stmt
+        stmt = v4_mir_block_next_stmt(mir_id, body_id, block_id, stmt)
+    }
+    pilot record = v4_mir_body_block(mir_id, body_id, block_id)
+    pilot term = v4_mir_block_terminator(record)
+    if term == v4_mir_term_goto { give back v4_borrowck_drop_plan_edge(mir_id, body_id, block_id, v4_mir_block_target(record), v4_mir_drop_site_edge_true, emit) }
+    if term == v4_mir_term_if {
+        if not v4_borrowck_drop_plan_edge(mir_id, body_id, block_id, v4_mir_block_target(record), v4_mir_drop_site_edge_true, emit) { give back false }
+        give back v4_borrowck_drop_plan_edge(mir_id, body_id, block_id, v4_mir_block_else_target(record), v4_mir_drop_site_edge_false, emit)
+    }
+    if term == v4_mir_term_return and emit { give back v4_borrowck_drop_plan_emit_all(mir_id, body_id, v4_mir_drop_site_default, block_id) }
+    give back true
+}
+
+task v4_borrowck_drop_plan_body(mir_id: int, body_id: int) -> bool {
+    v4_borrowck_drop_plan_scratch_release()
+    v4_borrowck_drop_plan_owned = array_new()
+    v4_borrowck_drop_plan_index = array_new()
+    v4_borrowck_drop_plan_eff_heads = array_new()
+    v4_borrowck_drop_plan_eff_items = array_new()
+    v4_borrowck_drop_plan_eff_kinds = array_new()
+    v4_borrowck_drop_plan_eff_next = array_new()
+    v4_borrowck_drop_plan_entry = array_new()
+    v4_borrowck_drop_plan_reached = array_new()
+    v4_borrowck_drop_plan_cur = array_new()
+    v4_borrowck_drop_plan_next = array_new()
+    v4_borrowck_drop_plan_flags = array_new()
+    v4_borrowck_drop_plan_queue = array_new()
+    v4_borrowck_drop_plan_queued = array_new()
+    if v4_borrowck_drop_plan_owned < 0 or v4_borrowck_drop_plan_index < 0 or v4_borrowck_drop_plan_eff_heads < 0 or v4_borrowck_drop_plan_eff_items < 0 or v4_borrowck_drop_plan_eff_kinds < 0 or v4_borrowck_drop_plan_eff_next < 0 or v4_borrowck_drop_plan_entry < 0 or v4_borrowck_drop_plan_reached < 0 or v4_borrowck_drop_plan_cur < 0 or v4_borrowck_drop_plan_next < 0 or v4_borrowck_drop_plan_flags < 0 or v4_borrowck_drop_plan_queue < 0 or v4_borrowck_drop_plan_queued < 0 { give back v4_borrowck_drop_plan_fail("native drop plan scratch allocation failed") }
+    pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    pilot cell = 0
+    repeat until cell >= local_count {
+        if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_index, "-1") { give back false }
+        cell += 1
+    }
+    -- Owned slots in reverse declaration order: rows inherit this order.
+    pilot local = local_count - 1
+    repeat until local < 0 {
+        if v4_borrowck_drop_plan_local_is_owned(mir_id, body_id, local) {
+            array_set(v4_borrowck_drop_plan_index, local, word_from_int(array_len(v4_borrowck_drop_plan_owned)))
+            if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_owned, word_from_int(local)) { give back false }
+            if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_flags, "0") { give back false }
+            if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_cur, "0") { give back false }
+            if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_next, "0") { give back false }
+        }
+        local -= 1
+    }
+    cell = 0
+    repeat until cell >= stmt_count {
+        if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_eff_heads, "-1") { give back false }
+        cell += 1
+    }
+    -- Moves of every statement, in its runtime evaluation order.
+    pilot stmt = 0
+    repeat until stmt >= stmt_count {
+        v4_borrowck_drop_plan_budget = 8192
+        if not v4_borrowck_drop_plan_walk(mir_id, body_id, stmt, v4_mir_stmt_rvalue(mir_id, body_id, stmt), false, false, 0) { give back false }
+        pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt)
+        pilot place = v4_mir_stmt_place(mir_id, body_id, stmt)
+        if (kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign) and place >= 0 and v4_mir_place_kind(mir_id, body_id, place) != v4_mir_place_local {
+            if not v4_borrowck_drop_plan_walk_place(mir_id, body_id, stmt, 0 - 1, place, true, false, 0) { give back false }
+        }
+        stmt += 1
+    }
+    pilot count = array_len(v4_borrowck_drop_plan_owned)
+    if count == 0 or block_count == 0 { give back true }
+    cell = 0
+    repeat until cell >= block_count * count {
+        if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_entry, "0") { give back false }
+        cell += 1
+    }
+    cell = 0
+    repeat until cell >= block_count {
+        if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_reached, "0") { give back false }
+        if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_queued, "0") { give back false }
+        cell += 1
+    }
+    -- Parameters arrive initialized; every other local starts empty.
+    pilot slot = 0
+    repeat until slot >= count {
+        pilot initial = "2"
+        if word_to_int(array_get(v4_borrowck_drop_plan_owned, slot)) < v4_mir_body_callable_param_count(mir_id, body_id) { initial = "1" }
+        array_set(v4_borrowck_drop_plan_entry, slot, initial)
+        slot += 1
+    }
+    array_set(v4_borrowck_drop_plan_reached, 0, "1")
+    array_set(v4_borrowck_drop_plan_queued, 0, "1")
+    if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_queue, "0") { give back false }
+    -- Two bits per local only grow, so each block re-enters at most 2K times.
+    pilot cursor = 0
+    repeat until cursor >= array_len(v4_borrowck_drop_plan_queue) {
+        pilot block = word_to_int(array_get(v4_borrowck_drop_plan_queue, cursor))
+        array_set(v4_borrowck_drop_plan_queued, block, "0")
+        if not v4_borrowck_drop_plan_block(mir_id, body_id, block, false) { give back false }
+        cursor += 1
+    }
+    pilot block = 0
+    repeat until block >= block_count {
+        pilot reached: word = array_get(v4_borrowck_drop_plan_reached, block)
+        if reached == "1" and not v4_borrowck_drop_plan_block(mir_id, body_id, block, true) { give back false }
+        block += 1
+    }
+    slot = 0
+    repeat until slot >= count {
+        pilot flagged: word = array_get(v4_borrowck_drop_plan_flags, slot)
+        if not v4_mir_drop_plan_add_owned(mir_id, body_id, word_to_int(array_get(v4_borrowck_drop_plan_owned, slot)), flagged == "1") { give back v4_borrowck_drop_plan_fail(v4_mir_drop_plan_failed) }
+        slot += 1
+    }
+    give back true
+}
+
+-- Publish and seal the Runtime drop plan of a clean Meiya result. Returns
+-- "" or the named failure; on failure no plan is ready.
+task v4_borrowck_publish_drop_plan(borrow_id: int, mir_id: int) -> word {
+    if v4_borrowck_mir_id(borrow_id) != mir_id { give back "native drop plan does not match MIR" }
+    if not v4_mir_drop_plan_begin(mir_id) { give back "native drop plan scratch allocation failed" }
+    v4_borrowck_drop_plan_error = ""
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) or v4_borrowck_drop_plan_error != "" {
+        if not v4_borrowck_drop_plan_body(mir_id, body) and v4_borrowck_drop_plan_error == "" { v4_borrowck_drop_plan_error = "native drop plan failed" }
+        body += 1
+    }
+    v4_borrowck_drop_plan_scratch_release()
+    pilot error = v4_borrowck_drop_plan_error
+    if error == "" { error = v4_mir_drop_plan_seal(mir_id) }
+    if error != "" { v4_mir_drop_plan_release() }
+    give back error
+}
