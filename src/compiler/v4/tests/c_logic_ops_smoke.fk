@@ -1,0 +1,52 @@
+-- V4 C-family logic operator smoke fixture.
+-- Verification prepends the V4 crates before this file.
+-- FREAK spells logical AND / OR as 'and' / 'or'. A C-family '&&' or a
+-- double pipe after an operand gets one diagnostic naming the FREAK word.
+
+task v4_c_logic_and_make_source() -> word {
+    pilot src = "task calc(ready: bool, ext: word) -> bool {\n"
+    src = src + "    give back ready && ext == \".html\"\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_c_logic_or_make_source() -> word {
+    pilot src = "task calc(ready: bool, ext: word) -> bool {\n"
+    src = src + "    give back ready || ext == \".html\"\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_c_logic_words_make_source() -> word {
+    pilot src = "task calc(ready: bool, ext: word) -> bool {\n"
+    src = src + "    give back ready and ext == \".html\" or not ready\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_c_logic_and_stream = v4_lex_text(0, v4_c_logic_and_make_source())
+say "and-lex-diagnostics=" + word_from_int(v4_lex_diag_count(v4_c_logic_and_stream))
+say "and-lex-message=" + v4_diag_message(v4_lex_diag(v4_c_logic_and_stream, 0))
+say "and-lex-help=" + v4_diag_help(v4_lex_diag(v4_c_logic_and_stream, 0))
+say "and-lex-span=" + v4_diag_span(v4_lex_diag(v4_c_logic_and_stream, 0))
+
+pilot v4_c_logic_or_stream = v4_lex_text(1, v4_c_logic_or_make_source())
+pilot v4_c_logic_or_tree = v4_parse_stream(1, v4_c_logic_or_stream)
+pilot v4_c_logic_or_hir = v4_hir_lower_tree(1, v4_c_logic_or_tree)
+pilot v4_c_logic_or_resolve = v4_resolve_lower_hir(1, v4_c_logic_or_hir)
+pilot v4_c_logic_or_ty = v4_ty_lower_resolve(1, v4_c_logic_or_resolve)
+pilot v4_c_logic_or_mir = v4_mir_lower_ty(1, v4_c_logic_or_ty)
+say "or-lex-diagnostics=" + word_from_int(v4_lex_diag_count(v4_c_logic_or_stream))
+say "or-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_c_logic_or_mir))
+say "or-mir-message=" + v4_diag_message(v4_mir_diag(v4_c_logic_or_mir, 0))
+say "or-mir-help=" + v4_diag_help(v4_mir_diag(v4_c_logic_or_mir, 0))
+say "or-mir-span=" + v4_diag_span(v4_mir_diag(v4_c_logic_or_mir, 0))
+
+pilot v4_c_logic_words_stream = v4_lex_text(2, v4_c_logic_words_make_source())
+pilot v4_c_logic_words_tree = v4_parse_stream(2, v4_c_logic_words_stream)
+pilot v4_c_logic_words_hir = v4_hir_lower_tree(2, v4_c_logic_words_tree)
+pilot v4_c_logic_words_resolve = v4_resolve_lower_hir(2, v4_c_logic_words_hir)
+pilot v4_c_logic_words_ty = v4_ty_lower_resolve(2, v4_c_logic_words_resolve)
+pilot v4_c_logic_words_mir = v4_mir_lower_ty(2, v4_c_logic_words_ty)
+say "words-lex-diagnostics=" + word_from_int(v4_lex_diag_count(v4_c_logic_words_stream))
+say "words-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_c_logic_words_mir))

@@ -8491,6 +8491,23 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "C-family logic operators name FREAK words",
+        "fixture": "c_logic_ops_smoke.fk",
+        "expect": [
+            "and-lex-diagnostics=1",
+            "and-lex-message='&&' is not a FREAK operator; logical AND is spelled 'and'",
+            "and-lex-help=write 'and' here",
+            "and-lex-span=0@64:66",
+            "or-lex-diagnostics=0",
+            "or-mir-diagnostics=1",
+            "or-mir-message=C-style logical OR is not a FREAK operator; it is spelled 'or'",
+            "or-mir-help=write 'or' here",
+            "or-mir-span=1@64:66",
+            "words-lex-diagnostics=0",
+            "words-mir-diagnostics=0",
+        ],
+    },
+    {
         "name": "MIR boolean binary operators",
         "fixture": "mir_bool_binary_smoke.fk",
         "expect": [
