@@ -17384,7 +17384,7 @@ NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\nori
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
 NATIVE_OPERATORS_EXPECTED = ("4\n22\n-11\n5\nfalse\ntrue\n46\n5\n4\nsum matches\n7\n6\n8\n3\n"
                              "true\nfalse\ntrue\nfalse\ntrue\n2\ntrue\nfalse\n3\n42\n2\n6\n70\n2\n"
-                             "false\ntrue\n2\nfalse\ntrue\ntrue\n27\nfalse\npick\n24\n1\npick\npick\n0\n3\n")
+                             "false\ntrue\n2\nfalse\ntrue\ntrue\n27\nfalse\npick\n24\n1\npick\npick\n0\n3\nabcd\ntrue\n")
 # operators_native.fk gives back sum.x + g[1].
 NATIVE_OPERATORS_EXIT = 6
 
@@ -17797,10 +17797,6 @@ def check_v4_native_shapes() -> None:
          "impl Eq for V { task equals(lend self, other: lend V) -> bool { give back self.x == other.x } }\n"
          "task main() -> int { pilot a = V { x: 1 }\n if a == a { give back 1 }\n give back 0 }\n",
          "Meiya cannot store a lend in parameter 1 of Eq::equals yet"),
-        ("tier3_operator_word_shape", "shape N { name: word }\ndoctrine Add { task add(self, other: Self) -> Self }\n"
-         "impl Add for N { task add(self, other: N) -> N { give back self } }\n"
-         "task main() -> int { pilot a = N { name: \"a\" }\n pilot b = N { name: \"b\" }\n pilot c = a + b\n give back 0 }\n",
-         "native shape fields that own words are not yet supported: N.name"),
         ("tier3_operator_generic_shape", "shape W<T> { v: T }\ndoctrine Add { task add(self, other: Self) -> Self }\n"
          "impl Add for W<T> { task add(self, other: W<T>) -> W<T> { give back self } }\n"
          "task main() -> int { pilot a: W<int> = W { v: 1 }\n pilot b: W<int> = W { v: 2 }\n pilot c = a + b\n give back 0 }\n",
