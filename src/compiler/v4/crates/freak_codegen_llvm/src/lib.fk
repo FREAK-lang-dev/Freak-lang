@@ -2487,8 +2487,9 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
         if aggregate_param { v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = getelementptr inbounds i8, ptr %arg." + word_from_int(local_id) + ", i64 0\n") } else { v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = alloca " + local_ty + "\n") }
         if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local_id) {
             pilot initial_value = "0"
-            if v4_mir_scalar_sum_kind(mir_id, v4_mir_local_ty(mir_id, body_id, local_id)) != "" { initial_value = "zeroinitializer" }
-            v4_codegen_llvm_fragment_push(parts, "  store " + local_ty + " " + initial_value + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n")
+            if v4_mir_scalar_sum_kind(mir_id, v4_mir_local_ty(mir_id, body_id, local_id)) != "" or local_ty != "i64" { initial_value = "zeroinitializer" }
+            -- An aggregate parameter's storage already holds the caller's copy.
+            if not aggregate_param { v4_codegen_llvm_fragment_push(parts, "  store " + local_ty + " " + initial_value + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n") }
             v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_word_flag_slot(local_id) + " = alloca i1\n")
             pilot initialized = "false"
             if local_id < v4_mir_body_callable_param_count(mir_id, body_id) { initialized = "true" }
@@ -2697,12 +2698,89 @@ task v4_codegen_llvm_literal_aggregate_type(mir_id: int, type_text: word) -> wor
     give back out + " }"
 }
 
--- One aggregate slot: scalars, pointers and nested aggregates only.
+-- True when a native shape, tuple or fixed array holds an owned word at any
+-- depth. Routes never do (word payloads stay fenced).
+task v4_codegen_llvm_type_owns_words(mir_id: int, type_text: word) -> bool {
+    give back v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) > 0
+}
+
+-- Owned word leaves of an aggregate type, or -1 past 32 nesting levels.
+task v4_codegen_llvm_word_leaf_count(mir_id: int, type_text: word, depth: int) -> int {
+    if depth > 32 { give back 0 - 1 }
+    if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) == v4_ty_word { give back 1 }
+    if v4_ty_is_lend_type(type_text) { give back 0 }
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "" { give back 0 }
+    if kind == "array" {
+        pilot length = v4_codegen_llvm_fixed_array_length(mir_id, type_text)
+        pilot element = v4_codegen_llvm_word_leaf_count(mir_id, v4_ty_fixed_array_element_type(type_text), depth + 1)
+        if element <= 0 or length <= 0 { give back element }
+        -- Saturate: the leaf budget check only needs to know it is too many.
+        if length > 65536 or element > 65536 { give back 65537 }
+        give back element * length
+    }
+    pilot total = 0
+    pilot slot = 0
+    repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) {
+        pilot leaves = v4_codegen_llvm_word_leaf_count(mir_id, v4_codegen_llvm_aggregate_slot_type(mir_id, type_text, slot), depth + 1)
+        if leaves < 0 { give back leaves }
+        total += leaves
+        if total > 65536 { give back 65537 }
+        slot += 1
+    }
+    give back total
+}
+
+-- The extractvalue index path of every word leaf, ";"-separated in slot
+-- order ("0;1, 0" for (word, (word, int))). Callers bound the leaf count.
+task v4_codegen_llvm_word_leaf_paths(mir_id: int, type_text: word, prefix: word) -> word {
+    pilot child_prefix = prefix
+    if prefix != "" { child_prefix = prefix + ", " }
+    if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) == v4_ty_word { give back prefix }
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "" or v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back "" }
+    pilot out = ""
+    pilot slot = 0
+    repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) {
+        pilot paths = v4_codegen_llvm_word_leaf_paths(mir_id, v4_codegen_llvm_aggregate_slot_type(mir_id, type_text, slot), child_prefix + word_from_int(slot))
+        if paths != "" {
+            if out != "" { out = out + ";" }
+            out = out + paths
+        }
+        slot += 1
+    }
+    give back out
+}
+
+-- Release every word leaf of an aggregate value (handles may be 0, which
+-- the runtime drop ignores).
+task v4_codegen_llvm_aggregate_word_drop_lines(mir_id: int, type_text: word, value: word, temp: word) -> word {
+    pilot llvm_ty = v4_codegen_llvm_type(type_text)
+    pilot paths = v4_codegen_llvm_word_leaf_paths(mir_id, type_text, "")
+    pilot out = ""
+    pilot leaf = 0
+    pilot start = 0
+    repeat until start > paths.length() or paths == "" {
+        pilot stop = v4_index_of_from(paths, ";", start)
+        if stop < 0 { stop = paths.length() }
+        pilot handle = temp + ".leaf." + word_from_int(leaf)
+        out = out + "  " + handle + " = extractvalue " + llvm_ty + " " + value + ", " + v4_slice(paths, start, stop) + "\n"
+        out = out + "  call void @freak_v4_word_drop(i64 " + handle + ")\n"
+        leaf += 1
+        start = stop + 1
+    }
+    give back out
+}
+
+-- One aggregate slot: scalars, owned words, pointers and nested aggregates.
+-- A word slot is owned by its aggregate: the aggregate moves as one value
+-- and its drop releases every word leaf (v4_codegen_llvm_word_leaf_paths).
 task v4_codegen_llvm_native_slot_error(mir_id: int, slot_ty: word, context: word, depth: int) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
     if slot_ty == "" or slot_ty == v4_ty_unknown { give back "native aggregate slot type is unresolved: " + context }
     if v4_ty_is_lend_type(slot_ty) { give back "native aggregate lend slots are not yet supported: " + context }
     if v4_ty_is_native_scalar_sum(ty_id, slot_ty) { give back "native aggregate maybe/result slots are not yet supported: " + context }
+    if v4_ty_canonical_type(ty_id, slot_ty) == v4_ty_word { give back "" }
     if v4_ty_is_native_owned_value(ty_id, slot_ty) {
         if v4_mir_shape_signature(mir_id, v4_slice(context, 0, v4_index_of_from(context, ".", 0))) >= 0 { give back "native shape fields that own words are not yet supported: " + context }
         give back "native aggregate slots that own words are not yet supported: " + context
@@ -2913,7 +2991,7 @@ task v4_codegen_llvm_native_route_error(mir_id: int, sig: int, depth: int) -> wo
         repeat until field >= fields {
             pilot field_ty = v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field)
             pilot field_context = context + "." + v4_ty_route_case_field_name(ty_id, route_name, case_name, field)
-            if field_ty != "" and field_ty != v4_ty_unknown and v4_ty_is_native_owned_value(ty_id, field_ty) { give back "native route payload fields that own words are not yet supported: " + field_context }
+            if field_ty != "" and field_ty != v4_ty_unknown and (v4_ty_is_native_owned_value(ty_id, field_ty) or v4_codegen_llvm_type_owns_words(mir_id, field_ty)) { give back "native route payload fields that own words are not yet supported: " + field_context }
             pilot error = v4_codegen_llvm_native_slot_error(mir_id, field_ty, field_context, depth)
             if error != "" { give back error }
             field += 1
@@ -4434,6 +4512,8 @@ task v4_codegen_llvm_scalar_sum_bridge_instruction(mir: int, body: int, value: i
 }
 
 task v4_codegen_llvm_owned_temporary_drop(mir: int, body: int, value: int, site: word) -> word {
+    pilot value_ty = v4_mir_rvalue_ty(mir, body, value)
+    if v4_ty_canonical_type(v4_mir_ty_id(mir), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir, value_ty) { give back v4_codegen_llvm_aggregate_word_drop_lines(mir, value_ty, v4_codegen_llvm_rvalue_value(mir, body, value), "%agg.discard." + site) }
     pilot carrier = v4_mir_scalar_sum_kind(mir, v4_mir_rvalue_ty(mir, body, value))
     if carrier == "MaybeInt" { give back "" }
     if carrier == "ResultWordWord" {
@@ -4505,12 +4585,22 @@ task v4_codegen_llvm_scalar_sum_runtime_lines(mir: int) -> word {
     give back out
 }
 
+-- Owned storage: words, the two Sum carriers, and native aggregates that
+-- hold words (one drop flag per local; the aggregate moves as one value).
 task v4_codegen_llvm_word_local_is_owned(mir_id: int, body_id: int, local_id: int) -> bool {
-    give back local_id >= 0 and local_id < v4_mir_body_local_count(mir_id, body_id) and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) and v4_mir_local_mode(mir_id, body_id, local_id) == v4_ty_param_mode_value
+    if local_id < 0 or local_id >= v4_mir_body_local_count(mir_id, body_id) or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value { give back false }
+    pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_id)
+    give back v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), local_ty) or (v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_type_owns_words(mir_id, local_ty))
 }
 
 task v4_codegen_llvm_word_rvalue_is_owned(mir_id: int, body_id: int, rvalue_id: int) -> bool {
-    if not v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back false }
+    pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if v4_codegen_llvm_active_owned_mir == mir_id and v4_ty_canonical_type(v4_mir_ty_id(mir_id), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir_id, value_ty) {
+        pilot aggregate_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+        if aggregate_kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
+        give back aggregate_kind == v4_mir_rvalue_call or v4_codegen_llvm_is_literal_aggregate(aggregate_kind)
+    }
+    if not v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), value_ty) { give back false }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
     if v4_codegen_llvm_rvalue_is_global_read(mir_id, body_id, rvalue_id) { give back true }
@@ -5000,6 +5090,15 @@ task v4_codegen_llvm_word_drop_local_lines(mir_id: int, body_id: int, local: int
     if carrier == "MaybeInt" { give back "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n" }
     pilot temp = "%word.drop." + site + "." + word_from_int(local)
     pilot out = "  " + temp + ".live = load i1, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n"
+    pilot local_ty = v4_mir_local_ty(mir_id, body_id, local)
+    if v4_codegen_llvm_type_owns_words(mir_id, local_ty) and v4_ty_canonical_type(v4_mir_ty_id(mir_id), local_ty) != v4_ty_word {
+        -- A live aggregate releases each word leaf; a moved one drops zeros.
+        pilot llvm_ty = v4_codegen_llvm_type(local_ty)
+        out = out + "  " + temp + ".carrier = load " + llvm_ty + ", ptr " + v4_codegen_llvm_local_slot(local) + "\n"
+        out = out + "  " + temp + ".owned = select i1 " + temp + ".live, " + llvm_ty + " " + temp + ".carrier, " + llvm_ty + " zeroinitializer\n"
+        out = out + v4_codegen_llvm_aggregate_word_drop_lines(mir_id, local_ty, temp + ".owned", temp)
+        give back out + "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n"
+    }
     if carrier == "ResultWordWord" {
         out = out + "  " + temp + ".carrier = load %freak_result_word_word, ptr " + v4_codegen_llvm_local_slot(local) + "\n"
         out = out + "  " + temp + ".value = extractvalue %freak_result_word_word " + temp + ".carrier, 1\n"
@@ -5459,11 +5558,74 @@ task v4_codegen_llvm_word_boundary_types_error(mir_id: int, body_id: int) -> wor
     give back ""
 }
 
+-- Aggregates that own words move and drop as one value. Every way a word
+-- could leave such an aggregate other than a whole move is refused by name
+-- until per-slot drop facts exist: an unborrowed field or element read (a
+-- partial move), a store into a word-owning slot (the old word would leak),
+-- a projection of a word-owning temporary (its other words would leak), and
+-- a repeat fill (one word in many slots).
+task v4_codegen_llvm_aggregate_word_ownership_error(mir_id: int, body: int) -> word {
+    pilot count = v4_mir_body_rvalue_count(mir_id, body)
+    pilot lent = v4_codegen_llvm_fragment_new()
+    pilot value = 0
+    repeat until value >= count { v4_codegen_llvm_fragment_push(lent, "0"); value += 1 }
+    value = 0
+    repeat until value >= count {
+        pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
+        pilot lhs = v4_mir_rvalue_lhs(mir_id, body, value)
+        if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and lhs >= 0 and lhs < count { array_set(lent, lhs, "1") }
+        value += 1
+    }
+    pilot error = ""
+    value = 0
+    repeat until value >= count or error != "" {
+        pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
+        pilot type_text = v4_mir_rvalue_ty(mir_id, body, value)
+        pilot leaves = v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0)
+        if leaves > 256 or leaves < 0 { error = "native aggregates owning more than 256 words are not yet supported: " + type_text }
+        if error == "" and kind == v4_mir_rvalue_use_place and leaves > 0 {
+            pilot place_kind = v4_mir_place_kind(mir_id, body, v4_mir_rvalue_lhs(mir_id, body, value))
+            pilot borrowed: word = array_get(lent, value)
+            if (place_kind == v4_mir_place_field or place_kind == v4_mir_place_index) and borrowed != "1" { error = "native partial moves out of aggregates that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, value) }
+        }
+        if error == "" and kind == v4_mir_rvalue_unary and (v4_mir_rvalue_op(mir_id, body, value) == v4_mir_unary_project or v4_mir_rvalue_op(mir_id, body, value) == v4_mir_unary_project_index) {
+            if v4_codegen_llvm_type_owns_words(mir_id, v4_mir_rvalue_ty(mir_id, body, v4_mir_rvalue_lhs(mir_id, body, value))) { error = "native projections of temporaries that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, value) }
+        }
+        if error == "" and kind == v4_mir_rvalue_array and leaves > 0 {
+            pilot children = v4_mir_rvalue_call_arg_count(mir_id, body, value)
+            if children != v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) { error = "native repeat fills of values that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, value) }
+        }
+        value += 1
+    }
+    array_release(lent)
+    if error != "" { give back error }
+    pilot local = 0
+    repeat until local >= v4_mir_body_local_count(mir_id, body) {
+        pilot leaves = v4_codegen_llvm_word_leaf_count(mir_id, v4_mir_local_ty(mir_id, body, local), 0)
+        if leaves > 256 or leaves < 0 { give back "native aggregates owning more than 256 words are not yet supported: " + v4_mir_local_ty(mir_id, body, local) }
+        local += 1
+    }
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body) {
+        pilot kind = v4_mir_stmt_kind(mir_id, body, stmt)
+        pilot place = v4_mir_stmt_place(mir_id, body, stmt)
+        if (kind == v4_mir_stmt_assign or kind == v4_mir_stmt_local) and place >= 0 and v4_codegen_llvm_type_owns_words(mir_id, v4_mir_place_ty(mir_id, body, place)) {
+            pilot place_kind = v4_mir_place_kind(mir_id, body, place)
+            pilot through_receiver: bool = place_kind == v4_mir_place_local and v4_codegen_llvm_local_is_lent_receiver(mir_id, body, v4_mir_place_base(mir_id, body, place))
+            if place_kind == v4_mir_place_field or place_kind == v4_mir_place_index or through_receiver { give back "native stores into aggregate slots that own words are not yet supported: " + v4_mir_place_text(mir_id, body, place) }
+        }
+        stmt += 1
+    }
+    give back ""
+}
+
 task v4_codegen_llvm_owned_word_error(mir_id: int) -> word {
     pilot body = 0
     repeat until body >= v4_mir_body_count(mir_id) {
         pilot boundary_error = v4_codegen_llvm_word_boundary_types_error(mir_id, body)
         if boundary_error != "" { give back boundary_error }
+        pilot aggregate_error = v4_codegen_llvm_aggregate_word_ownership_error(mir_id, body)
+        if aggregate_error != "" { give back aggregate_error }
         if not v4_codegen_llvm_word_body_trees_are_valid(mir_id, body) { give back "native ownership rvalue must have one evaluation site" }
         if v4_codegen_llvm_is_aggregate_lend(mir_id, v4_mir_body_callable_return_type(mir_id, body)) { give back "native borrowed aggregate returns are not yet supported" }
         if v4_ty_is_lend_type(v4_mir_body_callable_return_type(mir_id, body)) { give back "native borrowed word returns are not yet supported" }
@@ -5477,7 +5639,9 @@ task v4_codegen_llvm_owned_word_error(mir_id: int) -> word {
         repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
             if v4_mir_rvalue_ty(mir_id, body, value) == v4_ty_word {
                 pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
-                if kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_call and kind != v4_mir_rvalue_sum_take and not v4_codegen_llvm_rvalue_is_global_read(mir_id, body, value) { give back "native owned word rvalue not yet supported: " + kind }
+                -- A UsePlace word is a borrowed read of an aggregate slot
+                -- (v4_codegen_llvm_aggregate_word_ownership_error).
+                if kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_call and kind != v4_mir_rvalue_sum_take and kind != v4_mir_rvalue_use_place and not v4_codegen_llvm_rvalue_is_global_read(mir_id, body, value) { give back "native owned word rvalue not yet supported: " + kind }
             }
             value += 1
         }
