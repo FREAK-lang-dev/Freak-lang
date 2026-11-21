@@ -40,6 +40,13 @@ POSITIVE = {
         'when x { 0 -> say "zero"; 1 -> { say "nested"; }; _ -> say "other"; }; }\n',
         "one\nnested\n",
     ),
+    "logic_words_with_calls": (
+        'task ext() -> word { give back ".html"; }\n'
+        'task here() -> bool { give back true; }\n'
+        'task main() { if here() and ext() == ".html"{ say "and"; } '
+        'if not here() or ext().length() == 4 { say "wrong"; } else { say "or"; } }\n',
+        "and\nor\n",
+    ),
     "newline_compatibility": (
         'task value() -> int {\n'
         '    pilot count = 4\n'
@@ -200,6 +207,18 @@ NEGATIVE = {
     "repeat_binder_immutable": (
         'task main() { repeat 2 times with i { i = 9; say i; } }\n',
         "iteration binding 'i' is immutable", None,
+    ),
+    "c_style_and": (
+        'task main() { pilot a = true; if a && a == true { say "x"; } }\n',
+        "'&&' is not a FREAK operator — logical AND is spelled 'and'", "&&",
+    ),
+    "c_style_or": (
+        'task main() { pilot a = true; if a || a == false { say "x"; } }\n',
+        "'||' is not a FREAK operator — logical OR is spelled 'or'", "||",
+    ),
+    "c_style_not": (
+        'task main() { pilot a = true; if !a { say "x"; } }\n',
+        "prefix '!' is not supported — logical NOT is spelled 'not'", "!a",
     ),
     "counted_for_fixed_initializer": (
         'task main() { for (fixed pilot i = 0; i < 2; i += 1) { say i; } }\n',
