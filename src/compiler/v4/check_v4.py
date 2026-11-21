@@ -17743,7 +17743,23 @@ def check_v4_native_shapes() -> None:
          "impl Ord for P { task compare(self, other: P) -> Order { give back Order::Less } }\n"
          "task main() -> int { pilot a = P { x: 1 }\n pilot b = P { x: 2 }\n if a < b { give back 1 }\n give back 0 }\n",
          "it must give back a route Order with unit cases Less, Equal and Greater"),
-        ("tier3_operator_route_lt", "route E { K { v: int }, Q }\n"
+        # An arrow body leaves compare's return unknown in TY; it is never
+        # taken for an Order, so the comparison cannot skip its tag test.
+        ("tier3_operator_ord_arrow", "route Order { Less, Equal, Greater }\nshape P { x: int }\ndoctrine Copy {\n}\nimpl Copy for P {\n}\n"
+         "doctrine Ord { task compare(self, other: Self) -> Order }\n"
+         "impl Ord for P { task compare(self, other: P) => Order::Less }\n"
+         "task main() -> int { pilot a = P { x: 1 }\n pilot b = P { x: 2 }\n if a < b { give back 1 }\n give back 0 }\n",
+         "Ord compare must give back Order"),
+        ("tier3_operator_index_arrow", "shape G { c: [int; 2] }\ndoctrine Index { task index(self, i: int) -> int }\n"
+         "impl Index for G { task index(self, i: int) => self.c[i] }\n"
+         "task main() -> int { pilot g = G { c: [1, 2] }\n pilot k = g[1]\n give back 0 }\n",
+         "operator impl needs a declared return type"),
+        ("tier3_operator_add_arrow", "shape V { x: int }\ndoctrine Copy {\n}\nimpl Copy for V {\n}\n"
+         "doctrine Add { task add(self, other: Self) -> Self }\n"
+         "impl Add for V { task add(self, other: V) => V { x: self.x + other.x } }\n"
+         "task main() -> int { pilot a = V { x: 1 }\n pilot s = a + a\n give back 0 }\n",
+         "operator impl needs a declared return type"),
+        ("tier3_operator_route_lt","route E { K { v: int }, Q }\n"
          "task main() -> int { pilot a = E::Q\n pilot b = E::Q\n if a < b { give back 1 }\n give back 0 }\n",
          "Lt between E and E"),
         ("tier3_operator_index_mut_value_self", "shape G { c: [int; 2] }\ndoctrine IndexMut { task index_mut(self, i: int, v: int) -> void }\n"
