@@ -2647,7 +2647,7 @@ task v4_mir_try_lower_binary_operator_overload(mir_id: int, body_id: int, left_i
 
     pilot method_name = v4_ty_impl_method_name(v4_mir_ty_id(mir_id), hir_item, method_id)
     pilot owner_rejected = v4_mir_reject_lend_bearing_impl_owner_generics(mir_id, expr_span, left_ty + "." + method_name, left_ty, method_ref)
-    pilot result_ty = v4_ty_impl_method_return_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, left_ty)
+    pilot result_ty = v4_mir_operator_return_type(mir_id, expr_span, left_ty + "." + method_name, method_ref, left_ty)
     if owner_rejected {
         result_ty = v4_ty_unknown
     }
@@ -2667,11 +2667,23 @@ task v4_mir_try_lower_binary_operator_overload(mir_id: int, body_id: int, left_i
     give back call_rvalue
 }
 
+-- The return type of an operator's impl method. An impl whose return type
+-- TY could not settle (an arrow body such as `task compare(...) => ...`
+-- has none) is named here, so an operator call is never typed unknown.
+task v4_mir_operator_return_type(mir_id: int, span: word, label: word, method_ref: word, owner_ty: word) -> word {
+    pilot result_ty = v4_ty_impl_method_return_type_for_owner(v4_mir_ty_id(mir_id), v4_mir_method_ref_hir_item(method_ref), v4_mir_method_ref_method_id(method_ref), owner_ty)
+    if not v4_ty_is_known(result_ty) {
+        v4_mir_add_type_error(mir_id, span, "operator impl needs a declared return type", label + " has no known return type; declare it with -> T")
+    }
+    give back result_ty
+}
+
 -- Ord's compare gives back a route Order whose unit cases are Less, Equal
--- and Greater (in any order, with any discriminants).
+-- and Greater (in any order, with any discriminants). An unknown return is
+-- not an Order either.
 task v4_mir_ord_order_type_error(mir_id: int, order_ty: word) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
-    if not v4_ty_is_known(order_ty) { give back "" }
+    if not v4_ty_is_known(order_ty) { give back "has no known return type; it must declare -> Order, a route with unit cases Less, Equal and Greater" }
     pilot wanted = "gives back " + order_ty + "; it must give back a route Order with unit cases Less, Equal and Greater"
     if not v4_ty_is_route_type(ty_id, order_ty) { give back wanted }
     if not v4_ty_route_has_case(ty_id, order_ty, "Less") or not v4_ty_route_has_case(ty_id, order_ty, "Equal") or not v4_ty_route_has_case(ty_id, order_ty, "Greater") { give back wanted }
@@ -2712,7 +2724,7 @@ task v4_mir_try_lower_unary_operator_overload(mir_id: int, body_id: int, operand
 
     pilot method_name = v4_ty_impl_method_name(v4_mir_ty_id(mir_id), hir_item, method_id)
     pilot owner_rejected = v4_mir_reject_lend_bearing_impl_owner_generics(mir_id, expr_span, operand_ty + "." + method_name, operand_ty, method_ref)
-    pilot result_ty = v4_ty_impl_method_return_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, operand_ty)
+    pilot result_ty = v4_mir_operator_return_type(mir_id, expr_span, operand_ty + "." + method_name, method_ref, operand_ty)
     if owner_rejected {
         result_ty = v4_ty_unknown
     }
@@ -6206,7 +6218,12 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_symbol, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_mir_symbol_value_type(mir_id, first_value))
     }
 
-    give back v4_mir_lower_place_expr(mir_id, body_id, stream_id, first, last, expr_text, expr_span)
+    pilot place_read = v4_mir_lower_place_expr(mir_id, body_id, stream_id, first, last, expr_text, expr_span)
+    if place_read >= 0 {
+        give back place_read
+    }
+
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
 }
 
 task v4_mir_has_error(mir_id: int) -> bool {
@@ -6444,7 +6461,7 @@ task v4_mir_try_lower_index_operator_overload(mir_id: int, body_id: int, stream_
     pilot receiver = v4_mir_place_read_rvalue(mir_id, body_id, base_place, v4_mir_place_span(mir_id, body_id, base_place))
     receiver = v4_mir_impl_receiver_operand(mir_id, body_id, receiver, owner_ty, method_ref, expr_span)
     pilot index_rvalue = v4_mir_index_overload_operand(mir_id, body_id, stream_id, open_index + 1, last, method_ref, owner_ty, 0, label, expr_span)
-    pilot result_ty = v4_ty_impl_method_return_type_for_owner(ty_id, hir_item, method_id, owner_ty)
+    pilot result_ty = v4_mir_operator_return_type(mir_id, expr_span, label, method_ref, owner_ty)
     if v4_mir_reject_lend_bearing_impl_owner_generics(mir_id, expr_span, label, owner_ty, method_ref) {
         result_ty = v4_ty_unknown
     }
@@ -6455,7 +6472,8 @@ task v4_mir_try_lower_index_operator_overload(mir_id: int, body_id: int, stream_
 }
 
 -- A place expression read: `base[index]` first tries an Index impl on its
--- base, then every place reads as UsePlace.
+-- base, then every place reads as UsePlace. -1 when no place was lowered,
+-- so the caller's Unknown fallback stays the expression's last resort.
 task v4_mir_lower_place_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_text: word, expr_span: word) -> int {
     pilot place_id = 0 - 1
     pilot base_place = v4_mir_index_base_place(mir_id, body_id, stream_id, first, last)
@@ -6471,7 +6489,7 @@ task v4_mir_lower_place_expr(mir_id: int, body_id: int, stream_id: int, first: i
     if v4_mir_place_kind(mir_id, body_id, place_id) != v4_mir_place_unknown {
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_place, expr_text, v4_mir_place_text(mir_id, body_id, place_id), place_id, 0 - 1, expr_span, v4_mir_place_ty(mir_id, body_id, place_id))
     }
-    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+    give back 0 - 1
 }
 
 -- `base[index] = value` through an IndexMut impl: one resolved call to the
@@ -6507,7 +6525,7 @@ task v4_mir_lower_index_mut_store(mir_id: int, body_id: int, block_id: int, stre
     receiver = v4_mir_impl_receiver_operand(mir_id, body_id, receiver, owner_ty, method_ref, stmt_span)
     pilot index_rvalue = v4_mir_index_overload_operand(mir_id, body_id, stream_id, open_index + 1, lhs_last, method_ref, owner_ty, 0, label, stmt_span)
     pilot value_rvalue = v4_mir_index_overload_operand(mir_id, body_id, stream_id, eq_token + 1, stmt_end, method_ref, owner_ty, 1, label, stmt_span)
-    pilot result_ty = v4_ty_impl_method_return_type_for_owner(ty_id, hir_item, method_id, owner_ty)
+    pilot result_ty = v4_mir_operator_return_type(mir_id, stmt_span, label, method_ref, owner_ty)
     if v4_mir_reject_lend_bearing_impl_owner_generics(mir_id, stmt_span, label, owner_ty, method_ref) {
         result_ty = v4_ty_unknown
     }
