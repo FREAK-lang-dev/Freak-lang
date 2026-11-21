@@ -1,0 +1,175 @@
+-- Tier 3 general maybe<T> / result<T, E>: constructors, check arms,
+-- `or else` and `?` over scalar, word and aggregate payloads, natively.
+shape Point { x: int, y: int }
+
+route Dir { North / South }
+
+task find(flag: bool) -> maybe<Point> {
+    if flag { give back some(Point { x: 3, y: 4 }) }
+    give back nobody
+}
+
+task half(n: int) -> result<int, word> {
+    if n % 2 == 0 { give back ok(n / 2) }
+    give back err("odd")
+}
+
+-- `?` out of a task returning result: the error word moves to the caller.
+task quarter(n: int) -> result<int, word> {
+    pilot h = half(n)?
+    pilot q = half(h)?
+    give back ok(q)
+}
+
+task name_of(n: int) -> maybe<word> {
+    if n == 1 { give back some("one") }
+    give back nobody
+}
+
+task label(n: int) -> result<word, word> {
+    if n > 0 { give back ok("pos") }
+    give back err("neg")
+}
+
+task parse(n: int) -> result<word, int> {
+    if n > 0 { give back ok("pos") }
+    give back err(n)
+}
+
+task first(n: int) -> maybe<int> {
+    if n > 0 { give back some(n) }
+    give back nobody
+}
+
+-- `?` out of a task returning maybe, from a call and from a local.
+task chain(n: int) -> maybe<int> {
+    pilot a = first(n)?
+    pilot held: maybe<int> = first(a - 1)
+    pilot b = held?
+    give back some(a + b)
+}
+
+task shout(n: int) -> maybe<word> {
+    say name_of(n)?
+    give back some("loud")
+}
+
+task relay(value: result<word, int>) -> result<word, int> { give back value }
+
+task fallback_point() -> Point {
+    say "fallback evaluated"
+    give back Point { x: 9, y: 8 }
+}
+
+task main() -> int {
+    pilot a: maybe<num> = some(2.5)
+    check a {
+        got v -> say v
+        nobody -> say "none"
+    }
+    check find(true) {
+        got p -> say p.x + p.y
+        nobody -> say "none"
+    }
+    check find(false) {
+        got p -> say p.x
+        nobody -> say "empty"
+    }
+    check result quarter(8) {
+        ok(v) -> say v
+        err(e) -> say e
+    }
+    check result quarter(6) {
+        ok(v) -> say v
+        err(e) -> say e
+    }
+    pilot d: result<bool, int> = err(3)
+    check result d {
+        ok(t) -> say t
+        err(n) -> say n
+    }
+    -- Word payloads: the carrier owns its word until a take moves it out.
+    check name_of(1) {
+        got w -> say w
+        nobody -> say "none"
+    }
+    pilot r = relay(parse(5))
+    check result r {
+        ok(w) -> say w
+        err(n) -> say n
+    }
+    check result parse(0 - 4) {
+        ok(w) -> say w
+        err(n) -> say n
+    }
+    -- `or else` is lazy: the fallback runs only on the empty edge.
+    pilot c1 = half(18) or else 0
+    pilot c2 = half(7) or else 42
+    say c1 + c2
+    pilot found = find(true) or else fallback_point()
+    say found.y
+    pilot missing = find(false) or else fallback_point()
+    say missing.x
+    pilot w1 = name_of(1) or else "anon"
+    pilot w2 = name_of(2) or else "anon"
+    say w1 + "/" + w2
+    say label(0) or else "direct"
+    pilot kept = "kept"
+    pilot w3 = name_of(3) or else kept
+    say w3
+    -- Aggregate payloads: tuple, fixed array and route.
+    pilot t: maybe<(int, bool)> = some((5, true))
+    check t {
+        got pair -> say pair.0
+        nobody -> say "none"
+    }
+    pilot arr: result<[int; 3], int> = ok([1, 2, 3])
+    check result arr {
+        ok(values) -> say values[2]
+        err(n) -> say n
+    }
+    pilot heading: maybe<Dir> = some(Dir::South)
+    check heading {
+        got dir -> {
+            pilot south = Dir::South
+            pilot same: bool = dir == south
+            say same
+        }
+        nobody -> say "none"
+    }
+    check chain(3) {
+        got v -> say v
+        nobody -> say "none"
+    }
+    check chain(1) {
+        got v -> say v
+        nobody -> say "none"
+    }
+    check shout(1) {
+        got w -> say w
+        nobody -> say "silent"
+    }
+    check shout(2) {
+        got w -> say w
+        nobody -> say "silent"
+    }
+    -- Reassignment releases the previous word payload.
+    pilot mut m: maybe<word> = some("a")
+    m = some("b")
+    m = nobody
+    m = some("c")
+    check m {
+        got w -> say w
+        nobody -> say "none"
+    }
+    pilot mut total = 0
+    pilot mut i = 0
+    repeat until i >= 6 {
+        total = total + (first(i - 2) or else 10)
+        i += 1
+    }
+    say total
+    label(1) or else "dropped"
+    pilot unused = name_of(1)
+    give back total - 19
+}
