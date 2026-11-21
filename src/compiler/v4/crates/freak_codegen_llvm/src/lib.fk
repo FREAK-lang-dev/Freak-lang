@@ -2551,6 +2551,7 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                     }
                     pilot call_expr = v4_mir_rvalue_text(mir_id, body_idx, rvalue_idx)
                     pilot call_line = v4_codegen_llvm_call_text(mir_id, body_idx, rvalue_idx, call_cc, call_return, call_symbol, call_abi)
+                    if v4_codegen_llvm_c_call_plan(mir_id, body_idx, rvalue_idx) != 0 { call_line = v4_codegen_llvm_c_call_instruction(mir_id, body_idx, rvalue_idx, call_cc, call_symbol, call_abi, "") }
                     if v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_rvalue_is_builtin_word(mir_id, body_idx, rvalue_idx) {
                         call_symbol = v4_codegen_llvm_word_intrinsic_symbol_for(mir_id, v4_mir_word_intrinsic_kind(mir_id, body_idx, rvalue_idx))
                         call_line = v4_codegen_llvm_word_intrinsic_instruction(mir_id, body_idx, rvalue_idx, v4_codegen_llvm_temp_value(body_idx, rvalue_idx))

@@ -74,13 +74,18 @@ task h6_width_run() -> void {
         pilot surface: word = array_get(bad, case_id)
         pilot qualified = "std::ffi::" + surface
         h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, surface, true) == "native C scalar ABI not yet supported: " + surface and v4_codegen_llvm_native_c_surface_error(ty, qualified, false) == "native C scalar ABI not yet supported: " + qualified, "unproved aliases reject qualified and internal raw uses")
-        h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "*mut" + qualified, false) == "native C scalar ABI not yet supported: " + qualified and v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task(x:" + qualified + ")->std::ffi::c_isize", false) == "native C scalar ABI not yet supported: " + qualified and v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task()->" + qualified, false) == "native C scalar ABI not yet supported: " + qualified, "raw pointees and nested extern parameter return surfaces fenced")
+        -- C widths spelled directly in an extern function pointer type are
+        -- lowered by the C call plan; wchar, pointees and FREAK task types are not.
+        pilot nested_reason = ""
+        if surface == "wchar" { nested_reason = "native C scalar ABI not yet supported: " + qualified }
+        h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "*mut" + qualified, false) == "native C scalar ABI not yet supported: " + qualified and v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task(x:" + qualified + ")->std::ffi::c_isize", false) == nested_reason and v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task()->" + qualified, false) == nested_reason, "raw pointees fenced and nested extern parameter return surfaces lowered")
+        h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task(x:*mut" + qualified + ")->std::ffi::c_isize", false) == "native C scalar ABI not yet supported: " + qualified and v4_codegen_llvm_native_c_surface_error(ty, "task(x:" + qualified + ")->int", false) == "native C scalar ABI not yet supported: " + qualified, "nested pointees and FREAK task types fenced")
         case_id += 1
     }
     array_release(bad)
     h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "bool", true) == "native C scalar ABI not yet supported: bool" and v4_codegen_llvm_native_c_surface_error(ty, "tiny", true) == "native C scalar ABI not yet supported: tiny" and v4_codegen_llvm_native_c_surface_error(ty, "char", true) == "native C scalar ABI not yet supported: char", "bare extension scalars fenced at C boundary")
     h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "task(x:bool)->tiny", false) == "" and v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task(x:bool)->std::ffi::c_isize", false) == "native C scalar ABI not yet supported: bool", "language task and nested C task distinguish extension ABI")
-    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task(x:std::ffi::c_isize,args:...)->std::ffi::c_isize", false) == "native C variadic ABI not yet supported", "C default promotions remain fenced")
+    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task(x:std::ffi::c_isize,args:...)->std::ffi::c_isize", false) == "native C variadic function pointers are not yet supported", "variadic function pointers remain fenced")
     h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "Hidden", false) == reason and v4_codegen_llvm_native_c_surface_error(ty, "*mutHidden", false) == reason, "recursive aliases preserve forbidden widths")
     say "h6-native-ffi-width aliases=8 nested-params-returns=true pointees=true bare-scalars=true variadic=true"
 
