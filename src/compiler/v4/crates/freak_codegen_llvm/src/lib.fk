@@ -51,12 +51,6 @@ pilot v4_codegen_llvm_fragment_error = ""
 -- Module readers consume sealed text and never revisit this mutable context.
 pilot v4_codegen_llvm_active_owned_mir = 0 - 1
 pilot v4_codegen_llvm_supplied_borrow = 0 - 1
--- Body-scoped list of owned Word locals, highest ID first, held while one
--- body is lowered so per-statement and per-edge cleanup skip non-Word locals.
-pilot v4_codegen_llvm_owned_locals = 0 - 1
-pilot v4_codegen_llvm_owned_locals_mir = 0 - 1
-pilot v4_codegen_llvm_owned_locals_body = 0 - 1
-pilot v4_codegen_llvm_owned_scopes = 0 - 1
 pilot v4_codegen_llvm_active_word_borrow = 0 - 1
 pilot v4_codegen_llvm_native_errors = 0
 pilot v4_codegen_llvm_diags = 0
@@ -2316,7 +2310,7 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
         pilot out = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
         pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
         pilot ret_ty = v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body_id))
-        if v4_codegen_llvm_active_owned_mir == mir_id { out = out + v4_codegen_llvm_word_drop_all_lines(mir_id, body_id, "return." + word_from_int(stmt_id)) }
+        if v4_codegen_llvm_active_owned_mir == mir_id { out = out + v4_codegen_llvm_drop_site_lines(mir_id, body_id, v4_mir_drop_site_return, stmt_id, "return." + word_from_int(stmt_id)) }
         if ret_ty == "void" { give back out + "  ret void\n" }
         pilot expected_ty = v4_mir_body_callable_return_type(mir_id, body_id)
         out = out + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, expected_ty, expected_temp)
@@ -2368,6 +2362,7 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
             value_lines = value_lines + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, field_ty, expected_temp)
             pilot out = ""
             if read >= 0 { out = value_lines + target_lines } else { out = target_lines + value_lines }
+            out = out + v4_codegen_llvm_slot_replace_lines(mir_id, body_id, stmt_id, field_ty, address)
             give back out + "  store " + v4_codegen_llvm_type(field_ty) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, field_ty, expected_temp) + ", ptr " + address + "\n"
         }
         pilot local_id = 0 - 1
@@ -2378,14 +2373,16 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
         pilot expected_ty = v4_mir_local_ty(mir_id, body_id, local_id)
         value_lines = value_lines + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, expected_ty, expected_temp)
         if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local_id) {
-            value_lines = value_lines + v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, local_id, "replace." + word_from_int(stmt_id))
+            value_lines = value_lines + v4_codegen_llvm_drop_site_lines(mir_id, body_id, v4_mir_drop_site_replace, stmt_id, "replace." + word_from_int(stmt_id))
             value_lines = value_lines + "  store " + local_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n"
-            give back value_lines + "  store i1 true, ptr " + v4_codegen_llvm_word_flag_slot(local_id) + "\n"
+            give back value_lines + v4_codegen_llvm_flag_store_line(mir_id, body_id, local_id, "true")
         }
         if v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, local_id) {
             -- Replacing a whole lend mut self writes the caller's storage.
             pilot pointer = "%self." + word_from_int(body_id) + "." + word_from_int(stmt_id)
-            give back value_lines + "  " + pointer + " = load ptr, ptr " + v4_codegen_llvm_local_slot(local_id) + "\n  store " + local_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + ", ptr " + pointer + "\n"
+            value_lines = value_lines + "  " + pointer + " = load ptr, ptr " + v4_codegen_llvm_local_slot(local_id) + "\n"
+            value_lines = value_lines + v4_codegen_llvm_slot_replace_lines(mir_id, body_id, stmt_id, expected_ty, pointer)
+            give back value_lines + "  store " + local_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + ", ptr " + pointer + "\n"
         }
         give back value_lines + "  store " + local_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n"
     }
@@ -2414,7 +2411,7 @@ task v4_codegen_llvm_block_terminator_line(mir_id: int, body_id: int, block_id: 
     pilot term = v4_mir_block_terminator(block_record)
     if term == v4_mir_term_goto {
         pilot cleanup = ""
-        if v4_codegen_llvm_active_owned_mir == mir_id { cleanup = v4_codegen_llvm_word_scope_edge_lines(mir_id, body_id, block_id, v4_mir_block_target(block_record), 0) }
+        if v4_codegen_llvm_active_owned_mir == mir_id { cleanup = v4_codegen_llvm_drop_site_lines(mir_id, body_id, v4_mir_drop_site_edge_true, block_id, "edge." + word_from_int(block_id) + ".0") }
         give back cleanup + "  br label %bb" + word_from_int(v4_mir_block_target(block_record)) + "\n"
     }
     if term == v4_mir_term_if {
@@ -2429,8 +2426,8 @@ task v4_codegen_llvm_block_terminator_line(mir_id: int, body_id: int, block_id: 
                 pilot false_name = "bb" + word_from_int(false_target)
                 pilot edges = ""
                 if v4_codegen_llvm_active_owned_mir == mir_id {
-                    pilot true_drop = v4_codegen_llvm_word_scope_edge_lines(mir_id, body_id, block_id, true_target, 0)
-                    pilot false_drop = v4_codegen_llvm_word_scope_edge_lines(mir_id, body_id, block_id, false_target, 1)
+                    pilot true_drop = v4_codegen_llvm_drop_site_lines(mir_id, body_id, v4_mir_drop_site_edge_true, block_id, "edge." + word_from_int(block_id) + ".0")
+                    pilot false_drop = v4_codegen_llvm_drop_site_lines(mir_id, body_id, v4_mir_drop_site_edge_false, block_id, "edge." + word_from_int(block_id) + ".1")
                     if true_drop != "" {
                         true_name = "word.edge." + word_from_int(block_id) + ".0"
                         edges = edges + true_name + ":\n" + true_drop + "  br label %bb" + word_from_int(true_target) + "\n"
@@ -2456,7 +2453,7 @@ task v4_codegen_llvm_block_terminator_line(mir_id: int, body_id: int, block_id: 
         if v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_scalar_sum_kind(mir_id, v4_mir_body_callable_return_type(mir_id, body_id)) != "" { give back "  unreachable\n" }
         pilot return_ty = v4_codegen_llvm_body_return_llvm_type(mir_id, body_id)
         if v4_codegen_llvm_active_owned_mir == mir_id {
-            pilot out = v4_codegen_llvm_word_drop_all_lines(mir_id, body_id, "default." + word_from_int(block_id))
+            pilot out = v4_codegen_llvm_drop_site_lines(mir_id, body_id, v4_mir_drop_site_default, block_id, "default." + word_from_int(block_id))
             if v4_mir_body_callable_return_type(mir_id, body_id) == v4_ty_word {
                 pilot temp = "%word.default." + word_from_int(block_id)
                 give back out + "  " + temp + " = call i64 @freak_v4_word_from_bytes(i64 0, i64 0)\n  ret i64 " + temp + "\n"
@@ -2469,7 +2466,6 @@ task v4_codegen_llvm_block_terminator_line(mir_id: int, body_id: int, block_id: 
 }
 
 task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
-    if v4_codegen_llvm_active_owned_mir == mir_id { v4_codegen_llvm_owned_locals_begin(mir_id, body_id) }
     pilot parts = v4_codegen_llvm_fragment_new()
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_body_header(mir_id, body_id) + " {\nentry:\n")
     pilot ty_id = v4_mir_ty_id(mir_id)
@@ -2492,10 +2488,14 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
             if v4_mir_scalar_sum_kind(mir_id, v4_mir_local_ty(mir_id, body_id, local_id)) != "" or local_ty != "i64" { initial_value = "zeroinitializer" }
             -- An aggregate parameter's storage already holds the caller's copy.
             if not aggregate_param { v4_codegen_llvm_fragment_push(parts, "  store " + local_ty + " " + initial_value + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n") }
-            v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_word_flag_slot(local_id) + " = alloca i1\n")
-            pilot initialized = "false"
-            if local_id < v4_mir_body_callable_param_count(mir_id, body_id) { initialized = "true" }
-            v4_codegen_llvm_fragment_push(parts, "  store i1 " + initialized + ", ptr " + v4_codegen_llvm_word_flag_slot(local_id) + "\n")
+            -- Meiya's plan gives a runtime drop flag only to a local that some
+            -- drop site finds initialized on some paths and moved on others.
+            if v4_mir_drop_local_flag(mir_id, body_id, local_id) {
+                v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_word_flag_slot(local_id) + " = alloca i1\n")
+                pilot initialized = "false"
+                if local_id < v4_mir_body_callable_param_count(mir_id, body_id) { initialized = "true" }
+                v4_codegen_llvm_fragment_push(parts, "  store i1 " + initialized + ", ptr " + v4_codegen_llvm_word_flag_slot(local_id) + "\n")
+            }
         }
         if local_id < v4_mir_body_callable_param_count(mir_id, body_id) and not aggregate_param {
             v4_codegen_llvm_fragment_push(parts, "  store " + local_ty + " %arg." + word_from_int(local_id) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n")
@@ -2511,7 +2511,7 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
         pilot terminal = false
         pilot previous_stmt = 0 - 1
         repeat until stmt_id < 0 or terminal {
-            if v4_codegen_llvm_active_owned_mir == mir_id { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_scope_before_stmt_lines(mir_id, body_id, previous_stmt, stmt_id)) }
+            if v4_codegen_llvm_active_owned_mir == mir_id and previous_stmt >= 0 { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_drop_site_lines(mir_id, body_id, v4_mir_drop_site_before, stmt_id, "stmt." + word_from_int(stmt_id))) }
             v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_stmt_lines(mir_id, body_id, stmt_id))
             if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return { terminal = true }
             previous_stmt = stmt_id
@@ -2521,7 +2521,6 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
         block_id += 1
     }
     v4_codegen_llvm_fragment_push(parts, "}")
-    v4_codegen_llvm_owned_locals_end()
     give back v4_codegen_llvm_fragment_finish(parts)
 }
 
@@ -4378,7 +4377,11 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         v4_codegen_llvm_supplied_borrow = 0 - 1
         if not v4_borrowck_result_is_current(borrow_id, mir_id) { borrow_id = v4_borrowck_check_mir(file_id, mir_id) }
         error = v4_codegen_llvm_word_borrow_plan_error(borrow_id, mir_id)
+        -- Meiya publishes and seals the Runtime drop plan this module emits.
+        if error == "" { error = v4_borrowck_publish_drop_plan(borrow_id, mir_id) }
+        if error == "" { error = v4_codegen_llvm_drop_plan_error(mir_id) }
         if error != "" {
+            v4_mir_drop_plan_release()
             array_set(v4_codegen_llvm_native_errors, codegen_id, error)
             v4_codegen_llvm_active_owned_mir = 0 - 1
             give back codegen_id
@@ -4402,6 +4405,8 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
     if native_error == "" {
         v4_codegen_llvm_lower_bodies(codegen_id, mir_id)
         v4_codegen_llvm_lower_callback_trampolines(codegen_id, mir_id, ty_id)
+        -- The drop plan lives exactly as long as the bodies that emit it.
+        v4_mir_drop_plan_release()
         -- Ordinary impls and qualified tasks can share linkage names even
         -- without callbacks. Check every actual sealed definition together.
         native_error = v4_codegen_llvm_native_body_symbol_error(codegen_id)
@@ -4915,8 +4920,7 @@ task v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts: int, mir_id: int, bod
     v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, child, v4_codegen_llvm_temp_value(body_id, child), true)
     v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_scalar_sum_instruction(mir_id, body_id, rvalue_id, target) + "\n")
     if kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try {
-        pilot local = v4_mir_rvalue_local_id(mir_id, body_id, child)
-        v4_codegen_llvm_fragment_push(parts, "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n")
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_flag_store_line(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, child), "false"))
     }
     give back true
 }
@@ -5189,6 +5193,7 @@ task v4_codegen_llvm_collect_owned_special_lines(parts: int, mir_id: int, body_i
         pilot place = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
         pilot address = v4_codegen_llvm_place_address(parts, mir_id, body_id, place, "r" + word_from_int(rvalue_id))
         v4_codegen_llvm_fragment_push(parts, "  " + target + " = load " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) + ", ptr " + address + "\n")
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_place_move_lines(mir_id, body_id, rvalue_id, address))
         give back true
     }
     if (kind == v4_mir_rvalue_use_symbol or kind == v4_mir_rvalue_binary) and v4_codegen_llvm_collect_route_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back true }
@@ -5271,12 +5276,7 @@ task v4_codegen_llvm_collect_owned_rvalue_lines(parts: int, mir_id: int, body_id
         pilot line = v4_codegen_llvm_rvalue_instruction(mir_id, body_id, rvalue_id, target)
         if line != "" { v4_codegen_llvm_fragment_push(parts, "  " + line + "\n") }
     }
-    if kind == v4_mir_rvalue_use_local and not borrowed {
-        pilot local = v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)
-        if v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local) and v4_borrowck_rvalue_word_local_move_count(mir_id, body_id, rvalue_id, local) > 0 {
-            v4_codegen_llvm_fragment_push(parts, "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n")
-        }
-    }
+    if kind == v4_mir_rvalue_use_local { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_move_clear_line(mir_id, body_id, rvalue_id)) }
     if kind == v4_mir_rvalue_call and v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) != v4_ty_never {
         -- A borrowed result temporary belongs to this full expression, not to
         -- the observer. Release it immediately after its last observer call.
@@ -5294,22 +5294,96 @@ task v4_codegen_llvm_collect_owned_rvalue_lines(parts: int, mir_id: int, body_id
     }
 }
 
-task v4_codegen_llvm_word_drop_local_lines(mir_id: int, body_id: int, local: int, site: word) -> word {
+-- Native drops follow Meiya's sealed Runtime drop plan (v4_mir_drop_*):
+-- codegen emits each site's rows in order and owns only the drop glue of a
+-- type (which word leaves a value holds), never where or whether to drop.
+task v4_codegen_llvm_flag_store_line(mir_id: int, body_id: int, local: int, state: word) -> word {
+    if not v4_mir_drop_local_flag(mir_id, body_id, local) { give back "" }
+    give back "  store i1 " + state + ", ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n"
+}
+
+-- A whole move out of a flagged local clears its flag.
+task v4_codegen_llvm_move_clear_line(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if v4_codegen_llvm_active_owned_mir != mir_id or v4_mir_drop_rvalue_is_partial(mir_id, body_id, rvalue_id) { give back "" }
+    pilot local = v4_mir_drop_rvalue_moved_local(mir_id, body_id, rvalue_id)
+    if local < 0 { give back "" }
+    give back v4_codegen_llvm_flag_store_line(mir_id, body_id, local, "false")
+}
+
+-- After a place read: a whole move clears the flag; a partial move nulls
+-- each word leaf it took, so the aggregate's own drop skips them.
+task v4_codegen_llvm_place_move_lines(mir_id: int, body_id: int, rvalue_id: int, address: word) -> word {
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back "" }
+    if not v4_mir_drop_rvalue_is_partial(mir_id, body_id, rvalue_id) { give back v4_codegen_llvm_move_clear_line(mir_id, body_id, rvalue_id) }
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) == v4_ty_word { give back "  store i64 0, ptr " + address + "\n" }
+    pilot llvm_ty = v4_codegen_llvm_type(type_text)
+    pilot paths = v4_codegen_llvm_word_leaf_paths(mir_id, type_text, "")
+    pilot out = ""
+    pilot leaf = 0
+    pilot start = 0
+    repeat until start > paths.length() or paths == "" {
+        pilot stop = v4_index_of_from(paths, ";", start)
+        if stop < 0 { stop = paths.length() }
+        pilot slot = address + ".moved." + word_from_int(leaf)
+        out = out + "  " + slot + " = getelementptr inbounds " + llvm_ty + ", ptr " + address + ", i32 0, i32 " + v4_codegen_llvm_leaf_gep_path(v4_slice(paths, start, stop)) + "\n"
+        out = out + "  store i64 0, ptr " + slot + "\n"
+        leaf += 1
+        start = stop + 1
+    }
+    give back out
+}
+
+-- "0, 1" (an extractvalue path) as GEP indices "0, i32 1".
+task v4_codegen_llvm_leaf_gep_path(path: word) -> word {
+    pilot out = ""
+    pilot start = 0
+    repeat until start > path.length() {
+        pilot stop = v4_index_of_from(path, ",", start)
+        if stop < 0 { stop = path.length() }
+        pilot part = v4_slice(path, start, stop).trim()
+        if out != "" { out = out + ", i32 " }
+        out = out + part
+        start = stop + 1
+    }
+    give back out
+}
+
+-- A DropSlot row at a store: release the target's old value in place. A
+-- leaf a partial move took is null there, so each leaf is released once.
+task v4_codegen_llvm_slot_replace_lines(mir_id: int, body_id: int, stmt_id: int, type_text: word, address: word) -> word {
+    if v4_codegen_llvm_active_owned_mir != mir_id or not v4_mir_drop_site_has_mode(mir_id, body_id, v4_mir_drop_site_replace, stmt_id, v4_mir_drop_mode_slot) { give back "" }
+    pilot temp = "%slot.old." + word_from_int(body_id) + "." + word_from_int(stmt_id)
+    pilot out = "  " + temp + " = load " + v4_codegen_llvm_type(type_text) + ", ptr " + address + "\n"
+    if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) == v4_ty_word { give back out + "  call void @freak_v4_word_drop(i64 " + temp + ")\n" }
+    give back out + v4_codegen_llvm_aggregate_word_drop_lines(mir_id, type_text, temp, temp)
+}
+
+-- One Drop or DropIf row: release the local's value (under its flag for
+-- DropIf), then mark it dead when it carries a flag.
+task v4_codegen_llvm_word_drop_local_lines(mir_id: int, body_id: int, local: int, site: word, mode: word) -> word {
     if not v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local) { give back "" }
+    pilot clear = v4_codegen_llvm_flag_store_line(mir_id, body_id, local, "false")
     pilot carrier = v4_mir_scalar_sum_kind(mir_id, v4_mir_local_ty(mir_id, body_id, local))
     pilot field = "1"
     if carrier != "" and carrier != "ResultWordWord" { field = v4_codegen_llvm_sum_word_field(mir_id, v4_mir_local_ty(mir_id, body_id, local)) }
-    if carrier == "MaybeInt" or field == "" { give back "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n" }
+    if carrier == "MaybeInt" or field == "" { give back clear }
+    pilot conditional: bool = mode == v4_mir_drop_mode_drop_if
     pilot temp = "%word.drop." + site + "." + word_from_int(local)
-    pilot out = "  " + temp + ".live = load i1, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n"
+    pilot out = ""
+    if conditional { out = "  " + temp + ".live = load i1, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n" }
     pilot local_ty = v4_mir_local_ty(mir_id, body_id, local)
     if carrier == "" and v4_codegen_llvm_type_owns_words(mir_id, local_ty) and v4_ty_canonical_type(v4_mir_ty_id(mir_id), local_ty) != v4_ty_word {
         -- A live aggregate releases each word leaf; a moved one drops zeros.
         pilot llvm_ty = v4_codegen_llvm_type(local_ty)
         out = out + "  " + temp + ".carrier = load " + llvm_ty + ", ptr " + v4_codegen_llvm_local_slot(local) + "\n"
-        out = out + "  " + temp + ".owned = select i1 " + temp + ".live, " + llvm_ty + " " + temp + ".carrier, " + llvm_ty + " zeroinitializer\n"
-        out = out + v4_codegen_llvm_aggregate_word_drop_lines(mir_id, local_ty, temp + ".owned", temp)
-        give back out + "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n"
+        pilot owned = temp + ".carrier"
+        if conditional {
+            owned = temp + ".owned"
+            out = out + "  " + owned + " = select i1 " + temp + ".live, " + llvm_ty + " " + temp + ".carrier, " + llvm_ty + " zeroinitializer\n"
+        }
+        out = out + v4_codegen_llvm_aggregate_word_drop_lines(mir_id, local_ty, owned, temp)
+        give back out + clear
     }
     -- A carrier owns at most one word field (the closed result shares field 1).
     if carrier != "" {
@@ -5317,204 +5391,80 @@ task v4_codegen_llvm_word_drop_local_lines(mir_id: int, body_id: int, local: int
         out = out + "  " + temp + ".carrier = load " + carrier_ty + ", ptr " + v4_codegen_llvm_local_slot(local) + "\n"
         out = out + "  " + temp + ".value = extractvalue " + carrier_ty + " " + temp + ".carrier, " + field + "\n"
     } else { out = out + "  " + temp + ".value = load i64, ptr " + v4_codegen_llvm_local_slot(local) + "\n" }
-    out = out + "  " + temp + ".owned = select i1 " + temp + ".live, i64 " + temp + ".value, i64 0\n"
-    out = out + "  call void @freak_v4_word_drop(i64 " + temp + ".owned)\n"
-    out = out + "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n"
+    pilot owned = temp + ".value"
+    if conditional {
+        owned = temp + ".owned"
+        out = out + "  " + owned + " = select i1 " + temp + ".live, i64 " + temp + ".value, i64 0\n"
+    }
+    out = out + "  call void @freak_v4_word_drop(i64 " + owned + ")\n"
+    give back out + clear
+}
+
+-- Every Drop and DropIf row of one plan site, in the plan's order (reverse
+-- declaration order). DropSlot rows belong to the store that owns the site.
+task v4_codegen_llvm_drop_site_lines(mir_id: int, body_id: int, site: int, index: int, label: word) -> word {
+    pilot parts = v4_codegen_llvm_cleanup_fragment_new()
+    if parts < 0 { give back "" }
+    pilot row = v4_mir_drop_site_first(mir_id, body_id, site, index)
+    repeat until row < 0 {
+        pilot mode = v4_mir_drop_row_mode(row)
+        if mode != v4_mir_drop_mode_slot { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, v4_mir_drop_row_local(row), label, mode)) }
+        row = v4_mir_drop_row_next(row)
+    }
+    pilot out = word_join(parts)
+    array_release(parts)
     give back out
 }
 
-task v4_codegen_llvm_owned_locals_end() -> void {
-    if v4_codegen_llvm_owned_locals >= 0 { array_release(v4_codegen_llvm_owned_locals) }
-    if v4_codegen_llvm_owned_scopes >= 0 { array_release(v4_codegen_llvm_owned_scopes) }
-    v4_codegen_llvm_owned_scopes = 0 - 1
-    v4_codegen_llvm_owned_locals = 0 - 1
-    v4_codegen_llvm_owned_locals_mir = 0 - 1
-    v4_codegen_llvm_owned_locals_body = 0 - 1
-}
-
-task v4_codegen_llvm_owned_locals_begin(mir_id: int, body_id: int) -> void {
-    v4_codegen_llvm_owned_locals_end()
-    pilot rows = array_new()
-    if rows < 0 { give back }
-    pilot local = v4_mir_body_local_count(mir_id, body_id) - 1
-    repeat until local < 0 {
-        if v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local) {
-            pilot before = array_len(rows)
-            array_push(rows, word_from_int(local))
-            if array_len(rows) != before + 1 {
-                array_release(rows)
-                give back
+-- The plan must cover exactly the locals whose type has drop glue, every
+-- move out of a word-owning aggregate place, and every store into a
+-- word-owning slot; anything else stays refused by name.
+task v4_codegen_llvm_drop_plan_error(mir_id: int) -> word {
+    if not v4_mir_drop_plan_ready(mir_id) { give back "native drop plan is not sealed for this MIR" }
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot local = 0
+        repeat until local >= v4_mir_body_local_count(mir_id, body) {
+            if v4_codegen_llvm_word_local_is_owned(mir_id, body, local) != v4_mir_drop_local_owned(mir_id, body, local) { give back "native drop plan does not cover owned local: " + v4_mir_local_name(mir_id, body, local) }
+            local += 1
+        }
+        pilot count = v4_mir_body_rvalue_count(mir_id, body)
+        pilot lent = v4_codegen_llvm_fragment_new()
+        pilot value = 0
+        repeat until value >= count { v4_codegen_llvm_fragment_push(lent, "0"); value += 1 }
+        value = 0
+        repeat until value >= count {
+            pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
+            pilot lhs = v4_mir_rvalue_lhs(mir_id, body, value)
+            if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and lhs >= 0 and lhs < count { array_set(lent, lhs, "1") }
+            value += 1
+        }
+        pilot error = ""
+        value = 0
+        repeat until value >= count or error != "" {
+            if v4_mir_rvalue_kind(mir_id, body, value) == v4_mir_rvalue_use_place and v4_codegen_llvm_word_leaf_count(mir_id, v4_mir_rvalue_ty(mir_id, body, value), 0) > 0 {
+                pilot place_kind = v4_mir_place_kind(mir_id, body, v4_mir_rvalue_lhs(mir_id, body, value))
+                pilot borrowed: word = array_get(lent, value)
+                if (place_kind == v4_mir_place_field or place_kind == v4_mir_place_index) and borrowed != "1" and not v4_mir_drop_rvalue_is_partial(mir_id, body, value) { error = "native partial moves out of aggregates that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, value) }
             }
+            value += 1
         }
-        local -= 1
-    }
-    -- Each owned row's lexical scope, parsed once: four cells per row
-    -- (present flag, file, start, end), read by the scope-exit cleanup.
-    pilot scopes = array_new()
-    if scopes < 0 {
-        array_release(rows)
-        give back
-    }
-    pilot row = 0
-    repeat until row >= array_len(rows) {
-        v4_codegen_llvm_scope_cells_push(scopes, v4_mir_local_scope_span(mir_id, body_id, word_to_int(array_get(rows, row))))
-        row += 1
-    }
-    if array_len(scopes) != array_len(rows) * 4 {
-        array_release(scopes)
-        array_release(rows)
-        give back
-    }
-    v4_codegen_llvm_owned_scopes = scopes
-    v4_codegen_llvm_owned_locals = rows
-    v4_codegen_llvm_owned_locals_mir = mir_id
-    v4_codegen_llvm_owned_locals_body = body_id
-}
-
--- The four cells v4_mir_scope_contains reads from one span.
-task v4_codegen_llvm_scope_cells_push(cells: int, span: word) -> void {
-    if span == (V4_NO_SPAN) {
-        array_push(cells, "0")
-        array_push(cells, "")
-        array_push(cells, "0")
-        array_push(cells, "0")
-        give back
-    }
-    array_push(cells, "1")
-    array_push(cells, v4_span_file(span))
-    array_push(cells, word_from_int(v4_span_start(span)))
-    array_push(cells, word_from_int(v4_span_end(span)))
-}
-
--- v4_mir_scope_contains(outer, inner) on parsed cells: outer is row `outer`
--- of `outer_cells`, inner is row 0 of `inner_cells`.
-task v4_codegen_llvm_scope_cells_contain(outer_cells: int, outer: int, inner_cells: int) -> bool {
-    pilot base = outer * 4
-    pilot outer_present: word = array_get(outer_cells, base)
-    pilot inner_present: word = array_get(inner_cells, 0)
-    if outer_present != "1" or inner_present != "1" { give back false }
-    pilot outer_file: word = array_get(outer_cells, base + 1)
-    pilot inner_file: word = array_get(inner_cells, 1)
-    if outer_file != inner_file { give back false }
-    give back word_to_int(array_get(outer_cells, base + 2)) <= word_to_int(array_get(inner_cells, 2)) and word_to_int(array_get(outer_cells, base + 3)) >= word_to_int(array_get(inner_cells, 3))
-}
-
--- Drops for the cached owned rows whose scope contains `source_scope` but
--- not `target_scope` (v4_mir_word_local_scope_exits_between), in row order.
--- Returns "*" when the cached rows do not apply.
-task v4_codegen_llvm_owned_scope_exit_lines(mir_id: int, body_id: int, source_scope: word, target_scope: word, site: word) -> word {
-    pilot rows = v4_codegen_llvm_owned_locals_for(mir_id, body_id)
-    pilot scopes = v4_codegen_llvm_owned_scopes
-    if rows < 0 or scopes < 0 or array_len(scopes) != array_len(rows) * 4 { give back "*" }
-    pilot source_cells = array_new()
-    pilot target_cells = array_new()
-    if source_cells < 0 or target_cells < 0 {
-        if source_cells >= 0 { array_release(source_cells) }
-        if target_cells >= 0 { array_release(target_cells) }
-        give back "*"
-    }
-    v4_codegen_llvm_scope_cells_push(source_cells, source_scope)
-    v4_codegen_llvm_scope_cells_push(target_cells, target_scope)
-    if array_len(source_cells) != 4 or array_len(target_cells) != 4 {
-        array_release(source_cells)
-        array_release(target_cells)
-        give back "*"
-    }
-    pilot parts = v4_codegen_llvm_cleanup_fragment_new()
-    pilot row = 0
-    repeat until row >= array_len(rows) {
-        if v4_codegen_llvm_scope_cells_contain(scopes, row, source_cells) and not v4_codegen_llvm_scope_cells_contain(scopes, row, target_cells) {
-            v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, word_to_int(array_get(rows, row)), site))
+        array_release(lent)
+        if error != "" { give back error }
+        pilot stmt = 0
+        repeat until stmt >= v4_mir_body_stmt_count(mir_id, body) {
+            pilot kind = v4_mir_stmt_kind(mir_id, body, stmt)
+            pilot place = v4_mir_stmt_place(mir_id, body, stmt)
+            if (kind == v4_mir_stmt_assign or kind == v4_mir_stmt_local) and place >= 0 and v4_codegen_llvm_type_owns_words(mir_id, v4_mir_place_ty(mir_id, body, place)) {
+                pilot place_kind = v4_mir_place_kind(mir_id, body, place)
+                pilot through_receiver: bool = place_kind == v4_mir_place_local and v4_codegen_llvm_local_is_lent_receiver(mir_id, body, v4_mir_place_base(mir_id, body, place))
+                if (place_kind == v4_mir_place_field or place_kind == v4_mir_place_index or through_receiver) and not v4_mir_drop_site_has_mode(mir_id, body, v4_mir_drop_site_replace, stmt, v4_mir_drop_mode_slot) { give back "native stores into aggregate slots that own words are not yet supported: " + v4_mir_place_text(mir_id, body, place) }
+            }
+            stmt += 1
         }
-        row += 1
+        body += 1
     }
-    array_release(source_cells)
-    array_release(target_cells)
-    pilot out = word_join(parts)
-    array_release(parts)
-    give back out
-}
-
--- The cached rows for this body, or -1 when the cold all-local scan applies.
-task v4_codegen_llvm_owned_locals_for(mir_id: int, body_id: int) -> int {
-    if v4_codegen_llvm_owned_locals >= 0 and v4_codegen_llvm_owned_locals_mir == mir_id and v4_codegen_llvm_owned_locals_body == body_id { give back v4_codegen_llvm_owned_locals }
-    give back 0 - 1
-}
-
-task v4_codegen_llvm_word_drop_all_lines(mir_id: int, body_id: int, site: word) -> word {
-    pilot parts = v4_codegen_llvm_cleanup_fragment_new()
-    pilot rows = v4_codegen_llvm_owned_locals_for(mir_id, body_id)
-    if rows >= 0 {
-        pilot row = 0
-        repeat until row >= array_len(rows) {
-            v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, word_to_int(array_get(rows, row)), site))
-            row += 1
-        }
-    } else {
-        pilot local = v4_mir_body_local_count(mir_id, body_id) - 1
-        repeat until local < 0 {
-            v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, local, site))
-            local -= 1
-        }
-    }
-    pilot out = word_join(parts)
-    array_release(parts)
-    give back out
-}
-
-task v4_codegen_llvm_word_scope_before_stmt_lines(mir_id: int, body_id: int, previous_stmt: int, next_stmt: int) -> word {
-    if previous_stmt < 0 { give back "" }
-    pilot cached = v4_codegen_llvm_owned_scope_exit_lines(mir_id, body_id, v4_mir_stmt_scope_span(mir_id, body_id, previous_stmt), v4_mir_stmt_scope_span(mir_id, body_id, next_stmt), "stmt." + word_from_int(next_stmt))
-    if cached != "*" { give back cached }
-    pilot parts = v4_codegen_llvm_cleanup_fragment_new()
-    pilot rows = v4_codegen_llvm_owned_locals_for(mir_id, body_id)
-    pilot row = 0
-    pilot local = v4_mir_body_local_count(mir_id, body_id) - 1
-    if rows >= 0 {
-        local = 0 - 1
-        if array_len(rows) > 0 { local = word_to_int(array_get(rows, 0)) }
-    }
-    repeat until local < 0 {
-        if v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local) and v4_mir_word_local_scope_exits_before_stmt(mir_id, body_id, local, previous_stmt, next_stmt) {
-            v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, local, "stmt." + word_from_int(next_stmt)))
-        }
-        if rows >= 0 {
-            row += 1
-            local = 0 - 1
-            if row < array_len(rows) { local = word_to_int(array_get(rows, row)) }
-        } else { local -= 1 }
-    }
-    pilot out = word_join(parts)
-    array_release(parts)
-    give back out
-}
-
-task v4_codegen_llvm_word_scope_edge_lines(mir_id: int, body_id: int, source: int, target: int, arm: int) -> word {
-    pilot cached = v4_codegen_llvm_owned_scope_exit_lines(mir_id, body_id, v4_mir_edge_source_scope(mir_id, body_id, source), v4_mir_edge_target_scope(mir_id, body_id, target), "edge." + word_from_int(source) + "." + word_from_int(arm))
-    if cached != "*" { give back cached }
-    pilot parts = v4_codegen_llvm_cleanup_fragment_new()
-    pilot rows = v4_codegen_llvm_owned_locals_for(mir_id, body_id)
-    pilot row = 0
-    pilot local = v4_mir_body_local_count(mir_id, body_id) - 1
-    if rows >= 0 {
-        local = 0 - 1
-        if array_len(rows) > 0 { local = word_to_int(array_get(rows, 0)) }
-    }
-    pilot source_scope = v4_mir_edge_source_scope(mir_id, body_id, source)
-    pilot target_scope = v4_mir_edge_target_scope(mir_id, body_id, target)
-    repeat until local < 0 {
-        if v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local) and v4_mir_word_local_scope_exits_between(mir_id, body_id, local, source_scope, target_scope) {
-            v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_word_drop_local_lines(mir_id, body_id, local, "edge." + word_from_int(source) + "." + word_from_int(arm)))
-        }
-        if rows >= 0 {
-            row += 1
-            local = 0 - 1
-            if row < array_len(rows) { local = word_to_int(array_get(rows, row)) }
-        } else { local -= 1 }
-    }
-    pilot out = word_join(parts)
-    array_release(parts)
-    give back out
+    give back ""
 }
 
 task v4_codegen_llvm_word_borrow_plan_error(borrow_id: int, mir_id: int) -> word {
@@ -5808,36 +5758,19 @@ task v4_codegen_llvm_word_boundary_types_error(mir_id: int, body_id: int) -> wor
     give back ""
 }
 
--- Aggregates that own words move and drop as one value. Every way a word
--- could leave such an aggregate other than a whole move is refused by name
--- until per-slot drop facts exist: an unborrowed field or element read (a
--- partial move), a store into a word-owning slot (the old word would leak),
--- a projection of a word-owning temporary (its other words would leak), and
--- a repeat fill (one word in many slots).
+-- Aggregates that own words move and drop as one value; partial moves and
+-- slot stores follow Meiya's drop plan (v4_codegen_llvm_drop_plan_error).
+-- Still refused by name: a projection of a word-owning temporary (its other
+-- words would leak) and a repeat fill (one word in many slots).
 task v4_codegen_llvm_aggregate_word_ownership_error(mir_id: int, body: int) -> word {
     pilot count = v4_mir_body_rvalue_count(mir_id, body)
-    pilot lent = v4_codegen_llvm_fragment_new()
-    pilot value = 0
-    repeat until value >= count { v4_codegen_llvm_fragment_push(lent, "0"); value += 1 }
-    value = 0
-    repeat until value >= count {
-        pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
-        pilot lhs = v4_mir_rvalue_lhs(mir_id, body, value)
-        if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and lhs >= 0 and lhs < count { array_set(lent, lhs, "1") }
-        value += 1
-    }
     pilot error = ""
-    value = 0
+    pilot value = 0
     repeat until value >= count or error != "" {
         pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
         pilot type_text = v4_mir_rvalue_ty(mir_id, body, value)
         pilot leaves = v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0)
         if leaves > 256 or leaves < 0 { error = "native aggregates owning more than 256 words are not yet supported: " + type_text }
-        if error == "" and kind == v4_mir_rvalue_use_place and leaves > 0 {
-            pilot place_kind = v4_mir_place_kind(mir_id, body, v4_mir_rvalue_lhs(mir_id, body, value))
-            pilot borrowed: word = array_get(lent, value)
-            if (place_kind == v4_mir_place_field or place_kind == v4_mir_place_index) and borrowed != "1" { error = "native partial moves out of aggregates that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, value) }
-        }
         if error == "" and kind == v4_mir_rvalue_unary and (v4_mir_rvalue_op(mir_id, body, value) == v4_mir_unary_project or v4_mir_rvalue_op(mir_id, body, value) == v4_mir_unary_project_index) {
             if v4_codegen_llvm_type_owns_words(mir_id, v4_mir_rvalue_ty(mir_id, body, v4_mir_rvalue_lhs(mir_id, body, value))) { error = "native projections of temporaries that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, value) }
         }
@@ -5847,24 +5780,12 @@ task v4_codegen_llvm_aggregate_word_ownership_error(mir_id: int, body: int) -> w
         }
         value += 1
     }
-    array_release(lent)
     if error != "" { give back error }
     pilot local = 0
     repeat until local >= v4_mir_body_local_count(mir_id, body) {
         pilot leaves = v4_codegen_llvm_word_leaf_count(mir_id, v4_mir_local_ty(mir_id, body, local), 0)
         if leaves > 256 or leaves < 0 { give back "native aggregates owning more than 256 words are not yet supported: " + v4_mir_local_ty(mir_id, body, local) }
         local += 1
-    }
-    pilot stmt = 0
-    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body) {
-        pilot kind = v4_mir_stmt_kind(mir_id, body, stmt)
-        pilot place = v4_mir_stmt_place(mir_id, body, stmt)
-        if (kind == v4_mir_stmt_assign or kind == v4_mir_stmt_local) and place >= 0 and v4_codegen_llvm_type_owns_words(mir_id, v4_mir_place_ty(mir_id, body, place)) {
-            pilot place_kind = v4_mir_place_kind(mir_id, body, place)
-            pilot through_receiver: bool = place_kind == v4_mir_place_local and v4_codegen_llvm_local_is_lent_receiver(mir_id, body, v4_mir_place_base(mir_id, body, place))
-            if place_kind == v4_mir_place_field or place_kind == v4_mir_place_index or through_receiver { give back "native stores into aggregate slots that own words are not yet supported: " + v4_mir_place_text(mir_id, body, place) }
-        }
-        stmt += 1
     }
     give back ""
 }

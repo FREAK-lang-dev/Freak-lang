@@ -103,7 +103,7 @@ task v4_checked_numeric_contract_run(selected_case: int) -> void {
             handle = array_new()
         }
         v4_codegen_llvm_fragment_error = ""
-        pilot cleanup = v4_codegen_llvm_word_drop_all_lines(mir, 0, "exhausted")
+        pilot cleanup = v4_codegen_llvm_drop_site_lines(mir, 0, v4_mir_drop_site_return, 0, "exhausted")
         pilot cleanup_error = v4_codegen_llvm_fragment_error
         v4_checked_numeric_assert(cleanup == "" and cleanup_error == "native owned word cleanup scratch allocation failed", "cleanup exhaustion records its exact admission failure")
         -- Query the existing seal independently of fresh-plan admission. A
