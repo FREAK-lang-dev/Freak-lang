@@ -2775,10 +2775,26 @@ task v4_codegen_llvm_route_construct_error(mir_id: int, body_id: int, rvalue_id:
     give back ""
 }
 
--- A payload Field place names a field, not its case. It resolves when one
--- case declares the name, or when every case declaring it puts it at the
--- same position after identically typed fields (so at the same offset).
--- Gives back case * 65536 + field, -1 when no case has it, -2 if ambiguous.
+-- The slot of a payload Field place: case * 65536 + field. A place built
+-- by a case pattern carries its case as a sealed MIR fact
+-- (v4_mir_place_route_payload_case), so it resolves exactly in that case.
+task v4_codegen_llvm_route_place_slot(mir_id: int, body_id: int, place_id: int, sig: int) -> int {
+    pilot case_name = v4_mir_place_route_payload_case(mir_id, body_id, place_id)
+    pilot field_name = v4_mir_place_route_payload_field(mir_id, body_id, place_id)
+    if case_name == "" { give back v4_codegen_llvm_route_field_slot(mir_id, sig, field_name) }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot case_id = v4_codegen_llvm_route_case_id(mir_id, sig, case_name)
+    if case_id < 0 or v4_codegen_llvm_route_field_count(mir_id, sig, case_id) <= 0 { give back 0 - 1 }
+    pilot field = v4_ty_route_case_field_id_for_name(ty_id, v4_ty_signature_name(ty_id, sig), case_name, field_name)
+    if field < 0 { give back 0 - 1 }
+    give back case_id * 65536 + field
+}
+
+-- A payload Field place without a case fact names a field only. It
+-- resolves when one case declares the name, or when every case declaring it
+-- puts it at the same position after identically typed fields (so at the
+-- same offset). Gives back case * 65536 + field, -1 when no case has it,
+-- -2 if ambiguous.
 task v4_codegen_llvm_route_field_slot(mir_id: int, sig: int, field_name: word) -> int {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot route_name = v4_ty_signature_name(ty_id, sig)
@@ -2811,8 +2827,7 @@ task v4_codegen_llvm_route_field_place_error(mir_id: int, body_id: int, place_id
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot base = v4_mir_place_base(mir_id, body_id, place_id)
     pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_mir_place_ty(mir_id, body_id, base))
-    pilot name = v4_mir_place_field(mir_id, body_id, place_id)
-    pilot slot = v4_codegen_llvm_route_field_slot(mir_id, sig, name)
+    pilot slot = v4_codegen_llvm_route_place_slot(mir_id, body_id, place_id, sig)
     pilot text = v4_mir_place_text(mir_id, body_id, place_id)
     if slot == 0 - 2 { give back "native route payload fields shared by cases at different offsets are not yet supported: " + text }
     if slot < 0 { give back "native route payload place names no field: " + text }
@@ -2825,7 +2840,7 @@ task v4_codegen_llvm_route_field_place_error(mir_id: int, body_id: int, place_id
 task v4_codegen_llvm_route_field_address(parts: int, mir_id: int, body_id: int, place_id: int, base_pointer: word, temp: word) -> word {
     pilot base = v4_mir_place_base(mir_id, body_id, place_id)
     pilot sig = v4_codegen_llvm_route_signature(mir_id, v4_mir_place_ty(mir_id, body_id, base))
-    pilot slot = v4_codegen_llvm_route_field_slot(mir_id, sig, v4_mir_place_field(mir_id, body_id, place_id))
+    pilot slot = v4_codegen_llvm_route_place_slot(mir_id, body_id, place_id, sig)
     v4_codegen_llvm_fragment_push(parts, "  " + temp + ".payload = getelementptr inbounds " + v4_codegen_llvm_route_type_name(mir_id, sig) + ", ptr " + base_pointer + ", i32 0, i32 1\n")
     v4_codegen_llvm_fragment_push(parts, "  " + temp + " = getelementptr inbounds " + v4_codegen_llvm_route_case_struct(mir_id, sig, slot / 65536) + ", ptr " + temp + ".payload, i32 0, i32 " + word_from_int(slot % 65536) + "\n")
     give back temp

@@ -1379,6 +1379,38 @@ task v4_mir_place_shape_field_slot(mir_id: int, body_id: int, place_id: int) -> 
     give back v4_ty_shape_field_id_for_name(ty_id, v4_ty_canonical_type(ty_id, base_ty), v4_mir_place_field(mir_id, body_id, place_id))
 }
 
+-- Sealed route payload facts. A pattern that selected a route case names
+-- its payload field places Case::field, so the case travels with the place
+-- and native lowering never guesses it from the field name. A plain field
+-- name (no case) answers "" for the case and itself for the field.
+task v4_mir_route_payload_field_key(case_name: word, field_name: word) -> word {
+    give back case_name + "::" + field_name
+}
+
+task v4_mir_route_payload_key_separator(key: word) -> int {
+    pilot idx = 0
+    repeat until idx + 1 >= key.length() {
+        if key.char_at(idx) == ":" and key.char_at(idx + 1) == ":" { give back idx }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_place_route_payload_case(mir_id: int, body_id: int, place_id: int) -> word {
+    if v4_mir_place_kind(mir_id, body_id, place_id) != v4_mir_place_field { give back "" }
+    pilot key = v4_mir_place_field(mir_id, body_id, place_id)
+    pilot sep = v4_mir_route_payload_key_separator(key)
+    if sep <= 0 { give back "" }
+    give back v4_slice(key, 0, sep)
+}
+
+task v4_mir_place_route_payload_field(mir_id: int, body_id: int, place_id: int) -> word {
+    pilot key = v4_mir_place_field(mir_id, body_id, place_id)
+    pilot sep = v4_mir_route_payload_key_separator(key)
+    if sep <= 0 { give back key }
+    give back v4_slice(key, sep + 2, key.length())
+}
+
 task v4_mir_place_index(mir_id: int, body_id: int, place_id: int) -> int {
     give back word_to_int(array_get(v4_mir_body_place_indices_handle(mir_id, body_id), place_id))
 }

@@ -6914,6 +6914,13 @@ task v4_mir_named_brace_field_pattern(field_pattern: word) -> word {
     give back v4_mir_pattern_trim(v4_slice(field_pattern, colon + 1, field_pattern.length()))
 }
 
+-- `..` in a payload pattern matches the fields it does not name. Pattern
+-- text joins tokens with spaces, so the two dots may arrive apart.
+task v4_mir_pattern_is_rest(segment: word) -> bool {
+    segment = v4_mir_pattern_trim(segment)
+    give back segment == ".." or segment == ". ."
+}
+
 task v4_mir_is_route_destructure_pattern(pattern: word) -> bool {
     pattern = v4_mir_pattern_trim(pattern)
     if pattern == "" {
@@ -8071,7 +8078,11 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
             pilot field_segment = v4_mir_named_brace_pattern_field(pattern, field_idx)
             pilot field_name = v4_mir_named_brace_field_name(field_segment)
             pilot child_pattern = v4_mir_named_brace_field_pattern(field_segment)
-            if field_name == "" {
+            if v4_mir_pattern_is_rest(field_segment) {
+                if field_idx != field_count - 1 {
+                    v4_mir_add_type_error(mir_id, stmt_span, "route pattern rest must come last", ".. matches the remaining fields of " + route_name + "::" + case_name)
+                }
+            } else if field_name == "" {
                 v4_mir_add_type_error(mir_id, stmt_span, "malformed route pattern field", "expected field or field: pattern inside " + route_name + "::" + case_name)
             } else if v4_mir_name_list_contains(seen_fields, field_name) {
                 v4_mir_add_type_error(mir_id, stmt_span, "duplicate route pattern field", field_name + " already appears in " + route_name + "::" + case_name)
@@ -8081,7 +8092,7 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
                 if field_ty == v4_ty_unknown {
                     v4_mir_add_type_error(mir_id, stmt_span, "unknown route pattern field", route_name + "::" + case_name + " has no field " + field_name)
                 } else {
-                    pilot field_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + field_name, source_place, field_name, 0 - 1, stmt_span, field_ty)
+                    pilot field_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + field_name, source_place, v4_mir_route_payload_field_key(case_name, field_name), 0 - 1, stmt_span, field_ty)
                     pilot field_cond = v4_mir_lower_when_pattern_condition(mir_id, body_id, stmt_span, child_pattern, field_place, source_text + "." + field_name, field_ty)
                     cond_rvalue = v4_mir_when_pattern_and_rvalue(mir_id, body_id, cond_rvalue, field_cond, stmt_span)
                 }
@@ -8312,6 +8323,23 @@ task v4_mir_lower_when_pattern_bindings(mir_id: int, body_id: int, block_id: int
 }
 
 task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: word) -> bool {
+    give back v4_mir_when_pattern_irrefutable_at(mir_id, pattern, source_ty, false)
+}
+
+-- A route case pattern matches every value of its route only when the route
+-- has that one case. within_case asks the weaker question the top level of a
+-- when or check route needs: does the pattern match every value of its case?
+-- Nested payload patterns always ask the full question, so
+-- Wrap::One { inner: Shape::Dot { x, y } } does not cover Wrap::One.
+task v4_mir_route_case_total(ty_id: int, route_name: word) -> int {
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    if sig_id < 0 {
+        give back 0
+    }
+    give back v4_ty_route_case_count(ty_id, sig_id)
+}
+
+task v4_mir_when_pattern_irrefutable_at(mir_id: int, pattern: word, source_ty: word, within_case: bool) -> bool {
     pattern = v4_mir_pattern_trim(pattern)
     if pattern == "" or pattern == "_" {
         give back true
@@ -8340,6 +8368,9 @@ task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: w
         if not v4_ty_route_case_has_payload(ty_id, route_lookup_name, case_name) {
             give back false
         }
+        if not within_case and v4_mir_route_case_total(ty_id, route_lookup_name) != 1 {
+            give back false
+        }
 
         pilot seen_fields = ""
         pilot field_idx = 0
@@ -8348,15 +8379,19 @@ task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: w
             pilot field_segment = v4_mir_named_brace_pattern_field(pattern, field_idx)
             pilot field_name = v4_mir_named_brace_field_name(field_segment)
             pilot child_pattern = v4_mir_named_brace_field_pattern(field_segment)
-            if field_name == "" or v4_mir_name_list_contains(seen_fields, field_name) {
-                give back false
-            }
-            seen_fields = v4_mir_name_list_add(seen_fields, field_name)
-            pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_lookup_name, case_name, field_name)
-            if field_ty == v4_ty_unknown {
-                give back false
-            }
-            if not v4_mir_when_pattern_is_irrefutable(mir_id, child_pattern, field_ty) {
+            if not v4_mir_pattern_is_rest(field_segment) {
+                if field_name == "" or v4_mir_name_list_contains(seen_fields, field_name) {
+                    give back false
+                }
+                seen_fields = v4_mir_name_list_add(seen_fields, field_name)
+                pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_lookup_name, case_name, field_name)
+                if field_ty == v4_ty_unknown {
+                    give back false
+                }
+                if not v4_mir_when_pattern_is_irrefutable(mir_id, child_pattern, field_ty) {
+                    give back false
+                }
+            } else if field_idx != field_count - 1 {
                 give back false
             }
             field_idx += 1
@@ -8373,6 +8408,9 @@ task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: w
             case_name = v4_mir_path_right(pattern)
         }
         pilot route_lookup_name = v4_mir_route_effective_name(ty_id, route_name, source_ty)
+        if not within_case and v4_mir_route_case_total(ty_id, route_lookup_name) != 1 {
+            give back false
+        }
         give back route_name != "" and v4_mir_route_names_match(ty_id, route_name, source_ty) and v4_ty_route_has_case(ty_id, route_lookup_name, case_name)
     }
 
@@ -8472,7 +8510,7 @@ task v4_mir_when_pattern_full_route_case(mir_id: int, pattern: word, source_ty: 
     if case_name == "" {
         give back ""
     }
-    if v4_mir_when_pattern_is_irrefutable(mir_id, pattern, source_ty) {
+    if v4_mir_when_pattern_irrefutable_at(mir_id, pattern, source_ty, true) {
         give back case_name
     }
     give back ""
@@ -8659,11 +8697,11 @@ task v4_mir_try_lower_route_pattern_bindings(mir_id: int, body_id: int, block_id
             pilot field_segment = v4_mir_named_brace_pattern_field(pattern, field_idx)
             pilot field_name = v4_mir_named_brace_field_name(field_segment)
             pilot child_pattern = v4_mir_named_brace_field_pattern(field_segment)
-            if field_name != "" and not v4_mir_name_list_contains(seen_fields, field_name) {
+            if not v4_mir_pattern_is_rest(field_segment) and field_name != "" and not v4_mir_name_list_contains(seen_fields, field_name) {
                 seen_fields = v4_mir_name_list_add(seen_fields, field_name)
                 pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_lookup_name, case_name, field_name)
                 if field_ty != v4_ty_unknown {
-                    pilot field_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + field_name, source_place, field_name, 0 - 1, stmt_span, field_ty)
+                    pilot field_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + field_name, source_place, v4_mir_route_payload_field_key(case_name, field_name), 0 - 1, stmt_span, field_ty)
                     v4_mir_lower_when_pattern_bindings(mir_id, body_id, block_id, stmt_span, child_pattern, field_place, field_ty)
                 }
             }
@@ -8957,6 +8995,23 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
     give back v4_mir_build_close_check_join(mir_id, body_id, after_block)
 }
 
+-- Pattern tests short-circuit: the conjunction a pattern builds becomes a
+-- chain of branches, so a payload, slot or element test runs only after the
+-- tag and the earlier tests matched, and an arm never reads payload bytes
+-- its case does not own. Every test stays a branch read, as one combined
+-- test was, so Meiya sees no new transfer.
+task v4_mir_lower_pattern_test_chain(mir_id: int, body_id: int, block_id: int, stmt_span: word, cond_rvalue: int, hit_block: int, miss_block: int, hit_label: word) -> void {
+    if v4_mir_rvalue_kind(mir_id, body_id, cond_rvalue) == v4_mir_rvalue_binary and v4_mir_rvalue_op(mir_id, body_id, cond_rvalue) == v4_mir_bin_and {
+        pilot rest_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+        v4_mir_lower_pattern_test_chain(mir_id, body_id, block_id, stmt_span, v4_mir_rvalue_lhs(mir_id, body_id, cond_rvalue), rest_block, miss_block, "then#")
+        v4_mir_lower_pattern_test_chain(mir_id, body_id, rest_block, stmt_span, v4_mir_rvalue_rhs(mir_id, body_id, cond_rvalue), hit_block, miss_block, hit_label)
+        give back
+    }
+    pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
+    v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, hit_block, miss_block, cond_text))
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, hit_label + word_from_int(hit_block) + " next#" + word_from_int(miss_block), stmt_span, 0 - 1, cond_rvalue)
+}
+
 task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, check_token: int, stmt_end: int) -> int {
     pilot route_token = v4_mir_skip_trivia(stream_id, check_token + 1)
     pilot open_token = v4_mir_find_token_value(stream_id, route_token, stmt_end, "{")
@@ -9035,8 +9090,7 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
                 if completes_route {
                     v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_goto, arm_block, 0 - 1, ""))
                 } else {
-                    v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_if, arm_block, next_check, cond_text))
-                    v4_mir_build_add_scoped_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
+                    v4_mir_lower_pattern_test_chain(mir_id, body_id, current_check, stmt_span, cond_rvalue, arm_block, next_check, "arm#")
                 }
                 current_check = next_check
             }
@@ -9294,8 +9348,7 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
                 if completes_route {
                     v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_goto, arm_block, 0 - 1, ""))
                 } else {
-                    v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_if, arm_block, next_check, cond_text))
-                    v4_mir_build_add_scoped_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
+                    v4_mir_lower_pattern_test_chain(mir_id, body_id, current_check, stmt_span, cond_rvalue, arm_block, next_check, "arm#")
                 }
                 current_check = next_check
             }
