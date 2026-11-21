@@ -877,6 +877,8 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
     if v4_ty_is_surface_task_function_type(ty_name) {
         give back "ptr"
     }
+    -- A closure value is its code pointer and its environment pointer.
+    if v4_ty_is_closure_type(ty_name) { give back v4_codegen_llvm_closure_value_type() }
     if ty_name == v4_ty_void or ty_name == v4_ty_never {
         give back "void"
     }
@@ -1774,7 +1776,7 @@ task v4_codegen_llvm_call_target_rvalue(mir_id: int, body_id: int, call_rvalue_i
     if v4_ty_is_surface_task_function_type(v4_mir_rvalue_ty(mir_id, body_id, lhs)) {
         give back lhs
     }
-    give back 0 - 1
+    give back v4_mir_rvalue_closure_callee(mir_id, body_id, call_rvalue_id)
 }
 
 task v4_codegen_llvm_variadic_arg_promoted_type(mir_id: int, body_id: int, call_rvalue_id: int, arg_id: int) -> word {
@@ -1785,6 +1787,9 @@ task v4_codegen_llvm_variadic_arg_promoted_type(mir_id: int, body_id: int, call_
 
     pilot call_name = v4_mir_rvalue_op(mir_id, body_id, call_rvalue_id)
     pilot ty_id = v4_mir_ty_id(mir_id)
+    -- A closure call's parameters are its closure type's, whatever its name.
+    pilot closure_callee = v4_mir_rvalue_closure_callee(mir_id, body_id, call_rvalue_id)
+    if closure_callee >= 0 { give back v4_ty_canonical_type(ty_id, v4_ty_closure_param_type(v4_mir_rvalue_ty(mir_id, body_id, closure_callee), arg_id)) }
     pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, call_name)
     if sig_id < 0 {
         pilot callee_body = v4_codegen_llvm_find_mir_body(mir_id, v4_codegen_llvm_call_callee_name(mir_id, body_id, call_rvalue_id))
@@ -2279,6 +2284,10 @@ task v4_codegen_llvm_call_instruction(mir_id: int, body_id: int, rvalue_id: int,
     }
     if v4_codegen_llvm_c_call_plan(mir_id, body_id, rvalue_id) != 0 { give back v4_codegen_llvm_c_call_instruction(mir_id, body_id, rvalue_id, call_cc, call_symbol, call_abi, target) }
     pilot stores = v4_codegen_llvm_abi_arg_stores(mir_id, body_id, rvalue_id)
+    if v4_mir_rvalue_closure_callee(mir_id, body_id, rvalue_id) >= 0 {
+        stores = v4_codegen_llvm_closure_call_prelude(mir_id, body_id, rvalue_id) + stores
+        call_symbol = v4_codegen_llvm_closure_call_code(body_id, rvalue_id)
+    }
     pilot call_text = v4_codegen_llvm_call_text(mir_id, body_id, rvalue_id, call_cc, call_return, call_symbol, call_abi)
     if v4_codegen_llvm_call_returns_aggregate(mir_id, body_id, rvalue_id) {
         if target == "" { give back stores + call_text }
@@ -2471,6 +2480,18 @@ task v4_codegen_llvm_rvalue_tree_lines(mir_id: int, body_id: int, rvalue_id: int
 
 task v4_codegen_llvm_call_args(mir_id: int, body_id: int, rvalue_id: int) -> word {
     pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+    if v4_mir_rvalue_closure_callee(mir_id, body_id, rvalue_id) >= 0 {
+        pilot env = "ptr " + v4_codegen_llvm_closure_call_env(body_id, rvalue_id)
+        if arg_count <= 0 { give back env }
+        pilot closure_parts = v4_codegen_llvm_fragment_new()
+        v4_codegen_llvm_fragment_push(closure_parts, env)
+        pilot closure_arg = 0
+        repeat until closure_arg >= arg_count {
+            v4_codegen_llvm_fragment_push(closure_parts, ", " + v4_codegen_llvm_call_arg_operand(mir_id, body_id, rvalue_id, closure_arg))
+            closure_arg += 1
+        }
+        give back v4_codegen_llvm_fragment_finish(closure_parts)
+    }
     if arg_count <= 0 {
         -- The lhs of an indirect call is its target, never a payload operand.
         -- Older direct-call MIR may still use lhs/rhs for positional operands.
@@ -2540,7 +2561,9 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                     pilot call_symbol_name = v4_codegen_llvm_call_callee_name(mir_id, body_idx, rvalue_idx)
                     pilot call_link = ""
                     pilot call_symbol = ""
-                    if target_rvalue >= 0 {
+                    if v4_mir_rvalue_closure_callee(mir_id, body_idx, rvalue_idx) >= 0 {
+                        call_symbol = v4_codegen_llvm_closure_call_code(body_idx, rvalue_idx)
+                    } else if target_rvalue >= 0 {
                         call_symbol = v4_codegen_llvm_rvalue_value(mir_id, body_idx, target_rvalue)
                     } else {
                         if call_sig >= 0 {
@@ -2582,9 +2605,15 @@ task v4_codegen_llvm_body_header(mir_id: int, body_id: int) -> word {
     pilot return_ty = v4_codegen_llvm_body_return_llvm_type(mir_id, body_id)
     pilot parts = v4_codegen_llvm_fragment_new()
     pilot param_id = 0
+    pilot closure: bool = v4_mir_body_is_closure(mir_id, body_id)
     if v4_codegen_llvm_body_uses_sret(mir_id, body_id) {
         pilot result_ty = v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body_id))
         v4_codegen_llvm_fragment_push(parts, "ptr noalias sret(" + result_ty + ") " + v4_codegen_llvm_abi_attrs_marker(result_ty) + " %ret")
+        if v4_mir_body_callable_param_count(mir_id, body_id) > 0 or closure { v4_codegen_llvm_fragment_push(parts, ", ") }
+    }
+    -- A closure body takes its environment first.
+    if closure {
+        v4_codegen_llvm_fragment_push(parts, "ptr %env")
         if v4_mir_body_callable_param_count(mir_id, body_id) > 0 { v4_codegen_llvm_fragment_push(parts, ", ") }
     }
     repeat until param_id >= v4_mir_body_callable_param_count(mir_id, body_id) {
@@ -2790,6 +2819,7 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
         v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_scalar_sum_bridge_slots(mir_id, body_id))
         v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_route_slots(mir_id, body_id))
         v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_aggregate_abi_slots(mir_id, body_id))
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_closure_env_slots(mir_id, body_id))
     }
     pilot local_id = 0
     repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
@@ -2798,7 +2828,7 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
         if v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, local_id) { local_ty = "ptr" }
         pilot aggregate_param: bool = v4_codegen_llvm_param_is_aggregate(mir_id, body_id, local_id)
         -- An aggregate parameter's storage is the caller's copy itself.
-        if aggregate_param { v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = getelementptr inbounds i8, ptr %arg." + word_from_int(local_id) + ", i64 0\n") } else { v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = alloca " + local_ty + "\n") }
+        if v4_mir_body_local_is_closure_capture(mir_id, body_id, local_id) { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_closure_capture_slot_lines(mir_id, body_id, local_id)) } else if aggregate_param { v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = getelementptr inbounds i8, ptr %arg." + word_from_int(local_id) + ", i64 0\n") } else { v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = alloca " + local_ty + "\n") }
         if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local_id) {
             pilot initial_value = "0"
             if v4_mir_scalar_sum_kind(mir_id, v4_mir_local_ty(mir_id, body_id, local_id)) != "" or local_ty != "i64" { initial_value = "zeroinitializer" }
@@ -2924,6 +2954,10 @@ task v4_codegen_llvm_native_type_error_depth(type_text: word, allow_void: bool, 
     -- Opaque raw pointer values do not require an aggregate layout. Operations
     -- that dereference/offset them separately validate the pointee type.
     if v4_ty_is_raw_pointer_type(type_text) { give back "" }
+    if v4_ty_is_closure_type(type_text) {
+        if depth != 0 { give back "native closures inside other types are not yet supported: " + type_text }
+        give back v4_codegen_llvm_native_closure_type_error(type_text)
+    }
     if v4_ty_is_surface_task_function_type(type_text) {
         -- Function-type parameter readers currently erase named lend modes.
         -- Keep these callbacks fenced until their ownership modes are proven.
@@ -3574,6 +3608,7 @@ task v4_codegen_llvm_shape_records(mir_id: int) -> word {
         }
         sig += 1
     }
+    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_closure_records(mir_id))
     pilot out = word_join(parts)
     array_release(parts)
     give back out + v4_codegen_llvm_sum_records(mir_id)
@@ -3981,7 +4016,9 @@ task v4_codegen_llvm_native_c_width_error(mir_id: int, ty_id: int) -> word {
             }
             rvalue += 1
         }
-        if v4_mir_body_signature_id(mir_id, body) < 0 and not v4_mir_body_is_module_init(mir_id, body) {
+        -- A closure body's parameters are checked where MIR Build lowers it,
+        -- and its locals share the creating task's annotation table.
+        if v4_mir_body_signature_id(mir_id, body) < 0 and not v4_mir_body_is_module_init(mir_id, body) and not v4_mir_body_is_closure(mir_id, body) {
             pilot item = v4_mir_body_impl_method_index(mir_id, body, 0)
             pilot method = v4_mir_body_impl_method_index(mir_id, body, 1)
             if item < 0 or method < 0 { give back "native C ABI callable surface is unresolved" }
@@ -4283,6 +4320,7 @@ task v4_codegen_llvm_native_symbol_value_error(mir_id: int, text: word, type_tex
 
 task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_closure or kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut or kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move) { give back v4_codegen_llvm_native_closure_rvalue_error(mir_id, body_id, rvalue_id) }
     if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_aggregate_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back v4_codegen_llvm_native_aggregate_lend_error(mir_id, body_id, rvalue_id) }
     if kind != v4_mir_rvalue_const_int and kind != v4_mir_rvalue_const_float and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_const_bool and kind != v4_mir_rvalue_const_char and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_use_symbol and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_call and not (v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_lend or v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_use_place or v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) or (kind == v4_mir_rvalue_or_else and v4_codegen_llvm_or_else_is_supported(mir_id, body_id, rvalue_id)))) {
         -- A Sum operation over a carrier freak_ty does not admit names the payload.
@@ -4560,11 +4598,13 @@ task v4_codegen_llvm_native_mir_error(mir_id: int) -> word {
         repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
             error = v4_codegen_llvm_native_type_error(v4_mir_local_ty(mir_id, body_id, local_id), false)
             if error != "" { give back error }
-            if v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value and not v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, local_id) {
+            if v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value and not v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, local_id) and not (v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_body_local_is_closure_capture(mir_id, body_id, local_id)) {
                 if v4_codegen_llvm_active_owned_mir != mir_id or local_id >= v4_mir_body_callable_param_count(mir_id, body_id) or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_lend or v4_mir_local_ty(mir_id, body_id, local_id) != v4_ty_word { give back "native lend parameters currently support only immutable word parameters" }
             }
             local_id += 1
         }
+        error = v4_codegen_llvm_native_closure_use_error(mir_id, body_id)
+        if error != "" { give back error }
         pilot block_id = 0
         pilot block_count = v4_mir_body_block_count(mir_id, body_id)
         if block_count <= 0 { give back "invalid native body without blocks" }
@@ -5505,6 +5545,265 @@ task v4_codegen_llvm_native_aggregate_lend_error(mir_id: int, body_id: int, rval
     give back v4_codegen_llvm_native_place_error(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, lhs), 0)
 }
 
+-- Closures (tier 3). A closure expression in an ordinary task has its own
+-- MIR body (v4_mir_closure_rvalue_body): an LLVM function whose first
+-- parameter is a pointer to its environment, `%"freak.closure.env.<id>"`, a
+-- struct with one slot per capture in capture order. A copy or move capture
+-- slot holds the captured value; a default (borrow) or mut capture slot holds
+-- a pointer to the captured storage. Capture modes are MIR facts: the
+-- capture rvalue kinds in the creating body and the capture local modes in
+-- the closure body. A closure value is `{ code, env }`. The environment is
+-- an entry-block slot of the creating body, so a closure value lives no
+-- longer than that frame: it may initialize a local and be called, and every
+-- other use (returning, passing, storing, reassigning) is refused by name.
+task v4_codegen_llvm_closure_value_type() -> word {
+    give back "{" + " ptr, ptr " + "}"
+}
+
+task v4_codegen_llvm_closure_env_type(mir_id: int, closure_body: int) -> word {
+    pilot name = v4_mir_body_name(mir_id, closure_body)
+    pilot prefix = "freak.closure."
+    if name.starts_with(prefix) { name = v4_slice(name, prefix.length(), name.length()) }
+    pilot symbol = v4_codegen_llvm_symbol("freak.closure.env." + name)
+    give back "%" + v4_slice(symbol, 1, symbol.length())
+}
+
+task v4_codegen_llvm_closure_env_slot(body_id: int, rvalue_id: int) -> word {
+    give back "%closure.env." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+}
+
+-- The capture mode a closure body local carries for a capture kind.
+task v4_codegen_llvm_capture_local_mode(kind: word) -> word {
+    if kind == v4_mir_rvalue_capture_borrow { give back v4_ty_param_mode_lend }
+    if kind == v4_mir_rvalue_capture_borrow_mut { give back v4_ty_param_mode_lend_mut }
+    give back v4_ty_param_mode_value
+}
+
+-- Environment records for shape_records: the env type, then each slot.
+task v4_codegen_llvm_closure_records(mir_id: int) -> word {
+    pilot parts = v4_codegen_llvm_fragment_new()
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot count = v4_mir_body_closure_capture_count(mir_id, body)
+        if count >= 0 {
+            v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_closure_env_type(mir_id, body))
+            pilot capture = 0
+            repeat until capture >= count {
+                pilot local = v4_mir_body_closure_capture_local(mir_id, body, capture)
+                pilot slot_ty = "ptr"
+                if v4_mir_local_mode(mir_id, body, local) == v4_ty_param_mode_value { slot_ty = v4_codegen_llvm_type(v4_mir_local_ty(mir_id, body, local)) }
+                v4_codegen_llvm_fragment_push(parts, "\t" + slot_ty)
+                capture += 1
+            }
+            v4_codegen_llvm_fragment_push(parts, "\n")
+        }
+        body += 1
+    }
+    pilot out = word_join(parts)
+    array_release(parts)
+    give back out
+}
+
+-- One environment slot per closure expression in the creating body.
+task v4_codegen_llvm_closure_env_slots(mir_id: int, body_id: int) -> word {
+    pilot out = ""
+    pilot value = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        pilot closure_body = v4_mir_closure_rvalue_body(mir_id, body_id, value)
+        if closure_body >= 0 { out = out + "  " + v4_codegen_llvm_closure_env_slot(body_id, value) + " = alloca " + v4_codegen_llvm_closure_env_type(mir_id, closure_body) + "\n" }
+        value += 1
+    }
+    give back out
+}
+
+-- In a closure body, a capture local's storage is its environment slot (a
+-- copy or move capture) or the captured storage the slot points to.
+task v4_codegen_llvm_closure_capture_slot_lines(mir_id: int, body_id: int, local_id: int) -> word {
+    pilot slot = v4_codegen_llvm_local_slot(local_id)
+    pilot index = word_from_int(local_id - v4_mir_body_callable_param_count(mir_id, body_id))
+    pilot address = "getelementptr inbounds " + v4_codegen_llvm_closure_env_type(mir_id, body_id) + ", ptr %env, i32 0, i32 " + index
+    if v4_mir_local_mode(mir_id, body_id, local_id) == v4_ty_param_mode_value { give back "  " + slot + " = " + address + "\n" }
+    give back "  " + slot + ".env = " + address + "\n  " + slot + " = load ptr, ptr " + slot + ".env\n"
+}
+
+-- Build a closure value: fill its environment from the captured locals in
+-- capture order, then pair the code pointer with the environment pointer.
+task v4_codegen_llvm_collect_closure_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word) -> bool {
+    pilot closure_body = v4_mir_closure_rvalue_body(mir_id, body_id, rvalue_id)
+    if closure_body < 0 { give back false }
+    pilot env = v4_codegen_llvm_closure_env_slot(body_id, rvalue_id)
+    pilot env_ty = v4_codegen_llvm_closure_env_type(mir_id, closure_body)
+    pilot prefix = "%closure." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+    pilot capture_id = 0
+    repeat until capture_id >= v4_mir_closure_capture_count(mir_id, body_id, rvalue_id) {
+        pilot index = word_from_int(capture_id)
+        pilot local = v4_mir_closure_capture_local(mir_id, body_id, rvalue_id, capture_id)
+        pilot slot = prefix + ".slot." + index
+        v4_codegen_llvm_fragment_push(parts, "  " + slot + " = getelementptr inbounds " + env_ty + ", ptr " + env + ", i32 0, i32 " + index + "\n")
+        pilot address = v4_codegen_llvm_local_address(parts, mir_id, body_id, local, prefix + ".at." + index)
+        pilot kind = v4_mir_rvalue_kind(mir_id, body_id, v4_mir_closure_capture(mir_id, body_id, rvalue_id, capture_id))
+        if kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut {
+            v4_codegen_llvm_fragment_push(parts, "  store ptr " + address + ", ptr " + slot + "\n")
+        } else {
+            pilot value_ty = v4_codegen_llvm_type(v4_mir_local_ty(mir_id, body_id, local))
+            v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".value." + index + " = load " + value_ty + ", ptr " + address + "\n")
+            v4_codegen_llvm_fragment_push(parts, "  store " + value_ty + " " + prefix + ".value." + index + ", ptr " + slot + "\n")
+        }
+        capture_id += 1
+    }
+    pilot pair = v4_codegen_llvm_closure_value_type()
+    pilot symbol = v4_codegen_llvm_callable_symbol(mir_id, v4_mir_body_name(mir_id, closure_body))
+    v4_codegen_llvm_fragment_push(parts, "  " + target + ".code = insertvalue " + pair + " undef, ptr " + symbol + ", 0\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + target + " = insertvalue " + pair + " " + target + ".code, ptr " + env + ", 1\n")
+    give back true
+}
+
+-- A call through a closure value takes its code and environment pointers
+-- apart; the environment is the first argument.
+task v4_codegen_llvm_closure_call_code(body_id: int, rvalue_id: int) -> word {
+    give back "%closure.fn." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+}
+
+task v4_codegen_llvm_closure_call_env(body_id: int, rvalue_id: int) -> word {
+    give back "%closure.envp." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+}
+
+task v4_codegen_llvm_closure_call_prelude(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot callee = v4_mir_rvalue_closure_callee(mir_id, body_id, rvalue_id)
+    if callee < 0 { give back "" }
+    pilot pair = v4_codegen_llvm_closure_value_type()
+    pilot value = v4_codegen_llvm_rvalue_value(mir_id, body_id, callee)
+    give back v4_codegen_llvm_closure_call_code(body_id, rvalue_id) + " = extractvalue " + pair + " " + value + ", 0\n  " + v4_codegen_llvm_closure_call_env(body_id, rvalue_id) + " = extractvalue " + pair + " " + value + ", 1\n  "
+}
+
+-- Closure types: declared parameter types, an inferred return type, and no
+-- words in the contract yet (a word parameter or result needs a closure
+-- ownership contract for the value that crosses).
+task v4_codegen_llvm_native_closure_type_error(type_text: word) -> word {
+    if v4_codegen_llvm_active_owned_mir < 0 { give back "native closures need the owned value path" }
+    pilot mir_id = v4_codegen_llvm_active_owned_mir
+    pilot return_ty = v4_ty_closure_return_type(type_text)
+    if return_ty == v4_ty_unknown { give back "native closure return type is not inferred: " + type_text }
+    pilot param = 0
+    repeat until param < 0 or param > v4_ty_closure_param_count(type_text) {
+        pilot part = return_ty
+        pilot allow_void: bool = true
+        if param < v4_ty_closure_param_count(type_text) {
+            part = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_closure_param_type(type_text, param))
+            allow_void = false
+            if part == v4_ty_unknown { give back "native closure parameters need declared types: " + type_text }
+        }
+        if v4_codegen_llvm_type_is_word_handle(part) or v4_codegen_llvm_task_pointer_contains_word(part, 0) or v4_codegen_llvm_type_owns_words(mir_id, part) { give back "native closures with word parameters or results are not yet supported: " + type_text }
+        if v4_ty_is_closure_type(part) { give back "native closures inside other types are not yet supported: " + type_text }
+        pilot error = v4_codegen_llvm_native_type_error_depth(part, allow_void, 1)
+        if error != "" { give back error }
+        param += 1
+    }
+    give back ""
+}
+
+-- A Closure rvalue and its capture children. Codegen checks the sealed facts
+-- agree (the closure body's capture locals match the capture kinds) and
+-- names what is out of scope.
+task v4_codegen_llvm_native_closure_rvalue_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
+    if kind != v4_mir_rvalue_closure {
+        -- A capture is evaluated only by the closure that lists it.
+        pilot owner = rvalue_id + 1
+        repeat until owner >= v4_mir_body_rvalue_count(mir_id, body_id) {
+            if v4_mir_rvalue_kind(mir_id, body_id, owner) == v4_mir_rvalue_closure {
+                pilot child = 0
+                repeat until child >= v4_mir_closure_capture_count(mir_id, body_id, owner) {
+                    if v4_mir_closure_capture(mir_id, body_id, owner, child) == rvalue_id { give back "" }
+                    child += 1
+                }
+            }
+            owner += 1
+        }
+        give back "invalid native closure capture: " + text
+    }
+    pilot closure_body = v4_mir_closure_rvalue_body(mir_id, body_id, rvalue_id)
+    if closure_body < 0 {
+        if v4_mir_body_is_closure(mir_id, body_id) { give back "native nested closures are not yet supported: " + text }
+        give back "native closures are lowered only in ordinary tasks, with FREAK parameter types: " + text
+    }
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if type_text != v4_mir_body_signature(mir_id, closure_body) { give back "invalid native closure type: " + text }
+    pilot error = v4_codegen_llvm_native_type_error(type_text, false)
+    if error != "" { give back error }
+    pilot count = v4_mir_closure_capture_count(mir_id, body_id, rvalue_id)
+    if count != v4_mir_body_closure_capture_count(mir_id, closure_body) { give back "invalid native closure environment: " + text }
+    pilot capture_id = 0
+    repeat until capture_id >= count {
+        pilot capture = v4_mir_closure_capture(mir_id, body_id, rvalue_id, capture_id)
+        pilot name = v4_mir_rvalue_text(mir_id, body_id, capture)
+        pilot capture_kind = v4_mir_rvalue_kind(mir_id, body_id, capture)
+        pilot capture_ty = v4_mir_rvalue_ty(mir_id, body_id, capture)
+        pilot outer = v4_mir_closure_capture_local(mir_id, body_id, rvalue_id, capture_id)
+        pilot inner = v4_mir_body_closure_capture_local(mir_id, closure_body, capture_id)
+        if outer < 0 or inner < 0 or capture < 0 or capture >= rvalue_id { give back "invalid native closure capture: " + name }
+        if v4_mir_local_name(mir_id, closure_body, inner) != name or v4_mir_local_ty(mir_id, closure_body, inner) != capture_ty or v4_mir_local_mode(mir_id, closure_body, inner) != v4_codegen_llvm_capture_local_mode(capture_kind) { give back "invalid native closure environment: " + text }
+        if v4_ty_is_closure_type(capture_ty) { give back "native closures that capture closures are not yet supported: " + name }
+        pilot owns: bool = v4_codegen_llvm_type_is_word_handle(capture_ty) or v4_codegen_llvm_type_owns_words(mir_id, capture_ty)
+        if owns and (capture_kind == v4_mir_rvalue_capture_copy or capture_kind == v4_mir_rvalue_capture_move) { give back "native closure captures that move words are not yet supported: " + name }
+        if owns and capture_kind == v4_mir_rvalue_capture_borrow_mut { give back "native mutable closure captures of words are not yet supported: " + name }
+        error = v4_codegen_llvm_native_type_error(capture_ty, false)
+        if error != "" { give back error }
+        capture_id += 1
+    }
+    give back ""
+}
+
+-- Where a closure value may go while its environment lives in the creating
+-- frame: it initializes a local (a Closure or a closure local), and a closure
+-- local is called. Returning, passing, storing and reassigning are named.
+task v4_codegen_llvm_native_closure_use_error(mir_id: int, body_id: int) -> word {
+    pilot count = v4_mir_body_rvalue_count(mir_id, body_id)
+    pilot any = false
+    pilot value = 0
+    repeat until value >= count or any {
+        if v4_ty_is_closure_type(v4_mir_rvalue_ty(mir_id, body_id, value)) { any = true }
+        value += 1
+    }
+    if not any { give back "" }
+    pilot allowed = v4_codegen_llvm_fragment_new()
+    value = 0
+    repeat until value >= count {
+        v4_codegen_llvm_fragment_push(allowed, "0")
+        value += 1
+    }
+    pilot error = ""
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body_id) or error != "" {
+        pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt)
+        pilot place = v4_mir_stmt_place(mir_id, body_id, stmt)
+        pilot rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt)
+        if place >= 0 and rvalue >= 0 and rvalue < count {
+            if kind == v4_mir_stmt_local and v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_local { array_set(allowed, rvalue, "1") }
+            if kind == v4_mir_stmt_assign and v4_ty_is_closure_type(v4_mir_place_ty(mir_id, body_id, place)) { error = "native closure values cannot be reassigned yet: " + v4_mir_place_text(mir_id, body_id, place) }
+        }
+        stmt += 1
+    }
+    value = 0
+    repeat until value >= count {
+        pilot callee = v4_mir_rvalue_closure_callee(mir_id, body_id, value)
+        if callee >= 0 and v4_mir_rvalue_kind(mir_id, body_id, callee) == v4_mir_rvalue_use_local { array_set(allowed, callee, "1") }
+        value += 1
+    }
+    value = 0
+    repeat until value >= count or error != "" {
+        pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
+        if v4_ty_is_closure_type(v4_mir_rvalue_ty(mir_id, body_id, value)) and kind != v4_mir_rvalue_capture_borrow and kind != v4_mir_rvalue_capture_borrow_mut and kind != v4_mir_rvalue_capture_copy and kind != v4_mir_rvalue_capture_move {
+            pilot mark: word = array_get(allowed, value)
+            if mark != "1" or (kind != v4_mir_rvalue_closure and kind != v4_mir_rvalue_use_local) { error = "native closure values that leave their creating frame are not yet supported: " + v4_mir_rvalue_text(mir_id, body_id, value) }
+        }
+        value += 1
+    }
+    array_release(allowed)
+    give back error
+}
+
 -- Place reads, aggregate literals and Sum checks/takes. One call site keeps
 -- these out of the recursive collector's frame: every extra call there costs
 -- stack per expression level (Windows' 1 MB stack runs the depth contract).
@@ -5526,6 +5825,7 @@ task v4_codegen_llvm_collect_owned_special_lines(parts: int, mir_id: int, body_i
         give back true
     }
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut { give back v4_codegen_llvm_collect_aggregate_lend_lines(parts, mir_id, body_id, rvalue_id, target) }
+    if kind == v4_mir_rvalue_closure { give back v4_codegen_llvm_collect_closure_lines(parts, mir_id, body_id, rvalue_id, target) }
     give back false
 }
 
