@@ -98,6 +98,6 @@ say "variant-arm-rvalue-kind=" + v4_mir_rvalue_kind(v4_variant_route_alias_mir, 
 say "variant-arm-rvalue-ty=" + v4_mir_rvalue_ty(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_arm_rvalue)
 say "variant-code-kind=" + v4_mir_rvalue_kind(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_code_rvalue)
 say "variant-code-ty=" + v4_mir_rvalue_ty(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_code_rvalue)
-say "variant-code-place-field=" + v4_mir_place_field(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_code_place)
+say "variant-code-place-field=" + v4_mir_place_route_payload_field(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_code_place)
 say "variant-code-place-ty=" + v4_mir_place_ty(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_code_place)
 say "variant-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_variant_route_alias_mir))

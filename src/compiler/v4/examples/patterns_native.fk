@@ -1,0 +1,197 @@
+-- Tier 3 patterns: when over tuples, fixed arrays and route payloads,
+-- nested to any depth, and check route over user routes. Every arm's tests
+-- run as a chain of branches, tag first, so a payload test never reads
+-- bytes its case does not own.
+
+shape Point { x: int, y: int }
+
+route Shape {
+    Circle { r: int, center: Point }
+    Rect { x: int, y: int, w: int, h: int }
+    Dot { x: int, y: int }
+    Empty
+}
+
+-- Key and Click both carry code, at different offsets: a binding reads the
+-- case its pattern named.
+route Event {
+    Key { code: int, shifted: bool }
+    Click { flag: bool, at: (int, int), code: int }
+    Scroll { steps: [int; 3] }
+    Quit
+}
+
+route Wrap {
+    One { inner: Shape }
+    Two { pair: (int, bool), cells: [int; 3] }
+    Many { first: Shape, second: Shape }
+    Nothing
+}
+
+task classify(p: (int, bool)) -> int {
+    when p {
+        (0, true) -> give back 1
+        (0, false) -> give back 2
+        (n, true) -> give back n * 10
+        (n, _) -> give back n
+    }
+    give back 0 - 1
+}
+
+task grid(a: [[int; 2]; 2]) -> int {
+    when a {
+        [[0, 0], [0, 0]] -> give back 0
+        [[1, b], [c, _]] -> give back b + c
+        [_, [_, d]] -> give back d * 100
+    }
+    give back 0 - 2
+}
+
+task bytes(a: [tiny; 3]) -> int {
+    when a {
+        [1, x, 2] -> give back x
+        [_, _, 0] -> give back 0 - 3
+        _ -> give back 0
+    }
+    give back 0 - 4
+}
+
+task mixed(t: (float, char, bool)) -> int {
+    when t {
+        (1.5, 'a', true) -> give back 1
+        (_, 'b', _) -> give back 2
+        (_, _, false) -> give back 3
+        _ -> give back 4
+    }
+    give back 0
+}
+
+task nested(wrap: Wrap) -> int {
+    when wrap {
+        Wrap::One { inner: Shape::Dot { x: 0, y } } -> give back y
+        Wrap::One { inner: Shape::Dot { x, y } } -> give back x + y
+        Wrap::One { inner: Shape::Circle { r, center } } -> give back r * 1000 + center.x + center.y
+        Wrap::One { inner: Shape::Rect { w, .. } } -> give back w
+        Wrap::One { inner } -> give back 7
+        Wrap::Two { pair: (a, true), cells: [c0, _, c2] } -> give back a + c0 + c2
+        Wrap::Two { pair, cells } -> give back pair.0 - cells[1]
+        Wrap::Many { first: Shape::Empty, second: Shape::Empty } -> give back 0
+        Wrap::Many { first: Shape::Dot { x }, second: Shape::Dot { y, .. } } -> give back x * 10 + y
+        Wrap::Many { .. } -> give back 99
+        Wrap::Nothing -> give back 0 - 5
+    }
+    give back 0 - 9
+}
+
+task event_code(e: Event) -> int {
+    when e {
+        Event::Key { code, shifted: true } -> give back code + 1000
+        Event::Key { code } -> give back code
+        Event::Click { flag: true, at: (0, 0), code } -> give back 0 - code
+        Event::Click { at: (x, y), code, .. } -> give back code * 100 + x * 10 + y
+        Event::Scroll { steps: [0, 0, 0] } -> give back 0
+        Event::Scroll { steps: [s, _, _] } -> give back s
+        Event::Quit -> give back 0 - 1
+    }
+    give back 0 - 2
+}
+
+-- Bare case names and nested payload patterns; Circle and Rect fall to _.
+task describe(s: Shape) -> int {
+    check route s {
+        Dot { x: 0, y: 0 } -> give back 0
+        Shape::Dot { x, y } -> give back x * y
+        Empty -> give back 0 - 1
+        _ -> give back 5
+    }
+    give back 0 - 9
+}
+
+-- No catch-all: the last arm completes the route, so it takes no test.
+task depth(w: Wrap) -> int {
+    check route w {
+        One { inner: Shape::Empty } -> give back 1
+        One { inner } -> give back 2
+        Two { .. } -> give back 3
+        Many { first, second: Shape::Dot { .. } } -> give back 4
+        Many { .. } -> give back 5
+        Nothing -> give back 6
+    }
+    give back 0
+}
+
+task pairs(p: (Shape, Event)) -> int {
+    when p {
+        (Shape::Dot { x, y }, Event::Key { code }) -> give back x + y + code
+        (Shape::Empty, Event::Quit) -> give back 0
+        (_, Event::Scroll { steps: [_, m, _] }) -> give back m
+        (_, _) -> give back 0 - 1
+    }
+    give back 0 - 2
+}
+
+task main() -> int {
+    say classify((0, true))
+    say classify((0, false))
+    say classify((4, true))
+    say classify((5, false))
+    say grid([[0, 0], [0, 0]])
+    say grid([[1, 2], [3, 4]])
+    say grid([[5, 6], [7, 8]])
+    pilot b1: [tiny; 3] = [1, 7, 2]
+    pilot b2: [tiny; 3] = [9, 9, 0]
+    pilot b3: [tiny; 3] = [9, 9, 9]
+    say bytes(b1)
+    say bytes(b2)
+    say bytes(b3)
+    say mixed((1.5, 'a', true))
+    say mixed((1.5, 'b', true))
+    say mixed((2.5, 'a', false))
+    say mixed((2.5, 'a', true))
+    say nested(Wrap::One { inner: Shape::Dot { x: 0, y: 3 } })
+    say nested(Wrap::One { inner: Shape::Dot { x: 2, y: 3 } })
+    say nested(Wrap::One { inner: Shape::Circle { r: 2, center: Point { x: 10, y: 20 } } })
+    say nested(Wrap::One { inner: Shape::Rect { x: 1, y: 2, w: 30, h: 4 } })
+    say nested(Wrap::One { inner: Shape::Empty })
+    say nested(Wrap::Two { pair: (1, true), cells: [10, 20, 30] })
+    say nested(Wrap::Two { pair: (1, false), cells: [10, 20, 30] })
+    say nested(Wrap::Many { first: Shape::Empty, second: Shape::Empty })
+    say nested(Wrap::Many { first: Shape::Dot { x: 4, y: 0 }, second: Shape::Dot { x: 0, y: 6 } })
+    say nested(Wrap::Many { first: Shape::Empty, second: Shape::Dot { x: 0, y: 6 } })
+    say nested(Wrap::Nothing)
+    say event_code(Event::Key { code: 7, shifted: true })
+    say event_code(Event::Key { code: 7, shifted: false })
+    say event_code(Event::Click { flag: true, at: (0, 0), code: 8 })
+    say event_code(Event::Click { flag: true, at: (1, 2), code: 8 })
+    say event_code(Event::Click { flag: false, at: (0, 0), code: 9 })
+    say event_code(Event::Scroll { steps: [0, 0, 0] })
+    say event_code(Event::Scroll { steps: [4, 5, 6] })
+    say event_code(Event::Quit)
+    say describe(Shape::Dot { x: 0, y: 0 })
+    say describe(Shape::Dot { x: 3, y: 4 })
+    say describe(Shape::Empty)
+    say describe(Shape::Circle { r: 1, center: Point { x: 0, y: 0 } })
+    say depth(Wrap::One { inner: Shape::Empty })
+    say depth(Wrap::One { inner: Shape::Dot { x: 1, y: 1 } })
+    say depth(Wrap::Two { pair: (0, false), cells: [0, 0, 0] })
+    say depth(Wrap::Many { first: Shape::Empty, second: Shape::Dot { x: 1, y: 1 } })
+    say depth(Wrap::Many { first: Shape::Empty, second: Shape::Empty })
+    say depth(Wrap::Nothing)
+    say pairs((Shape::Dot { x: 1, y: 2 }, Event::Key { code: 3, shifted: false }))
+    say pairs((Shape::Empty, Event::Quit))
+    say pairs((Shape::Empty, Event::Scroll { steps: [1, 42, 3] }))
+    say pairs((Shape::Empty, Event::Key { code: 3, shifted: false }))
+    -- A when in a loop tests a fresh value on every pass.
+    pilot mut total = 0
+    pilot mut i = 0
+    repeat until i >= 4 {
+        pilot mut e = Event::Quit
+        if i == 1 { e = Event::Key { code: i, shifted: false } }
+        if i == 2 { e = Event::Click { flag: false, at: (i, i), code: 5 } }
+        if i == 3 { e = Event::Scroll { steps: [i, 0, 0] } }
+        total = total + event_code(e)
+        i += 1
+    }
+    say total
+    give back 7
+}

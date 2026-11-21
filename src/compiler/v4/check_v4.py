@@ -8932,6 +8932,7 @@ EXECUTABLE_SMOKES = [
             "check-route-key-code-kind=UsePlace",
             "check-route-key-code-ty=int",
             "check-route-key-code-source-field=code",
+            "check-route-key-code-source-case=Key",
             "check-route-key-code-source-ty=int",
             "check-route-held-kind=UsePlace",
             "check-route-held-ty=bool",
@@ -17562,10 +17563,6 @@ def check_v4_native_shapes() -> None:
         ("tier3_route_duplicate_tag", "route Dup { A = 1, B = 1 }\n"
          "task main() -> int {\n    pilot d = Dup::A\n    give back 0\n}\n",
          "native route discriminants must be distinct: Dup::A and Dup::B are both 1"),
-        ("tier3_route_shared_field", "route Mix {\n    P { a: bool, x: int }\n    Q { x: int }\n}\n"
-         "task pick(m: Mix) -> int {\n    when m {\n        Mix::P { x } -> give back x\n        Mix::Q { x } -> give back x\n    }\n    give back 0\n}\n"
-         "task main() -> int { give back pick(Mix::Q { x: 3 }) }\n",
-         "native route payload fields shared by cases at different offsets are not yet supported: _when_subject.x"),
         ("tier3_route_constant", "route Compass { North / East }\nfixed pilot START: Compass = Compass::East\n"
          "task id(c: Compass) -> int {\n    when c {\n        Compass::East -> give back 1\n        _ -> give back 0\n    }\n    give back 9\n}\n"
          "task main() -> int { give back id(START) }\n",
@@ -17603,7 +17600,86 @@ def check_v4_native_shapes() -> None:
             raise RuntimeError(f"V4 shape case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
     print(f"V4 native shapes: programs={len(programs)} run=exact bounds=panics layout-probes={probes} "
           f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+    check_v4_native_patterns()
     check_v4_native_c_widths()
+
+
+# Tier 3 patterns: when over tuples, fixed arrays and route payloads (nested,
+# with literals, wildcards and `..`), and check route over user routes.
+NATIVE_PATTERNS_EXPECTED = (
+    "1\n2\n40\n5\n0\n5\n800\n7\n-3\n0\n1\n2\n3\n4\n3\n5\n2030\n30\n7\n41\n-19\n0\n46\n99\n-5\n"
+    "1007\n7\n-8\n812\n900\n0\n4\n-1\n0\n12\n-1\n5\n1\n2\n3\n4\n5\n6\n6\n0\n42\n-1\n525\n"
+)
+NATIVE_PATTERNS_EXIT = 7
+NATIVE_PATTERNS_ROUTES = "route Shape {\n    Dot { x: int, y: int }\n    Empty\n}\nroute Wrap {\n    One { inner: Shape }\n    Nothing\n}\n"
+
+
+def check_v4_native_patterns() -> None:
+    """Build and run the patterns program exactly; refuse what is still out of scope."""
+    source = V4_ROOT / "examples" / "patterns_native.fk"
+    executable = RUNTIME_BUILD_ROOT / ("tier3_native_patterns.exe" if sys.platform == "win32" else "tier3_native_patterns.native")
+    executable.unlink(missing_ok=True)
+    built = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(executable)],
+        label="V4 build command: native patterns", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if built.returncode != 0 or not executable.exists():
+        raise RuntimeError(f"V4 rejected the native patterns program:\n{built.stdout}{built.stderr}")
+    ran = run_with_heartbeat([str(executable)], label="V4 native patterns execute", timeout_seconds=10, memory_limit_mb=128)
+    if ran.returncode != NATIVE_PATTERNS_EXIT or ran.stdout.replace("\r\n", "\n") != NATIVE_PATTERNS_EXPECTED:
+        raise RuntimeError(f"V4 native patterns printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
+    # Every target gets a module the layout oracle accepts.
+    probes = 0
+    for triple in NATIVE_LAYOUT_TRIPLES:
+        module_path = RUNTIME_BUILD_ROOT / f"tier3_native_patterns_{triple}.ll"
+        module_path.unlink(missing_ok=True)
+        emitted = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+            label=f"V4 patterns module {triple}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not module_path.exists():
+            raise RuntimeError(f"V4 could not emit the patterns module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+        probes += check_native_layout_oracle(module_path.read_text(encoding="utf-8"), triple)
+    routes = NATIVE_PATTERNS_ROUTES
+    rejected_cases = (
+        ("tier3_pattern_guard", "task f(n: int) -> int {\n    when n {\n        x if x > 3 -> give back 1\n        _ -> give back 0\n    }\n    give back 2\n}\n"
+         "task main() -> int { give back f(5) }\n", "unsupported when arm pattern"),
+        ("tier3_pattern_shape", "shape Point { x: int, y: int }\ntask f(p: Point) -> int {\n    when p {\n        Point { x, y } -> give back x + y\n    }\n    give back 0\n}\n"
+         "task main() -> int { give back f(Point { x: 1, y: 2 }) }\n", "unsupported when arm pattern"),
+        ("tier3_pattern_word_payload", "route Named {\n    Tag { name: word }\n    Blank\n}\ntask f(n: Named) -> int {\n    when n {\n"
+         "        Named::Tag { name } -> give back name.length()\n        Named::Blank -> give back 0\n    }\n    give back 0\n}\n"
+         "task main() -> int { give back f(Named::Blank) }\n", "native route payload fields that own words are not yet supported: Named::Tag.name"),
+        # A refutable nested pattern does not cover its outer case.
+        ("tier3_pattern_nested_not_exhaustive", routes + "task f(w: Wrap) -> int {\n    when w {\n        Wrap::One { inner: Shape::Empty } -> give back 1\n"
+         "        Wrap::Nothing -> give back 0\n    }\n    give back 2\n}\ntask main() -> int { give back f(Wrap::Nothing) }\n",
+         "non-exhaustive route when|missing Wrap::One"),
+        ("tier3_check_route_nested_not_exhaustive", routes + "task f(w: Wrap) -> int {\n    check route w {\n"
+         "        One { inner: Shape::Dot { x, y } } -> give back x + y\n        Nothing -> give back 0\n    }\n    give back 2\n}\n"
+         "task main() -> int { give back f(Wrap::Nothing) }\n", "non-exhaustive check route|missing Wrap::One"),
+        ("tier3_pattern_covered_arm", routes + "task f(w: Wrap) -> int {\n    when w {\n        Wrap::One { inner } -> give back 1\n"
+         "        Wrap::One { inner: Shape::Empty } -> give back 2\n        Wrap::Nothing -> give back 0\n    }\n    give back 2\n}\n"
+         "task main() -> int { give back f(Wrap::Nothing) }\n", "unreachable when arm|Wrap::One was already covered by an earlier arm"),
+        ("tier3_pattern_rest_not_last", routes + "task f(s: Shape) -> int {\n    when s {\n        Shape::Dot { .., x } -> give back x\n"
+         "        _ -> give back 0\n    }\n    give back 2\n}\ntask main() -> int { give back f(Shape::Empty) }\n",
+         "route pattern rest must come last"),
+        # The bible's built-in `-> route` outcomes are not user routes yet.
+        ("tier3_check_route_builtin", "task confess(c: int) -> route {\n    route BadEnd\n}\ntask main() -> int {\n    check route confess(5) {\n"
+         "        TrueRoute -> give back 1\n        _ -> give back 0\n    }\n    give back 0\n}\n",
+         "check route needs route source|got route"),
+    )
+    for stem, text, reason in rejected_cases:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 pattern case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    print(f"V4 native patterns: run=exact exit={NATIVE_PATTERNS_EXIT} layout-probes={probes} "
+          f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
 
 NATIVE_C_WIDTHS_HELPERS = """int cw_add_int(int a, int b) { return a + b; }
 unsigned cw_shift_uint(unsigned a) { return a << 4; }

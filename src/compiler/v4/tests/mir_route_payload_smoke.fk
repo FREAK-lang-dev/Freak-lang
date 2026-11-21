@@ -207,11 +207,11 @@ say "route-payload-arm0-right-text=" + v4_mir_rvalue_text(v4_mir_route_payload_m
 say "route-payload-arm0-right-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rhs)
 say "route-payload-code-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_rvalue)
 say "route-payload-code-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_rvalue)
-say "route-payload-code-place-field=" + v4_mir_place_field(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_place)
+say "route-payload-code-place-field=" + v4_mir_place_route_payload_field(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_place)
 say "route-payload-code-place-ty=" + v4_mir_place_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_place)
 say "route-payload-held-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_held_rvalue)
 say "route-payload-held-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_held_rvalue)
-say "route-payload-held-place-field=" + v4_mir_place_field(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_held_place)
+say "route-payload-held-place-field=" + v4_mir_place_route_payload_field(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_held_place)
 say "route-payload-held-place-ty=" + v4_mir_place_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_held_place)
 say "route-payload-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_payload_mir))
 
