@@ -1551,12 +1551,130 @@ task v4_codegen_llvm_variadic_arg_prelude_line(mir_id: int, body_id: int, call_r
     give back v4_codegen_llvm_expected_lines(mir_id, body_id, arg_rvalue, expected, v4_codegen_llvm_variadic_arg_temp(body_id, call_rvalue_id, arg_id))
 }
 
+-- Tier 3 aggregate calling convention (FREAK ABI only; every C boundary
+-- keeps its aggregate fence). A native shape, tuple, fixed array or route
+-- parameter is a pointer to a copy the caller made in its own entry-block
+-- slot; the callee uses that copy as its parameter storage and may read and
+-- write it until it returns. An aggregate result comes back through a
+-- leading `sret` pointer to a caller entry-block slot. Pointer attributes
+-- (`align`, `dereferenceable`) are freak_target layout answers, resolved per
+-- target by module_text; lend receivers keep their pointer to the caller's
+-- own storage and are not copies.
+task v4_codegen_llvm_is_abi_aggregate(mir_id: int, type_text: word) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id or v4_ty_is_lend_type(type_text) { give back false }
+    give back v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0
+}
+
+-- A FREAK-ABI task call (direct, impl method or through a FREAK task
+-- value). Builtins, intrinsics and C calls never take the aggregate ABI.
+task v4_codegen_llvm_call_is_freak_abi(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call { give back false }
+    pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    if op == v4_mir_call_say_literal or op == v4_mir_call_raw_ptr_write or v4_mir_rvalue_abi(mir_id, body_id, rvalue_id) != "" { give back false }
+    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) { give back false }
+    give back v4_mir_word_intrinsic_kind(mir_id, body_id, rvalue_id) == ""
+}
+
+task v4_codegen_llvm_call_arg_is_aggregate(mir_id: int, body_id: int, call_rvalue_id: int, arg_id: int) -> bool {
+    if not v4_codegen_llvm_call_is_freak_abi(mir_id, body_id, call_rvalue_id) { give back false }
+    give back v4_codegen_llvm_is_abi_aggregate(mir_id, v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id))
+}
+
+task v4_codegen_llvm_call_returns_aggregate(mir_id: int, body_id: int, call_rvalue_id: int) -> bool {
+    if not v4_codegen_llvm_call_is_freak_abi(mir_id, body_id, call_rvalue_id) { give back false }
+    give back v4_codegen_llvm_is_abi_aggregate(mir_id, v4_mir_rvalue_ty(mir_id, body_id, call_rvalue_id))
+}
+
+task v4_codegen_llvm_abi_arg_slot(body_id: int, call_rvalue_id: int, arg_id: int) -> word {
+    give back "%abi.arg." + word_from_int(body_id) + "." + word_from_int(call_rvalue_id) + "." + word_from_int(arg_id)
+}
+
+task v4_codegen_llvm_abi_ret_slot(body_id: int, call_rvalue_id: int) -> word {
+    give back "%abi.ret." + word_from_int(body_id) + "." + word_from_int(call_rvalue_id)
+}
+
+-- Target-neutral marker for an aggregate pointer's layout attributes;
+-- module_text replaces it with `align A dereferenceable(S)`.
+task v4_codegen_llvm_abi_attrs_marker(llvm_ty: word) -> word {
+    give back "$freak.abi.attrs " + llvm_ty + "$"
+}
+
+-- The body's own aggregate ABI: an sret result and pointer parameters.
+task v4_codegen_llvm_body_uses_sret(mir_id: int, body_id: int) -> bool {
+    if v4_mir_body_callable_abi(mir_id, body_id) != "" { give back false }
+    give back v4_codegen_llvm_is_abi_aggregate(mir_id, v4_mir_body_callable_return_type(mir_id, body_id))
+}
+
+task v4_codegen_llvm_param_is_aggregate(mir_id: int, body_id: int, param_id: int) -> bool {
+    if v4_mir_body_callable_abi(mir_id, body_id) != "" or param_id >= v4_mir_body_callable_param_count(mir_id, body_id) { give back false }
+    if v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, param_id) { give back false }
+    give back v4_codegen_llvm_is_abi_aggregate(mir_id, v4_mir_body_callable_param_type(mir_id, body_id, param_id))
+}
+
+-- The LLVM return type a body's `ret` uses: void behind an sret pointer.
+task v4_codegen_llvm_body_return_llvm_type(mir_id: int, body_id: int) -> word {
+    if v4_codegen_llvm_body_uses_sret(mir_id, body_id) { give back "void" }
+    give back v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body_id))
+}
+
+-- One entry-block slot per aggregate argument copy and aggregate result, so
+-- loops and recursion reuse a frame-sized set instead of growing the stack.
+task v4_codegen_llvm_aggregate_abi_slots(mir_id: int, body_id: int) -> word {
+    pilot out = ""
+    pilot value = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_codegen_llvm_call_is_freak_abi(mir_id, body_id, value) {
+            pilot arg_id = 0
+            repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, value) {
+                if v4_codegen_llvm_call_arg_is_aggregate(mir_id, body_id, value, arg_id) {
+                    out = out + "  " + v4_codegen_llvm_abi_arg_slot(body_id, value, arg_id) + " = alloca " + v4_codegen_llvm_type(v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, value, arg_id)) + "\n"
+                }
+                arg_id += 1
+            }
+            if v4_codegen_llvm_call_returns_aggregate(mir_id, body_id, value) {
+                out = out + "  " + v4_codegen_llvm_abi_ret_slot(body_id, value) + " = alloca " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, value)) + "\n"
+            }
+        }
+        value += 1
+    }
+    give back out
+}
+
+-- The caller's copies: each aggregate argument (already converted by its
+-- prelude) is stored into its slot just before the call, in argument order.
+task v4_codegen_llvm_abi_arg_stores(mir_id: int, body_id: int, call_rvalue_id: int) -> word {
+    pilot out = ""
+    pilot arg_id = 0
+    repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, call_rvalue_id) {
+        if v4_codegen_llvm_call_arg_is_aggregate(mir_id, body_id, call_rvalue_id, arg_id) {
+            pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue_id, arg_id)
+            pilot expected = v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id)
+            out = out + "store " + v4_codegen_llvm_type(expected) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, arg_rvalue, expected, v4_codegen_llvm_variadic_arg_temp(body_id, call_rvalue_id, arg_id)) + ", ptr " + v4_codegen_llvm_abi_arg_slot(body_id, call_rvalue_id, arg_id) + "\n  "
+        }
+        arg_id += 1
+    }
+    give back out
+}
+
+-- `call cc RET sym(args)`; an aggregate result returns void and passes the
+-- caller's result slot first.
+task v4_codegen_llvm_call_text(mir_id: int, body_id: int, rvalue_id: int, call_cc: word, call_return: word, call_symbol: word, call_abi: word) -> word {
+    pilot call_args = v4_codegen_llvm_call_args(mir_id, body_id, rvalue_id)
+    if v4_codegen_llvm_call_returns_aggregate(mir_id, body_id, rvalue_id) {
+        pilot sret = "ptr sret(" + call_return + ") " + v4_codegen_llvm_abi_ret_slot(body_id, rvalue_id)
+        if call_args != "" { sret = sret + ", " }
+        give back "call " + call_cc + " void " + call_symbol + "(" + sret + call_args + ")" + v4_codegen_llvm_ffi_call_suffix(call_abi)
+    }
+    give back "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")" + v4_codegen_llvm_ffi_call_suffix(call_abi)
+}
+
 task v4_codegen_llvm_call_arg_operand(mir_id: int, body_id: int, call_rvalue_id: int, arg_id: int) -> word {
     pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue_id, arg_id)
     if arg_rvalue < 0 {
         give back ""
     }
 
+    if v4_codegen_llvm_call_arg_is_aggregate(mir_id, body_id, call_rvalue_id, arg_id) { give back "ptr " + v4_codegen_llvm_abi_arg_slot(body_id, call_rvalue_id, arg_id) }
     -- Same plan as the prelude: a converted numeric or tuple/array argument
     -- passes the prelude temp, everything else passes its own value.
     pilot expected = v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id)
@@ -1782,12 +1900,16 @@ task v4_codegen_llvm_call_instruction(mir_id: int, body_id: int, rvalue_id: int,
             call_symbol = v4_codegen_llvm_call_signature_symbol(mir_id, ty_id, call_sig)
         } else { call_symbol = v4_codegen_llvm_callable_symbol(mir_id, call_symbol_name) }
     }
-    pilot call_args = v4_codegen_llvm_call_args(mir_id, body_id, rvalue_id)
-    pilot call_text = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")" + v4_codegen_llvm_ffi_call_suffix(call_abi)
-    if target == "" or call_return == "void" {
-        give back call_text
+    pilot stores = v4_codegen_llvm_abi_arg_stores(mir_id, body_id, rvalue_id)
+    pilot call_text = v4_codegen_llvm_call_text(mir_id, body_id, rvalue_id, call_cc, call_return, call_symbol, call_abi)
+    if v4_codegen_llvm_call_returns_aggregate(mir_id, body_id, rvalue_id) {
+        if target == "" { give back stores + call_text }
+        give back stores + call_text + "\n  " + target + " = load " + call_return + ", ptr " + v4_codegen_llvm_abi_ret_slot(body_id, rvalue_id)
     }
-    give back target + " = " + call_text
+    if target == "" or call_return == "void" {
+        give back stores + call_text
+    }
+    give back stores + target + " = " + call_text
 }
 
 task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
@@ -2049,8 +2171,7 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                         if call_name == v4_mir_call_say_literal { call_symbol = "@freak_llvm_say" }
                     }
                     pilot call_expr = v4_mir_rvalue_text(mir_id, body_idx, rvalue_idx)
-                    pilot call_args = v4_codegen_llvm_call_args(mir_id, body_idx, rvalue_idx)
-                    pilot call_line = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")" + v4_codegen_llvm_ffi_call_suffix(call_abi)
+                    pilot call_line = v4_codegen_llvm_call_text(mir_id, body_idx, rvalue_idx, call_cc, call_return, call_symbol, call_abi)
                     if v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_rvalue_is_builtin_word(mir_id, body_idx, rvalue_idx) {
                         call_symbol = v4_codegen_llvm_word_intrinsic_symbol_for(mir_id, v4_mir_word_intrinsic_kind(mir_id, body_idx, rvalue_idx))
                         call_line = v4_codegen_llvm_word_intrinsic_instruction(mir_id, body_idx, rvalue_idx, v4_codegen_llvm_temp_value(body_idx, rvalue_idx))
@@ -2078,12 +2199,18 @@ task v4_codegen_llvm_body_header(mir_id: int, body_id: int) -> word {
     pilot body_name = v4_mir_body_name(mir_id, body_id)
     pilot abi = v4_mir_body_callable_abi(mir_id, body_id)
     pilot cc = v4_codegen_llvm_calling_convention(abi)
-    pilot return_ty = v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body_id))
+    pilot return_ty = v4_codegen_llvm_body_return_llvm_type(mir_id, body_id)
     pilot parts = v4_codegen_llvm_fragment_new()
     pilot param_id = 0
+    if v4_codegen_llvm_body_uses_sret(mir_id, body_id) {
+        pilot result_ty = v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body_id))
+        v4_codegen_llvm_fragment_push(parts, "ptr noalias sret(" + result_ty + ") " + v4_codegen_llvm_abi_attrs_marker(result_ty) + " %ret")
+        if v4_mir_body_callable_param_count(mir_id, body_id) > 0 { v4_codegen_llvm_fragment_push(parts, ", ") }
+    }
     repeat until param_id >= v4_mir_body_callable_param_count(mir_id, body_id) {
         if param_id > 0 { v4_codegen_llvm_fragment_push(parts, ", ") }
         pilot param_ty = v4_codegen_llvm_type(v4_mir_body_callable_param_type(mir_id, body_id, param_id))
+        if v4_codegen_llvm_param_is_aggregate(mir_id, body_id, param_id) { param_ty = "ptr noalias " + v4_codegen_llvm_abi_attrs_marker(param_ty) }
         if v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, param_id) { param_ty = "ptr" }
         v4_codegen_llvm_fragment_push(parts, param_ty + " %arg." + word_from_int(param_id))
         param_id += 1
@@ -2125,6 +2252,8 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
         if ret_ty == "void" { give back out + "  ret void\n" }
         pilot expected_ty = v4_mir_body_callable_return_type(mir_id, body_id)
         out = out + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, expected_ty, expected_temp)
+        -- An aggregate result is written through the caller's sret slot.
+        if v4_codegen_llvm_body_uses_sret(mir_id, body_id) { give back out + "  store " + ret_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + ", ptr %ret\n  ret void\n" }
         out = out + "  ret " + ret_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + "\n"
         give back out
     }
@@ -2258,7 +2387,7 @@ task v4_codegen_llvm_block_terminator_line(mir_id: int, body_id: int, block_id: 
         -- The shared Sum return proof permits an empty Return only in a
         -- detached join. Never invent a tagged value for that dead block.
         if v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_scalar_sum_kind(mir_id, v4_mir_body_callable_return_type(mir_id, body_id)) != "" { give back "  unreachable\n" }
-        pilot return_ty = v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body_id))
+        pilot return_ty = v4_codegen_llvm_body_return_llvm_type(mir_id, body_id)
         if v4_codegen_llvm_active_owned_mir == mir_id {
             pilot out = v4_codegen_llvm_word_drop_all_lines(mir_id, body_id, "default." + word_from_int(block_id))
             if v4_mir_body_callable_return_type(mir_id, body_id) == v4_ty_word {
@@ -2281,13 +2410,16 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
     if v4_codegen_llvm_active_owned_mir == mir_id {
         v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_scalar_sum_bridge_slots(mir_id, body_id))
         v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_route_slots(mir_id, body_id))
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_aggregate_abi_slots(mir_id, body_id))
     }
     pilot local_id = 0
     repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
         pilot local_ty = v4_codegen_llvm_type(v4_mir_local_ty(mir_id, body_id, local_id))
         -- A lend self / lend mut self slot holds the caller's storage pointer.
         if v4_codegen_llvm_local_is_lent_receiver(mir_id, body_id, local_id) { local_ty = "ptr" }
-        v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = alloca " + local_ty + "\n")
+        pilot aggregate_param: bool = v4_codegen_llvm_param_is_aggregate(mir_id, body_id, local_id)
+        -- An aggregate parameter's storage is the caller's copy itself.
+        if aggregate_param { v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = getelementptr inbounds i8, ptr %arg." + word_from_int(local_id) + ", i64 0\n") } else { v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = alloca " + local_ty + "\n") }
         if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local_id) {
             pilot initial_value = "0"
             if v4_mir_scalar_sum_kind(mir_id, v4_mir_local_ty(mir_id, body_id, local_id)) != "" { initial_value = "zeroinitializer" }
@@ -2297,7 +2429,7 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
             if local_id < v4_mir_body_callable_param_count(mir_id, body_id) { initialized = "true" }
             v4_codegen_llvm_fragment_push(parts, "  store i1 " + initialized + ", ptr " + v4_codegen_llvm_word_flag_slot(local_id) + "\n")
         }
-        if local_id < v4_mir_body_callable_param_count(mir_id, body_id) {
+        if local_id < v4_mir_body_callable_param_count(mir_id, body_id) and not aggregate_param {
             v4_codegen_llvm_fragment_push(parts, "  store " + local_ty + " %arg." + word_from_int(local_id) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n")
         }
         local_id += 1
@@ -3217,6 +3349,48 @@ task v4_codegen_llvm_shape_module_lines(records: word, target_spec: word) -> wor
     }
     if out != "" { out = out + "\n" }
     give back out
+}
+
+-- module_text: each aggregate ABI marker in a body becomes the freak_target
+-- layout of its type, `align A dereferenceable(S)` (a zero-sized aggregate
+-- is only aligned), and the body is preceded by one `; freak.abi` note per
+-- aggregate pointer, which check_v4 compares with Clang's DataLayout.
+task v4_codegen_llvm_abi_resolve(text: word, records: word, target_spec: word) -> word {
+    pilot marker = "$freak.abi.attrs "
+    if not text.contains(marker) { give back text }
+    -- Markers only appear in the define header, the body's first line.
+    pilot header_end = v4_index_of_from(text, "\n", 0)
+    if header_end < 0 { header_end = text.length() }
+    pilot symbol_start = v4_index_of_from(text, "@", 0)
+    pilot symbol_stop = v4_index_of_from(text, "(", symbol_start)
+    pilot symbol = ""
+    if symbol_start >= 0 and symbol_stop > symbol_start and symbol_stop < header_end { symbol = v4_slice(text, symbol_start, symbol_stop) }
+    pilot notes = ""
+    pilot parts = v4_codegen_llvm_fragment_new()
+    pilot emitted = 0
+    pilot start = v4_index_of_from(text, "$", 0)
+    repeat until start < 0 or start >= header_end {
+        pilot stop = v4_index_of_from(text, "$", start + marker.length())
+        if v4_slice(text, start, start + marker.length()) != marker or stop < 0 or stop >= header_end { start = 0 - 1 } else {
+            v4_codegen_llvm_fragment_push(parts, v4_slice(text, emitted, start))
+            pilot llvm_ty = v4_slice(text, start + marker.length(), stop)
+            pilot layout = v4_codegen_llvm_llvm_type_layout(records, llvm_ty, target_spec, 0)
+            pilot size = v4_target_layout_size(layout)
+            pilot align = v4_target_layout_align(layout)
+            if size >= 0 and align > 0 {
+                pilot attrs = "align " + word_from_int(align)
+                if size > 0 { attrs = attrs + " dereferenceable(" + word_from_int(size) + ")" }
+                v4_codegen_llvm_fragment_push(parts, attrs)
+                pilot name_stop = stop + 2
+                repeat until name_stop >= header_end or text.char_at(name_stop) == "," or text.char_at(name_stop) == ")" { name_stop += 1 }
+                notes = notes + "; freak.abi " + symbol + " " + v4_slice(text, stop + 2, name_stop) + " size=" + word_from_int(size) + " align=" + word_from_int(align) + " type=" + llvm_ty + "\n"
+            }
+            emitted = stop + 1
+            start = v4_index_of_from(text, "$", emitted)
+        }
+    }
+    v4_codegen_llvm_fragment_push(parts, v4_slice(text, emitted, text.length()))
+    give back notes + v4_codegen_llvm_fragment_finish(parts)
 }
 
 task v4_codegen_llvm_shape_layout_error(records: word, target_spec: word) -> word {
@@ -5973,7 +6147,7 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
     pilot body_id = 0
     repeat until body_id >= v4_codegen_llvm_body_count(codegen_id) {
         v4_codegen_llvm_fragment_push(parts, "\n")
-        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_body_line(codegen_id, body_id))
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_abi_resolve(v4_codegen_llvm_body_line(codegen_id, body_id), array_get(v4_codegen_llvm_shape_lines, codegen_id), target_spec))
         v4_codegen_llvm_fragment_push(parts, "\n")
         body_id += 1
     }
