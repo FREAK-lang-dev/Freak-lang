@@ -17408,6 +17408,9 @@ NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\
 NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
 NATIVE_ROUTES_EXPECTED = ("2\n0\ntrue\ntrue\ntrue\n41\nfalse\n9\n9\n12\n15\n0\n46\n54\n25\n15\n-21\n1\n73\n36\n3\n25\ntrue\nfalse\n")
 NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\norigin:12\n0\nfalse\ntrue\n2\n"
+NATIVE_CLOSURES_BODIES = 17
+NATIVE_CLOSURES_EXPECTED = ("42\n15\n1\n5\n9\n7\n9\n13\n6\ntrue\n12\n22\n40\n11\n12\n"
+                            "Takemikazuchi!\nTakemikazuchi!\n13\nTakemikazuchi\n3\n30\n1\n42\n")
 # The FREAK aggregate calling convention: stdout, then main's exit status.
 NATIVE_AGG_ABI_EXPECTED = ("25\n4\n8\n4\n6\n4\n20\n30\n21\n10\n10\n-10\nada**\n11\nr***\n6\ndeck\nblue\n5\n11\nsecond\n", 42)
 NATIVE_OPERATORS_EXPECTED = ("4\n22\n-11\n5\nfalse\ntrue\n46\n5\n4\nsum matches\n7\n6\n8\n3\n"
@@ -17446,7 +17449,7 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
     clang = shutil.which("clang")
     notes = native_layout_notes(module)
     payloads = native_payload_notes(module)
-    types = re.findall(r'^(%"freak\.(?:shape|route|sum)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum|closure\.env)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
     if not notes or len(notes) != len(types) or not set(payloads) <= set(notes):
         raise RuntimeError(f"V4 shape module for {triple} has no matching layout notes")
     # A route with payload storage after its tag must say how that storage is
@@ -17568,7 +17571,7 @@ def check_native_abi_oracle(module: str, triple: str) -> int:
         pending = []
     if not claims:
         return 0
-    types = re.findall(r'^(%"freak\.(?:shape|route|sum)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum|closure\.env)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
     probe_lines = list(types)
     for index, (_, _, _, _, llvm_type) in enumerate(claims):
         probe_lines.append(f"define i64 @abi_{index}_size() {{ ret i64 ptrtoint (ptr getelementptr ({llvm_type}, ptr null, i32 1) to i64) }}")
@@ -17951,6 +17954,108 @@ def check_v4_native_shapes() -> None:
     check_v4_native_c_widths()
     check_v4_native_maybe_result()
     check_v4_native_c_abi()
+    check_v4_native_closures()
+
+
+def check_v4_native_closures() -> None:
+    """Tier 3 closures: build and run exactly, check env layouts on all targets, refuse the rest by name."""
+    source = V4_ROOT / "examples" / "closures_native.fk"
+    executable = RUNTIME_BUILD_ROOT / ("tier3_native_closures.exe" if sys.platform == "win32" else "tier3_native_closures.native")
+    executable.unlink(missing_ok=True)
+    built = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(executable)],
+        label="V4 build command: native closures", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if built.returncode != 0 or not executable.exists():
+        raise RuntimeError(f"V4 rejected the native closures program:\n{built.stdout}{built.stderr}")
+    ran = run_with_heartbeat([str(executable)], label="V4 native closures execute", timeout_seconds=10, memory_limit_mb=128)
+    if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != NATIVE_CLOSURES_EXPECTED:
+        raise RuntimeError(f"V4 native closures printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
+    probes = 0
+    abi_probes = 0
+    for triple in NATIVE_LAYOUT_TRIPLES:
+        module_path = RUNTIME_BUILD_ROOT / f"tier3_native_closures_{triple}.ll"
+        module_path.unlink(missing_ok=True)
+        emitted = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+            label=f"V4 closures module {triple}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not module_path.exists():
+            raise RuntimeError(f"V4 could not emit the closures module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+        module_text = module_path.read_text(encoding="utf-8")
+        envs = re.findall(r'^%"freak\.closure\.env\.[^"]+" = type ', module_text, re.MULTILINE)
+        bodies = re.findall(r'^define [^@]*@"freak\.closure\.[^"]+"\((.*)\)', module_text, re.MULTILINE)
+        if len(envs) != NATIVE_CLOSURES_BODIES or len(bodies) != NATIVE_CLOSURES_BODIES:
+            raise RuntimeError(f"V4 closures module for {triple} has {len(envs)} environments for {len(bodies)} closure bodies")
+        # Every closure body takes its environment first (after an sret slot).
+        for params in bodies:
+            if not re.match(r"(ptr noalias sret\([^)]*\) [^,]*%ret, )?ptr %env(,|$)", params):
+                raise RuntimeError(f"V4 closure body on {triple} does not take its environment first: {params}")
+        probes += check_native_layout_oracle(module_text, triple)
+        abi_probes += check_native_abi_oracle(module_text, triple)
+        stripped = re.sub(r'^; freak\.layout %"freak\.closure\.env\..*\n', "", module_text, count=1, flags=re.MULTILINE)
+        try:
+            check_native_layout_oracle(stripped, triple)
+        except RuntimeError as error:
+            if "no matching layout notes" not in str(error):
+                raise
+        else:
+            raise RuntimeError(f"V4 layout oracle accepted a closure environment without its layout note for {triple}")
+    rejected_cases = (
+        ("tier3_closure_reassign", "task main() -> int {\n    pilot k: int = 5\n    pilot mut f = |x: int| => x + k\n"
+         "    f = |x: int| => x * k\n    say f(2)\n    give back 0\n}\n",
+         "native closure values cannot be reassigned yet: f"),
+        ("tier3_closure_in_tuple", "task main() -> int {\n    pilot k: int = 5\n    pilot pair = (copy |x: int| => x + k, 0)\n"
+         "    say pair.1\n    give back 0\n}\n",
+         "native closures inside other types are not yet supported: closure[Callable,copy](x:int)->int"),
+        ("tier3_closure_loan_in_tuple", "task main() -> int {\n    pilot k: int = 5\n    pilot pair = (|x: int| => x + k, 0)\n"
+         "    say pair.1\n    give back 0\n}\n",
+         "Meiya cannot store a loan-capturing closure inside fixed aggregate storage yet"),
+        ("tier3_closure_immediate_call", "task main() -> int {\n    pilot k: int = 5\n    say (|x: int| => x + k)(2)\n    give back 0\n}\n",
+         "native immediately called closures are not yet supported: | x : int | => x + k"),
+        ("tier3_closure_move_word", "task main() -> int {\n    pilot title: word = \"Yuuko\"\n    pilot shout = move |_| { say title }\n"
+         "    shout()\n    give back 0\n}\n",
+         "native closure captures that move words are not yet supported: title"),
+        ("tier3_closure_copy_word", "task main() -> int {\n    pilot title: word = \"Yuuko\"\n    pilot shout = copy |_| { say title }\n"
+         "    shout()\n    give back 0\n}\n",
+         "Yuuko cannot copy this closure capture"),
+        ("tier3_closure_mut_word", "task main() -> int {\n    pilot mut title: word = \"Yuuko\"\n"
+         "    pilot grow = mut |_| { title = title + \"!\" }\n    grow()\n    give back 0\n}\n",
+         "native mutable closure captures of words are not yet supported: title"),
+        ("tier3_closure_word_param", "task main() -> int {\n    pilot f = |w: word| => w.length()\n    say f(\"abc\")\n    give back 0\n}\n",
+         "native closures with word parameters or results are not yet supported: closure[Callable,borrow](w:word)->int"),
+        ("tier3_closure_word_result", "task main() -> int {\n    pilot f = |n: int| => \"x\"\n    say f(2)\n    give back 0\n}\n",
+         "native closures with word parameters or results are not yet supported: closure[Callable,borrow](n:int)->word"),
+        ("tier3_closure_untyped_param", "task main() -> int {\n    pilot k: int = 5\n    pilot f = |x| => x + k\n"
+         "    pilot r: int = f(2)\n    say r\n    give back 0\n}\n",
+         "native closure parameters need declared types: closure[Callable,borrow](x:unknown)->unknown"),
+        ("tier3_closure_nested", "task main() -> int {\n    pilot outer = |x: int| {\n        pilot inner = |y: int| => y + 1\n"
+         "        give back inner(x)\n    }\n    pilot r: int = outer(2)\n    say r\n    give back 0\n}\n",
+         "native nested closures are not yet supported: | y : int | => y + 1"),
+        ("tier3_closure_captures_closure", "task main() -> int {\n    pilot k: int = 5\n    pilot inner = |x: int| => x + k\n"
+         "    pilot outer = copy |y: int| => inner(y)\n    say outer(2)\n    give back 0\n}\n",
+         "native closures that capture closures are not yet supported: inner"),
+        ("tier3_closure_oneshot_twice", "task main() -> int {\n    pilot n: int = 3\n    pilot once = move |_| => n + 1\n"
+         "    say once()\n    say once()\n    give back 0\n}\n",
+         "Meiya remembers the field you already moved"),
+        ("tier3_closure_rewrite_on_loan", "task main() -> int {\n    pilot mut n: int = 3\n    pilot peek = |_| => n\n"
+         "    n = 4\n    say peek()\n    give back 0\n}\n",
+         "Meiya refuses this rewrite while the value is borrowed"),
+    )
+    for stem, text, reason in rejected_cases:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 closure case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    if abi_probes == 0:
+        raise RuntimeError("V4 native closures emitted no aggregate ABI notes")
+    print(f"V4 native closures: run=exact layout-probes={probes} abi-probes={abi_probes} targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
 
 
 # Tier 3 patterns: when over tuples, fixed arrays and route payloads (nested,

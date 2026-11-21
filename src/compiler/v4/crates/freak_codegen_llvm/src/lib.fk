@@ -5799,6 +5799,7 @@ task v4_codegen_llvm_native_closure_use_error(mir_id: int, body_id: int) -> word
     repeat until value >= count {
         pilot callee = v4_mir_rvalue_closure_callee(mir_id, body_id, value)
         if callee >= 0 and v4_mir_rvalue_kind(mir_id, body_id, callee) == v4_mir_rvalue_use_local { array_set(allowed, callee, "1") }
+        if callee >= 0 and v4_mir_rvalue_kind(mir_id, body_id, callee) == v4_mir_rvalue_closure and error == "" { error = "native immediately called closures are not yet supported: " + v4_mir_rvalue_text(mir_id, body_id, callee) }
         value += 1
     }
     value = 0
