@@ -77,6 +77,15 @@ task main() -> int {
     loud()
     say title.length()
     say show(lend title, 2)
+    -- The result is sealed from the lowered body, not the first token.
+    pilot below = |n: int| => 1 < n
+    say below(3)
+    -- A binding is not visible in its own initializer: this captures the
+    -- outer base.
+    if base > 1 {
+        pilot base = |n: int| => base + n
+        say base(1)
+    }
     -- A closure created in a loop, a copied Callable, and another task.
     pilot mut total: int = 0
     repeat 3 times {

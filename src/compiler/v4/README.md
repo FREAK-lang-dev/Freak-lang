@@ -424,9 +424,12 @@ task's signature (`v4_mir_body_context_signature_id`). Its parameters come
 first, then one local per capture, whose mode is the sealed MIR fact: `lend`
 for `CaptureBorrow`, `lend mut` for `CaptureBorrowMut`, and a value for
 `CaptureCopy` and `CaptureMove`. Meiya checks the body with those capture
-locals initialized on entry. When TY leaves the return type `unknown`, MIR
-Build infers it from the body's `give back` values (all of them must agree;
-no value gives `void`) and the Closure rvalue carries the inferred type.
+locals initialized on entry. Closures declare no result, and TY's result is
+a guess from the first returned token, so MIR Build lowers the body against
+an open result and seals it from the lowered `give back` values (all of them
+must agree; no value gives `void`). Return coverage then runs again on the
+sealed result, so a route without `give back` is `missing return`. The
+Closure rvalue carries the sealed type.
 
 - **Value.** A closure value is `{ ptr, ptr }`: the code pointer, then the
   environment pointer. The environment is
@@ -454,15 +457,18 @@ no value gives `void`) and the Closure rvalue carries the inferred type.
   results are refused by name until the closure-environment ownership
   contract can drop them.
 - **Also named:** nested closures, closures capturing closures, parameters
-  without declared types, closures with FFI-alias parameters (no body is
-  lowered), and closure types inside other types. Closures inside impl
+  without declared types, closures whose parameters keep a C ABI (C aliases,
+  task function types; no body is lowered), value captures of other owned
+  carriers such as scalar sums, closure bodies that use scalar sums or system
+  intrinsics, and closure types inside other types. Meiya also refuses two
+  calls of one OneShot closure in a single statement. Closures inside impl
   methods do not reach codegen yet: MIR finds no TY closure type for a body
   without an ordinary signature and reports the call's arity instead.
 
-Program: `examples/closures_native.fk` (exact output, 17 closure bodies,
+Program: `examples/closures_native.fk` (exact output, 19 closure bodies,
 `valgrind` clean). `check_v4_native_closures` (run by `check_v4_native_shapes`)
 builds and runs it, checks every environment layout and the aggregate ABI
-notes on four targets, and checks 14 rejected cases.
+notes on four targets, and checks 18 rejected cases.
 
 ### Persisted interpolation checkpoint (W3)
 

@@ -5758,6 +5758,10 @@ task v4_codegen_llvm_native_closure_rvalue_error(mir_id: int, body_id: int, rval
         pilot owns: bool = v4_codegen_llvm_type_is_word_handle(capture_ty) or v4_codegen_llvm_type_owns_words(mir_id, capture_ty)
         if owns and (capture_kind == v4_mir_rvalue_capture_copy or capture_kind == v4_mir_rvalue_capture_move) { give back "native closure captures that move words are not yet supported: " + name }
         if owns and capture_kind == v4_mir_rvalue_capture_borrow_mut { give back "native mutable closure captures of words are not yet supported: " + name }
+        -- A value capture lives in the environment, which has no drop flag:
+        -- body entry would reset an owned local's slot. Refuse every owned
+        -- carrier (scalar sums included) until environments own values.
+        if v4_codegen_llvm_word_local_is_owned(mir_id, closure_body, inner) { give back "native closure captures that move or copy owned values are not yet supported: " + name }
         error = v4_codegen_llvm_native_type_error(capture_ty, false)
         if error != "" { give back error }
         capture_id += 1

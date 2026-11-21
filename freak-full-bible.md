@@ -528,7 +528,9 @@ pilot counter = mut |_| { count += 1 }
 > closures, inferred generic parameter/return types, borrowed-return closure
 > contracts, and `Send`/`Sync` proof remain later V4 work. Native builds now
 > lower closures in ordinary tasks: the environment is a stack struct in the
-> creating frame paired with a code pointer, and calls pass it first. A closure
+> creating frame paired with a code pointer, and calls pass it first (after
+> the result slot when the closure returns a shape, tuple, fixed array or
+> route: sret, then the environment, then the arguments). A closure
 > that would leave its frame, a word moved into an environment, and nested
 > closures are refused by name; this is not yet a full backend claim.
 

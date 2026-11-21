@@ -7806,7 +7806,12 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                     pilot move_conflicts = false
                     pilot help = ""
                     -- Every test here is pure: the cheap overlap test runs first.
-                    if move_stmt >= 0 and use_stmt >= 0 and move_block == use_block and move_stmt < use_stmt {
+                    -- Two calls of one OneShot closure in a statement both run;
+                    -- no later statement or backedge sees the second.
+                    if move_stmt >= 0 and use_stmt == move_stmt and move_block == use_block and use_idx > move_idx and v4_borrowck_path_kind(borrow_id, result_id, use_idx) == v4_borrowck_path_move and use_text == move_text and v4_borrowck_name_is_one_shot_closure(mir_id, body_id, move_text) {
+                        move_conflicts = true
+                        help = move_text + " is a OneShot closure called twice in statement " + word_from_int(move_stmt) + "; its first call consumes it"
+                    } else if move_stmt >= 0 and use_stmt >= 0 and move_block == use_block and move_stmt < use_stmt {
                         if v4_borrowck_paths_overlap(move_text, use_text) {
                             if summary == 0 - 2 { summary = v4_borrowck_move_repair_summary_new(borrow_id, result_id, mir_id, body_id, move_block, move_text, targets_in_range) }
                             if not v4_borrowck_move_repaired_before_use_summary(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text, use_stmt, use_block, summary) {
@@ -7846,6 +7851,18 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
     }
     if chain >= 0 { array_release(chain) }
     give back conflicts
+}
+
+task v4_borrowck_name_is_one_shot_closure(mir_id: int, body_id: int, name: word) -> bool {
+    pilot local = 0
+    repeat until local >= v4_mir_body_local_count(mir_id, body_id) {
+        if v4_mir_local_name(mir_id, body_id, local) == name {
+            pilot local_ty = v4_mir_local_ty(mir_id, body_id, local)
+            if v4_ty_is_closure_type(local_ty) and v4_ty_closure_doctrine(local_ty) == v4_ty_closure_one_shot { give back true }
+        }
+        local += 1
+    }
+    give back false
 }
 
 -- A MIR content digest: per-body element counts plus checksums of the
