@@ -19,6 +19,7 @@ class CiScope(unittest.TestCase):
     def test_push_always_runs_v3(self) -> None:
         self.assertTrue(ci_scope.needs_v3("push", ["src/compiler/v4/crates/a.fk"])[0])
         self.assertTrue(ci_scope.needs_v3("push", None)[0])
+        self.assertTrue(ci_scope.needs_v3("merge_group", ["src/compiler/v4/crates/a.fk"])[0])
 
     def test_v4_only_pull_request_skips_v3(self) -> None:
         files = [
@@ -123,8 +124,8 @@ class CiScope(unittest.TestCase):
         )
         # freakc/auditor.py reads check_v4.py for audit-conformance, which
         # ci.yml never runs; the V4 lanes own that command. ci_scope.py only
-        # names the V4-only paths.
-        allowed = {"freakc/auditor.py", "tools/ci_scope.py"}
+        # names the V4-only paths, and this test only lists them.
+        allowed = {"freakc/auditor.py", "tools/ci_scope.py", "tests/test_ci_scope.py"}
         for path in sorted(seen):
             relative = path.relative_to(ROOT).as_posix()
             if relative in allowed:
