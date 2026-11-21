@@ -1,0 +1,16 @@
+-- expect: reject mir
+-- error: raw-pointer cast requires .ace or higher; current honor is .pilot
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    trust me "retype" on my honor as .pilot {
+        pilot q = p.cast<int>()
+    }
+    give back 0
+}

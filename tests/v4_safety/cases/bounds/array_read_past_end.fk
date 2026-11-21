@@ -1,0 +1,10 @@
+-- Fixed arrays are bounds-checked on every read.
+-- expect: panic
+-- panic: index 3 out of bounds (len 3)
+
+task main() -> int {
+    pilot xs: [int; 3] = [1, 2, 3]
+    pilot i = process::args_count() + 2
+    say xs[i]
+    give back 0
+}

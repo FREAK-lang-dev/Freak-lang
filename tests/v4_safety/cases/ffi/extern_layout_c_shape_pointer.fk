@@ -1,0 +1,8 @@
+-- expect: check
+
+@layout(C)
+shape V { x: std::ffi::c_double, y: std::ffi::c_double }
+extern [C] {
+    task f(v: *const V, count: std::ffi::c_size) -> std::ffi::c_double
+}
+task main() -> int { give back 0 }

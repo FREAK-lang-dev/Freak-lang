@@ -1,0 +1,6 @@
+-- expect: check
+
+task main() -> int {
+    pilot a: int
+    give back 0
+}

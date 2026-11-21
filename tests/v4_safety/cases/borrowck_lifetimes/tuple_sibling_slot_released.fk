@@ -1,0 +1,14 @@
+-- Field-sensitive liveness: only slot 1 is used after a's write.
+-- expect: check
+
+shape P { x: int }
+
+task main() -> int {
+    pilot mut a = P { x: 1 }
+    pilot mut b = P { x: 1 }
+    pilot t = (lend a, lend b)
+    pilot k = t.1.x
+    a.x = 2
+    pilot j = t.1.x
+    give back 0
+}

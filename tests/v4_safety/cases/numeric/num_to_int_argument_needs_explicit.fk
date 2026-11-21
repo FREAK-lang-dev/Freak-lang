@@ -1,0 +1,8 @@
+-- expect: reject mir
+-- error: call argument type mismatch
+
+task f(z: int) -> int { give back z }
+task main() -> int {
+    pilot n: num = 1.5
+    give back f(n)
+}

@@ -1,0 +1,13 @@
+-- A whole-binding move should not be described as a field move, and should
+-- carry the bible's voice line (4.1: "Shirogane. You gave this away.").
+-- known: #251 Meiya diagnostic wording, duplicates, spans and hints
+-- expect: reject borrowck
+-- error: You gave this away
+
+task eat(w: word) -> int { give back 0 }
+task main() -> int {
+    pilot a = "hi"
+    eat(a)
+    say a
+    give back 0
+}

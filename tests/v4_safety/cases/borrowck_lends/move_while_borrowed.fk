@@ -1,0 +1,15 @@
+-- "Cannot move while borrowed."
+-- bible: 4.2
+-- expect: reject borrowck
+-- error: Meiya refuses this move while the value is borrowed
+
+task eat(w: word) -> int { give back 0 }
+
+task look(lend p: word) -> int { give back 0 }
+task main() -> int {
+    pilot a = "hi"
+    pilot r = lend a
+    eat(a)
+    pilot k = look(r)
+    give back 0
+}

@@ -1,0 +1,6 @@
+-- expect: reject ty
+-- error: @extern_callback ABI is invalid
+
+@extern_callback("pascal")
+task cb(w: std::ffi::c_int) -> std::ffi::c_int { give back w }
+task main() -> int { give back 0 }

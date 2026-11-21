@@ -1,0 +1,14 @@
+-- Moving on every arm is fine as long as nothing reads the binding later.
+-- expect: check
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = "hi"
+    if process::args_count() > 1 {
+        eat(a)
+    } else {
+        eat(a)
+    }
+    give back 0
+}

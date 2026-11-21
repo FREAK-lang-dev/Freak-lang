@@ -1,0 +1,7 @@
+-- expect: check
+
+task main() -> int {
+    pilot m: maybe<int> = nobody
+    pilot v: int = m or else 7
+    give back v
+}

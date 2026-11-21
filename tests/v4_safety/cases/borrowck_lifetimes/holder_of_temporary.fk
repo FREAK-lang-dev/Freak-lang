@@ -1,0 +1,9 @@
+-- expect: reject mir
+-- error: lend source must be a place
+
+shape P { x: int }
+
+task main() -> int {
+    pilot r = lend P { x: 0 }
+    give back 0
+}

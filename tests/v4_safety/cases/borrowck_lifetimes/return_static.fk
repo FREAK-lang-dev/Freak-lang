@@ -1,0 +1,8 @@
+-- 'static borrowed contracts are not provable yet and must not be accepted.
+-- expect: reject ty
+-- error: Meiya cannot prove a static borrowed return yet
+
+shape P { x: int }
+
+task st(lend p: P) -> lend 'static P { give back lend p }
+task main() -> int { give back 0 }

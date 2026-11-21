@@ -1,0 +1,12 @@
+-- expect: check
+
+shape P { x: int }
+
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    pilot r1 = lend a
+    pilot k = r1.x
+    pilot r2 = lend mut a
+    r2.x = k + 1
+    give back 0
+}

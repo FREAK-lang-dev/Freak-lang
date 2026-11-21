@@ -1,0 +1,5 @@
+-- expect: reject ty
+-- error: Yuuko infinite variant
+
+variant Tree { Leaf, Node { left: Tree } }
+task main() -> int { give back 0 }

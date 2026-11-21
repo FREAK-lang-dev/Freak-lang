@@ -1,0 +1,7 @@
+-- expect: reject ty
+-- error: extern return type is not FFI-safe
+
+extern [C] {
+    task mk() -> List<int>
+}
+task main() -> int { give back 0 }

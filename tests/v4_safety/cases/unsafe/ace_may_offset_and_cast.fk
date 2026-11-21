@@ -1,0 +1,16 @@
+-- expect: check
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    trust me "layout" on my honor as .ace {
+        pilot q = p.offset(1)
+        pilot r = p.cast<int>()
+    }
+    give back 0
+}

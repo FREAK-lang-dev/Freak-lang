@@ -1,0 +1,11 @@
+-- expect: reject mir
+-- error: missing return
+
+route C { Red, Green }
+task f(c: C) -> int {
+    when c {
+        C::Red -> give back 1
+        C::Green -> say "g"
+    }
+}
+task main() -> int { give back f(C::Red) }

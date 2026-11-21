@@ -1,0 +1,9 @@
+-- 256 does not fit tiny.
+-- known: #249 the frontend accepts what only the native backend rejects
+-- expect: reject frontend
+-- error: out of range
+
+task main() -> int {
+    pilot a: tiny = 256
+    give back 0
+}

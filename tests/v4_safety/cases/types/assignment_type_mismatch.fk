@@ -1,0 +1,8 @@
+-- expect: reject mir
+-- error: assignment type mismatch
+
+task main() -> int {
+    pilot mut a = 1
+    a = "x"
+    give back a
+}

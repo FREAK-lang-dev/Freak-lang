@@ -1,0 +1,12 @@
+-- A copied Callable keeps the same capture alive.
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+
+task main() -> int {
+    pilot k = 100
+    pilot f = |x: int| => x > k
+    pilot g = f
+    k = 101
+    pilot o = g(102)
+    give back 0
+}

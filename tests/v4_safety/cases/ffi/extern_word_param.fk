@@ -1,0 +1,9 @@
+-- A word is a fat pointer, not a char*.
+-- bible: 16.1
+-- expect: reject ty
+-- error: extern parameter type is not FFI-safe
+
+extern [C] {
+    task puts(s: word) -> std::ffi::c_int
+}
+task main() -> int { give back 0 }

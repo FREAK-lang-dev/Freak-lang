@@ -1,0 +1,12 @@
+-- OneShot closures are consumed by their first call.
+-- bible: 1.8
+-- expect: reject borrowck
+-- error: f was moved
+
+task main() -> int {
+    pilot t = "ace"
+    pilot f = move |_| { say t }
+    f()
+    f()
+    give back 0
+}

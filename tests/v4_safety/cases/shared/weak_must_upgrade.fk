@@ -1,0 +1,13 @@
+-- Weak<T> observes without keeping alive; it cannot hand out a view.
+-- bible: 4.4
+-- expect: reject mir
+-- error: Weak must upgrade before borrow
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task f(weak: Weak<Ship>) -> int {
+    pilot view = weak.borrow()
+    give back 0
+}
+task main() -> int { give back 0 }

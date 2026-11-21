@@ -1,0 +1,13 @@
+-- Moving and leaving the loop at once never reaches a second pass.
+-- expect: check
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = "hi"
+    repeat 3 times {
+        eat(a)
+        break
+    }
+    give back 0
+}

@@ -1,0 +1,9 @@
+-- Every route must give back a value.
+-- expect: reject mir
+-- error: missing return
+-- error: f must give back int on every route
+
+task f(n: int) -> int {
+    if n > 1 { give back 1 }
+}
+task main() -> int { give back f(1) }

@@ -1,0 +1,13 @@
+-- Any number of immutable lends may be live at once.
+-- bible: 4.2
+-- expect: check
+
+shape P { x: int }
+
+task main() -> int {
+    pilot a = P { x: 4 }
+    pilot r1 = lend a
+    pilot r2 = lend a
+    pilot k = r1.x + r2.x
+    give back k
+}

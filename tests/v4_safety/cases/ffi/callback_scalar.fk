@@ -1,0 +1,5 @@
+-- expect: check
+
+@extern_callback("C")
+task cb(w: std::ffi::c_int) -> std::ffi::c_int { give back w }
+task main() -> int { give back 0 }

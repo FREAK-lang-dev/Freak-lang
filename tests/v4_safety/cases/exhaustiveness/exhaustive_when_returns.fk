@@ -1,0 +1,11 @@
+-- An exhaustive when whose arms all give back needs no trailing return.
+-- expect: check
+
+route C { Red, Green }
+task f(c: C) -> int {
+    when c {
+        C::Red -> give back 1
+        C::Green -> give back 2
+    }
+}
+task main() -> int { give back f(C::Red) }

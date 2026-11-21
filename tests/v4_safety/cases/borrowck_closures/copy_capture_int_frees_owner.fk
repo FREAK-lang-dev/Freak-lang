@@ -1,0 +1,10 @@
+-- A copy capture does not borrow, so the owner may change.
+-- expect: check
+
+task main() -> int {
+    pilot k = 100
+    pilot f = copy |x: int| => x > k
+    k = 101
+    pilot o = f(102)
+    give back k
+}

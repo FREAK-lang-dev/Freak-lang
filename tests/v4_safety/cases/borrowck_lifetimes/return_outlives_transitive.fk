@@ -1,0 +1,7 @@
+-- 'c: 'b and 'b: 'a close transitively.
+-- expect: check
+
+shape P { x: int }
+
+task far<'a, 'b: 'a, 'c: 'b>(lend 'c v: P) -> lend 'a P { give back lend v }
+task main() -> int { give back 0 }

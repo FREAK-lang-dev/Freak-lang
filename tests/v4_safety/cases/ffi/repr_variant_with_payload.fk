@@ -1,0 +1,7 @@
+-- @repr only applies to fieldless routes.
+-- expect: reject ty
+-- error: repr variants must be fieldless
+
+@repr(u8)
+variant Bad { A { x: int }, B }
+task main() -> int { give back 0 }

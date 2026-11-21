@@ -1,0 +1,6 @@
+-- expect: reject ty
+-- error: Yuuko constant loop: fixed pilot A depends on itself via A -> B -> A
+
+fixed pilot A: int = B + 1
+fixed pilot B: int = A + 1
+task main() -> int { give back A }

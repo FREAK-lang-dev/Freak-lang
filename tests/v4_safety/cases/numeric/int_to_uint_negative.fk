@@ -1,0 +1,12 @@
+-- A negative int does not fit uint.
+-- Checked arithmetic traps instead of wrapping. args_count() is 1 here, so
+-- the operands are runtime values the optimizer cannot fold away.
+-- expect: panic
+-- exit: nonzero
+-- panic: int to uint conversion out of range
+
+task main() -> int {
+    pilot a = 0 - process::args_count()
+    pilot b: uint = a
+    give back 0
+}

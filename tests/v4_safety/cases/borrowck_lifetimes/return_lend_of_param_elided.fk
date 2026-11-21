@@ -1,0 +1,7 @@
+-- bible: 4.3
+-- expect: check
+
+shape P { x: int }
+
+task pass(lend p: P) -> lend P { give back lend p }
+task main() -> int { give back 0 }

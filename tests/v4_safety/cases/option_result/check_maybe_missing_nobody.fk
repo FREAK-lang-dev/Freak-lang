@@ -1,0 +1,12 @@
+-- Every check must handle the empty case.
+-- bible: 1.10
+-- expect: reject mir
+-- error: check maybe missing nobody arm
+
+task main() -> int {
+    pilot m: maybe<int> = some(3)
+    check m {
+        got v -> say v
+    }
+    give back 0
+}

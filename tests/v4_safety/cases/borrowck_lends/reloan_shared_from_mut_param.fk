@@ -1,0 +1,12 @@
+-- Downgrading lend mut to lend is fine.
+-- expect: check
+
+shape P { x: int }
+
+task peek(lend p: P) -> int { give back p.x }
+task poke(lend mut p: P) -> int {
+    pilot k = peek(lend p)
+    p.x = k + 1
+    give back p.x
+}
+task main() -> int { give back 0 }

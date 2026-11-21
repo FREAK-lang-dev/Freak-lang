@@ -1,0 +1,8 @@
+-- The bound points the other way, so no source outlives 'long.
+-- expect: reject ty
+-- error: Meiya cannot find a source for returned lifetime 'long
+
+shape P { x: int }
+
+task lengthen<'short, 'long: 'short>(lend 'short v: P) -> lend 'long P { give back lend v }
+task main() -> int { give back 0 }

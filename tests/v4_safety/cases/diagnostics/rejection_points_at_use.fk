@@ -1,0 +1,13 @@
+-- The rewrite diagnostic points at the write.
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+-- at: 10:5
+
+shape P { x: int }
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    pilot r = lend a
+    a.x = 9
+    pilot k = r.x
+    give back 0
+}

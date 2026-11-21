@@ -1,0 +1,7 @@
+-- expect: reject ty
+-- error: 'a is used on borrowed parameter p but is not declared on pass
+
+shape P { x: int }
+
+task pass(lend 'a p: P) -> lend 'a P { give back lend p }
+task main() -> int { give back 0 }

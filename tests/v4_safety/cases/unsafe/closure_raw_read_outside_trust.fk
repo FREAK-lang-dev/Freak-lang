@@ -1,0 +1,15 @@
+-- known: #246 raw-pointer operations in closure bodies skip the trust me gate
+-- expect: reject mir
+-- error: needs trust me block
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    pilot f = |_| => *p
+    give back 0
+}

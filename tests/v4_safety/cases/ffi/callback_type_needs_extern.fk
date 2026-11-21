@@ -1,0 +1,8 @@
+-- A callback crossing FFI must use an extern ABI.
+-- expect: reject ty
+-- error: callback type must use extern ABI
+
+extern [C] {
+    task register(cb: task(x: int) -> int) -> std::ffi::c_int
+}
+task main() -> int { give back 0 }

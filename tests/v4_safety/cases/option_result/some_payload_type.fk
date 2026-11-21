@@ -1,0 +1,7 @@
+-- expect: reject mir
+-- error: some payload type mismatch
+
+task main() -> int {
+    pilot m: maybe<int> = some("x")
+    give back 0
+}

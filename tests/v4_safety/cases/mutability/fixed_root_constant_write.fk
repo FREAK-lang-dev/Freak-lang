@@ -1,0 +1,9 @@
+-- Root constants are immutable.
+-- expect: reject frontend
+-- error: cannot
+
+fixed pilot LIMIT: int = 4
+task main() -> int {
+    LIMIT = 5
+    give back LIMIT
+}

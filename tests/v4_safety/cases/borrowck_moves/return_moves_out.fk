@@ -1,0 +1,14 @@
+-- Returning an owned local moves it to the caller.
+-- expect: run
+-- stdout: z
+
+shape Named { name: word }
+task mk() -> Named {
+    pilot n = Named { name: "z" }
+    give back n
+}
+task main() -> int {
+    pilot n = mk()
+    say n.name
+    give back 0
+}

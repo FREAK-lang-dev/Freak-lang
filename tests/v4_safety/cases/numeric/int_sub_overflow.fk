@@ -1,0 +1,13 @@
+-- int min - 1.
+-- Checked arithmetic traps instead of wrapping. args_count() is 1 here, so
+-- the operands are runtime values the optimizer cannot fold away.
+-- expect: panic
+-- exit: nonzero
+-- panic: int subtraction overflow
+
+task main() -> int {
+    pilot a = -9223372036854775808
+    pilot b = a - process::args_count()
+    say b
+    give back 0
+}

@@ -1,0 +1,13 @@
+-- NaN.to_int() traps instead of producing garbage.
+-- Checked arithmetic traps instead of wrapping. args_count() is 1 here, so
+-- the operands are runtime values the optimizer cannot fold away.
+-- expect: panic
+-- exit: nonzero
+-- panic: num to int conversion out of range
+
+task main() -> int {
+    pilot z: num = 0.0
+    pilot n = z / z
+    say n.to_int()
+    give back 0
+}

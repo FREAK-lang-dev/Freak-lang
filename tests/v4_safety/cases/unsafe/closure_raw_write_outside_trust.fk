@@ -1,0 +1,18 @@
+-- A closure body is not inside a trust me block just because it is called
+-- from one; the write here is lexically outside every trust me.
+-- known: #246 raw-pointer operations in closure bodies skip the trust me gate
+-- expect: reject mir
+-- error: needs trust me block
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    pilot f = |_| { p.write(1t) }
+    f()
+    give back 0
+}

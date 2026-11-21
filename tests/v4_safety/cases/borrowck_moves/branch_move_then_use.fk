@@ -1,0 +1,13 @@
+-- A move on one branch leaves the binding unavailable after the join.
+-- expect: reject borrowck
+-- error: Meiya carries that partial move across the CFG
+-- error: a was moved in block 1
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = "hi"
+    if process::args_count() > 1 { eat(a) }
+    say a
+    give back 0
+}

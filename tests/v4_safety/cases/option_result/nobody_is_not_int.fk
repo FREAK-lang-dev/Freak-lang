@@ -1,0 +1,8 @@
+-- There is no null: nobody only inhabits maybe.
+-- expect: reject frontend
+-- error: mismatch
+
+task main() -> int {
+    pilot v: int = nobody
+    give back v
+}

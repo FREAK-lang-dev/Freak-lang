@@ -1,0 +1,10 @@
+-- The right side moves a before the assignment reinitializes it.
+-- expect: run
+-- stdout: hix
+
+task main() -> int {
+    pilot mut a = "hi"
+    a = a + "x"
+    say a
+    give back 0
+}

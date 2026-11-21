@@ -1,0 +1,14 @@
+-- expect: reject borrowck
+-- error: Meiya refuses a use of an unavailable word binding
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = "hi"
+    pilot mut i = 0
+    while i < 3 {
+        eat(a)
+        i += 1
+    }
+    give back 0
+}

@@ -1,0 +1,14 @@
+-- One use after move is one error, not a second "unavailable word binding"
+-- error pinned to the declaration with only the name as help.
+-- known: #251 Meiya diagnostic wording, duplicates, spans and hints
+-- expect: reject borrowck
+-- error: was moved
+-- errors: 1
+
+task eat(w: word) -> int { give back 0 }
+task main() -> int {
+    pilot a = "hi"
+    eat(a)
+    say a
+    give back 0
+}

@@ -1,0 +1,10 @@
+-- expect: reject borrowck
+-- error: fixed pilot cannot be modified
+
+shape P { x: int }
+
+task main() -> int {
+    fixed pilot p = P { x: 1 }
+    p.x = 2
+    give back p.x
+}

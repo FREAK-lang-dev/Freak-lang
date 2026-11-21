@@ -1,0 +1,10 @@
+-- FREAK never drops a fraction silently.
+-- expect: reject mir
+-- error: local declaration type mismatch
+-- error: convert explicitly with .to_int()
+
+task main() -> int {
+    pilot z: num = 2.5
+    pilot i: int = z
+    give back i
+}

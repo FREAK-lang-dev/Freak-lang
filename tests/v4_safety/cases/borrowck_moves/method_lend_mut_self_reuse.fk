@@ -1,0 +1,18 @@
+-- lend mut self lends for the call only; the receiver stays usable.
+-- expect: run
+-- stdout: 3
+
+shape P { x: int }
+
+impl P {
+    task bump(lend mut self) -> int {
+        self.x += 1
+        give back self.x
+    }
+}
+task main() -> int {
+    pilot mut p = P { x: 1 }
+    pilot a = p.bump()
+    say p.bump()
+    give back 0
+}

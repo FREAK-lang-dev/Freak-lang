@@ -1,0 +1,8 @@
+-- expect: reject mir
+-- error: shape field type mismatch
+
+shape P { x: int }
+task main() -> int {
+    pilot p = P { x: "a" }
+    give back 0
+}

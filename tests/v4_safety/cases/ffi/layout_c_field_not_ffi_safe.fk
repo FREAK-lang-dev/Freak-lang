@@ -1,0 +1,6 @@
+-- expect: reject ty
+-- error: layout field type is not FFI-safe
+
+@layout(C)
+shape Bad { name: word }
+task main() -> int { give back 0 }

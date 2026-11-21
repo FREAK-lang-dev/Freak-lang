@@ -1,0 +1,10 @@
+-- 2^63 does not fit int. Literal range is a type fact, so the frontend
+-- (freak check) must refuse it, not only the native backend.
+-- known: #249 the frontend accepts what only the native backend rejects
+-- expect: reject frontend
+-- error: out of range
+
+task main() -> int {
+    pilot a = 9223372036854775808
+    give back 0
+}

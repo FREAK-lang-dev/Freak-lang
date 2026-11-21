@@ -1,0 +1,12 @@
+-- A checked-arithmetic trap is a panic (bible 17.1), so under the default
+-- unwind policy it should leave with the panic status like an index panic.
+-- known: #250 numeric traps exit 1 instead of the panic status
+-- expect: panic
+-- panic: int addition overflow
+
+task main() -> int {
+    pilot a = 9223372036854775807
+    pilot b = a + process::args_count()
+    say b
+    give back 0
+}

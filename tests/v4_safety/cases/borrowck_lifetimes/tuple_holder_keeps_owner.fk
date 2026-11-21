@@ -1,0 +1,13 @@
+-- A lend stored in a tuple slot keeps its owner borrowed.
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+
+shape P { x: int }
+
+task main() -> int {
+    pilot mut a = P { x: 1 }
+    pilot t = (lend a, 3)
+    a.x = 2
+    pilot k = t.0.x
+    give back 0
+}

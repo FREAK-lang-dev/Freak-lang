@@ -1,0 +1,8 @@
+-- setjmp can jump past destructors; it is a warning, not an error.
+-- bible: 16.2
+-- expect: check
+
+extern [C] {
+    task setjmp(env: *mut tiny) -> std::ffi::c_int
+}
+task main() -> int { give back 0 }

@@ -1,0 +1,7 @@
+-- expect: reject mir
+-- error: index expression must be numeric
+
+task main() -> int {
+    pilot xs: [int; 2] = [1, 2]
+    give back xs["0"]
+}

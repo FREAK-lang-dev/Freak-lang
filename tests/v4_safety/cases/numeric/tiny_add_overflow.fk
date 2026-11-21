@@ -1,0 +1,14 @@
+-- 255t + 1t.
+-- Checked arithmetic traps instead of wrapping. args_count() is 1 here, so
+-- the operands are runtime values the optimizer cannot fold away.
+-- expect: panic
+-- exit: nonzero
+-- panic: tiny addition overflow
+
+task main() -> int {
+    pilot a: tiny = 255t
+    pilot n: tiny = process::args_count()
+    pilot b = a + n
+    pilot c: int = b
+    give back c
+}

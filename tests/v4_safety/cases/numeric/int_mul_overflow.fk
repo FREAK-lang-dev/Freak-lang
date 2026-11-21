@@ -1,0 +1,13 @@
+-- 2^62 * 2.
+-- Checked arithmetic traps instead of wrapping. args_count() is 1 here, so
+-- the operands are runtime values the optimizer cannot fold away.
+-- expect: panic
+-- exit: nonzero
+-- panic: int multiplication overflow
+
+task main() -> int {
+    pilot a = 4611686018427387904
+    pilot b = a * (process::args_count() + 1)
+    say b
+    give back 0
+}

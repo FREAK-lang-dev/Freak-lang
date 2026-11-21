@@ -1,0 +1,13 @@
+-- Writing through an immutable lend parameter is refused.
+-- bible: 4.2
+-- expect: reject borrowck
+-- error: Meiya refuses to mutate an immutable lend parameter
+-- at: 10:5
+
+shape P { x: int }
+
+task poke(lend p: P) -> int {
+    p.x = 3
+    give back p.x
+}
+task main() -> int { give back 0 }

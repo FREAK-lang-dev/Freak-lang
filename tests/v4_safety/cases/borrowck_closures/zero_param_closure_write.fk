@@ -1,0 +1,11 @@
+-- `|| ...` is the bible's zero-parameter form (17.1); its captures get the same checks.
+-- known: #248 zero-parameter || closures skip capture checks
+-- expect: reject mir
+-- error: Meiya keeps this closure capture immutable
+
+task main() -> int {
+    pilot k = 3
+    pilot f = || { k += 1 }
+    f()
+    give back k
+}

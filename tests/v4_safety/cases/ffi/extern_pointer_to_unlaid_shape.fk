@@ -1,0 +1,9 @@
+-- A raw pointer may only target FFI-safe storage.
+-- expect: reject ty
+-- error: extern parameter type is not FFI-safe
+
+shape V { x: std::ffi::c_double }
+extern [C] {
+    task f(v: *const V) -> std::ffi::c_int
+}
+task main() -> int { give back 0 }

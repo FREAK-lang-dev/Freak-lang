@@ -1,0 +1,15 @@
+-- A mutable lend cannot start while a shared lend is still used.
+-- bible: 4.2
+-- expect: reject borrowck
+-- error: Meiya refuses overlapping mutable lends
+-- at: 12:15
+
+shape P { x: int }
+
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    pilot r1 = lend a
+    pilot r2 = lend mut a
+    pilot k = r1.x
+    give back 0
+}

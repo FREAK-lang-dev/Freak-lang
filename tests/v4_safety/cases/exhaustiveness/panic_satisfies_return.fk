@@ -1,0 +1,9 @@
+-- panic has type never and satisfies the return type.
+-- bible: 2
+-- expect: check
+
+task f(n: int) -> int {
+    if n > 1 { give back 1 }
+    panic("unreachable")
+}
+task main() -> int { give back f(2) }

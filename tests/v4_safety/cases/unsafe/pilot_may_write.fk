@@ -1,0 +1,16 @@
+-- expect: check
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    trust me "store" on my honor as .pilot {
+        p.write(2t)
+        *p = 3t
+    }
+    give back 0
+}

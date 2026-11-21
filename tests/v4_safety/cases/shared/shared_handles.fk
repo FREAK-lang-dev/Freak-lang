@@ -1,0 +1,12 @@
+-- expect: check
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task f(root: Shared<Ship>) -> int {
+    pilot again = root.clone()
+    pilot weak = root.downgrade()
+    pilot revived = weak.upgrade()
+    give back 0
+}
+task main() -> int { give back 0 }

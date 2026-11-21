@@ -1,0 +1,11 @@
+-- The default capture mode borrows.
+-- bible: 1.8
+-- expect: check
+
+task main() -> int {
+    pilot k = 100
+    pilot f = |x: int| => x > k
+    pilot a = f(101)
+    pilot b = f(99)
+    give back k
+}

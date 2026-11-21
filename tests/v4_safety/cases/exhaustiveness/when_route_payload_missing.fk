@@ -1,0 +1,13 @@
+-- Payload cases count too.
+-- expect: reject mir
+-- error: non-exhaustive route when
+-- error: Shape::Dot
+
+route Shape { Dot { x: int }, Line { a: int, b: int } }
+task f(s: Shape) -> int {
+    when s {
+        Shape::Line { a, b } -> give back a + b
+    }
+    give back 0
+}
+task main() -> int { give back f(Shape::Dot { x: 1 }) }

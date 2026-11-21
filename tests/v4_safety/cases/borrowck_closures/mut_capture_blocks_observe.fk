@@ -1,0 +1,11 @@
+-- A mut closure holds an exclusive lend until its last call.
+-- expect: reject borrowck
+-- error: Meiya refuses observation through an exclusive lend
+
+task main() -> int {
+    pilot c = 0
+    pilot f = mut |_| { c += 1 }
+    pilot o = c
+    f()
+    give back 0
+}

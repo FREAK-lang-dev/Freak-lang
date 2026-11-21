@@ -1,0 +1,12 @@
+-- H has only a lifetime parameter, so "write H<int>" is the wrong hint.
+-- known: #251 Meiya diagnostic wording, duplicates, spans and hints
+-- expect: reject mir
+-- error: '_
+
+shape P { x: int }
+shape H<'a> { r: lend 'a P }
+task main() -> int {
+    pilot mut a = P { x: 1 }
+    pilot h = H { r: lend a }
+    give back 0
+}

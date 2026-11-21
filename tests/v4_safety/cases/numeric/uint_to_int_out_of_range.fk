@@ -1,0 +1,13 @@
+-- uint max does not fit int.
+-- Checked arithmetic traps instead of wrapping. args_count() is 1 here, so
+-- the operands are runtime values the optimizer cannot fold away.
+-- expect: panic
+-- exit: nonzero
+-- panic: uint to int conversion out of range
+
+task main() -> int {
+    pilot a: uint = 18446744073709551615u
+    pilot b: int = a
+    say b
+    give back 0
+}

@@ -1,0 +1,16 @@
+-- An immutable lend must never be upgraded to lend mut, here by passing it on.
+-- known: #244 Meiya lets an immutable lend be reloaned as lend mut
+-- expect: reject borrowck
+-- error: lend mut
+
+shape P { x: int }
+
+task poke(lend mut p: P) -> int {
+    p.x = 99
+    give back 0
+}
+task peek(lend p: P) -> int {
+    pilot z = poke(lend mut p)
+    give back p.x
+}
+task main() -> int { give back 0 }

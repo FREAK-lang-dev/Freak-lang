@@ -1,0 +1,10 @@
+-- Assigned on only one route, so the read may see no value.
+-- known: #245 reading an uninitialized local passes every frontend stage
+-- expect: reject frontend
+-- error: a
+
+task main() -> int {
+    pilot a: int
+    if process::args_count() > 1 { a = 1 }
+    give back a
+}

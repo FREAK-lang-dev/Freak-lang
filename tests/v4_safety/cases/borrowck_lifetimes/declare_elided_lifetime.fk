@@ -1,0 +1,8 @@
+-- '_ is compiler-owned and cannot be declared.
+-- expect: reject ty
+-- error: '_ is reserved and cannot be declared on pass
+
+shape P { x: int }
+
+task pass<'_>(lend p: P) -> lend P { give back lend p }
+task main() -> int { give back 0 }

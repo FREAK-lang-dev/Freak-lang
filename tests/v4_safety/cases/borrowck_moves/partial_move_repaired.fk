@@ -1,0 +1,14 @@
+-- Writing the moved field back repairs the whole value.
+-- expect: check
+
+shape N { name: word, n: int }
+task eat(w: word) -> int { give back 0 }
+
+task take(x: N) -> int { give back 0 }
+task main() -> int {
+    pilot mut a = N { name: "q", n: 1 }
+    eat(a.name)
+    a.name = "r"
+    take(a)
+    give back 0
+}

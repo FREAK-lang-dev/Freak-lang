@@ -1,0 +1,14 @@
+-- *const T is read-only even inside trust me.
+-- expect: reject mir
+-- error: raw-pointer write needs *mut T
+
+extern [C] {
+    task peek() -> *const tiny
+}
+task main() -> int {
+    pilot p = peek()
+    trust me "store" on my honor as .ace {
+        p.write(2t)
+    }
+    give back 0
+}

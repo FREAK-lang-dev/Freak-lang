@@ -1,0 +1,15 @@
+-- "You cannot observe something that is being changed."
+-- bible: 4.2
+-- expect: reject borrowck
+-- error: Meiya refuses overlapping mutable lends
+
+shape P { x: int }
+
+task main() -> int {
+    pilot mut a = P { x: 4 }
+    pilot r1 = lend mut a
+    pilot r2 = lend a
+    r1.x = 2
+    pilot k = r2.x
+    give back 0
+}

@@ -1,0 +1,10 @@
+-- expect: panic
+-- panic: index 4 out of bounds (len 4)
+
+shape Buf { data: [int; 4] }
+task main() -> int {
+    pilot b = Buf { data: [0; 4] }
+    pilot i = process::args_count() + 3
+    say b.data[i]
+    give back 0
+}

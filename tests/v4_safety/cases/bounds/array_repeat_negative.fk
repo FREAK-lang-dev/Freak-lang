@@ -1,0 +1,7 @@
+-- expect: reject frontend
+-- error: non-negative
+
+task main() -> int {
+    pilot xs = [0; -1]
+    give back 0
+}

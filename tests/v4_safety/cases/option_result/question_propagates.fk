@@ -1,0 +1,8 @@
+-- expect: check
+
+task g() -> result<int, word> { give back ok(1) }
+task f() -> result<int, word> {
+    pilot n = g()?
+    give back ok(n + 1)
+}
+task main() -> int { give back 0 }

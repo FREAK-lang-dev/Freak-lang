@@ -1,0 +1,7 @@
+-- Root-scope mutable pilot is forbidden in strict mode.
+-- bible: 1.14
+-- expect: reject parse
+-- error: root pilot needs bootstrap mode
+
+pilot counter = 0
+task main() -> int { give back 0 }

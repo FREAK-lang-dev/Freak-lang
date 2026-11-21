@@ -1,0 +1,16 @@
+-- expect: run
+-- stdout: 3
+
+route C { Red, Green, Blue }
+task f(c: C) -> int {
+    when c {
+        C::Red -> give back 1
+        C::Green -> give back 2
+        C::Blue -> give back 3
+    }
+    give back 0
+}
+task main() -> int {
+    say f(C::Blue)
+    give back 0
+}

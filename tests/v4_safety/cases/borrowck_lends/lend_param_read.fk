@@ -1,0 +1,12 @@
+-- An immutable lend reads without taking ownership.
+-- bible: 4.2
+-- expect: check
+
+shape P { x: int }
+
+task peek(lend p: P) -> int { give back p.x }
+task main() -> int {
+    pilot a = P { x: 4 }
+    pilot k = peek(lend a)
+    give back a.x + k
+}

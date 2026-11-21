@@ -1,0 +1,14 @@
+-- expect: reject mir
+-- error: raw-pointer offset needs trust me block
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    pilot q = p.offset(1)
+    give back 0
+}

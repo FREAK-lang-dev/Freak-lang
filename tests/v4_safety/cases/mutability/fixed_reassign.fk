@@ -1,0 +1,9 @@
+-- expect: reject borrowck
+-- error: fixed pilot cannot be modified
+-- at: 7:5
+
+task main() -> int {
+    fixed pilot a = 1
+    a = 2
+    give back a
+}

@@ -1,0 +1,7 @@
+-- A shared return may come from a lend mut source.
+-- expect: check
+
+shape P { x: int }
+
+task down<'a>(lend mut 'a p: P) -> lend 'a P { give back lend p }
+task main() -> int { give back 0 }

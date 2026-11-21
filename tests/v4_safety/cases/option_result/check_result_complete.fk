@@ -1,0 +1,10 @@
+-- expect: check
+
+task f() -> result<int, word> { give back ok(1) }
+task main() -> int {
+    check result f() {
+        ok(n) -> say n
+        err(e) -> say e
+    }
+    give back 0
+}

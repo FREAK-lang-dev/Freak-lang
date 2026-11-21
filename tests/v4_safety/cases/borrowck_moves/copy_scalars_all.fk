@@ -1,0 +1,19 @@
+-- Every primitive scalar copies; none of these reads is a use after move.
+-- bible: 4.1
+-- expect: check
+
+task take_int(v: int) -> int { give back v }
+task take_num(v: num) -> int { give back 0 }
+task take_bool(v: bool) -> int { give back 0 }
+task take_tiny(v: tiny) -> int { give back 0 }
+task take_uint(v: uint) -> int { give back 0 }
+task main() -> int {
+    pilot i = 1
+    pilot f: num = 2.5
+    pilot b = true
+    pilot t: tiny = 7t
+    pilot u: uint = 9u
+    pilot s = take_int(i) + take_int(i) + take_num(f) + take_num(f)
+    pilot q = take_bool(b) + take_bool(b) + take_tiny(t) + take_tiny(t) + take_uint(u) + take_uint(u)
+    give back s + q + i
+}

@@ -1,0 +1,13 @@
+-- Assigning a fresh value to a moved binding makes it usable again.
+-- expect: run
+-- stdout: again
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot mut a = "hi"
+    eat(a)
+    a = "again"
+    say a
+    give back 0
+}

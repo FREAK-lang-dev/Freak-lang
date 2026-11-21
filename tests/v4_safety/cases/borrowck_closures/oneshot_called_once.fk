@@ -1,0 +1,8 @@
+-- expect: check
+
+task main() -> int {
+    pilot t = "ace"
+    pilot f = move |_| { say t }
+    f()
+    give back 0
+}

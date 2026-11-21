@@ -1,0 +1,10 @@
+-- Each dimension is checked separately.
+-- expect: panic
+-- panic: index 2 out of bounds (len 2)
+
+task main() -> int {
+    pilot grid: [[int; 2]; 2] = [[1, 2], [3, 4]]
+    pilot i = process::args_count() + 1
+    say grid[0][i]
+    give back 0
+}

@@ -1,0 +1,8 @@
+-- 'long: 'short lets a veteran loan cover the shorter sortie.
+-- bible: 4.3
+-- expect: check
+
+shape P { x: int }
+
+task shorten<'short, 'long: 'short>(lend 'long v: P) -> lend 'short P { give back lend v }
+task main() -> int { give back 0 }

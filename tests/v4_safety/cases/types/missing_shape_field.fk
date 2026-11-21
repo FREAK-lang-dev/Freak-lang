@@ -1,0 +1,9 @@
+-- Every field must be initialized.
+-- expect: reject mir
+-- error: missing shape field
+
+shape P { x: int, y: int }
+task main() -> int {
+    pilot p = P { x: 1 }
+    give back p.x
+}

@@ -1,0 +1,10 @@
+-- ? propagation only works inside a task that returns result.
+-- expect: reject mir
+-- error: ? result propagation needs result return
+
+task g() -> result<int, word> { give back ok(1) }
+task f() -> int {
+    pilot n = g()?
+    give back n
+}
+task main() -> int { give back f() }

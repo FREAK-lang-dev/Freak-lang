@@ -1,0 +1,15 @@
+-- expect: reject borrowck
+-- error: an immutable binding cannot grant a mutable lend
+
+shape P { x: int }
+
+impl P {
+    task bump(lend mut self) -> int {
+        self.x += 1
+        give back self.x
+    }
+}
+task main() -> int {
+    fixed pilot p = P { x: 1 }
+    give back p.bump()
+}

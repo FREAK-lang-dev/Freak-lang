@@ -1,0 +1,11 @@
+-- MutCallable environments move on assignment.
+-- expect: reject borrowck
+-- error: f was moved
+
+task main() -> int {
+    pilot c = 0
+    pilot f = mut |_| { c += 1 }
+    pilot g = f
+    f()
+    give back 0
+}

@@ -1,0 +1,12 @@
+-- A live borrow capture keeps its owner borrowed.
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+-- at: 9:5
+
+task main() -> int {
+    pilot k = 100
+    pilot f = |x: int| => x > k
+    k = 101
+    pilot o = f(102)
+    give back 0
+}

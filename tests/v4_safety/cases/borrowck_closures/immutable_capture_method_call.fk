@@ -1,0 +1,14 @@
+-- A lend mut receiver call through a default closure is a write too.
+-- expect: reject mir
+-- error: Meiya keeps this closure capture immutable
+
+shape P { x: int }
+
+impl P {
+    task bump(lend mut self) -> void { self.x += 1 }
+}
+task main() -> int {
+    pilot p = P { x: 0 }
+    pilot f = |_| { p.bump() }
+    give back 0
+}

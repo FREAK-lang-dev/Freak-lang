@@ -1,0 +1,9 @@
+-- expect: reject mir
+-- error: trust me honor level unknown
+
+task main() -> int {
+    trust me "x" on my honor as .general {
+        say "hi"
+    }
+    give back 0
+}

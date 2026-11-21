@@ -1,0 +1,5 @@
+-- expect: reject mir
+-- error: return type mismatch
+
+task f() -> int { give back "x" }
+task main() -> int { give back f() }

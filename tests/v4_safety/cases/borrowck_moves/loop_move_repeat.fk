@@ -1,0 +1,11 @@
+-- The second pass of the loop would move a again.
+-- expect: reject borrowck
+-- error: Meiya refuses a use of an unavailable word binding
+
+task eat(w: word) -> int { give back 0 }
+
+task main() -> int {
+    pilot a = "hi"
+    repeat 3 times { eat(a) }
+    give back 0
+}

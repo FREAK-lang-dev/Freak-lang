@@ -1,0 +1,10 @@
+-- expect: reject mir
+-- error: check result missing ok arm
+
+task f() -> result<int, word> { give back ok(1) }
+task main() -> int {
+    check result f() {
+        err(e) -> say e
+    }
+    give back 0
+}

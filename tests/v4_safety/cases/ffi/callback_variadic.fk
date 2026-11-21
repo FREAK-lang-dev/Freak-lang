@@ -1,0 +1,6 @@
+-- expect: reject ty
+-- error: @extern_callback tasks cannot be variadic
+
+@extern_callback("C")
+task cb(w: std::ffi::c_int, args: ...) -> std::ffi::c_int { give back w }
+task main() -> int { give back 0 }

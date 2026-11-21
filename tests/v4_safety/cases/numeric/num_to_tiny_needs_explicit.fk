@@ -1,0 +1,8 @@
+-- expect: reject mir
+-- error: local declaration type mismatch
+
+task main() -> int {
+    pilot z: num = 2.0
+    pilot t: tiny = z
+    give back 0
+}

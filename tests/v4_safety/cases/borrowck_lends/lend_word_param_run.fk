@@ -1,0 +1,11 @@
+-- expect: run
+-- stdout: 3
+-- stdout: xyz
+
+task look(lend p: word) -> int { give back p.length() }
+task main() -> int {
+    pilot a = "xyz"
+    say look(lend a)
+    say a
+    give back 0
+}

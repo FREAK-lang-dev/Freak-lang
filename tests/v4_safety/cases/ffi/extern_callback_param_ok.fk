@@ -1,0 +1,6 @@
+-- expect: check
+
+extern [C] {
+    task register(cb: extern [C] task(x: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int
+}
+task main() -> int { give back 0 }

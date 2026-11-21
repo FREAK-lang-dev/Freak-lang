@@ -1,0 +1,5 @@
+-- expect: reject mir
+-- error: call argument type mismatch
+
+task f(x: int) -> int { give back x }
+task main() -> int { give back f("x") }
