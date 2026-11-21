@@ -4420,6 +4420,7 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
                 pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)
                 error = v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, child), v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, rvalue_id, arg))
                 if error != "" { give back error }
+                if v4_codegen_llvm_c_call_is_vararg(mir_id, body_id, rvalue_id, arg) and v4_codegen_llvm_c_vararg_type(mir_id, body_id, rvalue_id, arg) == "" { give back "native C vararg promotion is not available for " + v4_mir_rvalue_ty(mir_id, body_id, child) }
                 arg += 1
             }
         }
