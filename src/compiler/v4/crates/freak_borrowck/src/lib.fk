@@ -9398,6 +9398,8 @@ pilot v4_borrowck_drop_plan_next = 0 - 1
 pilot v4_borrowck_drop_plan_flags = 0 - 1
 pilot v4_borrowck_drop_plan_queue = 0 - 1
 pilot v4_borrowck_drop_plan_queued = 0 - 1
+pilot v4_borrowck_drop_plan_scopes = 0 - 1
+pilot v4_borrowck_drop_plan_targets = 0 - 1
 pilot v4_borrowck_drop_plan_budget = 0
 pilot v4_borrowck_drop_plan_error = ""
 
@@ -9415,6 +9417,10 @@ task v4_borrowck_drop_plan_scratch_release() -> void {
     if v4_borrowck_drop_plan_flags >= 0 { array_release(v4_borrowck_drop_plan_flags) }
     if v4_borrowck_drop_plan_queue >= 0 { array_release(v4_borrowck_drop_plan_queue) }
     if v4_borrowck_drop_plan_queued >= 0 { array_release(v4_borrowck_drop_plan_queued) }
+    if v4_borrowck_drop_plan_scopes >= 0 { array_release(v4_borrowck_drop_plan_scopes) }
+    if v4_borrowck_drop_plan_targets >= 0 { array_release(v4_borrowck_drop_plan_targets) }
+    v4_borrowck_drop_plan_scopes = 0 - 1
+    v4_borrowck_drop_plan_targets = 0 - 1
     v4_borrowck_drop_plan_owned = 0 - 1
     v4_borrowck_drop_plan_index = 0 - 1
     v4_borrowck_drop_plan_eff_heads = 0 - 1
@@ -9589,6 +9595,47 @@ task v4_borrowck_drop_plan_slot_local(mir_id: int, body_id: int, stmt_id: int) -
     give back local
 }
 
+-- Four cells per scope (present, file, start, end), parsed once: owned
+-- slots' scopes live in drop_plan_scopes, a site's own scopes in `cells`.
+task v4_borrowck_drop_plan_scope_push(cells: int, span: word) -> bool {
+    if span == (V4_NO_SPAN) {
+        give back v4_borrowck_drop_plan_push(cells, "0") and v4_borrowck_drop_plan_push(cells, "") and v4_borrowck_drop_plan_push(cells, "0") and v4_borrowck_drop_plan_push(cells, "0")
+    }
+    give back v4_borrowck_drop_plan_push(cells, "1") and v4_borrowck_drop_plan_push(cells, v4_span_file(span)) and v4_borrowck_drop_plan_push(cells, word_from_int(v4_span_start(span))) and v4_borrowck_drop_plan_push(cells, word_from_int(v4_span_end(span)))
+}
+
+-- v4_mir_scope_contains(slot's local scope, scope `row` of `cells`).
+task v4_borrowck_drop_plan_scope_contains(slot: int, cells: int, row: int) -> bool {
+    pilot outer = slot * 4
+    pilot inner = row * 4
+    pilot outer_present: word = array_get(v4_borrowck_drop_plan_scopes, outer)
+    pilot inner_present: word = array_get(cells, inner)
+    if outer_present != "1" or inner_present != "1" { give back false }
+    pilot outer_file: word = array_get(v4_borrowck_drop_plan_scopes, outer + 1)
+    pilot inner_file: word = array_get(cells, inner + 1)
+    if outer_file != inner_file { give back false }
+    give back word_to_int(array_get(v4_borrowck_drop_plan_scopes, outer + 2)) <= word_to_int(array_get(cells, inner + 2)) and word_to_int(array_get(v4_borrowck_drop_plan_scopes, outer + 3)) >= word_to_int(array_get(cells, inner + 3))
+}
+
+-- The slot's scope contains the source scope (row 0) but not the target (row 1).
+task v4_borrowck_drop_plan_exits(slot: int, cells: int) -> bool {
+    give back v4_borrowck_drop_plan_scope_contains(slot, cells, 0) and not v4_borrowck_drop_plan_scope_contains(slot, cells, 1)
+}
+
+-- Parse a site's source and target scopes; -1 when scratch fails.
+task v4_borrowck_drop_plan_site_scopes(source_scope: word, target_scope: word) -> int {
+    pilot cells = array_new()
+    if cells < 0 {
+        v4_borrowck_drop_plan_fail("native drop plan scratch allocation failed")
+        give back cells
+    }
+    if not v4_borrowck_drop_plan_scope_push(cells, source_scope) or not v4_borrowck_drop_plan_scope_push(cells, target_scope) {
+        array_release(cells)
+        give back 0 - 1
+    }
+    give back cells
+}
+
 task v4_borrowck_drop_plan_state(cells: int, slot: int) -> int {
     give back word_to_int(array_get(cells, slot))
 }
@@ -9623,16 +9670,25 @@ task v4_borrowck_drop_plan_edge(mir_id: int, body_id: int, block_id: int, target
     if target < 0 or target >= block_count { give back true }
     pilot source_scope = v4_mir_edge_source_scope(mir_id, body_id, block_id)
     pilot target_scope = v4_mir_edge_target_scope(mir_id, body_id, target)
+    pilot cells = 0 - 1
+    if source_scope != target_scope {
+        cells = v4_borrowck_drop_plan_site_scopes(source_scope, target_scope)
+        if cells < 0 { give back false }
+    }
     pilot slot = 0
     repeat until slot >= count {
         pilot state = v4_borrowck_drop_plan_state(v4_borrowck_drop_plan_cur, slot)
-        if source_scope != target_scope and state != 0 and v4_mir_word_local_scope_exits_between(mir_id, body_id, word_to_int(array_get(v4_borrowck_drop_plan_owned, slot)), source_scope, target_scope) {
-            if emit and not v4_borrowck_drop_plan_emit(mir_id, body_id, site, block_id, slot, state) { give back false }
+        if cells >= 0 and state != 0 and v4_borrowck_drop_plan_exits(slot, cells) {
+            if emit and not v4_borrowck_drop_plan_emit(mir_id, body_id, site, block_id, slot, state) {
+                array_release(cells)
+                give back false
+            }
             state = 2
         }
         array_set(v4_borrowck_drop_plan_next, slot, word_from_int(state))
         slot += 1
     }
+    if cells >= 0 { array_release(cells) }
     if emit { give back true }
     pilot changed: bool = false
     pilot reached: word = array_get(v4_borrowck_drop_plan_reached, target)
@@ -9677,15 +9733,21 @@ task v4_borrowck_drop_plan_block(mir_id: int, body_id: int, block_id: int, emit:
     pilot stmt = v4_mir_block_first_stmt(mir_id, body_id, block_id)
     repeat until stmt < 0 {
         if previous >= 0 and v4_mir_stmt_scope_span(mir_id, body_id, previous) != v4_mir_stmt_scope_span(mir_id, body_id, stmt) {
+            pilot cells = v4_borrowck_drop_plan_site_scopes(v4_mir_stmt_scope_span(mir_id, body_id, previous), v4_mir_stmt_scope_span(mir_id, body_id, stmt))
+            if cells < 0 { give back false }
             slot = 0
             repeat until slot >= count {
                 pilot state = v4_borrowck_drop_plan_state(v4_borrowck_drop_plan_cur, slot)
-                if state != 0 and v4_mir_word_local_scope_exits_before_stmt(mir_id, body_id, word_to_int(array_get(v4_borrowck_drop_plan_owned, slot)), previous, stmt) {
-                    if emit and not v4_borrowck_drop_plan_emit(mir_id, body_id, v4_mir_drop_site_before, stmt, slot, state) { give back false }
+                if state != 0 and v4_borrowck_drop_plan_exits(slot, cells) {
+                    if emit and not v4_borrowck_drop_plan_emit(mir_id, body_id, v4_mir_drop_site_before, stmt, slot, state) {
+                        array_release(cells)
+                        give back false
+                    }
                     array_set(v4_borrowck_drop_plan_cur, slot, "2")
                 }
                 slot += 1
             }
+            array_release(cells)
         }
         pilot item = word_to_int(array_get(v4_borrowck_drop_plan_eff_heads, stmt))
         repeat until item < 0 {
@@ -9702,7 +9764,7 @@ task v4_borrowck_drop_plan_block(mir_id: int, body_id: int, block_id: int, emit:
             if emit { give back v4_borrowck_drop_plan_emit_all(mir_id, body_id, v4_mir_drop_site_return, stmt) }
             give back true
         }
-        pilot written = v4_borrowck_drop_plan_slot_of(v4_borrowck_drop_plan_target_local(mir_id, body_id, stmt))
+        pilot written = word_to_int(array_get(v4_borrowck_drop_plan_targets, stmt))
         if written >= 0 {
             pilot state = v4_borrowck_drop_plan_state(v4_borrowck_drop_plan_cur, written)
             if emit and not v4_borrowck_drop_plan_emit(mir_id, body_id, v4_mir_drop_site_replace, stmt, written, state) { give back false }
@@ -9737,6 +9799,9 @@ task v4_borrowck_drop_plan_body(mir_id: int, body_id: int) -> bool {
     v4_borrowck_drop_plan_flags = array_new()
     v4_borrowck_drop_plan_queue = array_new()
     v4_borrowck_drop_plan_queued = array_new()
+    v4_borrowck_drop_plan_scopes = array_new()
+    v4_borrowck_drop_plan_targets = array_new()
+    if v4_borrowck_drop_plan_scopes < 0 or v4_borrowck_drop_plan_targets < 0 { give back v4_borrowck_drop_plan_fail("native drop plan scratch allocation failed") }
     if v4_borrowck_drop_plan_owned < 0 or v4_borrowck_drop_plan_index < 0 or v4_borrowck_drop_plan_eff_heads < 0 or v4_borrowck_drop_plan_eff_items < 0 or v4_borrowck_drop_plan_eff_kinds < 0 or v4_borrowck_drop_plan_eff_next < 0 or v4_borrowck_drop_plan_entry < 0 or v4_borrowck_drop_plan_reached < 0 or v4_borrowck_drop_plan_cur < 0 or v4_borrowck_drop_plan_next < 0 or v4_borrowck_drop_plan_flags < 0 or v4_borrowck_drop_plan_queue < 0 or v4_borrowck_drop_plan_queued < 0 { give back v4_borrowck_drop_plan_fail("native drop plan scratch allocation failed") }
     pilot local_count = v4_mir_body_local_count(mir_id, body_id)
     pilot block_count = v4_mir_body_block_count(mir_id, body_id)
@@ -9755,6 +9820,7 @@ task v4_borrowck_drop_plan_body(mir_id: int, body_id: int) -> bool {
             if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_flags, "0") { give back false }
             if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_cur, "0") { give back false }
             if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_next, "0") { give back false }
+            if not v4_borrowck_drop_plan_scope_push(v4_borrowck_drop_plan_scopes, v4_mir_local_scope_span(mir_id, body_id, local)) { give back false }
         }
         local -= 1
     }
@@ -9777,6 +9843,7 @@ task v4_borrowck_drop_plan_body(mir_id: int, body_id: int) -> bool {
         -- (its moved-out leaves are null), whatever path reaches it.
         pilot slot_local = v4_borrowck_drop_plan_slot_local(mir_id, body_id, stmt)
         if slot_local >= 0 and not v4_mir_drop_plan_add_drop(mir_id, body_id, v4_mir_drop_site_replace, stmt, slot_local, v4_mir_drop_mode_slot) { give back v4_borrowck_drop_plan_fail(v4_mir_drop_plan_failed) }
+        if not v4_borrowck_drop_plan_push(v4_borrowck_drop_plan_targets, word_from_int(v4_borrowck_drop_plan_slot_of(v4_borrowck_drop_plan_target_local(mir_id, body_id, stmt)))) { give back false }
         stmt += 1
     }
     pilot count = array_len(v4_borrowck_drop_plan_owned)

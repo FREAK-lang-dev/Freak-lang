@@ -101,8 +101,15 @@ references from the authority to builder-owned tasks. TY representation dependen
 remain separately tracked by the TypeId migration; this guard does not claim
 that migration is complete.
 
-Meiya owns analysis facts. The planned Runtime MIR transform will consume those
-facts and publish explicit drops, flags and cleanup edges before LLVM lowering.
+Meiya owns analysis facts. It now publishes the native drop plan: a sealed
+`freak_mir` side table (`v4_mir_drop_plan_*`) for the body being lowered,
+holding each owned local and whether it needs a runtime flag, the whole and
+partial move of every moving rvalue, and ordered `Drop`, `DropIf` and
+`DropSlot` rows per site (before a statement, on replacement, at a return
+statement, on a true or false edge, and at a default return). Codegen reads
+only that plan to place drops; it no longer asks Meiya per rvalue whether a
+local moved. The planned Runtime MIR transform (`freak_mir_transform`) will
+turn the same facts into explicit statements and cleanup blocks.
 Built, Analysis and Runtime MIR are lifecycle states of one representation;
 this contract does not introduce a new persistent IR or Runtime MIR snapshot.
 
@@ -357,19 +364,30 @@ every target:
 
 Ownership follows Meiya: passing an aggregate moves it (Meiya rejects a later
 use), and a returned aggregate transfers ownership to the caller. Aggregates
-may now hold words: each word leaf is found from the type, and a word-owning
-aggregate local carries a drop flag like a word local, so scope exit, early
-return and reassignment release every leaf once, and a moved-out local is
-skipped. Still refused by name for word-owning aggregates: moving one word
-out of its aggregate (`native partial moves out of aggregates that own words`),
-stores into their slots or whole replacement through a lend (`native stores
-into aggregate slots that own words`), projections of word-owning temporaries,
-repeat fills, aggregates owning more than 256 words, and route payloads that
-own words. Projections of call results (`f(x).y`, `f(x).0`, `f(x)[i]`) lower
+may now hold words. Drops come from Meiya's drop plan: a forward init
+dataflow over the body gives each owned local an unconditional `Drop` where it
+is surely live, a `DropIf` with a runtime flag (`%word.N.live`) only where it
+is live on some paths, and nothing where it is surely moved. Locals at one
+site drop in reverse declaration order. Drop glue runs in place, through
+shapes, tuples and arrays; a route loads its tag and releases only the word
+leaves of the case it holds. A partial move (`p.name`, `pair.0`, a word
+payload binding in `when` or `check route`) nulls the moved leaves in place,
+so the aggregate's later drop and a store that repairs the slot release every
+leaf exactly once; stores into word slots, and whole replacement through a
+`lend mut self`, release the old value first (`DropSlot`). Codegen fails
+closed when the plan does not cover an owned local. Still refused by name:
+projections of word-owning temporaries, repeat fills of words, aggregates
+owning more than 256 words, discarded route values that own words other than
+calls (`native discarded route values that own words are not yet supported`),
+and `result<word, word>` carriers inside route payloads. Projections of call results (`f(x).y`, `f(x).0`, `f(x)[i]`) lower
 through the sealed MIR `Project` / `ProjectIndex` unary facts with bounds
 checks. Program: `examples/agg_abi_native.fk` (exact output, exit 42); the
 word-owning subset is also audited by `tests/v4_owned_word_codegen.py` under
-ASan, UBSan and both ownership audits.
+ASan, UBSan and both ownership audits. Drops: `examples/drops_native.fk`
+(early return, reassignment, loops, conditional moves, partial moves and
+repair, slot stores, lent receivers, route payloads), run by
+`check_v4_native_drops` from `check_v4_native_shapes` and by the same
+ownership audits.
 
 ### C variadic calls and C-width callbacks
 
