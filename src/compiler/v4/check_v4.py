@@ -17393,7 +17393,7 @@ NATIVE_OPERATORS_EXPECTED = ("4\n22\n-11\n5\nfalse\ntrue\n46\n5\n4\nsum matches\
 NATIVE_OPERATORS_EXIT = 6
 NATIVE_MAYBE_RESULT_EXPECTED = ("2.5\n7\nempty\n2\nodd\n3\none\npos\n-4\n51\n4\nfallback evaluated\n9\none/anon\n"
                                 "direct\nkept\n5\n3\n6\nfalse\n12\ntrue\n5\nnone\none\nloud\nsilent\nc\n36\n"
-                                "noisy fallback\n20\n2\npropagated\ntrue\nnone\npos\nneg\none\nanon\n")
+                                "noisy fallback\n20\n2\npropagated\ntrue\nnone\npos\nneg\none\nanon\ntag\n4\n")
 NATIVE_MAYBE_RESULT_EXIT = 17
 
 
