@@ -85,6 +85,16 @@ task relay_label(n: int) -> result<word, word> { give back ok(label(n)?) }
 
 task named_or_anon(n: int) -> maybe<word> { give back some(name_of(n) or else "anon") }
 
+-- Lifetime parameters erase: a carrier crosses a lifetime-generic task.
+task pick_tagged<'a>(value: maybe<(int, bool)>, lend 'a label: word) -> int {
+    say label
+    check value {
+        got pair -> give back pair.0
+        nobody -> give back 0
+    }
+    give back 9
+}
+
 task noisy() -> int {
     say "noisy fallback"
     give back 1
@@ -254,6 +264,9 @@ task main() -> int {
         got w -> say w
         nobody -> say "none"
     }
+    pilot tag = "tag"
+    pilot tagged: maybe<(int, bool)> = some((4, true))
+    say pick_tagged(tagged, lend tag)
     label(1) or else "dropped"
     pilot unused = name_of(1)
     give back total - 19
