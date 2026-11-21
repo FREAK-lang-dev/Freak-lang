@@ -412,6 +412,58 @@ with 19 stacked varargs, callbacks both ways), checks the narrowing panics,
 and compares every declaration, trampoline and C call site with Clang's own
 lowering of the same boundary written in C on all four `freak_target` triples.
 
+### Native closures
+
+`build_v4.py` lowers closures in ordinary tasks to native code. The build
+driver calls `v4_mir_lower_ty_with_closure_bodies`, so MIR Build lowers each
+closure body as its own MIR body (def `closure:<task def>@<offset>#<captures>`,
+symbol `freak.closure.<task>.<offset>`) while it lowers the creating task.
+Editor and analysis queries keep calling `v4_mir_lower_ty` and see no extra
+bodies. The closure body reads HIR, generics and annotations through its
+task's signature (`v4_mir_body_context_signature_id`). Its parameters come
+first, then one local per capture, whose mode is the sealed MIR fact: `lend`
+for `CaptureBorrow`, `lend mut` for `CaptureBorrowMut`, and a value for
+`CaptureCopy` and `CaptureMove`. Meiya checks the body with those capture
+locals initialized on entry. When TY leaves the return type `unknown`, MIR
+Build infers it from the body's `give back` values (all of them must agree;
+no value gives `void`) and the Closure rvalue carries the inferred type.
+
+- **Value.** A closure value is `{ ptr, ptr }`: the code pointer, then the
+  environment pointer. The environment is
+  `%"freak.closure.env.<task>.<offset>"`, one slot per capture in capture
+  order. A borrow or mut capture's slot is `ptr` (the address of the captured
+  storage), and a copy or move capture's slot holds the value. Each env type
+  gets a `; freak.layout` note, which `check_v4_native_closures` checks against
+  Clang on all four targets.
+- **Placement.** The environment is an entry-block `alloca` per closure
+  expression in the creating frame, filled where the closure is created. That
+  is sound only because the value never leaves the frame: codegen accepts a
+  closure value only as a local's initializer (a closure expression or another
+  closure local) and as the callee of a call. Reassigning a closure local,
+  storing a closure in a tuple, array, shape or route, passing or returning
+  one, and calling a closure expression directly are refused by name. A heap
+  environment with a drop is the follow-up for escaping closures.
+- **Calls.** `Callable`, `MutCallable` and `OneShot` calls share one path:
+  extract the two pointers and call the code with the environment first
+  (after an sret slot), then the arguments in the FREAK aggregate convention.
+  Meiya enforces the doctrine (shared borrows, exclusive `mut` access, OneShot
+  consumed on its first call); codegen does not re-check it.
+- **Words.** A borrowed word capture is a pointer to the owner's slot, and the
+  owner keeps and drops the word. Moving or copying a word into an
+  environment, `mut` captures of word-owning values, and word parameters or
+  results are refused by name until the closure-environment ownership
+  contract can drop them.
+- **Also named:** nested closures, closures capturing closures, parameters
+  without declared types, closures with FFI-alias parameters (no body is
+  lowered), and closure types inside other types. Closures inside impl
+  methods do not reach codegen yet: MIR finds no TY closure type for a body
+  without an ordinary signature and reports the call's arity instead.
+
+Program: `examples/closures_native.fk` (exact output, 17 closure bodies,
+`valgrind` clean). `check_v4_native_closures` (run by `check_v4_native_shapes`)
+builds and runs it, checks every environment layout and the aggregate ABI
+notes on four targets, and checks 14 rejected cases.
+
 ### Persisted interpolation checkpoint (W3)
 
 Expanded-AST-to-HIR lowering decodes each word once into a packed plan. Literal
@@ -785,8 +837,9 @@ installed loan at invocation. Closure parameter editor facts likewise exclude
 `.`/`::` member positions. Capture
 mode is visible through semantic, hover, definition, completion, LSP, MIR and
 borrowck snapshots, and deterministic all-family invalidation/diff reports.
-Nested and generic closure inference, borrowed-return closure contracts,
-`Send`/`Sync`, and native closure-environment codegen remain later slices.
+Nested and generic closure inference, borrowed-return closure contracts and
+`Send`/`Sync` remain later slices. Native closure environments are described
+under "Native closures" above.
 The Borrow Checker gate has now started with `lend` / `lend mut` parameter
 contracts and explicit `lend value` / `lend mut value` expressions carried
 through TY and MIR into Meiya: immutable lends cannot be written, borrowed

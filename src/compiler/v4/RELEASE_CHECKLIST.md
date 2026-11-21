@@ -466,7 +466,7 @@ Enforced by the lane rule as capabilities land. Standing items:
 - [ ] **M** Explicit coercion and conversion rvalues (no implicit widening decided in codegen)
 - [ ] **M** Named-argument order resolved before MIR
 - [ ] **M** Generic substitutions recorded per call (prerequisite for monomorphization)
-- [ ] **M** Closure capture modes and route discriminant values as MIR facts
+- [ ] **M** Closure capture modes and route discriminant values as MIR facts. Closure capture modes are done: each lowered closure body has one capture local per capture with its mode (`v4_mir_body_closure_capture_local`, `v4_mir_closure_capture_local`), and codegen reads them. Route discriminants are open
 - [ ] **S** Guard: codegen makes no HIR calls (it makes none today; keep it so) and no TY name lookups
 
 ### A4: no ownership ambiguity past Runtime MIR (roadmap M4, split plan phases H to J)
@@ -492,7 +492,7 @@ Meiya, remaining:
 
 - [ ] **M** Sealed queries for the transform: is moved, needs drop, drop mode, drop flag required, loan set, return-loan origins, cleanup requirement
 - [ ] **L** Aggregate-aware ownership, including partial move and drop interaction
-- [ ] **M** Closure-environment ownership contract
+- [ ] **M** Closure-environment ownership contract. First slice: a non-escaping env in the creating frame holds no owned words (borrowed word captures stay with their owner), so nothing in it needs a drop. Word moves into an env and escaping closures are named until the contract can drop them
 - [ ] **M** Receiver and lend ABI ownership rules
 - [ ] **L** Generic ownership after monomorphization
 - [ ] **M** Panic-path ownership facts (once unwinding exists)
@@ -731,9 +731,9 @@ Collections and loops:
 
 Closures:
 
-- [ ] **L** Closure environment struct plus function pointer (front done for captures)
-- [ ] **M** `Callable` / `MutCallable` / `OneShot` call paths
-- [ ] **M** Closure return-type inference (currently `unknown`)
+- [x] **L** Closure environment struct plus function pointer (front done for captures). A closure value is `{ ptr code, ptr env }`; the env is `%"freak.closure.env.<task>.<offset>"` with one slot per capture (`ptr` for borrow and mut captures, the value for copy and move), an entry-block `alloca` per closure expression in the creating frame, and a `; freak.layout` note. MIR Build lowers each closure body (native build driver only), and its capture locals and modes are the sealed MIR facts codegen reads. The env stays on the stack because codegen accepts a closure value only as a local's initializer and as a callee. Named: reassignment, storage in other types, immediately called closures, word moves or copies into an env, `mut` word captures, word parameters or results, nested closures, closures capturing closures. Escaping closures (heap env plus drop) are the follow-up. Evidence: `examples/closures_native.fk` (exact output, 17 closure bodies) in `check_v4_native_closures`, 216 layout probes on four targets and 14 rejections
+- [x] **M** `Callable` / `MutCallable` / `OneShot` call paths. All three extract the code and env pointers and call with the env first (after an sret slot); arguments use the FREAK aggregate convention. Meiya enforces each doctrine: shared borrows, exclusive `mut` access, OneShot consumed on its first call. Evidence: `examples/closures_native.fk` calls each kind (a `mut` closure writes an `int` and a shape field through to its owner); the OneShot-twice and rewrite-on-loan cases are refused by Meiya in `check_v4_native_closures`
+- [ ] **M** Closure return-type inference (currently `unknown`). Native builds now infer it in MIR Build from the lowered body's `give back` values, and the Closure rvalue, its local and its calls carry the result. TY, hover and the analysis MIR (`v4_mir_lower_ty`) still say `unknown`
 - [ ] **M** Nested and generic closures
 - [ ] **M** Closure effect summaries so mutable writes through captures are allowed safely
 
