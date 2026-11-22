@@ -17624,6 +17624,11 @@ NATIVE_LEND_ABI_REJECTED = (
      "Meiya refuses to return a loan of an owned value"),
     ("tier3_lend_temporary", "task peek(lend n: int) -> int { give back n }\ntask main() -> int { give back peek(lend 3) }\n",
      "lend source must be a place"),
+    # A shared loan cannot be passed on as an exclusive one.
+    ("tier3_lend_mut_of_shared_lend", "shape P { x: int }\ntask bump(lend mut n: int) -> void { n = n + 1 }\n"
+     "task f(lend p: P) -> void { bump(lend mut p.x) }\n"
+     "task main() -> int {\n    pilot p = P { x: 1 }\n    f(lend p)\n    give back p.x\n}\n",
+     "Meiya refuses an exclusive lend of an immutable lend parameter"),
     # MIR does not yet project or read a borrowed call result in place.
     ("tier3_lend_return_projection", "shape P { x: int }\ntask id(lend p: P) -> lend P { give back lend p }\n"
      "task main() -> int { pilot p = P { x: 1 }\n give back id(lend p).x }\n",
