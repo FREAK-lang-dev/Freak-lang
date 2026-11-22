@@ -1718,7 +1718,10 @@ task v4_parse_parse_closures_in_item(tree_id: int, stream_id: int, start_token: 
                         v4_parse_add_incomplete(tree_id, closure_node, body_span, "expected expression after closure =>")
                     }
                 }
+                -- Closures nested in the body are the item's closures too,
+                -- recorded after the closure that holds them.
                 idx = closure_end
+                if body_kind != "" { idx = body_marker + 1 }
             }
         }
     }

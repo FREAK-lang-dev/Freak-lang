@@ -5601,16 +5601,137 @@ task v4_mir_closure_scope_contains(names_handle: int, active: int, wanted: word)
     give back false
 }
 
-task v4_mir_closure_capture_is_mutated(mir_id: int, body_id: int, stream_id: int, capture_name: word, capture_ty: word, body_start: int, body_end: int, param_names: word) -> bool {
+-- Closures nested in a closure body being scanned for captures: a nested
+-- closure's parameters shadow outer names inside it, and its parameter list
+-- names no capture. The HIR closure starting exactly at token idx (by its
+-- mode keyword or opening pipe), or -1.
+task v4_mir_closure_nested_at(mir_id: int, body_id: int, stream_id: int, idx: int, outer_offset: int) -> int {
+    pilot value = v4_lex_token_syntax_value(stream_id, idx)
+    if value != "|" and value != v4_ty_closure_mode_copy and value != v4_ty_closure_mode_move and value != v4_ty_closure_mode_mut { give back 0 - 1 }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
+    if sig_id < 0 { give back 0 - 1 }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    pilot offset = v4_span_start(v4_lex_token_span(stream_id, idx))
+    if offset == outer_offset { give back 0 - 1 }
+    pilot closure_id = v4_hir_closure_at_offset(hir_id, hir_item, offset)
+    if closure_id < 0 or v4_span_start(v4_hir_closure_span(hir_id, hir_item, closure_id)) != offset { give back 0 - 1 }
+    give back closure_id
+}
+
+-- The token a scan resumes at inside nested closure `closure_id` starting at
+-- idx: its `{` for a block body (the scan's brace depth then scopes its
+-- parameters), the first body token for an arrow body, or -1.
+task v4_mir_closure_nested_resume(stream_id: int, idx: int, body_end: int) -> int {
+    pilot open_token = idx
+    if v4_lex_token_syntax_value(stream_id, idx) != "|" { open_token = v4_mir_next_nontrivia(stream_id, idx + 1, body_end) }
+    if open_token >= body_end or v4_lex_token_syntax_value(stream_id, open_token) != "|" { give back 0 - 1 }
+    pilot close_token = v4_parse_closure_close_pipe(stream_id, open_token, body_end)
+    if close_token < 0 { give back 0 - 1 }
+    pilot marker = v4_mir_next_nontrivia(stream_id, close_token + 1, body_end)
+    if marker >= body_end { give back 0 - 1 }
+    if v4_lex_token_syntax_value(stream_id, marker) == "{" { give back marker }
+    if v4_lex_token_syntax_value(stream_id, marker) != "=>" { give back 0 - 1 }
+    give back marker + 1
+}
+
+-- Store a nested closure's parameter names in the scan scope at depth;
+-- returns the new active count.
+task v4_mir_closure_nested_store_params(mir_id: int, body_id: int, closure_id: int, names_handle: int, depths_handle: int, active: int, depth: int) -> int {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    pilot count = active
+    pilot param_id = 0
+    repeat until param_id >= v4_hir_closure_param_count(hir_id, hir_item, closure_id) {
+        pilot name = v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id)
+        if name != "" and name != "_" {
+            v4_mir_closure_scope_store(names_handle, depths_handle, count, name, depth)
+            count += 1
+        }
+        param_id += 1
+    }
+    give back count
+}
+
+-- Enter a nested closure at idx: store its parameters and return the token
+-- to resume at, or -1 when idx starts none. An arrow body's parameters are
+-- dropped again by v4_mir_closure_nested_leave once the scan passes its span;
+-- pending holds (end offset, active before) pairs, and active_cell holds the
+-- scan's active count and pending top, in and out.
+task v4_mir_closure_nested_enter(mir_id: int, body_id: int, stream_id: int, idx: int, body_end: int, outer_offset: int, names_handle: int, depths_handle: int, active_cell: int, scope_depth: int, pending: int) -> int {
+    pilot closure_id = v4_mir_closure_nested_at(mir_id, body_id, stream_id, idx, outer_offset)
+    if closure_id < 0 { give back 0 - 1 }
+    pilot resume = v4_mir_closure_nested_resume(stream_id, idx, body_end)
+    if resume < 0 { give back 0 - 1 }
+    pilot active = word_to_int(array_get(active_cell, 0))
+    pilot depth = scope_depth + 1
+    if v4_lex_token_syntax_value(stream_id, resume) != "{" {
+        pilot ty_id = v4_mir_ty_id(mir_id)
+        pilot hir_id = v4_ty_signature_hir_id(ty_id)
+        pilot hir_item = v4_ty_signature_hir_item(ty_id, v4_mir_body_context_signature_id(mir_id, body_id))
+        pilot top = word_to_int(array_get(active_cell, 1))
+        v4_mir_closure_pending_store(pending, top, word_from_int(v4_span_end(v4_hir_closure_span(hir_id, hir_item, closure_id))))
+        v4_mir_closure_pending_store(pending, top + 1, word_from_int(active))
+        array_set(active_cell, 1, word_from_int(top + 2))
+        depth = scope_depth
+    }
+    array_set(active_cell, 0, word_from_int(v4_mir_closure_nested_store_params(mir_id, body_id, closure_id, names_handle, depths_handle, active, depth)))
+    give back resume
+}
+
+task v4_mir_closure_pending_store(pending: int, slot: int, value: word) -> void {
+    if slot < array_len(pending) { array_set(pending, slot, value) } else { array_push(pending, value) }
+}
+
+-- Drop the parameters of every arrow-bodied nested closure the scan at idx
+-- has passed, updating active_cell's active count and pending top.
+task v4_mir_closure_nested_leave(stream_id: int, idx: int, pending: int, active_cell: int) -> void {
+    pilot top = word_to_int(array_get(active_cell, 1))
+    if top < 2 { give back }
+    pilot count = word_to_int(array_get(active_cell, 0))
+    pilot offset = v4_span_start(v4_lex_token_span(stream_id, idx))
+    repeat until top < 2 {
+        pilot end_offset = word_to_int(array_get(pending, top - 2))
+        if offset < end_offset {
+            array_set(active_cell, 0, word_from_int(count))
+            array_set(active_cell, 1, word_from_int(top))
+            give back
+        }
+        pilot before = word_to_int(array_get(pending, top - 1))
+        if before < count { count = before }
+        top -= 2
+    }
+    array_set(active_cell, 0, word_from_int(count))
+    array_set(active_cell, 1, word_from_int(top))
+}
+
+task v4_mir_closure_capture_is_mutated(mir_id: int, body_id: int, stream_id: int, capture_name: word, capture_ty: word, body_start: int, body_end: int, param_names: word, closure_offset: int) -> bool {
     pilot local_names_handle = array_new()
     pilot local_depths_handle = array_new()
     pilot local_active = 0
     pilot scope_depth = 0
+    pilot nested_cell = array_new()
+    array_push(nested_cell, "0")
+    array_push(nested_cell, "0")
+    pilot nested_pending = array_new()
     pilot idx = body_start
     repeat until idx >= body_end {
         pilot token_type = v4_lex_token_type(stream_id, idx)
         pilot token_value = v4_lex_token_syntax_value(stream_id, idx)
-        if token_value == "{" {
+        if word_to_int(array_get(nested_cell, 1)) > 0 {
+            array_set(nested_cell, 0, word_from_int(local_active))
+            v4_mir_closure_nested_leave(stream_id, idx, nested_pending, nested_cell)
+            local_active = word_to_int(array_get(nested_cell, 0))
+        }
+        array_set(nested_cell, 0, word_from_int(local_active))
+        pilot nested_resume = v4_mir_closure_nested_enter(mir_id, body_id, stream_id, idx, body_end, closure_offset, local_names_handle, local_depths_handle, nested_cell, scope_depth, nested_pending)
+        if nested_resume >= 0 {
+            local_active = word_to_int(array_get(nested_cell, 0))
+            idx = nested_resume
+        } else if token_value == "{" {
             scope_depth += 1
             idx += 1
         } else if token_value == "}" {
@@ -5629,6 +5750,8 @@ task v4_mir_closure_capture_is_mutated(mir_id: int, body_id: int, stream_id: int
                         if v4_mir_closure_occurrence_is_mutated(mir_id, body_id, stream_id, idx, body_end, capture_ty) {
                             array_release(local_names_handle)
                             array_release(local_depths_handle)
+                            array_release(nested_cell)
+                            array_release(nested_pending)
                             give back true
                         }
                     }
@@ -5639,6 +5762,8 @@ task v4_mir_closure_capture_is_mutated(mir_id: int, body_id: int, stream_id: int
     }
     array_release(local_names_handle)
     array_release(local_depths_handle)
+    array_release(nested_cell)
+    array_release(nested_pending)
     give back false
 }
 
@@ -5664,6 +5789,19 @@ task v4_mir_closure_capture_diag(mir_id: int, mode: word, capture_name: word, ca
 -- editor MIR keep the first-pass closure aggregate until every consumer
 -- reads closure bodies (A3).
 pilot v4_mir_build_closure_bodies: bool = false
+-- The scratch MIR analysis lowering seals closure results in, and the MIR it
+-- serves; a closure nested in a scratch body seals in the scratch itself.
+pilot v4_mir_build_seal_scratch_id: int = 0 - 1
+pilot v4_mir_build_seal_scratch_owner: int = 0 - 1
+
+task v4_mir_build_seal_scratch(mir_id: int) -> int {
+    if mir_id == v4_mir_build_seal_scratch_id { give back mir_id }
+    if mir_id != v4_mir_build_seal_scratch_owner or v4_mir_build_seal_scratch_id < 0 {
+        v4_mir_build_seal_scratch_id = v4_mir_file_new(v4_mir_file_id(mir_id), v4_mir_ty_id(mir_id))
+        v4_mir_build_seal_scratch_owner = mir_id
+    }
+    give back v4_mir_build_seal_scratch_id
+}
 
 task v4_mir_lower_ty_with_closure_bodies(file_id: int, ty_id: int) -> int {
     v4_mir_build_closure_bodies = true
@@ -5676,6 +5814,25 @@ task v4_mir_closure_capture_local_mode(mode: word) -> word {
     if mode == v4_ty_closure_mode_borrow { give back v4_ty_param_mode_lend }
     if mode == v4_ty_closure_mode_mut { give back v4_ty_param_mode_lend_mut }
     give back v4_ty_param_mode_value
+}
+
+-- The first two result types a closure body's returns disagree on, as
+-- "int and word", or "" when they agree.
+task v4_mir_closure_return_disagreement(mir_id: int, body_id: int) -> word {
+    pilot inferred = ""
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+            pilot value = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+            pilot value_ty = v4_ty_void
+            if value >= 0 { value_ty = v4_mir_rvalue_ty(mir_id, body_id, value) }
+            if value_ty != v4_ty_never {
+                if inferred == "" { inferred = value_ty } else if inferred != value_ty { give back inferred + " and " + value_ty }
+            }
+        }
+        stmt_id += 1
+    }
+    give back ""
 }
 
 -- The return type a closure body's returns agree on: void without a value
@@ -5700,18 +5857,21 @@ task v4_mir_closure_inferred_return(mir_id: int, body_id: int) -> word {
 
 -- Lower one closure into its own callable body, right where MIR Build meets
 -- it, so the creating body sees the closure's inferred return type. Only
--- closures directly inside an ordinary task (TY owns their parameters) are
--- lowered; others keep the aggregate and stay fenced natively. The creating
+-- closures inside an ordinary task (TY owns their parameters), directly or
+-- inside another such closure, are lowered; others keep the aggregate and
+-- stay fenced natively. The creating
 -- body's construction state is saved and restored around the nested body.
-task v4_mir_build_lower_closure_body(mir_id: int, body_id: int, stream_id: int, body_marker: int, last: int, expr_span: word, closure_offset: int, closure_ty: word, children_handle: int) -> word {
+task v4_mir_build_lower_closure_body(target: int, mir_id: int, body_id: int, stream_id: int, body_marker: int, last: int, expr_span: word, closure_offset: int, closure_ty: word, children_handle: int) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
-    if sig_id < 0 or v4_mir_body_is_closure(mir_id, body_id) { give back closure_ty }
+    -- A nested closure reads HIR through the task its outer closure was
+    -- lowered in.
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
+    if sig_id < 0 { give back closure_ty }
     pilot capture_count = array_len(children_handle)
     -- The def keys the closure rvalue's own span, which codegen reads back.
     pilot def = v4_mir_closure_body_def(v4_mir_body_def(mir_id, body_id), v4_span_start(expr_span), capture_count)
-    pilot existing = v4_mir_lookup_body(mir_id, def)
-    if existing >= 0 { give back v4_mir_body_signature(mir_id, existing) }
+    pilot existing = v4_mir_lookup_body(target, def)
+    if existing >= 0 { give back v4_mir_body_signature(target, existing) }
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
     pilot closure_id = v4_hir_closure_at_offset(hir_id, hir_item, closure_offset)
@@ -5725,13 +5885,16 @@ task v4_mir_build_lower_closure_body(mir_id: int, body_id: int, stream_id: int, 
         if v4_mir_closure_param_surface_has_c_abi(mir_id, v4_hir_closure_param_type(hir_id, hir_item, closure_id, surface_id), 0) { give back closure_ty }
         surface_id += 1
     }
-    pilot name = "freak.closure." + v4_mir_body_name(mir_id, body_id) + "." + word_from_int(v4_span_start(expr_span))
+    -- A nested closure extends its outer closure's symbol with its offset.
+    pilot parent_name = v4_mir_body_name(mir_id, body_id)
+    if v4_mir_body_is_closure(mir_id, body_id) and parent_name.starts_with("freak.closure.") { parent_name = v4_slice(parent_name, "freak.closure.".length(), parent_name.length()) }
+    pilot name = "freak.closure." + parent_name + "." + word_from_int(v4_span_start(expr_span))
     -- Closures declare no result: TY's type carries a guess from the first
     -- returned token. The body is lowered against an open result and its
     -- result is sealed from the lowered returns below.
     pilot provisional = v4_ty_closure_return_type(closure_ty)
     closure_ty = v4_slice(closure_ty, 0, closure_ty.length() - provisional.length()) + v4_ty_unknown
-    pilot closure_body = v4_mir_add_body(mir_id, def, name, closure_ty)
+    pilot closure_body = v4_mir_add_body(target, def, name, closure_ty)
     if closure_body < 0 { give back closure_ty }
     pilot param_id = 0
     repeat until param_id >= param_count {
@@ -5739,20 +5902,20 @@ task v4_mir_build_lower_closure_body(mir_id: int, body_id: int, stream_id: int, 
         -- A `_` parameter still takes its argument slot, under a name no
         -- source can spell.
         if param_name == "_" or param_name == "" { param_name = "_#" + word_from_int(param_id) }
-        v4_mir_seed_param_local(mir_id, closure_body, param_name, v4_ty_canonical_type(ty_id, v4_ty_closure_param_type(closure_ty, param_id)), v4_ty_param_mode_value, expr_span, expr_span, "this closure")
+        v4_mir_seed_param_local(target, closure_body, param_name, v4_ty_canonical_type(ty_id, v4_ty_closure_param_type(closure_ty, param_id)), v4_ty_param_mode_value, expr_span, expr_span, "this closure")
         param_id += 1
     }
     pilot capture_id = 0
     repeat until capture_id >= capture_count {
         pilot capture: int = word_to_int(array_get(children_handle, capture_id))
         pilot capture_mode = v4_mir_capture_mode_for_kind(v4_mir_rvalue_kind(mir_id, body_id, capture))
-        v4_mir_seed_param_local(mir_id, closure_body, v4_mir_rvalue_text(mir_id, body_id, capture), v4_mir_rvalue_ty(mir_id, body_id, capture), v4_mir_closure_capture_local_mode(capture_mode), expr_span, expr_span, "this closure")
+        v4_mir_seed_param_local(target, closure_body, v4_mir_rvalue_text(mir_id, body_id, capture), v4_mir_rvalue_ty(mir_id, body_id, capture), v4_mir_closure_capture_local_mode(capture_mode), expr_span, expr_span, "this closure")
         capture_id += 1
     }
     -- Every parameter and capture has its own local, in order, or the body
     -- is not a closure body codegen may read.
-    if v4_mir_body_local_count(mir_id, closure_body) != param_count + capture_count {
-        v4_mir_add_type_error(mir_id, expr_span, "closure body locals could not be seeded", "each closure parameter and capture needs its own name")
+    if v4_mir_body_local_count(target, closure_body) != param_count + capture_count {
+        v4_mir_add_type_error(target, expr_span, "closure body locals could not be seeded", "each closure parameter and capture needs its own name")
         give back closure_ty
     }
     pilot saved_diagnostic_depth = v4_mir_control_diagnostic_depth
@@ -5784,7 +5947,7 @@ task v4_mir_build_lower_closure_body(mir_id: int, body_id: int, stream_id: int, 
     v4_mir_control_probe_depth = 0
     v4_mir_closure_entry_trust_rank = 0 - 1
     if saved_trust_depth > 0 { v4_mir_closure_entry_trust_rank = word_to_int(array_get(saved_honor, saved_trust_depth - 1)) }
-    v4_mir_lower_task_body_token_range(mir_id, closure_body, stream_id, body_marker, last + 1, expr_span)
+    v4_mir_lower_task_body_token_range(target, closure_body, stream_id, body_marker, last + 1, expr_span)
     v4_mir_closure_entry_trust_rank = 0 - 1
     array_release(v4_mir_loop_break_targets)
     array_release(v4_mir_loop_continue_targets)
@@ -5805,12 +5968,16 @@ task v4_mir_build_lower_closure_body(mir_id: int, body_id: int, stream_id: int, 
     v4_mir_control_wire_depth = saved_wire_depth
     v4_mir_control_wire_work = saved_wire_work
     v4_mir_control_probe_depth = saved_probe_depth
-    pilot inferred = v4_mir_closure_inferred_return(mir_id, closure_body)
+    pilot inferred = v4_mir_closure_inferred_return(target, closure_body)
+    -- Disagreeing returns leave the result unknown, and are named in the
+    -- creating MIR (analysis MIR included).
+    pilot disagreement = v4_mir_closure_return_disagreement(target, closure_body)
+    if disagreement != "" { v4_mir_add_type_error(mir_id, expr_span, "Yuuko found closure returns that disagree: " + disagreement, "every give back in one closure must return the same type; convert one of them, or split the closure") }
     closure_ty = v4_slice(closure_ty, 0, closure_ty.length() - v4_ty_unknown.length()) + inferred
-    v4_mir_set_body_signature(mir_id, closure_body, closure_ty)
+    v4_mir_set_body_signature(target, closure_body, closure_ty)
     -- Coverage ran against the open result; run it again on the sealed one so
     -- a route without `give back` is refused, not given a default value.
-    v4_mir_validate_body_return_coverage(mir_id, closure_body, expr_span)
+    v4_mir_validate_body_return_coverage(target, closure_body, expr_span)
     give back closure_ty
 }
 
@@ -5875,11 +6042,25 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
     pilot scope_depth = 0
     pilot captured_names = ""
     pilot children_handle = array_new()
+    pilot nested_cell = array_new()
+    array_push(nested_cell, "0")
+    array_push(nested_cell, "0")
+    pilot nested_pending = array_new()
     pilot idx = body_start
     repeat until idx >= body_end {
         pilot token_type = v4_lex_token_type(stream_id, idx)
         pilot token_value = v4_lex_token_syntax_value(stream_id, idx)
-        if token_value == "{" {
+        if word_to_int(array_get(nested_cell, 1)) > 0 {
+            array_set(nested_cell, 0, word_from_int(local_active))
+            v4_mir_closure_nested_leave(stream_id, idx, nested_pending, nested_cell)
+            local_active = word_to_int(array_get(nested_cell, 0))
+        }
+        array_set(nested_cell, 0, word_from_int(local_active))
+        pilot nested_resume = v4_mir_closure_nested_enter(mir_id, body_id, stream_id, idx, body_end, closure_offset, local_names_handle, local_depths_handle, nested_cell, scope_depth, nested_pending)
+        if nested_resume >= 0 {
+            local_active = word_to_int(array_get(nested_cell, 0))
+            idx = nested_resume
+        } else if token_value == "{" {
             scope_depth += 1
             idx += 1
         } else if token_value == "}" {
@@ -5901,7 +6082,7 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
                             captured_names = v4_mir_name_list_add(captured_names, capture_name)
                             pilot capture_ty = v4_mir_local_ty(mir_id, body_id, local_id)
                             pilot capture_span = v4_lex_token_span(stream_id, idx)
-                            pilot mutated = v4_mir_closure_capture_is_mutated(mir_id, body_id, stream_id, capture_name, capture_ty, body_start, body_end, param_names)
+                            pilot mutated = v4_mir_closure_capture_is_mutated(mir_id, body_id, stream_id, capture_name, capture_ty, body_start, body_end, param_names, closure_offset)
                             v4_mir_closure_capture_diag(mir_id, mode, capture_name, capture_ty, capture_span, mutated)
                             -- A mut capture is a lend mut local in the body: it cannot come
                             -- from a binding the closure may only read.
@@ -5919,12 +6100,20 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
     }
     array_release(local_names_handle)
     array_release(local_depths_handle)
+    array_release(nested_cell)
+    array_release(nested_pending)
 
     pilot closure_ty = v4_mir_closure_type_for_body_offset(mir_id, body_id, closure_offset)
     if not v4_ty_is_closure_type(closure_ty) {
         closure_ty = v4_ty_closure_type_prefix(mode) + "()->" + v4_ty_unknown
     } else if v4_mir_build_closure_bodies {
-        closure_ty = v4_mir_build_lower_closure_body(mir_id, body_id, stream_id, body_marker, last, expr_span, closure_offset, closure_ty, children_handle)
+        closure_ty = v4_mir_build_lower_closure_body(mir_id, mir_id, body_id, stream_id, body_marker, last, expr_span, closure_offset, closure_ty, children_handle)
+    } else {
+        -- Analysis and editor MIR keep the closure aggregate, but seal its
+        -- result exactly as native builds do: the body is lowered into a
+        -- scratch MIR that is never published, and only the sealed type and
+        -- a disagreement diagnostic come back.
+        closure_ty = v4_mir_build_lower_closure_body(v4_mir_build_seal_scratch(mir_id), mir_id, body_id, stream_id, body_marker, last, expr_span, closure_offset, closure_ty, children_handle)
     }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_closure, expr_text, mode, expr_span, closure_ty, children_handle)

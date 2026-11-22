@@ -696,17 +696,22 @@ task v4_hir_closure_param_span(hir_id: int, item_id: int, closure_id: int, param
     give back v4_expand_closure_param_span(tree_id, closure_node, param_id)
 }
 
+-- The innermost closure whose span holds offset: closure spans nest, so a
+-- nested closure starts after every closure that holds it.
 task v4_hir_closure_at_offset(hir_id: int, item_id: int, offset: int) -> int {
+    pilot found = 0 - 1
+    pilot found_start = 0 - 1
     pilot closure_id = 0
     pilot closure_count = v4_hir_closure_count(hir_id, item_id)
     repeat until closure_id >= closure_count {
         pilot span = v4_hir_closure_span(hir_id, item_id, closure_id)
-        if offset >= v4_span_start(span) and offset < v4_span_end(span) {
-            give back closure_id
+        if offset >= v4_span_start(span) and offset < v4_span_end(span) and v4_span_start(span) > found_start {
+            found = closure_id
+            found_start = v4_span_start(span)
         }
         closure_id += 1
     }
-    give back 0 - 1
+    give back found
 }
 
 task v4_hir_item_decl_keyword(hir_id: int, item_id: int) -> word {

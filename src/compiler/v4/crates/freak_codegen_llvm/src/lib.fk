@@ -5985,16 +5985,9 @@ task v4_codegen_llvm_native_closure_rvalue_error(mir_id: int, body_id: int, rval
         }
         give back "invalid native closure capture: " + text
     }
+    -- A closure inside a closure body is checked as that body's own rvalue.
     pilot closure_body = v4_mir_closure_rvalue_body(mir_id, body_id, rvalue_id)
-    if closure_body < 0 {
-        if v4_mir_body_is_closure(mir_id, body_id) { give back "native nested closures are not yet supported: " + text }
-        give back "native closures are lowered only in ordinary tasks, with FREAK parameter types: " + text
-    }
-    pilot inner_value = 0
-    repeat until inner_value >= v4_mir_body_rvalue_count(mir_id, closure_body) {
-        if v4_mir_rvalue_kind(mir_id, closure_body, inner_value) == v4_mir_rvalue_closure { give back "native nested closures are not yet supported: " + v4_mir_rvalue_text(mir_id, closure_body, inner_value) }
-        inner_value += 1
-    }
+    if closure_body < 0 { give back "native closures are lowered only in ordinary tasks, with FREAK parameter types: " + text }
     pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     if type_text != v4_mir_body_signature(mir_id, closure_body) { give back "invalid native closure type: " + text }
     pilot error = v4_codegen_llvm_native_type_error(type_text, false)
@@ -6011,7 +6004,6 @@ task v4_codegen_llvm_native_closure_rvalue_error(mir_id: int, body_id: int, rval
         pilot inner = v4_mir_body_closure_capture_local(mir_id, closure_body, capture_id)
         if outer < 0 or inner < 0 or capture < 0 or capture >= rvalue_id { give back "invalid native closure capture: " + name }
         if v4_mir_local_name(mir_id, closure_body, inner) != name or v4_mir_local_ty(mir_id, closure_body, inner) != capture_ty or v4_mir_local_mode(mir_id, closure_body, inner) != v4_codegen_llvm_capture_local_mode(capture_kind) { give back "invalid native closure environment: " + text }
-        if v4_ty_is_closure_type(capture_ty) { give back "native closures that capture closures are not yet supported: " + name }
         pilot owns: bool = v4_codegen_llvm_type_is_word_handle(capture_ty) or v4_codegen_llvm_type_owns_words(mir_id, capture_ty)
         if owns and (capture_kind == v4_mir_rvalue_capture_copy or capture_kind == v4_mir_rvalue_capture_move) { give back "native closure captures that move words are not yet supported: " + name }
         if owns and capture_kind == v4_mir_rvalue_capture_borrow_mut { give back "native mutable closure captures of words are not yet supported: " + name }
