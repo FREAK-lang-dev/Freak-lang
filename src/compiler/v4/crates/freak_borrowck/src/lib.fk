@@ -2490,6 +2490,14 @@ task v4_borrowck_callee_is_immutable_lend(mir_id: int, body_id: int, callee: int
     give back local_id >= 0 and v4_mir_local_mode(mir_id, body_id, local_id) == v4_ty_param_mode_lend
 }
 
+task v4_borrowck_stmt_returns_lend_mut(mir_id: int, body_id: int, stmt_id: int) -> bool {
+    if stmt_id < 0 { give back false }
+    if v4_mir_stmt_kind(mir_id, body_id, stmt_id) != v4_mir_stmt_return { give back false }
+    pilot return_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+    if return_rvalue < 0 { give back false }
+    give back v4_mir_rvalue_kind(mir_id, body_id, return_rvalue) == v4_mir_rvalue_lend_mut
+}
+
 task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
@@ -2528,10 +2536,11 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
                 v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, write_span, write_message, write_help))
                 v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
                 conflicts += 1
-            } else if path_kind == v4_borrowck_path_loan_mut and mode == v4_ty_param_mode_lend {
+            } else if path_kind == v4_borrowck_path_loan_mut and mode == v4_ty_param_mode_lend and not v4_borrowck_stmt_returns_lend_mut(mir_id, body_id, stmt_id) {
                 -- An exclusive loan rooted at a shared lend parameter would let
                 -- the callee mutate what its caller only lent (`push`, or
-                -- `lend mut p.x` passed on).
+                -- `lend mut p.x` passed on). A directly returned `lend mut`
+                -- is left to the returned-loan check, which names the upgrade.
                 pilot loan_span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
                 v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, loan_span, "Meiya refuses an exclusive lend of an immutable lend parameter", v4_borrowck_lend_contract_help(path_text, mode, path_kind, stmt_id, block_id)))
                 v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
