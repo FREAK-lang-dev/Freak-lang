@@ -1,0 +1,116 @@
+-- Nested native closures, closures that capture closures, word parameters
+-- and results, and closure results inferred from their bodies. Every
+-- environment is a per-site entry-block struct in its creating frame: a
+-- closure nested in a closure body lives in that body's frame.
+shape Point { x: int, y: int }
+
+task answer() -> int {
+    give back 42
+}
+
+-- A closure nested in a closure, capturing the task's local through the
+-- outer closure's own capture.
+task nested_capture(n: int) -> int {
+    pilot k: int = 5
+    pilot outer = |x: int| {
+        pilot inner = |y: int| => y + k
+        give back inner(x) * 2
+    }
+    give back outer(n)
+}
+
+task main() -> int {
+    say nested_capture(2)
+    -- The inner closure captures the outer closure's parameter.
+    pilot adder = |x: int| {
+        pilot plus_x = |y: int| => x + y
+        give back plus_x(10)
+    }
+    say adder(1)
+    -- Three levels; each arrow body is the next closure's call.
+    pilot base: int = 100
+    pilot l1 = |a: int| {
+        pilot l2 = |b: int| {
+            pilot l3 = |c: int| => a + b + c + base
+            give back l3(3)
+        }
+        give back l2(2)
+    }
+    say l1(1)
+    -- A nested parameter shadows a task local: the move closure does not
+    -- capture y, and y is still here afterwards.
+    pilot y: int = 7
+    pilot shadow = move |x: int| {
+        pilot inner = |y: int| => x * y
+        give back inner(3)
+    }
+    say shadow(4)
+    say y
+    -- Closures that capture closures: by borrow, by copy (Callable is Copy),
+    -- a MutCallable through a mut capture, and a OneShot moved into a OneShot.
+    pilot add = |x: int| => x + base
+    pilot twice = |v: int| => add(add(v))
+    say twice(1)
+    pilot cp = copy |v: int| => add(v) * 2
+    say cp(1)
+    pilot mut count: int = 0
+    pilot bump = mut |step: int| { count += step }
+    pilot drive = mut |_| {
+        bump(1)
+        bump(2)
+    }
+    drive()
+    drive()
+    say count
+    pilot once = move |_| => base + 1
+    pilot relay = move |_| => once() * 2
+    say relay()
+    -- A mut closure created inside a mut closure writes two levels out.
+    pilot mut ticks: int = 0
+    pilot tick_twice = mut |_| {
+        pilot tick = mut |_| { ticks += 1 }
+        tick()
+        tick()
+    }
+    tick_twice()
+    tick_twice()
+    say ticks
+    -- Word parameters and results: the closure body owns a word argument
+    -- and drops it through its drop plan; the caller owns a word result.
+    pilot len = |w: word| => w.length()
+    say len("abc")
+    pilot mark = |n: int| => "x"
+    say mark(2)
+    pilot title: word = "Yuuko"
+    pilot shout = |w: word| {
+        say w
+        give back w + "!"
+    }
+    pilot loud = shout(title + "?")
+    say loud
+    say title
+    pilot both = |a: word, b: word| => a.length() + b.length()
+    say both("ab", "cde")
+    pilot ignore = |w: word| { say 0 }
+    ignore("dropped unread")
+    -- A nested closure with a word parameter and a word result.
+    pilot wrap = |w: word| {
+        pilot frame = |inner: word| => "[" + inner + "]"
+        give back frame(w)
+    }
+    say wrap("Takemikazuchi")
+    -- Results sealed from every return: an int from two returns and a
+    -- task call, a bool comparison, and a shape literal.
+    pilot pick = |n: int| {
+        if n > 0 { give back n * 2 }
+        give back answer()
+    }
+    say pick(4)
+    say pick(0)
+    pilot above = |n: int| => n > base
+    say above(101)
+    pilot corner = |d: int| => Point { x: d, y: d + base }
+    pilot c = corner(1)
+    say c.y
+    give back 0
+}
