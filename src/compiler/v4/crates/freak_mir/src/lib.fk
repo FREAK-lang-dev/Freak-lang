@@ -3191,12 +3191,32 @@ task v4_mir_snapshot_key_value(line: word, wanted_key: word) -> word {
     give back v4_ty_snapshot_key_value(line, wanted_key)
 }
 
+-- MIR files MIR Build lowers only to seal analysis closure results: the
+-- snapshot publishes each as an empty file, since its bodies (closure bodies
+-- without the tasks they call) are not part of the published program.
+pilot v4_mir_unpublished_files: int = 0 - 1
+
+task v4_mir_mark_unpublished(mir_id: int) -> void {
+    if v4_mir_unpublished_files < 0 { v4_mir_unpublished_files = array_new() }
+    array_push(v4_mir_unpublished_files, word_from_int(mir_id))
+}
+
+task v4_mir_snapshot_publishes(mir_id: int) -> bool {
+    if v4_mir_unpublished_files < 0 { give back true }
+    pilot idx = 0
+    repeat until idx >= array_len(v4_mir_unpublished_files) {
+        if word_to_int(array_get(v4_mir_unpublished_files, idx)) == mir_id { give back false }
+        idx += 1
+    }
+    give back true
+}
+
 task v4_mir_snapshot_body_total() -> int {
     v4_mir_init()
     pilot total = 0
     pilot mir_id = 0
     repeat until mir_id >= v4_mir_file_count() {
-        total += v4_mir_body_count(mir_id)
+        if v4_mir_snapshot_publishes(mir_id) { total += v4_mir_body_count(mir_id) }
         mir_id += 1
     }
     give back total
@@ -3207,7 +3227,7 @@ task v4_mir_snapshot_block_total() -> int {
     pilot total = 0
     pilot mir_id = 0
     repeat until mir_id >= v4_mir_file_count() {
-        total += v4_mir_block_count(mir_id)
+        if v4_mir_snapshot_publishes(mir_id) { total += v4_mir_block_count(mir_id) }
         mir_id += 1
     }
     give back total
@@ -3219,7 +3239,7 @@ task v4_mir_snapshot_local_total() -> int {
     pilot total = 0
     pilot mir_id = 0
     repeat until mir_id >= v4_mir_file_count() {
-        total += v4_mir_local_count(mir_id)
+        if v4_mir_snapshot_publishes(mir_id) { total += v4_mir_local_count(mir_id) }
         mir_id += 1
     }
     give back total
@@ -3230,7 +3250,7 @@ task v4_mir_snapshot_stmt_total() -> int {
     pilot total = 0
     pilot mir_id = 0
     repeat until mir_id >= v4_mir_file_count() {
-        total += v4_mir_stmt_count(mir_id)
+        if v4_mir_snapshot_publishes(mir_id) { total += v4_mir_stmt_count(mir_id) }
         mir_id += 1
     }
     give back total
@@ -3241,7 +3261,7 @@ task v4_mir_snapshot_place_total() -> int {
     pilot total = 0
     pilot mir_id = 0
     repeat until mir_id >= v4_mir_file_count() {
-        total += v4_mir_place_count(mir_id)
+        if v4_mir_snapshot_publishes(mir_id) { total += v4_mir_place_count(mir_id) }
         mir_id += 1
     }
     give back total
@@ -3252,7 +3272,7 @@ task v4_mir_snapshot_rvalue_total() -> int {
     pilot total = 0
     pilot mir_id = 0
     repeat until mir_id >= v4_mir_file_count() {
-        total += v4_mir_rvalue_count(mir_id)
+        if v4_mir_snapshot_publishes(mir_id) { total += v4_mir_rvalue_count(mir_id) }
         mir_id += 1
     }
     give back total
@@ -3263,7 +3283,7 @@ task v4_mir_snapshot_diag_total() -> int {
     pilot total = 0
     pilot mir_id = 0
     repeat until mir_id >= v4_mir_file_count() {
-        total += v4_mir_diag_count(mir_id)
+        if v4_mir_snapshot_publishes(mir_id) { total += v4_mir_diag_count(mir_id) }
         mir_id += 1
     }
     give back total
@@ -3302,6 +3322,7 @@ task v4_mir_snapshot_file_line(mir_id: int) -> word {
     out = out + "|" + word_from_int(mir_id)
     out = out + "|" + word_from_int(v4_mir_file_id(mir_id))
     out = out + "|" + word_from_int(v4_mir_ty_id(mir_id))
+    if not v4_mir_snapshot_publishes(mir_id) { give back out + "|0|0" }
     out = out + "|" + word_from_int(v4_mir_body_count(mir_id))
     out = out + "|" + word_from_int(v4_mir_diag_count(mir_id))
     give back out
@@ -3413,6 +3434,7 @@ task v4_mir_snapshot() -> word {
 
         pilot body_id = 0
         pilot body_count = v4_mir_body_count(mir_id)
+        if not v4_mir_snapshot_publishes(mir_id) { body_count = 0 }
         repeat until body_id >= body_count {
             array_push(parts, "\n")
             array_push(parts, v4_mir_snapshot_body_line(mir_id, body_id))
@@ -3461,6 +3483,7 @@ task v4_mir_snapshot() -> word {
 
         pilot diag_id = 0
         pilot diag_count = v4_mir_diag_count(mir_id)
+        if not v4_mir_snapshot_publishes(mir_id) { diag_count = 0 }
         repeat until diag_id >= diag_count {
             array_push(parts, "\n")
             array_push(parts, v4_mir_snapshot_diag_line(mir_id, diag_id))
