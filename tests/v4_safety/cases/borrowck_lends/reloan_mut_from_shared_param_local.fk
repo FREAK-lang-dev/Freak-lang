@@ -1,5 +1,5 @@
 -- The same upgrade through a local holder, then a write through it.
--- known: #244 Meiya lets an immutable lend be reloaned as lend mut
+-- Fixed (#244): Meiya refuses an exclusive lend rooted at a shared lend parameter.
 -- expect: reject borrowck
 -- error: lend mut
 

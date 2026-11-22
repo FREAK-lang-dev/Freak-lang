@@ -560,12 +560,13 @@ Refused by name: lend parameters across the C ABI (`extern`,
 supported`), lend-typed parameters written as a type rather than a mode,
 lend locals other than value bindings of a loan, task value types with
 lend parameters (`native task values with lend parameters are not yet
-supported`), `lend mut` of a module global and other lend pointee types.
+supported`), `lend mut` of a module global and other lend pointee types. Meiya refuses an exclusive loan rooted at a shared `lend` parameter
+(`lend mut p.x` passed on, or `push` on a lent list).
 Word-slot stores and whole replacement through any loan release the old
 value first, through the drop plan's `DropSlot` row. A borrowed return never takes a temporary as its source: MIR names `lend
 make_word()` (`lend source must be a place`). Program:
 `examples/lend_abi_native.fk` (exact output, exit 0), also audited by
-`tests/v4_owned_word_codegen.py`; ten named rejections are in
+`tests/v4_owned_word_codegen.py`; eleven named rejections are in
 `check_v4_native_shapes`.
 
 ### Dyn doctrines (lend slice)
@@ -613,6 +614,50 @@ with the layout oracle, the vtable oracle (note, constant and Clang agree;
 tampered sizes, slot orders and foreign impl slots fail) and Clang assembly
 on four targets, a dispatch-only module, and 22 named rejections. The
 `freak.dyn.` and `freak.vtable.` symbol prefixes are reserved.
+
+### Native lists
+
+`List<T>` is an owned heap value. Every list is one header,
+`%"freak.list.header" = type { ptr, i64, i64 }` (data, length, capacity),
+emitted as a named record with a `; freak.layout` note that the layout
+oracle checks on all four targets. Elements are stored by value in a
+buffer typed per element type (`getelementptr T`), with no boxing and no
+type-erased pool:
+
+- **Elements.** Scalars, words, task and raw pointers, and native shapes,
+  tuples, fixed arrays and routes (including ones that own words).
+- **Operations.** A literal allocates exactly its length (`[]` is the empty
+  header; a typed destination gives `[]` its type and narrows numeric
+  elements). `xs.push(v)` takes a `lend mut` of `xs` and moves `v` into the
+  slot `@freak.list.push_slot` opens, doubling the capacity from 4 with
+  overflow checks. `xs[i]`, `xs.get(i)` and `xs[i] = v` are one checked
+  `Index` place: past the length they panic with V3's wording,
+  `index i out of bounds (len n)` (exit 101). `xs.length()` and
+  `xs.length` read the header through a shared loan. Indexing a `word`
+  element moves it out (the slot is nulled, as for fixed arrays), and a
+  store releases the old element first (`DropSlot`).
+- **`for each`.** The loop lends its source (decision 3): MIR lowers
+  `for each x in xs` to a shared loan `_for_each_source`, an index local
+  and a `LoopItem` over both, so a body that pushes, stores into, or lends
+  `xs` mutably is a Meiya error. A temporary source is owned by the loop
+  and dropped after it. Each item is the walker's own copy (word leaves are
+  cloned); tuple and sequence patterns bind from it.
+- **Ownership.** Lists are Move types in Meiya's drop plan. Their drop glue
+  is one private helper per element type, `@"freak.list.drop.T"(data,
+  len)`, which releases each element's words and then frees the buffer.
+  Lists cross FREAK calls by value (the aggregate convention: a caller copy
+  the callee owns, `sret` results) and as `lend` / `lend mut` (the caller's
+  header). The buffer comes from libc `realloc`/`free`, the allocator the
+  native runtime itself uses; allocation failure panics with
+  `list allocation failed`.
+
+Refused by name: lists inside other types (shape fields, tuple and array
+slots, nested lists), lists of `maybe`/`result` values, list operators,
+list items of routes that own words, moved list captures, and user
+declarations of `realloc`/`free` in a module that uses lists. Program:
+`examples/lists_native.fk` (exact output, exit 0, and an out-of-bounds
+panic run) in `check_v4_native_shapes`, also audited by
+`tests/v4_owned_word_codegen.py`; eighteen named rejections.
 
 ### Persisted interpolation checkpoint (W3)
 

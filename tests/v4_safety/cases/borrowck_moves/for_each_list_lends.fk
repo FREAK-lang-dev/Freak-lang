@@ -1,5 +1,5 @@
 -- Decision 3: for each lends its iterable (List included), like V3.
--- known: #247 for each over a List moves the list
+-- Fixed (#247): list for each lowers to a shared loan of its source.
 -- expect: check
 
 task main() -> int {
