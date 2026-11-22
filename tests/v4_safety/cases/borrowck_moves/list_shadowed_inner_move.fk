@@ -1,0 +1,15 @@
+-- Moving a shadowing inner list leaves the outer list of the same name
+-- available: each binding has its own move path.
+-- expect: run
+-- exit: 4
+
+task eat(xs: List<int>) -> int { give back xs.length() }
+task main() -> int {
+    pilot xs: List<int> = [1, 2, 3]
+    pilot mut n = 0
+    if n == 0 {
+        pilot xs: List<int> = [9]
+        n = eat(xs)
+    }
+    give back n + xs.length()
+}

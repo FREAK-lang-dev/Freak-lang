@@ -1,0 +1,15 @@
+-- The inner binding is still refused after its own move.
+-- expect: reject borrowck
+-- error: Meiya refuses a use of an unavailable list binding
+
+task eat(xs: List<int>) -> int { give back xs.length() }
+task main() -> int {
+    pilot xs: List<int> = [1, 2, 3]
+    pilot mut n = 0
+    if n == 0 {
+        pilot xs: List<int> = [9]
+        n = eat(xs)
+        n = n + xs.length()
+    }
+    give back n
+}

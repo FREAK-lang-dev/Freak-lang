@@ -5085,9 +5085,16 @@ task v4_borrowck_find_local(mir_id: int, body_id: int, name: word) -> int {
     give back word_to_int(array_get(v4_borrowck_name_index_buckets, bucket)) - 1
 }
 
+-- Owned bindings whose moves Meiya tracks per binding: words, the native
+-- Sum carriers and lists. A shadowed one gets a `@word-local:<id>` path so
+-- two bindings that share a name never share a move path.
+task v4_borrowck_type_has_binding_path(mir_id: int, type_text: word) -> bool {
+    give back v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), type_text) or v4_borrowck_type_is_list(mir_id, type_text)
+}
+
 task v4_borrowck_word_local_path(mir_id: int, body_id: int, local_id: int) -> word {
     pilot name = v4_mir_local_name(mir_id, body_id, local_id)
-    if not v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) { give back name }
+    if not v4_borrowck_type_has_binding_path(mir_id, v4_mir_local_ty(mir_id, body_id, local_id)) { give back name }
     if v4_borrowck_name_index_ready(mir_id, body_id) {
         pilot first = v4_borrowck_find_local(mir_id, body_id, name)
         if first >= 0 {
@@ -5107,16 +5114,16 @@ task v4_borrowck_word_path_local(mir_id: int, body_id: int, text: word) -> int {
     if text.starts_with("@word-local:") {
         pilot raw = text.substring(12, text.length() - 12)
         pilot local_id = word_to_int(raw)
-        if raw == word_from_int(local_id) and local_id >= 0 and local_id < v4_mir_body_local_count(mir_id, body_id) and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) { give back local_id }
+        if raw == word_from_int(local_id) and local_id >= 0 and local_id < v4_mir_body_local_count(mir_id, body_id) and v4_borrowck_type_has_binding_path(mir_id, v4_mir_local_ty(mir_id, body_id, local_id)) { give back local_id }
         give back 0 - 1
     }
     pilot local_id = v4_borrowck_find_local(mir_id, body_id, text)
-    if local_id >= 0 and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) { give back local_id }
+    if local_id >= 0 and v4_borrowck_type_has_binding_path(mir_id, v4_mir_local_ty(mir_id, body_id, local_id)) { give back local_id }
     give back 0 - 1
 }
 
 task v4_borrowck_rvalue_binding_path(mir_id: int, body_id: int, value: int) -> word {
-    if v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, value)) {
+    if v4_borrowck_type_has_binding_path(mir_id, v4_mir_rvalue_ty(mir_id, body_id, value)) {
         if v4_mir_rvalue_kind(mir_id, body_id, value) == v4_mir_rvalue_use_local {
             pilot local_id = v4_mir_rvalue_local_id(mir_id, body_id, value)
             if local_id >= 0 { give back v4_borrowck_word_local_path(mir_id, body_id, local_id) }
@@ -5134,7 +5141,7 @@ task v4_borrowck_add_place_path(borrow_id: int, result_id: int, mir_id: int, bod
         give back
     }
     pilot text = v4_mir_place_text(mir_id, body_id, place_id)
-    if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_place_ty(mir_id, body_id, place_id)) and v4_mir_place_base(mir_id, body_id, place_id) >= 0 { text = v4_borrowck_word_local_path(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id)) }
+    if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local and v4_borrowck_type_has_binding_path(mir_id, v4_mir_place_ty(mir_id, body_id, place_id)) and v4_mir_place_base(mir_id, body_id, place_id) >= 0 { text = v4_borrowck_word_local_path(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id)) }
     v4_borrowck_add_path(borrow_id, result_id, path_kind, text, stmt_id, block_id)
 }
 
