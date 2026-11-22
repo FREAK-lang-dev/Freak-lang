@@ -3909,6 +3909,10 @@ task v4_mir_snapshot_rvalue_refs_are_valid(kind: word, raw_lhs: word, raw_rhs: w
     if kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
         give back v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_lhs, rvalue_id, false) and raw_rhs == "-1" and args_payload == ""
     }
+    -- A native list loop item reads its list loan and index (both optional).
+    if kind == v4_mir_rvalue_loop_item {
+        give back v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_lhs, rvalue_id, true) and v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_rhs, rvalue_id, true) and args_payload == ""
+    }
     give back raw_lhs == "-1" and raw_rhs == "-1" and args_payload == ""
 }
 
@@ -5288,7 +5292,7 @@ task v4_mir_system_intrinsic_kind(mir: int, body: int, value: int) -> word {
 }
 
 task v4_mir_builtin_method_identity_is_known(identity: word) -> bool {
-    give back v4_mir_builtin_shared_method_identity_is_known(identity) or v4_mir_builtin_word_identity_kind(identity) != "" or v4_mir_builtin_control_identity_kind(identity) != "" or v4_mir_builtin_system_identity_kind(identity) != ""
+    give back v4_mir_builtin_shared_method_identity_is_known(identity) or v4_mir_builtin_word_identity_kind(identity) != "" or v4_mir_builtin_control_identity_kind(identity) != "" or v4_mir_builtin_system_identity_kind(identity) != "" or v4_mir_builtin_list_identity_kind(identity) != ""
 }
 
 task v4_mir_builtin_method_identity_code(identity: word) -> int {
@@ -5296,6 +5300,8 @@ task v4_mir_builtin_method_identity_code(identity: word) -> int {
     if identity == "builtin::system::process_arg" { give back 202 }
     if identity == "builtin::system::args_count" { give back 203 }
     if identity == "builtin::system::fs_read" { give back 204 }
+    if identity == "builtin::list::push" { give back 401 }
+    if identity == "builtin::list::length" { give back 402 }
     pilot shared = v4_mir_builtin_shared_method_identity_code(identity)
     if shared > 0 { give back shared }
     pilot kind = v4_mir_builtin_word_identity_kind(identity)
@@ -5358,6 +5364,81 @@ task v4_mir_word_intrinsic_kind(mir_id: int, body_id: int, rvalue_id: int) -> wo
     give back v4_mir_builtin_word_identity_kind(v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id))
 }
 
+
+-- Native lists (tier 3). `List<T>` operations are closed builtin calls that
+-- take the list as a loan first: `length` a shared loan, `push` a `lend mut`
+-- loan whose second argument moves into the list. A loan is a Lend/LendMut
+-- of a place read of the list, or a read of a local that holds such a loan.
+task v4_mir_list_intrinsic_identity(kind: word) -> word {
+    if kind != "push" and kind != "length" { give back "" }
+    give back "builtin::list::" + kind
+}
+
+task v4_mir_builtin_list_identity_kind(identity: word) -> word {
+    if identity == "builtin::list::push" { give back "push" }
+    if identity == "builtin::list::length" { give back "length" }
+    give back ""
+}
+
+-- The list type a loan argument lends, or "" when it is not a list loan of
+-- the wanted mode (a `lend mut` loan also serves a shared use).
+task v4_mir_list_loan_type(mir: int, body: int, value: int, mutable: bool) -> word {
+    if value < 0 or value >= v4_mir_body_rvalue_count(mir, body) { give back "" }
+    pilot loan_ty = v4_mir_rvalue_ty(mir, body, value)
+    if not v4_ty_is_lend_type(loan_ty) { give back "" }
+    if mutable and v4_ty_lend_mode(loan_ty) != v4_ty_param_mode_lend_mut { give back "" }
+    pilot list_ty = v4_ty_canonical_type(v4_mir_ty_id(mir), v4_ty_lend_target_type(loan_ty))
+    if v4_ty_list_element_type(list_ty) == v4_ty_unknown { give back "" }
+    pilot kind = v4_mir_rvalue_kind(mir, body, value)
+    if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+        if (kind == v4_mir_rvalue_lend_mut) != (v4_ty_lend_mode(loan_ty) == v4_ty_param_mode_lend_mut) { give back "" }
+        pilot owner = v4_mir_rvalue_lhs(mir, body, value)
+        if owner < 0 or owner >= value or v4_mir_rvalue_rhs(mir, body, value) >= 0 { give back "" }
+        pilot owner_kind = v4_mir_rvalue_kind(mir, body, owner)
+        if owner_kind != v4_mir_rvalue_use_local and owner_kind != v4_mir_rvalue_use_place { give back "" }
+        if v4_ty_canonical_type(v4_mir_ty_id(mir), v4_mir_rvalue_ty(mir, body, owner)) != list_ty { give back "" }
+        give back list_ty
+    }
+    if kind == v4_mir_rvalue_use_local and v4_mir_local_reference_is_exact(mir, body, value) { give back list_ty }
+    give back ""
+}
+
+-- Intrinsic identity is never inferred from ordinary user-visible call text.
+task v4_mir_rvalue_is_builtin_list(mir: int, body: int, value: int) -> bool {
+    if value < 0 or value >= v4_mir_body_rvalue_count(mir, body) { give back false }
+    pilot identity = v4_mir_rvalue_builtin_method(mir, body, value)
+    pilot kind = v4_mir_builtin_list_identity_kind(identity)
+    if kind == "" or v4_mir_rvalue_kind(mir, body, value) != v4_mir_rvalue_call { give back false }
+    if v4_mir_rvalue_op(mir, body, value) != identity or v4_mir_rvalue_abi(mir, body, value) != "" or v4_mir_rvalue_lhs(mir, body, value) != -1 or v4_mir_rvalue_rhs(mir, body, value) != -1 { give back false }
+    pilot count = v4_mir_rvalue_call_arg_count(mir, body, value)
+    pilot loan = v4_mir_rvalue_call_arg(mir, body, value, 0)
+    if count < 1 or loan < 0 or loan >= value { give back false }
+    pilot list_ty = v4_mir_list_loan_type(mir, body, loan, kind == "push")
+    if list_ty == "" { give back false }
+    if kind == "length" { give back count == 1 and v4_mir_rvalue_ty(mir, body, value) == v4_ty_int }
+    if count != 2 or v4_mir_rvalue_ty(mir, body, value) != v4_ty_void { give back false }
+    pilot item = v4_mir_rvalue_call_arg(mir, body, value, 1)
+    if item < 0 or item >= value { give back false }
+    give back v4_ty_types_compatible(v4_ty_list_element_type(list_ty), v4_mir_rvalue_ty(mir, body, item))
+}
+
+task v4_mir_list_intrinsic_kind(mir: int, body: int, value: int) -> word {
+    if not v4_mir_rvalue_is_builtin_list(mir, body, value) { give back "" }
+    give back v4_mir_builtin_list_identity_kind(v4_mir_rvalue_builtin_method(mir, body, value))
+}
+
+-- A native list loop item: LoopItem over a list loan (lhs) and an int index
+-- (rhs) is a fresh owned copy of that element (words are cloned). A LoopItem
+-- without operands is the front end's opaque item of other iterables.
+task v4_mir_rvalue_is_list_loop_item(mir: int, body: int, value: int) -> bool {
+    if value < 0 or value >= v4_mir_body_rvalue_count(mir, body) or v4_mir_rvalue_kind(mir, body, value) != v4_mir_rvalue_loop_item { give back false }
+    pilot loan = v4_mir_rvalue_lhs(mir, body, value)
+    pilot index = v4_mir_rvalue_rhs(mir, body, value)
+    if loan < 0 or index < 0 or loan >= value or index >= value { give back false }
+    pilot list_ty = v4_mir_list_loan_type(mir, body, loan, false)
+    if list_ty == "" or v4_mir_rvalue_ty(mir, body, index) != v4_ty_int { give back false }
+    give back v4_ty_canonical_type(v4_mir_ty_id(mir), v4_mir_rvalue_ty(mir, body, value)) == v4_ty_canonical_type(v4_mir_ty_id(mir), v4_ty_list_element_type(list_ty))
+}
 
 -- Check graph order before Meiya follows live low-level MIR mutations.
 task v4_mir_word_plan_preflight(mir_id: int) -> word {
