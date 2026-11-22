@@ -1,0 +1,113 @@
+-- lend dyn Doctrine (tier 3 "dyn Doctrine: fat pointer plus vtable" row,
+-- first slice). A `lend u: dyn Unit` / `lend mut u: dyn Unit` parameter is
+-- the pair { data pointer, vtable pointer }. Erasing `lend squad.lead` pairs
+-- the place's address with the one constant vtable of (Pilot, Unit): type
+-- id, size, align, drop, clone (null), then one slot per doctrine method in
+-- declaration order. `u.power()` loads its slot and calls it with the data
+-- pointer first, which is exactly the lend ABI of the impl's `lend self`.
+-- Shapes, a shape holding a route, a scalar, field and element places,
+-- word and aggregate (sret) results, aggregate arguments and reborrows all
+-- go through the same vtables. check_v4_native_dyn runs this program.
+doctrine Unit {
+    task label(lend self) -> word
+    task power(lend self) -> int
+    task train(lend mut self, by: int) -> void
+    task rename(lend mut self, name: word) -> void
+}
+doctrine Placed {
+    task at(lend self) -> Point
+    task move_by(lend mut self, d: Point) -> void
+}
+shape Point { x: int, y: int }
+shape Pilot { name: word, power: int }
+shape Squad { lead: Pilot, wing: Pilot }
+route Beta {
+    Soldier
+    Tank { hp: int }
+    Named { tag: word }
+}
+shape Hive { kind: Beta, count: int }
+shape Tsf { pos: Point, fuel: int }
+
+impl Unit for Pilot {
+    task label(lend self) -> word { give back "pilot " + self.name }
+    task power(lend self) -> int { give back self.power }
+    task train(lend mut self, by: int) -> void { self.power = self.power + by }
+    task rename(lend mut self, name: word) -> void { self.name = name }
+}
+-- Replacing the route through the loan runs its word drop glue in place.
+impl Unit for Hive {
+    task label(lend self) -> word { give back "hive of " + word_from_int(self.count) }
+    task power(lend self) -> int { give back self.count * 3 }
+    task train(lend mut self, by: int) -> void {
+        self.kind = Beta::Tank { hp: by }
+        self.count = self.count + by
+    }
+    task rename(lend mut self, name: word) -> void { self.kind = Beta::Named { tag: name } }
+}
+impl Unit for int {
+    task label(lend self) -> word { give back "count " + word_from_int(self) }
+    task power(lend self) -> int { give back self }
+    task train(lend mut self, by: int) -> void { self = self + by }
+    task rename(lend mut self, name: word) -> void { self = name.length() }
+}
+impl Placed for Tsf {
+    task at(lend self) -> Point { give back Point { x: self.pos.x, y: self.pos.y } }
+    task move_by(lend mut self, d: Point) -> void {
+        self.pos = Point { x: self.pos.x + d.x, y: self.pos.y + d.y }
+        self.fuel = self.fuel - 1
+    }
+}
+impl Placed for Point {
+    task at(lend self) -> Point { give back Point { x: self.x, y: self.y } }
+    task move_by(lend mut self, d: Point) -> void { self.x = self.x + d.x }
+}
+
+task report(lend u: dyn Unit) -> int {
+    say u.label() + " power " + word_from_int(u.power())
+    give back u.power()
+}
+-- A lend mut dyn parameter reborrows as lend (report) and as lend mut.
+task drill(lend mut u: dyn Unit, rounds: int) -> int {
+    pilot mut left = rounds
+    repeat until left == 0 {
+        u.train(10)
+        left -= 1
+    }
+    give back report(lend u)
+}
+task rename_unit(lend mut u: dyn Unit, name: word) -> void {
+    u.rename(name)
+}
+task relay(lend mut u: dyn Unit, name: word) -> void {
+    rename_unit(lend mut u, name)
+}
+task hop(lend mut p: dyn Placed) -> int {
+    p.move_by(Point { x: 3, y: 4 })
+    pilot q = p.at()
+    give back q.x * 10 + q.y
+}
+
+task main() -> int {
+    pilot mut squad = Squad { lead: Pilot { name: "Takeru", power: 40 }, wing: Pilot { name: "Meiya", power: 55 } }
+    pilot mut hive = Hive { kind: Beta::Soldier, count: 2 }
+    pilot mut counts: [int; 3] = [1, 2, 3]
+    pilot mut total = report(lend squad.lead) + report(lend hive)
+    total += drill(lend mut squad.wing, 2)
+    relay(lend mut squad.lead, "Shirogane")
+    total += report(lend squad.lead)
+    total += drill(lend mut hive, 1)
+    rename_unit(lend mut hive, "brain")
+    total += report(lend counts[1])
+    rename_unit(lend mut counts[2], "Yuuko")
+    total += drill(lend mut counts[2], 3)
+    say squad.lead.name
+    say counts[2]
+    pilot mut t = Tsf { pos: Point { x: 1, y: 1 }, fuel: 9 }
+    pilot mut o = Point { x: 0, y: 0 }
+    say hop(lend mut t)
+    say hop(lend mut o)
+    say hop(lend mut t.pos)
+    say t.fuel
+    give back total % 256
+}

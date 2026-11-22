@@ -17590,7 +17590,7 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
     clang = shutil.which("clang")
     notes = native_layout_notes(module)
     payloads = native_payload_notes(module)
-    types = re.findall(r'^(%"freak\.(?:shape|route|sum|closure\.env)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum|closure\.env|dyn\.vtable)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
     if not notes or len(notes) != len(types) or not set(payloads) <= set(notes):
         raise RuntimeError(f"V4 shape module for {triple} has no matching layout notes")
     # A route with payload storage after its tag must say how that storage is
@@ -17706,6 +17706,9 @@ def native_lend_param_modes(source: str) -> dict[tuple[str, int], str]:
             elif param.startswith("lend "):
                 # A shared word loan is the word handle, not a pointer.
                 mode = "handle" if param.rpartition(":")[2].strip() == "word" else "lend"
+            # A dyn loan is its { data, vtable } pair, never a noted pointer.
+            if mode and param.rpartition(":")[2].strip().startswith("dyn "):
+                mode = "handle"
             modes[("@" + match.group(1), index)] = mode
     return modes
 
@@ -18189,6 +18192,230 @@ def check_v4_native_shapes() -> None:
     check_v4_native_c_abi()
     check_v4_native_closures()
     check_v4_native_closures_nested()
+    check_v4_native_dyn()
+
+
+NATIVE_DYN_VTABLE_NOTE = re.compile(r"^; freak\.vtable (@\S+) type=(.+) size=(\d+) align=(\d+) type_id=(\d+)$", re.MULTILINE)
+NATIVE_DYN_VTABLE_HEADER_SLOTS = 5
+
+
+def check_native_vtable_oracle(module: str, triple: str, doctrines: dict[str, list[str]]) -> int:
+    """Check every dyn vtable constant against its note, its doctrine and Clang.
+
+    A vtable is { i64 type_id, i64 size, i64 align, ptr drop, ptr clone,
+    ptr slot... }: the note and the initializer must agree on type id, size
+    and alignment, Clang must fold the same size and ABI alignment for the
+    concrete type on triple, clone is null, and slot k is the impl method of
+    the doctrine's k-th method in declaration order.
+    """
+    lines = module.splitlines()
+    definitions = [line for line in lines if re.match(r'^%"[^"]+" = type ', line)]
+    claims = []
+    type_ids: dict[str, str] = {}
+    for index, line in enumerate(lines):
+        note = NATIVE_DYN_VTABLE_NOTE.match(line)
+        if note is None:
+            continue
+        symbol, llvm_type, size, align, type_id = note.groups()
+        constant = lines[index + 1] if index + 1 < len(lines) else ""
+        match = re.match(re.escape(symbol) + r' = internal constant %"freak\.dyn\.vtable\.([^"]+)" \{ i64 (\d+), i64 (\d+), i64 (\d+), ptr (@\S+), ptr null((?:, ptr @\S+)*) \}$', constant)
+        if match is None:
+            raise RuntimeError(f"V4 dyn vtable {symbol} on {triple} is not a header-then-slots constant: {constant}")
+        doctrine, init_id, init_size, init_align, drop, slots = match.groups()
+        if (init_id, init_size, init_align) != (type_id, size, align):
+            raise RuntimeError(f"V4 dyn vtable {symbol} on {triple} disagrees with its note: "
+                               f"note=({type_id},{size},{align}) constant=({init_id},{init_size},{init_align})")
+        if type_ids.setdefault(llvm_type, type_id) != type_id or list(type_ids.values()).count(type_id) != 1:
+            raise RuntimeError(f"V4 dyn type ids on {triple} are not one per concrete type: {type_ids}")
+        if not re.search(r"^define internal void " + re.escape(drop) + r"\(ptr %self\)", module, re.MULTILINE):
+            raise RuntimeError(f"V4 dyn vtable {symbol} on {triple} has no drop entry {drop}")
+        methods = [slot.rpartition("::")[2] for slot in re.findall(r'ptr @"([^"]+)"', slots)]
+        if doctrine not in doctrines or methods != doctrines[doctrine]:
+            raise RuntimeError(f"V4 dyn vtable {symbol} on {triple} slots {methods} are not {doctrine}'s declaration order")
+        vtable_type = re.search(r'^%"freak\.dyn\.vtable\.' + re.escape(doctrine) + r'" = type \{ (.*) \}$', module, re.MULTILINE)
+        if vtable_type is None or vtable_type.group(1).split(", ") != ["i64", "i64", "i64", "ptr", "ptr"] + ["ptr"] * len(methods):
+            raise RuntimeError(f"V4 dyn vtable type for {doctrine} on {triple} does not have {len(methods)} slots after the header")
+        claims.append((symbol, llvm_type, int(size), int(align)))
+    if not claims:
+        raise RuntimeError(f"V4 dyn module for {triple} has no vtable notes")
+    probe_lines = list(definitions)
+    for index, (_, llvm_type, _, _) in enumerate(claims):
+        probe_lines.append(f"define i64 @vt_{index}_size() {{ ret i64 ptrtoint (ptr getelementptr ({llvm_type}, ptr null, i32 1) to i64) }}")
+        probe_lines.append(f"define i64 @vt_{index}_align() {{ ret i64 ptrtoint (ptr getelementptr ({{ i1, {llvm_type} }}, ptr null, i32 0, i32 1) to i64) }}")
+    probe = RUNTIME_BUILD_ROOT / f"dyn_vtable_layout_{triple}.ll"
+    probe.write_text("\n".join(probe_lines) + "\n", encoding="utf-8")
+    result = run_with_heartbeat(
+        [shutil.which("clang"), f"--target={triple}", "-O2", "-S", "-emit-llvm", str(probe), "-o", "-"],
+        label=f"V4 dyn vtable oracle {triple}", timeout_seconds=60, memory_limit_mb=512,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Clang rejected the dyn vtable probe for {triple}:\n{result.stderr}")
+    folded = dict(re.findall(r"define[^@]*@(vt_\w+)\(\)[^{]*\{\s*ret i64 (\d+)", result.stdout))
+    for index, (symbol, llvm_type, size, align) in enumerate(claims):
+        for label, value in (("size", size), ("align", align)):
+            if folded.get(f"vt_{index}_{label}") != str(value):
+                raise RuntimeError(f"V4 dyn vtable {symbol} {label} disagrees with Clang on {triple}: "
+                                   f"freak_target={value} clang={folded.get(f'vt_{index}_{label}')}")
+    return 2 * len(claims)
+
+
+# examples/dyn_native.fk: stdout and main's exit status (total % 256).
+NATIVE_DYN_EXPECTED = ("pilot Takeru power 40\nhive of 2 power 6\npilot Meiya power 75\npilot Shirogane power 40\n"
+                       "hive of 12 power 36\ncount 2 power 2\ncount 35 power 35\nShirogane\n35\n45\n30\n75\n8\n", 234)
+# Doctrine methods in declaration order: vtable slot k is method k.
+NATIVE_DYN_DOCTRINES = {"Unit": ["label", "power", "train", "rename"], "Placed": ["at", "move_by"]}
+# (Pilot, Unit), (Hive, Unit), (int, Unit), (Tsf, Placed), (Point, Placed).
+NATIVE_DYN_VTABLES = 5
+NATIVE_DYN_WIDGET = ("doctrine Widget {\n    task area(lend self) -> int\n    task grow(lend mut self, by: int) -> void\n}\n"
+                     "shape Square { side: int }\nimpl Widget for Square {\n"
+                     "    task area(lend self) -> int { give back self.side * self.side }\n"
+                     "    task grow(lend mut self, by: int) -> void { self.side = self.side + by }\n}\n")
+# Rejected dyn programs: (stem, source, named reason).
+NATIVE_DYN_REJECTED = (
+    ("tier3_dyn_owned_local", NATIVE_DYN_WIDGET + "task main() -> int {\n    pilot s = Square { side: 2 }\n"
+     "    pilot w: dyn Widget = s\n    give back 0\n}\n",
+     "native owned dyn values are not yet supported: dyn Widget"),
+    ("tier3_dyn_by_value_param", NATIVE_DYN_WIDGET + "task show(w: dyn Widget) -> int { give back 1 }\ntask main() -> int { give back 0 }\n",
+     "native owned dyn values are not yet supported: dyn Widget"),
+    ("tier3_dyn_list", NATIVE_DYN_WIDGET + "task count(xs: List<dyn Widget>) -> int { give back 0 }\ntask main() -> int { give back 0 }\n",
+     "native owned dyn values are not yet supported: List<dyn Widget>"),
+    # The type form `w: lend dyn D` stays fenced like other lend-typed params.
+    ("tier3_dyn_type_form_param", NATIVE_DYN_WIDGET + "task show(w: lend dyn Widget) -> int { give back w.area() }\n"
+     "task main() -> int {\n    pilot s = Square { side: 2 }\n    give back show(lend s)\n}\n",
+     "lend-typed dyn locals and parameters are not yet supported: w"),
+    ("tier3_dyn_lend_local", NATIVE_DYN_WIDGET + "task main() -> int {\n    pilot s = Square { side: 2 }\n"
+     "    pilot w: lend dyn Widget = lend s\n    give back 0\n}\n",
+     "lend-typed dyn locals and parameters are not yet supported: w"),
+    ("tier3_dyn_result", NATIVE_DYN_WIDGET + "task wrap(lend s: Square) -> lend dyn Widget { give back lend s }\n"
+     "task main() -> int { give back 0 }\n",
+     "native dyn results are not yet supported: lend dyn Widget"),
+    ("tier3_dyn_slot_field", NATIVE_DYN_WIDGET + "shape Slot { w: lend dyn Widget, n: int }\ntask main() -> int {\n"
+     "    pilot s = Square { side: 2 }\n    pilot k = Slot { w: lend s, n: 1 }\n    give back k.n\n}\n",
+     "native aggregate lend slots are not yet supported: Slot.w"),
+    ("tier3_dyn_move_param", NATIVE_DYN_WIDGET + "task show(lend w: dyn Widget) -> int {\n    pilot k = w\n    give back 0\n}\n"
+     "task main() -> int { give back 0 }\n",
+     "Meiya refuses to move out of a borrowed parameter"),
+    ("tier3_dyn_c_abi", NATIVE_DYN_WIDGET + "extern [C] {\n    task paint(w: lend dyn Widget) -> void\n}\ntask main() -> int { give back 0 }\n",
+     "extern parameter type is not FFI-safe"),
+    ("tier3_dyn_generic_doctrine", "doctrine Holder<T> {\n    task get(lend self) -> T\n}\nshape Cell { v: int }\n"
+     "impl Holder<int> for Cell {\n    task get(lend self) -> int { give back self.v }\n}\n"
+     "task show(lend h: dyn Holder<int>) -> int { give back h.get() }\n"
+     "task main() -> int {\n    pilot c = Cell { v: 3 }\n    give back show(lend c)\n}\n",
+     "native dyn values of generic doctrines are not yet supported: dyn Holder<int>"),
+    # Generic methods are not object safe (TY), so no vtable can hold them.
+    ("tier3_dyn_generic_method", "doctrine Widget {\n    task pick<T>(lend self, x: T) -> T\n}\n"
+     "task show(lend w: dyn Widget) -> int { give back 0 }\ntask main() -> int { give back 0 }\n",
+     "Widget::method pick has generic parameters"),
+    # A by-value self slot would move out of the loan the vtable is reached through.
+    ("tier3_dyn_by_value_slot", "doctrine Widget {\n    task area(lend self) -> int\n    task take(self) -> int\n}\n"
+     "shape Square { side: int }\nimpl Widget for Square {\n    task area(lend self) -> int { give back self.side }\n"
+     "    task take(self) -> int { give back self.side }\n}\ntask show(lend w: dyn Widget) -> int { give back w.area() }\n"
+     "task main() -> int {\n    pilot s = Square { side: 2 }\n    give back show(lend s)\n}\n",
+     "native dyn vtables cannot hold by-value self methods yet: Square::take"),
+    ("tier3_dyn_by_value_call", "doctrine Widget {\n    task take(self) -> int\n}\nshape Square { side: int }\n"
+     "impl Widget for Square {\n    task take(self) -> int { give back self.side }\n}\n"
+     "task show(lend w: dyn Widget) -> int { give back w.take() }\ntask main() -> int { give back 0 }\n",
+     "dyn method takes self by value"),
+    ("tier3_dyn_shared_mut_call", NATIVE_DYN_WIDGET + "task show(lend w: dyn Widget) -> int {\n    w.grow(1)\n    give back 0\n}\n"
+     "task main() -> int { give back 0 }\n",
+     "dyn method needs a lend mut receiver"),
+    # Meiya does not yet refuse `lend mut` of a shared lend parameter (of
+    # any type); the dyn lowering refuses it on its own.
+    ("tier3_dyn_lend_mut_of_shared", NATIVE_DYN_WIDGET + "task bump(lend mut w: dyn Widget) -> void { w.grow(1) }\n"
+     "task show(lend w: dyn Widget) -> void { bump(lend mut w) }\ntask main() -> int { give back 0 }\n",
+     "invalid native dyn reborrow: lend mut w"),
+)
+
+
+def check_v4_native_dyn() -> None:
+    """Tier 3 lend dyn Doctrine: run exactly, check vtables and layouts on all targets, refuse the rest by name."""
+    source = V4_ROOT / "examples" / "dyn_native.fk"
+    expected, expected_exit = NATIVE_DYN_EXPECTED
+    executable = RUNTIME_BUILD_ROOT / ("tier3_native_dyn.exe" if sys.platform == "win32" else "tier3_native_dyn.native")
+    executable.unlink(missing_ok=True)
+    built = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(executable)],
+        label="V4 build command: native dyn", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if built.returncode != 0 or not executable.exists():
+        raise RuntimeError(f"V4 rejected the native dyn program:\n{built.stdout}{built.stderr}")
+    ran = run_with_heartbeat([str(executable)], label="V4 native dyn execute", timeout_seconds=10, memory_limit_mb=128)
+    if ran.returncode != expected_exit or ran.stdout.replace("\r\n", "\n") != expected:
+        raise RuntimeError(f"V4 native dyn printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
+    probes = 0
+    vtable_probes = 0
+    objects = 0
+    source_text = source.read_text(encoding="utf-8")
+    for triple in NATIVE_LAYOUT_TRIPLES:
+        module_path = RUNTIME_BUILD_ROOT / f"tier3_native_dyn_{triple}.ll"
+        module_path.unlink(missing_ok=True)
+        emitted = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+            label=f"V4 dyn module {triple}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not module_path.exists():
+            raise RuntimeError(f"V4 could not emit the dyn module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+        module_text = module_path.read_text(encoding="utf-8")
+        if len(NATIVE_DYN_VTABLE_NOTE.findall(module_text)) != NATIVE_DYN_VTABLES:
+            raise RuntimeError(f"V4 dyn module for {triple} does not have one vtable per (type, doctrine) pair erased")
+        # A dyn parameter is the { data, vtable } pair; a dyn call loads its
+        # slot past the header and calls it with the data pointer first.
+        for task in ("report", "drill", "rename_unit", "relay", "hop"):
+            if not re.search(r"^define ccc \S+ @" + task + r"\(\{ ptr, ptr \} %arg\.0", module_text, re.MULTILINE):
+                raise RuntimeError(f"V4 dyn parameter of {task} on {triple} is not the {{ ptr, ptr }} pair")
+        calls = re.findall(r"= getelementptr inbounds %\"freak\.dyn\.vtable\.[^\"]+\", ptr (%dyn\.\d+\.\d+)\.vt, i32 0, i32 (\d+)", module_text)
+        if not calls or any(int(slot) < NATIVE_DYN_VTABLE_HEADER_SLOTS for _, slot in calls):
+            raise RuntimeError(f"V4 dyn calls on {triple} do not load slots past the vtable header: {calls}")
+        for temp, _ in calls:
+            if not re.search(r"call ccc [^%]*" + re.escape(temp) + r"\.fn\((?:ptr sret\([^)]*\) \S+, )?ptr " + re.escape(temp) + r"\.data[,)]", module_text):
+                raise RuntimeError(f"V4 dyn call {temp} on {triple} does not pass the data pointer as its receiver")
+        probes += check_native_layout_oracle(module_text, triple)
+        vtable_probes += check_native_vtable_oracle(module_text, triple, NATIVE_DYN_DOCTRINES)
+        check_native_abi_oracle(module_text, triple)
+        check_native_lend_modes(module_text, source_text)
+        assembled = run_with_heartbeat(
+            [shutil.which("clang"), f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
+            label=f"V4 dyn object {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if assembled.returncode != 0:
+            raise RuntimeError(f"Clang rejected the V4 dyn module for {triple}:\n{assembled.stderr}")
+        objects += 1
+        # A vtable whose size/align is not the target's, or whose slots are
+        # out of doctrine order, must fail the oracle.
+        note = NATIVE_DYN_VTABLE_NOTE.search(module_text)
+        wrong_size = int(note.group(3)) + 8
+        resized = module_text.replace(note.group(0), note.group(0).replace(f" size={note.group(3)} ", f" size={wrong_size} "), 1)
+        resized = re.sub(re.escape(note.group(1)) + r"( = internal constant \S+ \{ i64 \d+, i64 )\d+", lambda m: note.group(1) + m.group(1) + str(wrong_size), resized, count=1)
+        swapped = re.sub(r'(ptr @"[^"]+::label"), (ptr @"[^"]+::power")', r"\2, \1", module_text, count=1)
+        for tampered, wanted in ((resized, "disagrees with Clang"), (swapped, "declaration order")):
+            try:
+                check_native_vtable_oracle(tampered, triple, NATIVE_DYN_DOCTRINES)
+            except RuntimeError as error:
+                if wanted not in str(error):
+                    raise
+            else:
+                raise RuntimeError(f"V4 dyn vtable oracle accepted a tampered vtable on {triple} ({wanted})")
+        stripped = re.sub(r'^; freak\.layout %"freak\.dyn\.vtable\..*\n', "", module_text, count=1, flags=re.MULTILINE)
+        try:
+            check_native_layout_oracle(stripped, triple)
+        except RuntimeError as error:
+            if "no matching layout notes" not in str(error):
+                raise
+        else:
+            raise RuntimeError(f"V4 layout oracle accepted a dyn vtable type without its layout note for {triple}")
+    for stem, text, reason in NATIVE_DYN_REJECTED:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 dyn case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    print(f"V4 native dyn: run=exact layout-probes={probes} vtable-probes={vtable_probes} "
+          f"targets={len(NATIVE_LAYOUT_TRIPLES)} objects={objects} rejections={len(NATIVE_DYN_REJECTED)}")
 
 
 def check_v4_native_closures() -> None:

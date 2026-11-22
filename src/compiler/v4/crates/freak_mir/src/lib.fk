@@ -2452,8 +2452,8 @@ task v4_mir_closure_call_doctrine(mir_id: int, body_id: int, rvalue_id: int) -> 
     give back v4_ty_closure_doctrine(v4_mir_rvalue_ty(mir_id, body_id, callee))
 }
 
--- Dyn doctrine facts (tier 3). MIR Build seals them after lowering a module
--- (v4_mir_build_seal_dyn_facts); codegen reads them and never looks up an
+-- Dyn doctrine facts (tier 3). MIR Build seals them once a module is
+-- lowered; codegen reads them and never looks up an
 -- impl. One process-wide table of tab-separated records keyed by MIR id,
 -- allocated on the first fact, so a module without `dyn` costs no handle:
 --   V mir vtable concrete doctrine type_id slot-body...  one vtable per

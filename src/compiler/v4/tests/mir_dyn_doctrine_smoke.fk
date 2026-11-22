@@ -4,6 +4,7 @@
 task v4_dyn_mir_source() -> word {
     pilot src = "doctrine Widget {\n"
     src = src + "    task draw(self) -> word\n"
+    src = src + "    task title(lend self) -> word\n"
     src = src + "}\n"
     src = src + "shape Button {\n"
     src = src + "    label: word\n"
@@ -14,6 +15,9 @@ task v4_dyn_mir_source() -> word {
     src = src + "impl Widget for Button {\n"
     src = src + "    task draw(self) -> word {\n"
     src = src + "        give back self.label\n"
+    src = src + "    }\n"
+    src = src + "    task title(lend self) -> word {\n"
+    src = src + "        give back \"button\"\n"
     src = src + "    }\n"
     src = src + "}\n"
     src = src + "impl PaintBox {\n"
@@ -51,7 +55,8 @@ task v4_dyn_mir_source() -> word {
     src = src + "}\n"
     src = src + "task paint_lend(lend button: Button) -> word {\n"
     src = src + "    pilot widget: lend dyn Widget = lend button\n"
-    src = src + "    give back widget.draw()\n"
+    -- A loan reaches only lend self methods; draw(self) would move out of it.
+    src = src + "    give back widget.title()\n"
     src = src + "}\n"
     src = src + "task call_set(box: PaintBox, button: Button) -> word {\n"
     src = src + "    give back box.set(button)\n"

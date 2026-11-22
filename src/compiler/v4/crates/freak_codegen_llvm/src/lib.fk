@@ -6278,7 +6278,8 @@ task v4_codegen_llvm_native_dyn_lend_error(mir_id: int, body_id: int, rvalue_id:
     pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
     pilot mutable_kind: bool = kind == v4_mir_rvalue_lend_mut
-    if child < 0 or child >= rvalue_id or v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id) >= 0 or mutable_kind != (v4_ty_lend_mode(type_text) == v4_ty_param_mode_lend_mut) { give back "invalid native dyn borrow operand" }
+    pilot mutable_type: bool = v4_ty_lend_mode(type_text) == v4_ty_param_mode_lend_mut
+    if child < 0 or child >= rvalue_id or v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id) >= 0 or (mutable_kind and not mutable_type) or (mutable_type and not mutable_kind) { give back "invalid native dyn borrow operand" }
     pilot dyn_ty = v4_ty_lend_target_type(type_text)
     pilot error = v4_codegen_llvm_dyn_doctrine_error(mir_id, dyn_ty)
     if error != "" { give back error }
