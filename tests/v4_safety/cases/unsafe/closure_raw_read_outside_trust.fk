@@ -1,4 +1,3 @@
--- known: #246 raw-pointer operations in closure bodies skip the trust me gate
 -- expect: reject mir
 -- error: needs trust me block
 

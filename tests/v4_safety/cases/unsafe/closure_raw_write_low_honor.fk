@@ -1,5 +1,4 @@
 -- A closure written inside a .cadet block still may not write.
--- known: #246 raw-pointer operations in closure bodies skip the trust me gate
 -- expect: reject mir
 -- error: raw-pointer write requires .pilot or higher
 
