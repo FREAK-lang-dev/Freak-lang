@@ -18347,6 +18347,13 @@ NATIVE_DYN_REJECTED = (
      "task bump(lend mut w: dyn Widget) -> void { w.grow(1) }\n"
      "task show(lend b: Box) -> void { bump(lend mut b.sq) }\ntask main() -> int { give back 0 }\n",
      ("native dyn erasure cannot lend mut through a shared lend: lend mut b . sq", NATIVE_DYN_MEIYA_SHARED_MUT)),
+    # A local typed `lend T` holds a shared loan too: `pilot q = lend b`
+    # must not hand out a lend mut dyn of q's fields.
+    ("tier3_dyn_erase_mut_of_lend_local_field", NATIVE_DYN_WIDGET + "shape Box { sq: Square }\n"
+     "task bump(lend mut w: dyn Widget) -> void { w.grow(1) }\n"
+     "task main() -> int {\n    pilot mut b = Box { sq: Square { side: 1 } }\n    pilot q = lend b\n"
+     "    bump(lend mut q.sq)\n    give back b.sq.side\n}\n",
+     "native dyn erasure cannot lend mut through a shared lend: lend mut q . sq"),
     # Vtable constants and drop entries are private symbols.
     ("tier3_dyn_reserved_vtable", "extern [C] {\n @link_name(\"freak.vtable.Square.Widget\")\n"
      " task f(a: std::ffi::c_int) -> std::ffi::c_int\n}\ntask main() -> int { give back f(1) }\n",

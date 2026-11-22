@@ -6268,6 +6268,14 @@ task v4_codegen_llvm_dyn_vtable_error(mir_id: int, vtable_id: int) -> word {
 
 -- A Lend/LendMut of dyn type: an erasure with a sealed vtable over a
 -- concrete local, field or element place, or a reborrow of a dyn parameter.
+-- A local holds a shared loan when it is a lend parameter or when its
+-- type is a shared lend, as in pilot q = lend s.
+task v4_codegen_llvm_dyn_local_is_shared(mir_id: int, body_id: int, local: int) -> bool {
+    if v4_mir_local_mode(mir_id, body_id, local) == v4_ty_param_mode_lend { give back true }
+    pilot ty = v4_mir_local_ty(mir_id, body_id, local)
+    give back v4_ty_is_lend_type(ty) and v4_ty_lend_mode(ty) == v4_ty_param_mode_lend
+}
+
 task v4_codegen_llvm_native_dyn_lend_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
@@ -6300,7 +6308,7 @@ task v4_codegen_llvm_native_dyn_lend_error(mir_id: int, body_id: int, rvalue_id:
         if local < 0 or local >= v4_mir_body_local_count(mir_id, body_id) or v4_mir_local_ty(mir_id, body_id, local) != source_ty { give back "invalid native local operand" }
         if v4_mir_local_mode(mir_id, body_id, local) != v4_ty_param_mode_value and not v4_codegen_llvm_local_is_lent_param(mir_id, body_id, local) { give back "native dyn erasure needs a local, field or element place: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
         -- A lend mut erasure must not write through a shared loan.
-        if mutable_kind and v4_mir_local_mode(mir_id, body_id, local) == v4_ty_param_mode_lend { give back "native dyn erasure cannot lend mut through a shared lend: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
+        if mutable_kind and v4_codegen_llvm_dyn_local_is_shared(mir_id, body_id, local) { give back "native dyn erasure cannot lend mut through a shared lend: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
         give back ""
     }
     if child_kind != v4_mir_rvalue_use_place { give back "native dyn erasure needs a local, field or element place: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
@@ -6316,7 +6324,7 @@ task v4_codegen_llvm_native_dyn_lend_error(mir_id: int, body_id: int, rvalue_id:
     if root >= 0 and v4_mir_place_kind(mir_id, body_id, root) == v4_mir_place_global { give back "native dyn erasure of a module global is not yet supported: " + v4_mir_place_text(mir_id, body_id, place) }
     if root < 0 or v4_mir_place_kind(mir_id, body_id, root) != v4_mir_place_local { give back "native dyn erasure needs a local, field or element place: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
     pilot root_local = v4_mir_place_base(mir_id, body_id, root)
-    if mutable_kind and root_local >= 0 and root_local < v4_mir_body_local_count(mir_id, body_id) and v4_mir_local_mode(mir_id, body_id, root_local) == v4_ty_param_mode_lend { give back "native dyn erasure cannot lend mut through a shared lend: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
+    if mutable_kind and root_local >= 0 and root_local < v4_mir_body_local_count(mir_id, body_id) and v4_codegen_llvm_dyn_local_is_shared(mir_id, body_id, root_local) { give back "native dyn erasure cannot lend mut through a shared lend: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
     give back ""
 }
 

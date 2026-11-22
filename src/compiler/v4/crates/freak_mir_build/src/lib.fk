@@ -3948,7 +3948,7 @@ task v4_mir_build_dyn_vtable(mir_id: int, concrete: word, dyn_ty: word) -> int {
     pilot impl_item = 0 - 1
     pilot hir_item = 0
     repeat until hir_item >= v4_hir_item_count(hir_id) or impl_item >= 0 {
-        if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl and v4_ty_doctrine_lookup_base_name(v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item)) == doctrine_name and v4_ty_canonical_type(ty_id, v4_ty_impl_target_type_from_hir(ty_id, hir_item)) == canonical { impl_item = hir_item }
+        if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl and v4_ty_doctrine_lookup_base_name(v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item)) == doctrine_name and v4_ty_impl_matches_owner(ty_id, hir_item, canonical) { impl_item = hir_item }
         hir_item += 1
     }
     if impl_item < 0 { give back 0 - 1 }

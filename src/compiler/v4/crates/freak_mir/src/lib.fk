@@ -2493,17 +2493,15 @@ task v4_mir_dyn_record_field_count(record: word) -> int {
 -- Drop every fact of one MIR id (a fresh lowering or a restored slot).
 task v4_mir_dyn_facts_clear(mir_id: int) -> void {
     if v4_mir_dyn_facts < 0 { give back }
-    pilot kept = array_new()
-    if kept < 0 { give back }
+    -- Tombstone in place so the clear cannot fail on allocation: an empty
+    -- record matches no prefix, so readers and the digest skip it.
     pilot key = "\t" + word_from_int(mir_id) + "\t"
     pilot idx = 0
     repeat until idx >= array_len(v4_mir_dyn_facts) {
         pilot record: word = array_get(v4_mir_dyn_facts, idx)
-        if v4_slice(record, 1, 1 + key.length()) != key { array_push(kept, record) }
+        if v4_slice(record, 1, 1 + key.length()) == key { array_set(v4_mir_dyn_facts, idx, "") }
         idx += 1
     }
-    array_release(v4_mir_dyn_facts)
-    v4_mir_dyn_facts = kept
 }
 
 task v4_mir_dyn_add_record(record: word) -> bool {
