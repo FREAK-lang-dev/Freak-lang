@@ -576,7 +576,7 @@ pointer `{ ptr data, ptr vtable }`, on every target:
 - **Vtables.** MIR Build seals one constant vtable per (concrete type,
   doctrine) pair a module erases (`v4_mir_dyn_vtable_*`), and the coercion
   point of each erasure (`v4_mir_dyn_erase_vtable`). Codegen never looks up
-  an impl. The layout is the bible's (§1.6): `i64 type_id, i64 size, i64
+  an impl. The layout is the bible's (section 1.6): `i64 type_id, i64 size, i64
   align, ptr drop, ptr clone`, then one `ptr` slot per doctrine method in
   declaration order. Size and alignment come from freak_target at module
   assembly (target-neutral `$freak.dyn.layout T$` markers). `drop` runs the
