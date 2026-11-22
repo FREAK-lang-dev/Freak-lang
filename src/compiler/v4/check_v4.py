@@ -17973,6 +17973,7 @@ def check_v4_native_closures() -> None:
         raise RuntimeError(f"V4 native closures printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
     probes = 0
     abi_probes = 0
+    objects = 0
     for triple in NATIVE_LAYOUT_TRIPLES:
         module_path = RUNTIME_BUILD_ROOT / f"tier3_native_closures_{triple}.ll"
         module_path.unlink(missing_ok=True)
@@ -18000,6 +18001,15 @@ def check_v4_native_closures() -> None:
                 or len({symbol for symbol, _, _ in closure_abi}) != 2:
             raise RuntimeError(f"V4 closures module for {triple} lacks the closure aggregate ABI notes: {closure_abi}")
         abi_probes += check_native_abi_oracle(module_text, triple)
+        # Every target's module must assemble: closure bodies, environments
+        # and calls, not only the extracted layout probes.
+        assembled = run_with_heartbeat(
+            [shutil.which("clang"), f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
+            label=f"V4 closures object {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if assembled.returncode != 0:
+            raise RuntimeError(f"Clang rejected the V4 closures module for {triple}:\n{assembled.stderr}")
+        objects += 1
         stripped = re.sub(r'^; freak\.layout %"freak\.closure\.env\..*\n', "", module_text, count=1, flags=re.MULTILINE)
         try:
             check_native_layout_oracle(stripped, triple)
@@ -18085,7 +18095,7 @@ def check_v4_native_closures() -> None:
             raise RuntimeError(f"V4 closure case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
     if abi_probes == 0:
         raise RuntimeError("V4 native closures emitted no aggregate ABI notes")
-    print(f"V4 native closures: run=exact layout-probes={probes} abi-probes={abi_probes} targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+    print(f"V4 native closures: run=exact layout-probes={probes} abi-probes={abi_probes} targets={len(NATIVE_LAYOUT_TRIPLES)} objects={objects} rejections={len(rejected_cases)}")
 
 
 # Tier 3 patterns: when over tuples, fixed arrays and route payloads (nested,

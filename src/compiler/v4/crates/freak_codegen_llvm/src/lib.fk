@@ -41,8 +41,17 @@ pilot v4_codegen_llvm_shape_lines = 0
 pilot v4_codegen_llvm_shape_ok = ","
 pilot v4_codegen_llvm_shape_ok_mir = 0 - 1
 pilot v4_codegen_llvm_shape_visiting = ","
-pilot v4_codegen_llvm_layout_memo_key = ""
-pilot v4_codegen_llvm_layout_memo = ""
+pilot v4_codegen_llvm_layout_memo_target = ""
+pilot v4_codegen_llvm_layout_memo_records = ""
+pilot v4_codegen_llvm_layout_memo_ready: bool = false
+pilot v4_codegen_llvm_layout_memo_names = 0 - 1
+pilot v4_codegen_llvm_layout_memo_layouts = 0 - 1
+-- The record table split once into lines and names (every closure body adds
+-- a record, so per-line rescans of the table grow with its square).
+pilot v4_codegen_llvm_record_index_text = ""
+pilot v4_codegen_llvm_record_index_ready: bool = false
+pilot v4_codegen_llvm_record_index_lines = 0 - 1
+pilot v4_codegen_llvm_record_index_names = 0 - 1
 pilot v4_codegen_llvm_numeric_runtime_used = false
 -- Policy of the module being lowered; selects the panic helper.
 pilot v4_codegen_llvm_active_panic_policy = "abort"
@@ -3640,6 +3649,42 @@ task v4_codegen_llvm_record_count(records: word) -> int {
     give back count
 }
 
+-- The records' terminated lines, read once per record table.
+task v4_codegen_llvm_record_index(records: word) -> int {
+    if v4_codegen_llvm_record_index_ready and records == v4_codegen_llvm_record_index_text { give back v4_codegen_llvm_record_index_lines }
+    if v4_codegen_llvm_record_index_ready {
+        array_release(v4_codegen_llvm_record_index_lines)
+        array_release(v4_codegen_llvm_record_index_names)
+    }
+    v4_codegen_llvm_record_index_lines = array_new()
+    v4_codegen_llvm_record_index_names = array_new()
+    pilot start = 0
+    repeat until start >= records.length() {
+        pilot stop = v4_index_of_from(records, "\n", start)
+        if stop < 0 { start = records.length() } else {
+            pilot line = v4_slice(records, start, stop)
+            array_push(v4_codegen_llvm_record_index_lines, line)
+            array_push(v4_codegen_llvm_record_index_names, v4_codegen_llvm_record_part(line, 0))
+            start = stop + 1
+        }
+    }
+    v4_codegen_llvm_record_index_text = records
+    v4_codegen_llvm_record_index_ready = true
+    give back v4_codegen_llvm_record_index_lines
+}
+
+-- The record named name, or "".
+task v4_codegen_llvm_record_named(records: word, name: word) -> word {
+    pilot lines = v4_codegen_llvm_record_index(records)
+    pilot line_id = 0
+    repeat until line_id >= array_len(lines) {
+        pilot candidate: word = array_get(v4_codegen_llvm_record_index_names, line_id)
+        if candidate == name { give back array_get(lines, line_id) }
+        line_id += 1
+    }
+    give back ""
+}
+
 -- Tab-separated part of a record: 0 is the name, then one per member.
 task v4_codegen_llvm_record_part(line: word, wanted: int) -> word {
     pilot part = 0
@@ -3712,48 +3757,51 @@ task v4_codegen_llvm_union_storage_type(layout: word, target_spec: word) -> word
 task v4_codegen_llvm_llvm_type_layout(records: word, text: word, target_spec: word, depth: int) -> word {
     if depth > 64 { give back "" }
     if not text.starts_with("%") { give back v4_codegen_llvm_llvm_type_layout_uncached(records, text, target_spec, depth) }
-    pilot key = target_spec + "\n" + records
-    if key != v4_codegen_llvm_layout_memo_key {
-        v4_codegen_llvm_layout_memo_key = key
-        v4_codegen_llvm_layout_memo = ""
+    if not v4_codegen_llvm_layout_memo_ready or target_spec != v4_codegen_llvm_layout_memo_target or records != v4_codegen_llvm_layout_memo_records {
+        if v4_codegen_llvm_layout_memo_ready {
+            array_release(v4_codegen_llvm_layout_memo_names)
+            array_release(v4_codegen_llvm_layout_memo_layouts)
+        }
+        v4_codegen_llvm_layout_memo_names = array_new()
+        v4_codegen_llvm_layout_memo_layouts = array_new()
+        v4_codegen_llvm_layout_memo_target = target_spec
+        v4_codegen_llvm_layout_memo_records = records
+        v4_codegen_llvm_layout_memo_ready = true
     }
     pilot memo_id = 0
-    pilot memo_count = v4_codegen_llvm_record_count(v4_codegen_llvm_layout_memo)
-    repeat until memo_id >= memo_count {
-        pilot memo_line = v4_codegen_llvm_record_line(v4_codegen_llvm_layout_memo, memo_id)
-        if v4_codegen_llvm_record_part(memo_line, 0) == text { give back v4_codegen_llvm_record_part(memo_line, 1) }
+    repeat until memo_id >= array_len(v4_codegen_llvm_layout_memo_names) {
+        pilot memo_name: word = array_get(v4_codegen_llvm_layout_memo_names, memo_id)
+        if memo_name == text { give back array_get(v4_codegen_llvm_layout_memo_layouts, memo_id) }
         memo_id += 1
     }
     pilot layout = v4_codegen_llvm_llvm_type_layout_uncached(records, text, target_spec, depth)
-    if layout != "" { v4_codegen_llvm_layout_memo = v4_codegen_llvm_layout_memo + text + "\t" + layout + "\n" }
+    if layout != "" {
+        array_push(v4_codegen_llvm_layout_memo_names, text)
+        array_push(v4_codegen_llvm_layout_memo_layouts, layout)
+    }
     give back layout
 }
 
 task v4_codegen_llvm_llvm_type_layout_uncached(records: word, text: word, target_spec: word, depth: int) -> word {
     if text.starts_with("%") {
-        pilot line_id = 0
-        pilot count = v4_codegen_llvm_record_count(records)
-        repeat until line_id >= count {
-            pilot line = v4_codegen_llvm_record_line(records, line_id)
-            if v4_codegen_llvm_record_part(line, 0) == text {
-                pilot entries = ""
-                pilot member = 1
-                repeat until member >= v4_codegen_llvm_record_part_count(line) {
-                    pilot part = v4_codegen_llvm_record_part(line, member)
-                    if part.starts_with("|") { member = v4_codegen_llvm_record_part_count(line) } else {
-                        pilot entry = v4_codegen_llvm_layout_entry(v4_codegen_llvm_llvm_type_layout(records, part, target_spec, depth + 1))
-                        if entry == "" { give back "" }
-                        if member > 1 { entries = entries + "," }
-                        entries = entries + entry
-                        member += 1
-                    }
+        pilot line = v4_codegen_llvm_record_named(records, text)
+        if line != "" {
+            pilot entries = ""
+            pilot member = 1
+            repeat until member >= v4_codegen_llvm_record_part_count(line) {
+                pilot part = v4_codegen_llvm_record_part(line, member)
+                if part.starts_with("|") { member = v4_codegen_llvm_record_part_count(line) } else {
+                    pilot entry = v4_codegen_llvm_layout_entry(v4_codegen_llvm_llvm_type_layout(records, part, target_spec, depth + 1))
+                    if entry == "" { give back "" }
+                    if member > 1 { entries = entries + "," }
+                    entries = entries + entry
+                    member += 1
                 }
-                pilot payload = v4_codegen_llvm_record_union_layout(records, line, target_spec, depth)
-                if payload == "-" { give back "" }
-                if payload != "" { entries = entries + "," + v4_codegen_llvm_layout_entry(payload) }
-                give back v4_target_struct_layout(target_spec, entries)
             }
-            line_id += 1
+            pilot payload = v4_codegen_llvm_record_union_layout(records, line, target_spec, depth)
+            if payload == "-" { give back "" }
+            if payload != "" { entries = entries + "," + v4_codegen_llvm_layout_entry(payload) }
+            give back v4_target_struct_layout(target_spec, entries)
         }
         give back ""
     }
@@ -3811,11 +3859,12 @@ task v4_codegen_llvm_llvm_type_layout_uncached(records: word, text: word, target
 -- Type definitions plus one "; freak.layout" note per shape. The note is the
 -- freak_target answer; check_v4 compares it with Clang's DataLayout.
 task v4_codegen_llvm_shape_module_lines(records: word, target_spec: word) -> word {
-    pilot out = ""
+    pilot parts = v4_codegen_llvm_fragment_new()
     pilot line_id = 0
-    pilot count = v4_codegen_llvm_record_count(records)
-    repeat until line_id >= count {
-        pilot line = v4_codegen_llvm_record_line(records, line_id)
+    pilot lines = v4_codegen_llvm_record_index(records)
+    repeat until line_id >= array_len(lines) {
+        pilot line: word = array_get(lines, line_id)
+        pilot out = ""
         pilot name = v4_codegen_llvm_record_part(line, 0)
         pilot spaced = ""
         pilot cases = ""
@@ -3841,10 +3890,11 @@ task v4_codegen_llvm_shape_module_lines(records: word, target_spec: word) -> wor
         out = out + "; freak.layout " + name + " size=" + word_from_int(v4_target_layout_size(layout)) + " align=" + word_from_int(v4_target_layout_align(layout)) + " offsets=" + v4_target_layout_offsets(layout) + "\n"
         -- Each case struct of a route, for the oracle's C union check.
         if cases != "" { out = out + "; freak.payload " + name + " size=" + word_from_int(v4_target_layout_size(payload)) + " align=" + word_from_int(v4_target_layout_align(payload)) + " cases=" + cases + "\n" }
+        v4_codegen_llvm_fragment_push(parts, out)
         line_id += 1
     }
-    if out != "" { out = out + "\n" }
-    give back out
+    if line_id > 0 { v4_codegen_llvm_fragment_push(parts, "\n") }
+    give back v4_codegen_llvm_fragment_finish(parts)
 }
 
 -- module_text: each aggregate ABI marker in a body becomes the freak_target
@@ -3891,9 +3941,9 @@ task v4_codegen_llvm_abi_resolve(text: word, records: word, target_spec: word) -
 
 task v4_codegen_llvm_shape_layout_error(records: word, target_spec: word) -> word {
     pilot line_id = 0
-    pilot count = v4_codegen_llvm_record_count(records)
-    repeat until line_id >= count {
-        pilot name = v4_codegen_llvm_record_part(v4_codegen_llvm_record_line(records, line_id), 0)
+    v4_codegen_llvm_record_index(records)
+    repeat until line_id >= array_len(v4_codegen_llvm_record_index_names) {
+        pilot name: word = array_get(v4_codegen_llvm_record_index_names, line_id)
         if v4_codegen_llvm_llvm_type_layout(records, name, target_spec, 0) == "" { give back "native shape layout is not available for this target: " + name }
         line_id += 1
     }
@@ -5606,14 +5656,14 @@ task v4_codegen_llvm_closure_records(mir_id: int) -> word {
 
 -- One environment slot per closure expression in the creating body.
 task v4_codegen_llvm_closure_env_slots(mir_id: int, body_id: int) -> word {
-    pilot out = ""
+    pilot parts = v4_codegen_llvm_fragment_new()
     pilot value = 0
     repeat until value >= v4_mir_body_rvalue_count(mir_id, body_id) {
         pilot closure_body = v4_mir_closure_rvalue_body(mir_id, body_id, value)
-        if closure_body >= 0 { out = out + "  " + v4_codegen_llvm_closure_env_slot(body_id, value) + " = alloca " + v4_codegen_llvm_closure_env_type(mir_id, closure_body) + "\n" }
+        if closure_body >= 0 { v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_closure_env_slot(body_id, value) + " = alloca " + v4_codegen_llvm_closure_env_type(mir_id, closure_body) + "\n") }
         value += 1
     }
-    give back out
+    give back v4_codegen_llvm_fragment_finish(parts)
 }
 
 -- In a closure body, a capture local's storage is its environment slot (a
@@ -5794,7 +5844,12 @@ task v4_codegen_llvm_native_closure_use_error(mir_id: int, body_id: int) -> word
         pilot place = v4_mir_stmt_place(mir_id, body_id, stmt)
         pilot rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt)
         if place >= 0 and rvalue >= 0 and rvalue < count {
-            if kind == v4_mir_stmt_local and v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_local { array_set(allowed, rvalue, "1") }
+            if kind == v4_mir_stmt_local and v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_local {
+                -- One closure expression has one environment slot and one body.
+                pilot seen_mark: word = array_get(allowed, rvalue)
+                if seen_mark == "1" and v4_mir_rvalue_kind(mir_id, body_id, rvalue) == v4_mir_rvalue_closure { error = "native closure values cannot be shared between initializers: " + v4_mir_rvalue_text(mir_id, body_id, rvalue) }
+                array_set(allowed, rvalue, "1")
+            }
             if kind == v4_mir_stmt_assign and v4_ty_is_closure_type(v4_mir_place_ty(mir_id, body_id, place)) { error = "native closure values cannot be reassigned yet: " + v4_mir_place_text(mir_id, body_id, place) }
         }
         stmt += 1
