@@ -409,10 +409,11 @@ receiver place in MIR, so Meiya sees a loan instead of a move; a temporary
 receiver of a lend method is named (`lend receiver must be a place`).
 Receivers whose shapes own words now run natively under the aggregate calling
 convention (aggregates by pointer to a caller copy, results through sret);
-generic impls and doctrine-bound calls remain fenced by name
-(`examples/methods_native.fk`, `check_v4_native_shapes`). Dyn method calls
-through `lend w: dyn D` / `lend mut w: dyn D` parameters now lower through
-sealed vtables (`examples/dyn_native.fk`, `check_v4_native_dyn`).
+methods of generic impls and doctrine-bound calls lower natively per instance
+(`examples/generics_native.fk`; `examples/methods_native.fk`,
+`check_v4_native_shapes`). Dyn method calls through `lend w: dyn D` /
+`lend mut w: dyn D` parameters lower through sealed vtables
+(`examples/dyn_native.fk`, `check_v4_native_dyn`).
 
 Ordinary `lend` / `lend mut` parameters use the same pointer convention as
 lent receivers: scalars, shapes, tuples, fixed arrays, routes and `lend mut

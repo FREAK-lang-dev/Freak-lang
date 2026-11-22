@@ -3814,13 +3814,24 @@ task v4_codegen_llvm_collect_route_lines(parts: int, mir_id: int, body_id: int, 
 -- Generic aggregate instances (tier 3, monomorphization). TY declares Box<T>
 -- once; each concrete instance an emitted body names (in a local, place,
 -- rvalue or return type, or inside the slots of those types) gets its own
--- named type and layout record, keyed by its canonical text.
+-- named type and layout record, keyed by its canonical text. The fields of
+-- every emitted nongeneric shape and route seed the walk too, because
+-- shape_records writes those records whether or not a body names them.
 pilot v4_codegen_llvm_generic_seen: word = ""
-pilot v4_codegen_llvm_generic_out: word = ""
+pilot v4_codegen_llvm_generic_parts: int = 0 - 1
 
 task v4_codegen_llvm_generic_aggregate_records(mir_id: int) -> word {
     v4_codegen_llvm_generic_seen = "\n"
-    v4_codegen_llvm_generic_out = ""
+    v4_codegen_llvm_generic_parts = v4_codegen_llvm_fragment_new()
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig = 0
+    repeat until sig >= v4_ty_signature_count(ty_id) {
+        pilot kind = v4_ty_signature_kind(ty_id, sig)
+        if (kind == v4_ty_shape_sig or kind == v4_ty_route_sig) and v4_ty_signature_generic_count(ty_id, sig) == 0 {
+            v4_codegen_llvm_visit_generic_aggregates(mir_id, v4_ty_signature_name(ty_id, sig), 0)
+        }
+        sig += 1
+    }
     pilot body = v4_codegen_llvm_next_emitted_body(mir_id, 0)
     repeat until body >= v4_mir_body_count(mir_id) {
         v4_codegen_llvm_visit_generic_aggregates(mir_id, v4_mir_body_callable_return_type(mir_id, body), 0)
@@ -3841,9 +3852,10 @@ task v4_codegen_llvm_generic_aggregate_records(mir_id: int) -> word {
         }
         body = v4_codegen_llvm_next_emitted_body(mir_id, body + 1)
     }
-    pilot out = v4_codegen_llvm_generic_out
+    pilot out = word_join(v4_codegen_llvm_generic_parts)
+    array_release(v4_codegen_llvm_generic_parts)
+    v4_codegen_llvm_generic_parts = 0 - 1
     v4_codegen_llvm_generic_seen = ""
-    v4_codegen_llvm_generic_out = ""
     give back out
 }
 
@@ -3853,6 +3865,10 @@ task v4_codegen_llvm_visit_generic_aggregates(mir_id: int, surface: word, depth:
     pilot type_text = v4_ty_canonical_type(ty_id, surface)
     if v4_codegen_llvm_generic_seen.contains("\n" + type_text + "\n") { give back }
     v4_codegen_llvm_generic_seen = v4_codegen_llvm_generic_seen + type_text + "\n"
+    if v4_ty_is_raw_pointer_type(type_text) {
+        v4_codegen_llvm_visit_generic_aggregates(mir_id, v4_ty_raw_pointer_target_type(type_text), depth + 1)
+        give back
+    }
     if v4_ty_is_lend_type(type_text) {
         v4_codegen_llvm_visit_generic_aggregates(mir_id, v4_ty_lend_target_type(type_text), depth + 1)
         give back
@@ -3879,7 +3895,7 @@ task v4_codegen_llvm_visit_generic_aggregates(mir_id: int, surface: word, depth:
             record = record + "\t" + v4_codegen_llvm_type(field_ty)
             field += 1
         }
-        if v4_ty_signature_generic_count(ty_id, v4_codegen_llvm_route_sig(mir_id, sig)) > 0 and v4_codegen_llvm_native_shape_error(mir_id, type_text, 0) == "" { v4_codegen_llvm_generic_out = v4_codegen_llvm_generic_out + record + "\n" }
+        if v4_ty_signature_generic_count(ty_id, v4_codegen_llvm_route_sig(mir_id, sig)) > 0 and v4_codegen_llvm_native_shape_error(mir_id, type_text, 0) == "" { v4_codegen_llvm_fragment_push(v4_codegen_llvm_generic_parts, record + "\n") }
         give back
     }
     pilot route_id = v4_codegen_llvm_route_signature(mir_id, type_text)
@@ -3895,7 +3911,7 @@ task v4_codegen_llvm_visit_generic_aggregates(mir_id: int, surface: word, depth:
             if v4_ty_route_case_has_payload(ty_id, v4_codegen_llvm_route_name(mir_id, route_id), v4_ty_route_case_name(ty_id, v4_codegen_llvm_route_sig(mir_id, route_id), case_id)) { record = record + "\t|" + v4_codegen_llvm_route_case_struct(mir_id, route_id, case_id) }
             case_id += 1
         }
-        if route_id >= v4_ty_signature_count(ty_id) and v4_codegen_llvm_native_shape_error(mir_id, type_text, 0) == "" { v4_codegen_llvm_generic_out = v4_codegen_llvm_generic_out + record + "\n" }
+        if route_id >= v4_ty_signature_count(ty_id) and v4_codegen_llvm_native_shape_error(mir_id, type_text, 0) == "" { v4_codegen_llvm_fragment_push(v4_codegen_llvm_generic_parts, record + "\n") }
         give back
     }
     if v4_ty_is_generic_instance_type(type_text) {
@@ -4139,12 +4155,16 @@ task v4_codegen_llvm_llvm_type_layout_uncached(records: word, text: word, target
         if text == "{" + "  }" or text == "{" + "}" { give back v4_target_struct_layout(target_spec, "") }
         pilot entries = ""
         pilot nesting = 0
+        pilot quoted = false
         pilot start = 2
         pilot idx = 2
         pilot stop = text.length() - 2
         repeat until idx > stop {
             pilot ch = ""
             if idx < stop { ch = text.char_at(idx) }
+            -- A quoted record name such as "freak.shape.Pair<int, bool>" holds commas.
+            if ch == "\"" { quoted = not quoted; ch = "" }
+            if quoted { ch = "" }
             if ch == "{" or ch == "[" { nesting += 1 }
             if ch == "}" or ch == "]" { nesting -= 1 }
             if idx == stop or (ch == "," and nesting == 0) {
@@ -4375,6 +4395,10 @@ task v4_codegen_llvm_generic_instance_c_surface_error(mir_id: int, ty_id: int, b
 task v4_codegen_llvm_native_c_width_error(mir_id: int, ty_id: int) -> word {
     pilot sig = 0
     repeat until sig >= v4_ty_signature_count(ty_id) {
+        -- A generic template never gets a body of its own, so a C boundary on it
+        -- (call ABI or @extern_callback trampoline) is fenced by name here,
+        -- whether or not any instance was requested.
+        if v4_ty_signature_kind(ty_id, sig) == v4_ty_task_sig and v4_ty_signature_type_generic_count(ty_id, sig) > 0 and (v4_ty_signature_call_abi(ty_id, sig) != "" or v4_ty_signature_has_extern_callback(ty_id, sig)) { give back "native generic tasks cannot cross the C ABI: " + v4_ty_signature_name(ty_id, sig) }
         if v4_codegen_llvm_signature_is_callable(ty_id, sig) {
             pilot boundary: bool = v4_ty_signature_call_abi(ty_id, sig) != "" or v4_ty_signature_has_extern_callback(ty_id, sig)
             if boundary and v4_ty_signature_is_variadic(ty_id, sig) {

@@ -1,0 +1,59 @@
+-- One native source with generic instances per invocation: instance call rows
+-- such as wrap<int> (giving back maybe<int>) must restore from a MIR snapshot
+-- to the same staged instance bodies and the same module.
+task v4_generic_snapshot_assert(condition: bool, label: word) -> void {
+    if not condition { panic("generic-instance-snapshot " + label) }
+}
+
+-- Whether some call row of the given kind reads back its instance and env:
+-- a task call by its instance op, a method call by its Box<int>.get op.
+task v4_generic_snapshot_accessor_calls(mir: int, dotted: bool) -> bool {
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        pilot row = 0
+        repeat until row >= v4_mir_body_rvalue_count(mir, body) {
+            pilot op = v4_mir_rvalue_op(mir, body, row)
+            if v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_call and op.contains(".") == dotted and v4_mir_rvalue_generic_env(mir, body, row) != "" {
+                pilot callee = v4_mir_rvalue_generic_instance_body(mir, body, row)
+                if callee >= 0 and v4_mir_body_is_generic_instance(mir, callee) { give back true }
+            }
+            row += 1
+        }
+        body += 1
+    }
+    give back false
+}
+
+task v4_generic_snapshot_run() -> void {
+    pilot source = fs::read(process::arg(1))
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    -- Native MIR: generic instances are lowered only with closure bodies on.
+    pilot mir = v4_mir_lower_ty_with_closure_bodies(0, ty)
+    pilot borrowck = v4_borrowck_check_mir(0, mir)
+    v4_generic_snapshot_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0 and v4_borrowck_diag_count(borrowck) == 0, "clean frontend")
+    pilot codegen = v4_codegen_llvm_lower_owned_mir_with_borrow(0, mir, "abort", borrowck)
+    v4_generic_snapshot_assert(v4_codegen_llvm_diag_count(codegen) == 0 and v4_codegen_llvm_native_module_error(codegen) == "", "native generic instance seal: " + v4_codegen_llvm_native_module_error(codegen))
+    pilot target = v4_target_spec_new(process::arg(2))
+    pilot before = v4_codegen_llvm_module_text(codegen, target)
+    v4_generic_snapshot_assert(before != "", "nonempty native module")
+    pilot snapshot = v4_mir_snapshot()
+    v4_generic_snapshot_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v10|") and snapshot.ends_with("end|freak-mir-snapshot-v10"), "current v9 wire")
+    v4_generic_snapshot_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "current detached restore")
+    v4_generic_snapshot_assert(v4_mir_snapshot() == snapshot and v4_codegen_llvm_module_text(codegen, target) == before, "wire and old seal exact")
+    pilot restored = v4_codegen_llvm_lower_owned_mir_with_borrow(0, mir, "abort", borrowck)
+    v4_generic_snapshot_assert(v4_codegen_llvm_native_module_error(restored) == "" and v4_codegen_llvm_module_text(restored, target) == before, "fresh restored module exact")
+    pilot task_calls = "false"
+    if v4_generic_snapshot_accessor_calls(mir, false) { task_calls = "true" }
+    pilot method_calls = "false"
+    if v4_generic_snapshot_accessor_calls(mir, true) { method_calls = "true" }
+    say "generic-instance-snapshot accessors task-calls=" + task_calls + " method-calls=" + method_calls
+    say "generic-instance-snapshot stages=clean v9-restore=true old-seal=true fresh-module=true"
+    say "@@LLVM-MODULE-BEGIN"
+    say before
+    say "@@LLVM-MODULE-END"
+}
+v4_generic_snapshot_run()

@@ -36,6 +36,11 @@ impl Add for Acc<T> {
 
 impl Box<T> {
     task make(v: T) -> Box<T> { give back Box { value: v, count: 1 } }
+    -- A local annotation in a method instance reads the instance's T.
+    task twin(self) -> int {
+        pilot y: [T; 2] = [self.value, self.value]
+        give back 2
+    }
     task get(self) -> T { give back self.value }
     task size(lend self) -> int { give back self.count }
     task put(lend mut self, v: T) -> void {
@@ -43,6 +48,19 @@ impl Box<T> {
         self.count = self.count + 1
     }
 }
+
+-- Instance layouts reached only through a nongeneric shape, a raw pointer,
+-- or a nongeneric route payload whose quoted name holds a comma.
+shape Shelf { slot: Box<bool>, n: int }
+route Slot { Full { p: Pair<int, bool> }, Vacant }
+task peek(p: *const Box<tiny>) -> int { give back 0 }
+
+-- Index and IndexMut through a generic impl, per instance.
+shape Grid<T> { cell: T, spare: T }
+doctrine Index { task index(self, i: uint) -> T }
+impl Index for Grid<T> { task index(self, i: uint) -> T { give back self.spare } }
+doctrine IndexMut { task index_mut(lend mut self, i: uint, v: T) -> void }
+impl IndexMut for Grid<T> { task index_mut(lend mut self, i: uint, v: T) -> void { self.cell = v } }
 
 -- Tasks over every native value class.
 task ident<T>(x: T) -> T { give back x }
@@ -80,6 +98,11 @@ task boxed<T>(x: T) -> Box<T> { give back Box { value: x, count: 1 } }
 task unbox<T>(b: Box<T>) -> T { give back b.value }
 
 task some_of<T>(x: T) -> Opt<T> { give back Opt::Has { value: x } }
+
+-- Explicit route owners are substituted per instance.
+task has_of<T>(x: T) -> Opt<T> { give back Opt<T>::Has { value: x } }
+
+task none_of<T>(x: T) -> Opt<T> { give back Opt<T>::Empty }
 
 task get_or<T>(o: Opt<T>, fallback: T) -> T {
     when o {
@@ -160,6 +183,20 @@ task main() -> int {
     pilot right: Acc<word> = Acc { total: 5, tag: "y" }
     pilot sum = left + right
     say sum.tag + sum.total.to_word()
+    pilot slot = Slot::Full { p: Pair { left: 6, right: true } }
+    when slot {
+        Slot::Full { p: held_pair } -> say held_pair.left.to_word()
+        Slot::Vacant -> say "vacant"
+    }
+    say (get_or(has_of(8), 0) + get_or(none_of(1), 30)).to_word()
+    pilot piped = 12 |> ident
+    say piped.to_word()
+    pilot mut grid: Grid<int> = Grid { cell: 1, spare: 2 }
+    grid[0] = 9
+    say (grid[0] + grid.cell).to_word()
+    pilot tw: Box<int> = Box { value: 3, count: 1 }
+    pilot twins = tw.twin()
+    say twins.to_word()
     pilot sized = Box<int>::size(lend b)
     give back c.get() + sized
 }

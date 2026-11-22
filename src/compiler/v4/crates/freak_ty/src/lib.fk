@@ -2316,8 +2316,10 @@ task v4_ty_native_sum_payload_holds_word(ty_id: int, type_text: word, depth: int
     if shape_sig >= 0 {
         pilot field = 0
         repeat until field >= v4_ty_shape_field_count(ty_id, shape_sig) {
-            -- A generic shape instance answers for its substituted fields.
-            if v4_ty_native_sum_payload_holds_word(ty_id, v4_ty_apply_signature_generics(ty_id, shape_sig, canonical, v4_ty_shape_field_type(ty_id, shape_sig, field)), depth + 1) { give back true }
+            -- A generic shape instance answers for its substituted fields. Substitute
+            -- the written field type first, so an alias that shares a parameter name
+            -- cannot resolve the parameter before the instance arguments do.
+            if v4_ty_native_sum_payload_holds_word(ty_id, v4_ty_apply_signature_generics(ty_id, shape_sig, canonical, v4_ty_shape_field_surface_type(ty_id, shape_sig, field)), depth + 1) { give back true }
             field += 1
         }
         give back false
@@ -2329,7 +2331,8 @@ task v4_ty_native_sum_payload_holds_word(ty_id: int, type_text: word, depth: int
             pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
             pilot field = 0
             repeat until field >= v4_ty_route_case_field_count(ty_id, canonical, case_name) {
-                if v4_ty_native_sum_payload_holds_word(ty_id, v4_ty_route_case_field_surface_type(ty_id, canonical, case_name, field), depth + 1) { give back true }
+                -- The substituted field type, so R<int> answers for int, not for T.
+                if v4_ty_native_sum_payload_holds_word(ty_id, v4_ty_route_case_field_type(ty_id, canonical, case_name, field), depth + 1) { give back true }
                 field += 1
             }
             case_id += 1
