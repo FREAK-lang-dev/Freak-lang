@@ -2373,7 +2373,7 @@ task v4_borrowck_lend_contract_help(path_text: word, mode: word, path_kind: word
     pilot out = root + " is a " + mode + " parameter"
     out = out + " in block " + word_from_int(block_id)
     out = out + " at statement " + word_from_int(stmt_id)
-    if path_kind == v4_borrowck_path_write {
+    if path_kind == v4_borrowck_path_write or path_kind == v4_borrowck_path_loan_mut {
         out = out + "; use lend mut only when the caller grants exclusive mutation"
     } else if path_kind == v4_borrowck_path_move {
         out = out + "; borrowed parameters stay owned by the caller"
@@ -2526,6 +2526,14 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
                     write_help = v4_borrowck_lend_holder_write_help(path_text, stmt_id, block_id)
                 }
                 v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, write_span, write_message, write_help))
+                v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                conflicts += 1
+            } else if path_kind == v4_borrowck_path_loan_mut and mode == v4_ty_param_mode_lend {
+                -- An exclusive loan rooted at a shared lend parameter would let
+                -- the callee mutate what its caller only lent (`push`, or
+                -- `lend mut p.x` passed on).
+                pilot loan_span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
+                v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, loan_span, "Meiya refuses an exclusive lend of an immutable lend parameter", v4_borrowck_lend_contract_help(path_text, mode, path_kind, stmt_id, block_id)))
                 v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
                 conflicts += 1
             }
