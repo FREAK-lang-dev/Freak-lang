@@ -828,12 +828,6 @@ INVALIDATION_FAMILY_FIELDS = [
     ("completion", "completion-invalidations-added"),
 ]
 
-# Tier 3 generic monomorphization: generics_native.fk prints this and gives
-# back c.get() + Box<int>::size(lend b). Each instance is one native body.
-NATIVE_GENERICS_EXPECTED = ("5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n"
-                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n", 22)
-
-
 EXECUTABLE_SMOKES = [
     {
         "name": "Meiya ordered loan candidates and scaling",
@@ -12395,7 +12389,10 @@ EXECUTABLE_SMOKES = [
                  'generic-instance-snapshot stages=clean v9-restore=true old-seal=true fresh-module=true',
                  '@@LLVM-MODULE-BEGIN',
                  '@@LLVM-MODULE-END'],
-      'llvm_programs': [('generics_native.fk', NATIVE_GENERICS_EXPECTED[1], NATIVE_GENERICS_EXPECTED[0])]},
+      # Literal manifest: check_v4_native_shapes holds this to NATIVE_GENERICS_EXPECTED.
+      'llvm_programs': [('generics_native.fk', 22,
+                         '5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n'
+                         'right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n')]},
      {'name': 'typed os entry existing Word module restore and execution',
       'fixture': 'typed_os_entry_execute_smoke.fk',
       'memory_limit_mb': 64,
@@ -17689,6 +17686,10 @@ NATIVE_LEND_ABI_REJECTED = (
      "task main() -> int {\n    say observe(identity(lend make_word()))\n    give back 0\n}\n",
      "lend source must be a place"),
 )
+# Tier 3 generic monomorphization: generics_native.fk prints this and gives
+# back c.get() + Box<int>::size(lend b). Each instance is one native body.
+NATIVE_GENERICS_EXPECTED = ("5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n"
+                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n", 22)
 # Instance symbols the generics module must define exactly once, and the
 # instance layouts the layout oracle must see on every target.
 NATIVE_GENERICS_SYMBOLS = (
@@ -18138,6 +18139,9 @@ def check_v4_native_shapes() -> None:
     from build_v4 import host_target
 
     probes = 0
+    restore = [smoke for smoke in EXECUTABLE_SMOKES if smoke["fixture"] == "generic_instance_snapshot_smoke.fk"]
+    if len(restore) != 1 or restore[0]["llvm_programs"] != [("generics_native.fk", NATIVE_GENERICS_EXPECTED[1], NATIVE_GENERICS_EXPECTED[0])]:
+        raise RuntimeError("generic instance snapshot smoke drifted from NATIVE_GENERICS_EXPECTED")
     programs = (
         ("shapes", "shapes_native.fk", NATIVE_SHAPES_EXPECTED),
         ("aggregates", "aggregates_native.fk", NATIVE_AGGREGATES_EXPECTED),
