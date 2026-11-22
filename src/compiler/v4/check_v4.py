@@ -18933,10 +18933,12 @@ def check_v4_native_closures_nested() -> None:
         if assembled.returncode != 0:
             raise RuntimeError(f"Clang rejected the V4 nested closures module for {triple}:\n{assembled.stderr}")
     rejected_cases = (
-        # Generic closures wait for monomorphized task bodies (generics row).
+        # Generic closures are not lowered yet. Generic tasks are now
+        # monomorphized, so the closure meets its fence in MIR build, named
+        # by the instance that holds it.
         ("tier3_closure_generic", "task apply<T>(x: T) -> T {\n    pilot f = |v: T| => v\n    give back f(x)\n}\n"
          "task main() -> int {\n    say apply(3)\n    give back 0\n}\n",
-         "native generic closures need a monomorphized task body: | v : T | => v"),
+         "native closures inside generic instances are not yet supported: apply<int>"),
         # A MutCallable reached through a borrow capture has no exclusive access.
         ("tier3_closure_mut_callable_through_lend", "task main() -> int {\n    pilot mut count: int = 0\n"
          "    pilot bump = mut |_| { count += 1 }\n    pilot outer = |_| { bump() }\n    outer()\n    say count\n    give back 0\n}\n",
