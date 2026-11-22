@@ -6803,7 +6803,8 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "raw-ptr-oc-good-ty-diag-count=0",
             "raw-ptr-oc-good-mir-diag-count=0",
-            "raw-ptr-oc-generic-native-fence=true",
+            "raw-ptr-oc-generic-template-native=true",
+            "raw-ptr-oc-generic-instance-native=true",
             "raw-ptr-oc-native-contract=true",
             "= getelementptr i64, ptr %rv.0.1, i64 2",
             "= getelementptr i8, ptr %rv.1.1, i64 0",
@@ -17668,6 +17669,52 @@ NATIVE_LEND_ABI_REJECTED = (
      "task main() -> int {\n    say observe(identity(lend make_word()))\n    give back 0\n}\n",
      "lend source must be a place"),
 )
+# Tier 3 generic monomorphization: generics_native.fk prints this and gives
+# back c.get() + Box<int>::size(lend b). Each instance is one native body.
+NATIVE_GENERICS_EXPECTED = ("5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n"
+                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n", 22)
+# Instance symbols the generics module must define exactly once, and the
+# instance layouts the layout oracle must see on every target.
+NATIVE_GENERICS_SYMBOLS = (
+    '@"ident<int>"', '@"ident<word>"', '@"ident<Point>"', '@"ident<num>"', '@"pick<word>"', '@"pair<int,word>"',
+    '@"twice<num>"', '@"count_all<int>"', '@"wrap<int>"', '@"replace<Point>"', '@"replace<word>"',
+    '@"first_of<Point>"', '@"depth<word>"', '@"boxed<Box<int>>"', '@"get_or<word>"', '@"best<Point>"',
+    '@"best<Named>"', '@"best_ufcs<Point>"', '@"fresh<Point>"', '@"fresh<int>"', '@"bumped<Point>"', '@"bumped<int>"', '@"Box<word>::make"', '@"Box<word>::put"', '@"Box<int>::size"',
+    '@"Acc<word>::add"',
+)
+NATIVE_GENERICS_LAYOUTS = (
+    '%"freak.shape.Box<int>"', '%"freak.shape.Box<word>"', '%"freak.shape.Box<Box<int>>"',
+    '%"freak.shape.Pair<int,word>"', '%"freak.shape.Acc<word>"', '%"freak.route.Opt<int>"',
+    '%"freak.route.Opt<word>"', '%"freak.route.Either<int,word>"',
+)
+# Generic programs native code refuses by name: (stem, source, reason).
+NATIVE_GENERICS_REJECTED = (
+    # Polymorphic recursion has no finite set of instances: the type text cap
+    # stops doubling types and the depth cap stops growing ones.
+    ("tier3_generic_type_growth", "task grow<T>(x: T, n: int) -> int {\n    if n <= 0 { give back 0 }\n"
+     "    give back grow((x, x), n - 1)\n}\ntask main() -> int { give back grow(1, 3) }\n",
+     "native generic instance types grow too large: grow"),
+    ("tier3_generic_depth", "task nest<T>(x: T, n: int) -> int {\n    if n <= 0 { give back 0 }\n"
+     "    give back nest((x, 1), n - 1)\n}\ntask main() -> int { give back nest(1, 3) }\n",
+     "native generic instances nest too deeply: nest<"),
+    # A fan of two instances per level passes the depth cap and hits the
+    # module's instance cap, which is named once.
+    ("tier3_generic_instance_limit", "task fan<T>(x: T, n: int) -> int {\n    if n <= 0 { give back 0 }\n"
+     "    give back fan((x, 1), n - 1) + fan((x, true), n - 1)\n}\ntask main() -> int { give back fan(0, 12) }\n",
+     "native generic instance limit reached: fan<"),
+    ("tier3_generic_uninferred", "task make<T>() -> int { give back 0 }\ntask main() -> int { give back make() }\n",
+     "native generic call needs every type argument: make cannot infer T"),
+    ("tier3_generic_task_value", "task ident<T>(x: T) -> T { give back x }\n"
+     "task main() -> int {\n    pilot f = ident\n    give back 0\n}\n",
+     "native generic task values are not yet supported: ident"),
+    ("tier3_generic_c_callback", "@extern_callback(\"C\")\ntask echo<T>(v: T) -> T { give back v }\n"
+     "task main() -> int { give back echo(3) }\n",
+     "@extern_callback parameter type is not FFI-safe"),
+    # Closures inside generic bodies belong to the closures lane.
+    ("tier3_generic_closure", "task bump<T>(x: T) -> T {\n    pilot g = |v: T| => v\n    give back g(x)\n}\n"
+     "task main() -> int { give back bump(4) }\n",
+     "native closures are lowered only in ordinary tasks, with FREAK parameter types"),
+)
 
 
 def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
@@ -17975,7 +18022,7 @@ def check_v4_native_maybe_result() -> None:
         ("tier3_sum_nested", "task main() -> int {\n    pilot a: maybe<maybe<int>> = nobody\n    give back 0\n}\n",
          "native nested maybe/result payloads are not yet supported: maybe<maybe<int>>"),
         ("tier3_sum_generic_payload", "shape Box<T> { v: T }\ntask main() -> int {\n    pilot a: maybe<Box<int>> = nobody\n    give back 0\n}\n",
-         "native generic shapes need monomorphization: Box<int>"),
+         "native maybe/result payload is not yet supported: Box<int>"),
         ("tier3_sum_word_shape_payload", "shape Named { name: word, n: int }\n"
          "task main() -> int {\n    pilot a: maybe<Named> = nobody\n    give back 0\n}\n",
          "native maybe/result aggregate payloads that own words are not yet supported: Named"),
@@ -18033,6 +18080,21 @@ def check_v4_native_lists_layout_note(module_text: str, triple: str) -> None:
         raise RuntimeError(f"V4 lists module for {triple} has no layout note for the list header")
 
 
+def check_native_generic_instances(module: str, triple: str) -> None:
+    """Each generic instance is one native body with its own layout; templates emit nothing."""
+    defined = re.findall(r'^define [^@]*(@"[^"]+"|@[\w.]+)\(', module, re.MULTILINE)
+    for symbol in NATIVE_GENERICS_SYMBOLS:
+        if defined.count(symbol) != 1:
+            raise RuntimeError(f"V4 generics module for {triple} defines {symbol} {defined.count(symbol)} times")
+    for template in ("@ident", "@pick", '@"Box<T>::get"', '@"Acc<T>::add"', '@"Box<T>::make"'):
+        if template in defined:
+            raise RuntimeError(f"V4 generics module for {triple} emitted the template {template}")
+    notes = native_layout_notes(module)
+    missing = [name for name in NATIVE_GENERICS_LAYOUTS if name not in notes]
+    if missing:
+        raise RuntimeError(f"V4 generics module for {triple} has no layout notes for {', '.join(missing)}")
+
+
 def check_v4_native_shapes() -> None:
     """Tier 3 shapes: build and run natively; check layouts on all targets."""
     from build_v4 import host_target
@@ -18052,6 +18114,7 @@ def check_v4_native_shapes() -> None:
         # the word runtime (lend mut replacement and drop at return).
         ("lend_route_words", "lend_route_words_native.fk", ("", 3)),
         ("lists", "lists_native.fk", NATIVE_LISTS_EXPECTED),
+        ("generics", "generics_native.fk", NATIVE_GENERICS_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -18145,6 +18208,8 @@ def check_v4_native_shapes() -> None:
                             raise
                     else:
                         raise RuntimeError(f"V4 ABI oracle accepted a wrong lend pointer attribute for {triple}")
+            if stem == "generics":
+                check_native_generic_instances(module_text, triple)
             if "; freak.payload " in module_text:
                 stripped = re.sub(r"^; freak\.payload .*\n", "", module_text, flags=re.MULTILINE)
                 try:
@@ -18166,9 +18231,6 @@ def check_v4_native_shapes() -> None:
         ("tier3_temporary_index_non_array", "task n() -> int { give back 4 }\n"
          "task main() -> int { give back n()[0] }\n",
          "index of a temporary needs a fixed array"),
-        ("tier3_shape_generic", "shape Box<T> { v: T }\n"
-         "task main() -> int { pilot b: Box<int> = Box { v: 1 }\n give back b.v }\n",
-         "native generic shapes need monomorphization: Box<int>"),
         ("tier3_shape_c_abi", "use std::ffi::c_double\n@layout(C)\nshape Pair { a: c_double, b: c_double }\n"
          "extern [C] {\n    task take_pair(p: Pair) -> c_double\n}\ntask main() -> int { give back 0 }\n",
          "native shape C ABI by value is not yet supported: Pair"),
@@ -18190,9 +18252,6 @@ def check_v4_native_shapes() -> None:
          "    pilot a: [int; 8192] = [0; 8192]\n"
          "    pilot b: [uint; 8192] = a\n    give back 0\n}\n",
          "native aggregate conversion exceeds the supported slot budget: [int;8192] to [uint;8192]"),
-        ("tier3_route_generic", "route Opt<T> {\n    Has { v: T }\n    Not\n}\n"
-         "task main() -> int {\n    pilot o: Opt<int> = Opt::Has { v: 1 }\n    give back 0\n}\n",
-         "native generic routes need monomorphization: Opt<int>"),
         ("tier3_route_c_abi", "@repr(i32)\nvariant Mode { A, B }\nextern [C] {\n    task set_mode(m: Mode) -> void\n}\n"
          "task main() -> int { give back 0 }\n",
          "native route C ABI is not yet supported: Mode"),
@@ -18289,11 +18348,7 @@ def check_v4_native_shapes() -> None:
          "impl Eq for V { task equals(lend self, other: lend V) -> bool { give back self.x == other.x } }\n"
          "task main() -> int { pilot a = V { x: 1 }\n if a == a { give back 1 }\n give back 0 }\n",
          "Meiya cannot store a lend in parameter 1 of Eq::equals yet"),
-        ("tier3_operator_generic_shape", "shape W<T> { v: T }\ndoctrine Add { task add(self, other: Self) -> Self }\n"
-         "impl Add for W<T> { task add(self, other: W<T>) -> W<T> { give back self } }\n"
-         "task main() -> int { pilot a: W<int> = W { v: 1 }\n pilot b: W<int> = W { v: 2 }\n pilot c = a + b\n give back 0 }\n",
-         "native generic shapes need monomorphization: W<int>"),
-    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED
+    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_GENERICS_REJECTED
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")

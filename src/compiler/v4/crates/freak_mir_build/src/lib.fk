@@ -2713,6 +2713,7 @@ task v4_mir_try_lower_binary_operator_overload(mir_id: int, body_id: int, left_i
     -- The left operand is the receiver, passed with the mode the impl
     -- declares: a lend self or lend mut self operator borrows it.
     pilot receiver_id = v4_mir_impl_receiver_operand(mir_id, body_id, left_id, left_ty, method_ref, expr_span)
+    if not owner_rejected { v4_mir_build_request_impl_instance(mir_id, body_id, expr_span, left_ty, method_name, method_ref) }
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, left_ty + "." + method_name, receiver_id, right_id, expr_span, result_ty)
     pilot args_payload = v4_mir_call_args_payload_append("", receiver_id)
     args_payload = v4_mir_call_args_payload_append(args_payload, right_id)
@@ -2788,6 +2789,7 @@ task v4_mir_try_lower_unary_operator_overload(mir_id: int, body_id: int, operand
         result_ty = v4_ty_unknown
     }
     pilot receiver_id = v4_mir_impl_receiver_operand(mir_id, body_id, operand_id, operand_ty, method_ref, expr_span)
+    if not owner_rejected { v4_mir_build_request_impl_instance(mir_id, body_id, expr_span, operand_ty, method_name, method_ref) }
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, operand_ty + "." + method_name, receiver_id, 0 - 1, expr_span, result_ty)
     v4_mir_build_set_call_args(mir_id, body_id, call_rvalue, v4_mir_call_args_payload_append("", receiver_id))
     give back call_rvalue
@@ -3768,6 +3770,8 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
 
         pilot target_pointee = v4_mir_compact_type_text(v4_ty_type_text(stream_id, target_start, type_close))
         target_pointee = v4_ty_canonical_type(v4_mir_ty_id(mir_id), target_pointee)
+        -- An instance casts to its concrete pointee.
+        target_pointee = v4_mir_build_generic_type(mir_id, target_pointee)
         pilot result_ty = v4_ty_raw_pointer_with_target_type(receiver_ty, target_pointee)
         pilot valid_cast_target = v4_mir_validate_raw_pointer_cast_target(mir_id, body_id, stream_id, target_start, type_close, target_pointee, expr_span)
         if not valid_cast_target {
@@ -3888,6 +3892,9 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     }
     if owner_generics_rejected {
         result_ty = v4_ty_unknown
+    }
+    if method_ref != "" and not owner_generics_rejected {
+        v4_mir_build_request_impl_instance(mir_id, body_id, expr_span, receiver_ty, method_name, method_ref)
     }
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, receiver_ty + "." + method_name, call_receiver, 0 - 1, expr_span, result_ty)
     pilot call_args = v4_mir_call_args_payload_append("", call_receiver)
@@ -4102,7 +4109,8 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
         give back 0 - 1
     }
 
-    pilot owner_ty = v4_ty_type_text(stream_id, first, scope_token)
+    -- In a generic instance `T::m(...)` names the concrete owner's method.
+    pilot owner_ty = v4_mir_build_generic_type(mir_id, v4_ty_type_text(stream_id, first, scope_token))
     pilot lookup_owner_ty = owner_ty
     pilot body_sig = v4_mir_body_context_signature_id(mir_id, body_id)
     if not v4_mir_body_declares_type_generic_name(mir_id, body_id, owner_ty) {
@@ -4193,7 +4201,14 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
     if owner_generics_rejected {
         result_ty = v4_ty_unknown
     }
-    pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, owner_ty + "::" + method_name, receiver_rvalue, 0 - 1, expr_span, result_ty)
+    pilot callee_name = owner_ty + "::" + method_name
+    if not owner_generics_rejected {
+        pilot instance_ref = method_ref
+        if instance_ref == "" { instance_ref = ufcs_ref }
+        pilot instance_name = v4_mir_build_request_impl_instance(mir_id, body_id, expr_span, lookup_owner_ty, method_name, instance_ref)
+        if instance_name != "" { callee_name = instance_name }
+    }
+    pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, callee_name, receiver_rvalue, 0 - 1, expr_span, result_ty)
     v4_mir_build_set_call_args(mir_id, body_id, call_rvalue, explicit_args_payload)
     give back call_rvalue
 }
@@ -4324,6 +4339,8 @@ task v4_mir_try_lower_named_call(mir_id: int, body_id: int, stream_id: int, firs
         return_ty = v4_ty_signature_return_type_for_env(v4_mir_ty_id(mir_id), sig_id, generic_env)
     }
     return_ty = v4_mir_call_result_type(return_ty)
+    pilot instance_name = v4_mir_build_request_generic_instance(mir_id, body_id, expr_span, sig_id, generic_env)
+    if instance_name != "" { target_name = instance_name }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, target_name, 0 - 1, 0 - 1, expr_span, return_ty)
     v4_mir_set_rvalue_abi(mir_id, body_id, call_rvalue, v4_mir_signature_call_abi(mir_id, sig_id))
@@ -5088,7 +5105,7 @@ task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, firs
         give back 0 - 1
     }
 
-    pilot shape_name = v4_mir_constructor_head_name(stream_id, first, open_token)
+    pilot shape_name = v4_mir_build_generic_type(mir_id, v4_mir_constructor_head_name(stream_id, first, open_token))
     if shape_name == "" {
         give back 0 - 1
     }
@@ -6176,10 +6193,228 @@ task v4_mir_closure_capture_installs_loan(mir_id: int, closure_body: int, captur
     give back false
 }
 
+-- Generic instances (tier 3, monomorphization). In native lowering a call to
+-- a task with type parameters names one instance body per distinct
+-- substitution (see v4_mir_body_is_generic_instance). Instances are queued
+-- when first named and lowered after every source body, so no lowering
+-- state nests. Each instance is lowered from the generic task's own tokens
+-- with its env applied to every type the source spells (parameters, local
+-- annotations, constructor heads, type arguments). Depth counts instances
+-- that name instances; polymorphic recursion stops at the cap by name.
+-- Native closure bodies and generic instances (tier 3). The build tool asks
+-- for them; analysis and editor MIR keep the first-pass forms (A3).
+pilot v4_mir_build_closure_bodies: bool = false
+pilot v4_mir_build_generic_env: word = ""
+pilot v4_mir_build_generic_depth = 0
+pilot v4_mir_build_generic_queue: word = ""
+pilot v4_mir_build_generic_instances = 0
+pilot v4_mir_build_generic_max_depth = 24
+pilot v4_mir_build_generic_limit_named: bool = false
+pilot v4_mir_build_generic_max_instances = 1024
+pilot v4_mir_build_generic_max_type_text = 512
+
+-- A source type seen from the body being lowered: the instance env applied.
+task v4_mir_build_generic_type(mir_id: int, type_text: word) -> word {
+    if v4_mir_build_generic_env == "" or type_text == "" or type_text == v4_ty_unknown { give back type_text }
+    give back v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_apply_generic_env(type_text, v4_mir_build_generic_env))
+}
+
+-- The instance a native call names, or "" when the call is not generic or
+-- is made from a template (whose types are still parameters).
+task v4_mir_build_request_generic_instance(mir_id: int, body_id: int, expr_span: word, sig_id: int, generic_env: word) -> word {
+    if not v4_mir_build_closure_bodies or sig_id < 0 { give back "" }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig or v4_ty_signature_type_generic_count(ty_id, sig_id) == 0 { give back "" }
+    if v4_mir_body_is_generic_template(mir_id, body_id) { give back "" }
+    pilot callee = v4_ty_signature_name(ty_id, sig_id)
+    if generic_env == v4_ty_generic_env_fail { give back "" }
+    pilot env = ""
+    pilot args = ""
+    pilot generic_id = 0
+    repeat until generic_id >= v4_ty_signature_generic_count(ty_id, sig_id) {
+        if not v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) {
+            pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_id)
+            pilot actual = v4_ty_generic_env_lookup(generic_env, generic_name)
+            if actual == "" or not v4_ty_is_known(actual) {
+                v4_mir_add_type_error(mir_id, expr_span, "native generic call needs every type argument: " + callee + " cannot infer " + generic_name, "pass an argument whose type names " + generic_name + "; Shirogane does not infer type arguments from the binding or the result yet")
+                give back ""
+            }
+            actual = v4_ty_canonical_type(ty_id, actual)
+            if env != "" {
+                env = env + "|"
+                args = args + ","
+            }
+            env = env + generic_name + "=" + actual
+            args = args + actual
+        }
+        generic_id += 1
+    }
+    -- Polymorphic recursion can double a type per instance; the type text
+    -- cap stops it before the text grows past what TY can match cheaply.
+    if args.length() > v4_mir_build_generic_max_type_text {
+        v4_mir_add_type_error(mir_id, expr_span, "native generic instance types grow too large: " + callee, "an instance's type arguments may spell " + word_from_int(v4_mir_build_generic_max_type_text) + " characters; polymorphic recursion has no finite set of instances")
+        give back ""
+    }
+    give back v4_mir_build_admit_generic_instance(mir_id, expr_span, v4_mir_generic_instance_def(v4_ty_signature_def(ty_id, sig_id), env), callee + "<" + args + ">", v4_ty_signature_display(ty_id, sig_id))
+}
+
+-- The instance a receiver call on a concrete owner of a generic impl names,
+-- such as Box<int>::get for `impl Box<T>`, or "" for every other method.
+task v4_mir_build_request_impl_instance(mir_id: int, body_id: int, expr_span: word, owner_ty: word, method_name: word, method_ref: word) -> word {
+    if not v4_mir_build_closure_bodies or method_ref == "" { give back "" }
+    if v4_mir_body_is_generic_template(mir_id, body_id) { give back "" }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
+    if not v4_mir_impl_is_generic(ty_id, hir_item) { give back "" }
+    pilot owner = owner_ty
+    if v4_ty_is_lend_type(owner) { owner = v4_ty_lend_target_type(owner) }
+    owner = v4_ty_canonical_type(ty_id, owner)
+    if not v4_mir_type_is_concrete(ty_id, owner, 0) { give back "" }
+    pilot env = v4_ty_impl_generic_env_for_owner(ty_id, hir_item, owner)
+    if env == v4_ty_generic_env_fail or env == "" { give back "" }
+    if owner.length() > v4_mir_build_generic_max_type_text {
+        v4_mir_add_type_error(mir_id, expr_span, "native generic instance types grow too large: " + owner + "::" + method_name, "an instance's type arguments may spell " + word_from_int(v4_mir_build_generic_max_type_text) + " characters; polymorphic recursion has no finite set of instances")
+        give back ""
+    }
+    pilot method_id = v4_mir_method_ref_method_id(method_ref)
+    pilot def = v4_mir_generic_instance_def(v4_ty_impl_method_def(ty_id, hir_item, method_id), env)
+    give back v4_mir_build_admit_generic_instance(mir_id, expr_span, def, owner + "::" + method_name, v4_ty_impl_method_display(ty_id, hir_item, method_id))
+}
+
+-- Instance defs by hash, so a repeat request costs one probe instead of a
+-- scan of every body (MIR's body index is built only after lowering). The
+-- capacity is twice the instance cap, so open addressing always finds a slot.
+pilot v4_mir_build_generic_table: int = 0 - 1
+pilot v4_mir_build_generic_table_capacity = 2048
+
+task v4_mir_build_generic_table_find(mir_id: int, def: word) -> int {
+    if v4_mir_build_generic_table < 0 { give back 0 - 1 }
+    pilot bucket: int = def.checksum() % v4_mir_build_generic_table_capacity
+    pilot visited = 0
+    repeat until visited >= v4_mir_build_generic_table_capacity {
+        pilot body_id = word_to_int(array_get(v4_mir_build_generic_table, bucket)) - 1
+        if body_id < 0 { give back 0 - 1 }
+        if v4_mir_body_def(mir_id, body_id) == def { give back body_id }
+        bucket = (bucket + 1) % v4_mir_build_generic_table_capacity
+        visited += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_build_generic_table_insert(mir_id: int, def: word, body_id: int) -> void {
+    if v4_mir_build_generic_table < 0 {
+        v4_mir_build_generic_table = array_new()
+        if v4_mir_build_generic_table < 0 { give back }
+        pilot slot = 0
+        repeat until slot >= v4_mir_build_generic_table_capacity {
+            array_push(v4_mir_build_generic_table, "0")
+            slot += 1
+        }
+    }
+    pilot bucket: int = def.checksum() % v4_mir_build_generic_table_capacity
+    pilot visited = 0
+    repeat until visited >= v4_mir_build_generic_table_capacity {
+        if word_to_int(array_get(v4_mir_build_generic_table, bucket)) == 0 {
+            array_set(v4_mir_build_generic_table, bucket, word_from_int(body_id + 1))
+            give back
+        }
+        bucket = (bucket + 1) % v4_mir_build_generic_table_capacity
+        visited += 1
+    }
+}
+
+-- Add and queue one instance body under the shared depth and count caps,
+-- or name the existing one. Every instance kind passes through here.
+task v4_mir_build_admit_generic_instance(mir_id: int, expr_span: word, def: word, name: word, display: word) -> word {
+    if v4_mir_build_generic_table_find(mir_id, def) >= 0 { give back name }
+    pilot depth = v4_mir_build_generic_depth + 1
+    if depth > v4_mir_build_generic_max_depth {
+        v4_mir_add_type_error(mir_id, expr_span, "native generic instances nest too deeply: " + name, "instances may name other instances " + word_from_int(v4_mir_build_generic_max_depth) + " deep; polymorphic recursion has no finite set of instances")
+        give back ""
+    }
+    if v4_mir_build_generic_instances >= v4_mir_build_generic_max_instances {
+        -- One diagnostic names the cap; every later request fails quietly.
+        if v4_mir_build_generic_limit_named { give back "" }
+        v4_mir_build_generic_limit_named = true
+        v4_mir_add_type_error(mir_id, expr_span, "native generic instance limit reached: " + name, "a module may build " + word_from_int(v4_mir_build_generic_max_instances) + " generic instances")
+        give back ""
+    }
+    pilot instance = v4_mir_add_body(mir_id, def, name, "task " + name + " from " + display)
+    if instance < 0 {
+        v4_mir_add_type_error(mir_id, expr_span, "native generic instance could not be allocated: " + name, "MIR body storage is exhausted")
+        give back ""
+    }
+    v4_mir_build_generic_instances += 1
+    v4_mir_build_generic_table_insert(mir_id, def, instance)
+    v4_mir_build_generic_queue = v4_mir_build_generic_queue + "," + word_from_int(instance) + ":" + word_from_int(depth)
+    give back name
+}
+
+task v4_mir_build_lower_generic_instance(mir_id: int, body_id: int, depth: int, stream_id: int) -> void {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_generic_signature_id(mir_id, body_id)
+    if sig_id < 0 {
+        v4_mir_build_lower_impl_instance(mir_id, body_id, depth, stream_id)
+        give back
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot item_span = v4_parse_node_span(tree_id, v4_hir_item_parse_node(hir_id, v4_ty_signature_hir_item(ty_id, sig_id)))
+    v4_mir_build_generic_env = v4_mir_body_generic_env(mir_id, body_id)
+    v4_mir_build_generic_depth = depth
+    -- Warnings belong to the generic task and were reported for its
+    -- template; an instance adds only the errors its concrete types expose.
+    pilot diag_start = v4_mir_diag_count(mir_id)
+    v4_mir_seed_signature_params(mir_id, body_id, ty_id, sig_id, item_span)
+    v4_mir_lower_task_body_tokens(mir_id, body_id, stream_id, item_span)
+    v4_mir_retain_error_diags_from(mir_id, diag_start)
+    v4_mir_build_generic_env = ""
+    v4_mir_build_generic_depth = 0
+}
+
+task v4_mir_build_lower_impl_instance(mir_id: int, body_id: int, depth: int, stream_id: int) -> void {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
+    pilot method_id = v4_mir_body_impl_method_index(mir_id, body_id, 1)
+    if hir_item < 0 or method_id < 0 { give back }
+    pilot method_start = v4_ty_impl_method_start_token(ty_id, hir_item, method_id)
+    pilot method_end = v4_ty_impl_method_end_token(ty_id, hir_item, method_id)
+    pilot method_span = v4_mir_span_from_tokens(stream_id, method_start, method_end)
+    v4_mir_build_generic_env = v4_mir_body_generic_env(mir_id, body_id)
+    v4_mir_build_generic_depth = depth
+    pilot diag_start = v4_mir_diag_count(mir_id)
+    v4_mir_seed_impl_method_params(mir_id, body_id, ty_id, hir_item, method_id, method_span)
+    v4_mir_lower_task_body_token_range(mir_id, body_id, stream_id, method_start, method_end, method_span)
+    v4_mir_retain_error_diags_from(mir_id, diag_start)
+    v4_mir_build_generic_env = ""
+    v4_mir_build_generic_depth = 0
+}
+
+-- Lower queued instances in order; lowering one may queue more.
+task v4_mir_build_lower_generic_instances(mir_id: int, stream_id: int) -> void {
+    pilot cursor = 0
+    repeat until cursor >= v4_mir_build_generic_queue.length() {
+        pilot next = v4_index_of_from(v4_mir_build_generic_queue, ",", cursor + 1)
+        if next < 0 { next = v4_mir_build_generic_queue.length() }
+        pilot entry = v4_slice(v4_mir_build_generic_queue, cursor + 1, next)
+        pilot colon = v4_index_of_from(entry, ":", 0)
+        if colon > 0 {
+            v4_mir_build_lower_generic_instance(mir_id, word_to_int(v4_slice(entry, 0, colon)), word_to_int(v4_slice(entry, colon + 1, entry.length())), stream_id)
+        }
+        cursor = next
+    }
+    v4_mir_build_generic_queue = ""
+    v4_mir_build_generic_instances = 0
+    v4_mir_build_generic_limit_named = false
+    if v4_mir_build_generic_table >= 0 {
+        array_release(v4_mir_build_generic_table)
+        v4_mir_build_generic_table = 0 - 1
+    }
+}
+
 -- Native closure bodies (tier 3). The build tool asks for them; analysis and
 -- editor MIR keep the first-pass closure aggregate until every consumer
 -- reads closure bodies (A3).
-pilot v4_mir_build_closure_bodies: bool = false
 -- The scratch MIR analysis lowering seals closure results in, and the MIR it
 -- serves; a closure nested in a scratch body seals in the scratch itself.
 pilot v4_mir_build_seal_scratch_id: int = 0 - 1
@@ -8911,7 +9146,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     pilot pilot_offset = v4_span_start(v4_lex_token_span(stream_id, pilot_token))
     pilot annotation_id = v4_ty_signature_local_annotation_at_offset(ty_id, sig_id, pilot_offset)
     if annotation_id >= 0 {
-        declared_ty = v4_ty_signature_local_annotation_type(ty_id, sig_id, annotation_id)
+        declared_ty = v4_mir_build_generic_type(mir_id, v4_ty_signature_local_annotation_type(ty_id, sig_id, annotation_id))
     } else if sig_id < 0 and v4_mir_body_def(mir_id, body_id) == v4_mir_module_init_def {
         -- Root statements have no TY signature; read their annotation here.
         if colon_token >= 0 {
@@ -11198,7 +11433,7 @@ task v4_mir_seed_signature_params(mir_id: int, body_id: int, ty_id: int, sig_id:
     repeat until param_idx >= param_count {
         pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_idx)
         if param_name != "" {
-            pilot param_ty = v4_ty_signature_param_type(ty_id, sig_id, param_idx)
+            pilot param_ty = v4_mir_build_generic_type(mir_id, v4_ty_signature_param_type(ty_id, sig_id, param_idx))
             pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_idx)
             pilot param_span = v4_ty_signature_param_segment_span(ty_id, sig_id, param_idx)
             if param_span == no_span {
@@ -11216,7 +11451,7 @@ task v4_mir_seed_impl_method_params(mir_id: int, body_id: int, ty_id: int, hir_i
     repeat until param_idx >= param_count {
         pilot param_name = v4_ty_impl_method_param_name(ty_id, hir_item, method_id, param_idx)
         if param_name != "" {
-            pilot param_ty = v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_idx)
+            pilot param_ty = v4_mir_build_generic_type(mir_id, v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_idx))
             pilot param_mode = v4_ty_impl_method_param_mode(ty_id, hir_item, method_id, param_idx)
             v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, param_mode, item_span, item_span, "this method signature")
         }
@@ -11395,6 +11630,7 @@ task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {
         hir_item += 1
     }
 
+    v4_mir_build_lower_generic_instances(mir_id, stream_id)
     v4_mir_lower_module_init(mir_id, hir_id, stream_id)
     v4_mir_finalize_lookup_indexes(mir_id)
     v4_mir_build_seal_dyn_facts(mir_id)

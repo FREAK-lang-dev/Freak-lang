@@ -521,6 +521,58 @@ closure bodies, 7 nested, word parameters and results, `valgrind` clean).
 and the aggregate ABI notes on four targets, check each nested environment
 sits in its outer closure's frame, and check 18 and 9 rejected cases.
 
+### Generic instances (monomorphization)
+
+Native builds lower one MIR body per generic instance. MIR Build requests an
+instance when it lowers a generic call from a non-template body: a generic
+task call with its inferred type arguments, or a receiver, operator,
+associated or UFCS call whose concrete owner (`Box<int>`) matches a generic
+impl (`impl Box<T>`). Instances are queued, then lowered after the source
+bodies with the substitution applied to parameters, annotations, associated
+owners and constructor heads, so their locals, places and rvalues hold
+concrete types. Meiya checks each instance with those types, and drops come
+from the drop plan of the instance body. The MIR fact API (freak_mir):
+
+- **Identity.** def `generic:<generic def> with <env>`, env `T=int|U=word`
+  in the signature's type-generic order (the impl target's order for a
+  method; lifetimes erased). The body name is the LLVM symbol:
+  `ident<int>` for a task, `Box<int>::get` for a method.
+- **Per call.** A generic task call's op is the instance name; a method call
+  keeps its `Box<int>.get` op, which codegen reads as `Box<int>::get`. So the
+  substitution survives compaction and snapshots.
+  `v4_mir_rvalue_generic_instance_body` and `v4_mir_rvalue_generic_env` read
+  it back for a call.
+- **Per body.** `v4_mir_body_is_generic_instance`, `v4_mir_body_generic_def`,
+  `v4_mir_body_generic_env`, `v4_mir_body_generic_signature_id` (-1 for a
+  method instance) and `v4_mir_body_generic_type` (a type of the generic
+  signature with the env applied). The `v4_mir_body_callable_*` accessors
+  answer with the env applied.
+- **Templates.** `v4_mir_body_is_generic_template` is true for a generic task,
+  a method of a generic impl, and closures lowered inside either. Templates
+  stay in MIR for diagnostics and Meiya; `v4_codegen_llvm_next_emitted_body`
+  skips them, so native code emits only instances.
+- **Aggregates.** `v4_mir_shape_signature` accepts a concrete generic shape
+  instance (`v4_mir_type_is_concrete`), and `v4_mir_shape_field_count` /
+  `v4_mir_shape_field_type` give its substituted fields. Each shape and route
+  instance gets its own named type (`%"freak.shape.Box<int>"`) and
+  `; freak.layout` note, which the layout oracle checks.
+
+Instance generation is linear in the instances requested: each is lowered
+once, and repeat requests find it by def. Caps, all named: instance depth 24
+(`native generic instances nest too deeply`), 1024 instances per module
+(`native generic instance limit reached`, reported once), and 512 characters
+of type arguments (`native generic instance types grow too large`, which
+stops doubling polymorphic recursion). Also named: a call whose type
+arguments cannot all be inferred from its arguments, generic task values,
+generic C callbacks (TY's FFI check), closures inside generic bodies (the
+closures lane), and `maybe`/`result` with generic aggregate payloads.
+
+Program: `examples/generics_native.fk` (exact output and exit 22, `valgrind`
+clean), run by `check_v4_native_shapes`, which also checks that every
+instance symbol in `NATIVE_GENERICS_SYMBOLS` is defined once, that no
+template is emitted, and that every instance layout reaches the oracle on
+four targets, plus the `NATIVE_GENERICS_REJECTED` cases.
+
 ### Lend calling convention
 
 `lend` and `lend mut` parameters of FREAK-to-FREAK calls (abi `""`) pass the
