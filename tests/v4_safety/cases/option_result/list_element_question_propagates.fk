@@ -1,0 +1,26 @@
+-- `?` in a list literal element returns the Err before the list is built.
+-- expect: run
+-- stdout: built 2
+-- exit: 42
+
+task parse(s: word) -> result<int, word> {
+    if s == "ok" { give back ok(7) }
+    give back err("bad")
+}
+task first(s: word) -> result<int, word> {
+    pilot xs: List<int> = [parse(s)?, 1]
+    say "built " + word_from_int(xs.length())
+    give back ok(xs[0])
+}
+task main() -> int {
+    pilot mut code = 0
+    check result first("ok") {
+        ok(v) -> code = v
+        err(e) -> code = 0
+    }
+    check result first("nope") {
+        ok(v) -> code = code + v
+        err(e) -> code = code + 35
+    }
+    give back code
+}

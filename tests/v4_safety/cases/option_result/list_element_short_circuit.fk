@@ -1,0 +1,17 @@
+-- List literal elements keep and/or short-circuiting: probe never runs.
+-- expect: run
+-- stdout: done
+-- exit: 2
+
+task probe() -> bool {
+    say "probe ran"
+    give back true
+}
+task main() -> int {
+    pilot xs: List<bool> = [false and probe()]
+    pilot ys = [true or probe()]
+    say "done"
+    if xs[0] { give back 1 }
+    if ys[0] { give back 2 }
+    give back 3
+}

@@ -384,6 +384,16 @@ task v4_mir_rvalue_needs_control_flow_step(mir_id: int, body_id: int, rvalue_id:
         pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
         if op == v4_mir_bin_and or op == v4_mir_bin_or { give back true }
     }
+    -- List literal elements evaluate in order like call arguments, so their
+    -- short-circuits and `?` are wired by the call-argument path below.
+    if kind == v4_mir_rvalue_list {
+        pilot element_id = 0
+        repeat until element_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
+            if v4_mir_rvalue_needs_control_flow_limited(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, element_id)) { give back true }
+            element_id += 1
+        }
+        give back false
+    }
     if not v4_mir_rvalue_can_contain_child_tries(kind) { give back false }
     if v4_mir_rvalue_needs_control_flow_limited(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)) { give back true }
     if v4_mir_rvalue_needs_control_flow_limited(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)) { give back true }
@@ -502,7 +512,7 @@ task v4_mir_wire_control_flow_rvalue_step(mir_id: int, body_id: int, block_id: i
     }
 
     pilot current_block = block_id
-    if kind == v4_mir_rvalue_call and v4_mir_rvalue_needs_control_flow(mir_id, body_id, rvalue_id) {
+    if (kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_list) and v4_mir_rvalue_needs_control_flow(mir_id, body_id, rvalue_id) {
         pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
         pilot first_arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
         if lhs >= 0 and lhs != first_arg {
@@ -4757,7 +4767,9 @@ task v4_mir_try_lower_list_literal(mir_id: int, body_id: int, stream_id: int, fi
     pilot children_handle = array_new()
     pilot result_ty = v4_mir_check_list_literal(mir_id, body_id, stream_id, expr_span, open_token, last, children_handle)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-    give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_list, expr_text, "List", expr_span, result_ty, children_handle)
+    pilot list_rvalue = v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_list, expr_text, "List", expr_span, result_ty, children_handle)
+    array_release(children_handle)
+    give back list_rvalue
 }
 
 -- A list literal whose destination names its List type: `[]` takes that
@@ -4788,7 +4800,9 @@ task v4_mir_try_lower_expected_list_literal(mir_id: int, body_id: int, stream_id
         }
         element_start = v4_mir_skip_trivia(stream_id, element_end + 1)
     }
-    give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_list, v4_mir_expr_text(stream_id, first, last + 1), "List", expr_span, list_ty, children_handle)
+    pilot typed_list = v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_list, v4_mir_expr_text(stream_id, first, last + 1), "List", expr_span, list_ty, children_handle)
+    array_release(children_handle)
+    give back typed_list
 }
 
 task v4_mir_tuple_type_add(tuple_ty: word, element_ty: word) -> word {
