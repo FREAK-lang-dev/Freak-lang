@@ -1911,7 +1911,9 @@ task v4_borrowck_owned_word_call_argument_contract_status(mir_id: int, body_id: 
             if child_kind == v4_mir_rvalue_lend or child_kind == v4_mir_rvalue_lend_mut {
                 pilot value = v4_mir_rvalue_lhs(mir_id, body_id, child)
                 if value < 0 or value >= child or v4_mir_rvalue_rhs(mir_id, body_id, child) >= 0 { give back 0 }
-                if v4_mir_rvalue_ty(mir_id, body_id, value) != v4_ty_lend_target_type(actual) { give back 0 }
+                -- A dyn erasure lends a concrete place through its sealed vtable.
+                pilot erased: bool = v4_ty_is_dyn_type(v4_ty_lend_target_type(actual)) and v4_mir_dyn_erase_vtable(mir_id, body_id, child) >= 0
+                if v4_mir_rvalue_ty(mir_id, body_id, value) != v4_ty_lend_target_type(actual) and not erased { give back 0 }
                 pilot mutable_kind: bool = child_kind == v4_mir_rvalue_lend_mut
                 pilot mutable_type: bool = v4_ty_is_lend_mut_type(actual)
                 if mutable_kind != mutable_type { give back 0 }
