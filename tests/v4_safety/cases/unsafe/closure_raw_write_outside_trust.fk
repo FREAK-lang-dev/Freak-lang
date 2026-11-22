@@ -1,6 +1,5 @@
 -- A closure body is not inside a trust me block just because it is called
 -- from one; the write here is lexically outside every trust me.
--- known: #246 raw-pointer operations in closure bodies skip the trust me gate
 -- expect: reject mir
 -- error: needs trust me block
 

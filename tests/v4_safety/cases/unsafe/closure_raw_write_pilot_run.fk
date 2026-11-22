@@ -1,0 +1,23 @@
+-- A closure written inside a .pilot block is inside that block: it may write
+-- and read through the pointer it captures.
+-- expect: run
+-- exit: 42
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    trust me "closure store" on my honor as .pilot {
+        pilot store = |v: tiny| { p.write(v) }
+        pilot load = |_| => p.read()
+        store(42t)
+        pilot observed: tiny = load()
+        free(p)
+        if observed == 42t { give back 42 }
+    }
+    give back 1
+}

@@ -26,6 +26,9 @@ pilot v4_mir_scope_spans = 0
 pilot v4_mir_scope_depth = 0
 pilot v4_mir_trust_me_depth = 0
 pilot v4_mir_trust_me_honor_ranks = 0
+-- The honor of the trust me a closure is written in, for its body to
+-- start inside; 0 - 1 when the closure is written outside every trust me.
+pilot v4_mir_closure_entry_trust_rank = 0 - 1
 pilot v4_mir_build_ready = 0
 pilot v4_mir_control_wire_depth = 0
 pilot v4_mir_control_wire_work = 0
@@ -5779,7 +5782,10 @@ task v4_mir_build_lower_closure_body(mir_id: int, body_id: int, stream_id: int, 
     v4_mir_control_wire_depth = 0
     v4_mir_control_wire_work = 0
     v4_mir_control_probe_depth = 0
+    v4_mir_closure_entry_trust_rank = 0 - 1
+    if saved_trust_depth > 0 { v4_mir_closure_entry_trust_rank = word_to_int(array_get(saved_honor, saved_trust_depth - 1)) }
     v4_mir_lower_task_body_token_range(mir_id, closure_body, stream_id, body_marker, last + 1, expr_span)
+    v4_mir_closure_entry_trust_rank = 0 - 1
     array_release(v4_mir_loop_break_targets)
     array_release(v4_mir_loop_continue_targets)
     array_release(v4_mir_scope_spans)
@@ -10411,6 +10417,12 @@ task v4_mir_lower_task_body_token_range(mir_id: int, body_id: int, stream_id: in
     pilot check_arm_depth = v4_mir_check_arm_depth
     v4_mir_clear_loop_context()
     v4_mir_clear_scope_context()
+    -- A closure body is lexically inside the trust me its closure is written
+    -- in, at that block's honor, and inside no other.
+    if v4_mir_closure_entry_trust_rank >= 0 {
+        v4_mir_push_trust_me_honor(v4_mir_closure_entry_trust_rank)
+        v4_mir_closure_entry_trust_rank = 0 - 1
+    }
     v4_mir_control_diagnostic_depth = 0
     v4_mir_check_arm_depth = 0
     pilot body_marker = v4_lex_token_syntax_value(stream_id, body_token)

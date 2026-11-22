@@ -1,0 +1,19 @@
+-- A closure body starts inside the trust me its closure is written in, and
+-- in no other: this closure is written after the block closes.
+-- expect: reject mir
+-- error: needs trust me block
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    trust me "x" on my honor as .humanity {
+        p.write(1t)
+    }
+    pilot f = |_| => p.read()
+    give back 0
+}
