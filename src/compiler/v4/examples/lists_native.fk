@@ -120,5 +120,6 @@ task main() -> int {
     pilot k = 1
     if process::args_count() > 1 { k = 20 }
     say xs[k]
-    give back xs.length()
+    say xs.length()
+    give back 0
 }

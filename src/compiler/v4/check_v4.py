@@ -17539,6 +17539,70 @@ NATIVE_MAYBE_RESULT_EXIT = 17
 # lend / lend mut parameters and borrowed returns (tier 3 lend ABI row).
 NATIVE_LEND_ABI_EXPECTED = ("8\n16\n3\ntrue\ntrue\ntrue\ntrue\ntrue\n7\n13\n14\n14\n28\n20\n-1\n9\n0\n30\n12\n2\n3\nada\n"
                             "4\n0\n6\ngo!!\n4\n14\n29\n29\n100\n6\n18\n4\ngo!!?\n21\n15\n8\n11\n8\nyz\nl0!\nfresher\n7\n")
+# Native lists (tier 3 rows L and M). Any argument indexes past the end of
+# the 14-element list. tests/v4_owned_word_codegen.py pins the same output.
+NATIVE_LISTS_EXPECTED = ("4\n6\n10\n14\n304\n0\n5\np0\np1\np2\nextra\nreplaced\nreplaced\np2\n4\ncsolo\n"
+                         "one1\ntwo2\nTakeru!\nMeiya!\nSumika!\n10\n2\n14\n")
+NATIVE_LISTS_PANIC = "index 20 out of bounds (len 14)"
+# Rejected list programs: (stem, source, named reason).
+NATIVE_LISTS_REJECTED = (
+    # for each lends its source (decision 3): the body cannot mutate it.
+    ("tier3_list_push_in_for_each", "task main() -> int {\n    pilot xs: List<int> = [1, 2]\n"
+     "    for each x in xs {\n        xs.push(x)\n    }\n    give back 0\n}\n",
+     "Meiya carries an exclusive lend across another loan boundary"),
+    ("tier3_list_store_in_for_each", "task main() -> int {\n    pilot xs: List<int> = [1, 2]\n"
+     "    for each x in xs {\n        xs[0] = x\n    }\n    give back 0\n}\n",
+     "Meiya tracks this loan into a later block"),
+    ("tier3_list_lend_mut_in_for_each", "task bump(lend mut xs: List<int>) -> void { xs.push(0) }\n"
+     "task main() -> int {\n    pilot xs: List<int> = [1, 2]\n    for each x in xs {\n        bump(lend mut xs)\n    }\n    give back 0\n}\n",
+     "Meiya carries an exclusive lend across another loan boundary"),
+    # push needs an exclusive loan the binding may grant.
+    ("tier3_list_push_shared_lend", "task add(lend xs: List<int>) -> void { xs.push(1) }\n"
+     "task main() -> int {\n    pilot xs: List<int> = [1]\n    add(lend xs)\n    give back xs.length()\n}\n",
+     "Meiya refuses an exclusive lend of an immutable lend parameter"),
+    ("tier3_list_push_fixed", "task main() -> int {\n    fixed pilot xs: List<int> = [1]\n    xs.push(2)\n    give back 0\n}\n",
+     "fixed pilot cannot be modified"),
+    ("tier3_list_store_shared_lend", "task f(lend xs: List<int>) -> void { xs[0] = 5 }\n"
+     "task main() -> int {\n    pilot xs: List<int> = [1]\n    f(lend xs)\n    give back xs[0]\n}\n",
+     "Meiya refuses to mutate an immutable lend parameter"),
+    # Lists and pushed words are Move types.
+    ("tier3_list_word_use_after_push", "task main() -> int {\n    pilot xs: List<word> = [\"a\"]\n"
+     "    pilot w = \"b\"\n    xs.push(w)\n    say w\n    give back 0\n}\n",
+     "Meiya remembers the field you already moved"),
+    ("tier3_list_use_after_move", "task take(ys: List<int>) -> int { give back ys.length() }\n"
+     "task main() -> int {\n    pilot xs: List<int> = [1]\n    pilot n = take(xs)\n    give back xs.length()\n}\n",
+     "Meiya remembers the field you already moved"),
+    ("tier3_list_push_type", "task main() -> int {\n    pilot xs: List<int> = [1]\n    xs.push(\"a\")\n    give back 0\n}\n",
+     "list push type mismatch"),
+    ("tier3_list_temporary_receiver", "task make() -> List<int> { give back [1] }\n"
+     "task main() -> int { give back make().length() }\n",
+     "list method receiver must be a place"),
+    ("tier3_list_untyped_empty", "task main() -> int {\n    pilot xs = []\n    give back 0\n}\n",
+     "empty list literal needs type context"),
+    # Later rows: nested lists, lists in other types, Sum elements, list
+    # operators, route items that own words, moved list captures.
+    ("tier3_list_nested", "task main() -> int {\n    pilot xs: List<List<int>> = [[1]]\n    give back 0\n}\n",
+     "native lists of lists are not yet supported: List<List<int>>"),
+    ("tier3_list_shape_field", "shape Bag { items: List<int> }\n"
+     "task main() -> int {\n    pilot b = Bag { items: [1] }\n    give back 0\n}\n",
+     "native lists inside other types are not yet supported: List<int>"),
+    ("tier3_list_maybe_elements", "task main() -> int {\n    pilot xs: List<maybe<int>> = [some(1)]\n    give back 0\n}\n",
+     "native lists of maybe/result values are not yet supported: List<maybe<int>>"),
+    ("tier3_list_equality", "task main() -> int {\n    pilot xs: List<int> = [1]\n    pilot ys: List<int> = [1]\n"
+     "    if xs == ys { give back 1 }\n    give back 0\n}\n",
+     "native list operators are not yet supported"),
+    ("tier3_list_route_word_items", "route Msg {\n    Text { body: word }\n    Quit\n}\n"
+     "task main() -> int {\n    pilot ms: List<Msg> = [Msg::Text { body: \"hi\" }, Msg::Quit]\n"
+     "    pilot n = 0\n    for each m in ms { n += 1 }\n    give back n\n}\n",
+     "native list items of routes that own words are not yet supported: Msg"),
+    ("tier3_list_move_capture", "task main() -> int {\n    pilot xs: List<word> = [\"a\"]\n"
+     "    pilot f = move |k: int| {\n        give back k + xs.length()\n    }\n    give back f(1)\n}\n",
+     "native closure captures that move words are not yet supported: xs"),
+    # The list helpers link libc's allocator under its C names.
+    ("tier3_list_allocator_symbol", "extern [C] {\n    task free(p: *void) -> void\n}\n"
+     "task main() -> int {\n    pilot xs: List<int> = [1]\n    give back 0\n}\n",
+     "native list runtime symbol conflict: @free"),
+)
 # Rejected lend ABI programs: (stem, source, named reason).
 NATIVE_LEND_ABI_REJECTED = (
     # A lend-typed parameter is not a lend mode.
@@ -17607,7 +17671,7 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
     clang = shutil.which("clang")
     notes = native_layout_notes(module)
     payloads = native_payload_notes(module)
-    types = re.findall(r'^(%"freak\.(?:shape|route|sum|closure\.env|dyn\.vtable)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum|list|closure\.env|dyn\.vtable)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
     if not notes or len(notes) != len(types) or not set(payloads) <= set(notes):
         raise RuntimeError(f"V4 shape module for {triple} has no matching layout notes")
     # A route with payload storage after its tag must say how that storage is
@@ -17811,7 +17875,7 @@ def check_native_abi_oracle(module: str, triple: str) -> int:
         pending = []
     if not claims:
         return 0
-    types = re.findall(r'^(%"freak\.(?:shape|route|sum|closure\.env)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum|list|closure\.env)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
     probe_lines = list(types)
     for index, (_, _, _, _, llvm_type) in enumerate(claims):
         probe_lines.append(f"define i64 @abi_{index}_size() {{ ret i64 ptrtoint (ptr getelementptr ({llvm_type}, ptr null, i32 1) to i64) }}")
@@ -17949,6 +18013,7 @@ def check_v4_native_shapes() -> None:
         # Word drop glue with no word value in the module still declares
         # the word runtime (lend mut replacement and drop at return).
         ("lend_route_words", "lend_route_words_native.fk", ("", 3)),
+        ("lists", "lists_native.fk", NATIVE_LISTS_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -17971,6 +18036,12 @@ def check_v4_native_shapes() -> None:
             if panicked.returncode != 101 or NATIVE_AGGREGATES_PANIC not in panicked.stdout + panicked.stderr:
                 raise RuntimeError(f"V4 native bounds check did not panic: exit={panicked.returncode} "
                                    f"stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
+        if stem == "lists":
+            # Any argument makes the program index past the end of its list.
+            panicked = run_with_heartbeat([str(executable), "out-of-bounds"], label="V4 native list bounds check", timeout_seconds=10, memory_limit_mb=128)
+            if panicked.returncode != 101 or NATIVE_LISTS_PANIC not in panicked.stdout + panicked.stderr:
+                raise RuntimeError(f"V4 native list bounds check did not panic: exit={panicked.returncode} "
+                                   f"stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
         for triple in NATIVE_LAYOUT_TRIPLES:
             module_path = RUNTIME_BUILD_ROOT / f"tier3_native_{stem}_{triple}.ll"
             module_path.unlink(missing_ok=True)
@@ -17981,6 +18052,8 @@ def check_v4_native_shapes() -> None:
             if emitted.returncode != 0 or not module_path.exists():
                 raise RuntimeError(f"V4 could not emit the {stem} module for {triple}:\n{emitted.stdout}{emitted.stderr}")
             module_text = module_path.read_text(encoding="utf-8")
+            if stem == "lists" and not re.search(r'^; freak\.layout %"freak\.list\.header" size=\d+ align=\d+ offsets=', module_text, re.MULTILINE):
+                raise RuntimeError(f"V4 lists module for {triple} has no layout note for the list header")
             probes += check_native_layout_oracle(module_text, triple)
             abi_probes += check_native_abi_oracle(module_text, triple)
             if stem == "agg_abi":
@@ -18186,7 +18259,7 @@ def check_v4_native_shapes() -> None:
          "impl Add for W<T> { task add(self, other: W<T>) -> W<T> { give back self } }\n"
          "task main() -> int { pilot a: W<int> = W { v: 1 }\n pilot b: W<int> = W { v: 2 }\n pilot c = a + b\n give back 0 }\n",
          "native generic shapes need monomorphization: W<int>"),
-    ) + NATIVE_LEND_ABI_REJECTED
+    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")
