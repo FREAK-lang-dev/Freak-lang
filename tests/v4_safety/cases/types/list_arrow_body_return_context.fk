@@ -1,0 +1,11 @@
+-- An arrow body gets its declared return type as context, like give back.
+-- expect: run
+-- exit: 3
+
+task empty() -> List<int> => []
+task three() -> List<int> => [1, 2, 3]
+task main() -> int {
+    pilot xs = empty()
+    pilot ys = three()
+    give back xs.length() + ys.length()
+}
