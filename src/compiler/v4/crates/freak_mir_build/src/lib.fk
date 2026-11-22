@@ -5508,10 +5508,11 @@ task v4_mir_closure_receiver_call_is_mutating(mir_id: int, body_id: int, stream_
     give back false
 }
 
-task v4_mir_closure_occurrence_is_mutated(mir_id: int, body_id: int, stream_id: int, occurrence_token: int, body_end: int, capture_ty: word) -> bool {
+task v4_mir_closure_occurrence_is_mutated(mir_id: int, body_id: int, stream_id: int, occurrence_token: int, body_end: int, capture_ty: word, receiver_only: bool) -> bool {
     if v4_mir_closure_receiver_call_is_mutating(mir_id, body_id, stream_id, occurrence_token, body_end, capture_ty) {
         give back true
     }
+    if receiver_only { give back false }
     pilot idx = occurrence_token + 1
     pilot depth = 0
     repeat until idx >= body_end {
@@ -5708,7 +5709,7 @@ task v4_mir_closure_nested_leave(stream_id: int, idx: int, pending: int, active_
     array_set(active_cell, 1, word_from_int(top))
 }
 
-task v4_mir_closure_capture_is_mutated(mir_id: int, body_id: int, stream_id: int, capture_name: word, capture_ty: word, body_start: int, body_end: int, param_names: word, closure_offset: int) -> bool {
+task v4_mir_closure_capture_is_mutated(mir_id: int, body_id: int, stream_id: int, capture_name: word, capture_ty: word, body_start: int, body_end: int, param_names: word, closure_offset: int, receiver_only: bool) -> bool {
     pilot local_names_handle = array_new()
     pilot local_depths_handle = array_new()
     pilot local_active = 0
@@ -5747,7 +5748,7 @@ task v4_mir_closure_capture_is_mutated(mir_id: int, body_id: int, stream_id: int
             } else {
                 if (token_type == v4_tok_ident or token_type == v4_tok_keyword) and token_value == capture_name {
                     if not v4_mir_name_list_contains(param_names, capture_name) and not v4_mir_closure_scope_contains(local_names_handle, local_active, capture_name) and not v4_mir_closure_identifier_is_member_name(stream_id, idx, body_start) {
-                        if v4_mir_closure_occurrence_is_mutated(mir_id, body_id, stream_id, idx, body_end, capture_ty) {
+                        if v4_mir_closure_occurrence_is_mutated(mir_id, body_id, stream_id, idx, body_end, capture_ty, receiver_only) {
                             array_release(local_names_handle)
                             array_release(local_depths_handle)
                             array_release(nested_cell)
@@ -5780,9 +5781,72 @@ task v4_mir_closure_capture_diag(mir_id: int, mode: word, capture_name: word, ca
         }
         v4_mir_add_type_error(mir_id, capture_span, message, "use a mut closure when " + capture_name + " must be changed through the closure environment")
     }
-    if mutated and mode == v4_ty_closure_mode_mut and v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), capture_ty) {
-        v4_mir_add_type_error(mir_id, capture_span, "Meiya cannot model closure writes into loan-bearing captured storage yet", "move the rebind outside the closure or pass the projected slot through an explicit lend mut task; " + capture_name + " has type " + capture_ty + " and closure effect summaries are not available yet")
+}
+
+-- A mut closure writing loan-bearing captured storage could install a loan
+-- the creating frame never sees. The closure's effect summary below proves
+-- the writes it can; the rest are refused here.
+task v4_mir_closure_loan_write_diag(mir_id: int, capture_name: word, capture_ty: word, capture_span: word) -> void {
+    v4_mir_add_type_error(mir_id, capture_span, "Meiya cannot model closure writes into loan-bearing captured storage yet", "move the rebind outside the closure or pass the projected slot through an explicit lend mut task; " + capture_name + " has type " + capture_ty + " and this closure's effect summary shows a write that can install a loan")
+}
+
+-- The local a place is rooted at, through fields and indexes; -1 for any
+-- other root (a deref, a global, the return slot).
+task v4_mir_closure_place_root_local(mir_id: int, body_id: int, place_id: int) -> int {
+    pilot place = place_id
+    pilot steps = 0
+    repeat until place < 0 or steps > 64 {
+        pilot kind = v4_mir_place_kind(mir_id, body_id, place)
+        if kind == v4_mir_place_local { give back v4_mir_place_base(mir_id, body_id, place) }
+        if kind != v4_mir_place_field and kind != v4_mir_place_index { give back 0 - 1 }
+        pilot base = v4_mir_place_base(mir_id, body_id, place)
+        if base >= place { give back 0 - 1 }
+        place = base
+        steps += 1
     }
+    give back 0 - 1
+}
+
+-- Closure effect summary (tier 3): can the lowered closure body install a
+-- loan into capture capture_id's storage? Only a write to a loan-bearing
+-- place rooted at the capture can: an assignment whose written place may
+-- store a lend, `lend mut` of such a place, or a nested mut closure capturing
+-- it. Writes to lend-free leaves of loan-bearing storage (an `int` slot of a
+-- tuple that also holds a lend) install nothing. A write whose root the
+-- summary cannot see counts as installing one.
+task v4_mir_closure_capture_installs_loan(mir_id: int, closure_body: int, capture_id: int) -> bool {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot inner = v4_mir_body_closure_capture_local(mir_id, closure_body, capture_id)
+    if inner < 0 { give back true }
+    pilot name = v4_mir_local_name(mir_id, closure_body, inner)
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, closure_body) {
+        pilot place = v4_mir_stmt_place(mir_id, closure_body, stmt)
+        if v4_mir_stmt_kind(mir_id, closure_body, stmt) == v4_mir_stmt_assign and place >= 0 {
+            pilot root = v4_mir_closure_place_root_local(mir_id, closure_body, place)
+            if (root == inner or root < 0) and v4_ty_type_may_store_lend(ty_id, v4_mir_place_ty(mir_id, closure_body, place)) { give back true }
+        }
+        stmt += 1
+    }
+    pilot value = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir_id, closure_body) {
+        pilot kind = v4_mir_rvalue_kind(mir_id, closure_body, value)
+        if kind == v4_mir_rvalue_lend_mut {
+            pilot operand = v4_mir_rvalue_lhs(mir_id, closure_body, value)
+            if operand >= 0 and v4_ty_type_may_store_lend(ty_id, v4_mir_rvalue_ty(mir_id, closure_body, operand)) {
+                pilot operand_kind = v4_mir_rvalue_kind(mir_id, closure_body, operand)
+                if operand_kind == v4_mir_rvalue_use_place {
+                    pilot root = v4_mir_closure_place_root_local(mir_id, closure_body, v4_mir_rvalue_lhs(mir_id, closure_body, operand))
+                    if root == inner or root < 0 { give back true }
+                } else if operand_kind != v4_mir_rvalue_use_local or v4_mir_rvalue_text(mir_id, closure_body, operand) == name {
+                    give back true
+                }
+            }
+        }
+        if kind == v4_mir_rvalue_capture_borrow_mut and v4_mir_rvalue_text(mir_id, closure_body, value) == name and v4_ty_type_may_store_lend(ty_id, v4_mir_rvalue_ty(mir_id, closure_body, value)) { give back true }
+        value += 1
+    }
+    give back false
 }
 
 -- Native closure bodies (tier 3). The build tool asks for them; analysis and
@@ -6046,6 +6110,7 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
     array_push(nested_cell, "0")
     array_push(nested_cell, "0")
     pilot nested_pending = array_new()
+    pilot loan_pending = ""
     pilot idx = body_start
     repeat until idx >= body_end {
         pilot token_type = v4_lex_token_type(stream_id, idx)
@@ -6082,8 +6147,17 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
                             captured_names = v4_mir_name_list_add(captured_names, capture_name)
                             pilot capture_ty = v4_mir_local_ty(mir_id, body_id, local_id)
                             pilot capture_span = v4_lex_token_span(stream_id, idx)
-                            pilot mutated = v4_mir_closure_capture_is_mutated(mir_id, body_id, stream_id, capture_name, capture_ty, body_start, body_end, param_names, closure_offset)
+                            pilot mutated = v4_mir_closure_capture_is_mutated(mir_id, body_id, stream_id, capture_name, capture_ty, body_start, body_end, param_names, closure_offset, false)
                             v4_mir_closure_capture_diag(mir_id, mode, capture_name, capture_ty, capture_span, mutated)
+                            -- A mutating receiver call is a whole-capture write the summary
+                            -- does not see; other writes wait for the effect summary.
+                            if mutated and mode == v4_ty_closure_mode_mut and v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), capture_ty) {
+                                if v4_mir_closure_capture_is_mutated(mir_id, body_id, stream_id, capture_name, capture_ty, body_start, body_end, param_names, closure_offset, true) {
+                                    v4_mir_closure_loan_write_diag(mir_id, capture_name, capture_ty, capture_span)
+                                } else {
+                                    loan_pending = v4_mir_name_list_add(loan_pending, word_from_int(array_len(children_handle)))
+                                }
+                            }
                             -- A mut capture is a lend mut local in the body: it cannot come
                             -- from a binding the closure may only read.
                             if mode == v4_ty_closure_mode_mut and v4_mir_local_mode(mir_id, body_id, local_id) == v4_ty_param_mode_lend {
@@ -6104,16 +6178,39 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
     array_release(nested_pending)
 
     pilot closure_ty = v4_mir_closure_type_for_body_offset(mir_id, body_id, closure_offset)
+    pilot summary_mir = 0 - 1
+    pilot summary_body = 0 - 1
     if not v4_ty_is_closure_type(closure_ty) {
         closure_ty = v4_ty_closure_type_prefix(mode) + "()->" + v4_ty_unknown
-    } else if v4_mir_build_closure_bodies {
-        closure_ty = v4_mir_build_lower_closure_body(mir_id, mir_id, body_id, stream_id, body_marker, last, expr_span, closure_offset, closure_ty, children_handle)
     } else {
         -- Analysis and editor MIR keep the closure aggregate, but seal its
         -- result exactly as native builds do: the body is lowered into a
-        -- scratch MIR that is never published, and only the sealed type and
-        -- a disagreement diagnostic come back.
-        closure_ty = v4_mir_build_lower_closure_body(v4_mir_build_seal_scratch(mir_id), mir_id, body_id, stream_id, body_marker, last, expr_span, closure_offset, closure_ty, children_handle)
+        -- scratch MIR that is never published, and only the sealed type, a
+        -- disagreement diagnostic and the effect summary come back.
+        pilot target = mir_id
+        if not v4_mir_build_closure_bodies { target = v4_mir_build_seal_scratch(mir_id) }
+        closure_ty = v4_mir_build_lower_closure_body(target, mir_id, body_id, stream_id, body_marker, last, expr_span, closure_offset, closure_ty, children_handle)
+        if loan_pending != "" {
+            pilot sealed_body = v4_mir_lookup_body(target, v4_mir_closure_body_def(v4_mir_body_def(mir_id, body_id), v4_span_start(expr_span), array_len(children_handle)))
+            if sealed_body >= 0 and v4_mir_body_is_closure(target, sealed_body) {
+                summary_mir = target
+                summary_body = sealed_body
+            }
+        }
+    }
+    -- Deferred loan-bearing writes: refused unless the effect summary of a
+    -- lowered body proves the capture gets no new loan.
+    if loan_pending != "" {
+        pilot capture_id = 0
+        repeat until capture_id >= array_len(children_handle) {
+            if v4_mir_name_list_contains(loan_pending, word_from_int(capture_id)) {
+                if summary_body < 0 or v4_mir_closure_capture_installs_loan(summary_mir, summary_body, capture_id) {
+                    pilot capture: int = word_to_int(array_get(children_handle, capture_id))
+                    v4_mir_closure_loan_write_diag(mir_id, v4_mir_rvalue_text(mir_id, body_id, capture), v4_mir_rvalue_ty(mir_id, body_id, capture), v4_mir_rvalue_span(mir_id, body_id, capture))
+                }
+            }
+            capture_id += 1
+        }
     }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_closure, expr_text, mode, expr_span, closure_ty, children_handle)
