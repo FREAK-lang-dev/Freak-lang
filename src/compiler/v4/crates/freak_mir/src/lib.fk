@@ -5391,7 +5391,9 @@ task v4_mir_list_loan_type(mir: int, body: int, value: int, mutable: bool) -> wo
     if v4_ty_list_element_type(list_ty) == v4_ty_unknown { give back "" }
     pilot kind = v4_mir_rvalue_kind(mir, body, value)
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
-        if (kind == v4_mir_rvalue_lend_mut) != (v4_ty_lend_mode(loan_ty) == v4_ty_param_mode_lend_mut) { give back "" }
+        pilot mutable_kind: bool = kind == v4_mir_rvalue_lend_mut
+        pilot mutable_type: bool = v4_ty_lend_mode(loan_ty) == v4_ty_param_mode_lend_mut
+        if mutable_kind != mutable_type { give back "" }
         pilot owner = v4_mir_rvalue_lhs(mir, body, value)
         if owner < 0 or owner >= value or v4_mir_rvalue_rhs(mir, body, value) >= 0 { give back "" }
         pilot owner_kind = v4_mir_rvalue_kind(mir, body, owner)
