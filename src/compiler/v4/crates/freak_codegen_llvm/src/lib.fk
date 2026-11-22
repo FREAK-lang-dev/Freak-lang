@@ -53,6 +53,9 @@ pilot v4_codegen_llvm_record_index_ready: bool = false
 pilot v4_codegen_llvm_record_index_lines = 0 - 1
 pilot v4_codegen_llvm_record_index_names = 0 - 1
 pilot v4_codegen_llvm_numeric_runtime_used = false
+-- Element types whose list drop helper this module emits ("\n"-framed).
+pilot v4_codegen_llvm_list_drop_types = "\n"
+pilot v4_codegen_llvm_list_used: bool = false
 -- Policy of the module being lowered; selects the panic helper.
 pilot v4_codegen_llvm_active_panic_policy = "abort"
 pilot v4_codegen_llvm_fragment_error = ""
@@ -917,6 +920,7 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
     if v4_codegen_llvm_active_owned_mir >= 0 and v4_mir_shape_signature(v4_codegen_llvm_active_owned_mir, ty_name) >= 0 {
         give back v4_codegen_llvm_shape_type_name(v4_codegen_llvm_active_owned_mir, ty_name)
     }
+    if v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, ty_name) { give back v4_codegen_llvm_list_header_type() }
     if v4_codegen_llvm_active_owned_mir >= 0 {
         pilot route_sig = v4_codegen_llvm_route_signature(v4_codegen_llvm_active_owned_mir, ty_name)
         if route_sig >= 0 { give back v4_codegen_llvm_route_type_name(v4_codegen_llvm_active_owned_mir, route_sig) }
@@ -1887,7 +1891,7 @@ task v4_codegen_llvm_variadic_arg_prelude_line(mir_id: int, body_id: int, call_r
 -- own storage and are not copies.
 task v4_codegen_llvm_is_abi_aggregate(mir_id: int, type_text: word) -> bool {
     if v4_codegen_llvm_active_owned_mir != mir_id or v4_ty_is_lend_type(type_text) { give back false }
-    give back v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0
+    give back v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 or v4_codegen_llvm_is_list(mir_id, type_text)
 }
 
 -- A FREAK-ABI task call (direct, impl method or through a FREAK task
@@ -1896,7 +1900,7 @@ task v4_codegen_llvm_call_is_freak_abi(mir_id: int, body_id: int, rvalue_id: int
     if v4_codegen_llvm_active_owned_mir != mir_id or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call { give back false }
     pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
     if op == v4_mir_call_say_literal or op == v4_mir_call_raw_ptr_write or v4_mir_rvalue_abi(mir_id, body_id, rvalue_id) != "" { give back false }
-    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) { give back false }
+    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_list(mir_id, body_id, rvalue_id) { give back false }
     give back v4_mir_word_intrinsic_kind(mir_id, body_id, rvalue_id) == ""
 }
 
@@ -2081,7 +2085,7 @@ task v4_codegen_llvm_rvalue_needs_instruction(mir_id: int, body_id: int, rvalue_
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) { give back true }
     -- `or else` always branches; a discarded one still runs its fallback on the empty edge.
     if v4_codegen_llvm_active_owned_mir == mir_id and kind == v4_mir_rvalue_or_else and v4_codegen_llvm_or_else_is_supported(mir_id, body_id, rvalue_id) { give back true }
-    if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_use_place) { give back true }
+    if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_loop_item) { give back true }
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_literal_aggregate(kind) { give back not v4_codegen_llvm_aggregate_literal_is_zero(mir_id, body_id, rvalue_id) }
     if v4_codegen_llvm_route_case_symbol(mir_id, body_id, rvalue_id) >= 0 { give back true }
     if (kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float) and v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) == "float" { give back true }
@@ -2602,6 +2606,10 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                         call_symbol = v4_codegen_llvm_scalar_sum_bridge_symbol(v4_codegen_llvm_scalar_sum_bridge_kind(mir_id, body_idx, rvalue_idx))
                         call_line = v4_codegen_llvm_scalar_sum_bridge_instruction(mir_id, body_idx, rvalue_idx, v4_codegen_llvm_temp_value(body_idx, rvalue_idx))
                     }
+                    if v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_rvalue_is_builtin_list(mir_id, body_idx, rvalue_idx) {
+                        call_symbol = "@freak.list." + v4_mir_list_intrinsic_kind(mir_id, body_idx, rvalue_idx)
+                        call_line = ""
+                    }
                     if v4_mir_rvalue_is_builtin_control(mir_id, body_idx, rvalue_idx) {
                         call_symbol = v4_codegen_llvm_panic_symbol()
                         call_line = v4_codegen_llvm_panic_instruction(mir_id, body_idx, rvalue_idx)
@@ -2989,6 +2997,7 @@ task v4_codegen_llvm_native_type_error_depth(type_text: word, allow_void: bool, 
     -- slot surfaces stay fenced by depth.
     if v4_codegen_llvm_active_owned_mir >= 0 and depth == 0 and v4_codegen_llvm_is_aggregate_lend(v4_codegen_llvm_active_owned_mir, type_text) { give back v4_codegen_llvm_native_shape_error(v4_codegen_llvm_active_owned_mir, v4_ty_lend_target_type(type_text), 0) }
     if v4_codegen_llvm_active_owned_mir >= 0 and depth == 0 and v4_codegen_llvm_is_place_lend(v4_codegen_llvm_active_owned_mir, type_text) { give back "" }
+    if v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, type_text) { give back v4_codegen_llvm_native_list_type_error(v4_codegen_llvm_active_owned_mir, type_text, depth) }
     if type_text == v4_ty_int or type_text == v4_ty_uint or type_text == v4_ty_tiny or type_text == v4_ty_num or type_text == v4_ty_float or type_text == v4_ty_float32 or type_text == v4_ty_bool or type_text == v4_ty_char or type_text == v4_ty_word { give back "" }
     if allow_void and (type_text == v4_ty_void or type_text == v4_ty_never) { give back "" }
     -- Opaque raw pointer values do not require an aggregate layout. Operations
@@ -3104,6 +3113,9 @@ task v4_codegen_llvm_word_leaf_count(mir_id: int, type_text: word, depth: int) -
     if depth > 32 { give back 0 - 1 }
     if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) == v4_ty_word { give back 1 }
     if v4_ty_is_lend_type(type_text) { give back 0 }
+    -- A list is one owned handle: its drop glue frees the buffer and its
+    -- elements' words (v4_codegen_llvm_list_drop_lines).
+    if v4_codegen_llvm_is_list(mir_id, type_text) { give back 1 }
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
     if kind == "" { give back v4_codegen_llvm_route_word_leaf_count(mir_id, type_text, depth) }
     if kind == "array" {
@@ -3176,6 +3188,7 @@ task v4_codegen_llvm_drop_glue_at(mir_id: int, type_text: word, address: word, c
         }
         give back out + "  call void @freak_v4_word_drop(i64 " + handle + ")\n"
     }
+    if v4_codegen_llvm_is_list(mir_id, type_text) { give back v4_codegen_llvm_list_drop_lines(mir_id, type_text, address, "", cond, temp) }
     if v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back "" }
     pilot llvm_ty = v4_codegen_llvm_type(type_text)
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
@@ -3778,6 +3791,7 @@ task v4_codegen_llvm_shape_records(mir_id: int) -> word {
     }
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_closure_records(mir_id))
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_dyn_records(mir_id))
+    if v4_codegen_llvm_list_used { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_list_header_type() + "\tptr\ti64\ti64\n") }
     pilot out = word_join(parts)
     array_release(parts)
     give back out + v4_codegen_llvm_sum_records(mir_id)
@@ -4342,6 +4356,12 @@ task v4_codegen_llvm_integer_literal_error(type_text: word, text: word) -> word 
 -- carriers become integer or floating values through an accidental cast.
 task v4_codegen_llvm_native_conversion_error(actual: word, expected: word) -> word {
     if actual == expected { give back "" }
+    -- A list converts only to its own canonical type (one element layout).
+    if v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, actual) or v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, expected) {
+        pilot ty_id = v4_mir_ty_id(v4_codegen_llvm_active_owned_mir)
+        if v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, actual) and v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, expected) and v4_ty_canonical_type(ty_id, actual) == v4_ty_canonical_type(ty_id, expected) { give back "" }
+        give back "unsupported native conversion: " + actual + " to " + expected
+    }
     pilot actual_kind = v4_codegen_llvm_numeric_kind(actual)
     pilot expected_kind = v4_codegen_llvm_numeric_kind(expected)
     if actual_kind != "" and expected_kind != "" { give back "" }
@@ -4540,6 +4560,8 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
     if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_place_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back v4_codegen_llvm_native_aggregate_lend_error(mir_id, body_id, rvalue_id) }
     -- native_dyn_error already checked every dyn loan of this MIR.
     if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_dyn_ref(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back "" }
+    if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_list or v4_mir_rvalue_is_list_loop_item(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_list(mir_id, body_id, rvalue_id)) { give back v4_codegen_llvm_native_list_rvalue_error(mir_id, body_id, rvalue_id) }
+    if kind == v4_mir_rvalue_call and (v4_mir_rvalue_op(mir_id, body_id, rvalue_id).starts_with("builtin::list::") or v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id).starts_with("builtin::list::")) { give back "invalid native list intrinsic identity" }
     if kind != v4_mir_rvalue_const_int and kind != v4_mir_rvalue_const_float and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_const_bool and kind != v4_mir_rvalue_const_char and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_use_symbol and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_call and not (v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_lend or v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_use_place or v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) or (kind == v4_mir_rvalue_or_else and v4_codegen_llvm_or_else_is_supported(mir_id, body_id, rvalue_id)))) {
         -- A Sum operation over a carrier freak_ty does not admit names the payload.
         if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_or_else) {
@@ -4615,6 +4637,7 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
         pilot rhs_ty = v4_mir_rvalue_ty(mir_id, body_id, rhs)
         if v4_codegen_llvm_route_signature(mir_id, lhs_ty) >= 0 or v4_codegen_llvm_route_signature(mir_id, rhs_ty) >= 0 { give back v4_codegen_llvm_route_binary_error(mir_id, body_id, rvalue_id) }
         if v4_mir_shape_signature(mir_id, lhs_ty) >= 0 or v4_mir_shape_signature(mir_id, rhs_ty) >= 0 { give back "native shape operators need doctrine lowering" }
+        if v4_codegen_llvm_type_names_list(mir_id, lhs_ty) or v4_codegen_llvm_type_names_list(mir_id, rhs_ty) { give back "native list operators are not yet supported" }
         if v4_codegen_llvm_aggregate_kind(mir_id, lhs_ty) != "" or v4_codegen_llvm_aggregate_kind(mir_id, rhs_ty) != "" { give back "native tuple and array operators need doctrine lowering" }
         -- The bounded Sum checkpoint exposes tag checks and proven takes,
         -- not aggregate equality. LLVM icmp has no tagged-struct operand.
@@ -4753,7 +4776,7 @@ task v4_codegen_llvm_mir_has_index_checks(mir_id: int) -> bool {
 }
 
 -- Field and index chains end at a local, a global or a dereferenced
--- pointer. Index places address fixed arrays only; lists are a later row.
+-- pointer. Index places address fixed arrays and lists.
 task v4_codegen_llvm_native_place_error(mir_id: int, body_id: int, place_id: int, depth: int) -> word {
     if depth > 64 { give back "native place nesting exceeds supported depth" }
     if place_id < 0 or place_id >= v4_mir_body_place_count(mir_id, body_id) { give back "invalid native place reference" }
@@ -4777,11 +4800,17 @@ task v4_codegen_llvm_native_place_error(mir_id: int, body_id: int, place_id: int
             if v4_ty_canonical_type(ty_id, declared) != v4_ty_canonical_type(ty_id, v4_mir_place_ty(mir_id, body_id, place_id)) { give back "native field place type differs from the declared field type: " + v4_mir_place_text(mir_id, body_id, place_id) }
             give back ""
         }
-        if v4_codegen_llvm_aggregate_kind(mir_id, base_ty) != "array" { give back "native index places support only fixed arrays: " + v4_mir_place_text(mir_id, body_id, place_id) }
+        pilot is_list: bool = v4_codegen_llvm_is_list(mir_id, base_ty)
+        if v4_codegen_llvm_aggregate_kind(mir_id, base_ty) != "array" and not is_list { give back "native index places support only fixed arrays and lists: " + v4_mir_place_text(mir_id, body_id, place_id) }
         pilot index = v4_mir_place_index(mir_id, body_id, place_id)
         if index < 0 or index >= v4_mir_body_rvalue_count(mir_id, body_id) { give back "invalid native place reference" }
         pilot index_ty = v4_mir_rvalue_ty(mir_id, body_id, index)
         if index_ty != v4_ty_int and index_ty != v4_ty_uint { give back "native array index must be int or uint: " + v4_mir_place_text(mir_id, body_id, place_id) }
+        if is_list {
+            pilot ty_id = v4_mir_ty_id(mir_id)
+            if v4_ty_canonical_type(ty_id, v4_mir_place_ty(mir_id, body_id, place_id)) != v4_ty_canonical_type(ty_id, v4_codegen_llvm_list_element(mir_id, base_ty)) { give back "invalid native index place type" }
+            give back ""
+        }
         if v4_mir_place_ty(mir_id, body_id, place_id) != v4_ty_fixed_array_element_type(base_ty) { give back "invalid native index place type" }
         give back ""
     }
@@ -4921,6 +4950,8 @@ task v4_codegen_llvm_lower_mir_mode(file_id: int, mir_id: int, owned_words: bool
 task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bool, policy: word) -> int {
     v4_codegen_llvm_init()
     v4_codegen_llvm_numeric_runtime_used = false
+    v4_codegen_llvm_list_drop_types = "\n"
+    v4_codegen_llvm_list_used = false
     v4_codegen_llvm_fragment_error = ""
     pilot sealed_policy = policy
     if policy != "unwind" and policy != "abort" { sealed_policy = "" }
@@ -5005,7 +5036,9 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         if native_error == "" { native_error = v4_codegen_llvm_native_global_symbol_error(codegen_id, mir_id) }
         if native_error == "" { native_error = v4_codegen_llvm_native_c_width_error(mir_id, ty_id) }
         pilot runtime = ""
-        pilot index_checks: bool = owned_words and v4_codegen_llvm_mir_has_index_checks(mir_id)
+        v4_codegen_llvm_list_used = owned_words and v4_codegen_llvm_mir_uses_lists(mir_id)
+        if native_error == "" and v4_codegen_llvm_list_used { native_error = v4_codegen_llvm_list_symbol_error(codegen_id) }
+        pilot index_checks: bool = owned_words and (v4_codegen_llvm_mir_has_index_checks(mir_id) or v4_codegen_llvm_list_used)
         if owned_words and (v4_codegen_llvm_mir_has_owned_words(mir_id) or index_checks) {
             runtime = v4_codegen_llvm_word_runtime_declarations()
         }
@@ -5016,6 +5049,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         runtime = runtime + v4_codegen_llvm_bootstrap_runtime_declarations(mir_id)
         if v4_codegen_llvm_mir_has_panic(mir_id) or index_checks { runtime = runtime + "declare void " + v4_codegen_llvm_panic_symbol() + "(i64) noreturn\n" }
         if v4_codegen_llvm_numeric_runtime_used { runtime = runtime + v4_codegen_llvm_numeric_runtime_declarations() }
+        if v4_codegen_llvm_list_used { runtime = runtime + v4_codegen_llvm_list_runtime_lines(mir_id) }
         if native_error == "" { native_error = v4_codegen_llvm_numeric_runtime_symbol_error(codegen_id) }
         -- Global definitions are sealed with the bodies that read them.
         runtime = runtime + v4_codegen_llvm_global_definition_lines(mir_id)
@@ -5025,6 +5059,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         if owned_words { array_set(v4_codegen_llvm_shape_lines, codegen_id, v4_codegen_llvm_shape_records(mir_id)) }
         pilot globals = v4_codegen_llvm_word_globals(mir_id)
         if index_checks { globals = globals + v4_codegen_llvm_bounds_globals() }
+        if v4_codegen_llvm_list_used { globals = globals + v4_codegen_llvm_list_globals() }
         pilot entry = v4_codegen_llvm_native_entry(mir_id)
         if native_error == "" and entry != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_setup_args", "i64, i64") }
         if native_error == "" and globals != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_say", "i64") }
@@ -5298,6 +5333,7 @@ task v4_codegen_llvm_scalar_sum_bridge_instruction(mir: int, body: int, value: i
 
 task v4_codegen_llvm_owned_temporary_drop(mir: int, body: int, value: int, site: word) -> word {
     pilot value_ty = v4_mir_rvalue_ty(mir, body, value)
+    if v4_codegen_llvm_is_list(mir, value_ty) { give back v4_codegen_llvm_list_drop_lines(mir, value_ty, "", v4_codegen_llvm_rvalue_value(mir, body, value), "", "%list.discard." + site) }
     if v4_ty_canonical_type(v4_mir_ty_id(mir), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir, value_ty) {
         -- A route's payload is read in memory: the call's result slot.
         if v4_codegen_llvm_type_has_route_words(mir, value_ty, 0) { give back v4_codegen_llvm_drop_glue_at(mir, value_ty, v4_codegen_llvm_abi_ret_slot(body, value), "", "%agg.discard." + site, 0) }
@@ -5394,7 +5430,7 @@ task v4_codegen_llvm_word_rvalue_is_owned(mir_id: int, body_id: int, rvalue_id: 
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_ty_canonical_type(v4_mir_ty_id(mir_id), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir_id, value_ty) {
         pilot aggregate_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
         if aggregate_kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
-        give back aggregate_kind == v4_mir_rvalue_call or v4_codegen_llvm_is_literal_aggregate(aggregate_kind)
+        give back aggregate_kind == v4_mir_rvalue_call or v4_codegen_llvm_is_literal_aggregate(aggregate_kind) or aggregate_kind == v4_mir_rvalue_list
     }
     if not v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), value_ty) { give back false }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
@@ -5548,6 +5584,7 @@ task v4_codegen_llvm_place_address(parts: int, mir_id: int, body_id: int, place_
         pilot index = v4_mir_place_index(mir_id, body_id, place_id)
         v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, index, v4_codegen_llvm_temp_value(body_id, index), false)
         pilot index_value = v4_codegen_llvm_rvalue_value(mir_id, body_id, index)
+        if v4_codegen_llvm_is_list(mir_id, base_ty) { give back v4_codegen_llvm_list_element_lines(parts, "listidx." + word_from_int(body_id) + "." + word_from_int(place_id) + "." + site, base_pointer, v4_codegen_llvm_type(v4_codegen_llvm_list_element(mir_id, base_ty)), index_value) }
         if v4_codegen_llvm_index_needs_check(mir_id, body_id, place_id) {
             pilot length = word_from_int(v4_codegen_llvm_fixed_array_length(mir_id, base_ty))
             pilot label = "bounds." + word_from_int(body_id) + "." + word_from_int(place_id) + "." + site
@@ -5727,7 +5764,7 @@ task v4_codegen_llvm_is_aggregate_lend(mir_id: int, type_text: word) -> bool {
 -- Storage a native loan points at: a shape, tuple, fixed array, concrete
 -- route, or a scalar (bool, char and the integer and float carriers).
 task v4_codegen_llvm_is_lendable_storage(mir_id: int, type_text: word) -> bool {
-    if v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 { give back true }
+    if v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 or v4_codegen_llvm_is_list(mir_id, type_text) { give back true }
     give back type_text == v4_ty_int or type_text == v4_ty_uint or type_text == v4_ty_tiny or type_text == v4_ty_num or type_text == v4_ty_float or type_text == v4_ty_float32 or type_text == v4_ty_bool or type_text == v4_ty_char
 }
 
@@ -5789,6 +5826,333 @@ task v4_codegen_llvm_collect_aggregate_lend_lines(parts: int, mir_id: int, body_
     }
     if dyn_ref { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_dyn_lend_value_lines(mir_id, body_id, rvalue_id, target, address)) } else { v4_codegen_llvm_fragment_push(parts, "  " + target + " = getelementptr inbounds i8, ptr " + address + ", i64 0\n") }
     give back true
+}
+
+-- Native lists (tier 3). `List<T>` is an owned heap value: one header
+-- `freak.list.header` (data pointer, length, capacity) whose elements sit by
+-- value in a buffer typed per element type (no boxing, no type-erased
+-- pool). The header is a named record, so freak_target answers its layout
+-- like any aggregate. The buffer comes from libc realloc/free, the
+-- allocator the native runtime itself uses, through private module helpers.
+-- A list moves as one value (its header); its drop glue releases every
+-- element's words, then the buffer. Meiya owns every move and drop site.
+task v4_codegen_llvm_is_list(mir_id: int, type_text: word) -> bool {
+    if mir_id < 0 or v4_codegen_llvm_active_owned_mir != mir_id or type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lend_type(type_text) { give back false }
+    give back v4_ty_list_element_type(v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text)) != v4_ty_unknown
+}
+
+task v4_codegen_llvm_list_element(mir_id: int, type_text: word) -> word {
+    give back v4_ty_list_element_type(v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text))
+}
+
+task v4_codegen_llvm_list_header_type() -> word {
+    give back "%\"freak.list.header\""
+}
+
+-- An element's size as an i64 operand LLVM folds per target.
+task v4_codegen_llvm_list_element_size(element_llvm: word) -> word {
+    give back "i64 ptrtoint (ptr getelementptr (" + element_llvm + ", ptr null, i32 1) to i64)"
+}
+
+task v4_codegen_llvm_type_names_list(mir_id: int, type_text: word) -> bool {
+    if v4_ty_is_lend_type(type_text) { give back v4_codegen_llvm_is_list(mir_id, v4_ty_lend_target_type(type_text)) }
+    give back v4_codegen_llvm_is_list(mir_id, type_text)
+}
+
+task v4_codegen_llvm_mir_uses_lists(mir_id: int) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back false }
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) {
+        if v4_codegen_llvm_type_names_list(mir_id, v4_mir_body_callable_return_type(mir_id, body)) { give back true }
+        pilot local = 0
+        repeat until local >= v4_mir_body_local_count(mir_id, body) {
+            if v4_codegen_llvm_type_names_list(mir_id, v4_mir_local_ty(mir_id, body, local)) { give back true }
+            local += 1
+        }
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
+            if v4_codegen_llvm_type_names_list(mir_id, v4_mir_rvalue_ty(mir_id, body, value)) { give back true }
+            value += 1
+        }
+        body += 1
+    }
+    give back false
+}
+
+-- `List<T>` type surfaces: a list is a top-level value (not yet a slot of
+-- another type) of scalars, words, task or raw pointers, or native shapes,
+-- tuples, fixed arrays and routes.
+task v4_codegen_llvm_native_list_type_error(mir_id: int, type_text: word, depth: int) -> word {
+    if depth > 0 { give back "native lists inside other types are not yet supported: " + type_text }
+    pilot element = v4_codegen_llvm_list_element(mir_id, type_text)
+    if element == "" or element == v4_ty_unknown { give back "native list element type is unresolved: " + type_text }
+    if v4_ty_is_lend_type(element) { give back "native lists of loans are not yet supported: " + type_text }
+    if element == v4_ty_void or element == v4_ty_never { give back "native lists of void are not supported: " + type_text }
+    if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), element) or v4_mir_scalar_sum_kind(mir_id, element) != "" or v4_ty_is_maybe_type(element) { give back "native lists of maybe/result values are not yet supported: " + type_text }
+    if v4_codegen_llvm_is_list(mir_id, element) { give back "native lists of lists are not yet supported: " + type_text }
+    if v4_ty_is_closure_type(element) { give back "native lists of closures are not yet supported: " + type_text }
+    give back v4_codegen_llvm_native_type_error_depth(element, false, 1)
+}
+
+-- List literals, list builtin calls (`push`, `length`) and list loop items.
+-- MIR states every operand; codegen adds no operation of its own.
+task v4_codegen_llvm_native_list_rvalue_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+    if not v4_mir_snapshot_rvalue_refs_are_valid(kind, word_from_int(lhs), word_from_int(rhs), v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id), rvalue_id, v4_mir_body_place_count(mir_id, body_id)) { give back "invalid native rvalue references: " + kind }
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot error = v4_codegen_llvm_native_type_error(type_text, kind == v4_mir_rvalue_call)
+    if error != "" { give back error }
+    if kind == v4_mir_rvalue_list {
+        if not v4_codegen_llvm_is_list(mir_id, type_text) { give back "native list literals need a concrete List type: " + type_text }
+        pilot element = v4_codegen_llvm_list_element(mir_id, type_text)
+        pilot arg = 0
+        repeat until arg >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
+            error = v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)), element)
+            if error != "" { give back error }
+            arg += 1
+        }
+        give back ""
+    }
+    if kind == v4_mir_rvalue_loop_item {
+        -- The item is a fresh copy: word leaves are cloned by path, which a
+        -- route payload (read by its tag) does not have yet.
+        if v4_codegen_llvm_type_has_route_words(mir_id, type_text, 0) { give back "native list items of routes that own words are not yet supported: " + type_text }
+        give back ""
+    }
+    if v4_mir_list_intrinsic_kind(mir_id, body_id, rvalue_id) == "push" {
+        pilot list_ty = v4_ty_lend_target_type(v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)))
+        give back v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 1)), v4_codegen_llvm_list_element(mir_id, list_ty))
+    }
+    give back ""
+}
+
+-- The checked address of element `index` of the list whose header is at
+-- `header`. Past the length it panics with V3's wording.
+task v4_codegen_llvm_list_element_lines(parts: int, label: word, header: word, element_llvm: word, index_value: word) -> word {
+    pilot header_ty = v4_codegen_llvm_list_header_type()
+    pilot value = "%" + label
+    v4_codegen_llvm_fragment_push(parts, "  " + value + ".lenp = getelementptr inbounds " + header_ty + ", ptr " + header + ", i32 0, i32 1\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + value + ".len = load i64, ptr " + value + ".lenp\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + value + ".in = icmp ult i64 " + index_value + ", " + value + ".len\n")
+    v4_codegen_llvm_fragment_push(parts, "  br i1 " + value + ".in, label " + value + ".ok, label " + value + ".fail\n" + label + ".fail:\n")
+    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_bounds_panic_lines(value, index_value, value + ".len"))
+    v4_codegen_llvm_fragment_push(parts, "  unreachable\n" + label + ".ok:\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + value + ".data = load ptr, ptr " + header + "\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + value + ".at = getelementptr inbounds " + element_llvm + ", ptr " + value + ".data, i64 " + index_value + "\n")
+    give back value + ".at"
+}
+
+-- One call site in v4_codegen_llvm_collect_owned_special_lines keeps this
+-- out of the recursive collector's frame.
+task v4_codegen_llvm_collect_list_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back false }
+    pilot list_kind = ""
+    if kind == v4_mir_rvalue_call { list_kind = v4_mir_list_intrinsic_kind(mir_id, body_id, rvalue_id) }
+    if kind == v4_mir_rvalue_loop_item and v4_mir_rvalue_is_list_loop_item(mir_id, body_id, rvalue_id) { list_kind = "item" }
+    if kind == v4_mir_rvalue_list { list_kind = "literal" }
+    if list_kind == "" { give back false }
+    pilot header_ty = v4_codegen_llvm_list_header_type()
+    pilot prefix = "%list." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+    if list_kind == "literal" {
+        v4_codegen_llvm_collect_list_literal_lines(parts, mir_id, body_id, rvalue_id, target)
+        give back true
+    }
+    pilot loan = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    if list_kind != "item" { loan = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0) }
+    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, loan, v4_codegen_llvm_temp_value(body_id, loan), false)
+    pilot header = v4_codegen_llvm_rvalue_value(mir_id, body_id, loan)
+    pilot list_ty = v4_ty_lend_target_type(v4_mir_rvalue_ty(mir_id, body_id, loan))
+    pilot element = v4_codegen_llvm_list_element(mir_id, list_ty)
+    pilot element_llvm = v4_codegen_llvm_type(element)
+    if list_kind == "length" {
+        v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".lenp = getelementptr inbounds " + header_ty + ", ptr " + header + ", i32 0, i32 1\n")
+        v4_codegen_llvm_fragment_push(parts, "  " + target + " = load i64, ptr " + prefix + ".lenp\n")
+        give back true
+    }
+    if list_kind == "push" {
+        -- The item moves into the slot push_slot opens at the end.
+        pilot item = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 1)
+        v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, item, v4_codegen_llvm_temp_value(body_id, item), false)
+        pilot cast = prefix + ".item"
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, item, element, cast))
+        v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".slot = call ptr @freak.list.push_slot(ptr " + header + ", " + v4_codegen_llvm_list_element_size(element_llvm) + ")\n")
+        v4_codegen_llvm_fragment_push(parts, "  store " + element_llvm + " " + v4_codegen_llvm_expected_value(mir_id, body_id, item, element, cast) + ", ptr " + prefix + ".slot\n")
+        give back true
+    }
+    -- A loop item: a fresh owned copy of the element (each word cloned).
+    pilot index = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, index, v4_codegen_llvm_temp_value(body_id, index), false)
+    pilot at = v4_codegen_llvm_list_element_lines(parts, v4_slice(prefix, 1, prefix.length()), header, element_llvm, v4_codegen_llvm_rvalue_value(mir_id, body_id, index))
+    pilot clone = v4_codegen_llvm_word_intrinsic_symbol_for(mir_id, "clone")
+    if v4_ty_canonical_type(v4_mir_ty_id(mir_id), element) == v4_ty_word {
+        v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".v = load i64, ptr " + at + "\n")
+        v4_codegen_llvm_fragment_push(parts, "  " + target + " = call i64 " + clone + "(i64 " + prefix + ".v)\n")
+        give back true
+    }
+    pilot paths = v4_codegen_llvm_word_leaf_paths(mir_id, element, "")
+    if paths == "" {
+        v4_codegen_llvm_fragment_push(parts, "  " + target + " = load " + element_llvm + ", ptr " + at + "\n")
+        give back true
+    }
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".v = load " + element_llvm + ", ptr " + at + "\n")
+    pilot previous = prefix + ".v"
+    pilot leaf = 0
+    pilot start = 0
+    repeat until start > paths.length() {
+        pilot stop = v4_index_of_from(paths, ";", start)
+        if stop < 0 { stop = paths.length() }
+        pilot path = v4_slice(paths, start, stop)
+        pilot handle = prefix + ".leaf." + word_from_int(leaf)
+        v4_codegen_llvm_fragment_push(parts, "  " + handle + " = extractvalue " + element_llvm + " " + previous + ", " + path + "\n")
+        v4_codegen_llvm_fragment_push(parts, "  " + handle + ".copy = call i64 " + clone + "(i64 " + handle + ")\n")
+        pilot name = prefix + ".with." + word_from_int(leaf)
+        if stop >= paths.length() { name = target }
+        v4_codegen_llvm_fragment_push(parts, "  " + name + " = insertvalue " + element_llvm + " " + previous + ", i64 " + handle + ".copy, " + path + "\n")
+        previous = name
+        leaf += 1
+        start = stop + 1
+    }
+    give back true
+}
+
+-- A literal allocates exactly its length; `[]` is the empty header (no
+-- buffer until the first push). Elements move in, in source order.
+task v4_codegen_llvm_collect_list_literal_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word) -> void {
+    pilot header_ty = v4_codegen_llvm_list_header_type()
+    pilot element = v4_codegen_llvm_list_element(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+    pilot element_llvm = v4_codegen_llvm_type(element)
+    pilot prefix = "%list." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+    pilot count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+    if count <= 0 {
+        v4_codegen_llvm_fragment_push(parts, "  " + target + " = freeze " + header_ty + " zeroinitializer\n")
+        give back
+    }
+    pilot arg = 0
+    repeat until arg >= count {
+        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)
+        v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, child, v4_codegen_llvm_temp_value(body_id, child), false)
+        arg += 1
+    }
+    pilot length = word_from_int(count)
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".data = call ptr @freak.list.alloc(i64 " + length + ", " + v4_codegen_llvm_list_element_size(element_llvm) + ")\n")
+    arg = 0
+    repeat until arg >= count {
+        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)
+        pilot slot = prefix + ".e" + word_from_int(arg)
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, child, element, slot + ".cast"))
+        v4_codegen_llvm_fragment_push(parts, "  " + slot + " = getelementptr inbounds " + element_llvm + ", ptr " + prefix + ".data, i64 " + word_from_int(arg) + "\n")
+        v4_codegen_llvm_fragment_push(parts, "  store " + element_llvm + " " + v4_codegen_llvm_expected_value(mir_id, body_id, child, element, slot + ".cast") + ", ptr " + slot + "\n")
+        arg += 1
+    }
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".h0 = insertvalue " + header_ty + " undef, ptr " + prefix + ".data, 0\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".h1 = insertvalue " + header_ty + " " + prefix + ".h0, i64 " + length + ", 1\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + target + " = insertvalue " + header_ty + " " + prefix + ".h1, i64 " + length + ", 2\n")
+}
+
+-- Drop glue of a list (at `address`, or a header `value` when address is
+-- ""): the element type's private drop helper over (data, len). Under
+-- `cond` the helper sees an empty list, so nothing is released.
+task v4_codegen_llvm_list_drop_lines(mir_id: int, type_text: word, address: word, value: word, cond: word, temp: word) -> word {
+    pilot header_ty = v4_codegen_llvm_list_header_type()
+    pilot element = v4_codegen_llvm_list_element(mir_id, type_text)
+    if not v4_codegen_llvm_list_drop_types.contains("\n" + element + "\n") { v4_codegen_llvm_list_drop_types = v4_codegen_llvm_list_drop_types + element + "\n" }
+    pilot out = ""
+    if address != "" {
+        out = "  " + temp + ".data = load ptr, ptr " + address + "\n"
+        out = out + "  " + temp + ".lenp = getelementptr inbounds " + header_ty + ", ptr " + address + ", i32 0, i32 1\n"
+        out = out + "  " + temp + ".len = load i64, ptr " + temp + ".lenp\n"
+    } else {
+        out = "  " + temp + ".data = extractvalue " + header_ty + " " + value + ", 0\n"
+        out = out + "  " + temp + ".len = extractvalue " + header_ty + " " + value + ", 1\n"
+    }
+    pilot data = temp + ".data"
+    pilot length = temp + ".len"
+    if cond != "" {
+        data = temp + ".data.live"
+        length = temp + ".len.live"
+        out = out + "  " + data + " = select i1 " + cond + ", ptr " + temp + ".data, ptr null\n"
+        out = out + "  " + length + " = select i1 " + cond + ", i64 " + temp + ".len, i64 0\n"
+    }
+    give back out + "  call void " + v4_codegen_llvm_symbol("freak.list.drop." + element) + "(ptr " + data + ", i64 " + length + ")\n"
+}
+
+-- The private helpers a module with lists links: allocation with overflow
+-- checks (amortized doubling from 4), and one drop helper per element type.
+-- An allocation failure panics through the module's panic policy.
+task v4_codegen_llvm_list_runtime_lines(mir_id: int) -> word {
+    pilot header_ty = v4_codegen_llvm_list_header_type()
+    pilot pair = "{" + " i64, i1 " + "}"
+    pilot fail = "fail:\n  %msg = call i64 @freak_v4_word_from_bytes(i64 ptrtoint (ptr @freak.list.oom to i64), i64 22)\n  call void " + v4_codegen_llvm_panic_symbol() + "(i64 %msg) noreturn\n  unreachable\n"
+    pilot out = "declare ptr @realloc(ptr, i64)\ndeclare void @free(ptr)\ndeclare " + pair + " @llvm.umul.with.overflow.i64(i64, i64)\n"
+    out = out + "define internal ptr @freak.list.alloc(i64 %count, i64 %size) " + "{" + "\nentry:\n"
+    out = out + "  %bytes.o = call " + pair + " @llvm.umul.with.overflow.i64(i64 %count, i64 %size)\n"
+    out = out + "  %bytes = extractvalue " + pair + " %bytes.o, 0\n  %over = extractvalue " + pair + " %bytes.o, 1\n"
+    out = out + "  %none = icmp eq i64 %bytes, 0\n  %ask = select i1 %none, i64 1, i64 %bytes\n"
+    out = out + "  br i1 %over, label %fail, label %grow\ngrow:\n"
+    out = out + "  %data = call ptr @realloc(ptr null, i64 %ask)\n  %lost = icmp eq ptr %data, null\n"
+    out = out + "  br i1 %lost, label %fail, label %ok\nok:\n  ret ptr %data\n" + fail + "}\n"
+    out = out + "define internal ptr @freak.list.push_slot(ptr %h, i64 %size) " + "{" + "\nentry:\n"
+    out = out + "  %lenp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 1\n"
+    out = out + "  %capp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 2\n"
+    out = out + "  %len = load i64, ptr %lenp\n  %cap = load i64, ptr %capp\n  %old = load ptr, ptr %h\n"
+    out = out + "  %full = icmp uge i64 %len, %cap\n  br i1 %full, label %grow, label %store\ngrow:\n"
+    out = out + "  %small = icmp ult i64 %cap, 4\n  %twice = shl i64 %cap, 1\n  %next = select i1 %small, i64 4, i64 %twice\n"
+    out = out + "  %wrapped = icmp ult i64 %next, %cap\n"
+    out = out + "  %bytes.o = call " + pair + " @llvm.umul.with.overflow.i64(i64 %next, i64 %size)\n"
+    out = out + "  %bytes = extractvalue " + pair + " %bytes.o, 0\n  %over.mul = extractvalue " + pair + " %bytes.o, 1\n"
+    out = out + "  %over = or i1 %over.mul, %wrapped\n"
+    out = out + "  %none = icmp eq i64 %bytes, 0\n  %ask = select i1 %none, i64 1, i64 %bytes\n"
+    out = out + "  br i1 %over, label %fail, label %resize\nresize:\n"
+    out = out + "  %grown = call ptr @realloc(ptr %old, i64 %ask)\n  %lost = icmp eq ptr %grown, null\n"
+    out = out + "  br i1 %lost, label %fail, label %grown.ok\ngrown.ok:\n"
+    out = out + "  store ptr %grown, ptr %h\n  store i64 %next, ptr %capp\n  br label %store\nstore:\n"
+    out = out + "  %data = phi ptr [ %old, %entry ], [ %grown, %grown.ok ]\n"
+    out = out + "  %count = add i64 %len, 1\n  store i64 %count, ptr %lenp\n"
+    out = out + "  %offset = mul i64 %len, %size\n  %slot = getelementptr inbounds i8, ptr %data, i64 %offset\n  ret ptr %slot\n" + fail + "}\n"
+    pilot start = 1
+    repeat until start >= v4_codegen_llvm_list_drop_types.length() {
+        pilot stop = v4_index_of_from(v4_codegen_llvm_list_drop_types, "\n", start)
+        if stop < 0 { stop = v4_codegen_llvm_list_drop_types.length() }
+        pilot element = v4_slice(v4_codegen_llvm_list_drop_types, start, stop)
+        pilot element_llvm = v4_codegen_llvm_type(element)
+        out = out + "define internal void " + v4_codegen_llvm_symbol("freak.list.drop." + element) + "(ptr %data, i64 %len) " + "{" + "\nentry:\n"
+        if v4_codegen_llvm_word_leaf_count(mir_id, element, 0) > 0 {
+            out = out + "  %empty = icmp eq i64 %len, 0\n  br i1 %empty, label %done, label %each\neach:\n"
+            out = out + "  %i = phi i64 [ 0, %entry ], [ %next, %each ]\n"
+            out = out + "  %at = getelementptr inbounds " + element_llvm + ", ptr %data, i64 %i\n"
+            out = out + v4_codegen_llvm_drop_glue_at(mir_id, element, "%at", "", "%e", 0)
+            out = out + "  %next = add i64 %i, 1\n  %more = icmp ult i64 %next, %len\n"
+            out = out + "  br i1 %more, label %each, label %done\ndone:\n"
+        }
+        out = out + "  call void @free(ptr %data)\n  ret void\n}\n"
+        start = stop + 1
+    }
+    give back out
+}
+
+task v4_codegen_llvm_list_globals() -> word {
+    give back "@freak.list.oom = private unnamed_addr constant [23 x i8] c\"list allocation failed\\00\", align 1\n"
+}
+
+-- The helpers link libc's allocator under its C names, so a module with
+-- lists may not declare or define those symbols itself.
+task v4_codegen_llvm_list_symbol_error(codegen_id: int) -> word {
+    pilot reserved = ",@realloc,@free,@llvm.umul.with.overflow.i64,"
+    pilot body = 0
+    repeat until body >= v4_codegen_llvm_body_count(codegen_id) {
+        pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body)
+        if reserved.contains("," + symbol + ",") or symbol.starts_with("@freak.list.") or symbol.starts_with("@\"freak.list.") { give back "native list runtime symbol conflict: " + symbol }
+        body += 1
+    }
+    pilot decl = 0
+    repeat until decl >= v4_codegen_llvm_decl_count(codegen_id) {
+        pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl)
+        if reserved.contains("," + symbol + ",") or symbol.starts_with("@freak.list.") or symbol.starts_with("@\"freak.list.") { give back "native list runtime symbol conflict: " + symbol }
+        decl += 1
+    }
+    give back ""
 }
 
 -- Aggregate loans borrow a named local or a field/element place, with the
@@ -6541,7 +6905,7 @@ task v4_codegen_llvm_collect_owned_special_lines(parts: int, mir_id: int, body_i
     }
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut { give back v4_codegen_llvm_collect_aggregate_lend_lines(parts, mir_id, body_id, rvalue_id, target) }
     if kind == v4_mir_rvalue_closure { give back v4_codegen_llvm_collect_closure_lines(parts, mir_id, body_id, rvalue_id, target) }
-    give back false
+    give back v4_codegen_llvm_collect_list_lines(parts, mir_id, body_id, rvalue_id, target, kind)
 }
 
 task v4_codegen_llvm_collect_owned_rvalue_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, borrowed: bool) -> void {
@@ -7056,7 +7420,7 @@ task v4_codegen_llvm_word_boundary_types_error(mir_id: int, body_id: int) -> wor
             if lhs >= 0 and v4_codegen_llvm_type_is_word_handle(v4_mir_rvalue_ty(mir_id, body_id, lhs)) { give back "native word operators require compiler-owned intrinsic identities" }
             if rhs >= 0 and v4_codegen_llvm_type_is_word_handle(v4_mir_rvalue_ty(mir_id, body_id, rhs)) { give back "native word operators require compiler-owned intrinsic identities" }
         }
-        if kind == v4_mir_rvalue_call and not v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_control(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_system(mir_id, body_id, value) and v4_mir_rvalue_op(mir_id, body_id, value) != v4_mir_call_say_literal {
+        if kind == v4_mir_rvalue_call and not v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_control(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_system(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_list(mir_id, body_id, value) and v4_mir_rvalue_op(mir_id, body_id, value) != v4_mir_call_say_literal {
             pilot call_name = v4_mir_rvalue_op(mir_id, body_id, value)
             if call_name != v4_mir_call_raw_ptr_write {
                 pilot expected_return = v4_codegen_llvm_word_call_return_type(mir_id, body_id, value)
@@ -7145,7 +7509,7 @@ task v4_codegen_llvm_owned_word_error(mir_id: int) -> word {
                 -- (v4_codegen_llvm_aggregate_word_ownership_error). A closure
                 -- capture is named by v4_codegen_llvm_native_closure_rvalue_error.
                 pilot capture: bool = kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut or kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move
-                if not capture and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_call and kind != v4_mir_rvalue_sum_take and kind != v4_mir_rvalue_try and kind != v4_mir_rvalue_or_else and kind != v4_mir_rvalue_use_place and not v4_codegen_llvm_rvalue_is_global_read(mir_id, body, value) { give back "native owned word rvalue not yet supported: " + kind }
+                if not capture and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_call and kind != v4_mir_rvalue_sum_take and kind != v4_mir_rvalue_try and kind != v4_mir_rvalue_or_else and kind != v4_mir_rvalue_use_place and not v4_codegen_llvm_rvalue_is_global_read(mir_id, body, value) and not v4_mir_rvalue_is_list_loop_item(mir_id, body, value) { give back "native owned word rvalue not yet supported: " + kind }
             }
             value += 1
         }
