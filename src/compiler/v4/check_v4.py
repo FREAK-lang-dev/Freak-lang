@@ -18000,6 +18000,20 @@ def check_v4_native_maybe_result() -> None:
           f"abi-probes={abi_probes} targets={len(NATIVE_LAYOUT_TRIPLES)} objects={objects} rejections={len(rejected_cases)}")
 
 
+def check_v4_native_lists_panic(executable: Path) -> None:
+    """Any argument makes lists_native.fk index past the end of its list."""
+    panicked = run_with_heartbeat([str(executable), "out-of-bounds"], label="V4 native list bounds check", timeout_seconds=10, memory_limit_mb=128)
+    if panicked.returncode != 101 or NATIVE_LISTS_PANIC not in panicked.stdout + panicked.stderr:
+        raise RuntimeError(f"V4 native list bounds check did not panic: exit={panicked.returncode} "
+                           f"stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
+
+
+def check_v4_native_lists_layout_note(module_text: str, triple: str) -> None:
+    """The list header must carry a layout note so the oracle checks it on every target."""
+    if not re.search(r'^; freak\.layout %"freak\.list\.header" size=\d+ align=\d+ offsets=', module_text, re.MULTILINE):
+        raise RuntimeError(f"V4 lists module for {triple} has no layout note for the list header")
+
+
 def check_v4_native_shapes() -> None:
     """Tier 3 shapes: build and run natively; check layouts on all targets."""
     from build_v4 import host_target
@@ -18042,11 +18056,7 @@ def check_v4_native_shapes() -> None:
                 raise RuntimeError(f"V4 native bounds check did not panic: exit={panicked.returncode} "
                                    f"stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
         if stem == "lists":
-            # Any argument makes the program index past the end of its list.
-            panicked = run_with_heartbeat([str(executable), "out-of-bounds"], label="V4 native list bounds check", timeout_seconds=10, memory_limit_mb=128)
-            if panicked.returncode != 101 or NATIVE_LISTS_PANIC not in panicked.stdout + panicked.stderr:
-                raise RuntimeError(f"V4 native list bounds check did not panic: exit={panicked.returncode} "
-                                   f"stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
+            check_v4_native_lists_panic(executable)
         for triple in NATIVE_LAYOUT_TRIPLES:
             module_path = RUNTIME_BUILD_ROOT / f"tier3_native_{stem}_{triple}.ll"
             module_path.unlink(missing_ok=True)
@@ -18057,8 +18067,8 @@ def check_v4_native_shapes() -> None:
             if emitted.returncode != 0 or not module_path.exists():
                 raise RuntimeError(f"V4 could not emit the {stem} module for {triple}:\n{emitted.stdout}{emitted.stderr}")
             module_text = module_path.read_text(encoding="utf-8")
-            if stem == "lists" and not re.search(r'^; freak\.layout %"freak\.list\.header" size=\d+ align=\d+ offsets=', module_text, re.MULTILINE):
-                raise RuntimeError(f"V4 lists module for {triple} has no layout note for the list header")
+            if stem == "lists":
+                check_v4_native_lists_layout_note(module_text, triple)
             probes += check_native_layout_oracle(module_text, triple)
             abi_probes += check_native_abi_oracle(module_text, triple)
             if stem == "agg_abi":
