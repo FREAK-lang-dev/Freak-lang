@@ -1,0 +1,165 @@
+-- Tier 3 generic monomorphization: one native body per instance of a
+-- generic task or generic impl method, and one layout per instance of a
+-- generic shape or route. check_v4.check_v4_native_shapes runs this program
+-- (NATIVE_GENERICS_EXPECTED) and checks every instance layout note against
+-- Clang on each NATIVE_LAYOUT_TRIPLES target.
+
+shape Point { x: int, y: int }
+shape Named { name: word, score: int }
+shape Box<T> { value: T, count: int }
+shape Pair<A, B> { left: A, right: B }
+route Opt<T> { Has { value: T }, Empty }
+route Either<L, R> { Left { l: L }, Right { r: R } }
+
+doctrine Scored { task score(self) -> int }
+impl Scored for Point { task score(self) -> int { give back self.x * 10 + self.y } }
+impl Scored for Named { task score(self) -> int { give back self.score } }
+
+doctrine Seed {
+    task zero() -> Self
+    task bump(self) -> Self
+}
+impl Seed for Point {
+    task zero() -> Point { give back Point { x: 1, y: 2 } }
+    task bump(self) -> Point { give back Point { x: self.x + 10, y: self.y } }
+}
+impl Seed for int {
+    task zero() -> int { give back 5 }
+    task bump(self) -> int { give back self + 1 }
+}
+
+doctrine Add { task add(self, other: Self) -> Self }
+shape Acc<T> { total: int, tag: T }
+impl Add for Acc<T> {
+    task add(self, other: Acc<T>) -> Acc<T> { give back Acc { total: self.total + other.total, tag: self.tag } }
+}
+
+impl Box<T> {
+    task make(v: T) -> Box<T> { give back Box { value: v, count: 1 } }
+    task get(self) -> T { give back self.value }
+    task size(lend self) -> int { give back self.count }
+    task put(lend mut self, v: T) -> void {
+        self.value = v
+        self.count = self.count + 1
+    }
+}
+
+-- Tasks over every native value class.
+task ident<T>(x: T) -> T { give back x }
+
+task pick<T>(first: bool, a: T, b: T) -> T {
+    if first { give back a }
+    give back b
+}
+
+task pair<A, B>(a: A, b: B) -> (A, B) { give back (a, b) }
+
+-- An instance calling another instance of a different generic task.
+task twice<T>(x: T) -> (T, T) {
+    pilot y: T = ident(x)
+    give back (y, y)
+}
+
+task count_all<T>(items: [T; 3]) -> int { give back 3 }
+
+task wrap<T>(x: T) -> maybe<T> { give back some(x) }
+
+task first_of<T>(lend a: T, lend b: T) -> int { give back 2 }
+
+task replace<T>(lend mut slot: T, v: T) -> void { slot = v }
+
+-- Recursion inside one instance reuses that instance.
+task depth<T>(x: T, n: int) -> int {
+    if n <= 1 { give back 1 }
+    give back n * depth(x, n - 1)
+}
+
+-- Generic shapes and routes, instantiated with words and other instances.
+task boxed<T>(x: T) -> Box<T> { give back Box { value: x, count: 1 } }
+
+task unbox<T>(b: Box<T>) -> T { give back b.value }
+
+task some_of<T>(x: T) -> Opt<T> { give back Opt::Has { value: x } }
+
+task get_or<T>(o: Opt<T>, fallback: T) -> T {
+    when o {
+        Opt::Has { value } -> give back value
+        Opt::Empty -> give back fallback
+    }
+    give back fallback
+}
+
+-- Doctrine-bound calls resolve against the concrete type of each instance.
+task best<T: Scored>(a: T) -> int { give back a.score() }
+
+task best_ufcs<T: Scored>(a: T) -> int { give back T::score(a) }
+
+-- A static doctrine method and a Self result, per instance.
+task fresh<T: Seed>(like: T) -> T { give back T::zero() }
+
+task bumped<T: Seed>(v: T) -> T { give back v.bump() }
+
+task main() -> int {
+    pilot a = ident(5)
+    pilot w = ident("hello")
+    pilot p = ident(Point { x: 3, y: 4 })
+    pilot q = pick(false, Point { x: 1, y: 2 }, p)
+    pilot s = pick(true, "left", "right")
+    pilot t = pair(7, "seven")
+    pilot d = twice(2.5)
+    pilot n = ident(Named { name: "kei", score: 9 })
+    say a.to_word()
+    say w
+    say s
+    say q.x.to_word() + "," + q.y.to_word()
+    say t.1 + "=" + t.0.to_word()
+    say n.name + ":" + n.score.to_word()
+
+    pilot arr: [int; 3] = [1, 2, 3]
+    say count_all(arr).to_word()
+    pilot m = wrap(41)
+    say (m or else 0).to_word()
+    pilot mut target = Point { x: 1, y: 1 }
+    replace(lend mut target, Point { x: 8, y: 2 })
+    pilot mut label = "old"
+    replace(lend mut label, "new")
+    say label
+    say (target.x + first_of(lend target, lend target)).to_word()
+    say depth("w", 5).to_word()
+
+    pilot b: Box<int> = Box { value: 7, count: 2 }
+    pilot hi = boxed("hi")
+    pilot nested = boxed(boxed(5))
+    pilot pw: Pair<int, word> = Pair { left: 3, right: "three" }
+    say pw.right + " " + pw.left.to_word()
+    say unbox(hi)
+    say (b.value + b.count + nested.value.value).to_word()
+
+    pilot e: Either<int, word> = Either::Right { r: "right" }
+    when e {
+        Either::Left { l } -> say "left"
+        Either::Right { r } -> say r
+    }
+    say get_or(some_of("routed"), "none")
+    pilot empty: Opt<int> = Opt::Empty
+    say (get_or(some_of(4), 0) + get_or(empty, 30)).to_word()
+
+    say best(Point { x: 3, y: 4 }).to_word()
+    say best(Named { name: "yui", score: 6 }).to_word()
+    say best_ufcs(Point { x: 1, y: 2 }).to_word()
+    pilot seeded = bumped(fresh(Point { x: 0, y: 0 }))
+    say (seeded.x + bumped(3) + fresh(0)).to_word()
+
+    pilot mut held: Box<word> = Box<word>::make("first")
+    held.put("second")
+    say held.size().to_word()
+    pilot got = held.get()
+    say got
+    pilot c: Box<int> = Box<int>::make(20)
+    pilot left: Acc<word> = Acc { total: 4, tag: "x" }
+    pilot right: Acc<word> = Acc { total: 5, tag: "y" }
+    pilot sum = left + right
+    say sum.tag + sum.total.to_word()
+    pilot sized = Box<int>::size(lend b)
+    give back c.get() + sized
+}

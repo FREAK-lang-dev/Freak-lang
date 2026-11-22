@@ -8891,7 +8891,7 @@ task v4_borrowck_aggregate_holds_word(mir_id: int, type_text: word, depth: int) 
     if sig < 0 { give back v4_borrowck_route_holds_word(mir_id, type_text, depth) }
     pilot field = 0
     repeat until field >= v4_ty_shape_field_count(ty_id, sig) {
-        if v4_borrowck_aggregate_holds_word(mir_id, v4_ty_shape_field_type(ty_id, sig, field), depth + 1) { give back true }
+        if v4_borrowck_aggregate_holds_word(mir_id, v4_mir_shape_field_type(mir_id, type_text, field), depth + 1) { give back true }
         field += 1
     }
     give back false
@@ -8900,10 +8900,16 @@ task v4_borrowck_aggregate_holds_word(mir_id: int, type_text: word, depth: int) 
 -- A concrete route owns words when some case's payload does.
 task v4_borrowck_route_holds_word(mir_id: int, type_text: word, depth: int) -> bool {
     pilot ty_id = v4_mir_ty_id(mir_id)
-    if v4_ty_is_generic_instance_type(type_text) { give back false }
-    pilot sig = v4_ty_route_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, type_text))
-    if sig < 0 or v4_ty_signature_generic_count(ty_id, sig) > 0 { give back false }
+    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
+    pilot sig = v4_ty_route_signature_id_for_name(ty_id, canonical)
+    if sig < 0 { give back false }
     pilot route_name = v4_ty_signature_name(ty_id, sig)
+    -- A concrete generic route instance (Opt<word>) owns what its
+    -- substituted payload fields own; TY applies the arguments by name.
+    if v4_ty_signature_generic_count(ty_id, sig) > 0 {
+        if not v4_mir_generic_aggregate_instance_is_native(ty_id, sig, canonical) { give back false }
+        route_name = canonical
+    } else if v4_ty_is_generic_instance_type(canonical) { give back false }
     pilot case_id = 0
     repeat until case_id >= v4_ty_route_case_count(ty_id, sig) {
         pilot case_name = v4_ty_route_case_name(ty_id, sig, case_id)

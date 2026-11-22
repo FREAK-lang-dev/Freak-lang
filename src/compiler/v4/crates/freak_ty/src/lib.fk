@@ -2316,7 +2316,8 @@ task v4_ty_native_sum_payload_holds_word(ty_id: int, type_text: word, depth: int
     if shape_sig >= 0 {
         pilot field = 0
         repeat until field >= v4_ty_shape_field_count(ty_id, shape_sig) {
-            if v4_ty_native_sum_payload_holds_word(ty_id, v4_ty_shape_field_type(ty_id, shape_sig, field), depth + 1) { give back true }
+            -- A generic shape instance answers for its substituted fields.
+            if v4_ty_native_sum_payload_holds_word(ty_id, v4_ty_apply_signature_generics(ty_id, shape_sig, canonical, v4_ty_shape_field_type(ty_id, shape_sig, field)), depth + 1) { give back true }
             field += 1
         }
         give back false

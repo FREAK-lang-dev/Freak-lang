@@ -451,7 +451,7 @@ parity. This does not claim native C UI support or general collection fields.
 | Operator overloading: `Index` | ✅ | ✅ wired in Python compiler ([freakc/emitter.py:924-934](freakc/emitter.py)); V4 native code calls `index` with the declared receiver mode on types without built-in elements; V3 emitter still missing |
 | Operator overloading: `IndexMut` (`a[i] = x`) | ⚠️ | 📖 V4 | V4 native code lowers `a[i] = x` to `index_mut(lend mut a, i, x)` (bible §1.6 form); compound `a[i] += x` is named, and the Python and V3 compilers still lack it |
 | `dyn Doctrine` dynamic dispatch with vtable | ⚠️ | 📖 V4 | V4 carries dyn type positions, coercion checks, MIR call facts, and editor facts. Native lend dyn: MIR Build seals one vtable per (type, doctrine) pair plus each erasure and call slot; codegen emits the §1.6 vtable (type id, size, align, drop, clone, slots in declaration order) with freak_target layout and calls slot `5 + k` with the data pointer first (`examples/dyn_native.fk`, `check_v4_native_dyn`, vtable oracle on four targets). Owned/boxed dyn values, dyn results, lend-typed dyn locals, generic doctrines and by-value `self` slots are fenced by name |
-| Multi-bound generics `T: A + B` | ⚠️ | 📖 V4 | V4 parses top-level `+` bounds and carries them through TY/MIR/editor queries, including generic coercion into `dyn Doctrine`; production monomorphization still expands |
+| Multi-bound generics `T: A + B` | ⚠️ | 📖 V4 | V4 parses top-level `+` bounds and carries them through TY/MIR/editor queries, including generic coercion into `dyn Doctrine`; V4 native builds monomorphize bound generics, resolving bound calls against each instance's concrete impl |
 | `dyn` object-safety rules | ⚠️ | 📖 V4 | V4 TY/MIR now diagnose unknown dyn doctrines plus first-pass object-safety failures (`Self` in dispatched signatures and no-receiver methods), and validates concrete/generic coercion into dyn slots; richer `where Self: Sized` nuance and backend vtables still expand |
 
 #### §1.7 Control Flow
@@ -497,8 +497,8 @@ parity. This does not claim native C UI support or general collection fields.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `task name<T>(x: T)` parametric type params | ⚠️ | 📖 V4 | parsed; monomorphization via emitter is partial |
-| Trait bounds `T: Doctrine` | ⚠️ | 📖 V4 | V4 enforces doctrine bounds on generic call sites, instance methods, bound static methods, and doctrine-bound UFCS. Instantiated doctrine arguments propagate before alias canonicalization through MIR/editor parameter and return facts, generic names outrank global aliases, and overlapping bound-method names diagnose ambiguity; backend/monomorphization depth still expands |
+| `task name<T>(x: T)` parametric type params | ⚠️ | 📖 V4 | parsed; V4 native builds monomorphize generic tasks, generic shapes and routes, and methods of generic impls (one body and one layout per instance, deterministic symbols such as `ident<int>` and `Box<int>::get`, named depth/count/size caps); inferring type arguments from the binding or result, generic task values, and closures inside generic bodies still expand |
+| Trait bounds `T: Doctrine` | ⚠️ | 📖 V4 | V4 enforces doctrine bounds on generic call sites, instance methods, bound static methods, and doctrine-bound UFCS. Instantiated doctrine arguments propagate before alias canonicalization through MIR/editor parameter and return facts, generic names outrank global aliases, and overlapping bound-method names diagnose ambiguity; V4 native instances call bound instance, static and UFCS methods on the concrete impl (`examples/generics_native.fk`) |
 | Multi-bound `T: A + B` | ⚠️ | 📖 V4 | V4 parses and enforces multiple doctrine bounds across generic calls and bound-method tooling, including associated and UFCS lookup; broader generic depth remains |
 
 #### §1.12 Borrow Checker — see §4 below
@@ -1211,7 +1211,7 @@ Phase-1 BC working as advertised.
 This is where V4 will need test coverage. **Out of scope for this audit; surfaced for V4 milestone planning.**
 
 - §1.6 doctrines: 0 standalone tests
-- §1.11 generics: V4 TY/MIR/editor smokes now cover generic calls, constructors, alias-backed shapes/routes, multi-bound doctrine constraints, doctrine-bound static/UFCS dispatch with instantiated doctrine arguments, and generic coercion into `dyn Doctrine`; production monomorphization depth still expands
+- §1.11 generics: V4 TY/MIR/editor smokes now cover generic calls, constructors, alias-backed shapes/routes, multi-bound doctrine constraints, doctrine-bound static/UFCS dispatch with instantiated doctrine arguments, and generic coercion into `dyn Doctrine`; V4 native monomorphization runs `examples/generics_native.fk` from `check_v4_native_shapes`
 - §1.13 module imports: 0 tests
 - §1.14 variants/aliases: V4 smokes now cover route-family variants, payload patterns, alias cycles, alias-backed exhaustiveness, direct recursive shape/variant rejection, editor facts, and alias nominality; backend layout still expands
 - §2.1 power<N>: 0 tests

@@ -219,7 +219,21 @@ pilot v4_raw_ptr_oc_cast_mut_stmt_rvalue = v4_mir_stmt_rvalue(v4_raw_ptr_oc_good
 
 say "raw-ptr-oc-good-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_raw_ptr_oc_good_ty))
 say "raw-ptr-oc-good-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_oc_good_mir))
-say "raw-ptr-oc-generic-native-fence=" + word_from_bool(v4_codegen_llvm_native_module_error(v4_raw_ptr_oc_good_llvm) == "native type not yet supported: Box<T>" and v4_codegen_llvm_module_text(v4_raw_ptr_oc_good_llvm, v4_raw_ptr_oc_target) == "")
+-- Since monomorphization, an uninstantiated generic impl method is a template
+-- that native code never emits, so the module lowers without Box<T>; a
+-- Box<tiny> caller gets its own instance body with the concrete cast.
+pilot v4_raw_ptr_oc_good_module = v4_codegen_llvm_module_text(v4_raw_ptr_oc_good_llvm, v4_raw_ptr_oc_target)
+say "raw-ptr-oc-generic-template-native=" + word_from_bool(v4_codegen_llvm_native_module_error(v4_raw_ptr_oc_good_llvm) == "" and v4_raw_ptr_oc_good_module != "" and not v4_raw_ptr_oc_good_module.contains("Box<T>"))
+pilot v4_raw_ptr_oc_instance_text = v4_raw_ptr_oc_good_source(true) + "task retarget_tiny() -> *const tiny {\n" + "    pilot b: Box<tiny> = Box {" + " value: 1t }\n" + "    give back b.retarget(lookup())\n" + "}\n"
+pilot v4_raw_ptr_oc_instance_stream = v4_lex_text(3, v4_raw_ptr_oc_instance_text)
+pilot v4_raw_ptr_oc_instance_tree = v4_parse_stream(3, v4_raw_ptr_oc_instance_stream)
+pilot v4_raw_ptr_oc_instance_hir = v4_hir_lower_tree(3, v4_raw_ptr_oc_instance_tree)
+pilot v4_raw_ptr_oc_instance_resolve = v4_resolve_lower_hir(3, v4_raw_ptr_oc_instance_hir)
+pilot v4_raw_ptr_oc_instance_ty = v4_ty_lower_resolve(3, v4_raw_ptr_oc_instance_resolve)
+pilot v4_raw_ptr_oc_instance_mir = v4_mir_lower_ty_with_closure_bodies(3, v4_raw_ptr_oc_instance_ty)
+pilot v4_raw_ptr_oc_instance_llvm = v4_codegen_llvm_lower_owned_mir(3, v4_raw_ptr_oc_instance_mir)
+pilot v4_raw_ptr_oc_instance_module = v4_codegen_llvm_module_text(v4_raw_ptr_oc_instance_llvm, v4_raw_ptr_oc_target)
+say "raw-ptr-oc-generic-instance-native=" + word_from_bool(v4_mir_diag_count(v4_raw_ptr_oc_instance_mir) == 0 and v4_codegen_llvm_native_module_error(v4_raw_ptr_oc_instance_llvm) == "" and v4_raw_ptr_oc_instance_module.contains("define ccc ptr @\"Box<tiny>::retarget\"(") and not v4_raw_ptr_oc_instance_module.contains("Box<T>"))
 say "raw-ptr-oc-native-contract=" + word_from_bool(v4_ty_diag_count(v4_raw_ptr_oc_native_ty) == 0 and v4_mir_diag_count(v4_raw_ptr_oc_native_mir) == 0 and v4_codegen_llvm_native_module_error(v4_raw_ptr_oc_native_llvm) == "" and v4_codegen_llvm_module_text(v4_raw_ptr_oc_native_llvm, v4_raw_ptr_oc_target) != "")
 say "raw-ptr-oc-offset-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_oc_native_llvm, v4_codegen_llvm_find_body(v4_raw_ptr_oc_native_llvm, "offset_read"))
 say "raw-ptr-oc-cast-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_oc_native_llvm, v4_codegen_llvm_find_body(v4_raw_ptr_oc_native_llvm, "cast_tiny"))
