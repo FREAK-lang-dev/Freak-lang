@@ -225,3 +225,32 @@ pilot v4_mir_for_each_pattern_bad_duplicate_pattern_mir = v4_mir_lower_ty(5, v4_
 say "for-each-pattern-bad-duplicate-pattern-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_for_each_pattern_bad_duplicate_pattern_mir))
 say "for-each-pattern-bad-duplicate-pattern-message=" + v4_diag_message(v4_mir_diag(v4_mir_for_each_pattern_bad_duplicate_pattern_mir, 0))
 say "for-each-pattern-bad-duplicate-pattern-help=" + v4_diag_help(v4_mir_diag(v4_mir_for_each_pattern_bad_duplicate_pattern_mir, 0))
+
+-- A restored graph may not close a cycle through a list LoopItem's operands:
+-- P0 = Deref(R1), R0 = UsePlace(P0), R1 = LoopItem(R0, -1).
+task v4_mir_for_each_pattern_loop_item_cycle(item_lhs: word) -> word {
+    pilot place_kinds = array_new()
+    pilot place_bases = array_new()
+    pilot place_indexes = array_new()
+    array_push(place_kinds, v4_mir_place_deref)
+    array_push(place_bases, "-1")
+    array_push(place_indexes, "1")
+    pilot rvalue_kinds = array_new()
+    pilot rvalue_lhs = array_new()
+    pilot rvalue_rhs = array_new()
+    pilot rvalue_args = array_new()
+    array_push(rvalue_kinds, v4_mir_rvalue_use_place)
+    array_push(rvalue_lhs, "0")
+    array_push(rvalue_rhs, "-1")
+    array_push(rvalue_args, "")
+    array_push(rvalue_kinds, v4_mir_rvalue_loop_item)
+    array_push(rvalue_lhs, item_lhs)
+    array_push(rvalue_rhs, "-1")
+    array_push(rvalue_args, "")
+    pilot acyclic = v4_mir_snapshot_body_graph_is_acyclic(place_kinds, place_bases, place_indexes, rvalue_kinds, rvalue_lhs, rvalue_rhs, rvalue_args)
+    v4_mir_snapshot_release_body_graph_arrays(place_kinds, place_bases, place_indexes, rvalue_kinds, rvalue_lhs, rvalue_rhs, rvalue_args)
+    if acyclic { give back "true" }
+    give back "false"
+}
+say "for-each-pattern-loop-item-cycle-acyclic=" + v4_mir_for_each_pattern_loop_item_cycle("0")
+say "for-each-pattern-opaque-loop-item-acyclic=" + v4_mir_for_each_pattern_loop_item_cycle("-1")

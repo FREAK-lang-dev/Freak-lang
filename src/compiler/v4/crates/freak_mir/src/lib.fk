@@ -3993,6 +3993,11 @@ task v4_mir_snapshot_graph_rvalue_is_ready(rvalue_id: int, place_count: int, sta
     if kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
         give back v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_lhs, false)
     }
+    -- A list loop item depends on its loan and index; an operand-free item
+    -- is the front end's opaque item and stays ready.
+    if kind == v4_mir_rvalue_loop_item {
+        give back v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_lhs, true) and v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_rhs, true)
+    }
     give back true
 }
 

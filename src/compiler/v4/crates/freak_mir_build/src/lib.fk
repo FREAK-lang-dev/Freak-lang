@@ -10996,7 +10996,7 @@ task v4_mir_lower_arrow_body(mir_id: int, body_id: int, block_id: int, stream_id
     v4_mir_set_block_scope_span(mir_id, body_id, block_id, stmt_span)
     pilot rhs = v4_mir_expr_text(stream_id, arrow_token + 1, end_token)
     if rhs != "" {
-        pilot rvalue_id = v4_mir_lower_expr(mir_id, body_id, stream_id, arrow_token + 1, end_token)
+        pilot rvalue_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, arrow_token + 1, end_token, v4_mir_expected_return_type(mir_id, body_id))
         pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
         v4_mir_check_return_type(mir_id, body_id, stmt_span, actual_ty)
         pilot return_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, rvalue_id)
@@ -11551,6 +11551,12 @@ task v4_mir_list_receiver_loan(mir_id: int, body_id: int, receiver: int, mutable
     if v4_ty_is_lend_type(receiver_ty) {
         if mutable and v4_ty_lend_mode(receiver_ty) != v4_ty_param_mode_lend_mut {
             v4_mir_add_type_error(mir_id, span, "list " + method + " needs a lend mut list", receiver_ty + " is a shared loan; " + method + " changes the list")
+        }
+        -- A loan the list intrinsics can lower: a lend of a place, or a
+        -- local holding one. A call result (view(lend xs).length()) is not.
+        pilot receiver_kind = v4_mir_rvalue_kind(mir_id, body_id, receiver)
+        if receiver_kind != v4_mir_rvalue_lend and receiver_kind != v4_mir_rvalue_lend_mut and not (receiver_kind == v4_mir_rvalue_use_local and v4_mir_local_reference_is_exact(mir_id, body_id, receiver)) {
+            v4_mir_add_type_error(mir_id, span, "list method receiver loan must be a local or a lend of a place", "store the " + receiver_ty + " in a pilot before calling ." + method)
         }
         give back receiver
     }

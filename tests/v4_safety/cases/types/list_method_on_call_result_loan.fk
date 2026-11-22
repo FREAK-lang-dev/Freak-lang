@@ -1,0 +1,10 @@
+-- A list method needs a loan the native intrinsics can lower: a lend of a
+-- place or a local holding one, not a call result.
+-- expect: reject mir
+-- error: list method receiver loan must be a local or a lend of a place
+
+task view(lend xs: List<int>) -> lend List<int> { give back lend xs }
+task main() -> int {
+    pilot xs: List<int> = [1, 2, 3]
+    give back view(lend xs).length()
+}
