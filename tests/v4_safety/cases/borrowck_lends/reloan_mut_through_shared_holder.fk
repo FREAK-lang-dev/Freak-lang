@@ -1,0 +1,16 @@
+-- A holder of a shared lend must not hand out an exclusive loan of a field.
+-- expect: reject borrowck
+-- error: Meiya refuses an exclusive lend through an immutable lend
+
+shape P { x: int }
+
+task poke(lend mut x: int) -> int {
+    x = 99
+    give back 0
+}
+task main() -> int {
+    pilot p = P { x: 1 }
+    pilot q = lend p
+    pilot z = poke(lend mut q.x)
+    give back p.x
+}

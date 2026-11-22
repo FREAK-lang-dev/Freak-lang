@@ -1,0 +1,15 @@
+-- Growing the list first and assigning an element afterwards is fine.
+-- expect: run
+-- exit: 71
+
+task grow(lend mut xs: List<int>) -> int {
+    repeat 64 times { xs.push(7) }
+    give back 5
+}
+task main() -> int {
+    pilot mut xs: List<int> = [1, 2]
+    pilot v = grow(lend mut xs)
+    xs[0] = v
+    xs[1] = xs.length()
+    give back xs[0] + xs[1]
+}

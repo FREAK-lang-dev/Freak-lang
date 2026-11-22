@@ -635,7 +635,10 @@ type-erased pool:
   `index i out of bounds (len n)` (exit 101). `xs.length()` and
   `xs.length` read the header through a shared loan. Indexing a `word`
   element moves it out (the slot is nulled, as for fixed arrays), and a
-  store releases the old element first (`DropSlot`).
+  store releases the old element first (`DropSlot`). `xs[i] = rhs` forms
+  the checked element address before `rhs` runs, so Meiya refuses an `rhs`
+  that lends `xs` exclusively or moves it (a push could reallocate the
+  buffer under the store); `xs[i] += v` reuses the read's checked address.
 - **`for each`.** The loop lends its source (decision 3): MIR lowers
   `for each x in xs` to a shared loan `_for_each_source`, an index local
   and a `LoopItem` over both, so a body that pushes, stores into, or lends

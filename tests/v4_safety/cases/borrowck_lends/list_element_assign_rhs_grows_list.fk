@@ -1,0 +1,14 @@
+-- `xs[0] = rhs` forms the element address before rhs runs; an rhs that may
+-- reallocate xs (an exclusive lend that pushes) must be refused.
+-- expect: reject borrowck
+-- error: Meiya refuses to change a list while one of its elements is assigned
+
+task grow(lend mut xs: List<int>) -> int {
+    repeat 64 times { xs.push(7) }
+    give back 5
+}
+task main() -> int {
+    pilot mut xs: List<int> = [1, 2]
+    xs[0] = grow(lend mut xs)
+    give back xs[0]
+}
