@@ -49,6 +49,14 @@ task first_long(lend ws: List<word>, n: int) -> word {
     give back "none"
 }
 
+-- A `lend mut` list lends shared to its own walk, then mutates after it.
+task walk(lend mut xs: List<int>) -> int {
+    pilot s = 0
+    for each x in xs { s += x }
+    xs.push(s)
+    give back xs.length()
+}
+
 task rename_all(lend mut team: List<Pilot>, suffix: word) -> void {
     pilot i = 0
     repeat until i >= team.length() {
@@ -115,6 +123,22 @@ task main() -> int {
         score += p.kills
     }
     say score
+
+    -- Sequence patterns over fixed-array elements, a temporary source (the
+    -- loop owns it and drops it after), and a typed literal that narrows.
+    pilot rows: List<[int; 2]> = [[1, 2], [3, 4]]
+    pilot area = 0
+    for each [w, h] in rows {
+        area += w * h
+    }
+    say area
+    for each t in names(2) {
+        say t
+    }
+    pilot small: List<int> = [5, 6]
+    say walk(lend mut small)
+    pilot nums: List<num> = [1, 2.5]
+    say nums[1]
 
     -- Any argument indexes past the end: V3's bounds panic, exit 101.
     pilot k = 1

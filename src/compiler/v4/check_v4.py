@@ -17542,7 +17542,7 @@ NATIVE_LEND_ABI_EXPECTED = ("8\n16\n3\ntrue\ntrue\ntrue\ntrue\ntrue\n7\n13\n14\n
 # Native lists (tier 3 rows L and M). Any argument indexes past the end of
 # the 14-element list. tests/v4_owned_word_codegen.py pins the same output.
 NATIVE_LISTS_EXPECTED = ("4\n6\n10\n14\n304\n0\n5\np0\np1\np2\nextra\nreplaced\nreplaced\np2\n4\ncsolo\n"
-                         "one1\ntwo2\nTakeru!\nMeiya!\nSumika!\n10\n2\n14\n")
+                         "one1\ntwo2\nTakeru!\nMeiya!\nSumika!\n10\n14\np0\np1\n3\n2.5\n2\n14\n")
 NATIVE_LISTS_PANIC = "index 20 out of bounds (len 14)"
 # Rejected list programs: (stem, source, named reason).
 NATIVE_LISTS_REJECTED = (
