@@ -5774,8 +5774,9 @@ task v4_codegen_llvm_lend_param_error(mir_id: int, mode: word, type_text: word, 
 -- `lend p` / `lend mut p` over a lendable place: the address of that
 -- place. The loaned value is never read, so only index operands evaluate.
 task v4_codegen_llvm_collect_aggregate_lend_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word) -> bool {
-    if v4_codegen_llvm_collect_dyn_lend_lines(parts, mir_id, body_id, rvalue_id, target) { give back true }
-    if not v4_codegen_llvm_is_place_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back false }
+    -- A dyn loan (erasure or reborrow) takes the same place address.
+    pilot dyn_ref: bool = v4_codegen_llvm_is_dyn_ref(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+    if not dyn_ref and not v4_codegen_llvm_is_place_lend(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back false }
     pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
     pilot address = ""
     if v4_mir_rvalue_kind(mir_id, body_id, child) == v4_mir_rvalue_use_local {
@@ -5783,7 +5784,7 @@ task v4_codegen_llvm_collect_aggregate_lend_lines(parts: int, mir_id: int, body_
     } else {
         address = v4_codegen_llvm_place_address(parts, mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, child), "l" + word_from_int(rvalue_id))
     }
-    v4_codegen_llvm_fragment_push(parts, "  " + target + " = getelementptr inbounds i8, ptr " + address + ", i64 0\n")
+    if dyn_ref { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_dyn_lend_value_lines(mir_id, body_id, rvalue_id, target, address)) } else { v4_codegen_llvm_fragment_push(parts, "  " + target + " = getelementptr inbounds i8, ptr " + address + ", i64 0\n") }
     give back true
 }
 
@@ -6202,27 +6203,18 @@ task v4_codegen_llvm_dyn_call_prelude(mir_id: int, body_id: int, rvalue_id: int)
     give back out + v4_codegen_llvm_dyn_call_temp(body_id, rvalue_id, "fn") + " = load ptr, ptr " + v4_codegen_llvm_dyn_call_temp(body_id, rvalue_id, "slot") + "\n  "
 }
 
--- An erasing loan pairs the concrete place's address with its vtable; a
--- reborrow of a dyn parameter is the fat pointer its slot holds.
-task v4_codegen_llvm_collect_dyn_lend_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word) -> bool {
-    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
-    if not v4_ty_is_lend_type(type_text) or not v4_ty_is_dyn_type(v4_ty_lend_target_type(type_text)) { give back false }
+-- The lines of a dyn loan: an erasure pairs the concrete place's address
+-- with its sealed vtable; a reborrow (no vtable) is the fat pointer the dyn
+-- parameter's slot holds. A leaf, so the place walk stays in the caller.
+task v4_codegen_llvm_dyn_lend_value_lines(mir_id: int, body_id: int, rvalue_id: int, target: word, address: word) -> word {
     pilot pair = v4_codegen_llvm_dyn_ref_type()
-    pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
     pilot vtable = v4_mir_dyn_erase_vtable(mir_id, body_id, rvalue_id)
     if vtable < 0 {
-        v4_codegen_llvm_fragment_push(parts, "  " + target + " = load " + pair + ", ptr " + v4_codegen_llvm_local_slot(v4_mir_rvalue_local_id(mir_id, body_id, child)) + "\n")
-        give back true
+        pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        give back "  " + target + " = load " + pair + ", ptr " + v4_codegen_llvm_local_slot(v4_mir_rvalue_local_id(mir_id, body_id, child)) + "\n"
     }
-    pilot address = ""
-    if v4_mir_rvalue_kind(mir_id, body_id, child) == v4_mir_rvalue_use_local {
-        address = v4_codegen_llvm_local_slot(v4_mir_rvalue_local_id(mir_id, body_id, child))
-    } else {
-        address = v4_codegen_llvm_place_address(parts, mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, child), "d" + word_from_int(rvalue_id))
-    }
-    v4_codegen_llvm_fragment_push(parts, "  " + target + ".data = insertvalue " + pair + " undef, ptr " + address + ", 0\n")
-    v4_codegen_llvm_fragment_push(parts, "  " + target + " = insertvalue " + pair + " " + target + ".data, ptr " + v4_codegen_llvm_dyn_vtable_symbol(mir_id, vtable) + ", 1\n")
-    give back true
+    pilot out = "  " + target + ".data = insertvalue " + pair + " undef, ptr " + address + ", 0\n"
+    give back out + "  " + target + " = insertvalue " + pair + " " + target + ".data, ptr " + v4_codegen_llvm_dyn_vtable_symbol(mir_id, vtable) + ", 1\n"
 }
 
 -- Why a dyn doctrine type cannot lower natively, or "".
