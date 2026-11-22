@@ -568,6 +568,47 @@ make_word()` (`lend source must be a place`). Program:
 `tests/v4_owned_word_codegen.py`; ten named rejections are in
 `check_v4_native_shapes`.
 
+### Dyn doctrines (lend slice)
+
+A `lend w: dyn D` / `lend mut w: dyn D` parameter of a FREAK task is a fat
+pointer `{ ptr data, ptr vtable }`, on every target:
+
+- **Vtables.** MIR Build seals one constant vtable per (concrete type,
+  doctrine) pair a module erases (`v4_mir_dyn_vtable_*`), and the coercion
+  point of each erasure (`v4_mir_dyn_erase_vtable`). Codegen never looks up
+  an impl. The layout is the bible's (§1.6): `i64 type_id, i64 size, i64
+  align, ptr drop, ptr clone`, then one `ptr` slot per doctrine method in
+  declaration order. Size and alignment come from freak_target at module
+  assembly (target-neutral `$freak.dyn.layout T$` markers). `drop` runs the
+  type's drop glue in place, and `clone` is null. Each vtable carries a
+  `; freak.vtable @sym type=T size=S align=A type_id=N` note, and its struct
+  type carries the usual `; freak.layout` note.
+- **Erasure.** `lend p`, `lend mut r.size` or `lend xs[i]` passed for a dyn
+  parameter pairs the place's address (the lend ABI's address) with the
+  vtable symbol. Shapes, routes, tuples, fixed arrays and scalars can be
+  erased if they hold no loans. A dyn parameter forwarded onward
+  (`report(lend u)`) passes its own pair.
+- **Calls.** A dyn method call is a MIR `Call` whose op is `dyn D.m`, with a
+  sealed slot fact (`v4_mir_dyn_call_slot`). It lowers to an `extractvalue`
+  of data and vtable, a `getelementptr` to slot `5 + k` and an indirect call
+  with the data pointer first. That is exactly what the impl's `lend self` /
+  `lend mut self` body takes, so the lend ABI, word results, aggregate
+  arguments and `sret` results all apply unchanged. MIR checks the doctrine
+  method's receiver mode against the loan: `dyn method takes self by value`
+  and `dyn method needs a lend mut receiver`.
+
+Refused by name: owned dyn values (locals, by-value parameters,
+`List<dyn D>`, `native owned dyn values are not yet supported`), lend-typed
+dyn locals and parameters (`w: lend dyn D`, as the lend ABI row refuses
+type-form parameters), dyn results, dyn values in aggregate slots, dyn
+across the C ABI, generic doctrines, vtables with by-value `self` methods,
+erasure of module globals or of values that hold loans. Generic methods make
+a doctrine non-object-safe in TY. Program: `examples/dyn_native.fk` (exact
+output, exit 234), run by `check_v4_native_dyn` from `check_v4_native_shapes`
+with the layout oracle, the vtable oracle (note, constant and Clang agree;
+tampered sizes and slot orders fail) and Clang assembly on four targets, and
+15 named rejections.
+
 ### Persisted interpolation checkpoint (W3)
 
 Expanded-AST-to-HIR lowering decodes each word once into a packed plan. Literal
