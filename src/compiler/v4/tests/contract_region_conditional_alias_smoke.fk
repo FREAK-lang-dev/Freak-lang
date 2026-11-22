@@ -65,6 +65,23 @@ task v4_closure_aggregate_write_source() -> word {
     give back src
 }
 
+-- The closure effect summary proves these writes install no loan: an int
+-- slot beside the lend, and a field written through the lend.
+task v4_closure_leaf_write_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task closure_leaf_write(first: Ship) -> int {\n"
+    src = src + "    pilot mut holder = (lend mut first, 0)\n"
+    src = src + "    pilot setter = mut |v: int| " + "{" + " holder.1 = v " + "}" + "\n"
+    src = src + "    setter(5)\n"
+    src = src + "    pilot hit = mut |d: int| " + "{" + " holder.0.hp = holder.0.hp - d " + "}" + "\n"
+    src = src + "    hit(1)\n"
+    src = src + "    give back holder.1 + holder.0.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_nested_lend_projection_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
@@ -148,6 +165,11 @@ pilot v4_closure_aggregate_write_resolve = v4_ty_resolve_id(v4_closure_aggregate
 pilot v4_closure_aggregate_write_hir = v4_resolve_hir_id(v4_closure_aggregate_write_resolve)
 pilot v4_closure_aggregate_write_tree = v4_hir_tree_id(v4_closure_aggregate_write_hir)
 
+pilot v4_closure_leaf_write_borrow = v4_borrowck_text_cached("contract-region-closure-leaf-write.fk", v4_closure_leaf_write_source())
+pilot v4_closure_leaf_write_mir = v4_borrowck_mir_id(v4_closure_leaf_write_borrow)
+pilot v4_closure_leaf_write_resolve = v4_ty_resolve_id(v4_mir_ty_id(v4_closure_leaf_write_mir))
+pilot v4_closure_leaf_write_result = v4_borrowck_lookup_result(v4_closure_leaf_write_borrow, v4_resolve_def_for_name(v4_closure_leaf_write_resolve, "closure_leaf_write"))
+
 pilot v4_nested_lend_projection_borrow = v4_borrowck_text_cached("contract-region-nested-lend-projection.fk", v4_nested_lend_projection_source())
 pilot v4_nested_lend_projection_mir = v4_borrowck_mir_id(v4_nested_lend_projection_borrow)
 pilot v4_nested_lend_projection_ty = v4_mir_ty_id(v4_nested_lend_projection_mir)
@@ -187,6 +209,9 @@ say "closure-aggregate-write-parse-diagnostics=" + word_from_int(v4_parse_diag_c
 say "closure-aggregate-write-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_closure_aggregate_write_ty))
 say "closure-aggregate-write-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_closure_aggregate_write_mir))
 say "closure-aggregate-write-rejected=" + v4_conditional_alias_bool(v4_conditional_alias_has_mir_message(v4_closure_aggregate_write_mir, "Meiya cannot model closure writes into loan-bearing captured storage yet"))
+say "closure-leaf-write-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_closure_leaf_write_mir))
+say "closure-leaf-write-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_closure_leaf_write_borrow))
+say "closure-leaf-write-status=" + v4_borrowck_result_status(v4_closure_leaf_write_borrow, v4_closure_leaf_write_result)
 say "nested-lend-projection-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_nested_lend_projection_tree))
 say "nested-lend-projection-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_nested_lend_projection_ty))
 say "nested-lend-projection-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_nested_lend_projection_mir))
