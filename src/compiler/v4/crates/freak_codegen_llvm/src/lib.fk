@@ -5944,8 +5944,9 @@ task v4_codegen_llvm_list_element_lines(parts: int, label: word, header: word, e
     give back value + ".at"
 }
 
--- One call site in v4_codegen_llvm_collect_owned_special_lines keeps this
--- out of the recursive collector's frame.
+-- One call site in v4_codegen_llvm_collect_owned_special_lines (the stack
+-- rule). This dispatcher sits in the recursive collector's chain, so it only
+-- evaluates operands; the IR text comes from non-recursive emitters.
 task v4_codegen_llvm_collect_list_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
     if v4_codegen_llvm_active_owned_mir != mir_id { give back false }
     pilot list_kind = ""
@@ -5953,48 +5954,68 @@ task v4_codegen_llvm_collect_list_lines(parts: int, mir_id: int, body_id: int, r
     if kind == v4_mir_rvalue_loop_item and v4_mir_rvalue_is_list_loop_item(mir_id, body_id, rvalue_id) { list_kind = "item" }
     if kind == v4_mir_rvalue_list { list_kind = "literal" }
     if list_kind == "" { give back false }
+    -- Operands in source order: literal elements, or the loan then the
+    -- pushed item or the item index.
+    pilot first = 0 - 1
+    pilot second = 0 - 1
+    pilot count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+    if list_kind == "item" {
+        first = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        second = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+        count = 0
+    }
+    pilot arg = 0
+    repeat until arg >= count {
+        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)
+        v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, child, v4_codegen_llvm_temp_value(body_id, child), false)
+        arg += 1
+    }
+    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, first, v4_codegen_llvm_temp_value(body_id, first), false)
+    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, second, v4_codegen_llvm_temp_value(body_id, second), false)
+    if list_kind == "literal" {
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_list_literal_lines(mir_id, body_id, rvalue_id, target))
+    } else {
+        v4_codegen_llvm_list_operation_lines(parts, mir_id, body_id, rvalue_id, target, list_kind)
+    }
+    give back true
+}
+
+-- `length`, `push` and loop items over operands already evaluated.
+task v4_codegen_llvm_list_operation_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, list_kind: word) -> void {
     pilot header_ty = v4_codegen_llvm_list_header_type()
     pilot prefix = "%list." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
-    if list_kind == "literal" {
-        v4_codegen_llvm_collect_list_literal_lines(parts, mir_id, body_id, rvalue_id, target)
-        give back true
-    }
     pilot loan = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
     if list_kind != "item" { loan = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0) }
-    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, loan, v4_codegen_llvm_temp_value(body_id, loan), false)
     pilot header = v4_codegen_llvm_rvalue_value(mir_id, body_id, loan)
-    pilot list_ty = v4_ty_lend_target_type(v4_mir_rvalue_ty(mir_id, body_id, loan))
-    pilot element = v4_codegen_llvm_list_element(mir_id, list_ty)
+    pilot element = v4_codegen_llvm_list_element(mir_id, v4_ty_lend_target_type(v4_mir_rvalue_ty(mir_id, body_id, loan)))
     pilot element_llvm = v4_codegen_llvm_type(element)
     if list_kind == "length" {
         v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".lenp = getelementptr inbounds " + header_ty + ", ptr " + header + ", i32 0, i32 1\n")
         v4_codegen_llvm_fragment_push(parts, "  " + target + " = load i64, ptr " + prefix + ".lenp\n")
-        give back true
+        give back
     }
     if list_kind == "push" {
         -- The item moves into the slot push_slot opens at the end.
         pilot item = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 1)
-        v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, item, v4_codegen_llvm_temp_value(body_id, item), false)
         pilot cast = prefix + ".item"
         v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, item, element, cast))
         v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".slot = call ptr @freak.list.push_slot(ptr " + header + ", " + v4_codegen_llvm_list_element_size(element_llvm) + ")\n")
         v4_codegen_llvm_fragment_push(parts, "  store " + element_llvm + " " + v4_codegen_llvm_expected_value(mir_id, body_id, item, element, cast) + ", ptr " + prefix + ".slot\n")
-        give back true
+        give back
     }
     -- A loop item: a fresh owned copy of the element (each word cloned).
     pilot index = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
-    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, index, v4_codegen_llvm_temp_value(body_id, index), false)
     pilot at = v4_codegen_llvm_list_element_lines(parts, v4_slice(prefix, 1, prefix.length()), header, element_llvm, v4_codegen_llvm_rvalue_value(mir_id, body_id, index))
     pilot clone = v4_codegen_llvm_word_intrinsic_symbol_for(mir_id, "clone")
     if v4_ty_canonical_type(v4_mir_ty_id(mir_id), element) == v4_ty_word {
         v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".v = load i64, ptr " + at + "\n")
         v4_codegen_llvm_fragment_push(parts, "  " + target + " = call i64 " + clone + "(i64 " + prefix + ".v)\n")
-        give back true
+        give back
     }
     pilot paths = v4_codegen_llvm_word_leaf_paths(mir_id, element, "")
     if paths == "" {
         v4_codegen_llvm_fragment_push(parts, "  " + target + " = load " + element_llvm + ", ptr " + at + "\n")
-        give back true
+        give back
     }
     v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".v = load " + element_llvm + ", ptr " + at + "\n")
     pilot previous = prefix + ".v"
@@ -6014,30 +6035,21 @@ task v4_codegen_llvm_collect_list_lines(parts: int, mir_id: int, body_id: int, r
         leaf += 1
         start = stop + 1
     }
-    give back true
 }
 
 -- A literal allocates exactly its length; `[]` is the empty header (no
 -- buffer until the first push). Elements move in, in source order.
-task v4_codegen_llvm_collect_list_literal_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word) -> void {
+task v4_codegen_llvm_list_literal_lines(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
     pilot header_ty = v4_codegen_llvm_list_header_type()
     pilot element = v4_codegen_llvm_list_element(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
     pilot element_llvm = v4_codegen_llvm_type(element)
     pilot prefix = "%list." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
     pilot count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
-    if count <= 0 {
-        v4_codegen_llvm_fragment_push(parts, "  " + target + " = freeze " + header_ty + " zeroinitializer\n")
-        give back
-    }
-    pilot arg = 0
-    repeat until arg >= count {
-        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)
-        v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, child, v4_codegen_llvm_temp_value(body_id, child), false)
-        arg += 1
-    }
+    if count <= 0 { give back "  " + target + " = freeze " + header_ty + " zeroinitializer\n" }
+    pilot parts = v4_codegen_llvm_fragment_new()
     pilot length = word_from_int(count)
     v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".data = call ptr @freak.list.alloc(i64 " + length + ", " + v4_codegen_llvm_list_element_size(element_llvm) + ")\n")
-    arg = 0
+    pilot arg = 0
     repeat until arg >= count {
         pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)
         pilot slot = prefix + ".e" + word_from_int(arg)
@@ -6049,6 +6061,7 @@ task v4_codegen_llvm_collect_list_literal_lines(parts: int, mir_id: int, body_id
     v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".h0 = insertvalue " + header_ty + " undef, ptr " + prefix + ".data, 0\n")
     v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".h1 = insertvalue " + header_ty + " " + prefix + ".h0, i64 " + length + ", 1\n")
     v4_codegen_llvm_fragment_push(parts, "  " + target + " = insertvalue " + header_ty + " " + prefix + ".h1, i64 " + length + ", 2\n")
+    give back v4_codegen_llvm_fragment_finish(parts)
 }
 
 -- Drop glue of a list (at `address`, or a header `value` when address is
