@@ -3808,6 +3808,8 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
         give back numeric_conversion
     }
     v4_mir_reject_method_type_args(mir_id, stream_id, expr_span, receiver_ty, method_name, ".", method_token, open_token)
+    pilot list_builtin = v4_mir_try_lower_list_method(mir_id, body_id, stream_id, first, dot_token, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
+    if list_builtin >= 0 { give back list_builtin }
     pilot word_builtin = v4_mir_try_lower_word_instance_intrinsic(mir_id, body_id, stream_id, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
     if word_builtin >= 0 { give back word_builtin }
     pilot shared_builtin = v4_mir_try_lower_builtin_shared_instance_method(mir_id, body_id, stream_id, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
@@ -8262,6 +8264,107 @@ task v4_mir_lower_for_each_binding(mir_id: int, body_id: int, block_id: int, stm
     give back temp_place
 }
 
+-- `for each x in xs` over a List<T> (tier 3, decision 3): the loop lends a
+-- place source (`_for_each_source = lend xs`) and owns a temporary one
+-- (`_for_each_owner`, lent the same way), so Meiya refuses a `lend mut` or
+-- push of xs while the loop runs and xs stays usable after it. The header
+-- tests `_for_each_index < length(source)`; the body binds the LoopItem over
+-- the loan and index (a fresh owned copy of the element) and advances the
+-- index before the user body, so `continue` re-enters the header correctly.
+task v4_mir_lower_list_for_each(mir_id: int, body_id: int, stream_id: int, iterable_block: int, iterable_rvalue: int, loop_pattern: word, iterable_text: word, stmt_span: word, open_token: int, stmt_end: int) -> int {
+    pilot iterable_ty = v4_mir_rvalue_ty(mir_id, body_id, iterable_rvalue)
+    pilot list_ty = v4_mir_list_receiver_type(mir_id, iterable_ty)
+    pilot element_ty = v4_ty_list_element_type(list_ty)
+    pilot loan_ty = v4_ty_lend_type(list_ty, v4_ty_param_mode_lend)
+    v4_mir_push_scope_span(stmt_span)
+    pilot loan = iterable_rvalue
+    if v4_ty_is_lend_type(iterable_ty) {
+        if v4_ty_lend_mode(iterable_ty) != v4_ty_param_mode_lend { v4_mir_add_type_error(mir_id, stmt_span, "for each needs a shared list loan", "iterate a list place or a lend of it, not " + iterable_ty) }
+        loan_ty = iterable_ty
+    } else if v4_mir_lend_source_is_place(mir_id, body_id, iterable_rvalue) {
+        loan = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_lend, "lend " + iterable_text, v4_ty_param_mode_lend, iterable_rvalue, 0 - 1, stmt_span, loan_ty)
+    } else {
+        pilot owner_name = v4_mir_unique_local_name(mir_id, body_id, "_for_each_owner")
+        pilot owner_local = v4_mir_add_local(mir_id, body_id, owner_name, iterable_ty, stmt_span)
+        pilot owner_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, owner_name, owner_local, owner_name, 0 - 1, stmt_span, iterable_ty)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, iterable_block, v4_mir_stmt_local, owner_name, iterable_text, stmt_span, owner_place, iterable_rvalue)
+        pilot owner_read = v4_mir_place_read_rvalue(mir_id, body_id, owner_place, stmt_span)
+        loan = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_lend, "lend " + owner_name, v4_ty_param_mode_lend, owner_read, 0 - 1, stmt_span, loan_ty)
+    }
+    pilot source_name = v4_mir_unique_local_name(mir_id, body_id, "_for_each_source")
+    pilot source_local = v4_mir_add_local(mir_id, body_id, source_name, loan_ty, stmt_span)
+    pilot source_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, source_name, source_local, source_name, 0 - 1, stmt_span, loan_ty)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, iterable_block, v4_mir_stmt_local, source_name, iterable_text, stmt_span, source_place, loan)
+    pilot index_name = v4_mir_unique_local_name(mir_id, body_id, "_for_each_index")
+    pilot index_local = v4_mir_add_local(mir_id, body_id, index_name, v4_ty_int, stmt_span)
+    pilot index_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, index_name, index_local, index_name, 0 - 1, stmt_span, v4_ty_int)
+    pilot zero = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "0", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, iterable_block, v4_mir_stmt_local, index_name, "0", stmt_span, index_place, zero)
+
+    pilot body_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot loop_header = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot loop_condition = "for each " + loop_pattern + " in " + iterable_text
+
+    -- Body: the item, then the index step, then the pattern bindings.
+    pilot temp_name = v4_mir_unique_local_name(mir_id, body_id, "_for_each_item")
+    pilot temp_id = v4_mir_add_local(mir_id, body_id, temp_name, element_ty, stmt_span)
+    pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_id, temp_name, 0 - 1, stmt_span, element_ty)
+    pilot item_text = "item of " + iterable_text
+    pilot item_loan = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
+    pilot item_index = v4_mir_place_read_rvalue(mir_id, body_id, index_place, stmt_span)
+    pilot item_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_loop_item, item_text, "LoopItem", item_loan, item_index, stmt_span, element_ty)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, body_block, v4_mir_stmt_local, temp_name, item_text, stmt_span, temp_place, item_rvalue)
+    pilot step_read = v4_mir_place_read_rvalue(mir_id, body_id, index_place, stmt_span)
+    pilot one = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+    pilot step = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, index_name + " + 1", "Add", step_read, one, stmt_span, v4_ty_int)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, body_block, v4_mir_stmt_assign, index_name, index_name + " + 1", stmt_span, index_place, step)
+    pilot loop_place = v4_mir_lower_for_each_item_binding(mir_id, body_id, body_block, stmt_span, loop_pattern, item_text, element_ty, temp_place)
+
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, iterable_block, loop_header)
+    v4_mir_set_body_block(mir_id, body_id, loop_header, v4_mir_block_new_full(loop_header, v4_mir_term_if, body_block, after_block, loop_condition))
+    pilot test_index = v4_mir_place_read_rvalue(mir_id, body_id, index_place, stmt_span)
+    pilot test_loan = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
+    pilot test_length = v4_mir_add_list_intrinsic(mir_id, body_id, "length", v4_mir_call_args_payload_append("", test_loan), "length of " + iterable_text, stmt_span, v4_ty_int)
+    pilot test = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, index_name + " < length", "Lt", test_index, test_length, stmt_span, v4_ty_bool)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, loop_header, v4_mir_stmt_loop, loop_pattern, iterable_text, stmt_span, loop_place, test)
+    v4_mir_push_loop_context(after_block, loop_header)
+    pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
+    v4_mir_pop_loop_context()
+    v4_mir_pop_scope_span()
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, loop_header)
+    give back after_block
+}
+
+-- The header binding of a for each over an already bound item local: a
+-- single name copies (moves) the item, a tuple or sequence pattern
+-- destructures it. Shared with v4_mir_lower_for_each_binding's rules.
+task v4_mir_lower_for_each_item_binding(mir_id: int, body_id: int, block_id: int, stmt_span: word, loop_pattern: word, item_text: word, element_ty: word, temp_place: int) -> int {
+    loop_pattern = v4_mir_pattern_trim(loop_pattern)
+    if loop_pattern == "" {
+        v4_mir_add_type_error(mir_id, stmt_span, "unsupported local pattern", "use a single name, (a, b, ...), or [a, b, ...]")
+        give back temp_place
+    }
+    if v4_mir_pattern_is_simple_local(loop_pattern) {
+        if v4_mir_find_local_visible_at(mir_id, body_id, loop_pattern, v4_span_start(stmt_span)) >= 0 {
+            v4_mir_add_type_error(mir_id, stmt_span, "for each binding duplicate local", loop_pattern + " already exists in this scope")
+            give back temp_place
+        }
+        pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, temp_place, stmt_span)
+        pilot local_id = v4_mir_add_local(mir_id, body_id, loop_pattern, element_ty, stmt_span)
+        pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, loop_pattern, local_id, loop_pattern, 0 - 1, stmt_span, element_ty)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, loop_pattern, item_text, stmt_span, place_id, source_rvalue)
+        give back place_id
+    }
+    pilot pattern_kind = v4_mir_loop_pattern_kind(loop_pattern)
+    if pattern_kind != "" {
+        v4_mir_lower_destructure_pattern(mir_id, body_id, block_id, stmt_span, pattern_kind, loop_pattern, temp_place, element_ty)
+        give back temp_place
+    }
+    v4_mir_add_type_error(mir_id, stmt_span, "unsupported local pattern", "use a single name, (a, b, ...), or [a, b, ...]")
+    give back temp_place
+}
+
 task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, for_token: int, stmt_end: int) -> int {
     pilot open_token = v4_mir_find_token_value(stream_id, for_token, stmt_end, "{")
     if open_token < 0 {
@@ -8295,6 +8398,7 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
         v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end)
         give back iterable_block
     }
+    if v4_mir_list_receiver_type(mir_id, iterable_ty) != "" { give back v4_mir_lower_list_for_each(mir_id, body_id, stream_id, iterable_block, iterable_rvalue, loop_pattern, iterable_text, stmt_span, open_token, stmt_end) }
     -- Evaluate the iterable before entering the cycle. The loop header may run
     -- many times, but calls and ownership transfers in the source run once.
     pilot iterable_name = v4_mir_unique_local_name(mir_id, body_id, "_for_each_source")
@@ -11390,12 +11494,101 @@ task v4_mir_try_lower_system_named_intrinsic(mir: int, body: int, stream: int, f
     give back call
 }
 
+-- Native lists (tier 3): `xs.push(v)`, `xs.length()` / `xs.length` and
+-- `xs.get(i)`. push and length are closed builtin calls over a loan of the
+-- list (v4_mir_rvalue_is_builtin_list); get(i) is the checked index read
+-- `xs[i]`, the same Index place. Other list methods stay unknown by name.
+task v4_mir_list_receiver_type(mir_id: int, receiver_ty: word) -> word {
+    pilot list_ty = receiver_ty
+    if v4_ty_is_lend_type(list_ty) { list_ty = v4_ty_lend_target_type(list_ty) }
+    if not v4_ty_is_known(list_ty) { give back "" }
+    list_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), list_ty)
+    if v4_ty_list_element_type(list_ty) == v4_ty_unknown { give back "" }
+    give back list_ty
+}
+
+-- The list loan a list method takes: a `lend` (or `lend mut` for push) of
+-- the receiver place, or the receiver itself when it already is a loan.
+task v4_mir_list_receiver_loan(mir_id: int, body_id: int, receiver: int, mutable: bool, method: word, span: word) -> int {
+    pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver)
+    pilot list_ty = v4_mir_list_receiver_type(mir_id, receiver_ty)
+    if v4_ty_is_lend_type(receiver_ty) {
+        if mutable and v4_ty_lend_mode(receiver_ty) != v4_ty_param_mode_lend_mut {
+            v4_mir_add_type_error(mir_id, span, "list " + method + " needs a lend mut list", receiver_ty + " is a shared loan; " + method + " changes the list")
+        }
+        give back receiver
+    }
+    if not v4_mir_lend_source_is_place(mir_id, body_id, receiver) {
+        v4_mir_add_type_error(mir_id, span, "list method receiver must be a place", "store the list in a pilot before calling ." + method)
+        give back receiver
+    }
+    pilot kind = v4_mir_rvalue_lend
+    pilot mode = v4_ty_param_mode_lend
+    if mutable {
+        kind = v4_mir_rvalue_lend_mut
+        mode = v4_ty_param_mode_lend_mut
+        if v4_mir_rvalue_kind(mir_id, body_id, receiver) == v4_mir_rvalue_use_place {
+            v4_mir_check_root_const_place_mutation(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, receiver))
+        }
+    }
+    give back v4_mir_add_rvalue(mir_id, body_id, kind, mode + " " + v4_mir_rvalue_text(mir_id, body_id, receiver), mode, receiver, 0 - 1, span, v4_ty_lend_type(list_ty, mode))
+}
+
+task v4_mir_add_list_intrinsic(mir_id: int, body_id: int, kind: word, args: word, text: word, span: word, result_ty: word) -> int {
+    pilot identity = v4_mir_list_intrinsic_identity(kind)
+    pilot call = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, text, identity, 0 - 1, 0 - 1, span, result_ty)
+    v4_mir_build_set_call_args(mir_id, body_id, call, args)
+    v4_mir_set_rvalue_builtin_method(mir_id, body_id, call, identity)
+    give back call
+}
+
+task v4_mir_try_lower_list_method(mir_id: int, body_id: int, stream_id: int, first: int, dot_token: int, receiver: int, receiver_ty: word, method: word, open_token: int, close_token: int, span: word, text: word) -> int {
+    pilot list_ty = v4_mir_list_receiver_type(mir_id, receiver_ty)
+    if list_ty == "" or (method != "push" and method != "length" and method != "get") { give back 0 - 1 }
+    pilot element_ty = v4_ty_list_element_type(list_ty)
+    pilot actual = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    pilot wanted = 1
+    if method == "length" { wanted = 0 }
+    if actual != wanted {
+        v4_mir_add_type_error(mir_id, span, "list method argument count mismatch", list_ty + "." + method + " expects " + word_from_int(wanted) + " arguments, got " + word_from_int(actual))
+        v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, close_token)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, text, "", 0 - 1, 0 - 1, span, v4_ty_unknown)
+    }
+    if method == "length" {
+        pilot loan = v4_mir_list_receiver_loan(mir_id, body_id, receiver, false, method, span)
+        give back v4_mir_add_list_intrinsic(mir_id, body_id, "length", v4_mir_call_args_payload_append("", loan), text, span, v4_ty_int)
+    }
+    pilot arg_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+    pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
+    if v4_mir_call_arg_label(stream_id, arg_start, arg_end) != "" { v4_mir_add_type_error(mir_id, span, "list method named arguments are not yet supported", "use a positional argument for ." + method) }
+    pilot value_start = v4_mir_call_arg_value_start(stream_id, arg_start, arg_end)
+    if method == "get" {
+        -- get(i) is xs[i]: an Index place over the receiver place.
+        pilot base = v4_mir_lower_place(mir_id, body_id, stream_id, first, dot_token)
+        pilot place = v4_mir_lower_index_place(mir_id, body_id, stream_id, base, value_start - 1, arg_end, v4_mir_place_text(mir_id, body_id, base) + "[" + v4_mir_expr_text(stream_id, value_start, arg_end) + "]", span)
+        give back v4_mir_place_read_rvalue(mir_id, body_id, place, span)
+    }
+    pilot loan = v4_mir_list_receiver_loan(mir_id, body_id, receiver, true, method, span)
+    pilot value = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, value_start, arg_end, element_ty)
+    pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value)
+    if v4_ty_is_known(value_ty) and not v4_ty_types_compatible(element_ty, value_ty) {
+        v4_mir_add_type_mismatch_error(mir_id, span, "list push type mismatch", list_ty + ".push expects " + element_ty + " but got " + value_ty, list_ty + ".push argument", element_ty, value_ty)
+    }
+    pilot args = v4_mir_call_args_payload_append("", loan)
+    args = v4_mir_call_args_payload_append(args, value)
+    give back v4_mir_add_list_intrinsic(mir_id, body_id, "push", args, text, span, v4_ty_void)
+}
+
 task v4_mir_try_lower_word_property(mir_id: int, body_id: int, stream_id: int, first: int, last: int, span: word) -> int {
     pilot name = v4_lex_token_syntax_value(stream_id, last)
     if name != "length" and name != "bytes" { give back 0 - 1 }
     pilot dot_token = v4_mir_find_top_level_token(stream_id, first, last, ".")
     if dot_token <= first or v4_mir_next_nontrivia(stream_id, dot_token + 1, last + 1) != last { give back 0 - 1 }
     pilot receiver = v4_mir_lower_expr(mir_id, body_id, stream_id, first, dot_token)
+    if name == "length" and v4_mir_list_receiver_type(mir_id, v4_mir_rvalue_ty(mir_id, body_id, receiver)) != "" {
+        pilot list_loan = v4_mir_list_receiver_loan(mir_id, body_id, receiver, false, "length", span)
+        give back v4_mir_add_list_intrinsic(mir_id, body_id, "length", v4_mir_call_args_payload_append("", list_loan), v4_mir_expr_text(stream_id, first, last + 1), span, v4_ty_int)
+    }
     if v4_mir_rvalue_ty(mir_id, body_id, receiver) != v4_ty_word { give back 0 - 1 }
     pilot loan = v4_mir_word_borrow_argument(mir_id, body_id, receiver, span)
     give back v4_mir_add_word_intrinsic(mir_id, body_id, name, v4_mir_call_args_payload_append("", loan), v4_mir_expr_text(stream_id, first, last + 1), span)
