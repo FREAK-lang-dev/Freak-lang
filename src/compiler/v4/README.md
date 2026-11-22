@@ -534,12 +534,12 @@ Refused by name: lend parameters across the C ABI (`extern`,
 supported`), lend-typed parameters written as a type rather than a mode,
 lend locals other than value bindings of a loan, task value types with
 lend parameters (`native task values with lend parameters are not yet
-supported`), `lend mut` of a module global, other lend pointee types,
-and stores into word slots of a word-owning aggregate through a loan. A
-borrowed return never takes a temporary as its source: MIR names `lend
+supported`), `lend mut` of a module global and other lend pointee types.
+Word-slot stores and whole replacement through any loan release the old
+value first, through the drop plan's `DropSlot` row. A borrowed return never takes a temporary as its source: MIR names `lend
 make_word()` (`lend source must be a place`). Program:
 `examples/lend_abi_native.fk` (exact output, exit 0), also audited by
-`tests/v4_owned_word_codegen.py`; eleven named rejections are in
+`tests/v4_owned_word_codegen.py`; ten named rejections are in
 `check_v4_native_shapes`.
 
 ### Persisted interpolation checkpoint (W3)

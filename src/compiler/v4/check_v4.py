@@ -17490,7 +17490,7 @@ NATIVE_MAYBE_RESULT_EXPECTED = ("2.5\n7\nempty\n2\nodd\n3\none\npos\n-4\n51\n4\n
 NATIVE_MAYBE_RESULT_EXIT = 17
 # lend / lend mut parameters and borrowed returns (tier 3 lend ABI row).
 NATIVE_LEND_ABI_EXPECTED = ("8\n16\n3\ntrue\ntrue\ntrue\ntrue\ntrue\n7\n13\n14\n14\n28\n20\n-1\n9\n0\n30\n12\n2\n3\nada\n"
-                            "4\n0\n6\ngo!!\n4\n14\n29\n29\n100\n6\n18\n4\ngo!!?\n21\n15\n8\n11\n8\n")
+                            "4\n0\n6\ngo!!\n4\n14\n29\n29\n100\n6\n18\n4\ngo!!?\n21\n15\n8\n11\n8\nyz\nl0!\nfresher\n7\n")
 # Rejected lend ABI programs: (stem, source, named reason).
 NATIVE_LEND_ABI_REJECTED = (
     # A lend-typed parameter is not a lend mode.
@@ -17503,11 +17503,6 @@ NATIVE_LEND_ABI_REJECTED = (
     ("tier3_lend_c_callback", "use std::ffi::c_int\n@extern_callback(\"C\")\ntask cb(lend n: c_int) -> c_int { give back n }\n"
      "task main() -> int { give back 0 }\n",
      "native lend parameters across the C ABI are not yet supported: int"),
-    # Word slots of a lent aggregate keep the aggregate row's store fence.
-    ("tier3_lend_word_slot_store", "shape Named { name: word, n: int }\n"
-     "task rename(lend mut p: Named) -> void { p.name = \"y\" }\n"
-     "task main() -> int {\n    pilot mut a = Named { name: \"x\", n: 1 }\n    rename(lend mut a)\n    give back a.n\n}\n",
-     "native stores into aggregate slots that own words are not yet supported: p . name"),
     # Meiya tracks the loan a borrowed return carries.
     ("tier3_lend_return_loan_live", "shape P { x: int }\ntask pick(lend mut p: P) -> lend mut P { give back lend mut p }\n"
      "task main() -> int { pilot mut p = P { x: 1 }\n pilot m = pick(lend mut p)\n say p.x\n m.x = 2\n give back 0 }\n",

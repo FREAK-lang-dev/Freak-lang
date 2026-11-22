@@ -418,9 +418,10 @@ word` pass the caller place's address (`ptr nonnull`, plus `noalias` for
 `lend mut`, with `align`/`dereferenceable` from `freak_target`), and borrowed
 returns (`-> lend 'a T`) return the address of the lent place. Meiya ends a
 receiver loan once a resolved method call's plain-data result is bound.
-Lend parameters across the C ABI, lend-typed parameters, task value types
-with lend parameters, other lend locals
-and word-slot stores through a loan stay fenced by name
+Word-slot stores and whole replacement through a loan release the old value
+through Meiya's drop plan, as through a lent receiver. Lend parameters across
+the C ABI, lend-typed parameters, task value types with lend parameters and
+other lend locals stay fenced by name
 (`examples/lend_abi_native.fk`, `check_v4_native_shapes`).
 
 Operator doctrines lower the same way: MIR resolves `+ - * /`, unary `-`,
