@@ -3299,13 +3299,15 @@ EXECUTABLE_SMOKES = [
         "name": "MIR for-each pattern bindings",
         "fixture": "mir_for_each_pattern_smoke.fk",
         "expect": [
-            "for-each-pattern-body-locals=11",
-            "for-each-pattern-body-stmts=16",
-            "for-each-pattern-source1-ty=List<(int,word)>",
+            # A list source is a shared loan (decision 3) walked by an index
+            # local: one more local and two more statements per loop.
+            "for-each-pattern-body-locals=13",
+            "for-each-pattern-body-stmts=20",
+            "for-each-pattern-source1-ty=lend List<(int,word)>",
             "for-each-pattern-item1-ty=(int,word)",
             "for-each-pattern-power-local-ty=int",
             "for-each-pattern-label-local-ty=word",
-            "for-each-pattern-source2-ty=List<List<int>>",
+            "for-each-pattern-source2-ty=lend List<List<int>>",
             "for-each-pattern-item2-ty=List<int>",
             "for-each-pattern-left-local-ty=int",
             "for-each-pattern-right-local-ty=int",
