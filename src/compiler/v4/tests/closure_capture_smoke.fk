@@ -79,6 +79,20 @@ task v4_closure_capture_path_count(borrow_id: int, result_id: int, kind: word, t
     give back count
 }
 
+-- The type of the wanted-th Closure rvalue of a body, in source order.
+task v4_closure_capture_nth_closure_ty(mir_id: int, body_id: int, wanted: int) -> word {
+    pilot seen = 0
+    pilot rvalue_id = 0
+    repeat until rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_closure {
+            if seen == wanted { give back v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) }
+            seen += 1
+        }
+        rvalue_id += 1
+    }
+    give back ""
+}
+
 task v4_closure_capture_bool(value: bool) -> word {
     if value { give back "true" }
     give back "false"
@@ -145,3 +159,18 @@ if v4_mir_snapshot_validate(v4_mir_snapshot()).starts_with("mir-snapshot-import 
     v4_closure_capture_snapshot_ok = "true"
 }
 say "closure-capture-mir-snapshot-ok=" + v4_closure_capture_snapshot_ok
+-- TY, analysis MIR and the native MIR Build seal agree on every closure result.
+pilot v4_closure_capture_native_mir = v4_mir_lower_ty_with_closure_bodies(0, v4_closure_capture_ty)
+pilot v4_closure_capture_native_body = v4_mir_lookup_body(v4_closure_capture_native_mir, v4_closure_capture_def)
+say "closure-capture-mir-ty0=" + v4_closure_capture_nth_closure_ty(v4_closure_capture_mir, v4_closure_capture_body, 0)
+say "closure-capture-mir-block-ty=" + v4_closure_capture_nth_closure_ty(v4_closure_capture_mir, v4_closure_capture_body, 4)
+pilot v4_closure_capture_agree_id = 0
+pilot v4_closure_capture_agree = 0
+repeat until v4_closure_capture_agree_id >= 7 {
+    pilot ty_text = v4_ty_closure_type_at(v4_closure_capture_ty, v4_closure_capture_item, v4_closure_capture_agree_id)
+    if ty_text == v4_closure_capture_nth_closure_ty(v4_closure_capture_mir, v4_closure_capture_body, v4_closure_capture_agree_id) and ty_text == v4_closure_capture_nth_closure_ty(v4_closure_capture_native_mir, v4_closure_capture_native_body, v4_closure_capture_agree_id) {
+        v4_closure_capture_agree += 1
+    }
+    v4_closure_capture_agree_id += 1
+}
+say "closure-capture-result-agree=" + word_from_int(v4_closure_capture_agree)

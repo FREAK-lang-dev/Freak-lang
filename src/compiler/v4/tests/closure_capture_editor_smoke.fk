@@ -190,6 +190,10 @@ say "closure-editor-param-lsp-completion=" + v4_closure_editor_bool(v4_lsp_compl
 say "closure-editor-lsp-hover=" + v4_closure_editor_bool(v4_lsp_hover_text(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_before_use).contains("capture borrow int"))
 say "closure-editor-lsp-definition=" + v4_closure_editor_bool(v4_lsp_definition_text(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_before_use).contains("location|" + v4_closure_editor_path))
 say "closure-editor-lsp-completion=" + v4_closure_editor_bool(v4_lsp_completion_text(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_before_use).contains("capture borrow int"))
+-- Hover on a closure binding shows the result analysis MIR sealed.
+pilot v4_closure_editor_binding_use = v4_closure_editor_offset(v4_closure_editor_before_stream, "check", 1)
+say "closure-editor-binding-hover=" + v4_hover_type(v4_hover_text_cached(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_binding_use))
+say "closure-editor-binding-lsp-hover=" + v4_closure_editor_bool(v4_lsp_hover_text(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_binding_use).contains("(value:int)->bool"))
 
 pilot v4_closure_editor_semantic_payload = v4_semantic_snapshot()
 pilot v4_closure_editor_hover_payload = v4_hover_snapshot()

@@ -5970,9 +5970,9 @@ task v4_mir_build_lower_closure_body(target: int, mir_id: int, body_id: int, str
     v4_mir_control_probe_depth = saved_probe_depth
     pilot inferred = v4_mir_closure_inferred_return(target, closure_body)
     -- Disagreeing returns leave the result unknown, and are named in the
-    -- creating MIR (analysis MIR included).
+    -- creating MIR (analysis MIR included) unless TY already named them.
     pilot disagreement = v4_mir_closure_return_disagreement(target, closure_body)
-    if disagreement != "" { v4_mir_add_type_error(mir_id, expr_span, "Yuuko found closure returns that disagree: " + disagreement, "every give back in one closure must return the same type; convert one of them, or split the closure") }
+    if disagreement != "" and v4_ty_closure_return_disagreement(ty_id, hir_item, closure_id) == "" { v4_mir_add_type_error(mir_id, expr_span, "Yuuko found closure returns that disagree: " + disagreement, "every give back in one closure must return the same type; convert one of them, or split the closure") }
     closure_ty = v4_slice(closure_ty, 0, closure_ty.length() - v4_ty_unknown.length()) + inferred
     v4_mir_set_body_signature(target, closure_body, closure_ty)
     -- Coverage ran against the open result; run it again on the sealed one so
