@@ -574,8 +574,10 @@ A `lend w: dyn D` / `lend mut w: dyn D` parameter of a FREAK task is a fat
 pointer `{ ptr data, ptr vtable }`, on every target:
 
 - **Vtables.** MIR Build seals one constant vtable per (concrete type,
-  doctrine) pair a module erases (`v4_mir_dyn_vtable_*`), and the coercion
-  point of each erasure (`v4_mir_dyn_erase_vtable`). Codegen never looks up
+  doctrine) pair a module erases (`v4_mir_dyn_vtable_*`), the coercion
+  point of each erasure (`v4_mir_dyn_erase_vtable`), and each doctrine a
+  vtable or a dyn call uses (`v4_mir_dyn_doctrine_*`), so a module that only
+  dispatches still defines the vtable type. Codegen never looks up
   an impl. The layout is the bible's (section 1.6): `i64 type_id, i64 size, i64
   align, ptr drop, ptr clone`, then one `ptr` slot per doctrine method in
   declaration order. Size and alignment come from freak_target at module
@@ -587,7 +589,9 @@ pointer `{ ptr data, ptr vtable }`, on every target:
   parameter pairs the place's address (the lend ABI's address) with the
   vtable symbol. Shapes, routes, tuples, fixed arrays and scalars can be
   erased if they hold no loans. A dyn parameter forwarded onward
-  (`report(lend u)`) passes its own pair.
+  (`report(lend u)`) passes its own pair. A `lend mut` erasure of a shared
+  `lend` parameter, or of a field or element of one, is refused (`native dyn
+  erasure cannot lend mut through a shared lend`).
 - **Calls.** A dyn method call is a MIR `Call` whose op is `dyn D.m`, with a
   sealed slot fact (`v4_mir_dyn_call_slot`). It lowers to an `extractvalue`
   of data and vtable, a `getelementptr` to slot `5 + k` and an indirect call
@@ -606,8 +610,9 @@ erasure of module globals or of values that hold loans. Generic methods make
 a doctrine non-object-safe in TY. Program: `examples/dyn_native.fk` (exact
 output, exit 234), run by `check_v4_native_dyn` from `check_v4_native_shapes`
 with the layout oracle, the vtable oracle (note, constant and Clang agree;
-tampered sizes and slot orders fail) and Clang assembly on four targets, and
-15 named rejections.
+tampered sizes, slot orders and foreign impl slots fail) and Clang assembly
+on four targets, a dispatch-only module, and 19 named rejections. The
+`freak.dyn.` and `freak.vtable.` symbol prefixes are reserved.
 
 ### Persisted interpolation checkpoint (W3)
 
