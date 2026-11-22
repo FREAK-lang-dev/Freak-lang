@@ -17482,6 +17482,10 @@ NATIVE_METHODS_EXPECTED = "3\n13\n20\n204\n20\n30\n11\n6\n4\n43\n10\n11\n12\nori
 NATIVE_CLOSURES_BODIES = 23
 NATIVE_CLOSURES_EXPECTED = ("42\n15\n1\n5\n9\n7\n9\n13\n6\ntrue\n12\n22\n40\n11\n12\n"
                             "Takemikazuchi!\nTakemikazuchi!\n13\nTakemikazuchi\n3\ntrue\n11\n12\n3\n30\n1\n42\n")
+# Nested closures, closures capturing closures, word parameters and results.
+NATIVE_CLOSURES_NESTED_BODIES = 28
+NATIVE_CLOSURES_NESTED_EXPECTED = ("14\n11\n106\n12\n7\n201\n202\n6\n202\n4\n3\nx\nYuuko?\nYuuko?!\nYuuko\n5\n0\n"
+                                   "[Takemikazuchi]\n8\n42\ntrue\n101\n")
 # The FREAK aggregate calling convention: stdout, then main's exit status.
 NATIVE_DROPS_EXPECTED = ("5\n9\n3\n13\n0\nsxxxxx\nh2\n4\ntaken\nrepaired\nl\nr\nsecond\nx1\n12\nmaybe\n3\n3\n"
                          "B\nuno\nnewer\ncd\n1\nrenamed\nreset\n5\n5\n6\n9\n9\n9\n1\n53\n9\nbox\n1\n0\n")
@@ -18165,6 +18169,7 @@ def check_v4_native_shapes() -> None:
     check_v4_native_maybe_result()
     check_v4_native_c_abi()
     check_v4_native_closures()
+    check_v4_native_closures_nested()
 
 
 def check_v4_native_closures() -> None:
@@ -18249,19 +18254,20 @@ def check_v4_native_closures() -> None:
         ("tier3_closure_mut_word", "task main() -> int {\n    pilot mut title: word = \"Yuuko\"\n"
          "    pilot grow = mut |_| { title = title + \"!\" }\n    grow()\n    give back 0\n}\n",
          "native mutable closure captures of words are not yet supported: title"),
-        ("tier3_closure_word_param", "task main() -> int {\n    pilot f = |w: word| => w.length()\n    say f(\"abc\")\n    give back 0\n}\n",
-         "native closures with word parameters or results are not yet supported: closure[Callable,borrow](w:word)->int"),
-        ("tier3_closure_word_result", "task main() -> int {\n    pilot f = |n: int| => \"x\"\n    say f(2)\n    give back 0\n}\n",
-         "native closures with word parameters or results are not yet supported: closure[Callable,borrow](n:int)->word"),
+        # Plain word parameters and results now run (closures_nested_native.fk);
+        # word-bearing aggregates do not yet.
+        ("tier3_closure_word_aggregate_param", "shape Named { w: word }\ntask main() -> int {\n    pilot f = |p: Named| => p.w.length()\n"
+         "    say f(Named { w: \"abc\" })\n    give back 0\n}\n",
+         "native closures with word-bearing aggregate parameters or results are not yet supported: closure[Callable,borrow](p:Named)->int"),
         ("tier3_closure_untyped_param", "task main() -> int {\n    pilot k: int = 5\n    pilot f = |x| => x + k\n"
          "    pilot r: int = f(2)\n    say r\n    give back 0\n}\n",
          "native closure parameters need declared types: closure[Callable,borrow](x:unknown)->unknown"),
-        ("tier3_closure_nested", "task main() -> int {\n    pilot outer = |x: int| {\n        pilot inner = |y: int| => y + 1\n"
-         "        give back inner(x)\n    }\n    pilot r: int = outer(2)\n    say r\n    give back 0\n}\n",
-         "native nested closures are not yet supported: | y : int | => y + 1"),
-        ("tier3_closure_captures_closure", "task main() -> int {\n    pilot k: int = 5\n    pilot inner = |x: int| => x + k\n"
-         "    pilot outer = copy |y: int| => inner(y)\n    say outer(2)\n    give back 0\n}\n",
-         "native closures that capture closures are not yet supported: inner"),
+        # Nested closures and closures capturing closures now run
+        # (closures_nested_native.fk); a closure result that is a closure
+        # would leave its creating frame.
+        ("tier3_closure_returns_closure", "task main() -> int {\n    pilot outer = |x: int| {\n        pilot inner = |y: int| => x + y\n"
+         "        give back inner\n    }\n    give back 0\n}\n",
+         "native closures inside other types are not yet supported: closure[Callable,borrow](x:int)->closure[Callable,borrow](y:int)->int"),
         ("tier3_closure_oneshot_twice", "task main() -> int {\n    pilot n: int = 3\n    pilot once = move |_| => n + 1\n"
          "    say once()\n    say once()\n    give back 0\n}\n",
          "Meiya remembers the field you already moved"),
@@ -18306,6 +18312,111 @@ def check_v4_native_closures() -> None:
     if abi_probes == 0:
         raise RuntimeError("V4 native closures emitted no aggregate ABI notes")
     print(f"V4 native closures: run=exact layout-probes={probes} abi-probes={abi_probes} targets={len(NATIVE_LAYOUT_TRIPLES)} objects={objects} rejections={len(rejected_cases)}")
+
+
+def check_v4_native_closures_nested() -> None:
+    """Tier 3 nested closures: exact run, nested environments on four targets, named rejections."""
+    source = V4_ROOT / "examples" / "closures_nested_native.fk"
+    executable = RUNTIME_BUILD_ROOT / ("tier3_native_closures_nested.exe" if sys.platform == "win32" else "tier3_native_closures_nested.native")
+    executable.unlink(missing_ok=True)
+    built = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(executable)],
+        label="V4 build command: native nested closures", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if built.returncode != 0 or not executable.exists():
+        raise RuntimeError(f"V4 rejected the native nested closures program:\n{built.stdout}{built.stderr}")
+    ran = run_with_heartbeat([str(executable)], label="V4 native nested closures execute", timeout_seconds=10, memory_limit_mb=128)
+    if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != NATIVE_CLOSURES_NESTED_EXPECTED:
+        raise RuntimeError(f"V4 native nested closures printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
+    probes = 0
+    abi_probes = 0
+    for triple in NATIVE_LAYOUT_TRIPLES:
+        module_path = RUNTIME_BUILD_ROOT / f"tier3_native_closures_nested_{triple}.ll"
+        module_path.unlink(missing_ok=True)
+        emitted = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+            label=f"V4 nested closures module {triple}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not module_path.exists():
+            raise RuntimeError(f"V4 could not emit the nested closures module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+        module_text = module_path.read_text(encoding="utf-8")
+        envs = re.findall(r'^%"freak\.closure\.env\.[^"]+" = type ', module_text, re.MULTILINE)
+        bodies = re.findall(r'^define [^@]*@"(freak\.closure\.[^"]+)"\((.*)\)', module_text, re.MULTILINE)
+        if len(envs) != NATIVE_CLOSURES_NESTED_BODIES or len(bodies) != NATIVE_CLOSURES_NESTED_BODIES:
+            raise RuntimeError(f"V4 nested closures module for {triple} has {len(envs)} environments for {len(bodies)} closure bodies")
+        for _, params in bodies:
+            if not re.match(r"(ptr noalias sret\([^)]*\) [^,]*%ret, )?ptr %env(,|$)", params):
+                raise RuntimeError(f"V4 nested closure body on {triple} does not take its environment first: {params}")
+        # A nested closure's symbol extends its outer closure's, and its
+        # environment is allocated in the outer closure body's own frame.
+        nested = [name for name, _ in bodies if name.count(".") >= 4]
+        if len(nested) != 7 or not any(name.count(".") == 5 for name in nested):
+            raise RuntimeError(f"V4 nested closures module for {triple} lacks the nested closure bodies: {nested}")
+        for name in nested:
+            outer = name.rsplit(".", 1)[0]
+            outer_text = native_function_text(module_text, outer)
+            env = "freak.closure.env." + name[len("freak.closure."):]
+            if not re.search(r'^  %closure\.env\.\d+\.\d+ = alloca %"' + re.escape(env) + '"$', outer_text, re.MULTILINE):
+                raise RuntimeError(f"V4 nested closure {name} on {triple} has no environment in {outer}'s frame")
+        probes += check_native_layout_oracle(module_text, triple)
+        abi_probes += check_native_abi_oracle(module_text, triple)
+        assembled = run_with_heartbeat(
+            [shutil.which("clang"), f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
+            label=f"V4 nested closures object {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if assembled.returncode != 0:
+            raise RuntimeError(f"Clang rejected the V4 nested closures module for {triple}:\n{assembled.stderr}")
+    rejected_cases = (
+        # Generic closures wait for monomorphized task bodies (generics row).
+        ("tier3_closure_generic", "task apply<T>(x: T) -> T {\n    pilot f = |v: T| => v\n    give back f(x)\n}\n"
+         "task main() -> int {\n    say apply(3)\n    give back 0\n}\n",
+         "native generic closures need a monomorphized task body: | v : T | => v"),
+        # A MutCallable reached through a borrow capture has no exclusive access.
+        ("tier3_closure_mut_callable_through_lend", "task main() -> int {\n    pilot mut count: int = 0\n"
+         "    pilot bump = mut |_| { count += 1 }\n    pilot outer = |_| { bump() }\n    outer()\n    say count\n    give back 0\n}\n",
+         "Meiya refuses a MutCallable call through an immutable lend: bump"),
+        ("tier3_closure_oneshot_through_borrow", "task main() -> int {\n    pilot n: int = 3\n    pilot once = move |_| => n + 1\n"
+         "    pilot outer = |_| => once()\n    say outer()\n    give back 0\n}\n",
+         "Meiya refuses to move out of a borrowed parameter"),
+        # The loan a captured closure holds stays live through its holder.
+        ("tier3_closure_rewrite_under_captured_closure", "task main() -> int {\n    pilot mut k: int = 5\n"
+         "    pilot inner = |x: int| => x + k\n    pilot outer = copy |y: int| => inner(y)\n    k = 6\n    say outer(1)\n    give back 0\n}\n",
+         "Meiya refuses this rewrite while the value is borrowed"),
+        ("tier3_closure_rewrite_under_nested", "task main() -> int {\n    pilot mut k: int = 5\n    pilot outer = |y: int| {\n"
+         "        pilot inner = |x: int| => x + k\n        give back inner(y)\n    }\n    k = 6\n    say outer(1)\n    give back 0\n}\n",
+         "Meiya refuses this rewrite while the value is borrowed"),
+        # Disagreeing returns are named by TY, or by MIR when TY cannot type one.
+        ("tier3_closure_returns_disagree_ty", "task main() -> int {\n    pilot f = |n: int| {\n        if n > 0 { give back n }\n"
+         "        give back \"no\"\n    }\n    give back 0\n}\n",
+         "Yuuko found closure returns that disagree: int and word"),
+        ("tier3_closure_returns_disagree_mir", "task main() -> int {\n    pilot t = \"a\"\n    pilot f = |n: int| {\n"
+         "        if n > 0 { give back n }\n        give back t\n    }\n    give back 0\n}\n",
+         "Yuuko found closure returns that disagree: int and word"),
+        # The effect summary refuses a write that installs a loan into
+        # captured storage; a lend-free leaf write passes it but native
+        # aggregate lend slots are still named.
+        ("tier3_closure_installs_loan", "shape Ship { hp: int }\ntask run(first: Ship, second: Ship) -> int {\n"
+         "    pilot mut holder = (lend mut first, 0)\n    pilot writer = mut |_| { holder.0 = lend mut second }\n    writer()\n"
+         "    give back holder.0.hp\n}\ntask main() -> int {\n    say run(Ship { hp: 2 }, Ship { hp: 3 })\n    give back 0\n}\n",
+         "Meiya cannot model closure writes into loan-bearing captured storage yet"),
+        ("tier3_closure_leaf_write_lend_slot", "shape Ship { hp: int }\ntask run(first: Ship) -> int {\n"
+         "    pilot mut holder = (lend mut first, 0)\n    pilot setter = mut |v: int| { holder.1 = v }\n    setter(5)\n"
+         "    give back holder.1\n}\ntask main() -> int {\n    say run(Ship { hp: 2 })\n    give back 0\n}\n",
+         "native aggregate lend slots are not yet supported"),
+    )
+    for stem, text, reason in rejected_cases:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 nested closure case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    print(f"V4 native nested closures: run=exact bodies={NATIVE_CLOSURES_NESTED_BODIES} layout-probes={probes} abi-probes={abi_probes} "
+          f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
 
 
 # Tier 3 drops: Meiya's Runtime drop plan, as native code emits it. The drops
