@@ -192,6 +192,12 @@ pilot v4_borrowck_drop_table_skipped_walks = 0
 pilot v4_borrowck_holder_unknown = "@unknown-holder?"
 pilot v4_borrowck_repair_memo_open = 0 - 1
 pilot v4_borrowck_repair_memo_repaired = 0 - 1
+-- A closure binding shares its spelled path with every same-named local, so
+-- while one closure's move is checked only a write to that binding repairs
+-- it. 0 - 1 when the moved root is not a closure binding.
+pilot v4_borrowck_repair_binding = 0 - 1
+pilot v4_borrowck_repair_binding_mir = 0 - 1
+pilot v4_borrowck_repair_binding_body = 0 - 1
 pilot v4_borrowck_repair_memo_queries = 0
 pilot v4_borrowck_repair_memo_fallbacks = 0
 pilot v4_borrowck_repair_summary_answers = 0
@@ -4324,6 +4330,7 @@ task v4_borrowck_write_repairs_move(move_text: word, write_text: word) -> bool {
 }
 
 task v4_borrowck_stmt_repairs_move(borrow_id: int, result_id: int, move_text: word, stmt_id: int, block_id: int) -> bool {
+    if v4_borrowck_repair_binding >= 0 and not v4_borrowck_stmt_writes_repair_binding(stmt_id) { give back false }
     pilot path_idx = v4_borrowck_stmt_path_first(borrow_id, result_id, stmt_id)
     repeat until path_idx < 0 {
         if v4_borrowck_path_kind(borrow_id, result_id, path_idx) == v4_borrowck_path_write {
@@ -4334,6 +4341,71 @@ task v4_borrowck_stmt_repairs_move(borrow_id: int, result_id: int, move_text: wo
             }
         }
         path_idx = v4_borrowck_stmt_path_next(borrow_id, result_id, stmt_id, path_idx)
+    }
+    give back false
+}
+
+task v4_borrowck_stmt_writes_repair_binding(stmt_id: int) -> bool {
+    pilot mir_id = v4_borrowck_repair_binding_mir
+    pilot body_id = v4_borrowck_repair_binding_body
+    if stmt_id < 0 or stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) { give back false }
+    pilot place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+    if place < 0 or v4_mir_place_kind(mir_id, body_id, place) != v4_mir_place_local { give back false }
+    give back v4_mir_place_base(mir_id, body_id, place) == v4_borrowck_repair_binding
+}
+
+-- The closure binding a move of name at stmt_id consumes, or 0 - 1.
+task v4_borrowck_moved_closure_binding(mir_id: int, body_id: int, name: word, stmt_id: int) -> int {
+    if stmt_id < 0 or stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) { give back 0 - 1 }
+    pilot local = v4_mir_find_local_visible_at(mir_id, body_id, name, v4_span_start(v4_mir_stmt_span(mir_id, body_id, stmt_id)))
+    if local < 0 or not v4_ty_is_closure_type(v4_mir_local_ty(mir_id, body_id, local)) { give back 0 - 1 }
+    give back local
+}
+
+-- Whether a OneShot call can run again before its binding is written afresh:
+-- some path from just after the call returns to the call with no repair. A
+-- cycle that never comes back to the call is not a second call.
+task v4_borrowck_one_shot_reaches_itself_unrepaired(borrow_id: int, result_id: int, mir_id: int, body_id: int, move_stmt: int, move_block: int, move_text: word) -> bool {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if move_block < 0 or move_block >= block_count { give back true }
+    if v4_borrowck_repair_scan_block(borrow_id, result_id, mir_id, body_id, move_block, move_stmt, move_text, move_stmt, move_block, false) != 2 { give back false }
+    pilot queue = array_new()
+    pilot seen = array_new()
+    if queue < 0 or seen < 0 { give back true }
+    pilot found = v4_borrowck_queue_successors(mir_id, body_id, move_block, queue, seen)
+    pilot cursor = 0
+    repeat until found or cursor >= array_len(queue) {
+        pilot block_id = word_to_int(array_get(queue, cursor))
+        cursor += 1
+        -- Entered from its start with the closure still consumed: reaching the
+        -- call is a second call; a repair ends this path.
+        pilot outcome = v4_borrowck_repair_scan_block(borrow_id, result_id, mir_id, body_id, block_id, 0 - 1, move_text, move_stmt, move_block, false)
+        if outcome == 0 {
+            found = true
+        } else if outcome == 2 {
+            found = v4_borrowck_queue_successors(mir_id, body_id, block_id, queue, seen)
+        }
+    }
+    array_release(queue)
+    array_release(seen)
+    give back found
+}
+
+-- Queues the unseen successors of block_id; true when a target is out of range.
+task v4_borrowck_queue_successors(mir_id: int, body_id: int, block_id: int, queue: int, seen: int) -> bool {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    pilot record = v4_mir_body_block(mir_id, body_id, block_id)
+    pilot terminator = v4_mir_block_terminator(record)
+    pilot edge = 0
+    repeat until edge >= 2 {
+        pilot next = 0 - 2
+        if edge == 0 and (terminator == v4_mir_term_goto or terminator == v4_mir_term_if) { next = v4_mir_block_target(record) }
+        if edge == 1 and terminator == v4_mir_term_if { next = v4_mir_block_else_target(record) }
+        if next != 0 - 2 {
+            if next < 0 or next >= block_count { give back true }
+            if v4_borrowck_mark_seen_index(seen, next) { array_push(queue, word_from_int(next)) }
+        }
+        edge += 1
     }
     give back false
 }
@@ -7797,12 +7869,21 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
             pilot move_text = v4_borrowck_path_text(borrow_id, result_id, move_idx)
             -- Built on the first repair question for this move, released after its uses.
             pilot summary = 0 - 2
+            v4_borrowck_repair_binding = v4_borrowck_moved_closure_binding(mir_id, body_id, move_text, move_stmt)
+            v4_borrowck_repair_binding_mir = mir_id
+            v4_borrowck_repair_binding_body = body_id
             pilot use_idx = v4_borrowck_root_chain_first(chain, path_count, move_idx)
             repeat until use_idx >= path_count or use_idx < 0 {
                 -- A OneShot call in a loop is its own next use through the
                 -- backedge, unless the loop binds the closure afresh.
                 pilot self_use: bool = use_idx == move_idx and move_stmt >= 0 and move_block >= 0 and v4_borrowck_name_is_one_shot_closure(mir_id, body_id, move_text, move_stmt) and v4_borrowck_block_can_cycle(mir_id, body_id, move_block)
-                if (use_idx != move_idx or self_use) and v4_borrowck_path_is_move_use_kind(v4_borrowck_path_kind(borrow_id, result_id, use_idx)) {
+                -- A same-named use of another closure binding is not this move's use.
+                pilot other_binding: bool = false
+                if v4_borrowck_repair_binding >= 0 and use_idx != move_idx {
+                    pilot use_binding = v4_borrowck_moved_closure_binding(mir_id, body_id, v4_borrowck_path_text(borrow_id, result_id, use_idx), v4_borrowck_path_stmt(borrow_id, result_id, use_idx))
+                    other_binding = use_binding >= 0 and use_binding != v4_borrowck_repair_binding
+                }
+                if (use_idx != move_idx or self_use) and not other_binding and v4_borrowck_path_is_move_use_kind(v4_borrowck_path_kind(borrow_id, result_id, use_idx)) {
                     pilot use_stmt = v4_borrowck_path_stmt(borrow_id, result_id, use_idx)
                     pilot use_block = v4_borrowck_path_block(borrow_id, result_id, use_idx)
                     pilot use_text = v4_borrowck_path_text(borrow_id, result_id, use_idx)
@@ -7811,7 +7892,12 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                     -- Every test here is pure: the cheap overlap test runs first.
                     -- Two calls of one OneShot closure in a statement both run;
                     -- no later statement or backedge sees the second.
-                    if move_stmt >= 0 and use_stmt == move_stmt and move_block == use_block and use_idx > move_idx and v4_borrowck_path_kind(borrow_id, result_id, use_idx) == v4_borrowck_path_move and use_text == move_text and v4_borrowck_name_is_one_shot_closure(mir_id, body_id, move_text, move_stmt) {
+                    if self_use {
+                        if v4_borrowck_one_shot_reaches_itself_unrepaired(borrow_id, result_id, mir_id, body_id, move_stmt, move_block, move_text) {
+                            move_conflicts = true
+                            help = move_text + " is a OneShot closure; a loop reaches its call in statement " + word_from_int(move_stmt) + " again before it is bound afresh"
+                        }
+                    } else if move_stmt >= 0 and use_stmt == move_stmt and move_block == use_block and use_idx > move_idx and v4_borrowck_path_kind(borrow_id, result_id, use_idx) == v4_borrowck_path_move and use_text == move_text and v4_borrowck_name_is_one_shot_closure(mir_id, body_id, move_text, move_stmt) {
                         move_conflicts = true
                         help = move_text + " is a OneShot closure called twice in statement " + word_from_int(move_stmt) + "; its first call consumes it"
                     } else if move_stmt >= 0 and use_stmt >= 0 and move_block == use_block and move_stmt < use_stmt {
@@ -7849,6 +7935,7 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                 if use_idx < path_count { use_idx = v4_borrowck_root_chain_next(chain, use_idx) }
             }
             if summary >= 0 { array_release(summary) }
+            v4_borrowck_repair_binding = 0 - 1
         }
         move_idx += 1
     }

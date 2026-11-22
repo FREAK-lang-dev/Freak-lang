@@ -1,0 +1,14 @@
+-- An inner loop around the call of an outer-loop binding calls it twice.
+-- expect: reject borrowck
+-- error: f is a OneShot closure; a loop reaches its call in statement
+
+task main() -> int {
+    pilot k = 5
+    repeat 3 times {
+        pilot f = move |_| => k
+        repeat 2 times {
+            say f()
+        }
+    }
+    give back 0
+}

@@ -1,0 +1,15 @@
+-- Each pass of the outer loop binds f afresh before its one call; the inner
+-- loop never comes back to the call.
+-- expect: check
+
+task main() -> int {
+    pilot k = 5
+    repeat 3 times {
+        pilot f = move |_| => k
+        say f()
+        repeat 2 times {
+            say k
+        }
+    }
+    give back 0
+}

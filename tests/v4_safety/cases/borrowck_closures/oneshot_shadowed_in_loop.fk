@@ -1,0 +1,14 @@
+-- A later same-named binding in the loop is another closure: declaring it
+-- does not bind the consumed outer f afresh for the next pass.
+-- expect: reject borrowck
+-- error: f is a OneShot closure; a loop reaches its call in statement
+
+task main() -> int {
+    pilot k = 5
+    pilot f = move |_| => k
+    repeat 3 times {
+        say f()
+        pilot f = move |_| => k + 1
+    }
+    give back 0
+}

@@ -1,0 +1,21 @@
+-- A mut closure may not turn an immutable lend into a write: the body would
+-- hold b as lend mut and change the caller's Box.
+-- expect: reject mir
+-- error: a mut closure cannot capture an immutable lend: b
+
+shape Box {
+    x: int
+}
+
+task bump(lend b: Box, n: int) -> int {
+    pilot grow = mut |k: int| { b.x += k }
+    grow(n)
+    give back b.x
+}
+
+task main() -> int {
+    pilot b = Box { x: 1 }
+    say bump(lend b, 5)
+    say b.x
+    give back 0
+}
