@@ -35,6 +35,9 @@ pilot v4_mir_control_wire_work = 0
 pilot v4_mir_control_wire_limit = 4096
 pilot v4_mir_control_probe_depth = 0
 
+-- Set while lowering a module that mentions dyn (v4_mir_build_seal_dyn_facts).
+pilot v4_mir_build_saw_dyn: bool = false
+
 task v4_mir_build_init() -> void {
     if v4_mir_build_ready == 0 {
         v4_mir_loop_break_targets = array_new()
@@ -1147,12 +1150,14 @@ task v4_mir_types_compatible(mir_id: int, body_id: int, expected_ty: word, actua
 }
 
 task v4_mir_check_dyn_lend_erasure(mir_id: int, stmt_span: word, target_ty: word, source_ty: word, context: word) -> void {
+    if target_ty.contains("dyn ") { v4_mir_build_saw_dyn = true }
     if v4_ty_is_dyn_type(target_ty) and not v4_ty_is_dyn_type(source_ty) and v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), source_ty) {
         v4_mir_add_type_error(mir_id, stmt_span, "dyn doctrine erasure cannot hide stored lends", context + " erases " + source_ty + " into " + target_ty + "; keep the concrete type visible until Meiya can preserve its loan provenance through the vtable")
     }
 }
 
 task v4_mir_check_dyn_lend_erasure_rvalue(mir_id: int, body_id: int, target_ty: word, source_rvalue: int, context: word) -> void {
+    v4_mir_build_saw_dyn = true
     if source_rvalue < 0 or source_rvalue >= v4_mir_body_rvalue_count(mir_id, body_id) {
         give back
     }
@@ -3832,6 +3837,8 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     pilot owner_generics_rejected = false
     if method_ref == "" {
         bound_method_ref = v4_mir_find_dyn_method_ref(mir_id, receiver_ty, method_name, true)
+        -- A dyn receiver is lent in the mode the doctrine method declares.
+        call_receiver = v4_mir_dyn_receiver_operand(mir_id, body_id, receiver_rvalue, receiver_ty, bound_method_ref, expr_span)
         if bound_method_ref == "" {
             pilot bound_candidates = v4_mir_bound_method_candidate_count(mir_id, body_id, receiver_ty, method_name, true)
             if bound_candidates > 1 {
@@ -3872,6 +3879,159 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     call_args = v4_mir_call_args_payload_concat(call_args, explicit_args_payload)
     v4_mir_build_set_call_args(mir_id, body_id, call_rvalue, call_args)
     give back call_rvalue
+}
+
+-- A dyn doctrine method call (tier 3). The doctrine method's receiver mode
+-- says what the call needs: `lend self` a shared loan of the erased value and
+-- `lend mut self` an exclusive one. A `dyn D` place (a parameter written
+-- `lend w: dyn D` or `lend mut w: dyn D`) is reborrowed in that mode, as a
+-- concrete lend self receiver is, so Meiya checks a loan instead of a move.
+-- A by-value `self` cannot be called through a loan, and a `lend mut self`
+-- method cannot be called through a shared one; both are named here.
+task v4_mir_dyn_receiver_operand(mir_id: int, body_id: int, receiver_rvalue: int, receiver_ty: word, bound_ref: word, expr_span: word) -> int {
+    if receiver_rvalue < 0 or bound_ref == "" { give back receiver_rvalue }
+    v4_mir_build_saw_dyn = true
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot doctrine_sig = v4_mir_bound_method_ref_sig_id(bound_ref)
+    pilot method_id = v4_mir_bound_method_ref_method_id(bound_ref)
+    pilot mode = v4_ty_doctrine_method_param_mode(ty_id, doctrine_sig, method_id, 0)
+    pilot dyn_ty = receiver_ty
+    pilot access = v4_ty_param_mode_value
+    if v4_ty_is_lend_type(receiver_ty) {
+        access = v4_ty_lend_mode(receiver_ty)
+        dyn_ty = v4_ty_lend_target_type(receiver_ty)
+    } else if v4_mir_rvalue_kind(mir_id, body_id, receiver_rvalue) == v4_mir_rvalue_use_local {
+        pilot local_id = v4_mir_rvalue_local_id(mir_id, body_id, receiver_rvalue)
+        if local_id >= 0 { access = v4_mir_local_mode(mir_id, body_id, local_id) }
+    }
+    pilot label = v4_ty_dyn_doctrine_base_name(dyn_ty) + "::" + v4_ty_doctrine_method_name(ty_id, doctrine_sig, method_id)
+    pilot receiver_text = v4_mir_rvalue_text(mir_id, body_id, receiver_rvalue)
+    if access == v4_ty_param_mode_lend or access == v4_ty_param_mode_lend_mut {
+        if mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut {
+            v4_mir_add_type_error(mir_id, expr_span, "dyn method takes self by value", label + " takes self by value, but " + receiver_text + " only lends its " + dyn_ty + "; declare the doctrine method with lend self")
+            give back receiver_rvalue
+        }
+        if mode == v4_ty_param_mode_lend_mut and access == v4_ty_param_mode_lend {
+            v4_mir_add_type_error(mir_id, expr_span, "dyn method needs a lend mut receiver", label + " takes lend mut self, but " + receiver_text + " is a shared lend of " + dyn_ty)
+            give back receiver_rvalue
+        }
+    }
+    if v4_ty_is_lend_type(receiver_ty) or (mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut) { give back receiver_rvalue }
+    if not v4_mir_lend_source_is_place(mir_id, body_id, receiver_rvalue) {
+        v4_mir_add_type_error(mir_id, expr_span, "lend receiver must be a place", "a " + mode + " self method borrows its receiver; store the value in a pilot first")
+        give back receiver_rvalue
+    }
+    pilot kind = v4_mir_rvalue_lend
+    if mode == v4_ty_param_mode_lend_mut { kind = v4_mir_rvalue_lend_mut }
+    give back v4_mir_add_rvalue(mir_id, body_id, kind, mode + " " + receiver_text, mode, receiver_rvalue, 0 - 1, expr_span, v4_ty_lend_type(receiver_ty, mode))
+}
+
+-- Dyn facts (tier 3): MIR Build seals each erasure of a concrete place into
+-- `lend dyn D` / `lend mut dyn D` and each dyn method call, so codegen reads
+-- the vtable and its slots instead of finding impls. Set while lowering a
+-- module that mentions dyn (v4_mir_build_saw_dyn); others skip the scan.
+
+-- The vtable of (concrete, dyn doctrine): the impl of the doctrine for that
+-- type, one slot per doctrine method in declaration order (-1 where the impl
+-- has no such method). -1 when there is no such impl or the doctrine is
+-- generic; codegen then names the erasure.
+task v4_mir_build_dyn_vtable(mir_id: int, concrete: word, dyn_ty: word) -> int {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot doctrine_name = v4_ty_dyn_doctrine_base_name(dyn_ty)
+    if doctrine_name == "" or v4_ty_dyn_doctrine_name(dyn_ty) != doctrine_name { give back 0 - 1 }
+    pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(ty_id, doctrine_name)
+    if doctrine_sig < 0 { give back 0 - 1 }
+    pilot canonical = v4_ty_canonical_type(ty_id, concrete)
+    pilot existing = v4_mir_dyn_vtable_for(mir_id, canonical, doctrine_name)
+    if existing >= 0 { give back existing }
+    pilot hir_id = v4_resolve_hir_id(v4_ty_resolve_id(ty_id))
+    pilot impl_item = 0 - 1
+    pilot hir_item = 0
+    repeat until hir_item >= v4_hir_item_count(hir_id) or impl_item >= 0 {
+        if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl and v4_ty_doctrine_lookup_base_name(v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item)) == doctrine_name and v4_ty_canonical_type(ty_id, v4_ty_impl_target_type_from_hir(ty_id, hir_item)) == canonical { impl_item = hir_item }
+        hir_item += 1
+    }
+    if impl_item < 0 { give back 0 - 1 }
+    pilot slots = ""
+    pilot method_id = 0
+    repeat until method_id >= v4_ty_doctrine_method_count(ty_id, doctrine_sig) {
+        pilot name = v4_ty_doctrine_method_name(ty_id, doctrine_sig, method_id)
+        pilot body = 0 - 1
+        pilot impl_method = 0
+        repeat until impl_method >= v4_ty_impl_method_count(ty_id, impl_item) or body >= 0 {
+            if v4_ty_impl_method_name(ty_id, impl_item, impl_method) == name { body = v4_mir_lookup_body(mir_id, v4_ty_impl_method_def(ty_id, impl_item, impl_method)) }
+            impl_method += 1
+        }
+        if method_id > 0 { slots = slots + "\t" }
+        slots = slots + word_from_int(body)
+        method_id += 1
+    }
+    -- type_id: one small id per concrete type erased in this module.
+    pilot type_id = 0
+    pilot known = 0
+    repeat until known >= v4_mir_dyn_vtable_count(mir_id) {
+        if v4_mir_dyn_vtable_concrete(mir_id, known) == canonical { give back v4_mir_dyn_add_vtable(mir_id, canonical, doctrine_name, v4_mir_dyn_vtable_type_id(mir_id, known), slots) }
+        if v4_mir_dyn_vtable_type_id(mir_id, known) >= type_id { type_id = v4_mir_dyn_vtable_type_id(mir_id, known) + 1 }
+        known += 1
+    }
+    give back v4_mir_dyn_add_vtable(mir_id, canonical, doctrine_name, type_id, slots)
+}
+
+-- The doctrine method index a dyn call dispatches through, or -1. The call's
+-- receiver (its first argument and lhs) has a `dyn D` or `lend dyn D` type
+-- and the call names `<receiver type>.<method>`.
+task v4_mir_build_dyn_call_slot(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) <= 0 { give back 0 - 1 }
+    pilot receiver = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
+    if receiver < 0 or receiver != v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id) { give back 0 - 1 }
+    pilot dyn_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver)
+    if v4_ty_is_lend_type(dyn_ty) { dyn_ty = v4_ty_lend_target_type(dyn_ty) }
+    if not v4_ty_is_dyn_type(dyn_ty) { give back 0 - 1 }
+    pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    pilot dot = op.length() - 1
+    repeat until dot < 0 or op.char_at(dot) == "." { dot -= 1 }
+    if dot <= 0 { give back 0 - 1 }
+    pilot owner = v4_slice(op, 0, dot)
+    if owner != v4_mir_rvalue_ty(mir_id, body_id, receiver) and v4_ty_lend_type(owner, v4_ty_lend_mode(v4_mir_rvalue_ty(mir_id, body_id, receiver))) != v4_mir_rvalue_ty(mir_id, body_id, receiver) { give back 0 - 1 }
+    pilot name = v4_slice(op, dot + 1, op.length())
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(ty_id, v4_ty_dyn_doctrine_base_name(dyn_ty))
+    if doctrine_sig < 0 { give back 0 - 1 }
+    pilot method_id = 0
+    repeat until method_id >= v4_ty_doctrine_method_count(ty_id, doctrine_sig) {
+        if v4_ty_doctrine_method_name(ty_id, doctrine_sig, method_id) == name and v4_ty_doctrine_method_is_instance(ty_id, doctrine_sig, method_id) { give back method_id }
+        method_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_build_seal_dyn_facts(mir_id: int) -> void {
+    v4_mir_dyn_facts_clear(mir_id)
+    if not v4_mir_build_saw_dyn { give back }
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
+            pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
+            if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+                pilot ty = v4_mir_rvalue_ty(mir_id, body, value)
+                pilot child = v4_mir_rvalue_lhs(mir_id, body, value)
+                if child >= 0 and child < value and v4_ty_is_lend_type(ty) and v4_ty_is_dyn_type(v4_ty_lend_target_type(ty)) {
+                    pilot source = v4_mir_rvalue_ty(mir_id, body, child)
+                    if v4_ty_is_known(source) and not v4_ty_is_dyn_type(source) and not v4_ty_is_lend_type(source) {
+                        pilot vtable = v4_mir_build_dyn_vtable(mir_id, source, v4_ty_lend_target_type(ty))
+                        if vtable >= 0 { v4_mir_dyn_add_erase(mir_id, body, value, vtable) }
+                    }
+                }
+            }
+            if kind == v4_mir_rvalue_call {
+                pilot slot = v4_mir_build_dyn_call_slot(mir_id, body, value)
+                if slot >= 0 { v4_mir_dyn_add_call(mir_id, body, value, slot) }
+            }
+            value += 1
+        }
+        body += 1
+    }
 }
 
 -- A concrete impl method declared `lend self` or `lend mut self` borrows its
@@ -10906,6 +11066,7 @@ task v4_mir_lower_module_init(mir_id: int, hir_id: int, stream_id: int) -> void 
 task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {
     v4_mir_init()
     v4_mir_build_init()
+    v4_mir_build_saw_dyn = false
     pilot mir_id = v4_mir_file_new(file_id, ty_id)
     v4_mir_copy_ty_diags(mir_id, ty_id)
     pilot resolve_id = v4_ty_resolve_id(ty_id)
@@ -10957,6 +11118,8 @@ task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {
 
     v4_mir_lower_module_init(mir_id, hir_id, stream_id)
     v4_mir_finalize_lookup_indexes(mir_id)
+    v4_mir_build_seal_dyn_facts(mir_id)
+    v4_mir_build_saw_dyn = false
     give back mir_id
 }
 
