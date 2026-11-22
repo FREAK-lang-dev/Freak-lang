@@ -4024,8 +4024,9 @@ EXECUTABLE_SMOKES = [
             "closure-capture-hir-mode1=copy",
             "closure-capture-hir-mode2=move",
             "closure-capture-hir-mode3=mut",
-            "closure-capture-ty0=closure[Callable,borrow](x:int)->unknown",
-            "closure-capture-ty1=closure[Callable,copy](x:int)->unknown",
+            # TY infers closure results from the body; MIR seals the same.
+            "closure-capture-ty0=closure[Callable,borrow](x:int)->bool",
+            "closure-capture-ty1=closure[Callable,copy](x:int)->bool",
             "closure-capture-ty2=closure[OneShot,move]()->void",
             "closure-capture-ty3=closure[MutCallable,mut]()->void",
             "closure-capture-block-ty=closure[Callable,borrow](value:int)->int",
@@ -4112,6 +4113,8 @@ EXECUTABLE_SMOKES = [
             "closure-editor-lsp-hover=true",
             "closure-editor-lsp-definition=true",
             "closure-editor-lsp-completion=true",
+            "closure-editor-binding-hover=closure[Callable,borrow](value:int)->bool",
+            "closure-editor-binding-lsp-hover=true",
             "closure-editor-semantic-snapshot-valid=true",
             "closure-editor-hover-snapshot-valid=true",
             "closure-editor-definition-snapshot-valid=true",
@@ -5062,8 +5065,10 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "projected-closure-parse-diagnostics=0",
             "projected-closure-ty-diagnostics=0",
-            "projected-closure-mir-diagnostics=4",
-            "projected-closure-borrow-diagnostics=6",
+            # Analysis MIR seals `|_| => holder.0.hp` as ->int, so the three
+            # ->unknown field/indexed write mismatches are gone.
+            "projected-closure-mir-diagnostics=1",
+            "projected-closure-borrow-diagnostics=3",
             "projected-closure-use-storage-rejected=blocked",
             "projected-closure-overwrite-storage-clean=clean",
             "projected-closure-dynamic-write-rejected=blocked",

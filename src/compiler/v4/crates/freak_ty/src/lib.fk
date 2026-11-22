@@ -6021,33 +6021,329 @@ task v4_ty_closure_param_type_for_name(ty_id: int, hir_item: int, closure_id: in
     give back v4_ty_unknown
 }
 
-task v4_ty_infer_closure_block_return(ty_id: int, hir_item: int, closure_id: int, stream_id: int, start_token: int, end_token: int) -> word {
-    pilot idx = start_token
-    repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_syntax_value(stream_id, idx) == "give" {
-            pilot back_token = v4_ty_next_nontrivia(stream_id, idx + 1, end_token)
-            if back_token < end_token and v4_lex_token_syntax_value(stream_id, back_token) == "back" {
-                pilot expr_token = v4_ty_next_nontrivia(stream_id, back_token + 1, end_token)
-                if expr_token >= end_token or v4_lex_token_syntax_value(stream_id, expr_token) == "}" {
-                    give back v4_ty_void
+-- Closure results (tier 3). Closures declare no result_ty, so TY infers one
+-- from the body: an arrow body's expression, or every `give back` of a block
+-- body (skipping closures nested in it). The typer reads only facts TY owns:
+-- literals, operators, this and enclosing closures' parameters, the owning
+-- task's parameters and annotated `pilot` locals visible at the use, task
+-- calls, shape_sig literals and fields. Anything else is `unknown`, and MIR Build
+-- seals the result from the lowered body (native and analysis MIR alike):
+-- TY's result is provisional (pattern bindings such as `some(x)` arms are not
+-- scope facts TY reads), and MIR's sealed type is the one every consumer sees.
+task v4_ty_closure_is_operand_end(stream_id: int, token: int) -> bool {
+    pilot token_type = v4_lex_token_type(stream_id, token)
+    pilot value = v4_lex_token_syntax_value(stream_id, token)
+    if value == ")" or value == "]" or value == "}" { give back true }
+    if token_type == v4_tok_int or token_type == v4_tok_float or token_type == v4_tok_string or token_type == v4_tok_bool { give back true }
+    if token_type == v4_tok_ident { give back true }
+    if token_type == v4_tok_keyword {
+        give back value != "and" and value != "or" and value != "not" and value != "give" and value != "back" and value != "else" and value != "as"
+    }
+    give back false
+}
+
+-- 1 or, 2 and, 3 comparison, 4 + -, 5 * / %, else 0.
+task v4_ty_closure_binary_level(value: word) -> int {
+    if value == "or" { give back 1 }
+    if value == "and" { give back 2 }
+    if value == "==" or value == "!=" or value == "<" or value == ">" or value == "<=" or value == ">=" { give back 3 }
+    if value == "+" or value == "-" { give back 4 }
+    if value == "*" or value == "/" or value == "%" { give back 5 }
+    give back 0
+}
+
+-- The top-level binary operator token that splits [first, end): the lowest
+-- precedence, last of its level; -1 for none, -2 for a form TY does not
+-- type (pipes, `?`, casts, `or else`, ranges, closures).
+task v4_ty_closure_expr_split(stream_id: int, first: int, end: int) -> int {
+    pilot depth = 0
+    pilot best = 0 - 1
+    pilot best_level = 99
+    pilot previous = 0 - 1
+    pilot idx = first
+    repeat until idx >= end {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot value = v4_lex_token_syntax_value(stream_id, idx)
+            if value == "(" or value == "[" or value == "{" {
+                depth += 1
+            } else if value == ")" or value == "]" or value == "}" {
+                depth -= 1
+            } else if depth == 0 {
+                if value == "|>" or value == "?" or value == "as" or value == ".." or value == "|" or value == "=>" or value == "else" { give back 0 - 2 }
+                pilot level = v4_ty_closure_binary_level(value)
+                if level > 0 and previous >= 0 and v4_ty_closure_is_operand_end(stream_id, previous) and level <= best_level {
+                    best = idx
+                    best_level = level
                 }
-                pilot inferred = v4_ty_infer_arrow_expr_return(stream_id, expr_token, end_token)
-                if inferred != v4_ty_unknown {
-                    give back inferred
-                }
-                pilot token_type = v4_lex_token_type(stream_id, expr_token)
-                if token_type == v4_tok_ident or token_type == v4_tok_keyword {
-                    pilot after_expr = v4_ty_next_nontrivia(stream_id, expr_token + 1, end_token)
-                    if after_expr >= end_token or v4_lex_token_syntax_value(stream_id, after_expr) == ";" or v4_lex_token_syntax_value(stream_id, after_expr) == "}" {
-                        give back v4_ty_closure_param_type_for_name(ty_id, hir_item, closure_id, v4_lex_token_syntax_value(stream_id, expr_token))
-                    }
-                }
-                give back v4_ty_unknown
             }
+            previous = idx
         }
         idx += 1
     }
-    give back v4_ty_void
+    give back best
+}
+
+-- The type of a name used at use_token in a closure: "" when TY sees no
+-- binding for it, `unknown` for a binding it cannot type.
+task v4_ty_closure_name_type(ty_id: int, hir_item: int, closure_id: int, stream_id: int, name: word, use_token: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot owner_sig = v4_ty_signature_for_hir_item(ty_id, hir_item)
+    pilot use_offset = v4_span_start(v4_lex_token_span(stream_id, use_token))
+    -- The innermost closure holding the use that declares name.
+    pilot param_closure = 0 - 1
+    pilot param_start = 0 - 1
+    pilot param_ty = ""
+    pilot other = 0
+    repeat until other >= v4_hir_closure_count(hir_id, hir_item) {
+        pilot span = v4_hir_closure_span(hir_id, hir_item, other)
+        if use_offset >= v4_span_start(span) and use_offset < v4_span_end(span) and v4_span_start(span) > param_start {
+            pilot param_id = 0
+            repeat until param_id >= v4_hir_closure_param_count(hir_id, hir_item, other) {
+                if v4_hir_closure_param_name(hir_id, hir_item, other, param_id) == name {
+                    param_closure = other
+                    param_start = v4_span_start(span)
+                    param_ty = v4_ty_closure_param_type_for_name(ty_id, hir_item, other, name)
+                    param_id = v4_hir_closure_param_count(hir_id, hir_item, other)
+                }
+                param_id += 1
+            }
+        }
+        other += 1
+    }
+    -- The innermost `pilot` (or `for each`) binding of name visible at the
+    -- use, by brace scope, from the owning task's body.
+    pilot decl_start = 0 - 1
+    pilot decl_ty = ""
+    if owner_sig >= 0 {
+        pilot names = array_new()
+        pilot depths = array_new()
+        pilot starts = array_new()
+        pilot active = 0
+        pilot depth = 0
+        pilot idx = v4_ty_signature_item_start_token(ty_id, owner_sig)
+        repeat until idx < 0 or idx >= use_token {
+            if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+                pilot value = v4_lex_token_syntax_value(stream_id, idx)
+                if value == "{" {
+                    depth += 1
+                } else if value == "}" {
+                    depth -= 1
+                    pilot keep = active
+                    pilot scoped = true
+                    repeat until keep <= 0 or not scoped {
+                        if word_to_int(array_get(depths, keep - 1)) > depth { keep -= 1 } else { scoped = false }
+                    }
+                    active = keep
+                } else if value == "pilot" or value == "each" {
+                    pilot name_token = v4_ty_next_nontrivia(stream_id, idx + 1, use_token)
+                    if name_token < use_token and v4_lex_token_syntax_value(stream_id, name_token) == "mut" { name_token = v4_ty_next_nontrivia(stream_id, name_token + 1, use_token) }
+                    if name_token < use_token and v4_lex_token_syntax_value(stream_id, name_token) == name {
+                        pilot start_token = idx
+                        if active < array_len(names) {
+                            array_set(names, active, name)
+                            array_set(depths, active, word_from_int(depth))
+                            array_set(starts, active, word_from_int(start_token))
+                        } else {
+                            array_push(names, name)
+                            array_push(depths, word_from_int(depth))
+                            array_push(starts, word_from_int(start_token))
+                        }
+                        active += 1
+                    }
+                }
+            }
+            idx += 1
+        }
+        if active > 0 {
+            pilot start_token = word_to_int(array_get(starts, active - 1))
+            decl_ty = v4_ty_unknown
+            decl_start = v4_span_start(v4_lex_token_span(stream_id, start_token))
+            if v4_lex_token_syntax_value(stream_id, start_token) == "pilot" {
+                -- `fixed pilot` / `grounded pilot` statements start one token earlier.
+                pilot stmt_start = decl_start
+                pilot before = v4_ty_prev_nontrivia(stream_id, start_token - 1, 0)
+                if before >= 0 and (v4_lex_token_syntax_value(stream_id, before) == "fixed" or v4_lex_token_syntax_value(stream_id, before) == "grounded") { stmt_start = v4_span_start(v4_lex_token_span(stream_id, before)) }
+                pilot annotation = v4_ty_signature_local_annotation_at_offset(ty_id, owner_sig, decl_start)
+                if annotation >= 0 {
+                    pilot stmt_span = v4_ty_signature_local_annotation_stmt_span(ty_id, owner_sig, annotation)
+                    if v4_span_start(stmt_span) == decl_start or v4_span_start(stmt_span) == stmt_start { decl_ty = v4_ty_signature_local_annotation_type(ty_id, owner_sig, annotation) }
+                }
+            }
+        }
+        array_release(names)
+        array_release(depths)
+        array_release(starts)
+    }
+    if param_closure >= 0 and (decl_ty == "" or decl_start < param_start) { give back param_ty }
+    if decl_ty != "" { give back decl_ty }
+    if owner_sig >= 0 {
+        pilot param_id = v4_ty_signature_param_index_for_name(ty_id, owner_sig, name)
+        if param_id >= 0 {
+            pilot ty = v4_ty_signature_param_type(ty_id, owner_sig, param_id)
+            if ty == "" or ty.starts_with("lend ") { give back v4_ty_unknown }
+            give back ty
+        }
+    }
+    give back ""
+}
+
+task v4_ty_closure_expr_type(ty_id: int, hir_item: int, closure_id: int, stream_id: int, start: int, end: int, depth: int) -> word {
+    if depth > 24 { give back v4_ty_unknown }
+    pilot first = v4_ty_next_nontrivia(stream_id, start, end)
+    if first >= end { give back v4_ty_void }
+    pilot last = v4_ty_prev_nontrivia(stream_id, end - 1, first)
+    pilot first_value = v4_lex_token_syntax_value(stream_id, first)
+    if first_value == "(" and v4_ty_find_matching_paren(stream_id, first, end) == last {
+        give back v4_ty_closure_expr_type(ty_id, hir_item, closure_id, stream_id, first + 1, last, depth + 1)
+    }
+    pilot split = v4_ty_closure_expr_split(stream_id, first, end)
+    if split == 0 - 2 { give back v4_ty_unknown }
+    if split >= 0 {
+        pilot level = v4_ty_closure_binary_level(v4_lex_token_syntax_value(stream_id, split))
+        if level <= 3 { give back v4_ty_bool }
+        pilot left = v4_ty_closure_expr_type(ty_id, hir_item, closure_id, stream_id, first, split, depth + 1)
+        pilot right = v4_ty_closure_expr_type(ty_id, hir_item, closure_id, stream_id, split + 1, end, depth + 1)
+        if left != right or left == v4_ty_unknown or left == v4_ty_void { give back v4_ty_unknown }
+        pilot op = v4_lex_token_syntax_value(stream_id, split)
+        if left == v4_ty_word and op != "+" { give back v4_ty_unknown }
+        -- Division's result_ty type is MIR's call; TY leaves it open.
+        if op == "/" { give back v4_ty_unknown }
+        if left == v4_ty_bool { give back v4_ty_unknown }
+        if left == v4_ty_int or left == v4_ty_num or left == v4_ty_word { give back left }
+        give back v4_ty_unknown
+    }
+    if first_value == "not" {
+        if v4_ty_closure_expr_type(ty_id, hir_item, closure_id, stream_id, first + 1, end, depth + 1) == v4_ty_bool { give back v4_ty_bool }
+        give back v4_ty_unknown
+    }
+    if first_value == "-" {
+        pilot negated = v4_ty_closure_expr_type(ty_id, hir_item, closure_id, stream_id, first + 1, end, depth + 1)
+        if negated == v4_ty_int or negated == v4_ty_num { give back negated }
+        give back v4_ty_unknown
+    }
+    pilot first_type = v4_lex_token_type(stream_id, first)
+    if first == last {
+        if first_type == v4_tok_int { give back v4_ty_int }
+        if first_type == v4_tok_float { give back v4_ty_num }
+        if first_type == v4_tok_string { give back v4_ty_word }
+        if first_type == v4_tok_bool { give back v4_ty_bool }
+        if first_value == "nobody" { give back "maybe<unknown>" }
+        if first_type == v4_tok_ident or first_type == v4_tok_keyword {
+            pilot named = v4_ty_closure_name_type(ty_id, hir_item, closure_id, stream_id, first_value, first)
+            if named == "" { give back v4_ty_unknown }
+            give back named
+        }
+        give back v4_ty_unknown
+    }
+    if first_type != v4_tok_ident and first_type != v4_tok_keyword { give back v4_ty_unknown }
+    pilot second = v4_ty_next_nontrivia(stream_id, first + 1, end)
+    pilot second_value = v4_lex_token_syntax_value(stream_id, second)
+    -- A task call by name that no local or parameter shadows.
+    if second_value == "(" and v4_ty_find_matching_paren(stream_id, second, end) == last {
+        if first_value == "some" or first_value == "ok" or first_value == "err" { give back v4_ty_unknown }
+        if v4_ty_closure_name_type(ty_id, hir_item, closure_id, stream_id, first_value, first) != "" { give back v4_ty_unknown }
+        pilot callee = v4_ty_task_signature_id_for_name(ty_id, first_value)
+        if callee < 0 or v4_ty_signature_kind(ty_id, callee) != v4_ty_task_sig or v4_ty_signature_type_generic_count(ty_id, callee) != 0 { give back v4_ty_unknown }
+        pilot result_ty = v4_ty_signature_return_type(ty_id, callee)
+        if result_ty == "" { give back v4_ty_unknown }
+        give back result_ty
+    }
+    -- A shape_sig literal.
+    if second_value == "{" and v4_ty_find_matching_brace(stream_id, second, end) == last {
+        pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, first_value)
+        if shape_sig < 0 or v4_ty_signature_type_generic_count(ty_id, shape_sig) != 0 { give back v4_ty_unknown }
+        pilot shape_ty = v4_ty_canonical_type(ty_id, first_value)
+        if shape_ty == "" { give back v4_ty_unknown }
+        give back shape_ty
+    }
+    -- A field of a typed shape_sig binding, or a word's length.
+    if second_value == "." {
+        pilot member = v4_ty_next_nontrivia(stream_id, second + 1, end)
+        if member >= end { give back v4_ty_unknown }
+        pilot base_ty = v4_ty_closure_name_type(ty_id, hir_item, closure_id, stream_id, first_value, first)
+        if base_ty == "" or base_ty == v4_ty_unknown { give back v4_ty_unknown }
+        pilot member_value = v4_lex_token_syntax_value(stream_id, member)
+        if member == last {
+            if v4_ty_shape_signature_id_for_name(ty_id, base_ty) < 0 { give back v4_ty_unknown }
+            pilot field_ty = v4_ty_shape_field_type_for_name(ty_id, base_ty, member_value)
+            if field_ty == "" { give back v4_ty_unknown }
+            give back field_ty
+        }
+        pilot open_call = v4_ty_next_nontrivia(stream_id, member + 1, end)
+        if base_ty == v4_ty_word and member_value == "length" and open_call < end and v4_lex_token_syntax_value(stream_id, open_call) == "(" and v4_ty_next_nontrivia(stream_id, open_call + 1, end) == last and v4_lex_token_syntax_value(stream_id, last) == ")" { give back v4_ty_int }
+    }
+    give back v4_ty_unknown
+}
+
+-- A closure's result as TY infers it: the type, or "!<a> and <b>" when two
+-- returns disagree.
+task v4_ty_closure_return_summary(ty_id: int, hir_item: int, closure_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot stream_id = v4_hir_item_stream_id(hir_id)
+    pilot body_kind = v4_hir_closure_body_kind(hir_id, hir_item, closure_id)
+    pilot start = v4_hir_closure_body_start_token(hir_id, hir_item, closure_id)
+    pilot end = v4_hir_closure_body_end_token(hir_id, hir_item, closure_id)
+    if body_kind == "expr" { give back v4_ty_closure_expr_type(ty_id, hir_item, closure_id, stream_id, start, end, 0) }
+    if body_kind != "block" { give back v4_ty_void }
+    pilot own_start = v4_span_start(v4_hir_closure_span(hir_id, hir_item, closure_id))
+    pilot found = ""
+    pilot any_unknown = false
+    pilot idx = start
+    repeat until idx >= end {
+        pilot offset = v4_span_start(v4_lex_token_span(stream_id, idx))
+        pilot nested = v4_hir_closure_at_offset(hir_id, hir_item, offset)
+        if nested >= 0 and nested != closure_id and v4_span_start(v4_hir_closure_span(hir_id, hir_item, nested)) == offset and offset != own_start {
+            -- A nested closure's returns are its own.
+            pilot nested_end = v4_span_end(v4_hir_closure_span(hir_id, hir_item, nested))
+            repeat until idx >= end or v4_span_start(v4_lex_token_span(stream_id, idx)) >= nested_end { idx += 1 }
+        } else if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_syntax_value(stream_id, idx) == "give" and v4_ty_next_nontrivia(stream_id, idx + 1, end) < end and v4_lex_token_syntax_value(stream_id, v4_ty_next_nontrivia(stream_id, idx + 1, end)) == "back" {
+            pilot expr_start = v4_ty_next_nontrivia(stream_id, idx + 1, end) + 1
+            -- The statement ends at a newline, `;` or closing brace at depth 0.
+            pilot expr_end = expr_start
+            pilot depth = 0
+            pilot stop = false
+            repeat until expr_end >= end or stop {
+                pilot token_type = v4_lex_token_type(stream_id, expr_end)
+                pilot value = v4_lex_token_syntax_value(stream_id, expr_end)
+                if token_type == v4_tok_trivia {
+                    if depth == 0 and v4_lex_token_value(stream_id, expr_end).contains("\n") { stop = true }
+                } else if value == "(" or value == "[" or value == "{" {
+                    depth += 1
+                } else if value == ")" or value == "]" or value == "}" {
+                    if depth == 0 { stop = true } else { depth -= 1 }
+                } else if value == ";" and depth == 0 {
+                    stop = true
+                }
+                if not stop { expr_end += 1 }
+            }
+            pilot returned = v4_ty_closure_expr_type(ty_id, hir_item, closure_id, stream_id, expr_start, expr_end, 0)
+            if returned == v4_ty_unknown {
+                any_unknown = true
+            } else if found == "" {
+                found = returned
+            } else if found != returned {
+                give back "!" + found + " and " + returned
+            }
+            idx = expr_end
+        } else {
+            idx += 1
+        }
+    }
+    if any_unknown { give back v4_ty_unknown }
+    if found == "" { give back v4_ty_void }
+    give back found
+}
+
+task v4_ty_closure_return_disagreement(ty_id: int, hir_item: int, closure_id: int) -> word {
+    pilot summary = v4_ty_closure_return_summary(ty_id, hir_item, closure_id)
+    if summary.starts_with("!") { give back v4_slice(summary, 1, summary.length()) }
+    give back ""
+}
+
+task v4_ty_closure_inferred_return(ty_id: int, hir_item: int, closure_id: int) -> word {
+    pilot summary = v4_ty_closure_return_summary(ty_id, hir_item, closure_id)
+    if summary.starts_with("!") { give back v4_ty_unknown }
+    give back summary
 }
 
 task v4_ty_validate_closure_params(ty_id: int) -> void {
@@ -6061,6 +6357,10 @@ task v4_ty_validate_closure_params(ty_id: int) -> void {
         pilot closure_id = 0
         pilot closure_count = v4_hir_closure_count(hir_id, hir_item)
         repeat until closure_id >= closure_count {
+            pilot disagreement = v4_ty_closure_return_disagreement(ty_id, hir_item, closure_id)
+            if disagreement != "" {
+                v4_ty_add_error_diag(ty_id, v4_hir_closure_span(hir_id, hir_item, closure_id), "Yuuko found closure returns that disagree: " + disagreement, "every give back in one closure must return the same type; convert one of them, or split the closure")
+            }
             pilot param_id = 0
             pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
             repeat until param_id >= param_count {
@@ -6131,15 +6431,7 @@ task v4_ty_closure_type_at(ty_id: int, hir_item: int, closure_id: int) -> word {
         param_id += 1
     }
 
-    pilot return_ty = v4_ty_void
-    pilot body_kind = v4_hir_closure_body_kind(hir_id, hir_item, closure_id)
-    pilot stream_id = v4_hir_item_stream_id(hir_id)
-    if body_kind == "expr" {
-        return_ty = v4_ty_infer_arrow_expr_return(stream_id, v4_hir_closure_body_start_token(hir_id, hir_item, closure_id), v4_hir_closure_body_end_token(hir_id, hir_item, closure_id))
-    } else if body_kind == "block" {
-        return_ty = v4_ty_infer_closure_block_return(ty_id, hir_item, closure_id, stream_id, v4_hir_closure_body_start_token(hir_id, hir_item, closure_id), v4_hir_closure_body_end_token(hir_id, hir_item, closure_id))
-    }
-    give back out + ")->" + return_ty
+    give back out + ")->" + v4_ty_closure_inferred_return(ty_id, hir_item, closure_id)
 }
 
 task v4_ty_closure_type_for_offset(ty_id: int, hir_item: int, offset: int) -> word {
