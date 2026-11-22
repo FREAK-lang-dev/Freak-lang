@@ -299,8 +299,8 @@ values through locals, ordinary value parameters and returns, assignment,
 concatenation, equality, display and the closed read-only intrinsic inventory.
 Each returned word owns its bytes; observer inputs are borrowed. Ordinary
 lender calls currently require an explicit `lend` of a named place. Borrowed
-returns, externally supplied words, callback word contracts and native
-aggregate fields remain unsupported.
+word returns follow the lend calling convention below; externally supplied
+words and callback word contracts remain unsupported.
 
 The current MIR snapshot v10 preserves the lexical statement scopes introduced
 in v7 and validates their relation
@@ -359,10 +359,9 @@ every target:
   ABI alignment of every noted type on all four `freak_target` triples and
   checks the headers against the notes; sizes are never guessed.
 - **Scalars and words** keep their existing direct convention (words are
-  handles). `lend` and `lend mut` aggregate parameters belong to the lend ABI
-  and stay refused by name; a lent `self` receiver is the caller's place
-  pointer, as before. C ABI (extern and `@extern_callback`) aggregates stay
-  fenced by name.
+  handles). `lend` and `lend mut` parameters of any of these types follow the
+  lend calling convention below. C ABI (extern and `@extern_callback`)
+  aggregates stay fenced by name.
 
 Ownership follows Meiya: passing an aggregate moves it (Meiya rejects a later
 use), and a returned aggregate transfers ownership to the caller. Aggregates
@@ -495,6 +494,53 @@ Program: `examples/closures_native.fk` (exact output, 23 closure bodies,
 `valgrind` clean). `check_v4_native_closures` (run by `check_v4_native_shapes`)
 builds and runs it, checks every environment layout and the aggregate ABI
 notes on four targets, and checks 20 rejected cases.
+
+### Lend calling convention
+
+`lend` and `lend mut` parameters of FREAK-to-FREAK calls (abi `""`) pass the
+address of the caller's place, on every target:
+
+- **Pointees.** Scalars (`int`, `uint`, `tiny`, `num`, `float`, `float32`,
+  `bool`, `char`), shapes, tuples, fixed arrays and routes. A shared `lend`
+  of a `word` keeps the word handle convention (the handle is the loan); a
+  `lend mut` word is the address of the caller's word slot.
+- **Arguments.** The caller passes the address of the named place it lent
+  (`lend mut r.size`, `lend xs[i]` with its bounds check, a lent parameter
+  forwarded onward). Nothing is copied, and the callee uses that address as
+  the parameter's storage, so every write through `lend mut` lands in the
+  caller's place. Lent receivers (`lend self` / `lend mut self`) are the same
+  pointer.
+- **Attributes.** `ptr nonnull align A dereferenceable(S)` for `lend` and
+  `ptr noalias nonnull align A dereferenceable(S)` for `lend mut`, from the
+  same ABI marker as aggregates. The note gains `pass=lend` or
+  `pass=lend_mut`, and `check_v4_native_shapes` checks that each pointer's
+  `noalias`/`nonnull` agree with the note (a by-value or `sret` pointer has
+  `noalias` and no `nonnull`; a shared loan never has `noalias`).
+- **Borrowed returns.** `-> lend 'a T` and `-> lend mut T` return the
+  address of the place the returned loan names (`give back lend a`,
+  `give back lend mut r.origin`); a returned shared word loan is the handle.
+  A local bound to such a result, or to `lend q`, is that address too, so
+  reads, field writes and onward lends go through it.
+- **Ownership.** A loan owns nothing: the callee never drops a lent place.
+  Assigning a whole `lend mut word` releases the caller's old word first.
+  Meiya tracks the loan a borrowed return carries back to its arguments. A
+  resolved method call whose declared result is plain data (scalars, or
+  shapes, tuples, arrays and routes of them) carries no loan, so its
+  receiver's loan ends when the result is bound; other calls keep their
+  signature proof.
+
+Refused by name: lend parameters across the C ABI (`extern`,
+`@extern_callback`, `native lend parameters across the C ABI are not yet
+supported`), lend-typed parameters written as a type rather than a mode,
+lend locals other than value bindings of a loan, task value types with
+lend parameters (`native task values with lend parameters are not yet
+supported`), `lend mut` of a module global, other lend pointee types,
+and stores into word slots of a word-owning aggregate through a loan. A
+borrowed return never takes a temporary as its source: MIR names `lend
+make_word()` (`lend source must be a place`). Program:
+`examples/lend_abi_native.fk` (exact output, exit 0), also audited by
+`tests/v4_owned_word_codegen.py`; eleven named rejections are in
+`check_v4_native_shapes`.
 
 ### Persisted interpolation checkpoint (W3)
 
