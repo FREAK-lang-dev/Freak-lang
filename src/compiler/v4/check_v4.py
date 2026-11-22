@@ -3358,6 +3358,10 @@ EXECUTABLE_SMOKES = [
             "for-each-pattern-bad-duplicate-pattern-diagnostics=1",
             "for-each-pattern-bad-duplicate-pattern-message=tuple destructure duplicate binding",
             "for-each-pattern-bad-duplicate-pattern-help=left already exists in this scope",
+            # A cycle through a LoopItem's loan operand is refused on restore;
+            # an operand-free (opaque) item stays a ready leaf.
+            "for-each-pattern-loop-item-cycle-acyclic=false",
+            "for-each-pattern-opaque-loop-item-acyclic=true",
         ],
     },
     {
@@ -17602,6 +17606,10 @@ NATIVE_LISTS_REJECTED = (
     ("tier3_list_allocator_symbol", "extern [C] {\n    task free(p: *void) -> void\n}\n"
      "task main() -> int {\n    pilot xs: List<int> = [1]\n    give back 0\n}\n",
      "native list runtime symbol conflict: @free"),
+    # A dotted link name is stored quoted; both spellings name the intrinsic.
+    ("tier3_list_overflow_intrinsic_symbol", "extern [C] {\n    @link_name(\"llvm.umul.with.overflow.i64\")\n    task umul() -> std::ffi::c_isize\n}\n"
+     "task main() -> int {\n    pilot xs: List<int> = [1]\n    give back 0\n}\n",
+     'native list runtime symbol conflict: @"llvm.umul.with.overflow.i64"'),
 )
 # Rejected lend ABI programs: (stem, source, named reason).
 NATIVE_LEND_ABI_REJECTED = (

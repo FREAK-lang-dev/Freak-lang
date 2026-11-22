@@ -1,0 +1,11 @@
+-- A compound store to a list element reuses the read's checked address.
+-- expect: run
+-- exit: 12
+
+task main() -> int {
+    pilot mut xs: List<int> = [1, 2, 3]
+    pilot i = 1
+    xs[i] += 10
+    xs[0] -= 1
+    give back xs[1] + xs[0]
+}
