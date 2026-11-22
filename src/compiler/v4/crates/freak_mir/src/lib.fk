@@ -2462,6 +2462,8 @@ task v4_mir_closure_call_doctrine(mir_id: int, body_id: int, rvalue_id: int) -> 
 --   E mir body rvalue vtable  a Lend/LendMut that erases a concrete place
 --     into `lend dyn D` / `lend mut dyn D` through that vtable
 --   C mir body rvalue slot    a call dispatched through vtable slot `slot`
+--   D mir index doctrine slots  a doctrine some vtable or sealed call uses,
+--     so its vtable type exists even in a module that only dispatches
 pilot v4_mir_dyn_facts = 0 - 1
 
 task v4_mir_dyn_record_field(record: word, wanted: int) -> word {
@@ -2537,7 +2539,8 @@ task v4_mir_dyn_vtable_count(mir_id: int) -> int {
 -- The vtable already sealed for (concrete, doctrine), or -1.
 task v4_mir_dyn_vtable_for(mir_id: int, concrete: word, doctrine_name: word) -> int {
     pilot vtable_id = 0
-    repeat until vtable_id >= v4_mir_dyn_vtable_count(mir_id) {
+    pilot count = v4_mir_dyn_vtable_count(mir_id)
+    repeat until vtable_id >= count {
         if v4_mir_dyn_vtable_concrete(mir_id, vtable_id) == concrete and v4_mir_dyn_vtable_doctrine(mir_id, vtable_id) == doctrine_name { give back vtable_id }
         vtable_id += 1
     }
@@ -2578,6 +2581,59 @@ task v4_mir_dyn_add_vtable(mir_id: int, concrete: word, doctrine_name: word, typ
     if slot_bodies != "" { record = record + "\t" + slot_bodies }
     if not v4_mir_dyn_add_record(record) { give back 0 - 1 }
     give back vtable_id
+}
+
+task v4_mir_dyn_doctrine_record(mir_id: int, index: int) -> word {
+    if index < 0 { give back "" }
+    give back v4_mir_dyn_find("D\t" + word_from_int(mir_id) + "\t" + word_from_int(index) + "\t")
+}
+
+-- Doctrines whose vtable type the module needs, in first-use order.
+task v4_mir_dyn_doctrine_count(mir_id: int) -> int {
+    pilot count = 0
+    repeat until v4_mir_dyn_doctrine_record(mir_id, count) == "" { count += 1 }
+    give back count
+}
+
+task v4_mir_dyn_doctrine_name(mir_id: int, index: int) -> word {
+    give back v4_mir_dyn_record_field(v4_mir_dyn_doctrine_record(mir_id, index), 3)
+}
+
+task v4_mir_dyn_doctrine_slot_count(mir_id: int, index: int) -> int {
+    pilot raw = v4_mir_dyn_record_field(v4_mir_dyn_doctrine_record(mir_id, index), 4)
+    if raw == "" { give back 0 - 1 }
+    give back word_to_int(raw)
+}
+
+-- Record that the module uses doctrine `doctrine_name` (with `slots` methods)
+-- once; gives back its index, or -1.
+task v4_mir_dyn_add_doctrine(mir_id: int, doctrine_name: word, slots: int) -> int {
+    pilot count = v4_mir_dyn_doctrine_count(mir_id)
+    pilot index = 0
+    repeat until index >= count {
+        if v4_mir_dyn_doctrine_name(mir_id, index) == doctrine_name { give back index }
+        index += 1
+    }
+    if not v4_mir_dyn_add_record("D\t" + word_from_int(mir_id) + "\t" + word_from_int(count) + "\t" + doctrine_name + "\t" + word_from_int(slots)) { give back 0 - 1 }
+    give back count
+}
+
+-- Every fact of one MIR id, for borrow-check result digests: a cached result
+-- must not survive a change of the sealed dyn facts.
+task v4_mir_dyn_facts_digest(mir_id: int) -> word {
+    if v4_mir_dyn_facts < 0 { give back "" }
+    pilot parts = array_new()
+    if parts < 0 { give back "" }
+    pilot key = "\t" + word_from_int(mir_id) + "\t"
+    pilot idx = 0
+    repeat until idx >= array_len(v4_mir_dyn_facts) {
+        pilot record: word = array_get(v4_mir_dyn_facts, idx)
+        if v4_slice(record, 1, 1 + key.length()) == key { array_push(parts, record + "\n") }
+        idx += 1
+    }
+    pilot out = word_join(parts)
+    array_release(parts)
+    give back out
 }
 
 task v4_mir_dyn_rvalue_key(kind: word, mir_id: int, body_id: int, rvalue_id: int) -> word {

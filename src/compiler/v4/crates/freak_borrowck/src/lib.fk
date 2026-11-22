@@ -8089,6 +8089,8 @@ task v4_borrowck_mir_shape(mir_id: int) -> word {
         array_push(parts, "," + v4_borrowck_handle_digest(v4_mir_body_local_tys_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_modes_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_scope_spans_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_names_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_spans_handle(mir_id, body)) + "," + v4_borrowck_handle_digest(v4_mir_body_local_binding_prefixes_handle(mir_id, body)))
         body += 1
     }
+    -- Sealed dyn erasure and call facts are part of what Meiya checked.
+    array_push(parts, ";dyn:" + v4_mir_dyn_facts_digest(mir_id))
     pilot out = word_join(parts)
     array_release(parts)
     give back out
