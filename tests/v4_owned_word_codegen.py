@@ -30,6 +30,8 @@ EXPECTED = {
     "drops_try_native.fk": "positivekeep\nnegative\nnegative\nnegative\n13\none!\nnone\nother\nother\n",
     "drops_native.fk": ("5\n9\n3\n13\n0\nsxxxxx\nh2\n4\ntaken\nrepaired\nl\nr\nsecond\nx1\n12\nmaybe\n3\n3\n"
                         "B\nuno\nnewer\ncd\n1\nrenamed\nreset\n5\n5\n6\n9\n9\n9\n1\n53\n9\nbox\n1\n0\n"),
+    "lend_abi_native.fk": ("8\n16\n3\ntrue\ntrue\ntrue\ntrue\ntrue\n7\n13\n14\n14\n28\n20\n-1\n9\n0\n30\n12\n2\n3\nada\n"
+                           "4\n0\n6\ngo!!\n4\n14\n29\n29\n100\n6\n18\n4\ngo!!?\n21\n15\n8\n11\n8\n"),
     "word_interpolation.fk": "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n",
 }
 
