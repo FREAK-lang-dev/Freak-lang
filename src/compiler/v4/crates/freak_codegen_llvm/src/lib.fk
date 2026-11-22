@@ -2735,7 +2735,7 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
             -- The read already evaluated the index operands; reuse its address.
             -- Otherwise the target (index operands and bounds checks) is
             -- evaluated before the value, in MIR's source order.
-            if read >= 0 { address = "%place." + word_from_int(body_id) + "." + word_from_int(place_id) + "." + v4_codegen_llvm_compound_read_site(mir_id, body_id, stmt_id, read) } else { address = v4_codegen_llvm_place_address(parts, mir_id, body_id, place_id, "s" + word_from_int(stmt_id)) }
+            if read >= 0 { address = v4_codegen_llvm_compound_place_address(mir_id, body_id, place_id, v4_codegen_llvm_compound_read_site(mir_id, body_id, stmt_id, read)) } else { address = v4_codegen_llvm_place_address(parts, mir_id, body_id, place_id, "s" + word_from_int(stmt_id)) }
             pilot target_lines = word_join(parts)
             array_release(parts)
             pilot value_lines = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
@@ -5557,6 +5557,15 @@ task v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts: int, mir_id: int, bod
     give back true
 }
 
+-- The address v4_codegen_llvm_place_address named for this place at site:
+-- a list element is the bounds-checked `%listidx...at`, any other step the
+-- `%place...` getelementptr. A compound store reuses the read's address.
+task v4_codegen_llvm_compound_place_address(mir_id: int, body_id: int, place_id: int, site: word) -> word {
+    pilot stem = word_from_int(body_id) + "." + word_from_int(place_id) + "." + site
+    if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_index and v4_codegen_llvm_is_list(mir_id, v4_codegen_llvm_place_referent_ty(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id))) { give back "%listidx." + stem + ".at" }
+    give back "%place." + stem
+}
+
 -- The address of a place, as LLVM pointer text. Field chains become one
 -- getelementptr per step over the freak_target-described struct; a
 -- dereferenced root evaluates its pointer operand first.
@@ -6152,7 +6161,7 @@ task v4_codegen_llvm_list_globals() -> word {
 -- The helpers link libc's allocator under its C names, so a module with
 -- lists may not declare or define those symbols itself.
 task v4_codegen_llvm_list_symbol_error(codegen_id: int) -> word {
-    pilot reserved = ",@realloc,@free,@llvm.umul.with.overflow.i64,"
+    pilot reserved = ",@realloc,@free,@llvm.umul.with.overflow.i64,@\"llvm.umul.with.overflow.i64\","
     pilot body = 0
     repeat until body >= v4_codegen_llvm_body_count(codegen_id) {
         pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body)
@@ -7238,7 +7247,7 @@ task v4_codegen_llvm_word_tree_mark_is_valid(mir_id: int, body_id: int, rvalue_i
                 }
                 if kind == v4_mir_rvalue_use_place {
                     v4_codegen_llvm_push_place_operands(pending, mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value))
-                } else if v4_codegen_llvm_is_literal_aggregate(kind) {
+                } else if v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_list {
                     pilot arg = 0
                     repeat until arg >= v4_mir_rvalue_call_arg_count(mir_id, body_id, value) {
                         v4_codegen_llvm_fragment_push(pending, word_from_int(v4_mir_rvalue_call_arg(mir_id, body_id, value, arg)))
