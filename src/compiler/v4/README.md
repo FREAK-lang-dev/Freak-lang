@@ -442,15 +442,21 @@ driver calls `v4_mir_lower_ty_with_closure_bodies`, so MIR Build lowers each
 closure body as its own MIR body (def `closure:<task def>@<offset>#<captures>`,
 symbol `freak.closure.<task>.<offset>`) while it lowers the creating task.
 Editor and analysis queries keep calling `v4_mir_lower_ty` and see no extra
-bodies. The closure body reads HIR, generics and annotations through its
+bodies: analysis MIR lowers each closure body into an unpublished scratch MIR
+and keeps only its sealed result, a return-disagreement diagnostic and its
+effect summary, so analysis, hover and native builds agree on closure types. The closure body reads HIR, generics and annotations through its
 task's signature (`v4_mir_body_context_signature_id`). Its parameters come
 first, then one local per capture, whose mode is the sealed MIR fact: `lend`
 for `CaptureBorrow`, `lend mut` for `CaptureBorrowMut`, and a value for
 `CaptureCopy` and `CaptureMove`. Meiya checks the body with those capture
-locals initialized on entry. Closures declare no result, and TY's result is
-a guess from the first returned token, so MIR Build lowers the body against
-an open result and seals it from the lowered `give back` values (all of them
-must agree; no value gives `void`). Return coverage then runs again on the
+locals initialized on entry. Closures declare no result. TY infers one from
+an arrow body or every `give back` of a block body, from facts it owns
+(literals, operators, closure and task parameters, annotated locals in brace
+scope, task calls, shape literals and fields), and says `unknown` for the
+rest. MIR Build lowers the body against an open result and seals it from the
+lowered `give back` values (all of them must agree; no value gives `void`);
+disagreeing returns are `Yuuko found closure returns that disagree`, from TY
+or from MIR when TY could not type a return. Return coverage then runs again on the
 sealed result, so a route without `give back` is `missing return`. The
 Closure rvalue carries the sealed type.
 
@@ -475,12 +481,29 @@ Closure rvalue carries the sealed type.
   Meiya enforces the doctrine (shared borrows, exclusive `mut` access, OneShot
   consumed on its first call); codegen does not re-check it.
 - **Words.** A borrowed word capture is a pointer to the owner's slot, and the
-  owner keeps and drops the word. Moving or copying a word into an
-  environment, `mut` captures of word-owning values, and word parameters or
-  results are refused by name until the closure-environment ownership
-  contract can drop them.
-- **Also named:** nested closures, closures capturing closures, parameters
-  without declared types, closures whose parameters keep a C ABI (C aliases,
+  owner keeps and drops the word. A word parameter crosses like a task's: the
+  closure body owns it and its drop plan releases it; a word result is the
+  caller's. Moving or copying a word into an environment, `mut` captures of
+  word-owning values, and word-bearing aggregate parameters or results are
+  refused by name until the closure-environment ownership contract can drop
+  them.
+- **Nested closures.** Parse records closures nested in a closure body, HIR
+  returns the innermost closure at an offset, and MIR Build lowers a nested
+  closure through its task's context signature: its symbol extends the outer
+  one (`freak.closure.<task>.<outer>.<inner>`) and its environment is an
+  `alloca` in the outer closure body's frame. A nested closure's parameters
+  shadow outer names in the outer closure's capture scan. A closure may
+  capture a closure by borrow, copy (Callable is Copy), `mut` or `move`;
+  Meiya refuses a MutCallable call through an immutable lend and keeps a
+  captured closure's loans live through its holder. Closures in generic tasks
+  are named until monomorphized task bodies exist.
+- **Effect summaries.** A `mut` closure writing loan-bearing captured storage
+  is checked against its lowered body (`v4_mir_closure_capture_installs_loan`):
+  a write that can install a loan (a loan-bearing place rooted at the capture,
+  `lend mut` of one, a nested `mut` capture) is refused; a write to a
+  lend-free leaf is allowed. Mutating receiver calls on such captures stay
+  refused.
+- **Also named:** parameters without declared types, closures whose parameters keep a C ABI (C aliases,
   task function types; no body is lowered), value captures of other owned
   carriers such as scalar sums, closure bodies that use scalar sums or system
   intrinsics, and closure types inside other types. Meiya also refuses two
@@ -490,10 +513,13 @@ Closure rvalue carries the sealed type.
   methods do not reach codegen yet: MIR finds no TY closure type for a body
   without an ordinary signature and reports the call's arity instead.
 
-Program: `examples/closures_native.fk` (exact output, 23 closure bodies,
-`valgrind` clean). `check_v4_native_closures` (run by `check_v4_native_shapes`)
-builds and runs it, checks every environment layout and the aggregate ABI
-notes on four targets, and checks 20 rejected cases.
+Programs: `examples/closures_native.fk` (exact output, 23 closure bodies,
+`valgrind` clean) and `examples/closures_nested_native.fk` (exact output, 28
+closure bodies, 7 nested, word parameters and results, `valgrind` clean).
+`check_v4_native_closures` and `check_v4_native_closures_nested` (run by
+`check_v4_native_shapes`) build and run them, check every environment layout
+and the aggregate ABI notes on four targets, check each nested environment
+sits in its outer closure's frame, and check 18 and 9 rejected cases.
 
 ### Lend calling convention
 
@@ -909,14 +935,15 @@ Meiya follows the callee's declaration identity through projections
 and restored MIR; mutable shadows retain their own permission. Read-only
 and OneShot calls keep their existing borrow and move rules. The registered
 prerelease closure-binding smoke covers fresh and restored callees. Closure
-effect summaries do not exist yet, so MIR rejects mutable closure writes into
-captured storage whose type may retain a lend instead of silently losing the
-installed loan at invocation. Closure parameter editor facts likewise exclude
+effect summaries are a first slice: MIR rejects mutable closure writes that
+can install a loan into captured storage instead of silently losing the
+installed loan at invocation, and allows writes to lend-free leaves. Closure parameter editor facts likewise exclude
 `.`/`::` member positions. Capture
 mode is visible through semantic, hover, definition, completion, LSP, MIR and
 borrowck snapshots, and deterministic all-family invalidation/diff reports.
-Nested and generic closure inference, borrowed-return closure contracts and
-`Send`/`Sync` remain later slices. Native closure environments are described
+Nested closures are lowered (see "Native closures"); generic closure
+inference, borrowed-return closure contracts and `Send`/`Sync` remain later
+slices. Native closure environments are described
 under "Native closures" above.
 The Borrow Checker gate has now started with `lend` / `lend mut` parameter
 contracts and explicit `lend value` / `lend mut value` expressions carried

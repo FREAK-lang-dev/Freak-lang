@@ -101,7 +101,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.5 Shapes | ✅ Implemented — V4 also lowers concrete and doctrine-bound UFCS calls through MIR with receiver, argument, and editor diagnostics |
 | §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships, and V4 native code lowers `Ord` (`compare` to `Order`), `Index` and `IndexMut` (`a[i] = x`) on user shapes and routes with the receiver mode each impl declares; V4 also parses and enforces doctrine bounds plus multi-bound generics across TY/MIR/editor, carries bound static and UFCS calls with instantiated doctrine arguments, preserves body-generic identity over same-named global aliases, diagnoses overlapping bound methods, and provides first-pass `dyn Doctrine` type positions, object-safety diagnostics, coercion checks, MIR method dispatch facts, and editor facts; dyn fat-pointer/vtable codegen still expands |
 | §1.7 Control flow | ⚠️ Partial — V4 carries tuple, fixed-array, and route/variant payload pattern destructuring, canonical terminal conditional chains, and condition-first training-session caps plus `with growth` mutation checks; `prob_when` and broader pattern ergonomics remain 🔜 V4 |
-| §1.8 Closures | ⚠️ Partial — V4 carries default/`copy`/`move`/`mut` capture environments through HIR/TY/MIR/Meiya/editor/snapshot/invalidation, and native builds lower non-escaping closures in ordinary tasks (stack environment plus code pointer); escaping closures, word moves into environments, nested closure inference, borrowed-return contracts, and `Send`/`Sync` remain 🔜 V4 |
+| §1.8 Closures | ⚠️ Partial — V4 carries default/`copy`/`move`/`mut` capture environments through HIR/TY/MIR/Meiya/editor/snapshot/invalidation, and native builds lower non-escaping closures in ordinary tasks (stack environment plus code pointer), including nested closures, closures capturing closures and word parameters/results; closure results are inferred from the body (TY, analysis MIR, hover and native agree), and a first effect summary allows `mut` writes to lend-free leaves of loan-bearing captures; escaping closures, word moves into environments, generic closures (monomorphization), borrowed-return contracts, and `Send`/`Sync` remain 🔜 V4 |
 | §1.9 Pipe operator `\|>` | ✅ Implemented |
 | §1.10 Error handling (`?`, `or else`, `check`) | ✅ Implemented |
 | §1.11 Generics | ⚠️ Partial — basic `<T>` plus doctrine and multi-bound generic constraints work in V4 query slices, including doctrine-bound instance, static, and UFCS method typing with generic doctrine-argument substitution before alias canonicalization and ambiguity diagnostics for overlapping methods; full backend/monomorphization depth still expands |
@@ -524,15 +524,20 @@ pilot counter = mut |_| { count += 1 }
 > and diagnoses non-Copy `copy` captures or assignment and resolved mutable
 > receiver calls through a non-`mut` environment. Semantic, hover, definition,
 > completion, LSP, snapshot restore,
-> and all-family source invalidation expose the same capture mode. Nested
-> closures, inferred generic parameter/return types, borrowed-return closure
-> contracts, and `Send`/`Sync` proof remain later V4 work. Native builds now
+> and all-family source invalidation expose the same capture mode. Closure
+> results are inferred from the body: TY types what it can, MIR seals the
+> result from the lowered returns (in analysis MIR too), and disagreeing
+> returns are an error. Inferred generic parameter/return types,
+> borrowed-return closure contracts, and `Send`/`Sync` proof remain later V4
+> work. Native builds now
 > lower closures in ordinary tasks: the environment is a stack struct in the
 > creating frame paired with a code pointer, and calls pass it first (after
 > the result slot when the closure returns a shape, tuple, fixed array or
-> route: sret, then the environment, then the arguments). A closure
-> that would leave its frame, a word moved into an environment, and nested
-> closures are refused by name; this is not yet a full backend claim.
+> route: sret, then the environment, then the arguments). Nested closures
+> (the environment lives in the outer closure's frame), closures capturing
+> closures, and word parameters and results run natively. A closure that
+> would leave its frame, a word moved into an environment, and closures in
+> generic tasks are refused by name; this is not yet a full backend claim.
 
 ### 1.9 Pipe Operator
 
