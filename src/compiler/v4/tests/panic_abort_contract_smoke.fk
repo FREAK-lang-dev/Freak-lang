@@ -102,8 +102,16 @@ task v4_panic_contract_conditional(mode: word) -> void {
         pilot iterable: bool = mode == "foreach-array-wire" or mode == "foreach-list-wire"
         v4_panic_contract_assert(v4_mir_stmt_kind(mir, body, control) == v4_mir_stmt_loop and v4_mir_block_terminator(record) == v4_mir_term_if, "legacy loop owns if")
         if iterable {
-            pilot source_local = v4_mir_rvalue_local_id(mir, body, value)
-            v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_use_local and source_local >= 0 and source_local < v4_mir_body_local_count(mir, body) and v4_mir_rvalue_op(mir, body, value) == "local#" + word_from_int(source_local) and v4_mir_rvalue_text(mir, body, value) == "_for_each_source" and v4_mir_local_name(mir, body, source_local) == "_for_each_source" and v4_mir_rvalue_ty(mir, body, value) == "List<int>" and v4_mir_local_ty(mir, body, source_local) == "List<int>", "canonical iterable source identity and type preserved")
+            -- A list for each lends its source (decision 3): the loop operand is
+            -- the test `_for_each_index < length(_for_each_source)` over a shared
+            -- loan of the list, not the list value itself.
+            pilot test_index = v4_mir_rvalue_lhs(mir, body, value)
+            pilot test_length = v4_mir_rvalue_rhs(mir, body, value)
+            pilot index_local = v4_mir_rvalue_local_id(mir, body, test_index)
+            v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_binary and v4_mir_rvalue_op(mir, body, value) == "Lt" and v4_mir_rvalue_ty(mir, body, value) == v4_ty_bool and v4_mir_rvalue_kind(mir, body, test_index) == v4_mir_rvalue_use_local and index_local >= 0 and index_local < v4_mir_body_local_count(mir, body) and v4_mir_local_name(mir, body, index_local) == "_for_each_index" and v4_mir_local_ty(mir, body, index_local) == v4_ty_int, "list loop test reads the for each index")
+            pilot source_read = v4_mir_rvalue_call_arg(mir, body, test_length, 0)
+            pilot source_local = v4_mir_rvalue_local_id(mir, body, source_read)
+            v4_panic_contract_assert(v4_mir_list_intrinsic_kind(mir, body, test_length) == "length" and v4_mir_rvalue_kind(mir, body, source_read) == v4_mir_rvalue_use_local and source_local >= 0 and source_local < v4_mir_body_local_count(mir, body) and source_local != index_local and v4_mir_rvalue_op(mir, body, source_read) == "local#" + word_from_int(source_local) and v4_mir_rvalue_text(mir, body, source_read) == "_for_each_source" and v4_mir_local_name(mir, body, source_local) == "_for_each_source" and v4_mir_rvalue_ty(mir, body, source_read) == "lend List<int>" and v4_mir_local_ty(mir, body, source_local) == "lend List<int>", "canonical iterable source identity and type preserved")
             pilot binding_place = v4_mir_stmt_place(mir, body, control)
             pilot binding_local = v4_mir_place_base(mir, body, binding_place)
             v4_panic_contract_assert(binding_place >= 0 and binding_place < v4_mir_body_place_count(mir, body) and v4_mir_place_kind(mir, body, binding_place) == v4_mir_place_local and binding_local >= 0 and binding_local < v4_mir_body_local_count(mir, body) and binding_local != source_local and v4_mir_place_text(mir, body, binding_place) == "item" and v4_mir_local_name(mir, body, binding_local) == "item" and v4_mir_place_ty(mir, body, binding_place) == v4_ty_int and v4_mir_local_ty(mir, body, binding_local) == v4_ty_int, "exact iterable binding identity and element type preserved")
@@ -122,18 +130,32 @@ task v4_panic_contract_conditional(mode: word) -> void {
             }
             v4_panic_contract_assert(source_decls == 1 and source_decl >= 0 and source_decl < control and binding_decls == 1 and binding_decl >= 0, "iterable stored once and binding declared once")
             pilot feed = v4_mir_stmt_rvalue(mir, body, source_decl)
-            v4_panic_contract_assert(v4_mir_rvalue_ty(mir, body, feed) == "List<int>", "preheader iterable feed keeps declared type")
+            v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, feed) == v4_mir_rvalue_lend and v4_mir_rvalue_ty(mir, body, feed) == "lend List<int>", "preheader iterable feed is a shared loan of the list")
+            pilot lent = v4_mir_rvalue_lhs(mir, body, feed)
+            pilot lent_local = v4_mir_rvalue_local_id(mir, body, lent)
+            v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, lent) == v4_mir_rvalue_use_local and lent_local >= 0 and lent_local < v4_mir_body_local_count(mir, body) and lent_local != source_local and v4_mir_rvalue_op(mir, body, lent) == "local#" + word_from_int(lent_local) and v4_mir_local_ty(mir, body, lent_local) == "List<int>", "lent list source keeps its declared type")
             if mode == "foreach-array-wire" {
-                pilot original_local = v4_mir_rvalue_local_id(mir, body, feed)
-                v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, feed) == v4_mir_rvalue_use_local and original_local >= 0 and original_local < v4_mir_body_local_count(mir, body) and original_local != source_local and v4_mir_rvalue_op(mir, body, feed) == "local#" + word_from_int(original_local) and v4_mir_rvalue_text(mir, body, feed) == "rows" and v4_mir_local_name(mir, body, original_local) == "rows" and v4_mir_local_ty(mir, body, original_local) == "List<int>", "array literal source read belongs to rows local")
+                v4_panic_contract_assert(v4_mir_rvalue_text(mir, body, lent) == "rows" and v4_mir_local_name(mir, body, lent_local) == "rows", "array literal source read belongs to rows local")
             } else {
+                -- A temporary source is owned by `_for_each_owner` and lent from it.
+                v4_panic_contract_assert(v4_mir_rvalue_text(mir, body, lent) == "_for_each_owner" and v4_mir_local_name(mir, body, lent_local) == "_for_each_owner", "temporary list source is owned by the loop")
+                pilot owner_decl = -1
+                pilot owner_decls = 0
                 pilot source_calls = 0
+                row = 0
+                repeat until row >= v4_mir_body_stmt_count(mir, body) {
+                    pilot owner_place = v4_mir_stmt_place(mir, body, row)
+                    if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_local and owner_place >= 0 and v4_mir_place_kind(mir, body, owner_place) == v4_mir_place_local and v4_mir_place_base(mir, body, owner_place) == lent_local { owner_decl = row; owner_decls += 1 }
+                    row += 1
+                }
                 row = 0
                 repeat until row >= v4_mir_body_rvalue_count(mir, body) {
                     if v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, row) == "rows" { source_calls += 1 }
                     row += 1
                 }
-                v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, feed) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, feed) == "rows" and v4_mir_rvalue_call_arg_count(mir, body, feed) == 0 and source_calls == 1, "List task call is evaluated once in preheader")
+                v4_panic_contract_assert(owner_decls == 1 and owner_decl >= 0 and owner_decl < source_decl and v4_mir_stmt_block(mir, body, owner_decl) == v4_mir_stmt_block(mir, body, source_decl), "temporary list source is stored once before its loan")
+                pilot owner_feed = v4_mir_stmt_rvalue(mir, body, owner_decl)
+                v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, owner_feed) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, owner_feed) == "rows" and v4_mir_rvalue_call_arg_count(mir, body, owner_feed) == 0 and source_calls == 1, "List task call is evaluated once in preheader")
             }
             pilot preheader = v4_mir_stmt_block(mir, body, source_decl)
             pilot body_block = v4_mir_block_target(record)
