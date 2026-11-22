@@ -4931,8 +4931,10 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "fixed-aggregate-parse-diagnostics=0",
             "fixed-aggregate-ty-diagnostics=0",
-            "fixed-aggregate-mir-diagnostics=8",
-            "fixed-aggregate-borrow-diagnostics=44",
+            # Analysis MIR seals `|_| => holder.0.hp` as ->int, so the two
+            # ->unknown assignment and one field write mismatches are gone.
+            "fixed-aggregate-mir-diagnostics=5",
+            "fixed-aggregate-borrow-diagnostics=41",
             "fixed-aggregate-tuple-sibling-dead=clean",
             "fixed-aggregate-tuple-left-live=blocked",
             "fixed-aggregate-array-sibling-dead=clean",
