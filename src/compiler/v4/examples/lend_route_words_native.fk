@@ -1,0 +1,19 @@
+-- The only word owners here are a route whose word case is never built and
+-- a shape holding it. Replacing them through lend mut and dropping them at
+-- return still runs word drop glue, so the module must declare the word
+-- runtime although no word value appears. No say: that would pull it in.
+route R {
+    Named { w: word }
+    Empty
+}
+shape Box { r: R, n: int }
+task reset(lend mut r: R) -> void { r = R::Empty }
+task bump(lend mut b: Box) -> void { b = Box { r: R::Empty, n: b.n + 1 } }
+task main() -> int {
+    pilot mut r = R::Empty
+    reset(lend mut r)
+    pilot mut b = Box { r: R::Empty, n: 1 }
+    bump(lend mut b)
+    pilot k = R::Empty
+    give back b.n + 1
+}

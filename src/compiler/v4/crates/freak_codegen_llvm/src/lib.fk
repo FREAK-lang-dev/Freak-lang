@@ -6363,6 +6363,9 @@ task v4_codegen_llvm_word_borrow_plan_error(borrow_id: int, mir_id: int) -> word
 -- A word, or a native carrier with a word payload field.
 task v4_codegen_llvm_type_holds_word(mir_id: int, type_text: word) -> bool {
     if type_text == v4_ty_word { give back true }
+    -- Drop glue of a word-owning aggregate calls the word runtime even when
+    -- no word value appears (a route whose word case is never built).
+    if v4_codegen_llvm_type_owns_words(mir_id, type_text) { give back true }
     pilot carrier = v4_mir_scalar_sum_kind(mir_id, type_text)
     if carrier == "ResultWordWord" { give back true }
     give back (carrier == "Maybe" or carrier == "Result") and v4_codegen_llvm_sum_word_field(mir_id, type_text) != ""

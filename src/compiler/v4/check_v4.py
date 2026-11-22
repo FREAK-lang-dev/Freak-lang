@@ -17640,6 +17640,71 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
 NATIVE_ABI_NOTE = re.compile(r"^; freak\.abi (@\S+) (%\S+) size=(\d+) align=(\d+) type=(.+?)(?: pass=(lend|lend_mut))?$")
 
 
+NATIVE_LEND_SIGNATURE = re.compile(r"^task (\w+)(?:<[^>]*>)?\((.*)\) ->", re.MULTILINE)
+
+
+def native_lend_param_modes(source: str) -> dict[tuple[str, int], str]:
+    """Map (task symbol, param index) to the pass= each param must carry.
+
+    Read from the top-level `task` signatures of a FREAK source: `lend mut`
+    params must note pass=lend_mut, `lend` params pass=lend, a shared `lend`
+    word ("handle") no note at all, and other params none. Depth-aware splitting keeps tuple types such as (int, int) whole.
+    """
+    modes: dict[tuple[str, int], str] = {}
+    for match in NATIVE_LEND_SIGNATURE.finditer(source):
+        params: list[str] = []
+        depth = 0
+        current = ""
+        for ch in match.group(2):
+            if ch in "([<":
+                depth += 1
+            elif ch in ")]>":
+                depth -= 1
+            if ch == "," and depth == 0:
+                params.append(current.strip())
+                current = ""
+            else:
+                current += ch
+        if current.strip():
+            params.append(current.strip())
+        for index, param in enumerate(params):
+            mode = ""
+            if param.startswith("lend mut "):
+                mode = "lend_mut"
+            elif param.startswith("lend "):
+                # A shared word loan is the word handle, not a pointer.
+                mode = "handle" if param.rpartition(":")[2].strip() == "word" else "lend"
+            modes[("@" + match.group(1), index)] = mode
+    return modes
+
+
+def check_native_lend_modes(module: str, source: str) -> int:
+    """Check every lend ABI note's pass= against the FREAK signature.
+
+    The ABI oracle checks a header against its note; this checks the note
+    against the source, so a header and note changed together still fail.
+    """
+    modes = native_lend_param_modes(source)
+    checked = 0
+    for line in module.splitlines():
+        note = NATIVE_ABI_NOTE.match(line)
+        if note is None or not note.group(2).startswith("%arg."):
+            continue
+        key = (note.group(1), int(note.group(2)[len("%arg."):]))
+        if key not in modes:
+            continue
+        if modes[key] == "handle" or (note.group(6) or "") != modes[key]:
+            raise RuntimeError(f"V4 lend ABI note for {key[0]} param {key[1]} says pass={note.group(6) or 'none'}, "
+                               f"but its signature declares {modes[key] or 'a value'}")
+        checked += 1
+    lend_params = {key for key, mode in modes.items() if mode in ("lend", "lend_mut")}
+    noted = {(m.group(1), int(m.group(2)[len("%arg."):])) for m in (NATIVE_ABI_NOTE.match(l) for l in module.splitlines())
+             if m is not None and m.group(2).startswith("%arg.") and m.group(6)}
+    if lend_params - noted:
+        raise RuntimeError(f"V4 lend ABI module has no note for lend params {sorted(lend_params - noted)}")
+    return checked
+
+
 def check_native_abi_oracle(module: str, triple: str) -> int:
     """Check the FREAK aggregate ABI notes and pointer attributes against Clang.
 
@@ -17824,6 +17889,9 @@ def check_v4_native_shapes() -> None:
         ("drops", "drops_native.fk", NATIVE_DROPS_EXPECTED),
         ("drops_try", "drops_try_native.fk", NATIVE_DROPS_TRY_EXPECTED),
         ("lend_abi", "lend_abi_native.fk", NATIVE_LEND_ABI_EXPECTED),
+        # Word drop glue with no word value in the module still declares
+        # the word runtime (lend mut replacement and drop at return).
+        ("lend_route_words", "lend_route_words_native.fk", ("", 3)),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -17881,6 +17949,29 @@ def check_v4_native_shapes() -> None:
                 exclusive = re.search(r"ptr noalias nonnull (align \d+ dereferenceable\(\d+\) %arg\.\d+)", module_text)
                 if shared is None or exclusive is None:
                     raise RuntimeError(f"V4 lend ABI module for {triple} has no lend parameter headers")
+                # Each note's pass= follows the FREAK signature: `sum` takes
+                # `lend p` and `bump` takes `lend mut n`.
+                lend_source = source.read_text(encoding="utf-8")
+                check_native_lend_modes(module_text, lend_source)
+                for symbol, mode in (("@sum", "lend"), ("@bump", "lend_mut")):
+                    if not re.search(rf"^; freak\.abi {symbol} %arg\.0 .* pass={mode}$", module_text, re.MULTILINE):
+                        raise RuntimeError(f"V4 lend ABI module for {triple} does not note {symbol} as pass={mode}")
+                # A header and note changed together agree with each other, so
+                # only the signature check can catch `sum` turned into lend mut.
+                sum_note = re.search(r"^(; freak\.abi @sum %arg\.0 .*) pass=lend$", module_text, re.MULTILINE)
+                sum_header = re.search(r"(@sum\()ptr nonnull ", module_text)
+                if sum_note is None or sum_header is None:
+                    raise RuntimeError(f"V4 lend ABI module for {triple} has no @sum lend parameter to tamper")
+                coordinated = module_text.replace(sum_note.group(0), sum_note.group(1) + " pass=lend_mut", 1)
+                coordinated = coordinated.replace(sum_header.group(0), sum_header.group(1) + "ptr noalias nonnull ", 1)
+                check_native_abi_oracle(coordinated, triple)
+                try:
+                    check_native_lend_modes(coordinated, lend_source)
+                except RuntimeError as error:
+                    if "its signature declares lend" not in str(error):
+                        raise
+                else:
+                    raise RuntimeError(f"V4 lend ABI check accepted @sum as lend mut for {triple}")
                 for tampered in (module_text.replace(shared.group(0), "ptr noalias nonnull " + shared.group(1), 1),
                                  module_text.replace(exclusive.group(0), "ptr noalias " + exclusive.group(1), 1)):
                     try:
