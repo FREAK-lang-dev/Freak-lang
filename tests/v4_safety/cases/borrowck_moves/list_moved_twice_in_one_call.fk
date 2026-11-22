@@ -1,0 +1,11 @@
+-- Two by-value parameters must not both take ownership of one list buffer.
+-- expect: reject borrowck
+-- error: Meiya refuses a use of an unavailable list binding
+
+task consume(a: List<int>, b: List<int>) -> int {
+    give back a.length() + b.length()
+}
+task main() -> int {
+    pilot xs: List<int> = [1, 2]
+    give back consume(xs, xs)
+}

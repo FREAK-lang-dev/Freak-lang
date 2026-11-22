@@ -1,0 +1,15 @@
+-- Only the returned `lend mut` operand is left to the returned-loan check;
+-- an exclusive lend of a shared lend parameter in its index is still refused.
+-- expect: reject borrowck
+-- error: Meiya refuses an exclusive lend of an immutable lend parameter
+
+shape V { n: int }
+
+task bump(lend mut v: V) -> int {
+    v.n += 1
+    give back 0
+}
+task pick(lend v: V, lend mut xs: [int; 2]) -> lend mut int {
+    give back lend mut xs[bump(lend mut v)]
+}
+task main() -> int { give back 0 }
