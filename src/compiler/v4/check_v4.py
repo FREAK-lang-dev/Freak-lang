@@ -18284,7 +18284,10 @@ NATIVE_DYN_DISPATCH_ONLY = ("doctrine Unit {\n    task power(lend self) -> int\n
                             "task report(lend u: dyn Unit) -> int { give back u.power() }\n"
                             "task drill(lend mut u: dyn Unit) -> int {\n    u.train(1)\n    give back report(lend u)\n}\n"
                             "task main() -> int { give back 7 }\n", 7)
-# Rejected dyn programs: (stem, source, named reason).
+# Meiya's refusal of an exclusive loan rooted at a shared lend parameter
+# (#262); the dyn lowering's own refusal stands behind it.
+NATIVE_DYN_MEIYA_SHARED_MUT = "Meiya refuses an exclusive lend of an immutable lend parameter"
+# Rejected dyn programs: (stem, source, named reason or reasons, any of which may name it).
 NATIVE_DYN_REJECTED = (
     ("tier3_dyn_owned_local", NATIVE_DYN_WIDGET + "task main() -> int {\n    pilot s = Square { side: 2 }\n"
      "    pilot w: dyn Widget = s\n    give back 0\n}\n",
@@ -18333,17 +18336,17 @@ NATIVE_DYN_REJECTED = (
     ("tier3_dyn_shared_mut_call", NATIVE_DYN_WIDGET + "task show(lend w: dyn Widget) -> int {\n    w.grow(1)\n    give back 0\n}\n"
      "task main() -> int { give back 0 }\n",
      "dyn method needs a lend mut receiver"),
-    # Meiya does not yet refuse `lend mut` of a shared lend parameter (of
-    # any type); the dyn lowering refuses it on its own.
+    # The dyn lowering refuses `lend mut` of a shared lend parameter on its
+    # own; once Meiya refuses it too (#262) Meiya's error comes first.
     # A lend mut erasure of a shared lend parameter, or of a field of one,
     # would write through the shared loan.
     ("tier3_dyn_erase_mut_of_shared", NATIVE_DYN_WIDGET + "task bump(lend mut w: dyn Widget) -> void { w.grow(1) }\n"
      "task show(lend s: Square) -> void { bump(lend mut s) }\ntask main() -> int { give back 0 }\n",
-     "native dyn erasure cannot lend mut through a shared lend: lend mut s"),
+     ("native dyn erasure cannot lend mut through a shared lend: lend mut s", NATIVE_DYN_MEIYA_SHARED_MUT)),
     ("tier3_dyn_erase_mut_of_shared_field", NATIVE_DYN_WIDGET + "shape Box { sq: Square }\n"
      "task bump(lend mut w: dyn Widget) -> void { w.grow(1) }\n"
      "task show(lend b: Box) -> void { bump(lend mut b.sq) }\ntask main() -> int { give back 0 }\n",
-     "native dyn erasure cannot lend mut through a shared lend: lend mut b . sq"),
+     ("native dyn erasure cannot lend mut through a shared lend: lend mut b . sq", NATIVE_DYN_MEIYA_SHARED_MUT)),
     # Vtable constants and drop entries are private symbols.
     ("tier3_dyn_reserved_vtable", "extern [C] {\n @link_name(\"freak.vtable.Square.Widget\")\n"
      " task f(a: std::ffi::c_int) -> std::ffi::c_int\n}\ntask main() -> int { give back f(1) }\n",
@@ -18353,7 +18356,7 @@ NATIVE_DYN_REJECTED = (
      "native private runtime symbol conflict: @\"freak.dyn.drop.Square\""),
     ("tier3_dyn_lend_mut_of_shared", NATIVE_DYN_WIDGET + "task bump(lend mut w: dyn Widget) -> void { w.grow(1) }\n"
      "task show(lend w: dyn Widget) -> void { bump(lend mut w) }\ntask main() -> int { give back 0 }\n",
-     "invalid native dyn reborrow: lend mut w"),
+     ("invalid native dyn reborrow: lend mut w", NATIVE_DYN_MEIYA_SHARED_MUT)),
 )
 
 
@@ -18481,8 +18484,9 @@ def check_v4_native_dyn() -> None:
             [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
             label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
         )
-        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
-            raise RuntimeError(f"V4 dyn case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+        reasons = reason if isinstance(reason, tuple) else (reason,)
+        if rejected.returncode == 0 or output.exists() or not any(item in rejected.stdout + rejected.stderr for item in reasons):
+            raise RuntimeError(f"V4 dyn case {stem} was not rejected with: {' or '.join(reasons)}\n{rejected.stdout}{rejected.stderr}")
     print(f"V4 native dyn: run=exact layout-probes={probes} vtable-probes={vtable_probes} "
           f"targets={len(NATIVE_LAYOUT_TRIPLES)} objects={objects} rejections={len(NATIVE_DYN_REJECTED)}")
 
