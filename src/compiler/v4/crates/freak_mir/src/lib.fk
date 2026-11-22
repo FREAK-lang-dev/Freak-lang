@@ -2452,6 +2452,162 @@ task v4_mir_closure_call_doctrine(mir_id: int, body_id: int, rvalue_id: int) -> 
     give back v4_ty_closure_doctrine(v4_mir_rvalue_ty(mir_id, body_id, callee))
 }
 
+-- Dyn doctrine facts (tier 3). MIR Build seals them after lowering a module
+-- (v4_mir_build_seal_dyn_facts); codegen reads them and never looks up an
+-- impl. One process-wide table of tab-separated records keyed by MIR id,
+-- allocated on the first fact, so a module without `dyn` costs no handle:
+--   V mir vtable concrete doctrine type_id slot-body...  one vtable per
+--     (concrete type, doctrine) pair erased in the module; slot k is the
+--     impl body of the doctrine's k-th method in declaration order
+--   E mir body rvalue vtable  a Lend/LendMut that erases a concrete place
+--     into `lend dyn D` / `lend mut dyn D` through that vtable
+--   C mir body rvalue slot    a call dispatched through vtable slot `slot`
+pilot v4_mir_dyn_facts = 0 - 1
+
+task v4_mir_dyn_record_field(record: word, wanted: int) -> word {
+    pilot start = 0
+    pilot field = 0
+    repeat until field >= wanted {
+        pilot tab = v4_index_of_from(record, "\t", start)
+        if tab < 0 { give back "" }
+        start = tab + 1
+        field += 1
+    }
+    pilot stop = v4_index_of_from(record, "\t", start)
+    if stop < 0 { stop = record.length() }
+    give back v4_slice(record, start, stop)
+}
+
+task v4_mir_dyn_record_field_count(record: word) -> int {
+    pilot count = 1
+    pilot start = v4_index_of_from(record, "\t", 0)
+    repeat until start < 0 {
+        count += 1
+        start = v4_index_of_from(record, "\t", start + 1)
+    }
+    give back count
+}
+
+-- Drop every fact of one MIR id (a fresh lowering or a restored slot).
+task v4_mir_dyn_facts_clear(mir_id: int) -> void {
+    if v4_mir_dyn_facts < 0 { give back }
+    pilot kept = array_new()
+    if kept < 0 { give back }
+    pilot key = "\t" + word_from_int(mir_id) + "\t"
+    pilot idx = 0
+    repeat until idx >= array_len(v4_mir_dyn_facts) {
+        pilot record: word = array_get(v4_mir_dyn_facts, idx)
+        if v4_slice(record, 1, 1 + key.length()) != key { array_push(kept, record) }
+        idx += 1
+    }
+    array_release(v4_mir_dyn_facts)
+    v4_mir_dyn_facts = kept
+}
+
+task v4_mir_dyn_add_record(record: word) -> bool {
+    if v4_mir_dyn_facts < 0 { v4_mir_dyn_facts = array_new() }
+    if v4_mir_dyn_facts < 0 { give back false }
+    array_push(v4_mir_dyn_facts, record)
+    give back true
+}
+
+-- The record whose prefix is `prefix`, or "".
+task v4_mir_dyn_find(prefix: word) -> word {
+    if v4_mir_dyn_facts < 0 { give back "" }
+    pilot idx = 0
+    repeat until idx >= array_len(v4_mir_dyn_facts) {
+        pilot record: word = array_get(v4_mir_dyn_facts, idx)
+        if record.starts_with(prefix) { give back record }
+        idx += 1
+    }
+    give back ""
+}
+
+task v4_mir_dyn_vtable_record(mir_id: int, vtable_id: int) -> word {
+    if vtable_id < 0 { give back "" }
+    give back v4_mir_dyn_find("V\t" + word_from_int(mir_id) + "\t" + word_from_int(vtable_id) + "\t")
+}
+
+task v4_mir_dyn_vtable_count(mir_id: int) -> int {
+    pilot count = 0
+    repeat until v4_mir_dyn_vtable_record(mir_id, count) == "" { count += 1 }
+    give back count
+}
+
+-- The vtable already sealed for (concrete, doctrine), or -1.
+task v4_mir_dyn_vtable_for(mir_id: int, concrete: word, doctrine_name: word) -> int {
+    pilot vtable_id = 0
+    repeat until vtable_id >= v4_mir_dyn_vtable_count(mir_id) {
+        if v4_mir_dyn_vtable_concrete(mir_id, vtable_id) == concrete and v4_mir_dyn_vtable_doctrine(mir_id, vtable_id) == doctrine_name { give back vtable_id }
+        vtable_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_dyn_vtable_concrete(mir_id: int, vtable_id: int) -> word {
+    give back v4_mir_dyn_record_field(v4_mir_dyn_vtable_record(mir_id, vtable_id), 3)
+}
+
+task v4_mir_dyn_vtable_doctrine(mir_id: int, vtable_id: int) -> word {
+    give back v4_mir_dyn_record_field(v4_mir_dyn_vtable_record(mir_id, vtable_id), 4)
+}
+
+-- A small id per concrete type erased in the module (bible 1.6 type_id).
+task v4_mir_dyn_vtable_type_id(mir_id: int, vtable_id: int) -> int {
+    pilot raw = v4_mir_dyn_record_field(v4_mir_dyn_vtable_record(mir_id, vtable_id), 5)
+    if raw == "" { give back 0 - 1 }
+    give back word_to_int(raw)
+}
+
+task v4_mir_dyn_vtable_slot_count(mir_id: int, vtable_id: int) -> int {
+    pilot record = v4_mir_dyn_vtable_record(mir_id, vtable_id)
+    if record == "" { give back 0 - 1 }
+    give back v4_mir_dyn_record_field_count(record) - 6
+}
+
+-- The impl body of slot `slot`, or -1 when the impl has no such method.
+task v4_mir_dyn_vtable_slot_body(mir_id: int, vtable_id: int, slot: int) -> int {
+    if slot < 0 or slot >= v4_mir_dyn_vtable_slot_count(mir_id, vtable_id) { give back 0 - 1 }
+    give back word_to_int(v4_mir_dyn_record_field(v4_mir_dyn_vtable_record(mir_id, vtable_id), 6 + slot))
+}
+
+-- slot_bodies: one body id per doctrine method, tab-separated.
+task v4_mir_dyn_add_vtable(mir_id: int, concrete: word, doctrine_name: word, type_id: int, slot_bodies: word) -> int {
+    pilot vtable_id = v4_mir_dyn_vtable_count(mir_id)
+    pilot record = "V\t" + word_from_int(mir_id) + "\t" + word_from_int(vtable_id) + "\t" + concrete + "\t" + doctrine_name + "\t" + word_from_int(type_id)
+    if slot_bodies != "" { record = record + "\t" + slot_bodies }
+    if not v4_mir_dyn_add_record(record) { give back 0 - 1 }
+    give back vtable_id
+}
+
+task v4_mir_dyn_rvalue_key(kind: word, mir_id: int, body_id: int, rvalue_id: int) -> word {
+    give back kind + "\t" + word_from_int(mir_id) + "\t" + word_from_int(body_id) + "\t" + word_from_int(rvalue_id) + "\t"
+}
+
+task v4_mir_dyn_add_erase(mir_id: int, body_id: int, rvalue_id: int, vtable_id: int) -> bool {
+    give back v4_mir_dyn_add_record(v4_mir_dyn_rvalue_key("E", mir_id, body_id, rvalue_id) + word_from_int(vtable_id))
+}
+
+task v4_mir_dyn_add_call(mir_id: int, body_id: int, rvalue_id: int, slot: int) -> bool {
+    give back v4_mir_dyn_add_record(v4_mir_dyn_rvalue_key("C", mir_id, body_id, rvalue_id) + word_from_int(slot))
+}
+
+-- The vtable a Lend/LendMut erases its concrete place through, or -1.
+task v4_mir_dyn_erase_vtable(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if v4_mir_dyn_facts < 0 { give back 0 - 1 }
+    pilot record = v4_mir_dyn_find(v4_mir_dyn_rvalue_key("E", mir_id, body_id, rvalue_id))
+    if record == "" { give back 0 - 1 }
+    give back word_to_int(v4_mir_dyn_record_field(record, 4))
+}
+
+-- The vtable slot a dyn method call dispatches through, or -1.
+task v4_mir_dyn_call_slot(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if v4_mir_dyn_facts < 0 { give back 0 - 1 }
+    pilot record = v4_mir_dyn_find(v4_mir_dyn_rvalue_key("C", mir_id, body_id, rvalue_id))
+    if record == "" { give back 0 - 1 }
+    give back word_to_int(v4_mir_dyn_record_field(record, 4))
+}
+
 task v4_mir_set_body_signature(mir_id: int, body_id: int, signature: word) -> void {
     if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) { give back }
     array_set(v4_mir_sigs_handle(mir_id), body_id, signature)
@@ -4278,6 +4434,8 @@ task v4_mir_snapshot_validate(payload: word) -> word {
 
 task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
     if mir_id < 0 or file_id < 0 or ty_id < 0 { give back 0 }
+    -- Restored MIR carries no sealed dyn facts; codegen fails closed on dyn.
+    v4_mir_dyn_facts_clear(mir_id)
     v4_mir_init()
     if v4_mir_ready == 0 { give back 0 }
     pilot fresh = mir_id >= array_len(v4_mir_files)
