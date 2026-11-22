@@ -3969,7 +3969,9 @@ task v4_mir_build_dyn_vtable(mir_id: int, concrete: word, dyn_ty: word) -> int {
     -- type_id: one small id per concrete type erased in this module.
     pilot type_id = 0
     pilot known = 0
-    repeat until known >= v4_mir_dyn_vtable_count(mir_id) {
+    pilot vtable_count = v4_mir_dyn_vtable_count(mir_id)
+    if v4_mir_dyn_add_doctrine(mir_id, doctrine_name, v4_ty_doctrine_method_count(ty_id, doctrine_sig)) < 0 { give back 0 - 1 }
+    repeat until known >= vtable_count {
         if v4_mir_dyn_vtable_concrete(mir_id, known) == canonical { give back v4_mir_dyn_add_vtable(mir_id, canonical, doctrine_name, v4_mir_dyn_vtable_type_id(mir_id, known), slots) }
         if v4_mir_dyn_vtable_type_id(mir_id, known) >= type_id { type_id = v4_mir_dyn_vtable_type_id(mir_id, known) + 1 }
         known += 1
@@ -4026,7 +4028,15 @@ task v4_mir_build_seal_dyn_facts(mir_id: int) -> void {
             }
             if kind == v4_mir_rvalue_call {
                 pilot slot = v4_mir_build_dyn_call_slot(mir_id, body, value)
-                if slot >= 0 { v4_mir_dyn_add_call(mir_id, body, value, slot) }
+                if slot >= 0 {
+                    -- A dispatch-only module still needs the doctrine's vtable type.
+                    pilot dyn_ty = v4_mir_rvalue_ty(mir_id, body, v4_mir_rvalue_call_arg(mir_id, body, value, 0))
+                    if v4_ty_is_lend_type(dyn_ty) { dyn_ty = v4_ty_lend_target_type(dyn_ty) }
+                    pilot doctrine_name = v4_ty_dyn_doctrine_base_name(dyn_ty)
+                    pilot ty_id = v4_mir_ty_id(mir_id)
+                    v4_mir_dyn_add_doctrine(mir_id, doctrine_name, v4_ty_doctrine_method_count(ty_id, v4_ty_doctrine_signature_id_for_name(ty_id, doctrine_name)))
+                    v4_mir_dyn_add_call(mir_id, body, value, slot)
+                }
             }
             value += 1
         }

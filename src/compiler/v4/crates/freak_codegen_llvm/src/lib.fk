@@ -2579,6 +2579,9 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                     pilot call_symbol = ""
                     if v4_mir_rvalue_closure_callee(mir_id, body_idx, rvalue_idx) >= 0 {
                         call_symbol = v4_codegen_llvm_closure_call_code(body_idx, rvalue_idx)
+                    } else if v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_dyn_call_slot(mir_id, body_idx, rvalue_idx) >= 0 {
+                        -- The slot's code pointer, loaded from the sealed slot.
+                        call_symbol = v4_codegen_llvm_dyn_call_temp(body_idx, rvalue_idx, "fn")
                     } else if target_rvalue >= 0 {
                         call_symbol = v4_codegen_llvm_rvalue_value(mir_id, body_idx, target_rvalue)
                     } else {
@@ -6296,6 +6299,8 @@ task v4_codegen_llvm_native_dyn_lend_error(mir_id: int, body_id: int, rvalue_id:
         pilot local = v4_mir_rvalue_local_id(mir_id, body_id, child)
         if local < 0 or local >= v4_mir_body_local_count(mir_id, body_id) or v4_mir_local_ty(mir_id, body_id, local) != source_ty { give back "invalid native local operand" }
         if v4_mir_local_mode(mir_id, body_id, local) != v4_ty_param_mode_value and not v4_codegen_llvm_local_is_lent_param(mir_id, body_id, local) { give back "native dyn erasure needs a local, field or element place: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
+        -- A lend mut erasure must not write through a shared loan.
+        if mutable_kind and v4_mir_local_mode(mir_id, body_id, local) == v4_ty_param_mode_lend { give back "native dyn erasure cannot lend mut through a shared lend: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
         give back ""
     }
     if child_kind != v4_mir_rvalue_use_place { give back "native dyn erasure needs a local, field or element place: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
@@ -6309,6 +6314,9 @@ task v4_codegen_llvm_native_dyn_lend_error(mir_id: int, body_id: int, rvalue_id:
         steps += 1
     }
     if root >= 0 and v4_mir_place_kind(mir_id, body_id, root) == v4_mir_place_global { give back "native dyn erasure of a module global is not yet supported: " + v4_mir_place_text(mir_id, body_id, place) }
+    if root < 0 or v4_mir_place_kind(mir_id, body_id, root) != v4_mir_place_local { give back "native dyn erasure needs a local, field or element place: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
+    pilot root_local = v4_mir_place_base(mir_id, body_id, root)
+    if mutable_kind and root_local >= 0 and root_local < v4_mir_body_local_count(mir_id, body_id) and v4_mir_local_mode(mir_id, body_id, root_local) == v4_ty_param_mode_lend { give back "native dyn erasure cannot lend mut through a shared lend: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
     give back ""
 }
 
@@ -6417,26 +6425,25 @@ task v4_codegen_llvm_native_dyn_error(mir_id: int) -> word {
     give back ""
 }
 
--- Vtable struct records for shape_records: one per doctrine erased.
+-- Vtable struct records for shape_records: one per doctrine that a sealed
+-- vtable or a sealed dyn call uses, so a module that only dispatches (its
+-- callers erase elsewhere) still defines the type its slot loads index.
 task v4_codegen_llvm_dyn_records(mir_id: int) -> word {
-    pilot out = ""
-    pilot seen = ""
-    pilot vtable = 0
-    repeat until vtable >= v4_mir_dyn_vtable_count(mir_id) {
-        pilot doctrine_name = v4_mir_dyn_vtable_doctrine(mir_id, vtable)
-        if not seen.contains("\t" + doctrine_name + "\t") {
-            seen = seen + "\t" + doctrine_name + "\t"
-            pilot record = v4_codegen_llvm_dyn_vtable_type(doctrine_name) + "\ti64\ti64\ti64\tptr\tptr"
-            pilot slot = 0
-            repeat until slot >= v4_mir_dyn_vtable_slot_count(mir_id, vtable) {
-                record = record + "\tptr"
-                slot += 1
-            }
-            out = out + record + "\n"
+    pilot count = v4_mir_dyn_doctrine_count(mir_id)
+    if count <= 0 { give back "" }
+    pilot parts = v4_codegen_llvm_fragment_new()
+    pilot index = 0
+    repeat until index >= count {
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_dyn_vtable_type(v4_mir_dyn_doctrine_name(mir_id, index)) + "\ti64\ti64\ti64\tptr\tptr")
+        pilot slot = 0
+        repeat until slot >= v4_mir_dyn_doctrine_slot_count(mir_id, index) {
+            v4_codegen_llvm_fragment_push(parts, "\tptr")
+            slot += 1
         }
-        vtable += 1
+        v4_codegen_llvm_fragment_push(parts, "\n")
+        index += 1
     }
-    give back out
+    give back v4_codegen_llvm_fragment_finish(parts)
 }
 
 -- Vtable constants and drop functions, target neutral: `$freak.dyn.layout
@@ -6445,33 +6452,34 @@ task v4_codegen_llvm_dyn_records(mir_id: int) -> word {
 task v4_codegen_llvm_dyn_module_lines(mir_id: int, runtime: word) -> word {
     pilot count = v4_mir_dyn_vtable_count(mir_id)
     if count <= 0 { give back "" }
-    pilot out = ""
-    pilot dropped = ""
+    pilot parts = v4_codegen_llvm_fragment_new()
     pilot needs_word_drop: bool = false
     pilot vtable = 0
     repeat until vtable >= count {
         pilot concrete = v4_mir_dyn_vtable_concrete(mir_id, vtable)
         pilot llvm_ty = v4_codegen_llvm_type(concrete)
         pilot drop_symbol = v4_codegen_llvm_dyn_drop_symbol(concrete)
-        if not dropped.contains("\t" + concrete + "\t") {
-            dropped = dropped + "\t" + concrete + "\t"
+        -- One drop entry per concrete type: its first vtable defines it.
+        pilot first = 0
+        repeat until first >= vtable or v4_mir_dyn_vtable_concrete(mir_id, first) == concrete { first += 1 }
+        if first == vtable {
             pilot glue = v4_codegen_llvm_drop_glue_at(mir_id, concrete, "%self", "", "%drop", 0)
             if glue != "" { needs_word_drop = true }
-            out = out + "define internal void " + drop_symbol + "(ptr %self) " + "{" + "\nentry:\n" + glue + "  ret void\n" + "}" + "\n"
+            v4_codegen_llvm_fragment_push(parts, "define internal void " + drop_symbol + "(ptr %self) " + "{" + "\nentry:\n" + glue + "  ret void\n" + "}" + "\n")
         }
         pilot symbol = v4_codegen_llvm_dyn_vtable_symbol(mir_id, vtable)
-        pilot slots = ""
+        v4_codegen_llvm_fragment_push(parts, "; freak.vtable " + symbol + " type=" + llvm_ty + " $freak.dyn.note " + llvm_ty + "$ type_id=" + word_from_int(v4_mir_dyn_vtable_type_id(mir_id, vtable)) + "\n")
+        v4_codegen_llvm_fragment_push(parts, symbol + " = internal constant " + v4_codegen_llvm_dyn_vtable_type(v4_mir_dyn_vtable_doctrine(mir_id, vtable)) + " {" + " i64 " + word_from_int(v4_mir_dyn_vtable_type_id(mir_id, vtable)) + ", $freak.dyn.layout " + llvm_ty + "$, ptr " + drop_symbol + ", ptr null")
         pilot slot = 0
         repeat until slot >= v4_mir_dyn_vtable_slot_count(mir_id, vtable) {
-            pilot slot_symbol = v4_codegen_llvm_callable_symbol(mir_id, v4_mir_body_name(mir_id, v4_mir_dyn_vtable_slot_body(mir_id, vtable, slot)))
-            slots = slots + ", ptr " + slot_symbol
+            v4_codegen_llvm_fragment_push(parts, ", ptr " + v4_codegen_llvm_callable_symbol(mir_id, v4_mir_body_name(mir_id, v4_mir_dyn_vtable_slot_body(mir_id, vtable, slot))))
             slot += 1
         }
-        out = out + "; freak.vtable " + symbol + " type=" + llvm_ty + " $freak.dyn.note " + llvm_ty + "$ type_id=" + word_from_int(v4_mir_dyn_vtable_type_id(mir_id, vtable)) + "\n"
-        out = out + symbol + " = internal constant " + v4_codegen_llvm_dyn_vtable_type(v4_mir_dyn_vtable_doctrine(mir_id, vtable)) + " {" + " i64 " + word_from_int(v4_mir_dyn_vtable_type_id(mir_id, vtable)) + ", $freak.dyn.layout " + llvm_ty + "$, ptr " + drop_symbol + ", ptr null" + slots + " " + "}" + "\n"
+        v4_codegen_llvm_fragment_push(parts, " " + "}" + "\n")
         vtable += 1
     }
-    if needs_word_drop and not runtime.contains("@freak_v4_word_drop(") { out = "declare void @freak_v4_word_drop(i64)\n" + out }
+    pilot out = v4_codegen_llvm_fragment_finish(parts)
+    if needs_word_drop and not runtime.contains("@freak_v4_word_drop(") { give back "declare void @freak_v4_word_drop(i64)\n" + out }
     give back out
 }
 
@@ -7218,6 +7226,8 @@ task v4_codegen_llvm_numeric_reserved_symbol_error(symbol: word) -> word {
     if symbol.starts_with("@freak.bounds.") or symbol.starts_with("@\"freak.bounds.") { give back "native private runtime symbol conflict: " + symbol }
     -- C-width shims and their checked narrowing helpers.
     if symbol.starts_with("@freak_v4_cabi_") or symbol.starts_with("@freak.cabi.") or symbol.starts_with("@\"freak.cabi.") { give back "native private runtime symbol conflict: " + symbol }
+    -- Dyn vtable constants and their drop entries.
+    if symbol.starts_with("@freak.dyn.") or symbol.starts_with("@\"freak.dyn.") or symbol.starts_with("@freak.vtable.") or symbol.starts_with("@\"freak.vtable.") { give back "native private runtime symbol conflict: " + symbol }
     give back ""
 }
 
