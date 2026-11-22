@@ -59,6 +59,14 @@ task swap(lend mut t: (int, int)) -> void {
 }
 task hits(lend n: Named) -> int { give back n.hits }
 task hit(lend mut n: Named) -> void { n.hits = n.hits + 1 }
+-- Word slots written through a loan release the old word (the drop plan's
+-- DropSlot row), as through a lent receiver.
+shape Pair { left: Named, right: word }
+task rename(lend mut n: Named, to: word) -> void { n.name = to }
+task swap_all(lend mut q: Pair) -> void {
+    q.right = q.left.name + "!"
+    q.left = Named { name: "fresh" + "er", hits: 7 }
+}
 
 -- Routes
 task stop(lend mut d: Dir) -> void { d = Dir::Stay }
@@ -208,5 +216,13 @@ task main() -> int {
     slots[at(1)] += V { x: 5, y: 5 }
     say slots[0].x
     say slots[1].x
+    pilot mut nm = Named { name: "x" + "1", hits: 1 }
+    rename(lend mut nm, "y" + "z")
+    say nm.name
+    pilot mut pr = Pair { left: Named { name: "l" + "0", hits: 2 }, right: "r" + "0" }
+    swap_all(lend mut pr)
+    say pr.right
+    say pr.left.name
+    say pr.left.hits
     give back 0
 }
