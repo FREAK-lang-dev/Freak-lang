@@ -1,0 +1,19 @@
+-- A mut closure may write through a lend mut parameter it captures.
+-- expect: check
+
+shape Box {
+    x: int
+}
+
+task bump(lend mut b: Box, n: int) -> int {
+    pilot grow = mut |k: int| { b.x += k }
+    grow(n)
+    give back b.x
+}
+
+task main() -> int {
+    pilot mut b = Box { x: 1 }
+    say bump(lend mut b, 5)
+    say b.x
+    give back 0
+}
