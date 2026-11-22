@@ -6984,6 +6984,8 @@ task v4_codegen_llvm_word_call_param_mode(mir_id: int, body_id: int, value: int,
     pilot ty = v4_mir_ty_id(mir_id)
     pilot sig = v4_ty_task_signature_id_for_name(ty, name)
     if sig >= 0 { give back v4_ty_signature_param_mode(ty, sig, arg) }
+    pilot slot = v4_mir_dyn_call_slot(mir_id, body_id, value)
+    if slot >= 0 { give back v4_ty_doctrine_method_param_mode(ty, v4_codegen_llvm_dyn_call_doctrine_sig(mir_id, body_id, value), slot, arg) }
     pilot callee = v4_codegen_llvm_find_mir_body(mir_id, v4_codegen_llvm_call_callee_name(mir_id, body_id, value))
     if callee >= 0 { give back v4_mir_body_callable_param_mode(mir_id, callee, arg) }
     pilot pointer = v4_codegen_llvm_call_target_rvalue(mir_id, body_id, value)
@@ -7003,6 +7005,8 @@ task v4_codegen_llvm_word_call_return_type(mir_id: int, body_id: int, value: int
     pilot name = v4_mir_rvalue_op(mir_id, body_id, value)
     pilot sig = v4_ty_task_signature_id_for_name(v4_mir_ty_id(mir_id), name)
     if sig >= 0 { give back v4_ty_signature_return_type(v4_mir_ty_id(mir_id), sig) }
+    pilot slot = v4_mir_dyn_call_slot(mir_id, body_id, value)
+    if slot >= 0 { give back v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_doctrine_method_return_type(v4_mir_ty_id(mir_id), v4_codegen_llvm_dyn_call_doctrine_sig(mir_id, body_id, value), slot)) }
     pilot callee = v4_codegen_llvm_find_mir_body(mir_id, v4_codegen_llvm_call_callee_name(mir_id, body_id, value))
     if callee >= 0 { give back v4_mir_body_callable_return_type(mir_id, callee) }
     give back v4_ty_unknown
