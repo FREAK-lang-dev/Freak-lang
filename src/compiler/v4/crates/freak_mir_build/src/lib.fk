@@ -5863,6 +5863,7 @@ task v4_mir_build_seal_scratch(mir_id: int) -> int {
     if mir_id != v4_mir_build_seal_scratch_owner or v4_mir_build_seal_scratch_id < 0 {
         v4_mir_build_seal_scratch_id = v4_mir_file_new(v4_mir_file_id(mir_id), v4_mir_ty_id(mir_id))
         v4_mir_build_seal_scratch_owner = mir_id
+        v4_mir_mark_unpublished(v4_mir_build_seal_scratch_id)
     }
     give back v4_mir_build_seal_scratch_id
 }
@@ -5890,7 +5891,8 @@ task v4_mir_closure_return_disagreement(mir_id: int, body_id: int) -> word {
             pilot value = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
             pilot value_ty = v4_ty_void
             if value >= 0 { value_ty = v4_mir_rvalue_ty(mir_id, body_id, value) }
-            if value_ty != v4_ty_never {
+            -- An unknown return already carries its own diagnostic.
+            if value_ty != v4_ty_never and v4_ty_is_known(value_ty) {
                 if inferred == "" { inferred = value_ty } else if inferred != value_ty { give back inferred + " and " + value_ty }
             }
         }

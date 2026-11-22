@@ -2998,7 +2998,7 @@ def audit_conformance(paths: List[Path]) -> int:
     closure_smoke_needles = (
         (
             repo / "src" / "compiler" / "v4" / "tests" / "closure_capture_smoke.fk",
-            ("closure-capture-block-ty=", "closure-capture-shadow-count=", "closure-capture-member-name=", "closure-capture-scoped-name1=", "closure-capture-callable-copy-type=", "closure-capture-status="),
+            ("closure-capture-block-ty=", "closure-capture-shadow-count=", "closure-capture-member-name=", "closure-capture-scoped-name1=", "closure-capture-callable-copy-type=", "closure-capture-status=", "closure-capture-result-agree=", "closure-edges-result-agree="),
         ),
         (
             repo / "src" / "compiler" / "v4" / "tests" / "closure_capture_negative_smoke.fk",
@@ -3033,6 +3033,9 @@ def audit_conformance(paths: List[Path]) -> int:
             '"closure-negative-borrow-diagnostics=9"',
             '"closure-capture-block-ty=closure[Callable,borrow](value:int)->int"',
             '"closure-capture-scoped-name1=count"',
+            '"closure-capture-result-agree=7"',
+            '"closure-edges-ty-diagnostics=0"',
+            '"closure-edges-result-agree=4"',
             '"closure-capture-callable-copy-type=true"',
             '"closure-negative-immutable-message-count=2"',
             '"closure-recovery-following-closure-preserved=true"',

@@ -4050,6 +4050,23 @@ EXECUTABLE_SMOKES = [
             "closure-capture-mir-diagnostics=0",
             "closure-capture-borrow-diagnostics=0",
             "closure-capture-mir-snapshot-ok=true",
+            # TY, analysis MIR and the native MIR Build seal agree.
+            "closure-capture-mir-ty0=closure[Callable,borrow](x:int)->bool",
+            "closure-capture-mir-block-ty=closure[Callable,borrow](value:int)->int",
+            "closure-capture-result-agree=7",
+            # Result edges: a generic constructor head is one operand, literal
+            # suffixes keep their type, a diverging return agrees with every
+            # type, and a `for each` binding ends with its loop body.
+            "closure-edges-parse-diagnostics=0",
+            "closure-edges-ty-diagnostics=0",
+            "closure-edges-mir-diagnostics=0",
+            "closure-edges-native-mir-diagnostics=0",
+            "closure-edges-ty0=closure[Callable,borrow](n:int,fallback:Box<int>)->Box<int>",
+            "closure-edges-ty1=closure[Callable,borrow](n:uint)->uint",
+            "closure-edges-ty2=closure[Callable,borrow](n:int)->int",
+            "closure-edges-ty3=closure[Callable,borrow]()->int",
+            "closure-edges-result-agree=4",
+            "closure-edges-mir-snapshot-ok=true",
         ],
     },
     {
