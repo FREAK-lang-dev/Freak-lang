@@ -828,6 +828,12 @@ INVALIDATION_FAMILY_FIELDS = [
     ("completion", "completion-invalidations-added"),
 ]
 
+# Tier 3 generic monomorphization: generics_native.fk prints this and gives
+# back c.get() + Box<int>::size(lend b). Each instance is one native body.
+NATIVE_GENERICS_EXPECTED = ("5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n"
+                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n", 22)
+
+
 EXECUTABLE_SMOKES = [
     {
         "name": "Meiya ordered loan candidates and scaling",
@@ -12376,6 +12382,20 @@ EXECUTABLE_SMOKES = [
                  '@@LLVM-MODULE-BEGIN',
                  '@@LLVM-MODULE-END'],
       'llvm_programs': [('owned_word_return_temporary.fk', 0, 'first\nsecond\ntransfer\ntransfer\n')]},
+     # Generic instance call rows (wrap<int> gives back maybe<int>) name staged
+     # instance bodies; MIR restore must resolve them through the generic
+     # signature and rebuild the same module.
+     {'name': 'generic instance module restore and execution',
+      'fixture': 'generic_instance_snapshot_smoke.fk',
+      'memory_limit_mb': 128,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['generic-instance-snapshot accessors task-calls=true method-calls=true',
+                 'generic-instance-snapshot stages=clean v9-restore=true old-seal=true fresh-module=true',
+                 '@@LLVM-MODULE-BEGIN',
+                 '@@LLVM-MODULE-END'],
+      'llvm_programs': [('generics_native.fk', NATIVE_GENERICS_EXPECTED[1], NATIVE_GENERICS_EXPECTED[0])]},
      {'name': 'typed os entry existing Word module restore and execution',
       'fixture': 'typed_os_entry_execute_smoke.fk',
       'memory_limit_mb': 64,
@@ -17669,10 +17689,6 @@ NATIVE_LEND_ABI_REJECTED = (
      "task main() -> int {\n    say observe(identity(lend make_word()))\n    give back 0\n}\n",
      "lend source must be a place"),
 )
-# Tier 3 generic monomorphization: generics_native.fk prints this and gives
-# back c.get() + Box<int>::size(lend b). Each instance is one native body.
-NATIVE_GENERICS_EXPECTED = ("5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n"
-                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n", 22)
 # Instance symbols the generics module must define exactly once, and the
 # instance layouts the layout oracle must see on every target.
 NATIVE_GENERICS_SYMBOLS = (
@@ -17680,12 +17696,16 @@ NATIVE_GENERICS_SYMBOLS = (
     '@"twice<num>"', '@"count_all<int>"', '@"wrap<int>"', '@"replace<Point>"', '@"replace<word>"',
     '@"first_of<Point>"', '@"depth<word>"', '@"boxed<Box<int>>"', '@"get_or<word>"', '@"best<Point>"',
     '@"best<Named>"', '@"best_ufcs<Point>"', '@"fresh<Point>"', '@"fresh<int>"', '@"bumped<Point>"', '@"bumped<int>"', '@"Box<word>::make"', '@"Box<word>::put"', '@"Box<int>::size"',
-    '@"Acc<word>::add"',
+    '@"Acc<word>::add"', '@"has_of<int>"', '@"none_of<int>"', '@"Grid<int>::index"', '@"Grid<int>::index_mut"',
+    '@"Box<int>::twin"',
 )
 NATIVE_GENERICS_LAYOUTS = (
     '%"freak.shape.Box<int>"', '%"freak.shape.Box<word>"', '%"freak.shape.Box<Box<int>>"',
     '%"freak.shape.Pair<int,word>"', '%"freak.shape.Acc<word>"', '%"freak.route.Opt<int>"',
-    '%"freak.route.Opt<word>"', '%"freak.route.Either<int,word>"',
+    '%"freak.route.Opt<word>"', '%"freak.route.Either<int,word>"', '%"freak.shape.Grid<int>"',
+    # Reached only through the nongeneric Shelf, the raw pointer *const
+    # Box<tiny>, and the quoted Pair<int, bool> payload of the route Slot.
+    '%"freak.shape.Box<bool>"', '%"freak.shape.Box<tiny>"', '%"freak.shape.Pair<int,bool>"',
 )
 # Generic programs native code refuses by name: (stem, source, reason).
 NATIVE_GENERICS_REJECTED = (
@@ -17713,7 +17733,25 @@ NATIVE_GENERICS_REJECTED = (
     # Closures inside generic bodies belong to the closures lane.
     ("tier3_generic_closure", "task bump<T>(x: T) -> T {\n    pilot g = |v: T| => v\n    give back g(x)\n}\n"
      "task main() -> int { give back bump(4) }\n",
-     "native closures are lowered only in ordinary tasks, with FREAK parameter types"),
+     "native closures inside generic instances are not yet supported: bump<int>"),
+    # A generic callback with concrete C surfaces is fenced before any
+    # trampoline names the template, whether or not an instance exists.
+    ("tier3_generic_c_callback_concrete", "use std::ffi::c_int\n@extern_callback(\"C\")\n"
+     "task cb<T>(v: c_int) -> c_int { give back v }\ntask main() -> int { give back 0 }\n",
+     "native generic tasks cannot cross the C ABI: cb"),
+    # An impl for Pair<int, T> serves Pair<int, bool>, never Pair<num, bool>.
+    ("tier3_generic_impl_owner_mismatch", "shape Pair<A, B> { a: A, b: B }\n"
+     "impl Pair<int, T> { task first(self) -> int { give back self.a } }\n"
+     "task main() -> int {\n    pilot x: Pair<int, bool> = Pair { a: 3, b: true }\n"
+     "    pilot y: Pair<num, bool> = Pair { a: 2.5, b: false }\n    give back x.first() + y.first()\n}\n",
+     "native generic impl does not match its owner exactly: Pair<num,bool>::first"),
+    ("tier3_generic_never", "task stop<T>(x: T) -> never { panic(\"stop\") }\n"
+     "task main() -> int {\n    if false { stop(1) }\n    give back 0\n}\n",
+     "native generic never tasks are not yet supported: stop"),
+    # A global alias named like a shape generic must not hide Box<word>'s word.
+    ("tier3_generic_alias_word_payload", "alias T = int\nshape Box<T> { value: T }\n"
+     "task main() -> int {\n    pilot m: maybe<(Box<word>, int)> = nobody\n    give back 0\n}\n",
+     "native maybe/result aggregate payloads that own words are not yet supported: (Box<word>,int)"),
 )
 
 
@@ -19878,6 +19916,10 @@ def check_v4_build_command() -> None:
         ("bootstrap_root_give_back", 'say "a"\ngive back\nsay "b"\n', "a\n", 0),
         # An unannotated global takes an ordinary task's return type, and a
         # bootstrap process::arg reads the real argv snapshot.
+        # A root initializer's generic call shares the instance cache: the
+        # drain runs after the module init is lowered.
+        ("bootstrap_generic_root_init",
+         'task ident<T>(x: T) -> T { give back x }\npilot n: int = ident(7)\ntask main() -> int { give back n }\n', "", 7),
         ("bootstrap_global_task_infer",
          'task make() -> int { give back 9 }\npilot n = make()\ntask main() -> int { give back n }\n', "", 9),
         ("bootstrap_process_arg_word", 'pilot self_path: word = process::arg(0)\nsay self_path != ""\n', "true\n", 0),

@@ -2846,6 +2846,12 @@ task v4_mir_generic_instance_def(generic_def: word, env: word) -> word {
     give back v4_mir_generic_def_prefix + generic_def + v4_mir_generic_def_env_mark + env
 }
 
+-- The signature text an instance body carries: its symbol and the generic
+-- signature it was built from. Snapshot validation rebuilds it to match.
+task v4_mir_generic_instance_signature(name: word, display: word) -> word {
+    give back "task " + name + " from " + display
+}
+
 -- Where the env starts. Defs carry no spaces, while an impl method def may
 -- spell its owner with angle brackets, so the mark is a spaced word.
 task v4_mir_generic_def_env_at(def: word) -> int {
@@ -2982,7 +2988,15 @@ task v4_mir_body_is_generic_template(mir_id: int, body_id: int) -> bool {
 -- The instance body a call names, or -1 for every other call.
 task v4_mir_rvalue_generic_instance_body(mir_id: int, body_id: int, rvalue_id: int) -> int {
     if rvalue_id < 0 or rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call { give back 0 - 1 }
-    pilot callee = v4_mir_lookup_body_name(mir_id, v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
+    pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    pilot callee = v4_mir_lookup_body_name(mir_id, op)
+    if callee < 0 {
+        -- A method call keeps its Box<int>.get op; the instance body is named
+        -- Box<int>::get. Method names carry no dot, so the last one splits.
+        pilot dot = op.length() - 1
+        repeat until dot < 0 or op.char_at(dot) == "." { dot -= 1 }
+        if dot > 0 { callee = v4_mir_lookup_body_name(mir_id, v4_slice(op, 0, dot) + "::" + v4_slice(op, dot + 1, op.length())) }
+    }
     if callee < 0 or not v4_mir_body_is_generic_instance(mir_id, callee) { give back 0 - 1 }
     give back callee
 }
@@ -6609,10 +6623,20 @@ task v4_mir_snapshot_control_payload_is_valid(payload: word) -> bool {
             if not v4_mir_control_checked_push(places, line) { valid = false }
         } else if kind == "mir-rvalue" {
             if (v4_mir_snapshot_field(line, 10) == v4_ty_never and v4_mir_snapshot_field(line, 13) == "") or v4_mir_sum_row_call_requires_body(ty, values, line) {
-                pilot signature = v4_ty_task_signature_id_for_name(ty, v4_mir_snapshot_field(line, 6))
-                if signature < 0 { valid = false } else {
+                pilot op = v4_mir_snapshot_field(line, 6)
+                pilot signature = v4_ty_task_signature_id_for_name(ty, op)
+                if signature >= 0 {
                     pilot target = file_identity + "|" + v4_mir_snapshot_escape(v4_ty_signature_def(ty, signature)) + "|" + v4_mir_snapshot_escape(v4_ty_signature_name(ty, signature)) + "|" + v4_mir_snapshot_escape(v4_ty_signature_of(ty, v4_ty_signature_def(ty, signature)))
                     if not v4_mir_control_checked_push(required_targets, target) { valid = false }
+                } else {
+                    -- A generic instance op such as wrap<int> names a staged
+                    -- instance body: its instance def, its symbol, and the
+                    -- signature text it was built with.
+                    signature = v4_mir_task_call_signature(ty, op)
+                    if signature < 0 { valid = false } else {
+                        pilot target = file_identity + "|" + v4_mir_snapshot_escape(v4_mir_task_call_def(ty, op)) + "|" + v4_mir_snapshot_escape(op) + "|" + v4_mir_snapshot_escape(v4_mir_generic_instance_signature(op, v4_ty_signature_display(ty, signature)))
+                        if not v4_mir_control_checked_push(required_targets, target) { valid = false }
+                    }
                 }
             }
             if not v4_mir_control_checked_push(values, line) { valid = false }
