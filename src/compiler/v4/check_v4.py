@@ -17658,7 +17658,8 @@ def native_lend_param_modes(source: str) -> dict[tuple[str, int], str]:
         for ch in match.group(2):
             if ch in "([<":
                 depth += 1
-            elif ch in ")]>":
+            elif ch in ")]" or (ch == ">" and not current.endswith("-")):
+                # The `>` of a function type's `->` closes nothing.
                 depth -= 1
             if ch == "," and depth == 0:
                 params.append(current.strip())
@@ -17676,6 +17677,11 @@ def native_lend_param_modes(source: str) -> dict[tuple[str, int], str]:
                 mode = "handle" if param.rpartition(":")[2].strip() == "word" else "lend"
             modes[("@" + match.group(1), index)] = mode
     return modes
+
+
+# A function type's `->` must not close a bracket: the params after it stay split.
+assert native_lend_param_modes("task apply(f: task(x: int) -> int, lend n: int) -> int {\n") == \
+    {("@apply", 0): "", ("@apply", 1): "lend"}, "native_lend_param_modes merged params after a function type"
 
 
 def check_native_lend_modes(module: str, source: str) -> int:
