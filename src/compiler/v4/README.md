@@ -611,7 +611,7 @@ a doctrine non-object-safe in TY. Program: `examples/dyn_native.fk` (exact
 output, exit 234), run by `check_v4_native_dyn` from `check_v4_native_shapes`
 with the layout oracle, the vtable oracle (note, constant and Clang agree;
 tampered sizes, slot orders and foreign impl slots fail) and Clang assembly
-on four targets, a dispatch-only module, and 19 named rejections. The
+on four targets, a dispatch-only module, and 20 named rejections. The
 `freak.dyn.` and `freak.vtable.` symbol prefixes are reserved.
 
 ### Persisted interpolation checkpoint (W3)
