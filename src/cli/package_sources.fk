@@ -985,7 +985,7 @@ task package_git_command(root: word) -> int {
 }
 
 task package_git_capture(command: int, limit: int) -> ByteBuffer {
-    pilot status = process::command_run(command, 30000, limit, 65536)
+    pilot status = cli_view_run_command(command, "git", 30000, limit, 65536)
     pilot success = false
     if status == 2 { success = process::command_exit_code(command) == 0 }
     pilot bytes: ByteBuffer = ByteBuffer::new()

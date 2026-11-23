@@ -60,7 +60,12 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
     repeat until fi >= args_cnt {
         pilot flag: word = process::arg(fi)
         if subcommand_mode == "run" and flag == "--" { break }
-        if flag == "--c" {
+        pilot timings_mode = sw_flag_mode(flag)
+        if timings_mode == "error" {
+            give back cli_flag_error("--timings must be --timings, --timings=table, --timings=json or --timings=off")
+        } else if timings_mode != "" {
+            sw_mode = timings_mode
+        } else if flag == "--c" {
             if backend_seen != "" and backend_seen != "c" {
                 give back cli_flag_error("conflicting backend flags")
             }
@@ -317,6 +322,62 @@ task cli_init(project_name: word) -> void {
 -- When invoked as "hangar" (BusyBox pattern), args shift by 1:
 --   hangar init   → process::arg(0)="hangar", arg(1)="init"
 -- vs freak hangar init → arg(0)="freak", arg(1)="hangar", arg(2)="init"
+task cli_check_report(passed: bool, message: word) -> void {
+    pilot total_ms = sw_stop(passed)
+    if view_live {
+        if passed { cli_view_success_card("CHECK PASSED", "", C_DIM + message + C_RESET) }
+        else { cli_view_failure_card("CHECK FAILED", message) }
+        say ""
+    } else {
+        say ""
+        if passed {
+            say "  " + C_BGREEN + SYM_SPARK + " PASSED" + C_RESET + C_DIM + " -- " + message + " (" + word_from_int(total_ms) + "ms)" + C_RESET
+        } else {
+            say "  " + C_BRED + SYM_CROSS + " FAILED" + C_RESET + C_DIM + " -- " + message + " (" + word_from_int(total_ms) + "ms)" + C_RESET
+        }
+        say ""
+    }
+    sw_report()
+}
+
+task cli_test_json_requested(args_cnt: int) -> bool {
+    pilot index = 2
+    repeat until index >= args_cnt {
+        if process::arg(index) == "--json" { give back true }
+        index += 1
+    }
+    give back false
+}
+
+-- Hangar commands are positional, so a trailing --timings flag is removed
+-- before dispatch (FREAK_TIMINGS works anywhere). Commands that do real
+-- work report their time; quick ones (help, version, auth) stay quiet.
+task cli_hangar_timed(args_cnt: int, offset: int) -> int {
+    pilot count = args_cnt
+    if count >= 1 {
+        pilot last_index = count - 1 - offset
+        if last_index >= 2 - offset {
+            pilot trailing = sw_flag_mode(process::arg(last_index))
+            if trailing == "error" { say "hangar: --timings must be --timings, --timings=json or --timings=off" give back 1 }
+            if trailing != "" {
+                sw_mode = trailing
+                count -= 1
+            }
+        }
+    }
+    pilot action = ""
+    if count >= 3 { action = process::arg(2 - offset) }
+    pilot timed = action == "install" or action == "add" or action == "remove" or action == "update" or action == "outdated" or action == "audit" or action == "publish"
+    if not timed {
+        give back hangar_dispatch(count)
+    }
+    cli_view_begin("hangar " + action, "", 0)
+    view_command_rows = true
+    pilot status = hangar_dispatch(count)
+    cli_view_finish_line("hangar " + action + " finished", status == 0)
+    give back status
+}
+
 task hangar_standalone_main() -> void {
     pilot args_cnt = process::args_count()
 
@@ -338,7 +399,7 @@ task hangar_standalone_main() -> void {
 
     -- Adjust args_cnt to match what hangar_dispatch expects
     -- (it checks args_cnt < 3, expects subcmd at hangar_arg(2) which becomes arg(1))
-    pilot standalone_hangar_status = hangar_dispatch(args_cnt + 1)
+    pilot standalone_hangar_status = cli_hangar_timed(args_cnt + 1, 1)
     if standalone_hangar_status != 0 {
         process::exit(standalone_hangar_status)
     }
@@ -347,6 +408,7 @@ task hangar_standalone_main() -> void {
 -- ── Main Dispatch ────────────────────────────────────
 task freakc_cli_main() -> void {
     cli_configure_output()
+    cli_view_configure()
 
     pilot args_cnt = process::args_count()
 
@@ -397,7 +459,10 @@ task freakc_cli_main() -> void {
         pilot index = 2
         repeat until index >= args_cnt {
             pilot flag = process::arg(index)
-            if flag == "--v4" { selected_v4 = true }
+            pilot bootstrap_timings = sw_flag_mode(flag)
+            if bootstrap_timings == "error" { say "Bootstrap --timings must be --timings, --timings=json or --timings=off" process::exit(1) }
+            else if bootstrap_timings != "" { sw_mode = bootstrap_timings }
+            else if flag == "--v4" { selected_v4 = true }
             else if flag == "--locked" { locked = true }
             else if flag.starts_with("--source=") {
                 if source_seen { say "Duplicate bootstrap --source" process::exit(1) }
@@ -438,9 +503,17 @@ task freakc_cli_main() -> void {
             if cwd == "" { say "Cannot resolve bootstrap output working directory" process::exit(1) }
             output = cli_host_path_join(cwd, output)
         }
+        cli_view_begin("bootstrap-v4", output, 0)
+        view_command_rows = true
+        if view_live { cli_view_header("bootstrap-v4", source_root, "native V3.5 builder -> freak-v4 preview at " + output) }
         pilot bootstrap_ok = cli_bootstrap_v4(source_root, output, locked)
         cli_bootstrap_release()
-        if not bootstrap_ok { say "Bootstrap error: " + cli_bootstrap_error process::exit(1) }
+        if not bootstrap_ok {
+            say "Bootstrap error: " + cli_bootstrap_error
+            cli_view_finish_line("bootstrap-v4 failed", false)
+            process::exit(1)
+        }
+        cli_view_finish_line("bootstrap-v4 finished", true)
         give back
     }
 
@@ -524,7 +597,7 @@ task freakc_cli_main() -> void {
             pilot binary: word = cli_build_profile(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
             if binary == "" {
                 cli_diagnostic_cast_emit_compiler_failure()
-                process::exit(1)
+                sw_exit(1)
             }
         } else if subcmd == "run" {
             pilot program_arg_start = args_cnt
@@ -536,48 +609,55 @@ task freakc_cli_main() -> void {
                 }
                 separator_index += 1
             }
+            cli_view_begin("run", src_file, 1)
             pilot run_exit = cli_run(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross, program_arg_start)
+            sw_finish(run_exit == 0)
             if run_exit != 0 { cli_diagnostic_cast_emit_compiler_failure() process::exit(run_exit) }
         } else if subcmd == "check" {
+            cli_view_begin("check", src_file, 4)
+            pilot sources_lap = sw_begin("Sources & packages")
             pilot source: word = cli_prepare_source(src_file, target)
-            if cli_project_source_error != "" or hangar_graph_error != "" { cli_diagnostic_cast_emit_compiler_failure() process::exit(1) }
-            say ""
-            say "  " + C_G3 + SYM_GEAR + " CHECKING" + C_RESET + " " + C_BWHITE + src_file + C_RESET
-            say ""
+            sw_end(sources_lap)
+            if cli_project_source_error != "" or hangar_graph_error != "" { cli_diagnostic_cast_emit_compiler_failure() sw_exit(1) }
+            if view_live {
+                cli_view_header("check", src_file, "type and borrow rules, no code generation")
+                view_steps_done = 1
+                cli_view_print_row("   " + C_BGREEN + SYM_CHECK + C_RESET + "  " + cli_view_pad("Sources & packages", 40) + " " + cli_view_pad_left(cli_view_ms(sw_ns_to_ms(sw_lap_ns(sources_lap))), 10))
+            } else {
+                say ""
+                say "  " + C_G3 + SYM_GEAR + " CHECKING" + C_RESET + " " + C_BWHITE + src_file + C_RESET
+                say ""
+            }
             input_file = src_file
             diagnostic_source = source
             error_count = 0
             parse_error_count = 0
             init_arrays()
-            cli_step_start()
+            pilot lex_lap = cli_view_step_begin("Lexing", false)
             tokenize(source)
-            if not cli_project_bind_tokens() { cli_project_binding_release() cli_diagnostic_cast_emit_compiler_failure() process::exit(1) }
-            cli_step_done("Lexing")
-            cli_step_start()
+            if not cli_project_bind_tokens() { cli_view_live_abandon() cli_project_binding_release() cli_diagnostic_cast_emit_compiler_failure() cli_check_report(false, "syntax errors found") sw_exit(1) }
+            cli_view_step_end(lex_lap, "Lexing")
+            pilot parse_lap = cli_view_step_begin("Parsing", false)
             parse_program()
             if error_count == 0 { cli_project_bind_ast() }
-            cli_step_done("Parsing")
             if error_count > 0 {
-                say ""
-                say "  " + C_BRED + SYM_CROSS + " FAILED" + C_RESET + C_DIM + " -- syntax errors found" + C_RESET
-                say ""
+                cli_view_step_fail(parse_lap, "Parsing")
+                cli_check_report(false, "syntax errors found")
                 cli_diagnostic_cast_emit_compiler_failure()
-                process::exit(1)
+                sw_exit(1)
             }
-            cli_step_start()
+            cli_view_step_end(parse_lap, "Parsing")
+            pilot check_lap = cli_view_step_begin("Type checking", false)
             check_program()
-            cli_step_done("Type checking")
             if error_count > 0 {
-                say ""
-                say "  " + C_BRED + SYM_CROSS + " FAILED" + C_RESET + C_DIM + " -- type/borrow errors found" + C_RESET
-                say ""
+                cli_view_step_fail(check_lap, "Type checking")
+                cli_check_report(false, "type/borrow errors found")
                 cli_diagnostic_cast_emit_compiler_failure()
-                process::exit(1)
+                sw_exit(1)
             }
-            say ""
+            cli_view_step_end(check_lap, "Type checking")
             cli_project_binding_release()
-            say "  " + C_BGREEN + SYM_SPARK + " PASSED" + C_RESET + C_DIM + " -- no type errors found" + C_RESET
-            say ""
+            cli_check_report(true, "no type errors found")
         } else if subcmd == "transpile" {
             -- Transpile only
             -- Even an unreadable input invalidates the selected output from a
@@ -585,13 +665,23 @@ task freakc_cli_main() -> void {
             if not cli_invalidate_backend_output(src_file, target) {
                 process::exit(1)
             }
+            cli_view_begin("transpile", src_file, 5)
+            pilot sources_lap = cli_view_step_begin("Sources & packages", false)
             pilot source: word = cli_prepare_source(src_file, target)
-            if cli_project_source_error != "" or hangar_graph_error != "" { cli_diagnostic_cast_emit_compiler_failure() process::exit(1) }
+            if cli_project_source_error != "" or hangar_graph_error != "" { cli_diagnostic_cast_emit_compiler_failure() sw_exit(1) }
+            if view_live {
+                pilot emit_kind = "LLVM IR"
+                if target == "c" { emit_kind = "C" }
+                cli_view_header("transpile", src_file, "emit " + emit_kind + " only, no native link")
+            }
+            cli_view_step_end(sources_lap, "Sources & packages")
             pilot transpiled: word = cli_transpile(src_file, source, target)
             if transpiled == "" {
                 cli_diagnostic_cast_emit_compiler_failure()
+                cli_view_finish_line("Transpile failed", false)
                 process::exit(1)
             }
+            cli_view_finish_line("Wrote " + transpiled, true)
         }
 
         give back
@@ -673,7 +763,7 @@ task freakc_cli_main() -> void {
 
     -- Hangar package manager
     if subcmd == "hangar" {
-        pilot hangar_status = hangar_dispatch(args_cnt)
+        pilot hangar_status = cli_hangar_timed(args_cnt, 0)
         if hangar_status != 0 { process::exit(hangar_status) }
         give back
     }
@@ -688,7 +778,9 @@ task freakc_cli_main() -> void {
     }
 
     if subcmd == "test" {
+        cli_view_begin("test", "", 0)
         pilot test_exit = cli_test_command(args_cnt)
+        if not cli_test_json_requested(args_cnt) { cli_view_finish_line("freak test finished", test_exit == 0) } else { sw_finish(test_exit == 0) }
         if test_exit != 0 { process::exit(test_exit) }
         give back
     }

@@ -556,6 +556,8 @@ task cli_test_command(args_cnt: int) -> int {
     repeat until index >= args_cnt {
         pilot flag = process::arg(index)
         if flag == "--json" {}
+        else if sw_flag_mode(flag) == "error" { cli_test_fail("--timings must be --timings, --timings=json or --timings=off") }
+        else if sw_flag_mode(flag) != "" { sw_mode = sw_flag_mode(flag) }
         else if flag == "--c" { backend = "c" }
         else if flag == "--llvm" { backend = "llvm" }
         else if flag == "--backend" {

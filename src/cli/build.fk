@@ -5,7 +5,6 @@
 -- ===================================================================
 
 -- Timing state for build steps
-pilot cli_build_start_ms = 0
 pilot cli_step_ms = 0
 pilot CLI_PAYLOAD_ERROR_PREFIX = "!freak-payload-resolution-error!"
 
@@ -20,14 +19,14 @@ task cli_payload_is_resolution_error(value: word) -> bool {
     give back value.starts_with(CLI_PAYLOAD_ERROR_PREFIX)
 }
 
+-- Compatibility wrappers over the cockpit view (src/cli/view.fk). New code
+-- calls cli_view_step_begin/cli_view_step_end, which also record laps.
 task cli_step_start() -> void {
-    cli_step_ms = time::now_ms()
+    cli_step_ms = cli_view_step_begin("", false)
 }
 
 task cli_step_done(label: word) -> void {
-    pilot elapsed = time::now_ms() - cli_step_ms
-    pilot elapsed_str = word_from_int(elapsed)
-    say "  " + C_BGREEN + SYM_CHECK + C_RESET + "  " + label + C_DIM + " (" + elapsed_str + "ms)" + C_RESET
+    cli_view_step_end(cli_step_ms, label)
 }
 
 task cli_count_lines(s: word) -> int {
@@ -320,41 +319,54 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
     parse_error_count = 0
     init_arrays()
 
-    cli_step_start()
+    pilot lex_lap = cli_view_step_begin("Lexing", false)
     tokenize(source)
     adjust_token_lines(source_line_offset)
-    if not cli_project_bind_tokens() { cli_project_binding_release() give back "" }
-    cli_step_done("Lexing")
+    if not cli_project_bind_tokens() {
+        cli_view_live_abandon()
+        cli_view_step_fail(lex_lap, "Lexing")
+        cli_project_binding_release()
+        give back ""
+    }
+    cli_view_step_end(lex_lap, "Lexing")
 
-    cli_step_start()
+    pilot parse_lap = cli_view_step_begin("Parsing", false)
     parse_program()
     if error_count == 0 { cli_project_bind_ast() }
-    cli_step_done("Parsing")
+    if error_count > 0 {
+        cli_view_step_fail(parse_lap, "Parsing")
+    } else {
+        cli_view_step_end(parse_lap, "Parsing")
+    }
     if error_count > 0 {
         say "  " + C_BRED + SYM_CROSS + " " + word_from_int(error_count) + " syntax error(s) -- code generation skipped" + C_RESET
         give back ""
     }
 
-    cli_step_start()
+    pilot check_label = "Type checking"
+    if strict_borrow { check_label = "Borrow checking" }
+    pilot check_lap = cli_view_step_begin(check_label, false)
     check_program()
-    if strict_borrow {
-        cli_step_done("Borrow checking")
+    if error_count > 0 {
+        cli_view_step_fail(check_lap, check_label)
     } else {
-        cli_step_done("Type checking")
+        cli_view_step_end(check_lap, check_label)
     }
     if error_count > 0 {
         say "  " + C_BRED + SYM_CROSS + " " + word_from_int(error_count) + " type/borrow error(s) -- code generation skipped" + C_RESET
         give back ""
     }
 
-    cli_step_start()
+    pilot emit_label = "Emit C"
+    if target == "llvm" { emit_label = "Emit LLVM IR" }
+    pilot emit_lap = cli_view_step_begin(emit_label, true)
     if target == "llvm" {
         pilot out_ll = cli_backend_output_path(src_file, target)
         out_file = out_ll
         fs::write(out_ll, "")
         emit_llvm_program()
         out_file = ""
-        cli_step_done("Emit LLVM IR")
+        cli_view_step_end(emit_lap, emit_label)
         cli_project_binding_release()
         give back out_ll
     } else {
@@ -363,7 +375,7 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
         fs::write(out_c, "")
         emit_c_program()
         out_file = ""
-        cli_step_done("Emit C")
+        cli_view_step_end(emit_lap, emit_label)
         cli_project_binding_release()
         give back out_c
     }
@@ -987,7 +999,7 @@ task cli_clang_executable_works(executable: word) -> bool {
     if executable == "" { give back false }
     pilot command = process::command_new(executable)
     process::command_arg(command, "--version")
-    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot state = cli_view_run_command(command, "clang probe", 10000, 65536, 65536)
     pilot works = false
     if state == 2 { works = process::command_exit_code(command) == 0 }
     process::command_release(command)
@@ -1303,7 +1315,7 @@ pilot mut cli_tool_capture_problem = ""
 
 task cli_tool_capture(command: int, include_stderr: bool) -> word {
     cli_tool_capture_problem = ""
-    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot state = cli_view_run_command(command, "toolchain probe", 10000, 65536, 65536)
     pilot exit_code = process::command_exit_code(command)
     pilot error = process::command_error(command)
     pilot mut text = ""
@@ -1358,7 +1370,7 @@ task cli_build_output_text(bytes: ByteBuffer) -> word {
 task cli_build_command(command: int, phase: word) -> bool {
     -- Every tool launch is shell-free and finite. Captures remain separate;
     -- invalid text is shown as exact hex instead of calling a fatal getter.
-    pilot state = process::command_run(command, 120000, 1048576, 1048576)
+    pilot state = cli_view_run_command(command, phase, 120000, 1048576, 1048576)
     pilot exit_code = process::command_exit_code(command)
     pilot signal = process::command_signal(command)
     pilot error = process::command_error(command)
@@ -1486,7 +1498,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         process::command_arg(cc_command, "-c")
         cli_build_common_args(cc_command, user_obj, transpiled_file, runtime_dir, opt, cross)
 
-        say "  " + C_DIM + SYM_GEAR + "  Compiling program object..." + C_RESET
+        cli_view_activity("Compiling program object")
         pilot cc_ok = cli_build_command(cc_command, "object compilation")
         if not cc_ok or not cli_build_regular_output(user_obj) {
             cli_delete_derived_artifact(user_obj)
@@ -1512,7 +1524,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         process::command_arg(link_command, "-luser32")
         process::command_arg(link_command, "-lgdi32")
         process::command_arg(link_command, "-lmsimg32")
-        say "  " + C_DIM + SYM_GEAR + "  Linking packaged Windows runtime objects..." + C_RESET
+        cli_view_activity("Linking packaged Windows runtime objects")
         pilot link_ok = cli_build_command(link_command, "packaged runtime link")
         if link_ok {
             if cli_build_regular_output(out_bin) { give back out_bin }
@@ -1573,7 +1585,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
             }
         }
 
-        say "  " + C_DIM + SYM_GEAR + "  Compiling native binary..." + C_RESET
+        cli_view_activity("Compiling native binary")
         compiled = cli_build_command(command, "Clang compilation/link")
     }
     if not compiled or not cli_build_regular_output(out_bin) {
@@ -1942,7 +1954,11 @@ task cli_load_std(source: word, target: word) -> word {
 task cli_build_profile(src_file: word, target: word, profile: word, opt: word, lto: word, runtime_policy: word, runtime_stats: word, cross: word) -> word {
     -- Full build pipeline: read source, transpile, compile.
     -- Returns the output binary path, or "" on error.
-    cli_build_start_ms = time::now_ms()
+    -- `freak build` owns its stopwatch; `freak run` and internal probes may
+    -- already have one running, and then the build adds its phases to it.
+    pilot owns_clock = not sw_running
+    if owns_clock { cli_view_begin("build", src_file, 6) }
+    else { view_steps_total = view_steps_total + 6 }
     cli_runtime_cache_profile = profile
     cli_runtime_cache_policy = runtime_policy
     cli_runtime_cache_stats = runtime_stats
@@ -1972,20 +1988,31 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
     if target == "c" { backend_label = "C" }
     pilot profile_label = "O" + opt
     if profile == "plus03" { profile_label = "+03 — FINAL FORM" }
-    say ""
-    say cli_box_top(45)
-    say cli_box_mid(" " + C_G1 + SYM_BOLT + " FREAK" + C_RESET + "  " + C_BWHITE + src_file + C_RESET, 45)
-    say cli_box_mid(" " + C_DIM + "  Backend: " + C_RESET + C_BCYAN + backend_label + C_RESET + C_DIM + "  Profile: " + profile_label + C_RESET, 45)
-    if lto != "off" {
-        say cli_box_mid(" " + C_DIM + "  LTO: " + lto + "  Runtime: " + runtime_policy + C_RESET, 45)
+    if view_live {
+        pilot detail = backend_label + "  \xc2\xb7  " + profile_label
+        if lto != "off" { detail = detail + "  \xc2\xb7  LTO " + lto + "  \xc2\xb7  runtime " + runtime_policy }
+        if cross != "" { detail = detail + "  \xc2\xb7  " + cross } else { detail = detail + "  \xc2\xb7  host" }
+        if CLI_ASCII_ART { detail = detail.replace("\xc2\xb7", "|") }
+        cli_view_header(sw_command, src_file, detail)
+    } else {
+        say ""
+        say cli_box_top(45)
+        say cli_box_mid(" " + C_G1 + SYM_BOLT + " FREAK" + C_RESET + "  " + C_BWHITE + src_file + C_RESET, 45)
+        say cli_box_mid(" " + C_DIM + "  Backend: " + C_RESET + C_BCYAN + backend_label + C_RESET + C_DIM + "  Profile: " + profile_label + C_RESET, 45)
+        if lto != "off" {
+            say cli_box_mid(" " + C_DIM + "  LTO: " + lto + "  Runtime: " + runtime_policy + C_RESET, 45)
+        }
+        say cli_box_bot(45)
+        say ""
     }
-    say cli_box_bot(45)
-    say ""
 
     error_count = 0
     parse_error_count = 0
+    pilot sources_lap = cli_view_step_begin("Sources & packages", false)
     if not package_prepare_project_sources(src_file) {
         say "Package error: " + hangar_graph_error
+        cli_view_step_fail(sources_lap, "Sources & packages")
+        cli_build_report_failure(owns_clock)
         give back ""
     }
     source = cli_load_project_source(src_file, source, target)
@@ -1993,50 +2020,78 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
         say "Package binding error: " + cli_project_source_error
         say "Code generation skipped due to source admission errors."
         cli_project_binding_release()
-        say ""
-        say "  " + C_BRED + SYM_SKULL + " BUILD FAILED" + C_RESET
-        say "  " + C_DIM + C_ITALIC + cli_fail_quote(time::now_ms()) + C_RESET
-        say ""
+        cli_view_step_fail(sources_lap, "Sources & packages")
+        cli_build_report_failure(owns_clock)
         give back ""
     }
+    cli_view_step_end(sources_lap, "Sources & packages")
 
     pilot transpiled: word = cli_transpile(src_file, source, target)
     if transpiled == "" {
         cli_project_binding_release()
-        say ""
-        say "  " + C_BRED + SYM_SKULL + " BUILD FAILED" + C_RESET
-        say "  " + C_DIM + C_ITALIC + cli_fail_quote(time::now_ms()) + C_RESET
-        say ""
+        cli_build_report_failure(owns_clock)
         give back ""
     }
 
-    cli_step_start()
+    pilot native_lap = cli_view_step_begin("Native binary", false)
     pilot binary: word = cli_build_binary(transpiled, src_file, target, opt, lto, cross)
     if binary == "" {
-        say ""
-        say "  " + C_BRED + SYM_SKULL + " BUILD FAILED" + C_RESET
-        say "  " + C_DIM + C_ITALIC + cli_fail_quote(time::now_ms()) + C_RESET
-        say ""
+        cli_view_step_fail(native_lap, "Native binary")
+        cli_build_report_failure(owns_clock)
         give back ""
     }
-    cli_step_done("Native binary")
+    cli_view_step_end(native_lap, "Native binary")
 
-    -- Success summary
-    pilot total_ms = time::now_ms() - cli_build_start_ms
-    pilot total_str = word_from_int(total_ms)
-    say ""
-    say cli_box_top(45)
-    say cli_box_mid(" " + C_BGREEN + SYM_SPARK + " BUILD SUCCESSFUL" + C_RESET, 45)
-    say cli_box_sep(45)
-    say cli_box_mid("  " + C_DIM + "Binary: " + C_RESET + C_BWHITE + binary + C_RESET, 45)
-    say cli_box_mid("  " + C_DIM + "Time:   " + C_RESET + C_BCYAN + total_str + "ms" + C_RESET, 45)
-    say cli_box_bot(45)
+    -- Success summary. A clock owned by `freak run` keeps running.
+    pilot total_ms = 0
+    if owns_clock { total_ms = sw_stop(true) } else {
+        sw_total_ns = sw_elapsed_ns()
+        total_ms = sw_ns_to_ms(sw_total_ns)
+    }
+    if view_live {
+        pilot extra = ""
+        if not owns_clock { extra = C_DIM + "build time so far; the program runs next" + C_RESET }
+        cli_view_success_card("BUILD SUCCESSFUL", binary, extra)
+    } else {
+        pilot total_str = word_from_int(total_ms)
+        say ""
+        say cli_box_top(45)
+        say cli_box_mid(" " + C_BGREEN + SYM_SPARK + " BUILD SUCCESSFUL" + C_RESET, 45)
+        say cli_box_sep(45)
+        say cli_box_mid("  " + C_DIM + "Binary: " + C_RESET + C_BWHITE + binary + C_RESET, 45)
+        say cli_box_mid("  " + C_DIM + "Time:   " + C_RESET + C_BCYAN + total_str + "ms" + C_RESET, 45)
+        say cli_box_bot(45)
+    }
     say ""
     say "  " + C_DIM + C_ITALIC + cli_random_quote(total_ms) + C_RESET
     say ""
+    if owns_clock { sw_report() }
 
     give back binary
 }
+
+-- Failure summary shared by every build failure after the header.
+task cli_build_report_failure(owns_clock: bool) -> void {
+    pilot phase = cli_view_failed_phase()
+    pilot total_ms = 0
+    if owns_clock { total_ms = sw_stop(false) } else {
+        sw_total_ns = sw_elapsed_ns()
+        total_ms = sw_ns_to_ms(sw_total_ns)
+    }
+    if view_live {
+        pilot reason = ""
+        if phase != "" { reason = "stopped in " + phase }
+        cli_view_failure_card("BUILD FAILED", reason)
+    } else {
+        say ""
+        say "  " + C_BRED + SYM_SKULL + " BUILD FAILED" + C_RESET
+    }
+    say "  " + C_DIM + C_ITALIC + cli_fail_quote(total_ms) + C_RESET
+    if not view_live { say "  " + C_DIM + "Time:   " + word_from_int(total_ms) + "ms" + C_RESET }
+    say ""
+    if owns_clock { sw_report() }
+}
+
 
 task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     -- Compatibility entry point for internal probes such as `freak doctor`.

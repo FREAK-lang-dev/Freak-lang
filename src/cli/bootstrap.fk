@@ -78,7 +78,7 @@ task cli_bootstrap_hash_text(text: word) -> word {
 }
 
 task cli_bootstrap_capture(command: int, timeout_ms: int, limit: int, stage: word) -> word {
-    pilot status = process::command_run(command, timeout_ms, limit, limit)
+    pilot status = cli_view_run_command(command, stage, timeout_ms, limit, limit)
     pilot exit_code = process::command_exit_code(command)
     pilot signal = process::command_signal(command)
     pilot error = process::command_error(command)
@@ -799,10 +799,20 @@ task cli_bootstrap_expected_native_stdout(text: word) -> word {
     give back text
 }
 
+task cli_bootstrap_parent_name(path: word) -> word {
+    pilot normal = path.replace("\\", "/")
+    pilot index = normal.length() - 1
+    repeat until index < 0 {
+        if normal.char_at(index) == "/" { give back normal.substring(index + 1, normal.length() - index - 1) }
+        index -= 1
+    }
+    give back normal
+}
+
 task cli_bootstrap_program(executable: word, expected_exit: int, expected_stdout: word) -> bool {
     pilot expected = cli_bootstrap_expected_native_stdout(expected_stdout)
     pilot command = process::command_new(executable)
-    pilot status = process::command_run(command, 10000, 65536, 65536)
+    pilot status = cli_view_run_command(command, "native corpus run " + cli_bootstrap_parent_name(executable), 10000, 65536, 65536)
     pilot code = process::command_exit_code(command)
     pilot stdout_bytes: ByteBuffer = process::command_stdout_bytes(command)
     pilot output = stdout_bytes.to_word()
