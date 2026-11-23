@@ -1,0 +1,29 @@
+-- The guard's drop ends the write, so a later borrow_mut succeeds.
+-- bible: 4.4
+-- expect: run
+-- stdout: 2
+-- stdout: 3
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task step(lend s: Shared<Ship>) -> void {
+    check result s.borrow_mut() {
+        ok(g) -> g.hp = g.hp + 1
+        err(e) -> say "busy"
+    }
+}
+
+task peek(lend s: Shared<Ship>) -> int {
+    pilot v = s.borrow()
+    give back v.hp
+}
+
+task main() -> int {
+    pilot a = Shared<Ship>::new(Ship { hp: 1 })
+    step(lend a)
+    say peek(lend a)
+    step(lend a)
+    say peek(lend a)
+    give back 0
+}

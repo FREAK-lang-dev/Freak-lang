@@ -3421,6 +3421,14 @@ task v4_codegen_llvm_native_shape_error(mir_id: int, type_text: word, depth: int
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
     if kind == "" and v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 { kind = "route" }
     if kind == "" {
+        -- An instance argument that is a Shared handle is a handle inside
+        -- another type: refused by name before monomorphization is asked.
+        pilot arg = 0
+        repeat until arg >= v4_ty_generic_arg_count(type_text) {
+            pilot arg_ty = v4_ty_generic_arg(type_text, arg)
+            if v4_codegen_llvm_is_shared_handle(mir_id, arg_ty) { give back "native Shared handles inside other types are not yet supported: " + arg_ty }
+            arg += 1
+        }
         if v4_ty_shape_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, type_text)) >= 0 { give back "native generic shapes need monomorphization: " + type_text }
         if v4_ty_route_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, type_text)) >= 0 { give back "native generic routes need monomorphization: " + type_text }
         give back "-"
@@ -7617,15 +7625,20 @@ task v4_codegen_llvm_shared_guard_payload_lines(parts: int, mir_id: int, guard_t
 
 -- Shared/Weak builtin calls. One call site in
 -- v4_codegen_llvm_collect_owned_special_lines keeps this out of the
--- recursive collector's frame.
+-- recursive collector's frame; this frame stays small because the
+-- recursion passes through it, and the lines come after it returns.
 task v4_codegen_llvm_collect_shared_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
     if v4_codegen_llvm_active_owned_mir != mir_id or kind != v4_mir_rvalue_call { give back false }
     pilot shared_kind = v4_mir_shared_intrinsic_kind(mir_id, body_id, rvalue_id)
     if shared_kind == "" { give back false }
-    pilot prefix = "%shared." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
-    pilot label = v4_slice(prefix, 1, prefix.length())
     pilot arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
     v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, arg, v4_codegen_llvm_temp_value(body_id, arg), false)
+    give back v4_codegen_llvm_shared_call_lines(parts, mir_id, body_id, rvalue_id, target, shared_kind, arg)
+}
+
+task v4_codegen_llvm_shared_call_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, shared_kind: word, arg: int) -> bool {
+    pilot prefix = "%shared." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+    pilot label = v4_slice(prefix, 1, prefix.length())
     pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     if shared_kind == "new" {
         pilot payload = v4_codegen_llvm_shared_payload(mir_id, result_ty)

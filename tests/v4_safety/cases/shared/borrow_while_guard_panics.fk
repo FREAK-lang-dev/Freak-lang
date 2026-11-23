@@ -1,0 +1,22 @@
+-- A view while a guard is live through another handle is a runtime panic.
+-- bible: 4.4
+-- expect: panic
+-- panic: Shared value is already mutably borrowed
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task peek(lend s: Shared<Ship>) -> int {
+    pilot v = s.borrow()
+    give back v.hp
+}
+
+task main() -> int {
+    pilot a = Shared<Ship>::new(Ship { hp: 5 })
+    pilot b = a.clone()
+    check result a.borrow_mut() {
+        ok(g) -> say peek(lend b)
+        err(e) -> say "busy"
+    }
+    give back 0
+}

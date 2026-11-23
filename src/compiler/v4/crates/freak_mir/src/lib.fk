@@ -1392,9 +1392,10 @@ task v4_mir_generic_aggregate_instance_is_native(ty_id: int, sig_id: int, canoni
 -- or fully applied shapes and routes, builtin generic carriers of concrete
 -- types, tuples, fixed arrays, lends and raw pointers of concrete types.
 -- Shared<T>, Weak<T> and SharedMut<T> are left out on purpose: native code
--- has no layout for them, so a Box<Shared<int>> local is refused by name
--- ("native type not yet supported: Shared<int>") whether or not the
--- predicate admits the instance. Admit them here when the carriers land.
+-- keeps Shared handles out of other types and generic instances, so a
+-- Box<Shared<int>> local is refused by name ("native Shared handles inside
+-- other types are not yet supported: Shared<int>") whether or not the
+-- predicate admits the instance. Admit them here when that row lands.
 task v4_mir_type_is_concrete(ty_id: int, surface: word, depth: int) -> bool {
     if depth > 32 or surface == "" or surface == v4_ty_unknown { give back false }
     pilot type_text = v4_ty_canonical_type(ty_id, surface)

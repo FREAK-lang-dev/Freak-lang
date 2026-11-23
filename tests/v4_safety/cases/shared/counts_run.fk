@@ -1,0 +1,39 @@
+-- Clone shares one box; get_mut answers only for the one unobserved handle.
+-- bible: 4.4
+-- expect: run
+-- stdout: true
+-- stdout: false
+-- stdout: 12
+-- stdout: false
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task bump(lend mut s: Shared<Ship>) -> bool {
+    check s.get_mut() {
+        got m -> {
+            m.hp = m.hp + 10
+            give back true
+        }
+        nobody -> give back false
+    }
+    give back false
+}
+
+task hp(lend s: Shared<Ship>) -> int {
+    pilot v = s.borrow()
+    give back v.hp
+}
+
+task main() -> int {
+    pilot mut a = Shared<Ship>::new(Ship { hp: 1 })
+    say bump(lend mut a)
+    pilot b = a.clone()
+    say bump(lend mut a)
+    pilot mut c = b.clone()
+    c = Shared<Ship>::new(Ship { hp: 0 })
+    say hp(lend b) + hp(lend c) + 1
+    pilot w = c.downgrade()
+    say bump(lend mut c)
+    give back 0
+}

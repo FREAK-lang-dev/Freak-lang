@@ -1,0 +1,28 @@
+-- A Weak upgrades while a strong handle lives and answers nobody after.
+-- bible: 4.4
+-- expect: run
+-- stdout: alive
+-- stdout: gone
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int, name: word }
+
+task probe(lend w: Weak<Ship>) -> void {
+    check w.upgrade() {
+        got s -> say "alive"
+        nobody -> say "gone"
+    }
+}
+
+task watch() -> Weak<Ship> {
+    pilot s = Shared<Ship>::new(Ship { hp: 1, name: "Marimo" })
+    pilot w = s.downgrade()
+    probe(lend w)
+    give back w
+}
+
+task main() -> int {
+    pilot w = watch()
+    probe(lend w)
+    give back 0
+}

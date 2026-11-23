@@ -97,6 +97,12 @@ task orphan() -> Weak<Ship> {
     give back s.downgrade()
 }
 
+-- A handle travels inside a maybe carrier and drops with it.
+task keep(s: Shared<Ship>, wanted: bool) -> maybe<Shared<Ship>> {
+    if wanted { give back some(s) }
+    give back nobody
+}
+
 -- Payload drop glue runs once, when the last strong handle goes.
 task signal_level(lend s: Shared<Signal>) -> int {
     pilot v = s.borrow()
@@ -141,6 +147,13 @@ task main() -> int {
     -- Reassigning a handle releases the old reference first.
     e = a2.clone()
     show(lend e)
+    check keep(e, true) {
+        got k -> show(lend k)
+        nobody -> say "none"
+    }
+    pilot f = a2.clone()
+    pilot kept = keep(f, false) or else b.clone()
+    show(lend kept)
     if process::args_count() > 1 { say conflict(lend a2, lend b) }
     give back 0
 }

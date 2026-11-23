@@ -1,0 +1,15 @@
+-- borrow_mut takes a shared receiver: the runtime guard proves exclusivity.
+-- bible: 4.4
+-- expect: check
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task f(lend s: Shared<Ship>) -> bool {
+    check result s.borrow_mut() {
+        ok(g) -> give back true
+        err(e) -> give back false
+    }
+    give back false
+}
+task main() -> int { give back 0 }
