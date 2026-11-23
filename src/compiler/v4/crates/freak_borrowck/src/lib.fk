@@ -3510,7 +3510,21 @@ task v4_borrowck_return_source_param(mir_id: int, body_id: int, source_text: wor
         give back 0 - 1
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
-    give back v4_ty_signature_param_index_for_name(ty_id, sig_id, source_name)
+    if not source_name.starts_with("@word-local:") {
+        give back v4_ty_signature_param_index_for_name(ty_id, sig_id, source_name)
+    }
+    -- A shadowed binding keeps its own path; it names a parameter only when
+    -- that local is the lend parameter itself (same name, type and mode), so
+    -- an owned shadowing local still owns what it returns.
+    pilot local_id = v4_borrowck_word_path_local(mir_id, body_id, source_name)
+    if local_id < 0 { give back 0 - 1 }
+    pilot param_id = v4_ty_signature_param_index_for_name(ty_id, sig_id, v4_mir_local_name(mir_id, body_id, local_id))
+    if param_id < 0 { give back 0 - 1 }
+    pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+    if param_mode != v4_ty_param_mode_lend and param_mode != v4_ty_param_mode_lend_mut { give back 0 - 1 }
+    if v4_mir_local_mode(mir_id, body_id, local_id) != param_mode { give back 0 - 1 }
+    if v4_mir_local_ty(mir_id, body_id, local_id) != v4_ty_signature_param_type(ty_id, sig_id, param_id) { give back 0 - 1 }
+    give back param_id
 }
 
 task v4_borrowck_return_source_contract_count_guarded(mir_id: int, body_id: int, source_text: word, route_guard: word) -> int {
