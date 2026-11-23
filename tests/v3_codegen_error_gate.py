@@ -305,7 +305,7 @@ def assert_builtin_signature_parity(repo: Path) -> None:
         "    return freak_word_compare(freak_llvm_word_view(left),freak_llvm_word_view(right));\n}"
         in llvm_runtime_c
     )
-    assert 'llvm_emit_line("declare i64 @freak_llvm_word_compare(i64, i64)")' in llvm_source
+    assert 'ir_declare("i64", "@freak_llvm_word_compare", 2)' in llvm_source
     internal_lowering_intrinsics = {
         "shape::alloc",
         "shape::get",

@@ -15624,7 +15624,7 @@ def check_snapshot_inventories() -> None:
         violations.append("LLVM array release lowering missing")
     if 'val == "substring"' not in llvm_emitter_source:
         violations.append("LLVM substring method lowering missing")
-    if "@freak_llvm_word_substring(i64, i64, i64)" not in llvm_emitter_source:
+    if 'ir_declare("i64", "@freak_llvm_word_substring", 3)' not in llvm_emitter_source:
         violations.append("LLVM substring declaration missing")
     mir_source = read_text(crate_path("freak_mir"))
     mir_build_source = read_text(crate_path("freak_mir_build"))
