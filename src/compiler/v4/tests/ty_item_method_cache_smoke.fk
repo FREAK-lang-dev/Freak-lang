@@ -70,7 +70,8 @@ task v4_ty_bounds_scale(ty: int, hir: int, owner: int, count: int) -> void {
     pilot span = v4_hir_item_span(hir, owner)
     pilot idx = 0
     repeat until idx >= count {
-        v4_hir_add_item(hir, v4_hir_impl, "Box<T>", span, node)
+        -- Lower the method facts like the HIR pipeline does after each item.
+        v4_hir_lower_methods(hir, v4_hir_add_item(hir, v4_hir_impl, "Box<T>", span, node))
         idx += 1
     }
     pilot built_items = v4_ty_item_method_cache_items_built
@@ -191,7 +192,8 @@ task v4_ty_bounds_run() -> void {
     pilot parse_publish: bool = v4_ty_item_method_cache_finalize(ty)
     say "ty-bounds-parse-overwrite-cold-recover=" + word_from_bool(parse_cold and parse_publish and v4_ty_hir_item_start_token(hir, owner) == original_start)
 
-    -- Same-size official HIR replacement changes the parse-node binding.
+    -- Same-size official HIR replacement changes the parse-node binding. The
+    -- method facts belong to the HIR item, so only the cache goes cold.
     pilot owner_kind = v4_hir_item_kind(hir, owner)
     pilot owner_name = v4_hir_item_name(hir, owner)
     pilot owner_def = v4_hir_item_def(hir, owner)
@@ -199,19 +201,20 @@ task v4_ty_bounds_run() -> void {
     old_revision = v4_hir_revision(hir)
     builds = v4_ty_item_method_cache_builds
     v4_hir_restore_item_slot(hir, owner, owner_kind, owner_name, owner_def, owner_span, v4_hir_item_parse_node(hir, empty), "", V4_NO_SPAN)
-    pilot hir_cold: bool = v4_hir_revision(hir) > old_revision and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, owner) == 0 and v4_ty_item_method_cache_builds == builds
+    pilot hir_cold: bool = v4_hir_revision(hir) > old_revision and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, owner) == 3 and v4_ty_item_method_cache_builds == builds
     v4_hir_restore_item_slot(hir, owner, owner_kind, owner_name, owner_def, owner_span, node, "", V4_NO_SPAN)
     pilot hir_publish: bool = v4_ty_item_method_cache_finalize(ty)
     say "ty-bounds-hir-overwrite-cold-recover=" + word_from_bool(hir_cold and hir_publish and v4_ty_impl_method_count(ty, owner) == 3)
 
-    -- Value-only and nonmonotonic-span edits have different raw semantics.
-    -- Each supported mutation invalidates both TY and Lex offset pairs.
+    -- Value-only and nonmonotonic-span edits invalidate both TY and Lex offset
+    -- pairs. Method enumeration is an HIR fact (architecture lane A1), so a raw
+    -- token edit that skips HIR lowering keeps all three methods.
     old_revision = v4_lex_stream_revision(stream)
     builds = v4_ty_item_method_cache_builds
     pilot token_span = v4_lex_token_span(stream, first)
     array_set(v4_lex_values_handle(stream), first, "noop")
     v4_lex_note_stream_mutation(stream)
-    pilot value_cold: bool = v4_lex_stream_revision(stream) > old_revision and v4_lex_boundaries_handle(stream) < 0 and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, owner) == 2 and v4_ty_impl_method_count(ty, owner) == v4_ty_impl_method_count_uncached(ty, owner) and v4_ty_item_method_cache_builds == builds
+    pilot value_cold: bool = v4_lex_stream_revision(stream) > old_revision and v4_lex_boundaries_handle(stream) < 0 and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, owner) == 3 and v4_ty_impl_method_count(ty, owner) == v4_ty_impl_method_count_uncached(ty, owner) and v4_ty_item_method_cache_builds == builds
     array_set(v4_lex_values_handle(stream), first, "task")
     v4_lex_note_stream_mutation(stream)
     pilot value_bounds: bool = v4_lex_rebuild_boundaries(stream)
@@ -222,8 +225,8 @@ task v4_ty_bounds_run() -> void {
     array_set(v4_lex_spans_handle(stream), first, v4_span_new(word_from_int(file), 999999, 1000000))
     v4_lex_note_stream_mutation(stream)
     -- The first task's moved start is now the first physical boundary beyond
-    -- the owner's end byte. Original scanners therefore see no complete body.
-    pilot lex_cold: bool = v4_lex_stream_revision(stream) > old_revision and v4_lex_boundaries_handle(stream) < 0 and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_hir_item_end_token(hir, owner) == first and v4_ty_impl_method_count(ty, owner) == 0 and v4_ty_impl_method_count(ty, owner) == v4_ty_impl_method_count_uncached(ty, owner) and v4_ty_first_token_at_or_after(stream, v4_span_start(token_span)) == first and v4_ty_item_method_cache_builds == builds
+    -- the owner's end byte. The HIR method facts are unaffected.
+    pilot lex_cold: bool = v4_lex_stream_revision(stream) > old_revision and v4_lex_boundaries_handle(stream) < 0 and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_hir_item_end_token(hir, owner) == first and v4_ty_impl_method_count(ty, owner) == 3 and v4_ty_impl_method_count(ty, owner) == v4_ty_impl_method_count_uncached(ty, owner) and v4_ty_first_token_at_or_after(stream, v4_span_start(token_span)) == first and v4_ty_item_method_cache_builds == builds
     array_set(v4_lex_spans_handle(stream), first, token_span)
     v4_lex_note_stream_mutation(stream)
     pilot lex_bounds: bool = v4_lex_rebuild_boundaries(stream)
@@ -309,9 +312,11 @@ task v4_ty_bounds_run() -> void {
     pilot append_publish: bool = v4_ty_item_method_cache_finalize(ty)
     say "ty-bounds-token-append-cold=" + word_from_bool(append_cold and append_publish)
     v4_parse_restore_node_slot(tree, node, node_kind, node_value, v4_span_new(word_from_int(file), v4_span_start(node_span), v4_span_start(v4_lex_token_span(stream, first))), parent)
-    pilot malformed_cold: bool = v4_ty_impl_method_count(ty, owner) == 0 and v4_ty_impl_method_start_token(ty, owner, 0) == 0 - 1
+    -- A truncated parse range no longer hides methods: they are HIR facts.
+    -- Out-of-range ordinals still read the sentinel.
+    pilot malformed_cold: bool = v4_ty_impl_method_count(ty, owner) == 3 and v4_ty_impl_method_start_token(ty, owner, 0) == first and v4_ty_impl_method_start_token(ty, owner, 3) == 0 - 1
     pilot malformed_publish: bool = v4_ty_item_method_cache_finalize(ty)
-    say "ty-bounds-incomplete-owner-sentinels=" + word_from_bool(malformed_cold and malformed_publish and v4_ty_impl_method_count(ty, owner) == 0 and v4_ty_impl_method_start_token(ty, owner, 0) == 0 - 1)
+    say "ty-bounds-incomplete-owner-sentinels=" + word_from_bool(malformed_cold and malformed_publish and v4_ty_impl_method_count(ty, owner) == 3 and v4_ty_impl_method_start_token(ty, owner, 3) == 0 - 1)
     v4_parse_restore_node_slot(tree, node, node_kind, node_value, node_span, parent)
     v4_ty_item_method_cache_finalize(ty)
     v4_ty_bounds_scale(ty, hir, owner, 200)

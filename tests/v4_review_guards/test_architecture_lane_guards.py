@@ -1,5 +1,5 @@
 """Architecture lane A1/A3 guards: freak_ty token allowlist, TY source identity
-shim and codegen boundary. Pure Python; no compiler execution."""
+shim, HIR method facts and codegen boundary. Pure Python; no compiler execution."""
 import importlib.util
 from pathlib import Path
 import sys
@@ -103,6 +103,25 @@ class ArchitectureLaneGuards(unittest.TestCase):
             any("TY name lookup allowlist drift: added=v4_ty_shape_field_id_for_name" in v for v in found),
             found,
         )
+
+    def test_method_count_token_walk_is_rejected(self):
+        body = guard.freak_task_body(self.ty, "v4_ty_doctrine_method_count")
+        self.assertIsNotNone(body)
+        ty = self.ty.replace(body, body.replace("give back v4_hir_method_count(", "pilot walked = v4_ty_skip_item(0, 0, 0)\n    give back v4_hir_method_count(", 1), 1)
+        found = self.violations(ty=ty)
+        self.assertTrue(any("v4_ty_doctrine_method_count walks method tokens" in v for v in found), found)
+
+    def test_method_return_rebuilt_from_tokens_is_rejected(self):
+        body = guard.freak_task_body(self.ty, "v4_ty_hir_method_return_surface_type")
+        self.assertIsNotNone(body)
+        ty = self.ty.replace(body, body.replace("give back v4_ty_unknown", "give back v4_ty_type_text(0, 0, 0)", 1), 1)
+        found = self.violations(ty=ty)
+        self.assertTrue(any("reconstructs a declared type from tokens" in v for v in found), found)
+
+    def test_method_arrow_fallback_must_stay_pinned(self):
+        ty = self.ty.replace("task v4_ty_hir_method_arrow_return_fallback(", "task v4_ty_hir_method_arrow_return_fallback_renamed(", 1)
+        found = self.violations(ty=ty)
+        self.assertTrue(any("method arrow shorthand return fallback is not separately pinned" in v for v in found), found)
 
     def test_codegen_forbids_syntax_and_hir_access(self):
         forbidden = dict(guard.CRATE_BOUNDARY_FORBIDDEN["freak_codegen_llvm"])

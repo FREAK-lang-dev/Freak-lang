@@ -22,9 +22,14 @@ pilot v4_hir_import = "Import"
 pilot v4_hir_extern = "Extern"
 pilot v4_hir_attribute = "Attribute"
 pilot v4_hir_error = "Error"
-pilot v4_hir_snapshot_format = "freak-hir-snapshot-v12"
+pilot v4_hir_snapshot_format = "freak-hir-snapshot-v13"
 pilot v4_hir_extern_return_owner_values = 0
 pilot v4_hir_extern_return_values = 0
+-- Impl and doctrine methods (architecture lane A1): owners hold item-indexed
+-- start/count pairs, methods five packed words (name, segment span, return
+-- form, return type, return span).
+pilot v4_hir_method_owner_values = 0
+pilot v4_hir_method_values = 0
 pilot v4_hir_route_owner_values = 0
 pilot v4_hir_route_case_values = 0
 pilot v4_hir_route_field_values = 0
@@ -105,6 +110,8 @@ task v4_hir_init() -> void {
         -- Failed construction leaves the original global references untouched.
         pilot new_extern_return_owner_values = array_new()
         pilot new_extern_return_values = array_new()
+        pilot new_method_owner_values = array_new()
+        pilot new_method_values = array_new()
         pilot new_route_owner_values = array_new()
         pilot new_route_case_values = array_new()
         pilot new_route_field_values = array_new()
@@ -148,9 +155,11 @@ task v4_hir_init() -> void {
         pilot new_task_param_type_spans = array_new()
         pilot new_task_param_segment_spans = array_new()
         pilot new_diags = array_new()
-        if new_word_plans < 0 or new_extern_return_owner_values < 0 or new_extern_return_values < 0 or new_route_owner_values < 0 or new_route_case_values < 0 or new_route_field_values < 0 or new_const_annotation_values < 0 or new_shape_field_starts < 0 or new_shape_field_counts < 0 or new_shape_field_values < 0 or new_files < 0 or new_expansions < 0 or new_revisions < 0 or new_item_kinds < 0 or new_item_names < 0 or new_item_defs < 0 or new_item_spans < 0 or new_item_parse_nodes < 0 or new_alias_target_types < 0 or new_alias_target_spans < 0 or new_local_annotation_items < 0 or new_local_annotation_stmt_spans < 0 or new_local_annotation_types < 0 or new_local_annotation_type_spans < 0 or new_task_return_items < 0 or new_task_return_forms < 0 or new_task_return_types < 0 or new_task_return_spans < 0 or new_annotation_indexes < 0 or new_return_indexes < 0 or new_task_param_indexes < 0 or new_impl_indexes < 0 or new_task_param_owner_items < 0 or new_task_param_owner_counts < 0 or new_task_param_items < 0 or new_task_param_ordinals < 0 or new_task_param_names < 0 or new_task_param_name_spans < 0 or new_task_param_modes < 0 or new_task_param_lifetimes < 0 or new_task_param_lifetime_spans < 0 or new_task_param_types < 0 or new_task_param_type_spans < 0 or new_task_param_segment_spans < 0 or new_diags < 0 {
+        if new_word_plans < 0 or new_extern_return_owner_values < 0 or new_extern_return_values < 0 or new_method_owner_values < 0 or new_method_values < 0 or new_route_owner_values < 0 or new_route_case_values < 0 or new_route_field_values < 0 or new_const_annotation_values < 0 or new_shape_field_starts < 0 or new_shape_field_counts < 0 or new_shape_field_values < 0 or new_files < 0 or new_expansions < 0 or new_revisions < 0 or new_item_kinds < 0 or new_item_names < 0 or new_item_defs < 0 or new_item_spans < 0 or new_item_parse_nodes < 0 or new_alias_target_types < 0 or new_alias_target_spans < 0 or new_local_annotation_items < 0 or new_local_annotation_stmt_spans < 0 or new_local_annotation_types < 0 or new_local_annotation_type_spans < 0 or new_task_return_items < 0 or new_task_return_forms < 0 or new_task_return_types < 0 or new_task_return_spans < 0 or new_annotation_indexes < 0 or new_return_indexes < 0 or new_task_param_indexes < 0 or new_impl_indexes < 0 or new_task_param_owner_items < 0 or new_task_param_owner_counts < 0 or new_task_param_items < 0 or new_task_param_ordinals < 0 or new_task_param_names < 0 or new_task_param_name_spans < 0 or new_task_param_modes < 0 or new_task_param_lifetimes < 0 or new_task_param_lifetime_spans < 0 or new_task_param_types < 0 or new_task_param_type_spans < 0 or new_task_param_segment_spans < 0 or new_diags < 0 {
             array_release(new_extern_return_owner_values)
             array_release(new_extern_return_values)
+            array_release(new_method_owner_values)
+            array_release(new_method_values)
             array_release(new_route_owner_values)
             array_release(new_route_case_values)
             array_release(new_route_field_values)
@@ -198,6 +207,8 @@ task v4_hir_init() -> void {
         }
         v4_hir_extern_return_owner_values = new_extern_return_owner_values
         v4_hir_extern_return_values = new_extern_return_values
+        v4_hir_method_owner_values = new_method_owner_values
+        v4_hir_method_values = new_method_values
         v4_hir_route_owner_values = new_route_owner_values
         v4_hir_route_case_values = new_route_case_values
         v4_hir_route_field_values = new_route_field_values
@@ -246,7 +257,7 @@ task v4_hir_init() -> void {
     }
 }
 
--- File slots own their forty-two child arrays. Logical snapshot truncation keeps
+-- File slots own their forty-four child arrays. Logical snapshot truncation keeps
 -- high-water slots reachable; reusing a slot must release its previous children.
 -- Fresh slots allocate once, without immediately overwriting those handles.
 task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
@@ -256,6 +267,8 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
     repeat until array_len(v4_hir_files) > hir_id {
         array_push(v4_hir_extern_return_owner_values, word_from_int(array_new()))
         array_push(v4_hir_extern_return_values, word_from_int(array_new()))
+        array_push(v4_hir_method_owner_values, word_from_int(array_new()))
+        array_push(v4_hir_method_values, word_from_int(array_new()))
         array_push(v4_hir_route_owner_values, word_from_int(array_new()))
         array_push(v4_hir_route_case_values, word_from_int(array_new()))
         array_push(v4_hir_route_field_values, word_from_int(array_new()))
@@ -316,6 +329,10 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_set(v4_hir_extern_return_owner_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_extern_return_values_handle(hir_id))
         array_set(v4_hir_extern_return_values, hir_id, word_from_int(array_new()))
+        array_release(v4_hir_method_owner_values_handle(hir_id))
+        array_set(v4_hir_method_owner_values, hir_id, word_from_int(array_new()))
+        array_release(v4_hir_method_values_handle(hir_id))
+        array_set(v4_hir_method_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_route_owner_values_handle(hir_id))
         array_set(v4_hir_route_owner_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_route_case_values_handle(hir_id))
@@ -536,6 +553,7 @@ task v4_hir_add_item(hir_id: int, item_kind: word, item_name: word, span: word, 
     array_push(v4_hir_alias_target_spans_handle(hir_id), V4_NO_SPAN)
     if item_kind == v4_hir_route { v4_hir_route_prepare_owner(hir_id, item_index, "route", 0) }
     if item_kind == v4_hir_extern { v4_hir_extern_return_prepare_owner(hir_id, item_index, 0) }
+    if item_kind == v4_hir_impl or item_kind == v4_hir_doctrine { v4_hir_method_prepare_owner(hir_id, item_index, 0) }
     give back item_index
 }
 
@@ -1969,7 +1987,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
     if v4_hir_ready == 0 { give back 0 - 1 }
     pilot required = 4
-    if v4_hir_file_len >= array_len(v4_hir_files) { required += 42 }
+    if v4_hir_file_len >= array_len(v4_hir_files) { required += 44 }
     if v4_hir_lookup_handles_available(required) == false { give back 0 - 1 }
     pilot hir_id = v4_hir_file_new(file_id, expansion_id)
     v4_hir_copy_expand_diags(hir_id, expansion_id)
@@ -1988,6 +2006,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
             v4_hir_lower_shape_fields(hir_id, item_id)
             v4_hir_lower_route_facts(hir_id, item_id)
             v4_hir_lower_extern_returns(hir_id, item_id)
+            v4_hir_lower_methods(hir_id, item_id)
             v4_hir_lower_task_params(hir_id, item_id)
             v4_hir_lower_task_return(hir_id, item_id)
             v4_hir_lower_local_annotations(hir_id, item_id)
@@ -2219,6 +2238,8 @@ task v4_hir_snapshot_summary() -> word {
     summary = summary + " route-fields=" + word_from_int(v4_hir_route_field_total())
     summary = summary + " extern-return-owners=" + word_from_int(v4_hir_extern_return_owner_total())
     summary = summary + " extern-returns=" + word_from_int(v4_hir_extern_return_total())
+    summary = summary + " method-owners=" + word_from_int(v4_hir_method_owner_total())
+    summary = summary + " methods=" + word_from_int(v4_hir_method_total())
     summary = summary + " diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
     give back summary
 }
@@ -2241,6 +2262,8 @@ task v4_hir_snapshot_header() -> word {
     out = out + "|route-fields=" + word_from_int(v4_hir_route_field_total())
     out = out + "|extern-return-owners=" + word_from_int(v4_hir_extern_return_owner_total())
     out = out + "|extern-returns=" + word_from_int(v4_hir_extern_return_total())
+    out = out + "|method-owners=" + word_from_int(v4_hir_method_owner_total())
+    out = out + "|methods=" + word_from_int(v4_hir_method_total())
     out = out + "|word-owners=" + word_from_int(v4_hir_word_snapshot_total(0))
     out = out + "|word-literals=" + word_from_int(v4_hir_word_snapshot_total(2))
     out = out + "|word-pieces=" + word_from_int(v4_hir_word_snapshot_total(3))
@@ -2328,6 +2351,9 @@ task v4_hir_snapshot() -> word {
             if v4_hir_item_kind(hir_id, item_id) == v4_hir_extern {
                 v4_hir_snapshot_append_extern_returns(parts, hir_id, item_id)
             }
+            if v4_hir_item_kind(hir_id, item_id) == v4_hir_impl or v4_hir_item_kind(hir_id, item_id) == v4_hir_doctrine {
+                v4_hir_snapshot_append_methods(parts, hir_id, item_id)
+            }
             item_id += 1
         }
 
@@ -2386,6 +2412,8 @@ task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "hir-word-path-part" { give back 8 }
     if kind == "hir-extern-return-owner" { give back 4 }
     if kind == "hir-extern-return" { give back 8 }
+    if kind == "hir-method-owner" { give back 4 }
+    if kind == "hir-method" { give back 9 }
     if kind == "hir-route-owner" { give back 5 }
     if kind == "hir-route-case" { give back 9 }
     if kind == "hir-route-field" { give back 10 }
@@ -2393,7 +2421,7 @@ task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "hir-shape-owner" { give back 4 }
     if kind == "hir-shape-field" { give back 9 }
     if kind == "hir-snapshot" {
-        give back 22
+        give back 24
     }
     if kind == "hir" {
         give back 6
@@ -2883,6 +2911,9 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
     if kind == "hir-extern-return-owner" or kind == "hir-extern-return" {
         give back v4_hir_snapshot_extern_return_record_is_valid(line)
     }
+    if kind == "hir-method-owner" or kind == "hir-method" {
+        give back v4_hir_snapshot_method_record_is_valid(line)
+    }
     if kind == "hir-const-annotation" { give back v4_hir_snapshot_const_annotation_is_valid(line) }
     if kind == "hir-route-owner" or kind == "hir-route-case" or kind == "hir-route-field" {
         give back v4_hir_snapshot_route_record_is_valid(line)
@@ -2939,6 +2970,10 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     pilot extern_returns = 0
     pilot declared_extern_return_owners = ""
     pilot declared_extern_returns = ""
+    pilot method_owners = 0
+    pilot methods = 0
+    pilot declared_method_owners = ""
+    pilot declared_methods = ""
     pilot task_param_owners = 0
     pilot task_params = 0
     pilot diagnostics = 0
@@ -2980,6 +3015,8 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 declared_route_fields = v4_hir_snapshot_key_value(line, "route-fields")
                 declared_extern_return_owners = v4_hir_snapshot_key_value(line, "extern-return-owners")
                 declared_extern_returns = v4_hir_snapshot_key_value(line, "extern-returns")
+                declared_method_owners = v4_hir_snapshot_key_value(line, "method-owners")
+                declared_methods = v4_hir_snapshot_key_value(line, "methods")
                 declared_diagnostics = v4_hir_snapshot_key_value(line, "diagnostics")
                 if format != v4_hir_snapshot_format {
                     malformed += 1
@@ -3011,6 +3048,10 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 extern_return_owners += 1
             } else if kind == "hir-extern-return" {
                 extern_returns += 1
+            } else if kind == "hir-method-owner" {
+                method_owners += 1
+            } else if kind == "hir-method" {
+                methods += 1
             } else if kind == "hir-task-param-owner" {
                 task_param_owners += 1
             } else if kind == "hir-task-param" {
@@ -3045,6 +3086,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     if malformed == 0 and not v4_hir_snapshot_const_annotation_slots_are_valid(records, files, items, const_annotations) { malformed += 1 }
     if malformed == 0 and not v4_hir_snapshot_route_slots_are_valid(records, files, items, route_owners, route_cases, route_fields) { malformed += 1 }
     if malformed == 0 and not v4_hir_snapshot_extern_return_slots_are_valid(records, files, items, extern_return_owners, extern_returns) { malformed += 1 }
+    if malformed == 0 and not v4_hir_snapshot_method_slots_are_valid(records, files, items, method_owners, methods) { malformed += 1 }
     if malformed == 0 {
         pilot word_ticket = v4_hir_word_snapshot_build(records)
         if word_ticket < 0 { malformed += 1 } else { v4_hir_word_snapshot_release(word_ticket) }
@@ -3080,6 +3122,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     if declared_shape_owners != word_from_int(shape_owners) or declared_shape_fields != word_from_int(shape_fields) { import_ok = 0 }
     if declared_route_owners != word_from_int(route_owners) or declared_route_cases != word_from_int(route_cases) or declared_route_fields != word_from_int(route_fields) { import_ok = 0 }
     if declared_extern_return_owners != word_from_int(extern_return_owners) or declared_extern_returns != word_from_int(extern_returns) { import_ok = 0 }
+    if declared_method_owners != word_from_int(method_owners) or declared_methods != word_from_int(methods) { import_ok = 0 }
     pilot out = "hir-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
     out = out + " format=" + format
@@ -3100,6 +3143,10 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     out = out + " declared-extern-return-owners=" + declared_extern_return_owners
     out = out + " extern-returns=" + word_from_int(extern_returns)
     out = out + " declared-extern-returns=" + declared_extern_returns
+    out = out + " method-owners=" + word_from_int(method_owners)
+    out = out + " declared-method-owners=" + declared_method_owners
+    out = out + " methods=" + word_from_int(methods)
+    out = out + " declared-methods=" + declared_methods
     out = out + " diagnostics=" + word_from_int(diagnostics)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " headers=" + word_from_int(saw_header)
@@ -3239,7 +3286,7 @@ task v4_hir_begin_snapshot_restore() -> void {
 }
 
 -- Restore is synchronous. Reserve the peak additional handle requirement
--- before touching live slots: forty-two per new high-water file plus four
+-- before touching live slots: forty-four per new high-water file plus four
 -- finalizer scratch arrays. Reused files free all children before replacing
 -- them. The line index remains held throughout preflight and restoration.
 task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
@@ -3252,7 +3299,7 @@ task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
     }
     pilot fresh = files - array_len(v4_hir_files)
     if fresh < 0 { fresh = 0 }
-    give back v4_hir_lookup_handles_available(fresh * 42 + 4)
+    give back v4_hir_lookup_handles_available(fresh * 44 + 4)
 }
 
 task v4_hir_lookup_handles_available(needed: int) -> bool {
@@ -3299,6 +3346,8 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     pilot original_file_len = v4_hir_file_len
     pilot original_extern_return_owner_values = v4_hir_extern_return_owner_values
     pilot original_extern_return_values = v4_hir_extern_return_values
+    pilot original_method_owner_values = v4_hir_method_owner_values
+    pilot original_method_values = v4_hir_method_values
     pilot original_route_owner_values = v4_hir_route_owner_values
     pilot original_route_case_values = v4_hir_route_case_values
     pilot original_route_field_values = v4_hir_route_field_values
@@ -3352,6 +3401,8 @@ task v4_hir_snapshot_restore(payload: word) -> word {
         if admitted_cold {
             array_release(v4_hir_extern_return_owner_values)
             array_release(v4_hir_extern_return_values)
+            array_release(v4_hir_method_owner_values)
+            array_release(v4_hir_method_values)
             array_release(v4_hir_route_owner_values)
             array_release(v4_hir_route_case_values)
             array_release(v4_hir_route_field_values)
@@ -3397,6 +3448,8 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             array_release(v4_hir_diags)
             v4_hir_extern_return_owner_values = original_extern_return_owner_values
             v4_hir_extern_return_values = original_extern_return_values
+            v4_hir_method_owner_values = original_method_owner_values
+            v4_hir_method_values = original_method_values
             v4_hir_route_owner_values = original_route_owner_values
             v4_hir_route_case_values = original_route_case_values
             v4_hir_route_field_values = original_route_field_values
@@ -3465,7 +3518,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             pilot kind = v4_hir_snapshot_field_raw(line, 0)
             if kind == "hir" {
                 restored_files += v4_hir_snapshot_restore_file_line(line)
-            } else if kind != "hir-word-owner" and kind != "hir-word-literal" and kind != "hir-word-piece" and kind != "hir-word-path-part" and kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-task-param-owner" and kind != "hir-task-param" and kind != "hir-const-annotation" and kind != "hir-shape-owner" and kind != "hir-shape-field" and kind != "hir-route-owner" and kind != "hir-route-case" and kind != "hir-route-field" and kind != "hir-extern-return-owner" and kind != "hir-extern-return" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
+            } else if kind != "hir-word-owner" and kind != "hir-word-literal" and kind != "hir-word-piece" and kind != "hir-word-path-part" and kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-task-param-owner" and kind != "hir-task-param" and kind != "hir-const-annotation" and kind != "hir-shape-owner" and kind != "hir-shape-field" and kind != "hir-route-owner" and kind != "hir-route-case" and kind != "hir-route-field" and kind != "hir-extern-return-owner" and kind != "hir-extern-return" and kind != "hir-method-owner" and kind != "hir-method" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
@@ -3498,6 +3551,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     v4_hir_restore_shape_records(records)
     v4_hir_restore_route_records(records)
     v4_hir_restore_extern_return_records(records)
+    v4_hir_restore_method_records(records)
     v4_hir_word_snapshot_restore_plans(word_ticket)
     v4_hir_word_snapshot_release(word_ticket)
     array_release(records)
@@ -5955,6 +6009,519 @@ task v4_hir_restore_extern_return_records(records: int) -> void {
             pilot column = 0
             repeat until column >= 4 {
                 array_set(v4_hir_extern_return_values_handle(hir_id), (start + ordinal) * 4 + column, v4_hir_snapshot_field(line, column + 4))
+                column += 1
+            }
+        }
+        idx += 1
+    }
+}
+
+-- Impl and doctrine methods (architecture lane A1). HIR enumerates the
+-- `task` members of an impl or doctrine body and records, per method, its
+-- name, its segment (from `task` to the start of the token after the member,
+-- so TY maps it back to the exact token range it used to scan for), and its
+-- return declaration. TY reads these facts instead of walking the body.
+pilot v4_hir_method_return_explicit = "explicit"
+pilot v4_hir_method_return_arrow = "arrow"
+pilot v4_hir_method_return_implicit = "implicit-block"
+
+task v4_hir_method_owner_values_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_method_owner_values, hir_id))
+}
+
+task v4_hir_method_values_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_method_values, hir_id))
+}
+
+task v4_hir_item_owns_methods(hir_id: int, item_id: int) -> bool {
+    pilot kind = v4_hir_item_kind(hir_id, item_id)
+    give back kind == v4_hir_impl or kind == v4_hir_doctrine
+}
+
+task v4_hir_method_count(hir_id: int, item_id: int) -> int {
+    if hir_id < 0 or hir_id >= v4_hir_file_len or item_id < 0 or item_id >= v4_hir_item_count(hir_id) { give back 0 }
+    -- Non-owner slots are padding with count 0; no counted kind read is needed.
+    pilot owners = v4_hir_method_owner_values_handle(hir_id)
+    if item_id * 2 + 1 >= array_len(owners) { give back 0 }
+    give back word_to_int(array_get(owners, item_id * 2 + 1))
+}
+
+task v4_hir_method_value(hir_id: int, item_id: int, method_id: int, column: int) -> word {
+    if method_id < 0 or method_id >= v4_hir_method_count(hir_id, item_id) or column < 0 or column >= 5 {
+        if column == 1 or column == 4 { give back V4_NO_SPAN }
+        give back ""
+    }
+    pilot start = word_to_int(array_get(v4_hir_method_owner_values_handle(hir_id), item_id * 2))
+    give back array_get(v4_hir_method_values_handle(hir_id), (start + method_id) * 5 + column)
+}
+
+task v4_hir_method_name(hir_id: int, item_id: int, method_id: int) -> word {
+    give back v4_hir_method_value(hir_id, item_id, method_id, 0)
+}
+
+task v4_hir_method_segment_span(hir_id: int, item_id: int, method_id: int) -> word {
+    give back v4_hir_method_value(hir_id, item_id, method_id, 1)
+}
+
+task v4_hir_method_return_form(hir_id: int, item_id: int, method_id: int) -> word {
+    give back v4_hir_method_value(hir_id, item_id, method_id, 2)
+}
+
+task v4_hir_method_return_type(hir_id: int, item_id: int, method_id: int) -> word {
+    give back v4_hir_method_value(hir_id, item_id, method_id, 3)
+}
+
+task v4_hir_method_return_span(hir_id: int, item_id: int, method_id: int) -> word {
+    give back v4_hir_method_value(hir_id, item_id, method_id, 4)
+}
+
+task v4_hir_method_prepare_owner(hir_id: int, item_id: int, count: int) -> void {
+    pilot owners = v4_hir_method_owner_values_handle(hir_id)
+    pilot values = v4_hir_method_values_handle(hir_id)
+    repeat until array_len(owners) >= (item_id + 1) * 2 {
+        array_push(owners, "-1")
+        array_push(owners, "0")
+    }
+    array_set(owners, item_id * 2, word_from_int(array_len(values) / 5))
+    array_set(owners, item_id * 2 + 1, word_from_int(count))
+    pilot ordinal = 0
+    repeat until ordinal >= count {
+        array_push(values, "")
+        array_push(values, V4_NO_SPAN)
+        array_push(values, v4_hir_method_return_implicit)
+        array_push(values, "")
+        array_push(values, V4_NO_SPAN)
+        ordinal += 1
+    }
+}
+
+-- Token helpers below mirror the TY scanners they replace one for one, so
+-- every method keeps the token range TY computed before.
+task v4_hir_method_skip_trivia(stream_id: int, token_id: int) -> int {
+    give back v4_hir_skip_trivia(stream_id, token_id, v4_lex_token_count(stream_id))
+}
+
+task v4_hir_method_find_token_value(stream_id: int, start_token: int, end_token: int, wanted: word) -> int {
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            if v4_lex_token_syntax_value(stream_id, idx) == wanted {
+                give back idx
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_method_matching_brace(stream_id: int, open_token: int, end_token: int) -> int {
+    pilot idx = open_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
+            if val == "{" {
+                depth += 1
+            } else if val == "}" {
+                depth -= 1
+                if depth == 0 {
+                    give back idx
+                }
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_method_skip_member(stream_id: int, start_token: int, end_limit: int) -> int {
+    pilot idx = start_token
+    pilot depth = 0
+    pilot saw_body = false
+    pilot count = end_limit
+    if count > v4_lex_token_count(stream_id) {
+        count = v4_lex_token_count(stream_id)
+    }
+    repeat until idx >= count {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_eof {
+            give back idx
+        }
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
+        if tok_type == v4_tok_trivia and v4_lex_token_value(stream_id, idx) == "\n" and not saw_body and depth == 0 {
+            give back idx + 1
+        }
+        if tok_type != v4_tok_trivia {
+            if val == "{" {
+                depth += 1
+                saw_body = true
+            } else if val == "}" {
+                if depth > 0 {
+                    depth -= 1
+                }
+                if saw_body and depth == 0 {
+                    give back idx + 1
+                }
+            } else if val == "done" {
+                if saw_body and depth == 0 {
+                    give back idx + 1
+                }
+            } else if val == "=>" {
+                saw_body = true
+            }
+        }
+        idx += 1
+    }
+    give back idx
+}
+
+task v4_hir_method_top_level_token(stream_id: int, start_token: int, end_token: int, wanted: word) -> int {
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
+            if depth == 0 and val == wanted {
+                give back idx
+            }
+            depth = v4_hir_task_param_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_method_return_type_end(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot idx = start_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if v4_lex_token_value(stream_id, idx) == "\n" and depth == 0 {
+                give back idx
+            }
+        } else {
+            if depth == 0 and (val == "{" or val == "=>") {
+                give back idx
+            }
+            if val == "(" or val == "[" or val == "<" {
+                depth += 1
+            } else if val == ")" or val == "]" or val == ">" {
+                if depth > 0 {
+                    depth -= 1
+                }
+            }
+        }
+        idx += 1
+    }
+    give back end_token
+}
+
+task v4_hir_lower_method(hir_id: int, item_id: int, stream: int, start: int, end: int) -> void {
+    pilot values = v4_hir_method_values_handle(hir_id)
+    pilot name_token = v4_hir_method_skip_trivia(stream, start + 1)
+    pilot name = ""
+    if name_token < v4_lex_token_count(stream) { name = v4_lex_token_value(stream, name_token) }
+    pilot start_span = v4_lex_token_span(stream, start)
+    pilot end_offset = v4_span_end(v4_lex_token_span(stream, end - 1))
+    if end < v4_lex_token_count(stream) { end_offset = v4_span_start(v4_lex_token_span(stream, end)) }
+    pilot segment = v4_span_new(v4_span_file(start_span), v4_span_start(start_span), end_offset)
+    pilot form = v4_hir_method_return_implicit
+    pilot type_text = ""
+    pilot type_span = V4_NO_SPAN
+    pilot return_arrow = v4_hir_method_top_level_token(stream, start, end, "->")
+    if return_arrow >= 0 {
+        pilot type_start = v4_hir_method_skip_trivia(stream, return_arrow + 1)
+        pilot type_end = v4_hir_method_return_type_end(stream, type_start, end)
+        type_text = v4_hir_shape_type_text(stream, type_start, type_end)
+        if type_text != "" and type_start < type_end { type_span = v4_hir_span_from_tokens(stream, type_start, type_end) }
+    }
+    if type_text != "" {
+        form = v4_hir_method_return_explicit
+    } else if v4_hir_method_find_token_value(stream, start, end, "=>") >= 0 {
+        form = v4_hir_method_return_arrow
+    }
+    array_push(values, name)
+    array_push(values, segment)
+    array_push(values, form)
+    array_push(values, type_text)
+    array_push(values, type_span)
+    pilot owners = v4_hir_method_owner_values_handle(hir_id)
+    array_set(owners, item_id * 2 + 1, word_from_int(v4_hir_method_count(hir_id, item_id) + 1))
+}
+
+task v4_hir_lower_methods(hir_id: int, item_id: int) -> void {
+    if not v4_hir_item_owns_methods(hir_id, item_id) { give back }
+    pilot stream = v4_hir_item_stream_id(hir_id)
+    if stream < 0 { give back }
+    pilot item_span = v4_hir_item_span(hir_id, item_id)
+    pilot item_start = v4_hir_first_token_at_or_after(stream, v4_span_start(item_span))
+    pilot item_end = v4_hir_first_token_at_or_after(stream, v4_span_end(item_span))
+    if item_end <= item_start { item_end = v4_lex_token_count(stream) }
+    pilot open = v4_hir_method_find_token_value(stream, item_start, item_end, "{")
+    if open < 0 { give back }
+    pilot close = v4_hir_method_matching_brace(stream, open, item_end)
+    if close <= open { give back }
+    pilot idx = open + 1
+    repeat until idx >= close {
+        idx = v4_hir_method_skip_trivia(stream, idx)
+        if idx < close {
+            if v4_lex_token_syntax_value(stream, idx) == "task" {
+                pilot member_end = v4_hir_method_skip_member(stream, idx, close)
+                v4_hir_lower_method(hir_id, item_id, stream, idx, member_end)
+                if member_end <= idx { idx += 1 } else { idx = member_end }
+            } else {
+                idx += 1
+            }
+        }
+    }
+}
+
+task v4_hir_method_owner_total() -> int {
+    pilot total = 0
+    pilot hir = 0
+    repeat until hir >= v4_hir_file_count() {
+        pilot item = 0
+        repeat until item >= v4_hir_item_count(hir) {
+            if v4_hir_item_owns_methods(hir, item) { total += 1 }
+            item += 1
+        }
+        hir += 1
+    }
+    give back total
+}
+
+task v4_hir_method_total() -> int {
+    pilot total = 0
+    pilot hir = 0
+    repeat until hir >= v4_hir_file_count() {
+        total += array_len(v4_hir_method_values_handle(hir)) / 5
+        hir += 1
+    }
+    give back total
+}
+
+task v4_hir_snapshot_method_owner_line(hir: int, item: int) -> word {
+    give back "hir-method-owner|" + word_from_int(hir) + "|" + word_from_int(item) + "|" + word_from_int(v4_hir_method_count(hir, item))
+}
+
+task v4_hir_snapshot_method_line(hir: int, item: int, method: int) -> word {
+    pilot out = "hir-method|" + word_from_int(hir) + "|" + word_from_int(item) + "|" + word_from_int(method)
+    pilot column = 0
+    repeat until column >= 5 {
+        out = out + "|" + v4_hir_snapshot_escape(v4_hir_method_value(hir, item, method, column))
+        column += 1
+    }
+    give back out
+}
+
+task v4_hir_snapshot_append_methods(parts: int, hir: int, item: int) -> void {
+    array_push(parts, "\n")
+    array_push(parts, v4_hir_snapshot_method_owner_line(hir, item))
+    pilot method = 0
+    repeat until method >= v4_hir_method_count(hir, item) {
+        array_push(parts, "\n")
+        array_push(parts, v4_hir_snapshot_method_line(hir, item, method))
+        method += 1
+    }
+}
+
+task v4_hir_snapshot_method_record_is_valid(line: word) -> bool {
+    pilot kind = v4_hir_snapshot_field_raw(line, 0)
+    if v4_hir_snapshot_field_count(line) != v4_hir_snapshot_record_expected_fields(kind) { give back false }
+    pilot idx = 1
+    repeat until idx > 3 {
+        if not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, idx)) { give back false }
+        idx += 1
+    }
+    if kind == "hir-method-owner" { give back true }
+    pilot segment = v4_hir_snapshot_field(line, 5)
+    pilot form = v4_hir_snapshot_field_raw(line, 6)
+    pilot type_text = v4_hir_snapshot_field(line, 7)
+    pilot type_span = v4_hir_snapshot_field(line, 8)
+    if not v4_hir_snapshot_span_is_canonical_nonempty(segment) { give back false }
+    if form != v4_hir_method_return_explicit and form != v4_hir_method_return_arrow and form != v4_hir_method_return_implicit { give back false }
+    pilot no_span = V4_NO_SPAN
+    pilot explicit: bool = form == v4_hir_method_return_explicit
+    pilot has_type: bool = type_text != ""
+    if explicit != has_type { give back false }
+    if has_type and (type_span == no_span or not v4_hir_snapshot_span_is_contained(type_span, segment)) { give back false }
+    if not has_type and type_span != no_span { give back false }
+    give back true
+}
+
+task v4_hir_snapshot_method_slots_are_valid(records: int, files: int, items: int, owners: int, methods: int) -> bool {
+    -- No impls or doctrines means no new scratch on existing scaling workloads.
+    if owners == 0 and methods == 0 {
+        pilot idx = 0
+        repeat until idx >= array_len(records) {
+            pilot line: word = array_get(records, idx)
+            if line.starts_with("hir-item|") and (v4_hir_snapshot_field_matches(line, 3, v4_hir_impl) or v4_hir_snapshot_field_matches(line, 3, v4_hir_doctrine)) { give back false }
+            idx += 1
+        }
+        give back true
+    }
+    -- File rows: source id, item count, item offset.
+    -- Item rows: original item line, declared method count (-1 means no owner), method offset.
+    pilot file_rows = array_new()
+    pilot item_rows = array_new()
+    pilot method_spans = array_new()
+    pilot valid: bool = file_rows >= 0 and item_rows >= 0 and method_spans >= 0
+    pilot idx = 0
+    repeat until idx >= files * 3 or not valid {
+        array_push(file_rows, "0")
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= items or not valid {
+        array_push(item_rows, "")
+        array_push(item_rows, "-1")
+        array_push(item_rows, "0")
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= methods or not valid {
+        array_push(method_spans, "")
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= array_len(records) or not valid {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir|") {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            pilot count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), items + 1)
+            if owner < 0 or count < 0 { valid = false } else {
+                array_set(file_rows, owner * 3, v4_hir_snapshot_field_raw(line, 2))
+                array_set(file_rows, owner * 3 + 1, word_from_int(count))
+            }
+        }
+        idx += 1
+    }
+    pilot total = 0
+    idx = 0
+    repeat until idx >= files or not valid {
+        pilot count = word_to_int(array_get(file_rows, idx * 3 + 1))
+        if count > items - total { valid = false } else {
+            array_set(file_rows, idx * 3 + 2, word_from_int(total))
+            total += count
+        }
+        idx += 1
+    }
+    if total != items { valid = false }
+    idx = 0
+    repeat until idx >= array_len(records) or not valid {
+        pilot line: word = array_get(records, idx)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if kind == "hir-item" or kind == "hir-method-owner" {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            if owner < 0 { valid = false } else {
+                pilot item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(file_rows, owner * 3 + 1)))
+                if item < 0 { valid = false } else {
+                    pilot slot = (word_to_int(array_get(file_rows, owner * 3 + 2)) + item) * 3
+                    if kind == "hir-item" {
+                        array_set(item_rows, slot, line)
+                    } else {
+                        pilot count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 3), methods + 1)
+                        pilot previous: word = array_get(item_rows, slot + 1)
+                        if count < 0 or previous != "-1" { valid = false } else {
+                            array_set(item_rows, slot + 1, word_from_int(count))
+                        }
+                    }
+                }
+            }
+        }
+        idx += 1
+    }
+    total = 0
+    pilot owner_total = 0
+    idx = 0
+    repeat until idx >= items or not valid {
+        pilot line: word = array_get(item_rows, idx * 3)
+        pilot count = word_to_int(array_get(item_rows, idx * 3 + 1))
+        pilot item_kind = v4_hir_snapshot_field(line, 3)
+        pilot is_owner: bool = item_kind == v4_hir_impl or item_kind == v4_hir_doctrine
+        if is_owner != (count >= 0) { valid = false }
+        if is_owner {
+            pilot owner = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+            pilot parent = v4_hir_snapshot_field(line, 6)
+            pilot source_file: word = array_get(file_rows, owner * 3)
+            if not v4_hir_snapshot_span_is_canonical_nonempty(parent) or v4_span_file(parent) != source_file { valid = false }
+            array_set(item_rows, idx * 3, parent)
+            owner_total += 1
+            if count > methods - total { valid = false } else {
+                array_set(item_rows, idx * 3 + 2, word_from_int(total))
+                total += count
+            }
+        }
+        idx += 1
+    }
+    if total != methods or owner_total != owners { valid = false }
+    idx = 0
+    repeat until idx >= array_len(records) or not valid {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-method|") {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            if owner < 0 { valid = false } else {
+                pilot item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(file_rows, owner * 3 + 1)))
+                if item < 0 { valid = false } else {
+                    pilot slot = (word_to_int(array_get(file_rows, owner * 3 + 2)) + item) * 3
+                    pilot ordinal = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 3), word_to_int(array_get(item_rows, slot + 1)))
+                    if ordinal < 0 { valid = false } else {
+                        pilot target = word_to_int(array_get(item_rows, slot + 2)) + ordinal
+                        pilot previous: word = array_get(method_spans, target)
+                        pilot segment = v4_hir_snapshot_field(line, 5)
+                        pilot parent_span: word = array_get(item_rows, slot)
+                        if previous != "" or not v4_hir_snapshot_span_is_contained(segment, parent_span) { valid = false } else {
+                            array_set(method_spans, target, segment)
+                        }
+                    }
+                }
+            }
+        }
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= items or not valid {
+        pilot count = word_to_int(array_get(item_rows, idx * 3 + 1))
+        pilot offset = word_to_int(array_get(item_rows, idx * 3 + 2))
+        pilot ordinal = 0
+        pilot last_end = 0 - 1
+        repeat until ordinal >= count or not valid {
+            pilot span: word = array_get(method_spans, offset + ordinal)
+            if span == "" or v4_span_start(span) < last_end { valid = false }
+            last_end = v4_span_end(span)
+            ordinal += 1
+        }
+        idx += 1
+    }
+    array_release(file_rows)
+    array_release(item_rows)
+    array_release(method_spans)
+    give back valid
+}
+
+task v4_hir_restore_method_records(records: int) -> void {
+    -- Owners reserve disjoint packed ranges first; methods may arrive in any order.
+    pilot idx = 0
+    repeat until idx >= array_len(records) {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-method-owner|") {
+            v4_hir_method_prepare_owner(word_to_int(v4_hir_snapshot_field_raw(line, 1)), word_to_int(v4_hir_snapshot_field_raw(line, 2)), word_to_int(v4_hir_snapshot_field_raw(line, 3)))
+        }
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= array_len(records) {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-method|") {
+            pilot hir_id = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+            pilot item = word_to_int(v4_hir_snapshot_field_raw(line, 2))
+            pilot ordinal = word_to_int(v4_hir_snapshot_field_raw(line, 3))
+            pilot start = word_to_int(array_get(v4_hir_method_owner_values_handle(hir_id), item * 2))
+            pilot column = 0
+            repeat until column >= 5 {
+                array_set(v4_hir_method_values_handle(hir_id), (start + ordinal) * 5 + column, v4_hir_snapshot_field(line, column + 4))
                 column += 1
             }
         }

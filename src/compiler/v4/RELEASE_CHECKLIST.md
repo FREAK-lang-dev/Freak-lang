@@ -387,7 +387,7 @@ counts were 219 and 126):
 | Crate | Token reads | Identity and revision checks | Allowlist in the gate |
 |---|---|---|---|
 | `freak_mir_build` | 280 | 1 | yes, exact and shrinking |
-| `freak_ty` | 139 (154 before the extern ABI and attribute row) | 7 calls, all inside the source identity shim | yes, exact and shrinking |
+| `freak_ty` | 132 (154 before the extern ABI and attribute row, 139 before the impl and doctrine return rows) | 7 calls, all inside the source identity shim | yes, exact and shrinking |
 | Total | 419 | 8 | |
 
 The most-used helpers:
@@ -418,8 +418,8 @@ normalized facts in HIR, snapshot and restore them, expose accessors, make
 the consumer use them, add a guard, remove one allowlist entry.
 
 - [x] **S** Add an exact, shrinking allowlist for `freak_ty`, like the one MIR Build has (`TY_TRANSITIONAL_DIRECT_DEPENDENCIES` in `check_v4.py`; adverse controls in `tests/v4_review_guards/test_architecture_lane_guards.py`)
-- [ ] **M** Impl return declarations as HIR facts
-- [ ] **M** Doctrine return declarations as HIR facts
+- [x] **M** Impl return declarations as HIR facts. HIR lowers the `task` members of every impl and doctrine body into method facts (name, segment span, return form, declared return type and span; `v4_hir_method_*`), snapshotted as `hir-method-owner`/`hir-method` records (format `freak-hir-snapshot-v13`). TY's impl method count, bounds, name and return read them, and its method-bounds cache no longer walks the body. Only arrow shorthand still infers a return from the expression after `=>` (`v4_ty_hir_method_arrow_return_fallback`). `check_v4.py` rejects a TY method reader that walks member tokens or rebuilds a declared type.
+- [x] **M** Doctrine return declarations as HIR facts. Same method facts as impls: TY's doctrine method count, bounds, name, return type and return span read HIR. Both method rows left the task-return token fallback allowlist in `check_v4.py`.
 - [ ] **M** Non-ordinary parameter signatures as HIR facts
 - [x] **M** Extern-member attributes and ABI options as HIR facts (TY reads their token ranges directly). HIR answers whether an ABI option value and a member attribute argument are string literals, and gives the attribute span (`v4_hir_extern_abi_option_value_is_string`, `v4_hir_extern_member_attribute_arg_is_string`, `v4_hir_extern_member_attribute_span`); the parser owns the token walk. TY lost four parser helpers and five token-walking tasks. Like the neighbouring extern attribute name and argument, these are read through expansion and are not in the HIR snapshot; storing all extern ABI and attribute facts there is part of "Remaining token-facing type families in TY"
 - [ ] **M** Method type arguments
