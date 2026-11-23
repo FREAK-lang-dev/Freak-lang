@@ -3827,6 +3827,8 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     v4_mir_reject_method_type_args(mir_id, stream_id, expr_span, receiver_ty, method_name, ".", method_token, open_token)
     pilot list_builtin = v4_mir_try_lower_list_method(mir_id, body_id, stream_id, first, dot_token, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
     if list_builtin >= 0 { give back list_builtin }
+    pilot map_builtin = v4_mir_try_lower_map_method(mir_id, body_id, stream_id, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
+    if map_builtin >= 0 { give back map_builtin }
     pilot word_builtin = v4_mir_try_lower_word_instance_intrinsic(mir_id, body_id, stream_id, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
     if word_builtin >= 0 { give back word_builtin }
     pilot shared_builtin = v4_mir_try_lower_builtin_shared_instance_method(mir_id, body_id, stream_id, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
@@ -7192,6 +7194,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back typed_list_rvalue
     }
 
+    pilot typed_map_rvalue = v4_mir_try_lower_expected_map_literal(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
+    if typed_map_rvalue >= 0 {
+        give back typed_map_rvalue
+    }
+
     pilot tuple_rvalue = v4_mir_try_lower_tuple_literal(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
     if tuple_rvalue >= 0 {
         give back tuple_rvalue
@@ -7601,6 +7608,13 @@ task v4_mir_check_root_const_place_mutation(mir_id: int, body_id: int, place_id:
 -- fixed-array elements. A type that only indexes through an Index or
 -- IndexMut impl gives back a value from a call, so it is not a place.
 task v4_mir_lower_index_place(mir_id: int, body_id: int, stream_id: int, base_place: int, open_index: int, last: int, place_text: word, place_span: word) -> int {
+    -- A native map key lowers against the key type and a word key is lent
+    -- (v4_mir_lower_map_key), so `m[name]` never moves `name`.
+    if v4_mir_hash_collection_kind(mir_id, v4_mir_map_receiver_type(mir_id, v4_mir_place_ty(mir_id, body_id, base_place))) == "Map" {
+        pilot map_ty = v4_mir_map_receiver_type(mir_id, v4_mir_place_ty(mir_id, body_id, base_place))
+        pilot key_rvalue = v4_mir_lower_map_key(mir_id, body_id, stream_id, open_index + 1, last, map_ty, true, place_span)
+        give back v4_mir_add_place(mir_id, body_id, v4_mir_place_index, place_text, base_place, "", key_rvalue, place_span, v4_mir_hash_collection_value_type(mir_id, map_ty))
+    }
     pilot index_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, open_index + 1, last)
     -- Index operands are not wired through MIR control flow yet: a `?` there
     -- would never propagate and an `and`/`or` would evaluate eagerly (#274).
@@ -11164,6 +11178,9 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
             if v4_mir_index_overload_ref(mir_id, v4_mir_place_ty(mir_id, body_id, index_base), "IndexMut", "index_mut") != "" {
                 give back v4_mir_lower_index_mut_store(mir_id, body_id, block_id, stream_id, index_base, stmt_start, eq_token, stmt_end, op_text, stmt_span)
             }
+            if op_text == "=" and v4_mir_hash_collection_kind(mir_id, v4_mir_map_receiver_type(mir_id, v4_mir_place_ty(mir_id, body_id, index_base))) == "Map" {
+                give back v4_mir_lower_map_index_store(mir_id, body_id, block_id, stream_id, index_base, stmt_start, eq_token, stmt_end, stmt_span)
+            }
             pilot lhs_first = v4_mir_skip_trivia(stream_id, stmt_start)
             pilot lhs_last = v4_mir_last_nontrivia_before(stream_id, eq_token)
             place_id = v4_mir_lower_index_place(mir_id, body_id, stream_id, index_base, v4_mir_find_open_index_token(stream_id, lhs_first, lhs_last), lhs_last, v4_mir_expr_text(stream_id, lhs_first, lhs_last + 1), v4_mir_span_from_tokens(stream_id, stmt_start, eq_token))
@@ -12165,6 +12182,203 @@ task v4_mir_try_lower_list_method(mir_id: int, body_id: int, stream_id: int, fir
     give back v4_mir_add_list_intrinsic(mir_id, body_id, "push", args, text, span, v4_ty_void)
 }
 
+-- Native maps and sets (tier 3): `m.set(k, v)`, `m.get(k)`, `m.remove(k)`,
+-- `m.length()` / `m.length`, `s.add(v)`, `s.contains(v)`, `s.remove(v)` and
+-- `s.length()` are closed builtin calls over a loan of the collection
+-- (v4_mir_rvalue_is_builtin_map). `m[k]` is the checked Index place and
+-- `m[k] = v` is `m.set(k, v)`. Other collection methods stay unknown by name.
+task v4_mir_map_receiver_type(mir_id: int, receiver_ty: word) -> word {
+    pilot collection_ty = receiver_ty
+    if v4_ty_is_lend_type(collection_ty) { collection_ty = v4_ty_lend_target_type(collection_ty) }
+    if not v4_ty_is_known(collection_ty) or v4_mir_hash_collection_kind(mir_id, collection_ty) == "" { give back "" }
+    give back v4_ty_canonical_type(v4_mir_ty_id(mir_id), collection_ty)
+}
+
+-- The loan a map or set method takes: a `lend` (or `lend mut`) of the
+-- receiver place, or the receiver itself when it already is a loan.
+task v4_mir_map_receiver_loan(mir_id: int, body_id: int, receiver: int, mutable: bool, method: word, span: word) -> int {
+    pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver)
+    pilot collection_ty = v4_mir_map_receiver_type(mir_id, receiver_ty)
+    pilot family = "map"
+    if v4_mir_hash_collection_kind(mir_id, collection_ty) == "Set" { family = "set" }
+    if v4_ty_is_lend_type(receiver_ty) {
+        if mutable and v4_ty_lend_mode(receiver_ty) != v4_ty_param_mode_lend_mut {
+            v4_mir_add_type_error(mir_id, span, family + " " + method + " needs a lend mut " + family, receiver_ty + " is a shared loan; " + method + " changes the " + family)
+        }
+        pilot receiver_kind = v4_mir_rvalue_kind(mir_id, body_id, receiver)
+        if receiver_kind != v4_mir_rvalue_lend and receiver_kind != v4_mir_rvalue_lend_mut and not (receiver_kind == v4_mir_rvalue_use_local and v4_mir_local_reference_is_exact(mir_id, body_id, receiver)) {
+            v4_mir_add_type_error(mir_id, span, family + " method receiver loan must be a local or a lend of a place", "store the " + receiver_ty + " in a pilot before calling ." + method)
+        }
+        give back receiver
+    }
+    if not v4_mir_lend_source_is_place(mir_id, body_id, receiver) {
+        v4_mir_add_type_error(mir_id, span, family + " method receiver must be a place", "store the " + family + " in a pilot before calling ." + method)
+        give back receiver
+    }
+    pilot kind = v4_mir_rvalue_lend
+    pilot mode = v4_ty_param_mode_lend
+    if mutable {
+        kind = v4_mir_rvalue_lend_mut
+        mode = v4_ty_param_mode_lend_mut
+        if v4_mir_rvalue_kind(mir_id, body_id, receiver) == v4_mir_rvalue_use_place {
+            v4_mir_check_root_const_place_mutation(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, receiver))
+        }
+    }
+    give back v4_mir_add_rvalue(mir_id, body_id, kind, mode + " " + v4_mir_rvalue_text(mir_id, body_id, receiver), mode, receiver, 0 - 1, span, v4_ty_lend_type(collection_ty, mode))
+}
+
+task v4_mir_add_map_intrinsic(mir_id: int, body_id: int, family: word, kind: word, args: word, text: word, span: word, result_ty: word) -> int {
+    pilot identity = v4_mir_map_intrinsic_identity(family, kind)
+    pilot call = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, text, identity, 0 - 1, 0 - 1, span, result_ty)
+    v4_mir_build_set_call_args(mir_id, body_id, call, args)
+    v4_mir_set_rvalue_builtin_method(mir_id, body_id, call, identity)
+    give back call
+}
+
+-- A map key or set element, lowered against the collection's key type. A
+-- lookup lends a word key (`lend word`); a stored key moves in.
+task v4_mir_lower_map_key(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, collection_ty: word, lookup: bool, span: word) -> int {
+    pilot key_ty = v4_mir_hash_collection_key_type(mir_id, collection_ty)
+    pilot key = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, start_token, end_token, key_ty)
+    if v4_mir_rvalue_needs_control_flow(mir_id, body_id, key) {
+        v4_mir_add_type_error(mir_id, span, "control flow inside a map key is not yet supported", "evaluate the key into a pilot first, like pilot k = f()? or pilot k = pick(a and b)")
+    }
+    pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, key)
+    if v4_ty_is_known(actual_ty) and v4_ty_is_known(key_ty) and not v4_ty_types_compatible(key_ty, actual_ty) {
+        v4_mir_add_type_error(mir_id, span, "map key type mismatch", collection_ty + " wants key " + key_ty + " but got " + actual_ty)
+    }
+    if lookup and key_ty == v4_ty_word and actual_ty == v4_ty_word { give back v4_mir_word_borrow_argument(mir_id, body_id, key, span) }
+    give back key
+}
+
+task v4_mir_lower_map_value(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, collection_ty: word, span: word) -> int {
+    pilot value_ty = v4_mir_hash_collection_value_type(mir_id, collection_ty)
+    pilot value = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, start_token, end_token, value_ty)
+    if v4_mir_rvalue_needs_control_flow(mir_id, body_id, value) {
+        v4_mir_add_type_error(mir_id, span, "control flow inside a map value is not yet supported", "evaluate the value into a pilot first, then store it")
+    }
+    pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value)
+    if v4_ty_is_known(actual_ty) and v4_ty_is_known(value_ty) and not v4_ty_types_compatible(value_ty, actual_ty) {
+        v4_mir_add_type_mismatch_error(mir_id, span, "indexed write type mismatch", "element of " + collection_ty + " expects " + value_ty + " but got " + actual_ty, collection_ty + " value", value_ty, actual_ty)
+    }
+    give back value
+}
+
+task v4_mir_map_method_arity(kind: word) -> int {
+    if kind == "set" { give back 2 }
+    if kind == "length" { give back 0 }
+    if kind == "get" or kind == "remove" or kind == "add" or kind == "contains" { give back 1 }
+    give back 0 - 1
+}
+
+task v4_mir_try_lower_map_method(mir_id: int, body_id: int, stream_id: int, receiver: int, receiver_ty: word, method: word, open_token: int, close_token: int, span: word, text: word) -> int {
+    pilot collection_ty = v4_mir_map_receiver_type(mir_id, receiver_ty)
+    if collection_ty == "" { give back 0 - 1 }
+    pilot family = "map"
+    if v4_mir_hash_collection_kind(mir_id, collection_ty) == "Set" { family = "set" }
+    if v4_mir_map_intrinsic_identity(family, method) == "" or method == "new" { give back 0 - 1 }
+    pilot actual = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    pilot wanted = v4_mir_map_method_arity(method)
+    if actual != wanted {
+        v4_mir_add_type_error(mir_id, span, family + " method argument count mismatch", collection_ty + "." + method + " expects " + word_from_int(wanted) + " arguments, got " + word_from_int(actual))
+        v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, close_token)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, text, "", 0 - 1, 0 - 1, span, v4_ty_unknown)
+    }
+    pilot mutable: bool = method == "set" or method == "remove" or method == "add"
+    pilot loan = v4_mir_map_receiver_loan(mir_id, body_id, receiver, mutable, method, span)
+    pilot args = v4_mir_call_args_payload_append("", loan)
+    if method == "length" { give back v4_mir_add_map_intrinsic(mir_id, body_id, family, method, args, text, span, v4_ty_int) }
+    pilot arg_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+    pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
+    if v4_mir_call_arg_label(stream_id, arg_start, arg_end) != "" { v4_mir_add_type_error(mir_id, span, family + " method named arguments are not yet supported", "use positional arguments for ." + method) }
+    pilot key_start = v4_mir_call_arg_value_start(stream_id, arg_start, arg_end)
+    pilot stored: bool = method == "set" or method == "add"
+    pilot key = v4_mir_lower_map_key(mir_id, body_id, stream_id, key_start, arg_end, collection_ty, not stored, span)
+    args = v4_mir_call_args_payload_append(args, key)
+    if method == "set" {
+        pilot value_arg = v4_mir_skip_trivia(stream_id, arg_end + 1)
+        pilot value_end = v4_mir_call_arg_end(stream_id, value_arg, close_token)
+        if v4_mir_call_arg_label(stream_id, value_arg, value_end) != "" { v4_mir_add_type_error(mir_id, span, "map method named arguments are not yet supported", "use positional arguments for .set") }
+        pilot value = v4_mir_lower_map_value(mir_id, body_id, stream_id, v4_mir_call_arg_value_start(stream_id, value_arg, value_end), value_end, collection_ty, span)
+        args = v4_mir_call_args_payload_append(args, value)
+        give back v4_mir_add_map_intrinsic(mir_id, body_id, family, method, args, text, span, v4_ty_void)
+    }
+    if method == "add" { give back v4_mir_add_map_intrinsic(mir_id, body_id, family, method, args, text, span, v4_ty_void) }
+    if method == "get" { give back v4_mir_add_map_intrinsic(mir_id, body_id, family, method, args, text, span, v4_ty_canonical_type(v4_mir_ty_id(mir_id), "maybe<" + v4_mir_hash_collection_value_type(mir_id, collection_ty) + ">")) }
+    give back v4_mir_add_map_intrinsic(mir_id, body_id, family, method, args, text, span, v4_ty_bool)
+}
+
+-- `m[k] = v` on a map is `m.set(k, v)`: the key and value evaluate in
+-- source order and the entry is inserted or replaced. Compound and
+-- projected stores (`m[k] += 1`, `m[k].x = 2`) stay checked Index places.
+task v4_mir_lower_map_index_store(mir_id: int, body_id: int, block_id: int, stream_id: int, index_base: int, stmt_start: int, eq_token: int, stmt_end: int, stmt_span: word) -> int {
+    pilot lhs_first = v4_mir_skip_trivia(stream_id, stmt_start)
+    pilot lhs_last = v4_mir_last_nontrivia_before(stream_id, eq_token)
+    pilot open_index = v4_mir_find_open_index_token(stream_id, lhs_first, lhs_last)
+    pilot receiver = v4_mir_place_read_rvalue(mir_id, body_id, index_base, v4_mir_place_span(mir_id, body_id, index_base))
+    pilot collection_ty = v4_mir_map_receiver_type(mir_id, v4_mir_rvalue_ty(mir_id, body_id, receiver))
+    pilot text = v4_mir_expr_text(stream_id, stmt_start, stmt_end)
+    pilot loan = v4_mir_map_receiver_loan(mir_id, body_id, receiver, true, "set", stmt_span)
+    pilot key = v4_mir_lower_map_key(mir_id, body_id, stream_id, open_index + 1, lhs_last, collection_ty, false, v4_mir_span_from_tokens(stream_id, stmt_start, eq_token))
+    pilot value = v4_mir_lower_map_value(mir_id, body_id, stream_id, eq_token + 1, stmt_end, collection_ty, stmt_span)
+    pilot args = v4_mir_call_args_payload_append("", loan)
+    args = v4_mir_call_args_payload_append(args, key)
+    args = v4_mir_call_args_payload_append(args, value)
+    pilot call = v4_mir_add_map_intrinsic(mir_id, body_id, "map", "set", args, text, stmt_span, v4_ty_void)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_expr, "", text, stmt_span, 0 - 1, call)
+    give back block_id
+}
+
+-- `Map::new()` / `Set::new()` and `{}` take their type from a typed
+-- destination; a map literal there lowers each key and value against it.
+task v4_mir_try_lower_expected_map_literal(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
+    if not v4_ty_is_known(expected_ty) or v4_ty_is_lend_type(expected_ty) { give back 0 - 1 }
+    pilot collection_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), expected_ty)
+    pilot family = v4_mir_hash_collection_kind(mir_id, collection_ty)
+    if family == "" { give back 0 - 1 }
+    if not v4_mir_expected_type_is_concrete(mir_id, body_id, collection_ty, true) { give back 0 - 1 }
+    pilot text = v4_mir_expr_text(stream_id, first, last + 1)
+    pilot head = v4_lex_token_syntax_value(stream_id, first)
+    if head == family {
+        pilot scope = v4_mir_skip_trivia(stream_id, first + 1)
+        pilot name = v4_mir_skip_trivia(stream_id, scope + 1)
+        pilot open_paren = v4_mir_skip_trivia(stream_id, name + 1)
+        if v4_lex_token_syntax_value(stream_id, scope) != "::" or v4_lex_token_syntax_value(stream_id, name) != "new" or v4_lex_token_syntax_value(stream_id, open_paren) != "(" or v4_mir_skip_trivia(stream_id, open_paren + 1) != last or v4_lex_token_syntax_value(stream_id, last) != ")" { give back 0 - 1 }
+        pilot lower_family = "map"
+        if family == "Set" { lower_family = "set" }
+        give back v4_mir_add_map_intrinsic(mir_id, body_id, lower_family, "new", "", text, expr_span, collection_ty)
+    }
+    if family != "Map" or head != "{" or v4_lex_token_syntax_value(stream_id, last) != "}" { give back 0 - 1 }
+    if v4_mir_find_matching_brace(stream_id, first, last + 1) != last { give back 0 - 1 }
+    pilot children_handle = array_new()
+    pilot pair_start = v4_mir_skip_trivia(stream_id, first + 1)
+    pilot pair_idx = 0
+    pilot aggregate_lend_reported = false
+    repeat until pair_start >= last {
+        pilot pair_end = v4_mir_list_element_end(stream_id, pair_start, last)
+        pilot colon_token = v4_mir_find_top_level_token(stream_id, pair_start, pair_end, ":")
+        pair_idx += 1
+        if colon_token < 0 {
+            v4_mir_add_type_error(mir_id, expr_span, "malformed map entry", "expected key: value inside map literal")
+        } else {
+            pilot key = v4_mir_lower_map_key(mir_id, body_id, stream_id, pair_start, colon_token, collection_ty, false, expr_span)
+            pilot value = v4_mir_lower_map_value(mir_id, body_id, stream_id, colon_token + 1, pair_end, collection_ty, expr_span)
+            array_push(children_handle, word_from_int(key))
+            array_push(children_handle, word_from_int(value))
+            if not aggregate_lend_reported {
+                aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a map", "map entry " + word_from_int(pair_idx) + " key", key)
+            }
+            if not aggregate_lend_reported {
+                aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a map", "map entry " + word_from_int(pair_idx) + " value", value)
+            }
+        }
+        pair_start = v4_mir_skip_trivia(stream_id, pair_end + 1)
+    }
+    pilot typed_map = v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_map, text, "Map", expr_span, collection_ty, children_handle)
+    array_release(children_handle)
+    give back typed_map
+}
+
 task v4_mir_try_lower_word_property(mir_id: int, body_id: int, stream_id: int, first: int, last: int, span: word) -> int {
     pilot name = v4_lex_token_syntax_value(stream_id, last)
     if name != "length" and name != "bytes" { give back 0 - 1 }
@@ -12174,6 +12388,13 @@ task v4_mir_try_lower_word_property(mir_id: int, body_id: int, stream_id: int, f
     if name == "length" and v4_mir_list_receiver_type(mir_id, v4_mir_rvalue_ty(mir_id, body_id, receiver)) != "" {
         pilot list_loan = v4_mir_list_receiver_loan(mir_id, body_id, receiver, false, "length", span)
         give back v4_mir_add_list_intrinsic(mir_id, body_id, "length", v4_mir_call_args_payload_append("", list_loan), v4_mir_expr_text(stream_id, first, last + 1), span, v4_ty_int)
+    }
+    pilot map_ty = v4_mir_map_receiver_type(mir_id, v4_mir_rvalue_ty(mir_id, body_id, receiver))
+    if name == "length" and map_ty != "" {
+        pilot map_family = "map"
+        if v4_mir_hash_collection_kind(mir_id, map_ty) == "Set" { map_family = "set" }
+        pilot map_loan = v4_mir_map_receiver_loan(mir_id, body_id, receiver, false, "length", span)
+        give back v4_mir_add_map_intrinsic(mir_id, body_id, map_family, "length", v4_mir_call_args_payload_append("", map_loan), v4_mir_expr_text(stream_id, first, last + 1), span, v4_ty_int)
     }
     if v4_mir_rvalue_ty(mir_id, body_id, receiver) != v4_ty_word { give back 0 - 1 }
     pilot loan = v4_mir_word_borrow_argument(mir_id, body_id, receiver, span)
