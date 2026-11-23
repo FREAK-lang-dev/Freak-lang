@@ -17699,7 +17699,7 @@ NATIVE_GENERICS_SYMBOLS = (
     '@"best<Named>"', '@"best_ufcs<Point>"', '@"fresh<Point>"', '@"fresh<int>"', '@"bumped<Point>"', '@"bumped<int>"', '@"Box<word>::make"', '@"Box<word>::put"', '@"Box<int>::size"',
     '@"Acc<word>::add"', '@"has_of<int>"', '@"none_of<int>"', '@"Grid<int>::index"', '@"Grid<int>::index_mut"',
     '@"Box<int>::twin"', '@"ignore<maybe<int>>"', '@"pass<int>"', '@"consume<int>"', '@"read_opt<int>"', '@"ignore<int>"', '@"discard<never>"',
-    '@"Box<*mut never>::tally_never"',
+    '@"Box<*mutnever>::tally_never"',
 )
 NATIVE_GENERICS_LAYOUTS = (
     '%"freak.shape.Box<int>"', '%"freak.shape.Box<word>"', '%"freak.shape.Box<Box<int>>"',
