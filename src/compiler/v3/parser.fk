@@ -1237,22 +1237,26 @@ task ffi_take_c_type(context: word, is_return: bool) -> word {
     }
     pilot name = ffi_take_path_ident(context)
     if name == "" { give back "" }
-    if name == "int" or name == "c_longlong" or name == "isize" or name == "c_isize" or name == "c_ssize" or name == "i64" { give back "i64|int" }
-    if name == "uint" or name == "c_ulonglong" or name == "usize" or name == "c_size" or name == "u64" { give back "u64|int" }
-    if name == "c_int" or name == "i32" { give back "i32|int" }
-    if name == "c_uint" or name == "u32" { give back "u32|int" }
-    if name == "c_short" or name == "i16" { give back "i16|int" }
-    if name == "c_ushort" or name == "u16" { give back "u16|int" }
-    if name == "c_schar" or name == "i8" { give back "i8|int" }
-    if name == "tiny" or name == "c_uchar" or name == "u8" { give back "u8|int" }
+    -- Only the bible 16.1 std::ffi aliases cross the boundary, so the same
+    -- declarations compile under V4: int, num and bool promise no C width.
+    if name == "isize" or name == "c_isize" { give back "i64|int" }
+    if name == "usize" or name == "c_size" { give back "u64|int" }
+    if name == "c_int" { give back "i32|int" }
+    if name == "c_uint" { give back "u32|int" }
+    if name == "c_short" { give back "i16|int" }
+    if name == "c_ushort" { give back "u16|int" }
+    if name == "c_uchar" { give back "u8|int" }
     if name == "c_char" { give back "char|int" }
     if name == "c_long" { give back "long|int" }
     if name == "c_ulong" { give back "ulong|int" }
-    if name == "char" { give back "u32|int" }
-    if name == "bool" or name == "c_bool" { give back "bool|bool" }
-    if name == "num" or name == "float" or name == "c_double" or name == "f64" { give back "f64|num" }
-    if name == "float32" or name == "c_float" or name == "f32" { give back "f32|num" }
+    if name == "c_bool" { give back "bool|bool" }
+    if name == "c_double" { give back "f64|num" }
+    if name == "c_float" { give back "f32|num" }
     if is_return and (name == "void" or name == "c_void") { give back "void|void" }
+    if name == "int" or name == "uint" or name == "tiny" or name == "bool" or name == "num" or name == "float" or name == "float32" or name == "char" {
+        diag_error("type '" + name + "' is a FREAK type, not a C type, in " + context, "use a std::ffi alias: c_int, c_uint, c_long, c_short, c_char, c_uchar, c_bool, c_double, c_float, usize or isize")
+        give back ""
+    }
     if name == "word" {
         diag_error("word is not FFI-safe in " + context, "a FREAK word is not a char*; take *const c_char and pass ffi::cstring(text) (use std::ffi)")
         give back ""
@@ -1261,7 +1265,7 @@ task ffi_take_c_type(context: word, is_return: bool) -> word {
         diag_error("c_void is only valid behind a pointer or as a return type in " + context, "write *mut c_void for an opaque handle")
         give back ""
     }
-    diag_error("type '" + name + "' is not FFI-safe in " + context, "use a std::ffi C type (c_int, c_long, c_double, usize, ...), int, uint, tiny, num, float32, bool or a raw pointer *T")
+    diag_error("type '" + name + "' is not FFI-safe in " + context, "use a std::ffi alias (c_int, c_long, c_double, usize, ...) or a raw pointer *T")
     give back ""
 }
 

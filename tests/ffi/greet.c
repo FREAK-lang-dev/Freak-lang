@@ -16,7 +16,7 @@ GREET_API int greet_add(int a, int b) { return a + b; }
 GREET_API int greet_negate(int a) { return -a; }
 GREET_API unsigned char greet_wrap(unsigned char x) { return (unsigned char)(x + 1); }
 GREET_API short greet_twice(short x) { return (short)(x * 2); }
-GREET_API long long greet_big(long long a) { return a * 1000000000LL; }
+GREET_API ptrdiff_t greet_big(ptrdiff_t a) { return a * (ptrdiff_t)1000000000; }
 GREET_API double greet_scale(double x, int factor) { return x * factor; }
 GREET_API float greet_halve(float x) { return x / 2.0f; }
 GREET_API _Bool greet_is_even(int x) { return x % 2 == 0; }

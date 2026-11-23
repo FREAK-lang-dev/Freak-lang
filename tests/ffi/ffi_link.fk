@@ -6,7 +6,7 @@ extern [C, link="greet"] {
     task greet_negate(a: c_int) -> c_int
     task greet_wrap(x: c_uchar) -> c_uchar
     task greet_twice(x: c_short) -> c_short
-    task greet_big(a: c_longlong) -> c_longlong
+    task greet_big(a: isize) -> isize
     task greet_scale(x: c_double, factor: c_int) -> c_double
     task greet_halve(x: c_float) -> c_float
     task greet_is_even(x: c_int) -> c_bool
