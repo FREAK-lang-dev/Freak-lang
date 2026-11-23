@@ -65,7 +65,7 @@ compiler architecture or semantics.
   clearly when unsupported rather than silently degrading to packaged O2
   objects.
 - Runtime layout/signature ABI remains `freak-v3-abi-1`. Additive runtime APIs
-  carry the separate monotonic `freak-v3-runtime-api-3` capability marker. A
+  carry the separate monotonic `freak-v3-runtime-api-4` capability marker. A
   compiler requiring a newer capability must reject an older same-ABI payload
   before emission/linking.
 - Standard-library source helpers carry `std/freak_std_api`, currently
