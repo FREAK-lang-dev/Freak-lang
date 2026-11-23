@@ -242,11 +242,11 @@ task hangar_init_anchored(project: int, project_dir: word) -> int {
         pilot existing = fs::read_relative_bytes_limit_ticket(src, "main.fk", 1)
         pilot missing = fs::result_missing(existing)
         fs::result_release(existing)
-        if missing { complete = hangar_init_checked(fs::rename_relative_new_checked(stage, "main.fk", src, "main.fk"), "cannot publish init source without replacement") }
+        if missing { complete = hangar_init_checked(fs::rename_relative_new_workspace_checked(stage, "main.fk", src, "main.fk"), "cannot publish init source without replacement") }
     }
     if complete { modules = hangar_init_directory(project, "hangar_modules") complete = modules != 0 }
     if complete { complete = hangar_init_generation_ready(project, project_dir) }
-    if complete { complete = hangar_init_checked(fs::rename_relative_new_checked(stage, "hangar.toml", project, "hangar.toml"), "cannot publish init manifest without replacement") }
+    if complete { complete = hangar_init_checked(fs::rename_relative_new_workspace_checked(stage, "hangar.toml", project, "hangar.toml"), "cannot publish init manifest without replacement") }
     if src != 0 { fs::result_release(src) }
     if modules != 0 { fs::result_release(modules) }
     pilot cleaned = hangar_init_checked(fs::remove_temp_dir_checked(stage), "owned unpublished init files cleanup")

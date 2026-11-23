@@ -244,7 +244,9 @@ static bool freak_fs_anchor_sync(HANDLE parent) {event("sync",(int)parent);syncs
 MAIN = r'''
 static void unsafe_exit_callback(void) {fputs("UNSAFE_EXIT_CALLBACK\n",stderr);}
 int main(int argc,char **argv) {
-    require(argc>=3,"arguments");scenario=argv[1];target=!strcmp(argv[2],"destination")?20:10;
+    require(argc>=3,"arguments");scenario=argv[1];
+    bool workspace=!strncmp(argv[2],"workspace-",10);
+    target=!strcmp(argv[2]+(workspace?10:0),"destination")?20:10;
     tickets[0].directory=10;tickets[1].directory=20;
     if(fault("query-pending",target) || fault("io-pending",target))require(!atexit(unsafe_exit_callback),"exit callback registration");
     if(argc==5){
@@ -256,14 +258,18 @@ int main(int argc,char **argv) {
     }
     if(argc==4){
         freak_fs_windows_parent_diagnostic diagnostic={NULL,0,-1};
-        bool accepted=freak_fs_windows_parent_private(10,!strcmp(argv[3],"null")?NULL:&diagnostic);
+        bool accepted=!strcmp(argv[3],"workspace") ? freak_fs_windows_parent_policy(10,&diagnostic,true) :
+            freak_fs_windows_parent_private(10,!strcmp(argv[3],"null")?NULL:&diagnostic);
         require(!module_live && !reopened_live && !token_live && !descriptor_live,"all helper native owners released");
         printf("%d|%s|%lu|%d\n%s\n",accepted,diagnostic.phase?diagnostic.phase:"not-examined",(unsigned long)diagnostic.native_error,diagnostic.owner_match,trace);
         return 0;
     }
-    int64_t result=freak_fs_rename_relative_new_checked(1,"module.ll",2,"emitted.ll");
+    int64_t result=workspace ? freak_fs_rename_relative_new_workspace_checked(1,"module.ll",2,"emitted.ll") :
+        freak_fs_rename_relative_new_checked(1,"module.ll",2,"emitted.ll");
     require(!module_live && !reopened_live && !token_live && !descriptor_live,"all publication native owners released");
-    bool accepted=!strcmp(scenario,"success") || !strcmp(scenario,"thread-present") || !strcmp(scenario,"by-id-success") || !strcmp(scenario,"by-id-both-success") || !strcmp(scenario,"by-id-acl-inherit-only");
+    bool accepted=!strcmp(scenario,"success") || !strcmp(scenario,"thread-present") || !strcmp(scenario,"by-id-success") || !strcmp(scenario,"by-id-both-success") || !strcmp(scenario,"by-id-acl-inherit-only") ||
+        (workspace && (!strcmp(scenario,"acl-null") || !strcmp(scenario,"acl-write") || !strcmp(scenario,"acl-unsupported") ||
+            !strcmp(scenario,"by-id-acl-null") || !strcmp(scenario,"by-id-acl-write") || !strcmp(scenario,"by-id-acl-unsupported")));
     require(tickets[result-1].ok==accepted && tickets[result-1].completed==accepted,"unchanged publication outcome");
     require(acquisitions[0]==1 && acquisitions[1]==1,"both parent acquisitions retained");
     if(accepted){require(file_opens==2 && renames==1 && syncs==2 && loads[0]==1 && loads[1]==1,"success publication trace");}
@@ -291,7 +297,7 @@ def models(contents: str) -> str:
     policy_end = contents.index('/* FREAK_WINDOWS_ACL_POLICY_END */')
     helper_begin = contents.index('static FARPROC freak_fs_windows_security_proc(')
     helper_end = contents.index('static int freak_fs_anchor_file_descriptor(', helper_begin)
-    rename_begin = contents.index('int64_t freak_fs_rename_relative_new_checked(')
+    rename_begin = contents.index('static int64_t freak_fs_rename_relative_new_policy(')
     rename_end = contents.index('int64_t freak_fs_set_mode_relative_checked(', rename_begin)
     native_error_begin = contents.index('static void freak_fs_nt_error(LONG status) {')
     native_error_end = contents.index('static bool freak_fs_anchor_sync(', native_error_begin)
@@ -398,6 +404,33 @@ def main() -> int:
         assert with_record.stdout.splitlines()[1:] == without_record.stdout.splitlines()[1:]
         assert with_record.stdout.startswith(b'1|passed|0|1\n') and without_record.stdout.startswith(b'1|not-examined|0|-1\n')
         records.append({'scenario':scenario,'success_API_trace_exact_with_or_without_diagnostic':True,'status':'pass'})
+    # Workspace parents (the user's project folder) need only be owned by the
+    # caller: inherited "Authenticated Users: Modify" on D:\ is accepted, but
+    # a foreign or unknown owner and every native failure are still refused.
+    workspace_helper = {
+        'success': (1,'passed',0,1), 'acl-write': (1,'passed',0,1), 'acl-null': (1,'passed',0,1),
+        'acl-unsupported': (1,'passed',0,1), 'by-id-acl-write': (1,'passed',0,1),
+        'owner-different': (0,'owner-policy',0,0), 'owner-null': (0,'owner-policy',0,-1),
+        'owner-invalid': (0,'owner-policy',0,-1), 'caller-null': (0,'owner-policy',0,-1),
+        'security-info': (0,'security-info',109,-1), 'read-control-reopen': (0,'read-control-reopen',102,-1),
+    }
+    for scenario,(accepted,phase,error,owner) in workspace_helper.items():
+        result = run(scenario+'-workspace-helper',[str(binary),scenario,'source','workspace'])
+        assert result.stdout.startswith(f'{accepted}|{phase}|{error}|{owner}\n'.encode()) and not result.stderr, (scenario,result.stdout)
+        records.append({'scenario':scenario,'workspace_helper':True,'status':'pass'})
+    for scenario in ('acl-write','acl-null','acl-unsupported','by-id-acl-write'):
+        for side in ('source','destination'):
+            result = run(scenario+'-workspace-'+side,[str(binary),scenario,'workspace-'+side])
+            assert result.stdout.startswith(b'1|\n') and not result.stderr, (scenario,side,result.stdout)
+            records.append({'scenario':scenario,'side':'workspace-'+side,'status':'pass'})
+    for scenario,owner_text in (('owner-different','different'),('owner-null','unknown'),('security-info',None)):
+        for side in ('source','destination'):
+            result = run(scenario+'-workspace-'+side,[str(binary),scenario,'workspace-'+side])
+            assert result.stdout.startswith(b'0|file publication requires destination and source parents owned by the current user ') and not result.stderr, result.stdout
+            phase = 'security-info,error=109,owner=unknown' if owner_text is None else f'owner-policy,error=0,owner={owner_text}'
+            assert f'{side}={phase}'.encode() in result.stdout, result.stdout
+            assert len(result.stdout.splitlines()[0][2:]) < 256
+            records.append({'scenario':scenario,'side':'workspace-'+side,'status':'pass'})
     for access in ('wide','zero'):
         result=run('ineligible-access-'+access,[str(binary),'by-id-success','source','direct',access])
         assert result.stdout.startswith(b'read-control-reopen|5\n') and b'attributes:' not in result.stdout and b'open-by-id:' not in result.stdout and not result.stderr
@@ -412,7 +445,7 @@ def main() -> int:
     for label, original, weakened, scenario in (
         ('stale-security-return','"security-info",security_error','"security-info",GetLastError()','security-info'),
         ('stale-logical-size','diagnostic && !sized ? GetLastError() : 0','diagnostic ? GetLastError() : 0','token-size-success-invalid'),
-        ('destination-after-source-reject','private_parents && freak_fs_windows_parent_private(source_parent,&source_diagnostic) &&','private_parents && (freak_fs_windows_parent_private(source_parent,&source_diagnostic),true) &&','read-control-reopen'),
+        ('destination-after-source-reject','private_parents && freak_fs_windows_parent_policy(source_parent,&source_diagnostic,workspace) &&','private_parents && (freak_fs_windows_parent_policy(source_parent,&source_diagnostic,workspace),true) &&','read-control-reopen'),
         ('short-identity-comparison','memcmp(identity.FileId.Identifier,current.FileId.Identifier,sizeof(identity.FileId.Identifier))','memcmp(identity.FileId.Identifier,current.FileId.Identifier,8)','by-id-id-high-mismatch'),
         ('inexact-device-output','io.information != sizeof(device)','io.information < sizeof(device)','by-id-query-long'),
     ):

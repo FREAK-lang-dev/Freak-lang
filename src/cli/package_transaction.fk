@@ -181,7 +181,7 @@ task package_transaction_retain_current(project: int, private: int, history: int
     if not package_transaction_history_budget(private, size, false) { give back false }
     pilot mut retained = fs::temp_dir(package_directory_path(history), ".recovery-")
     if not fs::result_ok(retained) { hangar_graph_fail("cannot create private recovery retention: " + fs::result_error(retained)) fs::result_release(retained) give back false }
-    pilot mut moved = fs::rename_relative_new_checked(project, filename, retained, "current")
+    pilot mut moved = fs::rename_relative_new_workspace_checked(project, filename, retained, "current")
     pilot mut completed = fs::result_completed(moved)
     if not fs::result_ok(moved) { hangar_graph_fail("cannot durably retain published project entry during rollback: " + fs::result_error(moved)) }
     fs::result_release(moved)
@@ -190,7 +190,7 @@ task package_transaction_retain_current(project: int, private: int, history: int
         if hash != expected {
             -- The inode changed after the precheck. Put its actual bytes back
             -- only into an absent name; a newly created destination stays put.
-            package_transaction_checked(fs::rename_relative_new_checked(retained, "current", project, filename), "could not restore a concurrently edited entry; bytes retained in transaction history")
+            package_transaction_checked(fs::rename_relative_new_workspace_checked(retained, "current", project, filename), "could not restore a concurrently edited entry; bytes retained in transaction history")
             hangar_graph_fail("published project entry changed while being parked; concurrent bytes are preserved")
             completed = false
         }
@@ -207,7 +207,7 @@ task package_transaction_restore_entry(project: int, private: int, history: int,
     pilot mut current = package_transaction_hash(project, filename + "", maximum)
     if hangar_graph_error != "" { give back false }
     if parked != "" and parked != before_hash {
-        if current == "" { package_transaction_checked(fs::rename_relative_new_checked(history, original, project, filename), "could not restore concurrently edited original; bytes retained in transaction history") }
+        if current == "" { package_transaction_checked(fs::rename_relative_new_workspace_checked(history, original, project, filename), "could not restore concurrently edited original; bytes retained in transaction history") }
         hangar_graph_fail("parked original changed concurrently; its actual bytes are preserved")
         give back false
     }
@@ -220,7 +220,7 @@ task package_transaction_restore_entry(project: int, private: int, history: int,
         if not retained { give back false }
     }
     if not before_present { give back hangar_graph_error == "" }
-    if parked == before_hash { give back package_transaction_checked(fs::rename_relative_new_checked(history, original, project, filename), "original restoration failed; prior inode remains retained") }
+    if parked == before_hash { give back package_transaction_checked(fs::rename_relative_new_workspace_checked(history, original, project, filename), "original restoration failed; prior inode remains retained") }
     if not retained { hangar_graph_fail("missing current and parked project entries cannot be restored as an unknown deletion") give back false }
     -- A previous recovery may already have restored the original inode. If a
     -- known published image appeared again, restore the verified before image
@@ -232,7 +232,7 @@ task package_transaction_restore_entry(project: int, private: int, history: int,
     pilot mut valid = package_transaction_checked(fs::write_relative_bytes_checked(restoration, "restored", bytes), "before-image staging failed")
     bytes.release()
     if valid and not process::platform_is_windows() { valid = package_transaction_checked(fs::set_mode_relative_checked(restoration, "restored", before_mode), "before-image permission restoration failed") }
-    if valid { valid = package_transaction_checked(fs::rename_relative_new_checked(restoration, "restored", project, filename), "before-image no-replace restoration failed") }
+    if valid { valid = package_transaction_checked(fs::rename_relative_new_workspace_checked(restoration, "restored", project, filename), "before-image no-replace restoration failed") }
     fs::result_release(restoration)
     give back valid and hangar_graph_error == ""
 }
@@ -373,15 +373,15 @@ task package_commit_transaction_impl(project: int, private: int, manifest_file: 
         marker.release()
     }
     if valid and array_get(record, 2) != array_get(record, 5) {
-        valid = package_transaction_checked(fs::rename_relative_new_checked(project, manifest_file, history, "manifest.original"), "original manifest parking failed")
+        valid = package_transaction_checked(fs::rename_relative_new_workspace_checked(project, manifest_file, history, "manifest.original"), "original manifest parking failed")
         if valid and package_transaction_hash(history, "manifest.original", hangar_graph_manifest_limit) != array_get(record, 2) { hangar_graph_fail("original manifest changed after admission; actual inode retained") valid = false }
-        if valid { valid = package_transaction_checked(fs::rename_relative_new_checked(history, "manifest.new", project, manifest_file), "new manifest no-replace publication failed") }
+        if valid { valid = package_transaction_checked(fs::rename_relative_new_workspace_checked(history, "manifest.new", project, manifest_file), "new manifest no-replace publication failed") }
     }
     if valid and lock_present {
-        valid = package_transaction_checked(fs::rename_relative_new_checked(project, "hangar.lock", history, "lock.original"), "original lock parking failed")
+        valid = package_transaction_checked(fs::rename_relative_new_workspace_checked(project, "hangar.lock", history, "lock.original"), "original lock parking failed")
         if valid and package_transaction_hash(history, "lock.original", 67108864) != array_get(record, 3) { hangar_graph_fail("original lock changed after admission; actual inode retained") valid = false }
     }
-    if valid { valid = package_transaction_checked(fs::rename_relative_new_checked(history, "lock.new", project, "hangar.lock"), "new lock no-replace publication failed") }
+    if valid { valid = package_transaction_checked(fs::rename_relative_new_workspace_checked(history, "lock.new", project, "hangar.lock"), "new lock no-replace publication failed") }
     if valid {
         if package_transaction_hash(project, manifest_file, hangar_graph_manifest_limit) != array_get(record, 5) or package_transaction_hash(project, "hangar.lock", 67108864) != array_get(record, 6) {
             hangar_graph_fail("project generation changed before commit acknowledgement; concurrent bytes are preserved")
