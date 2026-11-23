@@ -9558,6 +9558,11 @@ EXECUTABLE_SMOKES = [
             "list-bad-empty-diagnostics=1",
             "list-bad-empty-message=empty list literal needs type context",
             "list-bad-empty-help=write a typed destination like pilot squad: List<int> = []",
+            # `<` after a value compares; generic arguments keep their commas.
+            "list-angles-diagnostics=0",
+            "list-angles-compare-literal-elements=2",
+            "list-angles-compare-pair-elements=2",
+            "list-angles-generic-comma-elements=2",
         ],
     },
     {

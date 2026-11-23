@@ -523,17 +523,19 @@ task v4_mir_wire_control_flow_rvalue_step(mir_id: int, body_id: int, block_id: i
         pilot payload = ""
         pilot arg_id = 0
         pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+        -- One pass finds the last operand with control flow; every operand
+        -- before it is captured so that flow cannot replay or reorder it.
+        pilot last_flow = 0 - 1
+        pilot probe_id = arg_count - 1
+        repeat until probe_id < 0 or last_flow >= 0 {
+            if v4_mir_rvalue_needs_control_flow(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, probe_id)) { last_flow = probe_id }
+            probe_id -= 1
+        }
         repeat until arg_id >= arg_count {
             pilot arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id)
             current_block = v4_mir_wire_control_flow_rvalue_inner(mir_id, body_id, current_block, stmt_span, arg)
             if v4_mir_control_block_is_terminal(mir_id, body_id, current_block) { give back current_block }
-            pilot later_flow: bool = false
-            pilot later = arg_id + 1
-            repeat until later >= arg_count {
-                if v4_mir_rvalue_needs_control_flow(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, later)) { later_flow = true }
-                later += 1
-            }
-            if later_flow { arg = v4_mir_capture_control_flow_value(mir_id, body_id, current_block, stmt_span, arg) }
+            if arg_id < last_flow { arg = v4_mir_capture_control_flow_value(mir_id, body_id, current_block, stmt_span, arg) }
             payload = v4_mir_call_args_payload_append(payload, arg)
             arg_id += 1
         }
@@ -4678,17 +4680,42 @@ task v4_mir_list_type(element_ty: word) -> word {
     give back "List<" + element_ty + ">"
 }
 
+-- A `<` inside a literal element opens generic arguments only after `::`,
+-- a `:` annotation, `->` or `as`, or after `maybe`/`result` or a capitalized
+-- type name that is followed by a type (`Map<int, word>`). Any other `<` is a
+-- comparison, so `[1 < 2, false]` and `[a < b, c > d]` keep two elements.
+task v4_mir_literal_angle_opens_generic(stream_id: int, first: int, idx: int) -> bool {
+    pilot prev = idx - 1
+    repeat until prev < first or v4_lex_token_type(stream_id, prev) != v4_tok_trivia { prev -= 1 }
+    if prev < first { give back false }
+    pilot before = v4_lex_token_syntax_value(stream_id, prev)
+    if before == "::" or before == ":" or before == "->" or before == "as" or before == "maybe" or before == "result" { give back true }
+    if v4_lex_token_type(stream_id, prev) != v4_tok_ident or before == "" { give back false }
+    if not "ABCDEFGHIJKLMNOPQRSTUVWXYZ".contains(before.substring(0, 1)) { give back false }
+    pilot next = v4_mir_skip_trivia(stream_id, idx + 1)
+    pilot next_type = v4_lex_token_type(stream_id, next)
+    pilot after = v4_lex_token_syntax_value(stream_id, next)
+    give back next_type == v4_tok_ident or next_type == v4_tok_keyword or next_type == v4_tok_lifetime or after == "(" or after == "[" or after == "*"
+}
+
 task v4_mir_list_element_end(stream_id: int, start_token: int, close_token: int) -> int {
     pilot depth = 0
+    pilot angles = 0
     pilot idx = start_token
     repeat until idx >= close_token {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
         pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type != v4_tok_trivia {
-            if depth == 0 and val == "," {
+            if depth == 0 and angles == 0 and val == "," {
                 give back idx
             }
-            depth = v4_mir_depth_after_token(depth, val)
+            if val == "<" {
+                if v4_mir_literal_angle_opens_generic(stream_id, start_token, idx) { angles += 1 }
+            } else if val == ">" {
+                if angles > 0 { angles -= 1 }
+            } else {
+                depth = v4_mir_depth_after_token(depth, val)
+            }
         }
         idx += 1
     }

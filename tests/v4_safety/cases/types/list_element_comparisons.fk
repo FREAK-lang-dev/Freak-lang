@@ -1,0 +1,13 @@
+-- `<` and `>` between values are comparisons inside list elements, so each
+-- literal keeps all of its elements.
+-- expect: run
+-- exit: 223
+
+task main() -> int {
+    pilot a = 1
+    pilot b = 2
+    pilot xs: List<bool> = [1 < 2, false]
+    pilot ys: List<bool> = [a < b, b > a]
+    pilot zs = [a < b, a > b, true]
+    give back xs.length() * 100 + ys.length() * 10 + zs.length()
+}
