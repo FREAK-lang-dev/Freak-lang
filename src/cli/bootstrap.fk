@@ -812,7 +812,7 @@ task cli_bootstrap_parent_name(path: word) -> word {
 task cli_bootstrap_program(executable: word, expected_exit: int, expected_stdout: word) -> bool {
     pilot expected = cli_bootstrap_expected_native_stdout(expected_stdout)
     pilot command = process::command_new(executable)
-    pilot status = cli_view_run_command(command, "native corpus run " + cli_bootstrap_parent_name(executable), 10000, 65536, 65536)
+    pilot status = cli_view_run_command_expecting(command, "native corpus run " + cli_bootstrap_parent_name(executable), 10000, 65536, 65536, expected_exit)
     pilot code = process::command_exit_code(command)
     pilot stdout_bytes: ByteBuffer = process::command_stdout_bytes(command)
     pilot output = stdout_bytes.to_word()
