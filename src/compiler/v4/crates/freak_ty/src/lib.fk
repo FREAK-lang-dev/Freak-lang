@@ -2319,7 +2319,11 @@ task v4_ty_native_scalar_sum_kind(ty_id: int, type_text: word) -> word {
 task v4_ty_native_sum_payload_admitted(ty_id: int, type_text: word) -> bool {
     pilot canonical = v4_ty_canonical_type(ty_id, type_text)
     if canonical == v4_ty_int or canonical == v4_ty_uint or canonical == v4_ty_tiny or canonical == v4_ty_num or canonical == v4_ty_float or canonical == v4_ty_float32 or canonical == v4_ty_bool or canonical == v4_ty_char or canonical == v4_ty_word { give back true }
-    if canonical == "" or canonical == v4_ty_unknown or v4_ty_is_generic_instance_type(canonical) { give back false }
+    if canonical == "" or canonical == v4_ty_unknown { give back false }
+    -- Shared<T> handles, BorrowError and get_mut's exclusive view are the
+    -- payloads of upgrade, borrow_mut and get_mut (tier 3 Shared row).
+    if v4_ty_native_sum_shared_payload_admitted(ty_id, canonical) { give back true }
+    if v4_ty_is_generic_instance_type(canonical) { give back false }
     -- An aggregate that holds a word by value has no native drop yet, so it
     -- keeps the general (non-carrier) Sum facts instead of the sealed proof.
     if v4_ty_is_tuple_type(canonical) or v4_ty_is_fixed_array_type(canonical) { give back not v4_ty_native_sum_payload_holds_word(ty_id, canonical, 0) }
@@ -2328,6 +2332,25 @@ task v4_ty_native_sum_payload_admitted(ty_id: int, type_text: word) -> bool {
     pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, canonical)
     if route_sig >= 0 { give back v4_ty_signature_generic_count(ty_id, route_sig) == 0 and not v4_ty_native_sum_payload_holds_word(ty_id, canonical, 0) }
     give back false
+}
+
+-- A prelude Shared<T>, Weak<T> or SharedMut<T> handle (one pointer to the
+-- shared box), the prelude BorrowError token, or a `lend mut T` (the view
+-- Shared::get_mut proves exclusive). User declarations of those names stay
+-- ordinary nominal types.
+task v4_ty_native_sum_shared_payload_admitted(ty_id: int, canonical: word) -> bool {
+    if canonical == "BorrowError" { give back v4_ty_type_signature_id_for_name(ty_id, "BorrowError") < 0 }
+    if v4_ty_is_lend_type(canonical) { give back v4_ty_lend_mode(canonical) == v4_ty_param_mode_lend_mut and v4_ty_is_known(v4_ty_lend_target_type(canonical)) }
+    if not v4_ty_is_generic_instance_type(canonical) or v4_ty_generic_arg_count(canonical) != 1 { give back false }
+    pilot base_name = v4_ty_generic_base_name(canonical)
+    if base_name != "Shared" and base_name != "Weak" and base_name != "SharedMut" { give back false }
+    if v4_ty_type_signature_id_for_name(ty_id, base_name) >= 0 { give back false }
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    if resolve_id >= 0 {
+        pilot expanded = v4_resolve_expand_import_name(resolve_id, base_name)
+        if expanded != "" and expanded != base_name { give back false }
+    }
+    give back v4_ty_is_known(v4_ty_generic_arg(canonical, 0))
 }
 
 -- True when a word lives anywhere inside type_text by value (tuple slots,

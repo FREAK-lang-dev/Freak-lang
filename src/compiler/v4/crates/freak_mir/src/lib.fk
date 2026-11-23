@@ -1456,6 +1456,8 @@ task v4_mir_place_shape_field_slot(mir_id: int, body_id: int, place_id: int) -> 
     pilot base_ty = v4_mir_place_ty(mir_id, body_id, base)
     -- A field of a borrowed place (`lend T`) is the field of its referent.
     if v4_ty_is_lend_type(base_ty) { base_ty = v4_ty_lend_target_type(base_ty) }
+    -- So is a field of a SharedMut<T> guard: the field of the shared payload.
+    if v4_mir_nominal_builtin_shared_base(mir_id, base_ty) == "SharedMut" { base_ty = v4_ty_shared_target_type(v4_ty_canonical_type(v4_mir_ty_id(mir_id), base_ty)) }
     if v4_mir_shape_signature(mir_id, base_ty) < 0 { give back 0 - 1 }
     pilot ty_id = v4_mir_ty_id(mir_id)
     give back v4_ty_shape_field_id_for_name(ty_id, v4_ty_canonical_type(ty_id, base_ty), v4_mir_place_field(mir_id, body_id, place_id))
@@ -3358,6 +3360,13 @@ task v4_mir_nominal_builtin_shared_base(mir_id: int, type_text: word) -> word {
         give back ""
     }
     give back base_name
+}
+
+-- The prelude BorrowError token (the error case of Shared::borrow_mut); a
+-- declared BorrowError is an ordinary nominal type.
+task v4_mir_is_builtin_borrow_error(mir_id: int, type_text: word) -> bool {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    give back v4_ty_canonical_type(ty_id, type_text) == "BorrowError" and v4_ty_type_signature_id_for_name(ty_id, "BorrowError") < 0
 }
 
 task v4_mir_builtin_shared_method_surface_name(builtin_method: word) -> word {
@@ -5760,6 +5769,50 @@ task v4_mir_list_intrinsic_kind(mir: int, body: int, value: int) -> word {
     give back v4_mir_builtin_list_identity_kind(v4_mir_rvalue_builtin_method(mir, body, value))
 }
 
+-- Tier 3 Shared<T> / Weak<T>: the sealed builtin identity of a Shared or
+-- Weak method call (structure checked by v4_mir_rvalue_is_builtin_shared_method)
+-- as its surface name ("new", "clone", "downgrade", "borrow", "borrow_mut",
+-- "get_mut", "upgrade"), or "".
+task v4_mir_shared_intrinsic_kind(mir: int, body: int, value: int) -> word {
+    if value < 0 or value >= v4_mir_body_rvalue_count(mir, body) { give back "" }
+    pilot identity = v4_mir_rvalue_builtin_method(mir, body, value)
+    if identity == "" or not v4_mir_rvalue_is_builtin_shared_method(mir, body, value, identity) { give back "" }
+    give back v4_mir_builtin_shared_method_surface_name(identity)
+}
+
+-- A Shared builtin whose result is a fresh owner that keeps no loan of its
+-- receiver: a clone, a Weak, an upgraded Shared, or a SharedMut guard (the
+-- guard holds its own strong reference and the runtime write state).
+task v4_mir_rvalue_is_shared_fresh_owner(mir: int, body: int, value: int) -> bool {
+    pilot kind = v4_mir_shared_intrinsic_kind(mir, body, value)
+    give back kind == "clone" or kind == "downgrade" or kind == "upgrade" or kind == "borrow_mut"
+}
+
+-- A Shared borrow view binding: a by-value `lend T` local whose one and only
+-- definition is `pilot v = s.borrow()`. The view holds a reader of the box's
+-- runtime borrow state and a strong reference, so Meiya's drop plan owns it
+-- like a guard and its drop ends both. Any other `.borrow()` result is
+-- refused natively by name.
+task v4_mir_local_is_shared_view(mir: int, body: int, local: int) -> bool {
+    if local < 0 or local >= v4_mir_body_local_count(mir, body) or v4_mir_local_mode(mir, body, local) != v4_ty_param_mode_value { give back false }
+    pilot local_ty = v4_mir_local_ty(mir, body, local)
+    if not v4_ty_is_lend_type(local_ty) or v4_ty_lend_mode(local_ty) != v4_ty_param_mode_lend { give back false }
+    if local < v4_mir_body_callable_param_count(mir, body) { give back false }
+    pilot defs = 0
+    pilot view: bool = false
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir, body) {
+        pilot kind = v4_mir_stmt_kind(mir, body, stmt)
+        pilot place = v4_mir_stmt_place(mir, body, stmt)
+        if (kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign) and place >= 0 and v4_mir_place_kind(mir, body, place) == v4_mir_place_local and v4_mir_place_base(mir, body, place) == local {
+            defs += 1
+            view = kind == v4_mir_stmt_local and v4_mir_shared_intrinsic_kind(mir, body, v4_mir_stmt_rvalue(mir, body, stmt)) == "borrow"
+        }
+        stmt += 1
+    }
+    give back defs == 1 and view
+}
+
 -- A native list loop item: LoopItem over a list loan (lhs) and an int index
 -- (rhs) is a fresh owned copy of that element (words are cloned). A LoopItem
 -- without operands is the front end's opaque item of other iterables.
@@ -7810,6 +7863,26 @@ task v4_mir_map_get_row_is_valid(ty: int, values: int, locals: int, value: int) 
     give back v4_mir_snapshot_field(row, 10) == v4_ty_canonical_type(ty, "maybe<" + value_ty + ">")
 }
 
+-- upgrade, borrow_mut and get_mut return carriers: one receiver loan of the
+-- mode the method states, and exactly the carrier type the method gives.
+task v4_mir_sum_row_shared_error(ty: int, values: int, value: int) -> word {
+    pilot row: word = array_get(values, value)
+    pilot identity = v4_mir_snapshot_field(row, 13)
+    if v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" { give back "invalid Shared carrier intrinsic contract" }
+    pilot args = v4_mir_snapshot_field(row, 12)
+    if v4_mir_call_args_payload_count(args) != 1 { give back "invalid Shared carrier intrinsic contract" }
+    pilot child = v4_mir_call_args_payload_at(args, 0)
+    if child < 0 or child >= value { give back "invalid Shared carrier intrinsic receiver" }
+    pilot receiver_kind = v4_mir_rvalue_lend
+    if v4_mir_builtin_shared_method_receiver_mode(identity) == v4_ty_param_mode_lend_mut { receiver_kind = v4_mir_rvalue_lend_mut }
+    pilot child_row: word = array_get(values, child)
+    pilot loan_ty = v4_mir_control_row_type(values, child)
+    if v4_mir_snapshot_field(child_row, 4) != receiver_kind or not v4_ty_is_lend_type(loan_ty) or v4_ty_lend_mode(loan_ty) != v4_mir_builtin_shared_method_receiver_mode(identity) { give back "invalid Shared carrier intrinsic receiver" }
+    pilot owner_ty = v4_ty_canonical_type(ty, v4_ty_lend_target_type(loan_ty))
+    if v4_ty_canonical_type(ty, v4_mir_snapshot_field(row, 10)) != v4_ty_canonical_type(ty, v4_mir_builtin_shared_method_result_type(identity, owner_ty)) { give back "invalid Shared carrier intrinsic result" }
+    give back ""
+}
+
 task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) -> word {
     pilot row: word = array_get(values, value)
     if v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_call { give back "" }
@@ -7833,6 +7906,7 @@ task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) ->
         if not v4_mir_map_get_row_is_valid(ty, values, locals, value) { give back "invalid native map get contract" }
         give back ""
     }
+    if identity == v4_mir_builtin_weak_upgrade or identity == v4_mir_builtin_shared_borrow_mut or identity == v4_mir_builtin_shared_get_mut { give back v4_mir_sum_row_shared_error(ty, values, value) }
     if identity != "" or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" { give back "scalar sum calls require a resolved ordinary static task" }
     -- A generic instance call answers with its substitution applied.
     pilot signature = v4_mir_task_call_signature(ty, v4_mir_snapshot_field(row, 6))
