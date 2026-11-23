@@ -893,6 +893,52 @@ output, exit 0, and a missing-key panic run) and
 `check_v4_native_shapes`, both also audited by
 `tests/v4_owned_word_codegen.py`; 27 named rejections.
 
+### Native Shared and Weak
+
+`Shared<T>`, `Weak<T>` and the `SharedMut<T>` guard are each one `ptr` to a
+counted box, `%"freak.shared.box.T" = type { i64, i64, i64, T }` (strong,
+weak, borrow, payload), with a `; freak.layout` note per payload type that
+the layout oracle checks on all four targets. The counts live in the native
+runtime (`freak_v4_shared_*` in `freakc/runtime/freak_llvm_runtime.c`) and
+are atomic, because bible §7.18 calls `Shared<T>` atomic:
+
+- **Counts.** strong counts `Shared` handles plus live views and guards;
+  weak counts `Weak` handles plus one reference held by all strong ones.
+  `Shared<T>::new(v)` allocates the box with strong 1 and weak 1 and moves
+  `v` in; `clone` adds a strong reference and `downgrade` a weak one. When
+  strong reaches 0 the payload's drop glue runs once in place and the
+  implicit weak reference goes; when weak reaches 0 the box is freed.
+  `upgrade` adds a strong reference only while strong is above 0, so it
+  answers `maybe<Shared<T>>`. Cycles of `Shared` leak by design (§4.4).
+- **Borrow state.** borrow is the number of live readers, or -1 for one
+  writer. `pilot v = s.borrow()` is a `lend T` at the payload: it begins a
+  read (a runtime panic, `Shared value is already mutably borrowed`, exit
+  101, if a guard is live) and holds a strong reference. `borrow_mut()`
+  answers `err` on any live read or write, else a guard; a guard projects
+  to the payload (`g.hp = 1`). `get_mut()` answers a `lend mut T` only when
+  strong and weak are both 1 and nothing is borrowed (no other owner and no
+  `Weak` that could upgrade during the loan, amended in §4.4).
+- **Meiya.** Handles are Move types in the drop plan; a view binding and a
+  guard are owned there too, so their drop ends the read or the write and
+  releases their strong reference. Results of `clone`, `downgrade`,
+  `upgrade` and `borrow_mut` keep no loan on the receiver. `borrow_mut`
+  lends its receiver shared (the runtime guard carries the exclusivity, as
+  in §4.4's example on an immutable binding); `get_mut` lends it `lend mut`.
+  A view's loan is conservative: it stays live to the end of the task, so
+  examples take views in small helper tasks.
+
+Handles cross FREAK calls by value and as `lend` / `lend mut`, and ride in
+`maybe` / `result` carriers (`upgrade`, `or else`, user returns). Refused by
+name: handles inside other types (shape fields, list elements,
+`Shared<Shared<T>>`, generic arguments such as `Box<Shared<int>>`), Shared
+values inside generic instances, `maybe`/`result` payloads in a box, loans
+of a guard, whole reads of a view (read it through its fields), a borrow
+not bound by its own `pilot`, and user declarations of the runtime entry
+points. Program: `examples/shared_native.fk` (exact output, exit 0, and a
+panic run) in `check_v4_native_shapes`, also audited by
+`tests/v4_owned_word_codegen.py`; thirteen named rejections and the
+`shared` area of `tests/v4_safety`.
+
 ### Persisted interpolation checkpoint (W3)
 
 Expanded-AST-to-HIR lowering decodes each word once into a packed plan. Literal
