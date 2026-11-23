@@ -1,0 +1,38 @@
+-- Lists through generic instances (tier 3 monomorphization row): each list
+-- literal lowers against its instance's substituted List<T>, so elements are
+-- checked with the concrete element type; push through lend mut, for each
+-- and length run per element type, and the word list drops its words.
+-- A separate program from generics_native.fk, which declares its own
+-- malloc and free (the list runtime reserves those symbols).
+-- check_v4.check_v4_native_shapes runs it (NATIVE_GENERICS_LISTS_EXPECTED).
+
+task count_of<T>(lend xs: List<T>) -> int { give back xs.length() }
+
+task first_or<T>(lend xs: List<T>, d: T) -> T {
+    for each x in xs { give back x }
+    give back d
+}
+
+task pair_list<T>(x: T, y: T) -> List<T> { give back [x, y] }
+
+task grow<T>(lend mut xs: List<T>, v: T) -> void { xs.push(v) }
+
+shape Tag<T> { v: T, n: int }
+
+impl Tag<T> {
+    -- A list literal in a generic impl method instance.
+    task twice(self) -> List<T> { give back [self.v, self.v] }
+}
+
+task main() -> int {
+    pilot mut nums: List<int> = [1, 2, 3]
+    grow(lend mut nums, 4)
+    pilot letters = pair_list("a", "b")
+    say (count_of(lend nums) + count_of(lend letters)).to_word()
+    say first_or(lend letters, "none")
+    say first_or(lend nums, 0).to_word()
+    pilot t: Tag<word> = Tag { v: "kei", n: 1 }
+    pilot ts = t.twice()
+    say first_or(lend ts, "none")
+    give back count_of(lend ts) + count_of(lend nums)
+}
