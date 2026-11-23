@@ -6087,7 +6087,9 @@ task v4_codegen_llvm_type_names_list(mir_id: int, type_text: word) -> bool {
 
 task v4_codegen_llvm_mir_uses_lists(mir_id: int) -> bool {
     if v4_codegen_llvm_active_owned_mir != mir_id { give back false }
-    pilot body = 0
+    -- Only emitted bodies: an uncalled generic template naming List<T> needs
+    -- no list runtime; each instance is scanned with its concrete types.
+    pilot body = v4_codegen_llvm_next_emitted_body(mir_id, 0)
     repeat until body >= v4_mir_body_count(mir_id) {
         if v4_codegen_llvm_type_names_list(mir_id, v4_mir_body_callable_return_type(mir_id, body)) { give back true }
         pilot local = 0
@@ -6100,7 +6102,7 @@ task v4_codegen_llvm_mir_uses_lists(mir_id: int) -> bool {
             if v4_codegen_llvm_type_names_list(mir_id, v4_mir_rvalue_ty(mir_id, body, value)) { give back true }
             value += 1
         }
-        body += 1
+        body = v4_codegen_llvm_next_emitted_body(mir_id, body + 1)
     }
     give back false
 }
@@ -7067,33 +7069,57 @@ task v4_codegen_llvm_dyn_records(mir_id: int) -> word {
 -- Vtable constants and drop functions, target neutral: `$freak.dyn.layout
 -- T$` and `$freak.dyn.note T$` become the freak_target size and alignment
 -- of T at module assembly (v4_codegen_llvm_dyn_resolve).
+-- Whether an emitted body erases through this vtable. MIR seals vtables in
+-- every body, generic templates included; a vtable only a template erases
+-- through may name template slots, which are never emitted.
+task v4_codegen_llvm_dyn_vtable_is_used(mir_id: int, vtable: int) -> bool {
+    pilot body = v4_codegen_llvm_next_emitted_body(mir_id, 0)
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
+            if v4_mir_dyn_erase_vtable(mir_id, body, value) == vtable { give back true }
+            value += 1
+        }
+        body = v4_codegen_llvm_next_emitted_body(mir_id, body + 1)
+    }
+    give back false
+}
+
 task v4_codegen_llvm_dyn_module_lines(mir_id: int, runtime: word) -> word {
     pilot count = v4_mir_dyn_vtable_count(mir_id)
     if count <= 0 { give back "" }
     pilot parts = v4_codegen_llvm_fragment_new()
     pilot needs_word_drop: bool = false
+    pilot used = ""
     pilot vtable = 0
     repeat until vtable >= count {
-        pilot concrete = v4_mir_dyn_vtable_concrete(mir_id, vtable)
-        pilot llvm_ty = v4_codegen_llvm_type(concrete)
-        pilot drop_symbol = v4_codegen_llvm_dyn_drop_symbol(concrete)
-        -- One drop entry per concrete type: its first vtable defines it.
-        pilot first = 0
-        repeat until first >= vtable or v4_mir_dyn_vtable_concrete(mir_id, first) == concrete { first += 1 }
-        if first == vtable {
-            pilot glue = v4_codegen_llvm_drop_glue_at(mir_id, concrete, "%self", "", "%drop", 0)
-            if glue != "" { needs_word_drop = true }
-            v4_codegen_llvm_fragment_push(parts, "define internal void " + drop_symbol + "(ptr %self) " + "{" + "\nentry:\n" + glue + "  ret void\n" + "}" + "\n")
+        if v4_codegen_llvm_dyn_vtable_is_used(mir_id, vtable) { used = used + "1" } else { used = used + "0" }
+        vtable += 1
+    }
+    vtable = 0
+    repeat until vtable >= count {
+        if used.char_at(vtable) == "1" {
+            pilot concrete = v4_mir_dyn_vtable_concrete(mir_id, vtable)
+            pilot llvm_ty = v4_codegen_llvm_type(concrete)
+            pilot drop_symbol = v4_codegen_llvm_dyn_drop_symbol(concrete)
+            -- One drop entry per concrete type: its first emitted vtable defines it.
+            pilot first = 0
+            repeat until first >= vtable or (used.char_at(first) == "1" and v4_mir_dyn_vtable_concrete(mir_id, first) == concrete) { first += 1 }
+            if first == vtable {
+                pilot glue = v4_codegen_llvm_drop_glue_at(mir_id, concrete, "%self", "", "%drop", 0)
+                if glue != "" { needs_word_drop = true }
+                v4_codegen_llvm_fragment_push(parts, "define internal void " + drop_symbol + "(ptr %self) " + "{" + "\nentry:\n" + glue + "  ret void\n" + "}" + "\n")
+            }
+            pilot symbol = v4_codegen_llvm_dyn_vtable_symbol(mir_id, vtable)
+            v4_codegen_llvm_fragment_push(parts, "; freak.vtable " + symbol + " type=" + llvm_ty + " $freak.dyn.note " + llvm_ty + "$ type_id=" + word_from_int(v4_mir_dyn_vtable_type_id(mir_id, vtable)) + "\n")
+            v4_codegen_llvm_fragment_push(parts, symbol + " = internal constant " + v4_codegen_llvm_dyn_vtable_type(v4_mir_dyn_vtable_doctrine(mir_id, vtable)) + " {" + " i64 " + word_from_int(v4_mir_dyn_vtable_type_id(mir_id, vtable)) + ", $freak.dyn.layout " + llvm_ty + "$, ptr " + drop_symbol + ", ptr null")
+            pilot slot = 0
+            repeat until slot >= v4_mir_dyn_vtable_slot_count(mir_id, vtable) {
+                v4_codegen_llvm_fragment_push(parts, ", ptr " + v4_codegen_llvm_callable_symbol(mir_id, v4_mir_body_name(mir_id, v4_mir_dyn_vtable_slot_body(mir_id, vtable, slot))))
+                slot += 1
+            }
+            v4_codegen_llvm_fragment_push(parts, " " + "}" + "\n")
         }
-        pilot symbol = v4_codegen_llvm_dyn_vtable_symbol(mir_id, vtable)
-        v4_codegen_llvm_fragment_push(parts, "; freak.vtable " + symbol + " type=" + llvm_ty + " $freak.dyn.note " + llvm_ty + "$ type_id=" + word_from_int(v4_mir_dyn_vtable_type_id(mir_id, vtable)) + "\n")
-        v4_codegen_llvm_fragment_push(parts, symbol + " = internal constant " + v4_codegen_llvm_dyn_vtable_type(v4_mir_dyn_vtable_doctrine(mir_id, vtable)) + " {" + " i64 " + word_from_int(v4_mir_dyn_vtable_type_id(mir_id, vtable)) + ", $freak.dyn.layout " + llvm_ty + "$, ptr " + drop_symbol + ", ptr null")
-        pilot slot = 0
-        repeat until slot >= v4_mir_dyn_vtable_slot_count(mir_id, vtable) {
-            v4_codegen_llvm_fragment_push(parts, ", ptr " + v4_codegen_llvm_callable_symbol(mir_id, v4_mir_body_name(mir_id, v4_mir_dyn_vtable_slot_body(mir_id, vtable, slot))))
-            slot += 1
-        }
-        v4_codegen_llvm_fragment_push(parts, " " + "}" + "\n")
         vtable += 1
     }
     pilot out = v4_codegen_llvm_fragment_finish(parts)

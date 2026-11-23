@@ -92,6 +92,18 @@ task hop(lend mut p: dyn Placed) -> int {
 -- no vtable, and is never emitted; each instance erases its concrete type.
 task hop_any<T: Placed>(lend mut x: T) -> int { give back hop(lend mut x) }
 
+-- A template that is never called erases a concrete generic instance: its
+-- vtable would name Crate<T>'s template slots, so it is not emitted.
+shape Crate<T> { v: T, pos: Point }
+impl Placed for Crate<T> {
+    task at(lend self) -> Point { give back Point { x: self.pos.x, y: self.pos.y } }
+    task move_by(lend mut self, d: Point) -> void { self.pos = d }
+}
+task never_hop<T>(x: T) -> int {
+    pilot mut c: Crate<int> = Crate { v: 1, pos: Point { x: 0, y: 0 } }
+    give back hop(lend mut c)
+}
+
 task main() -> int {
     pilot mut squad = Squad { lead: Pilot { name: "Takeru", power: 40 }, wing: Pilot { name: "Meiya", power: 55 } }
     pilot mut hive = Hive { kind: Beta::Soldier, count: 2 }

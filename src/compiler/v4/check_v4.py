@@ -17789,6 +17789,12 @@ NATIVE_GENERICS_REJECTED = (
     ("tier3_generic_list_shape_field", "shape Bag<T> { items: List<T>, n: int }\n"
      "task main() -> int {\n    pilot b: Bag<int> = Bag { items: [1, 2], n: 2 }\n    give back b.n\n}\n",
      "native lists inside other types are not yet supported: List<int>"),
+    # Impls over lifetime-parameter owners are templates with no native
+    # layout for their owner yet; calls on them are refused by name.
+    ("tier3_generic_lifetime_owner", "shape Holder<'a> { n: int }\n"
+     "impl Holder<'a> {\n    task get(lend self) -> int { give back self.n }\n}\n"
+     "task main() -> int {\n    pilot h = Holder<'static> { n: 5 }\n    give back h.get()\n}\n",
+     "native shapes and routes with lifetime parameters are not yet supported: Holder<'static>::get"),
     ("tier3_generic_shared_carrier", "shape Box<T> { value: T }\n"
      "task main() -> int {\n    pilot b: Box<Shared<int>> = Box { value: Shared<int>::new(4) }\n    give back 0\n}\n",
      "native type not yet supported: Shared<int>"),

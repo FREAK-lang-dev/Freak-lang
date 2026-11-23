@@ -126,6 +126,10 @@ task consume<T>(x: T) -> int { give back 1 }
 -- An int-only caller of an instance: its body holds no scalar sum.
 task ignore_int(n: int) -> int { give back ignore(n) }
 
+-- Never called: an uncalled template naming List<T> needs no list runtime,
+-- so this module's own malloc and free do not conflict with it.
+task unused_list<T>(xs: List<T>) -> int { give back 0 }
+
 -- A pointer to never returns normally, so discard<never> is a real instance.
 task discard<T>(p: *mut T) -> int { give back 2 }
 
