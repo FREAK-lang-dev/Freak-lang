@@ -1,0 +1,116 @@
+{
+  "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+  "machine": "x86_64",
+  "clang": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+  "repeats": 5,
+  "rows": [
+    {
+      "case": "length in a loop condition",
+      "source": "runtime_helper_attributes.fk",
+      "arguments": [
+        "0",
+        "300000"
+      ],
+      "note": "text.length() is asked once per inner loop instead of every pass",
+      "output": "766800000",
+      "without_s": [
+        1.855560262999461,
+        1.8944332719993326,
+        1.7827146269992227,
+        1.9136279349995675,
+        1.8095479840003463
+      ],
+      "with_s": [
+        0.019123211999612977,
+        0.023262520000571385,
+        0.02428763100033393,
+        0.03068071100005909,
+        0.019840634000502178
+      ],
+      "median_without_s": 1.855560262999461,
+      "median_with_s": 0.023262520000571385,
+      "speedup": 79.76608995731691
+    },
+    {
+      "case": "three queries per pass",
+      "source": "runtime_helper_attributes.fk",
+      "arguments": [
+        "1",
+        "3000000"
+      ],
+      "note": "starts_with is asked once; ends_with and contains stay, because a helper that may panic must run before the next one is reached",
+      "output": "12000000",
+      "without_s": [
+        1.4451546770005734,
+        1.9235691739995673,
+        1.7990097210004024,
+        1.6311947109998073,
+        1.5916802669999015
+      ],
+      "with_s": [
+        1.0468107309998231,
+        1.1849015809993944,
+        1.009284292999837,
+        1.133259504000307,
+        1.1221126810005444
+      ],
+      "median_without_s": 1.6311947109998073,
+      "median_with_s": 1.1221126810005444,
+      "speedup": 1.4536817367978894
+    },
+    {
+      "case": "control: new word per pass",
+      "source": "runtime_helper_attributes.fk",
+      "arguments": [
+        "2",
+        "1000000"
+      ],
+      "note": "nothing moves: to_lower allocates",
+      "output": "72000000",
+      "without_s": [
+        4.012208130000545,
+        3.876503583000158,
+        4.174453768000603,
+        4.0625010369994925,
+        4.067962519000503
+      ],
+      "with_s": [
+        3.033557349000148,
+        3.1673468009994394,
+        3.1887467269998524,
+        2.9243049809992954,
+        3.0148085479995643
+      ],
+      "median_without_s": 4.0625010369994925,
+      "median_with_s": 3.033557349000148,
+      "speedup": 1.339187155416225
+    },
+    {
+      "case": "tier 1 hot loop",
+      "source": "int_checked_hot_loop.fk",
+      "arguments": [
+        "100000000",
+        "7"
+      ],
+      "note": "nothing moves: no helper in the loop",
+      "output": "1543",
+      "without_s": [
+        0.7254224240004987,
+        0.661194635999891,
+        0.6048365369997555,
+        0.7098264359992754,
+        0.6853331829997842
+      ],
+      "with_s": [
+        0.6247596040002463,
+        0.6127641359998961,
+        0.6227914139999484,
+        0.6361591499999122,
+        0.6036340939999718
+      ],
+      "median_without_s": 0.6853331829997842,
+      "median_with_s": 0.6227914139999484,
+      "speedup": 1.1004216943168086
+    }
+  ]
+}
