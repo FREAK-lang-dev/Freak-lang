@@ -18594,13 +18594,14 @@ NATIVE_DYN_REJECTED = (
      "task main() -> int {\n    pilot b = Box<NoFoo> { v: NoFoo { x: 1 }, n: 7 }\n    give back show(lend b)\n}\n",
      "expected name after impl"),
     # An unbounded generic impl matches its instance in MIR; native dyn
-    # erasure of a generic instance stays fenced.
+    # erasure of a generic instance stays fenced. Box<NoFoo> now has a native
+    # layout (monomorphization), so the fence names the generic instance.
     ("tier3_dyn_generic_impl_instance", "doctrine Widget {\n    task area(lend self) -> int\n}\n"
      "shape Box<T> { v: T, n: int }\nshape NoFoo { x: int }\n"
      "impl Widget for Box<T> {\n    task area(lend self) -> int { give back self.n }\n}\n"
      "task show(lend w: dyn Widget) -> int { give back w.area() }\n"
      "task main() -> int {\n    pilot b = Box<NoFoo> { v: NoFoo { x: 1 }, n: 7 }\n    give back show(lend b)\n}\n",
-     "native dyn erasure supports shapes, routes, tuples, fixed arrays and scalars: Box<NoFoo>"),
+     "native dyn erasure of generic shape and route instances is not yet supported: Box<NoFoo>"),
     # Vtable constants and drop entries are private symbols.
     ("tier3_dyn_reserved_vtable", "extern [C] {\n @link_name(\"freak.vtable.Square.Widget\")\n"
      " task f(a: std::ffi::c_int) -> std::ffi::c_int\n}\ntask main() -> int { give back f(1) }\n",
