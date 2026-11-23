@@ -1,0 +1,16 @@
+-- A capitalized value before `<` is still a comparison when no matching `>`
+-- follows inside the element, so `[MAX < n, true]` keeps two elements.
+-- expect: run
+-- exit: 232
+
+task main() -> int {
+    pilot MAX = 3
+    pilot n = 5
+    pilot xs: List<bool> = [MAX < n, true]
+    pilot ys = [MAX < n + 1, false, MAX < 2]
+    pilot mut hits = 0
+    for each x in xs {
+        if x { hits += 1 }
+    }
+    give back xs.length() * 100 + ys.length() * 10 + hits
+}
