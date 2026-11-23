@@ -378,7 +378,9 @@ task cli_hangar_timed(args_cnt: int, offset: int) -> int {
     view_command_rows = true
     if view_live { cli_view_header("hangar", action, "") }
     pilot status = hangar_dispatch(count)
-    cli_view_finish_line("hangar " + action + " finished", status == 0)
+    -- Plain Hangar output is a tested contract: add the closing time row only
+    -- in the live view or when timings were asked for.
+    if view_live or sw_mode != "off" { cli_view_finish_line("hangar " + action + " finished", status == 0) } else { sw_stop(status == 0) }
     give back status
 }
 
