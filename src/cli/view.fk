@@ -26,6 +26,7 @@ pilot view_step_label = ""
 pilot view_step_lap = -1
 pilot view_activity_label = ""
 pilot view_command_rows = false
+pilot view_header_done = false
 pilot VIEW_UP = "\x1b[1A\r\x1b[2K"
 
 task cli_view_configure() -> void {
@@ -110,6 +111,14 @@ task cli_view_tail(text: word, width: int) -> word {
     pilot ellipsis = "\xe2\x80\xa6"
     if CLI_ASCII_ART { ellipsis = "..." }
     give back ellipsis + text.substring(length - width + ellipsis.length(), width - ellipsis.length())
+}
+
+-- Keep the start of a long label: "registry GET /api/v1/units/ko…".
+task cli_view_fit(text: word, width: int) -> word {
+    if text.length() <= width { give back text }
+    pilot ellipsis = "\xe2\x80\xa6"
+    if CLI_ASCII_ART { give back text.substring(0, width - 3) + "..." }
+    give back text.substring(0, width - 1) + ellipsis
 }
 
 task cli_view_repeat(piece: word, count: int) -> word {
@@ -225,7 +234,7 @@ task cli_view_live_abandon() -> void {
 
 task cli_view_live_text(frame: int, elapsed_ms: int, detail: word, moving: bool) -> word {
     pilot label = view_step_label
-    if label == "" { label = detail }
+    if label == "" { label = cli_view_fit(detail, 40) }
     else if detail != "" { label = label + C_DIM + " \xc2\xb7 " + detail + C_RESET }
     if CLI_ASCII_ART and detail != "" and view_step_label != "" { label = view_step_label + " - " + detail }
     pilot line = "   " + C_G1 + cli_view_spinner(frame) + C_RESET + "  " + cli_view_pad(C_BWHITE + label + C_RESET, 40)
@@ -246,6 +255,7 @@ task cli_view_begin(command: word, subject: word, steps: int) -> void {
     view_step_label = ""
     view_step_lap = -1
     view_activity_label = ""
+    view_header_done = false
 }
 
 task cli_view_title(command: word) -> word {
@@ -261,6 +271,7 @@ task cli_view_header(command: word, subject: word, detail: word) -> void {
     if subject != "" { left = left + C_DIM + "  \xe2\x80\xba  " + C_RESET + C_BWHITE + subject + C_RESET }
     if CLI_ASCII_ART and subject != "" { left = "  " + bolt + " " + cli_view_title(command) + "  " + C_BOLD + command + C_RESET + "  " + C_BWHITE + subject + C_RESET }
     pilot tag = C_DIM + "v" + CLI_VERSION + " " + CLI_CODENAME + C_RESET
+    view_header_done = true
     say ""
     say cli_view_pad(left, 62) + tag
     if detail != "" { say "    " + C_DIM + detail + C_RESET }
@@ -295,6 +306,12 @@ task cli_view_step_end(lap: int, label: word) -> int {
     give back ms
 }
 
+-- A phase that only the live view lists (plain output stays historical).
+task cli_view_quiet_step_end(lap: int, label: word) -> int {
+    if view_live { give back cli_view_step_end(lap, label) }
+    give back sw_end(lap)
+}
+
 -- A phase that failed: close the lap and leave a red row in live mode.
 task cli_view_step_fail(lap: int, label: word) -> int {
     pilot ms = sw_end(lap)
@@ -308,9 +325,9 @@ task cli_view_step_fail(lap: int, label: word) -> int {
 
 -- A progress note like "Compiling native binary...". Plain mode prints it
 -- as before; live mode shows it on the spinner line instead.
-task cli_view_activity(text: word) -> void {
+task cli_view_activity(text: word, live_text: word) -> void {
     if view_live {
-        view_activity_label = text
+        view_activity_label = live_text
         give back
     }
     say "  " + C_DIM + SYM_GEAR + "  " + text + "..." + C_RESET
@@ -361,7 +378,7 @@ task cli_view_run_command(command: int, label: word, timeout_ms: int, stdout_lim
             colour = C_BRED
         }
         view_steps_done += 1
-        cli_view_print_row("   " + colour + mark + C_RESET + "  " + cli_view_pad(label, 40) + " " + cli_view_pad_left(cli_view_ms(ms), 10))
+        cli_view_print_row("   " + colour + mark + C_RESET + "  " + cli_view_pad(cli_view_fit(label, 40), 40) + " " + cli_view_pad_left(cli_view_ms(ms), 10))
     } else if drawn {
         -- Callers print captured output next; never leave a line to rewrite.
         cli_view_live_clear()

@@ -97,10 +97,14 @@ def canonical_blocks(output: bytes) -> list[tuple[bytes, str, int, int]]:
 
 
 def stable_cli_text(output: bytes) -> bytes:
-    """Normalize only existing timing rows and the existing random fail quote."""
+    """Normalize only timing rows, timing totals and the random fail quote."""
     lines = output.splitlines(keepends=True)
     for index, line in enumerate(lines):
         if line.startswith(b"  OK  "):
+            lines[index] = re.sub(rb" \([0-9]+ms\)(\r?\n)$", rb" (<elapsed>ms)\1", line)
+        if line.startswith(b"  Time:   "):
+            lines[index] = re.sub(rb"[0-9]+ms(\r?\n)$", rb"<elapsed>ms\1", line)
+        if b" -- " in line and (line.startswith(b"  OK PASSED") or line.startswith(b"  X FAILED")):
             lines[index] = re.sub(rb" \([0-9]+ms\)(\r?\n)$", rb" (<elapsed>ms)\1", line)
         if index and lines[index - 1].rstrip(b"\r\n") == b"  X BUILD FAILED":
             assert line.startswith(b'  "'), ("unexpected build-failure quote row", line)

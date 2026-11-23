@@ -512,12 +512,19 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
     -- a Windows executable replacement is pending.
     if not cli_build_environment_ready() { give back 1 }
 
+    if view_live {
+        pilot run_backend = "LLVM IR"
+        if target == "c" { run_backend = "C" }
+        cli_view_header("run", src_file, run_backend + "  \xc2\xb7  O" + opt + "  \xc2\xb7  build, verify, then run")
+    }
     pilot binary: word = cli_binary_path(src_file)
     pilot cache_file = binary + ".freak-run-cache"
+    pilot lookup_lap = cli_view_step_begin("Run cache lookup", false)
     pilot fingerprint = cli_run_fingerprint(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
     pilot cache_hit = false
 
     if fingerprint == "" {
+        cli_view_step_fail(lookup_lap, "Run cache lookup")
         cli_run_report_fingerprint_failure()
         give back 1
     }
@@ -526,16 +533,22 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
         pilot expected_record = cli_run_cache_record(fingerprint, binary)
         if expected_record != "" and fs::read(cache_file) == expected_record { cache_hit = true }
     }
+    if cache_hit { cli_view_quiet_step_end(lookup_lap, "Run cache lookup (hit)") } else { cli_view_quiet_step_end(lookup_lap, "Run cache lookup") }
 
+    pilot verify_lap = -1
     if cache_hit {
-        say ""
-        say "  " + C_BGREEN + SYM_CHECK + " FRESH" + C_RESET + C_DIM + "  run cache hit" + C_RESET
+        verify_lap = cli_view_step_begin("Freshness check", false)
+        if not view_live {
+            say ""
+            say "  " + C_BGREEN + SYM_CHECK + " FRESH" + C_RESET + C_DIM + "  run cache hit" + C_RESET
+        }
     } else {
         -- Invalidate first. A rejected rebuild may leave an older binary on
         -- disk, but it must never leave proof that the binary is fresh.
         if fs::exists(cache_file) { fs::delete(cache_file) }
         binary = cli_build_profile(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
         if binary == "" { give back 1 }
+        verify_lap = cli_view_step_begin("Freshness check", false)
 
         pilot confirmed = cli_run_fingerprint(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
         if confirmed == "" or confirmed != fingerprint {
@@ -569,8 +582,10 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
         if fs::exists(cache_file) { fs::delete(cache_file) }
         give back 1
     }
+    cli_view_quiet_step_end(verify_lap, "Freshness check")
 
     if view_live {
+        say ""
         say "  " + C_G5 + SYM_ARROW + C_RESET + " " + C_BOLD + C_G5 + "RUNNING" + C_RESET + "  " + C_BWHITE + binary + C_RESET + C_DIM + "  (output below is the program's own)" + C_RESET
         say "  " + C_DIM + cli_box_line(70) + C_RESET
     } else {
@@ -597,7 +612,7 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
         say "  " + C_DIM + cli_box_line(70) + C_RESET
         pilot verdict = C_BGREEN + SYM_CHECK + " DONE" + C_RESET
         if run_code != 0 { verdict = C_BYELLOW + SYM_BOLT + " EXIT " + word_from_int(run_code) + C_RESET }
-        say "  " + verdict + C_DIM + "   run " + C_RESET + cli_view_ms(run_elapsed) + C_DIM + "  \xc2\xb7  build " + C_RESET + cli_view_ms(build_ms) + C_DIM + "  \xc2\xb7  total " + C_RESET + C_BOLD + cli_view_ms(total_ms) + C_RESET
+        say "  " + verdict + C_DIM + "   program " + C_RESET + cli_view_ms(run_elapsed) + C_DIM + "  \xc2\xb7  build + checks " + C_RESET + cli_view_ms(build_ms) + C_DIM + "  \xc2\xb7  total " + C_RESET + C_BOLD + cli_view_ms(total_ms) + C_RESET
     } else if run_code != 0 {
         pilot rc_str: word = word_from_int(run_code)
         say "  " + C_BYELLOW + SYM_BOLT + " EXIT" + C_RESET + C_DIM + " code " + rc_str + " (" + word_from_int(run_elapsed) + "ms)" + C_RESET

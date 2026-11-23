@@ -232,7 +232,7 @@ task sw_report_table() -> void {
     if sw_subject != "" { title = title + " " + sw_subject }
     say ""
     say "  " + C_BOLD + C_G4 + "TIMINGS" + C_RESET + "  " + C_BWHITE + title + C_RESET + C_DIM + "  (" + sw_outcome + ", monotonic clock)" + C_RESET
-    say "  " + C_DIM + cli_box_line(64) + C_RESET
+    say "  " + C_DIM + cli_box_line(74) + C_RESET
     pilot i = 0
     repeat until i >= sw_count {
         pilot depth = word_to_int(array_get(sw_depths, i))
@@ -250,16 +250,16 @@ task sw_report_table() -> void {
         repeat until d >= depth { indent = indent + "  " d += 1 }
         pilot name = indent + array_get(sw_names, i)
         if repeats > 1 { name = name + " x" + word_from_int(repeats) }
-        if name.length() > 30 { name = name.substring(0, 29) + "~" }
+        if name.length() > 40 { name = name.substring(0, 39) + "~" }
         pilot ms = sw_pad_left(sw_ms_text(sw_ns_to_ms(length)), 11)
         pilot pct = sw_pad_left(sw_percent_text(length, total), 6)
         pilot colour = C_BCYAN
         if depth > 0 { colour = C_CYAN }
-        say "  " + sw_pad_right(name, 30) + " " + C_BWHITE + ms + C_RESET + "  " + C_DIM + pct + C_RESET + "  " + colour + sw_bar(length, total, 14) + C_RESET
+        say "  " + sw_pad_right(name, 40) + " " + C_BWHITE + ms + C_RESET + "  " + C_DIM + pct + C_RESET + "  " + colour + sw_bar(length, total, 14) + C_RESET
         i += 1
     }
-    say "  " + C_DIM + cli_box_line(64) + C_RESET
-    say "  " + sw_pad_right("Total", 30) + " " + C_BOLD + C_BGREEN + sw_pad_left(sw_ms_text(sw_ns_to_ms(total)), 11) + C_RESET
+    say "  " + C_DIM + cli_box_line(74) + C_RESET
+    say "  " + sw_pad_right("Total", 40) + " " + C_BOLD + C_BGREEN + sw_pad_left(sw_ms_text(sw_ns_to_ms(total)), 11) + C_RESET
     say ""
 }
 

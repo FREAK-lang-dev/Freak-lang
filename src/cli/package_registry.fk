@@ -196,7 +196,11 @@ task hangar_registry_request(method: word, url: word, scratch_dir: word, body_fi
     }
     process::command_arg(command, "--")
     process::command_arg(command, url)
-    pilot status = cli_view_run_command(command, "registry request", 330000, 4096, 65536)
+    pilot request_label = "registry " + method
+    pilot api_at = 0
+    repeat until api_at + 5 > url.length() or url.substring(api_at, 5) == "/api/" { api_at += 1 }
+    if api_at + 5 <= url.length() { request_label = request_label + " " + url.substring(api_at, url.length() - api_at) }
+    pilot status = cli_view_run_command(command, request_label, 330000, 4096, 65536)
     pilot exited = status == 2
     pilot code = 0 - 1
     if exited { code = process::command_exit_code(command) }
