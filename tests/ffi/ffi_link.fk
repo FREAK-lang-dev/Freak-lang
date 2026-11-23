@@ -1,0 +1,57 @@
+-- Calls a real C shared library through extern [C, link="greet"].
+use std::ffi
+
+extern [C, link="greet"] {
+    task greet_add(a: c_int, b: c_int) -> c_int
+    task greet_negate(a: c_int) -> c_int
+    task greet_wrap(x: c_uchar) -> c_uchar
+    task greet_twice(x: c_short) -> c_short
+    task greet_big(a: c_longlong) -> c_longlong
+    task greet_scale(x: c_double, factor: c_int) -> c_double
+    task greet_halve(x: c_float) -> c_float
+    task greet_is_even(x: c_int) -> c_bool
+    task greet_not(x: c_bool) -> c_bool
+    task greet_strlen(s: *const c_char) -> usize
+    task greet_hello() -> *const c_char
+    task greet_squares(out: *mut c_int, n: c_int)
+    task greet_bump() -> void
+    task greet_count() -> c_int
+    task greet_shout(s: *mut c_char) -> c_int
+    task greet_long(x: c_long) -> c_long
+    @link_name("greet_add")
+    task plus(a: std::ffi::c_int, b: std::ffi::c_int) -> std::ffi::c_int
+}
+
+task main() -> void {
+    say "add: " + word_from_int(greet_add(40, 2))
+    say "negate: " + word_from_int(greet_negate(5))
+    say "wrap: " + word_from_int(greet_wrap(255))
+    say "twice: " + word_from_int(greet_twice(0 - 300))
+    say "big: " + word_from_int(greet_big(9))
+    say "scale: " + format_num(greet_scale(1.5, 4))
+    say "halve: " + format_num(greet_halve(5.0))
+    say "even 4: " + word_from_bool(greet_is_even(4))
+    say "even 7: " + word_from_bool(greet_is_even(7))
+    say "not true: " + word_from_bool(greet_not(true))
+    say "plus: " + word_from_int(plus(1, 2))
+    say "long: " + word_from_int(greet_long(0 - 7))
+
+    pilot text = ffi::cstring("freak")
+    say "strlen: " + word_from_int(greet_strlen(text))
+    say "shout changed: " + word_from_int(greet_shout(text))
+    say "shouted: " + ffi::from_cstring(text)
+    ffi::free(text)
+
+    say "hello: " + ffi::from_cstring(greet_hello())
+
+    pilot squares = ffi::alloc(4 * 5)
+    greet_squares(squares, 5)
+    say "square 4: " + word_from_int(ffi::read_i32(squares + 16))
+    ffi::write_i32(squares, 0 - 9)
+    say "poked: " + word_from_int(ffi::read_i32(squares))
+    ffi::free(squares)
+
+    greet_bump()
+    greet_bump()
+    say "count: " + word_from_int(greet_count())
+}

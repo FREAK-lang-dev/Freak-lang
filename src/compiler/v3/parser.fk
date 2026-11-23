@@ -1178,8 +1178,414 @@ task parse_when() -> int {
     give back alloc_stmt(STMT_WHEN, "", word_from_int(target_id), cases_str, "", "", "", "", stmt_line)
 }
 
+-- ===================== NATIVE FFI (bible 16.2) =========================
+-- extern [C, link="name"] { task f(a: c_int) -> c_int }
+-- extern [C, load="name"] { ... }   -- resolved at run time on first call
+-- Each member becomes an STMT_EXTERN whose params/returns are the FREAK-side
+-- types (int, num, bool, void) and whose extra field carries the C ABI:
+--   ffi|MODE|LIBRARY|SYMBOL|RET_ABI|PARAM_ABI,PARAM_ABI,...
+-- MODE is link, load or none. ABI codes: i8 i16 i32 i64 u8 u16 u32 u64 char
+-- long ulong bool f32 f64 ptr void.
+
+task ffi_host_target_os() -> word {
+    if ffi_target_os != "" { give back ffi_target_os }
+    pilot triple = cross_target
+    if triple != "" {
+        if triple.contains("linux") or triple.contains("android") { ffi_target_os = "linux" }
+        else if triple.contains("darwin") or triple.contains("macos") or triple.contains("apple") { ffi_target_os = "darwin" }
+        else if triple.contains("windows") or triple.contains("mingw") or triple.contains("msvc") or triple.contains("w64") { ffi_target_os = "windows" }
+    }
+    if ffi_target_os == "" {
+        if process::platform_is_windows() { ffi_target_os = "windows" }
+        else {
+            pilot uname = process::exec_capture("uname -s 2>/dev/null").trim()
+            if uname == "Darwin" { ffi_target_os = "darwin" } else { ffi_target_os = "linux" }
+        }
+    }
+    give back ffi_target_os
+}
+
+task ffi_host_target_arch() -> word {
+    if ffi_target_arch != "" { give back ffi_target_arch }
+    pilot triple = cross_target
+    if triple != "" {
+        if triple.starts_with("aarch64") or triple.starts_with("arm64") { ffi_target_arch = "aarch64" }
+        else { ffi_target_arch = "x86_64" }
+    }
+    if ffi_target_arch == "" {
+        if process::platform_is_windows() { ffi_target_arch = "x86_64" }
+        else {
+            pilot machine = process::exec_capture("uname -m 2>/dev/null").trim()
+            if machine == "aarch64" or machine == "arm64" { ffi_target_arch = "aarch64" } else { ffi_target_arch = "x86_64" }
+        }
+    }
+    give back ffi_target_arch
+}
+
+-- Reads one type in an extern [C] signature, returning "ABI|FREAK" or "" after
+-- a diagnostic. Pointers are addresses (FREAK int) and C widths behave as int.
+task ffi_take_c_type(context: word, is_return: bool) -> word {
+    if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "*" {
+        advance_tok()
+        if cur_tok_type() == TOK_IDENT and cur_tok_val() == "const" { advance_tok() }
+        else if cur_tok_type() == TOK_KW and cur_tok_val() == "mut" { advance_tok() }
+        -- The pointee is documentation in V3.5; any type (including another
+        -- pointer or c_void) is accepted and the value travels as an address.
+        if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "*" { ffi_take_c_type(context, false) }
+        else { ffi_take_path_ident(context) }
+        give back "ptr|int"
+    }
+    pilot name = ffi_take_path_ident(context)
+    if name == "" { give back "" }
+    if name == "int" or name == "c_longlong" or name == "isize" or name == "c_isize" or name == "c_ssize" or name == "i64" { give back "i64|int" }
+    if name == "uint" or name == "c_ulonglong" or name == "usize" or name == "c_size" or name == "u64" { give back "u64|int" }
+    if name == "c_int" or name == "i32" { give back "i32|int" }
+    if name == "c_uint" or name == "u32" { give back "u32|int" }
+    if name == "c_short" or name == "i16" { give back "i16|int" }
+    if name == "c_ushort" or name == "u16" { give back "u16|int" }
+    if name == "c_schar" or name == "i8" { give back "i8|int" }
+    if name == "tiny" or name == "c_uchar" or name == "u8" { give back "u8|int" }
+    if name == "c_char" { give back "char|int" }
+    if name == "c_long" { give back "long|int" }
+    if name == "c_ulong" { give back "ulong|int" }
+    if name == "char" { give back "u32|int" }
+    if name == "bool" or name == "c_bool" { give back "bool|bool" }
+    if name == "num" or name == "float" or name == "c_double" or name == "f64" { give back "f64|num" }
+    if name == "float32" or name == "c_float" or name == "f32" { give back "f32|num" }
+    if is_return and (name == "void" or name == "c_void") { give back "void|void" }
+    if name == "word" {
+        diag_error("word is not FFI-safe in " + context, "a FREAK word is not a char*; take *const c_char and pass ffi::cstring(text) (use std::ffi)")
+        give back ""
+    }
+    if name == "void" or name == "c_void" {
+        diag_error("c_void is only valid behind a pointer or as a return type in " + context, "write *mut c_void for an opaque handle")
+        give back ""
+    }
+    diag_error("type '" + name + "' is not FFI-safe in " + context, "use a std::ffi C type (c_int, c_long, c_double, usize, ...), int, uint, tiny, num, float32, bool or a raw pointer *T")
+    give back ""
+}
+
+-- std::ffi::c_int and c_int name the same type.
+task ffi_take_path_ident(context: word) -> word {
+    pilot name = parser_take_ident(context)
+    repeat until not (cur_tok_type() == TOK_PUNCT and cur_tok_val() == "::") {
+        advance_tok()
+        name = parser_take_ident(context)
+    }
+    give back name
+}
+
+task ffi_abi_part(entry: word, index: int) -> word {
+    pilot current = 0
+    pilot part = ""
+    pilot i = 0
+    repeat entry.length() times {
+        pilot c = entry.char_at(i)
+        if c == "|" {
+            if current == index { give back part }
+            current += 1
+            part = ""
+        } else { part = part + c }
+        i += 1
+    }
+    if current == index { give back part }
+    give back ""
+}
+
+task ffi_record_link_lib(lib: word) -> void {
+    if not ffi_link_libs.contains("|" + lib + "|") {
+        if ffi_link_libs == "" { ffi_link_libs = "|" }
+        ffi_link_libs = ffi_link_libs + lib + "|"
+    }
+}
+
+-- The ffi|... extra of an extern [C] member named `name`, or "" for plain
+-- bootstrap externs. Backends call this per call site; extern sets are small.
+task ffi_extern_extra(name: word) -> word {
+    pilot i = 0
+    repeat array_len(ast_top_stmts) times {
+        pilot sid = word_to_int(array_get(ast_top_stmts, i))
+        if array_get(ast_stmt_kinds, sid) == STMT_EXTERN and array_get(ast_stmt_names, sid) == name {
+            pilot extra: word = array_get(ast_stmt_extras, sid)
+            if extra.starts_with("ffi|") { give back extra }
+            give back ""
+        }
+        i += 1
+    }
+    give back ""
+}
+
+-- std::ffi builtins: C strings, raw memory and manual library loading.
+task ffi_builtin_ret(name: word) -> word {
+    if name == "ffi::cstring" or name == "ffi::alloc" or name == "ffi::open" or name == "ffi::symbol" { give back "int" }
+    if name == "ffi::from_cstring" or name == "ffi::last_error" { give back "word" }
+    if name == "ffi::free" or name == "ffi::close" { give back "void" }
+    if name == "ffi::read_i8" or name == "ffi::read_u8" or name == "ffi::read_i16" or name == "ffi::read_u16" { give back "int" }
+    if name == "ffi::read_i32" or name == "ffi::read_u32" or name == "ffi::read_i64" { give back "int" }
+    if name == "ffi::read_f32" or name == "ffi::read_f64" { give back "num" }
+    if name == "ffi::write_i8" or name == "ffi::write_u8" or name == "ffi::write_i16" or name == "ffi::write_u16" { give back "void" }
+    if name == "ffi::write_i32" or name == "ffi::write_u32" or name == "ffi::write_i64" { give back "void" }
+    if name == "ffi::write_f32" or name == "ffi::write_f64" { give back "void" }
+    give back ""
+}
+
+task ffi_builtin_params(name: word) -> word {
+    if name == "ffi::cstring" or name == "ffi::open" { give back "word" }
+    if name == "ffi::symbol" { give back "int,word" }
+    if name == "ffi::last_error" { give back "" }
+    if name == "ffi::write_f32" or name == "ffi::write_f64" { give back "int,num" }
+    if name.starts_with("ffi::write_") { give back "int,int" }
+    give back "int"
+}
+
+-- LLVM carriers differ from the C backend for words and num bits.
+task ffi_builtin_llvm_bridge(name: word) -> bool {
+    if name == "ffi::cstring" or name == "ffi::from_cstring" or name == "ffi::open" or name == "ffi::symbol" or name == "ffi::last_error" { give back true }
+    give back name == "ffi::read_f32" or name == "ffi::read_f64" or name == "ffi::write_f32" or name == "ffi::write_f64"
+}
+
+task ffi_builtin_names() -> word {
+    pilot names = "cstring|from_cstring|alloc|free|open|symbol|close|last_error|"
+    names = names + "read_i8|read_u8|read_i16|read_u16|read_i32|read_u32|read_i64|read_f32|read_f64|"
+    give back names + "write_i8|write_u8|write_i16|write_u16|write_i32|write_u32|write_i64|write_f32|write_f64|"
+}
+
+task ffi_program_has_ffi() -> bool {
+    pilot i = 0
+    repeat array_len(ast_top_stmts) times {
+        pilot sid = word_to_int(array_get(ast_top_stmts, i))
+        if array_get(ast_stmt_kinds, sid) == STMT_EXTERN and array_get(ast_stmt_extras, sid).starts_with("ffi|") { give back true }
+        i += 1
+    }
+    give back false
+}
+
+-- Field 1 mode, 2 library, 3 symbol, 4 return ABI, 5 comma-separated params.
+task ffi_field(extra: word, index: int) -> word {
+    give back ffi_abi_part(extra, index)
+}
+
+task ffi_param_count(extra: word) -> int {
+    pilot params = ffi_field(extra, 5)
+    if params == "" { give back 0 }
+    pilot count = 1
+    pilot i = 0
+    repeat params.length() times {
+        if params.char_at(i) == "," { count += 1 }
+        i += 1
+    }
+    give back count
+}
+
+task ffi_param_abi(extra: word, index: int) -> word {
+    pilot params = ffi_field(extra, 5)
+    pilot current = 0
+    pilot part = ""
+    pilot i = 0
+    repeat params.length() times {
+        pilot c = params.char_at(i)
+        if c == "," {
+            if current == index { give back part }
+            current += 1
+            part = ""
+        } else { part = part + c }
+        i += 1
+    }
+    if current == index { give back part }
+    give back ""
+}
+
+task ffi_abi_is_unsigned(abi: word) -> bool {
+    if abi == "u8" or abi == "u16" or abi == "u32" or abi == "u64" or abi == "ulong" or abi == "bool" { give back true }
+    if abi == "char" { give back ffi_host_target_arch() == "aarch64" and ffi_host_target_os() == "linux" }
+    give back false
+}
+
+task ffi_abi_is_float(abi: word) -> bool {
+    give back abi == "f32" or abi == "f64"
+}
+
+-- Parses one extern [ ... ] { ... } block at top level. Each member is pushed
+-- to ast_top_stmts directly; members of a block whose `if target_os = "x"`
+-- does not match the target are parsed and dropped.
+task parse_extern_block() -> void {
+    pilot block_file = current_source_file()
+    pilot block_line = word_to_int(current_source_line())
+    pilot block_col = current_source_col()
+    expect_tok(TOK_PUNCT, "[")
+    pilot mode = "none"
+    pilot library = ""
+    pilot language_seen = false
+    pilot active = true
+    pilot afin = false
+    if match_tok(TOK_PUNCT, "]") { afin = true }
+    repeat until afin {
+        if parser_at_eof() {
+            parser_diag_unclosed_at("extern ABI list", "]", block_file, block_line, block_col)
+            afin = true
+        } else if cur_tok_type() == TOK_KW and cur_tok_val() == "if" {
+            advance_tok()
+            pilot cond_name = parser_take_ident("extern target condition")
+            expect_tok(TOK_PUNCT, "=")
+            pilot cond_value = ""
+            if cur_tok_type() == TOK_STR { cond_value = cur_tok_val() advance_tok() }
+            else { diag_error("expected a quoted value after " + cond_name + " =", "write if target_os = \"windows\"") }
+            if cond_name == "target_os" {
+                pilot wanted = cond_value
+                if wanted == "macos" { wanted = "darwin" }
+                if wanted != ffi_host_target_os() { active = false }
+            } else if cond_name == "target_arch" {
+                pilot wanted_arch = cond_value
+                if wanted_arch == "arm64" { wanted_arch = "aarch64" }
+                if wanted_arch != ffi_host_target_arch() { active = false }
+            } else {
+                diag_error("unknown extern condition '" + cond_name + "'", "V3.5 supports if target_os = \"...\" and if target_arch = \"...\"")
+            }
+        } else {
+            pilot opt = ""
+            if cur_tok_type() == TOK_IDENT or cur_tok_type() == TOK_KW { opt = cur_tok_val() advance_tok() }
+            else { diag_error("expected an extern ABI option, found " + friendly_tok(cur_tok_type(), cur_tok_val()), "write extern [C] or extern [C, link=\"name\"]") advance_tok() }
+            if opt == "link" or opt == "load" {
+                expect_tok(TOK_PUNCT, "=")
+                if cur_tok_type() == TOK_STR {
+                    if mode != "none" { diag_error("an extern block takes one link= or load= option", "split the declarations into one block per library") }
+                    library = cur_tok_val()
+                    mode = opt
+                    advance_tok()
+                    if library == "" { diag_error("extern " + opt + " needs a library name", "write " + opt + "=\"m\" or another quoted native library name") }
+                } else {
+                    diag_error("extern " + opt + " needs string literal", "write " + opt + "=\"m\" or another quoted native library name")
+                    if not parser_at_eof() { advance_tok() }
+                }
+            } else if opt == "C" or opt == "cdecl" or opt == "system" {
+                if language_seen and opt == "C" { diag_error("duplicate extern language ABI", "C appears more than once in this extern block") }
+                if opt == "C" { language_seen = true }
+            } else if opt == "win64" or opt == "sysv64" {
+                -- x86_64 only has one C convention per OS; accept the native one.
+                pilot native_cc = "sysv64"
+                if ffi_host_target_os() == "windows" { native_cc = "win64" }
+                if opt != native_cc { diag_error("calling convention " + opt + " does not match this target", "V3.5 calls with the target's C convention; use extern [C] or extern [system]") }
+            } else if opt == "stdcall" or opt == "fastcall" or opt == "thiscall" or opt == "vectorcall" {
+                diag_error("calling convention " + opt + " is not supported by V3.5 yet", "use extern [C] or extern [system] (x86_64 and arm64 use the C convention)")
+            } else if opt != "" {
+                diag_error("unknown extern ABI option " + opt, "supported: C, cdecl, system, win64, sysv64, link=\"name\", load=\"name\", if target_os = \"...\"")
+            }
+        }
+        if not afin {
+            if match_tok(TOK_PUNCT, "]") { afin = true }
+            else if parser_at_eof() {
+                parser_diag_unclosed_at("extern ABI list", "]", block_file, block_line, block_col)
+                afin = true
+            } else { expect_tok(TOK_PUNCT, ",") }
+        }
+    }
+    pilot body_file = current_source_file()
+    pilot body_line = word_to_int(current_source_line())
+    pilot body_col = current_source_col()
+    expect_tok(TOK_PUNCT, "{")
+    pilot member_count = 0
+    pilot bfin = false
+    repeat until bfin {
+        parser_skip_statement_separators()
+        if match_tok(TOK_PUNCT, "}") { bfin = true }
+        else if parser_at_eof() {
+            parser_diag_unclosed_at("extern block", "}", body_file, body_line, body_col)
+            bfin = true
+        } else if parse_error_count > 100 {
+            bfin = true
+        } else {
+            pilot member_id = parse_extern_member(mode, library)
+            if member_id >= 0 {
+                member_count += 1
+                if active { array_push(ast_top_stmts, word_from_int(member_id)) }
+            }
+        }
+    }
+    if active and mode == "link" and member_count > 0 { ffi_record_link_lib(library) }
+    if active and mode == "load" and member_count > 0 { ffi_uses_load = true }
+}
+
+task parse_extern_member(mode: word, library: word) -> int {
+    pilot symbol = ""
+    repeat until not (cur_tok_type() == TOK_PUNCT and cur_tok_val() == "@") {
+        advance_tok()
+        pilot attr = parser_take_ident("extern member attribute")
+        if attr == "link_name" {
+            expect_tok(TOK_PUNCT, "(")
+            if cur_tok_type() == TOK_STR {
+                if symbol != "" { diag_error("duplicate link_name attribute", "keep a single @link_name(\"symbol\")") }
+                symbol = cur_tok_val()
+                advance_tok()
+            } else { diag_error("@link_name needs a quoted symbol", "write @link_name(\"sqrt\")") }
+            expect_tok(TOK_PUNCT, ")")
+        } else if attr == "allow_unwinder" {
+            -- Accepted for V4 source compatibility; V3.5 has no unwinder warning.
+        } else {
+            diag_error("unknown extern member attribute @" + attr, "V3.5 extern members accept @link_name(\"symbol\")")
+        }
+    }
+    pilot stmt_line = current_source_location()
+    if not match_tok(TOK_KW, "task") {
+        diag_error("expected 'task' in extern block, found " + friendly_tok(cur_tok_type(), cur_tok_val()), "write task name(param: c_int) -> c_int")
+        if not parser_at_eof() { advance_tok() }
+        give back 0 - 1
+    }
+    pilot ename = parser_take_ident("extern task name")
+    if symbol == "" { symbol = ename }
+    pilot params_file = current_source_file()
+    pilot params_line = word_to_int(current_source_line())
+    pilot params_col = current_source_col()
+    expect_tok(TOK_PUNCT, "(")
+    pilot eparams = ""
+    pilot abi_params = ""
+    pilot efin = false
+    pilot index = 0
+    if match_tok(TOK_PUNCT, ")") { efin = true }
+    repeat until efin {
+        if parser_at_eof() {
+            parser_diag_unclosed_at("extern parameter list", ")", params_file, params_line, params_col)
+            efin = true
+        } else {
+            pilot pname = parser_take_ident("extern parameter name")
+            expect_tok(TOK_PUNCT, ":")
+            if cur_tok_type() == TOK_PUNCT and cur_tok_val().starts_with(".") {
+                diag_error("variadic extern tasks are not supported by V3.5 yet", "declare one extern task per argument shape, or wait for the V4 compiler")
+                repeat until not (cur_tok_type() == TOK_PUNCT and cur_tok_val().starts_with(".")) { advance_tok() }
+            } else {
+                pilot ptype = ffi_take_c_type("extern parameter '" + pname + "' of " + ename, false)
+                if ptype != "" {
+                    if index > 0 {
+                        eparams = eparams + ","
+                        abi_params = abi_params + ","
+                    }
+                    eparams = eparams + pname + ":" + ffi_abi_part(ptype, 1)
+                    abi_params = abi_params + ffi_abi_part(ptype, 0)
+                    index += 1
+                }
+            }
+            if match_tok(TOK_PUNCT, ")") { efin = true }
+            else if parser_at_eof() {
+                parser_diag_unclosed_at("extern parameter list", ")", params_file, params_line, params_col)
+                efin = true
+            } else { expect_tok(TOK_PUNCT, ",") }
+        }
+    }
+    pilot ret = "void|void"
+    if match_tok(TOK_PUNCT, "->") {
+        ret = ffi_take_c_type("extern return of " + ename, true)
+        if ret == "" { ret = "void|void" }
+    }
+    pilot extra = "ffi|" + mode + "|" + library + "|" + symbol + "|" + ffi_abi_part(ret, 0) + "|" + abi_params
+    give back alloc_stmt(STMT_EXTERN, ename, "", "", "", extra, eparams, ffi_abi_part(ret, 1), stmt_line)
+}
+
 task parse_extern() -> int {
     pilot stmt_line = current_source_location()
+    if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "[" {
+        diag_error("extern blocks are only allowed at the top level", "move the extern [C] block out of the task or block")
+        parse_extern_block()
+        give back alloc_stmt(STMT_EXTERN, "__freak_invalid_extern", "", "", "", "", "", "void", stmt_line)
+    }
     expect_tok(TOK_KW, "task")
     pilot ename = parser_take_ident("extern task name")
     pilot extern_file = current_source_file()
@@ -1236,6 +1642,8 @@ task parse_task_def() -> int {
 -- ===================== TOP-LEVEL PARSING =============================
 
 task parse_program() -> void {
+    ffi_link_libs = ""
+    ffi_uses_load = false
     parse_idx = 0
     tok_total = tokens_count
     parse_error_count = 0
@@ -1247,6 +1655,9 @@ task parse_program() -> void {
         } else if parse_error_count > 100 {
             say "\x1b[1;31merror\x1b[0m: too many errors, giving up (>100 syntax errors in " + input_file + ")"
             pfin = true
+        } else if cur_tok_type() == TOK_KW and cur_tok_val() == "extern" and array_get(tok_types, parse_idx + 1) == TOK_PUNCT and array_get(tok_vals, parse_idx + 1) == "[" {
+            advance_tok()
+            parse_extern_block()
         } else {
             pilot stmt_id = parse_stmt()
             array_push(ast_top_stmts, word_from_int(stmt_id))

@@ -963,6 +963,10 @@ task llvm_is_num_expr(expr_id: word) -> bool {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task llvm_map_call_name(val: word) -> word {
+    if val.starts_with("ffi::") and ffi_builtin_ret(val) != "" {
+        if ffi_builtin_llvm_bridge(val) { give back "@freak_llvm_ffi_" + val.substring(5, val.length() - 5) }
+        give back "@freak_ffi_" + val.substring(5, val.length() - 5)
+    }
     if val == "process::platform_name" { give back "@freak_llvm_process_platform_name" }
     if val == "process::stdout_is_terminal" { give back "@freak_llvm_process_stdout_is_terminal" }
     if val == "process::platform_is_windows" { give back "@freak_llvm_process_platform_is_windows" }
@@ -1089,6 +1093,7 @@ task llvm_user_task_symbol(name: word) -> word {
 }
 
 task llvm_is_void_call(val: word) -> bool {
+    if val.starts_with("ffi::") { give back ffi_builtin_ret(val) == "void" }
     if val.starts_with("http_server::") and tc_builtin_call_type(val) == "void" { give back true }
     if val == "time::sleep" { give back true }
     if val.starts_with("json_document::") and tc_builtin_call_type(val) == "void" { give back true }
@@ -1145,6 +1150,7 @@ task llvm_callable_param_types(name: word) -> word {
 }
 
 task llvm_builtin_param_types(name: word) -> word {
+    if name == "ffi::write_f32" or name == "ffi::write_f64" { give back "pointer:int,value:num" }
     if name == "math::pow" { give back "base:num,exponent:num" }
     if name == "math::sqrt" or name == "math::sin" or name == "math::cos" { give back "value:num" }
     if name == "math::tan" or name == "math::floor" or name == "math::ceil" { give back "value:num" }
@@ -1478,7 +1484,206 @@ task llvm_emit_interp(segments: word) -> word {
 
 -- ===================== CALL EMIT =====================================
 
+-- ===================== NATIVE FFI (extern [C] blocks) ===================
+
+pilot llvm_ffi_declared = ""
+
+task llvm_ffi_type(abi: word) -> word {
+    if abi == "i8" or abi == "u8" or abi == "char" { give back "i8" }
+    if abi == "i16" or abi == "u16" { give back "i16" }
+    if abi == "i32" or abi == "u32" { give back "i32" }
+    if abi == "long" or abi == "ulong" {
+        if ffi_host_target_os() == "windows" { give back "i32" }
+        give back "i64"
+    }
+    if abi == "bool" { give back "i1" }
+    if abi == "f32" { give back "float" }
+    if abi == "f64" { give back "double" }
+    if abi == "ptr" { give back "i8*" }
+    if abi == "void" { give back "void" }
+    give back "i64"
+}
+
+-- Caller-side extension of small integer arguments, as Clang emits it.
+task llvm_ffi_param_attr(abi: word) -> word {
+    pilot t = llvm_ffi_type(abi)
+    if t == "i1" or t == "i8" or t == "i16" {
+        if ffi_abi_is_unsigned(abi) { give back " zeroext" }
+        give back " signext"
+    }
+    give back ""
+}
+
+task llvm_ffi_param_list(extra: word, named: bool) -> word {
+    pilot out = ""
+    pilot j = 0
+    repeat ffi_param_count(extra) times {
+        if j > 0 { out = out + ", " }
+        pilot abi = ffi_param_abi(extra, j)
+        out = out + llvm_ffi_type(abi) + llvm_ffi_param_attr(abi)
+        if named { out = out + " %p" + word_from_int(j) }
+        j += 1
+    }
+    give back out
+}
+
+task llvm_ffi_callee(name: word, extra: word) -> word {
+    if ffi_field(extra, 1) == "load" { give back "@__freak_ffi_stub_" + llvm_c_safe_ident(name) }
+    give back "@" + ffi_field(extra, 3)
+}
+
+task llvm_ffi_cstring_const(global_name: word, text: word) -> word {
+    pilot size = word_from_int(text.length() + 1)
+    llvm_emit_line(global_name + " = private unnamed_addr constant [" + size + " x i8] c\"" + llvm_escape_str(text) + "\\00\"")
+    give back "getelementptr inbounds ([" + size + " x i8], [" + size + " x i8]* " + global_name + ", i64 0, i64 0)"
+}
+
+-- Declares the std::ffi runtime helpers once per module.
+task llvm_emit_ffi_builtin_decls() -> void {
+    llvm_ffi_builtin_walk(true)
+}
+
+task llvm_register_ffi_builtin_decls() -> void {
+    llvm_ffi_builtin_walk(false)
+}
+
+task llvm_ffi_builtin_walk(emit_decls: bool) -> void {
+    pilot names = ffi_builtin_names()
+    pilot part = ""
+    pilot i = 0
+    repeat names.length() times {
+        pilot c = names.char_at(i)
+        if c == "|" {
+            pilot builtin = "ffi::" + part
+            pilot symbol = llvm_map_call_name(builtin).substring(1, llvm_map_call_name(builtin).length() - 1)
+            pilot ret = "i64"
+            if ffi_builtin_ret(builtin) == "void" { ret = "void" }
+            pilot params = ""
+            pilot spec = ffi_builtin_params(builtin)
+            if spec != "" {
+                params = "i64"
+                pilot k = 0
+                repeat spec.length() times {
+                    if spec.char_at(k) == "," { params = params + ", i64" }
+                    k += 1
+                }
+            }
+            if emit_decls { llvm_emit_line("declare " + ret + " @" + symbol + "(" + params + ")") }
+            else { llvm_declared_funcs = llvm_declared_funcs + symbol + "|" }
+            part = ""
+        } else { part = part + c }
+        i += 1
+    }
+}
+
+task llvm_emit_ffi_decl(eid: word) -> void {
+    pilot name: word = array_get(ast_stmt_names, word_to_int(eid))
+    pilot extra: word = array_get(ast_stmt_extras, word_to_int(eid))
+    pilot ret_type = llvm_ffi_type(ffi_field(extra, 4))
+    pilot symbol = ffi_field(extra, 3)
+    if ffi_field(extra, 1) == "load" {
+        pilot safe = llvm_c_safe_ident(name)
+        pilot lib_ptr = llvm_ffi_cstring_const("@__freak_ffi_lib_" + safe, ffi_field(extra, 2))
+        pilot sym_ptr = llvm_ffi_cstring_const("@__freak_ffi_sym_" + safe, symbol)
+        llvm_emit_line("@__freak_ffi_cache_" + safe + " = internal global i8* null")
+        llvm_emit_line("define internal " + ret_type + " @__freak_ffi_stub_" + safe + "(" + llvm_ffi_param_list(extra, true) + ") {")
+        llvm_emit_line("entry:")
+        llvm_emit_line("    %fn = call i8* @freak_ffi_lazy(i8* " + lib_ptr + ", i8* " + sym_ptr + ", i8** @__freak_ffi_cache_" + safe + ")")
+        pilot call_args = llvm_ffi_param_list(extra, true)
+        if ret_type == "void" {
+            llvm_emit_line("    call void %fn(" + call_args + ")")
+            llvm_emit_line("    ret void")
+        } else {
+            llvm_emit_line("    %r = call " + ret_type + " %fn(" + call_args + ")")
+            llvm_emit_line("    ret " + ret_type + " %r")
+        }
+        llvm_emit_line("}")
+        if not llvm_is_runtime_func("freak_ffi_lazy") and not llvm_ffi_declared.contains("|freak_ffi_lazy|") {
+            llvm_emit_line("declare i8* @freak_ffi_lazy(i8*, i8*, i8**)")
+            llvm_ffi_declared = llvm_ffi_declared + "|freak_ffi_lazy|"
+        }
+        give back
+    }
+    -- Runtime-declared symbols (puts, strlen, ...) and repeated @link_name
+    -- targets keep a single declaration; opaque-pointer calls carry their own
+    -- function type, so the call site still uses this member's C signature.
+    if llvm_is_runtime_func(symbol) or llvm_ffi_declared.contains("|" + symbol + "|") { give back }
+    llvm_ffi_declared = llvm_ffi_declared + "|" + symbol + "|"
+    llvm_emit_line("declare " + ret_type + " @" + symbol + "(" + llvm_ffi_param_list(extra, false) + ")")
+}
+
+-- Converts a FREAK i64 value (num travels as double bits) to the C argument.
+task llvm_ffi_arg(reg: word, arg_id: word, abi: word) -> word {
+    pilot t = llvm_ffi_type(abi)
+    if t == "i64" { give back reg }
+    if t == "double" or t == "float" {
+        pilot bits = llvm_coerce_num_bits(reg, arg_id)
+        pilot dbl = llvm_i64_to_double(bits)
+        if t == "double" { give back dbl }
+        pilot narrow = next_reg()
+        llvm_emit_line("    " + narrow + " = fptrunc double " + dbl + " to float")
+        give back narrow
+    }
+    if t == "i8*" {
+        pilot p = next_reg()
+        llvm_emit_line("    " + p + " = inttoptr i64 " + reg + " to i8*")
+        give back p
+    }
+    if t == "i1" {
+        pilot b = next_reg()
+        llvm_emit_line("    " + b + " = icmp ne i64 " + reg + ", 0")
+        give back b
+    }
+    pilot n = next_reg()
+    llvm_emit_line("    " + n + " = trunc i64 " + reg + " to " + t)
+    give back n
+}
+
+-- Widens a C result back to the FREAK i64 carrier.
+task llvm_ffi_result(reg: word, abi: word) -> word {
+    pilot t = llvm_ffi_type(abi)
+    if t == "i64" { give back reg }
+    if t == "double" { give back llvm_double_to_i64(reg) }
+    if t == "float" {
+        pilot wide = next_reg()
+        llvm_emit_line("    " + wide + " = fpext float " + reg + " to double")
+        give back llvm_double_to_i64(wide)
+    }
+    pilot out = next_reg()
+    if t == "i8*" { llvm_emit_line("    " + out + " = ptrtoint i8* " + reg + " to i64") give back out }
+    if ffi_abi_is_unsigned(abi) { llvm_emit_line("    " + out + " = zext " + t + " " + reg + " to i64") }
+    else { llvm_emit_line("    " + out + " = sext " + t + " " + reg + " to i64") }
+    give back out
+}
+
+task llvm_emit_ffi_call(val: word, extra: word, left: word) -> word {
+    pilot args = ""
+    pilot j = 0
+    repeat tc_arg_count(left) times {
+        pilot arg_id = word_from_int(tc_arg_at(left, j))
+        pilot abi = ffi_param_abi(extra, j)
+        pilot reg = llvm_ffi_arg(llvm_emit_expr(arg_id), arg_id, abi)
+        if j > 0 { args = args + ", " }
+        args = args + llvm_ffi_type(abi) + llvm_ffi_param_attr(abi) + " " + reg
+        j += 1
+    }
+    pilot ret_abi = ffi_field(extra, 4)
+    pilot ret_type = llvm_ffi_type(ret_abi)
+    pilot callee = llvm_ffi_callee(val, extra)
+    if ret_type == "void" {
+        llvm_emit_line("    call void " + callee + "(" + args + ")")
+        give back "0"
+    }
+    pilot raw = next_reg()
+    llvm_emit_line("    " + raw + " = call " + ret_type + " " + callee + "(" + args + ")")
+    give back llvm_ffi_result(raw, ret_abi)
+}
+
 task llvm_emit_call(expr_id: word, val: word, left: word) -> word {
+    if emt_is_extern(val) {
+        pilot ffi_extra = ffi_extern_extra(val)
+        if ffi_extra != "" { give back llvm_emit_ffi_call(val, ffi_extra, left) }
+    }
     if val == "array_get" or val == "array_set" or val == "array_push" or val == "array_len" or val == "array_release" {
         pilot receiver_id = word_from_int(tc_arg_at(left, 0))
         pilot receiver_type = llvm_infer_expr_type(receiver_id)
@@ -3552,6 +3757,7 @@ task llvm_emit_runtime_decls() -> void {
     ir_declare("void", "@freak_llvm_fs_make_dir", 1)
     ir_declare("i64", "@freak_llvm_process_env", 1)
     ir_declare("void", "@freak_llvm_process_set_env", 2)
+    llvm_emit_ffi_builtin_decls()
     ir_declare("i64", "@freak_llvm_process_pid", 0)
     ir_declare("i64", "@freak_llvm_process_input", 0)
     -- fs functions are defined as FREAK tasks in std/runtime.fk — no declare needed
@@ -3739,6 +3945,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_process_platform_name|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_fs_read_native|freak_llvm_fs_write_native|freak_llvm_fs_append_native|freak_llvm_fs_exists_native|freak_llvm_fs_delete_native|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_int_add_checked|freak_int_sub_checked|freak_int_mul_checked|freak_int_div_checked|freak_int_rem_checked|freak_int_neg_checked|freak_llvm_word_index_checked|"
+    llvm_register_ffi_builtin_decls()
 }
 
 -- ===================== PROGRAM ASSEMBLY ==============================
@@ -3813,11 +4020,14 @@ task emit_llvm_program() -> void {
     llvm_emit_line("")
 
     -- Emit extern declarations
+    llvm_ffi_declared = ""
     pilot ext_i = 0
     repeat top_count times {
         pilot eid: word = array_get(ast_top_stmts, ext_i)
         pilot ek: word = array_get(ast_stmt_kinds, word_to_int(eid))
-        if ek == STMT_EXTERN {
+        if ek == STMT_EXTERN and array_get(ast_stmt_extras, word_to_int(eid)).starts_with("ffi|") {
+            llvm_emit_ffi_decl(eid)
+        } else if ek == STMT_EXTERN {
             pilot enm: word = array_get(ast_stmt_names, word_to_int(eid))
             pilot ert: word = array_get(ast_task_returns, word_to_int(eid))
             pilot epm: word = array_get(ast_task_params, word_to_int(eid))

@@ -1390,6 +1390,104 @@ task cli_build_command(command: int, phase: word) -> bool {
     give back false
 }
 
+-- ===================== NATIVE FFI LINK INPUTS ===========================
+-- extern [C, link="name"] blocks (collected by the parser in ffi_link_libs)
+-- and --link=NAME / --lib-dir=DIR flags become Clang link arguments. A bare
+-- name links as -lname; a value with a path separator or a library suffix is
+-- a file (relative to the source file for link=, to the cwd for --link=).
+-- The source directory is always a library search path, and POSIX targets
+-- get an rpath for the executable's own directory and every --lib-dir.
+
+task cli_ffi_target_os(cross: word) -> word {
+    if cross == "" { give back "" }
+    pilot family = cli_target_os_family(cli_canonical_target_triple(cli_resolve_target_alias(cross)))
+    if family == "android" { give back "linux" }
+    give back family
+}
+
+task cli_ffi_target_arch(cross: word) -> word {
+    if cross == "" { give back "" }
+    pilot triple = cli_canonical_target_triple(cli_resolve_target_alias(cross))
+    if triple.starts_with("aarch64") { give back "aarch64" }
+    give back "x86_64"
+}
+
+task cli_ffi_is_file_value(value: word) -> bool {
+    if value.contains("/") or value.contains("\\") { give back true }
+    if value.ends_with(".so") or value.contains(".so.") or value.ends_with(".dylib") or value.ends_with(".dll") { give back true }
+    give back value.ends_with(".a") or value.ends_with(".lib")
+}
+
+task cli_ffi_absolute(path: word, base: word) -> word {
+    if cli_path_is_absolute(path) { give back path }
+    pilot root = base
+    if root == "" { root = cli_current_dir() }
+    else if not cli_path_is_absolute(root) {
+        pilot cwd = cli_current_dir()
+        if cwd != "" { root = cli_host_path_join(cwd, root) }
+    }
+    if root == "" { give back path }
+    pilot leaf = path
+    if leaf.starts_with("./") or leaf.starts_with(".\\") { leaf = leaf.substring(2, leaf.length() - 2) }
+    give back cli_host_path_join(root, leaf)
+}
+
+task cli_ffi_add_rpath(command: int, dir: word, posix: bool) -> void {
+    if posix and dir != "" { process::command_arg(command, "-Wl,-rpath," + dir) }
+}
+
+task cli_ffi_add_lib(command: int, value: word, base: word, posix: bool) -> void {
+    if cli_ffi_is_file_value(value) {
+        pilot file = cli_ffi_absolute(value, base)
+        process::command_arg(command, file)
+        cli_ffi_add_rpath(command, cli_path_parent(file), posix)
+    } else {
+        process::command_arg(command, "-l" + value)
+    }
+}
+
+task cli_ffi_for_each(list: word, command: int, base: word, posix: bool, dirs: bool) -> void {
+    pilot item = ""
+    pilot i = 0
+    repeat list.length() times {
+        pilot c = list.char_at(i)
+        if c == "|" {
+            if item != "" {
+                if dirs {
+                    pilot dir = cli_ffi_absolute(item, "")
+                    process::command_arg(command, "-L" + dir)
+                    cli_ffi_add_rpath(command, dir, posix)
+                } else { cli_ffi_add_lib(command, item, base, posix) }
+            }
+            item = ""
+        } else { item = item + c }
+        i += 1
+    }
+}
+
+task cli_ffi_link_args(command: int, src_file: word, cross: word) -> void {
+    pilot is_win = cli_link_is_windows(cross)
+    pilot posix = not is_win
+    pilot wanted_os = cli_ffi_target_os(cross)
+    pilot darwin = wanted_os == "darwin" or (wanted_os == "" and cli_is_macos())
+    -- The runtime's dynamic loader (load= and ffi::open) needs libdl on
+    -- glibc older than 2.34; newer glibc and musl ship a stub.
+    if posix and not darwin { process::command_arg(command, "-ldl") }
+    if ffi_link_libs == "" and cli_requested_link_libs == "" and cli_requested_lib_dirs == "" { give back }
+    pilot source_dir = cli_path_parent(src_file)
+    if source_dir == "" { source_dir = "." }
+    pilot source_abs = cli_ffi_absolute(source_dir, "")
+    if source_dir == "." { source_abs = cli_current_dir() }
+    if source_abs != "" { process::command_arg(command, "-L" + source_abs) }
+    cli_ffi_for_each(cli_requested_lib_dirs, command, "", posix, true)
+    if posix {
+        if darwin { process::command_arg(command, "-Wl,-rpath,@executable_path") }
+        else { process::command_arg(command, "-Wl,-rpath,$ORIGIN") }
+    }
+    cli_ffi_for_each(ffi_link_libs, command, source_abs, posix, false)
+    cli_ffi_for_each(cli_requested_link_libs, command, "", posix, false)
+}
+
 task cli_build_lto_args(command: int, lto: word) -> void {
     if lto == "off" { give back }
     if lto == "thin" { process::command_arg(command, "-flto=thin") }
@@ -1524,6 +1622,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         process::command_arg(link_command, "-luser32")
         process::command_arg(link_command, "-lgdi32")
         process::command_arg(link_command, "-lmsimg32")
+        cli_ffi_link_args(link_command, src_file, cross)
         cli_view_activity("Linking packaged Windows runtime objects", "linking packaged runtime")
         pilot link_ok = cli_build_command(link_command, "packaged runtime link")
         if link_ok {
@@ -1543,6 +1642,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     -- A cache hit supplies verified runtime objects copied into this build's
     -- private stage. User code is compiled and the selected driver links anew.
     -- Unavailable, unsafe, unsupported or bounded-out caches keep source mode.
+    cli_runtime_cache_ffi_source = src_file
     pilot cached = cli_runtime_cache_build(clang_executable, transpiled_file, out_bin, runtime_dir, target, opt, lto, cross)
     if cached == 1 { give back out_bin }
     pilot compiled = false
@@ -1585,6 +1685,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
             }
         }
 
+        cli_ffi_link_args(command, src_file, cross)
         cli_view_activity("Compiling native binary", "clang compile + link")
         compiled = cli_build_command(command, "Clang compilation/link")
     }
@@ -2028,6 +2129,8 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
     }
     cli_view_step_end(sources_lap, "Sources & packages")
 
+    ffi_target_os = cli_ffi_target_os(cross)
+    ffi_target_arch = cli_ffi_target_arch(cross)
     pilot transpiled: word = cli_transpile(src_file, source, target)
     if transpiled == "" {
         cli_project_binding_release()

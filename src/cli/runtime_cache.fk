@@ -663,6 +663,9 @@ task cli_runtime_cache_compile_unit(executable: word, stage: int, stem: word, ru
     give back cli_build_command(command, "runtime object compilation")
 }
 
+-- Source path of the build being linked, for native FFI search paths.
+pilot cli_runtime_cache_ffi_source = ""
+
 task cli_runtime_cache_link(executable: word, stage: int, units: int, transpiled: word, output: word, runtime_dir: word, opt: word, lto: word, cross: word, ui: bool) -> bool {
     pilot command = process::command_new(executable)
     cli_build_common_args(command, output, transpiled, runtime_dir, opt, cross)
@@ -674,6 +677,7 @@ task cli_runtime_cache_link(executable: word, stage: int, units: int, transpiled
     cli_build_lto_args(command, lto)
     if cli_link_is_windows(cross) { process::command_arg(command, "-lws2_32") }
     else { process::command_arg(command, "-lm") }
+    cli_ffi_link_args(command, cli_runtime_cache_ffi_source, cross)
     if ui {
         process::command_arg(command, "-DFREAK_HAS_UI")
         process::command_arg(command, "-luser32")
