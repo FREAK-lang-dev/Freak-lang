@@ -840,7 +840,7 @@ static void freak_fs_windows_publication_guard_error(freak_fs_ticket *result,
         const freak_fs_windows_parent_diagnostic *source,const freak_fs_windows_parent_diagnostic *destination,bool workspace) {
     char reason[256];
     snprintf(reason,sizeof(reason),"%s [source=%s,error=%lu,owner=%s;destination=%s,error=%lu,owner=%s]",
-        workspace ? "file publication requires destination and source parents owned by the current user" :
+        workspace ? "file publication requires an owned workspace parent and a safe owned private parent" :
         "file publication requires safe owned destination and source parents",
         source->phase ? source->phase : "not-examined",(unsigned long)source->native_error,
         source->owner_match < 0 ? "unknown" : source->owner_match ? "same" : "different",
@@ -1299,7 +1299,8 @@ static bool freak_fs_anchor_rename(freak_fs_anchor source,const char *from,freak
    Reject parents writable by another uid/group; ordinary 0755 output folders
    remain usable. Windows callers retain the equivalent ACL/transaction control. */
 static int64_t freak_fs_rename_relative_new_policy(int64_t source_handle,freak_word source_relative,
-        int64_t destination_handle,freak_word destination_relative,bool workspace) {
+        int64_t destination_handle,freak_word destination_relative,bool source_workspace,bool destination_workspace) {
+    bool workspace=source_workspace || destination_workspace;
     int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
     freak_fs_ticket *source_root=freak_fs_directory_require(source_handle),*destination_root=freak_fs_directory_require(destination_handle);
     char *from=freak_fs_checked_path(result,source_relative),*to=freak_fs_checked_path(result,destination_relative);
@@ -1322,14 +1323,14 @@ static int64_t freak_fs_rename_relative_new_policy(int64_t source_handle,freak_w
     freak_fs_anchor file=FREAK_FS_INVALID_ANCHOR;
     bool private_parents=source_parent != FREAK_FS_INVALID_ANCHOR && destination_parent != FREAK_FS_INVALID_ANCHOR;
 #ifdef _WIN32
-    private_parents=private_parents && freak_fs_windows_parent_policy(source_parent,&source_diagnostic,workspace) &&
-        freak_fs_windows_parent_policy(destination_parent,&destination_diagnostic,workspace);
+    private_parents=private_parents && freak_fs_windows_parent_policy(source_parent,&source_diagnostic,source_workspace) &&
+        freak_fs_windows_parent_policy(destination_parent,&destination_diagnostic,destination_workspace);
 #else
     struct stat source_info,destination_info;
-    /* Workspace parents may be group/other writable (umask 002 projects). */
+    /* A workspace parent may be group/other writable (umask 002 projects). */
     private_parents=private_parents && fstat(source_parent,&source_info) == 0 && fstat(destination_parent,&destination_info) == 0 &&
         source_info.st_uid == geteuid() && destination_info.st_uid == geteuid() &&
-        (workspace || (!(source_info.st_mode & 0022) && !(destination_info.st_mode & 0022)));
+        (source_workspace || !(source_info.st_mode & 0022)) && (destination_workspace || !(destination_info.st_mode & 0022));
 #endif
     if (private_parents) file=freak_fs_anchor_child(source_parent,source_leaf,false,false,
 #ifdef _WIN32
@@ -1366,7 +1367,7 @@ static int64_t freak_fs_rename_relative_new_policy(int64_t source_handle,freak_w
     }
 #else
     } else freak_fs_ticket_error(result,private_parents ? "could not synchronize and publish ordinary file without replacing destination" :
-        workspace ? "file publication requires destination and source parents owned by the current user" :
+        workspace ? "file publication requires an owned workspace parent and a safe owned private parent" :
         "file publication requires safe owned destination and source parents");
 #endif
     freak_fs_anchor_close(file); freak_fs_anchor_close(source_parent); freak_fs_anchor_close(destination_parent);
@@ -1375,14 +1376,20 @@ static int64_t freak_fs_rename_relative_new_policy(int64_t source_handle,freak_w
 /* Strict: both parents are Hangar-owned private directories. */
 int64_t freak_fs_rename_relative_new_checked(int64_t source_handle,freak_word source_relative,
         int64_t destination_handle,freak_word destination_relative) {
-    return freak_fs_rename_relative_new_policy(source_handle,source_relative,destination_handle,destination_relative,false);
+    return freak_fs_rename_relative_new_policy(source_handle,source_relative,destination_handle,destination_relative,false,false);
 }
-/* Workspace: a parent may be the user's project folder, which other accounts
-   (or the user's group) may also be able to write. Identity is still enforced
-   by the held handle, no-replace rename and post-rename identity check. */
-int64_t freak_fs_rename_relative_new_workspace_checked(int64_t source_handle,freak_word source_relative,
+/* Workspace: exactly one parent is the user's project folder, which other
+   accounts (or the user's group) may also be able to write; it need only be
+   owned by the caller. The other parent stays a strictly checked private
+   Hangar directory. Identity is still enforced by the held handle, no-replace
+   rename and post-rename identity check. */
+int64_t freak_fs_rename_relative_new_from_workspace_checked(int64_t source_handle,freak_word source_relative,
         int64_t destination_handle,freak_word destination_relative) {
-    return freak_fs_rename_relative_new_policy(source_handle,source_relative,destination_handle,destination_relative,true);
+    return freak_fs_rename_relative_new_policy(source_handle,source_relative,destination_handle,destination_relative,true,false);
+}
+int64_t freak_fs_rename_relative_new_into_workspace_checked(int64_t source_handle,freak_word source_relative,
+        int64_t destination_handle,freak_word destination_relative) {
+    return freak_fs_rename_relative_new_policy(source_handle,source_relative,destination_handle,destination_relative,false,true);
 }
 int64_t freak_fs_set_mode_relative_checked(int64_t root_handle,freak_word relative,int64_t mode) {
     int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
@@ -2213,6 +2220,9 @@ int64_t freak_llvm_fs_directory_identity_ticket(int64_t root) { return freak_fs_
 int64_t freak_llvm_fs_rename_relative_new_checked(int64_t source,int64_t from,int64_t destination,int64_t to) {
     return freak_fs_rename_relative_new_checked(source,freak_llvm_word_view(from),destination,freak_llvm_word_view(to));
 }
-int64_t freak_llvm_fs_rename_relative_new_workspace_checked(int64_t source,int64_t from,int64_t destination,int64_t to) {
-    return freak_fs_rename_relative_new_workspace_checked(source,freak_llvm_word_view(from),destination,freak_llvm_word_view(to));
+int64_t freak_llvm_fs_rename_relative_new_from_workspace_checked(int64_t source,int64_t from,int64_t destination,int64_t to) {
+    return freak_fs_rename_relative_new_from_workspace_checked(source,freak_llvm_word_view(from),destination,freak_llvm_word_view(to));
+}
+int64_t freak_llvm_fs_rename_relative_new_into_workspace_checked(int64_t source,int64_t from,int64_t destination,int64_t to) {
+    return freak_fs_rename_relative_new_into_workspace_checked(source,freak_llvm_word_view(from),destination,freak_llvm_word_view(to));
 }
