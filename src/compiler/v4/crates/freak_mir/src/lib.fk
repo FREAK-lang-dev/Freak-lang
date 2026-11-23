@@ -5620,7 +5620,7 @@ task v4_mir_system_intrinsic_kind(mir: int, body: int, value: int) -> word {
 }
 
 task v4_mir_builtin_method_identity_is_known(identity: word) -> bool {
-    give back v4_mir_builtin_shared_method_identity_is_known(identity) or v4_mir_builtin_word_identity_kind(identity) != "" or v4_mir_builtin_control_identity_kind(identity) != "" or v4_mir_builtin_system_identity_kind(identity) != "" or v4_mir_builtin_list_identity_kind(identity) != ""
+    give back v4_mir_builtin_shared_method_identity_is_known(identity) or v4_mir_builtin_word_identity_kind(identity) != "" or v4_mir_builtin_control_identity_kind(identity) != "" or v4_mir_builtin_system_identity_kind(identity) != "" or v4_mir_builtin_list_identity_kind(identity) != "" or v4_mir_builtin_map_identity_kind(identity) != ""
 }
 
 task v4_mir_builtin_method_identity_code(identity: word) -> int {
@@ -5630,6 +5630,8 @@ task v4_mir_builtin_method_identity_code(identity: word) -> int {
     if identity == "builtin::system::fs_read" { give back 204 }
     if identity == "builtin::list::push" { give back 401 }
     if identity == "builtin::list::length" { give back 402 }
+    pilot map_code = v4_mir_builtin_map_identity_code(identity)
+    if map_code > 0 { give back map_code }
     pilot shared = v4_mir_builtin_shared_method_identity_code(identity)
     if shared > 0 { give back shared }
     pilot kind = v4_mir_builtin_word_identity_kind(identity)
@@ -5769,6 +5771,151 @@ task v4_mir_rvalue_is_list_loop_item(mir: int, body: int, value: int) -> bool {
     pilot list_ty = v4_mir_list_loan_type(mir, body, loan, false)
     if list_ty == "" or v4_mir_rvalue_ty(mir, body, index) != v4_ty_int { give back false }
     give back v4_ty_canonical_type(v4_mir_ty_id(mir), v4_mir_rvalue_ty(mir, body, value)) == v4_ty_canonical_type(v4_mir_ty_id(mir), v4_ty_list_element_type(list_ty))
+}
+
+-- Native maps and sets (tier 3). `Map<K, V>` and `Set<T>` are owned hash
+-- collections. Their operations are closed builtin calls that take the
+-- collection as a loan first, like the list intrinsics: `get`, `length`
+-- and `contains` a shared loan, `set`, `add` and `remove` a `lend mut`
+-- loan. A key a call only looks up is lent (`lend word` for word keys);
+-- a key `set` or `add` stores moves in, as does the stored value. `new`
+-- is the empty collection of its sealed result type. `m[k]` is the
+-- checked Index place over the map, not a call.
+task v4_mir_hash_collection_kind(mir: int, type_text: word) -> word {
+    if mir < 0 or type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lend_type(type_text) { give back "" }
+    pilot canonical = v4_ty_canonical_type(v4_mir_ty_id(mir), type_text)
+    if not v4_ty_is_generic_instance_type(canonical) { give back "" }
+    pilot base = v4_ty_generic_base_name(canonical)
+    if base == "Map" and v4_ty_generic_arg_count(canonical) == 2 { give back "Map" }
+    if base == "Set" and v4_ty_generic_arg_count(canonical) == 1 { give back "Set" }
+    give back ""
+}
+
+task v4_mir_hash_collection_key_type(mir: int, type_text: word) -> word {
+    if v4_mir_hash_collection_kind(mir, type_text) == "" { give back v4_ty_unknown }
+    pilot canonical = v4_ty_canonical_type(v4_mir_ty_id(mir), type_text)
+    give back v4_ty_canonical_type(v4_mir_ty_id(mir), v4_ty_generic_arg(canonical, 0))
+}
+
+-- The value type of a map, or unknown for a set (whose entries are keys).
+task v4_mir_hash_collection_value_type(mir: int, type_text: word) -> word {
+    if v4_mir_hash_collection_kind(mir, type_text) != "Map" { give back v4_ty_unknown }
+    pilot canonical = v4_ty_canonical_type(v4_mir_ty_id(mir), type_text)
+    give back v4_ty_canonical_type(v4_mir_ty_id(mir), v4_ty_generic_arg(canonical, 1))
+}
+
+task v4_mir_map_intrinsic_identity(family: word, kind: word) -> word {
+    if family == "map" and (kind == "new" or kind == "set" or kind == "get" or kind == "length" or kind == "remove") { give back "builtin::map::" + kind }
+    if family == "set" and (kind == "new" or kind == "add" or kind == "contains" or kind == "length" or kind == "remove") { give back "builtin::set::" + kind }
+    give back ""
+}
+
+-- `map_set`, `set_add`, ...: the family and the operation of a map or set
+-- builtin identity, or "".
+task v4_mir_builtin_map_identity_kind(identity: word) -> word {
+    if identity == "builtin::map::new" { give back "map_new" }
+    if identity == "builtin::map::set" { give back "map_set" }
+    if identity == "builtin::map::get" { give back "map_get" }
+    if identity == "builtin::map::length" { give back "map_length" }
+    if identity == "builtin::map::remove" { give back "map_remove" }
+    if identity == "builtin::set::new" { give back "set_new" }
+    if identity == "builtin::set::add" { give back "set_add" }
+    if identity == "builtin::set::contains" { give back "set_contains" }
+    if identity == "builtin::set::length" { give back "set_length" }
+    if identity == "builtin::set::remove" { give back "set_remove" }
+    give back ""
+}
+
+task v4_mir_builtin_map_identity_code(identity: word) -> int {
+    pilot kind = v4_mir_builtin_map_identity_kind(identity)
+    if kind == "map_new" { give back 403 }
+    if kind == "map_set" { give back 404 }
+    if kind == "map_get" { give back 405 }
+    if kind == "map_length" { give back 406 }
+    if kind == "map_remove" { give back 407 }
+    if kind == "set_new" { give back 408 }
+    if kind == "set_add" { give back 409 }
+    if kind == "set_contains" { give back 410 }
+    if kind == "set_length" { give back 411 }
+    if kind == "set_remove" { give back 412 }
+    give back 0
+}
+
+-- The map or set type a loan argument lends, or "" when it is not such a
+-- loan of the wanted mode (a `lend mut` loan also serves a shared use).
+task v4_mir_map_loan_type(mir: int, body: int, value: int, mutable: bool) -> word {
+    if value < 0 or value >= v4_mir_body_rvalue_count(mir, body) { give back "" }
+    pilot loan_ty = v4_mir_rvalue_ty(mir, body, value)
+    if not v4_ty_is_lend_type(loan_ty) { give back "" }
+    if mutable and v4_ty_lend_mode(loan_ty) != v4_ty_param_mode_lend_mut { give back "" }
+    pilot target_ty = v4_ty_lend_target_type(loan_ty)
+    if v4_mir_hash_collection_kind(mir, target_ty) == "" { give back "" }
+    pilot collection_ty = v4_ty_canonical_type(v4_mir_ty_id(mir), target_ty)
+    pilot kind = v4_mir_rvalue_kind(mir, body, value)
+    if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+        pilot mutable_kind: bool = kind == v4_mir_rvalue_lend_mut
+        pilot mutable_type: bool = v4_ty_lend_mode(loan_ty) == v4_ty_param_mode_lend_mut
+        if mutable_kind != mutable_type { give back "" }
+        pilot owner = v4_mir_rvalue_lhs(mir, body, value)
+        if owner < 0 or owner >= value or v4_mir_rvalue_rhs(mir, body, value) >= 0 { give back "" }
+        pilot owner_kind = v4_mir_rvalue_kind(mir, body, owner)
+        if owner_kind != v4_mir_rvalue_use_local and owner_kind != v4_mir_rvalue_use_place { give back "" }
+        if owner_kind == v4_mir_rvalue_use_local and not v4_mir_local_reference_is_exact(mir, body, owner) { give back "" }
+        if v4_ty_canonical_type(v4_mir_ty_id(mir), v4_mir_rvalue_ty(mir, body, owner)) != collection_ty { give back "" }
+        give back collection_ty
+    }
+    if kind == v4_mir_rvalue_use_local and v4_mir_local_reference_is_exact(mir, body, value) { give back collection_ty }
+    give back ""
+}
+
+-- A key the operation only looks up: a shared `lend word` loan of a word
+-- for word keys, the key value itself for scalar keys.
+task v4_mir_map_lookup_key_is_valid(mir: int, body: int, value: int, key: int, key_ty: word) -> bool {
+    if key < 0 or key >= value { give back false }
+    if key_ty == v4_ty_word {
+        if v4_mir_rvalue_kind(mir, body, key) != v4_mir_rvalue_lend or v4_mir_rvalue_ty(mir, body, key) != "lend word" or v4_mir_rvalue_rhs(mir, body, key) >= 0 { give back false }
+        pilot owner = v4_mir_rvalue_lhs(mir, body, key)
+        give back owner >= 0 and owner < key and v4_mir_rvalue_ty(mir, body, owner) == v4_ty_word
+    }
+    give back v4_ty_types_compatible(key_ty, v4_mir_rvalue_ty(mir, body, key))
+}
+
+-- Intrinsic identity is never inferred from ordinary user-visible call text.
+task v4_mir_rvalue_is_builtin_map(mir: int, body: int, value: int) -> bool {
+    if value < 0 or value >= v4_mir_body_rvalue_count(mir, body) { give back false }
+    pilot identity = v4_mir_rvalue_builtin_method(mir, body, value)
+    pilot kind = v4_mir_builtin_map_identity_kind(identity)
+    if kind == "" or v4_mir_rvalue_kind(mir, body, value) != v4_mir_rvalue_call { give back false }
+    if v4_mir_rvalue_op(mir, body, value) != identity or v4_mir_rvalue_abi(mir, body, value) != "" or v4_mir_rvalue_lhs(mir, body, value) != -1 or v4_mir_rvalue_rhs(mir, body, value) != -1 { give back false }
+    pilot count = v4_mir_rvalue_call_arg_count(mir, body, value)
+    pilot result_ty = v4_mir_rvalue_ty(mir, body, value)
+    pilot family = "Map"
+    if kind.starts_with("set_") { family = "Set" }
+    if kind == "map_new" or kind == "set_new" { give back count == 0 and v4_mir_hash_collection_kind(mir, result_ty) == family }
+    pilot loan = v4_mir_rvalue_call_arg(mir, body, value, 0)
+    if count < 1 or loan < 0 or loan >= value { give back false }
+    pilot mutable: bool = kind == "map_set" or kind == "map_remove" or kind == "set_add" or kind == "set_remove"
+    pilot collection_ty = v4_mir_map_loan_type(mir, body, loan, mutable)
+    if collection_ty == "" or v4_mir_hash_collection_kind(mir, collection_ty) != family { give back false }
+    if kind == "map_length" or kind == "set_length" { give back count == 1 and result_ty == v4_ty_int }
+    pilot key_ty = v4_mir_hash_collection_key_type(mir, collection_ty)
+    pilot key = v4_mir_rvalue_call_arg(mir, body, value, 1)
+    if kind == "map_set" {
+        if count != 3 or result_ty != v4_ty_void or key < 0 or key >= value { give back false }
+        pilot item = v4_mir_rvalue_call_arg(mir, body, value, 2)
+        if item < 0 or item >= value { give back false }
+        give back v4_ty_types_compatible(key_ty, v4_mir_rvalue_ty(mir, body, key)) and v4_ty_types_compatible(v4_mir_hash_collection_value_type(mir, collection_ty), v4_mir_rvalue_ty(mir, body, item))
+    }
+    if count != 2 { give back false }
+    if kind == "set_add" { give back result_ty == v4_ty_void and key >= 0 and key < value and v4_ty_types_compatible(key_ty, v4_mir_rvalue_ty(mir, body, key)) }
+    if not v4_mir_map_lookup_key_is_valid(mir, body, value, key, key_ty) { give back false }
+    if kind == "map_get" { give back v4_ty_canonical_type(v4_mir_ty_id(mir), result_ty) == v4_ty_canonical_type(v4_mir_ty_id(mir), "maybe<" + v4_mir_hash_collection_value_type(mir, collection_ty) + ">") }
+    give back result_ty == v4_ty_bool
+}
+
+task v4_mir_map_intrinsic_kind(mir: int, body: int, value: int) -> word {
+    if not v4_mir_rvalue_is_builtin_map(mir, body, value) { give back "" }
+    give back v4_mir_builtin_map_identity_kind(v4_mir_rvalue_builtin_method(mir, body, value))
 }
 
 -- Check graph order before Meiya follows live low-level MIR mutations.
@@ -7626,6 +7773,12 @@ task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) ->
     if not required { give back "" }
     pilot identity = v4_mir_snapshot_field(row, 13)
     if v4_mir_builtin_system_identity_kind(identity) != "" or identity == "builtin::word::to_int_maybe" { give back v4_mir_sum_row_intrinsic_error(ty, values, locals, value) }
+    -- A native map get gives back a fresh maybe<V> copy of the entry's value
+    -- (v4_mir_rvalue_is_builtin_map checks its loan and key).
+    if v4_mir_builtin_map_identity_kind(identity) == "map_get" {
+        if v4_mir_snapshot_field(row, 6) != identity or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" or count != 2 { give back "invalid native map get contract" }
+        give back ""
+    }
     if identity != "" or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" { give back "scalar sum calls require a resolved ordinary static task" }
     -- A generic instance call answers with its substitution applied.
     pilot signature = v4_mir_task_call_signature(ty, v4_mir_snapshot_field(row, 6))

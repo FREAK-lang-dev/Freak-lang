@@ -67,6 +67,9 @@ pilot v4_codegen_llvm_list_drop_types = "\n"
 -- ("\n"-framed): lists, and aggregates holding lists or route words.
 pilot v4_codegen_llvm_list_clone_types = "\n"
 pilot v4_codegen_llvm_list_used: bool = false
+-- Map and set types whose helpers this module emits, and those with a get.
+pilot v4_codegen_llvm_map_types = "\n"
+pilot v4_codegen_llvm_map_get_types = "\n"
 -- Policy of the module being lowered; selects the panic helper.
 pilot v4_codegen_llvm_active_panic_policy = "abort"
 pilot v4_codegen_llvm_fragment_error = ""
@@ -938,6 +941,7 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
         give back v4_codegen_llvm_shape_type_name(v4_codegen_llvm_active_owned_mir, ty_name)
     }
     if v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, ty_name) { give back v4_codegen_llvm_list_header_type() }
+    if v4_codegen_llvm_is_map(v4_codegen_llvm_active_owned_mir, ty_name) { give back v4_codegen_llvm_map_header_type() }
     if v4_codegen_llvm_active_owned_mir >= 0 {
         pilot route_sig = v4_codegen_llvm_route_signature(v4_codegen_llvm_active_owned_mir, ty_name)
         if route_sig >= 0 { give back v4_codegen_llvm_route_type_name(v4_codegen_llvm_active_owned_mir, route_sig) }
@@ -1917,7 +1921,7 @@ task v4_codegen_llvm_variadic_arg_prelude_line(mir_id: int, body_id: int, call_r
 -- own storage and are not copies.
 task v4_codegen_llvm_is_abi_aggregate(mir_id: int, type_text: word) -> bool {
     if v4_codegen_llvm_active_owned_mir != mir_id or v4_ty_is_lend_type(type_text) { give back false }
-    give back v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 or v4_codegen_llvm_is_list(mir_id, type_text)
+    give back v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 or v4_codegen_llvm_is_list(mir_id, type_text) or v4_codegen_llvm_is_map(mir_id, type_text)
 }
 
 -- A FREAK-ABI task call (direct, impl method or through a FREAK task
@@ -1926,7 +1930,7 @@ task v4_codegen_llvm_call_is_freak_abi(mir_id: int, body_id: int, rvalue_id: int
     if v4_codegen_llvm_active_owned_mir != mir_id or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call { give back false }
     pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
     if op == v4_mir_call_say_literal or op == v4_mir_call_raw_ptr_write or v4_mir_rvalue_abi(mir_id, body_id, rvalue_id) != "" { give back false }
-    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_list(mir_id, body_id, rvalue_id) { give back false }
+    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_list(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_map(mir_id, body_id, rvalue_id) { give back false }
     give back v4_mir_word_intrinsic_kind(mir_id, body_id, rvalue_id) == ""
 }
 
@@ -2111,7 +2115,7 @@ task v4_codegen_llvm_rvalue_needs_instruction(mir_id: int, body_id: int, rvalue_
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) { give back true }
     -- `or else` always branches; a discarded one still runs its fallback on the empty edge.
     if v4_codegen_llvm_active_owned_mir == mir_id and kind == v4_mir_rvalue_or_else and v4_codegen_llvm_or_else_is_supported(mir_id, body_id, rvalue_id) { give back true }
-    if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_loop_item) { give back true }
+    if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_map or kind == v4_mir_rvalue_loop_item) { give back true }
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_literal_aggregate(kind) { give back not v4_codegen_llvm_aggregate_literal_is_zero(mir_id, body_id, rvalue_id) }
     if v4_codegen_llvm_route_case_symbol(mir_id, body_id, rvalue_id) >= 0 { give back true }
     if (kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float) and v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) == "float" { give back true }
@@ -2637,6 +2641,10 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                         call_symbol = "@freak.list." + v4_mir_list_intrinsic_kind(mir_id, body_idx, rvalue_idx)
                         call_line = ""
                     }
+                    if v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_rvalue_is_builtin_map(mir_id, body_idx, rvalue_idx) {
+                        call_symbol = "@freak.map." + v4_mir_map_intrinsic_kind(mir_id, body_idx, rvalue_idx)
+                        call_line = ""
+                    }
                     if v4_mir_rvalue_is_builtin_control(mir_id, body_idx, rvalue_idx) {
                         call_symbol = v4_codegen_llvm_panic_symbol()
                         call_line = v4_codegen_llvm_panic_instruction(mir_id, body_idx, rvalue_idx)
@@ -3026,6 +3034,7 @@ task v4_codegen_llvm_native_type_error_depth(type_text: word, allow_void: bool, 
     if v4_codegen_llvm_active_owned_mir >= 0 and depth == 0 and v4_codegen_llvm_is_aggregate_lend(v4_codegen_llvm_active_owned_mir, type_text) { give back v4_codegen_llvm_native_shape_error(v4_codegen_llvm_active_owned_mir, v4_ty_lend_target_type(type_text), 0) }
     if v4_codegen_llvm_active_owned_mir >= 0 and depth == 0 and v4_codegen_llvm_is_place_lend(v4_codegen_llvm_active_owned_mir, type_text) { give back "" }
     if v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, type_text) { give back v4_codegen_llvm_native_list_type_error(v4_codegen_llvm_active_owned_mir, type_text, depth) }
+    if v4_codegen_llvm_is_map(v4_codegen_llvm_active_owned_mir, type_text) { give back v4_codegen_llvm_native_map_type_error(v4_codegen_llvm_active_owned_mir, type_text, depth) }
     if type_text == v4_ty_int or type_text == v4_ty_uint or type_text == v4_ty_tiny or type_text == v4_ty_num or type_text == v4_ty_float or type_text == v4_ty_float32 or type_text == v4_ty_bool or type_text == v4_ty_char or type_text == v4_ty_word { give back "" }
     if allow_void and (type_text == v4_ty_void or type_text == v4_ty_never) { give back "" }
     -- Opaque raw pointer values do not require an aggregate layout. Operations
@@ -3143,7 +3152,7 @@ task v4_codegen_llvm_word_leaf_count(mir_id: int, type_text: word, depth: int) -
     if v4_ty_is_lend_type(type_text) { give back 0 }
     -- A list is one owned handle: its drop glue frees the buffer and its
     -- elements' words (v4_codegen_llvm_list_drop_lines).
-    if v4_codegen_llvm_is_list(mir_id, type_text) { give back 1 }
+    if v4_codegen_llvm_is_list(mir_id, type_text) or v4_codegen_llvm_is_map(mir_id, type_text) { give back 1 }
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
     if kind == "" { give back v4_codegen_llvm_route_word_leaf_count(mir_id, type_text, depth) }
     if kind == "array" {
@@ -3217,6 +3226,7 @@ task v4_codegen_llvm_drop_glue_at(mir_id: int, type_text: word, address: word, c
         give back out + "  call void @freak_v4_word_drop(i64 " + handle + ")\n"
     }
     if v4_codegen_llvm_is_list(mir_id, type_text) { give back v4_codegen_llvm_list_drop_lines(mir_id, type_text, address, "", cond, temp) }
+    if v4_codegen_llvm_is_map(mir_id, type_text) { give back v4_codegen_llvm_map_drop_lines(mir_id, type_text, address, "", cond, temp) }
     if v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back "" }
     pilot llvm_ty = v4_codegen_llvm_type(type_text)
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
@@ -4038,6 +4048,7 @@ task v4_codegen_llvm_shape_records(mir_id: int) -> word {
     -- list field still has a layout when no emitted body touches a list;
     -- the list runtime itself stays gated on v4_codegen_llvm_list_used.
     if v4_codegen_llvm_list_used or out.contains(v4_codegen_llvm_list_header_type()) { out = out + v4_codegen_llvm_list_header_type() + "\tptr\ti64\ti64\n" }
+    if v4_codegen_llvm_map_types != "\n" { out = out + v4_codegen_llvm_map_header_type() + "\tptr\ti64\ti64\tptr\ti64\n" }
     give back out
 }
 
@@ -4632,6 +4643,12 @@ task v4_codegen_llvm_integer_literal_error(type_text: word, text: word) -> word 
 -- carriers become integer or floating values through an accidental cast.
 task v4_codegen_llvm_native_conversion_error(actual: word, expected: word) -> word {
     if actual == expected { give back "" }
+    -- A map or set converts only to its own canonical type.
+    if v4_codegen_llvm_is_map(v4_codegen_llvm_active_owned_mir, actual) or v4_codegen_llvm_is_map(v4_codegen_llvm_active_owned_mir, expected) {
+        pilot map_ty_id = v4_mir_ty_id(v4_codegen_llvm_active_owned_mir)
+        if v4_codegen_llvm_is_map(v4_codegen_llvm_active_owned_mir, actual) and v4_codegen_llvm_is_map(v4_codegen_llvm_active_owned_mir, expected) and v4_ty_canonical_type(map_ty_id, actual) == v4_ty_canonical_type(map_ty_id, expected) { give back "" }
+        give back "unsupported native conversion: " + actual + " to " + expected
+    }
     -- A list converts only to its own canonical type (one element layout).
     if v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, actual) or v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, expected) {
         pilot ty_id = v4_mir_ty_id(v4_codegen_llvm_active_owned_mir)
@@ -4844,6 +4861,8 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
     if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_dyn_ref(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back "" }
     if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_list or (kind == v4_mir_rvalue_loop_item and v4_mir_rvalue_is_list_loop_item(mir_id, body_id, rvalue_id)) or (kind == v4_mir_rvalue_call and v4_mir_rvalue_is_builtin_list(mir_id, body_id, rvalue_id))) { give back v4_codegen_llvm_native_list_rvalue_error(mir_id, body_id, rvalue_id) }
     if kind == v4_mir_rvalue_call and (v4_mir_rvalue_op(mir_id, body_id, rvalue_id).starts_with("builtin::list::") or v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id).starts_with("builtin::list::")) { give back "invalid native list intrinsic identity" }
+    if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_map or (kind == v4_mir_rvalue_call and v4_mir_rvalue_is_builtin_map(mir_id, body_id, rvalue_id))) { give back v4_codegen_llvm_native_map_rvalue_error(mir_id, body_id, rvalue_id) }
+    if kind == v4_mir_rvalue_call and (v4_mir_rvalue_op(mir_id, body_id, rvalue_id).starts_with("builtin::map::") or v4_mir_rvalue_op(mir_id, body_id, rvalue_id).starts_with("builtin::set::") or v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id).starts_with("builtin::map::") or v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id).starts_with("builtin::set::")) { give back "invalid native map intrinsic identity" }
     if kind != v4_mir_rvalue_const_int and kind != v4_mir_rvalue_const_float and kind != v4_mir_rvalue_const_word and kind != v4_mir_rvalue_const_bool and kind != v4_mir_rvalue_const_char and kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_use_symbol and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_call and not (v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_lend or v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_use_place or v4_codegen_llvm_scalar_sum_rvalue_is_supported(mir_id, body_id, rvalue_id) or (kind == v4_mir_rvalue_or_else and v4_codegen_llvm_or_else_is_supported(mir_id, body_id, rvalue_id)))) {
         -- A Sum operation over a carrier freak_ty does not admit names the payload.
         if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_or_else) {
@@ -5083,6 +5102,7 @@ task v4_codegen_llvm_native_place_error(mir_id: int, body_id: int, place_id: int
             if v4_ty_canonical_type(ty_id, declared) != v4_ty_canonical_type(ty_id, v4_mir_place_ty(mir_id, body_id, place_id)) { give back "native field place type differs from the declared field type: " + v4_mir_place_text(mir_id, body_id, place_id) }
             give back ""
         }
+        if v4_codegen_llvm_is_map(mir_id, base_ty) { give back v4_codegen_llvm_native_map_place_error(mir_id, body_id, place_id, base_ty) }
         pilot is_list: bool = v4_codegen_llvm_is_list(mir_id, base_ty)
         if v4_codegen_llvm_aggregate_kind(mir_id, base_ty) != "array" and not is_list { give back "native index places support only fixed arrays and lists: " + v4_mir_place_text(mir_id, body_id, place_id) }
         pilot index = v4_mir_place_index(mir_id, body_id, place_id)
@@ -5237,6 +5257,8 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
     v4_codegen_llvm_list_drop_types = "\n"
     v4_codegen_llvm_list_clone_types = "\n"
     v4_codegen_llvm_list_used = false
+    v4_codegen_llvm_map_types = "\n"
+    v4_codegen_llvm_map_get_types = "\n"
     v4_codegen_llvm_fragment_error = ""
     pilot sealed_policy = policy
     if policy != "unwind" and policy != "abort" { sealed_policy = "" }
@@ -5322,8 +5344,13 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         if native_error == "" { native_error = v4_codegen_llvm_native_global_symbol_error(codegen_id, mir_id) }
         if native_error == "" { native_error = v4_codegen_llvm_native_c_width_error(mir_id, ty_id) }
         pilot runtime = ""
-        v4_codegen_llvm_list_used = owned_words and v4_codegen_llvm_mir_uses_lists(mir_id)
+        if owned_words { v4_codegen_llvm_map_types = v4_codegen_llvm_mir_map_types(mir_id, false) }
+        if owned_words { v4_codegen_llvm_map_get_types = v4_codegen_llvm_mir_map_types(mir_id, true) }
+        pilot maps_used: bool = v4_codegen_llvm_map_types != "\n"
+        -- A map's entry buffer grows through the list helpers.
+        v4_codegen_llvm_list_used = owned_words and (v4_codegen_llvm_mir_uses_lists(mir_id) or maps_used)
         if native_error == "" and v4_codegen_llvm_list_used { native_error = v4_codegen_llvm_list_symbol_error(codegen_id) }
+        if native_error == "" and maps_used { native_error = v4_codegen_llvm_map_symbol_error(codegen_id) }
         pilot index_checks: bool = owned_words and (v4_codegen_llvm_mir_has_index_checks(mir_id) or v4_codegen_llvm_list_used)
         if owned_words and (v4_codegen_llvm_mir_has_owned_words(mir_id) or index_checks) {
             runtime = v4_codegen_llvm_word_runtime_declarations()
@@ -5343,6 +5370,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         pilot dyn_lines = ""
         if owned_words { dyn_lines = v4_codegen_llvm_dyn_module_lines(mir_id, runtime + global_lines) }
         if v4_codegen_llvm_list_used { runtime = runtime + v4_codegen_llvm_list_runtime_lines(mir_id) }
+        if maps_used { runtime = runtime + v4_codegen_llvm_map_runtime_lines(mir_id, runtime) }
         if native_error == "" { native_error = v4_codegen_llvm_numeric_runtime_symbol_error(codegen_id) }
         runtime = runtime + global_lines + dyn_lines
         array_set(v4_codegen_llvm_word_runtime_lines, codegen_id, runtime)
@@ -5350,6 +5378,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         pilot globals = v4_codegen_llvm_word_globals(mir_id)
         if index_checks { globals = globals + v4_codegen_llvm_bounds_globals() }
         if v4_codegen_llvm_list_used { globals = globals + v4_codegen_llvm_list_globals() }
+        if maps_used { globals = globals + v4_codegen_llvm_map_globals() }
         pilot entry = v4_codegen_llvm_native_entry(mir_id)
         if native_error == "" and entry != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_setup_args", "i64, i64") }
         if native_error == "" and globals != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_say", "i64") }
@@ -5625,6 +5654,7 @@ task v4_codegen_llvm_scalar_sum_bridge_instruction(mir: int, body: int, value: i
 task v4_codegen_llvm_owned_temporary_drop(mir: int, body: int, value: int, site: word) -> word {
     pilot value_ty = v4_mir_rvalue_ty(mir, body, value)
     if v4_codegen_llvm_is_list(mir, value_ty) { give back v4_codegen_llvm_list_drop_lines(mir, value_ty, "", v4_codegen_llvm_rvalue_value(mir, body, value), "", "%list.discard." + site) }
+    if v4_codegen_llvm_is_map(mir, value_ty) { give back v4_codegen_llvm_map_drop_lines(mir, value_ty, "", v4_codegen_llvm_rvalue_value(mir, body, value), "", "%map.discard." + site) }
     if v4_ty_canonical_type(v4_mir_ty_id(mir), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir, value_ty) {
         -- A route's payload is read in memory: the call's result slot.
         if v4_codegen_llvm_type_has_route_words(mir, value_ty, 0) { give back v4_codegen_llvm_drop_glue_at(mir, value_ty, v4_codegen_llvm_abi_ret_slot(body, value), "", "%agg.discard." + site, 0) }
@@ -5723,7 +5753,7 @@ task v4_codegen_llvm_word_rvalue_is_owned(mir_id: int, body_id: int, rvalue_id: 
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_ty_canonical_type(v4_mir_ty_id(mir_id), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir_id, value_ty) {
         pilot aggregate_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
         if aggregate_kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
-        give back aggregate_kind == v4_mir_rvalue_call or v4_codegen_llvm_is_literal_aggregate(aggregate_kind) or aggregate_kind == v4_mir_rvalue_list
+        give back aggregate_kind == v4_mir_rvalue_call or v4_codegen_llvm_is_literal_aggregate(aggregate_kind) or aggregate_kind == v4_mir_rvalue_list or aggregate_kind == v4_mir_rvalue_map
     }
     if not v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), value_ty) { give back false }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
@@ -5857,6 +5887,7 @@ task v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts: int, mir_id: int, bod
 task v4_codegen_llvm_compound_place_address(mir_id: int, body_id: int, place_id: int, site: word) -> word {
     pilot stem = word_from_int(body_id) + "." + word_from_int(place_id) + "." + site
     if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_index and v4_codegen_llvm_is_list(mir_id, v4_codegen_llvm_place_referent_ty(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id))) { give back "%listidx." + stem + ".at" }
+    if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_index and v4_codegen_llvm_is_map(mir_id, v4_codegen_llvm_place_referent_ty(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id))) { give back "%mapidx." + stem + ".at" }
     give back "%place." + stem
 }
 
@@ -5887,6 +5918,7 @@ task v4_codegen_llvm_place_address(parts: int, mir_id: int, body_id: int, place_
         pilot index = v4_mir_place_index(mir_id, body_id, place_id)
         v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, index, v4_codegen_llvm_temp_value(body_id, index), false)
         pilot index_value = v4_codegen_llvm_rvalue_value(mir_id, body_id, index)
+        if v4_codegen_llvm_is_map(mir_id, base_ty) { give back v4_codegen_llvm_map_index_lines(parts, mir_id, body_id, place_id, "mapidx." + word_from_int(body_id) + "." + word_from_int(place_id) + "." + site, base_pointer, base_ty) }
         if v4_codegen_llvm_is_list(mir_id, base_ty) { give back v4_codegen_llvm_list_element_lines(parts, "listidx." + word_from_int(body_id) + "." + word_from_int(place_id) + "." + site, base_pointer, v4_codegen_llvm_type(v4_codegen_llvm_list_element(mir_id, base_ty)), index_value) }
         if v4_codegen_llvm_index_needs_check(mir_id, body_id, place_id) {
             pilot length = word_from_int(v4_codegen_llvm_fixed_array_length(mir_id, base_ty))
@@ -6067,7 +6099,7 @@ task v4_codegen_llvm_is_aggregate_lend(mir_id: int, type_text: word) -> bool {
 -- Storage a native loan points at: a shape, tuple, fixed array, concrete
 -- route, or a scalar (bool, char and the integer and float carriers).
 task v4_codegen_llvm_is_lendable_storage(mir_id: int, type_text: word) -> bool {
-    if v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 or v4_codegen_llvm_is_list(mir_id, type_text) { give back true }
+    if v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 or v4_codegen_llvm_is_list(mir_id, type_text) or v4_codegen_llvm_is_map(mir_id, type_text) { give back true }
     give back type_text == v4_ty_int or type_text == v4_ty_uint or type_text == v4_ty_tiny or type_text == v4_ty_num or type_text == v4_ty_float or type_text == v4_ty_float32 or type_text == v4_ty_bool or type_text == v4_ty_char
 }
 
@@ -6648,6 +6680,572 @@ task v4_codegen_llvm_list_symbol_error(codegen_id: int) -> word {
     repeat until decl >= v4_codegen_llvm_decl_count(codegen_id) {
         pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl)
         if reserved.contains("," + symbol + ",") or symbol.starts_with("@freak.list.") or symbol.starts_with("@\"freak.list.") { give back "native list runtime symbol conflict: " + symbol }
+        decl += 1
+    }
+    give back ""
+}
+
+-- Native maps and sets (tier 3). `Map<K, V>` and `Set<T>` are owned hash
+-- collections with one header, `freak.map.header` (entries, length,
+-- capacity, index, index slots). Entries sit by value in insertion order in
+-- a buffer typed per collection (`{ K, V }`, or `{ K }` for a set); the
+-- index is an open-addressed table of entry positions (0 is a free slot,
+-- linear probing, at least twice as many slots as entries), so a lookup
+-- hashes once and compares keys only along its probe. Keys are words
+-- (hashed by the runtime's FNV-1a checksum, compared by bytes) or integer
+-- scalars (int, uint, tiny, char, bool; mixed by a multiply and shift).
+-- The header's first three fields are a list header's, so the entry buffer
+-- grows through the list helpers. Every operation is a private helper per
+-- collection type; MIR states each one (v4_mir_rvalue_is_builtin_map) and
+-- Meiya owns every move and drop, as for lists.
+task v4_codegen_llvm_is_map(mir_id: int, type_text: word) -> bool {
+    if mir_id < 0 or v4_codegen_llvm_active_owned_mir != mir_id or type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lend_type(type_text) { give back false }
+    give back v4_mir_hash_collection_kind(mir_id, type_text) != ""
+}
+
+task v4_codegen_llvm_map_header_type() -> word {
+    give back "%\"freak.map.header\""
+}
+
+task v4_codegen_llvm_map_is_set(mir_id: int, type_text: word) -> bool {
+    give back v4_mir_hash_collection_kind(mir_id, type_text) == "Set"
+}
+
+-- The entry record of one collection type, as an LLVM literal struct.
+task v4_codegen_llvm_map_entry_type(mir_id: int, type_text: word) -> word {
+    pilot key = v4_codegen_llvm_type(v4_mir_hash_collection_key_type(mir_id, type_text))
+    if v4_codegen_llvm_map_is_set(mir_id, type_text) { give back "{ " + key + " }" }
+    give back "{ " + key + ", " + v4_codegen_llvm_type(v4_mir_hash_collection_value_type(mir_id, type_text)) + " }"
+}
+
+task v4_codegen_llvm_map_helper(mir_id: int, type_text: word, name: word) -> word {
+    give back v4_codegen_llvm_symbol("freak.map." + name + "." + v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text))
+}
+
+-- Keys a native map or set hashes and compares: words and integer scalars.
+task v4_codegen_llvm_map_key_is_native(mir_id: int, key_ty: word) -> bool {
+    pilot key = v4_ty_canonical_type(v4_mir_ty_id(mir_id), key_ty)
+    give back key == v4_ty_word or key == v4_ty_int or key == v4_ty_uint or key == v4_ty_tiny or key == v4_ty_char or key == v4_ty_bool
+}
+
+-- `Map<K, V>` / `Set<T>` type surfaces: a top-level value (not yet a slot
+-- of another type) with native keys and list-like values.
+task v4_codegen_llvm_native_map_type_error(mir_id: int, type_text: word, depth: int) -> word {
+    if depth > 0 { give back "native maps and sets inside other types are not yet supported: " + type_text }
+    pilot key = v4_mir_hash_collection_key_type(mir_id, type_text)
+    if key == "" or key == v4_ty_unknown { give back "native map key type is unresolved: " + type_text }
+    if not v4_codegen_llvm_map_key_is_native(mir_id, key) { give back "native map keys of type " + key + " are not yet supported: " + type_text }
+    if v4_codegen_llvm_map_is_set(mir_id, type_text) { give back "" }
+    pilot value = v4_mir_hash_collection_value_type(mir_id, type_text)
+    if value == "" or value == v4_ty_unknown { give back "native map value type is unresolved: " + type_text }
+    if v4_ty_is_lend_type(value) { give back "native maps of loans are not yet supported: " + type_text }
+    if value == v4_ty_void or value == v4_ty_never { give back "native map values of void are not supported: " + type_text }
+    if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), value) or v4_mir_scalar_sum_kind(mir_id, value) != "" or v4_ty_is_maybe_type(value) { give back "native map values of maybe/result_llvm are not yet supported: " + type_text }
+    if v4_codegen_llvm_is_list(mir_id, value) or v4_codegen_llvm_is_map(mir_id, value) { give back "native map values of lists, maps or sets are not yet supported: " + type_text }
+    if v4_ty_is_closure_type(value) { give back "native map values of closures are not yet supported: " + type_text }
+    give back v4_codegen_llvm_native_type_error_depth(value, false, 1)
+}
+
+-- Map literals and map or set builtin calls. MIR states every operand;
+-- codegen adds no operation of its own.
+task v4_codegen_llvm_native_map_rvalue_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+    if not v4_mir_snapshot_rvalue_refs_are_valid(kind, word_from_int(lhs), word_from_int(rhs), v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id), rvalue_id, v4_mir_body_place_count(mir_id, body_id)) { give back "invalid native rvalue references: " + kind }
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot error = v4_codegen_llvm_native_type_error(type_text, true)
+    if error != "" { give back error }
+    if kind == v4_mir_rvalue_map {
+        if not v4_codegen_llvm_is_map(mir_id, type_text) or v4_codegen_llvm_map_is_set(mir_id, type_text) { give back "native map literals need a concrete Map type: " + type_text }
+        pilot count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+        if count % 2 != 0 { give back "invalid native map literal entries" }
+        pilot arg = 0
+        repeat until arg >= count {
+            pilot expected = v4_mir_hash_collection_value_type(mir_id, type_text)
+            if arg % 2 == 0 { expected = v4_mir_hash_collection_key_type(mir_id, type_text) }
+            error = v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)), expected)
+            if error != "" { give back error }
+            arg += 1
+        }
+        give back ""
+    }
+    pilot map_kind = v4_mir_map_intrinsic_kind(mir_id, body_id, rvalue_id)
+    if map_kind == "map_new" or map_kind == "set_new" { give back "" }
+    pilot collection_ty = v4_ty_lend_target_type(v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)))
+    error = v4_codegen_llvm_native_type_error(collection_ty, false)
+    if error != "" { give back error }
+    if map_kind == "map_length" or map_kind == "set_length" { give back "" }
+    pilot key_ty = v4_mir_hash_collection_key_type(mir_id, collection_ty)
+    pilot key = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 1)
+    if map_kind == "map_set" or map_kind == "set_add" {
+        error = v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, key), key_ty)
+        if error != "" { give back error }
+    } else if key_ty != v4_ty_word {
+        error = v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, key), key_ty)
+        if error != "" { give back error }
+    }
+    if map_kind == "map_set" { give back v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 2)), v4_mir_hash_collection_value_type(mir_id, collection_ty)) }
+    -- get gives back a fresh copy: word leaves are cloned by path, which a
+    -- route payload (read by its tag) does not have yet.
+    if map_kind == "map_get" and v4_codegen_llvm_type_has_route_words(mir_id, v4_mir_hash_collection_value_type(mir_id, collection_ty), 0) { give back "native map gets of routes that own words are not yet supported: " + collection_ty }
+    give back ""
+}
+
+-- `m[k]`: the entry value's address, from the at helper, which panics with
+-- `map key not found` when the map has no such key.
+task v4_codegen_llvm_native_map_place_error(mir_id: int, body_id: int, place_id: int, base_ty: word) -> word {
+    if v4_codegen_llvm_map_is_set(mir_id, base_ty) { give back "native set elements are not places: " + v4_mir_place_text(mir_id, body_id, place_id) }
+    pilot error = v4_codegen_llvm_native_type_error(base_ty, false)
+    if error != "" { give back error }
+    pilot index = v4_mir_place_index(mir_id, body_id, place_id)
+    if index < 0 or index >= v4_mir_body_rvalue_count(mir_id, body_id) { give back "invalid native place reference" }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot key_ty = v4_mir_hash_collection_key_type(mir_id, base_ty)
+    pilot index_ty = v4_mir_rvalue_ty(mir_id, body_id, index)
+    if key_ty == v4_ty_word {
+        if v4_mir_rvalue_kind(mir_id, body_id, index) != v4_mir_rvalue_lend or index_ty != "lend word" { give back "native map word keys must be lent: " + v4_mir_place_text(mir_id, body_id, place_id) }
+    } else if v4_ty_canonical_type(ty_id, index_ty) != key_ty { give back "native map key type differs from the map key type: " + v4_mir_place_text(mir_id, body_id, place_id) }
+    if v4_ty_canonical_type(ty_id, v4_mir_place_ty(mir_id, body_id, place_id)) != v4_mir_hash_collection_value_type(mir_id, base_ty) { give back "invalid native index place type" }
+    give back ""
+}
+
+-- The key operand of a lookup (a lent word key reads its handle) and the
+-- release of a fresh word key once the lookup returned.
+task v4_codegen_llvm_map_lookup_key_lines(mir_id: int, body_id: int, key: int, key_ty: word, temp: word) -> word {
+    if key_ty == v4_ty_word { give back "" }
+    give back v4_codegen_llvm_expected_lines(mir_id, body_id, key, key_ty, temp)
+}
+
+task v4_codegen_llvm_map_lookup_key_value(mir_id: int, body_id: int, key: int, key_ty: word, temp: word) -> word {
+    if key_ty == v4_ty_word { give back v4_codegen_llvm_rvalue_value(mir_id, body_id, key) }
+    give back v4_codegen_llvm_expected_value(mir_id, body_id, key, key_ty, temp)
+}
+
+task v4_codegen_llvm_map_key_release_lines(mir_id: int, body_id: int, key: int) -> word {
+    if v4_mir_rvalue_kind(mir_id, body_id, key) != v4_mir_rvalue_lend { give back "" }
+    pilot child = v4_mir_rvalue_lhs(mir_id, body_id, key)
+    if v4_mir_rvalue_ty(mir_id, body_id, child) != v4_ty_word or not v4_codegen_llvm_lend_word_temporary_is_fresh(mir_id, body_id, child) { give back "" }
+    give back "  call void @freak_v4_word_drop(i64 " + v4_codegen_llvm_rvalue_value(mir_id, body_id, child) + ")\n"
+}
+
+-- The checked address of `m[k]` (header at `header`, key operand already
+-- evaluated). Non-recursive: place_address evaluates the key first.
+task v4_codegen_llvm_map_index_lines(parts: int, mir_id: int, body_id: int, place_id: int, label: word, header: word, map_ty: word) -> word {
+    pilot key = v4_mir_place_index(mir_id, body_id, place_id)
+    pilot key_ty = v4_mir_hash_collection_key_type(mir_id, map_ty)
+    pilot value = "%" + label
+    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_map_lookup_key_lines(mir_id, body_id, key, key_ty, value + ".key"))
+    v4_codegen_llvm_fragment_push(parts, "  " + value + ".at = call ptr " + v4_codegen_llvm_map_helper(mir_id, map_ty, "at") + "(ptr " + header + ", " + v4_codegen_llvm_type(key_ty) + " " + v4_codegen_llvm_map_lookup_key_value(mir_id, body_id, key, key_ty, value + ".key") + ")\n")
+    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_map_key_release_lines(mir_id, body_id, key))
+    give back value + ".at"
+}
+
+-- One call site in v4_codegen_llvm_collect_owned_special_lines (the stack
+-- rule, chained after the list dispatcher). This dispatcher sits in the
+-- recursive collector's chain, so it only evaluates operands; the IR text
+-- comes from v4_codegen_llvm_map_operation_lines, which does not recurse.
+task v4_codegen_llvm_collect_map_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back false }
+    pilot map_kind = ""
+    if kind == v4_mir_rvalue_call { map_kind = v4_mir_map_intrinsic_kind(mir_id, body_id, rvalue_id) }
+    if kind == v4_mir_rvalue_map { map_kind = "literal" }
+    if map_kind == "" { give back false }
+    pilot arg = 0
+    repeat until arg >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
+        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)
+        v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, child, v4_codegen_llvm_temp_value(body_id, child), false)
+        arg += 1
+    }
+    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_map_operation_lines(mir_id, body_id, rvalue_id, target, map_kind))
+    give back true
+}
+
+-- Literals, `new`, and the builtin calls over operands already evaluated.
+task v4_codegen_llvm_map_operation_lines(mir_id: int, body_id: int, rvalue_id: int, target: word, map_kind: word) -> word {
+    pilot header_ty = v4_codegen_llvm_map_header_type()
+    pilot prefix = "%map." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if map_kind == "map_new" or map_kind == "set_new" { give back "  " + target + " = freeze " + header_ty + " zeroinitializer\n" }
+    if map_kind == "literal" { give back v4_codegen_llvm_map_literal_lines(mir_id, body_id, rvalue_id, target, prefix) }
+    pilot loan = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
+    pilot header = v4_codegen_llvm_rvalue_value(mir_id, body_id, loan)
+    pilot map_ty = v4_ty_lend_target_type(v4_mir_rvalue_ty(mir_id, body_id, loan))
+    if map_kind == "map_length" or map_kind == "set_length" {
+        pilot out = "  " + prefix + ".lenp = getelementptr inbounds " + header_ty + ", ptr " + header + ", i32 0, i32 1\n"
+        give back out + "  " + target + " = load i64, ptr " + prefix + ".lenp\n"
+    }
+    pilot key_ty = v4_mir_hash_collection_key_type(mir_id, map_ty)
+    pilot key_llvm = v4_codegen_llvm_type(key_ty)
+    pilot key = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 1)
+    if map_kind == "map_set" or map_kind == "set_add" {
+        -- The key (and the value) move into the collection.
+        pilot out = v4_codegen_llvm_expected_lines(mir_id, body_id, key, key_ty, prefix + ".key")
+        pilot call_args = "ptr " + header + ", " + key_llvm + " " + v4_codegen_llvm_expected_value(mir_id, body_id, key, key_ty, prefix + ".key")
+        if map_kind == "map_set" {
+            pilot item = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 2)
+            pilot value_ty = v4_mir_hash_collection_value_type(mir_id, map_ty)
+            out = out + v4_codegen_llvm_expected_lines(mir_id, body_id, item, value_ty, prefix + ".item")
+            call_args = call_args + ", " + v4_codegen_llvm_type(value_ty) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, item, value_ty, prefix + ".item")
+            give back out + "  call void " + v4_codegen_llvm_map_helper(mir_id, map_ty, "set") + "(" + call_args + ")\n"
+        }
+        give back out + "  call void " + v4_codegen_llvm_map_helper(mir_id, map_ty, "add") + "(" + call_args + ")\n"
+    }
+    pilot helper = "contains"
+    pilot result_llvm = "i1"
+    if map_kind == "map_remove" or map_kind == "set_remove" { helper = "remove" }
+    if map_kind == "map_get" {
+        helper = "get"
+        result_llvm = v4_codegen_llvm_type(type_text)
+    }
+    pilot out = v4_codegen_llvm_map_lookup_key_lines(mir_id, body_id, key, key_ty, prefix + ".key")
+    out = out + "  " + target + " = call " + result_llvm + " " + v4_codegen_llvm_map_helper(mir_id, map_ty, helper) + "(ptr " + header + ", " + key_llvm + " " + v4_codegen_llvm_map_lookup_key_value(mir_id, body_id, key, key_ty, prefix + ".key") + ")\n"
+    give back out + v4_codegen_llvm_map_key_release_lines(mir_id, body_id, key)
+}
+
+-- A literal stores its entries in source order into a buffer of exactly its
+-- length, then the seal helper builds the index; a later duplicate key
+-- replaces the earlier entry's value, as `set` does.
+task v4_codegen_llvm_map_literal_lines(mir_id: int, body_id: int, rvalue_id: int, target: word, prefix: word) -> word {
+    pilot header_ty = v4_codegen_llvm_map_header_type()
+    pilot map_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) / 2
+    if count <= 0 { give back "  " + target + " = freeze " + header_ty + " zeroinitializer\n" }
+    pilot entry = v4_codegen_llvm_map_entry_type(mir_id, map_ty)
+    pilot key_ty = v4_mir_hash_collection_key_type(mir_id, map_ty)
+    pilot value_ty = v4_mir_hash_collection_value_type(mir_id, map_ty)
+    pilot parts = v4_codegen_llvm_fragment_new()
+    pilot length = word_from_int(count)
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".data = call ptr @freak.list.alloc(i64 " + length + ", " + v4_codegen_llvm_list_element_size(entry) + ")\n")
+    pilot pair = 0
+    repeat until pair >= count {
+        pilot key = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, pair * 2)
+        pilot value = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, pair * 2 + 1)
+        pilot slot = prefix + ".e" + word_from_int(pair)
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, key, key_ty, slot + ".kc"))
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, value, value_ty, slot + ".vc"))
+        v4_codegen_llvm_fragment_push(parts, "  " + slot + " = getelementptr inbounds " + entry + ", ptr " + prefix + ".data, i64 " + word_from_int(pair) + "\n")
+        v4_codegen_llvm_fragment_push(parts, "  " + slot + ".k = getelementptr inbounds " + entry + ", ptr " + slot + ", i32 0, i32 0\n")
+        v4_codegen_llvm_fragment_push(parts, "  store " + v4_codegen_llvm_type(key_ty) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, key, key_ty, slot + ".kc") + ", ptr " + slot + ".k\n")
+        v4_codegen_llvm_fragment_push(parts, "  " + slot + ".v = getelementptr inbounds " + entry + ", ptr " + slot + ", i32 0, i32 1\n")
+        v4_codegen_llvm_fragment_push(parts, "  store " + v4_codegen_llvm_type(value_ty) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, value, value_ty, slot + ".vc") + ", ptr " + slot + ".v\n")
+        pair += 1
+    }
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".h0 = insertvalue " + header_ty + " zeroinitializer, ptr " + prefix + ".data, 0\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".h1 = insertvalue " + header_ty + " " + prefix + ".h0, i64 " + length + ", 1\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".h2 = insertvalue " + header_ty + " " + prefix + ".h1, i64 " + length + ", 2\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + target + " = call " + header_ty + " " + v4_codegen_llvm_map_helper(mir_id, map_ty, "seal") + "(" + header_ty + " " + prefix + ".h2)\n")
+    give back v4_codegen_llvm_fragment_finish(parts)
+}
+
+-- Drop glue of a map or set (at `address`, or a header `value` when
+-- address is ""): the collection's drop helper over (entries, length,
+-- index). Under `cond` the helper sees an empty collection.
+task v4_codegen_llvm_map_drop_lines(mir_id: int, type_text: word, address: word, value: word, cond: word, temp: word) -> word {
+    pilot header_ty = v4_codegen_llvm_map_header_type()
+    pilot out = ""
+    if address != "" {
+        out = "  " + temp + ".data = load ptr, ptr " + address + "\n"
+        out = out + "  " + temp + ".lenp = getelementptr inbounds " + header_ty + ", ptr " + address + ", i32 0, i32 1\n"
+        out = out + "  " + temp + ".len = load i64, ptr " + temp + ".lenp\n"
+        out = out + "  " + temp + ".indexp = getelementptr inbounds " + header_ty + ", ptr " + address + ", i32 0, i32 3\n"
+        out = out + "  " + temp + ".index = load ptr, ptr " + temp + ".indexp\n"
+    } else {
+        out = "  " + temp + ".data = extractvalue " + header_ty + " " + value + ", 0\n"
+        out = out + "  " + temp + ".len = extractvalue " + header_ty + " " + value + ", 1\n"
+        out = out + "  " + temp + ".index = extractvalue " + header_ty + " " + value + ", 3\n"
+    }
+    pilot data = temp + ".data"
+    pilot length = temp + ".len"
+    pilot index = temp + ".index"
+    if cond != "" {
+        data = temp + ".data.live"
+        length = temp + ".len.live"
+        index = temp + ".index.live"
+        out = out + "  " + data + " = select i1 " + cond + ", ptr " + temp + ".data, ptr null\n"
+        out = out + "  " + length + " = select i1 " + cond + ", i64 " + temp + ".len, i64 0\n"
+        out = out + "  " + index + " = select i1 " + cond + ", ptr " + temp + ".index, ptr null\n"
+    }
+    give back out + "  call void " + v4_codegen_llvm_map_helper(mir_id, type_text, "drop") + "(ptr " + data + ", i64 " + length + ", ptr " + index + ")\n"
+}
+
+-- The canonical map and set types the emitted bodies use, one per line
+-- (with a leading newline), and those whose `get` is called.
+task v4_codegen_llvm_map_note_type(found: word, mir_id: int, type_text: word) -> word {
+    pilot target = type_text
+    if v4_ty_is_lend_type(target) { target = v4_ty_lend_target_type(target) }
+    if not v4_codegen_llvm_is_map(mir_id, target) { give back found }
+    pilot canonical = v4_ty_canonical_type(v4_mir_ty_id(mir_id), target)
+    if found.contains("\n" + canonical + "\n") { give back found }
+    give back found + canonical + "\n"
+}
+
+task v4_codegen_llvm_mir_map_types(mir_id: int, gets_only: bool) -> word {
+    pilot found = "\n"
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back found }
+    pilot body = v4_codegen_llvm_next_emitted_body(mir_id, 0)
+    repeat until body >= v4_mir_body_count(mir_id) {
+        if not gets_only {
+            found = v4_codegen_llvm_map_note_type(found, mir_id, v4_mir_body_callable_return_type(mir_id, body))
+            pilot local = 0
+            repeat until local >= v4_mir_body_local_count(mir_id, body) {
+                found = v4_codegen_llvm_map_note_type(found, mir_id, v4_mir_local_ty(mir_id, body, local))
+                local += 1
+            }
+        }
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
+            if not gets_only {
+                found = v4_codegen_llvm_map_note_type(found, mir_id, v4_mir_rvalue_ty(mir_id, body, value))
+            } else if v4_mir_map_intrinsic_kind(mir_id, body, value) == "map_get" {
+                found = v4_codegen_llvm_map_note_type(found, mir_id, v4_mir_rvalue_ty(mir_id, body, v4_mir_rvalue_call_arg(mir_id, body, value, 0)))
+            }
+            value += 1
+        }
+        body = v4_codegen_llvm_next_emitted_body(mir_id, body + 1)
+    }
+    give back found
+}
+
+-- Key hash and equality inside a helper (`key` names an SSA key value).
+task v4_codegen_llvm_map_hash_lines(mir_id: int, key_ty: word, key: word, out: word) -> word {
+    if key_ty == v4_ty_word { give back "  " + out + " = call i64 @freak_v4_word_checksum(i64 " + key + ")\n" }
+    pilot wide = key
+    pilot lines = ""
+    pilot llvm = v4_codegen_llvm_type(key_ty)
+    if llvm != "i64" {
+        wide = out + ".wide"
+        lines = "  " + wide + " = zext " + llvm + " " + key + " to i64\n"
+    }
+    lines = lines + "  " + out + ".mul = mul i64 " + wide + ", -7046029254386353131\n"
+    lines = lines + "  " + out + ".hi = lshr i64 " + out + ".mul, 29\n"
+    give back lines + "  " + out + " = xor i64 " + out + ".mul, " + out + ".hi\n"
+}
+
+task v4_codegen_llvm_map_eq_lines(mir_id: int, key_ty: word, left: word, right: word, out: word) -> word {
+    if key_ty == v4_ty_word { give back "  " + out + ".raw = call i64 @freak_v4_word_equal(i64 " + left + ", i64 " + right + ")\n  " + out + " = icmp ne i64 " + out + ".raw, 0\n" }
+    give back "  " + out + " = icmp eq " + v4_codegen_llvm_type(key_ty) + " " + left + ", " + right + "\n"
+}
+
+-- A fresh copy of the value at `address` (every word leaf cloned).
+task v4_codegen_llvm_map_clone_lines(mir_id: int, value_ty: word, address: word, prefix: word, target: word) -> word {
+    pilot llvm = v4_codegen_llvm_type(value_ty)
+    pilot clone = v4_codegen_llvm_word_intrinsic_symbol_for(mir_id, "clone")
+    if v4_ty_canonical_type(v4_mir_ty_id(mir_id), value_ty) == v4_ty_word {
+        give back "  " + prefix + ".v = load i64, ptr " + address + "\n  " + target + " = call i64 " + clone + "(i64 " + prefix + ".v)\n"
+    }
+    pilot paths = v4_codegen_llvm_word_leaf_paths(mir_id, value_ty, "")
+    if paths == "" { give back "  " + target + " = load " + llvm + ", ptr " + address + "\n" }
+    pilot out = "  " + prefix + ".v = load " + llvm + ", ptr " + address + "\n"
+    pilot previous = prefix + ".v"
+    pilot leaf = 0
+    pilot start = 0
+    repeat until start > paths.length() {
+        pilot stop = v4_index_of_from(paths, ";", start)
+        if stop < 0 { stop = paths.length() }
+        pilot path = v4_slice(paths, start, stop)
+        pilot handle = prefix + ".leaf." + word_from_int(leaf)
+        out = out + "  " + handle + " = extractvalue " + llvm + " " + previous + ", " + path + "\n"
+        out = out + "  " + handle + ".copy = call i64 " + clone + "(i64 " + handle + ")\n"
+        pilot name = prefix + ".with." + word_from_int(leaf)
+        if stop >= paths.length() { name = target }
+        out = out + "  " + name + " = insertvalue " + llvm + " " + previous + ", i64 " + handle + ".copy, " + path + "\n"
+        previous = name
+        leaf += 1
+        start = stop + 1
+    }
+    give back out
+}
+
+-- The private helpers of one collection type `type_text`.
+task v4_codegen_llvm_map_type_runtime_lines(mir_id: int, type_text: word, with_get: bool) -> word {
+    pilot header_ty = v4_codegen_llvm_map_header_type()
+    pilot is_set: bool = v4_codegen_llvm_map_is_set(mir_id, type_text)
+    pilot entry = v4_codegen_llvm_map_entry_type(mir_id, type_text)
+    pilot size = v4_codegen_llvm_list_element_size(entry)
+    pilot key_ty = v4_mir_hash_collection_key_type(mir_id, type_text)
+    pilot key = v4_codegen_llvm_type(key_ty)
+    pilot value_ty = v4_mir_hash_collection_value_type(mir_id, type_text)
+    pilot value = ""
+    if not is_set { value = v4_codegen_llvm_type(value_ty) }
+    pilot find = v4_codegen_llvm_map_helper(mir_id, type_text, "find")
+    pilot place = v4_codegen_llvm_map_helper(mir_id, type_text, "place")
+    pilot reindex = v4_codegen_llvm_map_helper(mir_id, type_text, "reindex")
+    pilot insert = v4_codegen_llvm_map_helper(mir_id, type_text, "insert")
+    pilot open = " " + "{" + "\nentry:\n"
+    pilot close = "}" + "\n"
+    pilot key_drop = ""
+    if key_ty == v4_ty_word { key_drop = "  call void @freak_v4_word_drop(i64 %k)\n" }
+    -- find: the entry position of key %k, or -1.
+    pilot out = "define internal i64 " + find + "(ptr %h, " + key + " %k)" + open
+    out = out + "  %slotsp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 4\n  %slots = load i64, ptr %slotsp\n"
+    out = out + "  %empty = icmp eq i64 %slots, 0\n  br i1 %empty, label %miss, label %probe\nprobe:\n"
+    out = out + "  %indexp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 3\n  %index = load ptr, ptr %indexp\n  %entries = load ptr, ptr %h\n"
+    out = out + v4_codegen_llvm_map_hash_lines(mir_id, key_ty, "%k", "%hash")
+    out = out + "  %mask = sub i64 %slots, 1\n  %start = and i64 %hash, %mask\n  br label %loop\nloop:\n"
+    out = out + "  %pos = phi i64 [ %start, %probe ], [ %next, %step ]\n"
+    out = out + "  %sp = getelementptr inbounds i64, ptr %index, i64 %pos\n  %s = load i64, ptr %sp\n"
+    out = out + "  %free = icmp eq i64 %s, 0\n  br i1 %free, label %miss, label %check\ncheck:\n"
+    out = out + "  %at = sub i64 %s, 1\n  %ep = getelementptr inbounds " + entry + ", ptr %entries, i64 %at\n"
+    out = out + "  %kp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 0\n  %ek = load " + key + ", ptr %kp\n"
+    out = out + v4_codegen_llvm_map_eq_lines(mir_id, key_ty, "%ek", "%k", "%same")
+    out = out + "  br i1 %same, label %hit, label %step\nstep:\n"
+    out = out + "  %bump = add i64 %pos, 1\n  %next = and i64 %bump, %mask\n  br label %loop\nhit:\n  ret i64 %at\nmiss:\n  ret i64 -1\n" + close
+    -- place: put entry %i into the index (a free slot always exists).
+    out = out + "define internal void " + place + "(ptr %index, i64 %mask, ptr %entries, i64 %i)" + open
+    out = out + "  %ep = getelementptr inbounds " + entry + ", ptr %entries, i64 %i\n"
+    out = out + "  %kp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 0\n  %k = load " + key + ", ptr %kp\n"
+    out = out + v4_codegen_llvm_map_hash_lines(mir_id, key_ty, "%k", "%hash")
+    out = out + "  %start = and i64 %hash, %mask\n  br label %loop\nloop:\n"
+    out = out + "  %pos = phi i64 [ %start, %entry ], [ %next, %step ]\n"
+    out = out + "  %sp = getelementptr inbounds i64, ptr %index, i64 %pos\n  %s = load i64, ptr %sp\n"
+    out = out + "  %free = icmp eq i64 %s, 0\n  br i1 %free, label %put, label %step\nstep:\n"
+    out = out + "  %bump = add i64 %pos, 1\n  %next = and i64 %bump, %mask\n  br label %loop\nput:\n"
+    out = out + "  %tag = add i64 %i, 1\n  store i64 %tag, ptr %sp\n  ret void\n" + close
+    -- reindex: a fresh zeroed index of %slots slots over every entry.
+    out = out + "define internal void " + reindex + "(ptr %h, i64 %slots)" + open
+    out = out + "  %indexp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 3\n  %old = load ptr, ptr %indexp\n  call void @free(ptr %old)\n"
+    out = out + "  %fresh = call ptr @freak.list.alloc(i64 %slots, i64 8)\n  %bytes = shl i64 %slots, 3\n"
+    out = out + "  call void @llvm.memset.p0.i64(ptr %fresh, i8 0, i64 %bytes, i1 false)\n  store ptr %fresh, ptr %indexp\n"
+    out = out + "  %slotsp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 4\n  store i64 %slots, ptr %slotsp\n"
+    out = out + "  %entries = load ptr, ptr %h\n  %lenp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 1\n  %len = load i64, ptr %lenp\n"
+    out = out + "  %mask = sub i64 %slots, 1\n  %none = icmp eq i64 %len, 0\n  br i1 %none, label %done, label %each\neach:\n"
+    out = out + "  %i = phi i64 [ 0, %entry ], [ %n, %each ]\n  call void " + place + "(ptr %fresh, i64 %mask, ptr %entries, i64 %i)\n"
+    out = out + "  %n = add i64 %i, 1\n  %more = icmp ult i64 %n, %len\n  br i1 %more, label %each, label %done\ndone:\n  ret void\n" + close
+    -- insert: append an entry for the absent key %k (the value slot is the
+    -- caller's to fill), keeping at least twice as many slots as entries.
+    out = out + "define internal ptr " + insert + "(ptr %h, " + key + " %k)" + open
+    out = out + "  %slot = call ptr @freak.list.push_slot(ptr %h, " + size + ")\n"
+    out = out + "  %kp = getelementptr inbounds " + entry + ", ptr %slot, i32 0, i32 0\n  store " + key + " %k, ptr %kp\n"
+    out = out + "  %lenp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 1\n  %len = load i64, ptr %lenp\n"
+    out = out + "  %slotsp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 4\n  %slots = load i64, ptr %slotsp\n"
+    out = out + "  %need = shl i64 %len, 1\n  %tight = icmp ult i64 %slots, %need\n  br i1 %tight, label %grow, label %put\ngrow:\n"
+    out = out + "  %twice = shl i64 %slots, 1\n  %small = icmp ult i64 %twice, 8\n  %wanted = select i1 %small, i64 8, i64 %twice\n"
+    out = out + "  call void " + reindex + "(ptr %h, i64 %wanted)\n  ret ptr %slot\nput:\n"
+    out = out + "  %indexp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 3\n  %index = load ptr, ptr %indexp\n  %entries = load ptr, ptr %h\n"
+    out = out + "  %mask = sub i64 %slots, 1\n  %at = sub i64 %len, 1\n  call void " + place + "(ptr %index, i64 %mask, ptr %entries, i64 %at)\n  ret ptr %slot\n" + close
+    -- contains, and remove: drop the entry's key and value, close the gap
+    -- (insertion order is kept) and rebuild the index.
+    out = out + "define internal i1 " + v4_codegen_llvm_map_helper(mir_id, type_text, "contains") + "(ptr %h, " + key + " %k)" + open
+    out = out + "  %at = call i64 " + find + "(ptr %h, " + key + " %k)\n  %found = icmp sge i64 %at, 0\n  ret i1 %found\n" + close
+    out = out + "define internal i1 " + v4_codegen_llvm_map_helper(mir_id, type_text, "remove") + "(ptr %h, " + key + " %k)" + open
+    out = out + "  %at = call i64 " + find + "(ptr %h, " + key + " %k)\n  %found = icmp sge i64 %at, 0\n  br i1 %found, label %take, label %miss\nmiss:\n  ret i1 false\ntake:\n"
+    out = out + "  %entries = load ptr, ptr %h\n  %ep = getelementptr inbounds " + entry + ", ptr %entries, i64 %at\n"
+    out = out + "  %kp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 0\n"
+    out = out + v4_codegen_llvm_drop_glue_at(mir_id, key_ty, "%kp", "", "%oldk", 0)
+    if not is_set {
+        out = out + "  %vp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 1\n"
+        out = out + v4_codegen_llvm_drop_glue_at(mir_id, value_ty, "%vp", "", "%oldv", 0)
+    }
+    out = out + "  %lenp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 1\n  %len = load i64, ptr %lenp\n"
+    out = out + "  %last = sub i64 %len, 1\n  %tail = sub i64 %last, %at\n  %bytes = mul i64 %tail, " + v4_slice(size, 4, size.length()) + "\n"
+    out = out + "  %from = getelementptr inbounds " + entry + ", ptr %ep, i64 1\n"
+    out = out + "  call void @llvm.memmove.p0.p0.i64(ptr %ep, ptr %from, i64 %bytes, i1 false)\n  store i64 %last, ptr %lenp\n"
+    out = out + "  %slotsp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 4\n  %slots = load i64, ptr %slotsp\n"
+    out = out + "  call void " + reindex + "(ptr %h, i64 %slots)\n  ret i1 true\n" + close
+    if is_set {
+        -- add: a key already present is released; an absent one moves in.
+        out = out + "define internal void " + v4_codegen_llvm_map_helper(mir_id, type_text, "add") + "(ptr %h, " + key + " %k)" + open
+        out = out + "  %at = call i64 " + find + "(ptr %h, " + key + " %k)\n  %found = icmp sge i64 %at, 0\n  br i1 %found, label %same, label %fresh\nsame:\n"
+        out = out + key_drop + "  ret void\nfresh:\n  %slot = call ptr " + insert + "(ptr %h, " + key + " %k)\n  ret void\n" + close
+    } else {
+        -- set: replace (releasing the old value and the duplicate key) or insert.
+        pilot set_helper = v4_codegen_llvm_map_helper(mir_id, type_text, "set")
+        out = out + "define internal void " + set_helper + "(ptr %h, " + key + " %k, " + value + " %v)" + open
+        out = out + "  %at = call i64 " + find + "(ptr %h, " + key + " %k)\n  %found = icmp sge i64 %at, 0\n  br i1 %found, label %replace, label %fresh\nreplace:\n"
+        out = out + "  %entries = load ptr, ptr %h\n  %ep = getelementptr inbounds " + entry + ", ptr %entries, i64 %at\n"
+        out = out + "  %vp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 1\n"
+        out = out + v4_codegen_llvm_drop_glue_at(mir_id, value_ty, "%vp", "", "%oldv", 0)
+        out = out + "  store " + value + " %v, ptr %vp\n" + key_drop + "  ret void\nfresh:\n"
+        out = out + "  %slot = call ptr " + insert + "(ptr %h, " + key + " %k)\n"
+        out = out + "  %vs = getelementptr inbounds " + entry + ", ptr %slot, i32 0, i32 1\n  store " + value + " %v, ptr %vs\n  ret void\n" + close
+        -- at: the value address of `m[k]`, or the missing-key panic.
+        out = out + "define internal ptr " + v4_codegen_llvm_map_helper(mir_id, type_text, "at") + "(ptr %h, " + key + " %k)" + open
+        out = out + "  %at = call i64 " + find + "(ptr %h, " + key + " %k)\n  %found = icmp sge i64 %at, 0\n  br i1 %found, label %hit, label %miss\nhit:\n"
+        out = out + "  %entries = load ptr, ptr %h\n  %ep = getelementptr inbounds " + entry + ", ptr %entries, i64 %at\n"
+        out = out + "  %vp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 1\n  ret ptr %vp\nmiss:\n"
+        out = out + "  %msg = call i64 @freak_v4_word_from_bytes(i64 ptrtoint (ptr @freak.map.missing to i64), i64 17)\n"
+        out = out + "  call void " + v4_codegen_llvm_panic_symbol() + "(i64 %msg) noreturn\n  unreachable\n" + close
+        -- seal: a literal's raw entries, inserted in order into a fresh map.
+        out = out + "define internal " + header_ty + " " + v4_codegen_llvm_map_helper(mir_id, type_text, "seal") + "(" + header_ty + " %raw)" + open
+        out = out + "  %out = alloca " + header_ty + "\n  store " + header_ty + " zeroinitializer, ptr %out\n"
+        out = out + "  %data = extractvalue " + header_ty + " %raw, 0\n  %n = extractvalue " + header_ty + " %raw, 1\n"
+        out = out + "  %none = icmp eq i64 %n, 0\n  br i1 %none, label %done, label %each\neach:\n"
+        out = out + "  %i = phi i64 [ 0, %entry ], [ %next, %each ]\n  %ep = getelementptr inbounds " + entry + ", ptr %data, i64 %i\n"
+        out = out + "  %kp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 0\n  %k = load " + key + ", ptr %kp\n"
+        out = out + "  %vp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 1\n  %v = load " + value + ", ptr %vp\n"
+        out = out + "  call void " + set_helper + "(ptr %out, " + key + " %k, " + value + " %v)\n"
+        out = out + "  %next = add i64 %i, 1\n  %more = icmp ult i64 %next, %n\n  br i1 %more, label %each, label %done\ndone:\n"
+        out = out + "  call void @free(ptr %data)\n  %sealed = load " + header_ty + ", ptr %out\n  ret " + header_ty + " %sealed\n" + close
+        if with_get {
+            -- get: a fresh maybe copy of the value, or nobody.
+            pilot maybe_llvm = v4_codegen_llvm_type(v4_ty_canonical_type(v4_mir_ty_id(mir_id), "maybe<" + value_ty + ">"))
+            out = out + "define internal " + maybe_llvm + " " + v4_codegen_llvm_map_helper(mir_id, type_text, "get") + "(ptr %h, " + key + " %k)" + open
+            out = out + "  %at = call i64 " + find + "(ptr %h, " + key + " %k)\n  %found = icmp sge i64 %at, 0\n  br i1 %found, label %hit, label %miss\nhit:\n"
+            out = out + "  %entries = load ptr, ptr %h\n  %ep = getelementptr inbounds " + entry + ", ptr %entries, i64 %at\n"
+            out = out + "  %vp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 1\n"
+            out = out + v4_codegen_llvm_map_clone_lines(mir_id, value_ty, "%vp", "%copy", "%copied")
+            out = out + "  %tagged = insertvalue " + maybe_llvm + " zeroinitializer, i1 true, 0\n  %some = insertvalue " + maybe_llvm + " %tagged, " + value + " %copied, 1\n"
+            out = out + "  ret " + maybe_llvm + " %some\nmiss:\n  ret " + maybe_llvm + " zeroinitializer\n" + close
+        }
+    }
+    -- drop: release every entry's key and value words, then both buffers.
+    out = out + "define internal void " + v4_codegen_llvm_map_helper(mir_id, type_text, "drop") + "(ptr %entries, i64 %len, ptr %index)" + open
+    pilot owns: bool = v4_codegen_llvm_word_leaf_count(mir_id, key_ty, 0) > 0
+    if not is_set and v4_codegen_llvm_word_leaf_count(mir_id, value_ty, 0) > 0 { owns = true }
+    if owns {
+        out = out + "  %empty = icmp eq i64 %len, 0\n  br i1 %empty, label %done, label %each\neach:\n"
+        out = out + "  %i = phi i64 [ 0, %entry ], [ %next, %latch ]\n  %ep = getelementptr inbounds " + entry + ", ptr %entries, i64 %i\n"
+        out = out + "  %kp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 0\n"
+        out = out + v4_codegen_llvm_drop_glue_at(mir_id, key_ty, "%kp", "", "%dk", 0)
+        if not is_set {
+            out = out + "  %vp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 1\n"
+            out = out + v4_codegen_llvm_drop_glue_at(mir_id, value_ty, "%vp", "", "%dv", 0)
+        }
+        out = out + "  br label %latch\nlatch:\n  %next = add i64 %i, 1\n  %more = icmp ult i64 %next, %len\n"
+        out = out + "  br i1 %more, label %each, label %done\ndone:\n"
+    }
+    out = out + "  call void @free(ptr %entries)\n  call void @free(ptr %index)\n  ret void\n" + close
+    give back out
+}
+
+-- Every map module links the list growth helpers (the entry buffer) and
+-- the memory intrinsics; word keys hash through the runtime checksum,
+-- declared here unless the bootstrap declarations already name it.
+task v4_codegen_llvm_map_runtime_lines(mir_id: int, declared: word) -> word {
+    pilot out = "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\ndeclare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)\n"
+    pilot word_keys = false
+    pilot start = 1
+    repeat until start >= v4_codegen_llvm_map_types.length() {
+        pilot stop = v4_index_of_from(v4_codegen_llvm_map_types, "\n", start)
+        if stop < 0 { stop = v4_codegen_llvm_map_types.length() }
+        pilot type_text = v4_slice(v4_codegen_llvm_map_types, start, stop)
+        if v4_mir_hash_collection_key_type(mir_id, type_text) == v4_ty_word { word_keys = true }
+        out = out + v4_codegen_llvm_map_type_runtime_lines(mir_id, type_text, v4_codegen_llvm_map_get_types.contains("\n" + type_text + "\n"))
+        start = stop + 1
+    }
+    if word_keys and not declared.contains("declare i64 @freak_v4_word_checksum(i64)") { out = "declare i64 @freak_v4_word_checksum(i64)\n" + out }
+    give back out
+}
+
+task v4_codegen_llvm_map_globals() -> word {
+    give back "@freak.map.missing = private unnamed_addr constant [18 x i8] c\"map key not found\\00\", align 1\n"
+}
+
+-- The helpers' private names and the memory intrinsics they declare are
+-- reserved in a module with maps or sets.
+task v4_codegen_llvm_map_symbol_error(codegen_id: int) -> word {
+    pilot reserved = ",@llvm.memset.p0.i64,@llvm.memmove.p0.p0.i64,@\"llvm.memset.p0.i64\",@\"llvm.memmove.p0.p0.i64\","
+    pilot body = 0
+    repeat until body >= v4_codegen_llvm_body_count(codegen_id) {
+        pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body)
+        if reserved.contains("," + symbol + ",") or symbol.starts_with("@freak.map.") or symbol.starts_with("@\"freak.map.") { give back "native map runtime symbol conflict: " + symbol }
+        body += 1
+    }
+    pilot decl = 0
+    repeat until decl >= v4_codegen_llvm_decl_count(codegen_id) {
+        pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl)
+        if reserved.contains("," + symbol + ",") or symbol.starts_with("@freak.map.") or symbol.starts_with("@\"freak.map.") { give back "native map runtime symbol conflict: " + symbol }
         decl += 1
     }
     give back ""
@@ -7480,7 +8078,8 @@ task v4_codegen_llvm_collect_owned_special_lines(parts: int, mir_id: int, body_i
     }
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut { give back v4_codegen_llvm_collect_aggregate_lend_lines(parts, mir_id, body_id, rvalue_id, target) }
     if kind == v4_mir_rvalue_closure { give back v4_codegen_llvm_collect_closure_lines(parts, mir_id, body_id, rvalue_id, target) }
-    give back v4_codegen_llvm_collect_list_lines(parts, mir_id, body_id, rvalue_id, target, kind)
+    if v4_codegen_llvm_collect_list_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back true }
+    give back v4_codegen_llvm_collect_map_lines(parts, mir_id, body_id, rvalue_id, target, kind)
 }
 
 task v4_codegen_llvm_collect_owned_rvalue_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, borrowed: bool) -> void {
@@ -7774,7 +8373,7 @@ task v4_codegen_llvm_word_tree_mark_is_valid(mir_id: int, body_id: int, rvalue_i
                 }
                 if kind == v4_mir_rvalue_use_place {
                     v4_codegen_llvm_push_place_operands(pending, mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value))
-                } else if v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_list {
+                } else if v4_codegen_llvm_is_literal_aggregate(kind) or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_map {
                     pilot arg = 0
                     repeat until arg >= v4_mir_rvalue_call_arg_count(mir_id, body_id, value) {
                         v4_codegen_llvm_fragment_push(pending, word_from_int(v4_mir_rvalue_call_arg(mir_id, body_id, value, arg)))
@@ -7969,7 +8568,7 @@ task v4_codegen_llvm_word_boundary_types_error(mir_id: int, body_id: int) -> wor
             if lhs >= 0 and v4_codegen_llvm_type_is_word_handle(v4_mir_rvalue_ty(mir_id, body_id, lhs)) { give back "native word operators require compiler-owned intrinsic identities" }
             if rhs >= 0 and v4_codegen_llvm_type_is_word_handle(v4_mir_rvalue_ty(mir_id, body_id, rhs)) { give back "native word operators require compiler-owned intrinsic identities" }
         }
-        if kind == v4_mir_rvalue_call and not v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_control(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_system(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_list(mir_id, body_id, value) and v4_mir_rvalue_op(mir_id, body_id, value) != v4_mir_call_say_literal {
+        if kind == v4_mir_rvalue_call and not v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_control(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_system(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_list(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_map(mir_id, body_id, value) and v4_mir_rvalue_op(mir_id, body_id, value) != v4_mir_call_say_literal {
             pilot call_name = v4_mir_rvalue_op(mir_id, body_id, value)
             if call_name != v4_mir_call_raw_ptr_write {
                 pilot expected_return = v4_codegen_llvm_word_call_return_type(mir_id, body_id, value)
