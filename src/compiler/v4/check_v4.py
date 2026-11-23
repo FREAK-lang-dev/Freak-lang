@@ -8004,6 +8004,21 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "dyn doctrine snapshot restore",
+        "fixture": "dyn_doctrine_restore_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "dyn-restore-mir-diagnostics=0",
+            "dyn-restore-sealed=true",
+            "dyn-restore-ok=true",
+            "dyn-restore-borrow-diagnostics=0",
+            "dyn-restore-relowered=true",
+            "dyn-restore-erasure-sealed=true",
+            "dyn-restore-cells-reused=true",
+        ],
+    },
+    {
         "name": "dyn doctrine editor facts",
         "fixture": "dyn_doctrine_editor_smoke.fk",
         "expect": [
@@ -18354,6 +18369,22 @@ NATIVE_DYN_REJECTED = (
      "task main() -> int {\n    pilot mut b = Box { sq: Square { side: 1 } }\n    pilot q = lend b\n"
      "    bump(lend mut q.sq)\n    give back b.sq.side\n}\n",
      "native dyn erasure cannot lend mut through a shared lend: lend mut q . sq"),
+    # Impl headers carry no generic bounds yet, so a bounded impl cannot be
+    # written; once it can, vtable sealing must check the bound.
+    ("tier3_dyn_bounded_generic_impl", "doctrine Foo {\n    task f(lend self) -> int\n}\n"
+     "doctrine Widget {\n    task area(lend self) -> int\n}\nshape Box<T> { v: T, n: int }\nshape NoFoo { x: int }\n"
+     "impl<T: Foo> Widget for Box<T> {\n    task area(lend self) -> int { give back self.n }\n}\n"
+     "task show(lend w: dyn Widget) -> int { give back w.area() }\n"
+     "task main() -> int {\n    pilot b = Box<NoFoo> { v: NoFoo { x: 1 }, n: 7 }\n    give back show(lend b)\n}\n",
+     "expected name after impl"),
+    # An unbounded generic impl matches its instance in MIR; native dyn
+    # erasure of a generic instance stays fenced.
+    ("tier3_dyn_generic_impl_instance", "doctrine Widget {\n    task area(lend self) -> int\n}\n"
+     "shape Box<T> { v: T, n: int }\nshape NoFoo { x: int }\n"
+     "impl Widget for Box<T> {\n    task area(lend self) -> int { give back self.n }\n}\n"
+     "task show(lend w: dyn Widget) -> int { give back w.area() }\n"
+     "task main() -> int {\n    pilot b = Box<NoFoo> { v: NoFoo { x: 1 }, n: 7 }\n    give back show(lend b)\n}\n",
+     "native dyn erasure supports shapes, routes, tuples, fixed arrays and scalars: Box<NoFoo>"),
     # Vtable constants and drop entries are private symbols.
     ("tier3_dyn_reserved_vtable", "extern [C] {\n @link_name(\"freak.vtable.Square.Widget\")\n"
      " task f(a: std::ffi::c_int) -> std::ffi::c_int\n}\ntask main() -> int { give back f(1) }\n",

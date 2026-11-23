@@ -1,0 +1,51 @@
+-- V4 dyn doctrine snapshot-restore fixture: a restored MIR keeps the sealed
+-- dyn facts that borrowck and codegen read.
+-- Verification prepends the V4 crates before this file.
+
+task v4_dyn_restore_braces(content: word) -> word {
+    give back "{" + content + "}"
+}
+
+task v4_dyn_restore_source() -> word {
+    pilot src = "doctrine Widget {\n"
+    src = src + "    task area(lend self) -> int\n"
+    src = src + "}\n"
+    src = src + "shape Square " + v4_dyn_restore_braces(" side: int ") + "\n"
+    src = src + "impl Widget for Square {\n"
+    src = src + "    task area(lend self) -> int " + v4_dyn_restore_braces(" give back self.side ") + "\n"
+    src = src + "}\n"
+    src = src + "task show(lend w: dyn Widget) -> int " + v4_dyn_restore_braces(" give back w.area() ") + "\n"
+    src = src + "task title(lend w: dyn Widget) -> word " + v4_dyn_restore_braces(" give back \"sq\" ") + "\n"
+    src = src + "task named() -> int {\n"
+    src = src + "    pilot s = Square " + v4_dyn_restore_braces(" side: 3 ") + "\n"
+    src = src + "    pilot n = title(lend s)\n"
+    src = src + "    give back n.length()\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot s = Square " + v4_dyn_restore_braces(" side: 2 ") + "\n"
+    src = src + "    give back show(lend s)\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_dyn_restore_text = v4_dyn_restore_source()
+pilot v4_dyn_restore_mir = v4_mir_text_cached("dyn-doctrine-restore.fk", v4_dyn_restore_text)
+pilot v4_dyn_restore_facts = v4_mir_dyn_facts_digest(v4_dyn_restore_mir)
+pilot v4_dyn_restore_cells = v4_mir_dyn_fact_cell_count()
+say "dyn-restore-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_restore_mir))
+say "dyn-restore-sealed=" + word_from_bool(v4_dyn_restore_facts != "")
+
+-- A MIR component restore drops the slot's facts; the next check must lower
+-- and seal again rather than reach Meiya without them.
+pilot v4_dyn_restore_result = v4_mir_snapshot_restore(v4_mir_snapshot())
+say "dyn-restore-ok=" + word_from_bool(v4_dyn_restore_result.starts_with("mir-snapshot-restore ok=1"))
+pilot v4_dyn_restore_borrow = v4_borrowck_text_cached("dyn-doctrine-restore.fk", v4_dyn_restore_text)
+pilot v4_dyn_restore_borrow_mir = v4_borrowck_mir_id(v4_dyn_restore_borrow)
+pilot v4_dyn_restore_borrow_diags = v4_borrowck_diag_count(v4_dyn_restore_borrow)
+say "dyn-restore-borrow-diagnostics=" + word_from_int(v4_dyn_restore_borrow_diags)
+pilot v4_dyn_restore_resealed: bool = v4_mir_dyn_vtable_count(v4_dyn_restore_borrow_mir) == 1 and v4_mir_dyn_facts_digest(v4_dyn_restore_borrow_mir) != ""
+-- The reseal reuses the cells the restore tombstoned.
+pilot v4_dyn_restore_cells_after = v4_mir_dyn_fact_cell_count()
+say "dyn-restore-relowered=" + word_from_bool(v4_dyn_restore_borrow_mir != v4_dyn_restore_mir)
+say "dyn-restore-erasure-sealed=" + word_from_bool(v4_dyn_restore_resealed)
+say "dyn-restore-cells-reused=" + word_from_bool(v4_dyn_restore_cells_after == v4_dyn_restore_cells)
