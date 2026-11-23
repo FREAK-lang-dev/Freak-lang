@@ -6207,6 +6207,10 @@ task v4_codegen_llvm_native_list_slot_error(mir_id: int, type_text: word, depth:
     if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), element) or v4_mir_scalar_sum_kind(mir_id, element) != "" or v4_ty_is_maybe_type(element) { give back "native lists of maybe/result values are not yet supported: " + type_text }
     if v4_codegen_llvm_is_list(mir_id, element) { give back v4_codegen_llvm_native_list_slot_error(mir_id, element, depth + 1) }
     if v4_ty_is_closure_type(element) { give back "native lists of closures are not yet supported: " + type_text }
+    -- A list is indirection (bible 1.5): `shape Dir { subs: List<Dir> }` is
+    -- finite. An element type whose check is already in progress is left
+    -- to that check, which validates every other slot.
+    if v4_codegen_llvm_shape_ok_mir == mir_id and v4_codegen_llvm_shape_visiting.contains("," + v4_ty_canonical_type(v4_mir_ty_id(mir_id), element) + ",") { give back "" }
     give back v4_codegen_llvm_native_type_error_depth(element, false, depth + 1)
 }
 

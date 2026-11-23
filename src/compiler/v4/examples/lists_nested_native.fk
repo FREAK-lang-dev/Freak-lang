@@ -18,6 +18,15 @@ route Order {
     Halt
 }
 
+-- A list is indirection (bible 1.5), so types may hold lists of
+-- themselves: each level is its own buffer.
+route Tree {
+    Node { v: int, kids: List<Tree> }
+    Leaf
+}
+
+shape Dir { name: word, subs: List<Dir> }
+
 doctrine Count { task count(lend self) -> int }
 
 impl Count for Squad {
@@ -70,6 +79,24 @@ task shape_of(xs: List<int>) -> int {
         _ -> give back 0 - 1
     }
     give back 0 - 2
+}
+
+task tree_sum(t: Tree) -> int {
+    when t {
+        Tree::Node { v, kids } -> {
+            pilot s = v
+            for each k in kids { s += tree_sum(k) }
+            give back s
+        }
+        Tree::Leaf -> give back 0
+    }
+    give back 0
+}
+
+task dir_count(lend d: Dir) -> int {
+    pilot n = 1
+    for each sub in d.subs { n += dir_count(lend sub) }
+    give back n
 }
 
 task main() -> int {
@@ -142,5 +169,14 @@ task main() -> int {
     say area
     pilot [front, back] = rows
     say front[0] + back[1]
+
+    -- Recursive types through lists.
+    pilot t = Tree::Node { v: 1, kids: [Tree::Leaf, Tree::Node { v: 5, kids: [Tree::Node { v: 7, kids: [] }] }] }
+    say tree_sum(t)
+    pilot mut d = Dir { name: "root", subs: [Dir { name: "a", subs: [] }] }
+    d.subs.push(Dir { name: "b", subs: [Dir { name: "c", subs: [] }] })
+    d.subs[0].subs.push(Dir { name: "d", subs: [] })
+    say dir_count(lend d)
+    say d.subs[1].subs[0].name
     give back 0
 }

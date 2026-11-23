@@ -749,8 +749,26 @@ oracle checks on all four targets. Elements are stored by value in a
 buffer typed per element type (`getelementptr T`), with no boxing and no
 type-erased pool:
 
-- **Elements.** Scalars, words, task and raw pointers, and native shapes,
-  tuples, fixed arrays and routes (including ones that own words).
+- **Elements.** Scalars, words, task and raw pointers, lists, and native
+  shapes, tuples, fixed arrays and routes (including ones that own words
+  or lists).
+- **Lists inside other types.** A list is also a shape field, a tuple or
+  fixed-array slot, a route payload field, a list element
+  (`List<List<T>>`, nested to depth 32) and a field of a generic shape
+  instance (`Bag<int>` with `items: List<T>`). Its header is one owned slot
+  of the aggregate: `b.items.push(v)`, `g[i].push(v)`, `g[i][j]` and
+  `lend mut pair.0` reach it through the ordinary field and checked index
+  places, a move out of a field or element nulls the slot (an empty
+  header), and the aggregate's drop glue calls the list's element helper,
+  so inner lists and their words are released before the outer buffer is
+  freed. Meiya projects a loan of `b.items` or `g[0]` onto its owner, so a
+  push on, store into or exclusive loan of the owner (or an overlapping
+  element) waits for it. A tuple destination gives a `[]` slot its type.
+  A list is indirection (bible 1.5), so a type may hold a list of itself
+  (`shape Dir { subs: List<Dir> }`, `route Tree { Node { kids:
+  List<Tree> } }`, generic `Node<T>`): the native type check leaves an
+  element type whose check is in progress to that check, and every drop
+  and clone helper recurses through its list's own helper.
 - **Operations.** A literal allocates exactly its length (`[]` is the empty
   header; a typed destination gives `[]` its type and narrows numeric
   elements). `xs.push(v)` takes a `lend mut` of `xs` and moves `v` into the
@@ -768,8 +786,18 @@ type-erased pool:
   `for each x in xs` to a shared loan `_for_each_source`, an index local
   and a `LoopItem` over both, so a body that pushes, stores into, or lends
   `xs` mutably is a Meiya error. A temporary source is owned by the loop
-  and dropped after it. Each item is the walker's own copy (word leaves are
-  cloned); tuple and sequence patterns bind from it.
+  and dropped after it. Each item is the walker's own copy: word leaves
+  are cloned by path, and an element holding lists or route words is
+  copied by a private helper, `@"freak.list.clone.T"(ptr)`, which gives a
+  list a fresh buffer of copied elements and clones a route's leaves for
+  the case its tag names. Tuple and sequence patterns bind from the item.
+- **Sequence patterns.** A `when` arm `[a, b]` over a list matches a list
+  of exactly that length (`[]` matches an empty one): MIR tests
+  `length() == N` through the same shared loan as `xs.length()` before
+  any element read, so a list of another length falls through to the
+  next arm. A `pilot [a, b] = xs` or `for each [a, b] in rows` destructure
+  reads the first elements through checked index places (a shorter list
+  panics).
 - **Ownership.** Lists are Move types in Meiya's drop plan. Their drop glue
   is one private helper per element type, `@"freak.list.drop.T"(data,
   len)`, which releases each element's words and then frees the buffer.
@@ -779,13 +807,19 @@ type-erased pool:
   native runtime itself uses; allocation failure panics with
   `list allocation failed`.
 
-Refused by name: lists inside other types (shape fields, tuple and array
-slots, nested lists), lists of `maybe`/`result` values, list operators,
-list items of routes that own words, moved list captures, and user
-declarations of `realloc`/`free` in a module that uses lists. Program:
-`examples/lists_native.fk` (exact output, exit 0, and an out-of-bounds
-panic run) in `check_v4_native_shapes`, also audited by
-`tests/v4_owned_word_codegen.py`; nineteen named rejections. MIR also
+Refused by name: lists of `maybe`/`result` values (the MIR sum proof
+admits sum carriers only in locals, so element places and loop items of a
+sum type wait for it), list operators (including equality of aggregates
+that hold lists), moved list captures, task values with list parameters or
+results, repeat fills of lists, and user declarations of `realloc`/`free`
+in a module that uses lists. Programs: `examples/lists_native.fk` (exact
+output, exit 0, and an out-of-bounds panic run; sixteen named rejections)
+and `examples/lists_nested_native.fk` (exact output, exit 0; the layout
+oracle sees the list-holding shapes and route, each clone and drop helper
+is defined once, and an outer drop helper calls its element's helper
+before `free`; `NATIVE_NESTED_LISTS_REJECTED`), both in
+`check_v4_native_shapes` and audited by `tests/v4_owned_word_codegen.py`.
+MIR also
 refuses control flow inside any index operand (`xs[f()?]`,
 `xs[pick(a and b)]`) until index operands are wired (#274).
 

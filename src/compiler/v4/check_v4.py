@@ -17907,14 +17907,16 @@ NATIVE_LISTS_REJECTED = (
 )
 # Lists inside other types (tier 3 nested lists row): exit 0 and this output.
 NATIVE_NESTED_LISTS_EXPECTED = ("Sumika/Takeru!/Meiya\n5\n5\n2\nKei\n13\nca\n76\n3\nx\ny\nz\nz\nA!\nB!\n4\nkei\n149\n"
-                                "0\n4\n15\n-1\n26\n7\n")
+                                "0\n4\n15\n-1\n26\n7\n13\n5\nc\n")
 # Layouts the oracle must see, and the private list helpers the module must
 # define once each: deep copies for for-each items and per-element drops.
-NATIVE_NESTED_LISTS_LAYOUTS = ('%"freak.shape.Squad"', '%"freak.shape.Bag<int>"', '%"freak.shape.Bag<word>"', '%"freak.route.Order"')
+NATIVE_NESTED_LISTS_LAYOUTS = ('%"freak.shape.Squad"', '%"freak.shape.Bag<int>"', '%"freak.shape.Bag<word>"', '%"freak.route.Order"',
+                               '%"freak.route.Tree"', '%"freak.shape.Dir"')
 NATIVE_NESTED_LISTS_HELPERS = (
     '@"freak.list.clone.List<int>"', '@"freak.list.clone.List<word>"', '@"freak.list.clone.List<List<word>>"',
-    '@"freak.list.clone.Squad"', '@"freak.list.clone.Order"',
+    '@"freak.list.clone.Squad"', '@"freak.list.clone.Order"', '@"freak.list.clone.Tree"', '@"freak.list.clone.List<Tree>"',
     '@"freak.list.drop.List<int>"', '@"freak.list.drop.List<List<word>>"', '@"freak.list.drop.Squad"', '@"freak.list.drop.Order"',
+    '@"freak.list.drop.Tree"', '@"freak.list.drop.Dir"',
 )
 # Nested-list programs native code or Meiya refuses: (stem, source, reason).
 NATIVE_NESTED_LISTS_REJECTED = (
