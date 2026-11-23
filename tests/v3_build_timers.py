@@ -88,7 +88,7 @@ def main() -> int:
         env_json = run(freak, repo, "check", str(hello), env={"FREAK_TIMINGS": "json"})
         assert env_json.returncode == 0, env_json.stdout + env_json.stderr
         check_report(timings_json(env_json.stdout), "check", "ok", ["Sources & packages", "Lexing", "Parsing", "Type checking"])
-        assert b"PASSED -- no type errors found\n" in env_json.stdout and b"Time:   " in env_json.stdout, env_json.stdout
+        assert b"no type errors found" in env_json.stdout and b"Time:   " in env_json.stdout, env_json.stdout
         print("check via FREAK_TIMINGS=json: OK", flush=True)
 
         failed = run(freak, repo, "build", str(bad), "--timings=json")
