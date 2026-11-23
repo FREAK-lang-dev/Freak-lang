@@ -1391,6 +1391,10 @@ task v4_mir_generic_aggregate_instance_is_native(ty_id: int, sig_id: int, canoni
 -- A type that names no type parameter: builtin scalars and words, concrete
 -- or fully applied shapes and routes, builtin generic carriers of concrete
 -- types, tuples, fixed arrays, lends and raw pointers of concrete types.
+-- Shared<T>, Weak<T> and SharedMut<T> are left out on purpose: native code
+-- has no layout for them, so a Box<Shared<int>> local is refused by name
+-- ("native type not yet supported: Shared<int>") whether or not the
+-- predicate admits the instance. Admit them here when the carriers land.
 task v4_mir_type_is_concrete(ty_id: int, surface: word, depth: int) -> bool {
     if depth > 32 or surface == "" or surface == v4_ty_unknown { give back false }
     pilot type_text = v4_ty_canonical_type(ty_id, surface)
@@ -7536,11 +7540,17 @@ task v4_mir_sum_local_rows_error(ty: int, definition: word, blocks: int, locals:
 
 task v4_mir_sum_rows_are_sensitive(ty: int, definition: word, locals: int, values: int) -> bool {
     if v4_ty_is_native_scalar_sum(ty, v4_mir_callable_return_type_for_def(ty, definition)) { give back true }
+    -- An instance reads its generic signature's formals with the env applied,
+    -- so ignore<maybe<int>> is sensitive through its maybe<int> parameter.
+    pilot env = v4_mir_generic_def_env(definition)
     pilot signature = v4_ty_lookup_signature(ty, definition)
+    if env != "" { signature = v4_ty_lookup_signature(ty, v4_mir_generic_def_base(definition)) }
     pilot parameter = 0
     if signature >= 0 {
         repeat until parameter >= v4_ty_signature_fixed_param_count(ty, signature) {
-            if v4_ty_is_native_scalar_sum(ty, v4_ty_signature_param_type(ty, signature, parameter)) { give back true }
+            pilot formal_ty = v4_ty_signature_param_type(ty, signature, parameter)
+            if env != "" { formal_ty = v4_ty_canonical_type(ty, v4_ty_apply_generic_env(formal_ty, env)) }
+            if v4_ty_is_native_scalar_sum(ty, formal_ty) { give back true }
             parameter += 1
         }
     }
@@ -7683,8 +7693,21 @@ task v4_mir_system_intrinsic_formal_rows_error(ty: int, signature: int, values: 
     give back ""
 }
 
+-- A generic task kept for analysis (or a closure inside one) is never
+-- emitted; only its instances run, so only they owe the executable proof.
+-- Calls that name a template instead of an instance stay rejected.
+task v4_mir_def_is_generic_template(ty: int, definition: word) -> bool {
+    if definition == "" or definition == v4_mir_module_init_def or v4_mir_def_is_generic_instance(definition) { give back false }
+    pilot root = definition
+    if definition.starts_with(v4_mir_closure_def_prefix) { root = v4_mir_closure_def_root(definition) }
+    if v4_mir_def_is_generic_instance(root) { give back false }
+    pilot signature = v4_ty_lookup_signature(ty, root)
+    give back signature >= 0 and v4_ty_signature_type_generic_count(ty, signature) > 0
+}
+
 task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks: int, locals: int, statements: int, places: int, values: int) -> word {
     pilot definition = v4_mir_snapshot_field(header, 3)
+    if v4_mir_def_is_generic_template(ty, definition) { give back "" }
     if not v4_mir_sum_rows_are_sensitive(ty, definition, locals, values) { give back "" }
     pilot signature = v4_ty_lookup_signature(ty, definition)
     -- A generic instance authenticates against its generic task with the
@@ -7701,7 +7724,8 @@ task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks:
         if definition.starts_with(v4_mir_closure_def_prefix) { give back "native closure bodies with scalar sums or system intrinsics are not yet supported" }
         if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or (env == "" and v4_ty_signature_type_generic_count(ty, signature) != 0) or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum body requires an ordinary nongeneric task" }
         if env != "" {
-            if v4_mir_task_call_def(ty, v4_mir_snapshot_field(header, 4)) != definition { give back "invalid scalar sum task body identity" }
+            -- The same def, symbol and signature text the staged call targets name.
+            if v4_mir_task_call_def(ty, v4_mir_snapshot_field(header, 4)) != definition or v4_mir_snapshot_field(header, 5) != v4_mir_generic_instance_signature(v4_mir_snapshot_field(header, 4), v4_ty_signature_display(ty, signature)) { give back "invalid scalar sum task body identity" }
         } else if v4_mir_snapshot_field(header, 4) != v4_ty_signature_name(ty, signature) or v4_mir_snapshot_field(header, 5) != v4_ty_signature_of(ty, definition) { give back "invalid scalar sum task body identity" }
         parameters = v4_ty_signature_fixed_param_count(ty, signature)
         if parameters > array_len(locals) { give back "invalid scalar sum task parameter locals" }
@@ -7866,7 +7890,7 @@ task v4_mir_scalar_sum_plan_preflight(mir: int) -> word {
                     pilot signature = v4_mir_task_call_signature(v4_mir_ty_id(mir), v4_mir_snapshot_field(value, 6))
                     pilot target = v4_mir_lookup_body_name(mir, v4_mir_snapshot_field(value, 6))
                     if signature < 0 or target < 0 { error = "scalar sum task target body is missing" } else if v4_mir_body_is_generic_instance(mir, target) {
-                        if v4_mir_body_def(mir, target) != v4_mir_task_call_def(v4_mir_ty_id(mir), v4_mir_snapshot_field(value, 6)) { error = "scalar sum task target body identity mismatch" }
+                        if v4_mir_body_def(mir, target) != v4_mir_task_call_def(v4_mir_ty_id(mir), v4_mir_snapshot_field(value, 6)) or v4_mir_body_signature(mir, target) != v4_mir_generic_instance_signature(v4_mir_snapshot_field(value, 6), v4_ty_signature_display(v4_mir_ty_id(mir), signature)) { error = "scalar sum task target body identity mismatch" }
                     } else {
                         if v4_mir_body_def(mir, target) != v4_ty_signature_def(v4_mir_ty_id(mir), signature) or v4_mir_body_name(mir, target) != v4_ty_signature_name(v4_mir_ty_id(mir), signature) or v4_mir_body_signature(mir, target) != v4_ty_signature_of(v4_mir_ty_id(mir), v4_ty_signature_def(v4_mir_ty_id(mir), signature)) { error = "scalar sum task target body identity mismatch" }
                     }

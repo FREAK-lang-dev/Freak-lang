@@ -12392,7 +12392,7 @@ EXECUTABLE_SMOKES = [
       # Literal manifest: check_v4_native_shapes holds this to NATIVE_GENERICS_EXPECTED.
       'llvm_programs': [('generics_native.fk', 22,
                          '5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n'
-                         'right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n')]},
+                         'right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n1\n49\n')]},
      {'name': 'typed os entry existing Word module restore and execution',
       'fixture': 'typed_os_entry_execute_smoke.fk',
       'memory_limit_mb': 64,
@@ -17689,7 +17689,7 @@ NATIVE_LEND_ABI_REJECTED = (
 # Tier 3 generic monomorphization: generics_native.fk prints this and gives
 # back c.get() + Box<int>::size(lend b). Each instance is one native body.
 NATIVE_GENERICS_EXPECTED = ("5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n"
-                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n", 22)
+                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n1\n49\n", 22)
 # Instance symbols the generics module must define exactly once, and the
 # instance layouts the layout oracle must see on every target.
 NATIVE_GENERICS_SYMBOLS = (
@@ -17698,7 +17698,7 @@ NATIVE_GENERICS_SYMBOLS = (
     '@"first_of<Point>"', '@"depth<word>"', '@"boxed<Box<int>>"', '@"get_or<word>"', '@"best<Point>"',
     '@"best<Named>"', '@"best_ufcs<Point>"', '@"fresh<Point>"', '@"fresh<int>"', '@"bumped<Point>"', '@"bumped<int>"', '@"Box<word>::make"', '@"Box<word>::put"', '@"Box<int>::size"',
     '@"Acc<word>::add"', '@"has_of<int>"', '@"none_of<int>"', '@"Grid<int>::index"', '@"Grid<int>::index_mut"',
-    '@"Box<int>::twin"',
+    '@"Box<int>::twin"', '@"ignore<maybe<int>>"', '@"pass<int>"', '@"consume<int>"', '@"read_opt<int>"',
 )
 NATIVE_GENERICS_LAYOUTS = (
     '%"freak.shape.Box<int>"', '%"freak.shape.Box<word>"', '%"freak.shape.Box<Box<int>>"',
@@ -17753,6 +17753,12 @@ NATIVE_GENERICS_REJECTED = (
     ("tier3_generic_alias_word_payload", "alias T = int\nshape Box<T> { value: T }\n"
      "task main() -> int {\n    pilot m: maybe<(Box<word>, int)> = nobody\n    give back 0\n}\n",
      "native maybe/result aggregate payloads that own words are not yet supported: (Box<word>,int)"),
+    # A generic main is a template with no body for the entry to call.
+    ("tier3_generic_main", "task main<T>() -> int { give back 0 }\n", "main must not be generic"),
+    # Native code has no Shared carrier yet; an instance argument names it.
+    ("tier3_generic_shared_carrier", "shape Box<T> { value: T }\n"
+     "task main() -> int {\n    pilot b: Box<Shared<int>> = Box { value: Shared<int>::new(4) }\n    give back 0\n}\n",
+     "native type not yet supported: Shared<int>"),
 )
 
 
@@ -18125,7 +18131,8 @@ def check_native_generic_instances(module: str, triple: str) -> None:
     for symbol in NATIVE_GENERICS_SYMBOLS:
         if defined.count(symbol) != 1:
             raise RuntimeError(f"V4 generics module for {triple} defines {symbol} {defined.count(symbol)} times")
-    for template in ("@ident", "@pick", '@"Box<T>::get"', '@"Acc<T>::add"', '@"Box<T>::make"'):
+    # consume<never> would be an instance no call can reach.
+    for template in ("@ident", "@pick", "@pass", "@consume", '@"consume<never>"', '@"Box<T>::get"', '@"Acc<T>::add"', '@"Box<T>::make"'):
         if template in defined:
             raise RuntimeError(f"V4 generics module for {triple} emitted the template {template}")
     notes = native_layout_notes(module)
