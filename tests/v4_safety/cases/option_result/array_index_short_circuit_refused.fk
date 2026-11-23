@@ -1,0 +1,19 @@
+-- An `or` inside a fixed-array index operand is refused like the list form.
+-- expect: reject mir
+-- error: control flow inside an index operand is not yet supported
+
+task probe() -> bool {
+    say "probe ran"
+    give back false
+}
+
+task pick(b: bool) -> int {
+    if b { give back 1 }
+    give back 0
+}
+
+task main() -> int {
+    pilot mut xs: [int; 2] = [10, 20]
+    xs[pick(true or probe())] = 5
+    give back xs[1]
+}

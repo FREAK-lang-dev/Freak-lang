@@ -1,0 +1,24 @@
+-- `?` inside a list index operand is not wired through MIR control flow yet,
+-- so it is refused instead of silently never propagating.
+-- expect: reject mir
+-- error: control flow inside an index operand is not yet supported
+
+task idx(s: word) -> result<int, word> {
+    if s == "ok" { give back ok(1) }
+    give back err("bad")
+}
+
+task first(s: word) -> result<int, word> {
+    pilot xs: List<int> = [10, 20]
+    pilot v = xs.get(idx(s)?)
+    give back ok(v + xs[idx(s)?])
+}
+
+task main() -> int {
+    pilot mut code = 0
+    check result first("nope") {
+        ok(v) -> code = v
+        err(e) -> code = 7
+    }
+    give back code
+}
