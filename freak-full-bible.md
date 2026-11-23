@@ -47,14 +47,14 @@ Pipeline (full compiler):
 | §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer forms, explicit named lifetimes plus ordinary-task outlives bounds, first-pass `dyn Doctrine` type/object-safety/coercion/editor facts, and first-pass default/`copy`/`move`/`mut` closure capture semantics through resilient parse, HIR, TY, MIR, Meiya, editor, snapshot, LSP, and invalidation queries. Still expanding: `prob_when`, nested and generic closure typing, borrowed-return closure contracts, escaping closure environments, full dyn vtable lowering, and production backend depth for V4-only forms. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, body-derived provenance/source discovery through projection/scalar-holder/projected-reborrow/statically resolved call/reordered-argument/CFG-join paths with bounded deterministic loop-header/backedge fixed points, all-candidate final-use liveness (including elided multi-owner results), and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed child provenance, projection-assignment rebinding (including conservative dynamic-index overlap), field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Generic-call, owner-generic, and `Shared<T>::new` checks recursively expose nominal shape/route lends before substitution; direct nominal impl and overloaded operator calls on lend-bearing owners fail closed, and classifier depth exhaustion has a distinct diagnostic. First-pass closure capture ownership (`CaptureBorrow`, `CaptureBorrowMut`, `CaptureCopy`, `CaptureMove`) with stored-closure loan liveness and OneShot consumption, queryable Meiya-owned loan/move facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating also exist. Declaration-order children use `freak-mir-snapshot-v7`; v4/v5/v6 are rejected, and restore re-resolves IDs in a fresh borrowck generation. Ordinary-task fixed-layout aggregate parameters and returns now preserve leaf provenance; non-ordinary aggregate task parameters and returns, dynamic and wrapper containers, lend-bearing aliases/doctrine/callback contracts, signature-derived lifetime solving beyond declared ordinary-task relations, general lexical region inference, `'static`, general arena reclamation, runtime `Shared<T>`/`Weak<T>` depth, closure `Send`/`Sync`, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax exists, but borrowed-return closure contracts and forwarding do not yet. No fixed-aggregate backend or runtime ABI is claimed. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, body-derived provenance/source discovery through projection/scalar-holder/projected-reborrow/statically resolved call/reordered-argument/CFG-join paths with bounded deterministic loop-header/backedge fixed points, all-candidate final-use liveness (including elided multi-owner results), and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed child provenance, projection-assignment rebinding (including conservative dynamic-index overlap), field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Generic-call, owner-generic, and `Shared<T>::new` checks recursively expose nominal shape/route lends before substitution; direct nominal impl and overloaded operator calls on lend-bearing owners fail closed, and classifier depth exhaustion has a distinct diagnostic. First-pass closure capture ownership (`CaptureBorrow`, `CaptureBorrowMut`, `CaptureCopy`, `CaptureMove`) with stored-closure loan liveness and OneShot consumption, queryable Meiya-owned loan/move facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces (lowered natively as counted boxes with runtime borrow state, §4.4), and trust-me honor gating also exist. Declaration-order children use `freak-mir-snapshot-v7`; v4/v5/v6 are rejected, and restore re-resolves IDs in a fresh borrowck generation. Ordinary-task fixed-layout aggregate parameters and returns now preserve leaf provenance; non-ordinary aggregate task parameters and returns, dynamic and wrapper containers, lend-bearing aliases/doctrine/callback contracts, signature-derived lifetime solving beyond declared ordinary-task relations, general lexical region inference, `'static`, general arena reclamation, `Shared<T>` handles inside other types and generic instances, closure `Send`/`Sync`, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax exists, but borrowed-return closure contracts and forwarding do not yet. No fixed-aggregate backend or runtime ABI is claimed. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, http_server (bounded synchronous V3.5 transport), fs, process, time, bytes, math3d, version, zip; current V3.5 development also includes ordinary `std::test` assertion helpers. V3 ui is limited to the LLVM/Windows Win32-GDI floor and COCKPIT remains a Maverick source preview. Planned: thread, anime, narrative, richer test blocks, regex, crypto, ffi, panic. Maverick (V4) lowers the §7.4 `List<T>`, `Map<K,V>` and `Set<T>` core natively (literals, indexing, `push`/`set`/`get`/`remove`/`add`/`contains`/`length`); the rest of §7.4 is 🔜 V4. |
 | §8 Lexer | ⚠️ Partial | All v0.13.x keywords lex. V4 token streams now carry `'a` lifetimes and number suffixes (`42u`/`3.14f`/`42t`/`999b`); the `\|\|` xm3 separator and remaining production recovery depth are still V4. |
 | §9 Parser | ⚠️ Partial | Tolerant parsing (`ErrorNode`/`IncompleteNode`, recovery boundaries, IDE-grade incremental parsing) is V4. v1 (Python) parser fails on V3-superset syntax — V3 self-hosting compiler is the bible-conformant parser. |
 | §10 Type Checker | ⚠️ Partial | Most semantic checks listed (power arithmetic, prob ranges, foreshadow strict enforcement, classified redaction, full FFI safety) are V4. V4 now validates route exhaustiveness, first-pass `dyn Doctrine` object-safety/coercion contracts, and the basic `@layout(C)` / `packed` / `transparent` contracts; deeper layout and backend guarantees still expand. |
-| §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. Since 0.16.0 the V3.5 LLVM backend builds its module in process through LLVM's IRBuilder (LLVM 22.1.8, linked into release `freak`; Windows binds `runtime/LLVM-C.dll`) and hands clang an object to link; `--llvm-text`, `FREAK_IRBUILDER=off` and LTO builds use the textual `.ll`. LLVM emits LineTablesOnly DWARF (DISubprogram per function + per-instruction `!dbg`). Special codegen for `mood`/variants/owned `dyn` values (V4 lowers `lend dyn D` fat pointers and vtables)/`Shared<T>` runtime headers/optimization pragmas/classified symbol stripping is V4; extern ABI lowering is partial in V4. JIT (OrcJIT) is V4. |
+| §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. Since 0.16.0 the V3.5 LLVM backend builds its module in process through LLVM's IRBuilder (LLVM 22.1.8, linked into release `freak`; Windows binds `runtime/LLVM-C.dll`) and hands clang an object to link; `--llvm-text`, `FREAK_IRBUILDER=off` and LTO builds use the textual `.ll`. V4 lowers `Shared<T>`/`Weak<T>` counted boxes with runtime borrow state (§4.4). LLVM emits LineTablesOnly DWARF (DISubprogram per function + per-instruction `!dbg`). Special codegen for `mood`/variants/owned `dyn` values (V4 lowers `lend dyn D` fat pointers and vtables)/optimization pragmas/classified symbol stripping is V4; extern ABI lowering is partial in V4. JIT (OrcJIT) is V4. |
 | §12 Build Modes | 🔜 V4 | `slice_of_life`/`mecha`/`shonen_jump`/`final_form`/`alternative` modes are V4. v0.13.x has only LLVM `--opt=0..3` and `--c`/`--llvm` backend selection. |
 | §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`; current V3.5 development also provides installed native `freak test` for ordinary programs declared in `[tests]`, and `-o`/`--output` for build/run. V4: `freak vibe`, the `test "name" { ... }` framework, `--voice=…`, `--clearance=…`, `--build-mode=…`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
@@ -1320,7 +1320,7 @@ the rest is V4.
 > higher and raw-pointer writes, including `.write(value)`, require `.pilot`
 > or higher; pointer arithmetic via `.offset(n)` and raw pointer retyping via
 > `.cast<U>()` require `.ace` or higher. Full region inference, non-ordinary aggregate task boundaries,
-> runtime ref-count/borrow-state guards, `Send`/`Sync`,
+> `Shared<T>` handles inside other types, `Send`/`Sync`,
 > `direct_order [arch] { asm }`, the full higher-rank operation matrix, and
 > fixed-aggregate backend lowering remain V4 work. This is a partial
 > signature-contract source-set and local fixed-layout non-lexical liveness
@@ -1458,16 +1458,37 @@ Rules:
 - A `lend T` obtained from `Shared<T>` may not outlive the `Shared<T>` value or guard that produced it.
 - `Shared<T>` permits any number of immutable borrows through `.borrow()`.
 - Mutable access requires proof of exclusivity or a runtime guard:
-  `.get_mut()` succeeds only when the strong count is one;
-  `.borrow_mut()` returns `result<SharedMut<T>, BorrowError>` and fails if active borrows conflict.
+  `.get_mut()` takes `lend mut` of the handle and succeeds only when the strong count is one
+  and no `Weak<T>` observes the allocation (an upgrade during the loan would make a second owner);
+  `.borrow_mut()` takes a shared loan of the handle, returns `result<SharedMut<T>, BorrowError>`
+  and fails if active borrows conflict.
+- The allocation carries its borrow state at runtime: any number of `.borrow()` views or one
+  `SharedMut<T>` guard. A view or guard holds a strong reference until it drops, and its drop ends
+  the read or the write. `.borrow()` while a guard is live is a runtime panic
+  (`Shared value is already mutably borrowed`), because `.borrow()` has no error arm.
 - A live `SharedMut<T>` guard may not escape its scope. Returning an error arm from
   `result<SharedMut<T>, BorrowError>` is legal because no guard value escapes.
 - Shared mutable state across sorties must use `Shared<Mutex<T>>`, `Shared<RwLock<T>>`, atomics, channels, or another synchronization type. `Shared<T>` alone is shared ownership, not shared permission to mutate.
 - `Shared<T>` may cross sorties only when `T: Send + Sync`. Otherwise it is confined to the sortie that created it.
 - Cycles made entirely of `Shared<T>` leak by design. Parent links in UI trees should be `Weak<T>`.
+  The compiler does not detect or collect them.
 - `Shared<dyn D>` is legal when `T: D`; the allocation is shared and the pointer metadata carries the vtable.
 
 Compiler note (Meiya voice): "Shared command is still command. Name your owners, weaken your parent links, and return alive."
+
+> **V4 native status (tier 3).** V4 lowers `Shared<T>`, `Weak<T>` and
+> `SharedMut<T>` natively. A handle is a pointer to one counted box
+> `{ strong, weak, borrow, T }` from the runtime (`freak_v4_shared_*` in
+> `freak_llvm_runtime.c`, atomic counts). Strong counts handles, views and
+> guards; weak counts `Weak` handles plus one reference held by all strong
+> ones; borrow is readers, or -1 for a writer. Clone, downgrade, upgrade,
+> views, guards and drops follow Meiya's drop plan, the payload drops once
+> when strong reaches zero, and the box is freed when weak reaches zero.
+> Still V4 and refused by name: `Shared` handles inside other types (shape
+> fields, list elements, nested `Shared<Shared<T>>`), inside generic
+> instances, `Shared<dyn D>`, `maybe`/`result` payloads in the box, loans of
+> `SharedMut` guards, whole reads of a view (read it through its fields), and
+> crossing sorties (`Send`/`Sync`).
 
 ### 4.5 The trust-me Escape Hatch
 
@@ -1875,7 +1896,7 @@ freak hangar clean         -- clear cache
 | `std::anime` (mood arithmetic, power checks) | 🔜 V4 (depends on §2 types) |
 | `std::narrative` (death-flag analysis, foreshadow logs) | 🔜 V4 (depends on §5 enforcement) |
 | `std::test` | ✅ Ordinary assertion helpers in current V3.5 native project tests; `test "..." { expect ... }` blocks remain 🔜 V4 |
-| `std::ffi`, `std::os`, `std::panic`, `std::regex`, `std::crypto`, `Shared<T>` / `Weak<T>` / `size_of<T>()` | ⚠️ Partial — V4 normalizes core `std::ffi` boundary aliases and uses them in extern/layout safety checks; `Shared<T>` / `Weak<T>` type and method surfaces now lower through TY/MIR/Meiya, while runtime allocation, platform modules, panic, regex, crypto, and `size_of<T>()` still expand |
+| `std::ffi`, `std::os`, `std::panic`, `std::regex`, `std::crypto`, `Shared<T>` / `Weak<T>` / `size_of<T>()` | ⚠️ Partial — V4 normalizes core `std::ffi` boundary aliases and uses them in extern/layout safety checks; `Shared<T>` / `Weak<T>` type and method surfaces lower through TY/MIR/Meiya and natively as counted boxes with runtime borrow state (§4.4), while platform modules, panic, regex, crypto, and `size_of<T>()` still expand |
 
 The prelude (always-available types and `say`/`ask`/`panic`) ships in v0.13.x
 but several primitive types listed below (`tiny`, `uint`, `char`, `big`,
@@ -2301,7 +2322,7 @@ pilot weak = a.downgrade()
 
 pilot view = a.borrow()             -- lend Button
 pilot edit = a.borrow_mut()?        -- SharedMut<Button> guard
-pilot unique = a.get_mut()?         -- lend mut Button, only if strong_count == 1
+pilot unique = a.get_mut()?         -- lend mut Button, only if strong_count == 1 and no Weak
 
 pilot maybe_alive = weak.upgrade()  -- maybe<Shared<Button>>
 
