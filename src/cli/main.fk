@@ -330,11 +330,14 @@ task cli_check_report(passed: bool, message: word) -> void {
         say ""
     } else {
         say ""
+        -- The verdict line is byte-for-byte the historical one; tools such as
+        -- tests/v4_differential/run_differential.py match it exactly.
         if passed {
-            say "  " + C_BGREEN + SYM_SPARK + " PASSED" + C_RESET + C_DIM + " -- " + message + " (" + word_from_int(total_ms) + "ms)" + C_RESET
+            say "  " + C_BGREEN + SYM_SPARK + " PASSED" + C_RESET + C_DIM + " -- " + message + C_RESET
         } else {
-            say "  " + C_BRED + SYM_CROSS + " FAILED" + C_RESET + C_DIM + " -- " + message + " (" + word_from_int(total_ms) + "ms)" + C_RESET
+            say "  " + C_BRED + SYM_CROSS + " FAILED" + C_RESET + C_DIM + " -- " + message + C_RESET
         }
+        say "  " + C_DIM + "Time:   " + word_from_int(total_ms) + "ms" + C_RESET
         say ""
     }
     sw_report()
