@@ -7858,6 +7858,9 @@ task v4_mir_body_has_scalar_sum(mir: int, body: int) -> bool {
     repeat until row >= v4_mir_body_rvalue_count(mir, body) {
         if v4_ty_is_native_scalar_sum(ty, v4_mir_rvalue_ty(mir, body, row)) or v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_sum_take { give back true }
         pilot call_row: bool = v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_call
+        -- The same callee rule as the staged selector: a call whose callee
+        -- takes or gives back a sum makes the caller owe the row checks.
+        if call_row and v4_mir_sum_row_callee_is_sensitive(ty, v4_mir_snapshot_rvalue_line(mir, body, row)) { give back true }
         if v4_mir_rvalue_builtin_method(mir, body, row).starts_with("builtin::system::") or (call_row and v4_mir_rvalue_op(mir, body, row).starts_with("builtin::system::")) or v4_mir_rvalue_builtin_method(mir, body, row) == "builtin::word::to_int_maybe" or (call_row and v4_mir_rvalue_op(mir, body, row) == "builtin::word::to_int_maybe") { give back true }
         row += 1
     }
