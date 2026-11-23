@@ -5952,6 +5952,8 @@ static freak_ffi_handle freak_ffi_open_exact(const char *path) {
     wchar_t *wide = (wchar_t *)malloc((size_t)wide_len * sizeof(wchar_t));
     if (!wide) return NULL;
     MultiByteToWideChar(CP_UTF8, 0, path, -1, wide, wide_len);
+    /* LoadLibrary documents backslashes only. */
+    for (wchar_t *c = wide; *c; c++) if (*c == L'/') *c = L'\\';
     HMODULE handle = LoadLibraryW(wide);
     free(wide);
     return handle;
@@ -5981,14 +5983,14 @@ static freak_ffi_handle freak_ffi_open_candidate(const char *candidate, const ch
     if (exe_dir && exe_dir[0] && !freak_ffi_is_absolute(candidate)) {
         const char *leaf = candidate;
         if (leaf[0] == '.' && (leaf[1] == '/' || leaf[1] == '\\')) leaf += 2;
+#ifdef _WIN32
+        snprintf(joined, sizeof(joined), "%s\\%s", exe_dir, leaf);
+#else
         snprintf(joined, sizeof(joined), "%s/%s", exe_dir, leaf);
+#endif
         handle = freak_ffi_open_exact(joined);
         if (handle) return handle;
     }
-#ifndef _WIN32
-    /* A bare leaf must go to the loader without "./" so it searches the
-       normal paths; a relative path with a directory is cwd-relative. */
-#endif
     return freak_ffi_open_exact(candidate);
 }
 
