@@ -1,0 +1,12 @@
+-- Two dynamic indices may name one inner list: the loans overlap.
+-- expect: reject borrowck
+-- error: Meiya refuses overlapping mutable lends
+
+task main() -> int {
+    pilot mut g: List<List<int>> = [[1], [2]]
+    pilot i = 0
+    pilot j = 0
+    pilot r = lend g[i]
+    g[j].push(5)
+    give back r.length()
+}

@@ -1,0 +1,32 @@
+-- A when sequence pattern over a list matches only its exact length, and
+-- tests the length before it reads any element.
+-- expect: run
+-- stdout: 0
+-- stdout: 4
+-- stdout: 15
+-- stdout: -1
+-- stdout: 3
+
+task shape_of(xs: List<int>) -> int {
+    when xs {
+        [] -> give back 0
+        [x] -> give back x
+        [1, y] -> give back 10 + y
+        _ -> give back 0 - 1
+    }
+    give back 0 - 2
+}
+
+task main() -> int {
+    say shape_of([])
+    say shape_of([4])
+    say shape_of([1, 5])
+    say shape_of([1, 5, 6])
+    pilot g: List<List<int>> = [[1, 2], [3]]
+    when g {
+        [[a], [b]] -> say a + b
+        [[a, b], [c]] -> say c
+        _ -> say 9
+    }
+    give back 0
+}

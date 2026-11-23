@@ -1,0 +1,11 @@
+-- A list field moved out of its shape cannot be read through the shape.
+-- expect: reject borrowck
+-- error: Meiya remembers the field you already moved
+
+shape Bag { items: List<int>, n: int }
+
+task main() -> int {
+    pilot b = Bag { items: [1], n: 1 }
+    pilot xs = b.items
+    give back b.items.length() + xs.length()
+}

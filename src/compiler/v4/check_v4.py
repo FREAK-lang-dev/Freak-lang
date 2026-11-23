@@ -17885,22 +17885,14 @@ NATIVE_LISTS_REJECTED = (
      "list method receiver must be a place"),
     ("tier3_list_untyped_empty", "task main() -> int {\n    pilot xs = []\n    give back 0\n}\n",
      "empty list literal needs type context"),
-    # Later rows: nested lists, lists in other types, Sum elements, list
-    # operators, route items that own words, moved list captures.
-    ("tier3_list_nested", "task main() -> int {\n    pilot xs: List<List<int>> = [[1]]\n    give back 0\n}\n",
-     "native lists of lists are not yet supported: List<List<int>>"),
-    ("tier3_list_shape_field", "shape Bag { items: List<int> }\n"
-     "task main() -> int {\n    pilot b = Bag { items: [1] }\n    give back 0\n}\n",
-     "native lists inside other types are not yet supported: List<int>"),
+    # Later rows: Sum elements, list operators, moved list captures. Lists
+    # inside other types and route items that own words are native (nested
+    # lists row, examples/lists_nested_native.fk).
     ("tier3_list_maybe_elements", "task main() -> int {\n    pilot xs: List<maybe<int>> = [some(1)]\n    give back 0\n}\n",
      "native lists of maybe/result values are not yet supported: List<maybe<int>>"),
     ("tier3_list_equality", "task main() -> int {\n    pilot xs: List<int> = [1]\n    pilot ys: List<int> = [1]\n"
      "    if xs == ys { give back 1 }\n    give back 0\n}\n",
      "native list operators are not yet supported"),
-    ("tier3_list_route_word_items", "route Msg {\n    Text { body: word }\n    Quit\n}\n"
-     "task main() -> int {\n    pilot ms: List<Msg> = [Msg::Text { body: \"hi\" }, Msg::Quit]\n"
-     "    pilot n = 0\n    for each m in ms { n += 1 }\n    give back n\n}\n",
-     "native list items of routes that own words are not yet supported: Msg"),
     ("tier3_list_move_capture", "task main() -> int {\n    pilot xs: List<word> = [\"a\"]\n"
      "    pilot f = move |k: int| {\n        give back k + xs.length()\n    }\n    give back f(1)\n}\n",
      "native closure captures that move words are not yet supported: xs"),
@@ -17913,6 +17905,88 @@ NATIVE_LISTS_REJECTED = (
      "task main() -> int {\n    pilot xs: List<int> = [1]\n    give back 0\n}\n",
      'native list runtime symbol conflict: @"llvm.umul.with.overflow.i64"'),
 )
+# Lists inside other types (tier 3 nested lists row): exit 0 and this output.
+NATIVE_NESTED_LISTS_EXPECTED = ("Sumika/Takeru!/Meiya\n5\n5\n2\nKei\n13\nca\n76\n3\nx\ny\nz\nz\nA!\nB!\n4\nkei\n149\n"
+                                "0\n4\n15\n-1\n26\n7\n")
+# Layouts the oracle must see, and the private list helpers the module must
+# define once each: deep copies for for-each items and per-element drops.
+NATIVE_NESTED_LISTS_LAYOUTS = ('%"freak.shape.Squad"', '%"freak.shape.Bag<int>"', '%"freak.shape.Bag<word>"', '%"freak.route.Order"')
+NATIVE_NESTED_LISTS_HELPERS = (
+    '@"freak.list.clone.List<int>"', '@"freak.list.clone.List<word>"', '@"freak.list.clone.List<List<word>>"',
+    '@"freak.list.clone.Squad"', '@"freak.list.clone.Order"',
+    '@"freak.list.drop.List<int>"', '@"freak.list.drop.List<List<word>>"', '@"freak.list.drop.Squad"', '@"freak.list.drop.Order"',
+)
+# Nested-list programs native code or Meiya refuses: (stem, source, reason).
+NATIVE_NESTED_LISTS_REJECTED = (
+    # Meiya projects a loan of an inner list onto its owner.
+    ("tier3_nested_list_inner_loan_outer_push", "task main() -> int {\n    pilot mut g: List<List<int>> = [[1], [2]]\n"
+     "    pilot r = lend g[0]\n    g.push([3])\n    give back r.length()\n}\n",
+     "Meiya refuses overlapping mutable lends"),
+    ("tier3_nested_list_field_loan_push", "shape Bag { items: List<int>, n: int }\n"
+     "task main() -> int {\n    pilot mut b = Bag { items: [1], n: 1 }\n    pilot r = lend b.items\n"
+     "    b.items.push(2)\n    give back r.length()\n}\n",
+     "Meiya refuses overlapping mutable lends"),
+    ("tier3_nested_list_walk_inner_push_outer", "task main() -> int {\n    pilot mut g: List<List<int>> = [[1], [2]]\n"
+     "    for each x in g[0] {\n        g.push([x])\n    }\n    give back g.length()\n}\n",
+     "Meiya carries an exclusive lend across another loan boundary"),
+    ("tier3_nested_list_field_use_after_move", "shape Bag { items: List<int>, n: int }\n"
+     "task main() -> int {\n    pilot b = Bag { items: [1], n: 1 }\n    pilot xs = b.items\n"
+     "    give back b.items.length() + xs.length()\n}\n",
+     "Meiya remembers the field you already moved"),
+    # Task value surfaces with list parameters keep their own fence.
+    ("tier3_nested_list_task_value", "task count(xs: List<int>) -> int { give back xs.length() }\n"
+     "task apply(f: task(xs: List<int>) -> int) -> int { give back 0 }\n"
+     "task main() -> int { give back apply(count) }\n",
+     "native task values with list parameters or results are not yet supported: List<int>"),
+    # The owned-temporary and route-discard fences cover list leaves too.
+    ("tier3_nested_list_temporary_projection", "shape Bag { items: List<int>, n: int }\n"
+     "task make() -> Bag { give back Bag { items: [1], n: 2 } }\ntask main() -> int { give back make().n }\n",
+     "native projections of temporaries that own words are not yet supported: make ( ) . n"),
+    ("tier3_nested_list_route_discard", "route Order {\n    Batch { ids: List<int> }\n    Halt\n}\n"
+     "task main() -> int {\n    Order::Batch { ids: [1] }\n    give back 0\n}\n",
+     "native discarded route values that own words are not yet supported: Order :: Batch { ids : [ 1 ] }"),
+    ("tier3_nested_list_move_capture", "shape Bag { items: List<int>, n: int }\n"
+     "task main() -> int {\n    pilot b = Bag { items: [1], n: 2 }\n    pilot f = move |k: int| {\n        give back k + b.n\n    }\n"
+     "    give back f(1)\n}\n",
+     "native closure captures that move words are not yet supported: b"),
+    ("tier3_nested_list_tuple_equality", "task main() -> int {\n    pilot a: (List<int>, int) = ([1], 1)\n"
+     "    pilot b: (List<int>, int) = ([1], 1)\n    if a == b { give back 1 }\n    give back 0\n}\n",
+     "native list operators are not yet supported"),
+    ("tier3_nested_list_repeat_fill", "task main() -> int {\n    pilot a: [List<int>; 3] = [[]; 3]\n    give back a[0].length()\n}\n",
+     "fixed-array repeat value must be Copy or Cloneable"),
+    ("tier3_nested_list_shape_maybe_elements", "shape Q { slots: List<maybe<int>> }\n"
+     "task main() -> int {\n    pilot q = Q { slots: [some(1)] }\n    give back 0\n}\n",
+     "native lists of maybe/result values are not yet supported: List<maybe<int>>"),
+    # `[]` matches an empty list and nothing else.
+    ("tier3_nested_list_empty_pattern_non_list", "task main() -> int {\n    pilot n = 3\n    when n {\n"
+     "        [] -> give back 1\n        _ -> give back 0\n    }\n    give back 2\n}\n",
+     "unsupported when arm pattern"),
+)
+
+
+def check_v4_native_nested_lists_module(module_text: str, triple: str) -> None:
+    """Nested lists: layouts noted, helpers defined once, inner lists freed before the outer buffer."""
+    notes = native_layout_notes(module_text)
+    missing = [name for name in NATIVE_NESTED_LISTS_LAYOUTS if name not in notes]
+    if missing:
+        raise RuntimeError(f"V4 nested lists module for {triple} has no layout notes for {', '.join(missing)}")
+    defined = re.findall(r'^define internal [^@]*(@"[^"]+")\(', module_text, re.MULTILINE)
+    for symbol in NATIVE_NESTED_LISTS_HELPERS:
+        if defined.count(symbol) != 1:
+            raise RuntimeError(f"V4 nested lists module for {triple} defines {symbol} {defined.count(symbol)} times")
+    for outer, inner in (('@"freak.list.drop.List<int>"', '@"freak.list.drop.int"'),
+                         ('@"freak.list.drop.List<List<word>>"', '@"freak.list.drop.List<word>"'),
+                         ('@"freak.list.drop.Squad"', '@"freak.list.drop.word"')):
+        body = re.search(r"^define internal void " + re.escape(outer) + r"\(.*?^}$", module_text, re.MULTILINE | re.DOTALL)
+        if body is None:
+            raise RuntimeError(f"V4 nested lists module for {triple} has no {outer} body")
+        text = body.group(0)
+        inner_at = text.find("call void " + inner + "(")
+        free_at = text.find("call void @free(")
+        if inner_at < 0 or free_at < 0 or inner_at > free_at:
+            raise RuntimeError(f"V4 nested lists module for {triple}: {outer} does not drop {inner} before freeing its buffer")
+
+
 # Rejected lend ABI programs: (stem, source, named reason).
 NATIVE_LEND_ABI_REJECTED = (
     # A lend-typed parameter is not a lend mode.
@@ -18058,10 +18132,6 @@ NATIVE_GENERICS_REJECTED = (
     ("tier3_generic_list_element_drift", "task mixed<T>(x: T) -> List<T> {\n    pilot ys: List<T> = [x, 1]\n    give back ys\n}\n"
      "task main() -> int {\n    pilot ws = mixed(\"a\")\n    give back ws.length()\n}\n",
      "element 2 wants word but got int"),
-    # Lists inside other types stay refused for generic instances too.
-    ("tier3_generic_list_shape_field", "shape Bag<T> { items: List<T>, n: int }\n"
-     "task main() -> int {\n    pilot b: Bag<int> = Bag { items: [1, 2], n: 2 }\n    give back b.n\n}\n",
-     "native lists inside other types are not yet supported: List<int>"),
     # Impls over lifetime-parameter owners are templates with no native
     # layout for their owner yet; calls on them are refused by name.
     ("tier3_generic_lifetime_owner", "shape Holder<'a> { n: int }\n"
@@ -18483,6 +18553,7 @@ def check_v4_native_shapes() -> None:
         ("lists", "lists_native.fk", NATIVE_LISTS_EXPECTED),
         ("generics", "generics_native.fk", NATIVE_GENERICS_EXPECTED),
         ("generics_lists", "generics_lists_native.fk", NATIVE_GENERICS_LISTS_EXPECTED),
+        ("lists_nested", "lists_nested_native.fk", NATIVE_NESTED_LISTS_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -18519,6 +18590,8 @@ def check_v4_native_shapes() -> None:
             module_text = module_path.read_text(encoding="utf-8")
             if stem == "lists":
                 check_v4_native_lists_layout_note(module_text, triple)
+            if stem == "lists_nested":
+                check_v4_native_nested_lists_module(module_text, triple)
             probes += check_native_layout_oracle(module_text, triple)
             abi_probes += check_native_abi_oracle(module_text, triple)
             if stem == "agg_abi":
@@ -18724,7 +18797,7 @@ def check_v4_native_shapes() -> None:
          "impl Eq for V { task equals(lend self, other: lend V) -> bool { give back self.x == other.x } }\n"
          "task main() -> int { pilot a = V { x: 1 }\n if a == a { give back 1 }\n give back 0 }\n",
          "Meiya cannot store a lend in parameter 1 of Eq::equals yet"),
-    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_GENERICS_REJECTED
+    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")

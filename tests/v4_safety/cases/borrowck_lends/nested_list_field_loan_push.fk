@@ -1,0 +1,12 @@
+-- A loan of a shape's list field blocks a push through the same field.
+-- expect: reject borrowck
+-- error: Meiya refuses overlapping mutable lends
+
+shape Bag { items: List<int>, n: int }
+
+task main() -> int {
+    pilot mut b = Bag { items: [1], n: 1 }
+    pilot r = lend b.items
+    b.items.push(2)
+    give back r.length()
+}

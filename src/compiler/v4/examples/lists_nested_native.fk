@@ -1,0 +1,146 @@
+-- Lists inside other types (tier 3 collections row M): List<T> as a shape
+-- field, a tuple or fixed-array slot, a list element (List<List<T>>), a
+-- route payload field and a generic shape field, plus list items of routes
+-- that own words and list sequence patterns. A list header is one owned
+-- slot of its aggregate: Meiya's sealed drop plan drops the aggregate, whose
+-- glue frees inner lists (and their words) before the outer buffer. A
+-- for-each item is the walker's own deep copy (a fresh buffer per list).
+-- tests/v4_owned_word_codegen.py runs it under ASan, UBSan and both
+-- ownership audits; check_v4_native_shapes pins output, layouts and helpers.
+
+shape Squad { names: List<word>, wins: int }
+
+shape Bag<T> { items: List<T>, n: int }
+
+route Order {
+    Note { text: word }
+    Batch { ids: List<int> }
+    Halt
+}
+
+doctrine Count { task count(lend self) -> int }
+
+impl Count for Squad {
+    task count(lend self) -> int { give back self.names.length() + self.wins }
+}
+
+task tally(lend c: dyn Count) -> int { give back c.count() }
+
+task recruit(name: word) -> Squad {
+    pilot mut s = Squad { names: [], wins: 0 }
+    pilot loud = name + "!"
+    s.names.push(name)
+    s.names.push(loud)
+    give back s
+}
+
+-- Takes the squad by value: it drops here, its list with it.
+task roster_size(s: Squad) -> int { give back s.names.length() }
+
+task promote(lend mut s: Squad, name: word) -> void {
+    s.names.push(name)
+    s.wins += 1
+}
+
+task grow(lend mut xs: List<int>, v: int) -> void { xs.push(v) }
+
+task bag_of<T>(x: T) -> Bag<T> {
+    pilot empty: List<T> = []
+    pilot mut b: Bag<T> = Bag { items: empty, n: 0 }
+    b.items.push(x)
+    b.n = 1
+    give back b
+}
+
+task weigh(o: Order) -> int {
+    when o {
+        Order::Note { text } -> give back text.length()
+        Order::Batch { ids: [a, b] } -> give back a * b
+        Order::Batch { ids } -> give back ids.length()
+        Order::Halt -> give back 100
+    }
+    give back 0
+}
+
+task shape_of(xs: List<int>) -> int {
+    when xs {
+        [] -> give back 0
+        [x] -> give back x
+        [1, y] -> give back 10 + y
+        _ -> give back 0 - 1
+    }
+    give back 0 - 2
+}
+
+task main() -> int {
+    -- Shape fields: push, store and index through the field place.
+    pilot mut s = recruit("Takeru")
+    s.names.push("Meiya")
+    s.names[0] = "Sumika"
+    say s.names[0] + "/" + s.names[1] + "/" + s.names[2]
+    promote(lend mut s, "Kei")
+    say s.names.length() + s.wins
+    say tally(lend s)
+    say roster_size(recruit("Yuuko"))
+    -- A discarded aggregate result releases its list.
+    recruit("Marimo")
+    pilot taken = s.names
+    say taken[3]
+
+    -- Tuple and fixed-array slots; a tuple destination types `[]`.
+    pilot mut pair: (List<int>, int) = ([], 7)
+    pair.0.push(5)
+    grow(lend mut pair.0, 6)
+    say pair.0[1] + pair.1
+    pilot grid: [List<word>; 2] = [["a"], ["b", "c"]]
+    say grid[1][1] + grid[0][0]
+
+    -- Nested lists: inner pushes, stores, moves out, and walks (each item a
+    -- fresh copy of the inner list).
+    pilot mut g: List<List<int>> = [[1, 2], [3]]
+    g[1].push(4)
+    g.push([10, 20, 30])
+    g[0] = [9]
+    pilot total = 0
+    for each row in g {
+        for each x in row { total += x }
+    }
+    say total
+    pilot moved = g[2]
+    say moved.length()
+    pilot deep: List<List<List<word>>> = [[["x"]], [["y", "z"], []]]
+    for each mid in deep {
+        for each inner in mid {
+            for each w in inner { say w }
+        }
+    }
+    say deep[1][0][1]
+
+    -- Lists of shapes that hold lists, and generic instances.
+    pilot squads: List<Squad> = [recruit("A"), recruit("B")]
+    for each sq in squads { say sq.names[1] }
+    pilot b = bag_of(3)
+    pilot bw = bag_of("kei")
+    say b.items[0] + b.n
+    say bw.items[0]
+
+    -- Route payloads that own words or lists, as list items.
+    pilot orders: List<Order> = [Order::Note { text: "fire" }, Order::Batch { ids: [6, 7] }, Order::Batch { ids: [1, 2, 3] }, Order::Halt]
+    pilot weight = 0
+    for each o in orders { weight += weigh(o) }
+    say weight
+
+    -- Sequence patterns: a when arm matches exactly its length; a pilot or
+    -- for-each destructure reads the first elements (bounds-checked).
+    say shape_of([])
+    say shape_of([4])
+    say shape_of([1, 5])
+    say shape_of([1, 5, 6])
+    pilot rows: List<List<int>> = [[2, 3], [4, 5]]
+    pilot area = 0
+    for each [w, h] in rows { area += w * h }
+    say area
+    pilot [front, back] = rows
+    say front[0] + back[1]
+    give back 0
+}
