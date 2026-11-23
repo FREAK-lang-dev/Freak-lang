@@ -1,0 +1,27 @@
+-- `?` in a fixed-array literal element returns the Err before the array is
+-- built.
+-- expect: run
+-- stdout: built
+-- exit: 32
+
+task fail(s: word) -> result<int, word> {
+    if s == "ok" { give back ok(5) }
+    give back err("bad")
+}
+task build(s: word) -> result<int, word> {
+    pilot xs: [int; 2] = [fail(s)?, 7]
+    say "built"
+    give back ok(xs[0] + xs[1])
+}
+task main() -> int {
+    pilot mut code = 0
+    check result build("ok") {
+        ok(v) -> code = v
+        err(e) -> code = 50
+    }
+    check result build("nope") {
+        ok(v) -> code = code + 100
+        err(e) -> code = code + 20
+    }
+    give back code
+}

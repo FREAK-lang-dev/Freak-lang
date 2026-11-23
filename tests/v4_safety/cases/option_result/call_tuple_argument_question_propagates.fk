@@ -1,0 +1,30 @@
+-- `?` in a tuple call argument returns the Err before the call; the Ok
+-- path calls it with the payload.
+-- expect: run
+-- stdout: called
+-- exit: 25
+
+task fail(s: word) -> result<int, word> {
+    if s == "ok" { give back ok(5) }
+    give back err("bad")
+}
+task first(p: (int, int)) -> int {
+    say "called"
+    give back p.0
+}
+task build(s: word) -> result<int, word> {
+    pilot v = first((fail(s)?, 7))
+    give back ok(v)
+}
+task main() -> int {
+    pilot mut code = 0
+    check result build("ok") {
+        ok(v) -> code = v
+        err(e) -> code = 50
+    }
+    check result build("nope") {
+        ok(v) -> code = code + 10
+        err(e) -> code = code + 20
+    }
+    give back code
+}

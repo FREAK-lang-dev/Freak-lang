@@ -1,0 +1,27 @@
+-- `?` in a tuple nested in a list literal returns the Err before the list
+-- is built; the Ok path builds it.
+-- expect: run
+-- stdout: built
+-- exit: 21
+
+task fail(s: word) -> result<int, word> {
+    if s == "ok" { give back ok(5) }
+    give back err("bad")
+}
+task build(s: word) -> result<int, word> {
+    pilot xs = [(fail(s)?, 7)]
+    say "built"
+    give back ok(xs.length())
+}
+task main() -> int {
+    pilot mut code = 0
+    check result build("ok") {
+        ok(v) -> code = v
+        err(e) -> code = 50
+    }
+    check result build("nope") {
+        ok(v) -> code = code + 10
+        err(e) -> code = code + 20
+    }
+    give back code
+}

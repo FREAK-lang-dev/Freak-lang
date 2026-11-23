@@ -1,0 +1,17 @@
+-- `and`/`or` inside fixed-array literal elements short-circuit.
+-- expect: run
+-- stdout: done
+-- exit: 9
+
+task probe() -> bool {
+    say "probe ran"
+    give back true
+}
+
+task main() -> int {
+    pilot xs: [bool; 2] = [false and probe(), true or probe()]
+    say "done"
+    if xs[0] { give back 1 }
+    if xs[1] { give back 9 }
+    give back 2
+}

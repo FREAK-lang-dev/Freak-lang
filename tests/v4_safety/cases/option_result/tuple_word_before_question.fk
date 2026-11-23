@@ -1,0 +1,28 @@
+-- An owned word captured before a later `?` in the same tuple is moved into
+-- the tuple on Ok and released on Err.
+-- expect: run
+-- stdout: pilotok
+-- exit: 25
+
+task fail(s: word) -> result<int, word> {
+    if s == "ok" { give back ok(5) }
+    give back err("bad")
+}
+task build(s: word) -> result<int, word> {
+    pilot w = "pilot" + s
+    pilot t = (w, fail(s)?)
+    say t.0
+    give back ok(t.1)
+}
+task main() -> int {
+    pilot mut code = 0
+    check result build("ok") {
+        ok(v) -> code = v
+        err(e) -> code = 50
+    }
+    check result build("nope") {
+        ok(v) -> code = code + 100
+        err(e) -> code = code + 20
+    }
+    give back code
+}

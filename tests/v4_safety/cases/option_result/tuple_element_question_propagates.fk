@@ -1,0 +1,26 @@
+-- `?` in a tuple literal element returns the Err before the tuple is built.
+-- expect: run
+-- stdout: built
+-- exit: 25
+
+task fail(s: word) -> result<int, word> {
+    if s == "ok" { give back ok(5) }
+    give back err("bad")
+}
+task build(s: word) -> result<int, word> {
+    pilot t = (fail(s)?, 7)
+    say "built"
+    give back ok(t.0)
+}
+task main() -> int {
+    pilot mut code = 0
+    check result build("ok") {
+        ok(v) -> code = v
+        err(e) -> code = 50
+    }
+    check result build("nope") {
+        ok(v) -> code = code + 10
+        err(e) -> code = code + 20
+    }
+    give back code
+}
