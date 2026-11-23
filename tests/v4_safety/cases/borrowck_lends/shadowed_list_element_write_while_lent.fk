@@ -1,0 +1,15 @@
+-- A shadowing list's element write overlaps that binding's own live loan.
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+
+task main() -> int {
+    pilot xs: List<int> = [1]
+    pilot mut n = 0
+    if n == 0 {
+        pilot mut xs: List<int> = [1, 2]
+        pilot v = lend xs
+        xs[0] = 9
+        n = v.length()
+    }
+    give back n + xs.length()
+}
