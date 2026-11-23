@@ -146,4 +146,3 @@ TY word type accessors scanned: 149.
 | `v4_ty_function_type_param_surface` | 0 | 2 | 0 | 7 | 9 |
 | `v4_mir_body_callable_param_type` | 2 | 0 | 0 | 5 | 7 |
 | `v4_ty_signature_param_surface_type` | 0 | 0 | 0 | 7 | 7 |
-
