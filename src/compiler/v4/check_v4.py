@@ -17959,6 +17959,12 @@ NATIVE_NESTED_LISTS_REJECTED = (
     ("tier3_nested_list_shape_maybe_elements", "shape Q { slots: List<maybe<int>> }\n"
      "task main() -> int {\n    pilot q = Q { slots: [some(1)] }\n    give back 0\n}\n",
      "native lists of maybe/result values are not yet supported: List<maybe<int>>"),
+    # A type holding a list of a type in progress is checked once that type
+    # finishes: Holder is not native because Dir has a sum slot.
+    ("tier3_nested_list_recursive_bad_slot", "shape Dir { subs: List<Holder>, bad: maybe<int> }\n"
+     "shape Holder { kids: List<Dir>, n: int }\n"
+     "task main() -> int {\n    pilot h = Holder { kids: [], n: 1 }\n    give back h.n\n}\n",
+     "native aggregate maybe/result slots are not yet supported: Dir.bad"),
     # `[]` matches an empty list and nothing else.
     ("tier3_nested_list_empty_pattern_non_list", "task main() -> int {\n    pilot n = 3\n    when n {\n"
      "        [] -> give back 1\n        _ -> give back 0\n    }\n    give back 2\n}\n",

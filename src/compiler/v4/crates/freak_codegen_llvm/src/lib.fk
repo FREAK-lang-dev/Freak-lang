@@ -41,6 +41,9 @@ pilot v4_codegen_llvm_shape_lines = 0
 pilot v4_codegen_llvm_shape_ok = ","
 pilot v4_codegen_llvm_shape_ok_mir = 0 - 1
 pilot v4_codegen_llvm_shape_visiting = ","
+-- Set when a list element check leaned on a type still in progress; such a
+-- result is memoized only once the outermost check has finished.
+pilot v4_codegen_llvm_shape_assumed: bool = false
 pilot v4_codegen_llvm_layout_memo_target = ""
 pilot v4_codegen_llvm_layout_memo_records = ""
 pilot v4_codegen_llvm_layout_memo_ready: bool = false
@@ -3393,16 +3396,21 @@ task v4_codegen_llvm_native_shape_error(mir_id: int, type_text: word, depth: int
         v4_codegen_llvm_shape_ok_mir = mir_id
         v4_codegen_llvm_shape_ok = ","
         v4_codegen_llvm_shape_visiting = ","
+        v4_codegen_llvm_shape_assumed = false
     }
     pilot canonical = v4_ty_canonical_type(ty_id, type_text)
     pilot ok_key = "," + canonical + "@" + word_from_int(depth) + ","
     if v4_codegen_llvm_shape_ok.contains(ok_key) { give back "" }
     if v4_codegen_llvm_shape_visiting.contains("," + canonical + ",") { give back "native shape contains itself by value: " + type_text }
     pilot saved_visiting = v4_codegen_llvm_shape_visiting
+    pilot saved_assumed: bool = v4_codegen_llvm_shape_assumed
+    v4_codegen_llvm_shape_assumed = false
     v4_codegen_llvm_shape_visiting = saved_visiting + canonical + ","
     pilot error = v4_codegen_llvm_native_aggregate_slots_error(mir_id, ty_id, kind, type_text, depth)
     v4_codegen_llvm_shape_visiting = saved_visiting
-    if error == "" { v4_codegen_llvm_shape_ok = v4_codegen_llvm_shape_ok + canonical + "@" + word_from_int(depth) + "," }
+    pilot assumed: bool = v4_codegen_llvm_shape_assumed
+    v4_codegen_llvm_shape_assumed = saved_assumed or assumed
+    if error == "" and (not assumed or saved_visiting == ",") { v4_codegen_llvm_shape_ok = v4_codegen_llvm_shape_ok + canonical + "@" + word_from_int(depth) + "," }
     give back error
 }
 
@@ -6210,7 +6218,10 @@ task v4_codegen_llvm_native_list_slot_error(mir_id: int, type_text: word, depth:
     -- A list is indirection (bible 1.5): `shape Dir { subs: List<Dir> }` is
     -- finite. An element type whose check is already in progress is left
     -- to that check, which validates every other slot.
-    if v4_codegen_llvm_shape_ok_mir == mir_id and v4_codegen_llvm_shape_visiting.contains("," + v4_ty_canonical_type(v4_mir_ty_id(mir_id), element) + ",") { give back "" }
+    if v4_codegen_llvm_shape_ok_mir == mir_id and v4_codegen_llvm_shape_visiting.contains("," + v4_ty_canonical_type(v4_mir_ty_id(mir_id), element) + ",") {
+        v4_codegen_llvm_shape_assumed = true
+        give back ""
+    }
     give back v4_codegen_llvm_native_type_error_depth(element, false, depth + 1)
 }
 
