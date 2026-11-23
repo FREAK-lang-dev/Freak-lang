@@ -70,3 +70,5 @@ say "extern-link-bad-diag2-message=" + v4_diag_message(v4_ty_diag(v4_extern_link
 say "extern-link-bad-diag3-message=" + v4_diag_message(v4_ty_diag(v4_extern_link_bad_ty, 3))
 say "extern-link-bad-diag4-message=" + v4_diag_message(v4_ty_diag(v4_extern_link_bad_ty, 4))
 say "extern-link-bad-diag5-message=" + v4_diag_message(v4_ty_diag(v4_extern_link_bad_ty, 5))
+say "extern-link-bad-diag4-span=" + v4_diag_span(v4_ty_diag(v4_extern_link_bad_ty, 4))
+say "extern-link-bad-diag5-span=" + v4_diag_span(v4_ty_diag(v4_extern_link_bad_ty, 5))

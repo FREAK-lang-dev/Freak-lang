@@ -3903,149 +3903,27 @@ task v4_ty_extern_spec_option_value(spec_text: word) -> word {
     give back v4_ty_layout_option_value(spec_text)
 }
 
-task v4_ty_extern_spec_open_token(ty_id: int, sig_id: int) -> int {
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
-        give back 0 - 1
-    }
-    pilot hir_id = v4_ty_signature_hir_id(ty_id)
-    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
-    if hir_id < 0 or hir_item < 0 {
-        give back 0 - 1
-    }
-    pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
-    give back v4_parse_extern_abi_open_token(tree_id, parse_node)
-}
-
-task v4_ty_extern_spec_close_token(ty_id: int, sig_id: int) -> int {
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
-        give back 0 - 1
-    }
-    pilot hir_id = v4_ty_signature_hir_id(ty_id)
-    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
-    if hir_id < 0 or hir_item < 0 {
-        give back 0 - 1
-    }
-    pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
-    give back v4_parse_extern_abi_close_token(tree_id, parse_node)
-}
-
-task v4_ty_extern_spec_item_start_token(ty_id: int, sig_id: int, item_id: int) -> int {
-    if item_id < 0 {
-        give back 0 - 1
-    }
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot open_token = v4_ty_extern_spec_open_token(ty_id, sig_id)
-    pilot close_token = v4_ty_extern_spec_close_token(ty_id, sig_id)
-    if stream_id < 0 or open_token < 0 or close_token <= open_token {
-        give back 0 - 1
-    }
-
-    pilot current = 0
-    pilot depth = 0
-    pilot segment_start = v4_ty_skip_trivia(stream_id, open_token + 1)
-    pilot idx = open_token + 1
-    repeat until idx >= close_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_syntax_value(stream_id, idx)
-            if depth == 0 and val == "," {
-                if current == item_id {
-                    give back segment_start
-                }
-                current += 1
-                segment_start = v4_ty_skip_trivia(stream_id, idx + 1)
-            } else {
-                depth = v4_ty_type_depth_after_char(depth, val)
-            }
-        }
-        idx += 1
-    }
-    if current == item_id {
-        give back segment_start
-    }
-    give back 0 - 1
-}
-
-task v4_ty_extern_spec_item_end_token(ty_id: int, sig_id: int, item_id: int) -> int {
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_extern_spec_item_start_token(ty_id, sig_id, item_id)
-    pilot close_token = v4_ty_extern_spec_close_token(ty_id, sig_id)
-    if stream_id < 0 or start_token < 0 or close_token <= start_token {
-        give back 0 - 1
-    }
-
-    pilot depth = 0
-    pilot idx = start_token
-    repeat until idx >= close_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_syntax_value(stream_id, idx)
-            if depth == 0 and val == "," {
-                give back idx
-            }
-            depth = v4_ty_type_depth_after_char(depth, val)
-        }
-        idx += 1
-    }
-    give back close_token
-}
-
-task v4_ty_extern_spec_item_value_token(ty_id: int, sig_id: int, item_id: int) -> int {
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_extern_spec_item_start_token(ty_id, sig_id, item_id)
-    pilot end_token = v4_ty_extern_spec_item_end_token(ty_id, sig_id, item_id)
-    if stream_id < 0 or start_token < 0 or end_token <= start_token {
-        give back 0 - 1
-    }
-
-    pilot depth = 0
-    pilot idx = start_token
-    repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_syntax_value(stream_id, idx)
-            if depth == 0 and val == "=" {
-                give back v4_ty_skip_trivia(stream_id, idx + 1)
-            }
-            depth = v4_ty_type_depth_after_char(depth, val)
-        }
-        idx += 1
-    }
-    give back 0 - 1
-}
-
+-- Whether ABI option `item_id` has a string literal value (link="m"). HIR
+-- answers from its facts; TY reads no extern ABI tokens.
 task v4_ty_extern_spec_item_value_is_string(ty_id: int, sig_id: int, item_id: int) -> bool {
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot value_token = v4_ty_extern_spec_item_value_token(ty_id, sig_id, item_id)
-    if stream_id < 0 or value_token < 0 {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
         give back false
     }
-    give back v4_lex_token_type(stream_id, value_token) == v4_tok_string
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back false
+    }
+    give back v4_hir_extern_abi_option_value_is_string(hir_id, hir_item, item_id)
 }
 
 task v4_ty_extern_member_attribute_arg_is_string(ty_id: int, sig_id: int, member_id: int, attr_id: int) -> bool {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    if hir_id < 0 or hir_item < 0 or stream_id < 0 {
+    if hir_id < 0 or hir_item < 0 {
         give back false
     }
-    pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
-    pilot start_token = v4_parse_extern_member_attribute_start_token(tree_id, parse_node, member_id, attr_id)
-    pilot end_token = v4_parse_extern_member_attribute_end_token(tree_id, parse_node, member_id, attr_id)
-    if start_token < 0 or end_token <= start_token {
-        give back false
-    }
-    pilot name_token = v4_ty_skip_trivia(stream_id, start_token + 1)
-    pilot open_token = v4_ty_skip_trivia(stream_id, name_token + 1)
-    if open_token >= end_token or v4_lex_token_syntax_value(stream_id, open_token) != "(" {
-        give back false
-    }
-    pilot value_token = v4_ty_skip_trivia(stream_id, open_token + 1)
-    if value_token >= end_token {
-        give back false
-    }
-    give back v4_lex_token_type(stream_id, value_token) == v4_tok_string
+    give back v4_hir_extern_member_attribute_arg_is_string(hir_id, hir_item, member_id, attr_id)
 }
 
 task v4_ty_signature_layout_kind(ty_id: int, sig_id: int) -> word {
@@ -4402,14 +4280,7 @@ task v4_ty_extern_member_attribute_span(ty_id: int, sig_id: int, member_id: int,
     if hir_id < 0 or hir_item < 0 {
         give back V4_NO_SPAN
     }
-    pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
-    pilot start_token = v4_parse_extern_member_attribute_start_token(tree_id, parse_node, member_id, attr_id)
-    pilot end_token = v4_parse_extern_member_attribute_end_token(tree_id, parse_node, member_id, attr_id)
-    if start_token < 0 or end_token <= start_token {
-        give back V4_NO_SPAN
-    }
-    give back v4_ty_span_from_tokens(v4_ty_signature_stream_id(ty_id), start_token, end_token)
+    give back v4_hir_extern_member_attribute_span(hir_id, hir_item, member_id, attr_id)
 }
 
 task v4_ty_extern_member_start_token(ty_id: int, sig_id: int, member_id: int) -> int {

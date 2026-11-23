@@ -669,10 +669,6 @@ TY_TRANSITIONAL_DIRECT_DEPENDENCIES = {
         r"\bv4_parse_[A-Za-z0-9_]+\b",
         frozenset(
             {
-                "v4_parse_extern_abi_close_token",
-                "v4_parse_extern_abi_open_token",
-                "v4_parse_extern_member_attribute_end_token",
-                "v4_parse_extern_member_attribute_start_token",
                 "v4_parse_extern_member_end_token",
                 "v4_parse_extern_member_start_token",
                 "v4_parse_node_span",
@@ -7075,6 +7071,8 @@ EXECUTABLE_SMOKES = [
             "extern-link-bad-diag3-message=unknown extern ABI option",
             "extern-link-bad-diag4-message=link_name needs string literal",
             "extern-link-bad-diag5-message=duplicate link_name attribute",
+            "extern-link-bad-diag4-span=1@75:91",
+            "extern-link-bad-diag5-span=1@96:120",
         ],
     },
     {
