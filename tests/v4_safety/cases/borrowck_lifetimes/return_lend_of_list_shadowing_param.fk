@@ -1,0 +1,14 @@
+-- An owned list that shadows a `lend` list parameter still owns its
+-- elements, so a lend of one cannot outlive the task.
+-- expect: reject borrowck
+-- error: Meiya refuses to return a loan of an owned value
+
+task head(lend xs: List<int>) -> lend int {
+    if xs.length() > 0 {
+        pilot xs: List<int> = [7, 8]
+        give back lend xs[0]
+    }
+    give back lend xs[0]
+}
+
+task main() -> int { give back 0 }

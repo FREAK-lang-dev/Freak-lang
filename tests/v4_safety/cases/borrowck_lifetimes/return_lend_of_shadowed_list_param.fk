@@ -1,0 +1,21 @@
+-- An inner owned binding that shadows a `lend` list parameter ends with its
+-- block; the later `give back lend xs[0]` borrows from the parameter.
+-- expect: run
+-- stdout: 2
+-- stdout: 2
+-- exit: 42
+
+task head(lend xs: List<int>) -> lend int {
+    if xs.length() > 0 {
+        pilot xs: List<int> = [7, 8]
+        say xs.length()
+    }
+    give back lend xs[0]
+}
+
+task main() -> int {
+    pilot ys: List<int> = [40, 2]
+    pilot h = head(lend ys)
+    say ys.length()
+    give back ys[1] + 40
+}
