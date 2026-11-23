@@ -16,6 +16,8 @@ from v3_v35_process import WINDOWS_ARGV_WRAPPER
 API = '''
 int64_t freak_fs_rename_relative_new_checked(int64_t, freak_word, int64_t, freak_word);
 int64_t freak_llvm_fs_rename_relative_new_checked(int64_t, int64_t, int64_t, int64_t);
+int64_t freak_fs_rename_relative_new_workspace_checked(int64_t, freak_word, int64_t, freak_word);
+int64_t freak_llvm_fs_rename_relative_new_workspace_checked(int64_t, int64_t, int64_t, int64_t);
 '''
 
 HARNESS = r'''
@@ -91,7 +93,11 @@ int main(int argc,char **argv) {
     size_t before=resources();
     int64_t source=F(open_dir_ticket)(W(argv[1])),destination=F(open_dir_ticket)(W(argv[3]));
     require(F(result_ok)(source) && F(result_ok)(destination),"root admission");
-    int64_t publication=F(rename_relative_new_checked)(source,W(argv[2]),destination,W(argv[4]));
+    /* workspace-* cases exercise the project-folder policy: owned parents that
+       others may also write (D:\ inherited ACLs, umask 002 projects). */
+    int64_t publication=!strncmp(mode,"workspace-",10) ?
+        F(rename_relative_new_workspace_checked)(source,W(argv[2]),destination,W(argv[4])) :
+        F(rename_relative_new_checked)(source,W(argv[2]),destination,W(argv[4]));
     printf("%d %d\n",(int)F(result_ok)(publication),(int)F(result_completed)(publication));
     if(!strcmp(mode,"directory-sync-failure")) require(directory_syncs==2,"both parents synchronized even after first failure");
     F(result_release)(publication);F(result_release)(source);F(result_release)(destination);
@@ -160,11 +166,18 @@ def main() -> int:
                 if sys.platform.startswith('linux'):command+=['-DTEST_INTERPOSE=1','-Wl,--wrap=openat','-Wl,--wrap=fsync']
                 result=subprocess.run(command,capture_output=True,timeout=90);assert result.returncode==0,result.stderr
                 names=['success','nested','existing','destination-directory','source-directory','missing','unsafe-source','unsafe-destination']
-                if os.name!='nt':names+=['destination-link','source-link','source-ancestor-link','destination-ancestor-link','fifo','group-writable-source','world-writable-destination','public-owned-parent']
+                names+=['workspace-success','workspace-existing','workspace-unsafe-destination']
+                if os.name!='nt':names+=['destination-link','source-link','source-ancestor-link','destination-ancestor-link','fifo','group-writable-source','world-writable-destination','public-owned-parent',
+                    'workspace-group-writable-source','workspace-world-writable-destination','workspace-destination-link']
                 if sys.platform.startswith('linux'):names+=['source-race','destination-race','source-exchange','file-sync-failure','directory-sync-failure']
                 for name in names:
                     source,destination,outside=fixture(f'{adapter}-{optimization}-{name}');from_name='a';to_name='result';mode=name;expected=b'0 0\n';moved=False;original=(source/'a').stat()
-                    if name in ('success','public-owned-parent'):expected=b'1 1\n';moved=True
+                    if name in ('success','public-owned-parent','workspace-success','workspace-group-writable-source','workspace-world-writable-destination'):expected=b'1 1\n';moved=True
+                    if name=='workspace-existing':(destination/'result').write_bytes(b'old-output')
+                    if name=='workspace-unsafe-destination':to_name='../outside/result'
+                    if name=='workspace-group-writable-source':source.chmod(0o770)
+                    if name=='workspace-world-writable-destination':destination.chmod(0o777)
+                    if name=='workspace-destination-link':(destination/'result').symlink_to(outside/'result')
                     if name=='public-owned-parent':destination.chmod(0o755)
                     if name=='nested':
                         (source/'nested').mkdir();(destination/'nested').mkdir();(source/'a').rename(source/'nested/a');from_name='nested/a';to_name='nested/result';expected=b'1 1\n';moved=True
@@ -198,12 +211,14 @@ def main() -> int:
                     elif not moved and name not in ('source-directory','source-link','fifo'):
                         assert (source/'a').read_bytes()==b'compiler\0\xffoutput' and (source/'a').stat().st_ino==original.st_ino
                     if name=='existing':assert (destination/'result').read_bytes()==b'old-output' and (destination/'result').stat().st_ino==prior_destination.st_ino
+                    if name=='workspace-existing':assert (destination/'result').read_bytes()==b'old-output'
+                    if name=='workspace-destination-link':assert (destination/'result').is_symlink() and os.readlink(destination/'result')==str(outside/'result')
                     if name=='destination-link':assert (destination/'result').is_symlink() and os.readlink(destination/'result')==str(outside/'result')
                     if name=='destination-directory':assert (destination/'result').is_dir() and not list((destination/'result').iterdir())
                     if name=='source-directory':assert (source/'a').is_dir() and not list((source/'a').iterdir())
                     if name=='source-link':assert (source/'a').is_symlink() and os.readlink(source/'a')==str(outside/'a')
                     if name=='fifo':assert stat.S_ISFIFO((source/'a').stat().st_mode)
-                    if not moved and name not in ('existing','destination-directory','destination-link'):assert not (destination/'result').exists()
+                    if not moved and name not in ('existing','destination-directory','destination-link','workspace-existing','workspace-destination-link'):assert not (destination/'result').exists()
                     records.append({'adapter':adapter,'optimization':optimization,'case':name,'status':'pass'})
                 print(f'PASS anchored rename {adapter} O{optimization}: {len(names)} native cases',flush=True)
         if args.compiler:

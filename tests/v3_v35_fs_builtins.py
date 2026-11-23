@@ -44,6 +44,7 @@ PROGRAM = '''task main() {
     pilot held_path = fs::directory_path_ticket(held)
     pilot held_identity = fs::directory_identity_ticket(held)
     pilot held_rename = fs::rename_relative_new_checked(held, "old", held, "new")
+    pilot workspace_rename = fs::rename_relative_new_workspace_checked(held, "old", held, "new")
     pilot held_mode = fs::set_mode_relative_checked(held, "owned", 420)
     pilot write: int = fs::write_checked("path", "text")
     pilot write_bytes: int = fs::write_bytes_checked("path", bytes)
@@ -77,6 +78,7 @@ PROGRAM = '''task main() {
 OPERATIONS = (
     "set_mode_relative_checked",
     "rename_relative_new_checked",
+    "rename_relative_new_workspace_checked",
     "directory_identity_ticket",
     "open_dir_ticket",
     "read_bytes_limit_ticket",
@@ -151,6 +153,14 @@ NEGATIVE = {
     ),
     "held_rename_arity": (
         'fs::rename_relative_new_checked(1, "old", 2)',
+        "expects 4 argument(s), got 3", False,
+    ),
+    "workspace_rename_parent_type": (
+        'fs::rename_relative_new_workspace_checked(1, "old", "parent", "new")',
+        "argument 3 expects int, got word", False,
+    ),
+    "workspace_rename_arity": (
+        'fs::rename_relative_new_workspace_checked(1, "old", 2)',
         "expects 4 argument(s), got 3", False,
     ),
     "directory_identity_type": (
