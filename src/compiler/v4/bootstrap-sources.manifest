@@ -14,6 +14,7 @@ crates/freak_ty/src/lib.fk
 crates/freak_mir/src/lib.fk
 crates/freak_mir_build/src/lib.fk
 crates/freak_borrowck/src/lib.fk
+crates/freak_mir_transform/src/lib.fk
 crates/freak_codegen_llvm/src/lib.fk
 crates/freak_query/src/lib.fk
 crates/freak_driver/src/lib.fk

@@ -1,6 +1,9 @@
-"""Architecture lane A1/A3 guards: freak_ty token allowlist, TY source identity
-shim, HIR method facts and codegen boundary. Pure Python; no compiler execution."""
+"""Architecture lane A1/A3/A4 guards: freak_ty token allowlist, TY source
+identity shim, HIR method facts, codegen boundary and the Runtime MIR stage.
+Pure Python; no compiler execution."""
+import contextlib
 import importlib.util
+import io
 from pathlib import Path
 import sys
 import unittest
@@ -153,6 +156,61 @@ class ArchitectureLaneGuards(unittest.TestCase):
             self.assertIn(label, forbidden)
         self.assertNotIn("v4_lex_", self.codegen)
         self.assertNotIn("v4_hir_", self.codegen)
+
+
+    def boundary_violations(self, crate, mutate):
+        """Run the crate boundary gate with one crate's text mutated."""
+        target = guard.crate_path(crate)
+        original = guard.read_text
+
+        def patched(path):
+            text = original(path)
+            return mutate(text) if Path(path) == target else text
+
+        guard.read_text = patched
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                guard.check_crate_boundaries()
+        except SystemExit:
+            return out.getvalue()
+        finally:
+            guard.read_text = original
+        return ""
+
+    def test_codegen_meiya_call_is_rejected(self):
+        found = self.boundary_violations(
+            "freak_codegen_llvm",
+            lambda text: text + "\ntask v4_arch_lane_probe(file_id: int, mir_id: int) -> int {\n    give back v4_borrowck_check_mir(file_id, mir_id)\n}\n",
+        )
+        self.assertIn("boundary violation: freak_codegen_llvm owns Meiya access", found)
+
+    def test_codegen_must_use_runtime_mir_handoff(self):
+        found = self.boundary_violations(
+            "freak_codegen_llvm",
+            lambda text: text.replace("error = v4_mir_transform_runtime(file_id, mir_id, borrow_id)", 'error = ""', 1),
+        )
+        self.assertIn("boundary missing: freak_codegen_llvm Runtime MIR handoff", found)
+
+    def test_transform_llvm_emission_is_rejected(self):
+        found = self.boundary_violations(
+            "freak_mir_transform",
+            lambda text: text + "\ntask v4_arch_lane_probe() -> int {\n    give back v4_codegen_llvm_file_count()\n}\n",
+        )
+        self.assertIn("boundary violation: freak_mir_transform owns LLVM emission", found)
+
+    def test_transform_syntax_access_is_rejected(self):
+        found = self.boundary_violations(
+            "freak_mir_transform",
+            lambda text: text + "\ntask v4_arch_lane_probe(tree_id: int) -> int {\n    give back v4_parse_stream_id(tree_id)\n}\n",
+        )
+        self.assertIn("boundary violation: freak_mir_transform owns parser access", found)
+
+    def test_transform_sits_between_meiya_and_codegen(self):
+        order = guard.CRATE_ORDER
+        self.assertLess(order.index("freak_borrowck"), order.index("freak_mir_transform"))
+        self.assertLess(order.index("freak_mir_transform"), order.index("freak_codegen_llvm"))
+        self.assertNotIn("v4_borrowck_", self.codegen)
 
 
 if __name__ == "__main__":

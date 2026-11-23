@@ -157,8 +157,10 @@ address-of rvalues.
 
 - Meiya anything. No `v4_borrowck_*` call: no check, no plan validation, no
   drop-plan publication, no drop-kind or move query. Today codegen still
-  makes these calls (`v4_borrowck_check_mir`, `v4_borrowck_publish_drop_plan`,
-  `v4_borrowck_word_local_drop_kind`); they move into the transform.
+  made these calls (`v4_borrowck_check_mir`, `v4_borrowck_publish_drop_plan`,
+  `v4_borrowck_word_local_drop_kind`); they now live in
+  `v4_mir_transform_runtime`, and `check_v4.py` rejects any `v4_borrowck_`
+  reference in codegen.
 - Whether a value is moved, live or needs a drop. The statements say so.
 - Where a temporary or a word global is released. Today codegen still places
   those; the transform takes them over.
@@ -184,9 +186,11 @@ monomorphization.
 
 **Transition.** The sealed drop plan (`v4_mir_drop_plan_*`) already carries
 the drop rows above for owned locals, as a side table read by codegen. The
-first transform slice turns those rows into statements and cleanup blocks
-with byte-identical LLVM output, then removes the side-table reads from
-codegen.
+first transform slice created `freak_mir_transform` and moved the Meiya
+handoff into it (check or reuse, result validation, drop plan publication),
+so codegen asks the transform and never Meiya. The next slice turns the
+drop plan rows into statements and cleanup blocks with byte-identical LLVM
+output, then removes the side-table reads from codegen.
 
 ## Runnable LLVM Scalar Checkpoint
 
@@ -1499,6 +1503,7 @@ crates/
   freak_mir/       persistent Built-MIR bodies, CFG/storage accessors, validation, diagnostics, snapshots
   freak_mir_build/ stateless HIR+TY to Built-MIR construction and request-scoped lowering scratch
   freak_borrowck/  Meiya borrow-check paths and result scaffold over MIR bodies
+  freak_mir_transform/ Runtime MIR stage: owns the Meiya handoff codegen lowers from
   freak_codegen_llvm/ LLVM-facing declaration and call-plan lowering over MIR/TY
   freak_query/     memoized query cache prototype
   freak_driver/    early driver facade over the V4 services
@@ -1510,7 +1515,7 @@ crates/
 Current FREAK compilation still works best with concatenated source files, so these crates use globally unique `v4_` names and a dependency order that can be flattened by a later bootstrap script:
 
 ```text
-freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> freak_session -> freak_target -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_mir_build -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
+freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> freak_session -> freak_target -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_mir_build -> freak_borrowck -> freak_mir_transform -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
 ```
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.

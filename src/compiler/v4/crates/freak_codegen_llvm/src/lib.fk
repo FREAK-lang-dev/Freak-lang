@@ -1,7 +1,7 @@
 -- ===================================================================
 -- freak_codegen_llvm - early V4 LLVM declaration and call-plan lowering
 -- ===================================================================
--- Depends on freak_ty, freak_mir, and freak_borrowck.
+-- Depends on freak_ty, freak_mir, and freak_mir_transform (never Meiya directly).
 -- This slice gives V4 a real backend-facing boundary: MIR and TY own
 -- semantic facts, while codegen translates those facts into LLVM-facing
 -- declarations and call plans without teaching the rest of the compiler
@@ -5282,18 +5282,18 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         }
         pilot borrow_id = v4_codegen_llvm_supplied_borrow
         v4_codegen_llvm_supplied_borrow = 0 - 1
-        if not v4_borrowck_result_is_current(borrow_id, mir_id) { borrow_id = v4_borrowck_check_mir(file_id, mir_id) }
-        error = v4_codegen_llvm_word_borrow_plan_error(borrow_id, mir_id)
-        -- Meiya publishes and seals the Runtime drop plan this module emits.
-        if error == "" { error = v4_borrowck_publish_drop_plan(borrow_id, mir_id) }
+        -- The Runtime MIR stage owns the Meiya handoff: check (or reuse the
+        -- supplied result), clean results, and the sealed drop plan this
+        -- module emits. Codegen never asks Meiya itself.
+        error = v4_mir_transform_runtime(file_id, mir_id, borrow_id)
         if error == "" { error = v4_codegen_llvm_drop_plan_error(mir_id) }
         if error != "" {
-            v4_mir_drop_plan_release()
+            v4_mir_transform_release()
             array_set(v4_codegen_llvm_native_errors, codegen_id, error)
             v4_codegen_llvm_active_owned_mir = 0 - 1
             give back codegen_id
         }
-        v4_codegen_llvm_active_word_borrow = borrow_id
+        v4_codegen_llvm_active_word_borrow = v4_mir_transform_borrow_id(mir_id)
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
     v4_codegen_llvm_lower_signatures(codegen_id, mir_id, ty_id)
@@ -5312,8 +5312,8 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
     if native_error == "" {
         v4_codegen_llvm_lower_bodies(codegen_id, mir_id)
         v4_codegen_llvm_lower_callback_trampolines(codegen_id, mir_id, ty_id)
-        -- The drop plan lives exactly as long as the bodies that emit it.
-        v4_mir_drop_plan_release()
+        -- Runtime MIR lives exactly as long as the bodies that emit it.
+        v4_mir_transform_release()
         -- Ordinary impls and qualified tasks can share linkage names even
         -- without callbacks. Check every actual sealed definition together.
         native_error = v4_codegen_llvm_native_body_symbol_error(codegen_id)
@@ -7707,35 +7707,6 @@ task v4_codegen_llvm_drop_plan_error(mir_id: int) -> word {
         body = v4_codegen_llvm_next_emitted_body(mir_id, body + 1)
     }
     give back ""
-}
-
-task v4_codegen_llvm_word_borrow_plan_error(borrow_id: int, mir_id: int) -> word {
-    if v4_borrowck_mir_id(borrow_id) != mir_id { give back "native word ownership plan does not match MIR" }
-    pilot diag = 0
-    repeat until diag >= v4_borrowck_diag_count(borrow_id) {
-        if v4_diag_severity(v4_borrowck_diag(borrow_id, diag)) >= v4_diag_error { give back "Meiya errors prevent native word ownership lowering" }
-        diag += 1
-    }
-    pilot results = v4_borrowck_result_def_index_new(borrow_id)
-    pilot error = ""
-    pilot body = 0
-    body = v4_codegen_llvm_next_emitted_body(mir_id, body)
-    repeat until body >= v4_mir_body_count(mir_id) or error != "" {
-        pilot borrow_result = v4_borrowck_result_def_index_find(results, borrow_id, v4_mir_body_def(mir_id, body))
-        if borrow_result < 0 or v4_borrowck_result_status(borrow_id, borrow_result) != "clean" { error = "missing clean Meiya result for native word ownership lowering" } else {
-            v4_borrowck_mention_begin(mir_id, body)
-            pilot local = 0
-            repeat until local >= v4_mir_body_local_count(mir_id, body) or error != "" {
-                pilot drop_kind = v4_borrowck_word_local_drop_kind(borrow_id, borrow_result, mir_id, body, local)
-                if drop_kind != "" and drop_kind != v4_borrowck_path_drop and drop_kind != v4_borrowck_path_drop_if { error = "invalid native word local drop fact" }
-                local += 1
-            }
-            v4_borrowck_mention_end()
-        }
-        body = v4_codegen_llvm_next_emitted_body(mir_id, body + 1)
-    }
-    if results >= 0 { array_release(results) }
-    give back error
 }
 
 -- A word, or a native carrier with a word payload field.

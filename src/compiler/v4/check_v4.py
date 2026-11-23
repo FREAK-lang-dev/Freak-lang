@@ -323,6 +323,19 @@ def check_runner_retained_memory() -> None:
         )
 
 CRATE_BOUNDARY_REQUIRED = {
+    # Architecture lane A4: the Runtime MIR stage owns the Meiya handoff and
+    # codegen reaches Meiya's facts only through it.
+    "freak_mir_transform": [
+        ("Runtime MIR ownership comment", "-- freak_mir_transform - the Runtime MIR stage (architecture lane A4)"),
+        ("Runtime MIR entry", "task v4_mir_transform_runtime(file_id: int, mir_id: int, borrow_id: int) -> word {"),
+        ("Meiya result validation", "task v4_mir_transform_meiya_error(borrow_id: int, mir_id: int) -> word {"),
+        ("drop plan publication", "v4_borrowck_publish_drop_plan(borrow, mir_id)"),
+        ("Runtime MIR release", "task v4_mir_transform_release() -> void {"),
+    ],
+    "freak_codegen_llvm": [
+        ("Runtime MIR handoff", "error = v4_mir_transform_runtime(file_id, mir_id, borrow_id)"),
+        ("Runtime MIR release after bodies", "v4_mir_transform_release()"),
+    ],
     "freak_macro_api": [
         (
             "capability-limited ownership comment",
@@ -478,6 +491,21 @@ CRATE_BOUNDARY_FORBIDDEN = {
         ("expansion access", "v4_expand_"),
         ("HIR access", "v4_hir_"),
         ("resolve access", "v4_resolve_"),
+        # A4: Runtime MIR consumers never ask Meiya; freak_mir_transform does.
+        ("Meiya access", "v4_borrowck_"),
+    ],
+    # Architecture lane A4: the Runtime MIR stage reads Built MIR, Meiya and
+    # TY facts. No syntax, HIR or Resolve, and no LLVM emission.
+    "freak_mir_transform": [
+        ("lexer access", "v4_lex_"),
+        ("parser access", "v4_parse_"),
+        ("token kind access", "v4_tok_"),
+        ("expansion access", "v4_expand_"),
+        ("HIR access", "v4_hir_"),
+        ("resolve access", "v4_resolve_"),
+        ("LLVM emission", "v4_codegen_"),
+        ("borrow-check ownership", "task v4_borrowck_"),
+        ("MIR storage ownership", "task v4_mir_drop_plan_"),
     ],
     "freak_mir_build": [
         ("persistent file arena", "pilot v4_mir_files ="),
@@ -14092,6 +14120,9 @@ def check_crate_boundaries() -> None:
     borrowck_index = CRATE_ORDER.index("freak_borrowck")
     if not mir_index < mir_build_index < borrowck_index:
         violations.append("boundary violation: crate order must be freak_mir < freak_mir_build < freak_borrowck")
+    transform_index = CRATE_ORDER.index("freak_mir_transform")
+    if not borrowck_index < transform_index < CRATE_ORDER.index("freak_codegen_llvm"):
+        violations.append("boundary violation: crate order must be freak_borrowck < freak_mir_transform < freak_codegen_llvm")
 
     mir_build_text = read_text(crate_path("freak_mir_build"))
     builder_tasks = frozenset(
@@ -14115,7 +14146,7 @@ def check_crate_boundaries() -> None:
 
     # These are the production post-build consumers. The editor's transitional
     # source-view dependency is documented separately and intentionally allowed.
-    for consumer in ("freak_borrowck", "freak_codegen_llvm", "freak_query", "freak_snapshot"):
+    for consumer in ("freak_borrowck", "freak_mir_transform", "freak_codegen_llvm", "freak_query", "freak_snapshot"):
         consumer_text = read_text(crate_path(consumer))
         consumer_tasks = re.findall(
             r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", consumer_text
