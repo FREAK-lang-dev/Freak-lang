@@ -55,6 +55,9 @@ pilot v4_codegen_llvm_record_index_names = 0 - 1
 pilot v4_codegen_llvm_numeric_runtime_used = false
 -- Element types whose list drop helper this module emits ("\n"-framed).
 pilot v4_codegen_llvm_list_drop_types = "\n"
+-- Types whose deep copy helper `freak.list.clone.T` this module emits
+-- ("\n"-framed): lists, and aggregates holding lists or route words.
+pilot v4_codegen_llvm_list_clone_types = "\n"
 pilot v4_codegen_llvm_list_used: bool = false
 -- Policy of the module being lowered; selects the panic helper.
 pilot v4_codegen_llvm_active_panic_policy = "abort"
@@ -3317,6 +3320,42 @@ task v4_codegen_llvm_aggregate_word_drop_lines(mir_id: int, type_text: word, val
         leaf += 1
         start = stop + 1
     }
+    -- List leaves release through their element's drop helper.
+    paths = v4_codegen_llvm_list_leaf_paths(mir_id, type_text, "")
+    start = 0
+    repeat until start > paths.length() or paths == "" {
+        pilot stop = v4_index_of_from(paths, "\n", start)
+        if stop < 0 { stop = paths.length() }
+        pilot path = v4_slice(paths, start, stop)
+        pilot list_ty = v4_slice(path, v4_index_of_from(path, "=", 0) + 1, path.length())
+        pilot header = temp + ".list." + word_from_int(leaf)
+        out = out + "  " + header + " = extractvalue " + llvm_ty + " " + value + ", " + v4_slice(path, 0, v4_index_of_from(path, "=", 0)) + "\n"
+        out = out + v4_codegen_llvm_list_drop_lines(mir_id, list_ty, "", header, "", header)
+        leaf += 1
+        start = stop + 1
+    }
+    give back out
+}
+
+-- The extractvalue index path of every list leaf of a shape, tuple or
+-- array, each followed by "=" and the list type, newline-separated (type
+-- text may hold ";"). Words inside a list belong to the list's drop helper.
+task v4_codegen_llvm_list_leaf_paths(mir_id: int, type_text: word, prefix: word) -> word {
+    if v4_codegen_llvm_is_list(mir_id, type_text) { give back prefix + "=" + v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) }
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "" or not v4_codegen_llvm_type_holds_list(mir_id, type_text, 0) { give back "" }
+    pilot child_prefix = prefix
+    if prefix != "" { child_prefix = prefix + ", " }
+    pilot out = ""
+    pilot slot = 0
+    repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) {
+        pilot paths = v4_codegen_llvm_list_leaf_paths(mir_id, v4_codegen_llvm_aggregate_slot_type(mir_id, type_text, slot), child_prefix + word_from_int(slot))
+        if paths != "" {
+            if out != "" { out = out + "\n" }
+            out = out + paths
+        }
+        slot += 1
+    }
     give back out
 }
 
@@ -3329,6 +3368,8 @@ task v4_codegen_llvm_native_slot_error(mir_id: int, slot_ty: word, context: word
     if v4_ty_is_lend_type(slot_ty) { give back "native aggregate lend slots are not yet supported: " + context }
     if v4_ty_is_native_scalar_sum(ty_id, slot_ty) { give back "native aggregate maybe/result slots are not yet supported: " + context }
     if v4_ty_canonical_type(ty_id, slot_ty) == v4_ty_word { give back "" }
+    -- A list slot is one owned header; the aggregate's drop glue frees it.
+    if v4_codegen_llvm_is_list(mir_id, slot_ty) { give back v4_codegen_llvm_native_list_slot_error(mir_id, slot_ty, depth + 1) }
     if v4_ty_is_native_owned_value(ty_id, slot_ty) {
         if v4_mir_shape_signature(mir_id, v4_slice(context, 0, v4_index_of_from(context, ".", 0))) >= 0 { give back "native shape fields that own words are not yet supported: " + context }
         give back "native aggregate slots that own words are not yet supported: " + context
@@ -5169,6 +5210,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
     v4_codegen_llvm_init()
     v4_codegen_llvm_numeric_runtime_used = false
     v4_codegen_llvm_list_drop_types = "\n"
+    v4_codegen_llvm_list_clone_types = "\n"
     v4_codegen_llvm_list_used = false
     v4_codegen_llvm_fragment_error = ""
     pilot sealed_policy = policy
@@ -5268,12 +5310,16 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         runtime = runtime + v4_codegen_llvm_bootstrap_runtime_declarations(mir_id)
         if v4_codegen_llvm_mir_has_panic(mir_id) or index_checks { runtime = runtime + "declare void " + v4_codegen_llvm_panic_symbol() + "(i64) noreturn\n" }
         if v4_codegen_llvm_numeric_runtime_used { runtime = runtime + v4_codegen_llvm_numeric_runtime_declarations() }
+        -- Global definitions are sealed with the bodies that read them.
+        pilot global_lines = v4_codegen_llvm_global_definition_lines(mir_id)
+        -- Dyn vtable constants and their drop entries, one per sealed vtable.
+        -- They come before the list helpers: a vtable drop entry may be the
+        -- only drop of a list-holding type.
+        pilot dyn_lines = ""
+        if owned_words { dyn_lines = v4_codegen_llvm_dyn_module_lines(mir_id, runtime + global_lines) }
         if v4_codegen_llvm_list_used { runtime = runtime + v4_codegen_llvm_list_runtime_lines(mir_id) }
         if native_error == "" { native_error = v4_codegen_llvm_numeric_runtime_symbol_error(codegen_id) }
-        -- Global definitions are sealed with the bodies that read them.
-        runtime = runtime + v4_codegen_llvm_global_definition_lines(mir_id)
-        -- Dyn vtable constants and their drop entries, one per sealed vtable.
-        if owned_words { runtime = runtime + v4_codegen_llvm_dyn_module_lines(mir_id, runtime) }
+        runtime = runtime + global_lines + dyn_lines
         array_set(v4_codegen_llvm_word_runtime_lines, codegen_id, runtime)
         if owned_words { array_set(v4_codegen_llvm_shape_lines, codegen_id, v4_codegen_llvm_shape_records(mir_id)) }
         pilot globals = v4_codegen_llvm_word_globals(mir_id)
@@ -6087,8 +6133,36 @@ task v4_codegen_llvm_list_element_size(element_llvm: word) -> word {
 }
 
 task v4_codegen_llvm_type_names_list(mir_id: int, type_text: word) -> bool {
-    if v4_ty_is_lend_type(type_text) { give back v4_codegen_llvm_is_list(mir_id, v4_ty_lend_target_type(type_text)) }
-    give back v4_codegen_llvm_is_list(mir_id, type_text)
+    if v4_ty_is_lend_type(type_text) { give back v4_codegen_llvm_type_holds_list(mir_id, v4_ty_lend_target_type(type_text), 0) }
+    give back v4_codegen_llvm_type_holds_list(mir_id, type_text, 0)
+}
+
+-- A list, or a shape, tuple, fixed array or route holding one at any depth.
+task v4_codegen_llvm_type_holds_list(mir_id: int, type_text: word, depth: int) -> bool {
+    if depth > 32 or type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lend_type(type_text) { give back false }
+    if v4_codegen_llvm_is_list(mir_id, type_text) { give back true }
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "array" { give back v4_codegen_llvm_type_holds_list(mir_id, v4_ty_fixed_array_element_type(type_text), depth + 1) }
+    if kind != "" {
+        pilot slot = 0
+        repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) {
+            if v4_codegen_llvm_type_holds_list(mir_id, v4_codegen_llvm_aggregate_slot_type(mir_id, type_text, slot), depth + 1) { give back true }
+            slot += 1
+        }
+        give back false
+    }
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, type_text)
+    if sig < 0 { give back false }
+    pilot case_id = 0
+    repeat until case_id >= v4_ty_route_case_count(v4_mir_ty_id(mir_id), v4_codegen_llvm_route_sig(mir_id, sig)) {
+        pilot field = 0
+        repeat until field >= v4_codegen_llvm_route_field_count(mir_id, sig, case_id) {
+            if v4_codegen_llvm_type_holds_list(mir_id, v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field), depth + 1) { give back true }
+            field += 1
+        }
+        case_id += 1
+    }
+    give back false
 }
 
 task v4_codegen_llvm_mir_uses_lists(mir_id: int) -> bool {
@@ -6113,19 +6187,27 @@ task v4_codegen_llvm_mir_uses_lists(mir_id: int) -> bool {
     give back false
 }
 
--- `List<T>` type surfaces: a list is a top-level value (not yet a slot of
--- another type) of scalars, words, task or raw pointers, or native shapes,
--- tuples, fixed arrays and routes.
+-- `List<T>` type surfaces: a list of scalars, words, task or raw pointers,
+-- lists, or native shapes, tuples, fixed arrays and routes. A list is a
+-- top-level value or an aggregate slot (v4_codegen_llvm_native_list_slot_error);
+-- task value surfaces that pass one stay fenced by depth.
 task v4_codegen_llvm_native_list_type_error(mir_id: int, type_text: word, depth: int) -> word {
     if depth > 0 { give back "native lists inside other types are not yet supported: " + type_text }
+    give back v4_codegen_llvm_native_list_slot_error(mir_id, type_text, 0)
+}
+
+-- A list as a value or as a shape field, tuple or array slot or list
+-- element: its header is one owned slot (tier 3 nested lists row).
+task v4_codegen_llvm_native_list_slot_error(mir_id: int, type_text: word, depth: int) -> word {
+    if depth > 32 { give back "native list nesting exceeds supported depth: " + type_text }
     pilot element = v4_codegen_llvm_list_element(mir_id, type_text)
     if element == "" or element == v4_ty_unknown { give back "native list element type is unresolved: " + type_text }
     if v4_ty_is_lend_type(element) { give back "native lists of loans are not yet supported: " + type_text }
     if element == v4_ty_void or element == v4_ty_never { give back "native lists of void are not supported: " + type_text }
     if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), element) or v4_mir_scalar_sum_kind(mir_id, element) != "" or v4_ty_is_maybe_type(element) { give back "native lists of maybe/result values are not yet supported: " + type_text }
-    if v4_codegen_llvm_is_list(mir_id, element) { give back "native lists of lists are not yet supported: " + type_text }
+    if v4_codegen_llvm_is_list(mir_id, element) { give back v4_codegen_llvm_native_list_slot_error(mir_id, element, depth + 1) }
     if v4_ty_is_closure_type(element) { give back "native lists of closures are not yet supported: " + type_text }
-    give back v4_codegen_llvm_native_type_error_depth(element, false, 1)
+    give back v4_codegen_llvm_native_type_error_depth(element, false, depth + 1)
 }
 
 -- List literals, list builtin calls (`push`, `length`) and list loop items.
@@ -6149,12 +6231,9 @@ task v4_codegen_llvm_native_list_rvalue_error(mir_id: int, body_id: int, rvalue_
         }
         give back ""
     }
-    if kind == v4_mir_rvalue_loop_item {
-        -- The item is a fresh copy: word leaves are cloned by path, which a
-        -- route payload (read by its tag) does not have yet.
-        if v4_codegen_llvm_type_has_route_words(mir_id, type_text, 0) { give back "native list items of routes that own words are not yet supported: " + type_text }
-        give back ""
-    }
+    -- The item is a fresh copy: word leaves are cloned by path, and lists
+    -- and route payloads (read by their tag) by a clone helper.
+    if kind == v4_mir_rvalue_loop_item { give back "" }
     if v4_mir_list_intrinsic_kind(mir_id, body_id, rvalue_id) == "push" {
         pilot list_ty = v4_ty_lend_target_type(v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)))
         give back v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 1)), v4_codegen_llvm_list_element(mir_id, list_ty))
@@ -6244,6 +6323,12 @@ task v4_codegen_llvm_list_operation_lines(parts: int, mir_id: int, body_id: int,
     if v4_ty_canonical_type(v4_mir_ty_id(mir_id), element) == v4_ty_word {
         v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".v = load i64, ptr " + at + "\n")
         v4_codegen_llvm_fragment_push(parts, "  " + target + " = call i64 " + clone + "(i64 " + prefix + ".v)\n")
+        give back
+    }
+    -- Lists and route payloads have no extractvalue word paths: a private
+    -- helper copies the element and clones its leaves in memory.
+    if v4_codegen_llvm_needs_clone_helper(mir_id, element) {
+        v4_codegen_llvm_fragment_push(parts, "  " + target + " = call " + element_llvm + " " + v4_codegen_llvm_clone_helper_symbol(mir_id, element) + "(ptr " + at + ")\n")
         give back
     }
     pilot paths = v4_codegen_llvm_word_leaf_paths(mir_id, element, "")
@@ -6358,6 +6443,15 @@ task v4_codegen_llvm_list_runtime_lines(mir_id: int) -> word {
     out = out + "  %data = phi ptr [ %old, %entry ], [ %grown, %grown.ok ]\n"
     out = out + "  %count = add i64 %len, 1\n  store i64 %count, ptr %lenp\n"
     out = out + "  %offset = mul i64 %len, %size\n  %slot = getelementptr inbounds i8, ptr %data, i64 %offset\n  ret ptr %slot\n" + fail + "}\n"
+    -- Clone helpers first: they only add clone helpers (drop helpers only
+    -- add drop helpers), so each list grows to its own fixpoint.
+    pilot clone_start = 1
+    repeat until clone_start >= v4_codegen_llvm_list_clone_types.length() {
+        pilot clone_stop = v4_index_of_from(v4_codegen_llvm_list_clone_types, "\n", clone_start)
+        if clone_stop < 0 { clone_stop = v4_codegen_llvm_list_clone_types.length() }
+        out = out + v4_codegen_llvm_clone_helper_lines(mir_id, v4_slice(v4_codegen_llvm_list_clone_types, clone_start, clone_stop))
+        clone_start = clone_stop + 1
+    }
     pilot start = 1
     repeat until start >= v4_codegen_llvm_list_drop_types.length() {
         pilot stop = v4_index_of_from(v4_codegen_llvm_list_drop_types, "\n", start)
@@ -6377,6 +6471,125 @@ task v4_codegen_llvm_list_runtime_lines(mir_id: int) -> word {
         start = stop + 1
     }
     give back out
+}
+
+-- Deep copies (tier 3 nested lists row). A for-each item is the walker's
+-- own copy of its element: words are cloned, a list gets a fresh buffer of
+-- copied elements, and a route clones the leaves of the case its tag names.
+-- Types without such leaves copy with extractvalue word paths instead.
+task v4_codegen_llvm_needs_clone_helper(mir_id: int, type_text: word) -> bool {
+    give back v4_codegen_llvm_type_holds_list(mir_id, type_text, 0) or v4_codegen_llvm_type_has_route_words(mir_id, type_text, 0)
+}
+
+-- The helper `T @"freak.list.clone.T"(ptr src)`, registered for emission.
+task v4_codegen_llvm_clone_helper_symbol(mir_id: int, type_text: word) -> word {
+    pilot canonical = v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text)
+    if not v4_codegen_llvm_list_clone_types.contains("\n" + canonical + "\n") { v4_codegen_llvm_list_clone_types = v4_codegen_llvm_list_clone_types + canonical + "\n" }
+    give back v4_codegen_llvm_symbol("freak.list.clone." + canonical)
+}
+
+-- Clone the owned leaves of the value at `src` into the bitwise copy at
+-- `dst`. Labels derive from `temp`, unique within one helper.
+task v4_codegen_llvm_clone_glue_at(mir_id: int, type_text: word, dst: word, src: word, temp: word, depth: int) -> word {
+    if depth > 32 or v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back "" }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_canonical_type(ty_id, type_text) == v4_ty_word {
+        pilot out = "  " + temp + ".h = load i64, ptr " + src + "\n"
+        out = out + "  " + temp + ".c = call i64 " + v4_codegen_llvm_word_intrinsic_symbol_for(mir_id, "clone") + "(i64 " + temp + ".h)\n"
+        give back out + "  store i64 " + temp + ".c, ptr " + dst + "\n"
+    }
+    pilot llvm_ty = v4_codegen_llvm_type(type_text)
+    if v4_codegen_llvm_is_list(mir_id, type_text) {
+        pilot out = "  " + temp + ".l = call " + llvm_ty + " " + v4_codegen_llvm_clone_helper_symbol(mir_id, type_text) + "(ptr " + src + ")\n"
+        give back out + "  store " + llvm_ty + " " + temp + ".l, ptr " + dst + "\n"
+    }
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    pilot out = ""
+    if kind == "" {
+        pilot sig = v4_codegen_llvm_route_signature(mir_id, type_text)
+        if sig < 0 { give back "" }
+        pilot tag_ty = v4_codegen_llvm_route_tag_type(mir_id, sig)
+        pilot label = v4_slice(temp, 1, temp.length())
+        out = "  " + temp + ".tag = load " + tag_ty + ", ptr " + src + "\n"
+        out = out + "  " + temp + ".from = getelementptr inbounds " + llvm_ty + ", ptr " + src + ", i32 0, i32 1\n"
+        out = out + "  " + temp + ".to = getelementptr inbounds " + llvm_ty + ", ptr " + dst + ", i32 0, i32 1\n"
+        pilot case_id = 0
+        repeat until case_id >= v4_ty_route_case_count(ty_id, v4_codegen_llvm_route_sig(mir_id, sig)) {
+            pilot case_struct = v4_codegen_llvm_route_case_struct(mir_id, sig, case_id)
+            pilot case_temp = temp + ".c" + word_from_int(case_id)
+            pilot case_label = label + ".c" + word_from_int(case_id)
+            pilot fields = v4_codegen_llvm_route_field_count(mir_id, sig, case_id)
+            pilot opened = false
+            pilot field = 0
+            repeat until field >= fields {
+                pilot field_ty = v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field)
+                if v4_codegen_llvm_word_leaf_count(mir_id, field_ty, 0) > 0 {
+                    if not opened {
+                        out = out + "  " + case_temp + ".is = icmp eq " + tag_ty + " " + temp + ".tag, " + v4_codegen_llvm_route_tag_value(mir_id, sig, case_id) + "\n"
+                        out = out + "  br i1 " + case_temp + ".is, label %" + case_label + ".then, label %" + case_label + ".end\n" + case_label + ".then:\n"
+                        opened = true
+                    }
+                    pilot field_temp = case_temp + ".f" + word_from_int(field)
+                    out = out + "  " + field_temp + ".src = getelementptr inbounds " + case_struct + ", ptr " + temp + ".from, i32 0, i32 " + word_from_int(field) + "\n"
+                    out = out + "  " + field_temp + ".dst = getelementptr inbounds " + case_struct + ", ptr " + temp + ".to, i32 0, i32 " + word_from_int(field) + "\n"
+                    out = out + v4_codegen_llvm_clone_glue_at(mir_id, field_ty, field_temp + ".dst", field_temp + ".src", field_temp, depth + 1)
+                }
+                field += 1
+            }
+            if opened { out = out + "  br label %" + case_label + ".end\n" + case_label + ".end:\n" }
+            case_id += 1
+        }
+        give back out
+    }
+    pilot slot = 0
+    repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) {
+        pilot slot_ty = v4_codegen_llvm_aggregate_slot_type(mir_id, type_text, slot)
+        if v4_codegen_llvm_word_leaf_count(mir_id, slot_ty, 0) > 0 {
+            pilot slot_temp = temp + ".s" + word_from_int(slot)
+            out = out + "  " + slot_temp + ".src = getelementptr inbounds " + llvm_ty + ", ptr " + src + ", i32 0, i32 " + word_from_int(slot) + "\n"
+            out = out + "  " + slot_temp + ".dst = getelementptr inbounds " + llvm_ty + ", ptr " + dst + ", i32 0, i32 " + word_from_int(slot) + "\n"
+            out = out + v4_codegen_llvm_clone_glue_at(mir_id, slot_ty, slot_temp + ".dst", slot_temp + ".src", slot_temp, depth + 1)
+        }
+        slot += 1
+    }
+    give back out
+}
+
+-- One clone helper. A list copies its length into a fresh buffer of
+-- exactly that many elements (an empty list stays the empty header); any
+-- other type copies bitwise and clones its leaves in place.
+task v4_codegen_llvm_clone_helper_lines(mir_id: int, type_text: word) -> word {
+    pilot llvm_ty = v4_codegen_llvm_type(type_text)
+    pilot out = "define internal " + llvm_ty + " " + v4_codegen_llvm_symbol("freak.list.clone." + type_text) + "(ptr %src) " + "{" + "\nentry:\n"
+    if v4_codegen_llvm_is_list(mir_id, type_text) {
+        pilot header_ty = v4_codegen_llvm_list_header_type()
+        pilot element = v4_codegen_llvm_list_element(mir_id, type_text)
+        pilot element_llvm = v4_codegen_llvm_type(element)
+        out = out + "  %data = load ptr, ptr %src\n"
+        out = out + "  %lenp = getelementptr inbounds " + header_ty + ", ptr %src, i32 0, i32 1\n"
+        out = out + "  %len = load i64, ptr %lenp\n  %empty = icmp eq i64 %len, 0\n"
+        out = out + "  br i1 %empty, label %none, label %copy\nnone:\n  ret " + header_ty + " zeroinitializer\ncopy:\n"
+        out = out + "  %buf = call ptr @freak.list.alloc(i64 %len, " + v4_codegen_llvm_list_element_size(element_llvm) + ")\n  br label %each\neach:\n"
+        out = out + "  %i = phi i64 [ 0, %copy ], [ %next, %each ]\n"
+        out = out + "  %from = getelementptr inbounds " + element_llvm + ", ptr %data, i64 %i\n"
+        out = out + "  %to = getelementptr inbounds " + element_llvm + ", ptr %buf, i64 %i\n"
+        if v4_ty_canonical_type(v4_mir_ty_id(mir_id), element) == v4_ty_word {
+            out = out + "  %h = load i64, ptr %from\n  %v = call i64 " + v4_codegen_llvm_word_intrinsic_symbol_for(mir_id, "clone") + "(i64 %h)\n"
+        } else if v4_codegen_llvm_word_leaf_count(mir_id, element, 0) > 0 {
+            out = out + "  %v = call " + element_llvm + " " + v4_codegen_llvm_clone_helper_symbol(mir_id, element) + "(ptr %from)\n"
+        } else {
+            out = out + "  %v = load " + element_llvm + ", ptr %from\n"
+        }
+        out = out + "  store " + element_llvm + " %v, ptr %to\n"
+        out = out + "  %next = add i64 %i, 1\n  %more = icmp ult i64 %next, %len\n  br i1 %more, label %each, label %done\ndone:\n"
+        out = out + "  %h0 = insertvalue " + header_ty + " undef, ptr %buf, 0\n"
+        out = out + "  %h1 = insertvalue " + header_ty + " %h0, i64 %len, 1\n"
+        out = out + "  %h2 = insertvalue " + header_ty + " %h1, i64 %len, 2\n  ret " + header_ty + " %h2\n}\n"
+        give back out
+    }
+    out = out + "  %dst = alloca " + llvm_ty + "\n  %bits = load " + llvm_ty + ", ptr %src\n  store " + llvm_ty + " %bits, ptr %dst\n"
+    out = out + v4_codegen_llvm_clone_glue_at(mir_id, type_text, "%dst", "%src", "%k", 0)
+    give back out + "  %out = load " + llvm_ty + ", ptr %dst\n  ret " + llvm_ty + " %out\n}\n"
 }
 
 task v4_codegen_llvm_list_globals() -> word {
