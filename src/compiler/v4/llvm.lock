@@ -1,0 +1,9 @@
+FREAK-V4-LLVM-LOCK-1
+# The one LLVM release the in-process backend (B2) builds against.
+# Release policy (open decision 16): one major per release, changed at most
+# twice a year, only after that major has had point releases. Change the
+# version and every asset line together; build_llvm_bridge.py checks the
+# SHA-256 of each archive before extracting it.
+version 22.1.8
+asset linux-x86_64 LLVM-22.1.8-Linux-X64.tar.xz df0e1ecf16caf3489a272a5eea4eec9b0d82878f6477fa309504f918a0006384
+url https://github.com/llvm/llvm-project/releases/download/llvmorg-{version}/{asset}

@@ -14,6 +14,8 @@
 
 # V4 smoke build cache (transpiled C, compiled binaries, compile stamps)
 build/v4_smoke/
+build/llvm/
+build/llvm_bridge_probe
 build/v4_scale_bench/
 # freak-lsp build output (src/compiler/v4/build_lsp.py)
 build/freak-lsp

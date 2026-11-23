@@ -195,6 +195,35 @@ jobs:
       - name: Build freak-lsp and run its JSON-RPC contracts
         run: python -u tests/v4_lsp_server.py
 
+  v4-llvm-bridge:
+    # Backend delivery lane B2: FREAK drives the pinned LLVM in process.
+    # Linux x86-64 first; the other release hosts follow with their archives.
+    name: V4 LLVM bridge (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang lld libzstd-dev
+
+      - name: Restore the trimmed pinned LLVM
+        uses: actions/cache@v4
+        with:
+          path: build/llvm/llvm-*-linux-x86_64
+          key: freak-llvm-${{ runner.os }}-${{ hashFiles('src/compiler/v4/llvm.lock') }}
+
+      - name: Fetch and trim the pinned LLVM (checksum-checked)
+        run: python -B -u src/compiler/v4/build_llvm_bridge.py --fetch-only
+
+      - name: Build the bridge probe and run it at O0 to O3
+        run: python -B -u src/compiler/v4/build_llvm_bridge.py --check
+
   v4-runtime-helpers:
     name: V4 native runtime helpers (${{ matrix.os }})
     strategy:

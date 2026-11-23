@@ -1,0 +1,279 @@
+-- B2 bridge probe: FREAK drives LLVM's IRBuilder in process through
+-- llvm_bridge/freak_llvm_bridge.c. It builds a small module, verifies and
+-- optimises it, writes an object file and the module text, answers layout
+-- questions for the four release targets, and checks that misuse comes back
+-- as error results. check_v4.check_v4_llvm_bridge links the object with a C
+-- driver and runs it.
+--
+--     llvm_bridge_probe <out-dir> <host-triple> <opt 0..3>
+
+extern task freak_lb35_session_new(triple: word, name: word, opt: int) -> int
+extern task freak_lb35_error(session: int) -> word
+extern task freak_lb35_struct_begin(session: int, name: word) -> int
+extern task freak_lb35_function(session: int, name: word, fn_type: int, linkage: int) -> int
+extern task freak_lb35_global_bytes(session: int, name: word, bytes: word, linkage: int) -> int
+extern task freak_lb35_block(session: int, function: int, name: word) -> int
+extern task freak_lb35_attribute(session: int, function: int, index: int, name: word) -> int
+extern task freak_lb35_emit(session: int, format: int, path: word) -> int
+extern task freak_lb_session_release(session: int) -> int
+extern task freak_lb_live_sessions() -> int
+extern task freak_lb_llvm_major() -> int
+extern task freak_lb_type_int(session: int, bits: int) -> int
+extern task freak_lb_type_double(session: int) -> int
+extern task freak_lb_type_ptr(session: int) -> int
+extern task freak_lb_type_void(session: int) -> int
+extern task freak_lb_struct_field(session: int, type_ticket: int) -> int
+extern task freak_lb_struct_end(session: int, packed: int) -> int
+extern task freak_lb_fn_type_begin(session: int, return_type: int) -> int
+extern task freak_lb_fn_type_param(session: int, type_ticket: int) -> int
+extern task freak_lb_fn_type_end(session: int, variadic: int) -> int
+extern task freak_lb_type_size(session: int, type_ticket: int) -> int
+extern task freak_lb_type_align(session: int, type_ticket: int) -> int
+extern task freak_lb_field_offset(session: int, struct_type: int, field: int) -> int
+extern task freak_lb_param(session: int, function: int, index: int) -> int
+extern task freak_lb_position(session: int, block: int) -> int
+extern task freak_lb_const_int(session: int, type_ticket: int, value: int) -> int
+extern task freak_lb_const_double_bits(session: int, type_ticket: int, bits: int) -> int
+extern task freak_lb_load(session: int, type_ticket: int, pointer: int) -> int
+extern task freak_lb_binary(session: int, op: int, left: int, right: int) -> int
+extern task freak_lb_icmp(session: int, predicate: int, left: int, right: int) -> int
+extern task freak_lb_cast(session: int, op: int, value: int, type_ticket: int) -> int
+extern task freak_lb_select(session: int, condition: int, when_true: int, when_false: int) -> int
+extern task freak_lb_field_ptr(session: int, struct_type: int, pointer: int, field: int) -> int
+extern task freak_lb_call_begin(session: int, fn_type: int, callee: int) -> int
+extern task freak_lb_call_arg(session: int, value: int) -> int
+extern task freak_lb_call_end(session: int) -> int
+extern task freak_lb_phi(session: int, type_ticket: int) -> int
+extern task freak_lb_phi_incoming(session: int, phi: int, value: int, block: int) -> int
+extern task freak_lb_br(session: int, block: int) -> int
+extern task freak_lb_cond_br(session: int, condition: int, when_true: int, when_false: int) -> int
+extern task freak_lb_ret(session: int, value: int) -> int
+extern task freak_lb_verify(session: int) -> int
+extern task freak_lb_optimize(session: int, level: int) -> int
+
+-- Operation codes from freak_llvm_bridge.h.
+pilot LB_ADD = 1
+pilot LB_FMUL = 16
+pilot LB_SGT = 7
+pilot LB_SLT = 9
+pilot LB_SITOFP = 6
+pilot LB_EXTERNAL = 1
+pilot LB_PRIVATE = 3
+pilot LB_OBJECT = 1
+pilot LB_IR_TEXT = 3
+
+pilot probe_failures = 0
+
+task probe_say(key: word, value: word) -> void {
+    say "lb-probe " + key + "=" + value
+}
+
+-- A step that must succeed: a ticket (> 0) or 0.
+task probe_need(session: int, what: word, outcome: int) -> int {
+    if outcome < 0 {
+        probe_failures += 1
+        probe_say("failed", what + " code " + word_from_int(outcome) + ": " + freak_lb35_error(session))
+    }
+    give back outcome
+}
+
+-- A call that must fail with the given code.
+task probe_refuse(session: int, what: word, outcome: int, code: int) -> void {
+    if outcome == code {
+        probe_say("refused", what + " code " + word_from_int(outcome))
+    } else {
+        probe_failures += 1
+        probe_say("failed", what + " expected " + word_from_int(code) + " got " + word_from_int(outcome))
+    }
+}
+
+task probe_fn_type1(s: int, ret: int, p0: int) -> int {
+    probe_need(s, "fn type", freak_lb_fn_type_begin(s, ret))
+    probe_need(s, "fn param", freak_lb_fn_type_param(s, p0))
+    give back probe_need(s, "fn type end", freak_lb_fn_type_end(s, 0))
+}
+
+task probe_fn_type2(s: int, ret: int, p0: int, p1: int) -> int {
+    probe_need(s, "fn type", freak_lb_fn_type_begin(s, ret))
+    probe_need(s, "fn param", freak_lb_fn_type_param(s, p0))
+    probe_need(s, "fn param", freak_lb_fn_type_param(s, p1))
+    give back probe_need(s, "fn type end", freak_lb_fn_type_end(s, 0))
+}
+
+task probe_call2(s: int, fn_type: int, callee: int, a: int, b: int) -> int {
+    probe_need(s, "call begin", freak_lb_call_begin(s, fn_type, callee))
+    probe_need(s, "call arg", freak_lb_call_arg(s, a))
+    probe_need(s, "call arg", freak_lb_call_arg(s, b))
+    give back probe_need(s, "call end", freak_lb_call_end(s))
+}
+
+task probe_call1(s: int, fn_type: int, callee: int, a: int) -> int {
+    probe_need(s, "call begin", freak_lb_call_begin(s, fn_type, callee))
+    probe_need(s, "call arg", freak_lb_call_arg(s, a))
+    give back probe_need(s, "call end", freak_lb_call_end(s))
+}
+
+-- probe_sum(n) = 1 + 2 + ... + max(n, 1): a loop with two phis.
+task probe_build_sum(s: int, i64: int, fn_type: int) -> int {
+    pilot f = probe_need(s, "sum function", freak_lb35_function(s, "probe_sum", fn_type, LB_EXTERNAL))
+    pilot entry = freak_lb35_block(s, f, "entry")
+    pilot body = freak_lb35_block(s, f, "loop")
+    pilot finish = freak_lb35_block(s, f, "done")
+    pilot n = freak_lb_param(s, f, 0)
+    probe_need(s, "position entry", freak_lb_position(s, entry))
+    pilot zero = freak_lb_const_int(s, i64, 0)
+    pilot one = freak_lb_const_int(s, i64, 1)
+    probe_need(s, "br loop", freak_lb_br(s, body))
+    probe_need(s, "position loop", freak_lb_position(s, body))
+    pilot i = probe_need(s, "phi i", freak_lb_phi(s, i64))
+    pilot acc = probe_need(s, "phi acc", freak_lb_phi(s, i64))
+    pilot next_i = probe_need(s, "add i", freak_lb_binary(s, LB_ADD, i, one))
+    pilot next_acc = probe_need(s, "add acc", freak_lb_binary(s, LB_ADD, acc, next_i))
+    probe_need(s, "incoming", freak_lb_phi_incoming(s, i, zero, entry))
+    probe_need(s, "incoming", freak_lb_phi_incoming(s, i, next_i, body))
+    probe_need(s, "incoming", freak_lb_phi_incoming(s, acc, zero, entry))
+    probe_need(s, "incoming", freak_lb_phi_incoming(s, acc, next_acc, body))
+    pilot more = probe_need(s, "icmp", freak_lb_icmp(s, LB_SLT, next_i, n))
+    probe_need(s, "cond br", freak_lb_cond_br(s, more, body, finish))
+    probe_need(s, "position done", freak_lb_position(s, finish))
+    probe_need(s, "ret", freak_lb_ret(s, next_acc))
+    give back f
+}
+
+-- probe_max(a, b) through icmp and select.
+task probe_build_max(s: int, i64: int, fn_type: int) -> int {
+    pilot f = probe_need(s, "max function", freak_lb35_function(s, "probe_max", fn_type, LB_EXTERNAL))
+    probe_need(s, "position", freak_lb_position(s, freak_lb35_block(s, f, "entry")))
+    pilot a = freak_lb_param(s, f, 0)
+    pilot b = freak_lb_param(s, f, 1)
+    pilot bigger = probe_need(s, "icmp", freak_lb_icmp(s, LB_SGT, a, b))
+    probe_need(s, "ret", freak_lb_ret(s, probe_need(s, "select", freak_lb_select(s, bigger, a, b))))
+    give back f
+}
+
+task probe_run() -> void {
+    if process::args_count() < 4 {
+        say "usage: llvm_bridge_probe <out-dir> <host-triple> <opt 0..3>"
+        give back
+    }
+    pilot out_dir = process::arg(1)
+    pilot triple = process::arg(2)
+    pilot opt = process::arg(3).to_int()
+    probe_say("llvm-major", word_from_int(freak_lb_llvm_major()))
+    pilot s = freak_lb35_session_new(triple, "freak_bridge_probe", opt)
+    if s <= 0 {
+        probe_say("failed", "session " + freak_lb35_error(0))
+        give back
+    }
+    pilot i64 = freak_lb_type_int(s, 64)
+    pilot i32 = freak_lb_type_int(s, 32)
+    pilot f64 = freak_lb_type_double(s)
+    pilot ptr = freak_lb_type_ptr(s)
+    pilot unary = probe_fn_type1(s, i64, i64)
+    pilot binary = probe_fn_type2(s, i64, i64, i64)
+    pilot sum_fn = probe_build_sum(s, i64, unary)
+    pilot max_fn = probe_build_max(s, i64, binary)
+
+    -- probe_call(n) = probe_sum(n) + probe_max(n, 3)
+    pilot call_fn = probe_need(s, "call function", freak_lb35_function(s, "probe_call", unary, LB_EXTERNAL))
+    probe_need(s, "position", freak_lb_position(s, freak_lb35_block(s, call_fn, "entry")))
+    pilot n = freak_lb_param(s, call_fn, 0)
+    pilot summed = probe_call1(s, unary, sum_fn, n)
+    pilot biggest = probe_call2(s, binary, max_fn, n, freak_lb_const_int(s, i64, 3))
+    probe_need(s, "ret", freak_lb_ret(s, probe_need(s, "add", freak_lb_binary(s, LB_ADD, summed, biggest))))
+
+    -- probe_scale(x) = x * 2.5 as double (2.5 is 0x4004000000000000).
+    pilot scale_type = probe_fn_type1(s, f64, i64)
+    pilot scale_fn = probe_need(s, "scale function", freak_lb35_function(s, "probe_scale", scale_type, LB_EXTERNAL))
+    probe_need(s, "position", freak_lb_position(s, freak_lb35_block(s, scale_fn, "entry")))
+    pilot as_double = probe_need(s, "sitofp", freak_lb_cast(s, LB_SITOFP, freak_lb_param(s, scale_fn, 0), f64))
+    pilot factor = freak_lb_const_double_bits(s, f64, 4612811918334230528)
+    probe_need(s, "ret", freak_lb_ret(s, probe_need(s, "fmul", freak_lb_binary(s, LB_FMUL, as_double, factor))))
+
+    -- probe_pair_sum(p) = p.a + p.b for %"freak.probe.Pair" = { i64, i64 }.
+    probe_need(s, "struct", freak_lb35_struct_begin(s, "freak.probe.Pair"))
+    probe_need(s, "field", freak_lb_struct_field(s, i64))
+    probe_need(s, "field", freak_lb_struct_field(s, i64))
+    pilot pair = probe_need(s, "struct end", freak_lb_struct_end(s, 0))
+    pilot pair_type = probe_fn_type1(s, i64, ptr)
+    pilot pair_fn = probe_need(s, "pair function", freak_lb35_function(s, "probe_pair_sum", pair_type, LB_EXTERNAL))
+    probe_need(s, "position", freak_lb_position(s, freak_lb35_block(s, pair_fn, "entry")))
+    pilot p = freak_lb_param(s, pair_fn, 0)
+    pilot first = probe_need(s, "load a", freak_lb_load(s, i64, probe_need(s, "gep a", freak_lb_field_ptr(s, pair, p, 0))))
+    pilot second = probe_need(s, "load b", freak_lb_load(s, i64, probe_need(s, "gep b", freak_lb_field_ptr(s, pair, p, 1))))
+    probe_need(s, "ret", freak_lb_ret(s, probe_need(s, "add", freak_lb_binary(s, LB_ADD, first, second))))
+
+    -- probe_hello() calls the C library's puts on a private string.
+    pilot puts_type = probe_fn_type1(s, i32, ptr)
+    pilot puts_fn = probe_need(s, "puts", freak_lb35_function(s, "puts", puts_type, LB_EXTERNAL))
+    pilot greeting = probe_need(s, "global", freak_lb35_global_bytes(s, ".str.probe", "hello from the LLVM bridge", LB_PRIVATE))
+    probe_need(s, "fn type", freak_lb_fn_type_begin(s, i64))
+    pilot hello_type = probe_need(s, "fn type end", freak_lb_fn_type_end(s, 0))
+    pilot hello_fn = probe_need(s, "hello function", freak_lb35_function(s, "probe_hello", hello_type, LB_EXTERNAL))
+    probe_need(s, "position", freak_lb_position(s, freak_lb35_block(s, hello_fn, "entry")))
+    probe_call1(s, puts_type, puts_fn, greeting)
+    probe_need(s, "ret", freak_lb_ret(s, freak_lb_const_int(s, i64, 7)))
+
+    probe_need(s, "nounwind", freak_lb35_attribute(s, sum_fn, -1, "nounwind"))
+    probe_need(s, "nounwind", freak_lb35_attribute(s, max_fn, -1, "nounwind"))
+
+    -- Misuse comes back as error results, never as a crash.
+    probe_refuse(s, "type ticket as value", freak_lb_binary(s, LB_ADD, i64, n), -3)
+    probe_refuse(s, "load from a non-pointer", freak_lb_load(s, i64, n), -3)
+    probe_refuse(s, "second terminator", freak_lb_ret(s, n), -10)
+    probe_refuse(s, "mixed operand types", freak_lb_binary(s, LB_ADD, n, as_double), -3)
+    probe_refuse(s, "duplicate symbol", freak_lb35_function(s, "probe_sum", unary, LB_EXTERNAL), -4)
+    probe_refuse(s, "forged ticket", freak_lb_binary(s, LB_ADD, n + 1000000, n), -2)
+    probe_refuse(s, "call argument type", freak_lb_call_begin(s, unary, sum_fn) + freak_lb_call_arg(s, as_double), -3)
+    probe_refuse(s, "call with too few arguments", freak_lb_call_end(s), -4)
+    probe_refuse(s, "unknown attribute", freak_lb35_attribute(s, sum_fn, -1, "not_an_attribute"), -4)
+
+    probe_say("verify", word_from_int(probe_need(s, "verify", freak_lb_verify(s))))
+    probe_say("optimize", word_from_int(probe_need(s, "optimize", freak_lb_optimize(s, opt))))
+    probe_say("object", word_from_int(probe_need(s, "object", freak_lb35_emit(s, LB_OBJECT, out_dir + "/probe.o"))))
+    probe_say("ir", word_from_int(probe_need(s, "ir", freak_lb35_emit(s, LB_IR_TEXT, out_dir + "/probe.ll"))))
+    probe_need(s, "release", freak_lb_session_release(s))
+    probe_refuse(s, "released session", freak_lb_type_int(s, 64), -1)
+
+    -- A function whose block has no terminator fails verification by name.
+    pilot broken = freak_lb35_session_new(triple, "freak_bridge_broken", 0)
+    pilot broken_i64 = freak_lb_type_int(broken, 64)
+    pilot broken_fn = freak_lb35_function(broken, "broken", probe_fn_type1(broken, broken_i64, broken_i64), LB_EXTERNAL)
+    freak_lb_position(broken, freak_lb35_block(broken, broken_fn, "entry"))
+    probe_refuse(broken, "unterminated block", freak_lb_verify(broken), -7)
+    freak_lb_session_release(broken)
+    probe_refuse(0, "unknown triple", freak_lb35_session_new("freak-unknown-triple", "x", 0), -6)
+
+    probe_layouts("x86_64-unknown-linux-gnu")
+    probe_layouts("aarch64-unknown-linux-gnu")
+    probe_layouts("aarch64-apple-darwin")
+    probe_layouts("x86_64-w64-windows-gnu")
+    probe_say("live-sessions", word_from_int(freak_lb_live_sessions()))
+    probe_say("failures", word_from_int(probe_failures))
+}
+
+-- Layout facts the target answers: { i8, i64 }, i128 and pointers.
+task probe_layouts(triple: word) -> void {
+    pilot t = freak_lb35_session_new(triple, "freak_bridge_layout", 0)
+    if t <= 0 {
+        probe_failures += 1
+        probe_say("failed", "layout session " + triple)
+        give back
+    }
+    pilot i8 = freak_lb_type_int(t, 8)
+    pilot i64 = freak_lb_type_int(t, 64)
+    pilot i128 = freak_lb_type_int(t, 128)
+    freak_lb35_struct_begin(t, "")
+    freak_lb_struct_field(t, i8)
+    freak_lb_struct_field(t, i64)
+    pilot mixed = freak_lb_struct_end(t, 0)
+    pilot line = "size=" + word_from_int(freak_lb_type_size(t, mixed))
+    line = line + " align=" + word_from_int(freak_lb_type_align(t, mixed))
+    line = line + " offset1=" + word_from_int(freak_lb_field_offset(t, mixed, 1))
+    line = line + " ptr=" + word_from_int(freak_lb_type_size(t, freak_lb_type_ptr(t)))
+    line = line + " i128-align=" + word_from_int(freak_lb_type_align(t, i128))
+    probe_say("layout " + triple, line)
+    freak_lb_session_release(t)
+}
+
+probe_run()
