@@ -1482,9 +1482,20 @@ task cli_ffi_scan_source_links(source: word) -> word {
     pilot out = "|"
     pilot n = source.length()
     pilot i = 0
-    repeat until i + 6 > n {
-        if source.char_at(i) == "l" and source.substring(i, 6) == "link=\"" {
-            pilot j = i + 6
+    repeat until i + 4 > n {
+        pilot j = i + 4
+        pilot matched = false
+        if source.char_at(i) == "l" and source.substring(i, 4) == "link" {
+            -- Same spelling the parser takes: link, optional blanks, =, blanks, "
+            repeat until j >= n or (source.char_at(j) != " " and source.char_at(j) != "\t") { j += 1 }
+            if j < n and source.char_at(j) == "=" {
+                j += 1
+                repeat until j >= n or (source.char_at(j) != " " and source.char_at(j) != "\t") { j += 1 }
+                if j < n and source.char_at(j) == "\"" { matched = true }
+            }
+        }
+        if matched {
+            j += 1
             pilot value = ""
             repeat until j >= n or source.char_at(j) == "\"" or source.char_at(j) == "\n" {
                 value = value + source.char_at(j)
