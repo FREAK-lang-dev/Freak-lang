@@ -44,7 +44,7 @@ task cold_hir_sentinels() -> int {
     pilot kept = array_new()
     cold_hir_assert(kept >= 0, "sentinel tracker admitted")
     pilot index = 0
-    repeat until index >= 45 {
+    repeat until index >= 47 {
         pilot handle = array_new()
         cold_hir_assert(handle >= 0, "sentinel admitted")
         array_push(handle, "sentinel-" + word_from_int(index))
@@ -57,49 +57,51 @@ task cold_hir_sentinels() -> int {
 task cold_hir_set_sentinels(kept: int) -> void {
     v4_hir_extern_return_owner_values = word_to_int(array_get(kept, 0))
     v4_hir_extern_return_values = word_to_int(array_get(kept, 1))
-    v4_hir_route_owner_values = word_to_int(array_get(kept, 2))
-    v4_hir_route_case_values = word_to_int(array_get(kept, 3))
-    v4_hir_route_field_values = word_to_int(array_get(kept, 4))
-    v4_hir_const_annotation_values = word_to_int(array_get(kept, 5))
-    v4_hir_word_plans = word_to_int(array_get(kept, 6))
-    v4_hir_shape_field_starts = word_to_int(array_get(kept, 7))
-    v4_hir_shape_field_counts = word_to_int(array_get(kept, 8))
-    v4_hir_shape_field_values = word_to_int(array_get(kept, 9))
-    v4_hir_files = word_to_int(array_get(kept, 10))
-    v4_hir_expansions = word_to_int(array_get(kept, 11))
-    v4_hir_revisions = word_to_int(array_get(kept, 12))
-    v4_hir_item_kinds = word_to_int(array_get(kept, 13))
-    v4_hir_item_names = word_to_int(array_get(kept, 14))
-    v4_hir_item_defs = word_to_int(array_get(kept, 15))
-    v4_hir_item_spans = word_to_int(array_get(kept, 16))
-    v4_hir_item_parse_nodes = word_to_int(array_get(kept, 17))
-    v4_hir_alias_target_types = word_to_int(array_get(kept, 18))
-    v4_hir_alias_target_spans = word_to_int(array_get(kept, 19))
-    v4_hir_local_annotation_items = word_to_int(array_get(kept, 20))
-    v4_hir_local_annotation_stmt_spans = word_to_int(array_get(kept, 21))
-    v4_hir_local_annotation_types = word_to_int(array_get(kept, 22))
-    v4_hir_local_annotation_type_spans = word_to_int(array_get(kept, 23))
-    v4_hir_task_return_items = word_to_int(array_get(kept, 24))
-    v4_hir_task_return_forms = word_to_int(array_get(kept, 25))
-    v4_hir_task_return_types = word_to_int(array_get(kept, 26))
-    v4_hir_task_return_spans = word_to_int(array_get(kept, 27))
-    v4_hir_annotation_indexes = word_to_int(array_get(kept, 28))
-    v4_hir_return_indexes = word_to_int(array_get(kept, 29))
-    v4_hir_task_param_indexes = word_to_int(array_get(kept, 30))
-    v4_hir_impl_indexes = word_to_int(array_get(kept, 31))
-    v4_hir_task_param_owner_items = word_to_int(array_get(kept, 32))
-    v4_hir_task_param_owner_counts = word_to_int(array_get(kept, 33))
-    v4_hir_task_param_items = word_to_int(array_get(kept, 34))
-    v4_hir_task_param_ordinals = word_to_int(array_get(kept, 35))
-    v4_hir_task_param_names = word_to_int(array_get(kept, 36))
-    v4_hir_task_param_name_spans = word_to_int(array_get(kept, 37))
-    v4_hir_task_param_modes = word_to_int(array_get(kept, 38))
-    v4_hir_task_param_lifetimes = word_to_int(array_get(kept, 39))
-    v4_hir_task_param_lifetime_spans = word_to_int(array_get(kept, 40))
-    v4_hir_task_param_types = word_to_int(array_get(kept, 41))
-    v4_hir_task_param_type_spans = word_to_int(array_get(kept, 42))
-    v4_hir_task_param_segment_spans = word_to_int(array_get(kept, 43))
-    v4_hir_diags = word_to_int(array_get(kept, 44))
+    v4_hir_method_owner_values = word_to_int(array_get(kept, 2))
+    v4_hir_method_values = word_to_int(array_get(kept, 3))
+    v4_hir_route_owner_values = word_to_int(array_get(kept, 4))
+    v4_hir_route_case_values = word_to_int(array_get(kept, 5))
+    v4_hir_route_field_values = word_to_int(array_get(kept, 6))
+    v4_hir_const_annotation_values = word_to_int(array_get(kept, 7))
+    v4_hir_word_plans = word_to_int(array_get(kept, 8))
+    v4_hir_shape_field_starts = word_to_int(array_get(kept, 9))
+    v4_hir_shape_field_counts = word_to_int(array_get(kept, 10))
+    v4_hir_shape_field_values = word_to_int(array_get(kept, 11))
+    v4_hir_files = word_to_int(array_get(kept, 12))
+    v4_hir_expansions = word_to_int(array_get(kept, 13))
+    v4_hir_revisions = word_to_int(array_get(kept, 14))
+    v4_hir_item_kinds = word_to_int(array_get(kept, 15))
+    v4_hir_item_names = word_to_int(array_get(kept, 16))
+    v4_hir_item_defs = word_to_int(array_get(kept, 17))
+    v4_hir_item_spans = word_to_int(array_get(kept, 18))
+    v4_hir_item_parse_nodes = word_to_int(array_get(kept, 19))
+    v4_hir_alias_target_types = word_to_int(array_get(kept, 20))
+    v4_hir_alias_target_spans = word_to_int(array_get(kept, 21))
+    v4_hir_local_annotation_items = word_to_int(array_get(kept, 22))
+    v4_hir_local_annotation_stmt_spans = word_to_int(array_get(kept, 23))
+    v4_hir_local_annotation_types = word_to_int(array_get(kept, 24))
+    v4_hir_local_annotation_type_spans = word_to_int(array_get(kept, 25))
+    v4_hir_task_return_items = word_to_int(array_get(kept, 26))
+    v4_hir_task_return_forms = word_to_int(array_get(kept, 27))
+    v4_hir_task_return_types = word_to_int(array_get(kept, 28))
+    v4_hir_task_return_spans = word_to_int(array_get(kept, 29))
+    v4_hir_annotation_indexes = word_to_int(array_get(kept, 30))
+    v4_hir_return_indexes = word_to_int(array_get(kept, 31))
+    v4_hir_task_param_indexes = word_to_int(array_get(kept, 32))
+    v4_hir_impl_indexes = word_to_int(array_get(kept, 33))
+    v4_hir_task_param_owner_items = word_to_int(array_get(kept, 34))
+    v4_hir_task_param_owner_counts = word_to_int(array_get(kept, 35))
+    v4_hir_task_param_items = word_to_int(array_get(kept, 36))
+    v4_hir_task_param_ordinals = word_to_int(array_get(kept, 37))
+    v4_hir_task_param_names = word_to_int(array_get(kept, 38))
+    v4_hir_task_param_name_spans = word_to_int(array_get(kept, 39))
+    v4_hir_task_param_modes = word_to_int(array_get(kept, 40))
+    v4_hir_task_param_lifetimes = word_to_int(array_get(kept, 41))
+    v4_hir_task_param_lifetime_spans = word_to_int(array_get(kept, 42))
+    v4_hir_task_param_types = word_to_int(array_get(kept, 43))
+    v4_hir_task_param_type_spans = word_to_int(array_get(kept, 44))
+    v4_hir_task_param_segment_spans = word_to_int(array_get(kept, 45))
+    v4_hir_diags = word_to_int(array_get(kept, 46))
     v4_hir_file_len = 37
     v4_hir_ready = 0
 }
@@ -108,6 +110,8 @@ task cold_hir_state() -> word {
     pilot out = word_from_int(v4_hir_ready) + ":" + word_from_int(v4_hir_file_len)
     out = out + ":" + word_from_int(v4_hir_extern_return_owner_values)
     out = out + ":" + word_from_int(v4_hir_extern_return_values)
+    out = out + ":" + word_from_int(v4_hir_method_owner_values)
+    out = out + ":" + word_from_int(v4_hir_method_values)
     out = out + ":" + word_from_int(v4_hir_route_owner_values)
     out = out + ":" + word_from_int(v4_hir_route_case_values)
     out = out + ":" + word_from_int(v4_hir_route_field_values)
@@ -156,7 +160,7 @@ task cold_hir_state() -> word {
 
 task cold_hir_sentinels_intact(kept: int) -> bool {
     pilot index = 0
-    repeat until index >= 45 {
+    repeat until index >= 47 {
         pilot handle = word_to_int(array_get(kept, index))
         pilot value: word = array_get(handle, 0)
         if array_len(handle) != 1 or value != "sentinel-" + word_from_int(index) { give back false }
@@ -173,6 +177,8 @@ task cold_hir_retire_admitted(kept: int) -> void {
     repeat until index >= array_len(v4_hir_files) {
         array_release(word_to_int(array_get(v4_hir_extern_return_owner_values, index)))
         array_release(word_to_int(array_get(v4_hir_extern_return_values, index)))
+        array_release(word_to_int(array_get(v4_hir_method_owner_values, index)))
+        array_release(word_to_int(array_get(v4_hir_method_values, index)))
         array_release(word_to_int(array_get(v4_hir_route_owner_values, index)))
         array_release(word_to_int(array_get(v4_hir_route_case_values, index)))
         array_release(word_to_int(array_get(v4_hir_route_field_values, index)))
@@ -217,6 +223,8 @@ task cold_hir_retire_admitted(kept: int) -> void {
     }
     array_release(v4_hir_extern_return_owner_values)
     array_release(v4_hir_extern_return_values)
+    array_release(v4_hir_method_owner_values)
+    array_release(v4_hir_method_values)
     array_release(v4_hir_route_owner_values)
     array_release(v4_hir_route_case_values)
     array_release(v4_hir_route_field_values)
@@ -272,9 +280,9 @@ task cold_hir_restore_smoke() -> void {
     cold_hir_set_sentinels(kept)
     pilot original = cold_hir_state()
     pilot capacity = cold_hir_available()
-    pilot empty = "hir-snapshot|format=freak-hir-snapshot-v12|files=0|items=0|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|word-owners=0|word-literals=0|word-pieces=0|word-path-parts=0|diagnostics=0\nend|freak-hir-snapshot-v12"
-    pilot payload = "hir-snapshot|format=freak-hir-snapshot-v12|files=1|items=1|alias-targets=1|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|word-owners=0|word-literals=0|word-pieces=0|word-path-parts=0|diagnostics=0\nhir|0|0|0|1|0\nhir-item|0|0|Alias|Kept|kept-def|0@0:16|0|int|0@13:16\nend|freak-hir-snapshot-v12"
-    pilot legacy = "hir-snapshot|format=freak-hir-snapshot-v10|files=0|items=0|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|word-owners=0|word-literals=0|word-pieces=0|word-path-parts=0|diagnostics=0\nend|freak-hir-snapshot-v10"
+    pilot empty = "hir-snapshot|format=freak-hir-snapshot-v13|files=0|items=0|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|method-owners=0|methods=0|word-owners=0|word-literals=0|word-pieces=0|word-path-parts=0|diagnostics=0\nend|freak-hir-snapshot-v13"
+    pilot payload = "hir-snapshot|format=freak-hir-snapshot-v13|files=1|items=1|alias-targets=1|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|method-owners=0|methods=0|word-owners=0|word-literals=0|word-pieces=0|word-path-parts=0|diagnostics=0\nhir|0|0|0|1|0\nhir-item|0|0|Alias|Kept|kept-def|0@0:16|0|int|0@13:16\nend|freak-hir-snapshot-v13"
+    pilot legacy = "hir-snapshot|format=freak-hir-snapshot-v10|files=0|items=0|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|method-owners=0|methods=0|word-owners=0|word-literals=0|word-pieces=0|word-path-parts=0|diagnostics=0\nend|freak-hir-snapshot-v10"
     cold_hir_assert(v4_hir_snapshot_validate(empty).starts_with("hir-snapshot-import ok=1") and v4_hir_snapshot_validate(payload).starts_with("hir-snapshot-import ok=1"), "valid payload controls before pressure")
     cold_hir_assert(cold_hir_state() == original and cold_hir_available() == capacity, "pure validation stays cold")
     pilot malformed = v4_hir_snapshot_restore("malformed")
@@ -297,29 +305,29 @@ task cold_hir_restore_smoke() -> void {
         } else {
             if restored.starts_with("hir-snapshot-restore ok=0 reason=hir-initialization-resource-exhausted") { saw_init_rejection = true }
             if restored.starts_with("hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted") { saw_lookup_rejection = true }
-            cold_hir_assert(cold_hir_state() == original and cold_hir_sentinels_intact(kept), "every rejected admission preserves exact 45 refs and length")
+            cold_hir_assert(cold_hir_state() == original and cold_hir_sentinels_intact(kept), "every rejected admission preserves exact 47 refs and length")
             cold_hir_assert(v4_session_semantic_restore_generation() == generation, "every rejection preserves generation")
         }
         cold_hir_release_pressure(held, free_count)
         cold_hir_assert(v4_source_revision(source) == source_revision and v4_source_fingerprint(source) == fingerprint, "every boundary preserves source")
         if admitted {
-            cold_hir_assert(v4_hir_snapshot() == payload and cold_hir_available() == capacity - 45 - 42, "successful cold payload exact and owns 45 plus 42")
+            cold_hir_assert(v4_hir_snapshot() == payload and cold_hir_available() == capacity - 47 - 44, "successful cold payload exact and owns 47 plus 44")
         } else {
             cold_hir_assert(cold_hir_available() == capacity, "every rejected boundary conserves handles")
         }
         free_count += 1
     }
     cold_hir_assert(admitted and saw_init_rejection and saw_lookup_rejection, "init and post-init lookup boundaries crossed")
-    say "cold-hir-restore init-boundary=true lookup-rollback=true nonempty-exact=true handles=87"
+    say "cold-hir-restore init-boundary=true lookup-rollback=true nonempty-exact=true handles=91"
 
     cold_hir_retire_admitted(kept)
     cold_hir_assert(cold_hir_state() == original and cold_hir_available() == capacity, "fixture retires only admitted arena")
     generation = v4_session_semantic_restore_generation()
     cold_hir_assert(v4_hir_snapshot_restore(empty).starts_with("hir-snapshot-restore ok=1"), "cold empty restore admitted")
-    cold_hir_assert(v4_hir_snapshot() == empty and v4_hir_file_len == 0 and cold_hir_available() == capacity - 45 and v4_session_semantic_restore_generation() == generation + 1, "empty payload exact and owns 45")
+    cold_hir_assert(v4_hir_snapshot() == empty and v4_hir_file_len == 0 and cold_hir_available() == capacity - 47 and v4_session_semantic_restore_generation() == generation + 1, "empty payload exact and owns 47")
     cold_hir_assert(v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=1"), "warm fresh owner admitted")
     pilot warm_capacity = cold_hir_available()
-    cold_hir_assert(warm_capacity == capacity - 87 and v4_hir_snapshot() == payload, "warm owner owns 42 children")
+    cold_hir_assert(warm_capacity == capacity - 91 and v4_hir_snapshot() == payload, "warm owner owns 44 children")
     pilot warm_state = cold_hir_state()
     generation = v4_session_semantic_restore_generation()
     pilot held = cold_hir_hold(0)
@@ -329,7 +337,7 @@ task cold_hir_restore_smoke() -> void {
     cold_hir_assert(v4_hir_snapshot_restore(empty).starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == empty and cold_hir_available() == warm_capacity, "logical shrink retains high-water children")
     cold_hir_assert(v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == payload and cold_hir_available() == warm_capacity, "warm restore reuses high-water children")
     cold_hir_assert(cold_hir_sentinels_intact(kept) and v4_source_revision(source) == source_revision and v4_source_fingerprint(source) == fingerprint, "all original sentinel and source facts preserved")
-    say "cold-hir-restore empty-exact=true handles=45 warm-pressure=true high-water=true recovery=true"
+    say "cold-hir-restore empty-exact=true handles=47 warm-pressure=true high-water=true recovery=true"
 }
 
 cold_hir_restore_smoke()

@@ -3186,7 +3186,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if v4_hir_task_return.exists():
         hir_src = v4_hir_task_return.read_text(encoding="utf-8")
         for needle in (
-            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v12"',
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v13"',
             'pilot v4_hir_task_return_explicit = "explicit"',
             'pilot v4_hir_task_return_implicit_block = "implicit-block"',
             'pilot v4_hir_task_return_arrow = "arrow"',
@@ -3304,7 +3304,7 @@ def audit_conformance(paths: List[Path]) -> int:
             v4_hir_task_param,
             "freak_hir",
             (
-                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v12"',
+                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v13"',
                 'pilot v4_hir_task_param_mode_value = "value"',
                 'pilot v4_hir_task_param_mode_lend = "lend"',
                 'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -3506,7 +3506,7 @@ def audit_conformance(paths: List[Path]) -> int:
     extern_return_missing = _hir_extern_return_probe_errors(shape_tests, shape_harness)
     for path, markers in (
         (v4_hir_task_param, (
-            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v12"',
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v13"',
             "task v4_hir_extern_member_return_surface_type(",
             "task v4_hir_extern_member_return_span(",
             "task v4_hir_extern_member_return_has_arrow_fallback(",

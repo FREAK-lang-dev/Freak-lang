@@ -72,7 +72,8 @@ task v4_ty_doctrine_index_scale(ty: int, hir: int, mir: int, count: int) -> void
     pilot span = v4_hir_item_span(hir, 1)
     pilot idx = 0
     repeat until idx >= count {
-        v4_hir_add_item(hir, v4_hir_impl, "Cargo<T>", span, node)
+        -- Lower the method facts like the HIR pipeline does after each item.
+        v4_hir_lower_methods(hir, v4_hir_add_item(hir, v4_hir_impl, "Cargo<T>", span, node))
         idx += 1
     }
     pilot built = v4_ty_impl_doctrine_candidate_build_items
