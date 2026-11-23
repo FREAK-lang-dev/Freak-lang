@@ -110,7 +110,7 @@ Pointers are plain integers, so pointer arithmetic is addition:
 
 ```fk
 extern [system, link="user32", if target_os = "windows"] {
-    task MessageBeep(kind: c_uint) -> c_bool
+    task MessageBeep(kind: c_uint) -> c_int   -- Win32 BOOL is an int: nonzero means success
 }
 extern [C, link="m", if target_os = "linux"] {
     @link_name("cbrt")

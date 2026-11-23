@@ -16,6 +16,8 @@ extern [C, load="greet"] {
     task greet_squares(out: *mut c_int, n: c_int)
     task greet_bump() -> void
     task greet_count() -> c_int
+    task greet_next() -> c_int
+    task greet_pair(a: c_int, b: c_int) -> c_int
     task greet_shout(s: *mut c_char) -> c_int
     task greet_long(x: c_long) -> c_long
     @link_name("greet_add")
@@ -54,4 +56,6 @@ task main() -> void {
     greet_bump()
     greet_bump()
     say "count: " + word_from_int(greet_count())
+    -- Arguments evaluate left to right: next() gives 3, then 4.
+    say "pair: " + word_from_int(greet_pair(greet_next(), greet_next()))
 }

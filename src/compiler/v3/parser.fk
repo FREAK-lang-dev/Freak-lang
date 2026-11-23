@@ -1208,18 +1208,30 @@ task ffi_host_target_os() -> word {
 task ffi_host_target_arch() -> word {
     if ffi_target_arch != "" { give back ffi_target_arch }
     pilot triple = cross_target
-    if triple != "" {
-        if triple.starts_with("aarch64") or triple.starts_with("arm64") { ffi_target_arch = "aarch64" }
-        else { ffi_target_arch = "x86_64" }
-    }
+    if triple != "" { ffi_target_arch = ffi_normalize_arch(triple) }
     if ffi_target_arch == "" {
         if process::platform_is_windows() { ffi_target_arch = "x86_64" }
-        else {
-            pilot machine = process::exec_capture("uname -m 2>/dev/null").trim()
-            if machine == "aarch64" or machine == "arm64" { ffi_target_arch = "aarch64" } else { ffi_target_arch = "x86_64" }
-        }
+        else { ffi_target_arch = ffi_normalize_arch(process::exec_capture("uname -m 2>/dev/null").trim()) }
     }
     give back ffi_target_arch
+}
+
+-- The architecture part of a triple (or a uname -m value). Anything other
+-- than x86_64 / aarch64 keeps its own name (i686, armv7, riscv64, ...), so
+-- it matches no target_arch = "x86_64" or "aarch64" block.
+task ffi_normalize_arch(triple: word) -> word {
+    pilot arch = ""
+    pilot i = 0
+    pilot fin = false
+    repeat until fin or i >= triple.length() {
+        pilot ch = triple.char_at(i)
+        if ch == "-" { fin = true } else { arch = arch + ch }
+        i = i + 1
+    }
+    if arch == "aarch64" or arch == "arm64" { give back "aarch64" }
+    if arch == "x86_64" or arch == "amd64" or arch == "x64" { give back "x86_64" }
+    if arch == "" { give back "unknown" }
+    give back arch
 }
 
 -- Reads one type in an extern [C] signature, returning "ABI|FREAK" or "" after
@@ -1296,7 +1308,10 @@ task ffi_abi_part(entry: word, index: int) -> word {
     give back ""
 }
 
-task ffi_record_link_lib(lib: word) -> void {
+task ffi_record_link_lib(raw: word) -> void {
+    -- The CLI passes this to the linker, so turn the lexer's backslash and
+    -- quote byte markers back into the characters they stand for.
+    pilot lib = raw.replace("\\x5C", "\\").replace("\\x22", "\"")
     if not ffi_link_libs.contains("|" + lib + "|") {
         if ffi_link_libs == "" { ffi_link_libs = "|" }
         ffi_link_libs = ffi_link_libs + lib + "|"
@@ -1421,6 +1436,7 @@ task parse_extern_block() -> void {
     pilot library = ""
     pilot language_seen = false
     pilot active = true
+    pilot cc_mismatch = ""
     pilot afin = false
     if match_tok(TOK_PUNCT, "]") { afin = true }
     repeat until afin {
@@ -1468,7 +1484,7 @@ task parse_extern_block() -> void {
                 -- x86_64 only has one C convention per OS; accept the native one.
                 pilot native_cc = "sysv64"
                 if ffi_host_target_os() == "windows" { native_cc = "win64" }
-                if opt != native_cc { diag_error("calling convention " + opt + " does not match this target", "V3.5 calls with the target's C convention; use extern [C] or extern [system]") }
+                if opt != native_cc or ffi_host_target_arch() != "x86_64" { cc_mismatch = opt }
             } else if opt == "stdcall" or opt == "fastcall" or opt == "thiscall" or opt == "vectorcall" {
                 diag_error("calling convention " + opt + " is not supported by V3.5 yet", "use extern [C] or extern [system] (x86_64 and arm64 use the C convention)")
             } else if opt != "" {
@@ -1483,6 +1499,9 @@ task parse_extern_block() -> void {
             } else { expect_tok(TOK_PUNCT, ",") }
         }
     }
+    -- Only an active block's convention has to match the target, so one file
+    -- can carry win64 and sysv64 variants behind target_os conditions.
+    if active and cc_mismatch != "" { diag_error("calling convention " + cc_mismatch + " does not match this target", "V3.5 calls with the target's C convention; use extern [C] or extern [system]") }
     pilot body_file = current_source_file()
     pilot body_line = word_to_int(current_source_line())
     pilot body_col = current_source_col()

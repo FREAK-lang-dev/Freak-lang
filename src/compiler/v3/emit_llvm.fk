@@ -1533,7 +1533,7 @@ task llvm_ffi_callee(name: word, extra: word) -> word {
 }
 
 task llvm_ffi_cstring_const(global_name: word, text: word) -> word {
-    pilot size = word_from_int(text.length() + 1)
+    pilot size = word_from_int(llvm_string_byte_len(text) + 1)
     llvm_emit_line(global_name + " = private unnamed_addr constant [" + size + " x i8] c\"" + llvm_escape_str(text) + "\\00\"")
     give back "getelementptr inbounds ([" + size + " x i8], [" + size + " x i8]* " + global_name + ", i64 0, i64 0)"
 }

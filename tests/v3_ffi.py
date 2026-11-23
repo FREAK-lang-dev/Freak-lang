@@ -42,6 +42,7 @@ EXPECTED = [
     "square 4: 16",
     "poked: -9",
     "count: 2",
+    "pair: 34",
 ]
 
 FLAGS_PROGRAM = '''extern [C, if target_os = "windows"] {
@@ -54,6 +55,15 @@ extern [C, if target_os = "linux"] {
 extern [C, if target_os = "macos"] {
     @link_name("getpid")
     task native_pid() -> c_int
+}
+-- Each block's convention only has to match when its condition holds.
+extern [C, win64, if target_os = "windows"] {
+    @link_name("GetTickCount")
+    task win_ticks() -> c_uint
+}
+extern [C, sysv64, if target_os = "linux", if target_arch = "x86_64"] {
+    @link_name("getpid")
+    task sysv_pid() -> c_int
 }
 extern [C] {
     task greet_add(a: c_int, b: c_int) -> c_int
@@ -159,6 +169,26 @@ def check_missing_library(freak: str, directory: Path) -> None:
     print("ok load= missing library fails by name")
 
 
+ESCAPED_PROGRAM = '''extern [C, load="missing_dir\\\\greet"] {
+    task greet_add(a: c_int, b: c_int) -> c_int
+}
+say word_from_int(greet_add(1, 2))
+'''
+
+
+def check_escaped_name(freak: str, directory: Path) -> None:
+    folder = directory / "escaped"
+    folder.mkdir()
+    (folder / "escaped.fk").write_text(ESCAPED_PROGRAM, encoding="utf-8")
+    for backend in ([], ["--c"]):
+        built = run([freak, "build", "escaped.fk", *backend], folder)
+        require(built.returncode == 0, f"backslash load= name build {backend} failed", built)
+        ran = run([str(executable(folder, "escaped"))], folder)
+        require(ran.returncode == 1, f"backslash load= name should fail to load {backend}", ran)
+        require("could not load library 'missing_dir\\greet'" in ran.stdout, f"backslash load= name {backend}", ran)
+    print("ok load= name with a backslash reaches the loader intact")
+
+
 def check_flags(freak: str, directory: Path) -> None:
     app = directory / "flags" / "app"
     libs = directory / "flags" / "libs"
@@ -203,6 +233,7 @@ def main() -> int:
             for backend in ([], ["--c"]):
                 check_program(freak, directory, stem, backend)
         check_missing_library(freak, directory)
+        check_escaped_name(freak, directory)
         check_flags(freak, directory)
         check_diagnostics(freak, directory)
     print("native FFI contracts passed")

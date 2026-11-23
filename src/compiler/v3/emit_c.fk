@@ -2308,8 +2308,26 @@ task c_ffi_param_list(extra: word, named: bool) -> word {
     give back out
 }
 
+-- A C string literal for a library or symbol name. Lexer \xNN byte markers
+-- become C hex escapes, closed with "" so a following hex digit can't extend
+-- them (the same rule as emit_c_string).
 task c_ffi_c_string(text: word) -> word {
-    give back "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    pilot out = "\""
+    pilot i = 0
+    pilot n = text.length()
+    repeat until i >= n {
+        pilot ch = text.char_at(i)
+        if ch == "\\" and i + 3 < n and text.char_at(i + 1) == "x" {
+            out = out + "\\x" + text.char_at(i + 2) + text.char_at(i + 3) + "\"\""
+            i += 4
+        } else {
+            if ch == "\\" { out = out + "\\\\" }
+            else if ch == "\"" { out = out + "\\\"" }
+            else { out = out + ch }
+            i += 1
+        }
+    }
+    give back out + "\""
 }
 
 task emit_c_ffi_decl(name_w: word, extra: word) -> void {
@@ -2339,26 +2357,35 @@ task emit_c_ffi_decl(name_w: word, extra: word) -> void {
 }
 
 task emit_c_ffi_call(val: word, extra: word, left: word) -> void {
+    -- Arguments go into temporaries first so they evaluate in source order
+    -- (C leaves the order of call arguments unspecified).
+    emit("(\{ ")
+    pilot j = 0
+    repeat tc_arg_count(left) times {
+        pilot abi = ffi_param_abi(extra, j)
+        pilot argname = "__freak_ffi_arg_" + word_from_int(j)
+        if abi == "ptr" { emit("void *" + argname + " = (void *)(intptr_t)(") }
+        else { emit(c_ffi_type(abi) + " " + argname + " = (" + c_ffi_type(abi) + ")(") }
+        emit_expr(word_from_int(tc_arg_at(left, j)))
+        emit("); ")
+        j += 1
+    }
     pilot ret_abi = ffi_field(extra, 4)
-    pilot wrap_close = ")"
     if ret_abi == "void" { emit("(") }
-    else if ret_abi == "ptr" { emit("((int64_t)(intptr_t)") wrap_close = ")" }
+    else if ret_abi == "ptr" { emit("((int64_t)(intptr_t)") }
     else if ret_abi == "bool" { emit("((bool)") }
     else if ffi_abi_is_float(ret_abi) { emit("((double)") }
     else { emit("((int64_t)") }
     emit("__freak_ffi_" + c_safe_ident(val) + "(")
-    pilot j = 0
+    j = 0
     repeat tc_arg_count(left) times {
         if j > 0 { emit(", ") }
-        pilot abi = ffi_param_abi(extra, j)
-        if abi == "ptr" { emit("(void *)(intptr_t)(") }
-        else { emit("(" + c_ffi_type(abi) + ")(") }
-        emit_expr(word_from_int(tc_arg_at(left, j)))
-        emit(")")
+        emit("__freak_ffi_arg_" + word_from_int(j))
         j += 1
     }
-    emit(")")
-    emit(wrap_close)
+    emit("))")
+    if ret_abi == "void" { emit("; ((void)0); \})") }
+    else { emit("; \})") }
 }
 
 task emit_extern_decl(eid: word) -> void {

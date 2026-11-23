@@ -3379,7 +3379,7 @@ values.
 Rules:
 
 - Memory from `ffi::cstring` and `ffi::alloc` belongs to the caller until passed to `ffi::free` or handed to a C function that documents taking ownership.
-- Pointers returned by C stay owned by the C library; copy what you need with `ffi::from_cstring` or `ffi::read_*`.
+- Pointers returned by C follow that function's own ownership contract. A borrowed pointer (such as a static string) stays owned by the C library, so copy what you need with `ffi::from_cstring` or `ffi::read_*`. A pointer the function hands to the caller (such as the result of `strdup`) must be released the way that library documents, for example by passing it to the library's own free function, or to `ffi::free` when it came from the C `malloc`.
 - In V4 these helpers move behind `trust me` with the raw-pointer operations of §16.4.
 ---
 
