@@ -1,0 +1,10 @@
+-- Inside a generic body its own `List<T>` destination still types `[]` and
+-- checks elements.
+-- expect: check
+
+task holder<T>(x: T) -> int {
+    pilot xs: List<T> = []
+    pilot ys: List<T> = [x]
+    give back xs.length() + ys.length()
+}
+task main() -> int { give back 0 }
