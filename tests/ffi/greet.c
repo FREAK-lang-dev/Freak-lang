@@ -26,6 +26,8 @@ GREET_API const char *greet_hello(void) { return "hello from C"; }
 GREET_API void greet_squares(int *out, int n) { for (int i = 0; i < n; i++) out[i] = i * i; }
 GREET_API void greet_bump(void) { greet_counter++; }
 GREET_API int greet_count(void) { return greet_counter; }
+GREET_API int greet_next(void) { return ++greet_counter; }
+GREET_API int greet_pair(int a, int b) { return a * 10 + b; }
 GREET_API int greet_shout(char *s) {
     int changed = 0;
     for (; *s; s++) if (*s >= 'a' && *s <= 'z') { *s = (char)(*s - 32); changed++; }

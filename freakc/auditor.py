@@ -1906,7 +1906,10 @@ def audit_conformance(paths: List[Path]) -> int:
     ffi_markers = ("task parse_extern_block()", 'opt == "link" or opt == "load"', "task ffi_take_c_type(")
     ffi_ok = all(marker in ffi_parser_src for marker in ffi_markers) and "--lib-dir=" in cli_src \
         and (repo / "tests" / "v3_ffi.py").exists()
-    add("Native FFI", ffi_ok, "extern [C, link=/load=] blocks + --link/--lib-dir" if ffi_ok else "parser, CLI flags or tests/v3_ffi.py missing")
+    ffi_ci = repo / ".github" / "workflows" / "ci.yml"
+    ffi_ci_src = ffi_ci.read_text(encoding="utf-8") if ffi_ci.exists() else ""
+    ffi_ok = ffi_ok and "tests/v3_ffi.py" in ffi_ci_src
+    add("Native FFI", ffi_ok, "extern [C, link=/load=] blocks + --link/--lib-dir" if ffi_ok else "parser, CLI flags, tests/v3_ffi.py or its CI step missing")
     if not ffi_ok:
         failures.append("V3.5 native FFI surface missing (src/compiler/v3/parser.fk, src/cli/main.fk, tests/v3_ffi.py)")
 
