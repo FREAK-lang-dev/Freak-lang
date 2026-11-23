@@ -18058,6 +18058,85 @@ def check_v4_native_unused_list_shape_module(module_text: str, triple: str) -> N
         raise RuntimeError(f"V4 unused list shape module for {triple} emits list runtime: {', '.join(sorted(set(runtime)))}")
 
 
+# Native maps and sets (tier 3 collections rows L and M). Any argument looks
+# up a key the map does not hold. tests/v4_owned_word_codegen.py pins the
+# same output.
+NATIVE_MAPS_EXPECTED = ("10\n3\nSumika\nTakeru!\n3\n100\n9850\n34\n66\nfalse\n16\n-1\n66\n2\nuno\ntres\n"
+                        "none\n6\nk\n1\n2\ntrue\ntrue\nfalse\n1\n20\n4\n")
+NATIVE_MAPS_PANIC = "map key not found"
+# Rejected map and set programs: (stem, source, named reason).
+NATIVE_MAPS_REJECTED = (
+    # The bible gives Map no iteration order, and Set is not iterable.
+    ("tier3_map_for_each", "task main() -> int {\n    pilot m: Map<word, int> = {\"a\": 1}\n"
+     "    for each k in m { say k }\n    give back 0\n}\n",
+     "for each over a map is not yet supported"),
+    ("tier3_set_for_each", "task main() -> int {\n    pilot s: Set<int> = Set::new()\n"
+     "    for each k in s { say k }\n    give back 0\n}\n",
+     "for each needs iterable source"),
+    # Keys are word or integer-like; values are not Sums, collections or loans.
+    ("tier3_map_num_key", "task main() -> int {\n    pilot m: Map<num, int> = {1.5: 1}\n    give back 0\n}\n",
+     "native map keys of type num are not yet supported: Map<num,int>"),
+    ("tier3_map_shape_key", "shape P { x: int }\n"
+     "task main() -> int {\n    pilot m: Map<P, int> = Map::new()\n    give back 0\n}\n",
+     "native map keys of type P are not yet supported: Map<P,int>"),
+    ("tier3_map_maybe_value", "task main() -> int {\n    pilot m: Map<int, maybe<int>> = Map::new()\n    give back 0\n}\n",
+     "native map values of maybe/result are not yet supported: Map<int,maybe<int>>"),
+    ("tier3_map_list_value", "task main() -> int {\n    pilot m: Map<int, List<int>> = Map::new()\n    give back 0\n}\n",
+     "native map values of lists, maps or sets are not yet supported: Map<int,List<int>>"),
+    ("tier3_map_shape_field", "shape Reg { m: Map<int, int> }\n"
+     "task main() -> int {\n    pilot r = Reg { m: Map::new() }\n    give back 0\n}\n",
+     "native maps and sets inside other types are not yet supported: Map<int,int>"),
+    ("tier3_map_list_items", "task main() -> int {\n    pilot xs: List<Map<int, int>> = []\n    give back 0\n}\n",
+     "native maps and sets inside other types are not yet supported: Map<int,int>"),
+    ("tier3_map_get_word_shape", "shape P { name: word }\n"
+     "task main() -> int {\n    pilot m: Map<int, P> = {1: P { name: \"a\" }}\n    pilot g = m.get(1)\n    give back 0\n}\n",
+     "native maybe/result aggregate payloads that own words are not yet supported: P"),
+    ("tier3_map_equality", "task main() -> int {\n    pilot a: Map<int, int> = {1: 2}\n    pilot b: Map<int, int> = {1: 2}\n"
+     "    if a == b { give back 1 }\n    give back 0\n}\n",
+     "native map and set operators are not yet supported"),
+    ("tier3_map_key_type", "task main() -> int {\n    pilot m: Map<word, int> = {\"a\": 1}\n    m.set(1, 2)\n    give back 0\n}\n",
+     "map key type mismatch"),
+    ("tier3_map_untyped_new", "task main() -> int {\n    pilot m = Map::new()\n    give back 0\n}\n",
+     "Map exposes no static method new"),
+    ("tier3_set_union", "task main() -> int {\n    pilot a: Set<int> = Set::new()\n    pilot b: Set<int> = Set::new()\n"
+     "    pilot c = a.union(b)\n    give back 0\n}\n",
+     "Set<int> offers no method union"),
+    # set and remove need an exclusive loan the binding may grant.
+    ("tier3_map_set_shared_lend", "task add(lend m: Map<word, int>) -> void { m.set(\"b\", 1) }\n"
+     "task main() -> int {\n    pilot m: Map<word, int> = {\"a\": 1}\n    add(lend m)\n    give back m.length()\n}\n",
+     "Meiya refuses an exclusive lend of an immutable lend parameter"),
+    ("tier3_map_set_fixed", "task main() -> int {\n    fixed pilot m: Map<word, int> = {\"a\": 1}\n    m.set(\"b\", 2)\n    give back 0\n}\n",
+     "fixed pilot cannot be modified"),
+    # A lend of m[k] is a loan of the map: no insert or remove while it lives.
+    ("tier3_map_insert_while_value_lent", "task read(lend x: int) -> int { give back x }\n"
+     "task main() -> int {\n    pilot mut m: Map<word, int> = {\"a\": 1}\n    pilot r = lend m[\"a\"]\n"
+     "    m[\"b\"] = 2\n    give back read(r)\n}\n",
+     "Meiya refuses overlapping mutable lends"),
+    ("tier3_map_remove_while_return_lent", "task peek(lend m: Map<word, int>) -> lend int {\n    give back lend m[\"a\"]\n}\n"
+     "task read(lend x: int) -> int { give back x }\n"
+     "task main() -> int {\n    pilot mut m: Map<word, int> = {\"a\": 1}\n    pilot r = peek(lend m)\n"
+     "    m.remove(\"a\")\n    give back read(r)\n}\n",
+     "Meiya refuses overlapping mutable lends"),
+    ("tier3_map_entry_assign_inserts", "task bump(lend mut m: Map<int, int>) -> int {\n    m.set(9, 9)\n    give back 1\n}\n"
+     "task main() -> int {\n    pilot mut m: Map<int, int> = {1: 2}\n    m[1] += bump(lend mut m)\n    give back m[1]\n}\n",
+     "Meiya refuses to change a map while one of its entries is assigned"),
+    ("tier3_map_move_while_value_lent", "task take(m: Map<word, int>) -> int { give back m.length() }\n"
+     "task read(lend x: int) -> int { give back x }\n"
+     "task main() -> int {\n    pilot m: Map<word, int> = {\"a\": 1}\n    pilot r = lend m[\"a\"]\n"
+     "    pilot n = take(m)\n    give back read(r) + n\n}\n",
+     "Meiya refuses this move while the value is borrowed"),
+    # Maps are Move types.
+    ("tier3_map_use_after_move", "task take(m: Map<word, int>) -> int { give back m.length() }\n"
+     "task main() -> int {\n    pilot m: Map<word, int> = {\"a\": 1}\n    pilot n = take(m)\n    give back take(m) + n\n}\n",
+     "Meiya remembers the field you already moved"),
+    # The map helpers own the freak.map. prefix and the memmove intrinsic.
+    ("tier3_map_intrinsic_symbol", "extern [C] {\n    @link_name(\"llvm.memmove.p0.p0.i64\")\n    task mm() -> std::ffi::c_isize\n}\n"
+     "task main() -> int {\n    pilot m: Map<int, int> = {1: 2}\n    give back 0\n}\n",
+     'native map runtime symbol conflict: @"llvm.memmove.p0.p0.i64"'),
+    ("tier3_map_helper_symbol", "extern [C] {\n    @link_name(\"freak.map.at.x\")\n    task mm() -> std::ffi::c_isize\n}\n"
+     "task main() -> int {\n    pilot m: Map<int, int> = {1: 2}\n    give back 0\n}\n",
+     'native map runtime symbol conflict: @"freak.map.at.x"'),
+)
 # Rejected lend ABI programs: (stem, source, named reason).
 NATIVE_LEND_ABI_REJECTED = (
     # A lend-typed parameter is not a lend mode.
@@ -18584,6 +18663,20 @@ def check_v4_native_lists_layout_note(module_text: str, triple: str) -> None:
         raise RuntimeError(f"V4 lists module for {triple} has no layout note for the list header")
 
 
+def check_v4_native_maps_panic(executable: Path) -> None:
+    """Any argument makes maps_native.fk look up a key its map does not hold."""
+    panicked = run_with_heartbeat([str(executable), "missing-key"], label="V4 native map key check", timeout_seconds=10, memory_limit_mb=128)
+    if panicked.returncode != 101 or NATIVE_MAPS_PANIC not in panicked.stdout + panicked.stderr:
+        raise RuntimeError(f"V4 native map key check did not panic: exit={panicked.returncode} "
+                           f"stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
+
+
+def check_v4_native_maps_layout_note(module_text: str, triple: str) -> None:
+    """The map header must carry a layout note so the oracle checks it on every target."""
+    if not re.search(r'^; freak\.layout %"freak\.map\.header" size=\d+ align=\d+ offsets=', module_text, re.MULTILINE):
+        raise RuntimeError(f"V4 maps module for {triple} has no layout note for the map header")
+
+
 def check_native_generic_instances(module: str, triple: str) -> None:
     """Each generic instance is one native body with its own layout; templates emit nothing."""
     defined = re.findall(r'^define [^@]*(@"[^"]+"|@[\w.]+)\(', module, re.MULTILINE)
@@ -18622,6 +18715,7 @@ def check_v4_native_shapes() -> None:
         # the word runtime (lend mut replacement and drop at return).
         ("lend_route_words", "lend_route_words_native.fk", ("", 3)),
         ("lists", "lists_native.fk", NATIVE_LISTS_EXPECTED),
+        ("maps", "maps_native.fk", NATIVE_MAPS_EXPECTED),
         ("generics", "generics_native.fk", NATIVE_GENERICS_EXPECTED),
         ("generics_lists", "generics_lists_native.fk", NATIVE_GENERICS_LISTS_EXPECTED),
         ("lists_nested", "lists_nested_native.fk", NATIVE_NESTED_LISTS_EXPECTED),
@@ -18650,6 +18744,8 @@ def check_v4_native_shapes() -> None:
                                    f"stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
         if stem == "lists":
             check_v4_native_lists_panic(executable)
+        if stem == "maps":
+            check_v4_native_maps_panic(executable)
         for triple in NATIVE_LAYOUT_TRIPLES:
             module_path = RUNTIME_BUILD_ROOT / f"tier3_native_{stem}_{triple}.ll"
             module_path.unlink(missing_ok=True)
@@ -18666,6 +18762,8 @@ def check_v4_native_shapes() -> None:
                 check_v4_native_nested_lists_module(module_text, triple)
             if stem == "lists_unused_shape":
                 check_v4_native_unused_list_shape_module(module_text, triple)
+            if stem == "maps":
+                check_v4_native_maps_layout_note(module_text, triple)
             probes += check_native_layout_oracle(module_text, triple)
             abi_probes += check_native_abi_oracle(module_text, triple)
             if stem == "agg_abi":
@@ -18871,7 +18969,7 @@ def check_v4_native_shapes() -> None:
          "impl Eq for V { task equals(lend self, other: lend V) -> bool { give back self.x == other.x } }\n"
          "task main() -> int { pilot a = V { x: 1 }\n if a == a { give back 1 }\n give back 0 }\n",
          "Meiya cannot store a lend in parameter 1 of Eq::equals yet"),
-    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED
+    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")
