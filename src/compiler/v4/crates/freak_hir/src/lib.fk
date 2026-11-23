@@ -1894,6 +1894,42 @@ task v4_hir_extern_member_attribute_arg(hir_id: int, item_id: int, member_id: in
     give back v4_expand_extern_member_attribute_arg(expansion_id, v4_hir_item_parse_node(hir_id, item_id), member_id, attr_id)
 }
 
+-- Extern ABI option and member attribute literal facts (architecture lane
+-- A1). Like the neighbouring extern attribute name and argument, they are
+-- read through expansion; TY no longer walks their token ranges.
+task v4_hir_extern_member_attribute_arg_is_string(hir_id: int, item_id: int, member_id: int, attr_id: int) -> bool {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
+        give back false
+    }
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
+        give back false
+    }
+    give back v4_expand_extern_member_attribute_arg_is_string(expansion_id, v4_hir_item_parse_node(hir_id, item_id), member_id, attr_id)
+}
+
+task v4_hir_extern_member_attribute_span(hir_id: int, item_id: int, member_id: int, attr_id: int) -> word {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
+        give back V4_NO_SPAN
+    }
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
+        give back V4_NO_SPAN
+    }
+    give back v4_expand_extern_member_attribute_span(expansion_id, v4_hir_item_parse_node(hir_id, item_id), member_id, attr_id)
+}
+
+task v4_hir_extern_abi_option_value_is_string(hir_id: int, item_id: int, option_id: int) -> bool {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
+        give back false
+    }
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
+        give back false
+    }
+    give back v4_expand_extern_abi_option_value_is_string(expansion_id, v4_hir_item_parse_node(hir_id, item_id), option_id)
+}
+
 task v4_hir_diag(hir_id: int, diag_id: int) -> word {
     give back array_get(v4_hir_diags_handle(hir_id), diag_id)
 }

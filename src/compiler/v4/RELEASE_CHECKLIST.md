@@ -387,18 +387,18 @@ counts were 219 and 126):
 | Crate | Token reads | Identity and revision checks | Allowlist in the gate |
 |---|---|---|---|
 | `freak_mir_build` | 280 | 1 | yes, exact and shrinking |
-| `freak_ty` | 154 | 7 calls, all inside the source identity shim | yes, exact and shrinking |
-| Total | 434 | 8 | |
+| `freak_ty` | 139 (154 before the extern ABI and attribute row) | 7 calls, all inside the source identity shim | yes, exact and shrinking |
+| Total | 419 | 8 | |
 
 The most-used helpers:
 
 | Helper | MIR Build | TY |
 |---|---|---|
-| `v4_lex_token_syntax_value` | 177 | 67 |
-| `v4_lex_token_type` | 75 | 42 |
+| `v4_lex_token_syntax_value` | 177 | 63 |
+| `v4_lex_token_type` | 75 | 37 |
 | `v4_lex_token_value` | 11 | 16 |
 | `v4_lex_token_span` and `v4_lex_token_count` | 17 | 19 |
-| `v4_parse_extern_member_*` and `v4_parse_extern_abi_*` | 0 | 10 |
+| `v4_parse_extern_member_*` and `v4_parse_extern_abi_*` | 0 | 4 (was 10) |
 
 The capability lane grew MIR Build's token reads by 61 since revision 3.
 The allowlist pins helper names, not counts, so this did not fail the gate;
@@ -421,7 +421,7 @@ the consumer use them, add a guard, remove one allowlist entry.
 - [ ] **M** Impl return declarations as HIR facts
 - [ ] **M** Doctrine return declarations as HIR facts
 - [ ] **M** Non-ordinary parameter signatures as HIR facts
-- [ ] **M** Extern-member attributes and ABI options as HIR facts (TY reads their token ranges directly)
+- [x] **M** Extern-member attributes and ABI options as HIR facts (TY reads their token ranges directly). HIR answers whether an ABI option value and a member attribute argument are string literals, and gives the attribute span (`v4_hir_extern_abi_option_value_is_string`, `v4_hir_extern_member_attribute_arg_is_string`, `v4_hir_extern_member_attribute_span`); the parser owns the token walk. TY lost four parser helpers and five token-walking tasks. Like the neighbouring extern attribute name and argument, these are read through expansion and are not in the HIR snapshot; storing all extern ABI and attribute facts there is part of "Remaining token-facing type families in TY"
 - [ ] **M** Method type arguments
 - [ ] **M** Raw-pointer instance-method and associated-method type facts
 - [ ] **M** Shape and route constructor heads

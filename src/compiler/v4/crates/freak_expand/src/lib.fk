@@ -331,6 +331,18 @@ task v4_expand_extern_member_attribute_arg(expansion_id: int, node_id: int, memb
     give back v4_parse_extern_member_attribute_arg(v4_expand_parse_tree_id(expansion_id), node_id, member_id, attr_id)
 }
 
+task v4_expand_extern_member_attribute_arg_is_string(expansion_id: int, node_id: int, member_id: int, attr_id: int) -> bool {
+    give back v4_parse_extern_member_attribute_arg_is_string(v4_expand_parse_tree_id(expansion_id), node_id, member_id, attr_id)
+}
+
+task v4_expand_extern_member_attribute_span(expansion_id: int, node_id: int, member_id: int, attr_id: int) -> word {
+    give back v4_parse_extern_member_attribute_span(v4_expand_parse_tree_id(expansion_id), node_id, member_id, attr_id)
+}
+
+task v4_expand_extern_abi_option_value_is_string(expansion_id: int, node_id: int, option_id: int) -> bool {
+    give back v4_parse_extern_abi_option_value_is_string(v4_expand_parse_tree_id(expansion_id), node_id, option_id)
+}
+
 task v4_expand_snapshot_escape(value: word) -> word {
     give back v4_parse_snapshot_escape(value)
 }

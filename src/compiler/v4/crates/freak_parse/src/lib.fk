@@ -1164,6 +1164,90 @@ task v4_parse_extern_abi_close_token(tree_id: int, node_id: int) -> int {
     give back v4_parse_find_matching_token(stream_id, open_token, v4_parse_node_end_token(tree_id, node_id), "[", "]")
 }
 
+-- Extern ABI options split at top-level commas inside `extern [ ... ]`. The
+-- value of option `option_id` is the first token after its top-level `=`.
+-- These answers used to be recomputed from tokens in TY (architecture lane
+-- A1); TY now asks HIR, which asks the parser through expansion.
+task v4_parse_extern_abi_option_start_token(tree_id: int, node_id: int, option_id: int) -> int {
+    if option_id < 0 {
+        give back 0 - 1
+    }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot open_token = v4_parse_extern_abi_open_token(tree_id, node_id)
+    pilot close_token = v4_parse_extern_abi_close_token(tree_id, node_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back 0 - 1
+    }
+    pilot current = 0
+    pilot depth = 0
+    pilot segment_start = v4_parse_skip_trivia(stream_id, open_token + 1)
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        if not v4_parse_token_is_trivia(stream_id, idx) {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
+            if depth == 0 and val == "," {
+                if current == option_id {
+                    give back segment_start
+                }
+                current += 1
+                segment_start = v4_parse_skip_trivia(stream_id, idx + 1)
+            } else {
+                depth = v4_parse_depth_after_token(depth, val)
+            }
+        }
+        idx += 1
+    }
+    if current == option_id {
+        give back segment_start
+    }
+    give back 0 - 1
+}
+
+task v4_parse_extern_abi_option_end_token(tree_id: int, node_id: int, option_id: int) -> int {
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_parse_extern_abi_option_start_token(tree_id, node_id, option_id)
+    pilot close_token = v4_parse_extern_abi_close_token(tree_id, node_id)
+    if stream_id < 0 or start_token < 0 or close_token <= start_token {
+        give back 0 - 1
+    }
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= close_token {
+        if not v4_parse_token_is_trivia(stream_id, idx) {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
+            if depth == 0 and val == "," {
+                give back idx
+            }
+            depth = v4_parse_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back close_token
+}
+
+task v4_parse_extern_abi_option_value_is_string(tree_id: int, node_id: int, option_id: int) -> bool {
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_parse_extern_abi_option_start_token(tree_id, node_id, option_id)
+    pilot end_token = v4_parse_extern_abi_option_end_token(tree_id, node_id, option_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back false
+    }
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if not v4_parse_token_is_trivia(stream_id, idx) {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
+            if depth == 0 and val == "=" {
+                pilot value_token = v4_parse_skip_trivia(stream_id, idx + 1)
+                give back v4_lex_token_type(stream_id, value_token) == v4_tok_string
+            }
+            depth = v4_parse_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back false
+}
+
 task v4_parse_extern_body_open_token(tree_id: int, node_id: int) -> int {
     if v4_parse_node_kind(tree_id, node_id) != v4_node_extern {
         give back 0 - 1
@@ -1453,6 +1537,52 @@ task v4_parse_extern_member_attribute_name(tree_id: int, node_id: int, member_id
         give back ""
     }
     give back v4_lex_token_value(stream_id, name_token)
+}
+
+-- Whether the first argument of an extern member attribute is a string
+-- literal, as in @link_name("puts").
+task v4_parse_extern_member_attribute_arg_is_string(tree_id: int, node_id: int, member_id: int, attr_id: int) -> bool {
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_parse_extern_member_attribute_start_token(tree_id, node_id, member_id, attr_id)
+    pilot end_token = v4_parse_extern_member_attribute_end_token(tree_id, node_id, member_id, attr_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back false
+    }
+    pilot name_token = v4_parse_skip_trivia(stream_id, start_token + 1)
+    pilot open_token = v4_parse_skip_trivia(stream_id, name_token + 1)
+    if open_token >= end_token or v4_lex_token_syntax_value(stream_id, open_token) != "(" {
+        give back false
+    }
+    pilot value_token = v4_parse_skip_trivia(stream_id, open_token + 1)
+    if value_token >= end_token {
+        give back false
+    }
+    give back v4_lex_token_type(stream_id, value_token) == v4_tok_string
+}
+
+-- Source span of an extern member attribute, trivia trimmed at both ends.
+task v4_parse_extern_member_attribute_span(tree_id: int, node_id: int, member_id: int, attr_id: int) -> word {
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_parse_extern_member_attribute_start_token(tree_id, node_id, member_id, attr_id)
+    pilot end_token = v4_parse_extern_member_attribute_end_token(tree_id, node_id, member_id, attr_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back V4_NO_SPAN
+    }
+    pilot first = v4_parse_skip_trivia(stream_id, start_token)
+    if first >= end_token {
+        give back V4_NO_SPAN
+    }
+    pilot last = end_token
+    repeat until last <= first {
+        last -= 1
+        if not v4_parse_token_is_trivia(stream_id, last) {
+            pilot start_span = v4_lex_token_span(stream_id, first)
+            pilot end_span = v4_lex_token_span(stream_id, last)
+            give back v4_span_new(v4_span_file(start_span), v4_span_start(start_span), v4_span_end(end_span))
+        }
+    }
+    pilot only_span = v4_lex_token_span(stream_id, first)
+    give back v4_span_new(v4_span_file(only_span), v4_span_start(only_span), v4_span_end(only_span))
 }
 
 task v4_parse_extern_member_attribute_arg(tree_id: int, node_id: int, member_id: int, attr_id: int) -> word {
