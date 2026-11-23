@@ -1,0 +1,8 @@
+-- A concrete `List<int>` parameter keeps checking list literal elements, even
+-- from a generic caller.
+-- expect: reject mir
+-- error: element 2 wants int but got word
+
+task accept(xs: List<int>) -> int { give back xs.length() }
+task caller<T>() -> int { give back accept([1, "a"]) }
+task main() -> int { give back 0 }

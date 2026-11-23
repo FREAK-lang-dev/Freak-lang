@@ -1,0 +1,8 @@
+-- A caller that declares its own `T` does not turn the callee's
+-- unsubstituted `List<T>` into an expectation: the decision follows the
+-- callee's signature, not the names in scope (#265 lowers generics later).
+-- expect: check
+
+task accept<T>(xs: List<T>) -> int { give back 3 }
+task caller<T>() -> int { give back accept([1, 2]) }
+task main() -> int { give back 0 }

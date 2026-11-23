@@ -2176,7 +2176,7 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
             pilot expected_ty = v4_ty_signature_param_type(ty_id, sig_id, lower_arg_idx)
             pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, lower_arg_idx)
             pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, lower_arg_idx)
-            pilot expected_arg_ty = v4_mir_expected_call_arg_type(expected_ty, param_mode)
+            pilot expected_arg_ty = v4_mir_expected_call_arg_type(v4_mir_callee_list_arg_expectation(mir_id, body_id, sig_id, expected_ty), param_mode)
             pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_arg_ty)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
             pilot actual_match_ty = v4_mir_check_lend_call_arg(mir_id, expr_span, callee_name, param_name, param_mode, actual_ty)
@@ -2337,7 +2337,7 @@ task v4_mir_check_callback_call_args(mir_id: int, body_id: int, stream_id: int, 
         pilot planned_end = v4_mir_call_arg_slot_end(planned_slots, lower_arg_idx)
         if planned_start >= 0 and planned_end > planned_start {
             pilot expected_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_function_type_param_surface(callback_ty, lower_arg_idx))
-            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
+            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, v4_mir_callee_list_arg_expectation(mir_id, body_id, 0 - 1, expected_ty))
             args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
 
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
@@ -2857,7 +2857,7 @@ task v4_mir_check_method_args(mir_id: int, body_id: int, stream_id: int, expr_sp
         pilot planned_end = v4_mir_call_arg_slot_end(planned_slots, lower_arg_idx)
         if planned_start >= 0 and planned_end > planned_start {
             pilot expected_ty = v4_ty_impl_method_explicit_param_type_for_owner(ty_id, hir_item, method_id, lower_arg_idx, owner_ty)
-            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
+            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, v4_mir_callee_list_arg_expectation(mir_id, body_id, 0 - 1, expected_ty))
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
             pilot types_ok = v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty)
             if not types_ok {
@@ -2979,7 +2979,7 @@ task v4_mir_check_ufcs_method_args(mir_id: int, body_id: int, stream_id: int, ex
         pilot planned_end = v4_mir_call_arg_slot_end(planned_slots, lower_arg_idx)
         if planned_start >= 0 and planned_end > planned_start {
             pilot expected_ty = v4_ty_impl_method_explicit_param_type_for_owner(ty_id, hir_item, method_id, lower_arg_idx, receiver_ty)
-            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
+            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, v4_mir_callee_list_arg_expectation(mir_id, body_id, 0 - 1, expected_ty))
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
             pilot types_ok = v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty)
             if not types_ok {
@@ -3097,7 +3097,7 @@ task v4_mir_check_bound_ufcs_method_args(mir_id: int, body_id: int, stream_id: i
         pilot planned_end = v4_mir_call_arg_slot_end(planned_slots, lower_arg_idx)
         if planned_start >= 0 and planned_end > planned_start {
             pilot expected_ty = v4_ty_doctrine_method_explicit_param_type_for_bound(ty_id, doctrine_sig, method_id, lower_arg_idx, receiver_ty, doctrine_instance)
-            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
+            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, v4_mir_callee_list_arg_expectation(mir_id, body_id, 0 - 1, expected_ty))
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
             pilot types_ok = false
             if body_sig >= 0 {
@@ -3197,7 +3197,7 @@ task v4_mir_check_bound_method_args(mir_id: int, body_id: int, stream_id: int, e
         pilot planned_end = v4_mir_call_arg_slot_end(planned_slots, lower_arg_idx)
         if planned_start >= 0 and planned_end > planned_start {
             pilot expected_ty = v4_ty_doctrine_method_explicit_param_type_for_bound(ty_id, doctrine_sig, method_id, lower_arg_idx, owner_ty, v4_mir_bound_method_ref_doctrine_instance(method_ref))
-            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
+            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, v4_mir_callee_list_arg_expectation(mir_id, body_id, 0 - 1, expected_ty))
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
             pilot types_ok = false
             if body_sig >= 0 {
@@ -4838,33 +4838,45 @@ task v4_mir_try_lower_list_literal(mir_id: int, body_id: int, stream_id: int, fi
     give back list_rvalue
 }
 
--- Whether every name in a type is a declared type, a builtin, or a generic
--- of the body being lowered. A callee's own generic parameters (`T` in an
--- unsubstituted `List<T>`) are not.
-task v4_mir_expected_type_is_concrete(mir_id: int, body_id: int, type_text: word) -> bool {
+-- Whether every name in a type is a declared type, a builtin, or (when
+-- body_generics) a generic of the body being lowered. A callee's own
+-- generic parameters (`T` in an unsubstituted `List<T>`) are never concrete.
+task v4_mir_expected_type_is_concrete(mir_id: int, body_id: int, type_text: word, body_generics: bool) -> bool {
     if type_text == "" or type_text == v4_ty_unknown { give back false }
     if v4_ty_is_lifetime_name(type_text) or v4_ty_is_surface_task_function_type(type_text) { give back true }
-    if v4_ty_is_lend_type(type_text) { give back v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_lend_target_type(type_text)) }
-    if v4_ty_is_raw_pointer_type(type_text) { give back v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_raw_pointer_target_type(type_text)) }
+    if v4_ty_is_lend_type(type_text) { give back v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_lend_target_type(type_text), body_generics) }
+    if v4_ty_is_raw_pointer_type(type_text) { give back v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_raw_pointer_target_type(type_text), body_generics) }
     if v4_ty_is_tuple_type(type_text) {
         pilot slot_id = 0
         repeat until slot_id >= v4_ty_tuple_slot_count(type_text) {
-            if not v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_tuple_slot_type(type_text, slot_id)) { give back false }
+            if not v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_tuple_slot_type(type_text, slot_id), body_generics) { give back false }
             slot_id += 1
         }
         give back true
     }
-    if v4_ty_is_fixed_array_type(type_text) { give back v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_fixed_array_element_type(type_text)) }
+    if v4_ty_is_fixed_array_type(type_text) { give back v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_fixed_array_element_type(type_text), body_generics) }
     if v4_ty_is_generic_instance_type(type_text) {
-        if not v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_generic_base_name(type_text)) { give back false }
+        if not v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_generic_base_name(type_text), body_generics) { give back false }
         pilot arg_id = 0
         repeat until arg_id >= v4_ty_generic_arg_count(type_text) {
-            if not v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_generic_arg(type_text, arg_id)) { give back false }
+            if not v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_generic_arg(type_text, arg_id), body_generics) { give back false }
             arg_id += 1
         }
         give back true
     }
-    give back v4_ty_is_declared_simple_type_name(v4_mir_ty_id(mir_id), type_text) or v4_mir_body_declares_type_generic_name(mir_id, body_id, type_text)
+    if v4_ty_is_declared_simple_type_name(v4_mir_ty_id(mir_id), type_text) { give back true }
+    give back body_generics and v4_mir_body_declares_type_generic_name(mir_id, body_id, type_text)
+}
+
+-- A callee parameter type is written in the callee's namespace, so a list
+-- literal argument gets no expectation when that type mentions a generic
+-- the callee declares (sig_id >= 0) or any name that is not a declared
+-- type, whatever generics the caller itself declares.
+task v4_mir_callee_list_arg_expectation(mir_id: int, body_id: int, sig_id: int, expected_ty: word) -> word {
+    if not expected_ty.contains("List<") { give back expected_ty }
+    if sig_id >= 0 and v4_ty_type_mentions_signature_generics(v4_mir_ty_id(mir_id), sig_id, expected_ty) { give back v4_ty_unknown }
+    if not v4_mir_expected_type_is_concrete(mir_id, body_id, expected_ty, false) { give back v4_ty_unknown }
+    give back expected_ty
 }
 
 -- A list literal whose destination names its List type: `[]` takes that
@@ -4877,7 +4889,7 @@ task v4_mir_try_lower_expected_list_literal(mir_id: int, body_id: int, stream_id
     if element_ty == v4_ty_unknown { give back 0 - 1 }
     -- A callee's unsubstituted `List<T>` is no expectation: the literal keeps
     -- its own type and signature matching infers T from it.
-    if not v4_mir_expected_type_is_concrete(mir_id, body_id, element_ty) { give back 0 - 1 }
+    if not v4_mir_expected_type_is_concrete(mir_id, body_id, element_ty, true) { give back 0 - 1 }
     if v4_lex_token_syntax_value(stream_id, first) != "[" or v4_lex_token_syntax_value(stream_id, last) != "]" { give back 0 - 1 }
     if v4_mir_find_open_index_token(stream_id, first, last) != first { give back 0 - 1 }
     pilot children_handle = array_new()

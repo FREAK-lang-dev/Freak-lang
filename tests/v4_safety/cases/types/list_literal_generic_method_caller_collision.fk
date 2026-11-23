@@ -1,0 +1,13 @@
+-- The same holds for a generic impl method whose `U` the caller also
+-- declares.
+-- expect: check
+
+shape Box { n: int }
+impl Box {
+    task take<U>(lend self, xs: List<U>) -> int { give back self.n }
+}
+task caller<U>() -> int {
+    pilot b = Box { n: 4 }
+    give back b.take([1, 2])
+}
+task main() -> int { give back 0 }
