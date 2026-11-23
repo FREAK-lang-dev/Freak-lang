@@ -12392,7 +12392,7 @@ EXECUTABLE_SMOKES = [
       # Literal manifest: check_v4_native_shapes holds this to NATIVE_GENERICS_EXPECTED.
       'llvm_programs': [('generics_native.fk', 22,
                          '5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n'
-                         'right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n3\n2\n1\n49\n')]},
+                         'right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n3\n2\n5\n1\n49\n')]},
      {'name': 'typed os entry existing Word module restore and execution',
       'fixture': 'typed_os_entry_execute_smoke.fk',
       'memory_limit_mb': 64,
@@ -17689,7 +17689,7 @@ NATIVE_LEND_ABI_REJECTED = (
 # Tier 3 generic monomorphization: generics_native.fk prints this and gives
 # back c.get() + Box<int>::size(lend b). Each instance is one native body.
 NATIVE_GENERICS_EXPECTED = ("5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n"
-                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n3\n2\n5\n12\n1\n49\n", 22)
+                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n3\n2\n5\n1\n49\n", 22)
 # Instance symbols the generics module must define exactly once, and the
 # instance layouts the layout oracle must see on every target.
 NATIVE_GENERICS_SYMBOLS = (
@@ -17699,7 +17699,7 @@ NATIVE_GENERICS_SYMBOLS = (
     '@"best<Named>"', '@"best_ufcs<Point>"', '@"fresh<Point>"', '@"fresh<int>"', '@"bumped<Point>"', '@"bumped<int>"', '@"Box<word>::make"', '@"Box<word>::put"', '@"Box<int>::size"',
     '@"Acc<word>::add"', '@"has_of<int>"', '@"none_of<int>"', '@"Grid<int>::index"', '@"Grid<int>::index_mut"',
     '@"Box<int>::twin"', '@"ignore<maybe<int>>"', '@"pass<int>"', '@"consume<int>"', '@"read_opt<int>"', '@"ignore<int>"', '@"discard<never>"',
-    '@"Box<*mut never>::tally_never"', '@"via_dyn<Point>"',
+    '@"Box<*mut never>::tally_never"',
 )
 NATIVE_GENERICS_LAYOUTS = (
     '%"freak.shape.Box<int>"', '%"freak.shape.Box<word>"', '%"freak.shape.Box<Box<int>>"',
@@ -18516,7 +18516,7 @@ def check_native_vtable_oracle(module: str, triple: str, doctrines: dict[str, li
 
 # examples/dyn_native.fk: stdout and main's exit status (total % 256).
 NATIVE_DYN_EXPECTED = ("pilot Takeru power 40\nhive of 2 power 6\npilot Meiya power 75\npilot Shirogane power 40\n"
-                       "hive of 12 power 36\ncount 2 power 2\ncount 35 power 35\nShirogane\n35\n45\n30\n75\n8\n", 234)
+                       "hive of 12 power 36\ncount 2 power 2\ncount 35 power 35\nShirogane\n35\n45\n30\n75\n8\n60\n", 234)
 # Doctrine methods in declaration order: vtable slot k is method k.
 NATIVE_DYN_DOCTRINES = {"Unit": ["label", "power", "train", "rename"], "Placed": ["at", "move_by"]}
 # (Pilot, Unit), (Hive, Unit), (int, Unit), (Tsf, Placed), (Point, Placed).

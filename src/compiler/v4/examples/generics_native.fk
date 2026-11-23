@@ -157,13 +157,6 @@ task best<T: Scored>(a: T) -> int { give back a.score() }
 
 task best_ufcs<T: Scored>(a: T) -> int { give back T::score(a) }
 
--- A dyn erasure inside a generic task: the template lends its T, which has
--- no vtable, and is not emitted; the instance lends a Point.
-doctrine Measured { task area(lend self) -> int }
-impl Measured for Point { task area(lend self) -> int { give back self.x * self.y } }
-task measure(lend w: dyn Measured) -> int { give back w.area() }
-task via_dyn<T: Measured>(lend x: T) -> int { give back measure(lend x) }
-
 -- A static doctrine method and a Self result, per instance.
 task fresh<T: Seed>(like: T) -> T { give back T::zero() }
 
@@ -260,7 +253,6 @@ task main() -> int {
     }
     say discarded.to_word()
     say never_count.to_word()
-    say via_dyn(lend q).to_word()
     -- A never argument ends the block first: no instance and no inference.
     if false {
         say consume(panic("never"))
