@@ -19,7 +19,7 @@ pilot hangar_registry_error = ""
 
 -- Run a prepared command; on failure record its diagnostic. Releases it.
 task hangar_registry_run(command: int, operation: word) -> bool {
-    pilot status = cli_view_run_command(command, operation, 330000, 4096, 65536)
+    pilot status = process::command_run(command, 330000, 4096, 65536)
     pilot succeeded = status == 2 and process::command_exit_code(command) == 0
     if not succeeded {
         pilot diagnostic: ByteBuffer = process::command_stderr_bytes(command)
@@ -196,11 +196,7 @@ task hangar_registry_request(method: word, url: word, scratch_dir: word, body_fi
     }
     process::command_arg(command, "--")
     process::command_arg(command, url)
-    pilot request_label = "registry " + method
-    pilot api_at = 0
-    repeat until api_at + 5 > url.length() or url.substring(api_at, 5) == "/api/" { api_at += 1 }
-    if api_at + 5 <= url.length() { request_label = request_label + " " + url.substring(api_at, url.length() - api_at) }
-    pilot status = cli_view_run_command(command, request_label, 330000, 4096, 65536)
+    pilot status = process::command_run(command, 330000, 4096, 65536)
     pilot exited = status == 2
     pilot code = 0 - 1
     if exited { code = process::command_exit_code(command) }
@@ -345,7 +341,7 @@ task hangar_registry_inventory(tar: word, archive: word, label: word) -> bool {
     process::command_arg(command, "--numeric-owner")
     process::command_arg(command, "-tvf")
     process::command_arg(command, hangar_registry_tool_path(archive))
-    pilot status = cli_view_run_command(command, "archive inventory " + label, 330000, 2097152, 65536)
+    pilot status = process::command_run(command, 330000, 2097152, 65536)
     pilot listed = status == 2 and process::command_exit_code(command) == 0
     pilot mut listing = ""
     pilot mut decoded = false
