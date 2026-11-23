@@ -375,6 +375,7 @@ task v4_hir_scaling_children_empty(hir_id: int) -> bool {
     pilot word_plans = v4_hir_word_plans_handle(hir_id)
     if array_len(word_plans) != 0 { give back false }
     if array_len(v4_hir_extern_return_owner_values_handle(hir_id)) != 0 or array_len(v4_hir_extern_return_values_handle(hir_id)) != 0 { give back false }
+    if array_len(v4_hir_method_owner_values_handle(hir_id)) != 0 or array_len(v4_hir_method_values_handle(hir_id)) != 0 { give back false }
     if array_len(v4_hir_route_owner_values_handle(hir_id)) != 0 or array_len(v4_hir_route_case_values_handle(hir_id)) != 0 or array_len(v4_hir_route_field_values_handle(hir_id)) != 0 { give back false }
     if array_len(v4_hir_const_annotation_values_handle(hir_id)) != 0 { give back false }
     if array_len(v4_hir_shape_field_starts_handle(hir_id)) != 0 or array_len(v4_hir_shape_field_counts_handle(hir_id)) != 0 or array_len(v4_hir_shape_field_values_handle(hir_id)) != 0 { give back false }
@@ -432,6 +433,8 @@ task v4_hir_scaling_fill_children(hir_id: int) -> void {
     array_push(v4_hir_route_field_values_handle(hir_id), "old")
     array_push(v4_hir_extern_return_owner_values_handle(hir_id), "old")
     array_push(v4_hir_extern_return_values_handle(hir_id), "old")
+    array_push(v4_hir_method_owner_values_handle(hir_id), "old")
+    array_push(v4_hir_method_values_handle(hir_id), "old")
     -- A dirty packed word child must also disappear before rebuilding.
     array_push(v4_hir_word_plans_handle(hir_id), "old")
 }
