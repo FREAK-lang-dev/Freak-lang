@@ -687,6 +687,12 @@ task v4_codegen_llvm_starts_with(text: word, prefix: word) -> bool {
     give back true
 }
 
+-- Codegen reads no lexer helpers (architecture lane A1); symbol spelling
+-- keeps its own ASCII digit test.
+task v4_codegen_llvm_is_ascii_digit(ch: word) -> bool {
+    give back ch == "0" or ch == "1" or ch == "2" or ch == "3" or ch == "4" or ch == "5" or ch == "6" or ch == "7" or ch == "8" or ch == "9"
+}
+
 task v4_codegen_llvm_is_symbol_char(ch: word) -> bool {
     if ch == "_" { give back true }
     if ch == "0" or ch == "1" or ch == "2" or ch == "3" or ch == "4" { give back true }
@@ -741,7 +747,7 @@ task v4_codegen_llvm_mangle_name(name: word) -> word {
 -- Local/type display names continue to use the separate mangle_name helper.
 task v4_codegen_llvm_symbol(name: word) -> word {
     pilot plain: bool = name != ""
-    if v4_lex_is_digit(name.char_at(0)) { plain = false }
+    if v4_codegen_llvm_is_ascii_digit(name.char_at(0)) { plain = false }
     pilot idx = 0
     pilot ch = name.char_at(idx)
     -- char_at addresses bytes; walk to its sentinel so UTF-8 names stay whole

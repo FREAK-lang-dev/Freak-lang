@@ -469,6 +469,16 @@ CRATE_BOUNDARY_FORBIDDEN = {
         ("token type reconstruction", "v4_ty_type_text"),
         ("source lowering definition", "task v4_mir_lower_"),
     ],
+    # Architecture lane A1 and A3: codegen reads no syntax and makes no HIR,
+    # Resolve or expansion calls. It receives MIR, Meiya and TY facts only.
+    "freak_codegen_llvm": [
+        ("lexer access", "v4_lex_"),
+        ("parser access", "v4_parse_"),
+        ("token kind access", "v4_tok_"),
+        ("expansion access", "v4_expand_"),
+        ("HIR access", "v4_hir_"),
+        ("resolve access", "v4_resolve_"),
+    ],
     "freak_mir_build": [
         ("persistent file arena", "pilot v4_mir_files ="),
         ("persistent body arenas", "pilot v4_mir_body_"),
@@ -634,6 +644,94 @@ MIR_BUILD_TRANSITIONAL_DIRECT_DEPENDENCIES = {
     ),
     "span sentinel": (r"\bV4_NO_SPAN\b", frozenset({"V4_NO_SPAN"})),
 }
+
+# Architecture lane A1: freak_ty is the other crate past HIR that still reads
+# tokens. Same rule as MIR Build: an exact, shrinking allowlist of helper
+# names, checked outside the source identity shim below. Removing a family
+# from TY means deleting its names here in the same change.
+TY_TRANSITIONAL_DIRECT_DEPENDENCIES = {
+    "lexer": (
+        r"\bv4_lex_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_lex_is_digit",
+                "v4_lex_is_ident_continue",
+                "v4_lex_is_ident_start",
+                "v4_lex_token_count",
+                "v4_lex_token_span",
+                "v4_lex_token_syntax_value",
+                "v4_lex_token_type",
+                "v4_lex_token_value",
+            }
+        ),
+    ),
+    "parser": (
+        r"\bv4_parse_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_parse_extern_abi_close_token",
+                "v4_parse_extern_abi_open_token",
+                "v4_parse_extern_member_attribute_end_token",
+                "v4_parse_extern_member_attribute_start_token",
+                "v4_parse_extern_member_end_token",
+                "v4_parse_extern_member_start_token",
+                "v4_parse_node_span",
+            }
+        ),
+    ),
+    "token kind": (
+        r"\bv4_tok_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_tok_bool",
+                "v4_tok_char",
+                "v4_tok_eof",
+                "v4_tok_float",
+                "v4_tok_ident",
+                "v4_tok_int",
+                "v4_tok_keyword",
+                "v4_tok_lifetime",
+                "v4_tok_string",
+                "v4_tok_trivia",
+            }
+        ),
+    ),
+}
+
+# Architecture lane A1: TY's identity and revision checks read no syntax. They
+# live behind one reviewed shim; each shim task is the only place its helper
+# appears in freak_ty.
+TY_SOURCE_IDENTITY_SHIM = {
+    "v4_ty_source_ready": frozenset({"v4_parse_ready", "v4_lex_ready"}),
+    "v4_ty_source_tree_in_range": frozenset({"v4_parse_tree_files"}),
+    "v4_ty_source_tree_exists": frozenset({"v4_parse_tree_exists"}),
+    "v4_ty_source_tree_file": frozenset({"v4_parse_file_id"}),
+    "v4_ty_source_tree_revision": frozenset({"v4_parse_tree_revision"}),
+    "v4_ty_source_tree_stream": frozenset({"v4_parse_stream_id"}),
+    "v4_ty_source_stream_in_range": frozenset({"v4_lex_stream_files"}),
+    "v4_ty_source_stream_exists": frozenset({"v4_lex_stream_exists"}),
+    "v4_ty_source_stream_file": frozenset({"v4_lex_stream_file"}),
+    "v4_ty_source_stream_revision": frozenset({"v4_lex_stream_revision"}),
+}
+
+# Architecture lane A3: codegen makes no HIR, Resolve, expansion, lexer or
+# parser calls (forbidden outright in CRATE_BOUNDARY_FORBIDDEN). Its remaining
+# TY lookups by name are an exact, shrinking allowlist: sealed MIR identities
+# replace them one family at a time, and none may be added.
+CODEGEN_TY_NAME_LOOKUPS = frozenset(
+    {
+        "v4_ty_alias_lookup_type_from_surface_type",
+        "v4_ty_const_signature_id_for_name",
+        "v4_ty_doctrine_signature_id_for_name",
+        "v4_ty_route_case_field_id_for_name",
+        "v4_ty_route_case_id_for_name",
+        "v4_ty_route_signature_id_for_name",
+        "v4_ty_shape_signature_id_for_name",
+        "v4_ty_task_signature_id_for_name",
+        "v4_ty_type_signature_id_for_name",
+    }
+)
+CODEGEN_TY_NAME_LOOKUP_PATTERN = r"\bv4_ty_[A-Za-z0-9_]*(?:_for_name|_lookup_[A-Za-z0-9_]*)\b"
 
 MIR_BORROWCK_COMPATIBILITY_QUERY_TASKS = frozenset(
     {
@@ -13803,6 +13901,78 @@ def check_smoke_inventory(fixtures: list[Path]) -> None:
     print(f"smoke inventory: {len(smoke_names)} fixtures")
 
 
+def freak_task_chunks(source: str) -> dict[str, str]:
+    """Split comment-masked FREAK source into one chunk per top-level task.
+
+    Each chunk runs from its task header to the next one; text before the first
+    task is keyed by the empty name.
+    """
+    masked = freak_mask_line_comments(source)
+    headers = list(re.finditer(r"(?m)^task[ \t]+([A-Za-z0-9_]+)[ \t]*\(", masked))
+    chunks: dict[str, str] = {"": masked[: headers[0].start()] if headers else masked}
+    for index, header in enumerate(headers):
+        end = headers[index + 1].start() if index + 1 < len(headers) else len(masked)
+        chunks[header.group(1)] = chunks.get(header.group(1), "") + masked[header.start() : end]
+    return chunks
+
+
+def architecture_lane_violations(ty_source: str, codegen_source: str) -> list[str]:
+    """A1 and A3 guards: the freak_ty token allowlist, the TY identity shim and
+    codegen's TY name lookups."""
+    violations: list[str] = []
+    chunks = freak_task_chunks(ty_source)
+    shim_helpers = frozenset().union(*TY_SOURCE_IDENTITY_SHIM.values())
+    for shim_task, helpers in TY_SOURCE_IDENTITY_SHIM.items():
+        if shim_task not in chunks:
+            violations.append(f"boundary missing: freak_ty source identity shim {shim_task}")
+            continue
+        for helper in sorted(helpers):
+            if not re.search(rf"\b{re.escape(helper)}\b", chunks[shim_task]):
+                violations.append(
+                    f"boundary missing: freak_ty source identity shim {shim_task} no longer wraps {helper}"
+                )
+    outside = "\n".join(text for name, text in chunks.items() if name not in TY_SOURCE_IDENTITY_SHIM)
+    for name, text in chunks.items():
+        if name in TY_SOURCE_IDENTITY_SHIM:
+            continue
+        leaked = sorted(
+            helper for helper in shim_helpers if re.search(rf"\b{re.escape(helper)}\b", text)
+        )
+        if leaked:
+            violations.append(
+                f"boundary violation: freak_ty.{name or '<top level>'} bypasses the source identity shim: "
+                + ", ".join(leaked)
+            )
+    for family, (pattern, allowed) in TY_TRANSITIONAL_DIRECT_DEPENDENCIES.items():
+        observed = frozenset(re.findall(pattern, outside)) - shim_helpers
+        if observed != allowed:
+            details: list[str] = []
+            added = sorted(observed - allowed)
+            removed = sorted(allowed - observed)
+            if added:
+                details.append("added=" + ",".join(added))
+            if removed:
+                details.append("removed=" + ",".join(removed))
+            violations.append(
+                f"boundary violation: freak_ty transitional {family} allowlist drift: "
+                + " ".join(details)
+            )
+    codegen_masked = freak_mask_line_comments(codegen_source)
+    observed_lookups = frozenset(re.findall(CODEGEN_TY_NAME_LOOKUP_PATTERN, codegen_masked))
+    if observed_lookups != CODEGEN_TY_NAME_LOOKUPS:
+        details = []
+        added = sorted(observed_lookups - CODEGEN_TY_NAME_LOOKUPS)
+        removed = sorted(CODEGEN_TY_NAME_LOOKUPS - observed_lookups)
+        if added:
+            details.append("added=" + ",".join(added))
+        if removed:
+            details.append("removed=" + ",".join(removed))
+        violations.append(
+            "boundary violation: freak_codegen_llvm TY name lookup allowlist drift: " + " ".join(details)
+        )
+    return violations
+
+
 def mir_authority_violations(source: str) -> list[str]:
     references = sorted(set(re.findall(
         r"\bv4_(?:lex|parse|expand|hir|resolve|borrowck|codegen)_[A-Za-z0-9_]*\b",
@@ -13827,6 +13997,11 @@ def check_crate_boundaries() -> None:
     # Authority owns records and validation. Construction and later-stage
     # analysis remain separate even when all crates compile into one source.
     violations.extend(mir_authority_violations(read_text(crate_path("freak_mir"))))
+    violations.extend(
+        architecture_lane_violations(
+            read_text(crate_path("freak_ty")), read_text(crate_path("freak_codegen_llvm"))
+        )
+    )
 
     target_text = read_text(crate_path("freak_target"))
     if not re.search(r"(?m)^pilot v4_target_record_max_bytes = 512\s*$", target_text):

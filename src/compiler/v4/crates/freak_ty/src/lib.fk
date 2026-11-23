@@ -127,6 +127,51 @@ pilot v4_ty_copy_doctrine_cache_next_row_value = 0
 pilot v4_ty_copy_doctrine_cache_restore_generation_value = 0
 pilot v4_ty_ready = 0
 
+-- Source identity shim (architecture lane A1). These are the only tasks in
+-- freak_ty that ask the parser and lexer which stream backs a tree, whether
+-- tree and stream still exist, and at which revision. None of them reads
+-- syntax. check_v4.py keeps every identity helper inside this block, so the
+-- token-read allowlist can shrink without these checks hiding in it.
+task v4_ty_source_ready() -> bool {
+    give back v4_parse_ready != 0 and v4_lex_ready != 0
+}
+
+task v4_ty_source_tree_in_range(tree_id: int) -> bool {
+    give back tree_id >= 0 and tree_id < array_len(v4_parse_tree_files)
+}
+
+task v4_ty_source_tree_exists(tree_id: int) -> bool {
+    give back v4_parse_tree_exists(tree_id)
+}
+
+task v4_ty_source_tree_file(tree_id: int) -> int {
+    give back v4_parse_file_id(tree_id)
+}
+
+task v4_ty_source_tree_revision(tree_id: int) -> int {
+    give back v4_parse_tree_revision(tree_id)
+}
+
+task v4_ty_source_tree_stream(tree_id: int) -> int {
+    give back v4_parse_stream_id(tree_id)
+}
+
+task v4_ty_source_stream_in_range(stream_id: int) -> bool {
+    give back stream_id >= 0 and stream_id < array_len(v4_lex_stream_files)
+}
+
+task v4_ty_source_stream_exists(stream_id: int) -> bool {
+    give back v4_lex_stream_exists(stream_id)
+}
+
+task v4_ty_source_stream_file(stream_id: int) -> int {
+    give back v4_lex_stream_file(stream_id)
+}
+
+task v4_ty_source_stream_revision(stream_id: int) -> int {
+    give back v4_lex_stream_revision(stream_id)
+}
+
 task v4_ty_init() -> void {
     if v4_ty_ready == 0 {
         v4_ty_files = array_new()
@@ -492,11 +537,11 @@ task v4_ty_item_method_cache_is_ready(hir_id: int) -> bool {
     if hir_revision < 0 or hir_revision != word_to_int(array_get(packed, 3)) { give back false }
     pilot tree_id = v4_hir_tree_id(hir_id)
     if tree_id != word_to_int(array_get(packed, 1)) { give back false }
-    pilot parse_revision = v4_parse_tree_revision(tree_id)
+    pilot parse_revision = v4_ty_source_tree_revision(tree_id)
     if parse_revision < 0 or parse_revision != word_to_int(array_get(packed, 4)) { give back false }
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     if stream_id != word_to_int(array_get(packed, 2)) { give back false }
-    pilot lex_revision = v4_lex_stream_revision(stream_id)
+    pilot lex_revision = v4_ty_source_stream_revision(stream_id)
     if lex_revision < 0 or lex_revision != word_to_int(array_get(packed, 5)) { give back false }
     give back v4_hir_item_count(hir_id) == word_to_int(array_get(packed, 6))
 }
@@ -533,12 +578,12 @@ task v4_ty_item_method_cache_finalize_hir(hir_id: int) -> bool {
     if v4_hir_file_exists(hir_id) == false { give back false }
     if v4_ty_item_method_cache_is_ready(hir_id) { give back true }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    if v4_parse_tree_exists(tree_id) == false { give back false }
-    pilot stream_id = v4_parse_stream_id(tree_id)
-    if v4_lex_stream_exists(stream_id) == false { give back false }
+    if v4_ty_source_tree_exists(tree_id) == false { give back false }
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
+    if v4_ty_source_stream_exists(stream_id) == false { give back false }
     pilot hir_revision = v4_hir_revision(hir_id)
-    pilot parse_revision = v4_parse_tree_revision(tree_id)
-    pilot lex_revision = v4_lex_stream_revision(stream_id)
+    pilot parse_revision = v4_ty_source_tree_revision(tree_id)
+    pilot lex_revision = v4_ty_source_stream_revision(stream_id)
     if hir_revision < 0 or parse_revision < 0 or lex_revision < 0 { give back false }
     if v4_ty_child_handle_ensure_slot(v4_ty_item_method_caches, hir_id, "-1") == false { give back false }
     pilot packed = v4_ty_item_method_cache_handle(hir_id)
@@ -622,7 +667,7 @@ task v4_ty_item_method_cache_finalize_hir(hir_id: int) -> bool {
         item_id += 1
     }
     -- Do not publish a hybrid if an owner changed while facts were collected.
-    if v4_hir_revision(hir_id) != hir_revision or v4_parse_tree_revision(tree_id) != parse_revision or v4_lex_stream_revision(stream_id) != lex_revision { give back false }
+    if v4_hir_revision(hir_id) != hir_revision or v4_ty_source_tree_revision(tree_id) != parse_revision or v4_ty_source_stream_revision(stream_id) != lex_revision { give back false }
     array_set(packed, 1, word_from_int(tree_id))
     array_set(packed, 2, word_from_int(stream_id))
     array_set(packed, 3, word_from_int(hir_revision))
@@ -4709,13 +4754,13 @@ task v4_ty_doctrine_candidates_hir_id(ty_id: int) -> int {
     if resolve_id < 0 or resolve_id >= array_len(v4_resolve_files) { give back 0 - 1 }
     pilot hir_id = v4_resolve_hir_id(resolve_id)
     if hir_id < 0 or hir_id >= v4_hir_file_len { give back 0 - 1 }
-    if v4_expand_ready == 0 or v4_parse_ready == 0 or v4_lex_ready == 0 { give back 0 - 1 }
+    if v4_expand_ready == 0 or v4_ty_source_ready() == false { give back 0 - 1 }
     pilot expansion_id = v4_hir_expansion_id(hir_id)
     if expansion_id < 0 or expansion_id >= v4_expand_file_len { give back 0 - 1 }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    if tree_id < 0 or tree_id >= array_len(v4_parse_tree_files) { give back 0 - 1 }
-    pilot stream_id = v4_parse_stream_id(tree_id)
-    if stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) { give back 0 - 1 }
+    if v4_ty_source_tree_in_range(tree_id) == false { give back 0 - 1 }
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
+    if v4_ty_source_stream_in_range(stream_id) == false { give back 0 - 1 }
     give back hir_id
 }
 
@@ -4737,10 +4782,10 @@ task v4_ty_signature_stream_id(ty_id: int) -> int {
         give back 0 - 1
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    if v4_parse_tree_exists(tree_id) == false {
+    if v4_ty_source_tree_exists(tree_id) == false {
         give back 0 - 1
     }
-    give back v4_parse_stream_id(tree_id)
+    give back v4_ty_source_tree_stream(tree_id)
 }
 
 task v4_ty_signature_item_start_token(ty_id: int, sig_id: int) -> int {
@@ -4756,7 +4801,7 @@ task v4_ty_signature_item_start_token(ty_id: int, sig_id: int) -> int {
         give back 0 - 1
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
     pilot member_id = v4_ty_signature_extern_member_id(ty_id, sig_id)
     if member_id >= 0 {
@@ -4778,7 +4823,7 @@ task v4_ty_signature_item_end_token(ty_id: int, sig_id: int) -> int {
         give back 0 - 1
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
     pilot member_id = v4_ty_signature_extern_member_id(ty_id, sig_id)
     if member_id >= 0 {
@@ -4837,7 +4882,7 @@ task v4_ty_hir_item_start_token_uncached(hir_id: int, item_id: int) -> int {
         give back 0 - 1
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot parse_node = v4_hir_item_parse_node(hir_id, item_id)
     pilot item_span = v4_parse_node_span(tree_id, parse_node)
     give back v4_ty_first_token_at_or_after(stream_id, v4_span_start(item_span))
@@ -4851,7 +4896,7 @@ task v4_ty_hir_item_end_token_uncached(hir_id: int, item_id: int) -> int {
         give back 0 - 1
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot parse_node = v4_hir_item_parse_node(hir_id, item_id)
     pilot item_span = v4_parse_node_span(tree_id, parse_node)
     pilot end_token = v4_ty_first_token_at_or_after(stream_id, v4_span_end(item_span))
@@ -5042,7 +5087,7 @@ task v4_ty_hir_item_generic_text(hir_id: int, item_id: int) -> word {
         give back ""
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     give back v4_ty_item_generic_text_from_tokens(stream_id, v4_ty_hir_item_start_token(hir_id, item_id), v4_ty_hir_item_end_token(hir_id, item_id))
 }
 
@@ -8317,7 +8362,7 @@ task v4_ty_impl_target_type_from_hir(ty_id: int, hir_item: int) -> word {
     }
 
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
     pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
     pilot open_token = v4_ty_find_token_value(stream_id, start_token, end_token, "{")
@@ -8344,7 +8389,7 @@ task v4_ty_impl_doctrine_name_from_hir(ty_id: int, hir_item: int) -> word {
     }
 
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
     pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
     pilot open_token = v4_ty_find_token_value(stream_id, start_token, end_token, "{")
@@ -8378,7 +8423,7 @@ task v4_ty_impl_target_span_from_hir(ty_id: int, hir_item: int) -> word {
     }
 
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
     pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
     pilot open_token = v4_ty_find_token_value(stream_id, start_token, end_token, "{")
@@ -8516,7 +8561,7 @@ task v4_ty_impl_body_open_token_from_hir_uncached(ty_id: int, hir_item: int) -> 
         give back 0 - 1
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
     pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
     give back v4_ty_find_token_value(stream_id, start_token, end_token, "{")
@@ -8528,7 +8573,7 @@ task v4_ty_impl_body_close_token_from_hir_uncached(ty_id: int, hir_item: int) ->
         give back 0 - 1
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot open_token = v4_ty_impl_body_open_token_from_hir(ty_id, hir_item)
     if open_token < 0 {
         give back 0 - 1
@@ -8543,7 +8588,7 @@ task v4_ty_impl_method_count_uncached(ty_id: int, hir_item: int) -> int {
         give back 0
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot open_token = v4_ty_impl_body_open_token_from_hir(ty_id, hir_item)
     pilot close_token = v4_ty_impl_body_close_token_from_hir(ty_id, hir_item)
     if open_token < 0 or close_token <= open_token {
@@ -8574,7 +8619,7 @@ task v4_ty_impl_method_start_token_uncached(ty_id: int, hir_item: int, method_id
         give back 0 - 1
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot open_token = v4_ty_impl_body_open_token_from_hir(ty_id, hir_item)
     pilot close_token = v4_ty_impl_body_close_token_from_hir(ty_id, hir_item)
     if open_token < 0 or close_token <= open_token {
@@ -8608,7 +8653,7 @@ task v4_ty_impl_method_end_token_uncached(ty_id: int, hir_item: int, method_id: 
         give back 0 - 1
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot start_token = v4_ty_impl_method_start_token(ty_id, hir_item, method_id)
     pilot close_token = v4_ty_impl_body_close_token_from_hir(ty_id, hir_item)
     if start_token < 0 or close_token <= start_token {
@@ -8635,7 +8680,7 @@ task v4_ty_impl_method_name(ty_id: int, hir_item: int, method_id: int) -> word {
         give back ""
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot start_token = v4_ty_impl_method_start_token(ty_id, hir_item, method_id)
     if start_token < 0 {
         give back ""
@@ -8653,7 +8698,7 @@ task v4_ty_impl_method_param_open_token(ty_id: int, hir_item: int, method_id: in
         give back 0 - 1
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot start_token = v4_ty_impl_method_start_token(ty_id, hir_item, method_id)
     pilot end_token = v4_ty_impl_method_end_token(ty_id, hir_item, method_id)
     if start_token < 0 or end_token <= start_token {
@@ -8668,7 +8713,7 @@ task v4_ty_impl_method_param_close_token(ty_id: int, hir_item: int, method_id: i
         give back 0 - 1
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot open_token = v4_ty_impl_method_param_open_token(ty_id, hir_item, method_id)
     pilot end_token = v4_ty_impl_method_end_token(ty_id, hir_item, method_id)
     if open_token < 0 or end_token <= open_token {
@@ -8683,7 +8728,7 @@ task v4_ty_impl_method_param_count(ty_id: int, hir_item: int, method_id: int) ->
         give back 0
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     give back v4_ty_param_count_from_tokens(stream_id, v4_ty_impl_method_param_open_token(ty_id, hir_item, method_id), v4_ty_impl_method_param_close_token(ty_id, hir_item, method_id))
 }
 
@@ -8693,7 +8738,7 @@ task v4_ty_impl_method_param_name(ty_id: int, hir_item: int, method_id: int, par
         give back ""
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot open_token = v4_ty_impl_method_param_open_token(ty_id, hir_item, method_id)
     pilot close_token = v4_ty_impl_method_param_close_token(ty_id, hir_item, method_id)
     pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
@@ -8707,7 +8752,7 @@ task v4_ty_impl_method_param_mode(ty_id: int, hir_item: int, method_id: int, par
         give back v4_ty_param_mode_value
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot open_token = v4_ty_impl_method_param_open_token(ty_id, hir_item, method_id)
     pilot close_token = v4_ty_impl_method_param_close_token(ty_id, hir_item, method_id)
     pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
@@ -8722,7 +8767,7 @@ task v4_ty_impl_method_param_type_read(ty_id: int, hir_item: int, method_id: int
         give back v4_ty_unknown
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     pilot open_token = v4_ty_impl_method_param_open_token(ty_id, hir_item, method_id)
     pilot close_token = v4_ty_impl_method_param_close_token(ty_id, hir_item, method_id)
     pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
@@ -8932,7 +8977,7 @@ task v4_ty_impl_method_return_surface_type(ty_id: int, hir_item: int, method_id:
         give back v4_ty_unknown
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
     give back v4_ty_task_return_from_tokens(stream_id, v4_ty_impl_method_start_token(ty_id, hir_item, method_id), v4_ty_impl_method_end_token(ty_id, hir_item, method_id))
 }
 
@@ -10734,7 +10779,7 @@ task v4_ty_route_case_segment_token(ty_id: int, sig_id: int, case_id: int, end_b
         give back 0 - 1
     }
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    if not v4_lex_stream_exists(stream_id) or v4_lex_stream_file(stream_id) != v4_hir_file_id(hir_id) or v4_ty_file_id(ty_id) != v4_hir_file_id(hir_id) {
+    if not v4_ty_source_stream_exists(stream_id) or v4_ty_source_stream_file(stream_id) != v4_hir_file_id(hir_id) or v4_ty_file_id(ty_id) != v4_hir_file_id(hir_id) {
         give back 0 - 1
     }
     pilot segment = v4_hir_route_case_segment_span(hir_id, item_id, case_id)
@@ -13659,18 +13704,18 @@ task v4_ty_snapshot_parent_chain_matches(file_id: int, resolve_id: int) -> bool 
     }
 
     pilot tree_id = v4_hir_tree_id(hir_id)
-    if v4_parse_tree_exists(tree_id) == false {
+    if v4_ty_source_tree_exists(tree_id) == false {
         give back false
     }
-    if v4_parse_file_id(tree_id) != file_id {
+    if v4_ty_source_tree_file(tree_id) != file_id {
         give back false
     }
 
-    pilot stream_id = v4_parse_stream_id(tree_id)
-    if v4_lex_stream_exists(stream_id) == false {
+    pilot stream_id = v4_ty_source_tree_stream(tree_id)
+    if v4_ty_source_stream_exists(stream_id) == false {
         give back false
     }
-    give back v4_lex_stream_file(stream_id) == file_id
+    give back v4_ty_source_stream_file(stream_id) == file_id
 }
 
 task v4_ty_snapshot_resolve_symbol_is_signature_head(resolve_id: int, symbol_id: int) -> bool {
