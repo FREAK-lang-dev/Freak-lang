@@ -105,3 +105,60 @@ What it says:
   gates do.
 - So B1 is worth doing for diagnostics and as the step towards B2, but it
   is not a correctness fix for the defects that cost the most to find.
+
+## B2: the LLVM bridge
+
+Started 2026-11-23, ahead of the A4 gate by the maintainer's choice: the
+bridge is new code beside codegen and changes nothing the text backend
+emits. B1 (the typed module inside `freak_codegen_llvm`) still waits for
+tier 3 and A4.
+
+**Pinned LLVM: 22.1.8** ([`llvm.lock`](llvm.lock)). 22.1.8 is the last
+point release of 22 (checked 2026-11-23: there is no 22.1.9). 23 also
+qualifies under decision 16 (it is at 23.1.6), but its point series is still
+running; moving to it is a one-line lock change plus checksums. The lock holds one
+SHA-256 per host archive; `build_llvm_bridge.py` downloads the official
+release archive, checks it, and keeps only the C API headers, `llvm-config`
+and the static libraries (313 MB on Linux x86-64, cached in CI by the lock's
+hash). Only Linux x86-64 is pinned so far.
+
+**The bridge** is [`llvm_bridge/freak_llvm_bridge.c`](llvm_bridge/freak_llvm_bridge.c)
+over LLVM's C API; its header states the contract:
+
+- A session owns one LLVM context, module, builder, target machine and data
+  layout. FREAK holds int64 tickets (kind, session slot, session generation,
+  index); no LLVM pointer crosses into FREAK. Releasing a session disposes
+  everything and every ticket of it is refused afterwards, even when the
+  slot is reused.
+- Every call returns an int64: a ticket, 0, or a negative error code with a
+  message. Kinds and types are checked before LLVM is called (a type where a
+  value belongs, a load from a non-pointer, a second terminator, an argument
+  of the wrong type, a duplicate symbol), so misuse is an error result.
+- No C++ exception can cross: only the C API is used and no C++ shim has
+  been needed yet. LLVM's fatal-error handler is installed to name the
+  bridge before LLVM ends the process.
+- Names and paths are (bytes, length) pairs, copied. The core is
+  independent of FREAK's word ABI; `freak_llvm_bridge_v35.c` adapts V3.5
+  `freak_word`s for tools built by `v35_seed.py`, and a V4-native host gets
+  its own adapter.
+- It covers types (integers, floats, pointers, arrays, named and literal
+  structs, function types), functions, parameters, byte-string globals,
+  blocks, constants, alloca (always in the entry block), load, store,
+  arithmetic, comparisons, casts, select, field and element addresses,
+  extract and insert, calls (variadic too), phis, terminators, enum
+  attributes, verification, the `default<O0..O3>` pass pipelines, object,
+  assembly and IR text output, and the target's sizes, alignments and field
+  offsets.
+
+**The gate** (`build_llvm_bridge.py --check`, CI job "V4 LLVM bridge"):
+[`tools/llvm_bridge_probe.fk`](tools/llvm_bridge_probe.fk) builds a module
+in FREAK (a loop with phis, select, calls between its own functions, a float
+conversion, struct field loads, a call to the C library's `puts` on a
+private string), refuses twelve kinds of misuse with the exact error codes,
+verifies, optimises and emits an object at O0, O1, O2 and O3, and reports
+layouts for the four release targets. The gate checks the report line for
+line, links each object with a C driver and checks its output exactly.
+
+First measurement for the size row: the probe, which links only the core,
+pass pipeline, x86-64 and AArch64 libraries, is 65 MB on Linux x86-64
+(53 MB stripped). The full compiler with LLD will be larger.

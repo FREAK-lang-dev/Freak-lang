@@ -578,12 +578,12 @@ unaffected.
 
 ### B2: LLVM in process
 
-- [ ] **S** Pin one LLVM major. CI builds or fetches static LLVM and LLD for Linux x86-64 and arm64, macOS arm64 and Windows x64, cached
-- [ ] **L** FFI bridge: LLVM C API first, a narrow C++ shim only where the C API is missing something. Opaque handles, documented ownership, no C++ exception crosses the boundary, every failure an explicit result
+- [ ] **S** Pin one LLVM major. CI builds or fetches static LLVM and LLD for Linux x86-64 and arm64, macOS arm64 and Windows x64, cached. Progress: LLVM 22.1.8 pinned in `llvm.lock` with a checksum per archive; Linux x86-64 is fetched, trimmed to headers and static libraries, and cached in CI (job "V4 LLVM bridge"). Linux arm64, macOS arm64, Windows x64 and LLD remain. See [BACKEND_DELIVERY.md](BACKEND_DELIVERY.md#b2-the-llvm-bridge)
+- [ ] **L** FFI bridge: LLVM C API first, a narrow C++ shim only where the C API is missing something. Opaque handles, documented ownership, no C++ exception crosses the boundary, every failure an explicit result. Progress: `llvm_bridge/freak_llvm_bridge.c` (C API only, no shim needed yet) with session-scoped int64 tickets, checked kinds and types, explicit error results and a V3.5 word adapter; `tools/llvm_bridge_probe.fk` builds, verifies, optimises and emits a module from FREAK, refuses twelve kinds of misuse, and its objects link and run at O0 to O3. Remaining: the IR the structured module needs (switch, calling conventions, sret/byval and other type attributes, debug locations) and a V4-native word adapter
 - [ ] **M** Two-stage bootstrap: stage 1 is built by the previous compiler and uses the text backend and Clang; stage 2 links LLVM. Clang becomes a build-from-source dependency
 - [ ] **M** Structured module to LLVM module, verified in process. Decision inside the item: builder calls, or a bitcode writer in FREAK
 - [ ] **M** Optimisation pipeline for O0 to O3 through the shim; `--emit-llvm-before-opt` and `--emit-llvm-after-opt`
-- [ ] **M** Object emission through a target machine; sizes, alignments and data layout asked of the target instead of hard-coded
+- [ ] **M** Object emission through a target machine; sizes, alignments and data layout asked of the target instead of hard-coded. Progress: the bridge emits objects through the session's target machine and answers sizes, alignments and field offsets from its data layout for all four release targets; codegen does not use it yet
 - [ ] **M** Differential gate: text plus Clang against in-process, every native gate program at O0, O2 and O3, plain and sanitized, comparing exit status, stdout and stderr
 - [ ] **M** Measurements from the proposal's section 23, plus compiler binary size per platform; go or no-go recorded here
 
