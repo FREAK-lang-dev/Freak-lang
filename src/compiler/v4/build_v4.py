@@ -7,6 +7,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -40,16 +41,23 @@ def llvm_text_floor_module():
     return llvm_text_floor
 
 
+_clang_majors: dict[str, int | None] = {}
+
+
 def require_supported_clang(clang: str) -> None:
     """Refuse a Clang older than the text backend's LLVM floor (B0).
 
-    Output that names no recognised version passes: the LLVM verification
-    and link steps still reject a module that Clang cannot read."""
+    A Clang that cannot be asked, or names no recognised version, passes:
+    the LLVM verification and link steps still reject a module it cannot
+    read. The answer is cached per Clang and is not a build step."""
     floor = llvm_text_floor_module()
-    result = checks.run_with_heartbeat(
-        [clang, "--version"], label="V4 clang version", timeout_seconds=30, memory_limit_mb=256,
-    )
-    major = floor.clang_major(result.stdout)
+    if clang not in _clang_majors:
+        try:
+            result = subprocess.run([clang, "--version"], capture_output=True, text=True, timeout=30, check=False)
+            _clang_majors[clang] = floor.clang_major(result.stdout)
+        except (OSError, subprocess.SubprocessError):
+            _clang_majors[clang] = None
+    major = _clang_majors[clang]
     if major is not None and major < floor.MIN_LLVM_MAJOR:
         raise RuntimeError(
             f"clang {major} is older than the V4 text backend's minimum, LLVM {floor.MIN_LLVM_MAJOR} "
