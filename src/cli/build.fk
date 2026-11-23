@@ -1498,7 +1498,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         process::command_arg(cc_command, "-c")
         cli_build_common_args(cc_command, user_obj, transpiled_file, runtime_dir, opt, cross)
 
-        cli_view_activity("Compiling program object")
+        cli_view_activity("Compiling program object", "clang -c program object")
         pilot cc_ok = cli_build_command(cc_command, "object compilation")
         if not cc_ok or not cli_build_regular_output(user_obj) {
             cli_delete_derived_artifact(user_obj)
@@ -1524,7 +1524,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         process::command_arg(link_command, "-luser32")
         process::command_arg(link_command, "-lgdi32")
         process::command_arg(link_command, "-lmsimg32")
-        cli_view_activity("Linking packaged Windows runtime objects")
+        cli_view_activity("Linking packaged Windows runtime objects", "linking packaged runtime")
         pilot link_ok = cli_build_command(link_command, "packaged runtime link")
         if link_ok {
             if cli_build_regular_output(out_bin) { give back out_bin }
@@ -1585,7 +1585,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
             }
         }
 
-        cli_view_activity("Compiling native binary")
+        cli_view_activity("Compiling native binary", "clang compile + link")
         compiled = cli_build_command(command, "Clang compilation/link")
     }
     if not compiled or not cli_build_regular_output(out_bin) {
@@ -1988,7 +1988,9 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
     if target == "c" { backend_label = "C" }
     pilot profile_label = "O" + opt
     if profile == "plus03" { profile_label = "+03 — FINAL FORM" }
-    if view_live {
+    if view_live and view_header_done {
+        -- `freak run` already printed the header.
+    } else if view_live {
         pilot detail = backend_label + "  \xc2\xb7  " + profile_label
         if lto != "off" { detail = detail + "  \xc2\xb7  LTO " + lto + "  \xc2\xb7  runtime " + runtime_policy }
         if cross != "" { detail = detail + "  \xc2\xb7  " + cross } else { detail = detail + "  \xc2\xb7  host" }
@@ -2048,10 +2050,11 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
         sw_total_ns = sw_elapsed_ns()
         total_ms = sw_ns_to_ms(sw_total_ns)
     }
-    if view_live {
-        pilot extra = ""
-        if not owns_clock { extra = C_DIM + "build time so far; the program runs next" + C_RESET }
-        cli_view_success_card("BUILD SUCCESSFUL", binary, extra)
+    if view_live and not owns_clock {
+        -- `freak run` prints its own closing line after the program.
+        give back binary
+    } else if view_live {
+        cli_view_success_card("BUILD SUCCESSFUL", binary, "")
     } else {
         pilot total_str = word_from_int(total_ms)
         say ""

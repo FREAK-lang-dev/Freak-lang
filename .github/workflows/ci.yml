@@ -171,6 +171,10 @@ jobs:
         shell: bash
         run: python -u tests/v3_codegen_error_gate.py ./build/freak$EXT
 
+      - name: V3 build timers and plain/live view
+        shell: bash
+        run: python -u tests/v3_build_timers.py ./build/freak$EXT
+
       - name: V3 word replacement ownership
         shell: bash
         run: python -u tests/v3_word_ownership.py ./build/freak$EXT
@@ -626,6 +630,10 @@ jobs:
       - name: V3 parser/type errors gate code generation
         shell: bash
         run: python -u tests/v3_codegen_error_gate.py ./build/freak$EXT
+
+      - name: V3 build timers and plain/live view
+        shell: bash
+        run: python -u tests/v3_build_timers.py ./build/freak$EXT
 
       - name: V3 word replacement ownership
         shell: bash
