@@ -900,7 +900,7 @@ counted box, `%"freak.shared.box.T" = type { i64, i64, i64, T }` (strong,
 weak, borrow, payload), with a `; freak.layout` note per payload type that
 the layout oracle checks on all four targets. The counts live in the native
 runtime (`freak_v4_shared_*` in `freakc/runtime/freak_llvm_runtime.c`) and
-are atomic, because bible §7.18 calls `Shared<T>` atomic:
+are atomic, because bible 7.18 calls `Shared<T>` atomic:
 
 - **Counts.** strong counts `Shared` handles plus live views and guards;
   weak counts `Weak` handles plus one reference held by all strong ones.
@@ -909,7 +909,7 @@ are atomic, because bible §7.18 calls `Shared<T>` atomic:
   strong reaches 0 the payload's drop glue runs once in place and the
   implicit weak reference goes; when weak reaches 0 the box is freed.
   `upgrade` adds a strong reference only while strong is above 0, so it
-  answers `maybe<Shared<T>>`. Cycles of `Shared` leak by design (§4.4).
+  answers `maybe<Shared<T>>`. Cycles of `Shared` leak by design (bible 4.4).
 - **Borrow state.** borrow is the number of live readers, or -1 for one
   writer. `pilot v = s.borrow()` is a `lend T` at the payload: it begins a
   read (a runtime panic, `Shared value is already mutably borrowed`, exit
@@ -917,13 +917,13 @@ are atomic, because bible §7.18 calls `Shared<T>` atomic:
   answers `err` on any live read or write, else a guard; a guard projects
   to the payload (`g.hp = 1`). `get_mut()` answers a `lend mut T` only when
   strong and weak are both 1 and nothing is borrowed (no other owner and no
-  `Weak` that could upgrade during the loan, amended in §4.4).
+  `Weak` that could upgrade during the loan, amended in bible 4.4).
 - **Meiya.** Handles are Move types in the drop plan; a view binding and a
   guard are owned there too, so their drop ends the read or the write and
   releases their strong reference. Results of `clone`, `downgrade`,
   `upgrade` and `borrow_mut` keep no loan on the receiver. `borrow_mut`
   lends its receiver shared (the runtime guard carries the exclusivity, as
-  in §4.4's example on an immutable binding); `get_mut` lends it `lend mut`.
+  in bible 4.4's example on an immutable binding); `get_mut` lends it `lend mut`.
   A view's loan is conservative: it stays live to the end of the task, so
   examples take views in small helper tasks.
 
