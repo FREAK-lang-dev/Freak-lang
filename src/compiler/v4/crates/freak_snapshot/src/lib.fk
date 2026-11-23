@@ -4336,12 +4336,35 @@ task v4_unit_snapshot_restore_sources(payload: word) -> int {
 
 -- MIR restore invalidates every provenance memo regardless of the caller or transport.
 task v4_mir_snapshot_restore(payload: word) -> word {
+    pilot dyn_drops = v4_mir_dyn_restore_drops
     pilot restore_result = v4_mir_snapshot_restore_component(payload)
     if restore_result.starts_with("mir-snapshot-restore ok=1") {
         v4_session_semantic_restore_generation_advance()
         v4_borrowck_provenance_scratch_reset()
     }
+    if v4_mir_dyn_restore_drops != dyn_drops { v4_mir_dyn_restore_invalidate_queries() }
     give back restore_result
+}
+
+-- A restored MIR slot loses the dyn facts its lowering sealed, and only a
+-- fresh lowering can seal them again. Dirty every cached MIR and its
+-- transitive dependents so the next check lowers instead of reading a slot
+-- without its facts.
+task v4_mir_dyn_restore_invalidate_queries() -> int {
+    if v4_query_ready == 0 { give back 0 }
+    pilot generation = v4_query_bump_generation("restore:mir-dyn-facts")
+    pilot invalidated = 0
+    pilot entry_id = 0
+    pilot entry_count = v4_query_cache_size()
+    repeat until entry_id >= entry_count {
+        pilot key = v4_query_entry_key(entry_id)
+        if key.starts_with("mir:") {
+            invalidated += v4_query_mark_dirty_key_at_generation(key, generation, "restore:mir-dyn-facts")
+            invalidated += v4_query_invalidate_dependents_at_generation(key, generation, "restore:mir-dyn-facts")
+        }
+        entry_id += 1
+    }
+    give back invalidated
 }
 
 -- A standalone expansion restore replaces arena slots without restoring the
@@ -4654,12 +4677,17 @@ task v4_unit_snapshot_restore(payload: word) -> word {
     }
 
     pilot rollback_payload = v4_unit_snapshot()
+    pilot dyn_drops = v4_mir_dyn_restore_drops
     pilot restore_result = v4_unit_snapshot_restore_prevalidated(payload)
     if restore_result.starts_with("00-unit-snapshot-restore ok=1 ") {
+        -- The saved query section is installed after the MIR section, so it
+        -- may hold clean MIR entries for slots that lost their dyn facts.
+        if v4_mir_dyn_restore_drops != dyn_drops { v4_mir_dyn_restore_invalidate_queries() }
         give back restore_result
     }
 
     pilot rollback_result = v4_unit_snapshot_restore_prevalidated(rollback_payload)
+    if v4_mir_dyn_restore_drops != dyn_drops { v4_mir_dyn_restore_invalidate_queries() }
     pilot out = restore_result
     if rollback_result.starts_with("00-unit-snapshot-restore ok=1 ") {
         out = out + "\n00-unit-snapshot-rollback ok=1"
