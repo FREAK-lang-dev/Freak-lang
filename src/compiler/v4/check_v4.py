@@ -17886,7 +17886,7 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
 NATIVE_ABI_NOTE = re.compile(r"^; freak\.abi (@\S+) (%\S+) size=(\d+) align=(\d+) type=(.+?)(?: pass=(lend|lend_mut))?$")
 
 
-NATIVE_LEND_SIGNATURE = re.compile(r"^task (\w+)(?:<[^>]*>)?\((.*)\) ->", re.MULTILINE)
+NATIVE_LEND_SIGNATURE = re.compile(r"^task (\w+)(<[^>]*>)?\((.*)\) ->", re.MULTILINE)
 
 
 def native_lend_param_modes(source: str) -> dict[tuple[str, int], str]:
@@ -17898,10 +17898,15 @@ def native_lend_param_modes(source: str) -> dict[tuple[str, int], str]:
     """
     modes: dict[tuple[str, int], str] = {}
     for match in NATIVE_LEND_SIGNATURE.finditer(source):
+        # A generic task's template emits no symbol, and an instance's pass=
+        # depends on its type arguments (a lend T is a handle when T is word),
+        # so only the ABI oracle checks instance headers against their notes.
+        if match.group(2):
+            continue
         params: list[str] = []
         depth = 0
         current = ""
-        for ch in match.group(2):
+        for ch in match.group(3):
             if ch in "([<":
                 depth += 1
             elif ch in ")]" or (ch == ">" and not current.endswith("-")):
@@ -17929,6 +17934,7 @@ def native_lend_param_modes(source: str) -> dict[tuple[str, int], str]:
 
 
 # A function type's `->` must not close a bracket: the params after it stay split.
+assert native_lend_param_modes("task hop<T: P>(lend mut x: T) -> int {\n") == {}, "native_lend_param_modes skips generic templates"
 assert native_lend_param_modes("task apply(f: task(x: int) -> int, lend n: int) -> int {\n") == \
     {("@apply", 0): "", ("@apply", 1): "lend"}, "native_lend_param_modes merged params after a function type"
 
