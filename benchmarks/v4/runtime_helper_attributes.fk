@@ -1,0 +1,67 @@
+-- B0 runtime helper attributes benchmark. Each kernel asks the runtime the
+-- same question about a word that does not change inside the loop; with the
+-- helper marked readonly, LLVM may ask once. The control kernel also makes a
+-- new word every pass, so nothing may move. Runtime arguments keep the
+-- answers out of constant folding.
+task runtime_int(index: int) -> int {
+    check result process::arg(index) {
+        ok(text) -> {
+            check text.to_int() {
+                got number -> { give back number }
+                nobody -> { give back -1 }
+            }
+        }
+        err(_) -> { give back -1 }
+    }
+    give back -1
+}
+
+task length_bound(text: word, rounds: int) -> int {
+    pilot mut total = 0
+    pilot mut round = 0
+    repeat until round >= rounds and true {
+        pilot mut i = 0
+        repeat until i >= text.length() and true {
+            total = total + i
+            if total >= 1000000007 { total = total - 1000000007 }
+            i += 1
+        }
+        round += 1
+    }
+    give back total
+}
+
+task equal_test(text: word, key: word, rounds: int) -> int {
+    pilot mut hits = 0
+    pilot mut round = 0
+    repeat until round >= rounds and true {
+        if text.starts_with(key) { hits += 1 }
+        if text.ends_with(key) { hits += 2 }
+        if text.contains(key) { hits += 3 }
+        round += 1
+    }
+    give back hits
+}
+
+task control(text: word, rounds: int) -> int {
+    pilot mut total = 0
+    pilot mut round = 0
+    repeat until round >= rounds and true {
+        pilot copy = text.to_lower()
+        total = total + copy.length()
+        if total >= 1000000007 { total = total - 1000000007 }
+        round += 1
+    }
+    give back total
+}
+
+task main() -> int {
+    if process::args_count() != 3 { give back 64 }
+    pilot kernel = runtime_int(1)
+    pilot rounds = runtime_int(2)
+    if rounds < 0 { give back 65 }
+    if kernel == 0 { say length_bound("abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789", rounds) }
+    if kernel == 1 { say equal_test("abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz012345678", rounds) }
+    if kernel == 2 { say control("abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789", rounds) }
+    give back 0
+}
