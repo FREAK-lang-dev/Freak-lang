@@ -99,10 +99,28 @@ task unbox<T>(b: Box<T>) -> T { give back b.value }
 
 task some_of<T>(x: T) -> Opt<T> { give back Opt::Has { value: x } }
 
+-- Scalar sums inside instances: a sum formal bound by T, and a template whose
+-- own signature names a sum. An eager never argument requests no instance.
+task ignore<T>(ignored_sum: T) -> int { give back 3 }
+
+task pass<T>(x: T, m: maybe<int>) -> maybe<int> { give back m }
+
+task consume<T>(x: T) -> int { give back 1 }
+
 -- Explicit route owners are substituted per instance.
 task has_of<T>(x: T) -> Opt<T> { give back Opt<T>::Has { value: x } }
 
 task none_of<T>(x: T) -> Opt<T> { give back Opt<T>::Empty }
+
+-- Qualified route patterns name the template's Opt<T>; each instance reads
+-- them as its own Opt<int>.
+task read_opt<T>(o: Opt<T>, fallback: T) -> T {
+    when o {
+        Opt<T>::Has { value } -> give back value
+        Opt<T>::Empty -> give back fallback
+    }
+    give back fallback
+}
 
 task get_or<T>(o: Opt<T>, fallback: T) -> T {
     when o {
@@ -197,6 +215,15 @@ task main() -> int {
     pilot tw: Box<int> = Box { value: 3, count: 1 }
     pilot twins = tw.twin()
     say twins.to_word()
+    pilot sum_formal: maybe<int> = some(2)
+    pilot passed = pass(1, some(5))
+    say (ignore(sum_formal) + (passed or else 0)).to_word()
+    if false {
+        say consume(panic("never"))
+        say panic("never") |> consume
+    }
+    say consume(7).to_word()
+    say (read_opt(has_of(9), 0) + read_opt(none_of(0), 40)).to_word()
     pilot sized = Box<int>::size(lend b)
     give back c.get() + sized
 }

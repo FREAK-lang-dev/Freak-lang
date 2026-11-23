@@ -6249,6 +6249,9 @@ task v4_mir_build_request_generic_instance(mir_id: int, body_id: int, expr_span:
                 give back ""
             }
             actual = v4_ty_canonical_type(ty_id, actual)
+            -- An eager never argument (consume(panic("stop"))) ends the
+            -- block before the call; it needs no consume<never> instance.
+            if actual == v4_ty_never { give back "" }
             if env != "" {
                 env = env + "|"
                 args = args + ","
@@ -6319,16 +6322,29 @@ task v4_mir_build_generic_table_find(mir_id: int, def: word) -> int {
     give back 0 - 1
 }
 
-task v4_mir_build_generic_table_insert(mir_id: int, def: word, body_id: int) -> void {
-    if v4_mir_build_generic_table < 0 {
-        v4_mir_build_generic_table = array_new()
-        if v4_mir_build_generic_table < 0 { give back }
-        pilot slot = 0
-        repeat until slot >= v4_mir_build_generic_table_capacity {
-            array_push(v4_mir_build_generic_table, "0")
-            slot += 1
-        }
+-- The cache exists before any instance body is added, so admission never
+-- adds a body the cache cannot name (which would let a repeat request add a
+-- second body for the same def).
+task v4_mir_build_generic_table_ready() -> bool {
+    if v4_mir_build_generic_table >= 0 { give back true }
+    pilot table = array_new()
+    if table < 0 { give back false }
+    pilot slot = 0
+    repeat until slot >= v4_mir_build_generic_table_capacity {
+        array_push(table, "0")
+        slot += 1
     }
+    if array_len(table) != v4_mir_build_generic_table_capacity {
+        array_release(table)
+        give back false
+    }
+    v4_mir_build_generic_table = table
+    give back true
+}
+
+-- The table holds more slots than the instance cap, so a ready table always
+-- has a free bucket.
+task v4_mir_build_generic_table_insert(mir_id: int, def: word, body_id: int) -> void {
     pilot bucket: int = def.checksum() % v4_mir_build_generic_table_capacity
     pilot visited = 0
     repeat until visited >= v4_mir_build_generic_table_capacity {
@@ -6355,6 +6371,10 @@ task v4_mir_build_admit_generic_instance(mir_id: int, expr_span: word, def: word
         if v4_mir_build_generic_limit_named { give back "" }
         v4_mir_build_generic_limit_named = true
         v4_mir_add_type_error(mir_id, expr_span, "native generic instance limit reached: " + name, "a module may build " + word_from_int(v4_mir_build_generic_max_instances) + " generic instances")
+        give back ""
+    }
+    if not v4_mir_build_generic_table_ready() {
+        v4_mir_add_type_error(mir_id, expr_span, "native generic instance cache could not be allocated: " + name, "array storage is exhausted")
         give back ""
     }
     pilot instance = v4_mir_add_body(mir_id, def, name, v4_mir_generic_instance_signature(name, display))
@@ -9610,7 +9630,7 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
         pilot case_name = route_payload_head
         pilot pattern_text = route_payload_head
         if route_payload_scope != "" {
-            route_name = v4_mir_compact_type_text(route_payload_scope)
+            route_name = v4_mir_build_generic_type(mir_id, v4_mir_compact_type_text(route_payload_scope))
             case_name = v4_mir_path_right(route_payload_head)
             pattern_text = v4_mir_route_case_text(route_name, case_name)
             if not v4_ty_is_route_type(ty_id, route_name) {
@@ -9684,7 +9704,7 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
         pilot case_name = pattern
         pilot pattern_text = pattern
         if route_pattern_sep >= 0 {
-            route_name = v4_mir_compact_type_text(v4_mir_path_left(pattern))
+            route_name = v4_mir_build_generic_type(mir_id, v4_mir_compact_type_text(v4_mir_path_left(pattern)))
             case_name = v4_mir_path_right(pattern)
             pattern_text = v4_mir_route_case_text(route_name, case_name)
             if not v4_ty_is_route_type(ty_id, route_name) {
@@ -9925,7 +9945,7 @@ task v4_mir_when_pattern_irrefutable_at(mir_id: int, pattern: word, source_ty: w
         pilot route_name = source_ty
         pilot case_name = route_payload_head
         if route_payload_scope != "" {
-            route_name = v4_mir_compact_type_text(route_payload_scope)
+            route_name = v4_mir_build_generic_type(mir_id, v4_mir_compact_type_text(route_payload_scope))
             case_name = v4_mir_path_right(route_payload_head)
         }
         if route_name == "" or not v4_ty_is_route_type(ty_id, route_name) {
@@ -9974,7 +9994,7 @@ task v4_mir_when_pattern_irrefutable_at(mir_id: int, pattern: word, source_ty: w
         pilot route_name = source_ty
         pilot case_name = pattern
         if route_pattern_sep >= 0 {
-            route_name = v4_mir_compact_type_text(v4_mir_path_left(pattern))
+            route_name = v4_mir_build_generic_type(mir_id, v4_mir_compact_type_text(v4_mir_path_left(pattern)))
             case_name = v4_mir_path_right(pattern)
         }
         pilot route_lookup_name = v4_mir_route_effective_name(ty_id, route_name, source_ty)
@@ -10042,7 +10062,7 @@ task v4_mir_when_pattern_route_case(mir_id: int, pattern: word, source_ty: word)
         pilot route_name = source_ty
         pilot case_name = route_payload_head
         if route_payload_scope != "" {
-            route_name = v4_mir_compact_type_text(route_payload_scope)
+            route_name = v4_mir_build_generic_type(mir_id, v4_mir_compact_type_text(route_payload_scope))
             case_name = v4_mir_path_right(route_payload_head)
         }
         pilot route_lookup_name = v4_mir_route_effective_name(ty_id, route_name, source_ty)
@@ -10063,7 +10083,7 @@ task v4_mir_when_pattern_route_case(mir_id: int, pattern: word, source_ty: word)
         pilot route_name = source_ty
         pilot case_name = pattern
         if route_pattern_sep >= 0 {
-            route_name = v4_mir_compact_type_text(v4_mir_path_left(pattern))
+            route_name = v4_mir_build_generic_type(mir_id, v4_mir_compact_type_text(v4_mir_path_left(pattern)))
             case_name = v4_mir_path_right(pattern)
         }
         pilot route_lookup_name = v4_mir_route_effective_name(ty_id, route_name, source_ty)
@@ -10259,7 +10279,7 @@ task v4_mir_try_lower_route_pattern_bindings(mir_id: int, body_id: int, block_id
         pilot route_name = source_ty
         pilot case_name = route_payload_head
         if route_payload_scope != "" {
-            route_name = v4_mir_compact_type_text(route_payload_scope)
+            route_name = v4_mir_build_generic_type(mir_id, v4_mir_compact_type_text(route_payload_scope))
             case_name = v4_mir_path_right(route_payload_head)
         }
         if route_name == "" or not v4_ty_is_route_type(ty_id, route_name) {

@@ -7977,6 +7977,8 @@ task v4_codegen_llvm_native_entry_error(mir_id: int) -> word {
         if v4_codegen_llvm_mir_uses_typed_process(mir_id) and v4_mir_module_init_body(mir_id) < 0 { give back "native typed process operations require a generated zero-argument entry" }
         give back ""
     }
+    -- A generic main is a template: it gets no body, so the entry cannot call it.
+    if v4_mir_body_is_generic_template(mir_id, main_id) { give back "native main must not be generic" }
     if v4_mir_body_callable_param_count(mir_id, main_id) != 0 {
         give back "native main parameters are not yet supported"
     }
@@ -7994,6 +7996,9 @@ task v4_codegen_llvm_native_entry_diag(mir_id: int) -> word {
     pilot main_id = v4_codegen_llvm_find_mir_body(mir_id, "main")
     if main_id < 0 { give back "" }
     pilot span = v4_mir_word_source_body_span(v4_mir_ty_id(mir_id), v4_mir_body_def(mir_id, main_id))
+    if v4_mir_body_is_generic_template(mir_id, main_id) {
+        give back v4_diag_new(v4_diag_error, span, "main must not be generic", "drop the type parameters from main; call a generic task from it instead")
+    }
     if v4_mir_body_callable_param_count(mir_id, main_id) != 0 {
         give back v4_diag_new(v4_diag_error, span, "main must not declare parameters", "read command-line arguments inside main with process::args_count() and process::arg(i)")
     }
