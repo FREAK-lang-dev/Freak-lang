@@ -245,8 +245,11 @@ MAIN = r'''
 static void unsafe_exit_callback(void) {fputs("UNSAFE_EXIT_CALLBACK\n",stderr);}
 int main(int argc,char **argv) {
     require(argc>=3,"arguments");scenario=argv[1];
-    bool workspace=!strncmp(argv[2],"workspace-",10);
-    target=!strcmp(argv[2]+(workspace?10:0),"destination")?20:10;
+    /* workspace-<side>: that side is the relaxed project parent. strict-<side>:
+       the other side is relaxed, so <side> keeps the strict private policy. */
+    bool workspace=!strncmp(argv[2],"workspace-",10),strict_side=!strncmp(argv[2],"strict-",7);
+    target=!strcmp(argv[2]+(workspace?10:strict_side?7:0),"destination")?20:10;
+    bool relax_source=(workspace && target==10) || (strict_side && target==20);
     tickets[0].directory=10;tickets[1].directory=20;
     if(fault("query-pending",target) || fault("io-pending",target))require(!atexit(unsafe_exit_callback),"exit callback registration");
     if(argc==5){
@@ -264,8 +267,9 @@ int main(int argc,char **argv) {
         printf("%d|%s|%lu|%d\n%s\n",accepted,diagnostic.phase?diagnostic.phase:"not-examined",(unsigned long)diagnostic.native_error,diagnostic.owner_match,trace);
         return 0;
     }
-    int64_t result=workspace ? freak_fs_rename_relative_new_workspace_checked(1,"module.ll",2,"emitted.ll") :
-        freak_fs_rename_relative_new_checked(1,"module.ll",2,"emitted.ll");
+    int64_t result=!(workspace || strict_side) ? freak_fs_rename_relative_new_checked(1,"module.ll",2,"emitted.ll") :
+        relax_source ? freak_fs_rename_relative_new_from_workspace_checked(1,"module.ll",2,"emitted.ll") :
+        freak_fs_rename_relative_new_into_workspace_checked(1,"module.ll",2,"emitted.ll");
     require(!module_live && !reopened_live && !token_live && !descriptor_live,"all publication native owners released");
     bool accepted=!strcmp(scenario,"success") || !strcmp(scenario,"thread-present") || !strcmp(scenario,"by-id-success") || !strcmp(scenario,"by-id-both-success") || !strcmp(scenario,"by-id-acl-inherit-only") ||
         (workspace && (!strcmp(scenario,"acl-null") || !strcmp(scenario,"acl-write") || !strcmp(scenario,"acl-unsupported") ||
@@ -426,11 +430,19 @@ def main() -> int:
     for scenario,owner_text in (('owner-different','different'),('owner-null','unknown'),('security-info',None)):
         for side in ('source','destination'):
             result = run(scenario+'-workspace-'+side,[str(binary),scenario,'workspace-'+side])
-            assert result.stdout.startswith(b'0|file publication requires destination and source parents owned by the current user ') and not result.stderr, result.stdout
+            assert result.stdout.startswith(b'0|file publication requires an owned workspace parent and a safe owned private parent ') and not result.stderr, result.stdout
             phase = 'security-info,error=109,owner=unknown' if owner_text is None else f'owner-policy,error=0,owner={owner_text}'
             assert f'{side}={phase}'.encode() in result.stdout, result.stdout
             assert len(result.stdout.splitlines()[0][2:]) < 256
             records.append({'scenario':scenario,'side':'workspace-'+side,'status':'pass'})
+    # The non-project parent of a workspace rename (Hangar transaction history)
+    # keeps the strict private policy: a broadened ACL there is still refused.
+    for scenario in ('acl-write','acl-null','owner-different'):
+        for side in ('source','destination'):
+            result = run(scenario+'-strict-'+side,[str(binary),scenario,'strict-'+side])
+            assert result.stdout.startswith(b'0|file publication requires an owned workspace parent and a safe owned private parent ') and not result.stderr, result.stdout
+            assert f'{side}=acl-policy,error=0'.encode() in result.stdout, result.stdout
+            records.append({'scenario':scenario,'side':'strict-'+side,'status':'pass'})
     for access in ('wide','zero'):
         result=run('ineligible-access-'+access,[str(binary),'by-id-success','source','direct',access])
         assert result.stdout.startswith(b'read-control-reopen|5\n') and b'attributes:' not in result.stdout and b'open-by-id:' not in result.stdout and not result.stderr
@@ -445,7 +457,7 @@ def main() -> int:
     for label, original, weakened, scenario in (
         ('stale-security-return','"security-info",security_error','"security-info",GetLastError()','security-info'),
         ('stale-logical-size','diagnostic && !sized ? GetLastError() : 0','diagnostic ? GetLastError() : 0','token-size-success-invalid'),
-        ('destination-after-source-reject','private_parents && freak_fs_windows_parent_policy(source_parent,&source_diagnostic,workspace) &&','private_parents && (freak_fs_windows_parent_policy(source_parent,&source_diagnostic,workspace),true) &&','read-control-reopen'),
+        ('destination-after-source-reject','private_parents && freak_fs_windows_parent_policy(source_parent,&source_diagnostic,source_workspace) &&','private_parents && (freak_fs_windows_parent_policy(source_parent,&source_diagnostic,source_workspace),true) &&','read-control-reopen'),
         ('short-identity-comparison','memcmp(identity.FileId.Identifier,current.FileId.Identifier,sizeof(identity.FileId.Identifier))','memcmp(identity.FileId.Identifier,current.FileId.Identifier,8)','by-id-id-high-mismatch'),
         ('inexact-device-output','io.information != sizeof(device)','io.information < sizeof(device)','by-id-query-long'),
     ):

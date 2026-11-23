@@ -206,6 +206,7 @@ NONFINAL_CONTROLS = ('query-pending', 'query-nonfinal', 'flush-pending', 'flush-
 # The project-folder (workspace) policy accepts owned parents that others may
 # also write, e.g. D:\ folders inheriting "Authenticated Users: Modify".
 WORKSPACE_CASES = ('workspace-native', 'workspace-source-write', 'workspace-destination-write', 'workspace-write-dac', 'workspace-null-dacl')
+WORKSPACE_STRICT_CASES = ('workspace-strict-source-write', 'workspace-strict-destination-write', 'workspace-strict-null-dacl')
 
 WINDOWS_HARNESS = r'''
 #ifndef _WIN32_WINNT
@@ -219,7 +220,8 @@ WINDOWS_HARNESS = r'''
 #include <winternl.h>
 #include <aclapi.h>
 extern int64_t freak_llvm_fs_rename_relative_new_checked(int64_t,int64_t,int64_t,int64_t);
-extern int64_t freak_llvm_fs_rename_relative_new_workspace_checked(int64_t,int64_t,int64_t,int64_t);
+extern int64_t freak_llvm_fs_rename_relative_new_from_workspace_checked(int64_t,int64_t,int64_t,int64_t);
+extern int64_t freak_llvm_fs_rename_relative_new_into_workspace_checked(int64_t,int64_t,int64_t,int64_t);
 static const char *scenario="";static int active=0,directory_flushes=0,candidate_opens=0,candidate_closes=0,dispositions=0;
 static HANDLE candidate=INVALID_HANDLE_VALUE,delete_marked=INVALID_HANDLE_VALUE;
 static int inspection_opens=0,inspection_closes=0;static HANDLE inspection=INVALID_HANDLE_VALUE;
@@ -442,8 +444,11 @@ static void release(int64_t ticket,int expected,int completed){
 }
 int main(int argc,char **argv) {
     require(argc==4,"arguments");scenario=argv[3];require(atexit(unsafe_callback)==0,"callback registration");
-    /* workspace-* run the same fixtures through the project-folder policy. */
-    int workspace=!strncmp(scenario,"workspace-",10);const char *policy_case=workspace ? scenario+10 : scenario;
+    /* workspace-* run the same fixtures through the project-folder policy on
+       the parent that carries the permissive ACL; workspace-strict-* relax the
+       other parent instead, so the permissive (history-side) parent is refused. */
+    int workspace=!strncmp(scenario,"workspace-",10),strict_side=!strncmp(scenario,"workspace-strict-",17);
+    const char *policy_case=strict_side ? scenario+17 : workspace ? scenario+10 : scenario;
     int source_policy=!strcmp(policy_case,"source-write") ? 2 : !strcmp(policy_case,"null-dacl") ? 5 : 0;
     int destination_policy=!strcmp(policy_case,"readonly-others") ? 1 : !strcmp(policy_case,"destination-write") ? 2 : !strcmp(policy_case,"write-dac") ? 3 : !strcmp(policy_case,"delete-child") ? 4 : 0;
     /* Preserve seeded byte-oracle access even for the NULL parent DACL case. */
@@ -463,9 +468,11 @@ int main(int argc,char **argv) {
     inspection_opens=inspection_closes=0;
     int ordinary=workspace || !strcmp(scenario,"native") || !strcmp(scenario,"readonly-others") || !strcmp(scenario,"source-write") || !strcmp(scenario,"destination-write") || !strcmp(scenario,"write-dac") || !strcmp(scenario,"delete-child") || !strcmp(scenario,"null-dacl") || !strcmp(scenario,"missing-security-api") || !strcmp(scenario,"directory-fault");
     if(ordinary){
-        int accepted=workspace || !strcmp(scenario,"native") || !strcmp(scenario,"readonly-others");int completed=accepted || !strcmp(scenario,"directory-fault");
-        release(workspace ? F(rename_relative_new_workspace_checked)(source,W("a"),destination,W("result")) :
-            F(rename_relative_new_checked)(source,W("a"),destination,W("result")),accepted,completed);
+        int accepted=(workspace && !strict_side) || !strcmp(scenario,"native") || !strcmp(scenario,"readonly-others");int completed=accepted || !strcmp(scenario,"directory-fault");
+        int relax_source=(source_policy!=0)!=strict_side;
+        release(!workspace ? F(rename_relative_new_checked)(source,W("a"),destination,W("result")) :
+            relax_source ? F(rename_relative_new_from_workspace_checked)(source,W("a"),destination,W("result")) :
+            F(rename_relative_new_into_workspace_checked)(source,W("a"),destination,W("result")),accepted,completed);
         if(completed)require(directory_flushes==2,"both held parent flushes attempted");
     }else if(is("replace-delete")){
         int64_t buffer=freak_byte_buffer_new();freak_byte_buffer_write_byte(buffer,'N');freak_byte_buffer_write_byte(buffer,0);freak_byte_buffer_write_byte(buffer,255);
@@ -715,7 +722,7 @@ def main() -> int:
                     command = [clang, str(harness), str(wrapper), f'-I{runtime}', f'-O{optimization}', *flags, '-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1', '-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1', '-lws2_32', '-lshell32', '-ladvapi32', '-lntdll', '-o', str(binary)]
                     if adapter == 'llvm':command += ['-DUSE_LLVM_ADAPTER=1', str(runtime/'freak_llvm_runtime.c')]
                     built = subprocess.run(command, capture_output=True, timeout=90);assert built.returncode == 0, built.stderr
-                    for name in ('native', 'readonly-others', 'source-write', 'destination-write', 'write-dac', 'delete-child', 'null-dacl', 'missing-security-api', 'directory-fault', *SYNC_CONTROLS, *NONFINAL_CONTROLS, 'replace-delete', 'temp-rollback', 'readonly-temp', *WORKSPACE_CASES):
+                    for name in ('native', 'readonly-others', 'source-write', 'destination-write', 'write-dac', 'delete-child', 'null-dacl', 'missing-security-api', 'directory-fault', *SYNC_CONTROLS, *NONFINAL_CONTROLS, 'replace-delete', 'temp-rollback', 'readonly-temp', *WORKSPACE_CASES, *WORKSPACE_STRICT_CASES):
                         case = home/f'{adapter}-{optimization}-{name}';case.mkdir();source_root, destination = case/'source', case/'destination'
                         source_root.mkdir();destination.mkdir();(source_root/'a').write_bytes(b'published\0\xff');(destination/'neighbor').write_bytes(b'unchanged');(source_root/'deletable').write_bytes(b'delete-me')
                         invocation = [str(binary), str(source_root), str(destination), name]
