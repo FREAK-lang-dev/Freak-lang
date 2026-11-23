@@ -660,7 +660,9 @@ list items of routes that own words, moved list captures, and user
 declarations of `realloc`/`free` in a module that uses lists. Program:
 `examples/lists_native.fk` (exact output, exit 0, and an out-of-bounds
 panic run) in `check_v4_native_shapes`, also audited by
-`tests/v4_owned_word_codegen.py`; eighteen named rejections.
+`tests/v4_owned_word_codegen.py`; nineteen named rejections. MIR also
+refuses control flow inside any index operand (`xs[f()?]`,
+`xs[pick(a and b)]`) until index operands are wired (#274).
 
 ### Persisted interpolation checkpoint (W3)
 
