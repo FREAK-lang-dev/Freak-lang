@@ -1519,21 +1519,26 @@ task cli_ffi_link_fingerprint(src_file: word, source: word) -> word {
         } else { item = item + c }
         i += 1
     }
-    -- Clang's driver also searches LIBRARY_PATH for -l values.
+    -- Clang's driver also searches LIBRARY_PATH for -l values, and reads an
+    -- empty component (leading, trailing or doubled separator) as ".".
     pilot library_path = process::env("LIBRARY_PATH")
-    pilot separator = ":"
-    if process::platform_is_windows() { separator = ";" }
-    item = ""
-    i = 0
-    repeat library_path.length() times {
-        pilot c = library_path.char_at(i)
-        if c == separator {
-            if item != "" { dirs = dirs + cli_ffi_absolute(item, "") + "|" }
-            item = ""
-        } else { item = item + c }
-        i += 1
+    if library_path != "" {
+        pilot separator = ":"
+        if process::platform_is_windows() { separator = ";" }
+        item = ""
+        i = 0
+        repeat library_path.length() + 1 times {
+            pilot at_end = i >= library_path.length()
+            pilot c = ""
+            if not at_end { c = library_path.char_at(i) }
+            if at_end or c == separator {
+                if item == "" { dirs = dirs + cli_current_dir() + "|" }
+                else { dirs = dirs + cli_ffi_absolute(item, "") + "|" }
+                item = ""
+            } else { item = item + c }
+            i += 1
+        }
     }
-    if item != "" { dirs = dirs + cli_ffi_absolute(item, "") + "|" }
     pilot out = "|ffi-library-path=" + library_path + cli_ffi_fingerprint_list(source_links, source_abs, dirs)
     give back out + cli_ffi_fingerprint_list(cli_requested_link_libs, "", dirs)
 }
