@@ -9564,6 +9564,11 @@ EXECUTABLE_SMOKES = [
             "list-angles-capitalized-compare-elements=2",
             "list-angles-compare-pair-elements=2",
             "list-angles-generic-comma-elements=2",
+            "list-forge-diagnostics=0",
+            "list-forge-owner-kind=UseLocal",
+            "list-forge-push-exact=true",
+            "list-forge-push-retargeted-owner=false",
+            "list-forge-push-restored=true",
         ],
     },
     {

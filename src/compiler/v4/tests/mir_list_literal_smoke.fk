@@ -123,3 +123,60 @@ say "list-angles-compare-literal-elements=" + v4_mir_list_literal_children_of(v4
 say "list-angles-capitalized-compare-elements=" + v4_mir_list_literal_children_of(v4_mir_list_literal_angles_mir, v4_mir_list_literal_angles_body, "gs")
 say "list-angles-compare-pair-elements=" + v4_mir_list_literal_children_of(v4_mir_list_literal_angles_mir, v4_mir_list_literal_angles_body, "ds")
 say "list-angles-generic-comma-elements=" + v4_mir_list_literal_children_of(v4_mir_list_literal_angles_mir, v4_mir_list_literal_angles_body, "fs")
+
+-- A push intrinsic is recognized only while its `lend mut` owner is an exact
+-- reference to a list local; a forged owner retargeted at a word local
+-- that still records List<int> is not a list loan.
+task v4_mir_list_literal_forge_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot mut xs: List<int> = [1]\n"
+    src = src + "    pilot w = \"hi\"\n"
+    src = src + "    xs.push(2)\n"
+    src = src + "    give back xs.length() + w.length()\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_list_literal_yes(flag: bool) -> word {
+    if flag { give back "true" }
+    give back "false"
+}
+
+task v4_mir_list_literal_push_call(mir: int, body: int) -> int {
+    pilot value = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+        if v4_mir_rvalue_builtin_method(mir, body, value) == "builtin::list::push" { give back value }
+        value += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_list_literal_local_named(mir: int, body: int, name: word) -> int {
+    pilot local = 0
+    repeat until local >= v4_mir_body_local_count(mir, body) {
+        if v4_mir_local_name(mir, body, local) == name { give back local }
+        local += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_mir_list_literal_forge_stream = v4_lex_text(4, v4_mir_list_literal_forge_source())
+pilot v4_mir_list_literal_forge_tree = v4_parse_stream(4, v4_mir_list_literal_forge_stream)
+pilot v4_mir_list_literal_forge_hir = v4_hir_lower_tree(4, v4_mir_list_literal_forge_tree)
+pilot v4_mir_list_literal_forge_resolve = v4_resolve_lower_hir(4, v4_mir_list_literal_forge_hir)
+pilot v4_mir_list_literal_forge_ty = v4_ty_lower_resolve(4, v4_mir_list_literal_forge_resolve)
+pilot v4_mir_list_literal_forge_mir = v4_mir_lower_ty(4, v4_mir_list_literal_forge_ty)
+pilot v4_mir_list_literal_forge_body = v4_mir_lookup_body(v4_mir_list_literal_forge_mir, v4_resolve_def_for_name(v4_mir_list_literal_forge_resolve, "main"))
+pilot v4_mir_list_literal_forge_call = v4_mir_list_literal_push_call(v4_mir_list_literal_forge_mir, v4_mir_list_literal_forge_body)
+pilot v4_mir_list_literal_forge_loan = v4_mir_rvalue_call_arg(v4_mir_list_literal_forge_mir, v4_mir_list_literal_forge_body, v4_mir_list_literal_forge_call, 0)
+pilot v4_mir_list_literal_forge_owner = v4_mir_rvalue_lhs(v4_mir_list_literal_forge_mir, v4_mir_list_literal_forge_body, v4_mir_list_literal_forge_loan)
+pilot v4_mir_list_literal_forge_word_local = v4_mir_list_literal_local_named(v4_mir_list_literal_forge_mir, v4_mir_list_literal_forge_body, "w")
+pilot v4_mir_list_literal_forge_owner_op = v4_mir_rvalue_op(v4_mir_list_literal_forge_mir, v4_mir_list_literal_forge_body, v4_mir_list_literal_forge_owner)
+
+say "list-forge-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_list_literal_forge_mir))
+say "list-forge-owner-kind=" + v4_mir_rvalue_kind(v4_mir_list_literal_forge_mir, v4_mir_list_literal_forge_body, v4_mir_list_literal_forge_owner)
+say "list-forge-push-exact=" + v4_mir_list_literal_yes(v4_mir_rvalue_is_builtin_list(v4_mir_list_literal_forge_mir, v4_mir_list_literal_forge_body, v4_mir_list_literal_forge_call))
+array_set(v4_mir_body_rvalue_ops_handle(v4_mir_list_literal_forge_mir, v4_mir_list_literal_forge_body), v4_mir_list_literal_forge_owner, "local#" + word_from_int(v4_mir_list_literal_forge_word_local))
+say "list-forge-push-retargeted-owner=" + v4_mir_list_literal_yes(v4_mir_rvalue_is_builtin_list(v4_mir_list_literal_forge_mir, v4_mir_list_literal_forge_body, v4_mir_list_literal_forge_call))
+array_set(v4_mir_body_rvalue_ops_handle(v4_mir_list_literal_forge_mir, v4_mir_list_literal_forge_body), v4_mir_list_literal_forge_owner, v4_mir_list_literal_forge_owner_op)
+say "list-forge-push-restored=" + v4_mir_list_literal_yes(v4_mir_rvalue_is_builtin_list(v4_mir_list_literal_forge_mir, v4_mir_list_literal_forge_body, v4_mir_list_literal_forge_call))
