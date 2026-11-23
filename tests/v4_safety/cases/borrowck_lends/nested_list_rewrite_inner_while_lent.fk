@@ -1,0 +1,10 @@
+-- Storing a new inner list releases the old one, so it waits for its loan.
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+
+task main() -> int {
+    pilot mut g: List<List<int>> = [[1], [2]]
+    pilot r = lend g[0]
+    g[0] = [7]
+    give back r.length()
+}

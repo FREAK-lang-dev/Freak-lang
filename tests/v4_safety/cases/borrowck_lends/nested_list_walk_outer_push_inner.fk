@@ -1,0 +1,11 @@
+-- Walking the outer list lends every inner list too.
+-- expect: reject borrowck
+-- error: Meiya carries an exclusive lend across another loan boundary
+
+task main() -> int {
+    pilot mut g: List<List<int>> = [[1], [2]]
+    for each inner in g {
+        g[0].push(inner.length())
+    }
+    give back 0
+}

@@ -1,0 +1,12 @@
+-- Replacing the whole shape drops its list field while a loan of it lives.
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+
+shape Bag { items: List<int>, n: int }
+
+task main() -> int {
+    pilot mut b = Bag { items: [1], n: 1 }
+    pilot r = lend b.items
+    b = Bag { items: [], n: 0 }
+    give back r.length()
+}

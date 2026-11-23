@@ -1,0 +1,12 @@
+-- A loan of one field leaves the shape's other fields writable.
+-- expect: run
+-- exit: 3
+
+shape Bag { items: List<int>, n: int }
+
+task main() -> int {
+    pilot mut b = Bag { items: [1], n: 1 }
+    pilot r = lend b.items
+    b.n += 1
+    give back r.length() + b.n
+}

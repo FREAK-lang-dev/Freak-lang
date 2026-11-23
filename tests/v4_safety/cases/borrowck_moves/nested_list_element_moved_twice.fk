@@ -1,0 +1,10 @@
+-- Moving an inner list out of its slot twice is a use after move.
+-- expect: reject borrowck
+-- error: Meiya remembers the field you already moved
+
+task main() -> int {
+    pilot g: List<List<int>> = [[1], [2]]
+    pilot a = g[0]
+    pilot b = g[0]
+    give back a.length() + b.length()
+}

@@ -1,0 +1,11 @@
+-- An exclusive loan of an inner list keeps the outer list from being read.
+-- expect: reject borrowck
+-- error: Meiya refuses overlapping mutable lends
+
+task main() -> int {
+    pilot mut g: List<List<int>> = [[1], [2]]
+    pilot r = lend mut g[0]
+    say g.length()
+    r.push(4)
+    give back 0
+}

@@ -1,0 +1,11 @@
+-- A loan of an inner list is a loan of its slot in the outer buffer: a push
+-- on the outer list could move that buffer, so it waits for the loan.
+-- expect: reject borrowck
+-- error: Meiya refuses overlapping mutable lends
+
+task main() -> int {
+    pilot mut g: List<List<int>> = [[1], [2]]
+    pilot r = lend g[0]
+    g.push([3])
+    give back r.length()
+}

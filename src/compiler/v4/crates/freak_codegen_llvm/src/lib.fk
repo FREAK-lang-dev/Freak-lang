@@ -6190,9 +6190,9 @@ task v4_codegen_llvm_mir_uses_lists(mir_id: int) -> bool {
 -- `List<T>` type surfaces: a list of scalars, words, task or raw pointers,
 -- lists, or native shapes, tuples, fixed arrays and routes. A list is a
 -- top-level value or an aggregate slot (v4_codegen_llvm_native_list_slot_error);
--- task value surfaces that pass one stay fenced by depth.
+-- only task value surfaces reach here nested, and they stay fenced.
 task v4_codegen_llvm_native_list_type_error(mir_id: int, type_text: word, depth: int) -> word {
-    if depth > 0 { give back "native lists inside other types are not yet supported: " + type_text }
+    if depth > 0 { give back "native task values with list parameters or results are not yet supported: " + type_text }
     give back v4_codegen_llvm_native_list_slot_error(mir_id, type_text, 0)
 }
 

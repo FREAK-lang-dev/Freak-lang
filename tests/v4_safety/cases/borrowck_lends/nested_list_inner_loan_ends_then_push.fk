@@ -1,0 +1,12 @@
+-- Once the inner loan's last use is past, the outer list grows freely.
+-- expect: run
+-- exit: 6
+
+task main() -> int {
+    pilot mut g: List<List<int>> = [[1], [2]]
+    pilot r = lend g[0]
+    pilot k = r.length()
+    g.push([3])
+    g[0].push(4)
+    give back k + g.length() + g[0].length()
+}

@@ -1,0 +1,15 @@
+-- A loan of a list field of a list element overlaps an exclusive loan of
+-- that element.
+-- expect: reject borrowck
+-- error: Meiya refuses overlapping mutable lends
+
+shape Bag { items: List<int>, n: int }
+
+task grow(lend mut b: Bag) -> void { b.items.push(9) }
+
+task main() -> int {
+    pilot mut bags: List<Bag> = [Bag { items: [1], n: 1 }]
+    pilot r = lend bags[0].items
+    grow(lend mut bags[0])
+    give back r.length()
+}
