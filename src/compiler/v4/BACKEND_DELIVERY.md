@@ -106,6 +106,55 @@ What it says:
 - So B1 is worth doing for diagnostics and as the step towards B2, but it
   is not a correctness fix for the defects that cost the most to find.
 
+## B0: attributes on runtime helpers
+
+Codegen now tells LLVM what the C runtime promises about its own helpers
+(`v4_codegen_llvm_runtime_declare_attributes` in `freak_codegen_llvm`). It
+touches only `declare` lines of `@freak_v4_` helpers, after the module's
+runtime block is assembled; user declarations, definitions and helpers it
+does not know pass through unchanged.
+
+| Promise | Helpers | Why it holds |
+|---|---|---|
+| `nounwind` | every `@freak_v4_` helper except the panic entry points | The runtime is C built without exceptions; a panic reports and ends the process with `abort` or `_Exit`, it never unwinds. The panic entry points are left alone so a later unwinding panic strategy does not inherit a wrong promise. |
+| `readonly` | `word_length`, `word_bytes`, `word_byte_length`, `word_equal`, `word_starts_with`, `word_ends_with`, `word_contains`, `word_checksum`, `word_snapshot_line_count`, `word_snapshot_field_count`, `compiler_array_len` | They read a word or an array and allocate nothing. Their only writes are the runtime's private scalar-count memo and, on a panic, the report written on the way out. The module cannot observe either; the same reading other language runtimes take for memoising accessors. |
+| not given: `willreturn` | all | Any of them may panic, and a panic does not return. Without it LLVM still deletes nothing and keeps every panic in order. |
+| not given: `nocapture` | `word_parse_int_checked`, `process_arg_checked`, `fs_read` | They compare their two result slots for aliasing. LLVM 21 counts that comparison as an address capture, so the promise would be too strong, and the slots are read back at once anyway. |
+| not given: ranges, `memory(...)` | all | `range(...)` and `memory(read, inaccessiblemem: readwrite)` (the exact truth for the readonly group) need LLVM 19 and 16; the floor is 15 and `llvm_text_floor.py` rejects them. Call-site `!range` metadata would need every call emitter changed and is left for B1, where calls are built in one place. |
+
+The spellings are LLVM 15's. LLVM 16 and newer read `readonly` as
+`memory(read)`: checked by parsing the attributes with LLVM 22.1.8 (the B2
+pin) and by compiling the modules with Clang 15.0.7 to 20.1.2.
+
+### Measured
+
+`benchmarks/v4/runtime_helper_attributes.py` builds each program once,
+removes the attributes for the second build, and runs both alternately
+(medians of 5, x86-64 Linux, Clang 18.1.3, O2):
+
+| Program | Without | With | Speed-up |
+|---|---:|---:|---:|
+| `text.length()` in a loop condition (300,000 passes over 72 characters) | 1.856 s | 0.023 s | 80x |
+| three queries per pass (3,000,000 passes) | 1.631 s | 1.122 s | 1.45x |
+| control: a new word per pass (1,000,000 passes) | 4.063 s | 3.034 s | none (see below) |
+| tier 1 hot loop (100,000,000 iterations) | 0.685 s | 0.623 s | none (see below) |
+
+The control and tier 1 loops compile to the same instructions with and
+without the attributes (only unwind-table directives differ). Linking the
+same two control modules against prebuilt runtime objects instead turns
+the gap around (about 3.1 s without, 4.3 s with), so gaps of that size are
+the layout of the two binaries, not the attributes. Raw samples:
+`benchmarks/v4/runtime_helper_attributes.json`.
+
+What moved and why: when `text.length()` is in a loop condition, LLVM now
+asks once per loop instead of every pass, because the helper reads memory
+nothing in the loop writes. With several queries in one loop only the first
+moves: the first may panic, so LLVM cannot assume the next one is reached
+on every pass without `willreturn`. Where the loop also makes a new word,
+nothing moves, and nothing should. The tier 1 hot loop calls no helper and
+is unchanged, which is the judgement the row asks for: no regression where
+there is nothing to gain.
+
 ## B2: the LLVM bridge
 
 Started 2026-11-23, ahead of the A4 gate by the maintainer's choice: the
