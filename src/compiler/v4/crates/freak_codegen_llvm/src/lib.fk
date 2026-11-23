@@ -7160,6 +7160,52 @@ task v4_codegen_llvm_dyn_resolve(text: word, records: word, target_spec: word) -
     give back v4_codegen_llvm_fragment_finish(parts)
 }
 
+-- B0: what the C runtime promises about its own helpers, so stock LLVM can
+-- optimise around them. The spellings are LLVM 15's (16 and newer read
+-- readonly as memory(read)). No helper unwinds: the runtime is C and a panic
+-- ends the process. The readonly helpers read a word or array and allocate
+-- nothing; their only writes are the runtime's private scalar-count memo and
+-- the panic report on the way to exit, which the module cannot observe.
+-- willreturn is never promised, because any of them may panic. The panic
+-- entry points, user declarations and unknown helpers are left as they are.
+-- Evidence: BACKEND_DELIVERY.md, "B0: attributes on runtime helpers".
+task v4_codegen_llvm_runtime_declare_attributes(symbol: word) -> word {
+    if not symbol.starts_with("@freak_v4_") or symbol.starts_with("@freak_v4_panic_") { give back "" }
+    if symbol == "@freak_v4_word_length" or symbol == "@freak_v4_word_bytes" or symbol == "@freak_v4_word_byte_length" { give back " readonly nounwind" }
+    if symbol == "@freak_v4_word_equal" or symbol == "@freak_v4_word_starts_with" or symbol == "@freak_v4_word_ends_with" or symbol == "@freak_v4_word_contains" { give back " readonly nounwind" }
+    if symbol == "@freak_v4_word_checksum" or symbol == "@freak_v4_word_snapshot_line_count" or symbol == "@freak_v4_word_snapshot_field_count" or symbol == "@freak_v4_compiler_array_len" { give back " readonly nounwind" }
+    give back " nounwind"
+}
+
+-- Appends those attributes to each runtime `declare` line. Global string
+-- constants escape newlines, so a line start is always a real line.
+task v4_codegen_llvm_runtime_attributes(text: word) -> word {
+    if not text.contains("declare ") { give back text }
+    pilot parts = v4_codegen_llvm_fragment_new()
+    pilot emitted = 0
+    pilot start = 0
+    repeat until start < 0 {
+        pilot stop = v4_index_of_from(text, "\n", start)
+        if stop < 0 { stop = text.length() }
+        if v4_slice(text, start, start + 8) == "declare " {
+            pilot at = v4_index_of_from(text, "@", start)
+            pilot paren = -1
+            if at > start and at < stop { paren = v4_index_of_from(text, "(", at) }
+            if paren > at and paren < stop {
+                pilot extra = v4_codegen_llvm_runtime_declare_attributes(v4_slice(text, at, paren))
+                if extra != "" {
+                    v4_codegen_llvm_fragment_push(parts, v4_slice(text, emitted, stop))
+                    v4_codegen_llvm_fragment_push(parts, extra)
+                    emitted = stop
+                }
+            }
+        }
+        if stop >= text.length() { start = -1 } else { start = stop + 1 }
+    }
+    v4_codegen_llvm_fragment_push(parts, v4_slice(text, emitted, text.length()))
+    give back v4_codegen_llvm_fragment_finish(parts)
+}
+
 -- Place reads, aggregate literals and Sum checks/takes. One call site keeps
 -- these out of the recursive collector's frame: every extra call there costs
 -- stack per expression level (Windows' 1 MB stack runs the depth contract).
@@ -8513,7 +8559,7 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
         v4_codegen_llvm_fragment_push(parts, globals)
     }
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_shape_module_lines(array_get(v4_codegen_llvm_shape_lines, codegen_id), target_spec))
-    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_dyn_resolve(array_get(v4_codegen_llvm_word_runtime_lines, codegen_id), array_get(v4_codegen_llvm_shape_lines, codegen_id), target_spec))
+    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_runtime_attributes(v4_codegen_llvm_dyn_resolve(array_get(v4_codegen_llvm_word_runtime_lines, codegen_id), array_get(v4_codegen_llvm_shape_lines, codegen_id), target_spec)))
     pilot declaration_index = v4_codegen_llvm_decl_symbol_index_new(codegen_id)
     pilot c_width_used: bool = false
     pilot decl_id = 0
