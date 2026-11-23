@@ -3333,10 +3333,12 @@ task v4_mir_builtin_shared_method_identity_code(builtin_method: word) -> int {
 }
 
 task v4_mir_builtin_shared_method_receiver_mode(builtin_method: word) -> word {
-    if builtin_method == v4_mir_builtin_shared_borrow_mut or builtin_method == v4_mir_builtin_shared_get_mut {
+    -- borrow_mut lends its receiver shared: the runtime guard, not the
+    -- static loan, carries its exclusivity (bible 4.4 runtime guard).
+    if builtin_method == v4_mir_builtin_shared_get_mut {
         give back v4_ty_param_mode_lend_mut
     }
-    if builtin_method == v4_mir_builtin_shared_clone or builtin_method == v4_mir_builtin_shared_downgrade or builtin_method == v4_mir_builtin_shared_borrow or builtin_method == v4_mir_builtin_weak_upgrade {
+    if builtin_method == v4_mir_builtin_shared_clone or builtin_method == v4_mir_builtin_shared_downgrade or builtin_method == v4_mir_builtin_shared_borrow or builtin_method == v4_mir_builtin_shared_borrow_mut or builtin_method == v4_mir_builtin_weak_upgrade {
         give back v4_ty_param_mode_lend
     }
     give back ""
