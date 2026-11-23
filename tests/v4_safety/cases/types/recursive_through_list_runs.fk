@@ -1,0 +1,18 @@
+-- A list is indirection (bible 1.5): a shape, generic shape or route may
+-- hold a list of itself, and it lowers and runs natively.
+-- expect: run
+-- exit: 2
+
+shape Node<T> { v: T, kids: List<Node<T>> }
+
+task size<T>(lend n: Node<T>) -> int {
+    pilot c = 1
+    for each k in n.kids { c += size(lend k) }
+    give back c
+}
+
+task main() -> int {
+    pilot leaf: Node<int> = Node { v: 2, kids: [] }
+    pilot n: Node<int> = Node { v: 1, kids: [leaf] }
+    give back size(lend n)
+}
