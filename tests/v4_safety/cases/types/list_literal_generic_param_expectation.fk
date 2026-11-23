@@ -1,0 +1,8 @@
+-- A list literal passed for a callee's unsubstituted `List<T>` keeps its own
+-- element type; signature matching infers T, so there is no false drift.
+-- Native generics are not lowered yet (#265), so this stops at codegen.
+-- expect: check
+
+task accept<T>(xs: List<T>) -> int { give back 3 }
+
+task main() -> int { give back accept([1, 2]) }

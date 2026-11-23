@@ -4838,6 +4838,35 @@ task v4_mir_try_lower_list_literal(mir_id: int, body_id: int, stream_id: int, fi
     give back list_rvalue
 }
 
+-- Whether every name in a type is a declared type, a builtin, or a generic
+-- of the body being lowered. A callee's own generic parameters (`T` in an
+-- unsubstituted `List<T>`) are not.
+task v4_mir_expected_type_is_concrete(mir_id: int, body_id: int, type_text: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown { give back false }
+    if v4_ty_is_lifetime_name(type_text) or v4_ty_is_surface_task_function_type(type_text) { give back true }
+    if v4_ty_is_lend_type(type_text) { give back v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_lend_target_type(type_text)) }
+    if v4_ty_is_raw_pointer_type(type_text) { give back v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_raw_pointer_target_type(type_text)) }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        repeat until slot_id >= v4_ty_tuple_slot_count(type_text) {
+            if not v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_tuple_slot_type(type_text, slot_id)) { give back false }
+            slot_id += 1
+        }
+        give back true
+    }
+    if v4_ty_is_fixed_array_type(type_text) { give back v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_fixed_array_element_type(type_text)) }
+    if v4_ty_is_generic_instance_type(type_text) {
+        if not v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_generic_base_name(type_text)) { give back false }
+        pilot arg_id = 0
+        repeat until arg_id >= v4_ty_generic_arg_count(type_text) {
+            if not v4_mir_expected_type_is_concrete(mir_id, body_id, v4_ty_generic_arg(type_text, arg_id)) { give back false }
+            arg_id += 1
+        }
+        give back true
+    }
+    give back v4_ty_is_declared_simple_type_name(v4_mir_ty_id(mir_id), type_text) or v4_mir_body_declares_type_generic_name(mir_id, body_id, type_text)
+}
+
 -- A list literal whose destination names its List type: `[]` takes that
 -- type, and each element lowers against the element type (so numeric
 -- literals narrow as they do for any typed destination).
@@ -4846,6 +4875,9 @@ task v4_mir_try_lower_expected_list_literal(mir_id: int, body_id: int, stream_id
     pilot list_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), expected_ty)
     pilot element_ty = v4_ty_list_element_type(list_ty)
     if element_ty == v4_ty_unknown { give back 0 - 1 }
+    -- A callee's unsubstituted `List<T>` is no expectation: the literal keeps
+    -- its own type and signature matching infers T from it.
+    if not v4_mir_expected_type_is_concrete(mir_id, body_id, element_ty) { give back 0 - 1 }
     if v4_lex_token_syntax_value(stream_id, first) != "[" or v4_lex_token_syntax_value(stream_id, last) != "]" { give back 0 - 1 }
     if v4_mir_find_open_index_token(stream_id, first, last) != first { give back 0 - 1 }
     pilot children_handle = array_new()
