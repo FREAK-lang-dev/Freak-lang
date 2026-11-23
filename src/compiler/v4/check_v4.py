@@ -1108,7 +1108,7 @@ EXECUTABLE_SMOKES = [
             'hir-impl-index 1024-items=true 512-impls=true logarithmic=true zero-impl-constant=true',
             'hir-impl-index snapshot-v11=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true',
             'hir-impl-index resource-readonly=true build-failure-cold=true recovery=true',
-            'hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=44',
+            'hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=45',
         ],
     },
     {
@@ -2701,6 +2701,8 @@ EXECUTABLE_SMOKES = [
             "extern-return-snapshot-complete-counts=true",
             "extern-return-snapshot-owner-contract=true",
             "extern-return-snapshot-surface-flag=true",
+            "extern-return-snapshot-param-facts=true",
+            "extern-return-snapshot-param-rejects=true",
             "extern-return-snapshot-spans-order=true",
             "extern-return-snapshot-repeat-handles=true",
             "extern-return-snapshot-resource-retry=true",
@@ -2860,7 +2862,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-forty-four-handles=true",
+            "hir-scaling-fresh-slot-forty-five-handles=true",
             "hir-scaling-512-params=true",
             "hir-scaling-64-param-files=true",
             "hir-scaling-512-param-tasks=true",
@@ -11005,7 +11007,7 @@ EXECUTABLE_SMOKES = [
             "local-annotation-mir-diagnostics=0",
             "local-annotation-borrow-status=clean",
             "local-annotation-borrow-diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v13 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 method-owners=0 methods=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v14 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 extern-params=0 method-owners=0 methods=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 diagnostics=0 skipped-other=0 live-files=1",
             "local-annotation-restored-count=4",
             "local-annotation-restored-fixed=char",
@@ -11087,7 +11089,7 @@ EXECUTABLE_SMOKES = [
             "task-return-mir-diagnostics=0",
             "task-return-borrow-status=clean",
             "ty-snapshot format=freak-ty-snapshot-v1 files=1 signatures=3 diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v13 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 method-owners=0 methods=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v14 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 extern-params=0 method-owners=0 methods=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=3 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 diagnostics=0 skipped-other=0 live-files=1",
             "task-return-restored-form=explicit",
             "task-return-restored-surface=lend 'a maybe<[word;2]>",
@@ -11133,7 +11135,7 @@ EXECUTABLE_SMOKES = [
             "task-param-mir-span-semantic=true",
             "task-param-meiya-status=clean",
             "task-param-editor-label-definition=true",
-            "hir-snapshot format=freak-hir-snapshot-v13",
+            "hir-snapshot format=freak-hir-snapshot-v14",
             "task-param-restored-count=4",
             "task-param-schema-variants-rejected=true",
             "task-param-schema-variants-atomic=true",
@@ -11575,7 +11577,7 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "interpolation-resource malformed-atomic=true ticket-boundary=true fresh-admission=true query-atomic=true restore-boundary=true decoder-conservation=true",
             "interpolation-resource restores=24 capacity-stable=true retired-plan=true source-stable=true",
-            "interpolation-resource growth=44 shrink-stable=true regrow-stable=true",
+            "interpolation-resource growth=45 shrink-stable=true regrow-stable=true",
             "interpolation-resource invalidation=true transitive-editor=true regeneration=true recovery=true",
         ],
     },
@@ -11653,8 +11655,8 @@ EXECUTABLE_SMOKES = [
         "expect_mode": "line",
         "expect_unique": True,
         "expect": [
-            "cold-hir-constructor rejected=47 exact-refs=true capacity-stable=true source-stable=true",
-            "cold-hir-constructor admitted=47 warm-stable=true original-sentinels=true",
+            "cold-hir-constructor rejected=48 exact-refs=true capacity-stable=true source-stable=true",
+            "cold-hir-constructor admitted=48 warm-stable=true original-sentinels=true",
         ],
     },
     {
@@ -11666,8 +11668,8 @@ EXECUTABLE_SMOKES = [
         "expect_unique": True,
         "expect": [
             "cold-hir-restore malformed=true v10=true cold-refs=true capacity-stable=true",
-            "cold-hir-restore init-boundary=true lookup-rollback=true nonempty-exact=true handles=91",
-            "cold-hir-restore empty-exact=true handles=47 warm-pressure=true high-water=true recovery=true",
+            "cold-hir-restore init-boundary=true lookup-rollback=true nonempty-exact=true handles=93",
+            "cold-hir-restore empty-exact=true handles=48 warm-pressure=true high-water=true recovery=true",
         ],
     },
     {'name': 'Panic literal and dynamic short-circuit contracts',
@@ -13999,6 +14001,18 @@ def architecture_lane_violations(ty_source: str, codegen_source: str) -> list[st
         if "v4_ty_type_text" in body or "v4_ty_return_type_end" in body or "v4_ty_find_top_level_token" in body:
             violations.append("impl/doctrine method return reader reconstructs a declared type from tokens")
             break
+    # A1 extern member parameters: every public parameter reader takes the HIR
+    # extern arm before the token fallback kept for recovered and non-task signatures.
+    for key in ("count", "name", "mode", "lifetime", "lifetime_span", "surface_type", "type_span", "segment_span", "name_span"):
+        name = f"v4_ty_signature_param_{key}"
+        body = freak_task_body(ty_source, name) or ""
+        fallback = f"v4_ty_nonordinary_signature_param_{key}_fallback"
+        arm = body.find("v4_ty_signature_extern_param_member(")
+        if arm < 0 or "v4_hir_extern_" not in body or fallback not in body or body.find(fallback) < arm:
+            violations.append(f"{name} reaches the token fallback without the HIR extern parameter arm")
+    member_body = freak_task_body(ty_source, "v4_ty_signature_extern_param_member") or ""
+    if "v4_hir_extern_member_count" not in member_body or "_token" in member_body:
+        violations.append("extern parameter dispatch does not check the HIR member range")
     for name in ("v4_ty_impl_method_count_uncached", "v4_ty_doctrine_method_count", "v4_ty_doctrine_method_start_token", "v4_ty_item_method_cache_finalize_hir"):
         body = freak_task_body(ty_source, name)
         if body is None or "v4_ty_skip_item" in body or "v4_lex_token_syntax_value" in body:
@@ -14725,7 +14739,7 @@ def check_mir_local_annotation_boundary() -> None:
     violations.extend(hir_lookup_index_violations(hir_source))
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v13"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v14"',
         "pilot v4_hir_local_annotation_items = 0",
         "pilot v4_hir_local_annotation_stmt_spans = 0",
         "pilot v4_hir_local_annotation_types = 0",
@@ -14869,7 +14883,7 @@ def check_task_return_hir_boundary() -> None:
         violations.append("task return boundary unexpectedly changed the TY snapshot format")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v13"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v14"',
         "pilot v4_hir_task_return_items = 0",
         "pilot v4_hir_task_return_forms = 0",
         "pilot v4_hir_task_return_types = 0",
@@ -15615,7 +15629,7 @@ def check_task_param_hir_boundary() -> None:
                 violations.append("task parameter scalar-read guard accepted changed field or cached bound")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v13"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v14"',
         'pilot v4_hir_task_param_mode_value = "value"',
         'pilot v4_hir_task_param_mode_lend = "lend"',
         'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',

@@ -123,6 +123,30 @@ class ArchitectureLaneGuards(unittest.TestCase):
         found = self.violations(ty=ty)
         self.assertTrue(any("method arrow shorthand return fallback is not separately pinned" in v for v in found), found)
 
+    def test_extern_param_reader_without_hir_arm_is_rejected(self):
+        body = guard.freak_task_body(self.ty, "v4_ty_signature_param_name")
+        self.assertIsNotNone(body)
+        arm = "    pilot extern_member = v4_ty_signature_extern_param_member(ty_id, sig_id)\n"
+        self.assertIn(arm, body)
+        stripped = body.replace(arm, "", 1)
+        stripped = "\n".join(line for line in stripped.split("\n") if "v4_hir_extern_param_name" not in line)
+        found = self.violations(ty=self.ty.replace(body, stripped, 1))
+        self.assertTrue(any("v4_ty_signature_param_name reaches the token fallback without the HIR extern parameter arm" in v for v in found), found)
+
+    def test_extern_param_arm_after_fallback_is_rejected(self):
+        body = guard.freak_task_body(self.ty, "v4_ty_signature_param_mode")
+        self.assertIsNotNone(body)
+        ty = self.ty.replace(body, body.replace("v4_ty_signature_extern_param_member(", "v4_ty_nonordinary_signature_param_mode_fallback(ty_id, sig_id, 0)\n    pilot late = v4_ty_signature_extern_param_member(", 1), 1)
+        found = self.violations(ty=ty)
+        self.assertTrue(any("v4_ty_signature_param_mode reaches the token fallback without the HIR extern parameter arm" in v for v in found), found)
+
+    def test_extern_param_member_must_check_hir_range(self):
+        body = guard.freak_task_body(self.ty, "v4_ty_signature_extern_param_member")
+        self.assertIsNotNone(body)
+        ty = self.ty.replace(body, body.replace(" or member_id >= v4_hir_extern_member_count(hir_id, hir_item)", "", 1), 1)
+        found = self.violations(ty=ty)
+        self.assertIn("extern parameter dispatch does not check the HIR member range", found)
+
     def test_codegen_forbids_syntax_and_hir_access(self):
         forbidden = dict(guard.CRATE_BOUNDARY_FORBIDDEN["freak_codegen_llvm"])
         for label in ("lexer access", "parser access", "HIR access", "resolve access", "expansion access"):

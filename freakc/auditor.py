@@ -1627,11 +1627,11 @@ def _hir_lookup_scaling_errors(fixture: Path, harness: Path) -> List[str]:
     return _hir_lookup_probe_errors(fixture, harness, (
         "hir-scaling-annotation-duplicate-start", "hir-scaling-annotation-surplus-fields",
         "hir-scaling-old-v10-atomic",
-        "hir-scaling-fresh-slot-forty-four-handles", "hir-scaling-file-slot-capacity-stable",
+        "hir-scaling-fresh-slot-forty-five-handles", "hir-scaling-file-slot-capacity-stable",
     ), (
         "v4_hir_scaling_annotation_checks(before)",
         "v4_hir_scaling_file_slots(sample, before)",
-        "capacity_before - capacity_fresh == 44",
+        "capacity_before - capacity_fresh == 45",
         'array_push(v4_hir_route_owner_values_handle(hir_id), "old")',
         'array_push(v4_hir_route_case_values_handle(hir_id), "old")',
         'array_push(v4_hir_route_field_values_handle(hir_id), "old")',
@@ -3186,7 +3186,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if v4_hir_task_return.exists():
         hir_src = v4_hir_task_return.read_text(encoding="utf-8")
         for needle in (
-            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v13"',
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v14"',
             'pilot v4_hir_task_return_explicit = "explicit"',
             'pilot v4_hir_task_return_implicit_block = "implicit-block"',
             'pilot v4_hir_task_return_arrow = "arrow"',
@@ -3304,7 +3304,7 @@ def audit_conformance(paths: List[Path]) -> int:
             v4_hir_task_param,
             "freak_hir",
             (
-                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v13"',
+                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v14"',
                 'pilot v4_hir_task_param_mode_value = "value"',
                 'pilot v4_hir_task_param_mode_lend = "lend"',
                 'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -3359,7 +3359,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "task parameter index guard accepted helper-indirected rescan",
             '"hir-scaling-512-params=true"',
             '"hir-scaling-param-missing-owner=true"',
-            '"hir-scaling-fresh-slot-forty-four-handles=true"',
+            '"hir-scaling-fresh-slot-forty-five-handles=true"',
         ):
             if needle not in harness_src:
                 task_param_boundary_missing.append(f"check_v4.py: {needle}")
@@ -3506,7 +3506,7 @@ def audit_conformance(paths: List[Path]) -> int:
     extern_return_missing = _hir_extern_return_probe_errors(shape_tests, shape_harness)
     for path, markers in (
         (v4_hir_task_param, (
-            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v13"',
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v14"',
             "task v4_hir_extern_member_return_surface_type(",
             "task v4_hir_extern_member_return_span(",
             "task v4_hir_extern_member_return_has_arrow_fallback(",
