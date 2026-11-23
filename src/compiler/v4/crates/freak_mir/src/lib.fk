@@ -1401,7 +1401,13 @@ task v4_mir_type_is_concrete(ty_id: int, surface: word, depth: int) -> bool {
     if type_text == v4_ty_int or type_text == v4_ty_uint or type_text == v4_ty_tiny or type_text == v4_ty_num or type_text == v4_ty_float or type_text == v4_ty_float32 { give back true }
     if type_text == v4_ty_bool or type_text == v4_ty_char or type_text == v4_ty_word or type_text == v4_ty_void or type_text == v4_ty_big { give back true }
     if v4_ty_is_lend_type(type_text) { give back v4_mir_type_is_concrete(ty_id, v4_ty_lend_target_type(type_text), depth + 1) }
-    if v4_ty_is_raw_pointer_type(type_text) { give back v4_mir_type_is_concrete(ty_id, v4_ty_raw_pointer_target_type(type_text), depth + 1) }
+    -- never is concrete only behind a raw pointer (*mut never); a by-value
+    -- never field or formal stays refused.
+    if v4_ty_is_raw_pointer_type(type_text) {
+        pilot pointee = v4_ty_canonical_type(ty_id, v4_ty_raw_pointer_target_type(type_text))
+        if pointee == v4_ty_never { give back true }
+        give back v4_mir_type_is_concrete(ty_id, pointee, depth + 1)
+    }
     if v4_ty_is_fixed_array_type(type_text) { give back v4_mir_type_is_concrete(ty_id, v4_ty_fixed_array_element_type(type_text), depth + 1) }
     if v4_ty_is_tuple_type(type_text) {
         pilot slot = 0
@@ -7713,16 +7719,19 @@ task v4_mir_system_intrinsic_formal_rows_error(ty: int, signature: int, values: 
     give back ""
 }
 
--- A generic task kept for analysis (or a closure inside one) is never
--- emitted; only its instances run, so only they owe the executable proof.
--- Calls that name a template instead of an instance stay rejected.
+-- A generic task or a method of a generic impl, kept for analysis (or a
+-- closure inside one), is never emitted; only its instances run, so only
+-- they owe the executable proof. Calls that name a template instead of an
+-- instance stay rejected.
 task v4_mir_def_is_generic_template(ty: int, definition: word) -> bool {
     if definition == "" or definition == v4_mir_module_init_def or v4_mir_def_is_generic_instance(definition) { give back false }
     pilot root = definition
     if definition.starts_with(v4_mir_closure_def_prefix) { root = v4_mir_closure_def_root(definition) }
     if v4_mir_def_is_generic_instance(root) { give back false }
     pilot signature = v4_ty_lookup_signature(ty, root)
-    give back signature >= 0 and v4_ty_signature_type_generic_count(ty, signature) > 0
+    -- The same impl classification as v4_mir_body_is_generic_template.
+    if signature < 0 { give back v4_mir_impl_is_generic(ty, v4_ty_impl_method_index_for_def(ty, root, 0)) }
+    give back v4_ty_signature_type_generic_count(ty, signature) > 0
 }
 
 task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks: int, locals: int, statements: int, places: int, values: int) -> word {

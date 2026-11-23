@@ -6980,7 +6980,9 @@ task v4_codegen_llvm_native_dyn_error(mir_id: int) -> word {
         }
         sig_id += 1
     }
-    pilot body_id = 0
+    -- Only emitted bodies: a generic template lends its type parameter, which
+    -- has no vtable; each instance is checked with its concrete type.
+    pilot body_id = v4_codegen_llvm_next_emitted_body(mir_id, 0)
     repeat until body_id >= v4_mir_body_count(mir_id) {
         pilot return_ty = v4_mir_body_callable_return_type(mir_id, body_id)
         if return_ty.contains("dyn ") { give back "native dyn results are not yet supported: " + return_ty }
@@ -7036,7 +7038,7 @@ task v4_codegen_llvm_native_dyn_error(mir_id: int) -> word {
             if place >= 0 and (stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign) and v4_mir_place_ty(mir_id, body_id, place).contains("dyn ") { give back "native dyn values cannot be stored yet: " + v4_mir_place_text(mir_id, body_id, place) }
             stmt_id += 1
         }
-        body_id += 1
+        body_id = v4_codegen_llvm_next_emitted_body(mir_id, body_id + 1)
     }
     give back ""
 }

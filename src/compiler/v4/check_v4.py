@@ -17689,7 +17689,7 @@ NATIVE_LEND_ABI_REJECTED = (
 # Tier 3 generic monomorphization: generics_native.fk prints this and gives
 # back c.get() + Box<int>::size(lend b). Each instance is one native body.
 NATIVE_GENERICS_EXPECTED = ("5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n"
-                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n3\n2\n1\n49\n", 22)
+                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n3\n2\n5\n12\n1\n49\n", 22)
 # Instance symbols the generics module must define exactly once, and the
 # instance layouts the layout oracle must see on every target.
 NATIVE_GENERICS_SYMBOLS = (
@@ -17699,6 +17699,7 @@ NATIVE_GENERICS_SYMBOLS = (
     '@"best<Named>"', '@"best_ufcs<Point>"', '@"fresh<Point>"', '@"fresh<int>"', '@"bumped<Point>"', '@"bumped<int>"', '@"Box<word>::make"', '@"Box<word>::put"', '@"Box<int>::size"',
     '@"Acc<word>::add"', '@"has_of<int>"', '@"none_of<int>"', '@"Grid<int>::index"', '@"Grid<int>::index_mut"',
     '@"Box<int>::twin"', '@"ignore<maybe<int>>"', '@"pass<int>"', '@"consume<int>"', '@"read_opt<int>"', '@"ignore<int>"', '@"discard<never>"',
+    '@"Box<*mut never>::tally_never"', '@"via_dyn<Point>"',
 )
 NATIVE_GENERICS_LAYOUTS = (
     '%"freak.shape.Box<int>"', '%"freak.shape.Box<word>"', '%"freak.shape.Box<Box<int>>"',
@@ -17756,6 +17757,23 @@ NATIVE_GENERICS_REJECTED = (
     # A generic main is a template with no body for the entry to call.
     ("tier3_generic_main", "task main<T>() -> int { give back 0 }\n", "main must not be generic"),
     # Native code has no Shared carrier yet; an instance argument names it.
+    # Calls pick an impl method by owner and name, so an inherent and a
+    # doctrine method of one generic owner may not share a name.
+    ("tier3_generic_impl_shared_method_name", "shape Grid<T> { cell: T, n: int }\n"
+     "doctrine Peek { task peek(self) -> int }\n"
+     "impl Peek for Grid<T> { task peek(self) -> int { give back 2 } }\n"
+     "impl Grid<T> { task peek(self) -> int { give back 1 } }\n"
+     "task via<P: Peek>(x: P) -> int { give back x.peek() }\n"
+     "task main() -> int {\n    pilot g: Grid<int> = Grid { cell: 1, n: 0 }\n"
+     "    pilot h: Grid<int> = Grid { cell: 1, n: 0 }\n    give back g.peek() * 10 + via(h)\n}\n",
+     "native body symbol has multiple definitions: @\"Grid<int>::peek\""),
+    # The template is exempt from the scalar-sum proof; its instance is not,
+    # and impl method bodies with scalar sums are not native yet (#275).
+    ("tier3_generic_impl_scalar_sum_instance", "shape Box<T> { value: T, count: int }\n"
+     "impl Box<T> {\n    task tally(lend self) -> int {\n        pilot m: maybe<int> = some(self.count)\n"
+     "        give back m or else 0\n    }\n}\n"
+     "task main() -> int {\n    pilot b: Box<word> = Box { value: \"w\", count: 6 }\n    give back b.tally()\n}\n",
+     "scalar sum body requires an ordinary nongeneric task"),
     ("tier3_generic_shared_carrier", "shape Box<T> { value: T }\n"
      "task main() -> int {\n    pilot b: Box<Shared<int>> = Box { value: Shared<int>::new(4) }\n    give back 0\n}\n",
      "native type not yet supported: Shared<int>"),
