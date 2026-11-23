@@ -31,6 +31,31 @@ def v35_seed_module():
     return v35_seed
 
 
+def llvm_text_floor_module():
+    """llvm_text_floor, imported on first use for the same reason as v35_seed."""
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import llvm_text_floor
+    return llvm_text_floor
+
+
+def require_supported_clang(clang: str) -> None:
+    """Refuse a Clang older than the text backend's LLVM floor (B0).
+
+    Output that names no recognised version passes: the LLVM verification
+    and link steps still reject a module that Clang cannot read."""
+    floor = llvm_text_floor_module()
+    result = checks.run_with_heartbeat(
+        [clang, "--version"], label="V4 clang version", timeout_seconds=30, memory_limit_mb=256,
+    )
+    major = floor.clang_major(result.stdout)
+    if major is not None and major < floor.MIN_LLVM_MAJOR:
+        raise RuntimeError(
+            f"clang {major} is older than the V4 text backend's minimum, LLVM {floor.MIN_LLVM_MAJOR} "
+            "(the module uses opaque ptr types)")
+
+
 # Multi-file builds swap this for a map back to each original source.
 annotate_diagnostics = lambda text: text
 
@@ -123,6 +148,7 @@ def emit_module(compiler: Path, source: Path, target: str, panic: str = "unwind"
     prefix = result.stdout[:marker.start()]
     module = result.stdout[marker.end():]
     print(annotate_diagnostics(prefix.strip()))
+    llvm_text_floor_module().require_text_floor(module, f"V4 compile: {source.name}")
     return module
 
 
@@ -249,6 +275,7 @@ def build(args: argparse.Namespace, parser: argparse.ArgumentParser, clang: str,
         parser.error("native linking currently supports the host TargetSpec; use --emit-llvm for cross targets")
     try:
         require_distinct_output(args.source, args.output)
+        require_supported_clang(clang)
         # A prebuilt compiler must survive the build too.
         prebuilt = prebuilt_compiler()
         if prebuilt is not None:
