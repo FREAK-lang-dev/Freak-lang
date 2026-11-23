@@ -52,17 +52,16 @@ task v4_generic_snapshot_splice(line: word, old: word, new: word) -> word {
     give back changed
 }
 
--- The serialized call row in main whose op is op.
-task v4_generic_snapshot_call_line(mir: int, op: word) -> word {
-    pilot body = v4_mir_lookup_body_name(mir, "main")
-    v4_generic_snapshot_assert(body >= 0, "main body")
+-- The call row in the named body whose op is op.
+task v4_generic_snapshot_call_row(mir: int, body: int, op: word) -> int {
+    v4_generic_snapshot_assert(body >= 0, "caller body")
     pilot row = 0
     repeat until row >= v4_mir_body_rvalue_count(mir, body) {
-        if v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, row) == op { give back v4_mir_snapshot_rvalue_line(mir, body, row) }
+        if v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, row) == op { give back row }
         row += 1
     }
     panic("generic-instance-snapshot no call to " + op)
-    give back ""
+    give back 0 - 1
 }
 
 task v4_generic_snapshot_rejects(forged: word, snapshot: word, label: word) -> void {
@@ -103,8 +102,16 @@ task v4_generic_snapshot_run() -> void {
     -- Both ignore instances are staged; an int-only call switched to the
     -- maybe<int> instance keeps its int argument and must still be refused.
     v4_generic_snapshot_assert(v4_mir_lookup_body_name(mir, "ignore<int>") >= 0, "ignore<int> instance body")
-    pilot int_call = v4_generic_snapshot_call_line(mir, "ignore<int>")
+    pilot caller = v4_mir_lookup_body_name(mir, "ignore_int")
+    pilot call_row = v4_generic_snapshot_call_row(mir, caller, "ignore<int>")
+    pilot int_call = v4_mir_snapshot_rvalue_line(mir, caller, call_row)
     v4_generic_snapshot_rejects(v4_generic_snapshot_forge(snapshot, int_call, v4_generic_snapshot_splice(int_call, "|ignore<int>|", "|ignore<maybe<int>>|")), snapshot, "forged instance call target rejected")
+    -- The live preflight applies the same callee rule to a body with no sum.
+    v4_generic_snapshot_assert(v4_mir_scalar_sum_plan_preflight(mir) == "", "live preflight clean")
+    array_set(v4_mir_body_rvalue_ops_handle(mir, caller), call_row, "ignore<maybe<int>>")
+    v4_generic_snapshot_assert(v4_mir_scalar_sum_plan_preflight(mir) != "", "live forged call target rejected")
+    array_set(v4_mir_body_rvalue_ops_handle(mir, caller), call_row, "ignore<int>")
+    v4_generic_snapshot_assert(v4_mir_scalar_sum_plan_preflight(mir) == "" and v4_mir_snapshot() == snapshot, "live call target restored")
     pilot restored = v4_codegen_llvm_lower_owned_mir_with_borrow(0, mir, "abort", borrowck)
     v4_generic_snapshot_assert(v4_codegen_llvm_native_module_error(restored) == "" and v4_codegen_llvm_module_text(restored, target) == before, "fresh restored module exact")
     pilot task_calls = "false"

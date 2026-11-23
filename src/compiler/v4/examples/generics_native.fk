@@ -113,6 +113,9 @@ task pass<T>(x: T, m: maybe<int>) -> maybe<int> { give back m }
 
 task consume<T>(x: T) -> int { give back 1 }
 
+-- An int-only caller of an instance: its body holds no scalar sum.
+task ignore_int(n: int) -> int { give back ignore(n) }
+
 -- A pointer to never returns normally, so discard<never> is a real instance.
 task discard<T>(p: *mut T) -> int { give back 2 }
 
@@ -227,7 +230,7 @@ task main() -> int {
     pilot sum_formal: maybe<int> = some(2)
     pilot passed = pass(1, some(5))
     say (ignore(sum_formal) + (passed or else 0)).to_word()
-    say ignore(5).to_word()
+    say ignore_int(5).to_word()
     pilot raw = malloc(8)
     pilot mut discarded = 0
     trust me "a never pointee is only passed along" on my honor as .ace {
