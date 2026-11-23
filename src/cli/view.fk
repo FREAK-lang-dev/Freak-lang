@@ -366,6 +366,13 @@ task cli_view_quiet_step_end(lap: int, label: word) -> int {
 task cli_view_step_fail(lap: int, label: word) -> int {
     pilot ms = sw_end(lap)
     view_step_label = ""
+    -- Plain logs keep the historical protocol: a phase that ran is reported
+    -- with its check row even when it found errors (the FAILED line follows).
+    -- tests/v4_differential/run_differential.py reads exactly this sequence.
+    if not view_live {
+        say "  " + C_BGREEN + SYM_CHECK + C_RESET + "  " + label + C_DIM + " (" + word_from_int(ms) + "ms)" + C_RESET
+        give back ms
+    }
     if view_live {
         pilot row = "   " + C_BRED + SYM_CROSS + C_RESET + "  " + cli_view_pad(C_RED + label + C_RESET, 40) + " " + cli_view_pad_left(cli_view_ms(ms), 10)
         cli_view_print_row(row)

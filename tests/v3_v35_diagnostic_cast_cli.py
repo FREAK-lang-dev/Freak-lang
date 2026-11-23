@@ -104,8 +104,6 @@ def stable_cli_text(output: bytes) -> bytes:
             lines[index] = re.sub(rb" \([0-9]+ms\)(\r?\n)$", rb" (<elapsed>ms)\1", line)
         if line.startswith(b"  Time:   "):
             lines[index] = re.sub(rb"[0-9]+ms(\r?\n)$", rb"<elapsed>ms\1", line)
-        if b" -- " in line and (line.startswith(b"  OK PASSED") or line.startswith(b"  X FAILED")):
-            lines[index] = re.sub(rb" \([0-9]+ms\)(\r?\n)$", rb" (<elapsed>ms)\1", line)
         if line.startswith(b"  Transpile failed in "):
             lines[index] = re.sub(rb"^(  Transpile failed in )[0-9]+ms(\r?\n)$", rb"\1<elapsed>ms\2", line)
         if index and lines[index - 1].rstrip(b"\r\n") == b"  X BUILD FAILED":
