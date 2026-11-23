@@ -3324,7 +3324,7 @@ task v4_mir_try_lower_builtin_shared_instance_method(mir_id: int, body_id: int, 
             builtin_method = v4_mir_builtin_shared_borrow
         } else if method_name == "borrow_mut" {
             result_ty = "result<" + v4_ty_shared_mut_type(target_ty) + ",BorrowError>"
-            args_payload = v4_mir_builtin_shared_receiver_loan_payload(mir_id, body_id, receiver_rvalue, receiver_ty, v4_ty_param_mode_lend_mut, expr_span)
+            args_payload = v4_mir_builtin_shared_receiver_loan_payload(mir_id, body_id, receiver_rvalue, receiver_ty, v4_ty_param_mode_lend, expr_span)
             recognized = true
             builtin_method = v4_mir_builtin_shared_borrow_mut
         } else if method_name == "get_mut" {
@@ -5869,7 +5869,7 @@ task v4_mir_closure_receiver_call_is_mutating(mir_id: int, body_id: int, stream_
 
     pilot method_name = v4_lex_token_syntax_value(stream_id, method_token)
     pilot shared_base = v4_mir_nominal_builtin_shared_base(mir_id, capture_ty)
-    if shared_base != "" and (method_name == "borrow_mut" or method_name == "get_mut") {
+    if shared_base != "" and method_name == "get_mut" {
         give back true
     }
 

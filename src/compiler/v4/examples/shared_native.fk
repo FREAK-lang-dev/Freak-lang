@@ -1,0 +1,146 @@
+-- Tier 3 Shared<T> / Weak<T>: one counted heap box per Shared::new, clone,
+-- downgrade, upgrade, drops from Meiya's plan, and the runtime borrow state
+-- behind borrow, borrow_mut and get_mut, natively.
+use std::mem::{Shared, Weak}
+
+shape Ship { hp: int, name: word }
+
+route Signal { Quiet / Loud { level: int, tag: word } }
+
+-- A view reads through the payload; its drop ends the runtime read.
+task show(lend s: Shared<Ship>) -> void {
+    pilot v = s.borrow()
+    say v.name
+    say v.hp
+}
+
+-- Weak observes without keeping the box alive.
+task alive(lend w: Weak<Ship>) -> bool {
+    check w.upgrade() {
+        got s -> give back true
+        nobody -> give back false
+    }
+    give back false
+}
+
+-- get_mut answers only for the one handle no Weak observes.
+task boost(lend mut s: Shared<Ship>) -> bool {
+    check s.get_mut() {
+        got m -> {
+            m.hp = m.hp + 100
+            give back true
+        }
+        nobody -> give back false
+    }
+    give back false
+}
+
+-- A handle moves in by value and back out; the guard writes through.
+task repair(s: Shared<Ship>, by: int) -> Shared<Ship> {
+    check result s.borrow_mut() {
+        ok(g) -> g.hp = g.hp + by
+        err(e) -> say "busy"
+    }
+    give back s
+}
+
+-- A word field replaced through the guard releases the old word once.
+task rename(lend s: Shared<Ship>, name: word) -> bool {
+    check result s.borrow_mut() {
+        ok(g) -> {
+            g.name = name
+            give back true
+        }
+        err(e) -> give back false
+    }
+    give back false
+}
+
+-- A live view on one handle makes borrow_mut through a clone fail.
+task contended(lend a: Shared<Ship>, lend b: Shared<Ship>) -> bool {
+    pilot v = a.borrow()
+    say v.hp
+    check result b.borrow_mut() {
+        ok(g) -> give back true
+        err(e) -> give back false
+    }
+    give back true
+}
+
+-- Two views at once are fine; a guard on the same box is not.
+task readers(lend a: Shared<Ship>, lend b: Shared<Ship>) -> int {
+    pilot x = a.borrow()
+    pilot y = b.borrow()
+    give back x.hp + y.hp
+}
+
+-- A view while a guard is live through a clone is a runtime panic.
+task conflict(lend a: Shared<Ship>, lend b: Shared<Ship>) -> int {
+    check result a.borrow_mut() {
+        ok(g) -> {
+            pilot v = b.borrow()
+            say v.hp
+        }
+        err(e) -> say "busy"
+    }
+    give back 0
+}
+
+task consume(s: Shared<Ship>) -> int {
+    pilot v = s.borrow()
+    give back v.hp
+}
+
+-- The only strong handle drops here: the Weak that leaves outlives it.
+task orphan() -> Weak<Ship> {
+    pilot s = Shared<Ship>::new(Ship { hp: 1, name: "Fubuki" })
+    give back s.downgrade()
+}
+
+-- Payload drop glue runs once, when the last strong handle goes.
+task signal_level(lend s: Shared<Signal>) -> int {
+    pilot v = s.borrow()
+    give back 1
+}
+
+task main() -> int {
+    pilot a = Shared<Ship>::new(Ship { hp: 3, name: "Takemikazuchi" })
+    show(lend a)
+    say boost(lend mut a)
+    pilot b = a.clone()
+    say boost(lend mut a)
+    pilot w = a.downgrade()
+    say alive(lend w)
+    pilot a2 = repair(a, 5)
+    show(lend b)
+    say rename(lend b, "Shiranui")
+    show(lend a2)
+    say contended(lend a2, lend b)
+    say readers(lend a2, lend b)
+    -- Upgrade, then let the upgraded handle go.
+    check w.upgrade() {
+        got s -> show(lend s)
+        nobody -> say "gone"
+    }
+    pilot lost = orphan()
+    say alive(lend lost)
+    pilot back = lost.upgrade() or else Shared<Ship>::new(Ship { hp: 9, name: "Gekishin" })
+    show(lend back)
+    -- A Weak alone keeps the box but not the payload.
+    pilot c = Shared<Ship>::new(Ship { hp: 4, name: "Zuikaku" })
+    pilot cw = c.downgrade()
+    say boost(lend mut c)
+    say consume(c)
+    say alive(lend cw)
+    -- Moved on one path only: the plan drops it under a flag.
+    pilot d = b.clone()
+    pilot mut e = d.clone()
+    if process::args_count() > 5 { say consume(d) }
+    pilot sig = Shared<Signal>::new(Signal::Loud { level: 7, tag: "alert" })
+    say signal_level(lend sig)
+    -- Reassigning a handle releases the old reference first.
+    e = a2.clone()
+    show(lend e)
+    if process::args_count() > 1 { say conflict(lend a2, lend b) }
+    give back 0
+}
