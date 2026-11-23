@@ -59,7 +59,7 @@ Pipeline (full compiler):
 | §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`; current V3.5 development also provides installed native `freak test` for ordinary programs declared in `[tests]`, and `-o`/`--output` for build/run. V4: `freak vibe`, the `test "name" { ... }` framework, `--voice=…`, `--clearance=…`, `--build-mode=…`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
 | §15 Cheatsheet | ⚠️ Partial | Reflects §1-§14 status. |
-| §16 FFI | ⚠️ Partial | V4 has landed substantial section-16 work (extern ABI metadata, layout attributes, callback surface validation + `@extern_callback` task export with trampolines, stack-unwinder import diagnostics, raw-pointer `.is_null()`, trust-me-gated `*ptr`/`.read()` read, `*ptr = value`/`.write(value)` write, `.offset(n)`, `.cast<U>()`, fieldless `@repr(...)` route/variant FFI safety, target-width C integer aliases with sign/zero extension and checked narrowing on extern declarations, `@extern_callback` trampolines and extern function pointer calls, native C variadic calls with the default argument promotions, and more). Per-landing breakdown lives in [freak-conformance-audit.md §16](freak-conformance-audit.md#§16-system-boundaries-ffi). Still V4: runtime panic-catch in trampoline bodies, raw allocation/freeing, `std::os` platform modules, error-code translation. |
+| §16 FFI | ⚠️ Partial | V3.5 (0.16.0) calls C functions in prebuilt `.so`/`.dylib`/`.dll` libraries on both backends: `extern [C, link="..."]` blocks with std::ffi C widths, raw pointers, `@link_name`, `if target_os` blocks, run-time `load="..."` binding, `ffi::*` C-string/memory/loader helpers, and `--link=`/`--lib-dir=` (§16 V3.5 note, §16.7). V4 has landed substantial section-16 work (extern ABI metadata, layout attributes, callback surface validation + `@extern_callback` task export with trampolines, stack-unwinder import diagnostics, raw-pointer `.is_null()`, trust-me-gated `*ptr`/`.read()` read, `*ptr = value`/`.write(value)` write, `.offset(n)`, `.cast<U>()`, fieldless `@repr(...)` route/variant FFI safety, target-width C integer aliases with sign/zero extension and checked narrowing on extern declarations, `@extern_callback` trampolines and extern function pointer calls, native C variadic calls with the default argument promotions, and more). Per-landing breakdown lives in [freak-conformance-audit.md §16](freak-conformance-audit.md#§16-system-boundaries-ffi). Still V4: runtime panic-catch in trampoline bodies, raw allocation/freeing, `std::os` platform modules, error-code translation. |
 | §17 Compiler Internals + IDE | 🔜 V4 | Panic infrastructure, tolerant parsing, AST node IDs, incremental parsing, autocomplete, IDE-mode error reporting are V4. V4 TY now diagnoses alias-cycle loops; the broader 00-Unit IDE/compiler-internals surface remains in progress. |
 
 ### 0.3 V4 roadmap and conformance
@@ -3081,11 +3081,20 @@ only on TrueRoute from result { }
 > `.read()`, `.write(value)`, `.offset(n)`, and `.cast<U>()` through
 > MIR/LLVM; allocation, freeing, and the deeper panic/OS boundary remain open.
 >
-> **v0.13.x today:** a minimal `extern` form for direct C calls works
-> via the V3 compiler in `tests/extern_test.fk` and
-> `tests/extern_llvm_test.fk` (note: those files do not parse on the v1
-> Python compiler — see §9 divergence note). Treat that as the
-> bootstrap surface, not the bible-defined FFI contract.
+> **V3.5 today (0.16.0):** the shipping compiler calls C functions in
+> prebuilt shared libraries (`.so`, `.dylib`, `.dll`) on both the LLVM and
+> C backends. It accepts `extern [C, link="name"] { ... }` blocks (also
+> `cdecl`, `system`, the target's own `win64`/`sysv64`, `@link_name`,
+> `@allow_unwinder` and `if target_os = "..."` / `if target_arch = "..."`),
+> the std::ffi C aliases and raw pointers `*T` / `*const T` / `*mut T` at
+> their true C width, and `load="name"` blocks that bind at run time
+> (§16.7). `freak build` / `freak run` link `link=` libraries and take
+> `--link=NAME` and `--lib-dir=DIR`. Inside FREAK, C integers and pointers
+> are `int`, C floats are `num` and `c_bool` is `bool`; V3.5 does not gate
+> calls or pointer helpers behind `trust me`, check narrowing, or support
+> variadics, callbacks, `@layout(C)` shapes or other calling conventions —
+> those remain V4. The legacy bare `extern task f(x: int) -> int` form
+> (all-i64, runtime bridge) still works. Tests: `tests/v3_ffi.py`.
 
 FREAK is memory-safe until you deliberately walk to the perimeter fence.
 The fence is marked `extern`, `@layout(C)`, raw pointers, and `trust me`.
@@ -3178,6 +3187,7 @@ Rules:
 - `system` means "the OS API convention for this target": WinAPI on Windows, C ABI elsewhere.
 - At most one calling convention may appear in an extern ABI list.
 - `link="name"` names the native library. `@link_name("symbol")` overrides the symbol for one task.
+- `load="name"` binds the block at run time instead of link time: each task is resolved on its first call (`dlopen`/`LoadLibrary`), searching next to the executable first and then the platform loader's normal path. A bare name becomes `libname.so`, `libname.dylib` or `name.dll`; a value with a path separator or library suffix is used as written. A missing library or symbol ends the program with a message naming it. An extern block takes at most one `link=` or `load=` option.
 - `args: ...` is allowed only as the final parameter of an extern task and only for C-compatible variadic functions.
 - Extern declarations do not own symbols. They describe symbols the linker must find.
 - FREAK panics must not unwind across an extern call boundary or callback boundary. Catch them before returning to foreign code.
@@ -3333,6 +3343,38 @@ Rules:
 - Safe wrappers must document ownership of every pointer and handle: borrowed, transferred, retained, or released by callee.
 - If ownership is ambiguous, the wrapper is unsafe. Sagiri's review comment: "Ambiguous command structure. Rejected."
 
+
+### 16.7 Run-time Loading and std::ffi Helpers
+
+```
+use std::ffi
+
+extern [C, load="greet"] {          -- greet.dll / libgreet.so / libgreet.dylib
+    task greet_shout(s: *mut c_char) -> c_int
+}
+
+task main() -> void {
+    pilot text = ffi::cstring("freak")    -- malloc'd NUL-terminated copy
+    greet_shout(text)
+    say ffi::from_cstring(text)           -- "FREAK", copied back into a word
+    ffi::free(text)
+}
+```
+
+`std::ffi` provides the boundary helpers. Addresses are plain FREAK `int`
+values.
+
+- `ffi::cstring(w) -> int` copies a word into new C memory; release it with `ffi::free`.
+- `ffi::from_cstring(p) -> word` copies a NUL-terminated C string (a null pointer reads as `""`).
+- `ffi::alloc(size) -> int` returns zeroed memory; `ffi::free(p)` releases memory from `alloc` or `cstring`.
+- `ffi::read_i8` / `read_u8` / `read_i16` / `read_u16` / `read_i32` / `read_u32` / `read_i64` / `read_f32` / `read_f64` (`p`) and the matching `ffi::write_*(p, value)` access memory at an address.
+- `ffi::open(name) -> int` loads a library by the same search rules as `load=` (0 on failure), `ffi::symbol(lib, name) -> int` returns a symbol's address (0 if missing), `ffi::close(lib)` unloads it and `ffi::last_error() -> word` explains the last failure.
+
+Rules:
+
+- Memory from `ffi::cstring` and `ffi::alloc` belongs to the caller until passed to `ffi::free` or handed to a C function that documents taking ownership.
+- Pointers returned by C stay owned by the C library; copy what you need with `ffi::from_cstring` or `ffi::read_*`.
+- In V4 these helpers move behind `trust me` with the raw-pointer operations of §16.4.
 ---
 
 ## SECTION 17: COMPILER INTERNALS AND IDE PARSER SUPPORT

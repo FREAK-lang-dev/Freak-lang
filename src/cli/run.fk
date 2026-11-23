@@ -198,6 +198,9 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     }
     material = material + "|target=" + target + "|profile=" + profile + "|clang-opt=" + opt + "|lto=" + lto
     material = material + "|runtime-policy=" + runtime_policy + "|runtime-stats=" + runtime_stats + "|cross=" + cross + "|strict=" + strict_label
+    -- Native FFI link inputs from the command line (source link= values are
+    -- already in the bound source digest).
+    material = material + "|ffi-link=" + cli_requested_link_libs + "|ffi-lib-dirs=" + cli_requested_lib_dirs
     material = material + "|clang=" + cli_run_clang_identity(clang_cmd)
     material = material + "|linker=" + cli_run_linker_identity(clang_cmd, lto, cross) + "|link-plan=" + link_plan
     -- Qualified tools add the same actual runtime/header/SDK closure as the

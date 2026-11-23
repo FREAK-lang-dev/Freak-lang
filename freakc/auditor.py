@@ -1900,6 +1900,16 @@ def audit_conformance(paths: List[Path]) -> int:
     if not bc_ok:
         failures.append("--strict-borrow not handled in src/cli/main.fk")
 
+    # Check 6a: V3.5 native FFI (bible 16.2 extern [C] blocks, 16.7 load=).
+    ffi_parser = repo / "src" / "compiler" / "v3" / "parser.fk"
+    ffi_parser_src = ffi_parser.read_text(encoding="utf-8") if ffi_parser.exists() else ""
+    ffi_markers = ("task parse_extern_block()", 'opt == "link" or opt == "load"', "task ffi_take_c_type(")
+    ffi_ok = all(marker in ffi_parser_src for marker in ffi_markers) and "--lib-dir=" in cli_src \
+        and (repo / "tests" / "v3_ffi.py").exists()
+    add("Native FFI", ffi_ok, "extern [C, link=/load=] blocks + --link/--lib-dir" if ffi_ok else "parser, CLI flags or tests/v3_ffi.py missing")
+    if not ffi_ok:
+        failures.append("V3.5 native FFI surface missing (src/compiler/v3/parser.fk, src/cli/main.fk, tests/v3_ffi.py)")
+
     # Check 6b: V3 run freshness and distribution replacement contracts.
     run_freshness_missing: List[str] = []
     freshness_sources = {

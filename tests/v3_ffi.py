@@ -64,7 +64,8 @@ say "sum " + word_from_int(greet_add(2, 3))
 BAD_PROGRAM = '''extern [C, link="x", load="y", stdcall, frob] {
     task takes_word(s: word) -> c_int
     task takes_list(x: List) -> c_void
-    task takes_void(x: c_void) -> int
+    task takes_void(x: c_void) -> c_int
+    task takes_int(x: int) -> c_int
     @nope
     task variadic(x: int, more: ...) -> int
 }
@@ -80,6 +81,7 @@ BAD_MESSAGES = [
     "word is not FFI-safe in extern parameter 's' of takes_word",
     "type 'List' is not FFI-safe in extern parameter 'x' of takes_list",
     "c_void is only valid behind a pointer or as a return type",
+    "type 'int' is a FREAK type, not a C type",
     "unknown extern member attribute @nope",
     "variadic extern tasks are not supported by V3.5 yet",
     "extern blocks are only allowed at the top level",
