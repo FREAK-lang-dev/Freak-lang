@@ -6844,6 +6844,10 @@ task v4_codegen_llvm_dyn_vtable_error(mir_id: int, vtable_id: int) -> word {
     pilot sig = v4_ty_doctrine_signature_id_for_name(ty_id, doctrine_name)
     if sig < 0 or v4_mir_dyn_vtable_type_id(mir_id, vtable_id) < 0 { give back "invalid native dyn vtable: " + concrete + " as dyn " + doctrine_name }
     if not v4_codegen_llvm_is_lendable_storage(mir_id, concrete) { give back "native dyn erasure supports shapes, routes, tuples, fixed arrays and scalars: " + concrete }
+    -- A generic shape or route instance has a native layout, but its vtable
+    -- slots would name the generic impl's template, which has no body; the
+    -- slots need impl instances first.
+    if v4_ty_is_generic_instance_type(concrete) and (v4_mir_shape_signature(mir_id, concrete) >= 0 or v4_codegen_llvm_route_signature(mir_id, concrete) >= 0) { give back "native dyn erasure of generic shape and route instances is not yet supported: " + concrete }
     if v4_ty_type_may_store_lend(ty_id, concrete) { give back "native dyn erasure of values that hold loans is not yet supported: " + concrete }
     pilot error = v4_codegen_llvm_native_type_error(concrete, false)
     if error != "" { give back error }
