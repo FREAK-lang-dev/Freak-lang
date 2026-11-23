@@ -17675,6 +17675,59 @@ def expected_native_stdout(text: str) -> str:
     return text.replace("\n", "\r\n") if sys.platform == "win32" else text
 
 
+def llvm_text_floor_module():
+    """llvm_text_floor, imported on first use so frozen-source loaders of
+    this file need nothing beside it."""
+    here = str(V4_ROOT)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import llvm_text_floor
+    return llvm_text_floor
+
+
+def check_llvm_text_floor() -> None:
+    """B0: the text backend's LLVM floor and its guard reject what they must."""
+    floor = llvm_text_floor_module()
+    accepted = (
+        'define ccc i64 @f(ptr noalias sret(%"freak.shape.V") align 8 %r) nounwind {\n'
+        '  %a = getelementptr inbounds i8, ptr %r, i64 8\n  %b = mul i64 1, 2\n  ret i64 %b\n}\n'
+        '@s = private constant [24 x i8] c"memory(none) i8* zext nneg"\n'
+        '; trunc nuw i8* captures(none)\n'
+    )
+    rejected = {
+        "%x = load i8*, ptr %p": "typed pointer",
+        'declare void @f(%"freak.shape.A"*)': "typed pointer",
+        "%c = call i64 (i64)* @g(i64 1)": "typed pointer",
+        "define void @f() memory(none) {": "LLVM 16",
+        "%a = zext nneg i32 %b to i64": "LLVM 18",
+        "%a = or disjoint i64 %b, %c": "LLVM 18",
+        "%a = trunc nuw i64 %b to i32": "LLVM 19",
+        "%a = getelementptr inbounds nuw i8, ptr %p, i64 1": "LLVM 19",
+        "declare void @f(ptr captures(none))": "LLVM 21",
+        "%a = icmp samesign ult i64 %b, %c": "LLVM 20",
+    }
+    if floor.MIN_LLVM_MAJOR != 15 or floor.text_floor_problems(accepted):
+        raise RuntimeError(f"LLVM text floor rejected valid text: {floor.text_floor_problems(accepted)}")
+    for text, needle in rejected.items():
+        problems = floor.text_floor_problems(text)
+        if len(problems) != 1 or needle not in problems[0]:
+            raise RuntimeError(f"LLVM text floor missed {text!r}: {problems}")
+    versions = {
+        "Ubuntu clang version 18.1.3 (1ubuntu1)": 18,
+        "Apple clang version 15.0.0 (clang-1500.3.9.4)": 15,
+        "clang version 14.0.6\nTarget: x86_64-pc-linux-gnu": 14,
+        "gcc (GCC) 13.2.0": None,
+    }
+    for text, major in versions.items():
+        if floor.clang_major(text) != major:
+            raise RuntimeError(f"clang version parse failed: {text!r}")
+    doctor = (ROOT / "src" / "cli" / "doctor.fk").read_text(encoding="utf-8")
+    for constant in ("CLI_DOCTOR_MINIMUM_CLANG_MAJOR", "CLI_DOCTOR_MINIMUM_APPLE_CLANG_MAJOR"):
+        if not re.search(rf"^pilot {constant}: int = {floor.MIN_LLVM_MAJOR}\r?$", doctor, re.MULTILINE):
+            raise RuntimeError(f"freak doctor's {constant} disagrees with MIN_LLVM_MAJOR")
+    print(f"LLVM text floor: min-major={floor.MIN_LLVM_MAJOR} rejected={len(rejected)}")
+
+
 def extract_llvm_modules(output: str) -> list[str]:
     """Accept C text-stream framing while retaining each module's bytes."""
     return re.findall(r"^@@LLVM-MODULE-BEGIN\r?\n(.*?)\r?\n@@LLVM-MODULE-END\r?$",
@@ -20437,6 +20490,7 @@ def check_executable_smokes(
             if len(modules) != len(smoke["llvm_programs"]):
                 raise RuntimeError("LLVM module smoke emitted the wrong number of modules")
             for (name, exit_code, stdout), module in zip(smoke["llvm_programs"], modules, strict=True):
+                llvm_text_floor_module().require_text_floor(module, f"LLVM module smoke: {name}")
                 ll_path = RUNTIME_BUILD_ROOT / f"{Path(name).stem}.v4.ll"
                 native_path = ll_path.with_suffix(".exe" if sys.platform == "win32" else ".native")
                 ll_path.write_bytes(module.encode("utf-8"))
@@ -20541,6 +20595,7 @@ def main(argv: list[str] | None = None) -> int:
     check_extern_return_hir_boundary()
     check_tooling_interfaces()
     check_snapshot_inventories()
+    check_llvm_text_floor()
     base_source = check_flattened_crates()
     if args.fast and (args.smoke or args.smoke_exclude or args.smoke_shard):
         mode_bits: list[str] = [f"fixtures={len(transpile_targets)}"]
