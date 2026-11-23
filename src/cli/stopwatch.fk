@@ -1,0 +1,323 @@
+-- ===================================================================
+-- FREAK CLI — Stopwatch (millisecond build timers)
+-- ===================================================================
+-- Every build-shaped command (build, run, check, transpile, test, hangar,
+-- bootstrap-v4) starts one stopwatch. Phases are laps: sw_begin() opens a
+-- lap and returns its index, sw_end() closes it and returns milliseconds.
+-- Laps nest (depth is recorded) so a clang invocation can sit inside the
+-- "Native binary" phase.
+--
+-- All times come from time::monotonic_ns (QueryPerformanceCounter on
+-- Windows, CLOCK_MONOTONIC elsewhere), never the wall clock, so a clock
+-- adjustment in the middle of a build cannot produce a negative or inflated
+-- time. Milliseconds are rounded to nearest; JSON keeps the nanoseconds.
+--
+--   --timings            print a per-phase table after the command
+--   --timings=json       print one JSON object (schema freak-timings/1)
+--   --timings=off        disable (overrides FREAK_TIMINGS)
+--   FREAK_TIMINGS=1|table|json   same, for every command (incl. hangar)
+-- ===================================================================
+
+pilot sw_mode = "off"
+pilot sw_command = ""
+pilot sw_subject = ""
+pilot sw_origin_ns = 0
+pilot sw_total_ns = 0
+pilot sw_running = false
+pilot sw_reported = false
+pilot sw_outcome = ""
+pilot sw_names = 0
+pilot sw_starts = 0
+pilot sw_lengths = 0
+pilot sw_depths = 0
+pilot sw_count = 0
+pilot sw_depth = 0
+pilot sw_arrays_live = false
+
+task sw_now_ns() -> int {
+    give back time::monotonic_ns()
+}
+
+task sw_ns_to_ms(ns: int) -> int {
+    if ns <= 0 { give back 0 }
+    give back (ns + 500000) / 1000000
+}
+
+task sw_configure_from_env() -> void {
+    pilot value = process::env("FREAK_TIMINGS")
+    if value == "" or value == "0" or value == "off" or value == "false" or value == "no" { give back }
+    if value == "json" { sw_mode = "json" give back }
+    sw_mode = "table"
+}
+
+-- Returns "" when `flag` is not a timings flag, "error" when it is a
+-- malformed one, otherwise the selected mode (table, json or off).
+task sw_flag_mode(flag: word) -> word {
+    if flag == "--timings" or flag == "--timings=table" or flag == "--timings=1" { give back "table" }
+    if flag == "--timings=json" { give back "json" }
+    if flag == "--timings=off" or flag == "--timings=0" { give back "off" }
+    if flag.starts_with("--timings") { give back "error" }
+    give back ""
+}
+
+task sw_release_arrays() -> void {
+    if sw_arrays_live {
+        array_release(sw_names)
+        array_release(sw_starts)
+        array_release(sw_lengths)
+        array_release(sw_depths)
+        sw_arrays_live = false
+    }
+}
+
+task sw_start(command: word, subject: word) -> void {
+    sw_release_arrays()
+    sw_names = array_new()
+    sw_starts = array_new()
+    sw_lengths = array_new()
+    sw_depths = array_new()
+    sw_arrays_live = true
+    sw_count = 0
+    sw_depth = 0
+    sw_command = command
+    sw_subject = subject
+    sw_outcome = ""
+    sw_total_ns = 0
+    sw_reported = false
+    sw_report_done = false
+    sw_running = true
+    sw_origin_ns = sw_now_ns()
+}
+
+task sw_elapsed_ns() -> int {
+    if not sw_running {
+        if sw_reported { give back sw_total_ns }
+        give back 0
+    }
+    give back sw_now_ns() - sw_origin_ns
+}
+
+task sw_elapsed_ms() -> int {
+    give back sw_ns_to_ms(sw_elapsed_ns())
+}
+
+task sw_begin(name: word) -> int {
+    if not sw_running { give back -1 }
+    pilot index = sw_count
+    array_push(sw_names, name)
+    array_push(sw_starts, word_from_int(sw_now_ns() - sw_origin_ns))
+    array_push(sw_lengths, "-1")
+    array_push(sw_depths, word_from_int(sw_depth))
+    sw_count += 1
+    sw_depth += 1
+    give back index
+}
+
+task sw_lap_ns(index: int) -> int {
+    if index < 0 or index >= sw_count { give back 0 }
+    pilot length = word_to_int(array_get(sw_lengths, index))
+    if length < 0 { give back sw_now_ns() - sw_origin_ns - word_to_int(array_get(sw_starts, index)) }
+    give back length
+}
+
+task sw_end(index: int) -> int {
+    if index < 0 or index >= sw_count { give back 0 }
+    if word_to_int(array_get(sw_lengths, index)) >= 0 { give back sw_ns_to_ms(sw_lap_ns(index)) }
+    pilot length = sw_now_ns() - sw_origin_ns - word_to_int(array_get(sw_starts, index))
+    if length < 0 { length = 0 }
+    array_set(sw_lengths, index, word_from_int(length))
+    pilot depth = word_to_int(array_get(sw_depths, index))
+    sw_depth = depth
+    give back sw_ns_to_ms(length)
+}
+
+-- Record an already-measured span (e.g. a child process's own timer).
+task sw_record(name: word, start_ns: int, length_ns: int) -> void {
+    if not sw_running { give back }
+    array_push(sw_names, name)
+    array_push(sw_starts, word_from_int(start_ns - sw_origin_ns))
+    array_push(sw_lengths, word_from_int(length_ns))
+    array_push(sw_depths, word_from_int(sw_depth))
+    sw_count += 1
+}
+
+-- ── Formatting ───────────────────────────────────────
+
+task sw_group(value: int) -> word {
+    if value < 0 { give back "-" + sw_group(0 - value) }
+    pilot digits = word_from_int(value)
+    pilot length = digits.length()
+    pilot out = ""
+    pilot i = 0
+    repeat until i >= length {
+        if i > 0 and (length - i) % 3 == 0 { out = out + "," }
+        out = out + digits.char_at(i)
+        i += 1
+    }
+    give back out
+}
+
+-- "1,234 ms" — the human spelling used by every pretty view.
+task sw_ms_text(ms: int) -> word {
+    give back sw_group(ms) + " ms"
+}
+
+-- Percent of `part` in `whole` with one decimal, e.g. "94.2%".
+task sw_percent_text(part: int, whole: int) -> word {
+    if whole <= 0 { give back "0.0%" }
+    pilot permille = (part * 1000 + whole / 2) / whole
+    give back word_from_int(permille / 10) + "." + word_from_int(permille % 10) + "%"
+}
+
+task sw_pad_left(text: word, width: int) -> word {
+    pilot out = text
+    repeat until out.length() >= width { out = " " + out }
+    give back out
+}
+
+task sw_pad_right(text: word, width: int) -> word {
+    pilot out = text
+    repeat until out.length() >= width { out = out + " " }
+    give back out
+}
+
+task sw_json_escape(text: word) -> word {
+    pilot out = ""
+    pilot i = 0
+    pilot length = text.length()
+    repeat until i >= length {
+        pilot ch = text.char_at(i)
+        if ch == "\"" { out = out + "\\\"" }
+        else if ch == "\\" { out = out + "\\\\" }
+        else if ch == "\n" { out = out + "\\n" }
+        else if ch == "\r" { out = out + "\\r" }
+        else if ch == "\t" { out = out + "\\t" }
+        else { out = out + ch }
+        i += 1
+    }
+    give back out
+}
+
+-- Proportional bar in eighth blocks (ASCII mode uses '#').
+task sw_bar(part: int, whole: int, width: int) -> word {
+    if whole <= 0 or part <= 0 { give back "" }
+    pilot eighths = (part * width * 8) / whole
+    if eighths > width * 8 { eighths = width * 8 }
+    pilot full = eighths / 8
+    pilot rest = eighths % 8
+    pilot out = ""
+    pilot i = 0
+    if CLI_ASCII_ART {
+        repeat until i >= full { out = out + "#" i += 1 }
+        if out == "" { out = "." }
+        give back out
+    }
+    repeat until i >= full { out = out + "\xe2\x96\x88" i += 1 }
+    if rest == 1 { out = out + "\xe2\x96\x8f" }
+    if rest == 2 { out = out + "\xe2\x96\x8e" }
+    if rest == 3 { out = out + "\xe2\x96\x8d" }
+    if rest == 4 { out = out + "\xe2\x96\x8c" }
+    if rest == 5 { out = out + "\xe2\x96\x8b" }
+    if rest == 6 { out = out + "\xe2\x96\x8a" }
+    if rest == 7 { out = out + "\xe2\x96\x89" }
+    if out == "" { out = "\xe2\x96\x8f" }
+    give back out
+}
+
+-- ── Reports ──────────────────────────────────────────
+
+task sw_report_table() -> void {
+    pilot total = sw_total_ns
+    pilot title = sw_command
+    if sw_subject != "" { title = title + " " + sw_subject }
+    say ""
+    say "  " + C_BOLD + C_G4 + "TIMINGS" + C_RESET + "  " + C_BWHITE + title + C_RESET + C_DIM + "  (" + sw_outcome + ", monotonic clock)" + C_RESET
+    say "  " + C_DIM + cli_box_line(64) + C_RESET
+    pilot i = 0
+    repeat until i >= sw_count {
+        pilot depth = word_to_int(array_get(sw_depths, i))
+        pilot length = sw_lap_ns(i)
+        -- Consecutive sibling laps with one name (24 toolchain probes) fold
+        -- into one row; the JSON report keeps every lap.
+        pilot repeats = 1
+        repeat until i + 1 >= sw_count or array_get(sw_names, i + 1) != array_get(sw_names, i) or word_to_int(array_get(sw_depths, i + 1)) != depth {
+            i += 1
+            repeats += 1
+            length = length + sw_lap_ns(i)
+        }
+        pilot indent = ""
+        pilot d = 0
+        repeat until d >= depth { indent = indent + "  " d += 1 }
+        pilot name = indent + array_get(sw_names, i)
+        if repeats > 1 { name = name + " x" + word_from_int(repeats) }
+        if name.length() > 30 { name = name.substring(0, 29) + "~" }
+        pilot ms = sw_pad_left(sw_ms_text(sw_ns_to_ms(length)), 11)
+        pilot pct = sw_pad_left(sw_percent_text(length, total), 6)
+        pilot colour = C_BCYAN
+        if depth > 0 { colour = C_CYAN }
+        say "  " + sw_pad_right(name, 30) + " " + C_BWHITE + ms + C_RESET + "  " + C_DIM + pct + C_RESET + "  " + colour + sw_bar(length, total, 14) + C_RESET
+        i += 1
+    }
+    say "  " + C_DIM + cli_box_line(64) + C_RESET
+    say "  " + sw_pad_right("Total", 30) + " " + C_BOLD + C_BGREEN + sw_pad_left(sw_ms_text(sw_ns_to_ms(total)), 11) + C_RESET
+    say ""
+}
+
+task sw_report_json() -> void {
+    pilot out = "{\"schema\":\"freak-timings/1\",\"clock\":\"monotonic\",\"command\":\"" + sw_json_escape(sw_command) + "\""
+    out = out + ",\"subject\":\"" + sw_json_escape(sw_subject) + "\",\"outcome\":\"" + sw_outcome + "\""
+    out = out + ",\"total_ms\":" + word_from_int(sw_ns_to_ms(sw_total_ns)) + ",\"total_ns\":" + word_from_int(sw_total_ns) + ",\"phases\":["
+    pilot i = 0
+    repeat until i >= sw_count {
+        if i > 0 { out = out + "," }
+        pilot length = sw_lap_ns(i)
+        pilot start_ns = word_to_int(array_get(sw_starts, i))
+        out = out + "{\"name\":\"" + sw_json_escape(array_get(sw_names, i)) + "\",\"depth\":" + array_get(sw_depths, i)
+        out = out + ",\"start_ms\":" + word_from_int(sw_ns_to_ms(start_ns)) + ",\"ms\":" + word_from_int(sw_ns_to_ms(length))
+        out = out + ",\"start_ns\":" + word_from_int(start_ns) + ",\"ns\":" + word_from_int(length) + "}"
+        i += 1
+    }
+    say out + "]}"
+}
+
+-- Stop the stopwatch once. Returns the total in milliseconds; later calls
+-- return the same total. sw_report() prints what --timings asked for.
+task sw_stop(succeeded: bool) -> int {
+    if sw_reported { give back sw_ns_to_ms(sw_total_ns) }
+    if not sw_running { give back 0 }
+    sw_total_ns = sw_now_ns() - sw_origin_ns
+    pilot i = 0
+    repeat until i >= sw_count {
+        if word_to_int(array_get(sw_lengths, i)) < 0 {
+            pilot open_length = sw_total_ns - word_to_int(array_get(sw_starts, i))
+            array_set(sw_lengths, i, word_from_int(open_length))
+        }
+        i += 1
+    }
+    sw_running = false
+    sw_reported = true
+    sw_outcome = "failed"
+    if succeeded { sw_outcome = "ok" }
+    give back sw_ns_to_ms(sw_total_ns)
+}
+
+pilot sw_report_done = false
+
+task sw_report() -> void {
+    if not sw_reported or sw_report_done { give back }
+    sw_report_done = true
+    if sw_mode == "table" { sw_report_table() }
+    if sw_mode == "json" { sw_report_json() }
+}
+
+task sw_finish(succeeded: bool) -> int {
+    pilot total = sw_stop(succeeded)
+    sw_report()
+    give back total
+}
+
+-- Exit through here so a failing command still reports its time.
+task sw_exit(code: int) -> void {
+    if sw_running { sw_finish(code == 0) }
+    process::exit(code)
+}

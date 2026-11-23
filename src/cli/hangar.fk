@@ -980,7 +980,7 @@ task hangar_command_text(command: int, stderr_stream: bool) -> word {
 }
 
 task hangar_command_result(command: int, operation: word) -> int {
-    pilot status = process::command_run(command, 30000, 65536, 65536)
+    pilot status = cli_view_run_command(command, operation, 30000, 65536, 65536)
     pilot code = 1
     if status == 2 { code = process::command_exit_code(command) }
     if code != 0 {
@@ -2003,7 +2003,7 @@ task hangar_extract_json_field(json: word, field: word) -> word {
 -- ===================== HG5: CHECKSUM VERIFICATION ====================
 
 task hangar_hash_output(command: int) -> word {
-    pilot status = process::command_run(command, 30000, 65536, 65536)
+    pilot status = cli_view_run_command(command, "hash", 30000, 65536, 65536)
     pilot output = ""
     if status == 2 and process::command_exit_code(command) == 0 {
         output = hangar_command_text(command, false)

@@ -1,0 +1,521 @@
+-- ===================================================================
+-- FREAK CLI — Cockpit view (live build display)
+-- ===================================================================
+-- Two presentations share one set of call sites:
+--
+--   live   stdout is a terminal, CI is unset, TERM is not "dumb" and
+--          FREAK_PLAIN is not truthy. Phase rows with heat-coloured timers,
+--          a progress rail, a spinner + live millisecond counter while
+--          clang/the linker runs, and a summary card with a timeline bar.
+--          FREAK_LIVE=1 forces it on (for terminals that hide their tty).
+--   plain  everything else (pipes, CI logs, NO_COLOR scripts). Rows keep
+--          the historical "  ✓  Lexing (41ms)" spelling so logs and the
+--          tests that read them stay stable; it never moves the cursor.
+--
+-- Live redraws only ever rewrite the single "live line" the view printed
+-- itself, and only when no diagnostic was recorded since it was drawn, so a
+-- compiler error can never be overwritten.
+-- ===================================================================
+
+pilot view_live = false
+pilot view_steps_total = 0
+pilot view_steps_done = 0
+pilot view_live_line = false
+pilot view_live_mark = 0
+pilot view_step_label = ""
+pilot view_step_lap = -1
+pilot view_activity_label = ""
+pilot view_command_rows = false
+pilot VIEW_UP = "\x1b[1A\r\x1b[2K"
+
+task cli_view_configure() -> void {
+    sw_configure_from_env()
+    view_live = false
+    if cli_truthy_env(process::env("FREAK_PLAIN")) { give back }
+    if cli_truthy_env(process::env("FREAK_LIVE")) { view_live = true give back }
+    if process::env("CI") != "" { give back }
+    if process::env("TERM") == "dumb" { give back }
+    if process::stdout_is_terminal() { view_live = true }
+}
+
+-- Anything that may have printed since the live line was drawn.
+task cli_view_output_mark() -> int {
+    give back error_count + diag_fact_count()
+}
+
+-- ── Text metrics ─────────────────────────────────────
+
+-- UTF-8 continuation bytes. Words index bytes, so a glyph is one lead byte
+-- followed by these; only lead bytes take a terminal column.
+pilot VIEW_UTF8_TAIL = "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf"
+
+task cli_view_is_wide_at(text: word, index: int) -> bool {
+    if index + 3 > text.length() { give back false }
+    pilot three = text.substring(index, 3)
+    if three == "\xe2\x9a\xa1" or three == "\xe2\x9c\xa8" { give back true }
+    if index + 4 > text.length() { give back false }
+    pilot four = text.substring(index, 4)
+    give back four == "\xf0\x9f\x9a\x80" or four == "\xf0\x9f\x94\xa5"
+}
+
+-- Visible terminal columns: ANSI escapes count 0, wide glyphs count 2.
+task cli_view_width(text: word) -> int {
+    pilot width = 0
+    pilot i = 0
+    pilot length = text.length()
+    repeat until i >= length {
+        pilot ch = text.char_at(i)
+        if ch == "\x1b" {
+            i += 1
+            repeat until i >= length {
+                pilot code = text.char_at(i)
+                i += 1
+                if code == "m" or code == "K" or code == "A" or code == "G" { break }
+            }
+        } else {
+            if not VIEW_UTF8_TAIL.contains(ch) {
+                width += 1
+                if cli_view_is_wide_at(text, i) { width += 1 }
+            }
+            i += 1
+        }
+    }
+    give back width
+}
+
+task cli_view_pad(text: word, width: int) -> word {
+    pilot out = text
+    pilot have = cli_view_width(text)
+    repeat until have >= width {
+        out = out + " "
+        have += 1
+    }
+    give back out
+}
+
+task cli_view_pad_left(text: word, width: int) -> word {
+    pilot out = text
+    pilot have = cli_view_width(text)
+    repeat until have >= width {
+        out = " " + out
+        have += 1
+    }
+    give back out
+}
+
+-- Keep the end of long paths: "…/deep/dir/hello".
+task cli_view_tail(text: word, width: int) -> word {
+    pilot length = text.length()
+    if length <= width { give back text }
+    pilot ellipsis = "\xe2\x80\xa6"
+    if CLI_ASCII_ART { ellipsis = "..." }
+    give back ellipsis + text.substring(length - width + ellipsis.length(), width - ellipsis.length())
+}
+
+task cli_view_repeat(piece: word, count: int) -> word {
+    pilot out = ""
+    pilot i = 0
+    repeat until i >= count {
+        out = out + piece
+        i += 1
+    }
+    give back out
+}
+
+-- ── Glyphs ───────────────────────────────────────────
+
+task cli_view_spinner(frame: int) -> word {
+    if CLI_ASCII_ART {
+        pilot ascii = "|/-\\"
+        give back ascii.char_at(frame % 4)
+    }
+    pilot frames = "\xe2\xa0\x8b\xe2\xa0\x99\xe2\xa0\xb9\xe2\xa0\xb8\xe2\xa0\xbc\xe2\xa0\xb4\xe2\xa0\xa6\xe2\xa0\xa7\xe2\xa0\x87\xe2\xa0\x8f"
+    give back frames.substring((frame % 10) * 3, 3)
+}
+
+-- Indeterminate "scanner" bar: a bright comet sweeping back and forth.
+task cli_view_scanner(frame: int, width: int) -> word {
+    pilot span = width + 4
+    pilot pos = frame % (span * 2)
+    if pos >= span { pos = span * 2 - pos - 1 }
+    pos = pos - 2
+    pilot out = ""
+    pilot i = 0
+    repeat until i >= width {
+        pilot gap = i - pos
+        if gap < 0 { gap = 0 - gap }
+        if CLI_ASCII_ART {
+            if gap == 0 { out = out + "=" } else if gap == 1 { out = out + "-" } else { out = out + "." }
+        } else if gap == 0 {
+            out = out + C_G1 + "\xe2\x96\x88"
+        } else if gap == 1 {
+            out = out + C_G2 + "\xe2\x96\x93"
+        } else if gap == 2 {
+            out = out + C_G3 + "\xe2\x96\x92"
+        } else {
+            out = out + C_DIM + "\xe2\x96\x91"
+        }
+        out = out + C_RESET
+        i += 1
+    }
+    give back out
+}
+
+-- Phase rail: ▰▰▰▱▱▱ 3/6
+task cli_view_rail(done_steps: int, total_steps: int) -> word {
+    if total_steps <= 0 { give back "" }
+    pilot full = "\xe2\x96\xb0"
+    pilot empty = "\xe2\x96\xb1"
+    if CLI_ASCII_ART {
+        full = "#"
+        empty = "-"
+    }
+    pilot shown = done_steps
+    if shown > total_steps { shown = total_steps }
+    give back C_G2 + cli_view_repeat(full, shown) + C_RESET + C_DIM + cli_view_repeat(empty, total_steps - shown) + C_RESET + " " + C_DIM + word_from_int(shown) + "/" + word_from_int(total_steps) + C_RESET
+}
+
+-- Heat colour for a duration: quick is calm, slow is loud.
+task cli_view_heat(ms: int) -> word {
+    if ms >= 10000 { give back C_BMAGENTA }
+    if ms >= 1000 { give back C_BYELLOW }
+    if ms >= 100 { give back C_BCYAN }
+    give back C_GREEN
+}
+
+task cli_view_ms(ms: int) -> word {
+    give back cli_view_heat(ms) + sw_ms_text(ms) + C_RESET
+}
+
+-- ── Live line ────────────────────────────────────────
+
+task cli_view_live_draw(text: word) -> void {
+    if not view_live { give back }
+    if view_live_line and cli_view_output_mark() == view_live_mark {
+        say VIEW_UP + text
+    } else {
+        say text
+    }
+    view_live_line = true
+    view_live_mark = cli_view_output_mark()
+}
+
+-- Print a permanent row, replacing the live line when it is still ours.
+task cli_view_print_row(row: word) -> void {
+    if view_live and view_live_line and cli_view_output_mark() == view_live_mark {
+        say VIEW_UP + row
+    } else {
+        say row
+    }
+    view_live_line = false
+}
+
+task cli_view_live_clear() -> void {
+    if view_live and view_live_line and cli_view_output_mark() == view_live_mark {
+        say VIEW_UP + "\x1b[1A"
+    }
+    view_live_line = false
+}
+
+-- Forget the live line without touching the screen (something else
+-- printed after it, so it is no longer ours to rewrite).
+task cli_view_live_abandon() -> void {
+    view_live_line = false
+}
+
+task cli_view_live_text(frame: int, elapsed_ms: int, detail: word, moving: bool) -> word {
+    pilot label = view_step_label
+    if label == "" { label = detail }
+    else if detail != "" { label = label + C_DIM + " \xc2\xb7 " + detail + C_RESET }
+    if CLI_ASCII_ART and detail != "" and view_step_label != "" { label = view_step_label + " - " + detail }
+    pilot line = "   " + C_G1 + cli_view_spinner(frame) + C_RESET + "  " + cli_view_pad(C_BWHITE + label + C_RESET, 40)
+    if elapsed_ms >= 0 { line = line + " " + cli_view_pad_left(cli_view_ms(elapsed_ms), 10) } else { line = line + " " + cli_view_pad_left(C_DIM + "\xe2\x80\xa6" + C_RESET, 10) }
+    if moving { line = line + "  " + cli_view_scanner(frame, 14) }
+    if view_steps_total > 0 { line = line + "  " + cli_view_rail(view_steps_done, view_steps_total) }
+    give back line
+}
+
+-- ── Commands with a header + phases ──────────────────
+
+-- Start the stopwatch and the phase rail for one command.
+task cli_view_begin(command: word, subject: word, steps: int) -> void {
+    sw_start(command, subject)
+    view_steps_total = steps
+    view_steps_done = 0
+    view_live_line = false
+    view_step_label = ""
+    view_step_lap = -1
+    view_activity_label = ""
+}
+
+task cli_view_title(command: word) -> word {
+    if CLI_ASCII_ART { give back C_BOLD + C_G1 + "FREAK" + C_RESET }
+    give back C_BOLD + C_G1 + "F" + C_G2 + "R" + C_G3 + "E" + C_G4 + "A" + C_G5 + "K" + C_RESET
+}
+
+-- Live header: a two-line banner with a right-aligned version tag.
+task cli_view_header(command: word, subject: word, detail: word) -> void {
+    pilot bolt = "\xe2\x9a\xa1"
+    if CLI_ASCII_ART { bolt = ">" }
+    pilot left = "  " + C_G1 + bolt + C_RESET + " " + cli_view_title(command) + "  " + C_BOLD + C_G5 + command + C_RESET
+    if subject != "" { left = left + C_DIM + "  \xe2\x80\xba  " + C_RESET + C_BWHITE + subject + C_RESET }
+    if CLI_ASCII_ART and subject != "" { left = "  " + bolt + " " + cli_view_title(command) + "  " + C_BOLD + command + C_RESET + "  " + C_BWHITE + subject + C_RESET }
+    pilot tag = C_DIM + "v" + CLI_VERSION + " " + CLI_CODENAME + C_RESET
+    say ""
+    say cli_view_pad(left, 62) + tag
+    if detail != "" { say "    " + C_DIM + detail + C_RESET }
+    say "  " + C_DIM + cli_box_line(70) + C_RESET
+}
+
+-- `live` draws a "working" line that the finished row replaces. Pass it
+-- only for phases whose own output is counted diagnostics (the frontend);
+-- phases that print freely (packages, native link) draw no line.
+task cli_view_step_begin(label: word, live: bool) -> int {
+    view_step_label = label
+    view_activity_label = ""
+    view_step_lap = sw_begin(label)
+    if view_live and live {
+        cli_view_live_draw(cli_view_live_text(view_steps_done, -1, "", false))
+    }
+    give back view_step_lap
+}
+
+-- Finish a phase row. Plain mode keeps the historical row format.
+task cli_view_step_end(lap: int, label: word) -> int {
+    pilot ms = sw_end(lap)
+    view_steps_done += 1
+    view_step_label = ""
+    view_activity_label = ""
+    if not view_live {
+        say "  " + C_BGREEN + SYM_CHECK + C_RESET + "  " + label + C_DIM + " (" + word_from_int(ms) + "ms)" + C_RESET
+        give back ms
+    }
+    pilot row = "   " + C_BGREEN + SYM_CHECK + C_RESET + "  " + cli_view_pad(label, 40) + " " + cli_view_pad_left(cli_view_ms(ms), 10)
+    cli_view_print_row(row)
+    give back ms
+}
+
+-- A phase that failed: close the lap and leave a red row in live mode.
+task cli_view_step_fail(lap: int, label: word) -> int {
+    pilot ms = sw_end(lap)
+    view_step_label = ""
+    if view_live {
+        pilot row = "   " + C_BRED + SYM_CROSS + C_RESET + "  " + cli_view_pad(C_RED + label + C_RESET, 40) + " " + cli_view_pad_left(cli_view_ms(ms), 10)
+        cli_view_print_row(row)
+    }
+    give back ms
+}
+
+-- A progress note like "Compiling native binary...". Plain mode prints it
+-- as before; live mode shows it on the spinner line instead.
+task cli_view_activity(text: word) -> void {
+    if view_live {
+        view_activity_label = text
+        give back
+    }
+    say "  " + C_DIM + SYM_GEAR + "  " + text + "..." + C_RESET
+}
+
+-- Run a bounded child process. Live mode animates a spinner, a live
+-- millisecond counter and a scanner bar while it runs; both modes record
+-- a nested lap named after `label`. Returns the process status.
+--
+-- Both modes poll instead of calling process::command_run: the blocking
+-- wait services the child in 10 ms slices, which stretched every short
+-- toolchain probe (a hello build makes ~80 of them). Polling with 1 ms
+-- sleeps for the first 20 ms measured ~0.9 s faster per build on Linux.
+task cli_view_run_command(command: int, label: word, timeout_ms: int, stdout_limit: int, stderr_limit: int) -> int {
+    pilot lap = sw_begin(label)
+    pilot detail = view_activity_label
+    if detail == "" { detail = label }
+    pilot started = time::monotonic_ns()
+    pilot step_base = 0
+    if view_step_lap >= 0 { step_base = sw_ns_to_ms(sw_lap_ns(view_step_lap)) }
+    process::command_spawn(command, timeout_ms, stdout_limit, stderr_limit)
+    -- Poll quickly at first so short probes are not stretched by the
+    -- animation, and only draw once the child has run for 150 ms.
+    pilot frame = 0
+    pilot drawn = false
+    pilot last_draw = 0
+    pilot status = process::command_poll(command)
+    repeat until status != 1 {
+        pilot running_ms = (time::monotonic_ns() - started) / 1000000
+        if view_live and running_ms >= 150 and (not drawn or running_ms - last_draw >= 80) {
+            if not drawn { view_live_line = false }
+            drawn = true
+            last_draw = running_ms
+            frame += 1
+            cli_view_live_draw(cli_view_live_text(frame, step_base + running_ms, detail, true))
+        }
+        if running_ms < 20 { time::sleep(1) }
+        else if running_ms < 150 { time::sleep(5) }
+        else { time::sleep(20) }
+        status = process::command_poll(command)
+    }
+    pilot ms = sw_end(lap)
+    if view_live and view_command_rows {
+        pilot mark = SYM_CHECK
+        pilot colour = C_BGREEN
+        if status != 2 or process::command_exit_code(command) != 0 {
+            mark = SYM_CROSS
+            colour = C_BRED
+        }
+        view_steps_done += 1
+        cli_view_print_row("   " + colour + mark + C_RESET + "  " + cli_view_pad(label, 40) + " " + cli_view_pad_left(cli_view_ms(ms), 10))
+    } else if drawn {
+        -- Callers print captured output next; never leave a line to rewrite.
+        cli_view_live_clear()
+    }
+    give back status
+}
+
+-- ── Summary cards ────────────────────────────────────
+
+pilot VIEW_CARD = 60
+
+task cli_view_card_line(content: word) -> word {
+    give back "  " + C_DIM + BOX_V + C_RESET + " " + cli_view_pad(content, VIEW_CARD - 2) + " " + C_DIM + BOX_V + C_RESET
+}
+
+task cli_view_card_top() -> word {
+    give back "  " + C_DIM + BOX_TL + cli_box_line(VIEW_CARD) + BOX_TR + C_RESET
+}
+
+task cli_view_card_bottom() -> word {
+    give back "  " + C_DIM + BOX_BL + cli_box_line(VIEW_CARD) + BOX_BR + C_RESET
+}
+
+task cli_view_palette(index: int) -> word {
+    pilot slot = index % 6
+    if slot == 0 { give back C_G6 }
+    if slot == 1 { give back C_G5 }
+    if slot == 2 { give back C_G4 }
+    if slot == 3 { give back C_G3 }
+    if slot == 4 { give back C_G2 }
+    give back C_G1
+}
+
+-- Stacked timeline of the top-level phases, one colour per phase.
+task cli_view_timeline(width: int) -> word {
+    pilot total = sw_total_ns
+    if total <= 0 or sw_count == 0 { give back "" }
+    pilot cell = "\xe2\x96\x88"
+    if CLI_ASCII_ART { cell = "#" }
+    pilot out = ""
+    pilot used = 0
+    pilot covered = 0
+    pilot colour_index = 0
+    pilot i = 0
+    repeat until i >= sw_count {
+        if word_to_int(array_get(sw_depths, i)) == 0 {
+            covered = covered + sw_lap_ns(i)
+            pilot boundary = (covered * width + total / 2) / total
+            if boundary > width { boundary = width }
+            pilot cells = boundary - used
+            if cells > 0 {
+                out = out + cli_view_palette(colour_index) + cli_view_repeat(cell, cells) + C_RESET
+                used = boundary
+            }
+            colour_index += 1
+        }
+        i += 1
+    }
+    if used < width { out = out + C_DIM + cli_view_repeat("\xc2\xb7", width - used) + C_RESET }
+    give back out
+}
+
+-- Legend for the three slowest top-level phases.
+task cli_view_legend() -> word {
+    pilot total = sw_total_ns
+    if total <= 0 { give back "" }
+    pilot square = "\xe2\x96\xa0"
+    if CLI_ASCII_ART { square = "#" }
+    pilot out = ""
+    pilot shown = 0
+    pilot taken = "|"
+    repeat until shown >= 3 {
+        pilot best = -1
+        pilot best_ns = -1
+        pilot colour_index = 0
+        pilot best_colour = 0
+        pilot i = 0
+        repeat until i >= sw_count {
+            if word_to_int(array_get(sw_depths, i)) == 0 {
+                pilot length = sw_lap_ns(i)
+                if length > best_ns and not taken.contains("|" + word_from_int(i) + "|") {
+                    best = i
+                    best_ns = length
+                    best_colour = colour_index
+                }
+                colour_index += 1
+            }
+            i += 1
+        }
+        if best < 0 { break }
+        taken = taken + word_from_int(best) + "|"
+        pilot entry = cli_view_palette(best_colour) + square + C_RESET + " " + array_get(sw_names, best) + " " + C_DIM + sw_percent_text(best_ns, total) + C_RESET
+        if out != "" { entry = "  " + entry }
+        if cli_view_width(out + entry) > VIEW_CARD - 4 { break }
+        out = out + entry
+        shown += 1
+    }
+    give back out
+}
+
+-- Live success card. `lines` are extra rows, separated by "\n".
+task cli_view_success_card(title: word, primary: word, extra: word) -> void {
+    pilot total_ms = sw_ns_to_ms(sw_total_ns)
+    pilot head = C_BGREEN + SYM_CHECK + " " + title + C_RESET
+    pilot clock = C_BOLD + cli_view_ms(total_ms) + C_RESET
+    say ""
+    say cli_view_card_top()
+    say cli_view_card_line(cli_view_pad(head, VIEW_CARD - 2 - cli_view_width(clock)) + clock)
+    if primary != "" {
+        pilot arrow = "\xe2\x86\x92"
+        if CLI_ASCII_ART { arrow = "->" }
+        say cli_view_card_line("  " + C_DIM + arrow + C_RESET + " " + C_BWHITE + cli_view_tail(primary, VIEW_CARD - 7) + C_RESET)
+    }
+    if extra != "" { say cli_view_card_line("  " + extra) }
+    pilot bar = cli_view_timeline(VIEW_CARD - 4)
+    if bar != "" {
+        say cli_view_card_line("")
+        say cli_view_card_line("  " + bar)
+        say cli_view_card_line("  " + cli_view_legend())
+    }
+    say cli_view_card_bottom()
+}
+
+task cli_view_failure_card(title: word, reason: word) -> void {
+    pilot total_ms = sw_ns_to_ms(sw_total_ns)
+    pilot head = C_BRED + SYM_CROSS + " " + title + C_RESET
+    pilot clock = C_DIM + "after " + C_RESET + C_BOLD + cli_view_ms(total_ms) + C_RESET
+    say ""
+    say cli_view_card_top()
+    say cli_view_card_line(cli_view_pad(head, VIEW_CARD - 2 - cli_view_width(clock)) + clock)
+    if reason != "" { say cli_view_card_line("  " + C_DIM + reason + C_RESET) }
+    say cli_view_card_bottom()
+}
+
+-- Name of the phase a failed command stopped in (the last open lap).
+task cli_view_failed_phase() -> word {
+    pilot i = sw_count - 1
+    repeat until i < 0 {
+        if word_to_int(array_get(sw_depths, i)) == 0 { give back array_get(sw_names, i) }
+        i -= 1
+    }
+    give back ""
+}
+
+-- One closing line for commands without a card (hangar, test, bootstrap).
+task cli_view_finish_line(verb: word, succeeded: bool) -> void {
+    pilot total_ms = sw_stop(succeeded)
+    if view_live {
+        cli_view_live_clear()
+        pilot mark = C_BGREEN + SYM_CHECK + C_RESET
+        if not succeeded { mark = C_BRED + SYM_CROSS + C_RESET }
+        say "  " + mark + " " + C_BWHITE + verb + C_RESET + C_DIM + " in " + C_RESET + C_BOLD + cli_view_ms(total_ms) + C_RESET
+    } else {
+        say "  " + C_DIM + verb + " in " + word_from_int(total_ms) + "ms" + C_RESET
+    }
+    sw_report()
+}

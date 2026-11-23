@@ -88,7 +88,7 @@ task cli_run_windows_file_sha256(path: word) -> word {
     process::command_arg(command, "-hashfile")
     process::command_arg(command, path)
     process::command_arg(command, "SHA256")
-    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot state = cli_view_run_command(command, "hash file", 10000, 65536, 65536)
     pilot digest = ""
     if state == 2 and process::command_exit_code(command) == 0 {
         pilot output: ByteBuffer = process::command_stdout_bytes(command)
@@ -299,7 +299,7 @@ task cli_run_resolve_program(command: word) -> word {
             -- utility launch or a malformed/concurrently changed response.
             pilot presence = process::command_new("/usr/bin/printenv")
             process::command_arg(presence, "PATH")
-            pilot state = process::command_run(presence, 10000, 65536, 65536)
+            pilot state = cli_view_run_command(presence, "environment probe", 10000, 65536, 65536)
             pilot exit_code = process::command_exit_code(presence)
             pilot valid = false
             if state == 2 {
@@ -352,7 +352,7 @@ task cli_run_tool_version(executable: word, allow_nonzero: bool) -> word {
     -- Some native linkers (including Apple ld) report an unsupported-option
     -- diagnostic with a normal nonzero exit. Preserve that version identity
     -- while keeping the probe bounded and entirely in argv.
-    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot state = cli_view_run_command(command, "tool version probe", 10000, 65536, 65536)
     pilot exit_code = process::command_exit_code(command)
     pilot version = ""
     if state == 2 and (allow_nonzero or exit_code == 0) {
@@ -389,7 +389,7 @@ task cli_run_clang_target(clang_cmd: word) -> word {
     process::command_arg(command, "-dumpmachine")
     cli_tool_capture_problem = ""
     pilot started = time::monotonic_ns()
-    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot state = cli_view_run_command(command, "clang target probe", 10000, 65536, 65536)
     pilot elapsed = (time::monotonic_ns() - started) / 1000000
     pilot exit_code = process::command_exit_code(command)
     pilot signal_number = process::command_signal(command)
@@ -570,10 +570,15 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
         give back 1
     }
 
-    say cli_box_top(45)
-    say cli_box_mid(" " + C_G5 + SYM_ARROW + " RUNNING" + C_RESET + "  " + C_BWHITE + binary + C_RESET, 45)
-    say cli_box_bot(45)
-    say ""
+    if view_live {
+        say "  " + C_G5 + SYM_ARROW + C_RESET + " " + C_BOLD + C_G5 + "RUNNING" + C_RESET + "  " + C_BWHITE + binary + C_RESET + C_DIM + "  (output below is the program's own)" + C_RESET
+        say "  " + C_DIM + cli_box_line(70) + C_RESET
+    } else {
+        say cli_box_top(45)
+        say cli_box_mid(" " + C_G5 + SYM_ARROW + " RUNNING" + C_RESET + "  " + C_BWHITE + binary + C_RESET, 45)
+        say cli_box_bot(45)
+        say ""
+    }
     pilot run_path = binary
     if cli_is_windows() {
         run_path = run_path.replace("/", "\\")
@@ -582,11 +587,18 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
         -- as `hello.fk` produces `hello`, which must be launched as `./hello`.
         run_path = "./" + run_path
     }
-    pilot run_start = time::now_ms()
+    pilot build_ms = sw_elapsed_ms()
+    pilot run_lap = sw_begin("Program run")
     pilot run_code = cli_run_program(run_path, program_arg_start)
-    pilot run_elapsed = time::now_ms() - run_start
+    pilot run_elapsed = sw_end(run_lap)
     say ""
-    if run_code != 0 {
+    if view_live {
+        pilot total_ms = sw_elapsed_ms()
+        say "  " + C_DIM + cli_box_line(70) + C_RESET
+        pilot verdict = C_BGREEN + SYM_CHECK + " DONE" + C_RESET
+        if run_code != 0 { verdict = C_BYELLOW + SYM_BOLT + " EXIT " + word_from_int(run_code) + C_RESET }
+        say "  " + verdict + C_DIM + "   run " + C_RESET + cli_view_ms(run_elapsed) + C_DIM + "  \xc2\xb7  build " + C_RESET + cli_view_ms(build_ms) + C_DIM + "  \xc2\xb7  total " + C_RESET + C_BOLD + cli_view_ms(total_ms) + C_RESET
+    } else if run_code != 0 {
         pilot rc_str: word = word_from_int(run_code)
         say "  " + C_BYELLOW + SYM_BOLT + " EXIT" + C_RESET + C_DIM + " code " + rc_str + " (" + word_from_int(run_elapsed) + "ms)" + C_RESET
     } else {

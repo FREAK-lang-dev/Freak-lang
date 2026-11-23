@@ -7,6 +7,8 @@ src/compiler/v3/checker.fk
 src/compiler/v3/emit_c.fk
 src/compiler/v3/emit_llvm.fk
 src/cli/version.fk
+src/cli/stopwatch.fk
+src/cli/view.fk
 src/diagnostics/embedded_cast.fk
 src/cli/diagnostic_cast.fk
 src/cli/diagnostic_cast_adapter.fk
