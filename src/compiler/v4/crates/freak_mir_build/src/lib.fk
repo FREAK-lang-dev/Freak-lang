@@ -8956,6 +8956,11 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
         v4_mir_lower_suppressed_loop_body(mir_id, body_id, stream_id, open_token, stmt_end)
         give back iterable_block
     }
+    -- freak-full-bible.md gives Map no iteration order or item type, so a
+    -- walk over a map is refused by name (sets are not iterable sources).
+    if v4_mir_hash_collection_kind(mir_id, v4_mir_map_receiver_type(mir_id, iterable_ty)) == "Map" {
+        v4_mir_add_type_error(mir_id, stmt_span, "for each over a map is not yet supported", "the bible gives Map no iteration order; look entries up with m[k] or m.get(k)")
+    }
     if v4_mir_list_receiver_type(mir_id, iterable_ty) != "" { give back v4_mir_lower_list_for_each(mir_id, body_id, stream_id, iterable_block, iterable_rvalue, loop_pattern, iterable_text, stmt_span, open_token, stmt_end) }
     -- Evaluate the iterable before entering the cycle. The loop header may run
     -- many times, but calls and ownership transfers in the source run once.
