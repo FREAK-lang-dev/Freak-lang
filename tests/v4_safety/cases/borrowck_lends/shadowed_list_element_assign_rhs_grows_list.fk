@@ -1,0 +1,19 @@
+-- The pending element store of a shadowing list sees an rhs that may
+-- reallocate that same binding.
+-- expect: reject borrowck
+-- error: Meiya refuses to change a list while one of its elements is assigned
+
+task grow(lend mut xs: List<int>) -> int {
+    repeat 64 times { xs.push(7) }
+    give back 5
+}
+task main() -> int {
+    pilot xs: List<int> = [1]
+    pilot mut n = 0
+    if n == 0 {
+        pilot mut xs: List<int> = [1, 2]
+        xs[0] = grow(lend mut xs)
+        n = xs[0]
+    }
+    give back n + xs.length()
+}

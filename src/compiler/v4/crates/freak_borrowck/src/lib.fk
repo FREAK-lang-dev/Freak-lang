@@ -2521,7 +2521,10 @@ task v4_borrowck_list_index_target_conflict(mir_id: int, body_id: int, stmt_id: 
             pilot base_ty = v4_mir_place_ty(mir_id, body_id, base)
             if v4_ty_is_lend_type(base_ty) { base_ty = v4_ty_lend_target_type(base_ty) }
             if v4_borrowck_type_is_list(mir_id, base_ty) {
-                pilot base_text = v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, base))
+                pilot base_text = v4_mir_place_text(mir_id, body_id, base)
+                pilot shadowed_base = v4_borrowck_projected_binding_text(mir_id, body_id, base)
+                if shadowed_base != "" { base_text = shadowed_base }
+                base_text = v4_borrowck_path_canon(base_text)
                 if loan == base_text or base_text.starts_with(loan + ".") or base_text.starts_with(loan + "[") { give back true }
             }
         }
@@ -5122,7 +5125,36 @@ task v4_borrowck_word_path_local(mir_id: int, body_id: int, text: word) -> int {
     give back 0 - 1
 }
 
+-- A place rooted at a shadowed binding-path local (`xs[0]`, `p.x`) named
+-- with that binding's own root (`@word-local:<id>[0]`), so projections of
+-- the inner and outer bindings never alias and always overlap their own
+-- loans. "" when the root keeps its plain name.
+task v4_borrowck_projected_binding_text(mir_id: int, body_id: int, place_id: int) -> word {
+    pilot place_count = v4_mir_body_place_count(mir_id, body_id)
+    pilot root = place_id
+    pilot depth = 0
+    repeat until root < 0 or root >= place_count or depth > 256 or v4_mir_place_kind(mir_id, body_id, root) == v4_mir_place_local {
+        pilot root_kind = v4_mir_place_kind(mir_id, body_id, root)
+        if root_kind != v4_mir_place_field and root_kind != v4_mir_place_index { give back "" }
+        root = v4_mir_place_base(mir_id, body_id, root)
+        depth += 1
+    }
+    if root < 0 or root >= place_count or v4_mir_place_kind(mir_id, body_id, root) != v4_mir_place_local { give back "" }
+    pilot local_id = v4_mir_place_base(mir_id, body_id, root)
+    if local_id < 0 or local_id >= v4_mir_body_local_count(mir_id, body_id) { give back "" }
+    if not v4_borrowck_type_has_binding_path(mir_id, v4_mir_local_ty(mir_id, body_id, local_id)) { give back "" }
+    pilot binding = v4_borrowck_word_local_path(mir_id, body_id, local_id)
+    pilot root_text = v4_mir_place_text(mir_id, body_id, root)
+    pilot text = v4_mir_place_text(mir_id, body_id, place_id)
+    if binding == root_text or not text.starts_with(root_text) { give back "" }
+    give back binding + text.substring(root_text.length(), text.length() - root_text.length())
+}
+
 task v4_borrowck_rvalue_binding_path(mir_id: int, body_id: int, value: int) -> word {
+    if v4_mir_rvalue_kind(mir_id, body_id, value) == v4_mir_rvalue_use_place {
+        pilot projected = v4_borrowck_projected_binding_text(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value))
+        if projected != "" { give back projected }
+    }
     if v4_borrowck_type_has_binding_path(mir_id, v4_mir_rvalue_ty(mir_id, body_id, value)) {
         if v4_mir_rvalue_kind(mir_id, body_id, value) == v4_mir_rvalue_use_local {
             pilot local_id = v4_mir_rvalue_local_id(mir_id, body_id, value)
@@ -5142,6 +5174,8 @@ task v4_borrowck_add_place_path(borrow_id: int, result_id: int, mir_id: int, bod
     }
     pilot text = v4_mir_place_text(mir_id, body_id, place_id)
     if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local and v4_borrowck_type_has_binding_path(mir_id, v4_mir_place_ty(mir_id, body_id, place_id)) and v4_mir_place_base(mir_id, body_id, place_id) >= 0 { text = v4_borrowck_word_local_path(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id)) }
+    pilot projected = v4_borrowck_projected_binding_text(mir_id, body_id, place_id)
+    if projected != "" { text = projected }
     v4_borrowck_add_path(borrow_id, result_id, path_kind, text, stmt_id, block_id)
 }
 
