@@ -5403,6 +5403,7 @@ task v4_mir_list_loan_type(mir: int, body: int, value: int, mutable: bool) -> wo
         if owner < 0 or owner >= value or v4_mir_rvalue_rhs(mir, body, value) >= 0 { give back "" }
         pilot owner_kind = v4_mir_rvalue_kind(mir, body, owner)
         if owner_kind != v4_mir_rvalue_use_local and owner_kind != v4_mir_rvalue_use_place { give back "" }
+        if owner_kind == v4_mir_rvalue_use_local and not v4_mir_local_reference_is_exact(mir, body, owner) { give back "" }
         if v4_ty_canonical_type(v4_mir_ty_id(mir), v4_mir_rvalue_ty(mir, body, owner)) != list_ty { give back "" }
         give back list_ty
     }
