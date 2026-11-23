@@ -172,8 +172,9 @@ drop, drop mode, flag required, loan set, return-loan origins, cleanup
 requirement) and TY layout facts. It references no lexer, parser, HIR,
 Resolve or LLVM emission task.
 
-**Validation before codegen.** Every owned local is dropped exactly once or
-moved on every path to every exit; `DropIf` names a flag local; no
+**Validation before codegen.** Every owned value is dropped exactly once or
+moved on every path to every exit, including a value dropped by replacement
+and the value that replaces it; `DropIf` names a flag local; no
 analysis-only operation is left; every cleanup block ends in its exit's
 terminator; every block still has exactly one terminator.
 
