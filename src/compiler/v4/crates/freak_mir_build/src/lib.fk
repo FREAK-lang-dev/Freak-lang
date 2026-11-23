@@ -7183,7 +7183,7 @@ task v4_mir_check_root_const_place_mutation(mir_id: int, body_id: int, place_id:
 task v4_mir_lower_index_place(mir_id: int, body_id: int, stream_id: int, base_place: int, open_index: int, last: int, place_text: word, place_span: word) -> int {
     pilot index_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, open_index + 1, last)
     -- Index operands are not wired through MIR control flow yet: a `?` there
-    -- would never propagate and an `and`/`or` would evaluate eagerly.
+    -- would never propagate and an `and`/`or` would evaluate eagerly (#274).
     if v4_mir_rvalue_needs_control_flow(mir_id, body_id, index_rvalue) {
         v4_mir_add_type_error(mir_id, place_span, "control flow inside an index operand is not yet supported", "evaluate the index into a pilot first, like pilot i = f()? or pilot i = pick(a and b), then index with i")
     }
