@@ -2048,6 +2048,8 @@ task v4_borrowck_call_return_lend_leaf_count(mir_id: int, body_id: int, rvalue_i
     if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) { give back 0 }
     -- List length gives back an int and push gives back nothing.
     if v4_mir_rvalue_is_builtin_list(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_map(mir_id, body_id, rvalue_id) { give back 0 }
+    -- A clone, Weak, upgraded Shared or SharedMut guard owns its own reference.
+    if v4_mir_rvalue_is_shared_fresh_owner(mir_id, body_id, rvalue_id) { give back 0 }
     if v4_borrowck_receiver_call_holds_no_loan(mir_id, body_id, rvalue_id) { give back 0 }
     pilot sig_id = v4_borrowck_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
     if sig_id < 0 { give back 0 - 1 }
@@ -5262,6 +5264,7 @@ task v4_borrowck_rvalue_resolves_lend_source(mir_id: int, body_id: int, use_stmt
 }
 
 task v4_borrowck_call_lends_source(mir_id: int, body_id: int, call_stmt: int, call_rvalue: int, loan_text: word) -> bool {
+    if v4_mir_rvalue_is_shared_fresh_owner(mir_id, body_id, call_rvalue) { give back false }
     if v4_mir_rvalue_is_builtin_word(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_builtin_list(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_builtin_map(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_static_never(mir_id, body_id, call_rvalue) { give back false }
     if call_rvalue < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_rvalue) != v4_mir_rvalue_call {
         give back false
@@ -5459,7 +5462,7 @@ task v4_borrowck_block_can_cycle(mir_id: int, body_id: int, block_id: int) -> bo
 
 task v4_borrowck_rvalue_returns_holder(mir_id: int, body_id: int, rvalue_id: int, holder: word) -> bool {
     if v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_static_never(mir_id, body_id, rvalue_id) { give back false }
-    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_list(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_map(mir_id, body_id, rvalue_id) { give back false }
+    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_list(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_map(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_shared_fresh_owner(mir_id, body_id, rvalue_id) { give back false }
     if rvalue_id < 0 {
         give back false
     }
@@ -7792,7 +7795,7 @@ task v4_borrowck_loan_move_conflict_message(loan_block: int, move_block: int) ->
 -- checked empty returned-source contract. This is separate from availability:
 -- an earlier outer argument's loan remains live throughout later arguments.
 task v4_borrowck_word_call_result_is_empty(mir_id: int, body_id: int, value: int) -> bool {
-    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_list(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_map(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, value) or v4_mir_rvalue_is_static_never(mir_id, body_id, value) { give back true }
+    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_list(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_map(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, value) or v4_mir_rvalue_is_static_never(mir_id, body_id, value) or v4_mir_rvalue_is_shared_fresh_owner(mir_id, body_id, value) { give back true }
     if v4_borrowck_empty_scalar_call_status(mir_id, body_id, value) == 1 or v4_borrowck_scalar_sum_call_is_empty(mir_id, body_id, value) { give back true }
     pilot signature = v4_borrowck_call_borrowed_source_signature_id(mir_id, body_id, value)
     if signature >= 0 and v4_mir_rvalue_ty(mir_id, body_id, value) == v4_ty_word and v4_ty_signature_return_type(v4_mir_ty_id(mir_id), signature) == v4_ty_word { give back true }
@@ -8872,7 +8875,14 @@ pilot v4_borrowck_word_plan_resource_failed: bool = false
 -- local moves as one value; a field read of it is never counted as a move
 -- of the local (native lowering refuses those partial moves by name).
 task v4_borrowck_type_is_owned_storage(mir_id: int, type_text: word) -> bool {
-    give back v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), type_text) or v4_borrowck_type_is_heap_collection(mir_id, type_text) or v4_borrowck_aggregate_holds_word(mir_id, type_text, 0)
+    give back v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), type_text) or v4_borrowck_type_is_heap_collection(mir_id, type_text) or v4_borrowck_type_is_shared_handle(mir_id, type_text) or v4_borrowck_aggregate_holds_word(mir_id, type_text, 0)
+}
+
+-- A prelude Shared<T>, Weak<T> or SharedMut<T> handle owns one reference to
+-- its shared box (tier 3), so it has a drop of its own.
+task v4_borrowck_type_is_shared_handle(mir_id: int, type_text: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lend_type(type_text) { give back false }
+    give back v4_mir_nominal_builtin_shared_base(mir_id, type_text) != ""
 }
 
 -- A List<T> owns its element buffer (tier 3), so it has a drop of its own.
@@ -9716,6 +9726,8 @@ task v4_borrowck_drop_plan_block_cell(block: int, field: int) -> int {
 task v4_borrowck_drop_plan_local_is_owned(mir_id: int, body_id: int, local_id: int) -> bool {
     if local_id < 0 or local_id >= v4_mir_body_local_count(mir_id, body_id) or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value { give back false }
     pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_id)
+    -- A Shared borrow view is a guard: its drop ends the runtime read.
+    if v4_mir_local_is_shared_view(mir_id, body_id, local_id) { give back true }
     if v4_ty_is_lend_type(local_ty) { give back false }
     give back v4_borrowck_type_is_owned_storage(mir_id, local_ty)
 }

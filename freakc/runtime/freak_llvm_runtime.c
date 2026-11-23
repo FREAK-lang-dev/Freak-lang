@@ -1081,3 +1081,109 @@ int64_t freak_llvm_fs_rename_new_checked(int64_t source,int64_t destination) {
 int64_t freak_llvm_process_command_poll(int64_t ticket) { return freak_process_command_poll(ticket); }
 
 void freak_llvm_time_sleep(int64_t milliseconds) { freak_time_sleep(milliseconds); }
+
+/* ── V4 Shared<T> / Weak<T> allocation header (tier 3) ─────────────────
+   Native V4 code places one box per Shared::new: three i64 counters then
+   the payload, `%"freak.shared.box.<T>" = type { i64, i64, i64, T }`.
+   `strong` counts Shared handles plus live borrow views and SharedMut
+   guards (each holds one strong reference); `weak` counts Weak handles
+   plus one implicit reference all strong handles share, so the box is
+   freed when weak reaches zero. `borrow` is the runtime borrow state:
+   0 free, n > 0 live `.borrow()` views, -1 one live SharedMut guard.
+   Counters are atomic (bible 7.18: atomic reference counting); the payload
+   is dropped by the module's own drop glue when `release` reports the last
+   strong reference. Cycles made entirely of Shared<T> leak by design. */
+typedef struct {
+    int64_t strong;
+    int64_t weak;
+    int64_t borrow;
+} freak_v4_shared_header;
+
+void *freak_v4_shared_alloc(int64_t size) {
+    if (size < (int64_t)sizeof(freak_v4_shared_header)) return NULL;
+    freak_v4_shared_header *box = (freak_v4_shared_header *)malloc((size_t)size);
+    if (!box) return NULL;
+    box->strong = 1;
+    box->weak = 1;
+    box->borrow = 0;
+    return box;
+}
+
+void freak_v4_shared_retain(void *handle) {
+    if (!handle) return;
+    (void)__atomic_fetch_add(&((freak_v4_shared_header *)handle)->strong, 1, __ATOMIC_RELAXED);
+}
+
+/* 1 when this was the last strong reference: the caller drops the payload
+   in place, then calls freak_v4_shared_release_weak for the implicit weak. */
+int64_t freak_v4_shared_release(void *handle) {
+    if (!handle) return 0;
+    return __atomic_sub_fetch(&((freak_v4_shared_header *)handle)->strong, 1, __ATOMIC_ACQ_REL) == 0;
+}
+
+void freak_v4_shared_downgrade(void *handle) {
+    if (!handle) return;
+    (void)__atomic_fetch_add(&((freak_v4_shared_header *)handle)->weak, 1, __ATOMIC_RELAXED);
+}
+
+void freak_v4_shared_release_weak(void *handle) {
+    if (!handle) return;
+    if (__atomic_sub_fetch(&((freak_v4_shared_header *)handle)->weak, 1, __ATOMIC_ACQ_REL) == 0) free(handle);
+}
+
+/* Weak::upgrade: a new strong reference while the payload is still alive. */
+int64_t freak_v4_shared_upgrade(void *handle) {
+    if (!handle) return 0;
+    freak_v4_shared_header *box = (freak_v4_shared_header *)handle;
+    int64_t strong = __atomic_load_n(&box->strong, __ATOMIC_ACQUIRE);
+    while (strong > 0) {
+        if (__atomic_compare_exchange_n(&box->strong, &strong, strong + 1, 1, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return 1;
+    }
+    return 0;
+}
+
+/* get_mut: the only handle (strong 1), no Weak that could upgrade (weak is
+   the implicit 1) and no live view or guard. */
+int64_t freak_v4_shared_unique(void *handle) {
+    if (!handle) return 0;
+    freak_v4_shared_header *box = (freak_v4_shared_header *)handle;
+    return __atomic_load_n(&box->strong, __ATOMIC_ACQUIRE) == 1 &&
+           __atomic_load_n(&box->weak, __ATOMIC_ACQUIRE) == 1 &&
+           __atomic_load_n(&box->borrow, __ATOMIC_ACQUIRE) == 0;
+}
+
+/* .borrow(): 1 and one more reader (and strong reference) unless a
+   SharedMut guard is live. */
+int64_t freak_v4_shared_begin_read(void *handle) {
+    if (!handle) return 0;
+    freak_v4_shared_header *box = (freak_v4_shared_header *)handle;
+    int64_t state = __atomic_load_n(&box->borrow, __ATOMIC_ACQUIRE);
+    while (state >= 0) {
+        if (__atomic_compare_exchange_n(&box->borrow, &state, state + 1, 1, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            freak_v4_shared_retain(handle);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void freak_v4_shared_end_read(void *handle) {
+    if (!handle) return;
+    (void)__atomic_fetch_sub(&((freak_v4_shared_header *)handle)->borrow, 1, __ATOMIC_ACQ_REL);
+}
+
+/* .borrow_mut(): 1 and the writer state (plus a strong reference) when no
+   view or guard is live; 0 is the BorrowError case. */
+int64_t freak_v4_shared_begin_write(void *handle) {
+    if (!handle) return 0;
+    freak_v4_shared_header *box = (freak_v4_shared_header *)handle;
+    int64_t idle = 0;
+    if (!__atomic_compare_exchange_n(&box->borrow, &idle, -1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return 0;
+    freak_v4_shared_retain(handle);
+    return 1;
+}
+
+void freak_v4_shared_end_write(void *handle) {
+    if (!handle) return;
+    __atomic_store_n(&((freak_v4_shared_header *)handle)->borrow, 0, __ATOMIC_RELEASE);
+}

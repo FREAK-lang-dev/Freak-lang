@@ -70,6 +70,9 @@ pilot v4_codegen_llvm_list_used: bool = false
 -- Map and set types whose helpers this module emits, and those with a get.
 pilot v4_codegen_llvm_map_types = "\n"
 pilot v4_codegen_llvm_map_get_types = "\n"
+-- Payload types whose Shared box and drop helpers this module emits.
+pilot v4_codegen_llvm_shared_payload_types = "\n"
+pilot v4_codegen_llvm_shared_used: bool = false
 -- Policy of the module being lowered; selects the panic helper.
 pilot v4_codegen_llvm_active_panic_policy = "abort"
 pilot v4_codegen_llvm_fragment_error = ""
@@ -942,6 +945,10 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
     }
     if v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, ty_name) { give back v4_codegen_llvm_list_header_type() }
     if v4_codegen_llvm_is_map(v4_codegen_llvm_active_owned_mir, ty_name) { give back v4_codegen_llvm_map_header_type() }
+    -- A Shared, Weak or SharedMut handle points at its box; BorrowError is a
+    -- one-byte token.
+    if v4_codegen_llvm_is_shared_handle(v4_codegen_llvm_active_owned_mir, ty_name) { give back "ptr" }
+    if v4_codegen_llvm_is_borrow_error(v4_codegen_llvm_active_owned_mir, ty_name) { give back "i8" }
     if v4_codegen_llvm_active_owned_mir >= 0 {
         pilot route_sig = v4_codegen_llvm_route_signature(v4_codegen_llvm_active_owned_mir, ty_name)
         if route_sig >= 0 { give back v4_codegen_llvm_route_type_name(v4_codegen_llvm_active_owned_mir, route_sig) }
@@ -1930,7 +1937,7 @@ task v4_codegen_llvm_call_is_freak_abi(mir_id: int, body_id: int, rvalue_id: int
     if v4_codegen_llvm_active_owned_mir != mir_id or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call { give back false }
     pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
     if op == v4_mir_call_say_literal or op == v4_mir_call_raw_ptr_write or v4_mir_rvalue_abi(mir_id, body_id, rvalue_id) != "" { give back false }
-    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_list(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_map(mir_id, body_id, rvalue_id) { give back false }
+    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_list(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_map(mir_id, body_id, rvalue_id) or v4_mir_shared_intrinsic_kind(mir_id, body_id, rvalue_id) != "" { give back false }
     give back v4_mir_word_intrinsic_kind(mir_id, body_id, rvalue_id) == ""
 }
 
@@ -2645,6 +2652,10 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                         call_symbol = "@freak.map." + v4_mir_map_intrinsic_kind(mir_id, body_idx, rvalue_idx)
                         call_line = ""
                     }
+                    if v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_shared_intrinsic_kind(mir_id, body_idx, rvalue_idx) != "" {
+                        call_symbol = "@freak.shared." + v4_mir_shared_intrinsic_kind(mir_id, body_idx, rvalue_idx)
+                        call_line = ""
+                    }
                     if v4_mir_rvalue_is_builtin_control(mir_id, body_idx, rvalue_idx) {
                         call_symbol = v4_codegen_llvm_panic_symbol()
                         call_line = v4_codegen_llvm_panic_instruction(mir_id, body_idx, rvalue_idx)
@@ -3035,6 +3046,11 @@ task v4_codegen_llvm_native_type_error_depth(type_text: word, allow_void: bool, 
     if v4_codegen_llvm_active_owned_mir >= 0 and depth == 0 and v4_codegen_llvm_is_place_lend(v4_codegen_llvm_active_owned_mir, type_text) { give back "" }
     if v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, type_text) { give back v4_codegen_llvm_native_list_type_error(v4_codegen_llvm_active_owned_mir, type_text, depth) }
     if v4_codegen_llvm_is_map(v4_codegen_llvm_active_owned_mir, type_text) { give back v4_codegen_llvm_native_map_type_error(v4_codegen_llvm_active_owned_mir, type_text, depth) }
+    if v4_codegen_llvm_is_shared_handle(v4_codegen_llvm_active_owned_mir, type_text) { give back v4_codegen_llvm_native_shared_type_error(v4_codegen_llvm_active_owned_mir, type_text, depth) }
+    if v4_codegen_llvm_is_borrow_error(v4_codegen_llvm_active_owned_mir, type_text) {
+        if depth == 0 { give back "" }
+        give back "native BorrowError inside other types is not yet supported: " + type_text
+    }
     if type_text == v4_ty_int or type_text == v4_ty_uint or type_text == v4_ty_tiny or type_text == v4_ty_num or type_text == v4_ty_float or type_text == v4_ty_float32 or type_text == v4_ty_bool or type_text == v4_ty_char or type_text == v4_ty_word { give back "" }
     if allow_void and (type_text == v4_ty_void or type_text == v4_ty_never) { give back "" }
     -- Opaque raw pointer values do not require an aggregate layout. Operations
@@ -3153,6 +3169,8 @@ task v4_codegen_llvm_word_leaf_count(mir_id: int, type_text: word, depth: int) -
     -- A list is one owned handle: its drop glue frees the buffer and its
     -- elements' words (v4_codegen_llvm_list_drop_lines).
     if v4_codegen_llvm_is_list(mir_id, type_text) or v4_codegen_llvm_is_map(mir_id, type_text) { give back 1 }
+    -- A Shared, Weak or SharedMut handle owns one reference to its box.
+    if v4_codegen_llvm_is_shared_handle(mir_id, type_text) { give back 1 }
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
     if kind == "" { give back v4_codegen_llvm_route_word_leaf_count(mir_id, type_text, depth) }
     if kind == "array" {
@@ -3227,6 +3245,7 @@ task v4_codegen_llvm_drop_glue_at(mir_id: int, type_text: word, address: word, c
     }
     if v4_codegen_llvm_is_list(mir_id, type_text) { give back v4_codegen_llvm_list_drop_lines(mir_id, type_text, address, "", cond, temp) }
     if v4_codegen_llvm_is_map(mir_id, type_text) { give back v4_codegen_llvm_map_drop_lines(mir_id, type_text, address, "", cond, temp) }
+    if v4_codegen_llvm_is_shared_handle(mir_id, type_text) { give back v4_codegen_llvm_shared_drop_lines(mir_id, type_text, address, cond, temp) }
     if v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back "" }
     pilot llvm_ty = v4_codegen_llvm_type(type_text)
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
@@ -4041,6 +4060,7 @@ task v4_codegen_llvm_shape_records(mir_id: int) -> word {
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_generic_aggregate_records(mir_id))
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_closure_records(mir_id))
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_dyn_records(mir_id))
+    if v4_codegen_llvm_shared_used { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_shared_records(mir_id)) }
     pilot out = word_join(parts)
     array_release(parts)
     out = out + v4_codegen_llvm_sum_records(mir_id)
@@ -4660,6 +4680,12 @@ task v4_codegen_llvm_native_conversion_error(actual: word, expected: word) -> wo
         if v4_codegen_llvm_is_map(v4_codegen_llvm_active_owned_mir, actual) and v4_codegen_llvm_is_map(v4_codegen_llvm_active_owned_mir, expected) and v4_ty_canonical_type(map_ty_id, actual) == v4_ty_canonical_type(map_ty_id, expected) { give back "" }
         give back "unsupported native conversion: " + actual + " to " + expected
     }
+    -- A Shared handle or BorrowError converts only to its own canonical type.
+    if v4_codegen_llvm_type_names_shared(v4_codegen_llvm_active_owned_mir, actual) or v4_codegen_llvm_type_names_shared(v4_codegen_llvm_active_owned_mir, expected) {
+        pilot shared_ty_id = v4_mir_ty_id(v4_codegen_llvm_active_owned_mir)
+        if v4_ty_canonical_type(shared_ty_id, actual) == v4_ty_canonical_type(shared_ty_id, expected) { give back "" }
+        give back "unsupported native conversion: " + actual + " to " + expected
+    }
     -- A list converts only to its own canonical type (one element layout).
     if v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, actual) or v4_codegen_llvm_is_list(v4_codegen_llvm_active_owned_mir, expected) {
         pilot ty_id = v4_mir_ty_id(v4_codegen_llvm_active_owned_mir)
@@ -4871,6 +4897,7 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
     -- native_dyn_error already checked every dyn loan of this MIR.
     if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_is_dyn_ref(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back "" }
     if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_list or (kind == v4_mir_rvalue_loop_item and v4_mir_rvalue_is_list_loop_item(mir_id, body_id, rvalue_id)) or (kind == v4_mir_rvalue_call and v4_mir_rvalue_is_builtin_list(mir_id, body_id, rvalue_id))) { give back v4_codegen_llvm_native_list_rvalue_error(mir_id, body_id, rvalue_id) }
+    if v4_codegen_llvm_active_owned_mir == mir_id and kind == v4_mir_rvalue_call and v4_mir_shared_intrinsic_kind(mir_id, body_id, rvalue_id) != "" { give back v4_codegen_llvm_native_shared_rvalue_error(mir_id, body_id, rvalue_id) }
     if kind == v4_mir_rvalue_call and (v4_mir_rvalue_op(mir_id, body_id, rvalue_id).starts_with("builtin::list::") or v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id).starts_with("builtin::list::")) { give back "invalid native list intrinsic identity" }
     if v4_codegen_llvm_active_owned_mir == mir_id and (kind == v4_mir_rvalue_map or (kind == v4_mir_rvalue_call and v4_mir_rvalue_is_builtin_map(mir_id, body_id, rvalue_id))) { give back v4_codegen_llvm_native_map_rvalue_error(mir_id, body_id, rvalue_id) }
     if kind == v4_mir_rvalue_call and (v4_mir_rvalue_op(mir_id, body_id, rvalue_id).starts_with("builtin::map::") or v4_mir_rvalue_op(mir_id, body_id, rvalue_id).starts_with("builtin::set::") or v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id).starts_with("builtin::map::") or v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id).starts_with("builtin::set::")) { give back "invalid native map intrinsic identity" }
@@ -5135,6 +5162,8 @@ task v4_codegen_llvm_native_place_error(mir_id: int, body_id: int, place_id: int
 task v4_codegen_llvm_native_mir_error(mir_id: int) -> word {
     pilot dyn_error = v4_codegen_llvm_native_dyn_error(mir_id)
     if dyn_error != "" { give back dyn_error }
+    pilot shared_error = v4_codegen_llvm_native_shared_error(mir_id)
+    if shared_error != "" { give back shared_error }
     pilot body_id = 0
     body_id = v4_codegen_llvm_next_emitted_body(mir_id, body_id)
     repeat until body_id >= v4_mir_body_count(mir_id) {
@@ -5271,6 +5300,8 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
     v4_codegen_llvm_list_used = false
     v4_codegen_llvm_map_types = "\n"
     v4_codegen_llvm_map_get_types = "\n"
+    v4_codegen_llvm_shared_payload_types = "\n"
+    v4_codegen_llvm_shared_used = false
     v4_codegen_llvm_fragment_error = ""
     pilot sealed_policy = policy
     if policy != "unwind" and policy != "abort" { sealed_policy = "" }
@@ -5361,9 +5392,16 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         pilot maps_used: bool = v4_codegen_llvm_map_types != "\n"
         -- A map's entry buffer grows through the list helpers.
         v4_codegen_llvm_list_used = owned_words and (v4_codegen_llvm_mir_uses_lists(mir_id) or maps_used)
+        v4_codegen_llvm_shared_used = owned_words and v4_codegen_llvm_mir_uses_shared(mir_id)
+        if native_error == "" and v4_codegen_llvm_shared_used { native_error = v4_codegen_llvm_shared_symbol_error(codegen_id) }
+        -- Shared drop helpers are generated first: a list payload's drop
+        -- helper must then be among the list helpers this module defines.
+        pilot shared_runtime = ""
+        if v4_codegen_llvm_shared_used { shared_runtime = v4_codegen_llvm_shared_runtime_lines(mir_id) }
+        if v4_codegen_llvm_list_drop_types != "\n" { v4_codegen_llvm_list_used = true }
         if native_error == "" and v4_codegen_llvm_list_used { native_error = v4_codegen_llvm_list_symbol_error(codegen_id) }
         if native_error == "" and maps_used { native_error = v4_codegen_llvm_map_symbol_error(codegen_id) }
-        pilot index_checks: bool = owned_words and (v4_codegen_llvm_mir_has_index_checks(mir_id) or v4_codegen_llvm_list_used)
+        pilot index_checks: bool = owned_words and (v4_codegen_llvm_mir_has_index_checks(mir_id) or v4_codegen_llvm_list_used or v4_codegen_llvm_shared_used)
         if owned_words and (v4_codegen_llvm_mir_has_owned_words(mir_id) or index_checks) {
             runtime = v4_codegen_llvm_word_runtime_declarations()
         }
@@ -5374,6 +5412,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         runtime = runtime + v4_codegen_llvm_bootstrap_runtime_declarations(mir_id)
         if v4_codegen_llvm_mir_has_panic(mir_id) or index_checks { runtime = runtime + "declare void " + v4_codegen_llvm_panic_symbol() + "(i64) noreturn\n" }
         if v4_codegen_llvm_numeric_runtime_used { runtime = runtime + v4_codegen_llvm_numeric_runtime_declarations() }
+        runtime = runtime + shared_runtime
         -- Global definitions are sealed with the bodies that read them.
         pilot global_lines = v4_codegen_llvm_global_definition_lines(mir_id)
         -- Dyn vtable constants and their drop entries, one per sealed vtable.
@@ -5391,6 +5430,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         if index_checks { globals = globals + v4_codegen_llvm_bounds_globals() }
         if v4_codegen_llvm_list_used { globals = globals + v4_codegen_llvm_list_globals() }
         if maps_used { globals = globals + v4_codegen_llvm_map_globals() }
+        if v4_codegen_llvm_shared_used { globals = globals + v4_codegen_llvm_shared_globals() }
         pilot entry = v4_codegen_llvm_native_entry(mir_id)
         if native_error == "" and entry != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_setup_args", "i64, i64") }
         if native_error == "" and globals != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_say", "i64") }
@@ -5516,6 +5556,8 @@ task v4_codegen_llvm_native_sum_error(mir_id: int, type_text: word, depth: int) 
 -- aggregate slot rules (so slots that own words are still named).
 task v4_codegen_llvm_native_sum_payload_error(mir_id: int, payload: word, type_text: word, depth: int) -> word {
     if payload == v4_ty_word { give back "" }
+    pilot shared_error = v4_codegen_llvm_native_shared_sum_payload_error(mir_id, payload)
+    if shared_error != "-" { give back shared_error }
     give back v4_codegen_llvm_native_slot_error(mir_id, payload, type_text, depth)
 }
 
@@ -5667,6 +5709,8 @@ task v4_codegen_llvm_owned_temporary_drop(mir: int, body: int, value: int, site:
     pilot value_ty = v4_mir_rvalue_ty(mir, body, value)
     if v4_codegen_llvm_is_list(mir, value_ty) { give back v4_codegen_llvm_list_drop_lines(mir, value_ty, "", v4_codegen_llvm_rvalue_value(mir, body, value), "", "%list.discard." + site) }
     if v4_codegen_llvm_is_map(mir, value_ty) { give back v4_codegen_llvm_map_drop_lines(mir, value_ty, "", v4_codegen_llvm_rvalue_value(mir, body, value), "", "%map.discard." + site) }
+    if v4_codegen_llvm_is_shared_handle(mir, value_ty) { give back v4_codegen_llvm_shared_handle_drop_call(mir, value_ty, v4_codegen_llvm_rvalue_value(mir, body, value)) }
+    if v4_codegen_llvm_sum_handle_field(mir, value_ty) != "" { give back v4_codegen_llvm_sum_handle_drop_lines(mir, value_ty, v4_codegen_llvm_rvalue_value(mir, body, value), "%sum.discard." + site) }
     if v4_ty_canonical_type(v4_mir_ty_id(mir), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir, value_ty) {
         -- A route's payload is read in memory: the call's result slot.
         if v4_codegen_llvm_type_has_route_words(mir, value_ty, 0) { give back v4_codegen_llvm_drop_glue_at(mir, value_ty, v4_codegen_llvm_abi_ret_slot(body, value), "", "%agg.discard." + site, 0) }
@@ -5757,11 +5801,16 @@ task v4_codegen_llvm_scalar_sum_runtime_lines(mir: int) -> word {
 task v4_codegen_llvm_word_local_is_owned(mir_id: int, body_id: int, local_id: int) -> bool {
     if local_id < 0 or local_id >= v4_mir_body_local_count(mir_id, body_id) or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value { give back false }
     pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_id)
-    give back v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), local_ty) or (v4_codegen_llvm_active_owned_mir == mir_id and v4_codegen_llvm_type_owns_words(mir_id, local_ty))
+    give back v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), local_ty) or (v4_codegen_llvm_active_owned_mir == mir_id and (v4_codegen_llvm_type_owns_words(mir_id, local_ty) or v4_mir_local_is_shared_view(mir_id, body_id, local_id)))
 }
 
 task v4_codegen_llvm_word_rvalue_is_owned(mir_id: int, body_id: int, rvalue_id: int) -> bool {
     pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if v4_codegen_llvm_is_shared_handle(mir_id, value_ty) {
+        pilot handle_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+        if handle_kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
+        give back handle_kind == v4_mir_rvalue_call or handle_kind == v4_mir_rvalue_sum_take or handle_kind == v4_mir_rvalue_try or handle_kind == v4_mir_rvalue_or_else
+    }
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_ty_canonical_type(v4_mir_ty_id(mir_id), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir_id, value_ty) {
         pilot aggregate_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
         if aggregate_kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
@@ -5924,6 +5973,8 @@ task v4_codegen_llvm_place_address(parts: int, mir_id: int, body_id: int, place_
         v4_codegen_llvm_fragment_push(parts, "  " + temp + ".ref = load ptr, ptr " + base_pointer + "\n")
         base_pointer = temp + ".ref"
     }
+    -- A SharedMut guard is read and written through: its box's payload.
+    if v4_codegen_llvm_shared_base(mir_id, v4_mir_place_ty(mir_id, body_id, base)) == "SharedMut" { base_pointer = v4_codegen_llvm_shared_guard_payload_lines(parts, mir_id, v4_mir_place_ty(mir_id, body_id, base), base_pointer, temp) }
     pilot base_ty = v4_codegen_llvm_place_referent_ty(mir_id, body_id, base)
     pilot base_llvm = v4_codegen_llvm_type(base_ty)
     if kind == v4_mir_place_index {
@@ -6112,6 +6163,8 @@ task v4_codegen_llvm_is_aggregate_lend(mir_id: int, type_text: word) -> bool {
 -- route, or a scalar (bool, char and the integer and float carriers).
 task v4_codegen_llvm_is_lendable_storage(mir_id: int, type_text: word) -> bool {
     if v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 or v4_codegen_llvm_is_list(mir_id, type_text) or v4_codegen_llvm_is_map(mir_id, type_text) { give back true }
+    pilot shared_base = v4_codegen_llvm_shared_base(mir_id, type_text)
+    if shared_base == "Shared" or shared_base == "Weak" { give back true }
     give back type_text == v4_ty_int or type_text == v4_ty_uint or type_text == v4_ty_tiny or type_text == v4_ty_num or type_text == v4_ty_float or type_text == v4_ty_float32 or type_text == v4_ty_bool or type_text == v4_ty_char
 }
 
@@ -6129,6 +6182,7 @@ task v4_codegen_llvm_is_place_lend(mir_id: int, type_text: word) -> bool {
 task v4_codegen_llvm_place_referent_ty(mir_id: int, body_id: int, place_id: int) -> word {
     pilot type_text = v4_mir_place_ty(mir_id, body_id, place_id)
     if v4_codegen_llvm_is_place_lend(mir_id, type_text) { give back v4_ty_lend_target_type(type_text) }
+    if v4_codegen_llvm_shared_base(mir_id, type_text) == "SharedMut" { give back v4_codegen_llvm_shared_payload(mir_id, type_text) }
     give back type_text
 }
 
@@ -7329,6 +7383,426 @@ task v4_codegen_llvm_map_symbol_error(codegen_id: int) -> word {
     give back ""
 }
 
+-- Native Shared<T> / Weak<T> (tier 3). Shared::new places one heap box
+-- `%"freak.shared.box.<T>" = type { i64, i64, i64, T }` (strong count, weak
+-- count, runtime borrow state, then the payload by value; a named record
+-- with a `; freak.layout` note like any aggregate). Shared<T>, Weak<T> and
+-- SharedMut<T> handles are one `ptr` to that box. The counters and the
+-- borrow state live in the native runtime (freak_llvm_runtime.c,
+-- `freak_v4_shared_*`); the payload's drop glue is this module's own, one
+-- private helper per payload type. A `.borrow()` view is a `lend T` (the
+-- payload address) whose binding Meiya's drop plan owns like a guard; its
+-- drop ends the read. Meiya owns every move and drop site; codegen adds
+-- no ownership decision of its own.
+task v4_codegen_llvm_shared_base(mir_id: int, type_text: word) -> word {
+    if mir_id < 0 or v4_codegen_llvm_active_owned_mir != mir_id or type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lend_type(type_text) { give back "" }
+    give back v4_mir_nominal_builtin_shared_base(mir_id, type_text)
+}
+
+task v4_codegen_llvm_is_shared_handle(mir_id: int, type_text: word) -> bool {
+    give back v4_codegen_llvm_shared_base(mir_id, type_text) != ""
+}
+
+-- The canonical payload T of a Shared<T>, Weak<T> or SharedMut<T> handle.
+task v4_codegen_llvm_shared_payload(mir_id: int, type_text: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    give back v4_ty_canonical_type(ty_id, v4_ty_shared_target_type(v4_ty_canonical_type(ty_id, type_text)))
+}
+
+task v4_codegen_llvm_is_borrow_error(mir_id: int, type_text: word) -> bool {
+    if mir_id < 0 or v4_codegen_llvm_active_owned_mir != mir_id or type_text == "" or type_text == v4_ty_unknown { give back false }
+    give back v4_mir_is_builtin_borrow_error(mir_id, type_text)
+}
+
+-- The box record of payload T; naming it registers T for the records and
+-- the drop helpers this module emits.
+task v4_codegen_llvm_shared_box_type(mir_id: int, payload: word) -> word {
+    if not v4_codegen_llvm_shared_payload_types.contains("\n" + payload + "\n") { v4_codegen_llvm_shared_payload_types = v4_codegen_llvm_shared_payload_types + payload + "\n" }
+    pilot symbol = v4_codegen_llvm_symbol("freak.shared.box." + payload)
+    give back "%" + v4_slice(symbol, 1, symbol.length())
+}
+
+task v4_codegen_llvm_shared_payload_offset(box_ty: word) -> word {
+    give back "ptrtoint (ptr getelementptr (" + box_ty + ", ptr null, i32 0, i32 3) to i64)"
+}
+
+-- The drop helper a handle (or view) of payload T calls: "shared" for a
+-- Shared<T>, "guard" for a SharedMut<T>, "view" for a borrow view. A Weak
+-- releases its weak reference in the runtime directly. Every helper takes
+-- null as "nothing to release".
+task v4_codegen_llvm_shared_drop_symbol(mir_id: int, payload: word, role: word) -> word {
+    pilot box = v4_codegen_llvm_shared_box_type(mir_id, payload)
+    if box == "" { give back "" }
+    give back v4_codegen_llvm_symbol("freak.shared." + role + "." + payload)
+}
+
+task v4_codegen_llvm_shared_handle_drop_call(mir_id: int, type_text: word, handle: word) -> word {
+    pilot base = v4_codegen_llvm_shared_base(mir_id, type_text)
+    if base == "Weak" { give back "  call void @freak_v4_shared_release_weak(ptr " + handle + ")\n" }
+    pilot role = "shared"
+    if base == "SharedMut" { role = "guard" }
+    give back "  call void " + v4_codegen_llvm_shared_drop_symbol(mir_id, v4_codegen_llvm_shared_payload(mir_id, type_text), role) + "(ptr " + handle + ")\n"
+}
+
+-- Drop glue of a handle in place at `address` (under `cond` a dead slot
+-- passes null).
+task v4_codegen_llvm_shared_drop_lines(mir_id: int, type_text: word, address: word, cond: word, temp: word) -> word {
+    pilot out = "  " + temp + ".h = load ptr, ptr " + address + "\n"
+    pilot handle = temp + ".h"
+    if cond != "" {
+        handle = temp + ".o"
+        out = out + "  " + handle + " = select i1 " + cond + ", ptr " + temp + ".h, ptr null\n"
+    }
+    give back out + v4_codegen_llvm_shared_handle_drop_call(mir_id, type_text, handle)
+}
+
+-- A carrier field that owns a handle ("" when none): Some of
+-- maybe<Shared<T>> and Ok of result<SharedMut<T>, BorrowError>.
+task v4_codegen_llvm_sum_handle_field(mir_id: int, type_text: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot kind = v4_mir_scalar_sum_kind(mir_id, type_text)
+    if kind != "Maybe" and kind != "Result" { give back "" }
+    pilot present = "Some"
+    if v4_ty_native_sum_family(kind) == "result" { present = "Ok" }
+    if v4_codegen_llvm_is_shared_handle(mir_id, v4_ty_native_sum_case_type(ty_id, type_text, present)) { give back "1" }
+    give back ""
+}
+
+task v4_codegen_llvm_sum_handle_type(mir_id: int, type_text: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_native_sum_family(v4_mir_scalar_sum_kind(mir_id, type_text)) == "result" { give back v4_ty_native_sum_case_type(ty_id, type_text, "Ok") }
+    give back v4_ty_native_sum_case_type(ty_id, type_text, "Some")
+}
+
+-- Release the handle a carrier value holds; an inactive payload is null.
+task v4_codegen_llvm_sum_handle_drop_lines(mir_id: int, type_text: word, carrier: word, temp: word) -> word {
+    pilot field = v4_codegen_llvm_sum_handle_field(mir_id, type_text)
+    if field == "" { give back "" }
+    pilot out = "  " + temp + ".hv = extractvalue " + v4_codegen_llvm_type(type_text) + " " + carrier + ", " + field + "\n"
+    give back out + v4_codegen_llvm_shared_handle_drop_call(mir_id, v4_codegen_llvm_sum_handle_type(mir_id, type_text), temp + ".hv")
+}
+
+-- Types that make a module link the Shared runtime: handles, loans of
+-- handles, carriers of handles, BorrowError and get_mut's view.
+task v4_codegen_llvm_type_names_shared(mir_id: int, type_text: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown { give back false }
+    if v4_ty_is_lend_type(type_text) { give back v4_codegen_llvm_is_shared_handle(mir_id, v4_ty_lend_target_type(type_text)) }
+    if v4_codegen_llvm_is_shared_handle(mir_id, type_text) or v4_codegen_llvm_is_borrow_error(mir_id, type_text) { give back true }
+    pilot kind = v4_mir_scalar_sum_kind(mir_id, type_text)
+    if kind != "Maybe" and kind != "Result" { give back false }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_native_sum_family(kind) == "maybe" {
+        pilot present = v4_ty_native_sum_case_type(ty_id, type_text, "Some")
+        give back v4_codegen_llvm_is_shared_handle(mir_id, present) or v4_ty_is_lend_type(present)
+    }
+    give back v4_codegen_llvm_type_names_shared(mir_id, v4_ty_native_sum_case_type(ty_id, type_text, "Ok")) or v4_codegen_llvm_type_names_shared(mir_id, v4_ty_native_sum_case_type(ty_id, type_text, "Err"))
+}
+
+task v4_codegen_llvm_mir_uses_shared(mir_id: int) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back false }
+    pilot body = 0
+    body = v4_codegen_llvm_next_emitted_body(mir_id, body)
+    repeat until body >= v4_mir_body_count(mir_id) {
+        if v4_codegen_llvm_type_names_shared(mir_id, v4_mir_body_callable_return_type(mir_id, body)) { give back true }
+        pilot local = 0
+        repeat until local >= v4_mir_body_local_count(mir_id, body) {
+            if v4_codegen_llvm_type_names_shared(mir_id, v4_mir_local_ty(mir_id, body, local)) { give back true }
+            local += 1
+        }
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
+            if v4_codegen_llvm_type_names_shared(mir_id, v4_mir_rvalue_ty(mir_id, body, value)) or v4_mir_shared_intrinsic_kind(mir_id, body, value) != "" { give back true }
+            value += 1
+        }
+        body = v4_codegen_llvm_next_emitted_body(mir_id, body + 1)
+    }
+    give back false
+}
+
+-- Handle type surfaces: a handle is a top-level value (not yet a slot of
+-- another type) whose payload lowers natively by value and has drop glue
+-- this module can run in place.
+task v4_codegen_llvm_native_shared_type_error(mir_id: int, type_text: word, depth: int) -> word {
+    if depth > 0 { give back "native Shared handles inside other types are not yet supported: " + type_text }
+    pilot payload = v4_codegen_llvm_shared_payload(mir_id, type_text)
+    if payload == "" or payload == v4_ty_unknown { give back "native Shared payload type is unresolved: " + type_text }
+    if v4_ty_is_lend_type(payload) { give back "native Shared payloads of loans are not supported: " + type_text }
+    if payload == v4_ty_void or payload == v4_ty_never { give back "native Shared payloads of void are not supported: " + type_text }
+    if v4_codegen_llvm_is_shared_handle(mir_id, payload) { give back "native Shared payloads of Shared handles are not yet supported: " + type_text }
+    if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), payload) or v4_mir_scalar_sum_kind(mir_id, payload) != "" or v4_ty_is_maybe_type(payload) { give back "native Shared payloads of maybe/result values are not yet supported: " + type_text }
+    if v4_ty_is_closure_type(payload) { give back "native Shared payloads of closures are not yet supported: " + type_text }
+    if v4_codegen_llvm_is_borrow_error(mir_id, payload) { give back "native Shared payloads of BorrowError are not supported: " + type_text }
+    give back v4_codegen_llvm_native_type_error_depth(payload, false, 0)
+}
+
+-- A carrier payload of the Shared surface: a handle (checked as a top-level
+-- value), BorrowError, or the `lend mut T` get_mut proves exclusive.
+task v4_codegen_llvm_native_shared_sum_payload_error(mir_id: int, payload: word) -> word {
+    if v4_codegen_llvm_is_shared_handle(mir_id, payload) { give back v4_codegen_llvm_native_shared_type_error(mir_id, payload, 0) }
+    if v4_codegen_llvm_is_borrow_error(mir_id, payload) { give back "" }
+    if v4_ty_is_lend_type(payload) and v4_ty_lend_mode(payload) == v4_ty_param_mode_lend_mut and v4_codegen_llvm_is_place_lend(mir_id, payload) {
+        pilot target = v4_ty_lend_target_type(payload)
+        if v4_codegen_llvm_is_shared_handle(mir_id, target) or v4_codegen_llvm_is_list(mir_id, target) { give back "native maybe/result loan payloads are not yet supported: " + payload }
+        give back v4_codegen_llvm_native_type_error_depth(target, false, 0)
+    }
+    give back "-"
+}
+
+-- Shared/Weak builtin calls, borrow-view bindings and generic instances.
+task v4_codegen_llvm_native_shared_rvalue_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot kind = v4_mir_shared_intrinsic_kind(mir_id, body_id, rvalue_id)
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot error = v4_codegen_llvm_native_type_error(type_text, true)
+    if error != "" { give back error }
+    pilot arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
+    if arg < 0 or arg >= rvalue_id { give back "invalid native Shared intrinsic operand" }
+    if kind == "new" { give back v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, arg), v4_codegen_llvm_shared_payload(mir_id, type_text)) }
+    pilot receiver = v4_ty_lend_target_type(v4_mir_rvalue_ty(mir_id, body_id, arg))
+    error = v4_codegen_llvm_native_type_error(receiver, false)
+    if error != "" { give back error }
+    if kind != "borrow" { give back "" }
+    -- A view is a guard Meiya drops: it must be the one definition of its
+    -- own pilot, so the drop plan has a binding to release.
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_rvalue(mir_id, body_id, stmt) == rvalue_id and v4_mir_stmt_kind(mir_id, body_id, stmt) == v4_mir_stmt_local {
+            pilot place = v4_mir_stmt_place(mir_id, body_id, stmt)
+            if place >= 0 and v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_local and v4_mir_local_is_shared_view(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place)) { give back "" }
+        }
+        stmt += 1
+    }
+    give back "native Shared borrow views must be bound by their own pilot: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
+}
+
+-- Module-wide Shared fences: generic instances, whole reads of a borrow
+-- view (a view is read through its fields), loans of guards, and builtin
+-- Shared identities that are not structurally sealed.
+task v4_codegen_llvm_native_shared_error(mir_id: int) -> word {
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back "" }
+    pilot body = 0
+    body = v4_codegen_llvm_next_emitted_body(mir_id, body)
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot generic: bool = v4_mir_body_is_generic_instance(mir_id, body)
+        pilot local = 0
+        repeat until local >= v4_mir_body_local_count(mir_id, body) {
+            pilot local_ty = v4_mir_local_ty(mir_id, body, local)
+            if generic and v4_codegen_llvm_type_names_shared(mir_id, local_ty) { give back "native Shared values inside generic instances are not yet supported: " + v4_mir_body_name(mir_id, body) }
+            if v4_ty_is_lend_type(local_ty) and v4_codegen_llvm_shared_base(mir_id, v4_ty_lend_target_type(local_ty)) == "SharedMut" { give back "native loans of SharedMut guards are not yet supported: " + v4_mir_local_name(mir_id, body, local) }
+            local += 1
+        }
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
+            pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
+            pilot value_ty = v4_mir_rvalue_ty(mir_id, body, value)
+            if generic and (v4_codegen_llvm_type_names_shared(mir_id, value_ty) or v4_mir_shared_intrinsic_kind(mir_id, body, value) != "") { give back "native Shared values inside generic instances are not yet supported: " + v4_mir_body_name(mir_id, body) }
+            if kind == v4_mir_rvalue_use_local and v4_mir_local_is_shared_view(mir_id, body, v4_mir_rvalue_local_id(mir_id, body, value)) { give back "native Shared borrow views are read through their fields only: " + v4_mir_rvalue_text(mir_id, body, value) }
+            if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_codegen_llvm_shared_base(mir_id, v4_ty_lend_target_type(value_ty)) == "SharedMut" { give back "native loans of SharedMut guards are not yet supported: " + v4_mir_rvalue_text(mir_id, body, value) }
+            if kind == v4_mir_rvalue_call and v4_mir_shared_intrinsic_kind(mir_id, body, value) == "" and v4_mir_rvalue_builtin_method(mir_id, body, value).starts_with("builtin::Shared::") { give back "invalid native Shared intrinsic identity" }
+            if kind == v4_mir_rvalue_call and v4_mir_shared_intrinsic_kind(mir_id, body, value) == "" and v4_mir_rvalue_builtin_method(mir_id, body, value).starts_with("builtin::Weak::") { give back "invalid native Shared intrinsic identity" }
+            value += 1
+        }
+        body = v4_codegen_llvm_next_emitted_body(mir_id, body + 1)
+    }
+    give back ""
+}
+
+-- The address a projection of a SharedMut<T> guard place reads through:
+-- the payload of the box the guard's slot points at.
+task v4_codegen_llvm_shared_guard_payload_lines(parts: int, mir_id: int, guard_ty: word, slot: word, temp: word) -> word {
+    pilot box = v4_codegen_llvm_shared_box_type(mir_id, v4_codegen_llvm_shared_payload(mir_id, guard_ty))
+    v4_codegen_llvm_fragment_push(parts, "  " + temp + ".guard = load ptr, ptr " + slot + "\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + temp + ".payload = getelementptr inbounds " + box + ", ptr " + temp + ".guard, i32 0, i32 3\n")
+    give back temp + ".payload"
+}
+
+-- Shared/Weak builtin calls. One call site in
+-- v4_codegen_llvm_collect_owned_special_lines keeps this out of the
+-- recursive collector's frame.
+task v4_codegen_llvm_collect_shared_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id or kind != v4_mir_rvalue_call { give back false }
+    pilot shared_kind = v4_mir_shared_intrinsic_kind(mir_id, body_id, rvalue_id)
+    if shared_kind == "" { give back false }
+    pilot prefix = "%shared." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+    pilot label = v4_slice(prefix, 1, prefix.length())
+    pilot arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
+    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, arg, v4_codegen_llvm_temp_value(body_id, arg), false)
+    pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if shared_kind == "new" {
+        pilot payload = v4_codegen_llvm_shared_payload(mir_id, result_ty)
+        pilot box = v4_codegen_llvm_shared_box_type(mir_id, payload)
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, arg, payload, prefix + ".item"))
+        v4_codegen_llvm_fragment_push(parts, "  " + target + " = call ptr @freak_v4_shared_alloc(i64 ptrtoint (ptr getelementptr (" + box + ", ptr null, i32 1) to i64))\n")
+        v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".lost = icmp eq ptr " + target + ", null\n")
+        v4_codegen_llvm_fragment_push(parts, "  br i1 " + prefix + ".lost, label " + prefix + ".fail, label " + prefix + ".ok\n" + label + ".fail:\n")
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_shared_panic_lines(prefix, "oom"))
+        v4_codegen_llvm_fragment_push(parts, label + ".ok:\n")
+        v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".payload = getelementptr inbounds " + box + ", ptr " + target + ", i32 0, i32 3\n")
+        v4_codegen_llvm_fragment_push(parts, "  store " + v4_codegen_llvm_type(payload) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, arg, payload, prefix + ".item") + ", ptr " + prefix + ".payload\n")
+        give back true
+    }
+    -- Every other method lends its receiver: load the handle from the loan.
+    pilot receiver_ty = v4_ty_lend_target_type(v4_mir_rvalue_ty(mir_id, body_id, arg))
+    pilot payload = v4_codegen_llvm_shared_payload(mir_id, receiver_ty)
+    pilot box = v4_codegen_llvm_shared_box_type(mir_id, payload)
+    pilot handle = prefix + ".h"
+    v4_codegen_llvm_fragment_push(parts, "  " + handle + " = load ptr, ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, arg) + "\n")
+    if shared_kind == "clone" {
+        v4_codegen_llvm_fragment_push(parts, "  call void @freak_v4_shared_retain(ptr " + handle + ")\n")
+        v4_codegen_llvm_fragment_push(parts, "  " + target + " = getelementptr inbounds i8, ptr " + handle + ", i64 0\n")
+        give back true
+    }
+    if shared_kind == "downgrade" {
+        v4_codegen_llvm_fragment_push(parts, "  call void @freak_v4_shared_downgrade(ptr " + handle + ")\n")
+        v4_codegen_llvm_fragment_push(parts, "  " + target + " = getelementptr inbounds i8, ptr " + handle + ", i64 0\n")
+        give back true
+    }
+    if shared_kind == "borrow" {
+        -- A live SharedMut guard on this box makes the view a runtime panic.
+        v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".read = call i64 @freak_v4_shared_begin_read(ptr " + handle + ")\n")
+        v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".free = icmp ne i64 " + prefix + ".read, 0\n")
+        v4_codegen_llvm_fragment_push(parts, "  br i1 " + prefix + ".free, label " + prefix + ".ok, label " + prefix + ".fail\n" + label + ".fail:\n")
+        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_shared_panic_lines(prefix, "busy"))
+        v4_codegen_llvm_fragment_push(parts, label + ".ok:\n")
+        v4_codegen_llvm_fragment_push(parts, "  " + target + " = getelementptr inbounds " + box + ", ptr " + handle + ", i32 0, i32 3\n")
+        give back true
+    }
+    -- upgrade, borrow_mut and get_mut answer a carrier.
+    pilot runtime = "@freak_v4_shared_upgrade"
+    pilot payload_value = handle
+    if shared_kind == "borrow_mut" { runtime = "@freak_v4_shared_begin_write" }
+    if shared_kind == "get_mut" {
+        runtime = "@freak_v4_shared_unique"
+        payload_value = prefix + ".view"
+        v4_codegen_llvm_fragment_push(parts, "  " + payload_value + " = getelementptr inbounds " + box + ", ptr " + handle + ", i32 0, i32 3\n")
+    }
+    pilot carrier = v4_codegen_llvm_type(result_ty)
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".got = call i64 " + runtime + "(ptr " + handle + ")\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".tag = icmp ne i64 " + prefix + ".got, 0\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".value = select i1 " + prefix + ".tag, ptr " + payload_value + ", ptr null\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + prefix + ".tagged = insertvalue " + carrier + " zeroinitializer, i1 " + prefix + ".tag, 0\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + target + " = insertvalue " + carrier + " " + prefix + ".tagged, ptr " + prefix + ".value, 1\n")
+    give back true
+}
+
+-- A named Shared runtime panic through the module's panic policy.
+task v4_codegen_llvm_shared_panic_lines(prefix: word, which: word) -> word {
+    pilot length = "40"
+    if which == "oom" { length = "24" }
+    pilot out = "  " + prefix + ".msg = call i64 @freak_v4_word_from_bytes(i64 ptrtoint (ptr @freak.shared." + which + " to i64), i64 " + length + ")\n"
+    give back out + "  call void " + v4_codegen_llvm_panic_symbol() + "(i64 " + prefix + ".msg) noreturn\n  unreachable\n"
+}
+
+task v4_codegen_llvm_shared_globals() -> word {
+    pilot out = "@freak.shared.busy = private unnamed_addr constant [41 x i8] c\"Shared value is already mutably borrowed\\00\", align 1\n"
+    give back out + "@freak.shared.oom = private unnamed_addr constant [25 x i8] c\"Shared allocation failed\\00\", align 1\n"
+}
+
+-- Drop of one borrow-view binding (`view` is its slot value, or null when
+-- a DropIf flag says the binding is dead).
+task v4_codegen_llvm_shared_view_drop_lines(mir_id: int, body_id: int, local: int, view: word) -> word {
+    pilot payload = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_lend_target_type(v4_mir_local_ty(mir_id, body_id, local)))
+    give back "  call void " + v4_codegen_llvm_shared_drop_symbol(mir_id, payload, "view") + "(ptr " + view + ")\n"
+}
+
+-- The runtime declarations and the private drop helpers of every payload
+-- type this module boxed: "shared" releases one strong reference (the last
+-- drops the payload in place, then the implicit weak reference), "guard"
+-- ends a SharedMut write first, "view" ends a read and finds the box from
+-- the payload address.
+task v4_codegen_llvm_shared_runtime_lines(mir_id: int) -> word {
+    pilot out = "declare ptr @freak_v4_shared_alloc(i64)\ndeclare void @freak_v4_shared_retain(ptr)\ndeclare i64 @freak_v4_shared_release(ptr)\n"
+    out = out + "declare void @freak_v4_shared_downgrade(ptr)\ndeclare void @freak_v4_shared_release_weak(ptr)\ndeclare i64 @freak_v4_shared_upgrade(ptr)\n"
+    out = out + "declare i64 @freak_v4_shared_unique(ptr)\ndeclare i64 @freak_v4_shared_begin_read(ptr)\ndeclare void @freak_v4_shared_end_read(ptr)\n"
+    out = out + "declare i64 @freak_v4_shared_begin_write(ptr)\ndeclare void @freak_v4_shared_end_write(ptr)\n"
+    -- Payload drop glue may box nothing new, so the payload list is final.
+    pilot payloads = v4_codegen_llvm_shared_payload_types
+    pilot start = 1
+    repeat until start >= payloads.length() {
+        pilot stop = v4_index_of_from(payloads, "\n", start)
+        if stop < 0 { stop = payloads.length() }
+        pilot payload = v4_slice(payloads, start, stop)
+        pilot box = v4_codegen_llvm_shared_box_type(mir_id, payload)
+        pilot shared = v4_codegen_llvm_shared_drop_symbol(mir_id, payload, "shared")
+        out = out + "define internal void " + shared + "(ptr %h) " + "{" + "\nentry:\n"
+        out = out + "  %live = icmp ne ptr %h, null\n  br i1 %live, label %release, label %done\nrelease:\n"
+        out = out + "  %last = call i64 @freak_v4_shared_release(ptr %h)\n  %dead = icmp ne i64 %last, 0\n"
+        out = out + "  br i1 %dead, label %payload, label %done\npayload:\n"
+        out = out + "  %p = getelementptr inbounds " + box + ", ptr %h, i32 0, i32 3\n"
+        out = out + v4_codegen_llvm_drop_glue_at(mir_id, payload, "%p", "", "%pd", 0)
+        out = out + "  call void @freak_v4_shared_release_weak(ptr %h)\n  br label %done\ndone:\n  ret void\n}\n"
+        out = out + "define internal void " + v4_codegen_llvm_shared_drop_symbol(mir_id, payload, "guard") + "(ptr %h) " + "{" + "\nentry:\n"
+        out = out + "  %live = icmp ne ptr %h, null\n  br i1 %live, label %release, label %done\nrelease:\n"
+        out = out + "  call void @freak_v4_shared_end_write(ptr %h)\n  call void " + shared + "(ptr %h)\n  br label %done\ndone:\n  ret void\n}\n"
+        out = out + "define internal void " + v4_codegen_llvm_shared_drop_symbol(mir_id, payload, "view") + "(ptr %v) " + "{" + "\nentry:\n"
+        out = out + "  %live = icmp ne ptr %v, null\n  br i1 %live, label %release, label %done\nrelease:\n"
+        out = out + "  %back = sub i64 0, " + v4_codegen_llvm_shared_payload_offset(box) + "\n"
+        out = out + "  %h = getelementptr inbounds i8, ptr %v, i64 %back\n"
+        out = out + "  call void @freak_v4_shared_end_read(ptr %h)\n  call void " + shared + "(ptr %h)\n  br label %done\ndone:\n  ret void\n}\n"
+        start = stop + 1
+    }
+    give back out
+}
+
+-- One box record per payload type, for the type definitions and their
+-- "; freak.layout" notes.
+task v4_codegen_llvm_shared_records(mir_id: int) -> word {
+    pilot out = ""
+    pilot payloads = v4_codegen_llvm_shared_payload_types
+    pilot start = 1
+    repeat until start >= payloads.length() {
+        pilot stop = v4_index_of_from(payloads, "\n", start)
+        if stop < 0 { stop = payloads.length() }
+        pilot payload = v4_slice(payloads, start, stop)
+        out = out + v4_codegen_llvm_shared_box_type(mir_id, payload) + "\ti64\ti64\ti64\t" + v4_codegen_llvm_type(payload) + "\n"
+        start = stop + 1
+    }
+    give back out
+}
+
+-- The runtime helpers keep their C names, so a module with Shared values
+-- may not declare or define those symbols itself.
+task v4_codegen_llvm_shared_symbol_error(codegen_id: int) -> word {
+    pilot body = 0
+    repeat until body >= v4_codegen_llvm_body_count(codegen_id) {
+        pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body)
+        if symbol.starts_with("@freak_v4_shared_") or symbol.starts_with("@freak.shared.") or symbol.starts_with("@\"freak.shared.") { give back "native Shared runtime symbol conflict: " + symbol }
+        body += 1
+    }
+    pilot decl = 0
+    repeat until decl >= v4_codegen_llvm_decl_count(codegen_id) {
+        pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl)
+        if symbol.starts_with("@freak_v4_shared_") or symbol.starts_with("@freak.shared.") or symbol.starts_with("@\"freak.shared.") { give back "native Shared runtime symbol conflict: " + symbol }
+        decl += 1
+    }
+    give back ""
+}
+
+-- One Drop or DropIf row of a Shared-surface local: a borrow view or a
+-- carrier holding a handle (a bare handle drops through its drop glue).
+-- "" for any other local. Under DropIf a dead binding passes null.
+task v4_codegen_llvm_shared_local_drop_lines(mir_id: int, body_id: int, local: int, site: word, mode: word) -> word {
+    pilot local_ty = v4_mir_local_ty(mir_id, body_id, local)
+    pilot view: bool = v4_mir_local_is_shared_view(mir_id, body_id, local)
+    pilot handle_field = v4_codegen_llvm_sum_handle_field(mir_id, local_ty)
+    if not view and handle_field == "" { give back "" }
+    pilot conditional: bool = mode == v4_mir_drop_mode_drop_if
+    pilot temp = "%shared.drop." + site + "." + word_from_int(local)
+    pilot out = ""
+    if conditional { out = "  " + temp + ".live = load i1, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n" }
+    pilot carrier_ty = v4_codegen_llvm_type(local_ty)
+    if view { carrier_ty = "ptr" }
+    out = out + "  " + temp + ".v = load " + carrier_ty + ", ptr " + v4_codegen_llvm_local_slot(local) + "\n"
+    pilot value = temp + ".v"
+    if conditional {
+        value = temp + ".o"
+        pilot dead = "null"
+        if not view { dead = "zeroinitializer" }
+        out = out + "  " + value + " = select i1 " + temp + ".live, " + carrier_ty + " " + temp + ".v, " + carrier_ty + " " + dead + "\n"
+    }
+    if view { give back out + v4_codegen_llvm_shared_view_drop_lines(mir_id, body_id, local, value) }
+    give back out + v4_codegen_llvm_sum_handle_drop_lines(mir_id, local_ty, value, temp)
+}
+
 -- Aggregate loans borrow a named local or a field/element place, with the
 -- mode their type states; natively they reach only lent receivers.
 task v4_codegen_llvm_native_aggregate_lend_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
@@ -8157,7 +8631,8 @@ task v4_codegen_llvm_collect_owned_special_lines(parts: int, mir_id: int, body_i
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut { give back v4_codegen_llvm_collect_aggregate_lend_lines(parts, mir_id, body_id, rvalue_id, target) }
     if kind == v4_mir_rvalue_closure { give back v4_codegen_llvm_collect_closure_lines(parts, mir_id, body_id, rvalue_id, target) }
     if v4_codegen_llvm_collect_list_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back true }
-    give back v4_codegen_llvm_collect_map_lines(parts, mir_id, body_id, rvalue_id, target, kind)
+    if v4_codegen_llvm_collect_map_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back true }
+    give back v4_codegen_llvm_collect_shared_lines(parts, mir_id, body_id, rvalue_id, target, kind)
 }
 
 task v4_codegen_llvm_collect_owned_rvalue_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, borrowed: bool) -> void {
@@ -8280,6 +8755,8 @@ task v4_codegen_llvm_slot_replace_lines(mir_id: int, body_id: int, stmt_id: int,
 task v4_codegen_llvm_word_drop_local_lines(mir_id: int, body_id: int, local: int, site: word, mode: word) -> word {
     if not v4_codegen_llvm_word_local_is_owned(mir_id, body_id, local) { give back "" }
     pilot clear = v4_codegen_llvm_flag_store_line(mir_id, body_id, local, "false")
+    pilot shared_lines = v4_codegen_llvm_shared_local_drop_lines(mir_id, body_id, local, site, mode)
+    if shared_lines != "" { give back shared_lines + clear }
     pilot carrier = v4_mir_scalar_sum_kind(mir_id, v4_mir_local_ty(mir_id, body_id, local))
     pilot field = "1"
     if carrier != "" and carrier != "ResultWordWord" { field = v4_codegen_llvm_sum_word_field(mir_id, v4_mir_local_ty(mir_id, body_id, local)) }

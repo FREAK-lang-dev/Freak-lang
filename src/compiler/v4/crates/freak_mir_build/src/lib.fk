@@ -7866,6 +7866,11 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
         if v4_ty_is_lend_type(projected_ty) {
             projected_ty = v4_ty_lend_target_type(projected_ty)
         }
+        -- A SharedMut<T> guard is read and written through, like a lend mut:
+        -- its projections address the shared payload T.
+        if v4_mir_nominal_builtin_shared_base(mir_id, projected_ty) == "SharedMut" {
+            projected_ty = v4_ty_shared_target_type(projected_ty)
+        }
         pilot field_ty = v4_ty_unknown
         if v4_ty_is_tuple_type(projected_ty) {
             if v4_mir_is_tuple_slot_chain(field_name) {
