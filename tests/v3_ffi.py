@@ -189,11 +189,25 @@ def check_escaped_name(freak: str, directory: Path) -> None:
     print("ok load= name with a backslash reaches the loader intact")
 
 
-CACHE_PROGRAM = '''extern [C, link = "./libcalc.a"] {
+CACHE_PROGRAMS = {
+    "spaced": '''extern [C, link = "./libcalc.a"] {
     task calc_value() -> c_int
 }
 say "calc " + word_from_int(calc_value())
-'''
+''',
+    "newline": '''extern [C, link =
+    "./libcalc.a"] {
+    task calc_value() -> c_int
+}
+say "calc " + word_from_int(calc_value())
+''',
+    "comment": '''extern [C, link -- the archive next to this file
+    = "./libcalc.a"] {
+    task calc_value() -> c_int
+}
+say "calc " + word_from_int(calc_value())
+''',
+}
 
 
 def check_run_cache(freak: str, clang: str, directory: Path) -> None:
@@ -202,19 +216,20 @@ def check_run_cache(freak: str, clang: str, directory: Path) -> None:
     if sys.platform == "win32" or archiver is None:
         print("skip run cache archive check (needs a POSIX ar)")
         return
-    folder = directory / "cache"
-    folder.mkdir()
-    (folder / "app.fk").write_text(CACHE_PROGRAM, encoding="utf-8")
-    for value in (1, 2):
-        (folder / "calc.c").write_text(f"int calc_value(void) {{ return {value}; }}\n", encoding="utf-8")
-        compiled = run([clang, "-c", "calc.c", "-o", "calc.o"], folder)
-        require(compiled.returncode == 0, "compile calc.c", compiled)
-        (folder / "libcalc.a").unlink(missing_ok=True)
-        archived = run([archiver, "rcs", "libcalc.a", "calc.o"], folder)
-        require(archived.returncode == 0, "archive libcalc.a", archived)
-        ran = run([freak, "run", "app.fk"], folder)
-        require(ran.returncode == 0 and f"calc {value}" in ran.stdout, f"freak run after archive v{value}", ran)
-    print("ok run cache rebuilds when a linked archive changes")
+    for label, program in CACHE_PROGRAMS.items():
+        folder = directory / f"cache_{label}"
+        folder.mkdir()
+        (folder / "app.fk").write_text(program, encoding="utf-8")
+        for value in (1, 2):
+            (folder / "calc.c").write_text(f"int calc_value(void) {{ return {value}; }}\n", encoding="utf-8")
+            compiled = run([clang, "-c", "calc.c", "-o", "calc.o"], folder)
+            require(compiled.returncode == 0, "compile calc.c", compiled)
+            (folder / "libcalc.a").unlink(missing_ok=True)
+            archived = run([archiver, "rcs", "libcalc.a", "calc.o"], folder)
+            require(archived.returncode == 0, "archive libcalc.a", archived)
+            ran = run([freak, "run", "app.fk"], folder)
+            require(ran.returncode == 0 and f"calc {value}" in ran.stdout, f"{label}: freak run after archive v{value}", ran)
+    print("ok run cache rebuilds when a linked archive changes (spaced, newline, comment)")
 
 
 def check_flags(freak: str, directory: Path) -> None:

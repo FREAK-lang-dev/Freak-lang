@@ -1475,35 +1475,26 @@ task cli_ffi_source_dir(src_file: word) -> word {
     give back cli_ffi_absolute(source_dir, "")
 }
 
--- The link= values written in a source text (raw source, before lexing),
--- as a "|a|b|" list. Over-matching (a link=" inside a comment) only adds
--- fingerprint inputs, so a plain scan is enough.
+-- The link= values in a bound source text, as a "|a|b|" list. The source is
+-- run through the compiler's own lexer, so the scan sees link = "..." with
+-- the same blanks, newlines and comments the parser accepts. Over-matching
+-- (link = "x" outside an extern header) only adds fingerprint inputs.
 task cli_ffi_scan_source_links(source: word) -> word {
     pilot out = "|"
-    pilot n = source.length()
+    if not source.contains("link") { give back out }
+    pilot saved_errors = error_count
+    tok_types = array_new() tok_vals = array_new() tok_lines = array_new()
+    tok_cols = array_new() tok_origin_files = array_new() tok_origin_lines = array_new()
+    tokenize(source)
+    error_count = saved_errors
     pilot i = 0
-    repeat until i + 4 > n {
-        pilot j = i + 4
-        pilot matched = false
-        if source.char_at(i) == "l" and source.substring(i, 4) == "link" {
-            -- Same spelling the parser takes: link, optional blanks, =, blanks, "
-            repeat until j >= n or (source.char_at(j) != " " and source.char_at(j) != "\t") { j += 1 }
-            if j < n and source.char_at(j) == "=" {
-                j += 1
-                repeat until j >= n or (source.char_at(j) != " " and source.char_at(j) != "\t") { j += 1 }
-                if j < n and source.char_at(j) == "\"" { matched = true }
-            }
-        }
-        if matched {
-            j += 1
-            pilot value = ""
-            repeat until j >= n or source.char_at(j) == "\"" or source.char_at(j) == "\n" {
-                value = value + source.char_at(j)
-                j += 1
-            }
-            value = value.replace("\\\\", "\\")
+    repeat until i + 2 >= tokens_count {
+        pilot kind = array_get(tok_types, i)
+        if (kind == TOK_IDENT or kind == TOK_KW) and array_get(tok_vals, i) == "link" and array_get(tok_types, i + 1) == TOK_PUNCT and array_get(tok_vals, i + 1) == "=" and array_get(tok_types, i + 2) == TOK_STR {
+            -- Same marker decoding as the parser's ffi_record_link_lib.
+            pilot value = array_get(tok_vals, i + 2).replace("\\x5C", "\\").replace("\\x22", "\"")
             if value != "" and not out.contains("|" + value + "|") { out = out + value + "|" }
-            i = j
+            i += 3
         } else { i += 1 }
     }
     give back out
