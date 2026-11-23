@@ -4939,6 +4939,7 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
         if v4_codegen_llvm_route_signature(mir_id, lhs_ty) >= 0 or v4_codegen_llvm_route_signature(mir_id, rhs_ty) >= 0 { give back v4_codegen_llvm_route_binary_error(mir_id, body_id, rvalue_id) }
         if v4_mir_shape_signature(mir_id, lhs_ty) >= 0 or v4_mir_shape_signature(mir_id, rhs_ty) >= 0 { give back "native shape operators need doctrine lowering" }
         if v4_codegen_llvm_type_names_list(mir_id, lhs_ty) or v4_codegen_llvm_type_names_list(mir_id, rhs_ty) { give back "native list operators are not yet supported" }
+        if v4_codegen_llvm_map_note_type("\n", mir_id, lhs_ty) != "\n" or v4_codegen_llvm_map_note_type("\n", mir_id, rhs_ty) != "\n" { give back "native map and set operators are not yet supported" }
         if v4_codegen_llvm_aggregate_kind(mir_id, lhs_ty) != "" or v4_codegen_llvm_aggregate_kind(mir_id, rhs_ty) != "" { give back "native tuple and array operators need doctrine lowering" }
         -- The bounded Sum checkpoint exposes tag checks and proven takes,
         -- not aggregate equality. LLVM icmp has no tagged-struct operand.
@@ -6740,7 +6741,7 @@ task v4_codegen_llvm_native_map_type_error(mir_id: int, type_text: word, depth: 
     if value == "" or value == v4_ty_unknown { give back "native map value type is unresolved: " + type_text }
     if v4_ty_is_lend_type(value) { give back "native maps of loans are not yet supported: " + type_text }
     if value == v4_ty_void or value == v4_ty_never { give back "native map values of void are not supported: " + type_text }
-    if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), value) or v4_mir_scalar_sum_kind(mir_id, value) != "" or v4_ty_is_maybe_type(value) { give back "native map values of maybe/result_llvm are not yet supported: " + type_text }
+    if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), value) or v4_mir_scalar_sum_kind(mir_id, value) != "" or v4_ty_is_maybe_type(value) { give back "native map values of maybe/result are not yet supported: " + type_text }
     if v4_codegen_llvm_is_list(mir_id, value) or v4_codegen_llvm_is_map(mir_id, value) { give back "native map values of lists, maps or sets are not yet supported: " + type_text }
     if v4_ty_is_closure_type(value) { give back "native map values of closures are not yet supported: " + type_text }
     give back v4_codegen_llvm_native_type_error_depth(value, false, 1)

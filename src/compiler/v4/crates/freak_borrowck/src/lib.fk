@@ -2505,33 +2505,37 @@ task v4_borrowck_stmt_returns_lend_mut_of(mir_id: int, body_id: int, stmt_id: in
 -- before rhs runs, so rhs must not lend xs exclusively or move it: a push
 -- could reallocate the buffer under the pending store. Loans inside the
 -- target's own index operands are refused too (conservative).
-task v4_borrowck_list_index_target_conflict(mir_id: int, body_id: int, stmt_id: int, path_text: word) -> bool {
-    if stmt_id < 0 or path_text == "" { give back false }
+-- "list" or "map" (a map entry place is formed the same way, by lookup,
+-- before the right-hand side runs), or "" when nothing conflicts.
+task v4_borrowck_index_target_conflict_kind(mir_id: int, body_id: int, stmt_id: int, path_text: word) -> word {
+    if stmt_id < 0 or path_text == "" { give back "" }
     pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
-    if stmt_kind != v4_mir_stmt_assign and stmt_kind != v4_mir_stmt_local { give back false }
+    if stmt_kind != v4_mir_stmt_assign and stmt_kind != v4_mir_stmt_local { give back "" }
     pilot loan = v4_borrowck_path_canon(path_text)
     pilot place_count = v4_mir_body_place_count(mir_id, body_id)
     pilot place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
     pilot depth = 0
     repeat until place < 0 or place >= place_count or depth > 256 {
         pilot place_kind = v4_mir_place_kind(mir_id, body_id, place)
-        if place_kind != v4_mir_place_field and place_kind != v4_mir_place_index { give back false }
+        if place_kind != v4_mir_place_field and place_kind != v4_mir_place_index { give back "" }
         pilot base = v4_mir_place_base(mir_id, body_id, place)
         if place_kind == v4_mir_place_index and base >= 0 and base < place_count {
             pilot base_ty = v4_mir_place_ty(mir_id, body_id, base)
             if v4_ty_is_lend_type(base_ty) { base_ty = v4_ty_lend_target_type(base_ty) }
             if v4_borrowck_type_is_heap_collection(mir_id, base_ty) {
+                pilot collection = "list"
+                if v4_mir_hash_collection_kind(mir_id, base_ty) != "" { collection = "map" }
                 pilot base_text = v4_mir_place_text(mir_id, body_id, base)
                 pilot shadowed_base = v4_borrowck_projected_binding_text(mir_id, body_id, base)
                 if shadowed_base != "" { base_text = shadowed_base }
                 base_text = v4_borrowck_path_canon(base_text)
-                if loan == base_text or base_text.starts_with(loan + ".") or base_text.starts_with(loan + "[") { give back true }
+                if loan == base_text or base_text.starts_with(loan + ".") or base_text.starts_with(loan + "[") { give back collection }
             }
         }
         place = base
         depth += 1
     }
-    give back false
+    give back ""
 }
 
 task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
@@ -2547,9 +2551,13 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
             mode = v4_borrowck_lend_holder_mode_for_projection(mir_id, body_id, path_text, true)
             holder_projection = mode != v4_ty_param_mode_value
         }
-        if (path_kind == v4_borrowck_path_loan_mut or path_kind == v4_borrowck_path_move) and v4_borrowck_list_index_target_conflict(mir_id, body_id, v4_borrowck_path_stmt(borrow_id, result_id, path_idx), path_text) {
+        pilot target_conflict = ""
+        if path_kind == v4_borrowck_path_loan_mut or path_kind == v4_borrowck_path_move { target_conflict = v4_borrowck_index_target_conflict_kind(mir_id, body_id, v4_borrowck_path_stmt(borrow_id, result_id, path_idx), path_text) }
+        if target_conflict != "" {
             pilot target_span = v4_borrowck_write_diag_span(mir_id, body_id, v4_borrowck_path_stmt(borrow_id, result_id, path_idx))
-            v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, target_span, "Meiya refuses to change a list while one of its elements is assigned", "the element address of " + path_text + " is formed before the right-hand side runs; compute the value into a pilot first"))
+            pilot target_message = "Meiya refuses to change a list while one of its elements is assigned"
+            if target_conflict == "map" { target_message = "Meiya refuses to change a map while one of its entries is assigned" }
+            v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, target_span, target_message, "the element address of " + path_text + " is formed before the right-hand side runs; compute the value into a pilot first"))
             v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
             conflicts += 1
         }
