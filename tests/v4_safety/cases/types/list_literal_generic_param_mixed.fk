@@ -1,0 +1,8 @@
+-- A mixed list literal for a callee's `List<T>` is still a drift from its own
+-- first element.
+-- expect: reject mir
+-- error: element 2 wants int but got word
+
+task accept<T>(xs: List<T>) -> int { give back 3 }
+
+task main() -> int { give back accept([1, "a"]) }
