@@ -702,7 +702,7 @@ def validate_module(module, program):
                 require(module.rfind("store i64 0, ptr " + slot, 0, call.start()) >= 0, "slot initialized before bridge")
     require(module.count("call i64 @freak_v4_process_args_count()") == argc_count and
             module.count("declare i64 @freak_v4_process_args_count()") == int(argc_count > 0), "exact scalar count calls/prototype")
-    legacy_free, unused_declarations = re.subn(r"(?m)^declare i64 @freak_v4_word_to_int\(i64\)\n", "", module)
+    legacy_free, unused_declarations = re.subn(r"(?m)^declare i64 @freak_v4_word_to_int\(i64\)(?: nounwind)?\n", "", module)
     require(unused_declarations <= 1, "one unused legacy word conversion prototype")
     require("@freak_v4_process_arg(" not in module and "@freak_fs_read_checked" not in module and "@freak_v4_word_to_int" not in legacy_free, "legacy helper cannot substitute typed bridge")
 
