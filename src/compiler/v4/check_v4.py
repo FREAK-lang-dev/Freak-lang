@@ -18406,6 +18406,9 @@ NATIVE_DYN_DISPATCH_ONLY = ("doctrine Unit {\n    task power(lend self) -> int\n
 # Meiya's refusal of an exclusive loan rooted at a shared lend parameter
 # (#262); the dyn lowering's own refusal stands behind it.
 NATIVE_DYN_MEIYA_SHARED_MUT = "Meiya refuses an exclusive lend of an immutable lend parameter"
+# Meiya also refuses an exclusive loan through a local that holds a shared
+# loan (`pilot q = lend b`, then `lend mut q.sq`) before the dyn lowering.
+NATIVE_DYN_MEIYA_HOLDER_MUT = "Meiya refuses an exclusive lend through an immutable lend"
 # Rejected dyn programs: (stem, source, named reason or reasons, any of which may name it).
 NATIVE_DYN_REJECTED = (
     ("tier3_dyn_owned_local", NATIVE_DYN_WIDGET + "task main() -> int {\n    pilot s = Square { side: 2 }\n"
@@ -18472,7 +18475,7 @@ NATIVE_DYN_REJECTED = (
      "task bump(lend mut w: dyn Widget) -> void { w.grow(1) }\n"
      "task main() -> int {\n    pilot mut b = Box { sq: Square { side: 1 } }\n    pilot q = lend b\n"
      "    bump(lend mut q.sq)\n    give back b.sq.side\n}\n",
-     "native dyn erasure cannot lend mut through a shared lend: lend mut q . sq"),
+     ("native dyn erasure cannot lend mut through a shared lend: lend mut q . sq", NATIVE_DYN_MEIYA_HOLDER_MUT)),
     # Impl headers carry no generic bounds yet, so a bounded impl cannot be
     # written; once it can, vtable sealing must check the bound.
     ("tier3_dyn_bounded_generic_impl", "doctrine Foo {\n    task f(lend self) -> int\n}\n"
