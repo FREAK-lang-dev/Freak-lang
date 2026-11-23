@@ -1519,7 +1519,22 @@ task cli_ffi_link_fingerprint(src_file: word, source: word) -> word {
         } else { item = item + c }
         i += 1
     }
-    pilot out = cli_ffi_fingerprint_list(source_links, source_abs, dirs)
+    -- Clang's driver also searches LIBRARY_PATH for -l values.
+    pilot library_path = process::env("LIBRARY_PATH")
+    pilot separator = ":"
+    if process::platform_is_windows() { separator = ";" }
+    item = ""
+    i = 0
+    repeat library_path.length() times {
+        pilot c = library_path.char_at(i)
+        if c == separator {
+            if item != "" { dirs = dirs + cli_ffi_absolute(item, "") + "|" }
+            item = ""
+        } else { item = item + c }
+        i += 1
+    }
+    if item != "" { dirs = dirs + cli_ffi_absolute(item, "") + "|" }
+    pilot out = "|ffi-library-path=" + library_path + cli_ffi_fingerprint_list(source_links, source_abs, dirs)
     give back out + cli_ffi_fingerprint_list(cli_requested_link_libs, "", dirs)
 }
 

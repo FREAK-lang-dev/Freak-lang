@@ -229,7 +229,25 @@ def check_run_cache(freak: str, clang: str, directory: Path) -> None:
             require(archived.returncode == 0, "archive libcalc.a", archived)
             ran = run([freak, "run", "app.fk"], folder)
             require(ran.returncode == 0 and f"calc {value}" in ran.stdout, f"{label}: freak run after archive v{value}", ran)
-    print("ok run cache rebuilds when a linked archive changes (spaced, newline, comment)")
+    if sys.platform.startswith("linux"):
+        # A bare link="calc" found through LIBRARY_PATH, outside the source
+        # folder and every --lib-dir.
+        folder = directory / "cache_library_path"
+        vendor = folder / "vendor"
+        vendor.mkdir(parents=True)
+        (folder / "app.fk").write_text(CACHE_PROGRAMS["spaced"].replace("./libcalc.a", "calc"), encoding="utf-8")
+        env = dict(os.environ)
+        env["LIBRARY_PATH"] = str(vendor)
+        for value in (1, 2):
+            (vendor / "calc.c").write_text(f"int calc_value(void) {{ return {value}; }}\n", encoding="utf-8")
+            compiled = run([clang, "-c", "calc.c", "-o", "calc.o"], vendor)
+            require(compiled.returncode == 0, "compile vendor calc.c", compiled)
+            (vendor / "libcalc.a").unlink(missing_ok=True)
+            archived = run([archiver, "rcs", "libcalc.a", "calc.o"], vendor)
+            require(archived.returncode == 0, "archive vendor libcalc.a", archived)
+            ran = run([freak, "run", "app.fk"], folder, env)
+            require(ran.returncode == 0 and f"calc {value}" in ran.stdout, f"LIBRARY_PATH: freak run after archive v{value}", ran)
+    print("ok run cache rebuilds when a linked archive changes (spaced, newline, comment, LIBRARY_PATH)")
 
 
 def check_flags(freak: str, directory: Path) -> None:
