@@ -1,0 +1,15 @@
+-- A Shared handle is a Move type: clone it to keep a second owner.
+-- bible: 4.4
+-- expect: reject borrowck
+-- error: Meiya remembers the field you already moved
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task take(s: Shared<Ship>) -> int { give back 0 }
+task main() -> int {
+    pilot a = Shared<Ship>::new(Ship { hp: 1 })
+    pilot n = take(a)
+    pilot b = a.clone()
+    give back 0
+}

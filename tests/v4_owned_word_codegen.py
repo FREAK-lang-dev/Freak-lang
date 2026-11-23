@@ -39,6 +39,8 @@ EXPECTED = {
     "maps_native.fk": ("10\n3\nSumika\nTakeru!\n3\n100\n9850\n34\n66\nfalse\n16\n-1\n66\n2\nuno\ntres\n"
                        "none\n6\nk\n1\n2\ntrue\ntrue\nfalse\n1\n20\n4\n"),
     "maps_control_native.fk": "-1\nside ran\nfalse\ntrue\ntrue\n1\nyes\nnoyes\nside_int ran\n-2\n0\n7\n",
+    "shared_native.fk": ("Takemikazuchi\n3\ntrue\nfalse\ntrue\nTakemikazuchi\n108\ntrue\nShiranui\n108\n108\nfalse\n216\n"
+                         "Shiranui\n108\nfalse\nGekishin\n9\nfalse\n4\nfalse\n1\nShiranui\n108\nShiranui\n108\nShiranui\n108\n"),
     "word_interpolation.fk": "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n",
 }
 

@@ -1,0 +1,24 @@
+-- borrow_mut fails with BorrowError, not a panic, while a view is live.
+-- bible: 4.4
+-- expect: run
+-- stdout: busy
+-- stdout: 5
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task try_write(lend a: Shared<Ship>, lend b: Shared<Ship>) -> int {
+    pilot v = a.borrow()
+    check result b.borrow_mut() {
+        ok(g) -> g.hp = 0
+        err(e) -> say "busy"
+    }
+    give back v.hp
+}
+
+task main() -> int {
+    pilot a = Shared<Ship>::new(Ship { hp: 5 })
+    pilot b = a.clone()
+    say try_write(lend a, lend b)
+    give back 0
+}

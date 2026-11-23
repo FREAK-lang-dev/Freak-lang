@@ -1,0 +1,16 @@
+-- get_mut proves exclusivity statically: it needs an exclusive loan.
+-- bible: 4.4
+-- expect: reject borrowck
+-- error: Meiya refuses an exclusive lend of an immutable lend parameter
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task f(lend s: Shared<Ship>) -> bool {
+    check s.get_mut() {
+        got m -> give back true
+        nobody -> give back false
+    }
+    give back false
+}
+task main() -> int { give back 0 }

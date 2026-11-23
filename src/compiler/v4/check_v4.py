@@ -18195,6 +18195,60 @@ NATIVE_MAPS_REJECTED = (
      "task main() -> int {\n    pilot m: Map<int, int> = {1: 2}\n    give back 0\n}\n",
      'native map runtime symbol conflict: @"freak.map.at.x"'),
 )
+# Native Shared<T> / Weak<T> (tier 3 rows L and M): examples/shared_native.fk.
+# Any argument takes a view through one handle while a guard is live through
+# a clone of it. tests/v4_owned_word_codegen.py pins the same output.
+NATIVE_SHARED_EXPECTED = ("Takemikazuchi\n3\ntrue\nfalse\ntrue\nTakemikazuchi\n108\ntrue\nShiranui\n108\n108\nfalse\n216\n"
+                          "Shiranui\n108\nfalse\nGekishin\n9\nfalse\n4\nfalse\n1\nShiranui\n108\nShiranui\n108\nShiranui\n108\n")
+NATIVE_SHARED_PANIC = "Shared value is already mutably borrowed"
+NATIVE_SHARED_RUNTIME = ("alloc", "retain", "release", "downgrade", "release_weak", "upgrade", "unique",
+                         "begin_read", "end_read", "begin_write", "end_write")
+# Rejected Shared programs: (stem, source, named reason).
+NATIVE_SHARED_REJECTED = (
+    # Later rows: handles stored in other types, nested and sum payloads,
+    # generic instances.
+    ("tier3_shared_shape_field", "use std::mem::{Shared, Weak}\nshape P { x: int }\nshape Bag { item: Shared<P> }\n"
+     "task main() -> int {\n    pilot b = Bag { item: Shared<P>::new(P { x: 1 }) }\n    give back 0\n}\n",
+     "native Shared handles inside other types are not yet supported: Shared<P>"),
+    ("tier3_shared_list_elements", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask main() -> int {\n    pilot xs: List<Shared<P>> = [Shared<P>::new(P { x: 1 })]\n    give back 0\n}\n",
+     "native Shared handles inside other types are not yet supported: Shared<P>"),
+    ("tier3_shared_nested", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask main() -> int {\n    pilot a = Shared<Shared<P>>::new(Shared<P>::new(P { x: 1 }))\n    give back 0\n}\n",
+     "native Shared payloads of Shared handles are not yet supported: Shared<Shared<P>>"),
+    ("tier3_shared_maybe_payload", "use std::mem::{Shared, Weak}\ntask main() -> int {\n    pilot a = Shared<maybe<int>>::new(some(1))\n    give back 0\n}\n",
+     "scalar sum calls require a resolved ordinary static task"),
+    ("tier3_shared_generic_instance", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask hold<T>(v: T) -> int {\n    pilot a = Shared<T>::new(v)\n    give back 0\n}\n"
+     "task main() -> int { give back hold(P { x: 1 }) }\n",
+     "native Shared values inside generic instances are not yet supported: hold<P>"),
+    # A view is a payload loan read through its fields; a guard is never lent.
+    ("tier3_shared_view_whole_read", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask peek(lend p: P) -> int { give back p.x }\n"
+     "task look(lend s: Shared<P>) -> int {\n    pilot v = s.borrow()\n    give back peek(v)\n}\n"
+     "task main() -> int {\n    pilot a = Shared<P>::new(P { x: 1 })\n    give back look(lend a)\n}\n",
+     "native Shared borrow views are read through their fields only: v"),
+    ("tier3_shared_guard_lend", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask peek(lend g: SharedMut<P>) -> int { give back 0 }\n"
+     "task f(lend s: Shared<P>) -> int {\n    check result s.borrow_mut() {\n        ok(g) -> give back peek(lend g)\n"
+     "        err(e) -> give back 1\n    }\n    give back 2\n}\n"
+     "task main() -> int {\n    pilot a = Shared<P>::new(P { x: 1 })\n    give back f(lend a)\n}\n",
+     "native loans of SharedMut guards are not yet supported: lend g"),
+    ("tier3_shared_view_temporary", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask main() -> int {\n    pilot a = Shared<P>::new(P { x: 1 })\n    give back a.borrow().x\n}\n",
+     "field access on non-shape type"),
+    # Meiya and MIR keep the bible 4.4 rules natively too.
+    ("tier3_shared_view_escape", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask f(lend s: Shared<P>) -> lend P {\n    give back s.borrow()\n}\ntask main() -> int { give back 0 }\n",
+     "Meiya cannot establish the origin of this returned loan"),
+    ("tier3_shared_get_mut_shared_lend", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask f(lend s: Shared<P>) -> bool {\n    check s.get_mut() {\n"
+     "        got m -> give back true\n        nobody -> give back false\n    }\n    give back false\n}\n"
+     "task main() -> int {\n    pilot a = Shared<P>::new(P { x: 1 })\n    say f(lend a)\n    give back 0\n}\n",
+     "Meiya refuses an exclusive lend of an immutable lend parameter"),
+    ("tier3_shared_use_after_move", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask take(s: Shared<P>) -> int { give back 0 }\n"
+     "task main() -> int {\n    pilot a = Shared<P>::new(P { x: 1 })\n    pilot n = take(a)\n    pilot b = a.clone()\n    give back 0\n}\n",
+     "Meiya remembers the field you already moved"),
+    ("tier3_shared_weak_borrow", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask main() -> int {\n    pilot a = Shared<P>::new(P { x: 1 })\n    pilot w = a.downgrade()\n"
+     "    pilot v = w.borrow()\n    give back 0\n}\n",
+     "Weak must upgrade before borrow"),
+    # The box helpers link the runtime's counted-box entry points by name.
+    ("tier3_shared_runtime_symbol", "use std::mem::{Shared, Weak}\nshape P { x: int }\nextern [C] {\n    task freak_v4_shared_retain(p: *void) -> void\n}\n"
+     "task main() -> int {\n    pilot a = Shared<P>::new(P { x: 1 })\n    give back 0\n}\n",
+     "native Shared runtime symbol conflict: @freak_v4_shared_retain"),
+)
 # Rejected lend ABI programs: (stem, source, named reason).
 NATIVE_LEND_ABI_REJECTED = (
     # A lend-typed parameter is not a lend mode.
@@ -18317,7 +18371,6 @@ NATIVE_GENERICS_REJECTED = (
      "native maybe/result aggregate payloads that own words are not yet supported: (Box<word>,int)"),
     # A generic main is a template with no body for the entry to call.
     ("tier3_generic_main", "task main<T>() -> int { give back 0 }\n", "main must not be generic"),
-    # Native code has no Shared carrier yet; an instance argument names it.
     # Calls pick an impl method by owner and name, so an inherent and a
     # doctrine method of one generic owner may not share a name.
     ("tier3_generic_impl_shared_method_name", "shape Grid<T> { cell: T, n: int }\n"
@@ -18346,9 +18399,11 @@ NATIVE_GENERICS_REJECTED = (
      "impl Holder<'a> {\n    task get(lend self) -> int { give back self.n }\n}\n"
      "task main() -> int {\n    pilot h = Holder<'static> { n: 5 }\n    give back h.get()\n}\n",
      "native shapes and routes with lifetime parameters are not yet supported: Holder<'static>::get"),
+    # A Shared handle as an instance argument is a handle inside another
+    # type, which the Shared row refuses by name.
     ("tier3_generic_shared_carrier", "shape Box<T> { value: T }\n"
      "task main() -> int {\n    pilot b: Box<Shared<int>> = Box { value: Shared<int>::new(4) }\n    give back 0\n}\n",
-     "native type not yet supported: Shared<int>"),
+     "native Shared handles inside other types are not yet supported: Shared<int>"),
 )
 
 
@@ -18377,7 +18432,7 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
     clang = shutil.which("clang")
     notes = native_layout_notes(module)
     payloads = native_payload_notes(module)
-    types = re.findall(r'^(%"freak\.(?:shape|route|sum|list|map|closure\.env|dyn\.vtable)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum|list|map|shared\.box|closure\.env|dyn\.vtable)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
     if not notes or len(notes) != len(types) or not set(payloads) <= set(notes):
         raise RuntimeError(f"V4 shape module for {triple} has no matching layout notes")
     # A route with payload storage after its tag must say how that storage is
@@ -18587,7 +18642,7 @@ def check_native_abi_oracle(module: str, triple: str) -> int:
         pending = []
     if not claims:
         return 0
-    types = re.findall(r'^(%"freak\.(?:shape|route|sum|list|map|closure\.env)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum|list|map|shared\.box|closure\.env)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
     probe_lines = list(types)
     for index, (_, _, _, _, llvm_type) in enumerate(claims):
         probe_lines.append(f"define i64 @abi_{index}_size() {{ ret i64 ptrtoint (ptr getelementptr ({llvm_type}, ptr null, i32 1) to i64) }}")
@@ -18735,6 +18790,26 @@ def check_v4_native_maps_layout_note(module_text: str, triple: str) -> None:
         raise RuntimeError(f"V4 maps module for {triple} has no layout note for the map header")
 
 
+def check_v4_native_shared_panic(executable: Path) -> None:
+    """Any argument makes shared_native.fk take a view while a guard is live."""
+    panicked = run_with_heartbeat([str(executable), "conflict"], label="V4 native Shared borrow state", timeout_seconds=10, memory_limit_mb=128)
+    if panicked.returncode != 101 or NATIVE_SHARED_PANIC not in panicked.stdout + panicked.stderr:
+        raise RuntimeError(f"V4 native Shared borrow state did not panic: exit={panicked.returncode} "
+                           f"stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
+
+
+def check_v4_native_shared_module(module_text: str, triple: str) -> None:
+    """Each counted box carries a layout note; the runtime entry points are declared once."""
+    for payload in ("Ship", "Signal"):
+        if not re.search(rf'^; freak\.layout %"freak\.shared\.box\.{payload}" size=\d+ align=\d+ offsets=', module_text, re.MULTILINE):
+            raise RuntimeError(f"V4 Shared module for {triple} has no layout note for the {payload} box")
+    for name in NATIVE_SHARED_RUNTIME:
+        # IRBuilder attributes may append nounwind to a runtime declare.
+        found = re.findall(rf"^declare \S+ @freak_v4_shared_{name}\((?:ptr|i64)\)(?: nounwind)?$", module_text, re.MULTILINE)
+        if len(found) != 1:
+            raise RuntimeError(f"V4 Shared module for {triple} declares @freak_v4_shared_{name} {len(found)} times")
+
+
 def check_native_generic_instances(module: str, triple: str) -> None:
     """Each generic instance is one native body with its own layout; templates emit nothing."""
     defined = re.findall(r'^define [^@]*(@"[^"]+"|@[\w.]+)\(', module, re.MULTILINE)
@@ -18775,6 +18850,7 @@ def check_v4_native_shapes() -> None:
         ("lists", "lists_native.fk", NATIVE_LISTS_EXPECTED),
         ("maps", "maps_native.fk", NATIVE_MAPS_EXPECTED),
         ("maps_control", "maps_control_native.fk", NATIVE_MAPS_CONTROL_EXPECTED),
+        ("shared", "shared_native.fk", NATIVE_SHARED_EXPECTED),
         ("generics", "generics_native.fk", NATIVE_GENERICS_EXPECTED),
         ("generics_lists", "generics_lists_native.fk", NATIVE_GENERICS_LISTS_EXPECTED),
         ("lists_nested", "lists_nested_native.fk", NATIVE_NESTED_LISTS_EXPECTED),
@@ -18805,6 +18881,8 @@ def check_v4_native_shapes() -> None:
             check_v4_native_lists_panic(executable)
         if stem == "maps":
             check_v4_native_maps_panic(executable)
+        if stem == "shared":
+            check_v4_native_shared_panic(executable)
         for triple in NATIVE_LAYOUT_TRIPLES:
             module_path = RUNTIME_BUILD_ROOT / f"tier3_native_{stem}_{triple}.ll"
             module_path.unlink(missing_ok=True)
@@ -18823,6 +18901,8 @@ def check_v4_native_shapes() -> None:
                 check_v4_native_unused_list_shape_module(module_text, triple)
             if stem == "maps":
                 check_v4_native_maps_layout_note(module_text, triple)
+            if stem == "shared":
+                check_v4_native_shared_module(module_text, triple)
             probes += check_native_layout_oracle(module_text, triple)
             abi_probes += check_native_abi_oracle(module_text, triple)
             if stem == "agg_abi":
@@ -19028,7 +19108,7 @@ def check_v4_native_shapes() -> None:
          "impl Eq for V { task equals(lend self, other: lend V) -> bool { give back self.x == other.x } }\n"
          "task main() -> int { pilot a = V { x: 1 }\n if a == a { give back 1 }\n give back 0 }\n",
          "Meiya cannot store a lend in parameter 1 of Eq::equals yet"),
-    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED
+    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_SHARED_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")
