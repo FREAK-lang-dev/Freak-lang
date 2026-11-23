@@ -115,6 +115,78 @@ turn the same facts into explicit statements and cleanup blocks.
 Built, Analysis and Runtime MIR are lifecycle states of one representation;
 this contract does not introduce a new persistent IR or Runtime MIR snapshot.
 
+### Runtime MIR contract (architecture lane A4)
+
+This is the target the `freak_mir_transform` stage builds and the input the
+backend delivery lane (B1 onward) lowers from. It is written down before the
+crate exists so both sides can be checked against it.
+
+**States.** Built MIR is what `freak_mir_build` publishes. Analysis MIR is
+Built MIR plus Meiya's side facts for the same MIR revision (borrow result,
+drop plan). Runtime MIR is Analysis MIR after `freak_mir_transform` has made
+every ownership action explicit. All three live in the one `freak_mir`
+storage. Runtime MIR is produced only from an Analysis MIR whose Meiya result
+is current and error-free, and it is invalid as soon as that MIR revision
+changes.
+
+**Runtime MIR contains:**
+
+- Everything Built MIR has: bodies, locals with their types, places,
+  rvalues, statements, terminators, lexical scopes and closure capture locals.
+- `Drop(place)` statements for every owned value that dies, at the point it
+  dies: before a statement, on replacement by assignment, at a return, on a
+  branch edge, and at the default return. Temporaries that own a value are
+  ordinary locals with their own drops; codegen creates none.
+- `DropIf(place, flag)` only for a local moved on some paths and not others.
+  The flag is an ordinary `bool` local; the transform emits the statements
+  that set and clear it. A local moved on every path, or never, has no flag.
+- `DropSlot(place)` for the old value at a store's target place. A partial
+  move nulls the word leaves it took, so the slot needs no separate flag.
+- Within one site, drops run in reverse declaration order.
+- Cleanup blocks for every early exit (return, `break`, `continue`, `?`
+  propagation). Each one runs its drops and then the exit's original
+  terminator.
+- Moves and copies told apart on every operand that reads an owned place.
+
+**Runtime MIR no longer contains** analysis-only operations: loan-region and
+mention scopes, liveness and init sets, and any fact that exists only so
+Meiya can reject a program. `Lend` and `LendMut` stay; at runtime they are
+address-of rvalues.
+
+**A consumer of Runtime MIR may not ask:**
+
+- Meiya anything. No `v4_borrowck_*` call: no check, no plan validation, no
+  drop-plan publication, no drop-kind or move query. Today codegen still
+  makes these calls (`v4_borrowck_check_mir`, `v4_borrowck_publish_drop_plan`,
+  `v4_borrowck_word_local_drop_kind`); they move into the transform.
+- Whether a value is moved, live or needs a drop. The statements say so.
+- Where a temporary or a word global is released. Today codegen still places
+  those; the transform takes them over.
+- HIR, Resolve, the lexer or the parser (guarded, see Crate Boundary Rules).
+- A callee, method, operator or generic substitution by name (A3 seals these
+  in MIR; codegen's remaining TY name lookups are an exact, shrinking
+  allowlist in `check_v4.py`).
+
+**The transform may read** Built MIR, Meiya's sealed queries (is moved, needs
+drop, drop mode, flag required, loan set, return-loan origins, cleanup
+requirement) and TY layout facts. It references no lexer, parser, HIR,
+Resolve or LLVM emission task.
+
+**Validation before codegen.** Every owned local is dropped exactly once or
+moved on every path to every exit; `DropIf` names a flag local; no
+analysis-only operation is left; every cleanup block ends in its exit's
+terminator; every block still has exactly one terminator.
+
+**Not in this contract:** a Runtime MIR snapshot (none until a consumer needs
+one), panic-path cleanup (waits for unwinding) and generic ownership before
+monomorphization.
+
+**Transition.** The sealed drop plan (`v4_mir_drop_plan_*`) already carries
+the drop rows above for owned locals, as a side table read by codegen. The
+first transform slice turns those rows into statements and cleanup blocks
+with byte-identical LLVM output, then removes the side-table reads from
+codegen.
+
 ## Runnable LLVM Scalar Checkpoint
 
 `freak_codegen_llvm` now emits entry-block storage per MIR local identity,
