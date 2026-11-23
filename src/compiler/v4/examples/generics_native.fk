@@ -4,6 +4,12 @@
 -- (NATIVE_GENERICS_EXPECTED) and checks every instance layout note against
 -- Clang on each NATIVE_LAYOUT_TRIPLES target.
 
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
 shape Point { x: int, y: int }
 shape Named { name: word, score: int }
 shape Box<T> { value: T, count: int }
@@ -106,6 +112,9 @@ task ignore<T>(ignored_sum: T) -> int { give back 3 }
 task pass<T>(x: T, m: maybe<int>) -> maybe<int> { give back m }
 
 task consume<T>(x: T) -> int { give back 1 }
+
+-- A pointer to never returns normally, so discard<never> is a real instance.
+task discard<T>(p: *mut T) -> int { give back 2 }
 
 -- Explicit route owners are substituted per instance.
 task has_of<T>(x: T) -> Opt<T> { give back Opt<T>::Has { value: x } }
@@ -218,6 +227,15 @@ task main() -> int {
     pilot sum_formal: maybe<int> = some(2)
     pilot passed = pass(1, some(5))
     say (ignore(sum_formal) + (passed or else 0)).to_word()
+    say ignore(5).to_word()
+    pilot raw = malloc(8)
+    pilot mut discarded = 0
+    trust me "a never pointee is only passed along" on my honor as .ace {
+        pilot nothing = raw.cast<never>()
+        discarded = discard(nothing)
+    }
+    free(raw)
+    say discarded.to_word()
     if false {
         say consume(panic("never"))
         say panic("never") |> consume

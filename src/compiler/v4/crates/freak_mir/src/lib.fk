@@ -7538,6 +7538,25 @@ task v4_mir_sum_local_rows_error(ty: int, definition: word, blocks: int, locals:
     give back error
 }
 
+-- Whether a static call row's callee, with its instance env applied, takes or
+-- gives back a scalar sum. The recorded result and argument types alone
+-- cannot say: an op switched from ignore<int> to ignore<maybe<int>> keeps its
+-- int argument, and only the callee's formal shows the sum.
+task v4_mir_sum_row_callee_is_sensitive(ty: int, row: word) -> bool {
+    if v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_call or v4_mir_snapshot_field(row, 13) != "" { give back false }
+    pilot op = v4_mir_snapshot_field(row, 6)
+    pilot signature = v4_mir_task_call_signature(ty, op)
+    if signature < 0 { give back false }
+    pilot env = v4_mir_task_call_env(ty, op)
+    if v4_ty_is_native_scalar_sum(ty, v4_ty_canonical_type(ty, v4_ty_apply_generic_env(v4_ty_signature_return_type(ty, signature), env))) { give back true }
+    pilot parameter = 0
+    repeat until parameter >= v4_ty_signature_fixed_param_count(ty, signature) {
+        if v4_ty_is_native_scalar_sum(ty, v4_ty_canonical_type(ty, v4_ty_apply_generic_env(v4_ty_signature_param_type(ty, signature, parameter), env))) { give back true }
+        parameter += 1
+    }
+    give back false
+}
+
 task v4_mir_sum_rows_are_sensitive(ty: int, definition: word, locals: int, values: int) -> bool {
     if v4_ty_is_native_scalar_sum(ty, v4_mir_callable_return_type_for_def(ty, definition)) { give back true }
     -- An instance reads its generic signature's formals with the env applied,
@@ -7562,7 +7581,7 @@ task v4_mir_sum_rows_are_sensitive(ty: int, definition: word, locals: int, value
     row = 0
     repeat until row >= array_len(values) {
         pilot value: word = array_get(values, row)
-        if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(value, 10)) or v4_mir_snapshot_field(value, 4) == v4_mir_rvalue_sum_take { give back true }
+        if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(value, 10)) or v4_mir_snapshot_field(value, 4) == v4_mir_rvalue_sum_take or v4_mir_sum_row_callee_is_sensitive(ty, value) { give back true }
         -- Only a call row's op is an identity (a word literal's op is its text).
         pilot call_row: bool = v4_mir_snapshot_field(value, 4) == v4_mir_rvalue_call
         if v4_mir_snapshot_field(value, 13).starts_with("builtin::system::") or (call_row and v4_mir_snapshot_field(value, 6).starts_with("builtin::system::")) or v4_mir_snapshot_field(value, 13) == "builtin::word::to_int_maybe" or (call_row and v4_mir_snapshot_field(value, 6) == "builtin::word::to_int_maybe") { give back true }
@@ -7583,6 +7602,7 @@ task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) ->
         if v4_ty_is_native_scalar_sum(ty, v4_mir_control_row_type(values, v4_mir_call_args_payload_at(args, arg))) { required = true }
         arg += 1
     }
+    if v4_mir_sum_row_callee_is_sensitive(ty, row) { required = true }
     if not required { give back "" }
     pilot identity = v4_mir_snapshot_field(row, 13)
     if v4_mir_builtin_system_identity_kind(identity) != "" or identity == "builtin::word::to_int_maybe" { give back v4_mir_sum_row_intrinsic_error(ty, values, locals, value) }
@@ -7811,7 +7831,7 @@ task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks:
 
 task v4_mir_sum_row_call_requires_body(ty: int, values: int, row: word) -> bool {
     if v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_call or v4_mir_snapshot_field(row, 13) != "" { give back false }
-    if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(row, 10)) { give back true }
+    if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(row, 10)) or v4_mir_sum_row_callee_is_sensitive(ty, row) { give back true }
     pilot args = v4_mir_snapshot_field(row, 12)
     pilot arg = 0
     repeat until arg >= v4_mir_call_args_payload_count(args) {

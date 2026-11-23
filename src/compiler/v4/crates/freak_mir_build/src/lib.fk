@@ -6249,9 +6249,6 @@ task v4_mir_build_request_generic_instance(mir_id: int, body_id: int, expr_span:
                 give back ""
             }
             actual = v4_ty_canonical_type(ty_id, actual)
-            -- An eager never argument (consume(panic("stop"))) ends the
-            -- block before the call; it needs no consume<never> instance.
-            if actual == v4_ty_never { give back "" }
             if env != "" {
                 env = env + "|"
                 args = args + ","
@@ -6263,6 +6260,15 @@ task v4_mir_build_request_generic_instance(mir_id: int, body_id: int, expr_span:
     }
     -- Polymorphic recursion can double a type per instance; the type text
     -- cap stops it before the text grows past what TY can match cheaply.
+    -- An eager argument of type never (consume(panic("stop"))) ends the block
+    -- before the call, so it needs no consume<never> instance. Only a formal
+    -- that is itself never marks one: discard(p) with p: *mut never returns
+    -- normally and still needs discard<never>.
+    pilot param = 0
+    repeat until param >= v4_ty_signature_fixed_param_count(ty_id, sig_id) {
+        if v4_ty_canonical_type(ty_id, v4_ty_apply_generic_env(v4_ty_signature_param_type(ty_id, sig_id, param), env)) == v4_ty_never { give back "" }
+        param += 1
+    }
     if args.length() > v4_mir_build_generic_max_type_text {
         v4_mir_add_type_error(mir_id, expr_span, "native generic instance types grow too large: " + callee, "an instance's type arguments may spell " + word_from_int(v4_mir_build_generic_max_type_text) + " characters; polymorphic recursion has no finite set of instances")
         give back ""

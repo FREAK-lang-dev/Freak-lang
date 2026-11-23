@@ -12392,7 +12392,7 @@ EXECUTABLE_SMOKES = [
       # Literal manifest: check_v4_native_shapes holds this to NATIVE_GENERICS_EXPECTED.
       'llvm_programs': [('generics_native.fk', 22,
                          '5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n'
-                         'right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n1\n49\n')]},
+                         'right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n3\n2\n1\n49\n')]},
      {'name': 'typed os entry existing Word module restore and execution',
       'fixture': 'typed_os_entry_execute_smoke.fk',
       'memory_limit_mb': 64,
@@ -17689,7 +17689,7 @@ NATIVE_LEND_ABI_REJECTED = (
 # Tier 3 generic monomorphization: generics_native.fk prints this and gives
 # back c.get() + Box<int>::size(lend b). Each instance is one native body.
 NATIVE_GENERICS_EXPECTED = ("5\nhello\nleft\n3,4\nseven=7\nkei:9\n3\n41\nnew\n10\n120\nthree 3\nhi\n14\n"
-                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n1\n49\n", 22)
+                            "right\nrouted\n34\n34\n6\n12\n20\n2\nsecond\nx9\n6\n38\n12\n11\n2\n8\n3\n2\n1\n49\n", 22)
 # Instance symbols the generics module must define exactly once, and the
 # instance layouts the layout oracle must see on every target.
 NATIVE_GENERICS_SYMBOLS = (
@@ -17698,7 +17698,7 @@ NATIVE_GENERICS_SYMBOLS = (
     '@"first_of<Point>"', '@"depth<word>"', '@"boxed<Box<int>>"', '@"get_or<word>"', '@"best<Point>"',
     '@"best<Named>"', '@"best_ufcs<Point>"', '@"fresh<Point>"', '@"fresh<int>"', '@"bumped<Point>"', '@"bumped<int>"', '@"Box<word>::make"', '@"Box<word>::put"', '@"Box<int>::size"',
     '@"Acc<word>::add"', '@"has_of<int>"', '@"none_of<int>"', '@"Grid<int>::index"', '@"Grid<int>::index_mut"',
-    '@"Box<int>::twin"', '@"ignore<maybe<int>>"', '@"pass<int>"', '@"consume<int>"', '@"read_opt<int>"',
+    '@"Box<int>::twin"', '@"ignore<maybe<int>>"', '@"pass<int>"', '@"consume<int>"', '@"read_opt<int>"', '@"ignore<int>"', '@"discard<never>"',
 )
 NATIVE_GENERICS_LAYOUTS = (
     '%"freak.shape.Box<int>"', '%"freak.shape.Box<word>"', '%"freak.shape.Box<Box<int>>"',
