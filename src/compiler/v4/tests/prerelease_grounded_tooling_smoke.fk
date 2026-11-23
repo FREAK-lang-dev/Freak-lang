@@ -60,7 +60,7 @@ task v4_prerelease_tooling_run() -> void {
             pilot snapshot = v4_hir_snapshot()
             v4_prerelease_tooling_assert(v4_hir_snapshot_restore(snapshot).starts_with("hir-snapshot-restore ok=1") and v4_hir_const_binding_prefix(hir, 0) == "grounded pilot" and v4_hir_const_name_span(hir, 0) == declaration_span and v4_hir_item_span(hir, 0) == item_span, "detached HIR restores exact root spelling and ranges")
             v4_prerelease_tooling_assert(v4_hir_snapshot() == snapshot, "HIR snapshot exact")
-            pilot old = snapshot.replace("freak-hir-snapshot-v13", "freak-hir-snapshot-v11")
+            pilot old = snapshot.replace("freak-hir-snapshot-v14", "freak-hir-snapshot-v11")
             v4_prerelease_tooling_assert(v4_hir_snapshot_restore(old).starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == snapshot, "old HIR format rejected atomically")
             pilot invalid = snapshot.replace("|grounded pilot\n", "|mutable pilot\n")
             v4_prerelease_tooling_assert(invalid != snapshot and v4_hir_snapshot_restore(invalid).starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == snapshot, "invalid prefix rejected atomically")

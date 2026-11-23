@@ -22,9 +22,12 @@ pilot v4_hir_import = "Import"
 pilot v4_hir_extern = "Extern"
 pilot v4_hir_attribute = "Attribute"
 pilot v4_hir_error = "Error"
-pilot v4_hir_snapshot_format = "freak-hir-snapshot-v13"
+pilot v4_hir_snapshot_format = "freak-hir-snapshot-v14"
 pilot v4_hir_extern_return_owner_values = 0
 pilot v4_hir_extern_return_values = 0
+-- Extern member parameters (architecture lane A1): eight packed words per
+-- parameter, ranged by each member row's parameter count and start.
+pilot v4_hir_extern_param_values = 0
 -- Impl and doctrine methods (architecture lane A1): owners hold item-indexed
 -- start/count pairs, methods five packed words (name, segment span, return
 -- form, return type, return span).
@@ -110,6 +113,7 @@ task v4_hir_init() -> void {
         -- Failed construction leaves the original global references untouched.
         pilot new_extern_return_owner_values = array_new()
         pilot new_extern_return_values = array_new()
+        pilot new_extern_param_values = array_new()
         pilot new_method_owner_values = array_new()
         pilot new_method_values = array_new()
         pilot new_route_owner_values = array_new()
@@ -155,9 +159,10 @@ task v4_hir_init() -> void {
         pilot new_task_param_type_spans = array_new()
         pilot new_task_param_segment_spans = array_new()
         pilot new_diags = array_new()
-        if new_word_plans < 0 or new_extern_return_owner_values < 0 or new_extern_return_values < 0 or new_method_owner_values < 0 or new_method_values < 0 or new_route_owner_values < 0 or new_route_case_values < 0 or new_route_field_values < 0 or new_const_annotation_values < 0 or new_shape_field_starts < 0 or new_shape_field_counts < 0 or new_shape_field_values < 0 or new_files < 0 or new_expansions < 0 or new_revisions < 0 or new_item_kinds < 0 or new_item_names < 0 or new_item_defs < 0 or new_item_spans < 0 or new_item_parse_nodes < 0 or new_alias_target_types < 0 or new_alias_target_spans < 0 or new_local_annotation_items < 0 or new_local_annotation_stmt_spans < 0 or new_local_annotation_types < 0 or new_local_annotation_type_spans < 0 or new_task_return_items < 0 or new_task_return_forms < 0 or new_task_return_types < 0 or new_task_return_spans < 0 or new_annotation_indexes < 0 or new_return_indexes < 0 or new_task_param_indexes < 0 or new_impl_indexes < 0 or new_task_param_owner_items < 0 or new_task_param_owner_counts < 0 or new_task_param_items < 0 or new_task_param_ordinals < 0 or new_task_param_names < 0 or new_task_param_name_spans < 0 or new_task_param_modes < 0 or new_task_param_lifetimes < 0 or new_task_param_lifetime_spans < 0 or new_task_param_types < 0 or new_task_param_type_spans < 0 or new_task_param_segment_spans < 0 or new_diags < 0 {
+        if new_word_plans < 0 or new_extern_return_owner_values < 0 or new_extern_return_values < 0 or new_extern_param_values < 0 or new_method_owner_values < 0 or new_method_values < 0 or new_route_owner_values < 0 or new_route_case_values < 0 or new_route_field_values < 0 or new_const_annotation_values < 0 or new_shape_field_starts < 0 or new_shape_field_counts < 0 or new_shape_field_values < 0 or new_files < 0 or new_expansions < 0 or new_revisions < 0 or new_item_kinds < 0 or new_item_names < 0 or new_item_defs < 0 or new_item_spans < 0 or new_item_parse_nodes < 0 or new_alias_target_types < 0 or new_alias_target_spans < 0 or new_local_annotation_items < 0 or new_local_annotation_stmt_spans < 0 or new_local_annotation_types < 0 or new_local_annotation_type_spans < 0 or new_task_return_items < 0 or new_task_return_forms < 0 or new_task_return_types < 0 or new_task_return_spans < 0 or new_annotation_indexes < 0 or new_return_indexes < 0 or new_task_param_indexes < 0 or new_impl_indexes < 0 or new_task_param_owner_items < 0 or new_task_param_owner_counts < 0 or new_task_param_items < 0 or new_task_param_ordinals < 0 or new_task_param_names < 0 or new_task_param_name_spans < 0 or new_task_param_modes < 0 or new_task_param_lifetimes < 0 or new_task_param_lifetime_spans < 0 or new_task_param_types < 0 or new_task_param_type_spans < 0 or new_task_param_segment_spans < 0 or new_diags < 0 {
             array_release(new_extern_return_owner_values)
             array_release(new_extern_return_values)
+            array_release(new_extern_param_values)
             array_release(new_method_owner_values)
             array_release(new_method_values)
             array_release(new_route_owner_values)
@@ -207,6 +212,7 @@ task v4_hir_init() -> void {
         }
         v4_hir_extern_return_owner_values = new_extern_return_owner_values
         v4_hir_extern_return_values = new_extern_return_values
+        v4_hir_extern_param_values = new_extern_param_values
         v4_hir_method_owner_values = new_method_owner_values
         v4_hir_method_values = new_method_values
         v4_hir_route_owner_values = new_route_owner_values
@@ -257,7 +263,7 @@ task v4_hir_init() -> void {
     }
 }
 
--- File slots own their forty-four child arrays. Logical snapshot truncation keeps
+-- File slots own their forty-five child arrays. Logical snapshot truncation keeps
 -- high-water slots reachable; reusing a slot must release its previous children.
 -- Fresh slots allocate once, without immediately overwriting those handles.
 task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
@@ -267,6 +273,7 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
     repeat until array_len(v4_hir_files) > hir_id {
         array_push(v4_hir_extern_return_owner_values, word_from_int(array_new()))
         array_push(v4_hir_extern_return_values, word_from_int(array_new()))
+        array_push(v4_hir_extern_param_values, word_from_int(array_new()))
         array_push(v4_hir_method_owner_values, word_from_int(array_new()))
         array_push(v4_hir_method_values, word_from_int(array_new()))
         array_push(v4_hir_route_owner_values, word_from_int(array_new()))
@@ -329,6 +336,8 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_set(v4_hir_extern_return_owner_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_extern_return_values_handle(hir_id))
         array_set(v4_hir_extern_return_values, hir_id, word_from_int(array_new()))
+        array_release(v4_hir_extern_param_values_handle(hir_id))
+        array_set(v4_hir_extern_param_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_method_owner_values_handle(hir_id))
         array_set(v4_hir_method_owner_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_method_values_handle(hir_id))
@@ -1755,8 +1764,9 @@ task v4_hir_extern_member_count(hir_id: int, item_id: int) -> int {
     give back word_to_int(array_get(v4_hir_extern_return_owner_values_handle(hir_id), item_id * 2 + 1))
 }
 
--- Extern owners use item-indexed start/count pairs; members use four packed
--- words. These accessors read facts only, including when syntax is detached.
+-- Extern owners use item-indexed start/count pairs; members use six packed
+-- words (four return facts, then parameter count and parameter start). These
+-- accessors read facts only, including when syntax is detached.
 task v4_hir_extern_return_owner_values_handle(hir_id: int) -> int {
     give back word_to_int(array_get(v4_hir_extern_return_owner_values, hir_id))
 }
@@ -1766,12 +1776,14 @@ task v4_hir_extern_return_values_handle(hir_id: int) -> int {
 }
 
 task v4_hir_extern_return_value(hir_id: int, item_id: int, member_id: int, column: int) -> word {
-    if member_id < 0 or member_id >= v4_hir_extern_member_count(hir_id, item_id) or column < 0 or column >= 4 {
+    if member_id < 0 or member_id >= v4_hir_extern_member_count(hir_id, item_id) or column < 0 or column >= 6 {
         if column == 1 or column == 3 { give back V4_NO_SPAN }
+        if column == 4 { give back "0" }
+        if column == 5 { give back "-1" }
         give back ""
     }
     pilot start = word_to_int(array_get(v4_hir_extern_return_owner_values_handle(hir_id), item_id * 2))
-    give back array_get(v4_hir_extern_return_values_handle(hir_id), (start + member_id) * 4 + column)
+    give back array_get(v4_hir_extern_return_values_handle(hir_id), (start + member_id) * 6 + column)
 }
 
 task v4_hir_extern_member_return_surface_type(hir_id: int, item_id: int, member_id: int) -> word {
@@ -1797,7 +1809,7 @@ task v4_hir_extern_return_prepare_owner(hir_id: int, item_id: int, count: int) -
         array_push(owners, "-1")
         array_push(owners, "0")
     }
-    array_set(owners, item_id * 2, word_from_int(array_len(values) / 4))
+    array_set(owners, item_id * 2, word_from_int(array_len(values) / 6))
     array_set(owners, item_id * 2 + 1, word_from_int(count))
     pilot ordinal = 0
     repeat until ordinal >= count {
@@ -1805,6 +1817,8 @@ task v4_hir_extern_return_prepare_owner(hir_id: int, item_id: int, count: int) -
         array_push(values, V4_NO_SPAN)
         array_push(values, "0")
         array_push(values, V4_NO_SPAN)
+        array_push(values, "0")
+        array_push(values, "-1")
         ordinal += 1
     }
 }
@@ -1837,6 +1851,11 @@ task v4_hir_lower_extern_member_return(hir_id: int, item_id: int, stream: int, s
     -- Empty quoted recovery can still have a declaration span and fall back.
     if surface == "" and recovery_arrow { array_push(values, "1") } else { array_push(values, "0") }
     array_push(values, v4_hir_span_from_tokens(stream, start, end))
+    pilot params = v4_hir_extern_param_values_handle(hir_id)
+    pilot param_start = array_len(params) / 8
+    pilot param_count = v4_hir_lower_extern_member_params(hir_id, stream, start, end)
+    array_push(values, word_from_int(param_count))
+    array_push(values, word_from_int(param_start))
     pilot owners = v4_hir_extern_return_owner_values_handle(hir_id)
     array_set(owners, item_id * 2 + 1, word_from_int(v4_hir_extern_member_count(hir_id, item_id) + 1))
 }
@@ -1987,7 +2006,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
     if v4_hir_ready == 0 { give back 0 - 1 }
     pilot required = 4
-    if v4_hir_file_len >= array_len(v4_hir_files) { required += 44 }
+    if v4_hir_file_len >= array_len(v4_hir_files) { required += 45 }
     if v4_hir_lookup_handles_available(required) == false { give back 0 - 1 }
     pilot hir_id = v4_hir_file_new(file_id, expansion_id)
     v4_hir_copy_expand_diags(hir_id, expansion_id)
@@ -2238,6 +2257,7 @@ task v4_hir_snapshot_summary() -> word {
     summary = summary + " route-fields=" + word_from_int(v4_hir_route_field_total())
     summary = summary + " extern-return-owners=" + word_from_int(v4_hir_extern_return_owner_total())
     summary = summary + " extern-returns=" + word_from_int(v4_hir_extern_return_total())
+    summary = summary + " extern-params=" + word_from_int(v4_hir_extern_param_total())
     summary = summary + " method-owners=" + word_from_int(v4_hir_method_owner_total())
     summary = summary + " methods=" + word_from_int(v4_hir_method_total())
     summary = summary + " diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
@@ -2262,6 +2282,7 @@ task v4_hir_snapshot_header() -> word {
     out = out + "|route-fields=" + word_from_int(v4_hir_route_field_total())
     out = out + "|extern-return-owners=" + word_from_int(v4_hir_extern_return_owner_total())
     out = out + "|extern-returns=" + word_from_int(v4_hir_extern_return_total())
+    out = out + "|extern-params=" + word_from_int(v4_hir_extern_param_total())
     out = out + "|method-owners=" + word_from_int(v4_hir_method_owner_total())
     out = out + "|methods=" + word_from_int(v4_hir_method_total())
     out = out + "|word-owners=" + word_from_int(v4_hir_word_snapshot_total(0))
@@ -2411,7 +2432,8 @@ task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "hir-word-piece" { give back 9 }
     if kind == "hir-word-path-part" { give back 8 }
     if kind == "hir-extern-return-owner" { give back 4 }
-    if kind == "hir-extern-return" { give back 8 }
+    if kind == "hir-extern-return" { give back 9 }
+    if kind == "hir-extern-param" { give back 13 }
     if kind == "hir-method-owner" { give back 4 }
     if kind == "hir-method" { give back 9 }
     if kind == "hir-route-owner" { give back 5 }
@@ -2421,7 +2443,7 @@ task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "hir-shape-owner" { give back 4 }
     if kind == "hir-shape-field" { give back 9 }
     if kind == "hir-snapshot" {
-        give back 24
+        give back 25
     }
     if kind == "hir" {
         give back 6
@@ -2908,7 +2930,7 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
     if kind == "hir-word-owner" or kind == "hir-word-literal" or kind == "hir-word-piece" or kind == "hir-word-path-part" {
         give back v4_hir_word_snapshot_record_is_valid(line)
     }
-    if kind == "hir-extern-return-owner" or kind == "hir-extern-return" {
+    if kind == "hir-extern-return-owner" or kind == "hir-extern-return" or kind == "hir-extern-param" {
         give back v4_hir_snapshot_extern_return_record_is_valid(line)
     }
     if kind == "hir-method-owner" or kind == "hir-method" {
@@ -2968,8 +2990,10 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     pilot declared_route_fields = ""
     pilot extern_return_owners = 0
     pilot extern_returns = 0
+    pilot extern_params = 0
     pilot declared_extern_return_owners = ""
     pilot declared_extern_returns = ""
+    pilot declared_extern_params = ""
     pilot method_owners = 0
     pilot methods = 0
     pilot declared_method_owners = ""
@@ -3015,6 +3039,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 declared_route_fields = v4_hir_snapshot_key_value(line, "route-fields")
                 declared_extern_return_owners = v4_hir_snapshot_key_value(line, "extern-return-owners")
                 declared_extern_returns = v4_hir_snapshot_key_value(line, "extern-returns")
+                declared_extern_params = v4_hir_snapshot_key_value(line, "extern-params")
                 declared_method_owners = v4_hir_snapshot_key_value(line, "method-owners")
                 declared_methods = v4_hir_snapshot_key_value(line, "methods")
                 declared_diagnostics = v4_hir_snapshot_key_value(line, "diagnostics")
@@ -3048,6 +3073,8 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 extern_return_owners += 1
             } else if kind == "hir-extern-return" {
                 extern_returns += 1
+            } else if kind == "hir-extern-param" {
+                extern_params += 1
             } else if kind == "hir-method-owner" {
                 method_owners += 1
             } else if kind == "hir-method" {
@@ -3085,7 +3112,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     }
     if malformed == 0 and not v4_hir_snapshot_const_annotation_slots_are_valid(records, files, items, const_annotations) { malformed += 1 }
     if malformed == 0 and not v4_hir_snapshot_route_slots_are_valid(records, files, items, route_owners, route_cases, route_fields) { malformed += 1 }
-    if malformed == 0 and not v4_hir_snapshot_extern_return_slots_are_valid(records, files, items, extern_return_owners, extern_returns) { malformed += 1 }
+    if malformed == 0 and not v4_hir_snapshot_extern_return_slots_are_valid(records, files, items, extern_return_owners, extern_returns, extern_params) { malformed += 1 }
     if malformed == 0 and not v4_hir_snapshot_method_slots_are_valid(records, files, items, method_owners, methods) { malformed += 1 }
     if malformed == 0 {
         pilot word_ticket = v4_hir_word_snapshot_build(records)
@@ -3121,36 +3148,15 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     if declared_const_annotations != word_from_int(const_annotations) { import_ok = 0 }
     if declared_shape_owners != word_from_int(shape_owners) or declared_shape_fields != word_from_int(shape_fields) { import_ok = 0 }
     if declared_route_owners != word_from_int(route_owners) or declared_route_cases != word_from_int(route_cases) or declared_route_fields != word_from_int(route_fields) { import_ok = 0 }
-    if declared_extern_return_owners != word_from_int(extern_return_owners) or declared_extern_returns != word_from_int(extern_returns) { import_ok = 0 }
+    if declared_extern_return_owners != word_from_int(extern_return_owners) or declared_extern_returns != word_from_int(extern_returns) or declared_extern_params != word_from_int(extern_params) { import_ok = 0 }
     if declared_method_owners != word_from_int(method_owners) or declared_methods != word_from_int(methods) { import_ok = 0 }
-    pilot out = "hir-snapshot-import"
-    out = out + " ok=" + word_from_int(import_ok)
-    out = out + " format=" + format
-    out = out + " lines=" + word_from_int(lines)
-    out = out + " files=" + word_from_int(files)
-    out = out + " items=" + word_from_int(items)
-    out = out + " alias-targets=" + word_from_int(alias_targets)
-    out = out + " declared-alias-targets=" + declared_alias_targets
-    out = out + " local-annotations=" + word_from_int(local_annotations)
-    out = out + " declared-local-annotations=" + declared_local_annotations
-    out = out + " task-returns=" + word_from_int(task_returns)
-    out = out + " declared-task-returns=" + declared_task_returns
-    out = out + " task-param-owners=" + word_from_int(task_param_owners)
-    out = out + " declared-task-param-owners=" + declared_task_param_owners
-    out = out + " task-params=" + word_from_int(task_params)
-    out = out + " declared-task-params=" + declared_task_params
-    out = out + " extern-return-owners=" + word_from_int(extern_return_owners)
-    out = out + " declared-extern-return-owners=" + declared_extern_return_owners
-    out = out + " extern-returns=" + word_from_int(extern_returns)
-    out = out + " declared-extern-returns=" + declared_extern_returns
-    out = out + " method-owners=" + word_from_int(method_owners)
-    out = out + " declared-method-owners=" + declared_method_owners
-    out = out + " methods=" + word_from_int(methods)
-    out = out + " declared-methods=" + declared_methods
-    out = out + " diagnostics=" + word_from_int(diagnostics)
-    out = out + " malformed=" + word_from_int(malformed)
-    out = out + " headers=" + word_from_int(saw_header)
-    out = out + " ends=" + word_from_int(saw_end)
+    -- Segments keep the report from re-copying one growing prefix per field.
+    pilot report_0 = "hir-snapshot-import" + " ok=" + word_from_int(import_ok) + " format=" + format + " lines=" + word_from_int(lines) + " files=" + word_from_int(files) + " items=" + word_from_int(items) + " alias-targets=" + word_from_int(alias_targets)
+    pilot report_1 = " declared-alias-targets=" + declared_alias_targets + " local-annotations=" + word_from_int(local_annotations) + " declared-local-annotations=" + declared_local_annotations + " task-returns=" + word_from_int(task_returns) + " declared-task-returns=" + declared_task_returns + " task-param-owners=" + word_from_int(task_param_owners)
+    pilot report_2 = " declared-task-param-owners=" + declared_task_param_owners + " task-params=" + word_from_int(task_params) + " declared-task-params=" + declared_task_params + " extern-return-owners=" + word_from_int(extern_return_owners) + " declared-extern-return-owners=" + declared_extern_return_owners + " extern-returns=" + word_from_int(extern_returns)
+    pilot report_3 = " declared-extern-returns=" + declared_extern_returns + " extern-params=" + word_from_int(extern_params) + " declared-extern-params=" + declared_extern_params + " method-owners=" + word_from_int(method_owners) + " declared-method-owners=" + declared_method_owners + " methods=" + word_from_int(methods)
+    pilot report_4 = " declared-methods=" + declared_methods + " diagnostics=" + word_from_int(diagnostics) + " malformed=" + word_from_int(malformed) + " headers=" + word_from_int(saw_header) + " ends=" + word_from_int(saw_end)
+    pilot out = report_0 + report_1 + report_2 + report_3 + report_4
     give back out
 }
 
@@ -3286,7 +3292,7 @@ task v4_hir_begin_snapshot_restore() -> void {
 }
 
 -- Restore is synchronous. Reserve the peak additional handle requirement
--- before touching live slots: forty-four per new high-water file plus four
+-- before touching live slots: forty-five per new high-water file plus four
 -- finalizer scratch arrays. Reused files free all children before replacing
 -- them. The line index remains held throughout preflight and restoration.
 task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
@@ -3299,7 +3305,7 @@ task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
     }
     pilot fresh = files - array_len(v4_hir_files)
     if fresh < 0 { fresh = 0 }
-    give back v4_hir_lookup_handles_available(fresh * 44 + 4)
+    give back v4_hir_lookup_handles_available(fresh * 45 + 4)
 }
 
 task v4_hir_lookup_handles_available(needed: int) -> bool {
@@ -3346,6 +3352,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     pilot original_file_len = v4_hir_file_len
     pilot original_extern_return_owner_values = v4_hir_extern_return_owner_values
     pilot original_extern_return_values = v4_hir_extern_return_values
+    pilot original_extern_param_values = v4_hir_extern_param_values
     pilot original_method_owner_values = v4_hir_method_owner_values
     pilot original_method_values = v4_hir_method_values
     pilot original_route_owner_values = v4_hir_route_owner_values
@@ -3401,6 +3408,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
         if admitted_cold {
             array_release(v4_hir_extern_return_owner_values)
             array_release(v4_hir_extern_return_values)
+            array_release(v4_hir_extern_param_values)
             array_release(v4_hir_method_owner_values)
             array_release(v4_hir_method_values)
             array_release(v4_hir_route_owner_values)
@@ -3448,6 +3456,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             array_release(v4_hir_diags)
             v4_hir_extern_return_owner_values = original_extern_return_owner_values
             v4_hir_extern_return_values = original_extern_return_values
+            v4_hir_extern_param_values = original_extern_param_values
             v4_hir_method_owner_values = original_method_owner_values
             v4_hir_method_values = original_method_values
             v4_hir_route_owner_values = original_route_owner_values
@@ -3518,7 +3527,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             pilot kind = v4_hir_snapshot_field_raw(line, 0)
             if kind == "hir" {
                 restored_files += v4_hir_snapshot_restore_file_line(line)
-            } else if kind != "hir-word-owner" and kind != "hir-word-literal" and kind != "hir-word-piece" and kind != "hir-word-path-part" and kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-task-param-owner" and kind != "hir-task-param" and kind != "hir-const-annotation" and kind != "hir-shape-owner" and kind != "hir-shape-field" and kind != "hir-route-owner" and kind != "hir-route-case" and kind != "hir-route-field" and kind != "hir-extern-return-owner" and kind != "hir-extern-return" and kind != "hir-method-owner" and kind != "hir-method" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
+            } else if kind != "hir-word-owner" and kind != "hir-word-literal" and kind != "hir-word-piece" and kind != "hir-word-path-part" and kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-task-param-owner" and kind != "hir-task-param" and kind != "hir-const-annotation" and kind != "hir-shape-owner" and kind != "hir-shape-field" and kind != "hir-route-owner" and kind != "hir-route-case" and kind != "hir-route-field" and kind != "hir-extern-return-owner" and kind != "hir-extern-return" and kind != "hir-extern-param" and kind != "hir-method-owner" and kind != "hir-method" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
@@ -5785,7 +5794,7 @@ task v4_hir_extern_return_total() -> int {
     pilot total = 0
     pilot hir = 0
     repeat until hir >= v4_hir_file_count() {
-        total += array_len(v4_hir_extern_return_values_handle(hir)) / 4
+        total += array_len(v4_hir_extern_return_values_handle(hir)) / 6
         hir += 1
     }
     give back total
@@ -5798,7 +5807,7 @@ task v4_hir_snapshot_extern_return_owner_line(hir: int, item: int) -> word {
 task v4_hir_snapshot_extern_return_line(hir: int, item: int, member: int) -> word {
     pilot out = "hir-extern-return|" + word_from_int(hir) + "|" + word_from_int(item) + "|" + word_from_int(member)
     pilot column = 0
-    repeat until column >= 4 {
+    repeat until column >= 5 {
         out = out + "|" + v4_hir_snapshot_escape(v4_hir_extern_return_value(hir, item, member, column))
         column += 1
     }
@@ -5812,6 +5821,12 @@ task v4_hir_snapshot_append_extern_returns(parts: int, hir: int, item: int) -> v
     repeat until member >= v4_hir_extern_member_count(hir, item) {
         array_push(parts, "\n")
         array_push(parts, v4_hir_snapshot_extern_return_line(hir, item, member))
+        pilot param = 0
+        repeat until param >= v4_hir_extern_member_param_count(hir, item, member) {
+            array_push(parts, "\n")
+            array_push(parts, v4_hir_snapshot_extern_param_line(hir, item, member, param))
+            param += 1
+        }
         member += 1
     }
 }
@@ -5825,6 +5840,8 @@ task v4_hir_snapshot_extern_return_record_is_valid(line: word) -> bool {
         idx += 1
     }
     if kind == "hir-extern-return-owner" { give back true }
+    if kind == "hir-extern-param" { give back v4_hir_snapshot_extern_param_record_is_valid(line) }
+    if not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 8)) { give back false }
     pilot surface = v4_hir_snapshot_field(line, 4)
     pilot type_span = v4_hir_snapshot_field(line, 5)
     pilot fallback = v4_hir_snapshot_field_raw(line, 6)
@@ -5838,9 +5855,10 @@ task v4_hir_snapshot_extern_return_record_is_valid(line: word) -> bool {
     give back true
 }
 
-task v4_hir_snapshot_extern_return_slots_are_valid(records: int, files: int, items: int, owners: int, members: int) -> bool {
+task v4_hir_snapshot_extern_return_slots_are_valid(records: int, files: int, items: int, owners: int, members: int, params: int) -> bool {
     -- No externs means no new scratch or word retention on existing scaling workloads.
     if owners == 0 and members == 0 {
+        if params != 0 { give back false }
         pilot idx = 0
         repeat until idx >= array_len(records) {
             pilot line: word = array_get(records, idx)
@@ -5854,7 +5872,10 @@ task v4_hir_snapshot_extern_return_slots_are_valid(records: int, files: int, ite
     pilot file_rows = array_new()
     pilot item_rows = array_new()
     pilot member_spans = array_new()
-    pilot valid: bool = file_rows >= 0 and item_rows >= 0 and member_spans >= 0
+    -- Member rows: declared parameter count, parameter offset.
+    pilot member_rows = array_new()
+    pilot param_seen = array_new()
+    pilot valid: bool = file_rows >= 0 and item_rows >= 0 and member_spans >= 0 and member_rows >= 0 and param_seen >= 0
     pilot idx = 0
     repeat until idx >= files * 3 or not valid {
         array_push(file_rows, "0")
@@ -5870,6 +5891,13 @@ task v4_hir_snapshot_extern_return_slots_are_valid(records: int, files: int, ite
     idx = 0
     repeat until idx >= members or not valid {
         array_push(member_spans, "")
+        array_push(member_rows, "0")
+        array_push(member_rows, "0")
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= params or not valid {
+        array_push(param_seen, "")
         idx += 1
     }
     idx = 0
@@ -5959,8 +5987,10 @@ task v4_hir_snapshot_extern_return_slots_are_valid(records: int, files: int, ite
                         pilot previous: word = array_get(member_spans, target)
                         pilot segment = v4_hir_snapshot_field(line, 7)
                         pilot parent_span: word = array_get(item_rows, slot)
-                        if previous != "" or not v4_hir_snapshot_span_is_contained(segment, parent_span) { valid = false } else {
+                        pilot param_count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 8), params + 1)
+                        if previous != "" or param_count < 0 or not v4_hir_snapshot_span_is_contained(segment, parent_span) { valid = false } else {
                             array_set(member_spans, target, segment)
+                            array_set(member_rows, target * 2, word_from_int(param_count))
                         }
                     }
                 }
@@ -5982,9 +6012,55 @@ task v4_hir_snapshot_extern_return_slots_are_valid(records: int, files: int, ite
         }
         idx += 1
     }
+    -- Parameters: offsets follow member order, each ordinal appears once and
+    -- every span stays inside its member.
+    pilot param_total = 0
+    idx = 0
+    repeat until idx >= members or not valid {
+        pilot count = word_to_int(array_get(member_rows, idx * 2))
+        if count > params - param_total { valid = false } else {
+            array_set(member_rows, idx * 2 + 1, word_from_int(param_total))
+            param_total += count
+        }
+        idx += 1
+    }
+    if param_total != params { valid = false }
+    idx = 0
+    repeat until idx >= array_len(records) or not valid {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-extern-param|") {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            pilot item = 0 - 1
+            if owner >= 0 { item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(file_rows, owner * 3 + 1))) }
+            if item < 0 { valid = false } else {
+                pilot slot = (word_to_int(array_get(file_rows, owner * 3 + 2)) + item) * 3
+                pilot member = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 3), word_to_int(array_get(item_rows, slot + 1)))
+                if member < 0 { valid = false } else {
+                    pilot target = word_to_int(array_get(item_rows, slot + 2)) + member
+                    pilot param = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), word_to_int(array_get(member_rows, target * 2)))
+                    if param < 0 { valid = false } else {
+                        pilot param_slot = word_to_int(array_get(member_rows, target * 2 + 1)) + param
+                        pilot previous: word = array_get(param_seen, param_slot)
+                        pilot member_span: word = array_get(member_spans, target)
+                        if previous != "" { valid = false } else { array_set(param_seen, param_slot, "1") }
+                        pilot column = 8
+                        pilot no_span = V4_NO_SPAN
+                        repeat until column > 12 or not valid {
+                            pilot span = v4_hir_snapshot_field(line, column)
+                            if span != no_span and not v4_hir_snapshot_span_is_contained(span, member_span) { valid = false }
+                            if column == 8 { column = 10 } else { column += 1 }
+                        }
+                    }
+                }
+            }
+        }
+        idx += 1
+    }
     array_release(file_rows)
     array_release(item_rows)
     array_release(member_spans)
+    array_release(member_rows)
+    array_release(param_seen)
     give back valid
 }
 
@@ -6007,8 +6083,321 @@ task v4_hir_restore_extern_return_records(records: int) -> void {
             pilot ordinal = word_to_int(v4_hir_snapshot_field_raw(line, 3))
             pilot start = word_to_int(array_get(v4_hir_extern_return_owner_values_handle(hir_id), item * 2))
             pilot column = 0
-            repeat until column >= 4 {
-                array_set(v4_hir_extern_return_values_handle(hir_id), (start + ordinal) * 4 + column, v4_hir_snapshot_field(line, column + 4))
+            repeat until column >= 5 {
+                array_set(v4_hir_extern_return_values_handle(hir_id), (start + ordinal) * 6 + column, v4_hir_snapshot_field(line, column + 4))
+                column += 1
+            }
+        }
+        idx += 1
+    }
+    v4_hir_restore_extern_param_records(records)
+}
+
+-- Extern member parameters (architecture lane A1). HIR splits each member's
+-- parameter list once, with the same permissive token rules TY used for
+-- non-ordinary signatures, so a recovered segment keeps its old sentinels:
+-- name "", mode value, no lifetime, unknown ("") type and no spans.
+task v4_hir_extern_param_values_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_extern_param_values, hir_id))
+}
+
+task v4_hir_extern_member_param_count(hir_id: int, item_id: int, member_id: int) -> int {
+    give back word_to_int(v4_hir_extern_return_value(hir_id, item_id, member_id, 4))
+}
+
+task v4_hir_extern_param_value(hir_id: int, item_id: int, member_id: int, param_id: int, column: int) -> word {
+    if param_id < 0 or param_id >= v4_hir_extern_member_param_count(hir_id, item_id, member_id) or column < 0 or column >= 8 {
+        if column == 1 { give back v4_hir_task_param_mode_value }
+        if column == 3 or column == 5 or column == 6 or column == 7 { give back V4_NO_SPAN }
+        give back ""
+    }
+    pilot start = word_to_int(v4_hir_extern_return_value(hir_id, item_id, member_id, 5))
+    give back array_get(v4_hir_extern_param_values_handle(hir_id), (start + param_id) * 8 + column)
+}
+
+task v4_hir_extern_param_name(hir_id: int, item_id: int, member_id: int, param_id: int) -> word {
+    give back v4_hir_extern_param_value(hir_id, item_id, member_id, param_id, 0)
+}
+
+task v4_hir_extern_param_mode(hir_id: int, item_id: int, member_id: int, param_id: int) -> word {
+    give back v4_hir_extern_param_value(hir_id, item_id, member_id, param_id, 1)
+}
+
+task v4_hir_extern_param_lifetime(hir_id: int, item_id: int, member_id: int, param_id: int) -> word {
+    give back v4_hir_extern_param_value(hir_id, item_id, member_id, param_id, 2)
+}
+
+task v4_hir_extern_param_lifetime_span(hir_id: int, item_id: int, member_id: int, param_id: int) -> word {
+    give back v4_hir_extern_param_value(hir_id, item_id, member_id, param_id, 3)
+}
+
+-- Empty means the declaration names no type; TY reports it as unknown.
+task v4_hir_extern_param_surface_type(hir_id: int, item_id: int, member_id: int, param_id: int) -> word {
+    give back v4_hir_extern_param_value(hir_id, item_id, member_id, param_id, 4)
+}
+
+task v4_hir_extern_param_type_span(hir_id: int, item_id: int, member_id: int, param_id: int) -> word {
+    give back v4_hir_extern_param_value(hir_id, item_id, member_id, param_id, 5)
+}
+
+task v4_hir_extern_param_segment_span(hir_id: int, item_id: int, member_id: int, param_id: int) -> word {
+    give back v4_hir_extern_param_value(hir_id, item_id, member_id, param_id, 6)
+}
+
+task v4_hir_extern_param_name_span(hir_id: int, item_id: int, member_id: int, param_id: int) -> word {
+    give back v4_hir_extern_param_value(hir_id, item_id, member_id, param_id, 7)
+}
+
+task v4_hir_extern_param_matching_paren(stream_id: int, open_token: int, end_token: int) -> int {
+    pilot idx = open_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
+            if val == "(" {
+                depth += 1
+            } else if val == ")" {
+                depth -= 1
+                if depth == 0 {
+                    give back idx
+                }
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_extern_param_count_from_tokens(stream_id: int, open_token: int, close_token: int) -> int {
+    if open_token < 0 or close_token <= open_token { give back 0 }
+    if v4_hir_method_skip_trivia(stream_id, open_token + 1) >= close_token { give back 0 }
+    pilot count = 1
+    pilot depth = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
+            if depth == 0 and val == "," {
+                count += 1
+            } else {
+                depth = v4_hir_task_param_depth_after_token(depth, val)
+            }
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_hir_extern_param_segment_start(stream_id: int, open_token: int, close_token: int, param_id: int) -> int {
+    if open_token < 0 or close_token <= open_token or param_id < 0 { give back 0 - 1 }
+    pilot current = 0
+    pilot segment_start = v4_hir_method_skip_trivia(stream_id, open_token + 1)
+    pilot depth = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
+            if depth == 0 and val == "," {
+                if current == param_id { give back segment_start }
+                current += 1
+                segment_start = v4_hir_method_skip_trivia(stream_id, idx + 1)
+            } else {
+                depth = v4_hir_task_param_depth_after_token(depth, val)
+            }
+        }
+        idx += 1
+    }
+    if current == param_id and segment_start < close_token { give back segment_start }
+    give back 0 - 1
+}
+
+task v4_hir_extern_param_segment_end(stream_id: int, start_token: int, close_token: int) -> int {
+    if start_token < 0 or close_token <= start_token { give back 0 - 1 }
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= close_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
+            if depth == 0 and val == "," { give back idx }
+            depth = v4_hir_task_param_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back close_token
+}
+
+task v4_hir_extern_param_lifetime_token(stream_id: int, start_token: int, end_token: int) -> int {
+    if start_token < 0 or end_token <= start_token { give back 0 - 1 }
+    pilot token_id = v4_hir_method_skip_trivia(stream_id, start_token)
+    if token_id >= end_token or v4_lex_token_syntax_value(stream_id, token_id) != "lend" { give back 0 - 1 }
+    token_id = v4_hir_method_skip_trivia(stream_id, token_id + 1)
+    if token_id < end_token and v4_lex_token_syntax_value(stream_id, token_id) == "mut" {
+        token_id = v4_hir_method_skip_trivia(stream_id, token_id + 1)
+    }
+    if token_id < end_token and v4_lex_token_type(stream_id, token_id) == v4_tok_lifetime { give back token_id }
+    give back 0 - 1
+}
+
+task v4_hir_extern_param_name_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    if start_token < 0 or end_token <= start_token { give back "" }
+    pilot first = v4_hir_method_skip_trivia(stream_id, start_token)
+    if first >= end_token { give back "" }
+    if v4_lex_token_syntax_value(stream_id, first) == "lend" {
+        first = v4_hir_method_skip_trivia(stream_id, first + 1)
+        if first < end_token and v4_lex_token_syntax_value(stream_id, first) == "mut" {
+            first = v4_hir_method_skip_trivia(stream_id, first + 1)
+        }
+        if first < end_token and v4_lex_token_type(stream_id, first) == v4_tok_lifetime {
+            first = v4_hir_method_skip_trivia(stream_id, first + 1)
+        }
+    }
+    if first >= end_token { give back "" }
+    pilot param_name = v4_lex_token_value(stream_id, first)
+    if param_name == ":" or param_name == "," or param_name == ")" { give back "" }
+    give back param_name
+}
+
+task v4_hir_extern_param_mode_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    if start_token < 0 or end_token <= start_token { give back v4_hir_task_param_mode_value }
+    pilot first = v4_hir_method_skip_trivia(stream_id, start_token)
+    if first >= end_token or v4_lex_token_syntax_value(stream_id, first) != "lend" { give back v4_hir_task_param_mode_value }
+    pilot after_lend = v4_hir_method_skip_trivia(stream_id, first + 1)
+    if after_lend < end_token and v4_lex_token_syntax_value(stream_id, after_lend) == "mut" { give back v4_hir_task_param_mode_lend_mut }
+    give back v4_hir_task_param_mode_lend
+}
+
+task v4_hir_extern_param_type_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    if start_token < 0 or end_token <= start_token { give back "" }
+    pilot colon_token = v4_hir_method_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 { give back "" }
+    give back v4_hir_shape_type_text(stream_id, v4_hir_method_skip_trivia(stream_id, colon_token + 1), end_token)
+}
+
+task v4_hir_extern_param_type_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    if start_token < 0 or end_token <= start_token { give back V4_NO_SPAN }
+    pilot colon_token = v4_hir_method_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 { give back v4_hir_span_from_tokens(stream_id, start_token, end_token) }
+    pilot type_start = v4_hir_method_skip_trivia(stream_id, colon_token + 1)
+    if type_start >= end_token { give back v4_hir_span_from_tokens(stream_id, start_token, end_token) }
+    give back v4_hir_span_from_tokens(stream_id, type_start, end_token)
+}
+
+task v4_hir_lower_extern_member_params(hir_id: int, stream: int, start: int, end: int) -> int {
+    pilot params = v4_hir_extern_param_values_handle(hir_id)
+    pilot open_token = v4_hir_method_find_token_value(stream, start, end, "(")
+    pilot close_token = 0 - 1
+    if open_token >= 0 { close_token = v4_hir_extern_param_matching_paren(stream, open_token, end) }
+    pilot count = v4_hir_extern_param_count_from_tokens(stream, open_token, close_token)
+    pilot param_id = 0
+    repeat until param_id >= count {
+        pilot segment_start = v4_hir_extern_param_segment_start(stream, open_token, close_token, param_id)
+        pilot segment_end = v4_hir_extern_param_segment_end(stream, segment_start, close_token)
+        pilot name = v4_hir_extern_param_name_from_tokens(stream, segment_start, segment_end)
+        pilot lifetime = ""
+        pilot lifetime_span = V4_NO_SPAN
+        pilot lifetime_token = v4_hir_extern_param_lifetime_token(stream, segment_start, segment_end)
+        if lifetime_token >= 0 {
+            lifetime = v4_lex_token_value(stream, lifetime_token)
+            lifetime_span = v4_hir_span_from_tokens(stream, lifetime_token, lifetime_token + 1)
+        }
+        pilot segment_span = V4_NO_SPAN
+        if segment_start >= 0 { segment_span = v4_hir_span_from_tokens(stream, segment_start, segment_end) }
+        pilot name_span = V4_NO_SPAN
+        pilot name_token = v4_hir_method_find_token_value(stream, segment_start, segment_end, name)
+        if segment_start >= 0 and name_token >= 0 and name_token < segment_end { name_span = v4_lex_token_span(stream, name_token) }
+        array_push(params, name)
+        array_push(params, v4_hir_extern_param_mode_from_tokens(stream, segment_start, segment_end))
+        array_push(params, lifetime)
+        array_push(params, lifetime_span)
+        array_push(params, v4_hir_extern_param_type_from_tokens(stream, segment_start, segment_end))
+        array_push(params, v4_hir_extern_param_type_span_from_tokens(stream, segment_start, segment_end))
+        array_push(params, segment_span)
+        array_push(params, name_span)
+        param_id += 1
+    }
+    give back count
+}
+
+task v4_hir_extern_param_total() -> int {
+    pilot total = 0
+    pilot hir = 0
+    repeat until hir >= v4_hir_file_count() {
+        total += array_len(v4_hir_extern_param_values_handle(hir)) / 8
+        hir += 1
+    }
+    give back total
+}
+
+task v4_hir_snapshot_extern_param_line(hir: int, item: int, member: int, param: int) -> word {
+    pilot out = "hir-extern-param|" + word_from_int(hir) + "|" + word_from_int(item) + "|" + word_from_int(member) + "|" + word_from_int(param)
+    pilot column = 0
+    repeat until column >= 8 {
+        out = out + "|" + v4_hir_snapshot_escape(v4_hir_extern_param_value(hir, item, member, param, column))
+        column += 1
+    }
+    give back out
+}
+
+task v4_hir_snapshot_extern_param_record_is_valid(line: word) -> bool {
+    if not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 4)) { give back false }
+    pilot no_span = V4_NO_SPAN
+    pilot mode = v4_hir_snapshot_field_raw(line, 6)
+    if mode != v4_hir_task_param_mode_value and mode != v4_hir_task_param_mode_lend and mode != v4_hir_task_param_mode_lend_mut { give back false }
+    pilot has_lifetime: bool = v4_hir_snapshot_field(line, 7) != ""
+    pilot lifetime_span = v4_hir_snapshot_field(line, 8)
+    if has_lifetime and lifetime_span == no_span { give back false }
+    if not has_lifetime and lifetime_span != no_span { give back false }
+    pilot column = 8
+    repeat until column > 12 {
+        pilot span = v4_hir_snapshot_field(line, column)
+        if span != no_span and not v4_hir_snapshot_span_is_canonical_nonempty(span) { give back false }
+        if column == 8 { column = 10 } else { column += 1 }
+    }
+    give back true
+}
+
+-- Member rows already hold each parameter count; starts follow member order.
+task v4_hir_restore_extern_param_records(records: int) -> void {
+    pilot total = 0
+    pilot hir = 0
+    repeat until hir >= v4_hir_file_count() {
+        pilot values = v4_hir_extern_return_values_handle(hir)
+        pilot params = v4_hir_extern_param_values_handle(hir)
+        pilot row = 0
+        repeat until row >= array_len(values) / 6 {
+            pilot count = word_to_int(array_get(values, row * 6 + 4))
+            total += count
+            array_set(values, row * 6 + 5, word_from_int(array_len(params) / 8))
+            pilot param = 0
+            repeat until param >= count {
+                array_push(params, "")
+                array_push(params, v4_hir_task_param_mode_value)
+                array_push(params, "")
+                array_push(params, V4_NO_SPAN)
+                array_push(params, "")
+                array_push(params, V4_NO_SPAN)
+                array_push(params, V4_NO_SPAN)
+                array_push(params, V4_NO_SPAN)
+                param += 1
+            }
+            row += 1
+        }
+        hir += 1
+    }
+    -- Skip the record pass when no member declares parameters (most snapshots).
+    pilot idx = 0
+    if total == 0 { idx = array_len(records) }
+    repeat until idx >= array_len(records) {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-extern-param|") {
+            pilot hir_id = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+            pilot item = word_to_int(v4_hir_snapshot_field_raw(line, 2))
+            pilot member = word_to_int(v4_hir_snapshot_field_raw(line, 3))
+            pilot param = word_to_int(v4_hir_snapshot_field_raw(line, 4))
+            pilot start = word_to_int(v4_hir_extern_return_value(hir_id, item, member, 5))
+            pilot column = 0
+            repeat until column >= 8 {
+                array_set(v4_hir_extern_param_values_handle(hir_id), (start + param) * 8 + column, v4_hir_snapshot_field(line, column + 5))
                 column += 1
             }
         }

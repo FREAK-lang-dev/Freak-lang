@@ -4979,6 +4979,17 @@ task v4_ty_signature_generic_count(ty_id: int, sig_id: int) -> int {
     give back v4_ty_param_count_from_tokens(stream_id, open_token, close_token)
 }
 
+-- Extern member parameters are HIR facts (architecture lane A1). The token
+-- fallbacks below remain only for recovered and non-task signatures.
+task v4_ty_signature_extern_param_member(ty_id: int, sig_id: int) -> int {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) or v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig { give back 0 - 1 }
+    pilot member_id = v4_ty_signature_extern_member_id(ty_id, sig_id)
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if member_id < 0 or hir_id < 0 or hir_item < 0 or member_id >= v4_hir_extern_member_count(hir_id, hir_item) { give back 0 - 1 }
+    give back member_id
+}
+
 task v4_ty_nonordinary_signature_param_count_fallback(ty_id: int, sig_id: int) -> int {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot open_token = v4_ty_nonordinary_signature_param_open_token_fallback(ty_id, sig_id)
@@ -4990,6 +5001,8 @@ task v4_ty_signature_param_count(ty_id: int, sig_id: int) -> int {
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_hir_task_param_count(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
     }
+    pilot extern_member = v4_ty_signature_extern_param_member(ty_id, sig_id)
+    if extern_member >= 0 { give back v4_hir_extern_member_param_count(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), extern_member) }
     give back v4_ty_nonordinary_signature_param_count_fallback(ty_id, sig_id)
 }
 
@@ -5534,6 +5547,8 @@ task v4_ty_signature_param_name(ty_id: int, sig_id: int, param_id: int) -> word 
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_hir_task_param_name(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
     }
+    pilot extern_member = v4_ty_signature_extern_param_member(ty_id, sig_id)
+    if extern_member >= 0 { give back v4_hir_extern_param_name(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), extern_member, param_id) }
     give back v4_ty_nonordinary_signature_param_name_fallback(ty_id, sig_id, param_id)
 }
 
@@ -5649,6 +5664,8 @@ task v4_ty_signature_param_mode(ty_id: int, sig_id: int, param_id: int) -> word 
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_hir_task_param_mode(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
     }
+    pilot extern_member = v4_ty_signature_extern_param_member(ty_id, sig_id)
+    if extern_member >= 0 { give back v4_hir_extern_param_mode(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), extern_member, param_id) }
     give back v4_ty_nonordinary_signature_param_mode_fallback(ty_id, sig_id, param_id)
 }
 
@@ -5663,6 +5680,8 @@ task v4_ty_signature_param_lifetime(ty_id: int, sig_id: int, param_id: int) -> w
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_hir_task_param_lifetime(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
     }
+    pilot extern_member = v4_ty_signature_extern_param_member(ty_id, sig_id)
+    if extern_member >= 0 { give back v4_hir_extern_param_lifetime(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), extern_member, param_id) }
     give back v4_ty_nonordinary_signature_param_lifetime_fallback(ty_id, sig_id, param_id)
 }
 
@@ -5681,6 +5700,8 @@ task v4_ty_signature_param_lifetime_span(ty_id: int, sig_id: int, param_id: int)
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_hir_task_param_lifetime_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
     }
+    pilot extern_member = v4_ty_signature_extern_param_member(ty_id, sig_id)
+    if extern_member >= 0 { give back v4_hir_extern_param_lifetime_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), extern_member, param_id) }
     give back v4_ty_nonordinary_signature_param_lifetime_span_fallback(ty_id, sig_id, param_id)
 }
 
@@ -5710,6 +5731,12 @@ task v4_ty_nonordinary_signature_param_surface_type_fallback(ty_id: int, sig_id:
 task v4_ty_signature_param_surface_type(ty_id: int, sig_id: int, param_id: int) -> word {
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_hir_task_param_surface_type(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
+    }
+    pilot extern_member = v4_ty_signature_extern_param_member(ty_id, sig_id)
+    if extern_member >= 0 {
+        pilot extern_surface = v4_hir_extern_param_surface_type(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), extern_member, param_id)
+        if extern_surface == "" { give back v4_ty_unknown }
+        give back extern_surface
     }
     give back v4_ty_nonordinary_signature_param_surface_type_fallback(ty_id, sig_id, param_id)
 }
@@ -5775,6 +5802,8 @@ task v4_ty_signature_param_type_span(ty_id: int, sig_id: int, param_id: int) -> 
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_hir_task_param_type_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
     }
+    pilot extern_member = v4_ty_signature_extern_param_member(ty_id, sig_id)
+    if extern_member >= 0 { give back v4_hir_extern_param_type_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), extern_member, param_id) }
     give back v4_ty_nonordinary_signature_param_type_span_fallback(ty_id, sig_id, param_id)
 }
 
@@ -5789,6 +5818,8 @@ task v4_ty_signature_param_segment_span(ty_id: int, sig_id: int, param_id: int) 
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_hir_task_param_segment_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
     }
+    pilot extern_member = v4_ty_signature_extern_param_member(ty_id, sig_id)
+    if extern_member >= 0 { give back v4_hir_extern_param_segment_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), extern_member, param_id) }
     give back v4_ty_nonordinary_signature_param_segment_span_fallback(ty_id, sig_id, param_id)
 }
 
@@ -5808,6 +5839,8 @@ task v4_ty_signature_param_name_span(ty_id: int, sig_id: int, param_id: int) -> 
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_hir_task_param_name_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
     }
+    pilot extern_member = v4_ty_signature_extern_param_member(ty_id, sig_id)
+    if extern_member >= 0 { give back v4_hir_extern_param_name_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), extern_member, param_id) }
     give back v4_ty_nonordinary_signature_param_name_span_fallback(ty_id, sig_id, param_id)
 }
 

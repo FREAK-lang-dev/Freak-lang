@@ -131,7 +131,7 @@ task v4_prerelease_boundary_run() -> void {
         if mode == "restore" {
             pilot snapshot = v4_hir_snapshot()
             v4_prerelease_boundary_assert(v4_hir_snapshot_restore(snapshot).starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_hir_const_binding_prefix(hir, 0) == prefix + " pilot", "authored HIR snapshot restores exactly")
-            pilot old = snapshot.replace("freak-hir-snapshot-v13", "freak-hir-snapshot-v11")
+            pilot old = snapshot.replace("freak-hir-snapshot-v14", "freak-hir-snapshot-v11")
             v4_prerelease_boundary_assert(v4_hir_snapshot_restore(old).starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == snapshot, "old format rejected atomically")
         }
     }
