@@ -1,0 +1,19 @@
+-- An `and` inside a list index operand would evaluate both sides eagerly,
+-- so it is refused until index operands are wired through control flow.
+-- expect: reject mir
+-- error: control flow inside an index operand is not yet supported
+
+task probe() -> bool {
+    say "probe ran"
+    give back true
+}
+
+task pick(b: bool) -> int {
+    if b { give back 1 }
+    give back 0
+}
+
+task main() -> int {
+    pilot xs: List<int> = [10, 20]
+    give back xs[pick(false and probe())]
+}

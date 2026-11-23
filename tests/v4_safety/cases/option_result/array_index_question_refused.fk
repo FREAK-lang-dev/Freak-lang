@@ -1,0 +1,18 @@
+-- `?` inside a fixed-array index operand is refused like the list form.
+-- expect: reject mir
+-- error: control flow inside an index operand is not yet supported
+
+task idx(s: int) -> maybe<int> {
+    if s == 1 { give back some(1) }
+    give back nobody
+}
+
+task first(s: int) -> maybe<int> {
+    pilot xs: [int; 2] = [10, 20]
+    pilot v = xs[idx(s)?]
+    give back some(v)
+}
+
+task main() -> int {
+    give back first(5) or else 7
+}
