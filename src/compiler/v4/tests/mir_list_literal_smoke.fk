@@ -81,3 +81,41 @@ pilot v4_mir_list_literal_bad_empty_mir = v4_mir_lower_ty(2, v4_mir_list_literal
 say "list-bad-empty-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_list_literal_bad_empty_mir))
 say "list-bad-empty-message=" + v4_diag_message(v4_mir_diag(v4_mir_list_literal_bad_empty_mir, 0))
 say "list-bad-empty-help=" + v4_diag_help(v4_mir_diag(v4_mir_list_literal_bad_empty_mir, 0))
+
+-- Element splitting tells comparisons from generic arguments: `<` after a
+-- value is a comparison; `result<int, bool>` keeps its comma.
+task v4_mir_list_literal_angles_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot a = 1\n"
+    src = src + "    pilot b = 2\n"
+    src = src + "    pilot cs: List<bool> = [1 < 2, false]\n"
+    src = src + "    pilot ds = [a < b, b > a]\n"
+    src = src + "    pilot fs = [|r: result<int, bool>| => 1, |r: result<int, bool>| => 2]\n"
+    src = src + "    give back cs.length() + ds.length() + fs.length()\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_list_literal_children_of(mir: int, body: int, name: word) -> word {
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir, body) {
+        if v4_mir_stmt_kind(mir, body, stmt) == v4_mir_stmt_local and v4_mir_stmt_lhs(mir, body, stmt) == name {
+            give back word_from_int(v4_mir_rvalue_aggregate_child_count(mir, body, v4_mir_stmt_rvalue(mir, body, stmt)))
+        }
+        stmt += 1
+    }
+    give back "missing"
+}
+
+pilot v4_mir_list_literal_angles_stream = v4_lex_text(3, v4_mir_list_literal_angles_source())
+pilot v4_mir_list_literal_angles_tree = v4_parse_stream(3, v4_mir_list_literal_angles_stream)
+pilot v4_mir_list_literal_angles_hir = v4_hir_lower_tree(3, v4_mir_list_literal_angles_tree)
+pilot v4_mir_list_literal_angles_resolve = v4_resolve_lower_hir(3, v4_mir_list_literal_angles_hir)
+pilot v4_mir_list_literal_angles_ty = v4_ty_lower_resolve(3, v4_mir_list_literal_angles_resolve)
+pilot v4_mir_list_literal_angles_mir = v4_mir_lower_ty(3, v4_mir_list_literal_angles_ty)
+pilot v4_mir_list_literal_angles_body = v4_mir_lookup_body(v4_mir_list_literal_angles_mir, v4_resolve_def_for_name(v4_mir_list_literal_angles_resolve, "main"))
+
+say "list-angles-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_list_literal_angles_mir))
+say "list-angles-compare-literal-elements=" + v4_mir_list_literal_children_of(v4_mir_list_literal_angles_mir, v4_mir_list_literal_angles_body, "cs")
+say "list-angles-compare-pair-elements=" + v4_mir_list_literal_children_of(v4_mir_list_literal_angles_mir, v4_mir_list_literal_angles_body, "ds")
+say "list-angles-generic-comma-elements=" + v4_mir_list_literal_children_of(v4_mir_list_literal_angles_mir, v4_mir_list_literal_angles_body, "fs")
