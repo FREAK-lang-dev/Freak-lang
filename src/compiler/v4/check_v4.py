@@ -17701,6 +17701,12 @@ NATIVE_GENERICS_SYMBOLS = (
     '@"Box<int>::twin"', '@"ignore<maybe<int>>"', '@"pass<int>"', '@"consume<int>"', '@"read_opt<int>"', '@"ignore<int>"', '@"discard<never>"',
     '@"Box<*mutnever>::tally_never"',
 )
+# examples/generics_lists_native.fk: lists through generic instances.
+NATIVE_GENERICS_LISTS_EXPECTED = ("6\na\n1\nkei\n", 6)
+NATIVE_GENERICS_LISTS_SYMBOLS = (
+    '@"count_of<int>"', '@"count_of<word>"', '@"first_or<word>"', '@"first_or<int>"', '@"pair_list<word>"',
+    '@"grow<int>"', '@"Tag<word>::twice"',
+)
 NATIVE_GENERICS_LAYOUTS = (
     '%"freak.shape.Box<int>"', '%"freak.shape.Box<word>"', '%"freak.shape.Box<Box<int>>"',
     '%"freak.shape.Pair<int,word>"', '%"freak.shape.Acc<word>"', '%"freak.route.Opt<int>"',
@@ -17774,6 +17780,15 @@ NATIVE_GENERICS_REJECTED = (
      "        give back m or else 0\n    }\n}\n"
      "task main() -> int {\n    pilot b: Box<word> = Box { value: \"w\", count: 6 }\n    give back b.tally()\n}\n",
      "scalar sum body requires an ordinary nongeneric task"),
+    # A list literal in an instance lowers against the substituted List<T>:
+    # mixed<word> checks its elements as words.
+    ("tier3_generic_list_element_drift", "task mixed<T>(x: T) -> List<T> {\n    pilot ys: List<T> = [x, 1]\n    give back ys\n}\n"
+     "task main() -> int {\n    pilot ws = mixed(\"a\")\n    give back ws.length()\n}\n",
+     "element 2 wants word but got int"),
+    # Lists inside other types stay refused for generic instances too.
+    ("tier3_generic_list_shape_field", "shape Bag<T> { items: List<T>, n: int }\n"
+     "task main() -> int {\n    pilot b: Bag<int> = Bag { items: [1, 2], n: 2 }\n    give back b.n\n}\n",
+     "native lists inside other types are not yet supported: List<int>"),
     ("tier3_generic_shared_carrier", "shape Box<T> { value: T }\n"
      "task main() -> int {\n    pilot b: Box<Shared<int>> = Box { value: Shared<int>::new(4) }\n    give back 0\n}\n",
      "native type not yet supported: Shared<int>"),
@@ -18188,6 +18203,7 @@ def check_v4_native_shapes() -> None:
         ("lend_route_words", "lend_route_words_native.fk", ("", 3)),
         ("lists", "lists_native.fk", NATIVE_LISTS_EXPECTED),
         ("generics", "generics_native.fk", NATIVE_GENERICS_EXPECTED),
+        ("generics_lists", "generics_lists_native.fk", NATIVE_GENERICS_LISTS_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -18283,6 +18299,14 @@ def check_v4_native_shapes() -> None:
                         raise RuntimeError(f"V4 ABI oracle accepted a wrong lend pointer attribute for {triple}")
             if stem == "generics":
                 check_native_generic_instances(module_text, triple)
+            if stem == "generics_lists":
+                defined = re.findall(r'^define [^@]*(@"[^"]+"|@[\w.]+)\(', module_text, re.MULTILINE)
+                for symbol in NATIVE_GENERICS_LISTS_SYMBOLS:
+                    if defined.count(symbol) != 1:
+                        raise RuntimeError(f"V4 generic lists module for {triple} defines {symbol} {defined.count(symbol)} times")
+                for template in ("@count_of", "@first_or", "@pair_list", "@grow", '@"Tag<T>::twice"'):
+                    if template in defined:
+                        raise RuntimeError(f"V4 generic lists module for {triple} emitted the template {template}")
             if "; freak.payload " in module_text:
                 stripped = re.sub(r"^; freak\.payload .*\n", "", module_text, flags=re.MULTILINE)
                 try:
