@@ -1,0 +1,20 @@
+-- `and`/`or` inside tuple elements short-circuit, whether the tuple stands
+-- alone, sits in a list literal or is a call argument.
+-- expect: run
+-- stdout: done
+-- exit: 21
+
+task probe() -> bool {
+    say "probe ran"
+    give back true
+}
+
+task second(p: (bool, int)) -> int { give back p.1 }
+
+task main() -> int {
+    pilot t = (false and probe(), 7)
+    pilot xs = [(true or probe(), 7)]
+    pilot n = second((false and probe(), 7))
+    say "done"
+    give back t.1 + xs.length() * 7 + n
+}
