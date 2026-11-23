@@ -5863,3 +5863,49 @@ int64_t freak_v3_live_words(void) { return freak_v3_words_live; }
 #include "freak_v35_fs.inc"
 #include "freak_v35_json.inc"
 #include "freak_v35_http.inc"
+
+/* ------------------------------------------------------------------ */
+/* IRBuilder bridge stubs (freak_ib2_*)                               */
+/*                                                                    */
+/* The V3.5 LLVM emitter can lower straight into an in-process LLVM   */
+/* module through src/compiler/v3/llvm_builder/ib_bridge.c. Builds    */
+/* that link the real bridge define FREAK_IB2_LINKED; every other     */
+/* build of the compiler sources links these stubs, reports the       */
+/* builder as unavailable and keeps the textual .ll path.             */
+/* ------------------------------------------------------------------ */
+#ifndef FREAK_IB2_LINKED
+int64_t freak_ib2_available(void) { return 0; }
+int64_t freak_ib2_open(freak_word m, freak_word f, freak_word d) { (void)m; (void)f; (void)d; return 0; }
+freak_word freak_ib2_error(void) { return freak_word_lit("this freak was built without the LLVM IRBuilder"); }
+int64_t freak_ib2_close(void) { return 0; }
+int64_t freak_ib2_finish(freak_word o, int64_t k, freak_word t, int64_t opt) { (void)o; (void)k; (void)t; (void)opt; return 0; }
+int64_t freak_ib2_declare(freak_word n, int64_t v, int64_t p) { (void)n; (void)v; (void)p; return 0; }
+int64_t freak_ib2_declare_support(int64_t k) { (void)k; return 0; }
+int64_t freak_ib2_global(freak_word n) { (void)n; return 0; }
+int64_t freak_ib2_string(freak_word n, freak_word t) { (void)n; (void)t; return 0; }
+int64_t freak_ib2_begin_function(freak_word s, int64_t r, int64_t p, freak_word d, int64_t l) { (void)s; (void)r; (void)p; (void)d; (void)l; return 0; }
+int64_t freak_ib2_end_function(void) { return 0; }
+int64_t freak_ib2_label(freak_word n) { (void)n; return 0; }
+int64_t freak_ib2_set_line(int64_t l) { (void)l; return 0; }
+int64_t freak_ib2_call(freak_word r, freak_word c, freak_word a, int64_t v) { (void)r; (void)c; (void)a; (void)v; return 0; }
+int64_t freak_ib2_load(freak_word r, freak_word p) { (void)r; (void)p; return 0; }
+int64_t freak_ib2_store(freak_word v, freak_word p) { (void)v; (void)p; return 0; }
+int64_t freak_ib2_alloca(freak_word r) { (void)r; return 0; }
+int64_t freak_ib2_int(freak_word r, freak_word o, freak_word a, freak_word b) { (void)r; (void)o; (void)a; (void)b; return 0; }
+int64_t freak_ib2_icmp(freak_word r, freak_word o, freak_word a, freak_word b) { (void)r; (void)o; (void)a; (void)b; return 0; }
+int64_t freak_ib2_fcmp(freak_word r, freak_word o, freak_word a, freak_word b) { (void)r; (void)o; (void)a; (void)b; return 0; }
+int64_t freak_ib2_float(freak_word r, freak_word o, freak_word a, freak_word b) { (void)r; (void)o; (void)a; (void)b; return 0; }
+int64_t freak_ib2_cast(freak_word r, freak_word k, freak_word v) { (void)r; (void)k; (void)v; return 0; }
+int64_t freak_ib2_and1(freak_word r, freak_word a, freak_word b) { (void)r; (void)a; (void)b; return 0; }
+int64_t freak_ib2_string_pointer(freak_word r, freak_word g) { (void)r; (void)g; return 0; }
+int64_t freak_ib2_br(freak_word l) { (void)l; return 0; }
+int64_t freak_ib2_cond_br(freak_word c, freak_word t, freak_word e, int64_t cold) { (void)c; (void)t; (void)e; (void)cold; return 0; }
+int64_t freak_ib2_phi2(freak_word r, freak_word a, freak_word ab, freak_word b, freak_word bb) { (void)r; (void)a; (void)ab; (void)b; (void)bb; return 0; }
+int64_t freak_ib2_overflow(freak_word r, freak_word o, freak_word a, freak_word b) { (void)r; (void)o; (void)a; (void)b; return 0; }
+int64_t freak_ib2_extract(freak_word r, freak_word p, int64_t i) { (void)r; (void)p; (void)i; return 0; }
+int64_t freak_ib2_ret(freak_word v) { (void)v; return 0; }
+int64_t freak_ib2_ret_void(void) { return 0; }
+int64_t freak_ib2_ret_i32(freak_word v) { (void)v; return 0; }
+int64_t freak_ib2_unreachable(void) { return 0; }
+int64_t freak_ib2_integer_failure(freak_word e) { (void)e; return 0; }
+#endif

@@ -13,11 +13,348 @@ pilot llvm_current_return_semantic_type = "v"
 pilot llvm_integer_failure_reasons = ""
 pilot llvm_integer_failure_operations = ""
 
+-- ===================== IR SINKS =======================================
+-- One lowering drives two sinks. The text sink writes the historical .ll
+-- module byte for byte. The builder sink hands every instruction to LLVM's
+-- IRBuilder through the C bridge in llvm_builder/ib_bridge.c, which keeps
+-- the module in memory and emits an object (or bitcode/text on request).
+-- Operands are the same names the text sink prints: "%t3", "%binding.local.7",
+-- "@g_x", "@.str.2", integer or float literals. The bridge resolves them in a
+-- per-function value table, so no textual IR is ever parsed.
+
+pilot llvm_builder_active = false
+pilot llvm_builder_fallback = false
+pilot llvm_integer_failure_edges = ""
+
+extern task freak_ib2_available() -> int
+extern task freak_ib2_open(module_name: word, source_file: word, source_dir: word) -> int
+extern task freak_ib2_error() -> word
+extern task freak_ib2_close() -> int
+extern task freak_ib2_finish(output: word, kind: int, triple: word, optimization: int) -> int
+extern task freak_ib2_declare(name: word, returns_void: int, parameters: int) -> int
+extern task freak_ib2_declare_support(kind: int) -> int
+extern task freak_ib2_global(name: word) -> int
+extern task freak_ib2_string(name: word, text: word) -> int
+extern task freak_ib2_begin_function(symbol: word, returns: int, parameters: int, debug_name: word, line: int) -> int
+extern task freak_ib2_end_function() -> int
+extern task freak_ib2_label(name: word) -> int
+extern task freak_ib2_set_line(line: int) -> int
+extern task freak_ib2_call(dest: word, callee: word, arguments: word, returns_void: int) -> int
+extern task freak_ib2_load(dest: word, pointer: word) -> int
+extern task freak_ib2_store(value: word, pointer: word) -> int
+extern task freak_ib2_alloca(dest: word) -> int
+extern task freak_ib2_int(dest: word, operation: word, left: word, right: word) -> int
+extern task freak_ib2_icmp(dest: word, predicate: word, left: word, right: word) -> int
+extern task freak_ib2_fcmp(dest: word, predicate: word, left: word, right: word) -> int
+extern task freak_ib2_float(dest: word, operation: word, left: word, right: word) -> int
+extern task freak_ib2_cast(dest: word, kind: word, value: word) -> int
+extern task freak_ib2_and1(dest: word, left: word, right: word) -> int
+extern task freak_ib2_string_pointer(dest: word, global_name: word) -> int
+extern task freak_ib2_br(label: word) -> int
+extern task freak_ib2_cond_br(condition: word, then_label: word, else_label: word, cold: int) -> int
+extern task freak_ib2_phi2(dest: word, first: word, first_block: word, second: word, second_block: word) -> int
+extern task freak_ib2_overflow(dest: word, operation: word, left: word, right: word) -> int
+extern task freak_ib2_extract(dest: word, pair: word, index: int) -> int
+extern task freak_ib2_ret(value: word) -> int
+extern task freak_ib2_ret_void() -> int
+extern task freak_ib2_ret_i32(value: word) -> int
+extern task freak_ib2_unreachable() -> int
+extern task freak_ib2_integer_failure(edges: word) -> int
+
 task llvm_emit(s: word) -> void {
+    if llvm_builder_active {
+        if s != "" { llvm_builder_fallback = true }
+        give back
+    }
     fs::append(out_file, s)
 }
 
+-- Text-sink argument list: "a|b|" -> "i64 a, i64 b"
+task ir_args_text(arguments: word) -> word {
+    pilot text = ""
+    pilot current = ""
+    pilot i = 0
+    repeat until i >= arguments.length() {
+        pilot ch = arguments.char_at(i)
+        if ch == "|" {
+            if text != "" { text = text + ", " }
+            text = text + "i64 " + current
+            current = ""
+        } else { current = current + ch }
+        i += 1
+    }
+    give back text
+}
+
+task ir_call(dest: word, callee: word, arguments: word) -> void {
+    if llvm_builder_active { freak_ib2_call(dest, callee, arguments, 0) give back }
+    llvm_emit_line("    " + dest + " = call i64 " + callee + "(" + ir_args_text(arguments) + ")")
+}
+
+task ir_call_void(callee: word, arguments: word) -> void {
+    if llvm_builder_active { freak_ib2_call("", callee, arguments, 1) give back }
+    llvm_emit_line("    call void " + callee + "(" + ir_args_text(arguments) + ")")
+}
+
+task ir_load(dest: word, pointer: word) -> void {
+    if llvm_builder_active { freak_ib2_load(dest, pointer) give back }
+    llvm_emit_line("    " + dest + " = load i64, i64* " + pointer)
+}
+
+task ir_store(value: word, pointer: word) -> void {
+    if llvm_builder_active { freak_ib2_store(value, pointer) give back }
+    llvm_emit_line("    store i64 " + value + ", i64* " + pointer)
+}
+
+task ir_alloca(dest: word) -> void {
+    if llvm_builder_active { freak_ib2_alloca(dest) give back }
+    llvm_emit_line("    " + dest + " = alloca i64")
+}
+
+task ir_int(dest: word, operation: word, left: word, right: word) -> void {
+    if llvm_builder_active { freak_ib2_int(dest, operation, left, right) give back }
+    llvm_emit_line("    " + dest + " = " + operation + " i64 " + left + ", " + right)
+}
+
+task ir_icmp(dest: word, predicate: word, left: word, right: word) -> void {
+    if llvm_builder_active { freak_ib2_icmp(dest, predicate, left, right) give back }
+    llvm_emit_line("    " + dest + " = icmp " + predicate + " i64 " + left + ", " + right)
+}
+
+task ir_fcmp(dest: word, predicate: word, left: word, right: word) -> void {
+    if llvm_builder_active { freak_ib2_fcmp(dest, predicate, left, right) give back }
+    llvm_emit_line("    " + dest + " = fcmp " + predicate + " double " + left + ", " + right)
+}
+
+task ir_float(dest: word, operation: word, left: word, right: word) -> void {
+    if llvm_builder_active { freak_ib2_float(dest, operation, left, right) give back }
+    llvm_emit_line("    " + dest + " = " + operation + " double " + left + ", " + right)
+}
+
+task ir_zext(dest: word, value: word) -> void {
+    if llvm_builder_active { freak_ib2_cast(dest, "zext1", value) give back }
+    llvm_emit_line("    " + dest + " = zext i1 " + value + " to i64")
+}
+
+task ir_and1(dest: word, left: word, right: word) -> void {
+    if llvm_builder_active { freak_ib2_and1(dest, left, right) give back }
+    llvm_emit_line("    " + dest + " = and i1 " + left + ", " + right)
+}
+
+task ir_i64_to_double(dest: word, value: word) -> void {
+    if llvm_builder_active { freak_ib2_cast(dest, "i2d", value) give back }
+    llvm_emit_line("    " + dest + " = bitcast i64 " + value + " to double")
+}
+
+task ir_double_to_i64(dest: word, value: word) -> void {
+    if llvm_builder_active { freak_ib2_cast(dest, "d2i", value) give back }
+    llvm_emit_line("    " + dest + " = bitcast double " + value + " to i64")
+}
+
+task ir_sitofp(dest: word, value: word) -> void {
+    if llvm_builder_active { freak_ib2_cast(dest, "sitofp", value) give back }
+    llvm_emit_line("    " + dest + " = sitofp i64 " + value + " to double")
+}
+
+task ir_ptrtoint(dest: word, value: word) -> void {
+    if llvm_builder_active { freak_ib2_cast(dest, "ptrtoint", value) give back }
+    llvm_emit_line("    " + dest + " = ptrtoint i8* " + value + " to i64")
+}
+
+task ir_string_pointer(dest: word, length: word, global_name: word) -> void {
+    if llvm_builder_active { freak_ib2_string_pointer(dest, global_name) give back }
+    llvm_emit_line("    " + dest + " = getelementptr inbounds [" + length + " x i8], [" + length + " x i8]* " + global_name + ", i64 0, i64 0")
+}
+
+task ir_br(label: word) -> void {
+    if llvm_builder_active { freak_ib2_br(label) give back }
+    llvm_emit_line("    br label %" + label)
+}
+
+task ir_cond_br(condition: word, then_label: word, else_label: word) -> void {
+    if llvm_builder_active { freak_ib2_cond_br(condition, then_label, else_label, 0) give back }
+    llvm_emit_line("    br i1 " + condition + ", label %" + then_label + ", label %" + else_label)
+}
+
+-- A branch whose true edge is a cold failure path.
+task ir_cond_br_cold(condition: word, then_label: word, else_label: word) -> void {
+    if llvm_builder_active { freak_ib2_cond_br(condition, then_label, else_label, 1) give back }
+    llvm_emit_line("    br i1 " + condition + ", label %" + then_label + ", label %" + else_label + ", !prof !\{!\"branch_weights\", i32 1, i32 1048575\}")
+}
+
+task ir_label(name: word) -> void {
+    if llvm_builder_active { freak_ib2_label(name) give back }
+    llvm_emit_line(name + ":")
+}
+
+task ir_phi2(dest: word, first: word, first_block: word, second: word, second_block: word) -> void {
+    if llvm_builder_active { freak_ib2_phi2(dest, first, first_block, second, second_block) give back }
+    llvm_emit_line("    " + dest + " = phi i64 [ " + first + ", %" + first_block + " ], [ " + second + ", %" + second_block + " ]")
+}
+
+task ir_overflow(dest: word, operation: word, left: word, right: word) -> void {
+    if llvm_builder_active { freak_ib2_overflow(dest, operation, left, right) give back }
+    llvm_emit_line("    " + dest + " = call \{i64, i1\} @llvm.s" + operation + ".with.overflow.i64(i64 " + left + ", i64 " + right + ")")
+}
+
+task ir_extract(dest: word, pair: word, index: int) -> void {
+    if llvm_builder_active { freak_ib2_extract(dest, pair, index) give back }
+    llvm_emit_line("    " + dest + " = extractvalue \{i64, i1\} " + pair + ", " + word_from_int(index))
+}
+
+task ir_ret(value: word) -> void {
+    if llvm_builder_active { freak_ib2_ret(value) give back }
+    llvm_emit_line("    ret i64 " + value)
+}
+
+task ir_ret_void() -> void {
+    if llvm_builder_active { freak_ib2_ret_void() give back }
+    llvm_emit_line("    ret void")
+}
+
+task ir_unreachable() -> void {
+    if llvm_builder_active { freak_ib2_unreachable() give back }
+    llvm_emit_line("    unreachable")
+}
+
+task ir_comment(text: word) -> void {
+    if llvm_builder_active { give back }
+    llvm_emit_line("    ; " + text)
+}
+
+task ir_declare(return_type: word, symbol: word, parameters: int) -> void {
+    if llvm_builder_active {
+        pilot returns_void = 0
+        if return_type == "void" { returns_void = 1 }
+        freak_ib2_declare(symbol, returns_void, parameters)
+        give back
+    }
+    pilot text = ""
+    pilot index = 0
+    repeat parameters times {
+        if index > 0 { text = text + ", " }
+        text = text + "i64"
+        index += 1
+    }
+    llvm_emit_line("declare " + return_type + " " + symbol + "(" + text + ")")
+}
+
+task ir_global(name: word) -> void {
+    if llvm_builder_active { freak_ib2_global("g_" + name) give back }
+    llvm_emit_line("@g_" + name + " = global i64 0")
+}
+
+-- returns: "void", "i64"
+task ir_begin_function(return_type: word, symbol: word, parameters: int, debug_name: word, line_no: int) -> void {
+    pilot parameter_text = ""
+    pilot index = 0
+    repeat parameters times {
+        if index > 0 { parameter_text = parameter_text + ", " }
+        parameter_text = parameter_text + "i64 %parameter.input." + word_from_int(index)
+        index += 1
+    }
+    pilot debug_attribute = llvm_dbg_begin_func(debug_name, line_no)
+    if llvm_builder_active {
+        pilot returns = 1
+        if return_type == "void" { returns = 0 }
+        if line_no <= 0 { line_no = 1 }
+        freak_ib2_begin_function(symbol, returns, parameters, debug_name, line_no)
+        give back
+    }
+    llvm_emit_line("define " + return_type + " " + symbol + "(" + parameter_text + ")" + debug_attribute + " \{")
+}
+
+task ir_begin_c_main() -> void {
+    pilot debug_attribute = llvm_dbg_begin_func("main", 1)
+    if llvm_builder_active { freak_ib2_begin_function("main", 2, 2, "main", 1) give back }
+    llvm_emit_line("define i32 @main(i32 %argc, i8** %argv)" + debug_attribute + " \{")
+}
+
+task ir_c_main_arguments() -> void {
+    if llvm_builder_active { freak_ib2_cast("%argc_ext", "sext32", "%argc") freak_ib2_cast("%argv_ptr", "ptrtoint", "%argv") give back }
+    llvm_emit_line("    %argc_ext = sext i32 %argc to i64")
+    llvm_emit_line("    %argv_ptr = ptrtoint i8** %argv to i64")
+}
+
+task ir_ret_i32(dest: word, value: word) -> void {
+    if llvm_builder_active { freak_ib2_ret_i32(value) give back }
+    if value == "" {
+        llvm_emit_line("    ret i32 0")
+        give back
+    }
+    llvm_emit_line("    " + dest + " = trunc i64 " + value + " to i32")
+    llvm_emit_line("    ret i32 " + dest)
+}
+
+task ir_end_function() -> void {
+    if llvm_builder_active { freak_ib2_end_function() give back }
+    llvm_emit_line("\}")
+}
+
+task ir_set_line(line_no: int) -> void {
+    if llvm_builder_active { freak_ib2_set_line(line_no) }
+}
+
+task ir_string_literal(name: word, value: word, declaration: word) -> void {
+    if llvm_builder_active { freak_ib2_string(name, value) give back }
+    string_literals = string_literals + declaration
+}
+
+task ir_declare_integer_support() -> void {
+    if llvm_builder_active { freak_ib2_declare_support(1) give back }
+    llvm_emit_line("declare void @__freak_int_fail(i8*, i8*) cold noreturn")
+    llvm_emit_line("declare \{i64, i1\} @llvm.sadd.with.overflow.i64(i64, i64)")
+    llvm_emit_line("declare \{i64, i1\} @llvm.ssub.with.overflow.i64(i64, i64)")
+    llvm_emit_line("declare \{i64, i1\} @llvm.smul.with.overflow.i64(i64, i64)")
+    llvm_emit_line("@__freak_int_overflow = private unnamed_addr constant [9 x i8] c\"overflow\\00\"")
+    llvm_emit_line("@__freak_int_division_by_zero = private unnamed_addr constant [17 x i8] c\"division by zero\\00\"")
+    llvm_emit_line("@__freak_int_addition = private unnamed_addr constant [9 x i8] c\"addition\\00\"")
+    llvm_emit_line("@__freak_int_subtraction = private unnamed_addr constant [12 x i8] c\"subtraction\\00\"")
+    llvm_emit_line("@__freak_int_multiplication = private unnamed_addr constant [15 x i8] c\"multiplication\\00\"")
+    llvm_emit_line("@__freak_int_division = private unnamed_addr constant [9 x i8] c\"division\\00\"")
+    llvm_emit_line("@__freak_int_remainder = private unnamed_addr constant [10 x i8] c\"remainder\\00\"")
+    llvm_emit_line("@__freak_int_negation = private unnamed_addr constant [9 x i8] c\"negation\\00\"")
+}
+
+task ir_declare_libc() -> void {
+    if llvm_builder_active { freak_ib2_declare_support(2) give back }
+    llvm_emit_line("declare i32 @puts(i8*)")
+    llvm_emit_line("declare i32 @printf(i8*, ...)")
+    llvm_emit_line("declare i64 @strlen(i8*)")
+}
+
+task ir_result_drop_helper() -> void {
+    if llvm_builder_active { freak_ib2_declare_support(3) give back }
+    llvm_emit_line("define internal void @__freak_drop_result(i64 %ticket) \{")
+    llvm_emit_line("entry:")
+    llvm_emit_line("    %live = icmp ne i64 %ticket, 0")
+    llvm_emit_line("    br i1 %live, label %release, label %done")
+    llvm_emit_line("release:")
+    llvm_emit_line("    call void @freak_llvm_fs_result_release(i64 %ticket)")
+    llvm_emit_line("    br label %done")
+    llvm_emit_line("done:")
+    llvm_emit_line("    ret void")
+    llvm_emit_line("\}")
+}
+
+task ir_integer_failure_block() -> void {
+    if llvm_integer_failure_reasons == "" { give back }
+    if llvm_builder_active { freak_ib2_integer_failure(llvm_integer_failure_edges) give back }
+    llvm_emit_line("integer.fail:")
+    llvm_emit_line("    %integer.reason = phi i8* " + llvm_integer_failure_reasons)
+    llvm_emit_line("    %integer.operation = phi i8* " + llvm_integer_failure_operations)
+    llvm_emit_line("    call void @__freak_int_fail(i8* %integer.reason, i8* %integer.operation)")
+    llvm_emit_line("    unreachable")
+}
+
+-- In builder mode every instruction goes through an ir_* sink. A raw line
+-- reaching this point means some lowering has no builder form yet, so the
+-- module is marked and the CLI re-emits it through the text path instead.
 task llvm_emit_line(s: word) -> void {
+    if llvm_builder_active {
+        if s != "" and not s.starts_with(";") and not s.starts_with("    ;") { llvm_builder_fallback = true }
+        give back
+    }
     pilot out = s
     if llvm_dbg_current_scope_id > 0 and llvm_dbg_current_line > 0 {
         if s.starts_with("    ") and not s.starts_with("    ;") {
@@ -150,11 +487,13 @@ task llvm_dbg_set_stmt_line(eid: word) -> void {
         if line_no <= 0 { line_no = 1 }
     }
     llvm_dbg_current_line = line_no
+    ir_set_line(line_no)
 }
 
 task llvm_dbg_begin_func(name: word, line_no: int) -> word {
     llvm_integer_failure_reasons = ""
     llvm_integer_failure_operations = ""
+    llvm_integer_failure_edges = ""
     -- LB10 minimal: emit a DISubprogram for this function, set the
     -- current scope so llvm_emit_line attaches `!dbg !N` to every
     -- instruction, and return the function-level attribute that
@@ -194,7 +533,7 @@ task register_string_literal(val: word) -> word {
     pilot null_term_len = llvm_string_byte_len(real_val) + 1
     pilot escaped = llvm_escape_str(real_val)
     pilot decl = id + " = private unnamed_addr constant [" + word_from_int(null_term_len) + " x i8] c\"" + escaped + "\\00\", align 1\n"
-    string_literals = string_literals + decl
+    ir_string_literal(id, real_val, decl)
     give back id
 }
 
@@ -579,13 +918,13 @@ task llvm_infer_call_type(val: word) -> word {
 
 task llvm_i64_to_double(i64_reg: word) -> word {
     pilot dbl = next_reg()
-    llvm_emit_line("    " + dbl + " = bitcast i64 " + i64_reg + " to double")
+    ir_i64_to_double(dbl, i64_reg)
     give back dbl
 }
 
 task llvm_double_to_i64(dbl_reg: word) -> word {
     pilot i64r = next_reg()
-    llvm_emit_line("    " + i64r + " = bitcast double " + dbl_reg + " to i64")
+    ir_double_to_i64(i64r, dbl_reg)
     give back i64r
 }
 
@@ -594,7 +933,7 @@ task llvm_numeric_to_double(i64_reg: word, expr_id: word) -> word {
         give back llvm_i64_to_double(i64_reg)
     }
     pilot dbl = next_reg()
-    llvm_emit_line("    " + dbl + " = sitofp i64 " + i64_reg + " to double")
+    ir_sitofp(dbl, i64_reg)
     give back dbl
 }
 
@@ -602,7 +941,7 @@ task llvm_coerce_num_bits(i64_reg: word, expr_id: word) -> word {
     if llvm_infer_expr_type(expr_id).starts_with("n") { give back i64_reg }
     if not llvm_infer_expr_type(expr_id).starts_with("i") { give back i64_reg }
     pilot dbl = next_reg()
-    llvm_emit_line("    " + dbl + " = sitofp i64 " + i64_reg + " to double")
+    ir_sitofp(dbl, i64_reg)
     give back llvm_double_to_i64(dbl)
 }
 
@@ -610,7 +949,7 @@ task llvm_emit_num_compound_bits(current_bits: word, rhs_reg: word, rhs_expr: wo
     pilot current_double = llvm_i64_to_double(current_bits)
     pilot rhs_double = llvm_numeric_to_double(rhs_reg, rhs_expr)
     pilot combined = next_reg()
-    llvm_emit_line("    " + combined + " = " + float_op + " double " + current_double + ", " + rhs_double)
+    ir_float(combined, float_op, current_double, rhs_double)
     give back llvm_double_to_i64(combined)
 }
 
@@ -840,21 +1179,21 @@ task llvm_v3_retain(reg: word, vtype: word) -> word {
     pilot array_result = next_reg()
     pilot helper = "freak_v3_shape_retain"
     if vtype.starts_with("a:") { helper = "freak_v3_array_retain" }
-    llvm_emit_line("    " + array_result + " = call i64 @" + helper + "(i64 " + reg + ")")
+    ir_call(array_result, "@" + helper, reg + "|")
     give back array_result
 }
 
 task llvm_v3_release(reg: word, vtype: word) -> void {
-    if vtype == "r" { llvm_emit_line("    call void @__freak_drop_result(i64 " + reg + ")") give back }
+    if vtype == "r" { ir_call_void("@__freak_drop_result", reg + "|") give back }
     pilot helper = "freak_v3_shape_release"
     if vtype.starts_with("a:") { helper = "freak_v3_array_release" }
-    llvm_emit_line("    call void @" + helper + "(i64 " + reg + ")")
+    ir_call_void("@" + helper, reg + "|")
 }
 
 task llvm_v3_cleanup_temp(expr_id: word, reg: word) -> void {
     if llvm_v3_temporary(expr_id) { llvm_v3_release(reg, llvm_infer_expr_type(expr_id)) }
     if llvm_word_expr_is_owned_temporary(expr_id) {
-        llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + reg + ", i64 0)")
+        ir_call_void("@freak_llvm_word_release_replaced", reg + "|" + "0" + "|")
     }
 }
 
@@ -862,7 +1201,7 @@ task llvm_v3_preserve_element(reg: word, vtype: word) -> word {
     if llvm_v3_owned_type(vtype) { give back llvm_v3_retain(reg, vtype) }
     if vtype == "w" {
         pilot cloned = next_reg()
-        llvm_emit_line("    " + cloned + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
+        ir_call(cloned, "@freak_llvm_word_clone", reg + "|")
         give back cloned
     }
     give back reg
@@ -914,11 +1253,10 @@ task llvm_emit_args(args: word, clone_borrowed_words: bool, param_types: word, p
             }
             if clone_borrowed_words and llvm_word_expr_needs_clone(cur_id) {
                 pilot clone_reg = next_reg()
-                llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
+                ir_call(clone_reg, "@freak_llvm_word_clone", reg + "|")
                 reg = clone_reg
             }
-            if not first { res = res + ", " }
-            res = res + "i64 " + reg
+            res = res + reg + "|"
             cur_id = ""
             first = false
             arg_index += 1
@@ -936,11 +1274,10 @@ task llvm_emit_args(args: word, clone_borrowed_words: bool, param_types: word, p
         }
         if clone_borrowed_words and llvm_word_expr_needs_clone(cur_id) {
             pilot clone_reg = next_reg()
-            llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
+            ir_call(clone_reg, "@freak_llvm_word_clone", reg + "|")
             reg = clone_reg
         }
-        if not first { res = res + ", " }
-        res = res + "i64 " + reg
+        res = res + reg + "|"
     }
     give back res
 }
@@ -967,8 +1304,7 @@ task llvm_emit_borrowed_args(args: word, param_types: word, param_offset: int) -
                     cleanup = cleanup + cleanup_tag + reg + "|"
                 }
                 if llvm_word_expr_is_owned_temporary(cur_id) { cleanup = cleanup + reg + "|" }
-                if not first { res = res + ", " }
-                res = res + "i64 " + reg
+                res = res + reg + "|"
                 first = false
                 arg_index += 1
             }
@@ -988,8 +1324,7 @@ task llvm_emit_borrowed_args(args: word, param_types: word, param_offset: int) -
             cleanup = cleanup + cleanup_tag + reg + "|"
         }
         if llvm_word_expr_is_owned_temporary(cur_id) { cleanup = cleanup + reg + "|" }
-        if not first { res = res + ", " }
-        res = res + "i64 " + reg
+        res = res + reg + "|"
     }
     llvm_last_borrowed_cleanup = cleanup
     give back res
@@ -1003,11 +1338,11 @@ task llvm_emit_borrowed_cleanup(cleanup: word, replacement: word) -> void {
         if ch == "|" {
             if current != "" {
                 if current.starts_with("array:") {
-                    llvm_emit_line("    call void @freak_v3_array_release(i64 " + current.substring(6, current.length() - 6) + ")")
+                    ir_call_void("@freak_v3_array_release", current.substring(6, current.length() - 6) + "|")
                 } else if current.starts_with("shape:") {
-                    llvm_emit_line("    call void @freak_v3_shape_release(i64 " + current.substring(6, current.length() - 6) + ")")
+                    ir_call_void("@freak_v3_shape_release", current.substring(6, current.length() - 6) + "|")
                 } else {
-                    llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + current + ", i64 " + replacement + ")")
+                    ir_call_void("@freak_llvm_word_release_replaced", current + "|" + replacement + "|")
                 }
             }
             current = ""
@@ -1020,7 +1355,7 @@ task llvm_finish_borrowed_method(expr_id: word, receiver_id: word, receiver_reg:
     pilot replacement = "0"
     if llvm_infer_expr_type(expr_id).starts_with("w") { replacement = result_reg }
     if llvm_word_expr_is_owned_temporary(receiver_id) {
-        llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + receiver_reg + ", i64 " + replacement + ")")
+        ir_call_void("@freak_llvm_word_release_replaced", receiver_reg + "|" + replacement + "|")
     }
     llvm_emit_borrowed_cleanup(arg_cleanup, replacement)
     give back result_reg
@@ -1043,23 +1378,23 @@ task llvm_emit_expr(id: word) -> word {
     if kind == EXPR_FLOAT {
         pilot dbl_reg = next_reg()
         pilot cast_reg = next_reg()
-        llvm_emit_line("    " + dbl_reg + " = fadd double 0.0, " + val)
-        llvm_emit_line("    " + cast_reg + " = bitcast double " + dbl_reg + " to i64")
+        ir_float(dbl_reg, "fadd", "0.0", val)
+        ir_double_to_i64(cast_reg, dbl_reg)
         give back cast_reg
     }
     if kind == EXPR_STR {
         pilot str_id = register_string_literal(val)
         pilot len = llvm_string_byte_len(val) + 1
         pilot get_ptr = next_reg()
-        llvm_emit_line("    " + get_ptr + " = getelementptr inbounds [" + word_from_int(len) + " x i8], [" + word_from_int(len) + " x i8]* " + str_id + ", i64 0, i64 0")
+        ir_string_pointer(get_ptr, word_from_int(len), str_id)
         pilot cast_reg = next_reg()
-        llvm_emit_line("    " + cast_reg + " = ptrtoint i8* " + get_ptr + " to i64")
+        ir_ptrtoint(cast_reg, get_ptr)
         give back cast_reg
     }
     if kind == EXPR_INTERP { give back llvm_emit_interp(left) }
     if kind == EXPR_IDENT {
         pilot res_reg = next_reg()
-        llvm_emit_line("    " + res_reg + " = load i64, i64* " + llvm_var_ptr(val))
+        ir_load(res_reg, llvm_var_ptr(val))
         give back res_reg
     }
     if kind == EXPR_CALL { give back llvm_emit_call(id, val, left) }
@@ -1073,7 +1408,7 @@ task llvm_emit_expr(id: word) -> word {
             if not llvm_v3_temporary(left) { obj = llvm_v3_retain(obj, llvm_infer_expr_type(left)) }
             pilot offset = llvm_emit_expr(right)
             pilot value = next_reg()
-            llvm_emit_line("    " + value + " = call i64 @freak_v3_array_get(i64 " + obj + ", i64 " + offset + ")")
+            ir_call(value, "@freak_v3_array_get", obj + "|" + offset + "|")
             value = llvm_v3_preserve_element(value, llvm_infer_expr_type(id))
             llvm_v3_release(obj, llvm_infer_expr_type(left))
             give back value
@@ -1081,26 +1416,26 @@ task llvm_emit_expr(id: word) -> word {
         pilot obj_reg = llvm_emit_expr(left)
         if not llvm_word_expr_is_owned_temporary(left) {
             pilot snapshot = next_reg()
-            llvm_emit_line("    " + snapshot + " = call i64 @freak_llvm_word_clone(i64 " + obj_reg + ")")
+            ir_call(snapshot, "@freak_llvm_word_clone", obj_reg + "|")
             obj_reg = snapshot
         }
         pilot idx_reg = llvm_emit_expr(right)
         pilot res_reg = next_reg()
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_index_checked(i64 " + obj_reg + ", i64 " + idx_reg + ")")
-        llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + obj_reg + ", i64 0)")
+        ir_call(res_reg, "@freak_llvm_word_index_checked", obj_reg + "|" + idx_reg + "|")
+        ir_call_void("@freak_llvm_word_release_replaced", obj_reg + "|" + "0" + "|")
         give back res_reg
     }
     if kind == EXPR_ARRAY_LIT {
         pilot arr_reg = next_reg()
         pilot arr_type = llvm_infer_expr_type(id)
         pilot element_type = arr_type.substring(2, arr_type.length() - 2)
-        llvm_emit_line("    " + arr_reg + " = call i64 @freak_v3_array_new(i64 " + llvm_v3_kind(element_type) + ")")
+        ir_call(arr_reg, "@freak_v3_array_new", llvm_v3_kind(element_type) + "|")
         pilot ai = 0
         repeat tc_arg_count(left) times {
             pilot item = word_from_int(tc_arg_at(left, ai))
             pilot value = llvm_emit_expr(item)
             if element_type == "n" { value = llvm_coerce_num_bits(value, item) }
-            llvm_emit_line("    call void @freak_v3_array_push(i64 " + arr_reg + ", i64 " + value + ")")
+            ir_call_void("@freak_v3_array_push", arr_reg + "|" + value + "|")
             llvm_v3_cleanup_temp(item, value)
             ai += 1
         }
@@ -1121,11 +1456,11 @@ task llvm_emit_interp(segments: word) -> word {
         if not segment_type.starts_with("w") {
             pilot converted_reg = next_reg()
             if segment_type.starts_with("n") {
-                llvm_emit_line("    " + converted_reg + " = call i64 @freak_llvm_format_num(i64 " + segment_reg + ")")
+                ir_call(converted_reg, "@freak_llvm_format_num", segment_reg + "|")
             } else if segment_type.starts_with("b") {
-                llvm_emit_line("    " + converted_reg + " = call i64 @freak_llvm_word_from_bool(i64 " + segment_reg + ")")
+                ir_call(converted_reg, "@freak_llvm_word_from_bool", segment_reg + "|")
             } else {
-                llvm_emit_line("    " + converted_reg + " = call i64 @freak_llvm_word_from_int(i64 " + segment_reg + ")")
+                ir_call(converted_reg, "@freak_llvm_word_from_int", segment_reg + "|")
             }
             segment_reg = converted_reg
             release_segment = "1"
@@ -1133,7 +1468,7 @@ task llvm_emit_interp(segments: word) -> word {
             release_segment = "1"
         }
         pilot appended_reg = next_reg()
-        llvm_emit_line("    " + appended_reg + " = call i64 @freak_llvm_word_append_owned(i64 " + accumulator + ", i64 " + segment_reg + ", i64 " + release_segment + ")")
+        ir_call(appended_reg, "@freak_llvm_word_append_owned", accumulator + "|" + segment_reg + "|" + release_segment + "|")
         accumulator = appended_reg
         segment_index += 1
     }
@@ -1153,13 +1488,13 @@ task llvm_emit_call(expr_id: word, val: word, left: word) -> word {
                 pilot receiver_index = word_to_int(receiver_id)
                 if array_get(ast_expr_kinds, receiver_index) == EXPR_IDENT {
                     pilot binding: word = array_get(ast_expr_vals, receiver_index)
-                    llvm_emit_line("    store i64 0, i64* " + llvm_var_ptr(binding))
+                    ir_store("0", llvm_var_ptr(binding))
                 }
                 give back "0"
             }
             if val == "array_len" {
                 pilot array_result = next_reg()
-                llvm_emit_line("    " + array_result + " = call i64 @freak_v3_array_len(i64 " + receiver + ")")
+                ir_call(array_result, "@freak_v3_array_len", receiver + "|")
                 llvm_v3_cleanup_temp(receiver_id, receiver)
                 give back array_result
             }
@@ -1168,18 +1503,18 @@ task llvm_emit_call(expr_id: word, val: word, left: word) -> word {
             pilot arg = llvm_emit_expr(arg_id)
             if val == "array_get" {
                 pilot array_result = next_reg()
-                llvm_emit_line("    " + array_result + " = call i64 @freak_v3_array_get(i64 " + receiver + ", i64 " + arg + ")")
+                ir_call(array_result, "@freak_v3_array_get", receiver + "|" + arg + "|")
                 array_result = llvm_v3_preserve_element(array_result, "w")
                 llvm_v3_release(receiver, receiver_type)
                 give back array_result
             }
             if val == "array_push" {
-                llvm_emit_line("    call void @freak_v3_array_push(i64 " + receiver + ", i64 " + arg + ")")
+                ir_call_void("@freak_v3_array_push", receiver + "|" + arg + "|")
                 llvm_v3_cleanup_temp(arg_id, arg)
             } else {
                 pilot value_id = word_from_int(tc_arg_at(left, 2))
                 pilot value = llvm_emit_expr(value_id)
-                llvm_emit_line("    call void @freak_v3_array_set(i64 " + receiver + ", i64 " + arg + ", i64 " + value + ")")
+                ir_call_void("@freak_v3_array_set", receiver + "|" + arg + "|" + value + "|")
                 llvm_v3_cleanup_temp(value_id, value)
             }
             llvm_v3_release(receiver, receiver_type)
@@ -1196,21 +1531,21 @@ task llvm_emit_call(expr_id: word, val: word, left: word) -> word {
         llvm_v3_cleanup_temp(item_id, value)
         pilot count_reg = llvm_emit_expr(count_id)
         pilot array_result = next_reg()
-        llvm_emit_line("    " + array_result + " = call i64 @freak_v3_array_filled(i64 " + llvm_v3_kind(item_type) + ", i64 " + count_reg + ", i64 " + preserved_value + ")")
+        ir_call(array_result, "@freak_v3_array_filled", llvm_v3_kind(item_type) + "|" + count_reg + "|" + preserved_value + "|")
         if llvm_v3_owned_type(item_type) { llvm_v3_release(preserved_value, item_type) }
-        if item_type == "w" { llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + preserved_value + ", i64 0)") }
+        if item_type == "w" { ir_call_void("@freak_llvm_word_release_replaced", preserved_value + "|" + "0" + "|") }
         give back array_result
     }
     if val == "List::new" {
         pilot new_reg = next_reg()
-        llvm_emit_line("    " + new_reg + " = call i64 @freak_v3_array_new(i64 2)")
+        ir_call(new_reg, "@freak_v3_array_new", "2" + "|")
         give back new_reg
     }
     if val == "List::with_capacity" {
         pilot cap_id = word_from_int(tc_arg_at(left, 0))
         pilot cap_reg = llvm_emit_expr(cap_id)
         pilot cap_result = next_reg()
-        llvm_emit_line("    " + cap_result + " = call i64 @freak_v3_array_with_capacity(i64 2, i64 " + cap_reg + ")")
+        ir_call(cap_result, "@freak_v3_array_with_capacity", "2" + "|" + cap_reg + "|")
         give back cap_result
     }
     -- Shape constructors have their own ownership-aware argument lowering.
@@ -1252,12 +1587,12 @@ task llvm_emit_call(expr_id: word, val: word, left: word) -> word {
     }
 
     if is_void {
-        llvm_emit_line("    call void " + func_name + "(" + arg_str + ")")
+        ir_call_void(func_name, arg_str)
         llvm_emit_borrowed_cleanup(borrowed_cleanup, "0")
         give back "0"
     }
     pilot res_reg = next_reg()
-    llvm_emit_line("    " + res_reg + " = call i64 " + func_name + "(" + arg_str + ")")
+    ir_call(res_reg, func_name, arg_str)
     pilot replacement = "0"
     if llvm_infer_expr_type(expr_id).starts_with("w") { replacement = res_reg }
     llvm_emit_borrowed_cleanup(borrowed_cleanup, replacement)
@@ -1267,14 +1602,14 @@ task llvm_emit_call(expr_id: word, val: word, left: word) -> word {
 task llvm_emit_shape_ctor(val: word, left: word) -> word {
     pilot sname = val.substring(13, val.length() - 13)
     pilot alloc_reg = next_reg()
-    llvm_emit_line("    " + alloc_reg + " = call i64 @freak_v3_shape_new(i64 " + word_from_int(get_shape_field_count(sname)) + ")")
+    ir_call(alloc_reg, "@freak_v3_shape_new", word_from_int(get_shape_field_count(sname)) + "|")
     pilot fi = 0
     repeat tc_arg_count(left) times {
         pilot item = word_from_int(tc_arg_at(left, fi))
         pilot value = llvm_emit_expr(item)
         pilot field_type = llvm_shape_field_type_at(sname, fi)
         if field_type == "n" { value = llvm_coerce_num_bits(value, item) }
-        llvm_emit_line("    call void @freak_v3_shape_init(i64 " + alloc_reg + ", i64 " + word_from_int(fi) + ", i64 " + llvm_v3_kind(field_type) + ", i64 " + value + ")")
+        ir_call_void("@freak_v3_shape_init", alloc_reg + "|" + word_from_int(fi) + "|" + llvm_v3_kind(field_type) + "|" + value + "|")
         llvm_v3_cleanup_temp(item, value)
         fi += 1
     }
@@ -1299,19 +1634,15 @@ task llvm_emit_integer_guard(failed: word, reason: word, operation: word) -> voi
     }
     llvm_integer_failure_reasons = llvm_integer_failure_reasons + "[ " + llvm_integer_message_ptr(reason) + ", %" + edge + " ]"
     llvm_integer_failure_operations = llvm_integer_failure_operations + "[ " + llvm_integer_message_ptr(operation) + ", %" + edge + " ]"
-    llvm_emit_line("    br i1 " + failed + ", label %" + edge + ", label %" + success + ", !prof !\{!\"branch_weights\", i32 1, i32 1048575\}")
-    llvm_emit_line(edge + ":")
-    llvm_emit_line("    br label %integer.fail")
-    llvm_emit_line(success + ":")
+    llvm_integer_failure_edges = llvm_integer_failure_edges + edge + ";" + reason.replace(" ", "_") + ";" + operation.replace(" ", "_") + "|"
+    ir_cond_br_cold(failed, edge, success)
+    ir_label(edge)
+    ir_br("integer.fail")
+    ir_label(success)
 }
 
 task llvm_emit_integer_failure_block() -> void {
-    if llvm_integer_failure_reasons == "" { give back }
-    llvm_emit_line("integer.fail:")
-    llvm_emit_line("    %integer.reason = phi i8* " + llvm_integer_failure_reasons)
-    llvm_emit_line("    %integer.operation = phi i8* " + llvm_integer_failure_operations)
-    llvm_emit_line("    call void @__freak_int_fail(i8* %integer.reason, i8* %integer.operation)")
-    llvm_emit_line("    unreachable")
+    ir_integer_failure_block()
 }
 
 task llvm_emit_checked_integer(l_reg: word, r_reg: word, res_reg: word, operation: word, rhs: word) -> void {
@@ -1326,31 +1657,31 @@ task llvm_emit_checked_integer(l_reg: word, r_reg: word, res_reg: word, operatio
         if symbol == "freak_int_rem_checked" { opcode = "srem" diagnostic = "remainder" }
         if not v35_integer_divisor_is_safe(rhs) {
             pilot zero = next_reg()
-            llvm_emit_line("    " + zero + " = icmp eq i64 " + r_reg + ", 0")
+            ir_icmp(zero, "eq", r_reg, "0")
             llvm_emit_integer_guard(zero, "division by zero", diagnostic)
             pilot minimum = next_reg()
             pilot minus_one = next_reg()
             pilot overflow = next_reg()
-            llvm_emit_line("    " + minimum + " = icmp eq i64 " + l_reg + ", -9223372036854775808")
-            llvm_emit_line("    " + minus_one + " = icmp eq i64 " + r_reg + ", -1")
-            llvm_emit_line("    " + overflow + " = and i1 " + minimum + ", " + minus_one)
+            ir_icmp(minimum, "eq", l_reg, "-9223372036854775808")
+            ir_icmp(minus_one, "eq", r_reg, "-1")
+            ir_and1(overflow, minimum, minus_one)
             llvm_emit_integer_guard(overflow, "overflow", diagnostic)
         }
-        llvm_emit_line("    " + res_reg + " = " + opcode + " i64 " + l_reg + ", " + r_reg)
+        ir_int(res_reg, opcode, l_reg, r_reg)
         give back
     }
     pilot pair = next_reg()
     pilot overflow = next_reg()
-    llvm_emit_line("    " + pair + " = call \{i64, i1\} @llvm.s" + opcode + ".with.overflow.i64(i64 " + l_reg + ", i64 " + r_reg + ")")
-    llvm_emit_line("    " + res_reg + " = extractvalue \{i64, i1\} " + pair + ", 0")
-    llvm_emit_line("    " + overflow + " = extractvalue \{i64, i1\} " + pair + ", 1")
+    ir_overflow(pair, opcode, l_reg, r_reg)
+    ir_extract(res_reg, pair, 0)
+    ir_extract(overflow, pair, 1)
     llvm_emit_integer_guard(overflow, "overflow", diagnostic)
 }
 
 task llvm_emit_short_circuit(val: word, left: word, right: word) -> word {
     pilot left_reg = llvm_emit_expr(left)
     pilot left_bool = next_reg()
-    llvm_emit_line("    " + left_bool + " = icmp ne i64 " + left_reg + ", 0")
+    ir_icmp(left_bool, "ne", left_reg, "0")
 
     pilot short_block = "logic.short." + word_from_int(temp_reg_counter)
     temp_reg_counter += 1
@@ -1363,29 +1694,29 @@ task llvm_emit_short_circuit(val: word, left: word, right: word) -> word {
 
     pilot short_value = "0"
     if val == "and" {
-        llvm_emit_line("    br i1 " + left_bool + ", label %" + rhs_block + ", label %" + short_block)
+        ir_cond_br(left_bool, rhs_block, short_block)
     } else {
         short_value = "1"
-        llvm_emit_line("    br i1 " + left_bool + ", label %" + short_block + ", label %" + rhs_block)
+        ir_cond_br(left_bool, short_block, rhs_block)
     }
 
-    llvm_emit_line(short_block + ":")
-    llvm_emit_line("    br label %" + end_block)
+    ir_label(short_block)
+    ir_br(end_block)
 
-    llvm_emit_line(rhs_block + ":")
+    ir_label(rhs_block)
     pilot right_reg = llvm_emit_expr(right)
     pilot right_bool = next_reg()
-    llvm_emit_line("    " + right_bool + " = icmp ne i64 " + right_reg + ", 0")
+    ir_icmp(right_bool, "ne", right_reg, "0")
     pilot right_value = next_reg()
-    llvm_emit_line("    " + right_value + " = zext i1 " + right_bool + " to i64")
-    llvm_emit_line("    br label %" + rhs_done)
+    ir_zext(right_value, right_bool)
+    ir_br(rhs_done)
 
-    llvm_emit_line(rhs_done + ":")
-    llvm_emit_line("    br label %" + end_block)
+    ir_label(rhs_done)
+    ir_br(end_block)
 
-    llvm_emit_line(end_block + ":")
+    ir_label(end_block)
     pilot result_reg = next_reg()
-    llvm_emit_line("    " + result_reg + " = phi i64 [ " + short_value + ", %" + short_block + " ], [ " + right_value + ", %" + rhs_done + " ]")
+    ir_phi2(result_reg, short_value, short_block, right_value, rhs_done)
     give back result_reg
 }
 
@@ -1395,13 +1726,13 @@ task llvm_emit_binop(val: word, left: word, right: word, id: word) -> word {
     pilot word_order = (val == "<" or val == ">" or val == "<=" or val == ">=") and llvm_infer_expr_type(left).starts_with("w")
     if word_order and not llvm_word_expr_is_owned_temporary(left) {
         pilot snapshot = next_reg()
-        llvm_emit_line("    " + snapshot + " = call i64 @freak_llvm_word_clone(i64 " + l_reg + ")")
+        ir_call(snapshot, "@freak_llvm_word_clone", l_reg + "|")
         l_reg = snapshot
     }
     pilot r_reg = llvm_emit_expr(right)
     if word_order and not llvm_word_expr_is_owned_temporary(right) {
         pilot snapshot = next_reg()
-        llvm_emit_line("    " + snapshot + " = call i64 @freak_llvm_word_clone(i64 " + r_reg + ")")
+        ir_call(snapshot, "@freak_llvm_word_clone", r_reg + "|")
         r_reg = snapshot
     }
     pilot res_reg = next_reg()
@@ -1424,7 +1755,7 @@ task llvm_emit_binop(val: word, left: word, right: word, id: word) -> word {
         pilot t2 = next_reg()
         llvm_emit_checked_integer(l_reg, r_reg, t2, "*", "")
         pilot t3 = next_reg()
-        llvm_emit_line("    " + t3 + " = sdiv i64 " + t2 + ", 10")
+        ir_int(t3, "sdiv", t2, "10")
         llvm_emit_checked_integer(t1, t3, res_reg, "+", "")
         give back res_reg
     }
@@ -1440,20 +1771,20 @@ task llvm_emit_add(l_reg: word, r_reg: word, res_reg: word, left: word, right: w
         pilot rw = r_reg
         if not lt.starts_with("w") {
             lw = next_reg()
-            llvm_emit_line("    " + lw + " = call i64 @freak_llvm_word_from_int(i64 " + l_reg + ")")
+            ir_call(lw, "@freak_llvm_word_from_int", l_reg + "|")
         }
         if not rt.starts_with("w") {
             rw = next_reg()
-            llvm_emit_line("    " + rw + " = call i64 @freak_llvm_word_from_int(i64 " + r_reg + ")")
+            ir_call(rw, "@freak_llvm_word_from_int", r_reg + "|")
         }
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_concat(i64 " + lw + ", i64 " + rw + ")")
+        ir_call(res_reg, "@freak_llvm_word_concat", lw + "|" + rw + "|")
         -- Concatenation copies both operands.  Release only owned temporaries;
         -- identifiers, fields, and array_get remain borrowed from their slot.
         if llvm_word_expr_is_owned_temporary(left) or not lt.starts_with("w") {
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + lw + ", i64 " + res_reg + ")")
+            ir_call_void("@freak_llvm_word_release_replaced", lw + "|" + res_reg + "|")
         }
         if llvm_word_expr_is_owned_temporary(right) or not rt.starts_with("w") {
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + rw + ", i64 " + res_reg + ")")
+            ir_call_void("@freak_llvm_word_release_replaced", rw + "|" + res_reg + "|")
         }
         give back res_reg
     }
@@ -1461,8 +1792,8 @@ task llvm_emit_add(l_reg: word, r_reg: word, res_reg: word, left: word, right: w
         pilot ld = llvm_numeric_to_double(l_reg, left)
         pilot rd = llvm_numeric_to_double(r_reg, right)
         pilot dres = next_reg()
-        llvm_emit_line("    " + dres + " = fadd double " + ld + ", " + rd)
-        llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
+        ir_float(dres, "fadd", ld, rd)
+        ir_double_to_i64(res_reg, dres)
         give back res_reg
     }
     llvm_emit_checked_integer(l_reg, r_reg, res_reg, "+", right)
@@ -1474,8 +1805,8 @@ task llvm_emit_arith(l_reg: word, r_reg: word, res_reg: word, left: word, right:
         pilot ld = llvm_numeric_to_double(l_reg, left)
         pilot rd = llvm_numeric_to_double(r_reg, right)
         pilot dres = next_reg()
-        llvm_emit_line("    " + dres + " = " + float_op + " double " + ld + ", " + rd)
-        llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
+        ir_float(dres, float_op, ld, rd)
+        ir_double_to_i64(res_reg, dres)
         give back res_reg
     }
     llvm_emit_checked_integer(l_reg, r_reg, res_reg, int_op, right)
@@ -1486,15 +1817,15 @@ task llvm_emit_cmp(l_reg: word, r_reg: word, res_reg: word, left: word, right: w
     pilot ltype = llvm_infer_expr_type(left)
     if ltype.starts_with("w") {
         if int_cmp == "eq" {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_eq(i64 " + l_reg + ", i64 " + r_reg + ")")
+            ir_call(res_reg, "@freak_llvm_word_eq", l_reg + "|" + r_reg + "|")
         } else {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_neq(i64 " + l_reg + ", i64 " + r_reg + ")")
+            ir_call(res_reg, "@freak_llvm_word_neq", l_reg + "|" + r_reg + "|")
         }
         if llvm_word_expr_is_owned_temporary(left) {
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + l_reg + ", i64 0)")
+            ir_call_void("@freak_llvm_word_release_replaced", l_reg + "|" + "0" + "|")
         }
         if llvm_word_expr_is_owned_temporary(right) {
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + r_reg + ", i64 0)")
+            ir_call_void("@freak_llvm_word_release_replaced", r_reg + "|" + "0" + "|")
         }
         give back res_reg
     }
@@ -1505,24 +1836,24 @@ task llvm_emit_icmp(l_reg: word, r_reg: word, res_reg: word, left: word, right: 
     if llvm_infer_expr_type(left).starts_with("w") {
         pilot ordering = next_reg()
         pilot compared = next_reg()
-        llvm_emit_line("    " + ordering + " = call i64 @freak_llvm_word_compare(i64 " + l_reg + ", i64 " + r_reg + ")")
-        llvm_emit_line("    " + compared + " = icmp " + int_cmp + " i64 " + ordering + ", 0")
-        llvm_emit_line("    " + res_reg + " = zext i1 " + compared + " to i64")
-        llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + l_reg + ", i64 0)")
-        llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + r_reg + ", i64 0)")
+        ir_call(ordering, "@freak_llvm_word_compare", l_reg + "|" + r_reg + "|")
+        ir_icmp(compared, int_cmp, ordering, "0")
+        ir_zext(res_reg, compared)
+        ir_call_void("@freak_llvm_word_release_replaced", l_reg + "|" + "0" + "|")
+        ir_call_void("@freak_llvm_word_release_replaced", r_reg + "|" + "0" + "|")
         give back res_reg
     }
     if is_num_op {
         pilot ld = llvm_numeric_to_double(l_reg, left)
         pilot rd = llvm_numeric_to_double(r_reg, right)
         pilot cmp_reg = next_reg()
-        llvm_emit_line("    " + cmp_reg + " = fcmp " + float_cmp + " double " + ld + ", " + rd)
-        llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+        ir_fcmp(cmp_reg, float_cmp, ld, rd)
+        ir_zext(res_reg, cmp_reg)
         give back res_reg
     }
     pilot cmp_reg = next_reg()
-    llvm_emit_line("    " + cmp_reg + " = icmp " + int_cmp + " i64 " + l_reg + ", " + r_reg)
-    llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+    ir_icmp(cmp_reg, int_cmp, l_reg, r_reg)
+    ir_zext(res_reg, cmp_reg)
     give back res_reg
 }
 
@@ -1535,14 +1866,14 @@ task llvm_emit_unaryop(val: word, left: word) -> word {
     if operand_type.starts_with("n") and val == "-" {
         pilot operand_double = llvm_i64_to_double(op_reg)
         pilot result_double = next_reg()
-        llvm_emit_line("    " + result_double + " = fsub double 0.0, " + operand_double)
+        ir_float(result_double, "fsub", "0.0", operand_double)
         give back llvm_double_to_i64(result_double)
     }
     pilot res_reg = next_reg()
     if val == "not" {
         pilot cmp_reg = next_reg()
-        llvm_emit_line("    " + cmp_reg + " = icmp eq i64 " + op_reg + ", 0")
-        llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+        ir_icmp(cmp_reg, "eq", op_reg, "0")
+        ir_zext(res_reg, cmp_reg)
     }
     if val == "-" or val == "TSUNDERE" { llvm_emit_checked_integer("0", op_reg, res_reg, "neg", "") }
     if val == "PLUS ULTRA" { llvm_emit_checked_integer(op_reg, "2", res_reg, "*", "") }
@@ -1563,29 +1894,29 @@ task llvm_emit_method(expr_id: word, val: word, left: word, right: word) -> word
         if not llvm_v3_temporary(left) { obj_reg = llvm_v3_retain(obj_reg, recv_ty) }
         pilot exact_args = ""
         pilot exact_params = llvm_callable_param_types(best_sname + "_" + val)
-        if right.length() > 0 { exact_args = ", " + llvm_emit_args(right, true, exact_params, 1) }
+        if right.length() > 0 { exact_args = llvm_emit_args(right, true, exact_params, 1) }
         pilot exact_fname = llvm_user_task_symbol(best_sname + "_" + val)
         if best_ret == "v" {
-            llvm_emit_line("    call void " + exact_fname + "(i64 " + obj_reg + exact_args + ")")
-            llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+            ir_call_void(exact_fname, obj_reg + "|" + exact_args)
+            ir_int(res_reg, "add", "0", "0")
         } else {
-            llvm_emit_line("    " + res_reg + " = call i64 " + exact_fname + "(i64 " + obj_reg + exact_args + ")")
+            ir_call(res_reg, exact_fname, obj_reg + "|" + exact_args)
         }
         give back res_reg
     }
     if val == "length" and recv_ty.starts_with("a:") {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_v3_array_len(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_v3_array_len", obj_reg + "|")
         llvm_v3_cleanup_temp(left, obj_reg)
         give back res_reg
     }
     if val == "capacity" and recv_ty.starts_with("a:") {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_v3_array_capacity(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_v3_array_capacity", obj_reg + "|")
         llvm_v3_cleanup_temp(left, obj_reg)
         give back res_reg
     }
     if val == "clear" and recv_ty.starts_with("a:") {
         if not llvm_v3_temporary(left) { obj_reg = llvm_v3_retain(obj_reg, recv_ty) }
-        llvm_emit_line("    call void @freak_v3_array_clear(i64 " + obj_reg + ")")
+        ir_call_void("@freak_v3_array_clear", obj_reg + "|")
         llvm_v3_release(obj_reg, recv_ty)
         give back "0"
     }
@@ -1593,7 +1924,7 @@ task llvm_emit_method(expr_id: word, val: word, left: word, right: word) -> word
         pilot cap_id = word_from_int(tc_arg_at(right, 0))
         pilot cap_reg = llvm_emit_expr(cap_id)
         if not llvm_v3_temporary(left) { obj_reg = llvm_v3_retain(obj_reg, recv_ty) }
-        llvm_emit_line("    call void @freak_v3_array_reserve(i64 " + obj_reg + ", i64 " + cap_reg + ")")
+        ir_call_void("@freak_v3_array_reserve", obj_reg + "|" + cap_reg + "|")
         llvm_v3_release(obj_reg, recv_ty)
         give back "0"
     }
@@ -1603,14 +1934,14 @@ task llvm_emit_method(expr_id: word, val: word, left: word, right: word) -> word
         pilot push_reg = llvm_emit_expr(push_id)
         if elem_ty == "n" { push_reg = llvm_coerce_num_bits(push_reg, push_id) }
         if not llvm_v3_temporary(left) { obj_reg = llvm_v3_retain(obj_reg, recv_ty) }
-        llvm_emit_line("    call void @freak_v3_array_push(i64 " + obj_reg + ", i64 " + push_reg + ")")
+        ir_call_void("@freak_v3_array_push", obj_reg + "|" + push_reg + "|")
         llvm_v3_cleanup_temp(push_id, push_reg)
         llvm_v3_release(obj_reg, recv_ty)
         give back "0"
     }
     if val == "pop" and recv_ty.starts_with("a:") {
         if not llvm_v3_temporary(left) { obj_reg = llvm_v3_retain(obj_reg, recv_ty) }
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_v3_array_pop(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_v3_array_pop", obj_reg + "|")
         llvm_v3_release(obj_reg, recv_ty)
         give back res_reg
     }
@@ -1618,68 +1949,68 @@ task llvm_emit_method(expr_id: word, val: word, left: word, right: word) -> word
         pilot args = ""
         pilot arg_cleanup = ""
         if right.length() > 0 {
-            args = ", " + llvm_emit_borrowed_args(right, "", 0)
+            args = llvm_emit_borrowed_args(right, "", 0)
             arg_cleanup = llvm_last_borrowed_cleanup
         }
         pilot runtime_name = "@freak_llvm_byte_buffer_" + val
         pilot byte_buffer_ret = tc_builtin_method_return_type("ByteBuffer", val)
         if byte_buffer_ret == "void" {
-            llvm_emit_line("    call void " + runtime_name + "(i64 " + obj_reg + args + ")")
-            llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+            ir_call_void(runtime_name, obj_reg + "|" + args)
+            ir_int(res_reg, "add", "0", "0")
         } else {
-            llvm_emit_line("    " + res_reg + " = call i64 " + runtime_name + "(i64 " + obj_reg + args + ")")
+            ir_call(res_reg, runtime_name, obj_reg + "|" + args)
         }
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, arg_cleanup, res_reg)
     }
     if val == "length" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_length(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_length", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "byte_length" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_byte_length(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_byte_length", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "checksum" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_checksum(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_checksum", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "snapshot_escape" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_snapshot_escape(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_snapshot_escape", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "snapshot_unescape" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_snapshot_unescape(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_snapshot_unescape", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "snapshot_line_count" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_snapshot_line_count(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_snapshot_line_count", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "snapshot_lines" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_snapshot_lines(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_snapshot_lines", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "snapshot_field_count" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_snapshot_field_count(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_snapshot_field_count", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "to_upper" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_upper(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_to_upper", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "to_lower" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_lower(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_to_lower", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "trim" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_trim(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_trim", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "snapshot_line" or val == "snapshot_field_raw" or val == "char_at" or val == "substring" or val == "contains" or val == "starts_with" or val == "ends_with" or val == "replace" or val == "repeated" {
         pilot args = llvm_emit_borrowed_args(right, "", 0)
         pilot arg_cleanup = llvm_last_borrowed_cleanup
         pilot runtime_name = "@freak_llvm_word_" + val
-        llvm_emit_line("    " + res_reg + " = call i64 " + runtime_name + "(i64 " + obj_reg + ", " + args + ")")
+        ir_call(res_reg, runtime_name, obj_reg + "|" + args)
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, arg_cleanup, res_reg)
     }
     -- to_int / to_num / to_word — receiver-type-dispatched primitive
@@ -1689,39 +2020,39 @@ task llvm_emit_method(expr_id: word, val: word, left: word, right: word) -> word
     -- 0, which collapsed every layout rect to zero size.
     if val == "to_int" {
         if recv_ty.starts_with("n") {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_num_to_int(i64 " + obj_reg + ")")
+            ir_call(res_reg, "@freak_llvm_num_to_int", obj_reg + "|")
         } else {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_int(i64 " + obj_reg + ")")
+            ir_call(res_reg, "@freak_llvm_word_to_int", obj_reg + "|")
         }
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "to_num" {
         if recv_ty.starts_with("w") {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_parse_num(i64 " + obj_reg + ")")
+            ir_call(res_reg, "@freak_llvm_parse_num", obj_reg + "|")
         } else {
             -- Default: treat as int → num (covers int and unknown-typed
             -- locals that hold integer values, e.g. shape fields).
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_int_to_num(i64 " + obj_reg + ")")
+            ir_call(res_reg, "@freak_llvm_int_to_num", obj_reg + "|")
         }
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     -- Checked word parsing. Legacy to_int/to_num above stay lenient; these
     -- strict entry points report through the sticky parse status channel.
     if val == "parse_int" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_parse_int(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_parse_int", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "parse_num" {
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_parse_num(i64 " + obj_reg + ")")
+        ir_call(res_reg, "@freak_llvm_word_parse_num", obj_reg + "|")
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
     if val == "to_word" {
         if recv_ty.starts_with("n") {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_from_num(i64 " + obj_reg + ")")
+            ir_call(res_reg, "@freak_llvm_word_from_num", obj_reg + "|")
         } else if recv_ty.starts_with("b") {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_from_bool(i64 " + obj_reg + ")")
+            ir_call(res_reg, "@freak_llvm_word_from_bool", obj_reg + "|")
         } else {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_from_int(i64 " + obj_reg + ")")
+            ir_call(res_reg, "@freak_llvm_word_from_int", obj_reg + "|")
         }
         give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
     }
@@ -1746,18 +2077,18 @@ task llvm_emit_method(expr_id: word, val: word, left: word, right: word) -> word
     if best_sname.length() > 0 and best_ret.length() > 0 {
         pilot extra_args = ""
         pilot impl_params = llvm_callable_param_types(best_sname + "_" + val)
-        if right.length() > 0 { extra_args = ", " + llvm_emit_args(right, true, impl_params, 1) }
+        if right.length() > 0 { extra_args = llvm_emit_args(right, true, impl_params, 1) }
         pilot impl_fname = llvm_user_task_symbol(best_sname + "_" + val)
         if best_ret == "v" {
-            llvm_emit_line("    call void " + impl_fname + "(i64 " + obj_reg + extra_args + ")")
-            llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+            ir_call_void(impl_fname, obj_reg + "|" + extra_args)
+            ir_int(res_reg, "add", "0", "0")
         } else {
-            llvm_emit_line("    " + res_reg + " = call i64 " + impl_fname + "(i64 " + obj_reg + extra_args + ")")
+            ir_call(res_reg, impl_fname, obj_reg + "|" + extra_args)
         }
         give back res_reg
     }
-    llvm_emit_line("    ; unsupported method " + val)
-    llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+    ir_comment("unsupported method " + val)
+    ir_int(res_reg, "add", "0", "0")
     give back llvm_finish_borrowed_method(expr_id, left, obj_reg, "", res_reg)
 }
 
@@ -1768,12 +2099,12 @@ task llvm_emit_field(val: word, left: word) -> word {
     pilot fidx = llvm_infer_field_index(left, val)
     if fidx < 0 {
         pilot unresolved = next_reg()
-        llvm_emit_line("    ; unresolved field access rejected by semantic checking")
-        llvm_emit_line("    " + unresolved + " = add i64 0, 0")
+        ir_comment("unresolved field access rejected by semantic checking")
+        ir_int(unresolved, "add", "0", "0")
         give back unresolved
     }
     pilot res_reg = next_reg()
-    llvm_emit_line("    " + res_reg + " = call i64 @freak_v3_shape_get(i64 " + obj_reg + ", i64 " + word_from_int(fidx) + ")")
+    ir_call(res_reg, "@freak_v3_shape_get", obj_reg + "|" + word_from_int(fidx) + "|")
     if llvm_v3_temporary(left) {
         res_reg = llvm_v3_preserve_element(res_reg, llvm_infer_field_type(left, val))
         llvm_v3_release(obj_reg, llvm_infer_expr_type(left))
@@ -1832,9 +2163,9 @@ task llvm_emit_current_word_param_cleanup(skip_name: word) -> void {
             if current != "" and current != skip_name {
                 pilot pointer = "%" + current
                 pilot previous = next_reg()
-                llvm_emit_line("    " + previous + " = load i64, i64* " + pointer)
-                llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous + ", i64 0)")
-                llvm_emit_line("    store i64 0, i64* " + pointer)
+                ir_load(previous, pointer)
+                ir_call_void("@freak_llvm_word_release_replaced", previous + "|" + "0" + "|")
+                ir_store("0", pointer)
             }
             current = ""
         } else {
@@ -1862,26 +2193,26 @@ task llvm_emit_word_local_cleanup_since(prefix: word, skip_slot: word) -> void {
                 if current.starts_with("result:") {
                     pilot slot = current.substring(7, current.length() - 7)
                     pilot previous = next_reg()
-                    llvm_emit_line("    " + previous + " = load i64, i64* %" + slot)
+                    ir_load(previous, "%" + slot)
                     llvm_v3_release(previous, "r")
-                    llvm_emit_line("    store i64 0, i64* %" + slot)
+                    ir_store("0", "%" + slot)
                 } else if current.starts_with("array:") or current.starts_with("shape:") {
                     pilot slot = current.substring(6, current.length() - 6)
                     pilot previous = next_reg()
-                    llvm_emit_line("    " + previous + " = load i64, i64* %" + slot)
+                    ir_load(previous, "%" + slot)
                     pilot vtype = "s:"
                     if current.starts_with("array:") { vtype = "a:" }
                     llvm_v3_release(previous, vtype)
-                    llvm_emit_line("    store i64 0, i64* %" + slot)
+                    ir_store("0", "%" + slot)
                 } else if current.starts_with("ssa:") {
                     pilot owned_value = current.substring(4, current.length() - 4)
-                    llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + owned_value + ", i64 0)")
+                    ir_call_void("@freak_llvm_word_release_replaced", owned_value + "|" + "0" + "|")
                 } else {
                     pilot pointer = "%" + current
                     pilot previous = next_reg()
-                    llvm_emit_line("    " + previous + " = load i64, i64* " + pointer)
-                    llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous + ", i64 0)")
-                    llvm_emit_line("    store i64 0, i64* " + pointer)
+                    ir_load(previous, pointer)
+                    ir_call_void("@freak_llvm_word_release_replaced", previous + "|" + "0" + "|")
+                    ir_store("0", pointer)
                 }
             }
             current = ""
@@ -1895,7 +2226,7 @@ task llvm_emit_word_local_cleanup_since(prefix: word, skip_slot: word) -> void {
 task llvm_emit_return_dead_block(prefix: word) -> void {
     pilot dead = prefix + word_from_int(temp_reg_counter)
     temp_reg_counter += 1
-    llvm_emit_line(dead + ":")
+    ir_label(dead)
 }
 
 task llvm_emit_stmt(eid: word) -> void {
@@ -1912,21 +2243,21 @@ task llvm_emit_stmt(eid: word) -> void {
         pilot reg = llvm_emit_expr(expr_id_w)
         pilot say_type = llvm_infer_expr_type(expr_id_w)
         if say_type.starts_with("w") {
-            llvm_emit_line("    call void @freak_llvm_say(i64 " + reg + ")")
+            ir_call_void("@freak_llvm_say", reg + "|")
             if llvm_word_expr_is_owned_temporary(expr_id_w) {
-                llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + reg + ", i64 0)")
+                ir_call_void("@freak_llvm_word_release_replaced", reg + "|" + "0" + "|")
             }
         } else {
             pilot say_word = next_reg()
             if say_type.starts_with("n") {
-                llvm_emit_line("    " + say_word + " = call i64 @freak_llvm_format_num(i64 " + reg + ")")
+                ir_call(say_word, "@freak_llvm_format_num", reg + "|")
             } else if say_type.starts_with("b") {
-                llvm_emit_line("    " + say_word + " = call i64 @freak_llvm_word_from_bool(i64 " + reg + ")")
+                ir_call(say_word, "@freak_llvm_word_from_bool", reg + "|")
             } else {
-                llvm_emit_line("    " + say_word + " = call i64 @freak_llvm_word_from_int(i64 " + reg + ")")
+                ir_call(say_word, "@freak_llvm_word_from_int", reg + "|")
             }
-            llvm_emit_line("    call void @freak_llvm_say(i64 " + say_word + ")")
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + say_word + ", i64 0)")
+            ir_call_void("@freak_llvm_say", say_word + "|")
+            ir_call_void("@freak_llvm_word_release_replaced", say_word + "|" + "0" + "|")
         }
         give back
     }
@@ -1934,7 +2265,7 @@ task llvm_emit_stmt(eid: word) -> void {
         pilot discarded_reg = llvm_emit_expr(expr_id_w)
         if llvm_v3_temporary(expr_id_w) { llvm_v3_release(discarded_reg, llvm_infer_expr_type(expr_id_w)) }
         if llvm_word_expr_is_owned_temporary(expr_id_w) {
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + discarded_reg + ", i64 0)")
+            ir_call_void("@freak_llvm_word_release_replaced", discarded_reg + "|" + "0" + "|")
         }
         give back
     }
@@ -1942,7 +2273,7 @@ task llvm_emit_stmt(eid: word) -> void {
         if llvm_cur_func_is_void {
             llvm_emit_word_local_cleanup_since("", "")
             llvm_emit_current_word_param_cleanup("")
-            llvm_emit_line("    ret void")
+            ir_ret_void()
             llvm_emit_return_dead_block("return.dead.")
         } else if expr_id_w.length() > 0 and not expr_id_w.starts_with("-") {
             pilot reg = llvm_emit_expr(expr_id_w)
@@ -1954,7 +2285,7 @@ task llvm_emit_stmt(eid: word) -> void {
             pilot return_name: word = array_get(ast_expr_vals, return_idx)
             if llvm_cur_func_returns_word and llvm_word_expr_needs_clone(expr_id_w) and (return_kind == EXPR_FIELD or return_kind == EXPR_INDEX or (return_kind == EXPR_CALL and return_name == "array_get") or (return_kind == EXPR_IDENT and llvm_active_binding_is_global(return_name))) {
                 pilot clone_reg = next_reg()
-                llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
+                ir_call(clone_reg, "@freak_llvm_word_clone", reg + "|")
                 reg = clone_reg
             }
             if llvm_v3_owned_type(llvm_infer_expr_type(expr_id_w)) and not llvm_v3_temporary(expr_id_w) { reg = llvm_v3_retain(reg, llvm_infer_expr_type(expr_id_w)) }
@@ -1966,12 +2297,12 @@ task llvm_emit_stmt(eid: word) -> void {
             }
             llvm_emit_word_local_cleanup_since("", skip_local_slot)
             llvm_emit_current_word_param_cleanup(skip_name)
-            llvm_emit_line("    ret i64 " + reg)
+            ir_ret(reg)
             llvm_emit_return_dead_block("return.dead.")
         } else {
             llvm_emit_word_local_cleanup_since("", "")
             llvm_emit_current_word_param_cleanup("")
-            llvm_emit_line("    ret i64 0")
+            ir_ret("0")
             llvm_emit_return_dead_block("return.dead.")
         }
         give back
@@ -1987,26 +2318,26 @@ task llvm_emit_stmt(eid: word) -> void {
     if kind == STMT_ASSIGN { llvm_emit_stmt_assign(eid) give back }
     if kind == STMT_BREAK {
         llvm_emit_word_local_cleanup_since(llvm_loop_word_cleanup_prefix, "")
-        llvm_emit_line("    br label %" + llvm_loop_end_label)
+        ir_br(llvm_loop_end_label)
         pilot dead = "break.dead." + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
-        llvm_emit_line(dead + ":")
+        ir_label(dead)
         give back
     }
     if kind == STMT_CONTINUE {
         llvm_emit_word_local_cleanup_since(llvm_loop_word_cleanup_prefix, "")
-        llvm_emit_line("    br label %" + llvm_loop_cond_label)
+        ir_br(llvm_loop_cond_label)
         pilot dead = "cont.dead." + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
-        llvm_emit_line(dead + ":")
+        ir_label(dead)
         give back
     }
     if kind == STMT_SHAPE {
-        llvm_emit_line("    ; shape " + name_w + " defined")
+        ir_comment("shape " + name_w + " defined")
         give back
     }
     if kind == STMT_EVENTUALLY {
-        llvm_emit_line("    ; eventually block")
+        ir_comment("eventually block")
         pilot ev_body: word = array_get(ast_stmt_bodies, i)
         if ev_body.length() > 0 { llvm_emit_block(ev_body) }
         give back
@@ -2033,15 +2364,15 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
         pilot is_with_cap = expr_kind == EXPR_CALL and expr_val == "List::with_capacity"
         if is_empty_lit or is_new {
             pilot fresh = next_reg()
-            llvm_emit_line("    " + fresh + " = call i64 @freak_v3_array_new(i64 " + ann_kind + ")")
+            ir_call(fresh, "@freak_v3_array_new", ann_kind + "|")
             llvm_set_var_type(name_w, vtype)
             if llvm_emitting_global_init {
-                llvm_emit_line("    store i64 " + fresh + ", i64* @g_" + name_w)
+                ir_store(fresh, "@g_" + name_w)
             } else {
                 pilot uniq = "binding.local." + eid
                 temp_reg_counter += 1
                 llvm_reg_var(name_w, uniq)
-                llvm_emit_line("    store i64 " + fresh + ", i64* %" + uniq)
+                ir_store(fresh, "%" + uniq)
                 if llvm_v3_owned_type(vtype) { llvm_v3_register_slot(uniq, vtype) }
             }
             give back
@@ -2049,15 +2380,15 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
         if is_with_cap {
             pilot cap_reg = llvm_emit_expr(word_from_int(tc_arg_at(expr_left, 0)))
             pilot with_cap = next_reg()
-            llvm_emit_line("    " + with_cap + " = call i64 @freak_v3_array_with_capacity(i64 " + ann_kind + ", i64 " + cap_reg + ")")
+            ir_call(with_cap, "@freak_v3_array_with_capacity", ann_kind + "|" + cap_reg + "|")
             llvm_set_var_type(name_w, vtype)
             if llvm_emitting_global_init {
-                llvm_emit_line("    store i64 " + with_cap + ", i64* @g_" + name_w)
+                ir_store(with_cap, "@g_" + name_w)
             } else {
                 pilot uniq = "binding.local." + eid
                 temp_reg_counter += 1
                 llvm_reg_var(name_w, uniq)
-                llvm_emit_line("    store i64 " + with_cap + ", i64* %" + uniq)
+                ir_store(with_cap, "%" + uniq)
                 if llvm_v3_owned_type(vtype) { llvm_v3_register_slot(uniq, vtype) }
             }
             give back
@@ -2068,7 +2399,7 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
     if vtype.starts_with("n") { stored_reg = llvm_coerce_num_bits(reg, expr_id_w) }
     if vtype.starts_with("w") and llvm_word_expr_needs_clone(expr_id_w) {
         pilot clone_reg = next_reg()
-        llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
+        ir_call(clone_reg, "@freak_llvm_word_clone", reg + "|")
         stored_reg = clone_reg
     }
     if llvm_v3_owned_type(vtype) and not llvm_v3_temporary(expr_id_w) { stored_reg = llvm_v3_retain(reg, vtype) }
@@ -2076,13 +2407,13 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
     -- RHS and its ownership decision have been lowered.
     llvm_set_var_type(name_w, vtype)
     if llvm_emitting_global_init {
-        llvm_emit_line("    store i64 " + stored_reg + ", i64* @g_" + name_w)
+        ir_store(stored_reg, "@g_" + name_w)
     } else {
         pilot uniq = "binding.local." + eid
         temp_reg_counter += 1
         if vtype == "r" { uniq = "checked.local." + eid }
         llvm_reg_var(name_w, uniq)
-        llvm_emit_line("    store i64 " + stored_reg + ", i64* %" + uniq)
+        ir_store(stored_reg, "%" + uniq)
         if vtype.starts_with("w") { llvm_register_word_local_slot(uniq) }
         if llvm_v3_owned_type(vtype) { llvm_v3_register_slot(uniq, vtype) }
     }
@@ -2099,12 +2430,12 @@ task llvm_preallocate_result_slots(block: word) -> void {
         if kind == STMT_PILOT {
             pilot expression = word_to_int(array_get(ast_stmt_exprs, sid))
             if array_get(ast_expr_kinds, expression) == EXPR_CALL and array_get(ast_expr_vals, expression) == "fs::read_checked" {
-                llvm_emit_line("    %checked.local." + eid + " = alloca i64")
-            } else { llvm_emit_line("    %binding.local." + eid + " = alloca i64") }
+                ir_alloca("%checked.local." + eid)
+            } else { ir_alloca("%binding.local." + eid) }
         } else if kind == STMT_CHECK_RESULT {
-            llvm_emit_line("    %checked.owner." + eid + " = alloca i64")
-            llvm_emit_line("    %checked.payload.ok." + eid + " = alloca i64")
-            llvm_emit_line("    %checked.payload.err." + eid + " = alloca i64")
+            ir_alloca("%checked.owner." + eid)
+            ir_alloca("%checked.payload.ok." + eid)
+            ir_alloca("%checked.payload.err." + eid)
             llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
             llvm_preallocate_result_slots(array_get(ast_stmt_else_bodies, sid))
         } else if kind == STMT_IF {
@@ -2113,21 +2444,21 @@ task llvm_preallocate_result_slots(block: word) -> void {
         } else if kind == STMT_REPEAT {
             pilot mode: word = array_get(ast_stmt_names, sid)
             if mode != "until" and mode != "while" {
-                llvm_emit_line("    %repeat.index." + eid + " = alloca i64")
-                if array_get(ast_stmt_extras, sid) != "" { llvm_emit_line("    %repeat.value." + eid + " = alloca i64") }
+                ir_alloca("%repeat.index." + eid)
+                if array_get(ast_stmt_extras, sid) != "" { ir_alloca("%repeat.value." + eid) }
             }
             llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
         } else if kind == STMT_RANGE {
-            llvm_emit_line("    %range.index." + eid + " = alloca i64")
-            llvm_emit_line("    %range.value." + eid + " = alloca i64")
+            ir_alloca("%range.index." + eid)
+            ir_alloca("%range.value." + eid)
             llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
         } else if kind == STMT_FOREACH {
-            llvm_emit_line("    %each.owner." + eid + " = alloca i64")
-            llvm_emit_line("    %each.index." + eid + " = alloca i64")
-            llvm_emit_line("    %each.value." + eid + " = alloca i64")
+            ir_alloca("%each.owner." + eid)
+            ir_alloca("%each.index." + eid)
+            ir_alloca("%each.value." + eid)
             llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
         } else if kind == STMT_TRAINING_ARC {
-            llvm_emit_line("    %training.count." + eid + " = alloca i64")
+            ir_alloca("%training.count." + eid)
             llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
         } else if kind == STMT_FOR {
             llvm_preallocate_result_slots(array_get(ast_stmt_else_bodies, sid))
@@ -2164,8 +2495,8 @@ task llvm_emit_check_result_arm(eid: word, owner: word, success: bool) -> void {
         getter = "freak_llvm_fs_result_error"
     }
     pilot payload = next_reg()
-    llvm_emit_line("    " + payload + " = call i64 @" + getter + "(i64 " + owner + ")")
-    llvm_emit_line("    store i64 " + payload + ", i64* %" + slot)
+    ir_call(payload, "@" + getter, owner + "|")
+    ir_store(payload, "%" + slot)
     llvm_set_var_type(binder, "w")
     llvm_reg_var(binder, slot)
     tc_set_local(binder, "word")
@@ -2187,7 +2518,7 @@ task llvm_emit_check_result(eid: word) -> void {
     pilot owns: bool = array_get(ast_expr_kinds, word_to_int(target)) != EXPR_IDENT
     if owns {
         pilot slot = "checked.owner." + eid
-        llvm_emit_line("    store i64 " + owner + ", i64* %" + slot)
+        ir_store(owner, "%" + slot)
         llvm_v3_register_slot(slot, "r")
     }
     pilot state = next_reg()
@@ -2195,16 +2526,16 @@ task llvm_emit_check_result(eid: word) -> void {
     pilot ok_label = "checked.ok." + eid
     pilot err_label = "checked.err." + eid
     pilot end_label = "checked.end." + eid
-    llvm_emit_line("    " + state + " = call i64 @freak_llvm_fs_result_ok(i64 " + owner + ")")
-    llvm_emit_line("    " + condition + " = icmp ne i64 " + state + ", 0")
-    llvm_emit_line("    br i1 " + condition + ", label %" + ok_label + ", label %" + err_label)
-    llvm_emit_line(ok_label + ":")
+    ir_call(state, "@freak_llvm_fs_result_ok", owner + "|")
+    ir_icmp(condition, "ne", state, "0")
+    ir_cond_br(condition, ok_label, err_label)
+    ir_label(ok_label)
     llvm_emit_check_result_arm(eid, owner, true)
-    llvm_emit_line("    br label %" + end_label)
-    llvm_emit_line(err_label + ":")
+    ir_br(end_label)
+    ir_label(err_label)
     llvm_emit_check_result_arm(eid, owner, false)
-    llvm_emit_line("    br label %" + end_label)
-    llvm_emit_line(end_label + ":")
+    ir_br(end_label)
+    ir_label(end_label)
     llvm_emit_word_local_cleanup_since(saved_slots, "")
     llvm_word_local_slots = saved_slots
 }
@@ -2221,25 +2552,25 @@ task llvm_emit_stmt_if(eid: word) -> void {
     temp_reg_counter += 1
 
     pilot cmp_reg = next_reg()
-    llvm_emit_line("    " + cmp_reg + " = icmp ne i64 " + cond_reg + ", 0")
+    ir_icmp(cmp_reg, "ne", cond_reg, "0")
 
     pilot else_body_w: word = array_get(ast_stmt_else_bodies, i)
     if else_body_w.length() > 0 {
-        llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_then + ", label %" + l_else)
+        ir_cond_br(cmp_reg, l_then, l_else)
     } else {
-        llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_then + ", label %" + l_end)
+        ir_cond_br(cmp_reg, l_then, l_end)
     }
 
-    llvm_emit_line(l_then + ":")
+    ir_label(l_then)
     llvm_emit_block(array_get(ast_stmt_bodies, i))
-    llvm_emit_line("    br label %" + l_end)
+    ir_br(l_end)
 
     if else_body_w.length() > 0 {
-        llvm_emit_line(l_else + ":")
+        ir_label(l_else)
         llvm_emit_block(else_body_w)
-        llvm_emit_line("    br label %" + l_end)
+        ir_br(l_end)
     }
-    llvm_emit_line(l_end + ":")
+    ir_label(l_end)
 }
 
 task llvm_emit_stmt_repeat(eid: word) -> void {
@@ -2265,16 +2596,16 @@ task llvm_emit_stmt_repeat(eid: word) -> void {
 
     if name_w == "until" or name_w == "while" {
         llvm_loop_cond_label = l_cond
-        llvm_emit_line("    br label %" + l_cond)
-        llvm_emit_line(l_cond + ":")
+        ir_br(l_cond)
+        ir_label(l_cond)
         pilot cond_reg = llvm_emit_expr(expr_id_w)
         pilot cmp_reg = next_reg()
-        if name_w == "until" { llvm_emit_line("    " + cmp_reg + " = icmp eq i64 " + cond_reg + ", 0") }
-        else { llvm_emit_line("    " + cmp_reg + " = icmp ne i64 " + cond_reg + ", 0") }
-        llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_body + ", label %" + l_end)
-        llvm_emit_line(l_body + ":")
+        if name_w == "until" { ir_icmp(cmp_reg, "eq", cond_reg, "0") }
+        else { ir_icmp(cmp_reg, "ne", cond_reg, "0") }
+        ir_cond_br(cmp_reg, l_body, l_end)
+        ir_label(l_body)
         llvm_emit_block(array_get(ast_stmt_bodies, i))
-        llvm_emit_line("    br label %" + l_cond)
+        ir_br(l_cond)
     } else {
         pilot l_inc = "loop.inc." + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
@@ -2286,33 +2617,33 @@ task llvm_emit_stmt_repeat(eid: word) -> void {
         pilot binder: word = array_get(ast_stmt_extras, i)
         pilot binding_slot = "repeat.value." + eid
         temp_reg_counter += 1
-        llvm_emit_line("    store i64 0, i64* %" + rep_var)
-        llvm_emit_line("    br label %" + l_cond)
-        llvm_emit_line(l_cond + ":")
+        ir_store("0", "%" + rep_var)
+        ir_br(l_cond)
+        ir_label(l_cond)
         pilot curr_val = next_reg()
-        llvm_emit_line("    " + curr_val + " = load i64, i64* %" + rep_var)
+        ir_load(curr_val, "%" + rep_var)
         pilot cmp_reg = next_reg()
-        llvm_emit_line("    " + cmp_reg + " = icmp slt i64 " + curr_val + ", " + count_reg)
-        llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_body + ", label %" + l_end)
+        ir_icmp(cmp_reg, "slt", curr_val, count_reg)
+        ir_cond_br(cmp_reg, l_body, l_end)
 
-        llvm_emit_line(l_body + ":")
+        ir_label(l_body)
         if binder != "" {
-            llvm_emit_line("    store i64 " + curr_val + ", i64* %" + binding_slot)
+            ir_store(curr_val, "%" + binding_slot)
             llvm_set_var_type(binder, "i")
             llvm_reg_var(binder, binding_slot)
         }
         llvm_emit_block(array_get(ast_stmt_bodies, i))
-        llvm_emit_line("    br label %" + l_inc)
-        llvm_emit_line(l_inc + ":")
+        ir_br(l_inc)
+        ir_label(l_inc)
         pilot next_val = next_reg()
-        llvm_emit_line("    " + next_val + " = load i64, i64* %" + rep_var)
+        ir_load(next_val, "%" + rep_var)
         pilot inc_val = next_reg()
-        llvm_emit_line("    " + inc_val + " = add i64 " + next_val + ", 1")
-        llvm_emit_line("    store i64 " + inc_val + ", i64* %" + rep_var)
-        llvm_emit_line("    br label %" + l_cond)
+        ir_int(inc_val, "add", next_val, "1")
+        ir_store(inc_val, "%" + rep_var)
+        ir_br(l_cond)
     }
 
-    llvm_emit_line(l_end + ":")
+    ir_label(l_end)
     llvm_loop_end_label = save_end
     llvm_loop_cond_label = save_cond
     llvm_loop_word_cleanup_prefix = save_cleanup_prefix
@@ -2326,10 +2657,10 @@ task llvm_emit_loop_failure(message: word) -> void {
     pilot length = word_from_int(llvm_string_byte_len(message) + 1)
     pilot pointer = next_reg()
     pilot value = next_reg()
-    llvm_emit_line("    " + pointer + " = getelementptr inbounds [" + length + " x i8], [" + length + " x i8]* " + string_id + ", i64 0, i64 0")
-    llvm_emit_line("    " + value + " = ptrtoint i8* " + pointer + " to i64")
-    llvm_emit_line("    call void @freak_llvm_panic(i64 " + value + ")")
-    llvm_emit_line("    unreachable")
+    ir_string_pointer(pointer, length, string_id)
+    ir_ptrtoint(value, pointer)
+    ir_call_void("@freak_llvm_panic", value + "|")
+    ir_unreachable()
 }
 
 task llvm_emit_stmt_range(eid: word) -> void {
@@ -2355,23 +2686,23 @@ task llvm_emit_stmt_range(eid: word) -> void {
     pilot slot = "range.index." + eid
     pilot binding_slot = "range.value." + eid
     pilot valid = next_reg()
-    llvm_emit_line("    " + valid + " = icmp sgt i64 " + step + ", 0")
-    llvm_emit_line("    br i1 " + valid + ", label %" + ready + ", label %" + failure)
-    llvm_emit_line(failure + ":")
+    ir_icmp(valid, "sgt", step, "0")
+    ir_cond_br(valid, ready, failure)
+    ir_label(failure)
     llvm_emit_loop_failure("range step must be positive")
-    llvm_emit_line(ready + ":")
-    llvm_emit_line("    store i64 " + lower + ", i64* %" + slot)
-    llvm_emit_line("    br label %" + cond)
-    llvm_emit_line(cond + ":")
+    ir_label(ready)
+    ir_store(lower, "%" + slot)
+    ir_br(cond)
+    ir_label(cond)
     pilot current = next_reg()
     pilot more = next_reg()
-    llvm_emit_line("    " + current + " = load i64, i64* %" + slot)
+    ir_load(current, "%" + slot)
     pilot comparison = "slt"
     if array_get(ast_task_params, sid) == "..=" { comparison = "sle" }
-    llvm_emit_line("    " + more + " = icmp " + comparison + " i64 " + current + ", " + upper)
-    llvm_emit_line("    br i1 " + more + ", label %" + body + ", label %" + finish)
-    llvm_emit_line(body + ":")
-    llvm_emit_line("    store i64 " + current + ", i64* %" + binding_slot)
+    ir_icmp(more, comparison, current, upper)
+    ir_cond_br(more, body, finish)
+    ir_label(body)
+    ir_store(current, "%" + binding_slot)
     pilot name: word = array_get(ast_stmt_names, sid)
     llvm_set_var_type(name, "i")
     llvm_reg_var(name, binding_slot)
@@ -2379,19 +2710,19 @@ task llvm_emit_stmt_range(eid: word) -> void {
     llvm_loop_cond_label = increment
     llvm_loop_word_cleanup_prefix = llvm_word_local_slots
     llvm_emit_block(array_get(ast_stmt_bodies, sid))
-    llvm_emit_line("    br label %" + increment)
-    llvm_emit_line(increment + ":")
+    ir_br(increment)
+    ir_label(increment)
     pilot max_start = next_reg()
     pilot exhausted = next_reg()
-    llvm_emit_line("    " + max_start + " = sub i64 9223372036854775807, " + step)
-    llvm_emit_line("    " + exhausted + " = icmp sgt i64 " + current + ", " + max_start)
-    llvm_emit_line("    br i1 " + exhausted + ", label %" + finish + ", label %" + advance)
-    llvm_emit_line(advance + ":")
+    ir_int(max_start, "sub", "9223372036854775807", step)
+    ir_icmp(exhausted, "sgt", current, max_start)
+    ir_cond_br(exhausted, finish, advance)
+    ir_label(advance)
     pilot next_value = next_reg()
-    llvm_emit_line("    " + next_value + " = add i64 " + current + ", " + step)
-    llvm_emit_line("    store i64 " + next_value + ", i64* %" + slot)
-    llvm_emit_line("    br label %" + cond)
-    llvm_emit_line(finish + ":")
+    ir_int(next_value, "add", current, step)
+    ir_store(next_value, "%" + slot)
+    ir_br(cond)
+    ir_label(finish)
     llvm_var_names = saved_names
     llvm_var_types = saved_types
     llvm_var_reg_map = saved_map
@@ -2415,22 +2746,22 @@ task llvm_emit_stmt_counted_for(eid: word) -> void {
     pilot body = "for.body." + serial
     pilot increment = "for.inc." + serial
     pilot finish = "for.end." + serial
-    llvm_emit_line("    br label %" + cond)
-    llvm_emit_line(cond + ":")
+    ir_br(cond)
+    ir_label(cond)
     pilot condition = llvm_emit_expr(array_get(ast_stmt_exprs, sid))
     pilot more = next_reg()
-    llvm_emit_line("    " + more + " = icmp ne i64 " + condition + ", 0")
-    llvm_emit_line("    br i1 " + more + ", label %" + body + ", label %" + finish)
-    llvm_emit_line(body + ":")
+    ir_icmp(more, "ne", condition, "0")
+    ir_cond_br(more, body, finish)
+    ir_label(body)
     llvm_loop_end_label = finish
     llvm_loop_cond_label = increment
     llvm_loop_word_cleanup_prefix = llvm_word_local_slots
     llvm_emit_block(array_get(ast_stmt_bodies, sid))
-    llvm_emit_line("    br label %" + increment)
-    llvm_emit_line(increment + ":")
+    ir_br(increment)
+    ir_label(increment)
     llvm_emit_stmt(array_get(ast_stmt_extras, sid))
-    llvm_emit_line("    br label %" + cond)
-    llvm_emit_line(finish + ":")
+    ir_br(cond)
+    ir_label(finish)
     llvm_var_names = saved_names
     llvm_var_types = saved_types
     llvm_var_reg_map = saved_map
@@ -2463,25 +2794,25 @@ task llvm_emit_stmt_foreach(eid: word) -> void {
     pilot body = "each.body." + serial
     pilot increment = "each.inc." + serial
     pilot finish = "each.end." + serial
-    llvm_emit_line("    store i64 " + receiver + ", i64* %" + owner_slot)
+    ir_store(receiver, "%" + owner_slot)
     llvm_v3_register_slot(owner_slot, array_type)
     pilot iteration_prefix = llvm_word_local_slots
-    llvm_emit_line("    store i64 0, i64* %" + index_slot)
-    llvm_emit_line("    store i64 0, i64* %" + binding_slot)
-    llvm_emit_line("    br label %" + cond)
-    llvm_emit_line(cond + ":")
+    ir_store("0", "%" + index_slot)
+    ir_store("0", "%" + binding_slot)
+    ir_br(cond)
+    ir_label(cond)
     pilot offset = next_reg()
     pilot length = next_reg()
     pilot more = next_reg()
-    llvm_emit_line("    " + offset + " = load i64, i64* %" + index_slot)
-    llvm_emit_line("    " + length + " = call i64 @freak_v3_array_len(i64 " + receiver + ")")
-    llvm_emit_line("    " + more + " = icmp slt i64 " + offset + ", " + length)
-    llvm_emit_line("    br i1 " + more + ", label %" + body + ", label %" + finish)
-    llvm_emit_line(body + ":")
+    ir_load(offset, "%" + index_slot)
+    ir_call(length, "@freak_v3_array_len", receiver + "|")
+    ir_icmp(more, "slt", offset, length)
+    ir_cond_br(more, body, finish)
+    ir_label(body)
     pilot value = next_reg()
-    llvm_emit_line("    " + value + " = call i64 @freak_v3_array_get(i64 " + receiver + ", i64 " + offset + ")")
+    ir_call(value, "@freak_v3_array_get", receiver + "|" + offset + "|")
     value = llvm_v3_preserve_element(value, element_type)
-    llvm_emit_line("    store i64 " + value + ", i64* %" + binding_slot)
+    ir_store(value, "%" + binding_slot)
     llvm_set_var_type(name, element_type)
     llvm_reg_var(name, binding_slot)
     if element_type == "w" { llvm_register_word_local_slot(binding_slot) }
@@ -2491,13 +2822,13 @@ task llvm_emit_stmt_foreach(eid: word) -> void {
     llvm_loop_word_cleanup_prefix = iteration_prefix
     llvm_emit_block(array_get(ast_stmt_bodies, i))
     llvm_emit_word_local_cleanup_since(iteration_prefix, "")
-    llvm_emit_line("    br label %" + increment)
-    llvm_emit_line(increment + ":")
+    ir_br(increment)
+    ir_label(increment)
     pilot next_offset = next_reg()
-    llvm_emit_line("    " + next_offset + " = add i64 " + offset + ", 1")
-    llvm_emit_line("    store i64 " + next_offset + ", i64* %" + index_slot)
-    llvm_emit_line("    br label %" + cond)
-    llvm_emit_line(finish + ":")
+    ir_int(next_offset, "add", offset, "1")
+    ir_store(next_offset, "%" + index_slot)
+    ir_br(cond)
+    ir_label(finish)
     llvm_word_local_slots = iteration_prefix
     llvm_emit_word_local_cleanup_since(saved_slots, "")
     llvm_word_local_slots = saved_slots
@@ -2527,21 +2858,21 @@ task llvm_emit_stmt_training_arc(eid: word) -> void {
     temp_reg_counter += 1
 
     pilot max_reg = llvm_emit_expr(array_get(ast_stmt_extras, i))
-    llvm_emit_line("    store i64 0, i64* %" + rep_var)
-    llvm_emit_line("    br label %" + l_cond)
+    ir_store("0", "%" + rep_var)
+    ir_br(l_cond)
 
-    llvm_emit_line(l_cond + ":")
+    ir_label(l_cond)
     pilot curr_val = next_reg()
-    llvm_emit_line("    " + curr_val + " = load i64, i64* %" + rep_var)
+    ir_load(curr_val, "%" + rep_var)
     pilot cmp_max = next_reg()
-    llvm_emit_line("    " + cmp_max + " = icmp slt i64 " + curr_val + ", " + max_reg)
-    llvm_emit_line("    br i1 " + cmp_max + ", label %" + l_until + ", label %" + l_end)
+    ir_icmp(cmp_max, "slt", curr_val, max_reg)
+    ir_cond_br(cmp_max, l_until, l_end)
 
-    llvm_emit_line(l_until + ":")
+    ir_label(l_until)
     pilot cond_reg = llvm_emit_expr(expr_id_w)
     pilot cmp_cond = next_reg()
-    llvm_emit_line("    " + cmp_cond + " = icmp eq i64 " + cond_reg + ", 0")
-    llvm_emit_line("    br i1 " + cmp_cond + ", label %" + l_body + ", label %" + l_end)
+    ir_icmp(cmp_cond, "eq", cond_reg, "0")
+    ir_cond_br(cmp_cond, l_body, l_end)
 
     pilot save_end = llvm_loop_end_label
     pilot save_cond = llvm_loop_cond_label
@@ -2550,19 +2881,19 @@ task llvm_emit_stmt_training_arc(eid: word) -> void {
     llvm_loop_cond_label = l_inc
     llvm_loop_word_cleanup_prefix = llvm_word_local_slots
 
-    llvm_emit_line(l_body + ":")
+    ir_label(l_body)
     llvm_emit_block(array_get(ast_stmt_bodies, i))
 
-    llvm_emit_line("    br label %" + l_inc)
-    llvm_emit_line(l_inc + ":")
+    ir_br(l_inc)
+    ir_label(l_inc)
     pilot next_val = next_reg()
-    llvm_emit_line("    " + next_val + " = load i64, i64* %" + rep_var)
+    ir_load(next_val, "%" + rep_var)
     pilot inc_val = next_reg()
-    llvm_emit_line("    " + inc_val + " = add i64 " + next_val + ", 1")
-    llvm_emit_line("    store i64 " + inc_val + ", i64* %" + rep_var)
-    llvm_emit_line("    br label %" + l_cond)
+    ir_int(inc_val, "add", next_val, "1")
+    ir_store(inc_val, "%" + rep_var)
+    ir_br(l_cond)
 
-    llvm_emit_line(l_end + ":")
+    ir_label(l_end)
     llvm_loop_end_label = save_end
     llvm_loop_cond_label = save_cond
     llvm_loop_word_cleanup_prefix = save_cleanup_prefix
@@ -2586,7 +2917,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         pilot previous = ""
         if name_w != "=" {
             previous = next_reg()
-            llvm_emit_line("    " + previous + " = call i64 @freak_v3_array_get(i64 " + receiver + ", i64 " + offset + ")")
+            ir_call(previous, "@freak_v3_array_get", receiver + "|" + offset + "|")
             if element_type == "w" { previous = llvm_v3_preserve_element(previous, "w") }
         }
         pilot value = llvm_emit_expr(rhs_w)
@@ -2602,16 +2933,16 @@ task llvm_emit_stmt_assign(eid: word) -> void {
                 if name_w == "%=" { op = "frem" }
                 stored = llvm_emit_num_compound_bits(previous, value, rhs_w, op)
             } else if element_type == "w" {
-                llvm_emit_line("    " + stored + " = call i64 @freak_llvm_word_concat(i64 " + previous + ", i64 " + value + ")")
+                ir_call(stored, "@freak_llvm_word_concat", previous + "|" + value + "|")
             } else {
                 llvm_emit_checked_integer(previous, value, stored, name_w, rhs_w)
             }
         }
-        llvm_emit_line("    call void @freak_v3_array_set(i64 " + receiver + ", i64 " + offset + ", i64 " + stored + ")")
+        ir_call_void("@freak_v3_array_set", receiver + "|" + offset + "|" + stored + "|")
         llvm_v3_cleanup_temp(rhs_w, value)
         if name_w != "=" and element_type == "w" {
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous + ", i64 0)")
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + stored + ", i64 0)")
+            ir_call_void("@freak_llvm_word_release_replaced", previous + "|" + "0" + "|")
+            ir_call_void("@freak_llvm_word_release_replaced", stored + "|" + "0" + "|")
         }
         llvm_v3_release(receiver, llvm_infer_expr_type(receiver_id))
         give back
@@ -2659,17 +2990,17 @@ task llvm_emit_stmt_assign(eid: word) -> void {
                             pilot suffix_kind: word = array_get(ast_expr_kinds, word_to_int(append_right))
                             pilot effect_free_suffix = suffix_kind == EXPR_IDENT or suffix_kind == EXPR_STR
                             if effect_free_suffix {
-                                llvm_emit_line("    " + previous_field + " = call i64 @freak_v3_shape_take(i64 " + recv_reg + ", i64 " + fidx_w + ")")
+                                ir_call(previous_field, "@freak_v3_shape_take", recv_reg + "|" + fidx_w + "|")
                             } else {
-                                llvm_emit_line("    " + previous_field + " = call i64 @freak_v3_shape_get(i64 " + recv_reg + ", i64 " + fidx_w + ")")
+                                ir_call(previous_field, "@freak_v3_shape_get", recv_reg + "|" + fidx_w + "|")
                                 previous_field = llvm_v3_preserve_element(previous_field, "w")
                             }
                             pilot suffix_reg = llvm_emit_expr(append_right)
                             pilot release_suffix = "0"
                             if llvm_word_expr_is_owned_temporary(append_right) { release_suffix = "1" }
                             pilot appended_field = next_reg()
-                            llvm_emit_line("    " + appended_field + " = call i64 @freak_llvm_word_append_owned(i64 " + previous_field + ", i64 " + suffix_reg + ", i64 " + release_suffix + ")")
-                            llvm_emit_line("    call void @freak_v3_shape_set_owned(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + appended_field + ")")
+                            ir_call(appended_field, "@freak_llvm_word_append_owned", previous_field + "|" + suffix_reg + "|" + release_suffix + "|")
+                            ir_call_void("@freak_v3_shape_set_owned", recv_reg + "|" + fidx_w + "|" + appended_field + "|")
                             llvm_v3_release(recv_reg, recv_type)
                             give back
                         }
@@ -2681,7 +3012,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         pilot cur_reg = "0"
         if name_w != "=" {
             cur_reg = next_reg()
-            llvm_emit_line("    " + cur_reg + " = call i64 @freak_v3_shape_get(i64 " + recv_reg + ", i64 " + fidx_w + ")")
+            ir_call(cur_reg, "@freak_v3_shape_get", recv_reg + "|" + fidx_w + "|")
             if field_type == "w" { cur_reg = llvm_v3_preserve_element(cur_reg, "w") }
         }
         pilot rhs_reg = llvm_emit_expr(rhs_w)
@@ -2689,7 +3020,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         if name_w == "=" {
             pilot stored_field = rhs_reg
             if field_type.starts_with("n") { stored_field = llvm_coerce_num_bits(rhs_reg, rhs_w) }
-            llvm_emit_line("    call void @freak_v3_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + stored_field + ")")
+            ir_call_void("@freak_v3_shape_set", recv_reg + "|" + fidx_w + "|" + stored_field + "|")
             llvm_v3_cleanup_temp(rhs_w, rhs_reg)
             llvm_v3_release(recv_reg, recv_type)
             give back
@@ -2705,14 +3036,14 @@ task llvm_emit_stmt_assign(eid: word) -> void {
             if name_w == "%=" { float_op = "frem" }
             op_reg = llvm_emit_num_compound_bits(cur_reg, rhs_reg, rhs_w, float_op)
         } else if field_type == "w" {
-            llvm_emit_line("    " + op_reg + " = call i64 @freak_llvm_word_concat(i64 " + cur_reg + ", i64 " + rhs_reg + ")")
+            ir_call(op_reg, "@freak_llvm_word_concat", cur_reg + "|" + rhs_reg + "|")
         } else {
             llvm_emit_checked_integer(cur_reg, rhs_reg, op_reg, name_w, rhs_w)
         }
-        llvm_emit_line("    call void @freak_v3_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + op_reg + ")")
+        ir_call_void("@freak_v3_shape_set", recv_reg + "|" + fidx_w + "|" + op_reg + "|")
         if field_type == "w" {
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + cur_reg + ", i64 0)")
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + op_reg + ", i64 0)")
+            ir_call_void("@freak_llvm_word_release_replaced", cur_reg + "|" + "0" + "|")
+            ir_call_void("@freak_llvm_word_release_replaced", op_reg + "|" + "0" + "|")
         }
         llvm_v3_cleanup_temp(rhs_w, rhs_reg)
         llvm_v3_release(recv_reg, recv_type)
@@ -2739,13 +3070,13 @@ task llvm_emit_stmt_assign(eid: word) -> void {
             if llvm_is_global(var_name_expr) and not safe_global_suffix { can_append = false }
             if can_append {
                 pilot previous_reg = next_reg()
-                llvm_emit_line("    " + previous_reg + " = load i64, i64* " + var_ptr)
+                ir_load(previous_reg, var_ptr)
                 pilot suffix_reg = llvm_emit_expr(append_right)
                 pilot release_suffix = "0"
                 if llvm_word_expr_is_owned_temporary(append_right) { release_suffix = "1" }
                 pilot appended_reg = next_reg()
-                llvm_emit_line("    " + appended_reg + " = call i64 @freak_llvm_word_append_owned(i64 " + previous_reg + ", i64 " + suffix_reg + ", i64 " + release_suffix + ")")
-                llvm_emit_line("    store i64 " + appended_reg + ", i64* " + var_ptr)
+                ir_call(appended_reg, "@freak_llvm_word_append_owned", previous_reg + "|" + suffix_reg + "|" + release_suffix + "|")
+                ir_store(appended_reg, var_ptr)
                 give back
             }
         }
@@ -2755,23 +3086,23 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         -- that mutates the global must still append to the entry value.
         pilot word_snapshot = next_reg()
         pilot word_loaded = next_reg()
-        llvm_emit_line("    " + word_loaded + " = load i64, i64* " + var_ptr)
-        llvm_emit_line("    " + word_snapshot + " = call i64 @freak_llvm_word_clone(i64 " + word_loaded + ")")
+        ir_load(word_loaded, var_ptr)
+        ir_call(word_snapshot, "@freak_llvm_word_clone", word_loaded + "|")
         pilot word_suffix = llvm_emit_expr(rhs_w)
         pilot word_concat = next_reg()
-        llvm_emit_line("    " + word_concat + " = call i64 @freak_llvm_word_concat(i64 " + word_snapshot + ", i64 " + word_suffix + ")")
+        ir_call(word_concat, "@freak_llvm_word_concat", word_snapshot + "|" + word_suffix + "|")
         llvm_v3_cleanup_temp(rhs_w, word_suffix)
         pilot word_prev = next_reg()
-        llvm_emit_line("    " + word_prev + " = load i64, i64* " + var_ptr)
-        llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + word_prev + ", i64 " + word_concat + ")")
-        llvm_emit_line("    store i64 " + word_concat + ", i64* " + var_ptr)
-        llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + word_snapshot + ", i64 0)")
+        ir_load(word_prev, var_ptr)
+        ir_call_void("@freak_llvm_word_release_replaced", word_prev + "|" + word_concat + "|")
+        ir_store(word_concat, var_ptr)
+        ir_call_void("@freak_llvm_word_release_replaced", word_snapshot + "|" + "0" + "|")
         give back
     }
     pilot integer_previous = ""
     if name_w != "=" and target_type == "i" {
         integer_previous = next_reg()
-        llvm_emit_line("    " + integer_previous + " = load i64, i64* " + var_ptr)
+        ir_load(integer_previous, var_ptr)
     }
     pilot reg = llvm_emit_expr(rhs_w)
     pilot stored_reg = reg
@@ -2780,19 +3111,19 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         -- evaluation; locals cannot be mutated by the RHS, so load-then-
         -- append is sound. (Globals take the snapshot path above.)
         pilot word_prev = next_reg()
-        llvm_emit_line("    " + word_prev + " = load i64, i64* " + var_ptr)
+        ir_load(word_prev, var_ptr)
         pilot word_release_suffix = "0"
         if llvm_word_expr_is_owned_temporary(rhs_w) { word_release_suffix = "1" }
         pilot word_appended = next_reg()
-        llvm_emit_line("    " + word_appended + " = call i64 @freak_llvm_word_append_owned(i64 " + word_prev + ", i64 " + reg + ", i64 " + word_release_suffix + ")")
-        llvm_emit_line("    store i64 " + word_appended + ", i64* " + var_ptr)
+        ir_call(word_appended, "@freak_llvm_word_append_owned", word_prev + "|" + reg + "|" + word_release_suffix + "|")
+        ir_store(word_appended, var_ptr)
         give back
     }
     if name_w == "=" {
         if llvm_v3_owned_type(target_type) {
             if not llvm_v3_temporary(rhs_w) { stored_reg = llvm_v3_retain(reg, target_type) }
             pilot previous = next_reg()
-            llvm_emit_line("    " + previous + " = load i64, i64* " + var_ptr)
+            ir_load(previous, var_ptr)
             llvm_v3_release(previous, target_type)
         }
         if target_type.starts_with("n") { stored_reg = llvm_coerce_num_bits(reg, rhs_w) }
@@ -2801,19 +3132,19 @@ task llvm_emit_stmt_assign(eid: word) -> void {
             pilot rhs_kind: word = array_get(ast_expr_kinds, rhs_idx)
             if llvm_word_expr_needs_clone(rhs_w) {
                 pilot clone_reg = next_reg()
-                llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
+                ir_call(clone_reg, "@freak_llvm_word_clone", reg + "|")
                 stored_reg = clone_reg
             }
             pilot previous_reg = next_reg()
-            llvm_emit_line("    " + previous_reg + " = load i64, i64* " + var_ptr)
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous_reg + ", i64 " + stored_reg + ")")
+            ir_load(previous_reg, var_ptr)
+            ir_call_void("@freak_llvm_word_release_replaced", previous_reg + "|" + stored_reg + "|")
         }
-        llvm_emit_line("    store i64 " + stored_reg + ", i64* " + var_ptr)
+        ir_store(stored_reg, var_ptr)
         give back
     }
     pilot load_reg = next_reg()
     if integer_previous != "" { load_reg = integer_previous }
-    else { llvm_emit_line("    " + load_reg + " = load i64, i64* " + var_ptr) }
+    else { ir_load(load_reg, var_ptr) }
     pilot op_reg = next_reg()
     if target_type.starts_with("n") {
         pilot float_op = "fadd"
@@ -2825,7 +3156,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
     } else {
         llvm_emit_checked_integer(load_reg, reg, op_reg, name_w, rhs_w)
     }
-    llvm_emit_line("    store i64 " + op_reg + ", i64* " + var_ptr)
+    ir_store(op_reg, var_ptr)
 }
 
 task llvm_emit_stmt_when(eid: word) -> void {
@@ -2846,7 +3177,7 @@ task llvm_emit_stmt_when(eid: word) -> void {
     temp_reg_counter += 1
     pilot current_block = "when.case." + word_from_int(temp_reg_counter)
     temp_reg_counter += 1
-    llvm_emit_line("    br label %" + current_block)
+    ir_br(current_block)
 
     pilot cases_len = cases_str.length()
     pilot ci = 0
@@ -2857,7 +3188,7 @@ task llvm_emit_stmt_when(eid: word) -> void {
         pilot cc = cases_str.char_at(ci)
         if cc == "," or ci >= cases_len {
             if cur_case.length() > 0 {
-                llvm_emit_line(current_block + ":")
+                ir_label(current_block)
                 pilot c_expr = ""
                 pilot c_stmt = ""
                 pilot in_expr = true
@@ -2878,27 +3209,27 @@ task llvm_emit_stmt_when(eid: word) -> void {
                 temp_reg_counter += 1
 
                 if c_expr == "-1" {
-                    llvm_emit_line("    br label %" + do_block)
+                    ir_br(do_block)
                 } else {
                     pilot cmp_val = llvm_emit_expr(c_expr)
                     pilot cmp_res = next_reg()
                     if target_type.starts_with("w") {
                         pilot word_cmp = next_reg()
-                        llvm_emit_line("    " + word_cmp + " = call i64 @freak_llvm_word_eq(i64 " + target_reg + ", i64 " + cmp_val + ")")
+                        ir_call(word_cmp, "@freak_llvm_word_eq", target_reg + "|" + cmp_val + "|")
                         if llvm_word_expr_is_owned_temporary(c_expr) {
-                            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + cmp_val + ", i64 0)")
+                            ir_call_void("@freak_llvm_word_release_replaced", cmp_val + "|" + "0" + "|")
                         }
-                        llvm_emit_line("    " + cmp_res + " = icmp ne i64 " + word_cmp + ", 0")
+                        ir_icmp(cmp_res, "ne", word_cmp, "0")
                     } else if target_type.starts_with("n") or llvm_infer_expr_type(c_expr).starts_with("n") {
                         pilot target_double = llvm_numeric_to_double(target_reg, expr_id_w)
                         pilot case_double = llvm_numeric_to_double(cmp_val, c_expr)
-                        llvm_emit_line("    " + cmp_res + " = fcmp oeq double " + target_double + ", " + case_double)
+                        ir_fcmp(cmp_res, "oeq", target_double, case_double)
                     } else {
-                        llvm_emit_line("    " + cmp_res + " = icmp eq i64 " + target_reg + ", " + cmp_val)
+                        ir_icmp(cmp_res, "eq", target_reg, cmp_val)
                     }
-                    llvm_emit_line("    br i1 " + cmp_res + ", label %" + do_block + ", label %" + next_block)
+                    ir_cond_br(cmp_res, do_block, next_block)
                 }
-                llvm_emit_line(do_block + ":")
+                ir_label(do_block)
                 pilot saved_case_names = llvm_var_names
                 pilot saved_case_types = llvm_var_types
                 pilot saved_case_map = llvm_var_reg_map
@@ -2909,7 +3240,7 @@ task llvm_emit_stmt_when(eid: word) -> void {
                 llvm_var_types = saved_case_types
                 llvm_var_reg_map = saved_case_map
                 llvm_word_local_slots = saved_case_word_slots
-                llvm_emit_line("    br label %" + l_end)
+                ir_br(l_end)
                 current_block = next_block
             }
             cur_case = ""
@@ -2917,9 +3248,9 @@ task llvm_emit_stmt_when(eid: word) -> void {
         } else { cur_case = cur_case + cc }
         ci += 1
     }
-    llvm_emit_line(current_block + ":")
-    llvm_emit_line("    br label %" + l_end)
-    llvm_emit_line(l_end + ":")
+    ir_label(current_block)
+    ir_br(l_end)
+    ir_label(l_end)
     llvm_emit_word_local_cleanup_since(saved_when_word_slots, "")
     llvm_word_local_slots = saved_when_word_slots
 }
@@ -2944,8 +3275,8 @@ task llvm_allocate_params(p: word) -> void {
         pilot parameter_type = llvm_type_code(tc_param_type_at(p, index))
         pilot slot = "parameter.local." + word_from_int(index)
         pilot input = "%parameter.input." + word_from_int(index)
-        llvm_emit_line("    %" + slot + " = alloca i64")
-        llvm_emit_line("    store i64 " + input + ", i64* %" + slot)
+        ir_alloca("%" + slot)
+        ir_store(input, "%" + slot)
         llvm_set_var_type(name, parameter_type)
         llvm_reg_var(name, slot)
         if parameter_type == "w" { llvm_current_word_params = llvm_current_word_params + "|" + slot + "|" }
@@ -2975,20 +3306,19 @@ task llvm_emit_task(eid: word) -> void {
     llvm_cur_func_returns_word = returns_w == "word"
     llvm_current_return_semantic_type = llvm_type_code(returns_w)
 
-    pilot p_str = ""
-    if params_w.length() > 0 { p_str = llvm_translate_params(params_w) }
-    pilot dbg_attr = llvm_dbg_begin_func(name_w, line_no)
-    llvm_emit_line("define " + ret_type + " " + llvm_user_task_symbol(name_w) + "(" + p_str + ")" + dbg_attr + " \{")
-    llvm_emit_line("entry:")
+    pilot parameter_count = 0
+    if params_w.length() > 0 { parameter_count = tc_arg_count(params_w) }
+    ir_begin_function(ret_type, llvm_user_task_symbol(name_w), parameter_count, name_w, line_no)
+    ir_label("entry")
     if params_w.length() > 0 { llvm_allocate_params(params_w) }
     llvm_preallocate_result_slots(body_id_w)
     llvm_emit_block(body_id_w)
     llvm_emit_word_local_cleanup_since("", "")
     llvm_emit_current_word_param_cleanup("")
-    if is_void { llvm_emit_line("    ret void") }
-    else { llvm_emit_line("    ret i64 0") }
+    if is_void { ir_ret_void() }
+    else { ir_ret("0") }
     llvm_emit_integer_failure_block()
-    llvm_emit_line("\}")
+    ir_end_function()
     llvm_emit_line("")
     llvm_dbg_current_scope_id = 0
     llvm_dbg_current_line = 0
@@ -2997,354 +3327,341 @@ task llvm_emit_task(eid: word) -> void {
 -- ===================== RUNTIME DECLARATIONS ==========================
 
 task llvm_emit_runtime_decls() -> void {
-    llvm_emit_line("declare void @__freak_int_fail(i8*, i8*) cold noreturn")
-    llvm_emit_line("declare \{i64, i1\} @llvm.sadd.with.overflow.i64(i64, i64)")
-    llvm_emit_line("declare \{i64, i1\} @llvm.ssub.with.overflow.i64(i64, i64)")
-    llvm_emit_line("declare \{i64, i1\} @llvm.smul.with.overflow.i64(i64, i64)")
-    llvm_emit_line("@__freak_int_overflow = private unnamed_addr constant [9 x i8] c\"overflow\\00\"")
-    llvm_emit_line("@__freak_int_division_by_zero = private unnamed_addr constant [17 x i8] c\"division by zero\\00\"")
-    llvm_emit_line("@__freak_int_addition = private unnamed_addr constant [9 x i8] c\"addition\\00\"")
-    llvm_emit_line("@__freak_int_subtraction = private unnamed_addr constant [12 x i8] c\"subtraction\\00\"")
-    llvm_emit_line("@__freak_int_multiplication = private unnamed_addr constant [15 x i8] c\"multiplication\\00\"")
-    llvm_emit_line("@__freak_int_division = private unnamed_addr constant [9 x i8] c\"division\\00\"")
-    llvm_emit_line("@__freak_int_remainder = private unnamed_addr constant [10 x i8] c\"remainder\\00\"")
-    llvm_emit_line("@__freak_int_negation = private unnamed_addr constant [9 x i8] c\"negation\\00\"")
-    llvm_emit_line("declare i64 @freak_llvm_fs_read_native(i64)")
-    llvm_emit_line("declare void @freak_llvm_fs_write_native(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_fs_append_native(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_exists_native(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_delete_native(i64)")
-    llvm_emit_line("declare i64 @freak_int_add_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_int_sub_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_int_mul_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_int_div_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_int_rem_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_int_neg_checked(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_index_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_stdout_is_terminal()")
-    llvm_emit_line("declare i64 @freak_llvm_process_platform_name()")
-    llvm_emit_line("declare i64 @freak_llvm_process_platform_is_windows()")
-    llvm_emit_line("declare i64 @freak_llvm_process_executable_path()")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_open(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_bind(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_status(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_error(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_local_port(i64)")
-    llvm_emit_line("declare void @freak_llvm_http_server_set_limits(i64, i64, i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_http_server_set_timeouts(i64, i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_http_server_set_chunk_limits(i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_http_server_stop(i64)")
-    llvm_emit_line("declare void @freak_llvm_http_server_close(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_next_request(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_status(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_error(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_method(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_target(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_path(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_query(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_count(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_name(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_value(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_value_bytes(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_is_trailer(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_find(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_request_body(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_response_status(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_response_header(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_send_bytes(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_send_text(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_http_server_request_release(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_live_servers()")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_live_requests()")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_live_sockets()")
-    llvm_emit_line("declare i64 @freak_llvm_http_server_retained_bytes()")
-    llvm_emit_line("declare i64 @freak_llvm_fs_set_mode_relative_checked(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_rename_relative_new_checked(i64, i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_directory_identity_ticket(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_open_dir_ticket(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_read_bytes_limit_ticket(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_read_relative_ticket(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_read_source_relative_ticket(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_read_relative_bytes_ticket(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_read_relative_bytes_limit_ticket(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_write_relative_bytes_checked(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_remove_temp_dir_checked(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_publish_temp_dir_checked(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_result_completed(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_lock_dir_ticket(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_lock_dir_new_ticket(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_abort_new_lock_checked(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_temp_dir_ticket(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_remove_relative_file_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_mkdir_relative_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_open_relative_dir_ticket(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_list_dir_ticket(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_result_missing(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_directory_path_ticket(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_new()")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_parse(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_parse_bytes(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_ok(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_error(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_error_position(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_root(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_set_root(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_json_document_release(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_kind(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_count(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_array_get(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_object_get(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_object_get_bytes(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_object_key_bytes(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_bool_value(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_number_text(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_string_word(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_string_bytes(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_make_null(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_make_bool(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_make_number(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_make_string(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_make_string_bytes(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_make_array(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_make_object(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_array_append(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_object_insert(i64, i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_object_insert_bytes(i64, i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_serialize_word(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_json_document_serialize_bytes(i64)")
-    llvm_emit_line("declare void @freak_llvm_time_sleep(i64)")
-    llvm_emit_line("declare i64 @freak_v3_array_new(i64)")
-    llvm_emit_line("declare i64 @freak_v3_array_with_capacity(i64, i64)")
-    llvm_emit_line("declare i64 @freak_v3_array_filled(i64, i64, i64)")
-    llvm_emit_line("declare void @freak_v3_array_push(i64, i64)")
-    llvm_emit_line("declare i64 @freak_v3_array_pop(i64)")
-    llvm_emit_line("declare void @freak_v3_array_clear(i64)")
-    llvm_emit_line("declare void @freak_v3_array_reserve(i64, i64)")
-    llvm_emit_line("declare i64 @freak_v3_array_capacity(i64)")
-    llvm_emit_line("declare i64 @freak_v3_array_get(i64, i64)")
-    llvm_emit_line("declare void @freak_v3_array_set(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_v3_array_len(i64)")
-    llvm_emit_line("declare i64 @freak_v3_array_retain(i64)")
-    llvm_emit_line("declare void @freak_v3_array_release(i64)")
-    llvm_emit_line("declare i64 @freak_v3_shape_new(i64)")
-    llvm_emit_line("declare void @freak_v3_shape_init(i64, i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_v3_shape_retain(i64)")
-    llvm_emit_line("declare void @freak_v3_shape_release(i64)")
-    llvm_emit_line("declare i64 @freak_v3_shape_take(i64, i64)")
-    llvm_emit_line("declare void @freak_v3_shape_set_owned(i64, i64, i64)")
+    ir_declare_integer_support()
+    ir_declare("i64", "@freak_llvm_fs_read_native", 1)
+    ir_declare("void", "@freak_llvm_fs_write_native", 2)
+    ir_declare("void", "@freak_llvm_fs_append_native", 2)
+    ir_declare("i64", "@freak_llvm_fs_exists_native", 1)
+    ir_declare("i64", "@freak_llvm_fs_delete_native", 1)
+    ir_declare("i64", "@freak_int_add_checked", 2)
+    ir_declare("i64", "@freak_int_sub_checked", 2)
+    ir_declare("i64", "@freak_int_mul_checked", 2)
+    ir_declare("i64", "@freak_int_div_checked", 2)
+    ir_declare("i64", "@freak_int_rem_checked", 2)
+    ir_declare("i64", "@freak_int_neg_checked", 1)
+    ir_declare("i64", "@freak_llvm_word_index_checked", 2)
+    ir_declare("i64", "@freak_llvm_process_stdout_is_terminal", 0)
+    ir_declare("i64", "@freak_llvm_process_platform_name", 0)
+    ir_declare("i64", "@freak_llvm_process_platform_is_windows", 0)
+    ir_declare("i64", "@freak_llvm_process_executable_path", 0)
+    ir_declare("i64", "@freak_llvm_http_server_open", 1)
+    ir_declare("i64", "@freak_llvm_http_server_bind", 3)
+    ir_declare("i64", "@freak_llvm_http_server_status", 1)
+    ir_declare("i64", "@freak_llvm_http_server_error", 1)
+    ir_declare("i64", "@freak_llvm_http_server_local_port", 1)
+    ir_declare("void", "@freak_llvm_http_server_set_limits", 5)
+    ir_declare("void", "@freak_llvm_http_server_set_timeouts", 4)
+    ir_declare("void", "@freak_llvm_http_server_set_chunk_limits", 3)
+    ir_declare("void", "@freak_llvm_http_server_stop", 1)
+    ir_declare("void", "@freak_llvm_http_server_close", 1)
+    ir_declare("i64", "@freak_llvm_http_server_next_request", 1)
+    ir_declare("i64", "@freak_llvm_http_server_request_status", 1)
+    ir_declare("i64", "@freak_llvm_http_server_request_error", 1)
+    ir_declare("i64", "@freak_llvm_http_server_request_method", 1)
+    ir_declare("i64", "@freak_llvm_http_server_request_target", 1)
+    ir_declare("i64", "@freak_llvm_http_server_request_path", 1)
+    ir_declare("i64", "@freak_llvm_http_server_request_query", 1)
+    ir_declare("i64", "@freak_llvm_http_server_request_header_count", 1)
+    ir_declare("i64", "@freak_llvm_http_server_request_header_name", 2)
+    ir_declare("i64", "@freak_llvm_http_server_request_header_value", 2)
+    ir_declare("i64", "@freak_llvm_http_server_request_header_value_bytes", 2)
+    ir_declare("i64", "@freak_llvm_http_server_request_header_is_trailer", 2)
+    ir_declare("i64", "@freak_llvm_http_server_request_header_find", 3)
+    ir_declare("i64", "@freak_llvm_http_server_request_body", 1)
+    ir_declare("i64", "@freak_llvm_http_server_response_status", 2)
+    ir_declare("i64", "@freak_llvm_http_server_response_header", 3)
+    ir_declare("i64", "@freak_llvm_http_server_send_bytes", 2)
+    ir_declare("i64", "@freak_llvm_http_server_send_text", 2)
+    ir_declare("void", "@freak_llvm_http_server_request_release", 1)
+    ir_declare("i64", "@freak_llvm_http_server_live_servers", 0)
+    ir_declare("i64", "@freak_llvm_http_server_live_requests", 0)
+    ir_declare("i64", "@freak_llvm_http_server_live_sockets", 0)
+    ir_declare("i64", "@freak_llvm_http_server_retained_bytes", 0)
+    ir_declare("i64", "@freak_llvm_fs_set_mode_relative_checked", 3)
+    ir_declare("i64", "@freak_llvm_fs_rename_relative_new_checked", 4)
+    ir_declare("i64", "@freak_llvm_fs_directory_identity_ticket", 1)
+    ir_declare("i64", "@freak_llvm_fs_open_dir_ticket", 1)
+    ir_declare("i64", "@freak_llvm_fs_read_bytes_limit_ticket", 2)
+    ir_declare("i64", "@freak_llvm_fs_read_relative_ticket", 2)
+    ir_declare("i64", "@freak_llvm_fs_read_source_relative_ticket", 2)
+    ir_declare("i64", "@freak_llvm_fs_read_relative_bytes_ticket", 2)
+    ir_declare("i64", "@freak_llvm_fs_read_relative_bytes_limit_ticket", 3)
+    ir_declare("i64", "@freak_llvm_fs_write_relative_bytes_checked", 3)
+    ir_declare("i64", "@freak_llvm_fs_remove_temp_dir_checked", 1)
+    ir_declare("i64", "@freak_llvm_fs_publish_temp_dir_checked", 3)
+    ir_declare("i64", "@freak_llvm_fs_result_completed", 1)
+    ir_declare("i64", "@freak_llvm_fs_lock_dir_ticket", 2)
+    ir_declare("i64", "@freak_llvm_fs_lock_dir_new_ticket", 2)
+    ir_declare("i64", "@freak_llvm_fs_abort_new_lock_checked", 1)
+    ir_declare("i64", "@freak_llvm_fs_temp_dir_ticket", 2)
+    ir_declare("i64", "@freak_llvm_fs_remove_relative_file_checked", 2)
+    ir_declare("i64", "@freak_llvm_fs_mkdir_relative_checked", 2)
+    ir_declare("i64", "@freak_llvm_fs_open_relative_dir_ticket", 2)
+    ir_declare("i64", "@freak_llvm_fs_list_dir_ticket", 1)
+    ir_declare("i64", "@freak_llvm_fs_result_missing", 1)
+    ir_declare("i64", "@freak_llvm_fs_directory_path_ticket", 1)
+    ir_declare("i64", "@freak_llvm_json_document_new", 0)
+    ir_declare("i64", "@freak_llvm_json_document_parse", 1)
+    ir_declare("i64", "@freak_llvm_json_document_parse_bytes", 1)
+    ir_declare("i64", "@freak_llvm_json_document_ok", 1)
+    ir_declare("i64", "@freak_llvm_json_document_error", 1)
+    ir_declare("i64", "@freak_llvm_json_document_error_position", 1)
+    ir_declare("i64", "@freak_llvm_json_document_root", 1)
+    ir_declare("i64", "@freak_llvm_json_document_set_root", 2)
+    ir_declare("void", "@freak_llvm_json_document_release", 1)
+    ir_declare("i64", "@freak_llvm_json_document_kind", 2)
+    ir_declare("i64", "@freak_llvm_json_document_count", 2)
+    ir_declare("i64", "@freak_llvm_json_document_array_get", 3)
+    ir_declare("i64", "@freak_llvm_json_document_object_get", 3)
+    ir_declare("i64", "@freak_llvm_json_document_object_get_bytes", 3)
+    ir_declare("i64", "@freak_llvm_json_document_object_key_bytes", 3)
+    ir_declare("i64", "@freak_llvm_json_document_bool_value", 2)
+    ir_declare("i64", "@freak_llvm_json_document_number_text", 2)
+    ir_declare("i64", "@freak_llvm_json_document_string_word", 2)
+    ir_declare("i64", "@freak_llvm_json_document_string_bytes", 2)
+    ir_declare("i64", "@freak_llvm_json_document_make_null", 1)
+    ir_declare("i64", "@freak_llvm_json_document_make_bool", 2)
+    ir_declare("i64", "@freak_llvm_json_document_make_number", 2)
+    ir_declare("i64", "@freak_llvm_json_document_make_string", 2)
+    ir_declare("i64", "@freak_llvm_json_document_make_string_bytes", 2)
+    ir_declare("i64", "@freak_llvm_json_document_make_array", 1)
+    ir_declare("i64", "@freak_llvm_json_document_make_object", 1)
+    ir_declare("i64", "@freak_llvm_json_document_array_append", 3)
+    ir_declare("i64", "@freak_llvm_json_document_object_insert", 4)
+    ir_declare("i64", "@freak_llvm_json_document_object_insert_bytes", 4)
+    ir_declare("i64", "@freak_llvm_json_document_serialize_word", 1)
+    ir_declare("i64", "@freak_llvm_json_document_serialize_bytes", 1)
+    ir_declare("void", "@freak_llvm_time_sleep", 1)
+    ir_declare("i64", "@freak_v3_array_new", 1)
+    ir_declare("i64", "@freak_v3_array_with_capacity", 2)
+    ir_declare("i64", "@freak_v3_array_filled", 3)
+    ir_declare("void", "@freak_v3_array_push", 2)
+    ir_declare("i64", "@freak_v3_array_pop", 1)
+    ir_declare("void", "@freak_v3_array_clear", 1)
+    ir_declare("void", "@freak_v3_array_reserve", 2)
+    ir_declare("i64", "@freak_v3_array_capacity", 1)
+    ir_declare("i64", "@freak_v3_array_get", 2)
+    ir_declare("void", "@freak_v3_array_set", 3)
+    ir_declare("i64", "@freak_v3_array_len", 1)
+    ir_declare("i64", "@freak_v3_array_retain", 1)
+    ir_declare("void", "@freak_v3_array_release", 1)
+    ir_declare("i64", "@freak_v3_shape_new", 1)
+    ir_declare("void", "@freak_v3_shape_init", 4)
+    ir_declare("i64", "@freak_v3_shape_retain", 1)
+    ir_declare("void", "@freak_v3_shape_release", 1)
+    ir_declare("i64", "@freak_v3_shape_take", 2)
+    ir_declare("void", "@freak_v3_shape_set_owned", 3)
 
-    llvm_emit_line("declare i32 @puts(i8*)")
-    llvm_emit_line("declare i32 @printf(i8*, ...)")
-    llvm_emit_line("declare i64 @strlen(i8*)")
-    llvm_emit_line("declare i64 @freak_llvm_word_from_int(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_from_bool(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_char_to_word(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_concat(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_repeated(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_append_owned(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_clone(i64)")
-    llvm_emit_line("declare void @freak_llvm_word_release_replaced(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_eq(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_neq(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_length(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_byte_length(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_checksum(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_snapshot_escape(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_snapshot_unescape(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_snapshot_line_count(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_snapshot_lines(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_snapshot_line(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_snapshot_field_count(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_snapshot_field_raw(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_char_at(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_substring(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_contains(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_starts_with(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_ends_with(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_to_upper(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_to_lower(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_trim(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_replace(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_to_int(i64)")
-    llvm_emit_line("declare void @freak_llvm_say(i64)")
-    llvm_emit_line("declare void @freak_llvm_print_str(i64)")
-    llvm_emit_line("declare void @freak_llvm_print_int(i64)")
-    llvm_emit_line("declare void @freak_llvm_print_newline()")
-    llvm_emit_line("declare i64 @freak_llvm_ask(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_list_dir(i64)")
-    llvm_emit_line("declare void @freak_llvm_fs_make_dir(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_env(i64)")
-    llvm_emit_line("declare void @freak_llvm_process_set_env(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_pid()")
-    llvm_emit_line("declare i64 @freak_llvm_process_input()")
+    ir_declare_libc()
+    ir_declare("i64", "@freak_llvm_word_from_int", 1)
+    ir_declare("i64", "@freak_llvm_word_from_bool", 1)
+    ir_declare("i64", "@freak_llvm_char_to_word", 1)
+    ir_declare("i64", "@freak_llvm_word_concat", 2)
+    ir_declare("i64", "@freak_llvm_word_repeated", 2)
+    ir_declare("i64", "@freak_llvm_word_append_owned", 3)
+    ir_declare("i64", "@freak_llvm_word_clone", 1)
+    ir_declare("void", "@freak_llvm_word_release_replaced", 2)
+    ir_declare("i64", "@freak_llvm_word_eq", 2)
+    ir_declare("i64", "@freak_llvm_word_neq", 2)
+    ir_declare("i64", "@freak_llvm_word_length", 1)
+    ir_declare("i64", "@freak_llvm_word_byte_length", 1)
+    ir_declare("i64", "@freak_llvm_word_checksum", 1)
+    ir_declare("i64", "@freak_llvm_word_snapshot_escape", 1)
+    ir_declare("i64", "@freak_llvm_word_snapshot_unescape", 1)
+    ir_declare("i64", "@freak_llvm_word_snapshot_line_count", 1)
+    ir_declare("i64", "@freak_llvm_word_snapshot_lines", 1)
+    ir_declare("i64", "@freak_llvm_word_snapshot_line", 2)
+    ir_declare("i64", "@freak_llvm_word_snapshot_field_count", 1)
+    ir_declare("i64", "@freak_llvm_word_snapshot_field_raw", 2)
+    ir_declare("i64", "@freak_llvm_word_char_at", 2)
+    ir_declare("i64", "@freak_llvm_word_substring", 3)
+    ir_declare("i64", "@freak_llvm_word_contains", 2)
+    ir_declare("i64", "@freak_llvm_word_starts_with", 2)
+    ir_declare("i64", "@freak_llvm_word_ends_with", 2)
+    ir_declare("i64", "@freak_llvm_word_to_upper", 1)
+    ir_declare("i64", "@freak_llvm_word_to_lower", 1)
+    ir_declare("i64", "@freak_llvm_word_trim", 1)
+    ir_declare("i64", "@freak_llvm_word_replace", 3)
+    ir_declare("i64", "@freak_llvm_word_to_int", 1)
+    ir_declare("void", "@freak_llvm_say", 1)
+    ir_declare("void", "@freak_llvm_print_str", 1)
+    ir_declare("void", "@freak_llvm_print_int", 1)
+    ir_declare("void", "@freak_llvm_print_newline", 0)
+    ir_declare("i64", "@freak_llvm_ask", 1)
+    ir_declare("i64", "@freak_llvm_fs_list_dir", 1)
+    ir_declare("void", "@freak_llvm_fs_make_dir", 1)
+    ir_declare("i64", "@freak_llvm_process_env", 1)
+    ir_declare("void", "@freak_llvm_process_set_env", 2)
+    ir_declare("i64", "@freak_llvm_process_pid", 0)
+    ir_declare("i64", "@freak_llvm_process_input", 0)
     -- fs functions are defined as FREAK tasks in std/runtime.fk — no declare needed
-    llvm_emit_line("declare i64 @freak_llvm_process_args_count()")
-    llvm_emit_line("declare i64 @freak_llvm_process_arg(i64)")
-    llvm_emit_line("declare void @freak_llvm_process_exit(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_exec(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_exec_capture(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_time_now_ms()")
-    llvm_emit_line("declare i64 @freak_llvm_time_monotonic_ns()")
-    llvm_emit_line("declare void @freak_llvm_panic(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_shape_alloc(i64)")
-    llvm_emit_line("declare i64 @freak_v3_shape_get(i64, i64)")
-    llvm_emit_line("declare void @freak_v3_shape_set(i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_setup_args(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_from_num(i64)")
-    llvm_emit_line("declare void @freak_llvm_print_num(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_int_to_num(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_num_to_int(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_create_window(i64, i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_destroy_window(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_poll_events(i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_begin_frame(i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_set_clip(i64, i64, i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_reset_clip(i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_end_frame(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_kind(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_key(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_pressed(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_character(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_mouse_x(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_mouse_y(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_button(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_repeat(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_scroll_dy(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_width(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_height(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_event_gained(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_get_width(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_get_height(i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_clear(i64, i64, i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_fill_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_stroke_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_fill_circle(i64, i64, i64, i64, i64, i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_draw_line(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_draw_text(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_ui_measure_text(i64, i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_math_sqrt(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_math_pow(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_math_sin(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_math_cos(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_math_tan(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_math_floor(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_math_ceil(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_parse_num(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_parse_int(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_parse_num(i64)")
-    llvm_emit_line("declare i64 @freak_parse_status()")
-    llvm_emit_line("declare void @freak_parse_clear_status()")
-    llvm_emit_line("declare i64 @freak_llvm_format_num(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_compare(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_array_new()")
-    llvm_emit_line("declare void @freak_llvm_array_push(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_array_push_owned(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_array_get(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_array_len(i64)")
-    llvm_emit_line("declare void @freak_llvm_array_set(i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_array_set_owned(i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_array_release(i64)")
-    llvm_emit_line("declare void @freak_llvm_array_release_owned(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_join(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_join_owned(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_builder_new()")
-    llvm_emit_line("declare i64 @freak_llvm_word_builder_with_capacity(i64)")
-    llvm_emit_line("declare void @freak_llvm_word_builder_reserve(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_builder_capacity(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_builder_length(i64)")
-    llvm_emit_line("declare void @freak_llvm_word_builder_clear(i64)")
-    llvm_emit_line("declare void @freak_llvm_word_builder_append(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_word_builder_append_char(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_word_builder_append_int(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_builder_finish(i64)")
-    llvm_emit_line("declare void @freak_llvm_word_builder_discard(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_new()")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_with_capacity(i64)")
-    llvm_emit_line("declare void @freak_llvm_byte_buffer_release(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_status(i64)")
-    llvm_emit_line("declare void @freak_llvm_byte_buffer_clear_status(i64)")
-    llvm_emit_line("declare void @freak_llvm_byte_buffer_reserve(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_capacity(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_length(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_position(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_remaining(i64)")
-    llvm_emit_line("declare void @freak_llvm_byte_buffer_clear(i64)")
-    llvm_emit_line("declare void @freak_llvm_byte_buffer_truncate(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_byte_buffer_seek(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_byte_buffer_write_byte(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_byte_buffer_write_int(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_byte_buffer_write_int_be(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_byte_buffer_write_word(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_read_byte(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_read_int(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_read_int_be(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_read_word(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_slice(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_to_word(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_connect(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_send(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_recv(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_recv_all(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_tcp_close(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_socket_connect(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_socket_listen(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_socket_accept(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_socket_status(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_socket_eof(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_socket_local_port(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_socket_send(i64, i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_socket_send_all(i64, i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_tcp_socket_receive(i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_tcp_socket_set_timeout(i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_tcp_socket_close(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_new(i64)")
-    llvm_emit_line("declare void @freak_llvm_process_command_arg(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_process_command_cwd(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_process_command_env(i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_process_command_unset_env(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_read_ticket(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_read_bytes_ticket(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_read_source_ticket(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_write_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_write_bytes_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_append_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_rename_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_rename_new_checked(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_mkdir_checked(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_remove_checked(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_rmdir_checked(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_exclusive_create(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_temp_dir(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_canonical_path(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_stat_checked(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_list_dir_checked(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_result_ok(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_result_word(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_result_error(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_result_bytes(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_result_kind(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_result_size(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_result_mode(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_result_count(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_result_entry(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_fs_result_release(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_sha256_bytes(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_spawn(i64, i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_run(i64, i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_spawn_inherit(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_run_inherit(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_wait(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_poll(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_status(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_exit_code(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_signal(i64)")
-    llvm_emit_line("declare void @freak_llvm_process_command_terminate(i64)")
-    llvm_emit_line("declare void @freak_llvm_process_command_release(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_error(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_stdout(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_stderr(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_stdout_bytes(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_command_stderr_bytes(i64)")
+    ir_declare("i64", "@freak_llvm_process_args_count", 0)
+    ir_declare("i64", "@freak_llvm_process_arg", 1)
+    ir_declare("void", "@freak_llvm_process_exit", 1)
+    ir_declare("i64", "@freak_llvm_process_exec", 1)
+    ir_declare("i64", "@freak_llvm_process_exec_capture", 1)
+    ir_declare("i64", "@freak_llvm_time_now_ms", 0)
+    ir_declare("i64", "@freak_llvm_time_monotonic_ns", 0)
+    ir_declare("void", "@freak_llvm_panic", 1)
+    ir_declare("i64", "@freak_llvm_shape_alloc", 1)
+    ir_declare("i64", "@freak_v3_shape_get", 2)
+    ir_declare("void", "@freak_v3_shape_set", 3)
+    ir_declare("void", "@freak_llvm_setup_args", 2)
+    ir_declare("i64", "@freak_llvm_word_from_num", 1)
+    ir_declare("void", "@freak_llvm_print_num", 1)
+    ir_declare("i64", "@freak_llvm_int_to_num", 1)
+    ir_declare("i64", "@freak_llvm_num_to_int", 1)
+    ir_declare("i64", "@freak_llvm_ui_create_window", 4)
+    ir_declare("void", "@freak_llvm_ui_destroy_window", 1)
+    ir_declare("i64", "@freak_llvm_ui_poll_events", 1)
+    ir_declare("void", "@freak_llvm_ui_begin_frame", 1)
+    ir_declare("void", "@freak_llvm_ui_set_clip", 5)
+    ir_declare("void", "@freak_llvm_ui_reset_clip", 1)
+    ir_declare("void", "@freak_llvm_ui_end_frame", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_kind", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_key", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_pressed", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_character", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_mouse_x", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_mouse_y", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_button", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_repeat", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_scroll_dy", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_width", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_height", 1)
+    ir_declare("i64", "@freak_llvm_ui_event_gained", 1)
+    ir_declare("i64", "@freak_llvm_ui_get_width", 1)
+    ir_declare("i64", "@freak_llvm_ui_get_height", 1)
+    ir_declare("void", "@freak_llvm_ui_clear", 5)
+    ir_declare("void", "@freak_llvm_ui_fill_rect", 9)
+    ir_declare("void", "@freak_llvm_ui_stroke_rect", 10)
+    ir_declare("void", "@freak_llvm_ui_fill_circle", 8)
+    ir_declare("void", "@freak_llvm_ui_draw_line", 10)
+    ir_declare("i64", "@freak_llvm_ui_draw_text", 10)
+    ir_declare("i64", "@freak_llvm_ui_measure_text", 4)
+    ir_declare("i64", "@freak_llvm_math_sqrt", 1)
+    ir_declare("i64", "@freak_llvm_math_pow", 2)
+    ir_declare("i64", "@freak_llvm_math_sin", 1)
+    ir_declare("i64", "@freak_llvm_math_cos", 1)
+    ir_declare("i64", "@freak_llvm_math_tan", 1)
+    ir_declare("i64", "@freak_llvm_math_floor", 1)
+    ir_declare("i64", "@freak_llvm_math_ceil", 1)
+    ir_declare("i64", "@freak_llvm_parse_num", 1)
+    ir_declare("i64", "@freak_llvm_word_parse_int", 1)
+    ir_declare("i64", "@freak_llvm_word_parse_num", 1)
+    ir_declare("i64", "@freak_parse_status", 0)
+    ir_declare("void", "@freak_parse_clear_status", 0)
+    ir_declare("i64", "@freak_llvm_format_num", 1)
+    ir_declare("i64", "@freak_llvm_word_compare", 2)
+    ir_declare("i64", "@freak_llvm_array_new", 0)
+    ir_declare("void", "@freak_llvm_array_push", 2)
+    ir_declare("void", "@freak_llvm_array_push_owned", 2)
+    ir_declare("i64", "@freak_llvm_array_get", 2)
+    ir_declare("i64", "@freak_llvm_array_len", 1)
+    ir_declare("void", "@freak_llvm_array_set", 3)
+    ir_declare("void", "@freak_llvm_array_set_owned", 3)
+    ir_declare("void", "@freak_llvm_array_release", 1)
+    ir_declare("void", "@freak_llvm_array_release_owned", 1)
+    ir_declare("i64", "@freak_llvm_word_join", 1)
+    ir_declare("i64", "@freak_llvm_word_join_owned", 1)
+    ir_declare("i64", "@freak_llvm_word_builder_new", 0)
+    ir_declare("i64", "@freak_llvm_word_builder_with_capacity", 1)
+    ir_declare("void", "@freak_llvm_word_builder_reserve", 2)
+    ir_declare("i64", "@freak_llvm_word_builder_capacity", 1)
+    ir_declare("i64", "@freak_llvm_word_builder_length", 1)
+    ir_declare("void", "@freak_llvm_word_builder_clear", 1)
+    ir_declare("void", "@freak_llvm_word_builder_append", 2)
+    ir_declare("void", "@freak_llvm_word_builder_append_char", 2)
+    ir_declare("void", "@freak_llvm_word_builder_append_int", 2)
+    ir_declare("i64", "@freak_llvm_word_builder_finish", 1)
+    ir_declare("void", "@freak_llvm_word_builder_discard", 1)
+    ir_declare("i64", "@freak_llvm_byte_buffer_new", 0)
+    ir_declare("i64", "@freak_llvm_byte_buffer_with_capacity", 1)
+    ir_declare("void", "@freak_llvm_byte_buffer_release", 1)
+    ir_declare("i64", "@freak_llvm_byte_buffer_status", 1)
+    ir_declare("void", "@freak_llvm_byte_buffer_clear_status", 1)
+    ir_declare("void", "@freak_llvm_byte_buffer_reserve", 2)
+    ir_declare("i64", "@freak_llvm_byte_buffer_capacity", 1)
+    ir_declare("i64", "@freak_llvm_byte_buffer_length", 1)
+    ir_declare("i64", "@freak_llvm_byte_buffer_position", 1)
+    ir_declare("i64", "@freak_llvm_byte_buffer_remaining", 1)
+    ir_declare("void", "@freak_llvm_byte_buffer_clear", 1)
+    ir_declare("void", "@freak_llvm_byte_buffer_truncate", 2)
+    ir_declare("void", "@freak_llvm_byte_buffer_seek", 2)
+    ir_declare("void", "@freak_llvm_byte_buffer_write_byte", 2)
+    ir_declare("void", "@freak_llvm_byte_buffer_write_int", 2)
+    ir_declare("void", "@freak_llvm_byte_buffer_write_int_be", 2)
+    ir_declare("void", "@freak_llvm_byte_buffer_write_word", 2)
+    ir_declare("i64", "@freak_llvm_byte_buffer_read_byte", 1)
+    ir_declare("i64", "@freak_llvm_byte_buffer_read_int", 1)
+    ir_declare("i64", "@freak_llvm_byte_buffer_read_int_be", 1)
+    ir_declare("i64", "@freak_llvm_byte_buffer_read_word", 2)
+    ir_declare("i64", "@freak_llvm_byte_buffer_slice", 3)
+    ir_declare("i64", "@freak_llvm_byte_buffer_to_word", 1)
+    ir_declare("i64", "@freak_llvm_tcp_connect", 2)
+    ir_declare("i64", "@freak_llvm_tcp_send", 2)
+    ir_declare("i64", "@freak_llvm_tcp_recv", 2)
+    ir_declare("i64", "@freak_llvm_tcp_recv_all", 2)
+    ir_declare("void", "@freak_llvm_tcp_close", 1)
+    ir_declare("i64", "@freak_llvm_tcp_socket_connect", 2)
+    ir_declare("i64", "@freak_llvm_tcp_socket_listen", 3)
+    ir_declare("i64", "@freak_llvm_tcp_socket_accept", 1)
+    ir_declare("i64", "@freak_llvm_tcp_socket_status", 1)
+    ir_declare("i64", "@freak_llvm_tcp_socket_eof", 1)
+    ir_declare("i64", "@freak_llvm_tcp_socket_local_port", 1)
+    ir_declare("i64", "@freak_llvm_tcp_socket_send", 4)
+    ir_declare("i64", "@freak_llvm_tcp_socket_send_all", 4)
+    ir_declare("i64", "@freak_llvm_tcp_socket_receive", 3)
+    ir_declare("void", "@freak_llvm_tcp_socket_set_timeout", 3)
+    ir_declare("void", "@freak_llvm_tcp_socket_close", 1)
+    ir_declare("i64", "@freak_llvm_process_command_new", 1)
+    ir_declare("void", "@freak_llvm_process_command_arg", 2)
+    ir_declare("void", "@freak_llvm_process_command_cwd", 2)
+    ir_declare("void", "@freak_llvm_process_command_env", 3)
+    ir_declare("void", "@freak_llvm_process_command_unset_env", 2)
+    ir_declare("i64", "@freak_llvm_fs_read_ticket", 1)
+    ir_declare("i64", "@freak_llvm_fs_read_bytes_ticket", 1)
+    ir_declare("i64", "@freak_llvm_fs_read_source_ticket", 1)
+    ir_declare("i64", "@freak_llvm_fs_write_checked", 2)
+    ir_declare("i64", "@freak_llvm_fs_write_bytes_checked", 2)
+    ir_declare("i64", "@freak_llvm_fs_append_checked", 2)
+    ir_declare("i64", "@freak_llvm_fs_rename_checked", 2)
+    ir_declare("i64", "@freak_llvm_fs_rename_new_checked", 2)
+    ir_declare("i64", "@freak_llvm_fs_mkdir_checked", 1)
+    ir_declare("i64", "@freak_llvm_fs_remove_checked", 1)
+    ir_declare("i64", "@freak_llvm_fs_rmdir_checked", 1)
+    ir_declare("i64", "@freak_llvm_fs_exclusive_create", 2)
+    ir_declare("i64", "@freak_llvm_fs_temp_dir", 2)
+    ir_declare("i64", "@freak_llvm_fs_canonical_path", 1)
+    ir_declare("i64", "@freak_llvm_fs_stat_checked", 1)
+    ir_declare("i64", "@freak_llvm_fs_list_dir_checked", 1)
+    ir_declare("i64", "@freak_llvm_fs_result_ok", 1)
+    ir_declare("i64", "@freak_llvm_fs_result_word", 1)
+    ir_declare("i64", "@freak_llvm_fs_result_error", 1)
+    ir_declare("i64", "@freak_llvm_fs_result_bytes", 1)
+    ir_declare("i64", "@freak_llvm_fs_result_kind", 1)
+    ir_declare("i64", "@freak_llvm_fs_result_size", 1)
+    ir_declare("i64", "@freak_llvm_fs_result_mode", 1)
+    ir_declare("i64", "@freak_llvm_fs_result_count", 1)
+    ir_declare("i64", "@freak_llvm_fs_result_entry", 2)
+    ir_declare("void", "@freak_llvm_fs_result_release", 1)
+    ir_declare("i64", "@freak_llvm_fs_sha256_bytes", 1)
+    ir_declare("i64", "@freak_llvm_process_command_spawn", 4)
+    ir_declare("i64", "@freak_llvm_process_command_run", 4)
+    ir_declare("i64", "@freak_llvm_process_command_spawn_inherit", 2)
+    ir_declare("i64", "@freak_llvm_process_command_run_inherit", 2)
+    ir_declare("i64", "@freak_llvm_process_command_wait", 1)
+    ir_declare("i64", "@freak_llvm_process_command_poll", 1)
+    ir_declare("i64", "@freak_llvm_process_command_status", 1)
+    ir_declare("i64", "@freak_llvm_process_command_exit_code", 1)
+    ir_declare("i64", "@freak_llvm_process_command_signal", 1)
+    ir_declare("void", "@freak_llvm_process_command_terminate", 1)
+    ir_declare("void", "@freak_llvm_process_command_release", 1)
+    ir_declare("i64", "@freak_llvm_process_command_error", 1)
+    ir_declare("i64", "@freak_llvm_process_command_stdout", 1)
+    ir_declare("i64", "@freak_llvm_process_command_stderr", 1)
+    ir_declare("i64", "@freak_llvm_process_command_stdout_bytes", 1)
+    ir_declare("i64", "@freak_llvm_process_command_stderr_bytes", 1)
 
     llvm_declared_funcs = "|puts|printf|strlen|freak_llvm_word_from_int|freak_llvm_word_from_bool|freak_llvm_word_concat|freak_llvm_word_eq|freak_llvm_word_neq|freak_llvm_word_length|freak_llvm_word_byte_length|freak_llvm_word_checksum|freak_llvm_word_snapshot_escape|freak_llvm_word_snapshot_unescape|freak_llvm_word_snapshot_line_count|freak_llvm_word_snapshot_line|freak_llvm_word_snapshot_field_count|freak_llvm_word_snapshot_field_raw|freak_llvm_word_char_at|freak_llvm_word_substring|freak_llvm_word_contains|freak_llvm_word_starts_with|freak_llvm_word_ends_with|freak_llvm_word_to_upper|freak_llvm_word_to_lower|freak_llvm_word_trim|freak_llvm_word_replace|freak_llvm_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_window|freak_llvm_ui_destroy_window|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_event_kind|freak_llvm_ui_event_key|freak_llvm_ui_event_pressed|freak_llvm_ui_event_character|freak_llvm_ui_event_mouse_x|freak_llvm_ui_event_mouse_y|freak_llvm_ui_event_button|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_llvm_ui_stroke_rect|freak_llvm_ui_fill_circle|freak_llvm_ui_draw_line|freak_llvm_ui_draw_text|freak_llvm_ui_measure_text|freak_llvm_math_sqrt|freak_llvm_math_pow|freak_llvm_math_sin|freak_llvm_math_cos|freak_llvm_math_tan|freak_llvm_math_floor|freak_llvm_math_ceil|freak_llvm_parse_num|freak_llvm_word_parse_int|freak_llvm_word_parse_num|freak_parse_status|freak_parse_clear_status|freak_llvm_format_num|freak_llvm_array_new|freak_llvm_array_push|freak_llvm_array_get|freak_llvm_array_len|freak_llvm_array_set|freak_llvm_array_release|freak_llvm_word_compare|freak_llvm_tcp_connect|freak_llvm_tcp_send|freak_llvm_tcp_recv_all|freak_llvm_tcp_recv|freak_llvm_tcp_close|freak_llvm_time_now_ms|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_word_repeated|freak_llvm_word_join|freak_llvm_word_join_owned|freak_llvm_word_append_owned|freak_llvm_word_builder_new|freak_llvm_word_builder_with_capacity|freak_llvm_word_builder_reserve|freak_llvm_word_builder_capacity|freak_llvm_word_builder_length|freak_llvm_word_builder_clear|freak_llvm_word_builder_append|freak_llvm_word_builder_append_char|freak_llvm_word_builder_append_int|freak_llvm_word_builder_finish|freak_llvm_word_builder_discard|freak_llvm_array_push_owned|freak_llvm_array_set_owned|freak_llvm_array_release_owned|freak_llvm_fs_list_dir|freak_llvm_fs_make_dir|freak_llvm_process_env|freak_llvm_process_set_env|freak_llvm_process_pid|freak_llvm_process_input|freak_llvm_time_monotonic_ns|"
@@ -3368,16 +3685,7 @@ task llvm_emit_runtime_decls() -> void {
 -- v3 KEY CHANGE: proper reserved global-init + top-level wrapper split
 
 task llvm_emit_result_drop_helper() -> void {
-    llvm_emit_line("define internal void @__freak_drop_result(i64 %ticket) \{")
-    llvm_emit_line("entry:")
-    llvm_emit_line("    %live = icmp ne i64 %ticket, 0")
-    llvm_emit_line("    br i1 %live, label %release, label %done")
-    llvm_emit_line("release:")
-    llvm_emit_line("    call void @freak_llvm_fs_result_release(i64 %ticket)")
-    llvm_emit_line("    br label %done")
-    llvm_emit_line("done:")
-    llvm_emit_line("    ret void")
-    llvm_emit_line("\}")
+    ir_result_drop_helper()
 }
 
 task emit_llvm_program() -> void {
@@ -3387,7 +3695,7 @@ task emit_llvm_program() -> void {
     llvm_dbg_init()
 
     -- Write empty file (streaming appends from here)
-    fs::write(out_file, "")
+    if not llvm_builder_active { fs::write(out_file, "") }
 
     llvm_emit_line("; FREAK LLVM IR Generator (v3)")
     llvm_emit_line("")
@@ -3438,7 +3746,7 @@ task emit_llvm_program() -> void {
             }
             llvm_global_type_names = llvm_global_type_names + gn + "|"
             llvm_global_types = llvm_global_types + gtype + "|"
-            llvm_emit_line("@g_" + gn + " = global i64 0")
+            ir_global(gn)
         }
         glob_i += 1
     }
@@ -3456,6 +3764,7 @@ task emit_llvm_program() -> void {
             pilot llvm_ret = "i64"
             if ert == "void" { llvm_ret = "void" }
             pilot llvm_params = ""
+            pilot extern_parameter_count = 0
             if epm != "" {
                 pilot plen = epm.length()
                 pilot pi = 0
@@ -3470,11 +3779,12 @@ task emit_llvm_program() -> void {
                     llvm_params = llvm_params + "i64"
                     pj += 1
                 }
+                extern_parameter_count = pcount
             }
             pilot extern_symbol = llvm_map_call_name(enm)
             if extern_symbol == "" { extern_symbol = "@" + enm }
             if not llvm_is_runtime_func(extern_symbol.substring(1, extern_symbol.length())) {
-                llvm_emit_line("declare " + llvm_ret + " " + extern_symbol + "(" + llvm_params + ")")
+                ir_declare(llvm_ret, extern_symbol, extern_parameter_count)
             }
         }
         ext_i += 1
@@ -3518,9 +3828,8 @@ task emit_llvm_program() -> void {
         llvm_current_word_params = ""
         llvm_loop_word_cleanup_prefix = ""
         llvm_cur_func_is_void = true
-        pilot init_dbg = llvm_dbg_begin_func("__freak_generated_init_globals", 1)
-        llvm_emit_line("define void @__freak_generated_init_globals()" + init_dbg + " \{")
-        llvm_emit_line("entry:")
+        ir_begin_function("void", "@__freak_generated_init_globals", 0, "__freak_generated_init_globals", 1)
+        ir_label("entry")
         i = 0
         repeat top_count times {
             llvm_preallocate_result_slots(array_get(ast_top_stmts, i))
@@ -3539,9 +3848,9 @@ task emit_llvm_program() -> void {
             }
             i += 1
         }
-        llvm_emit_line("    ret void")
+        ir_ret_void()
         llvm_emit_integer_failure_block()
-        llvm_emit_line("\}")
+        ir_end_function()
         llvm_emit_line("")
         llvm_dbg_current_scope_id = 0
         llvm_dbg_current_line = 0
@@ -3556,9 +3865,8 @@ task emit_llvm_program() -> void {
         llvm_current_word_params = ""
         llvm_loop_word_cleanup_prefix = ""
         llvm_cur_func_is_void = true
-        pilot main_dbg = llvm_dbg_begin_func("__freak_generated_top_level", 1)
-        llvm_emit_line("define void @__freak_generated_top_level()" + main_dbg + " \{")
-        llvm_emit_line("entry:")
+        ir_begin_function("void", "@__freak_generated_top_level", 0, "__freak_generated_top_level", 1)
+        ir_label("entry")
         i = 0
         repeat top_count times {
             llvm_preallocate_result_slots(array_get(ast_top_stmts, i))
@@ -3575,33 +3883,31 @@ task emit_llvm_program() -> void {
             }
             i += 1
         }
-        llvm_emit_line("    ret void")
+        ir_ret_void()
         llvm_emit_integer_failure_block()
-        llvm_emit_line("\}")
+        ir_end_function()
         llvm_dbg_current_scope_id = 0
         llvm_dbg_current_line = 0
     }
 
     -- Emit C main entry
     llvm_emit_line("")
-    pilot cmain_dbg = llvm_dbg_begin_func("main", 1)
-    llvm_emit_line("define i32 @main(i32 %argc, i8** %argv)" + cmain_dbg + " \{")
-    llvm_emit_line("entry:")
-    llvm_emit_line("    %argc_ext = sext i32 %argc to i64")
-    llvm_emit_line("    %argv_ptr = ptrtoint i8** %argv to i64")
-    llvm_emit_line("    call void @freak_llvm_setup_args(i64 %argc_ext, i64 %argv_ptr)")
+    ir_begin_c_main()
+    ir_label("entry")
+    ir_c_main_arguments()
+    ir_call_void("@freak_llvm_setup_args", "%argc_ext" + "|" + "%argv_ptr" + "|")
     pilot native_main_result = ""
     if has_main_task {
-        llvm_emit_line("    call void @__freak_generated_init_globals()")
+        ir_call_void("@__freak_generated_init_globals", "")
         if main_task_return_type == "int" {
             native_main_result = next_reg()
-            llvm_emit_line("    " + native_main_result + " = call i64 " + llvm_user_task_symbol("main") + "()")
+            ir_call(native_main_result, llvm_user_task_symbol("main"), "")
         } else {
-            llvm_emit_line("    call void " + llvm_user_task_symbol("main") + "()")
+            ir_call_void(llvm_user_task_symbol("main"), "")
         }
     }
     if not has_main_task {
-        llvm_emit_line("    call void @__freak_generated_top_level()")
+        ir_call_void("@__freak_generated_top_level", "")
     }
     pilot cleanup_i = 0
     repeat top_count times {
@@ -3611,30 +3917,30 @@ task emit_llvm_program() -> void {
             pilot cleanup_name: word = array_get(ast_stmt_names, word_to_int(cleanup_id))
             if llvm_v3_owned_type(llvm_get_var_type(cleanup_name)) {
                 pilot previous = next_reg()
-                llvm_emit_line("    " + previous + " = load i64, i64* @g_" + cleanup_name)
+                ir_load(previous, "@g_" + cleanup_name)
                 llvm_v3_release(previous, llvm_get_var_type(cleanup_name))
             }
             if llvm_get_var_type(cleanup_name).starts_with("w") {
                 pilot cleanup_value = next_reg()
-                llvm_emit_line("    " + cleanup_value + " = load i64, i64* @g_" + cleanup_name)
-                llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + cleanup_value + ", i64 0)")
-                llvm_emit_line("    store i64 0, i64* @g_" + cleanup_name)
+                ir_load(cleanup_value, "@g_" + cleanup_name)
+                ir_call_void("@freak_llvm_word_release_replaced", cleanup_value + "|" + "0" + "|")
+                ir_store("0", "@g_" + cleanup_name)
             }
         }
         cleanup_i += 1
     }
     if native_main_result != "" {
         pilot native_exit_code = next_reg()
-        llvm_emit_line("    " + native_exit_code + " = trunc i64 " + native_main_result + " to i32")
-        llvm_emit_line("    ret i32 " + native_exit_code)
+        ir_ret_i32(native_exit_code, native_main_result)
     } else {
-        llvm_emit_line("    ret i32 0")
+        ir_ret_i32("", "")
     }
-    llvm_emit_line("\}")
+    ir_end_function()
     llvm_dbg_current_scope_id = 0
     llvm_dbg_current_line = 0
 
     -- Append string literals at end
+    if llvm_builder_active { give back }
     llvm_emit_line("")
     llvm_emit_line("; String Literals")
     llvm_emit_line(string_literals)
