@@ -566,9 +566,9 @@ unaffected.
 
 ### B0: no-regret work on the text backend (any time)
 
-- [ ] **S** State the minimum Clang / LLVM major the text backend supports, and have `freak doctor` check it (implicit today)
+- [x] **S** State the minimum Clang / LLVM major the text backend supports, and have `freak doctor` check it. The floor is 15 (upstream and Apple Clang): all 50 example modules compile on Clang 15.0.7 to 20.1.2 and the 48 runnable programs behave identically; LLVM 14 rejects opaque `ptr`. `llvm_text_floor.py` rejects newer-than-15 syntax and typed pointers on every module `build_v4.py` and the LLVM module smokes emit; `build_v4.py` refuses an older Clang; `freak doctor`'s constants are checked against it. Evidence: [BACKEND_DELIVERY.md](BACKEND_DELIVERY.md#b0-the-minimum-llvm-the-text-backend-supports), `benchmarks/v4/llvm_major_matrix.py`
 - [ ] **M** Attributes on runtime helper declarations and on values (does not unwind, does not capture, memory effects, non-null, ranges) so stock LLVM optimises around the runtime; judge it with the tier 1 runtime benchmark
-- [ ] **S** Evidence for the proposal's question 1: count past backend defects that were malformed-text defects (duplicate SSA names, bad labels, quoting, signature mismatches)
+- [x] **S** Evidence for the proposal's question 1: count past backend defects that were malformed-text defects (duplicate SSA names, bad labels, quoting, signature mismatches). 10 of the 20 recorded backend defects were malformed text (duplicate SSA names and symbols, undefined values, types and symbols, a bad operand spelling, quoting); every one was rejected by Clang, none shipped as a miscompile. The other 8 verified and ran wrong, plus 2 runtime link-contract mismatches. Evidence: [BACKEND_DELIVERY.md](BACKEND_DELIVERY.md#b0-how-many-past-backend-defects-were-malformed-text)
 
 ### B1: a structured LLVM module in FREAK
 
@@ -943,7 +943,7 @@ FFI completion (phase C):
 14. Closed (V3.5 semantics, #155): ordinary `pilot` is mutable under both borrow modes, as bible §1.1 says; `pilot mut` is a synonym; `fixed pilot` and contextual `grounded pilot` are immutable. V4 matches at `525114f`. The §4 borrow-checker note describing V3's strict rule needs the same update.
 15. Closed for direction (2026-10-05): the long-term toolchain is one `freak` binary with LLVM and LLD built in, accepting the larger download. Timing stays deferred (backend delivery lane).
 16. Closed for direction: one LLVM major per release, changed at most twice a year, never the newest major before it has point releases.
-17. The minimum Clang / LLVM major the text backend supports today (B0).
+17. Closed (2026-11-23, measured): the text backend supports Clang / LLVM 15 and newer (B0).
 18. B2: build the LLVM module through builder calls, or write bitcode from FREAK.
 19. B3: Linux links the system C library, or ships musl for static executables.
 20. Whether any part of B5 (compiled-in passes, full debug information, JIT) is wanted, each on its own.
