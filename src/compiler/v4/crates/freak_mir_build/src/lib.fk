@@ -4339,7 +4339,7 @@ task v4_mir_try_lower_named_call(mir_id: int, body_id: int, stream_id: int, firs
         return_ty = v4_ty_signature_return_type_for_env(v4_mir_ty_id(mir_id), sig_id, generic_env)
     }
     return_ty = v4_mir_call_result_type(return_ty)
-    pilot instance_name = v4_mir_build_request_generic_instance(mir_id, body_id, expr_span, sig_id, generic_env)
+    pilot instance_name = v4_mir_build_request_generic_instance(mir_id, body_id, expr_span, sig_id, generic_env, args_payload)
     if instance_name != "" { target_name = instance_name }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, target_name, 0 - 1, 0 - 1, expr_span, return_ty)
@@ -6209,7 +6209,8 @@ task v4_mir_closure_capture_installs_loan(mir_id: int, closure_body: int, captur
 pilot v4_mir_build_closure_bodies: bool = false
 pilot v4_mir_build_generic_env: word = ""
 pilot v4_mir_build_generic_depth = 0
-pilot v4_mir_build_generic_queue: word = ""
+-- Queued instances as (body, depth) element pairs, drained in order.
+pilot v4_mir_build_generic_worklist: int = 0 - 1
 pilot v4_mir_build_generic_instances = 0
 pilot v4_mir_build_generic_max_depth = 24
 pilot v4_mir_build_generic_limit_named: bool = false
@@ -6222,9 +6223,29 @@ task v4_mir_build_generic_type(mir_id: int, type_text: word) -> word {
     give back v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_apply_generic_env(type_text, v4_mir_build_generic_env))
 }
 
--- The instance a native call names, or "" when the call is not generic or
--- is made from a template (whose types are still parameters).
-task v4_mir_build_request_generic_instance(mir_id: int, body_id: int, expr_span: word, sig_id: int, generic_env: word) -> word {
+-- True when an evaluated argument has type never: it ends the block before
+-- the call runs (count_all(panic("stop"))). A *mut never argument is a
+-- value of a concrete pointer type and does not count.
+task v4_mir_build_call_args_diverge(mir_id: int, body_id: int, args_payload: word) -> bool {
+    pilot start = 0
+    pilot idx = 0
+    repeat until idx > args_payload.length() {
+        if idx == args_payload.length() or args_payload.char_at(idx) == "," {
+            if idx > start {
+                pilot arg = word_to_int(v4_slice(args_payload, start, idx))
+                if arg >= 0 and arg < v4_mir_body_rvalue_count(mir_id, body_id) and v4_mir_rvalue_ty(mir_id, body_id, arg) == v4_ty_never { give back true }
+            }
+            start = idx + 1
+        }
+        idx += 1
+    }
+    give back false
+}
+
+-- The instance a native call names, or "" when the call is not generic, is
+-- made from a template (whose types are still parameters), or can never run
+-- because an argument diverges first.
+task v4_mir_build_request_generic_instance(mir_id: int, body_id: int, expr_span: word, sig_id: int, generic_env: word, args_payload: word) -> word {
     if not v4_mir_build_closure_bodies or sig_id < 0 { give back "" }
     pilot ty_id = v4_mir_ty_id(mir_id)
     if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig or v4_ty_signature_type_generic_count(ty_id, sig_id) == 0 { give back "" }
@@ -6237,6 +6258,10 @@ task v4_mir_build_request_generic_instance(mir_id: int, body_id: int, expr_span:
         v4_mir_add_type_error(mir_id, expr_span, "native generic never tasks are not yet supported: " + callee, "give the non-returning task a concrete signature until generic never instances land")
         give back ""
     }
+    -- The same rule the type checker applies: a never argument is accepted
+    -- against any formal, so it may leave a type parameter unbound; the call
+    -- is unreachable and requests no instance.
+    if v4_mir_build_call_args_diverge(mir_id, body_id, args_payload) { give back "" }
     pilot env = ""
     pilot args = ""
     pilot generic_id = 0
@@ -6305,7 +6330,33 @@ task v4_mir_build_request_impl_instance(mir_id: int, body_id: int, expr_span: wo
     }
     pilot method_id = v4_mir_method_ref_method_id(method_ref)
     pilot def = v4_mir_generic_instance_def(v4_ty_impl_method_def(ty_id, hir_item, method_id), env)
+    -- An instance is named owner::method, and calls on the owner pick a
+    -- method by that name, so a second impl method of the same name on this
+    -- owner would be dispatched silently to one of them. Concrete owners hit
+    -- the same symbol fence in codegen.
+    if v4_mir_build_generic_table_find(mir_id, def) < 0 and v4_mir_build_impl_method_name_is_shared(ty_id, hir_item, method_id, owner, method_name) {
+        v4_mir_add_type_error(mir_id, expr_span, "native body symbol has multiple definitions: @\"" + owner + "::" + method_name + "\"", "two impls of " + owner + " define " + method_name + "; give the inherent and the doctrine method different names")
+        give back ""
+    }
     give back v4_mir_build_admit_generic_instance(mir_id, expr_span, def, owner + "::" + method_name, v4_ty_impl_method_display(ty_id, hir_item, method_id))
+}
+
+-- True when another impl method that applies to this owner has the same name.
+task v4_mir_build_impl_method_name_is_shared(ty_id: int, hir_item: int, method_id: int, owner: word, method_name: word) -> bool {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 { give back false }
+    pilot item = 0
+    repeat until item >= v4_hir_item_count(hir_id) {
+        if v4_hir_item_kind(hir_id, item) == v4_hir_impl and v4_ty_impl_matches_owner(ty_id, item, owner) {
+            pilot other = 0
+            repeat until other >= v4_ty_impl_method_count(ty_id, item) {
+                if (item != hir_item or other != method_id) and v4_ty_impl_method_name(ty_id, item, other) == method_name { give back true }
+                other += 1
+            }
+        }
+        item += 1
+    }
+    give back false
 }
 
 -- Instance defs by hash, so a repeat request costs one probe instead of a
@@ -6335,6 +6386,11 @@ task v4_mir_build_generic_table_ready() -> bool {
     if v4_mir_build_generic_table >= 0 { give back true }
     pilot table = array_new()
     if table < 0 { give back false }
+    pilot worklist = array_new()
+    if worklist < 0 {
+        array_release(table)
+        give back false
+    }
     pilot slot = 0
     repeat until slot >= v4_mir_build_generic_table_capacity {
         array_push(table, "0")
@@ -6342,9 +6398,11 @@ task v4_mir_build_generic_table_ready() -> bool {
     }
     if array_len(table) != v4_mir_build_generic_table_capacity {
         array_release(table)
+        array_release(worklist)
         give back false
     }
     v4_mir_build_generic_table = table
+    v4_mir_build_generic_worklist = worklist
     give back true
 }
 
@@ -6383,6 +6441,13 @@ task v4_mir_build_admit_generic_instance(mir_id: int, expr_span: word, def: word
         v4_mir_add_type_error(mir_id, expr_span, "native generic instance cache could not be allocated: " + name, "array storage is exhausted")
         give back ""
     }
+    -- Calls find an instance by its symbol, so two definitions (an inherent
+    -- and a doctrine method of one owner) must not share one; concrete
+    -- owners are refused the same way in codegen.
+    if v4_mir_lookup_body_name(mir_id, name) >= 0 {
+        v4_mir_add_type_error(mir_id, expr_span, "native body symbol has multiple definitions: @\"" + name + "\"", "give the inherent and the doctrine method different names")
+        give back ""
+    }
     pilot instance = v4_mir_add_body(mir_id, def, name, v4_mir_generic_instance_signature(name, display))
     if instance < 0 {
         v4_mir_add_type_error(mir_id, expr_span, "native generic instance could not be allocated: " + name, "MIR body storage is exhausted")
@@ -6390,7 +6455,13 @@ task v4_mir_build_admit_generic_instance(mir_id: int, expr_span: word, def: word
     }
     v4_mir_build_generic_instances += 1
     v4_mir_build_generic_table_insert(mir_id, def, instance)
-    v4_mir_build_generic_queue = v4_mir_build_generic_queue + "," + word_from_int(instance) + ":" + word_from_int(depth)
+    pilot queued = array_len(v4_mir_build_generic_worklist)
+    array_push(v4_mir_build_generic_worklist, word_from_int(instance))
+    array_push(v4_mir_build_generic_worklist, word_from_int(depth))
+    if array_len(v4_mir_build_generic_worklist) != queued + 2 {
+        v4_mir_add_type_error(mir_id, expr_span, "native generic instance could not be queued: " + name, "array storage is exhausted")
+        give back ""
+    }
     give back name
 }
 
@@ -6437,17 +6508,14 @@ task v4_mir_build_lower_impl_instance(mir_id: int, body_id: int, depth: int, str
 -- Lower queued instances in order; lowering one may queue more.
 task v4_mir_build_lower_generic_instances(mir_id: int, stream_id: int) -> void {
     pilot cursor = 0
-    repeat until cursor >= v4_mir_build_generic_queue.length() {
-        pilot next = v4_index_of_from(v4_mir_build_generic_queue, ",", cursor + 1)
-        if next < 0 { next = v4_mir_build_generic_queue.length() }
-        pilot entry = v4_slice(v4_mir_build_generic_queue, cursor + 1, next)
-        pilot colon = v4_index_of_from(entry, ":", 0)
-        if colon > 0 {
-            v4_mir_build_lower_generic_instance(mir_id, word_to_int(v4_slice(entry, 0, colon)), word_to_int(v4_slice(entry, colon + 1, entry.length())), stream_id)
-        }
-        cursor = next
+    repeat until v4_mir_build_generic_worklist < 0 or cursor + 1 >= array_len(v4_mir_build_generic_worklist) {
+        v4_mir_build_lower_generic_instance(mir_id, word_to_int(array_get(v4_mir_build_generic_worklist, cursor)), word_to_int(array_get(v4_mir_build_generic_worklist, cursor + 1)), stream_id)
+        cursor += 2
     }
-    v4_mir_build_generic_queue = ""
+    if v4_mir_build_generic_worklist >= 0 {
+        array_release(v4_mir_build_generic_worklist)
+        v4_mir_build_generic_worklist = 0 - 1
+    }
     v4_mir_build_generic_instances = 0
     v4_mir_build_generic_limit_named = false
     if v4_mir_build_generic_table >= 0 {
@@ -7077,7 +7145,7 @@ task v4_mir_try_lower_pipe_expr(mir_id: int, body_id: int, stream_id: int, first
     pilot return_ty = v4_ty_signature_return_type_for_env(v4_mir_ty_id(mir_id), sig_id, generic_env)
     return_ty = v4_mir_call_result_type(return_ty)
     -- A pipe into a generic task calls the same instance a direct call would.
-    pilot instance_name = v4_mir_build_request_generic_instance(mir_id, body_id, expr_span, sig_id, generic_env)
+    pilot instance_name = v4_mir_build_request_generic_instance(mir_id, body_id, expr_span, sig_id, generic_env, args_payload)
     if instance_name != "" { callee_name = instance_name }
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, callee_name, 0 - 1, 0 - 1, expr_span, return_ty)
     v4_mir_set_rvalue_abi(mir_id, body_id, call_rvalue, v4_mir_signature_call_abi(mir_id, sig_id))

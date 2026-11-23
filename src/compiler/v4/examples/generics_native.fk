@@ -48,11 +48,21 @@ impl Box<T> {
         give back 2
     }
     task get(self) -> T { give back self.value }
+    -- Never called: only instances owe the scalar-sum proof, not templates.
+    task tally(lend self) -> int {
+        pilot counted: maybe<int> = some(self.count)
+        give back counted or else 0
+    }
     task size(lend self) -> int { give back self.count }
     task put(lend mut self, v: T) -> void {
         self.value = v
         self.count = self.count + 1
     }
+}
+
+-- A concrete impl of a never-pointer instance is not a template.
+impl Box<*mut never> {
+    task tally_never(lend self) -> int { give back self.count + 1 }
 }
 
 -- Instance layouts reached only through a nongeneric shape, a raw pointer,
@@ -147,6 +157,13 @@ task best<T: Scored>(a: T) -> int { give back a.score() }
 
 task best_ufcs<T: Scored>(a: T) -> int { give back T::score(a) }
 
+-- A dyn erasure inside a generic task: the template lends its T, which has
+-- no vtable, and is not emitted; the instance lends a Point.
+doctrine Measured { task area(lend self) -> int }
+impl Measured for Point { task area(lend self) -> int { give back self.x * self.y } }
+task measure(lend w: dyn Measured) -> int { give back w.area() }
+task via_dyn<T: Measured>(lend x: T) -> int { give back measure(lend x) }
+
 -- A static doctrine method and a Self result, per instance.
 task fresh<T: Seed>(like: T) -> T { give back T::zero() }
 
@@ -231,17 +248,25 @@ task main() -> int {
     pilot passed = pass(1, some(5))
     say (ignore(sum_formal) + (passed or else 0)).to_word()
     say ignore_int(5).to_word()
-    pilot raw = malloc(8)
     pilot mut discarded = 0
+    pilot mut never_count = 0
     trust me "a never pointee is only passed along" on my honor as .ace {
+        pilot raw = malloc(8)
         pilot nothing = raw.cast<never>()
         discarded = discard(nothing)
+        pilot held_never: Box<*mut never> = Box { value: nothing, count: 4 }
+        never_count = held_never.tally_never()
+        free(raw)
     }
-    free(raw)
     say discarded.to_word()
+    say never_count.to_word()
+    say via_dyn(lend q).to_word()
+    -- A never argument ends the block first: no instance and no inference.
     if false {
         say consume(panic("never"))
         say panic("never") |> consume
+        say count_all(panic("stop"))
+        say panic("stop") |> count_all
     }
     say consume(7).to_word()
     say (read_opt(has_of(9), 0) + read_opt(none_of(0), 40)).to_word()
