@@ -1,0 +1,115 @@
+-- Native maps and sets (tier 3 collections rows L and M): Map<K, V> and
+-- Set<T> literals, Map::new() and Set::new(), m[k] reads and in-place
+-- updates (a missing key panics like a list index past the end), m[k] = v
+-- (insert or replace, the same as m.set(k, v)), get(k) -> maybe<V> (a fresh
+-- copy), remove(k) -> bool and length. Keys are word, int, uint, tiny, char
+-- or bool; values are scalars, words, tuples and shapes. Entries are kept
+-- in insertion order behind an open-addressed hash index. Maps and sets are
+-- Move types in Meiya's drop plan; a lookup lends its key, set and add move
+-- key and value in, and a lend of m[k] is a loan of the map.
+-- tests/v4_owned_word_codegen.py runs it under ASan, UBSan and both
+-- ownership audits; check_v4_native_shapes pins output and layouts.
+
+shape Pilot { name: word, kills: int }
+
+task count_kills(lend squad: Map<word, Pilot>) -> int {
+    pilot total = 0
+    total += squad["Takeru"].kills
+    total += squad["Meiya"].kills
+    give back total
+}
+
+task enlist(lend mut squad: Map<word, Pilot>, name: word, kills: int) -> void {
+    squad.set(name, Pilot { name: "pilot", kills: kills })
+}
+
+task squares(n: int) -> Map<int, int> {
+    pilot out: Map<int, int> = {}
+    pilot i = 0
+    repeat until i >= n {
+        out[i] = i * i
+        i += 1
+    }
+    give back out
+}
+
+task consume(m: Map<int, int>) -> int {
+    give back m.length()
+}
+
+task size_of<T>(lend m: Map<word, T>) -> int {
+    give back m.length()
+}
+
+task main() -> int {
+    pilot squad: Map<word, Pilot> = {"Takeru": Pilot { name: "Takeru", kills: 3 }, "Meiya": Pilot { name: "Meiya", kills: 7 }}
+    say count_kills(lend squad)
+    enlist(lend mut squad, "Sumika", 1)
+    say squad.length
+    squad["Sumika"].name = "Sumika"
+    say squad["Sumika"].name
+    squad["Takeru"] = Pilot { name: "Takeru!", kills: 4 }
+    say squad["Takeru"].name
+    say size_of(lend squad)
+
+    -- Growth past the first index (8 slots) and removal keep every key.
+    pilot sq = squares(100)
+    say sq.length()
+    say sq[7] + sq[99]
+    pilot removed = 0
+    pilot i = 0
+    repeat until i >= 100 {
+        if i % 3 == 0 {
+            if sq.remove(i) { removed += 1 }
+        }
+        i += 1
+    }
+    say removed
+    say sq.length()
+    say sq.remove(3)
+    say sq.get(4) or else 0
+    say sq.get(3) or else 0 - 1
+    say consume(sq)
+
+    -- Word values: replace drops the old word, get clones.
+    pilot names: Map<int, word> = {1: "one", 2: "two", 1: "uno"}
+    say names.length()
+    say names[1]
+    names[2] = "dos"
+    names.set(3, "tres")
+    pilot copy = names.get(3) or else "none"
+    say copy
+    say names.get(9) or else "none"
+    pilot key = "k"
+    pilot wm: Map<word, int> = Map::new()
+    wm["k"] = 5
+    wm["k"] += 1
+    say wm[key]
+    say key
+    wm = {"a": 1}
+    say wm.length()
+
+    -- Sets.
+    pilot seen: Set<word> = Set::new()
+    seen.add("x")
+    seen.add("y")
+    seen.add("x")
+    say seen.length()
+    say seen.contains("x")
+    say seen.remove("x")
+    say seen.contains("x")
+    say seen.length
+    pilot nums: Set<int> = Set::new()
+    pilot j = 0
+    repeat until j >= 50 {
+        nums.add(j % 20)
+        j += 1
+    }
+    say nums.length()
+
+    -- A missing key panics (exit 101) when the program gets an argument.
+    pilot probe = "Takeru"
+    if process::args_count() > 1 { probe = "Kashiwagi" }
+    say squad[probe].kills
+    give back 0
+}
