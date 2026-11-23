@@ -54,7 +54,9 @@ def main() -> int:
     parser.add_argument('freak', type=Path)
     freak = parser.parse_args().freak.resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix='freak-shared-project-') as temporary:
-        root = Path(temporary)
+        # macOS temp dirs live under the /var -> /private/var symlink, and Hangar
+        # refuses to follow links when anchoring a package root.
+        root = Path(temporary).resolve(strict=True)
         library = root / 'sharedlib'
         (library / 'src').mkdir(parents=True)
         (library / 'hangar.toml').write_text(LIBRARY_MANIFEST)
