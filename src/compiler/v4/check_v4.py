@@ -9561,6 +9561,7 @@ EXECUTABLE_SMOKES = [
             # `<` after a value compares; generic arguments keep their commas.
             "list-angles-diagnostics=0",
             "list-angles-compare-literal-elements=2",
+            "list-angles-capitalized-compare-elements=2",
             "list-angles-compare-pair-elements=2",
             "list-angles-generic-comma-elements=2",
         ],
