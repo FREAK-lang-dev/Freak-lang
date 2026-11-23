@@ -35,8 +35,8 @@ CRATES = (
     "freak_span", "freak_diag", "freak_macro_api", "freak_arena", "freak_intern",
     "freak_session", "freak_target", "freak_lex", "freak_parse", "freak_expand",
     "freak_hir", "freak_resolve", "freak_ty", "freak_mir", "freak_mir_build",
-    "freak_borrowck", "freak_codegen_llvm", "freak_query", "freak_driver",
-    "freak_editor", "freak_snapshot", "freak_lsp",
+    "freak_borrowck", "freak_mir_transform", "freak_codegen_llvm", "freak_query",
+    "freak_driver", "freak_editor", "freak_snapshot", "freak_lsp",
 )
 STAGE = re.compile(r"v4-build-stage=(\w+) diagnostics=(\d+)")
 ABORT = 'task v4_build_llvm_abort(errors: int, stage: word) -> bool {\n    if errors <= 0 { give back false }'
