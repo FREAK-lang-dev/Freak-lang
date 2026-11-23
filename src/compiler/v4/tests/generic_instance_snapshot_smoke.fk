@@ -99,6 +99,17 @@ task v4_generic_snapshot_run() -> void {
     v4_generic_snapshot_assert(ignore >= 0 and v4_mir_body_local_count(mir, ignore) > 0, "ignore<maybe<int>> instance body")
     pilot formal = v4_mir_snapshot_local_line(mir, ignore, 0)
     v4_generic_snapshot_rejects(v4_generic_snapshot_forge(snapshot, formal, v4_generic_snapshot_splice(formal, "|maybe<int>|", "|int|")), snapshot, "forged instance formal rejected")
+    -- A generic impl method instance owes the proof through its substituted
+    -- impl return (Box<T>::get gives back T) and formals (Box<T>::put takes
+    -- v: T): an env forged to T=maybe<int> must be refused, not skipped.
+    pilot impl_get = v4_mir_lookup_body_name(mir, "Box<word>::get")
+    v4_generic_snapshot_assert(impl_get >= 0, "Box<word>::get instance body")
+    pilot get_header = v4_mir_snapshot_body_line(mir, impl_get)
+    v4_generic_snapshot_rejects(v4_generic_snapshot_forge(snapshot, get_header, v4_generic_snapshot_splice(get_header, "T=word", "T=maybe<int>")), snapshot, "forged impl instance return rejected")
+    pilot impl_put = v4_mir_lookup_body_name(mir, "Box<word>::put")
+    v4_generic_snapshot_assert(impl_put >= 0, "Box<word>::put instance body")
+    pilot put_header = v4_mir_snapshot_body_line(mir, impl_put)
+    v4_generic_snapshot_rejects(v4_generic_snapshot_forge(snapshot, put_header, v4_generic_snapshot_splice(put_header, "T=word", "T=maybe<int>")), snapshot, "forged impl instance formal rejected")
     -- Both ignore instances are staged; an int-only call switched to the
     -- maybe<int> instance keeps its int argument and must still be refused.
     v4_generic_snapshot_assert(v4_mir_lookup_body_name(mir, "ignore<int>") >= 0, "ignore<int> instance body")

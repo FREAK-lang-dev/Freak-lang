@@ -6312,7 +6312,14 @@ task v4_mir_build_request_impl_instance(mir_id: int, body_id: int, expr_span: wo
     pilot owner = owner_ty
     if v4_ty_is_lend_type(owner) { owner = v4_ty_lend_target_type(owner) }
     owner = v4_ty_canonical_type(ty_id, owner)
-    if not v4_mir_type_is_concrete(ty_id, owner, 0) { give back "" }
+    if not v4_mir_type_is_concrete(ty_id, owner, 0) {
+        -- An impl over a lifetime-parameter owner (impl Holder<'a>) is a
+        -- template too, and native code has no layout for such an owner yet.
+        if owner.contains("'") {
+            v4_mir_add_type_error(mir_id, expr_span, "native shapes and routes with lifetime parameters are not yet supported: " + owner + "::" + method_name, "lifetime parameters on shapes and routes have no native layout or method instances yet")
+        }
+        give back ""
+    }
     pilot env = v4_ty_impl_generic_env_for_owner(ty_id, hir_item, owner)
     if env == v4_ty_generic_env_fail or env == "" { give back "" }
     -- The instance is keyed by the impl method and its env, so the impl target

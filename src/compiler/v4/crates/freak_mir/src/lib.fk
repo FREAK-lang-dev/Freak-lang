@@ -2950,11 +2950,13 @@ task v4_mir_task_call_def(ty_id: int, op: word) -> word {
 }
 
 -- Callable facts by def, for ordinary and instance bodies alike.
+-- An instance reads its generic task's or generic impl method's return type
+-- with the env applied (Box<int>::opt gives back maybe<int>).
 task v4_mir_callable_return_type_for_def(ty_id: int, def: word) -> word {
     if not v4_mir_def_is_generic_instance(def) { give back v4_ty_callable_return_type_for_def(ty_id, def) }
-    pilot sig_id = v4_ty_lookup_signature(ty_id, v4_mir_generic_def_base(def))
-    if sig_id < 0 { give back v4_ty_unknown }
-    give back v4_ty_canonical_type(ty_id, v4_ty_apply_generic_env(v4_ty_signature_return_type(ty_id, sig_id), v4_mir_generic_def_env(def)))
+    pilot generic_return = v4_ty_callable_return_type_for_def(ty_id, v4_mir_generic_def_base(def))
+    if generic_return == v4_ty_unknown { give back v4_ty_unknown }
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_generic_env(generic_return, v4_mir_generic_def_env(def)))
 }
 
 task v4_mir_callable_param_count_for_def(ty_id: int, def: word) -> int {
@@ -7577,6 +7579,18 @@ task v4_mir_sum_rows_are_sensitive(ty: int, definition: word, locals: int, value
             if env != "" { formal_ty = v4_ty_canonical_type(ty, v4_ty_apply_generic_env(formal_ty, env)) }
             if v4_ty_is_native_scalar_sum(ty, formal_ty) { give back true }
             parameter += 1
+        }
+    } else if env != "" {
+        -- A generic impl method instance has no task signature; its formals
+        -- come from the impl method, with the owner's env applied.
+        pilot base = v4_mir_generic_def_base(definition)
+        pilot item = v4_ty_impl_method_index_for_def(ty, base, 0)
+        pilot method = v4_ty_impl_method_index_for_def(ty, base, 1)
+        if item >= 0 and method >= 0 {
+            repeat until parameter >= v4_ty_impl_method_param_count(ty, item, method) {
+                if v4_ty_is_native_scalar_sum(ty, v4_ty_canonical_type(ty, v4_ty_apply_generic_env(v4_ty_impl_method_param_type(ty, item, method, parameter), env))) { give back true }
+                parameter += 1
+            }
         }
     }
     pilot row = 0
