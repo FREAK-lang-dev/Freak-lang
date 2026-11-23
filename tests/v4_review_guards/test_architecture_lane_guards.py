@@ -53,6 +53,26 @@ class ArchitectureLaneGuards(unittest.TestCase):
         found = self.violations(ty=ty)
         self.assertTrue(any("v4_ty_source_tree_stream no longer wraps v4_parse_stream_id" in v for v in found), found)
 
+    def test_declaration_after_shim_body_is_not_exempt(self):
+        header = "task v4_ty_source_stream_revision(stream_id: int) -> int {"
+        body = guard.freak_task_body(self.ty, "v4_ty_source_stream_revision")
+        self.assertIsNotNone(body)
+        shim = header + body + "}\n"
+        self.assertIn(shim, self.ty)
+        ty = self.ty.replace(shim, shim + "\npilot v4_ty_probe_ready = v4_lex_ready\n", 1)
+        found = self.violations(ty=ty)
+        self.assertTrue(
+            any("v4_ty_source_stream_revision (outside its body) bypasses the source identity shim: v4_lex_ready" in v for v in found),
+            found,
+        )
+
+    def test_shim_with_extra_syntax_read_is_rejected(self):
+        body = guard.freak_task_body(self.ty, "v4_ty_source_tree_file")
+        self.assertIsNotNone(body)
+        ty = self.ty.replace(body, "\n    pilot probe = v4_lex_token_value(0, 0)" + body, 1)
+        found = self.violations(ty=ty)
+        self.assertTrue(any("v4_ty_source_tree_file reads v4_lex_token_value" in v for v in found), found)
+
     def test_missing_shim_task_is_rejected(self):
         ty = self.ty.replace("task v4_ty_source_ready()", "task v4_ty_source_ready_renamed()", 1)
         found = self.violations(ty=ty)

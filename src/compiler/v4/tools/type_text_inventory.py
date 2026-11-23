@@ -72,10 +72,39 @@ def mask_comments(text: str) -> str:
     return "\n".join(out)
 
 
+# Word-returning TY accessors that answer with a type (or a piece of one)
+# although their names say neither "type" nor "_ty". Names, kinds, spans,
+# displays and snapshot fields are not type text and stay out.
+TY_TYPE_VALUED_ACCESSORS = (
+    "v4_ty_apply_generic_env",
+    "v4_ty_apply_signature_generics",
+    "v4_ty_binary_result",
+    "v4_ty_dyn_doctrine_base_name",
+    "v4_ty_dyn_doctrine_name",
+    "v4_ty_fixed_array_length_normalized_text",
+    "v4_ty_fixed_array_length_text",
+    "v4_ty_generic_arg",
+    "v4_ty_generic_base_name",
+    "v4_ty_generic_env_lookup",
+    "v4_ty_lend_lifetime",
+    "v4_ty_lend_mode",
+    "v4_ty_native_scalar_sum_kind",
+    "v4_ty_native_sum_family",
+    "v4_ty_numeric_result",
+    "v4_ty_raw_pointer_cast_target_surface",
+    "v4_ty_surface_ffi_alias_name",
+    "v4_ty_unary_result",
+)
+
+
 def ty_word_type_accessors() -> list[str]:
     text = (CRATES / "freak_ty/src/lib.fk").read_text(encoding="utf-8")
-    names = re.findall(r"(?m)^task\s+(v4_ty_[a-z0-9_]*(?:type|_ty)[a-z0-9_]*)\s*\([^\n]*\)\s*->\s*word\b", text)
-    return sorted(set(names))
+    word_tasks = set(re.findall(r"(?m)^task\s+(v4_ty_[a-z0-9_]*)\s*\([^\n]*\)\s*->\s*word\b", text))
+    named = {name for name in word_tasks if re.search(r"type|_ty", name[len("v4_ty_"):])}
+    missing = sorted(set(TY_TYPE_VALUED_ACCESSORS) - word_tasks)
+    if missing:
+        raise SystemExit("type-valued TY accessors no longer return word: " + ", ".join(missing))
+    return sorted(named | set(TY_TYPE_VALUED_ACCESSORS))
 
 
 def classify(line: str) -> str:
@@ -97,7 +126,12 @@ def inventory() -> dict:
             questions: collections.Counter = collections.Counter()
             per_accessor: collections.Counter = collections.Counter()
             for line in lines:
-                hits = pattern.findall(line)
+                # A `task` header names the accessor; it is not a read.
+                hits = [
+                    match.group(1)
+                    for match in pattern.finditer(line)
+                    if not re.search(r"\btask\s*$", line[: match.start()])
+                ]
                 if not hits:
                     continue
                 question = classify(line)

@@ -13922,15 +13922,34 @@ def architecture_lane_violations(ty_source: str, codegen_source: str) -> list[st
     violations: list[str] = []
     chunks = freak_task_chunks(ty_source)
     shim_helpers = frozenset().union(*TY_SOURCE_IDENTITY_SHIM.values())
+    syntax_reference = re.compile(r"\bv4_(?:lex|parse|tok)_[A-Za-z0-9_]*\b")
     for shim_task, helpers in TY_SOURCE_IDENTITY_SHIM.items():
         if shim_task not in chunks:
             violations.append(f"boundary missing: freak_ty source identity shim {shim_task}")
             continue
-        for helper in sorted(helpers):
-            if not re.search(rf"\b{re.escape(helper)}\b", chunks[shim_task]):
-                violations.append(
-                    f"boundary missing: freak_ty source identity shim {shim_task} no longer wraps {helper}"
-                )
+        # Only the shim's own body is exempt; text after its closing brace
+        # (module-level declarations before the next task) is checked as
+        # ordinary TY code under a separate key.
+        body = freak_task_body(ty_source, shim_task)
+        chunk = chunks[shim_task]
+        if body is None or body not in chunk:
+            violations.append(f"boundary missing: freak_ty source identity shim {shim_task} has no task body")
+            body = ""
+        else:
+            chunks[shim_task] = body
+            residual = chunk.replace(body, "", 1)
+            if syntax_reference.search(residual):
+                chunks[f"{shim_task} (outside its body)"] = residual
+        observed = frozenset(syntax_reference.findall(body))
+        for helper in sorted(helpers - observed):
+            violations.append(
+                f"boundary missing: freak_ty source identity shim {shim_task} no longer wraps {helper}"
+            )
+        for extra in sorted(observed - helpers):
+            violations.append(
+                f"boundary violation: freak_ty source identity shim {shim_task} reads {extra}; "
+                "a shim wraps only its own identity helpers"
+            )
     outside = "\n".join(text for name, text in chunks.items() if name not in TY_SOURCE_IDENTITY_SHIM)
     for name, text in chunks.items():
         if name in TY_SOURCE_IDENTITY_SHIM:
