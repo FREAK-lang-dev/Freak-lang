@@ -301,6 +301,8 @@ task cli_show_help() -> void {
     say cli_box_mid("  " + C_DIM + "-O and LTO flags apply to build and run only" + C_RESET, 45)
     say cli_box_mid("  " + C_BYELLOW + "--target=ALIAS|TRIPLE" + C_RESET + " " + C_DIM + "linux-x64, linux-arm64," + C_RESET, 45)
     say cli_box_mid("  " + C_DIM + "windows-x64, macos-arm64; raw triples pass through" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "--link=NAME" + C_RESET + "       " + C_DIM + "Link a C library (-lNAME or a file)" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "--lib-dir=DIR" + C_RESET + "     " + C_DIM + "Search DIR for C libraries" + C_RESET, 45)
     say cli_box_bot(45)
     say ""
 

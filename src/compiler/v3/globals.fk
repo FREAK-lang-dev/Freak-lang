@@ -271,4 +271,13 @@ pilot source_map_initialized = false
 pilot trusted_internal_runtime_source_file = ""
 pilot opt_level = "2"
 pilot cross_target = ""
+-- Native FFI (bible section 16.2). ffi_target_os is "linux", "darwin" or
+-- "windows"; the CLI sets it from --target before parsing, otherwise the
+-- parser derives it from cross_target or the host. extern [C, link="x"]
+-- blocks append "|x|" to ffi_link_libs for the CLI's link step, and
+-- extern [C, load="x"] blocks set ffi_uses_load (the dynamic loader).
+pilot ffi_target_os = ""
+pilot ffi_target_arch = ""
+pilot ffi_link_libs = ""
+pilot ffi_uses_load = false
 pilot source_line_offset = 0

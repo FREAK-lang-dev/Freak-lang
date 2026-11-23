@@ -5909,3 +5909,250 @@ int64_t freak_ib2_ret_i32(freak_word v) { (void)v; return 0; }
 int64_t freak_ib2_unreachable(void) { return 0; }
 int64_t freak_ib2_integer_failure(freak_word e) { (void)e; return 0; }
 #endif
+
+/* ===================================================================
+ * Native FFI (bible section 16): dynamic loading and std::ffi helpers.
+ *
+ * extern [C, load="name"] members call freak_ffi_lazy() on first use. It
+ * opens the library (searching next to the executable first, then the
+ * platform loader's normal search), resolves the symbol and caches it in
+ * the member's private slot. Failure is fatal and names the library.
+ * =================================================================== */
+#ifdef _WIN32
+typedef HMODULE freak_ffi_handle;
+#else
+#include <dlfcn.h>
+typedef void *freak_ffi_handle;
+#endif
+
+static char freak_ffi_error_text[1024];
+
+static void freak_ffi_set_error(const char *prefix, const char *name) {
+#ifdef _WIN32
+    DWORD code = GetLastError();
+    char detail[512] = {0};
+    if (!FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, code,
+            0, detail, (DWORD)sizeof(detail), NULL)) {
+        snprintf(detail, sizeof(detail), "Windows error %lu", (unsigned long)code);
+    }
+    size_t n = strlen(detail);
+    while (n > 0 && (detail[n - 1] == '\n' || detail[n - 1] == '\r' || detail[n - 1] == ' ')) detail[--n] = '\0';
+    snprintf(freak_ffi_error_text, sizeof(freak_ffi_error_text), "%s '%s': %s", prefix, name, detail);
+#else
+    const char *detail = dlerror();
+    snprintf(freak_ffi_error_text, sizeof(freak_ffi_error_text), "%s '%s': %s", prefix, name,
+             detail ? detail : "unknown loader error");
+#endif
+}
+
+static freak_ffi_handle freak_ffi_open_exact(const char *path) {
+#ifdef _WIN32
+    int wide_len = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
+    if (wide_len <= 0) return LoadLibraryA(path);
+    wchar_t *wide = (wchar_t *)malloc((size_t)wide_len * sizeof(wchar_t));
+    if (!wide) return NULL;
+    MultiByteToWideChar(CP_UTF8, 0, path, -1, wide, wide_len);
+    HMODULE handle = LoadLibraryW(wide);
+    free(wide);
+    return handle;
+#else
+    return dlopen(path, RTLD_NOW | RTLD_LOCAL);
+#endif
+}
+
+static int freak_ffi_has_separator(const char *name) {
+    return strchr(name, '/') != NULL || strchr(name, '\\') != NULL;
+}
+
+static int freak_ffi_has_library_suffix(const char *name) {
+    return strstr(name, ".so") != NULL || strstr(name, ".dll") != NULL ||
+           strstr(name, ".dylib") != NULL || strstr(name, ".DLL") != NULL;
+}
+
+static int freak_ffi_is_absolute(const char *name) {
+    if (name[0] == '/' || name[0] == '\\') return 1;
+    return ((name[0] >= 'A' && name[0] <= 'Z') || (name[0] >= 'a' && name[0] <= 'z')) && name[1] == ':';
+}
+
+/* Tries `candidate` next to the executable, then through the system loader. */
+static freak_ffi_handle freak_ffi_open_candidate(const char *candidate, const char *exe_dir) {
+    char joined[4096];
+    freak_ffi_handle handle = NULL;
+    if (exe_dir && exe_dir[0] && !freak_ffi_is_absolute(candidate)) {
+        const char *leaf = candidate;
+        if (leaf[0] == '.' && (leaf[1] == '/' || leaf[1] == '\\')) leaf += 2;
+        snprintf(joined, sizeof(joined), "%s/%s", exe_dir, leaf);
+        handle = freak_ffi_open_exact(joined);
+        if (handle) return handle;
+    }
+#ifndef _WIN32
+    /* A bare leaf must go to the loader without "./" so it searches the
+       normal paths; a relative path with a directory is cwd-relative. */
+#endif
+    return freak_ffi_open_exact(candidate);
+}
+
+static freak_ffi_handle freak_ffi_open_named(const char *name) {
+    if (!name || !name[0]) {
+        snprintf(freak_ffi_error_text, sizeof(freak_ffi_error_text), "empty library name");
+        return NULL;
+    }
+    char exe_dir[4096] = {0};
+    freak_word exe = freak_process_executable_path();
+    if (exe.length > 0 && exe.length < sizeof(exe_dir)) {
+        memcpy(exe_dir, exe.data, exe.length);
+        exe_dir[exe.length] = '\0';
+        char *slash = strrchr(exe_dir, '/');
+        char *back = strrchr(exe_dir, '\\');
+        if (back && (!slash || back > slash)) slash = back;
+        if (slash) *slash = '\0'; else exe_dir[0] = '\0';
+    }
+    freak_word_release_owned(&exe);
+    freak_ffi_handle handle = NULL;
+    if (freak_ffi_has_separator(name) || freak_ffi_has_library_suffix(name)) {
+        handle = freak_ffi_open_candidate(name, exe_dir);
+        if (!handle) freak_ffi_set_error("could not load library", name);
+        return handle;
+    }
+    char candidate[1024];
+#if defined(_WIN32)
+    const char *patterns[] = {"%s.dll", "lib%s.dll", NULL};
+#elif defined(__APPLE__)
+    const char *patterns[] = {"lib%s.dylib", "%s.dylib", "lib%s.so", NULL};
+#else
+    const char *patterns[] = {"lib%s.so", "%s.so", NULL};
+#endif
+    for (int i = 0; patterns[i]; i++) {
+        snprintf(candidate, sizeof(candidate), patterns[i], name);
+        handle = freak_ffi_open_candidate(candidate, exe_dir);
+        if (handle) return handle;
+    }
+    /* Report the first, most conventional spelling. */
+    snprintf(candidate, sizeof(candidate), patterns[0], name);
+    (void)freak_ffi_open_exact(candidate);
+    freak_ffi_set_error("could not load library", name);
+    return NULL;
+}
+
+static void *freak_ffi_lookup(freak_ffi_handle handle, const char *symbol) {
+#ifdef _WIN32
+    return (void *)GetProcAddress(handle, symbol);
+#else
+    dlerror();
+    return dlsym(handle, symbol);
+#endif
+}
+
+void *freak_ffi_lazy(const char *library, const char *symbol, void **cache) {
+    void *resolved = __atomic_load_n(cache, __ATOMIC_ACQUIRE);
+    if (resolved) return resolved;
+    freak_ffi_handle handle = freak_ffi_open_named(library);
+    if (!handle) {
+        fflush(stdout);
+        fprintf(stderr, "FFI: %s\n", freak_ffi_error_text);
+        exit(1);
+    }
+    resolved = freak_ffi_lookup(handle, symbol);
+    if (!resolved) {
+        freak_ffi_set_error("could not find symbol", symbol);
+        fflush(stdout);
+        fprintf(stderr, "FFI: %s in library '%s'\n", freak_ffi_error_text, library);
+        exit(1);
+    }
+    __atomic_store_n(cache, resolved, __ATOMIC_RELEASE);
+    return resolved;
+}
+
+/* std::ffi: C strings and raw memory. Addresses travel as FREAK ints. */
+int64_t freak_ffi_cstring(freak_word text) {
+    char *copy = (char *)malloc(text.length + 1);
+    if (!copy) freak_panic(freak_word_lit("out of memory in ffi::cstring"));
+    if (text.length) memcpy(copy, text.data, text.length);
+    copy[text.length] = '\0';
+    return (int64_t)(intptr_t)copy;
+}
+
+freak_word freak_ffi_from_cstring(int64_t pointer) {
+    const char *text = (const char *)(intptr_t)pointer;
+    if (!text) return freak_word_lit("");
+    size_t length = strlen(text);
+    char *copy = (char *)malloc(length + 1);
+    if (!copy) freak_panic(freak_word_lit("out of memory in ffi::from_cstring"));
+    memcpy(copy, text, length + 1);
+    return freak_word_own(copy, length);
+}
+
+int64_t freak_ffi_alloc(int64_t size) {
+    if (size < 0) freak_panic(freak_word_lit("ffi::alloc size must not be negative"));
+    void *memory = calloc(1, size ? (size_t)size : 1);
+    if (!memory) freak_panic(freak_word_lit("out of memory in ffi::alloc"));
+    return (int64_t)(intptr_t)memory;
+}
+
+void freak_ffi_free(int64_t pointer) { free((void *)(intptr_t)pointer); }
+
+#define FREAK_FFI_ACCESS(SUFFIX, CTYPE) \
+    int64_t freak_ffi_read_##SUFFIX(int64_t p) { CTYPE v; memcpy(&v, (const void *)(intptr_t)p, sizeof v); return (int64_t)v; } \
+    void freak_ffi_write_##SUFFIX(int64_t p, int64_t value) { CTYPE v = (CTYPE)value; memcpy((void *)(intptr_t)p, &v, sizeof v); }
+FREAK_FFI_ACCESS(i8, int8_t)
+FREAK_FFI_ACCESS(u8, uint8_t)
+FREAK_FFI_ACCESS(i16, int16_t)
+FREAK_FFI_ACCESS(u16, uint16_t)
+FREAK_FFI_ACCESS(i32, int32_t)
+FREAK_FFI_ACCESS(u32, uint32_t)
+FREAK_FFI_ACCESS(i64, int64_t)
+#undef FREAK_FFI_ACCESS
+
+double freak_ffi_read_f64(int64_t p) { double v; memcpy(&v, (const void *)(intptr_t)p, sizeof v); return v; }
+double freak_ffi_read_f32(int64_t p) { float v; memcpy(&v, (const void *)(intptr_t)p, sizeof v); return (double)v; }
+void freak_ffi_write_f64(int64_t p, double value) { memcpy((void *)(intptr_t)p, &value, sizeof value); }
+void freak_ffi_write_f32(int64_t p, double value) { float v = (float)value; memcpy((void *)(intptr_t)p, &v, sizeof v); }
+
+/* Manual loading: ffi::open / ffi::symbol / ffi::close / ffi::last_error. */
+int64_t freak_ffi_open(freak_word name) {
+    char path[4096];
+    if (name.length >= sizeof(path)) { snprintf(freak_ffi_error_text, sizeof(freak_ffi_error_text), "library name too long"); return 0; }
+    memcpy(path, name.data, name.length);
+    path[name.length] = '\0';
+    freak_ffi_error_text[0] = '\0';
+    return (int64_t)(intptr_t)freak_ffi_open_named(path);
+}
+
+int64_t freak_ffi_symbol(int64_t library, freak_word name) {
+    char symbol[1024];
+    if (!library) { snprintf(freak_ffi_error_text, sizeof(freak_ffi_error_text), "ffi::symbol needs an open library"); return 0; }
+    if (name.length >= sizeof(symbol)) { snprintf(freak_ffi_error_text, sizeof(freak_ffi_error_text), "symbol name too long"); return 0; }
+    memcpy(symbol, name.data, name.length);
+    symbol[name.length] = '\0';
+    void *found = freak_ffi_lookup((freak_ffi_handle)(intptr_t)library, symbol);
+    if (!found) freak_ffi_set_error("could not find symbol", symbol);
+    return (int64_t)(intptr_t)found;
+}
+
+void freak_ffi_close(int64_t library) {
+    if (!library) return;
+#ifdef _WIN32
+    FreeLibrary((HMODULE)(intptr_t)library);
+#else
+    dlclose((void *)(intptr_t)library);
+#endif
+}
+
+freak_word freak_ffi_last_error(void) {
+    size_t length = strlen(freak_ffi_error_text);
+    char *copy = (char *)malloc(length + 1);
+    if (!copy) freak_panic(freak_word_lit("out of memory in ffi::last_error"));
+    memcpy(copy, freak_ffi_error_text, length + 1);
+    return freak_word_own(copy, length);
+}
+
+/* LLVM-backend carriers: words are i64 handles and num travels as bits. */
+int64_t freak_llvm_ffi_cstring(int64_t text) { return freak_ffi_cstring(freak_llvm_word_view(text)); }
+int64_t freak_llvm_ffi_from_cstring(int64_t pointer) { return freak_llvm_word_take(freak_ffi_from_cstring(pointer)); }
+int64_t freak_llvm_ffi_open(int64_t name) { return freak_ffi_open(freak_llvm_word_view(name)); }
+int64_t freak_llvm_ffi_symbol(int64_t library, int64_t name) { return freak_ffi_symbol(library, freak_llvm_word_view(name)); }
+int64_t freak_llvm_ffi_last_error(void) { return freak_llvm_word_take(freak_ffi_last_error()); }
+int64_t freak_llvm_ffi_read_f64(int64_t p) { double v = freak_ffi_read_f64(p); int64_t bits; memcpy(&bits, &v, sizeof bits); return bits; }
+int64_t freak_llvm_ffi_read_f32(int64_t p) { double v = freak_ffi_read_f32(p); int64_t bits; memcpy(&bits, &v, sizeof bits); return bits; }
+void freak_llvm_ffi_write_f64(int64_t p, int64_t bits) { double v; memcpy(&v, &bits, sizeof v); freak_ffi_write_f64(p, v); }
+void freak_llvm_ffi_write_f32(int64_t p, int64_t bits) { double v; memcpy(&v, &bits, sizeof v); freak_ffi_write_f32(p, v); }

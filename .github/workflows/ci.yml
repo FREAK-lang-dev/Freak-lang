@@ -204,6 +204,10 @@ jobs:
         shell: bash
         run: python -u tests/v3_interpolation.py ./build/freak$EXT
 
+      - name: V3 native FFI (C shared libraries)
+        shell: bash
+        run: python -u tests/v3_ffi.py ./build/freak$EXT
+
       - name: V3 legacy preservation corpus
         shell: bash
         run: python -u tests/v3_legacy_golden.py ./build/freak$EXT
@@ -663,6 +667,10 @@ jobs:
       - name: V3 path interpolation
         shell: bash
         run: python -u tests/v3_interpolation.py ./build/freak$EXT
+
+      - name: V3 native FFI (C shared libraries)
+        shell: bash
+        run: python -u tests/v3_ffi.py ./build/freak$EXT
 
       - name: V3 legacy preservation corpus
         shell: bash

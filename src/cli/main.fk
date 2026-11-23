@@ -7,6 +7,9 @@
 
 -- Paths stay separate from the colon-delimited profile, including drive names.
 pilot cli_requested_output = ""
+-- Native FFI link inputs from --link=NAME and --lib-dir=DIR ("|a|b|").
+pilot cli_requested_link_libs = ""
+pilot cli_requested_lib_dirs = ""
 pilot cli_requested_graph_snapshot = ""
 pilot cli_requested_manifest = ""
 pilot cli_requested_locked = false
@@ -55,6 +58,8 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
     pilot diagnostic_cast_requested = "off"
     pilot diagnostic_cast_seen = ""
     pilot allow_build_profile = subcommand_mode == "build" or subcommand_mode == "run"
+    pilot link_libs_requested = ""
+    pilot lib_dirs_requested = ""
 
     pilot fi = start_idx
     repeat until fi >= args_cnt {
@@ -108,6 +113,25 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
             if requested == "" { give back cli_flag_error("--manifest-path requires a file path") }
             if manifest_requested != "" and manifest_requested != requested { give back cli_flag_error("conflicting manifest paths") }
             manifest_requested = requested
+        } else if flag.starts_with("--link=") or flag.starts_with("--lib-dir=") {
+            pilot is_link = flag.starts_with("--link=")
+            pilot flag_name = "--lib-dir"
+            pilot fvalue = ""
+            if is_link {
+                flag_name = "--link"
+                fvalue = cli_flag_value(flag, 7)
+            } else { fvalue = cli_flag_value(flag, 10) }
+            if not allow_build_profile { give back cli_flag_error(flag_name + " is only valid for build and run") }
+            if fvalue == "" or fvalue.contains("|") { give back cli_flag_error(flag_name + " requires a value") }
+            if is_link {
+                if not link_libs_requested.contains("|" + fvalue + "|") {
+                    if link_libs_requested == "" { link_libs_requested = "|" }
+                    link_libs_requested = link_libs_requested + fvalue + "|"
+                }
+            } else if not lib_dirs_requested.contains("|" + fvalue + "|") {
+                if lib_dirs_requested == "" { lib_dirs_requested = "|" }
+                lib_dirs_requested = lib_dirs_requested + fvalue + "|"
+            }
         } else if flag == "--locked" {
             locked_requested = true
         } else if flag == "--offline" {
@@ -204,6 +228,8 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
 
     strict_borrow = strict_seen
     cli_requested_output = output_requested
+    cli_requested_link_libs = link_libs_requested
+    cli_requested_lib_dirs = lib_dirs_requested
     cli_requested_graph_snapshot = graph_requested
     cli_requested_manifest = manifest_requested
     cli_requested_locked = locked_requested

@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Native FFI contracts: FREAK calls a real C shared library.
+
+Builds tests/ffi/greet.c into a platform shared library (libgreet.so,
+libgreet.dylib or greet.dll plus its import library) with the host Clang,
+then checks that extern [C, link="greet"] and extern [C, load="greet"]
+programs produce identical results on the LLVM and C backends, that
+--link=/--lib-dir= link a library from another directory, that a missing
+load= library fails by name, and that unsafe signatures are rejected.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+FIXTURES = ROOT / "tests" / "ffi"
+
+EXPECTED = [
+    "add: 42",
+    "negate: -5",
+    "wrap: 0",
+    "twice: -600",
+    "big: 9000000000",
+    "scale: 6",
+    "halve: 2.5",
+    "even 4: true",
+    "even 7: false",
+    "not true: false",
+    "plus: 3",
+    "long: -8",
+    "strlen: 5",
+    "shout changed: 5",
+    "shouted: FREAK",
+    "hello: hello from C",
+    "square 4: 16",
+    "poked: -9",
+    "count: 2",
+]
+
+FLAGS_PROGRAM = '''extern [C, if target_os = "windows"] {
+    task GetTickCount() -> c_uint
+}
+extern [C, if target_os = "linux"] {
+    @link_name("getpid")
+    task native_pid() -> c_int
+}
+extern [C, if target_os = "macos"] {
+    @link_name("getpid")
+    task native_pid() -> c_int
+}
+extern [C] {
+    task greet_add(a: c_int, b: c_int) -> c_int
+}
+say "sum " + word_from_int(greet_add(2, 3))
+'''
+
+BAD_PROGRAM = '''extern [C, link="x", load="y", stdcall, frob] {
+    task takes_word(s: word) -> c_int
+    task takes_list(x: List) -> c_void
+    task takes_void(x: c_void) -> int
+    @nope
+    task variadic(x: int, more: ...) -> int
+}
+task f() -> void {
+    extern [C] { task nested() -> void }
+}
+'''
+
+BAD_MESSAGES = [
+    "an extern block takes one link= or load= option",
+    "calling convention stdcall is not supported by V3.5 yet",
+    "unknown extern ABI option frob",
+    "word is not FFI-safe in extern parameter 's' of takes_word",
+    "type 'List' is not FFI-safe in extern parameter 'x' of takes_list",
+    "c_void is only valid behind a pointer or as a return type",
+    "unknown extern member attribute @nope",
+    "variadic extern tasks are not supported by V3.5 yet",
+    "extern blocks are only allowed at the top level",
+]
+
+
+def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, cwd=cwd, env=env, text=True, encoding="utf-8", errors="replace",
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)
+
+
+def require(condition: bool, message: str, result: subprocess.CompletedProcess[str] | None = None) -> None:
+    if condition:
+        return
+    print(f"FAIL: {message}")
+    if result is not None:
+        print(result.stdout[-4000:])
+    sys.exit(1)
+
+
+def clang_command() -> str:
+    for candidate in ("clang", "clang-18", "clang-17", "clang-16", "clang-15"):
+        if shutil.which(candidate):
+            return candidate
+    print("FAIL: clang is required to build the test library")
+    sys.exit(1)
+
+
+def build_library(clang: str, directory: Path) -> None:
+    source = directory / "greet.c"
+    if sys.platform == "win32":
+        machine = run([clang, "-dumpmachine"], directory).stdout.strip()
+        command = [clang, "-shared", "-O2", "-o", str(directory / "greet.dll"), str(source)]
+        if "msvc" not in machine:
+            command.append("-Wl,--out-implib," + str(directory / "libgreet.dll.a"))
+    elif sys.platform == "darwin":
+        command = [clang, "-dynamiclib", "-O2", "-o", str(directory / "libgreet.dylib"), str(source),
+                   "-install_name", "@rpath/libgreet.dylib"]
+    else:
+        command = [clang, "-shared", "-fPIC", "-O2", "-o", str(directory / "libgreet.so"), str(source)]
+    result = run(command, directory)
+    require(result.returncode == 0, "could not build the greet test library", result)
+
+
+def executable(directory: Path, stem: str) -> Path:
+    return directory / (stem + (".exe" if sys.platform == "win32" else ""))
+
+
+def output_lines(text: str) -> list[str]:
+    return [line.rstrip("\r") for line in text.splitlines() if line.strip()]
+
+
+def check_program(freak: str, directory: Path, stem: str, backend: list[str]) -> None:
+    label = f"{stem} {' '.join(backend) or '--llvm'}"
+    built = run([freak, "build", stem + ".fk", *backend], directory)
+    require(built.returncode == 0, f"{label}: build failed", built)
+    binary = executable(directory, stem)
+    # Run from another directory: the library must be found next to the
+    # executable (rpath $ORIGIN / @executable_path, or the DLL search order).
+    ran = run([str(binary)], ROOT)
+    require(ran.returncode == 0, f"{label}: program exited {ran.returncode}", ran)
+    require(output_lines(ran.stdout) == EXPECTED, f"{label}: unexpected output", ran)
+    print(f"ok {label}")
+
+
+def check_missing_library(freak: str, directory: Path) -> None:
+    lonely = directory / "lonely"
+    lonely.mkdir()
+    shutil.copy(directory / "ffi_load.fk", lonely / "ffi_load.fk")
+    built = run([freak, "build", "ffi_load.fk"], lonely)
+    require(built.returncode == 0, "missing-library build failed", built)
+    ran = run([str(executable(lonely, "ffi_load"))], lonely)
+    require(ran.returncode == 1, f"missing load= library should exit 1, got {ran.returncode}", ran)
+    require("FFI: could not load library 'greet'" in ran.stdout, "missing library message", ran)
+    print("ok load= missing library fails by name")
+
+
+def check_flags(freak: str, directory: Path) -> None:
+    app = directory / "flags" / "app"
+    libs = directory / "flags" / "libs"
+    app.mkdir(parents=True)
+    libs.mkdir(parents=True)
+    for item in directory.iterdir():
+        if item.is_file() and (item.name.startswith("libgreet") or item.name.startswith("greet.")) and item.suffix != ".c":
+            shutil.copy(item, libs / item.name)
+    (app / "flags.fk").write_text(FLAGS_PROGRAM, encoding="utf-8")
+    for backend in ([], ["--c"]):
+        built = run([freak, "build", "app/flags.fk", "--link=greet", "--lib-dir=libs", *backend], directory / "flags")
+        require(built.returncode == 0, f"--link/--lib-dir build {backend} failed", built)
+        env = dict(os.environ)
+        if sys.platform == "win32":
+            env["PATH"] = str(libs) + os.pathsep + env.get("PATH", "")
+        ran = run([str(executable(app, "flags"))], ROOT, env)
+        require(ran.returncode == 0 and output_lines(ran.stdout) == ["sum 5"], f"--link/--lib-dir run {backend}", ran)
+    print("ok --link= and --lib-dir= with target_os blocks")
+
+
+def check_diagnostics(freak: str, directory: Path) -> None:
+    (directory / "bad.fk").write_text(BAD_PROGRAM, encoding="utf-8")
+    checked = run([freak, "check", "bad.fk"], directory)
+    require(checked.returncode != 0, "unsafe extern signatures must fail", checked)
+    for message in BAD_MESSAGES:
+        require(message in checked.stdout, f"missing diagnostic: {message}", checked)
+    print("ok unsafe extern signatures rejected by name")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("freak", help="path to the freak CLI")
+    args = parser.parse_args()
+    freak = str(Path(args.freak).resolve())
+    clang = clang_command()
+    with tempfile.TemporaryDirectory(prefix="freak-ffi-") as temporary:
+        directory = Path(temporary)
+        for name in ("greet.c", "ffi_link.fk", "ffi_load.fk"):
+            shutil.copy(FIXTURES / name, directory / name)
+        build_library(clang, directory)
+        for stem in ("ffi_link", "ffi_load"):
+            for backend in ([], ["--c"]):
+                check_program(freak, directory, stem, backend)
+        check_missing_library(freak, directory)
+        check_flags(freak, directory)
+        check_diagnostics(freak, directory)
+    print("native FFI contracts passed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

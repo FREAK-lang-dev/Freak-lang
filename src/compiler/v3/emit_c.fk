@@ -713,6 +713,7 @@ task emit_c_borrowing_call(expr_id: word, func_name: word, args: word) -> void {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task c_map_call(val: word) -> word {
+    if val.starts_with("ffi::") and ffi_builtin_ret(val) != "" { give back "freak_ffi_" + val.substring(5, val.length() - 5) }
     if val == "process::platform_name" { give back "freak_process_platform_name" }
     if val == "process::stdout_is_terminal" { give back "freak_process_stdout_is_terminal" }
     if val == "process::platform_is_windows" { give back "freak_process_platform_is_windows" }
@@ -970,6 +971,13 @@ task emit_c_interp(expr_id: word, segments: word) -> void {
 }
 
 task emit_c_call(expr_id: word, val: word, left: word) -> void {
+    if emt_is_extern(val) {
+        pilot ffi_extra = ffi_extern_extra(val)
+        if ffi_extra != "" {
+            emit_c_ffi_call(val, ffi_extra, left)
+            give back
+        }
+    }
     if val == "List::filled" { emit_c_filled(expr_id, left) give back }
     if val == "List::new" { emit("freak_v3_array_new(FREAK_V3_C_WORD)") give back }
     if val == "List::with_capacity" { emit_c_list_with_capacity(expr_id, left) give back }
@@ -2207,12 +2215,105 @@ task emit_fwd_decl(eid: word) -> void {
     emit_line(");")
 }
 
+-- ===================== NATIVE FFI (extern [C] blocks) ===================
+
+task c_ffi_type(abi: word) -> word {
+    if abi == "i8" { give back "int8_t" }
+    if abi == "u8" { give back "uint8_t" }
+    if abi == "char" { give back "char" }
+    if abi == "i16" { give back "int16_t" }
+    if abi == "u16" { give back "uint16_t" }
+    if abi == "i32" { give back "int32_t" }
+    if abi == "u32" { give back "uint32_t" }
+    if abi == "u64" { give back "uint64_t" }
+    if abi == "long" { give back "long" }
+    if abi == "ulong" { give back "unsigned long" }
+    if abi == "bool" { give back "_Bool" }
+    if abi == "f32" { give back "float" }
+    if abi == "f64" { give back "double" }
+    if abi == "ptr" { give back "void *" }
+    if abi == "void" { give back "void" }
+    give back "int64_t"
+}
+
+task c_ffi_param_list(extra: word, named: bool) -> word {
+    pilot count = ffi_param_count(extra)
+    if count == 0 { give back "void" }
+    pilot out = ""
+    pilot j = 0
+    repeat count times {
+        if j > 0 { out = out + ", " }
+        out = out + c_ffi_type(ffi_param_abi(extra, j))
+        if named { out = out + " __freak_p" + word_from_int(j) }
+        j += 1
+    }
+    give back out
+}
+
+task c_ffi_c_string(text: word) -> word {
+    give back "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+}
+
+task emit_c_ffi_decl(name_w: word, extra: word) -> void {
+    pilot safe = c_safe_ident(name_w)
+    pilot ret = c_ffi_type(ffi_field(extra, 4))
+    if ffi_field(extra, 1) == "load" {
+        emit_line("static void *__freak_ffi_cache_" + safe + ";")
+        emit_line("static " + ret + " __freak_ffi_" + safe + "(" + c_ffi_param_list(extra, true) + ") \{")
+        pilot fn_type = ret + " (*)(" + c_ffi_param_list(extra, false) + ")"
+        emit("    " + ret + " (*__freak_fn)(" + c_ffi_param_list(extra, false) + ") = (" + fn_type + ")freak_ffi_lazy(")
+        emit_line(c_ffi_c_string(ffi_field(extra, 2)) + ", " + c_ffi_c_string(ffi_field(extra, 3)) + ", &__freak_ffi_cache_" + safe + ");")
+        pilot call_args = ""
+        pilot j = 0
+        repeat ffi_param_count(extra) times {
+            if j > 0 { call_args = call_args + ", " }
+            call_args = call_args + "__freak_p" + word_from_int(j)
+            j += 1
+        }
+        if ret == "void" { emit_line("    __freak_fn(" + call_args + ");") }
+        else { emit_line("    return __freak_fn(" + call_args + ");") }
+        emit_line("\}")
+        give back
+    }
+    -- A private C name bound to the real symbol keeps user prototypes from
+    -- clashing with libc headers the runtime already includes.
+    emit_line("extern " + ret + " __freak_ffi_" + safe + "(" + c_ffi_param_list(extra, false) + ") __asm__(__FREAK_FFI_SYMBOL(" + c_ffi_c_string(ffi_field(extra, 3)) + "));")
+}
+
+task emit_c_ffi_call(val: word, extra: word, left: word) -> void {
+    pilot ret_abi = ffi_field(extra, 4)
+    pilot wrap_close = ")"
+    if ret_abi == "void" { emit("(") }
+    else if ret_abi == "ptr" { emit("((int64_t)(intptr_t)") wrap_close = ")" }
+    else if ret_abi == "bool" { emit("((bool)") }
+    else if ffi_abi_is_float(ret_abi) { emit("((double)") }
+    else { emit("((int64_t)") }
+    emit("__freak_ffi_" + c_safe_ident(val) + "(")
+    pilot j = 0
+    repeat tc_arg_count(left) times {
+        if j > 0 { emit(", ") }
+        pilot abi = ffi_param_abi(extra, j)
+        if abi == "ptr" { emit("(void *)(intptr_t)(") }
+        else { emit("(" + c_ffi_type(abi) + ")(") }
+        emit_expr(word_from_int(tc_arg_at(left, j)))
+        emit(")")
+        j += 1
+    }
+    emit(")")
+    emit(wrap_close)
+}
+
 task emit_extern_decl(eid: word) -> void {
     pilot i = word_to_int(eid)
     pilot name_w: word = array_get(ast_stmt_names, i)
     pilot params_w: word = array_get(ast_task_params, i)
     pilot returns_w: word = array_get(ast_task_returns, i)
     emt_register_extern(name_w, returns_w)
+    pilot ffi_extra: word = array_get(ast_stmt_extras, i)
+    if ffi_extra.starts_with("ffi|") {
+        emit_c_ffi_decl(name_w, ffi_extra)
+        give back
+    }
     pilot c_ret = c_ret_type(returns_w)
     pilot c_params = "void"
     if params_w != "" { c_params = translate_params(params_w) }
@@ -2237,6 +2338,13 @@ task emit_c_program() -> void {
     emit_line("#include \"freak_runtime.h\"")
 
     emit_line("#include <stdlib.h>")
+    if ffi_program_has_ffi() {
+        emit_line("#include <stdint.h>")
+        emit_line("#define __FREAK_FFI_STR2(x) #x")
+        emit_line("#define __FREAK_FFI_STR(x) __FREAK_FFI_STR2(x)")
+        emit_line("#define __FREAK_FFI_SYMBOL(s) __FREAK_FFI_STR(__USER_LABEL_PREFIX__) s")
+        emit_line("void *freak_ffi_lazy(const char *library, const char *symbol, void **cache);")
+    }
     emit_line("static void __freak_drop_result(int64_t *p) \{ if (*p) freak_fs_result_release(*p); *p = 0; \}")
     emit_line("static void __freak_drop_array(int64_t *p) \{ if (*p) freak_v3_array_release(*p); *p = 0; \}")
     emit_line("static void __freak_drop_shape(int64_t *p) \{ if (*p) freak_v3_shape_release(*p); *p = 0; \}")
