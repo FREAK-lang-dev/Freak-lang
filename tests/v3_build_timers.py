@@ -23,6 +23,8 @@ def run(freak, repo, *args, env=None, timeout=600):
     merged = os.environ.copy()
     merged.pop("FREAK_LIVE", None)
     merged.pop("FREAK_TIMINGS", None)
+    merged.pop("FREAK_PLAIN", None)
+    merged.pop("COLUMNS", None)
     if env:
         merged.update(env)
     return subprocess.run([freak, *args], cwd=repo, env=merged, capture_output=True, timeout=timeout)
@@ -107,9 +109,14 @@ def main() -> int:
         live = run(freak, repo, "build", str(hello), "-o", str(exe), env={"FREAK_LIVE": "1"})
         assert live.returncode == 0, live.stdout + live.stderr
         assert b"BUILD SUCCESSFUL" in live.stdout, live.stdout
+        # The live view closes with a summary card instead of the plain rows.
+        assert b"Time:   " not in live.stdout and b"  \xe2\x9c\x93  Lexing (" not in live.stdout, live.stdout
         plain = run(freak, repo, "build", str(hello), "-o", str(exe), env={"FREAK_LIVE": "1", "FREAK_PLAIN": "1"})
         assert plain.returncode == 0 and CURSOR_UP not in plain.stdout, plain.stdout
-        print("live view renders; FREAK_PLAIN wins over FREAK_LIVE: OK", flush=True)
+        assert b"Time:   " in plain.stdout, plain.stdout
+        narrow = run(freak, repo, "build", str(hello), "-o", str(exe), env={"FREAK_LIVE": "1", "COLUMNS": "60"})
+        assert narrow.returncode == 0 and CURSOR_UP not in narrow.stdout and b"Time:   " in narrow.stdout, narrow.stdout
+        print("live view renders; FREAK_PLAIN and narrow COLUMNS fall back to plain: OK", flush=True)
     return 0
 
 

@@ -28,15 +28,36 @@ pilot view_activity_label = ""
 pilot view_command_rows = false
 pilot view_header_done = false
 pilot VIEW_UP = "\x1b[1A\r\x1b[2K"
+-- Columns the live line may use. VIEW_UP clears one physical line, so a
+-- live line must never wrap: it is fitted to this width, and terminals too
+-- narrow for the cards fall back to the plain view.
+pilot view_columns = 80
+pilot VIEW_MIN_COLUMNS = 80
 
 task cli_view_configure() -> void {
     sw_configure_from_env()
     view_live = false
     if cli_truthy_env(process::env("FREAK_PLAIN")) { give back }
+    view_columns = cli_view_columns_from(process::env("COLUMNS"))
+    -- Header and cards are 77 columns wide; narrower terminals stay plain.
+    if view_columns < VIEW_MIN_COLUMNS { give back }
     if cli_truthy_env(process::env("FREAK_LIVE")) { view_live = true give back }
     if process::env("CI") != "" { give back }
     if process::env("TERM") == "dumb" { give back }
     if process::stdout_is_terminal() { view_live = true }
+}
+
+-- COLUMNS when it is a plain decimal, else the classic 80.
+task cli_view_columns_from(text: word) -> int {
+    if text == "" or text.length() > 4 { give back 80 }
+    pilot i = 0
+    repeat until i >= text.length() {
+        if not is_numeric(text.char_at(i)) { give back 80 }
+        i += 1
+    }
+    pilot columns = text.to_int()
+    if columns <= 0 { give back 80 }
+    give back columns
 }
 
 -- Anything that may have printed since the live line was drawn.
@@ -117,8 +138,15 @@ task cli_view_tail(text: word, width: int) -> word {
 task cli_view_fit(text: word, width: int) -> word {
     if text.length() <= width { give back text }
     pilot ellipsis = "\xe2\x80\xa6"
-    if CLI_ASCII_ART { give back text.substring(0, width - 3) + "..." }
-    give back text.substring(0, width - 1) + ellipsis
+    pilot cut = width - 1
+    if CLI_ASCII_ART {
+        ellipsis = "..."
+        cut = width - 3
+    }
+    if cut < 0 { cut = 0 }
+    -- Byte-indexed words: never cut inside a UTF-8 sequence.
+    repeat until cut <= 0 or not VIEW_UTF8_TAIL.contains(text.char_at(cut)) { cut -= 1 }
+    give back text.substring(0, cut) + ellipsis
 }
 
 task cli_view_repeat(piece: word, count: int) -> word {
@@ -233,15 +261,37 @@ task cli_view_live_abandon() -> void {
 }
 
 task cli_view_live_text(frame: int, elapsed_ms: int, detail: word, moving: bool) -> word {
-    pilot label = view_step_label
-    if label == "" { label = cli_view_fit(detail, 40) }
-    else if detail != "" { label = label + C_DIM + " \xc2\xb7 " + detail + C_RESET }
-    if CLI_ASCII_ART and detail != "" and view_step_label != "" { label = view_step_label + " - " + detail }
-    pilot line = "   " + C_G1 + cli_view_spinner(frame) + C_RESET + "  " + cli_view_pad(C_BWHITE + label + C_RESET, 40)
+    -- Fixed columns: indent 3, spinner 1, gap 2, gap 1, timer 10.
+    pilot room = view_columns - 1 - 17
+    pilot rail = ""
+    if view_steps_total > 0 { rail = "  " + cli_view_rail(view_steps_done, view_steps_total) }
+    pilot show_scanner = moving
+    pilot extra = cli_view_width(rail)
+    if show_scanner { extra += 16 }
+    pilot label_width = 40
+    if label_width + extra > room and rail != "" {
+        extra -= cli_view_width(rail)
+        rail = ""
+    }
+    if label_width + extra > room and show_scanner {
+        show_scanner = false
+        extra -= 16
+    }
+    if label_width + extra > room { label_width = room - extra }
+    if label_width < 8 { label_width = 8 }
+    pilot label = ""
+    if view_step_label == "" { label = cli_view_fit(detail, label_width) }
+    else {
+        label = cli_view_fit(view_step_label, label_width)
+        pilot separator = " \xc2\xb7 "
+        if CLI_ASCII_ART { separator = " - " }
+        pilot left = label_width - cli_view_width(label) - 3
+        if detail != "" and left >= 4 { label = label + C_DIM + separator + cli_view_fit(detail, left) + C_RESET }
+    }
+    pilot line = "   " + C_G1 + cli_view_spinner(frame) + C_RESET + "  " + cli_view_pad(C_BWHITE + label + C_RESET, label_width)
     if elapsed_ms >= 0 { line = line + " " + cli_view_pad_left(cli_view_ms(elapsed_ms), 10) } else { line = line + " " + cli_view_pad_left(C_DIM + "\xe2\x80\xa6" + C_RESET, 10) }
-    if moving { line = line + "  " + cli_view_scanner(frame, 14) }
-    if view_steps_total > 0 { line = line + "  " + cli_view_rail(view_steps_done, view_steps_total) }
-    give back line
+    if show_scanner { line = line + "  " + cli_view_scanner(frame, 14) }
+    give back line + rail
 }
 
 -- ── Commands with a header + phases ──────────────────
@@ -342,6 +392,12 @@ task cli_view_activity(text: word, live_text: word) -> void {
 -- toolchain probe (a hello build makes ~80 of them). Polling with 1 ms
 -- sleeps for the first 20 ms measured ~0.9 s faster per build on Linux.
 task cli_view_run_command(command: int, label: word, timeout_ms: int, stdout_limit: int, stderr_limit: int) -> int {
+    give back cli_view_run_command_expecting(command, label, timeout_ms, stdout_limit, stderr_limit, 0)
+}
+
+-- Same, for children whose success is a known nonzero exit code (the
+-- bootstrap corpus exits 42 and 7 on purpose).
+task cli_view_run_command_expecting(command: int, label: word, timeout_ms: int, stdout_limit: int, stderr_limit: int, expected_exit: int) -> int {
     pilot lap = sw_begin(label)
     pilot detail = view_activity_label
     if detail == "" { detail = label }
@@ -373,7 +429,7 @@ task cli_view_run_command(command: int, label: word, timeout_ms: int, stdout_lim
     if view_live and view_command_rows {
         pilot mark = SYM_CHECK
         pilot colour = C_BGREEN
-        if status != 2 or process::command_exit_code(command) != 0 {
+        if status != 2 or process::command_exit_code(command) != expected_exit {
             mark = SYM_CROSS
             colour = C_BRED
         }

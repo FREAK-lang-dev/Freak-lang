@@ -636,7 +636,7 @@ task freakc_cli_main() -> void {
             init_arrays()
             pilot lex_lap = cli_view_step_begin("Lexing", false)
             tokenize(source)
-            if not cli_project_bind_tokens() { cli_view_live_abandon() cli_project_binding_release() cli_diagnostic_cast_emit_compiler_failure() cli_check_report(false, "syntax errors found") sw_exit(1) }
+            if not cli_project_bind_tokens() { cli_view_live_abandon() cli_project_binding_release() cli_check_report(false, "syntax errors found") cli_diagnostic_cast_emit_compiler_failure() sw_exit(1) }
             cli_view_step_end(lex_lap, "Lexing")
             pilot parse_lap = cli_view_step_begin("Parsing", false)
             parse_program()
@@ -678,8 +678,8 @@ task freakc_cli_main() -> void {
             cli_view_step_end(sources_lap, "Sources & packages")
             pilot transpiled: word = cli_transpile(src_file, source, target)
             if transpiled == "" {
-                cli_diagnostic_cast_emit_compiler_failure()
                 cli_view_finish_line("Transpile failed", false)
+                cli_diagnostic_cast_emit_compiler_failure()
                 process::exit(1)
             }
             cli_view_finish_line("Wrote " + transpiled, true)
@@ -781,7 +781,8 @@ task freakc_cli_main() -> void {
     if subcmd == "test" {
         cli_view_begin("test", "", 0)
         pilot test_exit = cli_test_command(args_cnt)
-        if not cli_test_json_requested(args_cnt) { cli_view_finish_line("freak test finished", test_exit == 0) } else { sw_finish(test_exit == 0) }
+        -- `--json` keeps stdout to the single test report: no timing output there.
+        if not cli_test_json_requested(args_cnt) { cli_view_finish_line("freak test finished", test_exit == 0) } else { sw_stop(test_exit == 0) }
         if test_exit != 0 { process::exit(test_exit) }
         give back
     }

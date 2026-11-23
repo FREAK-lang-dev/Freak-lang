@@ -181,21 +181,9 @@ task sw_pad_right(text: word, width: int) -> word {
     give back out
 }
 
+-- Same escaper as `freak doctor --json`: every byte below 0x20 is escaped.
 task sw_json_escape(text: word) -> word {
-    pilot out = ""
-    pilot i = 0
-    pilot length = text.length()
-    repeat until i >= length {
-        pilot ch = text.char_at(i)
-        if ch == "\"" { out = out + "\\\"" }
-        else if ch == "\\" { out = out + "\\\\" }
-        else if ch == "\n" { out = out + "\\n" }
-        else if ch == "\r" { out = out + "\\r" }
-        else if ch == "\t" { out = out + "\\t" }
-        else { out = out + ch }
-        i += 1
-    }
-    give back out
+    give back cli_doctor_json_escape(text)
 }
 
 -- Proportional bar in eighth blocks (ASCII mode uses '#').
