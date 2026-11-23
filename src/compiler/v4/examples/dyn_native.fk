@@ -88,6 +88,10 @@ task hop(lend mut p: dyn Placed) -> int {
     give back q.x * 10 + q.y
 }
 
+-- A dyn erasure inside a generic task: the template lends its T, which has
+-- no vtable, and is never emitted; each instance erases its concrete type.
+task hop_any<T: Placed>(lend mut x: T) -> int { give back hop(lend mut x) }
+
 task main() -> int {
     pilot mut squad = Squad { lead: Pilot { name: "Takeru", power: 40 }, wing: Pilot { name: "Meiya", power: 55 } }
     pilot mut hive = Hive { kind: Beta::Soldier, count: 2 }
@@ -109,5 +113,6 @@ task main() -> int {
     say hop(lend mut o)
     say hop(lend mut t.pos)
     say t.fuel
+    say hop_any(lend mut o)
     give back total % 256
 }
