@@ -273,13 +273,6 @@ task cli_runtime_cache_macos_support(executable: word, hash_tool: word, use_shas
 }
 
 task cli_runtime_cache_tool_identity(executable: word) -> word {
-    pilot lap = sw_begin("toolchain identity")
-    pilot identity = cli_runtime_cache_tool_identity_untimed(executable)
-    sw_end(lap)
-    give back identity
-}
-
-task cli_runtime_cache_tool_identity_untimed(executable: word) -> word {
     cli_runtime_cache_tool_complete = false
     pilot resolved = cli_runtime_cache_canonical(cli_run_resolve_program(executable))
     if resolved == "" { give back "" }
