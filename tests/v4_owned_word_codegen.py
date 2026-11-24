@@ -38,6 +38,7 @@ EXPECTED = {
                                "0\n4\n15\n-1\n26\n7\n13\n5\nc\n6\nMitsurugi\n"),
     "maps_native.fk": ("10\n3\nSumika\nTakeru!\n3\n100\n9850\n34\n66\nfalse\n16\n-1\n66\n2\nuno\ntres\n"
                        "none\n6\nk\n1\n2\ntrue\ntrue\nfalse\n1\n20\n4\n"),
+    "maps_control_native.fk": "-1\nside ran\nfalse\ntrue\ntrue\n1\nyes\nnoyes\nside_int ran\n-2\n0\n7\n",
     "word_interpolation.fk": "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n",
 }
 

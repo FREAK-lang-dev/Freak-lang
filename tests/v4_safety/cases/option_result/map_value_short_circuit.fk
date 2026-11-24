@@ -1,0 +1,18 @@
+-- Map literal values keep and/or short-circuiting, typed or inferred:
+-- probe never runs.
+-- expect: run
+-- stdout: done
+-- exit: 2
+
+task probe() -> bool {
+    say "probe ran"
+    give back true
+}
+task main() -> int {
+    pilot typed: Map<int, bool> = {1: false and probe()}
+    pilot inferred = {1: true or probe()}
+    say "done"
+    if typed[1] { give back 1 }
+    if inferred[1] { give back 2 }
+    give back 3
+}

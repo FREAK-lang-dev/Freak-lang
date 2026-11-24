@@ -1,0 +1,28 @@
+-- A ? in a map literal entry, key or value, typed or inferred, propagates
+-- before any later entry runs.
+-- expect: run
+-- stdout: done
+-- exit: 4
+
+task probe() -> int {
+    say "probe ran"
+    give back 1
+}
+task half(n: int) -> maybe<int> {
+    if n % 2 == 1 { give back nobody }
+    give back some(n / 2)
+}
+task keyed(n: int) -> maybe<int> {
+    pilot m: Map<int, int> = {half(n)?: 1, 2: probe()}
+    give back some(m.length())
+}
+task valued(n: int) -> maybe<int> {
+    pilot m = {1: half(n)?, 2: probe()}
+    give back some(m.length())
+}
+task main() -> int {
+    pilot a = keyed(3) or else 2
+    pilot b = valued(5) or else 2
+    say "done"
+    give back a + b
+}

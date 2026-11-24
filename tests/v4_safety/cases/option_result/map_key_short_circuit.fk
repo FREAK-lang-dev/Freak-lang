@@ -1,0 +1,16 @@
+-- Map literal keys keep and/or short-circuiting, typed or inferred:
+-- probe never runs.
+-- expect: run
+-- stdout: done
+-- exit: 21
+
+task probe() -> bool {
+    say "probe ran"
+    give back true
+}
+task main() -> int {
+    pilot typed: Map<bool, int> = {false and probe(): 1, true or probe(): 2}
+    pilot inferred = {true or probe(): 10, false and probe(): 20}
+    say "done"
+    give back typed[true] + inferred[false] - typed[false] + inferred.length() - 2
+}

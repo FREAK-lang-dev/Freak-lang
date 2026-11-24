@@ -18071,6 +18071,9 @@ def check_v4_native_unused_list_shape_module(module_text: str, triple: str) -> N
 NATIVE_MAPS_EXPECTED = ("10\n3\nSumika\nTakeru!\n3\n100\n9850\n34\n66\nfalse\n16\n-1\n66\n2\nuno\ntres\n"
                         "none\n6\nk\n1\n2\ntrue\ntrue\nfalse\n1\n20\n4\n")
 NATIVE_MAPS_PANIC = "map key not found"
+# examples/maps_control_native.fk: and/or and ? inside typed and inferred
+# map literal keys and values. Each probe prints when it runs.
+NATIVE_MAPS_CONTROL_EXPECTED = ("-1\nside ran\nfalse\ntrue\ntrue\n1\nyes\nnoyes\nside_int ran\n-2\n0\n7\n")
 # Rejected map and set programs: (stem, source, named reason).
 NATIVE_MAPS_REJECTED = (
     # The bible gives Map no iteration order, and Set is not iterable.
@@ -18101,6 +18104,17 @@ NATIVE_MAPS_REJECTED = (
     ("tier3_map_equality", "task main() -> int {\n    pilot a: Map<int, int> = {1: 2}\n    pilot b: Map<int, int> = {1: 2}\n"
      "    if a == b { give back 1 }\n    give back 0\n}\n",
      "native map and set operators are not yet supported"),
+    # Lookups, method arguments and entry stores do not wire control flow yet
+    # (literal entries do, like list elements).
+    ("tier3_map_lookup_key_control", "task side() -> bool { give back true }\n"
+     "task main() -> int {\n    pilot m: Map<bool, int> = {true: 1}\n    give back m[false or side()]\n}\n",
+     "control flow inside a map key is not yet supported"),
+    ("tier3_map_set_value_control", "task side() -> bool { give back true }\n"
+     "task main() -> int {\n    pilot mut m: Map<int, bool> = Map::new()\n    m.set(1, false and side())\n    give back m.length()\n}\n",
+     "control flow inside a map value is not yet supported"),
+    ("tier3_map_store_value_control", "task side() -> bool { give back true }\n"
+     "task main() -> int {\n    pilot mut m: Map<int, bool> = Map::new()\n    m[1] = false and side()\n    give back m.length()\n}\n",
+     "control flow inside a map value is not yet supported"),
     ("tier3_map_key_type", "task main() -> int {\n    pilot m: Map<word, int> = {\"a\": 1}\n    m.set(1, 2)\n    give back 0\n}\n",
      "map key type mismatch"),
     ("tier3_map_untyped_new", "task main() -> int {\n    pilot m = Map::new()\n    give back 0\n}\n",
@@ -18723,6 +18737,7 @@ def check_v4_native_shapes() -> None:
         ("lend_route_words", "lend_route_words_native.fk", ("", 3)),
         ("lists", "lists_native.fk", NATIVE_LISTS_EXPECTED),
         ("maps", "maps_native.fk", NATIVE_MAPS_EXPECTED),
+        ("maps_control", "maps_control_native.fk", NATIVE_MAPS_CONTROL_EXPECTED),
         ("generics", "generics_native.fk", NATIVE_GENERICS_EXPECTED),
         ("generics_lists", "generics_lists_native.fk", NATIVE_GENERICS_LISTS_EXPECTED),
         ("lists_nested", "lists_nested_native.fk", NATIVE_NESTED_LISTS_EXPECTED),

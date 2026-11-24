@@ -6765,8 +6765,14 @@ task v4_codegen_llvm_native_map_rvalue_error(mir_id: int, body_id: int, rvalue_i
         repeat until arg >= count {
             pilot expected = v4_mir_hash_collection_value_type(mir_id, type_text)
             if arg % 2 == 0 { expected = v4_mir_hash_collection_key_type(mir_id, type_text) }
-            error = v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)), expected)
+            pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)
+            error = v4_codegen_llvm_native_conversion_error(v4_mir_rvalue_ty(mir_id, body_id, child), expected)
             if error != "" { give back error }
+            -- MIR wires an and/or entry into blocks and leaves a use of its
+            -- result; one that reaches codegen unwired would be evaluated
+            -- eagerly, so refuse it.
+            pilot child_op = v4_mir_rvalue_op(mir_id, body_id, child)
+            if v4_mir_rvalue_kind(mir_id, body_id, child) == v4_mir_rvalue_binary and (child_op == v4_mir_bin_and or child_op == v4_mir_bin_or) { give back "native map literal entry short-circuit was not wired by MIR" }
             arg += 1
         }
         give back ""
