@@ -1,17 +1,17 @@
 name: Locked V4 bootstrap
 
+# No push trigger: main only moves through the merge queue (rebase method), and
+# the merge_group run already tested the exact commit that lands. Pull requests
+# run Linux only; macOS and Windows run in the merge queue group and on manual
+# dispatch, because those runners are the scarcest.
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
-  # Runs the full set on a GitHub merge queue group (no-op until a
-  # queue is enabled in the ruleset).
   merge_group:
+  workflow_dispatch:
 
-# A new push to a pull request cancels its superseded run (this workflow had
-# no group, so stale runs kept holding runners). Pushes to main are never
-# cancelled mid-run; a newer one waits.
+# A new push to a pull request cancels its superseded run. Merge queue groups
+# and manual runs are never cancelled mid-run; a newer one waits.
 concurrency:
   group: v4-locked-bootstrap-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -32,7 +32,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Pull requests: Linux only; merge queue and manual runs: all three.
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') }}
     steps:
       - uses: actions/checkout@v4
         with:

@@ -21,6 +21,18 @@ class CiScope(unittest.TestCase):
         self.assertTrue(ci_scope.needs_v3("push", None)[0])
         self.assertTrue(ci_scope.needs_v3("merge_group", ["src/compiler/v4/crates/a.fk"])[0])
 
+    def test_pull_requests_run_linux_only(self) -> None:
+        v3_os, windows, _ = ci_scope.platforms("pull_request")
+        self.assertEqual(v3_os, ["ubuntu-latest"])
+        self.assertFalse(windows)
+
+    def test_merge_queue_and_manual_runs_cover_every_platform(self) -> None:
+        for event in ("merge_group", "workflow_dispatch", "push"):
+            with self.subTest(event=event):
+                v3_os, windows, _ = ci_scope.platforms(event)
+                self.assertEqual(v3_os, ["ubuntu-latest", "macos-latest"])
+                self.assertTrue(windows)
+
     def test_v4_only_pull_request_skips_v3(self) -> None:
         files = [
             "src/compiler/v4/crates/freak_mir/src/lib.fk",
@@ -81,7 +93,11 @@ class CiScope(unittest.TestCase):
                     del os.environ["GITHUB_OUTPUT"]
                 else:
                     os.environ["GITHUB_OUTPUT"] = old
-            self.assertEqual(output.read_text(encoding="utf-8"), "v3=false\nv3=true\n")
+            pr_platforms = 'v3_os=["ubuntu-latest"]\nwindows=false\n'
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                "v3=false\n" + pr_platforms + "v3=true\n" + pr_platforms,
+            )
 
     def test_v3_lanes_never_read_v4_only_paths(self) -> None:
         """Every script ci.yml runs, and the local modules it imports, stays

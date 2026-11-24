@@ -5,7 +5,15 @@ The V3 lanes in ``.github/workflows/ci.yml`` build the V3.5 compiler, the
 native CLI and Hangar, then run their contracts on Linux, macOS and Windows.
 None of those lanes read the V4 crates, the V4 fixtures or the V4 harnesses,
 so a pull request that only touches those files cannot change their result.
-Such a pull request skips the V3 lanes; every push to ``main`` still runs them.
+Such a pull request skips the V3 lanes; every merge queue group still runs
+them.
+
+Pull requests run the V3 lanes on Linux only. macOS and Windows runners are
+the scarcest (the account shares 20 concurrent jobs, 5 of them macOS), and a
+pull request is pushed many times before it lands, so the macOS and Windows
+lanes run once per change, in the merge queue group, which tests the exact
+commit that lands on ``main``. A manual ``workflow_dispatch`` run also gets
+every platform.
 
 This is fail-closed: any path outside the V4-only list below, a rename out of
 it, an unreadable file list or a truncated one keeps the V3 lanes on.
@@ -17,13 +25,16 @@ Usage::
 
 ``--files`` holds one repository path per line (both sides of a rename).
 The decision is printed and, under GitHub Actions, written to
-``$GITHUB_OUTPUT`` as ``v3=true`` or ``v3=false``.
+``$GITHUB_OUTPUT`` as ``v3=true`` or ``v3=false``, plus ``v3_os`` (the JSON
+list of hosted runners for the V3 build-and-test matrix) and ``windows``
+(``true`` when the Windows V3 lanes run).
 """
 
 from __future__ import annotations
 
 import argparse
 import fnmatch
+import json
 import os
 import sys
 from pathlib import Path
@@ -82,6 +93,23 @@ def needs_v3(event: str, paths: list[str] | None) -> tuple[bool, str]:
     return False, f"all {len(files)} changed path(s) are V4-only"
 
 
+# Every platform the V3 build-and-test matrix knows. Windows has its own
+# bootstrap and suite jobs in ci.yml.
+FULL_V3_OS: tuple[str, ...] = ("ubuntu-latest", "macos-latest")
+PULL_REQUEST_V3_OS: tuple[str, ...] = ("ubuntu-latest",)
+
+
+def platforms(event: str) -> tuple[list[str], bool, str]:
+    """Return (V3 matrix runners, run the Windows lanes?, reason)."""
+    if event == "pull_request":
+        return (
+            list(PULL_REQUEST_V3_OS),
+            False,
+            "pull request: Linux only; macOS and Windows run in the merge queue",
+        )
+    return list(FULL_V3_OS), True, f"event {event!r} runs every platform"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--event", required=True)
@@ -99,10 +127,16 @@ def main(argv: list[str] | None = None) -> int:
     v3, reason = needs_v3(args.event, paths)
     value = "true" if v3 else "false"
     print(f"ci-scope: v3={value} ({reason})")
+    v3_os, windows, platform_reason = platforms(args.event)
+    v3_os_json = json.dumps(v3_os, separators=(",", ":"))
+    windows_value = "true" if windows else "false"
+    print(f"ci-scope: v3_os={v3_os_json} windows={windows_value} ({platform_reason})")
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"v3={value}\n")
+            handle.write(f"v3_os={v3_os_json}\n")
+            handle.write(f"windows={windows_value}\n")
     return 0
 
 
