@@ -459,8 +459,18 @@ int64_t freak_http_server_bind(freak_word address,int64_t port,int64_t allow_non
     if(!freak_http_nonblocking(server->listener)) goto failed;
     size_t address_size=family==AF_INET?sizeof(*v4):sizeof(*v6);
     /* SOMAXCONN asks for the kernel's own ceiling (net.core.somaxconn on
-       Linux); bursts queue in the kernel while the loop is busy. */
-    if(bind(server->listener,(struct sockaddr *)&storage,(int)address_size)!=0 || listen(server->listener,SOMAXCONN)!=0) goto failed;
+       Linux); bursts queue in the kernel while the loop is busy. Winsock maps
+       plain SOMAXCONN to a small provider default and resets connections that
+       overflow it, so Windows asks for an explicit 65535 through the hint. */
+#ifdef _WIN32
+#ifndef SOMAXCONN_HINT
+#define SOMAXCONN_HINT(b) (-(b))
+#endif
+    int backlog=SOMAXCONN_HINT(65535);
+#else
+    int backlog=SOMAXCONN;
+#endif
+    if(bind(server->listener,(struct sockaddr *)&storage,(int)address_size)!=0 || listen(server->listener,backlog)!=0) goto failed;
 #ifdef _WIN32
     int actual_size=(int)sizeof(storage);
 #else

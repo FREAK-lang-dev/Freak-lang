@@ -120,7 +120,7 @@ later network failure only closes that connection.
 | Idle deadline |2000ms |
 | Keep-alive idle / requests per connection |5000ms / 1000 |
 | Open connections per worker |4096 |
-| Listen backlog |SOMAXCONN |
+| Listen backlog |SOMAXCONN (Windows: `SOMAXCONN_HINT(65535)`) |
 | Worker processes |1 (`FREAK_HTTP_WORKERS` overrides) |
 | Active handlers per worker |1 |
 
