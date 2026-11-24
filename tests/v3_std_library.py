@@ -109,17 +109,17 @@ def main() -> int:
             leaf.mkdir()
             source = leaf / "v35_std_library.fk"
             shutil.copyfile(ROOT / "tests" / "v35_std_library.fk", source)
-            run(build(freak, source, backend), expected=142)
+            run(build(freak, source, backend), expected=152)
         if "llvm" in args.backends:
             leaf = work / "http"
             leaf.mkdir()
             source = leaf / "v35_std_http_client.fk"
             shutil.copyfile(ROOT / "tests" / "v35_std_http_client.fk", source)
             binary = build(freak, source, "llvm")
-            run(binary, expected=8)
+            run(binary, expected=10)
             server = LoopbackServer()
             try:
-                run(binary, str(server.port), expected=16)
+                run(binary, str(server.port), expected=18)
             finally:
                 server.close()
             assert not server.errors, server.errors

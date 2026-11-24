@@ -192,10 +192,67 @@ task json_new_int(value: int) -> int {
     give back json_alloc("n", word_from_int(value))
 }
 
--- NaN and infinities have no JSON spelling and become null.
+-- Shortest-effort text that parses back to exactly value: the 10-digit
+-- num.to_word() form when it round-trips, otherwise 17 significant digits
+-- nudged until strtod returns value. Finite input only.
+task json_num_word(value: num) -> word {
+    pilot quick = value.to_word()
+    if quick.to_num() == value { give back quick }
+    pilot mut x = value
+    if value < 0.0 { x = 0.0 - value }
+    pilot mut scaled = x
+    pilot mut e = 0
+    repeat until scaled < 10.0 {
+        scaled = scaled / 10.0
+        e += 1
+    }
+    repeat until scaled >= 1.0 {
+        scaled = scaled * 10.0
+        e -= 1
+    }
+    pilot mut m = math::floor(scaled * 10000000000000000.0 + 0.5).to_int()
+    pilot mut tries = 0
+    repeat until tries >= 64 {
+        if m >= 100000000000000000 {
+            m = m / 10
+            e += 1
+        }
+        if m < 10000000000000000 {
+            m = m * 10
+            e -= 1
+        }
+        pilot digits = word_from_int(m)
+        pilot mut cut = 17
+        repeat until cut <= 1 or digits.char_at(cut - 1) != "0" { cut -= 1 }
+        pilot mut text = digits.substring(0, 1)
+        if cut > 1 { text = text + "." + digits.substring(1, cut - 1) }
+        if e != 0 { text = text + "e" + word_from_int(e) }
+        if value < 0.0 { text = "-" + text }
+        pilot parsed = text.to_num()
+        if parsed == value { give back text }
+        -- Step the mantissa by the relative miss (at least one unit, at most
+        -- a million); text that overflowed to infinity steps down.
+        pilot mut step = 0 - 1
+        if parsed - parsed == 0.0 {
+            pilot mut miss = (value - parsed) / value * m.to_num()
+            if miss > 1000000.0 { miss = 1000000.0 }
+            if miss < 0.0 - 1000000.0 { miss = 0.0 - 1000000.0 }
+            step = math::floor(miss + 0.5).to_int()
+            if step == 0 {
+                if (parsed < value) == (value > 0.0) { step = 1 } else { step = 0 - 1 }
+            }
+        }
+        m += step
+        tries += 1
+    }
+    give back quick
+}
+
+-- NaN and infinities have no JSON spelling and become null. Other values
+-- keep full double precision (json_get_num gives back the same num).
 task json_new_num(value: num) -> int {
     if value != value or value - value != 0.0 { give back json_alloc("null", "") }
-    give back json_alloc("n", value.to_word())
+    give back json_alloc("n", json_num_word(value))
 }
 
 task json_new_str(value: word) -> int {
