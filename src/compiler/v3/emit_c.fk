@@ -60,7 +60,9 @@ task c_word_observer_expr_inner(expr_id: int) -> bool {
         -- char_at returns a stable byte literal, never a view into its input.
         -- Do not extend this list to replace: its empty-pattern identity path
         -- clones the receiver and could let a borrowed input escape.
-        if val != "length" and val != "char_at" and val != "contains" and val != "starts_with" and val != "ends_with" { give back false }
+        -- Scalar-returning reads never hand back their receiver either.
+        pilot scalar_read = val == "byte_length" or val == "checksum" or val == "to_int" or val == "to_num" or val == "parse_int" or val == "parse_num"
+        if val != "length" and val != "char_at" and val != "contains" and val != "starts_with" and val != "ends_with" and not scalar_read { give back false }
         give back c_word_observer_expr(word_to_int(left)) and c_word_observer_args(right)
     }
     if kind == EXPR_CALL {
@@ -1071,6 +1073,38 @@ task emit_c_method(expr_id: word, val: word, left: word, right: word) -> void {
             emit("((void)0); \})")
             give back
         }
+        if val == "contains" {
+            pilot find_code = emt_raw_type_code(tc_list_element(tc_expr_type(word_to_int(left))))
+            pilot find_value = word_from_int(tc_arg_at(right, 0))
+            emit("(\{ ")
+            emit_c_value_decl(left, "__freak_recv")
+            emit_c_value_decl(find_value, "__freak_value")
+            emit("int64_t __freak_found = ")
+            if find_code == "w" { emit_line("freak_v3_array_contains_word(__freak_recv, __freak_value);") }
+            else {
+                emit("freak_v3_array_contains(__freak_recv, ")
+                emit_c_slot("__freak_value", find_code)
+                emit_line(");")
+            }
+            emit_c_word_drop(find_value, "__freak_value")
+            emit("(bool)__freak_found; \})")
+            give back
+        }
+        if val == "join" {
+            pilot join_code = emt_raw_type_code(tc_list_element(tc_expr_type(word_to_int(left))))
+            pilot join_tag = "0"
+            if join_code == "d" { join_tag = "1" }
+            if join_code == "b" { join_tag = "2" }
+            if join_code == "w" { join_tag = "3" }
+            pilot join_sep = word_from_int(tc_arg_at(right, 0))
+            emit("(\{ ")
+            emit_c_value_decl(left, "__freak_recv")
+            emit_c_value_decl(join_sep, "__freak_sep")
+            emit_line("freak_word __freak_joined = freak_v3_array_join(__freak_recv, __freak_sep, " + join_tag + ");")
+            emit_c_word_drop(join_sep, "__freak_sep")
+            emit("__freak_joined; \})")
+            give back
+        }
         if val == "pop" {
             pilot pop_code = emt_raw_type_code(tc_list_element(tc_expr_type(word_to_int(left))))
             emit("(\{ ")
@@ -1078,6 +1112,21 @@ task emit_c_method(expr_id: word, val: word, left: word, right: word) -> void {
             if pop_code == "w" { emit("freak_word __freak_popped = freak_v3_array_pop_word(__freak_recv); __freak_popped; \})") }
             else if pop_code == "d" { emit("freak_v3_bits_num(freak_v3_array_pop(__freak_recv)); \})") }
             else { emit("freak_v3_array_pop(__freak_recv); \})") }
+            give back
+        }
+    }
+    if val == "split" and emt_expr_type_code(left) == "w" and right != "" {
+        pilot split_sep = word_from_int(tc_arg_at(right, 0))
+        if not ast_expr_is_inert(split_sep) {
+            -- The separator may call a task that replaces a borrowed receiver,
+            -- so the receiver is owned here before the separator runs.
+            emit("(\{ ")
+            emit_c_value_decl(left, "__freak_recv")
+            emit_c_value_decl(split_sep, "__freak_sep")
+            emit_line("int64_t __freak_parts = freak_word_split(__freak_recv, __freak_sep);")
+            emit_c_word_drop(left, "__freak_recv")
+            emit_c_word_drop(split_sep, "__freak_sep")
+            emit("__freak_parts; \})")
             give back
         }
     }
@@ -1305,6 +1354,15 @@ task emit_c_binop(expr_id: word, val: word, left: word, right: word) -> void {
         give back
     }
     if val == "==" or val == "!=" {
+        if tc_is_list(tc_expr_type(word_to_int(left))) {
+            -- Lists compare element by element, never by handle.
+            emit("(\{ ")
+            emit_c_value_decl(left, "__freak_eq_left")
+            emit_c_value_decl(right, "__freak_eq_right")
+            if val == "!=" { emit("!") }
+            emit("freak_v3_array_equals(__freak_eq_left, __freak_eq_right); \})")
+            give back
+        }
         if emt_expr_type_code(left) == "w" or emt_expr_type_code(right) == "w" {
             if val == "!=" { emit("(!") }
             pilot compare_args = left + "," + right

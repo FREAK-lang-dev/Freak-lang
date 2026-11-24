@@ -3131,6 +3131,17 @@ int64_t freak_llvm_word_clone(int64_t source) {
     return freak_llvm_word_adopt_sized((int64_t)clone, length);
 }
 
+/* Hand a word to a callee that takes ownership of its parameter. A tracked
+   allocation is shared (one more reference, no byte copy); every in-place
+   writer copies first when an allocation is shared. Untracked pointers keep
+   the historical deep copy. */
+int64_t freak_llvm_word_share_or_clone(int64_t source) {
+    if (!source) return 0;
+    int64_t shared = freak_llvm_word_share(source);
+    if (shared) return shared;
+    return freak_llvm_word_clone(source);
+}
+
 /**
  * Releases an adopted LLVM word when it is replaced by a different word.
  * Literal, static, foreign, and already-unregistered pointers are ignored.
@@ -3159,6 +3170,19 @@ void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement) {
         }
         link = &owned->next;
     }
+}
+
+/* Assignment drops the slot's previous owner. When the new value is the same
+   shared allocation (for example `s = keep(s)`), the slot and the incoming
+   value are two references to one buffer, so give up one of them. A single
+   reference means the value was handed through and nothing is dropped. */
+void freak_llvm_word_release_assigned(int64_t previous, int64_t replacement) {
+    if (previous && previous == replacement) {
+        freak_llvm_owned_word* owned = freak_llvm_owned_find((void*)(uintptr_t)previous, NULL);
+        if (owned && owned->refs > 1) owned->refs -= 1;
+        return;
+    }
+    freak_llvm_word_release_replaced(previous, replacement);
 }
 
 /**
@@ -3190,6 +3214,9 @@ int64_t freak_llvm_word_append_owned(int64_t previous, int64_t suffix, int64_t r
         }
     }
     freak_concat_audit_append(suffix_length);
+    /* `s += keep(s)`: the owned suffix is a second reference to the same
+       shared buffer, so both references must be given up below. */
+    bool shared_same_input = same_input && release_suffix && owned && owned->refs > 1;
     /* A shared allocation is immutable: append into a fresh copy and give up
        this owner's share of the old one. */
     if (owned && owned->refs > 1) {
@@ -3208,7 +3235,7 @@ int64_t freak_llvm_word_append_owned(int64_t previous, int64_t suffix, int64_t r
         int64_t result = freak_llvm_word_adopt_sized((int64_t)buffer, total);
         freak_llvm_owned_word* result_owned = freak_llvm_owned_find(buffer, NULL);
         if (result_owned) result_owned->capacity = capacity;
-        if (release_suffix && !same_input) {
+        if (release_suffix && (!same_input || shared_same_input)) {
             freak_llvm_word_release_replaced(suffix, 0);
         }
         return result;
@@ -5851,6 +5878,149 @@ freak_word freak_v3_shape_get_word(int64_t h, int64_t i) {
 void freak_v3_shape_set_word(int64_t h, int64_t i, freak_word v) {
     freak_v3_container *p = freak_v3_field(h, i); freak_v3_word_kind(p, p->kinds[i]);
     freak_v3_shape_set(h, i, (int64_t)(intptr_t)&v);
+}
+/* List == compares contents: same length and pairwise-equal elements.
+   num elements compare as doubles (so NaN never equals itself); words compare
+   bytes. Shape elements are rejected by the checker before lowering. */
+int64_t freak_v3_array_equals(int64_t a, int64_t b) {
+    freak_v3_container *p = freak_v3_object(a, false);
+    freak_v3_container *q = freak_v3_object(b, false);
+    if (p->kind != q->kind) freak_v3_fail("list comparison between different element kinds");
+    if (p->kind == FREAK_V3_SHAPE) freak_v3_fail("list comparison of shape elements is not supported");
+    if (p->length != q->length) return 0;
+    for (int64_t i = 0; i < p->length; i++) {
+        int64_t x = p->data[i], y = q->data[i];
+        if (p->kind == FREAK_V3_NUM) {
+            double dx, dy;
+            memcpy(&dx, &x, sizeof(dx)); memcpy(&dy, &y, sizeof(dy));
+            if (!(dx == dy)) return 0;
+        } else if (p->kind == FREAK_V3_WORD) {
+            if (!freak_llvm_word_eq(x, y)) return 0;
+        } else if (p->kind == FREAK_V3_C_WORD) {
+            freak_word wx = x ? *(freak_word *)(intptr_t)x : freak_word_lit("");
+            freak_word wy = y ? *(freak_word *)(intptr_t)y : freak_word_lit("");
+            if (!freak_word_eq(wx, wy)) return 0;
+        } else if (x != y) return 0;
+    }
+    return 1;
+}
+/* ---- List helpers: word.split, list.join, list.contains (V3.5) ---- */
+static bool freak_v3_word_slot_eq(freak_v3_container *p, int64_t stored, int64_t wanted) {
+    if (p->kind == FREAK_V3_WORD) return freak_llvm_word_eq(stored, wanted) != 0;
+    freak_word a = stored ? *(freak_word *)(intptr_t)stored : freak_word_lit("");
+    freak_word b = wanted ? *(freak_word *)(intptr_t)wanted : freak_word_lit("");
+    return freak_word_eq(a, b);
+}
+/* `value` is a slot value: int/bool as is, num as bits, a word as an LLVM
+   word pointer (LLVM lists) or a freak_word* (C lists). */
+int64_t freak_v3_array_contains(int64_t h, int64_t value) {
+    freak_v3_container *p = freak_v3_object(h, false);
+    if (p->kind == FREAK_V3_SHAPE) freak_v3_fail("contains on a list of shapes is not supported");
+    for (int64_t i = 0; i < p->length; i++) {
+        int64_t x = p->data[i];
+        if (p->kind == FREAK_V3_NUM) {
+            double dx, dv;
+            memcpy(&dx, &x, sizeof(dx)); memcpy(&dv, &value, sizeof(dv));
+            if (dx == dv) return 1;
+        } else if (p->kind == FREAK_V3_WORD || p->kind == FREAK_V3_C_WORD) {
+            if (freak_v3_word_slot_eq(p, x, value)) return 1;
+        } else if (x == value) return 1;
+    }
+    return 0;
+}
+int64_t freak_v3_array_contains_word(int64_t h, freak_word value) {
+    freak_v3_container *p = freak_v3_object(h, false); freak_v3_word_kind(p, p->kind);
+    return freak_v3_array_contains(h, (int64_t)(intptr_t)&value);
+}
+/* Separator bytes for one element; `tag` says how int-kind slots print
+   (0 int, 1 num, 2 bool, 3 word). Returns an owned or literal C word. */
+static freak_word freak_v3_join_piece(freak_v3_container *p, int64_t x, int64_t tag) {
+    if (p->kind == FREAK_V3_WORD) return freak_llvm_word_view(x);
+    if (p->kind == FREAK_V3_C_WORD) return x ? *(freak_word *)(intptr_t)x : freak_word_lit("");
+    if (p->kind == FREAK_V3_NUM || tag == 1) {
+        double d; memcpy(&d, &x, sizeof(d));
+        return freak_format_num(d);
+    }
+    if (tag == 2) return freak_word_lit(x ? "true" : "false");
+    return freak_word_from_int(x);
+}
+static char *freak_v3_join_bytes(int64_t h, const char *sep, size_t sep_len, int64_t tag, size_t *out_len) {
+    freak_v3_container *p = freak_v3_object(h, false);
+    if (p->kind == FREAK_V3_SHAPE) freak_v3_fail("join on a list of shapes is not supported");
+    bool owned_pieces = p->kind == FREAK_V3_INT || p->kind == FREAK_V3_NUM;
+    size_t total = 0, capacity = 64;
+    char *buffer = freak_v3_alloc(capacity, 1);
+    for (int64_t i = 0; i < p->length; i++) {
+        freak_word piece = freak_v3_join_piece(p, p->data[i], tag);
+        size_t need = piece.length + (i ? sep_len : 0);
+        if (need > SIZE_MAX - total - 1) freak_v3_fail("joined word is too large");
+        if (total + need + 1 > capacity) {
+            while (total + need + 1 > capacity) {
+                if (capacity > SIZE_MAX / 2) freak_v3_fail("joined word is too large");
+                capacity *= 2;
+            }
+            char *grown = realloc(buffer, capacity);
+            if (!grown) freak_v3_fail("out of memory joining a list");
+            buffer = grown;
+        }
+        if (i && sep_len) { memcpy(buffer + total, sep, sep_len); total += sep_len; }
+        if (piece.length) { memcpy(buffer + total, piece.data, piece.length); total += piece.length; }
+        if (owned_pieces) freak_word_release_owned(&piece);
+    }
+    buffer[total] = '\0';
+    *out_len = total;
+    return buffer;
+}
+freak_word freak_v3_array_join(int64_t h, freak_word sep, int64_t tag) {
+    size_t length = 0;
+    char *bytes = freak_v3_join_bytes(h, sep.data ? sep.data : "", sep.length, tag, &length);
+    return freak_word_own(bytes, length);
+}
+int64_t freak_llvm_v3_array_join(int64_t h, int64_t sep, int64_t tag) {
+    freak_word separator = freak_llvm_word_view(sep);
+    size_t length = 0;
+    char *bytes = freak_v3_join_bytes(h, separator.data, separator.length, tag, &length);
+    return freak_llvm_word_adopt_sized((int64_t)(intptr_t)bytes, length);
+}
+/* "a,b,,c".split(",") is ["a", "b", "", "c"]; "".split(",") is [""]. An
+   empty separator does not split: the result holds the whole word. */
+static int64_t freak_v3_split_bytes(const char *text, size_t length, const char *sep, size_t sep_len, bool llvm) {
+    int64_t kind = llvm ? FREAK_V3_WORD : FREAK_V3_C_WORD;
+    int64_t h = freak_v3_new(false, kind, 0);
+    size_t start = 0, i = 0;
+    for (;;) {
+        bool at_end = i >= length || sep_len == 0 || i + sep_len > length;
+        bool hit = !at_end && memcmp(text + i, sep, sep_len) == 0;
+        if (!hit && !at_end) { i++; continue; }
+        size_t end = hit ? i : length;
+        size_t piece = end - start;
+        char *copy = freak_v3_alloc(piece + 1, 1);
+        if (piece) memcpy(copy, text + start, piece);
+        copy[piece] = '\0';
+        int64_t slot;
+        if (llvm) slot = freak_llvm_word_adopt_sized((int64_t)(intptr_t)copy, piece);
+        else {
+            freak_word *wrapper = freak_v3_alloc(1, sizeof(freak_word));
+            *wrapper = freak_word_own(copy, piece);
+            slot = (int64_t)(intptr_t)wrapper;
+        }
+        freak_v3_container *p = freak_v3_object(h, false);
+        if (p->length == p->capacity) freak_v3_array_reserve(h, p->capacity * 2);
+        p = freak_v3_object(h, false);
+        p->data[p->length++] = slot;
+        freak_v3_words_live++;
+        if (!hit) break;
+        i += sep_len;
+        start = i;
+    }
+    return h;
+}
+int64_t freak_word_split(freak_word w, freak_word sep) {
+    return freak_v3_split_bytes(w.data ? w.data : "", w.length, sep.data ? sep.data : "", sep.length, false);
+}
+int64_t freak_llvm_v3_word_split(int64_t w, int64_t sep) {
+    freak_word text = freak_llvm_word_view(w), separator = freak_llvm_word_view(sep);
+    return freak_v3_split_bytes(text.data, text.length, separator.data, separator.length, true);
 }
 int64_t freak_v3_num_bits(double value) { int64_t bits; memcpy(&bits, &value, sizeof(bits)); return bits; }
 double freak_v3_bits_num(int64_t value) { double number; memcpy(&number, &value, sizeof(number)); return number; }

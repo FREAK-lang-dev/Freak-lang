@@ -769,8 +769,14 @@ Rules:
 `num`; incompatible elements are diagnosed. V3 implements checked indexing,
 indexed assignment through a mutable `pilot` root, `.length()`, `.capacity()`,
 `.reserve(n)`, `.clear()`, `.push(value)`, `.pop()`,
-`List::filled(value, count)`, `List::new()`, `List::with_capacity(n)`, and
-`for each item in values` on LLVM and C. A context-typed empty literal
+`List::filled(value, count)`, `List::new()`, `List::with_capacity(n)`,
+`for each item in values`, element-wise `==` / `!=` (same length and
+pairwise-equal `int`/`num`/`bool`/`word` elements; lists of shapes are
+rejected because V3.5 shapes have no `==`), `.contains(value)`,
+`.join(sep)` (elements print as `.to_word()` does), and
+`word.split(sep) -> List<word>` (`"a,,b".split(",")` is `["a", "", "b"]`;
+an empty separator returns the whole word as one element) on LLVM and C.
+`contains` and `join` are not available on lists of shapes. A context-typed empty literal
 (`pilot mut xs: List<num> = []`) and the `List::new()` /
 `List::with_capacity(n)` constructors take their element type from a
 `List<T>` pilot annotation; an unannotated empty literal defaults to

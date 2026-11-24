@@ -429,6 +429,13 @@ task is_shape_word_field(field_name: word) -> bool {
     give back false
 }
 
+-- Literals and plain bindings run no code, so evaluating them cannot
+-- replace or release another binding.
+task ast_expr_is_inert(id: word) -> bool {
+    pilot kind: word = array_get(ast_expr_kinds, word_to_int(id))
+    give back kind == EXPR_STR or kind == EXPR_IDENT or kind == EXPR_INT or kind == EXPR_FLOAT or kind == EXPR_BOOL
+}
+
 task is_ast_word(id: word) -> bool {
     pilot i = word_to_int(id)
     pilot kind: word = array_get(ast_expr_kinds, i)
@@ -441,6 +448,7 @@ task is_ast_word(id: word) -> bool {
         if mname == "starts_with" { give back false }
         if mname == "ends_with" { give back false }
         if mname == "contains" { give back false }
+        if mname == "split" { give back false }
         give back true
     }
     if kind == EXPR_CALL {

@@ -64,6 +64,13 @@ freak_word freak_v3_array_get_word(int64_t handle, int64_t index);
 void freak_v3_array_set_word(int64_t handle, int64_t index, freak_word value);
 freak_word freak_v3_array_pop_word(int64_t handle);
 int64_t freak_v3_array_filled_word(int64_t count, freak_word value);
+int64_t freak_v3_array_equals(int64_t left, int64_t right);
+int64_t freak_v3_array_contains(int64_t handle, int64_t value);
+int64_t freak_v3_array_contains_word(int64_t handle, freak_word value);
+freak_word freak_v3_array_join(int64_t handle, freak_word separator, int64_t tag);
+int64_t freak_llvm_v3_array_join(int64_t handle, int64_t separator, int64_t tag);
+int64_t freak_word_split(freak_word value, freak_word separator);
+int64_t freak_llvm_v3_word_split(int64_t value, int64_t separator);
 int64_t freak_v3_num_bits(double value);
 double freak_v3_bits_num(int64_t value);
 int64_t freak_v3_shape_new(int64_t fields);
@@ -106,6 +113,8 @@ int64_t freak_llvm_word_scalar_cache_get(int64_t pointer, size_t* count);
 void freak_llvm_word_scalar_cache_set(int64_t pointer, size_t count);
 /* Adds an owner to an immutable owned word; 0 when it is not owned. */
 int64_t freak_llvm_word_share(int64_t pointer);
+int64_t freak_llvm_word_share_or_clone(int64_t source);
+void freak_llvm_word_release_assigned(int64_t previous, int64_t replacement);
 freak_word freak_llvm_word_view(int64_t pointer);
 /* Consumes the C owner bookkeeping when heap=true; borrowed results must be
    C strings or the runtime's static char_at byte words. */
