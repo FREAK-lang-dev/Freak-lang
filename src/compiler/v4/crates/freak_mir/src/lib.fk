@@ -7758,10 +7758,11 @@ task v4_mir_sum_rows_are_sensitive(ty: int, definition: word, locals: int, value
 }
 
 -- Snapshot rows of a native map get: a loan of a Map local (a lend of an
--- exact Map row, or a lend parameter), a key of the key type (a
--- shared `lend word` of a word row for word keys), no ABI, and a
--- maybe<V> result over the map's value type.
-task v4_mir_map_get_row_is_valid(ty: int, values: int, value: int) -> bool {
+-- exact Map local or place row, or an exact lend parameter local), a key
+-- of the key type (a shared `lend word` of a word row for word keys), no
+-- ABI, and a maybe<V> result over the map's value type. A local row must
+-- name its binding exactly, as v4_mir_local_reference_is_exact requires.
+task v4_mir_map_get_row_is_valid(ty: int, values: int, locals: int, value: int) -> bool {
     pilot row: word = array_get(values, value)
     pilot args = v4_mir_snapshot_field(row, 12)
     if v4_mir_snapshot_field(row, 11) != "" or v4_mir_call_args_payload_count(args) != 2 { give back false }
@@ -7779,7 +7780,15 @@ task v4_mir_map_get_row_is_valid(ty: int, values: int, value: int) -> bool {
         if owner < 0 or owner >= loan or v4_mir_snapshot_field_raw(loan_row, 8) != "-1" { give back false }
         if v4_ty_canonical_type(ty, v4_mir_control_row_type(values, owner)) != map_ty { give back false }
         if v4_ty_lend_mode(loan_ty) != v4_ty_param_mode_lend { give back false }
-    } else if loan_kind != v4_mir_rvalue_use_local {
+        pilot owner_kind = v4_mir_snapshot_field(array_get(values, owner), 4)
+        if owner_kind == v4_mir_rvalue_use_local {
+            if v4_mir_sum_row_local(values, locals, owner) < 0 { give back false }
+        } else if owner_kind != v4_mir_rvalue_use_place {
+            give back false
+        }
+    } else if loan_kind == v4_mir_rvalue_use_local {
+        if v4_mir_sum_row_local(values, locals, loan) < 0 { give back false }
+    } else {
         give back false
     }
     pilot key_ty = v4_ty_canonical_type(ty, v4_ty_generic_arg(map_ty, 0))
@@ -7816,7 +7825,7 @@ task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) ->
     -- Its rows are checked as v4_mir_rvalue_is_builtin_map checks live MIR.
     if v4_mir_builtin_map_identity_kind(identity) == "map_get" {
         if v4_mir_snapshot_field(row, 6) != identity or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" or count != 2 { give back "invalid native map get contract" }
-        if not v4_mir_map_get_row_is_valid(ty, values, value) { give back "invalid native map get contract" }
+        if not v4_mir_map_get_row_is_valid(ty, values, locals, value) { give back "invalid native map get contract" }
         give back ""
     }
     if identity != "" or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" { give back "scalar sum calls require a resolved ordinary static task" }
