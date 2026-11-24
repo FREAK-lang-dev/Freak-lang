@@ -187,7 +187,9 @@ def main() -> int:
         return 2
     freak = Path(sys.argv[1]).resolve()
     with tempfile.TemporaryDirectory(prefix="freak-std-bundles-") as temporary:
-        work = Path(temporary)
+        # Hangar refuses linked parents (macOS /var -> /private/var), like a real
+        # project folder would be refused, so the test works in the real path.
+        work = Path(temporary).resolve()
         h = Harness(freak, work)
         (work / "p.fk").write_text(PROGRAM, encoding="utf-8")
         (work / "uses_std.fk").write_text('task main() {\n    pilot a = std_abs(0 - 7)\n    say "abs={a}"\n}\n', encoding="utf-8")

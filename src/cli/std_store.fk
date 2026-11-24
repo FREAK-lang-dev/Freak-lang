@@ -299,8 +299,22 @@ task cli_std_fit_problem(manifest: int) -> word {
 
 -- ===================== store paths =====================
 
+-- The store is opened with a link-refusing descriptor walk, so its base is
+-- resolved first: a config dir under a system link (macOS /var ->
+-- /private/var, a symlinked home) would otherwise refuse every write.
+-- Windows walks already resolve the drive path, so its spelling is kept.
 task cli_std_home() -> word {
-    give back cli_host_path_join(hangar_registry_config_dir(), "std")
+    pilot config = hangar_registry_config_dir()
+    if not freak_process_platform_is_windows() and fs::exists(config) {
+        pilot resolved = fs::canonical_path(config)
+        if fs::result_ok(resolved) {
+            pilot real = fs::result_word(resolved)
+            fs::result_release(resolved)
+            give back cli_host_path_join(real, "std")
+        }
+        fs::result_release(resolved)
+    }
+    give back cli_host_path_join(config, "std")
 }
 
 task cli_std_store_dir() -> word {
