@@ -275,7 +275,7 @@ task hangar_publish_read_text(project_dir: word, relative: word) -> word {
 }
 
 -- The files a consumer's graph admits for this package: manifest, entry,
--- modules, tests (declared or tests/*_test.fk), assets, readme and license.
+-- modules, tests (declared or tests/*_test.fk), assets, readme, changelog and license.
 -- Reads only; dependencies are not resolved and nothing is written.
 -- Returns an array handle of relative paths, or 0 with hangar_graph_error.
 task hangar_publish_inputs(project_dir: word, manifest: word) -> int {
@@ -325,6 +325,87 @@ task hangar_publish_inputs(project_dir: word, manifest: word) -> int {
     give back files
 }
 
+-- ── changelogs ─────────────────────────────────────────────
+-- The registry refuses a version whose changelog has no entry for it: a
+-- Markdown heading naming the version ("## 0.3.1", "## [0.3.1] - 2026-11-24",
+-- "## v0.3.1") with at least one line under it. Same rule as Ordnance's
+-- src/changelog.ts, checked here so a publish fails before packing.
+
+task hangar_changelog_separator(c: word) -> bool {
+    give back c == " " or c == "\t" or c == "[" or c == "]" or c == "(" or c == ")" or c == "<" or c == ">" or c == "`" or c == "*" or c == "_" or c == ":" or c == "," or c == "|" or c == "—" or c == "–"
+}
+
+task hangar_changelog_token_is(token: word, version: word) -> bool {
+    if token == version { give back true }
+    if token.length() > 1 and (token.starts_with("v") or token.starts_with("V")) {
+        give back token.substring(1, token.length() - 1) == version
+    }
+    give back false
+}
+
+task hangar_changelog_heading_names(heading: word, version: word) -> bool {
+    pilot token = ""
+    pilot index = 0
+    repeat until index >= heading.length() {
+        pilot c = heading.char_at(index)
+        if hangar_changelog_separator(c) {
+            if hangar_changelog_token_is(token, version) { give back true }
+            token = ""
+        } else {
+            token = token + c
+        }
+        index += 1
+    }
+    give back hangar_changelog_token_is(token, version)
+}
+
+-- A heading's level (1-6), or 0 when the line isn't a heading.
+task hangar_changelog_level(line: word) -> int {
+    pilot count = 0
+    repeat until count >= line.length() or count > 6 {
+        if line.char_at(count) != "#" { break }
+        count += 1
+    }
+    if count == 0 or count > 6 or count >= line.length() { give back 0 }
+    pilot after = line.char_at(count)
+    if after != " " and after != "\t" { give back 0 }
+    give back count
+}
+
+task hangar_changelog_is_fence(line: word) -> bool {
+    pilot trimmed = line.trim()
+    give back trimmed.starts_with("```") or trimmed.starts_with("~~~")
+}
+
+task hangar_changelog_has_entry(text: word, version: word) -> bool {
+    pilot in_fence = false
+    pilot section = 0
+    pilot start = 0
+    pilot index = 0
+    pilot total = text.length()
+    repeat until index > total {
+        if index == total or text.char_at(index) == "\n" {
+            pilot line = text.substring(start, index - start)
+            if line.ends_with("\r") { line = line.substring(0, line.length() - 1) }
+            start = index + 1
+            if hangar_changelog_is_fence(line) {
+                if section > 0 { give back true }
+                in_fence = not in_fence
+            } else if not in_fence {
+                pilot level = hangar_changelog_level(line)
+                if section > 0 {
+                    if level > 0 and level <= section { give back false }
+                    if line.trim() != "" { give back true }
+                } else if level > 0 and hangar_changelog_heading_names(line.substring(level, line.length() - level), version) {
+                    section = level
+                }
+            }
+        }
+        index += 1
+    }
+    give back false
+}
+
 task hangar_registry_publish(project_dir: word, dry_run: bool) -> int {
     pilot manifest = cli_host_path_join(project_dir, "hangar.toml")
     if fs::exists(manifest) == false {
@@ -343,6 +424,8 @@ task hangar_registry_publish(project_dir: word, dry_run: bool) -> int {
     pilot readme_file = toml_get("project.readme")
     if readme_file == "" and fs::exists(cli_host_path_join(project_dir, "README.md")) { readme_file = "README.md" }
     pilot license_file = toml_get("project.license_file")
+    pilot changelog_file = toml_get("project.changelog")
+    if changelog_file == "" and fs::exists(cli_host_path_join(project_dir, "CHANGELOG.md")) { changelog_file = "CHANGELOG.md" }
     if not hangar_registry_valid_name(name) {
         say "  Package name '" + name + "' can't be published: registry names are lowercase letters, digits, '-' and '_' (2-64 characters, starting with a letter or digit)."
         give back 1
@@ -367,6 +450,19 @@ task hangar_registry_publish(project_dir: word, dry_run: bool) -> int {
     pilot files = hangar_publish_inputs(project_dir, manifest)
     if files == 0 {
         say "  Cannot publish: " + hangar_graph_error
+        give back 1
+    }
+    -- Every version says what changed in it; the registry refuses it otherwise.
+    pilot changelog = hangar_publish_read_text(project_dir, changelog_file)
+    if changelog.trim() == "" {
+        if changelog_file == "" { say "  Cannot publish: no CHANGELOG.md. Add one with a '## " + version + "' section saying what changed (or point project.changelog at your changelog)." }
+        else { say "  Cannot publish: " + changelog_file + " is missing or empty. Add a '## " + version + "' section saying what changed." }
+        array_release(files)
+        give back 1
+    }
+    if not hangar_changelog_has_entry(changelog, version) {
+        say "  Cannot publish: " + changelog_file + " has no entry for " + version + ". Add a heading like '## " + version + "' with at least one line about what changed under it."
+        array_release(files)
         give back 1
     }
     toml_load(manifest)
@@ -428,12 +524,13 @@ task hangar_registry_publish(project_dir: word, dry_run: bool) -> int {
     json_document::object_insert(doc, object, "license", json_document::make_string(doc, license))
     json_document::object_insert(doc, object, "repository", json_document::make_string(doc, repository))
     json_document::object_insert(doc, object, "readme", json_document::make_string(doc, hangar_publish_read_text(project_dir, readme_file)))
+    json_document::object_insert(doc, object, "changelog", json_document::make_string(doc, changelog))
     json_document::set_root(doc, object)
     pilot metadata = json_document::serialize_word(doc)
     pilot metadata_ok = json_document::ok(doc) != 0
     json_document::release(doc)
     if not metadata_ok or not metadata.ends_with("}") {
-        say "  Cannot encode package metadata (is the README over 256 KiB?)."
+        say "  Cannot encode package metadata (is the README or changelog over 256 KiB?)."
         hangar_registry_discard(scratch)
         give back 1
     }
