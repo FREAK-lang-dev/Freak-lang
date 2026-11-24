@@ -284,6 +284,12 @@ task cli_std_fit_problem(manifest: int) -> word {
     repeat until i >= array_len(names) {
         pilot name: word = array_get(names, i)
         if cli_std_is_pinned(name) { pinned_seen += 1 }
+        -- Selected imports (`use std::math::{...}`) find a module's
+        -- declarations by its file, so an updatable module keeps <name>.fk.
+        if not cli_std_is_pinned(name) and stdm_module_file(stdm_get(manifest, "modules." + name)) != name + ".fk" {
+            array_release(names)
+            give back "module " + name + " must load " + name + ".fk"
+        }
         i += 1
     }
     array_release(names)
