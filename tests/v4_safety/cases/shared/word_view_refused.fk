@@ -1,0 +1,16 @@
+-- A word loan is the word handle, not a payload address, so a counted view
+-- of a Shared<word> is refused by name before any IR is emitted.
+-- bible: 4.4
+-- expect: reject codegen
+-- error: native Shared borrow views of this payload are not yet supported: lend word
+
+use std::mem::{Shared, Weak}
+
+task look(lend s: Shared<word>) -> int {
+    pilot v = s.borrow()
+    give back 0
+}
+task main() -> int {
+    pilot a = Shared<word>::new("Kei")
+    give back look(lend a)
+}

@@ -1,0 +1,10 @@
+-- The boxed payload pays the owned-word budget: one handle can own at most
+-- 256 words, as an ordinary aggregate can.
+-- bible: 4.4
+-- expect: reject codegen
+-- error: native Shared payloads owning more than 256 words are not yet supported: Shared<[word;65536]>
+
+use std::mem::{Shared, Weak}
+
+task drop_it(s: Shared<[word; 65536]>) -> int { give back 0 }
+task main() -> int { give back 0 }

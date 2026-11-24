@@ -10874,6 +10874,8 @@ EXECUTABLE_SMOKES = [
             "shared-alias-symbolic-equal-possible-overlap=true",
             "shared-alias-symbolic-vs-literal-overlap=true",
             "shared-alias-concrete-distinct-overlap=false",
+            "shared-weak-upgrade-plan-clean=true",
+            "shared-weak-forged-upgrade-receiver=invalid Shared carrier intrinsic receiver",
         ],
     },
     {
@@ -18259,6 +18261,14 @@ NATIVE_SHARED_REJECTED = (
     ("tier3_shared_view_field_move", "use std::mem::{Shared, Weak}\nshape P { x: int, name: word }\ntask steal(lend s: Shared<P>) -> word {\n    pilot v = s.borrow()\n    give back v.name\n}\n"
      "task main() -> int { give back 0 }\n",
      "Meiya refuses to move out through a lend holder"),
+    # A word loan is the handle, not an address; the payload pays the
+    # owned-word budget.
+    ("tier3_shared_word_view", "use std::mem::{Shared, Weak}\ntask look(lend s: Shared<word>) -> int {\n    pilot v = s.borrow()\n    give back 0\n}\n"
+     "task main() -> int {\n    pilot a = Shared<word>::new(\"Kei\")\n    give back look(lend a)\n}\n",
+     "native Shared borrow views of this payload are not yet supported: lend word"),
+    ("tier3_shared_payload_word_budget", "use std::mem::{Shared, Weak}\ntask drop_it(s: Shared<[word; 65536]>) -> int { give back 0 }\n"
+     "task main() -> int { give back 0 }\n",
+     "native Shared payloads owning more than 256 words are not yet supported: Shared<[word;65536]>"),
     # The box helpers link the runtime's counted-box entry points by name.
     ("tier3_shared_runtime_symbol", "use std::mem::{Shared, Weak}\nshape P { x: int }\nextern [C] {\n    task freak_v4_shared_retain(p: *void) -> void\n}\n"
      "task main() -> int {\n    pilot a = Shared<P>::new(P { x: 1 })\n    give back 0\n}\n",

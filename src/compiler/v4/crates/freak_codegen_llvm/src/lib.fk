@@ -7553,6 +7553,10 @@ task v4_codegen_llvm_native_shared_type_error(mir_id: int, type_text: word, dept
     if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), payload) or v4_mir_scalar_sum_kind(mir_id, payload) != "" or v4_ty_is_maybe_type(payload) { give back "native Shared payloads of maybe/result values are not yet supported: " + type_text }
     if v4_ty_is_closure_type(payload) { give back "native Shared payloads of closures are not yet supported: " + type_text }
     if v4_codegen_llvm_is_borrow_error(mir_id, payload) { give back "native Shared payloads of BorrowError are not supported: " + type_text }
+    -- The handle is one owned leaf, but its drop helper releases every word
+    -- the payload holds: the payload pays the owned-leaf budget too.
+    pilot leaves = v4_codegen_llvm_word_leaf_count(mir_id, payload, 0)
+    if leaves > 256 or leaves < 0 { give back "native Shared payloads owning more than 256 words are not yet supported: " + type_text }
     give back v4_codegen_llvm_native_type_error_depth(payload, false, 0)
 }
 
@@ -7582,6 +7586,9 @@ task v4_codegen_llvm_native_shared_rvalue_error(mir_id: int, body_id: int, rvalu
     error = v4_codegen_llvm_native_type_error(receiver, false)
     if error != "" { give back error }
     if kind != "borrow" { give back "" }
+    -- A view is the payload's address; a payload whose loan is not a pointer
+    -- (a word loan is the word handle) has no counted view slot yet.
+    if v4_codegen_llvm_type(type_text) != "ptr" { give back "native Shared borrow views of this payload are not yet supported: " + type_text }
     -- A view is a guard Meiya drops: it must be the one definition of its
     -- own pilot, so the drop plan has a binding to release.
     pilot stmt = 0
