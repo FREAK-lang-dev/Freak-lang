@@ -7,6 +7,7 @@
 
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
+#include <llvm-c/DebugInfo.h>
 #include <llvm-c/Error.h>
 #include <llvm-c/ErrorHandling.h>
 #include <llvm-c/Target.h>
@@ -47,6 +48,9 @@ typedef struct {
     LLVMTypeRef call_type; LLVMValueRef call_callee; int call_open;
     LLVMValueRef* args; size_t arg_count, arg_capacity;
     int has_block;
+    /* Debug line tables. */
+    LLVMDIBuilderRef dib; LLVMMetadataRef di_file, di_unit; int di_finalised;
+    LLVMValueRef location_function;  /* function of the builder's current location */
 } lb_session;
 
 static lb_session sessions[FREAK_LB_MAX_SESSIONS];
@@ -217,6 +221,10 @@ int64_t freak_lb_session_new(const char* triple, size_t triple_len, const char* 
 
 int64_t freak_lb_session_release(int64_t session) {
     SESSION(session);
+    if (s->dib) {
+        if (!s->di_finalised) LLVMDIBuilderFinalize(s->dib);
+        LLVMDisposeDIBuilder(s->dib);
+    }
     LLVMDisposeBuilder(s->builder);
     LLVMDisposeModule(s->module);
     LLVMDisposeTargetData(s->layout);
@@ -442,6 +450,10 @@ int64_t freak_lb_block(int64_t session, int64_t function, const char* name, size
 int64_t freak_lb_position(int64_t session, int64_t block) {
     SESSION(session);
     BLOCK(b, block);
+    if (s->location_function && LLVMGetBasicBlockParent(b) != s->location_function) {
+        LLVMSetCurrentDebugLocation2(s->builder, NULL);
+        s->location_function = NULL;
+    }
     LLVMPositionBuilderAtEnd(s->builder, b);
     s->has_block = 1;
     return 0;
@@ -814,18 +826,225 @@ int64_t freak_lb_unreachable(int64_t session) {
     return 0;
 }
 
-int64_t freak_lb_attribute(int64_t session, int64_t function, int64_t index, const char* name, size_t name_len) {
+static LLVMValueRef current_function(lb_session* s) {
+    return LLVMGetBasicBlockParent(LLVMGetInsertBlock(s->builder));
+}
+
+int64_t freak_lb_switch(int64_t session, int64_t value, int64_t default_block) {
+    SESSION(session);
+    VALUE(v, value);
+    BLOCK(d, default_block);
+    NEED_BLOCK();
+    int64_t e = terminate(s); if (e) return e;
+    if (!is_int(v)) return fail(s, FREAK_LB_E_KIND, "switch value must be an integer", NULL);
+    if (LLVMGetBasicBlockParent(d) != current_function(s)) return fail(s, FREAK_LB_E_KIND, "switch target is in another function", NULL);
+    return value_ticket(s, LLVMBuildSwitch(s->builder, v, d, 4));
+}
+
+int64_t freak_lb_switch_case(int64_t session, int64_t switch_value, int64_t constant, int64_t block) {
+    SESSION(session);
+    VALUE(w, switch_value);
+    VALUE(c, constant);
+    BLOCK(b, block);
+    if (!LLVMIsASwitchInst(w)) return fail(s, FREAK_LB_E_KIND, "not a switch", NULL);
+    if (!LLVMIsAConstantInt(c)) return fail(s, FREAK_LB_E_KIND, "switch case must be an integer constant", NULL);
+    if (LLVMTypeOf(c) != LLVMTypeOf(LLVMGetOperand(w, 0))) return fail(s, FREAK_LB_E_KIND, "switch case has another type than the switch value", NULL);
+    if (LLVMGetBasicBlockParent(b) != LLVMGetBasicBlockParent(LLVMGetInstructionParent(w))) return fail(s, FREAK_LB_E_KIND, "switch target is in another function", NULL);
+    unsigned successors = LLVMGetNumSuccessors(w);
+    for (unsigned i = 1; i < successors; i++)
+        if (LLVMGetSwitchCaseValue(w, i) == c) return fail(s, FREAK_LB_E_ARGUMENT, "switch already has this case", NULL);
+    LLVMAddCase(w, c, b);
+    return 0;
+}
+
+/* A function or a call that attributes and calling conventions apply to. */
+typedef struct { LLVMValueRef value; int is_call; unsigned params; } lb_target;
+
+static int64_t call_target(lb_session* s, int64_t ticket, lb_target* out) {
+    int64_t e = 0;
+    lb_slot* slot = get_slot(s, ticket, K_VALUE, &e);
+    if (!slot) return e;
+    out->value = slot->ref.value;
+    if (slot->kind == K_FUNCTION) {
+        out->is_call = 0;
+        out->params = LLVMCountParams(out->value);
+    } else if (LLVMIsACallInst(out->value)) {
+        out->is_call = 1;
+        out->params = LLVMGetNumArgOperands(out->value);
+    } else {
+        return fail(s, FREAK_LB_E_KIND, "not a function or a call", NULL);
+    }
+    return 0;
+}
+
+static int64_t attribute_position(lb_session* s, const lb_target* t, int64_t index) {
+    if (index < -1 || index > (int64_t)t->params) return fail(s, FREAK_LB_E_ARGUMENT, "no such attribute position", NULL);
+    return 0;
+}
+
+/* The type at an attribute position: the return type (0) or a parameter's. */
+static LLVMTypeRef position_type(const lb_target* t, int64_t index) {
+    if (index == 0) {
+        LLVMTypeRef fn = t->is_call ? LLVMGetCalledFunctionType(t->value) : LLVMGlobalGetValueType(t->value);
+        return LLVMGetReturnType(fn);
+    }
+    if (t->is_call) return LLVMTypeOf(LLVMGetOperand(t->value, (unsigned)(index - 1)));
+    return LLVMTypeOf(LLVMGetParam(t->value, (unsigned)(index - 1)));
+}
+
+static void attach(const lb_target* t, int64_t index, LLVMAttributeRef attribute) {
+    LLVMAttributeIndex position = index == -1 ? LLVMAttributeFunctionIndex : (LLVMAttributeIndex)index;
+    if (t->is_call) LLVMAddCallSiteAttribute(t->value, position, attribute);
+    else LLVMAddAttributeAtIndex(t->value, position, attribute);
+}
+
+static const char* const int_attributes[] = { "align", "alignstack", "dereferenceable", "dereferenceable_or_null", NULL };
+static const char* const type_attributes[] = { "sret", "byval", "byref", "inalloca", "preallocated", "elementtype", NULL };
+
+static int named(const char* name, size_t name_len, const char* const* list) {
+    for (; *list; list++)
+        if (strlen(*list) == name_len && memcmp(*list, name, name_len) == 0) return 1;
+    return 0;
+}
+
+static int64_t attribute_kind(lb_session* s, const char* name, size_t name_len, unsigned* kind) {
+    if (name_len == 0 || memchr(name, 0, name_len)) return fail(s, FREAK_LB_E_ARGUMENT, "attribute name is empty or holds a NUL byte", NULL);
+    *kind = LLVMGetEnumAttributeKindForName(name, name_len);
+    if (*kind == 0) return fail(s, FREAK_LB_E_ARGUMENT, "unknown enum attribute", NULL);
+    return 0;
+}
+
+int64_t freak_lb_attribute(int64_t session, int64_t function_or_call, int64_t index, const char* name, size_t name_len) {
+    SESSION(session);
+    lb_target t;
+    int64_t e = call_target(s, function_or_call, &t); if (e) return e;
+    e = attribute_position(s, &t, index); if (e) return e;
+    unsigned kind;
+    e = attribute_kind(s, name, name_len, &kind); if (e) return e;
+    if (named(name, name_len, int_attributes)) return fail(s, FREAK_LB_E_ARGUMENT, "attribute needs a value; use freak_lb_attribute_int", NULL);
+    if (named(name, name_len, type_attributes)) return fail(s, FREAK_LB_E_ARGUMENT, "attribute needs a type; use freak_lb_attribute_type", NULL);
+    attach(&t, index, LLVMCreateEnumAttribute(s->context, kind, 0));
+    return 0;
+}
+
+int64_t freak_lb_attribute_int(int64_t session, int64_t function_or_call, int64_t index, const char* name, size_t name_len, int64_t value) {
+    SESSION(session);
+    lb_target t;
+    int64_t e = call_target(s, function_or_call, &t); if (e) return e;
+    e = attribute_position(s, &t, index); if (e) return e;
+    unsigned kind;
+    e = attribute_kind(s, name, name_len, &kind); if (e) return e;
+    if (!named(name, name_len, int_attributes)) return fail(s, FREAK_LB_E_ARGUMENT, "not an integer attribute", NULL);
+    int stack = name_len == 10 && memcmp(name, "alignstack", 10) == 0;
+    int alignment = stack || (name_len == 5 && memcmp(name, "align", 5) == 0);
+    if (value <= 0 || (alignment && ((value & (value - 1)) != 0 || value > ((int64_t)1 << 32))))
+        return fail(s, FREAK_LB_E_ARGUMENT, alignment ? "alignment must be a power of two up to 2^32" : "attribute value must be positive", NULL);
+    if (stack) {
+        if (index != -1) return fail(s, FREAK_LB_E_ARGUMENT, "alignstack goes on the function", NULL);
+    } else {
+        if (index < 0) return fail(s, FREAK_LB_E_ARGUMENT, "attribute goes on the return value or a parameter", NULL);
+        if (LLVMGetTypeKind(position_type(&t, index)) != LLVMPointerTypeKind)
+            return fail(s, FREAK_LB_E_KIND, "attribute needs a pointer at this position", NULL);
+    }
+    attach(&t, index, LLVMCreateEnumAttribute(s->context, kind, (uint64_t)value));
+    return 0;
+}
+
+int64_t freak_lb_attribute_type(int64_t session, int64_t function_or_call, int64_t index, const char* name, size_t name_len, int64_t type) {
+    SESSION(session);
+    TYPE(ty, type);
+    lb_target t;
+    int64_t e = call_target(s, function_or_call, &t); if (e) return e;
+    e = attribute_position(s, &t, index); if (e) return e;
+    unsigned kind;
+    e = attribute_kind(s, name, name_len, &kind); if (e) return e;
+    if (!named(name, name_len, type_attributes)) return fail(s, FREAK_LB_E_ARGUMENT, "not a type attribute", NULL);
+    if (index < 1) return fail(s, FREAK_LB_E_ARGUMENT, "type attributes go on parameters", NULL);
+    if (LLVMGetTypeKind(position_type(&t, index)) != LLVMPointerTypeKind)
+        return fail(s, FREAK_LB_E_KIND, "type attributes need a pointer parameter", NULL);
+    if (!sized(ty)) return fail(s, FREAK_LB_E_KIND, "attribute type has no size", NULL);
+    attach(&t, index, LLVMCreateTypeAttribute(s->context, kind, ty));
+    return 0;
+}
+
+int64_t freak_lb_call_conv(int64_t session, int64_t function_or_call, int64_t convention) {
+    SESSION(session);
+    lb_target t;
+    int64_t e = call_target(s, function_or_call, &t); if (e) return e;
+    unsigned cc;
+    switch (convention) {
+    case FREAK_LB_CC_C: cc = LLVMCCallConv; break;
+    case FREAK_LB_CC_FAST: cc = LLVMFastCallConv; break;
+    case FREAK_LB_CC_COLD: cc = LLVMColdCallConv; break;
+    case FREAK_LB_CC_WIN64: cc = LLVMWin64CallConv; break;
+    case FREAK_LB_CC_SYSV64: cc = LLVMX8664SysVCallConv; break;
+    default: return fail(s, FREAK_LB_E_ARGUMENT, "unknown calling convention", NULL);
+    }
+    if ((convention == FREAK_LB_CC_WIN64 || convention == FREAK_LB_CC_SYSV64) && strncmp(LLVMGetTarget(s->module), "x86_64", 6) != 0)
+        return fail(s, FREAK_LB_E_TARGET, "calling convention is x86-64 only", NULL);
+    if (t.is_call) LLVMSetInstructionCallConv(t.value, cc);
+    else LLVMSetFunctionCallConv(t.value, cc);
+    return 0;
+}
+
+/* ---- debug line tables ---------------------------------------------- */
+
+static int bad_bytes(const char* bytes, size_t length) { return length && memchr(bytes, 0, length) != NULL; }
+
+int64_t freak_lb_debug_unit(int64_t session, const char* file, size_t file_len, const char* directory, size_t directory_len,
+                            const char* producer, size_t producer_len) {
+    SESSION(session);
+    if (s->dib) return fail(s, FREAK_LB_E_STATE, "the session already has a debug unit", NULL);
+    if (file_len == 0 || bad_bytes(file, file_len) || bad_bytes(directory, directory_len) || bad_bytes(producer, producer_len))
+        return fail(s, FREAK_LB_E_ARGUMENT, "debug file name is empty, or a name holds a NUL byte", NULL);
+    s->dib = LLVMCreateDIBuilder(s->module);
+    s->di_file = LLVMDIBuilderCreateFile(s->dib, file, file_len, directory, directory_len);
+    s->di_unit = LLVMDIBuilderCreateCompileUnit(s->dib, LLVMDWARFSourceLanguageC, s->di_file, producer, producer_len,
+                                                s->opt > 0, "", 0, 0, "", 0, LLVMDWARFEmissionLineTablesOnly,
+                                                0, 0, 0, "", 0, "", 0);
+    LLVMTypeRef i32 = LLVMInt32TypeInContext(s->context);
+    LLVMAddModuleFlag(s->module, LLVMModuleFlagBehaviorWarning, "Debug Info Version", 18,
+                      LLVMValueAsMetadata(LLVMConstInt(i32, LLVMDebugMetadataVersion(), 0)));
+    LLVMAddModuleFlag(s->module, LLVMModuleFlagBehaviorWarning, "Dwarf Version", 13,
+                      LLVMValueAsMetadata(LLVMConstInt(i32, 4, 0)));
+    return 0;
+}
+
+int64_t freak_lb_debug_function(int64_t session, int64_t function, int64_t line) {
     SESSION(session);
     int64_t e = 0;
     lb_slot* f = get_slot(s, function, K_FUNCTION, &e);
     if (!f) return e;
     if (f->kind != K_FUNCTION) return fail(s, FREAK_LB_E_KIND, "not a function", NULL);
-    if (index < -1 || index > (int64_t)LLVMCountParams(f->ref.value)) return fail(s, FREAK_LB_E_ARGUMENT, "no such attribute position", NULL);
-    unsigned kind = LLVMGetEnumAttributeKindForName(name, name_len);
-    if (kind == 0) return fail(s, FREAK_LB_E_ARGUMENT, "unknown enum attribute", NULL);
-    LLVMAttributeRef attribute = LLVMCreateEnumAttribute(s->context, kind, 0);
-    LLVMAttributeIndex position = index == -1 ? LLVMAttributeFunctionIndex : (LLVMAttributeIndex)index;
-    LLVMAddAttributeAtIndex(f->ref.value, position, attribute);
+    if (!s->dib) return fail(s, FREAK_LB_E_STATE, "no debug unit; call freak_lb_debug_unit first", NULL);
+    if (s->di_finalised) return fail(s, FREAK_LB_E_STATE, "debug information is final (the module was verified)", NULL);
+    if (LLVMGetSubprogram(f->ref.value)) return fail(s, FREAK_LB_E_STATE, "function already has debug information", NULL);
+    if (line < 1 || line > 0x7fffffff) return fail(s, FREAK_LB_E_ARGUMENT, "line out of range", NULL);
+    size_t name_len = 0;
+    const char* name = LLVMGetValueName2(f->ref.value, &name_len);
+    LLVMLinkage linkage = LLVMGetLinkage(f->ref.value);
+    int local = linkage == LLVMInternalLinkage || linkage == LLVMPrivateLinkage;
+    LLVMMetadataRef type = LLVMDIBuilderCreateSubroutineType(s->dib, s->di_file, NULL, 0, LLVMDIFlagZero);
+    LLVMMetadataRef sp = LLVMDIBuilderCreateFunction(s->dib, s->di_file, name, name_len, name, name_len, s->di_file,
+                                                     (unsigned)line, type, local, 1, (unsigned)line, LLVMDIFlagZero, s->opt > 0);
+    LLVMSetSubprogram(f->ref.value, sp);
+    return 0;
+}
+
+int64_t freak_lb_debug_location(int64_t session, int64_t line, int64_t column) {
+    SESSION(session);
+    NEED_BLOCK();
+    if (line < 0 || column < 0 || line > 0x7fffffff || column > 0xffff) return fail(s, FREAK_LB_E_ARGUMENT, "line or column out of range", NULL);
+    if (line == 0 && column == 0) {
+        LLVMSetCurrentDebugLocation2(s->builder, NULL);
+        s->location_function = NULL;
+        return 0;
+    }
+    LLVMValueRef fn = current_function(s);
+    LLVMMetadataRef sp = LLVMGetSubprogram(fn);
+    if (!sp) return fail(s, FREAK_LB_E_STATE, "the current function has no debug information; call freak_lb_debug_function", NULL);
+    LLVMSetCurrentDebugLocation2(s->builder, LLVMDIBuilderCreateDebugLocation(s->context, (unsigned)line, (unsigned)column, sp, NULL));
+    s->location_function = fn;
     return 0;
 }
 
@@ -834,6 +1053,10 @@ int64_t freak_lb_attribute(int64_t session, int64_t function, int64_t index, con
 int64_t freak_lb_verify(int64_t session) {
     SESSION(session);
     if (s->struct_open || s->fn_open || s->call_open) return fail(s, FREAK_LB_E_STATE, "a type or call is still open", NULL);
+    if (s->dib && !s->di_finalised) {
+        LLVMDIBuilderFinalize(s->dib);
+        s->di_finalised = 1;
+    }
     char* message = NULL;
     if (LLVMVerifyModule(s->module, LLVMReturnStatusAction, &message)) {
         int64_t code = fail(s, FREAK_LB_E_VERIFY, "module failed verification", message);

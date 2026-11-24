@@ -158,10 +158,44 @@ int64_t freak_lb_ret(int64_t session, int64_t value);
 int64_t freak_lb_ret_void(int64_t session);
 int64_t freak_lb_unreachable(int64_t session);
 
-/* Function attributes by LLVM name (nounwind, noreturn, ...): index -1 is the
-   function, 0 the return value, 1.. the parameters. */
-int64_t freak_lb_attribute(int64_t session, int64_t function, int64_t index,
+/* Switch: a terminator with the scrutinee and the default block; then add
+   one case per distinct integer constant of the scrutinee's type. */
+int64_t freak_lb_switch(int64_t session, int64_t value, int64_t default_block);
+int64_t freak_lb_switch_case(int64_t session, int64_t switch_value, int64_t constant, int64_t block);
+
+/* Calling conventions, on a function or on a call (set both sides). The
+   x86-64 specific conventions are refused on other targets. */
+enum { FREAK_LB_CC_C = 1, FREAK_LB_CC_FAST, FREAK_LB_CC_COLD, FREAK_LB_CC_WIN64, FREAK_LB_CC_SYSV64 };
+int64_t freak_lb_call_conv(int64_t session, int64_t function_or_call, int64_t convention);
+
+/* Attributes by LLVM name, on a function or on a call: index -1 is the
+   function, 0 the return value, 1.. the parameters (arguments of a call).
+   freak_lb_attribute takes attributes without a payload (nounwind, noalias,
+   noreturn, ...). Attributes that carry an integer (align, alignstack,
+   dereferenceable, dereferenceable_or_null) go through
+   freak_lb_attribute_int; those that carry a type (sret, byval, byref,
+   inalloca, preallocated, elementtype) through freak_lb_attribute_type, and
+   only on pointer parameters. Each entry point refuses the others' names. */
+int64_t freak_lb_attribute(int64_t session, int64_t function_or_call, int64_t index,
                            const char* name, size_t name_len);
+int64_t freak_lb_attribute_int(int64_t session, int64_t function_or_call, int64_t index,
+                               const char* name, size_t name_len, int64_t value);
+int64_t freak_lb_attribute_type(int64_t session, int64_t function_or_call, int64_t index,
+                                const char* name, size_t name_len, int64_t type);
+
+/* Debug line tables (DWARF, LineTablesOnly, as the text backend's LB10).
+   One unit per session; then a subprogram per function that should have
+   lines, and the builder's current location, which every instruction built
+   afterwards carries. Line 0 and column 0 clear the location; moving to a
+   block of another function clears it too. The first freak_lb_verify (also
+   run by optimize and emit) finalises debug information: no new subprograms
+   after it. In a function with a subprogram, LLVM's verifier requires a
+   location on every call to a function that has one. */
+int64_t freak_lb_debug_unit(int64_t session, const char* file, size_t file_len,
+                            const char* directory, size_t directory_len,
+                            const char* producer, size_t producer_len);
+int64_t freak_lb_debug_function(int64_t session, int64_t function, int64_t line);
+int64_t freak_lb_debug_location(int64_t session, int64_t line, int64_t column);
 
 /* Whole module. */
 int64_t freak_lb_verify(int64_t session);
