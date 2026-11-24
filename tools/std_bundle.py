@@ -16,8 +16,9 @@ compiler checks it natively (src/cli/std_sign.fk, src/cli/std_commands.fk).
     python tools/std_bundle.py index --serial 3 --key KEY --out dist BUNDLE... [--yank 0.16.0]
         Write dist/index.txt and dist/index.txt.sig for the given bundles.
 
-KEY is a path, or "env:NAME" to read the private key text from an
-environment variable (CI secrets). Needs the `cryptography` package.
+KEY is a path, "env:NAME" to read the private key text from an environment
+variable (CI secrets), or "seed:<64 hex>" for a throwaway test key. Paths and
+env keys need the `cryptography` package; seed keys are pure Python.
 """
 from __future__ import annotations
 
@@ -34,7 +35,76 @@ INDEX_PREFIX = b"freak-std-index-v1\n"
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 
+class SeedKey:
+    """Pure-Python RFC 8032 Ed25519 signer for "seed:<64 hex>" keys (tests, no
+    third-party packages). Release keys use OpenSSH/PEM via `cryptography`."""
+
+    P = 2**255 - 19
+    L = 2**252 + 27742317777372353535851937790883648493
+    D = -121665 * pow(121666, P - 2, P) % P
+
+    def __init__(self, seed: bytes):
+        digest = hashlib.sha512(seed).digest()
+        scalar = bytearray(digest[:32])
+        scalar[0] &= 248
+        scalar[31] &= 127
+        scalar[31] |= 64
+        self.scalar = int.from_bytes(scalar, "little")
+        self.prefix = digest[32:]
+        self.public = self.encode(self.mul(self.scalar, self.base()))
+
+    @classmethod
+    def add(cls, a, b):
+        p, d = cls.P, cls.D
+        x1, y1, z1, t1 = a
+        x2, y2, z2, t2 = b
+        aa = (y1 - x1) * (y2 - x2) % p
+        bb = (y1 + x1) * (y2 + x2) % p
+        cc = t1 * 2 * d * t2 % p
+        dd = z1 * 2 * z2 % p
+        e, f, g, h = bb - aa, dd - cc, dd + cc, bb + aa
+        return (e * f % p, g * h % p, f * g % p, e * h % p)
+
+    @classmethod
+    def mul(cls, scalar: int, point):
+        result = (0, 1, 1, 0)
+        while scalar:
+            if scalar & 1:
+                result = cls.add(result, point)
+            point = cls.add(point, point)
+            scalar >>= 1
+        return result
+
+    @classmethod
+    def base(cls):
+        p = cls.P
+        y = 4 * pow(5, p - 2, p) % p
+        xx = (y * y - 1) * pow(cls.D * y * y + 1, p - 2, p) % p
+        x = pow(xx, (p + 3) // 8, p)
+        if (x * x - xx) % p:
+            x = x * pow(2, (p - 1) // 4, p) % p
+        if x & 1:
+            x = p - x
+        return (x, y, 1, x * y % p)
+
+    @classmethod
+    def encode(cls, point) -> bytes:
+        p = cls.P
+        x, y, z, _ = point
+        zi = pow(z, p - 2, p)
+        x, y = x * zi % p, y * zi % p
+        return (y | ((x & 1) << 255)).to_bytes(32, "little")
+
+    def sign(self, message: bytes) -> bytes:
+        r = int.from_bytes(hashlib.sha512(self.prefix + message).digest(), "little") % self.L
+        encoded_r = self.encode(self.mul(r, self.base()))
+        k = int.from_bytes(hashlib.sha512(encoded_r + self.public + message).digest(), "little") % self.L
+        return encoded_r + ((r + k * self.scalar) % self.L).to_bytes(32, "little")
+
+
 def load_key(spec: str):
+    if spec.startswith("seed:"):
+        return SeedKey(bytes.fromhex(spec[5:]))
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -49,13 +119,15 @@ def load_key(spec: str):
 
 
 def raw_public(key) -> str:
+    if isinstance(key, SeedKey):
+        return key.public.hex()
     from cryptography.hazmat.primitives import serialization
 
     return key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw).hex()
 
 
 def pubkey(spec: str) -> str:
-    text = Path(spec).read_text(errors="replace") if not spec.startswith("env:") else ""
+    text = Path(spec).read_text(errors="replace") if not spec.startswith(("env:", "seed:")) else ""
     if text.startswith("ssh-ed25519 "):
         from cryptography.hazmat.primitives import serialization
 
