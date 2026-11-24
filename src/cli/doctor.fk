@@ -297,6 +297,7 @@ task cli_doctor_runtime_missing(runtime_dir: word) -> word {
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_fs.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_fs.inc") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_json.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_json.inc") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_http.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_http.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_oni.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_oni.inc") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "ui/win32_backend.c") { missing = cli_doctor_append_missing(missing, "ui/win32_backend.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "ui/freak_ui_platform.h") { missing = cli_doctor_append_missing(missing, "ui/freak_ui_platform.h") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_abi") { missing = cli_doctor_append_missing(missing, "freak_abi") }

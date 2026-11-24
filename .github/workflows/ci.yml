@@ -287,6 +287,10 @@ jobs:
           path: ${{ runner.temp }}/v35-anchored-filesystem.json
           if-no-files-found: ignore
 
+      - name: V3.5 oni green tasks
+        shell: bash
+        run: python -u tests/v3_oni.py ./build/freak$EXT
+
       - name: V3 frozen UI surface
         shell: bash
         run: python -u tests/v3_ui_surface.py ./build/freak$EXT
@@ -904,6 +908,10 @@ jobs:
           name: v35-anchored-filesystem-${{ runner.os }}
           path: ${{ runner.temp }}/v35-anchored-filesystem.json
           if-no-files-found: ignore
+
+      - name: V3.5 oni green tasks
+        shell: bash
+        run: python -u tests/v3_oni.py ./build/freak$EXT
 
       - name: V3 frozen UI surface
         shell: bash

@@ -46,11 +46,11 @@ Pipeline (full compiler):
 |---|---|---|
 | §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer forms, explicit named lifetimes plus ordinary-task outlives bounds, first-pass `dyn Doctrine` type/object-safety/coercion/editor facts, and first-pass default/`copy`/`move`/`mut` closure capture semantics through resilient parse, HIR, TY, MIR, Meiya, editor, snapshot, LSP, and invalidation queries. Still expanding: `prob_when`, nested and generic closure typing, borrowed-return closure contracts, escaping closure environments, full dyn vtable lowering, and production backend depth for V4-only forms. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
-| §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
+| §3 Concurrency | ⚠️ Partial | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) are V4. V3.5 ships the `oni` std hook (§3.0): stackful green tasks on one thread, `oni::summon("task", arg)`, and `tcp::socket_*` / `time::sleep` that park inside an oni. The scheduler, joins and channels live in the hyakki Hangar package. `std::thread::spawn` (escape hatch) is still planned. |
 | §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, body-derived provenance/source discovery through projection/scalar-holder/projected-reborrow/statically resolved call/reordered-argument/CFG-join paths with bounded deterministic loop-header/backedge fixed points, all-candidate final-use liveness (including elided multi-owner results), and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed child provenance, projection-assignment rebinding (including conservative dynamic-index overlap), field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Generic-call, owner-generic, and `Shared<T>::new` checks recursively expose nominal shape/route lends before substitution; direct nominal impl and overloaded operator calls on lend-bearing owners fail closed, and classifier depth exhaustion has a distinct diagnostic. First-pass closure capture ownership (`CaptureBorrow`, `CaptureBorrowMut`, `CaptureCopy`, `CaptureMove`) with stored-closure loan liveness and OneShot consumption, queryable Meiya-owned loan/move facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces (lowered natively as counted boxes with runtime borrow state, §4.4), and trust-me honor gating also exist. Declaration-order children use `freak-mir-snapshot-v7`; v4/v5/v6 are rejected, and restore re-resolves IDs in a fresh borrowck generation. Ordinary-task fixed-layout aggregate parameters and returns now preserve leaf provenance; non-ordinary aggregate task parameters and returns, dynamic and wrapper containers, lend-bearing aliases/doctrine/callback contracts, signature-derived lifetime solving beyond declared ordinary-task relations, general lexical region inference, `'static`, general arena reclamation, `Shared<T>` handles inside other types and generic instances, closure `Send`/`Sync`, `direct_order` inline assembly, `copy_nonoverlapping`, and lends of raw-pointer referents remain V4 (each is gated at its rank by the §16.4 honor matrix and refused by name). Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax exists, but borrowed-return closure contracts and forwarding do not yet. No fixed-aggregate backend or runtime ABI is claimed. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
-| §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, http_server (bounded V3.5 event-loop transport), fs, process, time, bytes, math3d, version, zip; current V3.5 development also includes ordinary `std::test` assertion helpers, an OS-secure `std::random` scalar floor and a `std::crypto` hashing floor (SHA-256, HMAC-SHA-256, PBKDF2). V3 ui is limited to the LLVM/Windows Win32-GDI floor and COCKPIT remains a Maverick source preview. Planned: thread, anime, narrative, richer test blocks, regex, crypto, ffi, panic. Maverick (V4) lowers the §7.4 `List<T>`, `Map<K,V>` and `Set<T>` core natively (literals, indexing, `push`/`set`/`get`/`remove`/`add`/`contains`/`length`); the rest of §7.4 is 🔜 V4. |
+| §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, http_server (bounded V3.5 event-loop transport), oni (V3.5 green-task hook, §3.0), fs, process, time, bytes, math3d, version, zip; current V3.5 development also includes ordinary `std::test` assertion helpers, an OS-secure `std::random` scalar floor and a `std::crypto` hashing floor (SHA-256, HMAC-SHA-256, PBKDF2). V3 ui is limited to the LLVM/Windows Win32-GDI floor and COCKPIT remains a Maverick source preview. Planned: thread, anime, narrative, richer test blocks, regex, crypto, ffi, panic. Maverick (V4) lowers the §7.4 `List<T>`, `Map<K,V>` and `Set<T>` core natively (literals, indexing, `push`/`set`/`get`/`remove`/`add`/`contains`/`length`); the rest of §7.4 is 🔜 V4. |
 | §8 Lexer | ⚠️ Partial | All v0.13.x keywords lex. V4 token streams now carry `'a` lifetimes and number suffixes (`42u`/`3.14f`/`42t`/`999b`); the `\|\|` xm3 separator and remaining production recovery depth are still V4. |
 | §9 Parser | ⚠️ Partial | Tolerant parsing (`ErrorNode`/`IncompleteNode`, recovery boundaries, IDE-grade incremental parsing) is V4. v1 (Python) parser fails on V3-superset syntax — V3 self-hosting compiler is the bible-conformant parser. |
 | §10 Type Checker | ⚠️ Partial | Most semantic checks listed (power arithmetic, prob ranges, foreshadow strict enforcement, classified redaction, full FFI safety) are V4. V4 now validates route exhaustiveness, first-pass `dyn Doctrine` object-safety/coercion contracts, and the basic `@layout(C)` / `packed` / `transparent` contracts; deeper layout and backend guarantees still expand. |
@@ -1044,6 +1044,32 @@ task final_goodbye(pilot: Eishi) -> void mood<.muv_luv> { ... }
 > primitive is the planned `std::thread::spawn` in §7.13. Treat the
 > structured-concurrency model below as the V4 destination — once it
 > ships, prefer it over raw `std::thread`.
+
+### 3.0 V3.5 floor: the `oni` hook (0.17.0)
+
+> ⚠️ **V3.5 floor, not the squadron model.** An *oni* is a FREAK task on its
+> own small stack. Many oni share one OS thread, and an oni that waits on a
+> socket or a deadline parks so another can run (stackful green threads,
+> Go/Loom style, no `async`/`await` colouring).
+>
+> - `oni::summon("task", arg) -> int` is the only language addition. The
+>   name must be a string literal naming a top-level task `(int) -> void` or
+>   `(int) -> int`; anything else is a check error.
+> - Inside an oni, `time::sleep` and `tcp::socket_connect/accept/receive/send/send_all`
+>   park instead of blocking. Socket timeouts become park deadlines, and
+>   closing a socket wakes oni parked on it. Outside an oni nothing changes.
+> - `std` owns only stacks, switching and readiness (`oni::resume`,
+>   `oni::next_ready`, `oni::poll`, `oni::suspend`/`suspend_for`/`wake`,
+>   `oni::cancel`/`cancelled`, `oni::curfew`, `oni::stack_kib`, `oni::state`,
+>   `oni::returned`, `oni::release`, `oni::live`/`waiting`/`ready_count`).
+>   The scheduling loop, joins, channels, select and semaphores belong to
+>   the **hyakki** Hangar package.
+> - Platforms: x86-64 and AArch64 on Linux (epoll) and macOS (poll); Windows
+>   x64 (Fibers + WSAPoll). Guide: [docs/oni.md](docs/oni.md).
+>
+> V4 direction: `sortie`, `Comms<T>` and `xm3` lower onto the same runtime
+> once escaping closures exist, at which point `summon` takes a closure and
+> the string-literal form is retired.
 
 ### 3.1 XM3 {} — Parallel Racing Concurrency
 

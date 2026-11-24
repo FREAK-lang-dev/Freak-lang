@@ -227,6 +227,7 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_fs.inc")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_json.inc")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_http.inc")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_oni.inc")
         -- Match freak_v35_http.inc's __has_include selection. The same
         -- amalgamation compiles these headers and C sources into the runtime.
         pilot http_vendor = runtime_dir + "/../../third_party/llhttp"

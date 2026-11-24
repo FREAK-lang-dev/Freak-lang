@@ -6,6 +6,7 @@ freakc/runtime/freak_v35_process.inc|runtime/freak_v35_process.inc
 freakc/runtime/freak_v35_fs.inc|runtime/freak_v35_fs.inc
 freakc/runtime/freak_v35_json.inc|runtime/freak_v35_json.inc
 freakc/runtime/freak_v35_http.inc|runtime/freak_v35_http.inc
+freakc/runtime/freak_v35_oni.inc|runtime/freak_v35_oni.inc
 freakc/runtime/ui/win32_backend.c|runtime/ui/win32_backend.c
 freakc/runtime/ui/freak_ui_platform.h|runtime/ui/freak_ui_platform.h
 freakc/runtime/freak_abi|runtime/freak_abi
