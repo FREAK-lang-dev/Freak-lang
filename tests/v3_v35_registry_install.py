@@ -176,7 +176,9 @@ def main() -> int:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         with tempfile.TemporaryDirectory(prefix="freak-registry-install-") as raw:
-            root = Path(raw)
+            # macOS puts temp dirs under /var, a symlink to /private/var, and
+            # Hangar's anchored scratch directories refuse symlinked parents.
+            root = Path(raw).resolve()
             # Windows Hangar only writes into folders with a private owner ACL.
             private = WindowsPrivateFixture(root)
             home = root / "home"
