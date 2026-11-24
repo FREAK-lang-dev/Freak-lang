@@ -63,6 +63,8 @@ The caller still releases the JSON document.
 `http_send_file(request, path)` streams a regular file as the body, at any
 size, outside the buffered-body cap: Linux hands it to the socket with
 `sendfile`, macOS and Windows read it 64 KiB at a time, so memory stays flat.
+Each loop turn moves at most 512 KiB of one download, so a fast reader shares
+the worker with other connections instead of holding it until the file ends.
 It sets `Content-Length` from the file size and `Content-Type:
 application/octet-stream` unless the application set one. A file response has
 no total write deadline; it is closed only when no progress is made for

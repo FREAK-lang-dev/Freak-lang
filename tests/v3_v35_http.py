@@ -19,6 +19,7 @@ import struct
 import subprocess
 import tempfile
 import time
+import threading
 
 
 class HttpProgress:
@@ -481,6 +482,8 @@ static void service(const char *profile) {
                 else sent=H(send_text)(request,W("healthy"));
             } else if(p.length>7&&!memcmp(p.data,"/hello/",7)) {
                 int64_t b=bytes(p.data+7,p.length-7);sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
+            } else if(eq(p,"/file-big")) {
+                const char *file=getenv("FREAK_HTTP_TEST_BIG_FILE");REQUIRE(file);sent=H(send_file)(request,W(file));
             } else if(eq(p,"/file")||eq(p,"/file-missing")||eq(p,"/file-dir")) {
                 /* Streamed file responses bypass the buffered-body cap; a file
                    that cannot be opened leaves the request answerable. */
@@ -951,6 +954,30 @@ def keepalive_corpus(s:Server):
         if linger:client.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,struct.pack('ii',1,0))
         client.close();time.sleep(.2)
         assert_response(s.exchange(request('/health',headers=[('Connection','close')])),200,b'healthy');s.cases+=1
+    # A reader fast enough that the socket never pushes back must still share
+    # the worker: other requests are answered while the download runs.
+    big=Path(s.env['FREAK_HTTP_TEST_BIG_FILE']).stat().st_size
+    reader=s.connect();reader.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,4<<20)
+    progress={'bytes':0,'done':None,'error':None}
+    def drain():
+        try:
+            reader.sendall(request('/file-big',headers=[('Connection','close')]))
+            while chunk:=reader.recv(1<<20):progress['bytes']+=len(chunk)
+            progress['done']=time.monotonic()
+        except OSError as error:progress['error']=error
+    thread=threading.Thread(target=drain,daemon=True);thread.start()
+    try:
+        while progress['bytes']<(1<<20) and progress['done'] is None and progress['error'] is None:time.sleep(.001)
+        answered=0
+        while progress['done'] is None and progress['error'] is None and answered<20:
+            assert_response(s.exchange(request('/health',headers=[('Connection','close')])),200,b'healthy');answered+=1
+        thread.join(30);assert not thread.is_alive() and progress['error'] is None,progress
+        # Headers plus the whole file arrived, and /health was answered at
+        # least once while the download was still running.
+        assert progress['bytes']>big and answered>=1,(progress,answered,big)
+    finally:
+        reader.close()
+    s.cases+=2
     with s.connect() as client:
         # HEAD announces the length and sends no body: the next response follows at once.
         client.sendall(request('/file',method='HEAD')+request('/health'));raw=b''
@@ -1156,6 +1183,9 @@ def main():
             root=Path(temporary);h=root/'http.c';h.write_text(HARNESS)
             # Eight MiB and change: far past the 1 MiB buffered-body cap.
             stream=root/'stream.bin';stream.write_bytes(hashlib.sha256(b'freak').digest()*(262144)+b'tail'*31);env['FREAK_HTTP_TEST_FILE']=str(stream)
+            big=root/'big.bin'
+            with big.open('wb') as handle:handle.truncate(256<<20)
+            env['FREAK_HTTP_TEST_BIG_FILE']=str(big)
             flags=['-lws2_32','-lshell32'] if os.name=='nt' else ['-lm','-pthread']
             if os.sys.platform.startswith('linux'):flags+=['-Wl,--wrap=send']
             if args.sanitize:
