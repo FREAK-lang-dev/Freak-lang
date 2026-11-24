@@ -734,6 +734,8 @@ _EXPLICIT_STRICT_SMOKE_ORACLES: Dict[str, Tuple[str, ...]] = {
         "shared-alias-symbolic-equal-possible-overlap=true",
         "shared-alias-symbolic-vs-literal-overlap=true",
         "shared-alias-concrete-distinct-overlap=false",
+        "shared-weak-upgrade-plan-clean=true",
+        "shared-weak-forged-upgrade-receiver=invalid Shared carrier intrinsic receiver",
     ),
     "unit_snapshot_smoke.fk": _UNIT_SNAPSHOT_INTEGRITY_ORACLES,
     "unit_snapshot_multisource_resource_smoke.fk": _UNIT_SNAPSHOT_MULTISOURCE_RESOURCE_ORACLES,

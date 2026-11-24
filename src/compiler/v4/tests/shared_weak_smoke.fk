@@ -229,3 +229,39 @@ say "shared-alias-symbolic-index-diagnostics=" + word_from_int(v4_shared_weak_bo
 say "shared-alias-symbolic-equal-possible-overlap=" + v4_shared_weak_bool(v4_borrowck_paths_overlap("items[i]", "items[j]"))
 say "shared-alias-symbolic-vs-literal-overlap=" + v4_shared_weak_bool(v4_borrowck_paths_overlap("items[i]", "items[0]"))
 say "shared-alias-concrete-distinct-overlap=" + v4_shared_weak_bool(v4_borrowck_paths_overlap("items[0]", "items[1]"))
+
+-- Snapshot row validation of a Weak upgrade matches the live intrinsic
+-- check: a forged receiver that lends a Shared<int> is not a Weak.
+task v4_shared_upgrade_source() -> word {
+    pilot src = "task revive() -> int " + chr(123) + "\n"
+    src = src + "    pilot root = Shared<int>::new(1)\n"
+    src = src + "    pilot weak = root.downgrade()\n"
+    src = src + "    pilot revived = weak.upgrade()\n"
+    src = src + "    give back 0\n"
+    give back src + chr(125) + "\n"
+}
+
+task v4_shared_upgrade_forge(mir: int) -> word {
+    pilot body = v4_mir_lookup_body_name(mir, "revive")
+    pilot upgrade = -1
+    pilot shared_loan = -1
+    pilot row = 0
+    repeat until row >= v4_mir_body_rvalue_count(mir, body) {
+        if v4_mir_rvalue_builtin_method(mir, body, row) == v4_mir_builtin_weak_upgrade { upgrade = row }
+        if v4_mir_rvalue_builtin_method(mir, body, row) == v4_mir_builtin_shared_downgrade { shared_loan = v4_mir_rvalue_call_arg(mir, body, row, 0) }
+        row += 1
+    }
+    if upgrade < 0 or shared_loan < 0 or shared_loan >= upgrade { give back "missing rows" }
+    array_set(v4_mir_body_rvalue_args_handle(mir, body), upgrade, v4_mir_call_args_payload_append("", shared_loan))
+    if v4_mir_rvalue_ty(mir, body, shared_loan) != "lend Shared<int>" or v4_mir_rvalue_is_builtin_shared_method(mir, body, upgrade, v4_mir_builtin_weak_upgrade) { give back "forgery did not take" }
+    give back v4_mir_scalar_sum_plan_preflight(mir)
+}
+
+pilot v4_shared_upgrade_stream = v4_lex_text(2, v4_shared_upgrade_source())
+pilot v4_shared_upgrade_tree = v4_parse_stream(2, v4_shared_upgrade_stream)
+pilot v4_shared_upgrade_hir = v4_hir_lower_tree(2, v4_shared_upgrade_tree)
+pilot v4_shared_upgrade_resolve = v4_resolve_lower_hir(2, v4_shared_upgrade_hir)
+pilot v4_shared_upgrade_ty = v4_ty_lower_resolve(2, v4_shared_upgrade_resolve)
+pilot v4_shared_upgrade_mir = v4_mir_lower_ty(2, v4_shared_upgrade_ty)
+say "shared-weak-upgrade-plan-clean=" + v4_shared_weak_bool(v4_mir_diag_count(v4_shared_upgrade_mir) == 0 and v4_mir_scalar_sum_plan_preflight(v4_shared_upgrade_mir) == "")
+say "shared-weak-forged-upgrade-receiver=" + v4_shared_upgrade_forge(v4_shared_upgrade_mir)

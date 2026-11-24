@@ -7882,6 +7882,13 @@ task v4_mir_sum_row_shared_error(ty: int, values: int, value: int) -> word {
     pilot loan_ty = v4_mir_control_row_type(values, child)
     if v4_mir_snapshot_field(child_row, 4) != receiver_kind or not v4_ty_is_lend_type(loan_ty) or v4_ty_lend_mode(loan_ty) != v4_mir_builtin_shared_method_receiver_mode(identity) { give back "invalid Shared carrier intrinsic receiver" }
     pilot owner_ty = v4_ty_canonical_type(ty, v4_ty_lend_target_type(loan_ty))
+    -- The receiver's nominal family, operation and ABI, as the live
+    -- v4_mir_rvalue_is_builtin_shared_method checks them: upgrade lends a
+    -- prelude Weak, borrow_mut and get_mut a prelude Shared.
+    pilot family = "Shared"
+    if identity == v4_mir_builtin_weak_upgrade { family = "Weak" }
+    if not v4_ty_is_generic_instance_type(owner_ty) or v4_ty_generic_arg_count(owner_ty) != 1 or v4_ty_generic_base_name(owner_ty) != family or v4_ty_type_signature_id_for_name(ty, family) >= 0 { give back "invalid Shared carrier intrinsic receiver" }
+    if v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_call or v4_mir_snapshot_field(row, 6) != owner_ty + "." + v4_mir_builtin_shared_method_surface_name(identity) or v4_mir_snapshot_field(row, 11) != "" { give back "invalid Shared carrier intrinsic contract" }
     if v4_ty_canonical_type(ty, v4_mir_snapshot_field(row, 10)) != v4_ty_canonical_type(ty, v4_mir_builtin_shared_method_result_type(identity, owner_ty)) { give back "invalid Shared carrier intrinsic result" }
     give back ""
 }
