@@ -477,7 +477,15 @@ task cli_doctor_json() -> int {
     say "      \"path\": \"" + cli_doctor_json_escape(std_dir) + "\","
     say "      \"modules_found\": " + word_from_int(std_modules) + ","
     say "      \"modules_expected\": 15,"
-    say "      \"missing\": \"" + cli_doctor_json_escape(std_missing) + "\""
+    say "      \"missing\": \"" + cli_doctor_json_escape(std_missing) + "\","
+    cli_std_search_cwd = true
+    pilot mut std_active_source = "error"
+    if cli_std_resolve() { std_active_source = cli_std_active_source }
+    say "      \"version\": \"" + cli_doctor_json_escape(cli_std_bundled_version) + "\","
+    say "      \"active_version\": \"" + cli_doctor_json_escape(cli_std_active_version) + "\","
+    say "      \"active_source\": \"" + cli_doctor_json_escape(std_active_source) + "\","
+    say "      \"active_path\": \"" + cli_doctor_json_escape(cli_std_active_dir) + "\","
+    say "      \"active_error\": \"" + cli_doctor_json_escape(cli_std_error + cli_std_notice) + "\""
     say "    },"
     say "    \"templates\": {\"ok\":" + cli_doctor_json_bool(templates_ok) + ",\"files_expected\":20,\"missing\":\"" + cli_doctor_json_escape(templates_missing) + "\"},"
     say "    \"abi\": {"
@@ -778,6 +786,13 @@ task cli_doctor(fix_mode: bool) -> int {
         pilot mod_count = cli_doctor_std_module_count(std_dir)
         say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/14 modules in " + C_DIM + std_dir + C_RESET
         checks_passed += 1
+        cli_std_search_cwd = true
+        if not cli_std_resolve() {
+            say "        " + C_BYELLOW + "!" + C_RESET + " " + cli_std_error
+        } else if cli_std_active_dir != std_dir {
+            say "        " + C_BGREEN + SYM_CHECK + C_RESET + " std " + cli_std_active_version + " active (" + cli_std_active_source + ") from " + C_DIM + cli_std_active_dir + C_RESET
+        }
+        if cli_std_notice != "" { say "        " + C_BYELLOW + "!" + C_RESET + " " + cli_std_notice }
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " standard library incomplete"
         say "        " + C_DIM + "Missing: " + std_missing + C_RESET

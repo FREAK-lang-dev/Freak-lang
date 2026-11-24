@@ -493,6 +493,7 @@ task cli_load_project_source(src: word, source: word, target: word) -> word {
     -- The legacy standard loader receives selectors produced by real import
     -- tokens; strings and comments cannot request optional modules.
     pilot bound_source = cli_load_std(pb_std_selectors, target)
+    if cli_std_error != "" { pb_fail("standard library: " + cli_std_error) give back "" }
     cursor = 0
     repeat until cursor >= array_len(pb_order) {
         pilot unit = word_to_int(array_get(pb_order, cursor))

@@ -25,6 +25,7 @@ src/cli/registry.fk
 src/cli/package_binding.fk
 src/cli/std_sign.fk
 src/cli/std_store.fk
+src/cli/std_commands.fk
 src/cli/runtime_cache.fk
 src/cli/build.fk
 src/cli/run.fk

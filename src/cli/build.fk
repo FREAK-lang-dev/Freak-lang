@@ -291,12 +291,6 @@ task cli_prepare_source(src_file: word, target: word) -> word {
         say "Package error: " + hangar_graph_error
         give back ""
     }
-    if not cli_std_resolve() {
-        say "Standard library error: " + cli_std_error
-        say "Code generation skipped due to source admission errors."
-        give back ""
-    }
-    if cli_std_notice != "" { say C_DIM + "  " + cli_std_notice + C_RESET }
     source = cli_load_project_source(src_file, source, target)
     if cli_project_source_error != "" {
         say "Package binding error: " + cli_project_source_error
@@ -2192,6 +2186,7 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
         give back ""
     }
     cli_view_step_end(sources_lap, "Sources & packages")
+    cli_std_say_build_line()
 
     ffi_target_os = cli_ffi_target_os(cross)
     ffi_target_arch = cli_ffi_target_arch(cross)
