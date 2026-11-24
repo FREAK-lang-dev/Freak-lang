@@ -573,7 +573,7 @@ static void workers(void) {
         if(H(request_status)(request)) { int64_t status=H(request_status)(request);H(request_release)(request);if(status==503)break;continue; }
         __auto_type path=H(request_path)(request);freak_word p=view(path);bool quit=false;
         if(eq(p,"/worker")) { char body[64];snprintf(body,sizeof(body),"%lld %ld",(long long)index,process_id());REQUIRE(H(send_text)(request,W(body))); }
-        else if(eq(p,"/crash")&&index) { REQUIRE(H(send_text)(request,W("bye")));drop(path);H(request_release)(request);fflush(stdout);_exit(3); }
+        else if(eq(p,"/crash")&&index) { char body[32];snprintf(body,sizeof(body),"bye %lld",(long long)index);REQUIRE(H(send_text)(request,W(body)));drop(path);H(request_release)(request);fflush(stdout);_exit(3); }
         else if(eq(p,"/stop")) { REQUIRE(H(send_text)(request,W(index?"child":"stopped")));quit=!index; }
         else { REQUIRE(H(response_status)(request,404));REQUIRE(H(send_text)(request,W("missing"))); }
         drop(path);H(request_release)(request);requests++;
@@ -912,6 +912,15 @@ def keepalive_corpus(s:Server):
         assert [r[2] for r in responses]==[b'a',b'b\0b',b'c'],responses
         assert [r[1][b'connection'] for r in responses]==[b'keep-alive',b'keep-alive',b'close'],responses
         assert rest==b'' and client.recv(1)==b'';s.cases+=1
+    s.checkpoint('keepalive-corpus','request-cap-with-unread-pipeline')
+    # The cap ends the connection with requests (and junk) still unread: the
+    # last response must arrive and the stream end in FIN, not a reset.
+    with s.connect() as client:
+        client.sendall(b''.join(request('/hello/p'+str(i)) for i in range(7))+b'X'*49152)
+        responses,rest=read_responses(client,5)
+        assert [r[2] for r in responses]==[b'p0',b'p1',b'p2',b'p3',b'p4'],responses
+        assert responses[-1][1][b'connection']==b'close',responses
+        assert rest==b'' and client.recv(1)==b'';s.cases+=1
     s.checkpoint('keepalive-corpus','http10')
     with s.connect() as client:
         client.sendall(request('/health',version='HTTP/1.0').replace(b'Host: localhost\r\n',b''))
@@ -1018,17 +1027,18 @@ def workers_corpus(exe:Path,env,progress:HttpProgress|None=None):
             status,_,body=http_get(s.port,'/worker');assert status==200,body
             index,pid=map(int,body.split());seen[index]=pid
             if len(seen)==3:break
-        assert len(seen)>=2,seen
+        # Every worker is known first, so a "new" pid can only be a respawn.
+        assert len(seen)==3,seen
         s.checkpoint('workers','respawn')
         victim=None
         for _ in range(3000):
             status,_,body=http_get(s.port,'/crash')
-            if body==b'bye':victim=[i for i in seen if i];break
-        assert victim is not None,seen
+            if body.startswith(b'bye '):victim=int(body.split()[1]);break
+        assert victim in seen and victim,(victim,seen)
         replaced=False;deadline=time.monotonic()+10;fresh={}
         while time.monotonic()<deadline and not replaced:
             status,_,body=http_get(s.port,'/worker');index,pid=map(int,body.split())
-            if index and pid not in seen.values():replaced=True
+            if index==victim and pid!=seen[victim]:replaced=True
             fresh[index]=pid
         assert replaced,(seen,fresh)
         s.checkpoint('workers','stop-all')

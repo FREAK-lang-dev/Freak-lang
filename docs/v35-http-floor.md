@@ -144,8 +144,12 @@ HTTP/1.1 connections persist unless the client sends `Connection: close`;
 HTTP/1.0 persists only with `Connection: keep-alive`. Pipelined requests are
 answered in order. `set_keep_alive(server, idle_ms, max_requests)` sets how long
 an idle connection waits for its next request and how many requests one
-connection serves (`max_requests` 0 turns keep-alive off). Error responses
-always close. `set_max_connections(server, n)` caps open connections per worker;
+connection serves (`max_requests` 0 turns keep-alive off). Errors the
+transport generates itself (400, 408, 413, 414, 431, 503 and similar) always
+close; an application response keeps the connection whatever its status.
+The first request's header deadline counts from acceptance; later requests'
+count from their first byte, and they use the limits current at that byte.
+`set_max_connections(server, n)` caps open connections per worker;
 beyond it new connections wait in the kernel backlog. Rejected requests still
 waiting for the application count against the cap too. On POSIX the runtime
 raises the soft open-file limit toward that cap.
