@@ -18326,7 +18326,7 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
     clang = shutil.which("clang")
     notes = native_layout_notes(module)
     payloads = native_payload_notes(module)
-    types = re.findall(r'^(%"freak\.(?:shape|route|sum|list|closure\.env|dyn\.vtable)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum|list|map|closure\.env|dyn\.vtable)\.[^"]+") = type (\{.*\})$', module, re.MULTILINE)
     if not notes or len(notes) != len(types) or not set(payloads) <= set(notes):
         raise RuntimeError(f"V4 shape module for {triple} has no matching layout notes")
     # A route with payload storage after its tag must say how that storage is
@@ -18536,7 +18536,7 @@ def check_native_abi_oracle(module: str, triple: str) -> int:
         pending = []
     if not claims:
         return 0
-    types = re.findall(r'^(%"freak\.(?:shape|route|sum|list|closure\.env)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
+    types = re.findall(r'^(%"freak\.(?:shape|route|sum|list|map|closure\.env)\.[^"]+" = type \{.*\})$', module, re.MULTILINE)
     probe_lines = list(types)
     for index, (_, _, _, _, llvm_type) in enumerate(claims):
         probe_lines.append(f"define i64 @abi_{index}_size() {{ ret i64 ptrtoint (ptr getelementptr ({llvm_type}, ptr null, i32 1) to i64) }}")
