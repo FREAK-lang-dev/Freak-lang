@@ -98,6 +98,7 @@ class Registry(BaseHTTPRequestHandler):
     payloads: dict[str, bytes] = {}
     requests: list[str] = []
     authorized: list[str] = []
+    published: list[dict] = []
 
     def log_message(self, *args) -> None:
         pass
@@ -126,7 +127,16 @@ class Registry(BaseHTTPRequestHandler):
         else:
             self.reply(404, b'{"error":"not found"}', "application/json")
 
-    do_POST = do_GET
+    def do_POST(self) -> None:
+        if self.path != "/api/v1/publish":
+            self.do_GET()
+            return
+        Registry.requests.append(self.path)
+        length = int(self.headers.get("Content-Length") or 0)
+        body = json.loads(self.rfile.read(length) or b"{}")
+        Registry.published.append(body)
+        reply = {"name": body.get("name"), "version": body.get("version"), "published_by": "tester"}
+        self.reply(201, json.dumps(reply).encode(), "application/json")
 
 
 def run(argv: list[str], cwd: Path, env: dict[str, str], label: str, expect: int = 0) -> str:
@@ -250,6 +260,39 @@ def main() -> int:
                 print("registry install: symlinks unavailable here, skipped the publish link case")
             else:
                 refused([hangar, "publish", "--dry-run"], library, env, "publish a symlinked module", "regular file")
+
+            # Every published version needs a changelog entry for itself,
+            # checked before anything is packed or sent.
+            changed = root / "changed-lib"
+            write_project(changed, LIB_MANIFEST.replace('name = "beacon-kit"', 'name = "changed-lib"')
+                          .replace('version = "0.1.0"', 'version = "0.2.0"'), private)
+            (changed / "src" / "signal.fk").write_text(LIB_SOURCE, encoding="utf-8")
+            requests = len(Registry.requests)
+            refused([hangar, "publish", "--dry-run"], changed, env, "publish without a changelog", "no CHANGELOG.md")
+            (changed / "CHANGELOG.md").write_text("# Changelog\n\n## 0.1.0\n\n* First.\n", encoding="utf-8")
+            refused([hangar, "publish", "--dry-run"], changed, env, "publish with a stale changelog", "no entry for 0.2.0")
+            (changed / "CHANGELOG.md").write_text("## 0.2.0\n\n## 0.1.0\n\n* First.\n", encoding="utf-8")
+            refused([hangar, "publish", "--dry-run"], changed, env, "publish with an empty entry", "no entry for 0.2.0")
+            (changed / "CHANGELOG.md").write_text("# Changelog\n\n```\n## 0.2.0\n```\n\n## v0.2.0x\n\n* no\n", encoding="utf-8")
+            refused([hangar, "publish", "--dry-run"], changed, env, "publish with a look-alike entry", "no entry for 0.2.0")
+            if len(Registry.requests) != requests:
+                raise AssertionError("a publish refused for its changelog contacted the registry")
+            entry = "# Changelog\r\n\r\n## [0.2.0] - 2026-11-24\r\n\r\n* Beacons blink.\r\n\r\n## 0.1.0\r\n\r\n* First.\r\n"
+            (changed / "CHANGELOG.md").write_bytes(entry.encode())
+            run([hangar, "publish", "--dry-run"], changed, env, "publish --dry-run with a changelog")
+            run([hangar, "publish"], changed, dict(env, HANGAR_TOKEN="test-session"), "publish with a changelog")
+            sent = Registry.published[-1] if Registry.published else {}
+            if sent.get("version") != "0.2.0" or sent.get("changelog") != entry:
+                raise AssertionError(f"publish did not send the changelog: {sorted(sent)} {sent.get('changelog')!r}")
+            # project.changelog names another file, and ships it in the archive.
+            (changed / "docs").mkdir()
+            (changed / "docs" / "HISTORY.md").write_text("### v0.2.0\n\n* From docs.\n", encoding="utf-8")
+            manifest = (changed / "hangar.toml").read_text(encoding="utf-8")
+            (changed / "hangar.toml").write_text(manifest.replace('kind = "lib"', 'kind = "lib"\nchangelog = "docs/HISTORY.md"'),
+                                                 encoding="utf-8")
+            listing = run([hangar, "publish", "--dry-run"], changed, env, "publish --dry-run with project.changelog")
+            if "docs/HISTORY.md" not in listing:
+                raise AssertionError(f"the declared changelog is not packed:\n{listing}")
     finally:
         server.shutdown()
     print("registry install: passed")

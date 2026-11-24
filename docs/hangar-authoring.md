@@ -109,10 +109,17 @@ newest release. Prefer `^` ranges in libraries and exact pins in applications.
 ## 4. Publishing checklist
 
 1. `hangar.toml` has name, version, author, description.
-2. `freak hangar publish --dry-run` is clean.
-3. `freak hangar publish` uploads; `hangar.lock` consumers re-resolve on
+2. `CHANGELOG.md` has an entry for the version: a heading that names it
+   (`## 0.2.0`, `## [0.2.0] - 2026-11-24` or `## v0.2.0`) with at least one
+   line under it. The registry refuses a version without one, and
+   `hangar publish` checks it before packing. Point `[project] changelog` at
+   another file if yours lives elsewhere; a declared changelog also ships in
+   the archive. With a hangar older than 0.16, list it under `[assets]`
+   (`changelog = "CHANGELOG.md"`) so the registry finds it in the archive.
+3. `freak hangar publish --dry-run` is clean.
+4. `freak hangar publish` uploads; `hangar.lock` consumers re-resolve on
    their next `hangar update`.
-4. Tag the release in Git so `git`-form consumers can pin it.
+5. Tag the release in Git so `git`-form consumers can pin it.
 
 Login once with `freak hangar login` before publishing. Transitive
 dependencies are resolved from each dependency's own `hangar.toml` at install

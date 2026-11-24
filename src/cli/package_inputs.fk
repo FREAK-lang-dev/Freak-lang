@@ -168,6 +168,8 @@ task package_collect_declared_inputs(node: int, manifest_file: word) -> bool {
     }
     pilot readme = hangar_graph_fact(node, "project.readme")
     if readme != "" { if not package_input_add(readme, "documentation") { give back false } }
+    pilot changelog = hangar_graph_fact(node, "project.changelog")
+    if changelog != "" { if not package_input_add(changelog, "documentation") { give back false } }
     pilot license = hangar_graph_fact(node, "project.license_file")
     if license != "" { if not package_input_add(license, "documentation") { give back false } }
     give back true
