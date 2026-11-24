@@ -273,7 +273,8 @@ def main() -> int:
             refused([hangar, "publish", "--dry-run"], changed, env, "publish with a stale changelog", "no entry for 0.2.0")
             (changed / "CHANGELOG.md").write_text("## 0.2.0\n\n## 0.1.0\n\n* First.\n", encoding="utf-8")
             refused([hangar, "publish", "--dry-run"], changed, env, "publish with an empty entry", "no entry for 0.2.0")
-            (changed / "CHANGELOG.md").write_text("# Changelog\n\n```\n## 0.2.0\n```\n\n## v0.2.0x\n\n* no\n", encoding="utf-8")
+            (changed / "CHANGELOG.md").write_text("# Changelog\n\n````md\n```\n## 0.2.0\n* example\n```\n````\n\n"
+                                                  "## v0.2.0x\n\n* no\n", encoding="utf-8")
             refused([hangar, "publish", "--dry-run"], changed, env, "publish with a look-alike entry", "no entry for 0.2.0")
             if len(Registry.requests) != requests:
                 raise AssertionError("a publish refused for its changelog contacted the registry")
