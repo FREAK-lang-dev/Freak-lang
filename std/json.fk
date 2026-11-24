@@ -24,29 +24,32 @@
 -- become one code point; a lone surrogate becomes U+FFFD). Numbers keep
 -- their source text, including exponents.
 --
--- Storage: one pool of nodes in Lists, no array handle per container, so
--- documents of any size fit (the LLVM array pool allows 1024 live arrays).
+-- Storage: one pool of nodes in seven array handles, created by the first
+-- json call and released by json_reset(), so a program that never uses JSON
+-- allocates nothing, and documents of any size fit (there is no array per
+-- container; the LLVM array pool allows 1024 live arrays).
 -- A container's children (and object keys) are a slice of the shared edge
--- lists: json_start[h] .. json_start[h] + json_size[h]. Parsed containers
--- are packed exactly; pushing past json_cap[h] moves the slice to the end.
+-- arrays: start[h] .. start[h] + size[h]. Parsed containers
+-- are packed exactly; pushing past json_i(json_cap, h) moves the slice to the end.
 -- The parser is one loop over a ByteBuffer copy of the source with an
 -- explicit container stack: reading integer bytes is about ten times
 -- faster than comparing one-byte words, and nesting never recurses.
 -- No ByteBuffer outlives a call.
 -- ===================================================================
 
--- Node pool
-pilot mut json_types: List<word> = []
-pilot mut json_vals: List<word> = []
-pilot mut json_start: List<int> = []
-pilot mut json_size: List<int> = []
-pilot mut json_cap: List<int> = []
+-- Node pool: array handles (0 until json_init). Integer columns hold
+-- decimal words.
+pilot mut json_types = 0
+pilot mut json_vals = 0
+pilot mut json_start = 0
+pilot mut json_size = 0
+pilot mut json_cap = 0
 pilot mut json_count = 0
 pilot mut json_inited = 0
 
 -- Children of every container, sliced by json_start/json_size.
-pilot mut json_edges: List<int> = []
-pilot mut json_edge_keys: List<word> = []
+pilot mut json_edges = 0
+pilot mut json_edge_keys = 0
 
 -- Parser state
 pilot mut json_src = ""
@@ -55,37 +58,61 @@ pilot mut json_len = 0
 pilot mut json_depth = 0
 pilot mut json_err = ""
 pilot mut json_err_at = 0 - 1
-pilot mut json_stack: List<int> = []
-pilot mut json_stack_keys: List<word> = []
 
 task json_init() -> void {
-    json_inited = 1
+    if json_inited == 0 {
+        json_types = array_new()
+        json_vals = array_new()
+        json_start = array_new()
+        json_size = array_new()
+        json_cap = array_new()
+        json_edges = array_new()
+        json_edge_keys = array_new()
+        json_count = 0
+        json_inited = 1
+    }
 }
 
 -- Release every pooled value. All existing handles become invalid.
 task json_reset() -> void {
-    json_types.clear()
-    json_vals.clear()
-    json_start.clear()
-    json_size.clear()
-    json_cap.clear()
-    json_edges.clear()
-    json_edge_keys.clear()
-    json_stack.clear()
-    json_stack_keys.clear()
+    if json_inited != 0 {
+        array_release(json_types)
+        array_release(json_vals)
+        array_release(json_start)
+        array_release(json_size)
+        array_release(json_cap)
+        array_release(json_edges)
+        array_release(json_edge_keys)
+    }
+    json_types = 0
+    json_vals = 0
+    json_start = 0
+    json_size = 0
+    json_cap = 0
+    json_edges = 0
+    json_edge_keys = 0
     json_src = ""
     json_count = 0
     json_inited = 0
 }
 
+task json_i(column: int, index: int) -> int {
+    give back word_to_int(array_get(column, index))
+}
+
+task json_seti(column: int, index: int, value: int) -> void {
+    array_set(column, index, word_from_int(value))
+}
+
 -- Allocate a new JSON value slot, returns its index.
 task json_alloc(jtype: word, jval: word) -> int {
+    if json_inited == 0 { json_init() }
     pilot idx = json_count
-    json_types.push(jtype)
-    json_vals.push(jval)
-    json_start.push(0)
-    json_size.push(0)
-    json_cap.push(0)
+    array_push(json_types, jtype)
+    array_push(json_vals, jval)
+    array_push(json_start, "0")
+    array_push(json_size, "0")
+    array_push(json_cap, "0")
     json_count += 1
     give back idx
 }
@@ -117,52 +144,52 @@ task json_error_pos() -> int {
 -- === Accessors ===
 
 task json_get_type(handle: int) -> word {
-    give back json_types[handle]
+    give back array_get(json_types, handle)
 }
 
 task json_get_str(handle: int) -> word {
-    give back json_vals[handle]
+    give back array_get(json_vals, handle)
 }
 
 task json_get_int(handle: int) -> int {
-    pilot v: word = json_vals[handle]
+    pilot v: word = array_get(json_vals, handle)
     give back word_to_int(v)
 }
 
 task json_get_num(handle: int) -> num {
-    pilot v: word = json_vals[handle]
+    pilot v: word = array_get(json_vals, handle)
     give back v.to_num()
 }
 
 task json_get_bool(handle: int) -> bool {
-    pilot v: word = json_vals[handle]
+    pilot v: word = array_get(json_vals, handle)
     give back v == "true"
 }
 
 task json_is_null(handle: int) -> bool {
-    pilot t: word = json_types[handle]
+    pilot t: word = array_get(json_types, handle)
     give back t == "null"
 }
 
 task json_arr_len(handle: int) -> int {
-    give back json_size[handle]
+    give back json_i(json_size, handle)
 }
 
 task json_arr_get(handle: int, index: int) -> int {
-    if index < 0 or index >= json_size[handle] { give back 0 - 1 }
-    give back json_edges[json_start[handle] + index]
+    if index < 0 or index >= json_i(json_size, handle) { give back 0 - 1 }
+    give back json_i(json_edges, json_i(json_start, handle) + index)
 }
 
 task json_obj_len(handle: int) -> int {
-    give back json_size[handle]
+    give back json_i(json_size, handle)
 }
 
 task json_obj_get(handle: int, key: word) -> int {
-    pilot base = json_start[handle]
+    pilot base = json_i(json_start, handle)
     pilot mut ki = 0
-    repeat json_size[handle] times {
-        pilot k: word = json_edge_keys[base + ki]
-        if k == key { give back json_edges[base + ki] }
+    repeat json_i(json_size, handle) times {
+        pilot k: word = array_get(json_edge_keys, base + ki)
+        if k == key { give back json_i(json_edges, base + ki) }
         ki += 1
     }
     give back 0 - 1
@@ -173,8 +200,8 @@ task json_obj_has(handle: int, key: word) -> bool {
 }
 
 task json_obj_key_at(handle: int, index: int) -> word {
-    if index < 0 or index >= json_size[handle] { give back "" }
-    give back json_edge_keys[json_start[handle] + index]
+    if index < 0 or index >= json_i(json_size, handle) { give back "" }
+    give back array_get(json_edge_keys, json_i(json_start, handle) + index)
 }
 
 -- === Builders ===
@@ -270,79 +297,55 @@ task json_new_object() -> int {
 -- Make room for one more child of container h, moving its slice to the
 -- end of the edge lists when it is full.
 task json_grow(h: int) -> void {
-    pilot size = json_size[h]
-    pilot cap = json_cap[h]
+    pilot size = json_i(json_size, h)
+    pilot cap = json_i(json_cap, h)
     if size < cap { give back }
     pilot mut new_cap = cap * 2
     if new_cap < 4 { new_cap = 4 }
-    pilot old_start = json_start[h]
-    pilot new_start = json_edges.length()
+    pilot old_start = json_i(json_start, h)
+    pilot new_start = array_len(json_edges)
     pilot mut i = 0
     repeat new_cap times {
         if i < size {
-            json_edges.push(json_edges[old_start + i])
-            json_edge_keys.push(json_edge_keys[old_start + i])
+            array_push(json_edges, array_get(json_edges, old_start + i))
+            array_push(json_edge_keys, array_get(json_edge_keys, old_start + i))
         } else {
-            json_edges.push(0 - 1)
-            json_edge_keys.push("")
+            array_push(json_edges, word_from_int(0 - 1))
+            array_push(json_edge_keys, "")
         }
         i += 1
     }
-    json_start[h] = new_start
-    json_cap[h] = new_cap
+    json_seti(json_start, h, new_start)
+    json_seti(json_cap, h, new_cap)
 }
 
 task json_arr_push(array: int, child: int) -> void {
     json_grow(array)
-    pilot slot = json_start[array] + json_size[array]
-    json_edges[slot] = child
-    json_size[array] = json_size[array] + 1
+    pilot slot = json_i(json_start, array) + json_i(json_size, array)
+    json_seti(json_edges, slot, child)
+    json_seti(json_size, array, json_i(json_size, array) + 1)
 }
 
 -- Replaces the value of an existing key, otherwise appends the key.
 task json_obj_set(object: int, key: word, child: int) -> void {
-    pilot base = json_start[object]
+    pilot base = json_i(json_start, object)
     pilot mut ki = 0
-    repeat json_size[object] times {
-        pilot k: word = json_edge_keys[base + ki]
+    repeat json_i(json_size, object) times {
+        pilot k: word = array_get(json_edge_keys, base + ki)
         if k == key {
-            json_edges[base + ki] = child
+            json_seti(json_edges, base + ki, child)
             give back
         }
         ki += 1
     }
     json_grow(object)
-    pilot slot = json_start[object] + json_size[object]
-    json_edges[slot] = child
-    json_edge_keys[slot] = key
-    json_size[object] = json_size[object] + 1
+    pilot slot = json_i(json_start, object) + json_i(json_size, object)
+    json_seti(json_edges, slot, child)
+    array_set(json_edge_keys, slot, key)
+    json_seti(json_size, object, json_i(json_size, object) + 1)
 }
 
 -- === Parser ===
-
--- Pack the children collected on the parse stack since base into the
--- container's exact slice, then pop them. Object keys sit on their own
--- stack from key_base (-1 for arrays).
-task json_close_container(h: int, base: int, key_base: int) -> void {
-    pilot count = json_stack.length() - base
-    json_start[h] = json_edges.length()
-    json_size[h] = count
-    json_cap[h] = count
-    pilot mut i = 0
-    repeat count times {
-        json_edges.push(json_stack[base + i])
-        if key_base >= 0 {
-            json_edge_keys.push(json_stack_keys[key_base + i])
-        } else {
-            json_edge_keys.push("")
-        }
-        i += 1
-    }
-    repeat count times {
-        pilot dropped_child = json_stack.pop()
-        if key_base >= 0 { pilot dropped_key = json_stack_keys.pop() }
-    }
-}
 
 -- Records "expected 'ch' got 'x'" (or "... but the input ended"). Like the
 -- legacy parser, the error position is just past the offending byte.
@@ -371,8 +374,8 @@ task json_parse(source: word) -> int {
     json_depth = 0
     json_err = ""
     json_err_at = 0 - 1
-    json_stack.clear()
-    json_stack_keys.clear()
+    pilot mut stack: List<int> = []
+    pilot mut stack_keys: List<word> = []
     pilot mut frames: List<int> = []
     pilot mut frame_base: List<int> = []
     pilot mut frame_keys: List<int> = []
@@ -418,8 +421,29 @@ task json_parse(source: word) -> int {
             } else {
                 if b != close { json_fail_expected(close_ch, pos) }
                 pos += 1
+                -- Pack the children collected since the container opened
+                -- into its exact edge slice, then pop them.
                 node = frames.pop()
-                json_close_container(node, frame_base.pop(), frame_keys.pop())
+                pilot cl_base = frame_base.pop()
+                pilot cl_keys = frame_keys.pop()
+                pilot cl_count = stack.length() - cl_base
+                json_seti(json_start, node, array_len(json_edges))
+                json_seti(json_size, node, cl_count)
+                json_seti(json_cap, node, cl_count)
+                pilot mut ci = 0
+                repeat cl_count times {
+                    array_push(json_edges, word_from_int(stack[cl_base + ci]))
+                    if cl_keys >= 0 {
+                        array_push(json_edge_keys, stack_keys[cl_keys + ci])
+                    } else {
+                        array_push(json_edge_keys, "")
+                    }
+                    ci += 1
+                }
+                repeat cl_count times {
+                    pilot dropped_child = stack.pop()
+                    if cl_keys >= 0 { pilot dropped_key = stack_keys.pop() }
+                }
                 json_depth -= 1
             }
         } else if b == 34 {
@@ -530,7 +554,7 @@ task json_parse(source: word) -> int {
             }
             pilot text = word_builder::finish(sb)
             if mode == 1 {
-                json_stack_keys.push(text)
+                stack_keys.push(text)
                 mode = 2
             } else {
                 node = json_alloc("s", text)
@@ -538,7 +562,7 @@ task json_parse(source: word) -> int {
         } else if mode == 1 {
             json_fail_expected("\"", pos)
             pos += 1
-            json_stack_keys.push("")
+            stack_keys.push("")
             mode = 2
         } else if b == 45 or (b >= 48 and b <= 57) {
             -- Number text, kept as written: -?digits[.digits][(e|E)[+-]digits]
@@ -581,9 +605,9 @@ task json_parse(source: word) -> int {
                 frame_keys.push(0 - 1)
             } else {
                 frames.push(json_alloc("o", ""))
-                frame_keys.push(json_stack_keys.length())
+                frame_keys.push(stack_keys.length())
             }
-            frame_base.push(json_stack.length())
+            frame_base.push(stack.length())
             mode = 3
         } else {
             json_pos = pos
@@ -599,7 +623,7 @@ task json_parse(source: word) -> int {
                 root = node
                 finished = true
             } else {
-                json_stack.push(node)
+                stack.push(node)
                 mode = 4
             }
         }
@@ -678,32 +702,32 @@ task json_write_value(b: int, handle: int, indent: int, depth: int) -> int {
         word_builder::append(b, "null")
         give back b
     }
-    pilot t: word = json_types[handle]
+    pilot t: word = array_get(json_types, handle)
     if t == "s" {
-        give back json_write_quoted(b, json_vals[handle])
+        give back json_write_quoted(b, array_get(json_vals, handle))
     }
     if t == "n" or t == "b" {
-        word_builder::append(b, json_vals[handle])
+        word_builder::append(b, array_get(json_vals, handle))
         give back b
     }
     if t == "a" or t == "o" {
-        pilot size = json_size[handle]
+        pilot size = json_i(json_size, handle)
         if size == 0 {
             if t == "a" { word_builder::append(b, "[]") } else { word_builder::append(b, "{}") }
             give back b
         }
         pilot mut w = b
         if t == "a" { word_builder::append(w, "[") } else { word_builder::append(w, "{") }
-        pilot base = json_start[handle]
+        pilot base = json_i(json_start, handle)
         pilot mut i = 0
         repeat size times {
             if i > 0 { word_builder::append(w, ",") }
             if indent >= 0 { word_builder::append(w, "\n" + " ".repeated(indent * (depth + 1))) }
             if t == "o" {
-                w = json_write_quoted(w, json_edge_keys[base + i])
+                w = json_write_quoted(w, array_get(json_edge_keys, base + i))
                 if indent >= 0 { word_builder::append(w, ": ") } else { word_builder::append(w, ":") }
             }
-            w = json_write_value(w, json_edges[base + i], indent, depth + 1)
+            w = json_write_value(w, json_i(json_edges, base + i), indent, depth + 1)
             i += 1
         }
         if indent >= 0 { word_builder::append(w, "\n" + " ".repeated(indent * depth)) }
