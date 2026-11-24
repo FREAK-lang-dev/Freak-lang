@@ -134,6 +134,12 @@ def with_runtime_frame(frames):
     return out
 
 
+def edit_manifest(old: bytes, new: bytes):
+    def edit(frames):
+        return [(name, data.replace(old, new) if name == "std.toml" else data) for name, data in frames]
+    return edit
+
+
 def serve(directory: Path):
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
     handler.log_message = lambda *args: None
@@ -167,6 +173,13 @@ def main() -> int:
         carrying = work / "carrying.fkstd"
         carrying.write_bytes(resign(data, with_runtime_frame))
         h.expect("pinned module refused", h.hangar("std", "install", str(carrying)), 1, "may not carry pinned module runtime")
+        escaping = work / "escaping.fkstd"
+        escaping.write_bytes(resign(data, edit_manifest(b'version = "0.16.1"', b'version = "../escape"')))
+        h.expect("signed path-like version refused", h.hangar("std", "install", str(escaping)), 1, "std.version must be")
+        assert not (h.config / "std" / "escape").exists()
+        remapped = work / "remapped.fkstd"
+        remapped.write_bytes(resign(data, edit_manifest(b'math = "always math.fk"', b'math = "always string.fk"')))
+        h.expect("module mapped to another file refused", h.hangar("std", "install", str(remapped)), 1, "module math must load math.fk")
         h.expect("foreign API refused", h.hangar("std", "install", str(pack(work, work / "std-a", "0.16.1", std_api="freak-v3-std-api-99"))),
                  1, "does not fit this compiler")
         h.expect("compiler range refused", h.hangar("std", "install", str(pack(work, work / "std-a", "0.16.1", compiler=">=9.0.0"))),
