@@ -293,7 +293,10 @@ static ssize_t stop_fixture_send(int socket,const void *data,size_t length,int f
         bool partial=result>0&&(size_t)result<(size_t)length;
         if(partial)c->positive_partial=true;
         int observed=0;
-        if(result<0&&c->positive_partial&&stop_would_block(error))observed=1;
+        /* macOS refuses a nonblocking send outright (EAGAIN, no partial write)
+           while free space is below SO_SNDLOWAT, so a would-block after any
+           earlier accepted bytes is real backpressure too. */
+        if(result<0&&(c->positive_partial||atomic_load_explicit(&c->sent_bytes,memory_order_relaxed)>0)&&stop_would_block(error))observed=1;
         else if(partial) {
             int writable=stop_write_probe(socket);
             if(writable<0)atomic_store_explicit(&c->probe_failed,true,memory_order_release);
