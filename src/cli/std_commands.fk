@@ -100,8 +100,14 @@ task cli_std_ensure_store() -> bool {
 -- processes never publish each other's content.
 pilot cli_std_write_serial = 0
 task cli_std_write_text(path: word, content: word) -> bool {
+    -- Test hook: "<suffix>" fails the write before anything changes;
+    -- "sync:<suffix>" replaces the file and then reports a failed folder sync.
     pilot injected = process::env("FREAK_STD_TEST_FAIL_WRITE")
-    if injected != "" and path.ends_with(injected) {
+    pilot sync_only = injected.starts_with("sync:")
+    pilot mut injected_suffix = injected
+    if sync_only { injected_suffix = injected.substring(5, injected.length()) }
+    pilot inject = injected_suffix != "" and path.ends_with(injected_suffix)
+    if inject and not sync_only {
         cli_std_fail("cannot write " + path + ": injected test failure")
         give back false
     }
@@ -113,8 +119,23 @@ task cli_std_write_text(path: word, content: word) -> bool {
         if fs::result_ok(created) {
             fs::result_release(created)
             pilot moved = fs::rename_checked(temporary, path)
-            if fs::result_ok(moved) {
+            pilot mut synced = fs::result_ok(moved)
+            pilot mut reason = ""
+            if synced and inject {
+                synced = false
+                reason = "injected folder sync failure"
+            } else if not synced {
+                reason = fs::result_error(moved)
+            }
+            if synced {
                 fs::result_release(moved)
+                give back true
+            }
+            -- The rename landed but the folder sync did not: the new content
+            -- is what readers see now, so report success with a warning.
+            if fs::result_ok(moved) or fs::result_completed(moved) {
+                fs::result_release(moved)
+                say "  warning: wrote " + path + " but could not sync its folder (" + reason + "); a crash right now could undo it."
                 give back true
             }
             cli_std_fail("cannot replace " + path + ": " + fs::result_error(moved))
@@ -134,11 +155,12 @@ task cli_std_write_text(path: word, content: word) -> bool {
     give back false
 }
 
+-- The selection and its rollback history share one file, replaced in one
+-- write, so a failed select or rollback changes neither and a retry starts
+-- from the same state.
 task cli_std_history() -> int {
     pilot versions = array_new()
-    pilot path = cli_host_path_join(cli_std_home(), "history")
-    if not fs::exists(path) { give back versions }
-    pilot text = fs::read(path)
+    pilot text = cli_std_read_value(cli_host_path_join(cli_std_home(), "selected"), "history").replace(",", "\n")
     pilot mut position = 0
     repeat until position >= text.length() {
         pilot line = toml_get_line(text, position).replace("\r", "").trim()
@@ -150,30 +172,35 @@ task cli_std_history() -> int {
 
 -- Select a version ("bundled" for the compiler's own std) and remember the
 -- previous selection for rollback.
+task cli_std_save_selection(version: word, history: int) -> bool {
+    pilot mut listed = ""
+    pilot mut i = 0
+    repeat until i >= array_len(history) or i >= 21 {
+        if i > 0 { listed = listed + "," }
+        listed = listed + array_get(history, i)
+        i += 1
+    }
+    pilot good = cli_std_write_text(cli_host_path_join(cli_std_home(), "selected"), "version = \"" + version + "\"\nhistory = \"" + listed + "\"\n")
+    cli_std_reset()
+    give back good
+}
+
 task cli_std_select(version: word, remember: bool) -> bool {
     if not cli_std_ensure_store() { give back false }
     pilot mut previous = cli_std_selected_version()
     if previous == "" { previous = "bundled" }
-    -- Publish the selection first: a failed selection leaves history alone,
-    -- so a retry records the previous selection exactly once.
-    pilot good = cli_std_write_text(cli_host_path_join(cli_std_home(), "selected"), "version = \"" + version + "\"\n")
-    cli_std_reset()
-    if not good { give back false }
-    if remember and previous != version {
-        pilot history = cli_std_history()
-        pilot mut text = previous + "\n"
-        pilot mut i = 0
-        repeat until i >= array_len(history) or i >= 20 {
-            text = text + array_get(history, i) + "\n"
-            i += 1
-        }
-        array_release(history)
-        if not cli_std_write_text(cli_host_path_join(cli_std_home(), "history"), text) {
-            cli_std_cmd_error = "std " + version + " is selected, but " + previous + " could not be added to the rollback history: " + cli_std_cmd_error
-            give back false
-        }
+    pilot history = cli_std_history()
+    pilot kept = array_new()
+    if remember and previous != version { array_push(kept, previous) }
+    pilot mut i = 0
+    repeat until i >= array_len(history) {
+        array_push(kept, array_get(history, i))
+        i += 1
     }
-    give back true
+    array_release(history)
+    pilot good = cli_std_save_selection(version, kept)
+    array_release(kept)
+    give back good
 }
 
 -- ===================== bundles =====================
@@ -722,25 +749,24 @@ task cli_std_cmd_rollback() -> int {
         give back 1
     }
     pilot target: word = array_get(history, 0)
-    pilot mut rest = ""
-    pilot mut i = 1
-    repeat until i >= array_len(history) {
-        rest = rest + array_get(history, i) + "\n"
-        i += 1
-    }
-    array_release(history)
     if target != "bundled" {
         pilot problem = cli_std_stored_problem(target)
         if problem != "" {
+            array_release(history)
             cli_std_cmd_error = problem
             give back cli_std_say_problem("CANNOT ROLL BACK")
         }
     }
-    if not cli_std_select(target, false) { give back cli_std_say_problem("NOT CHANGED") }
-    if not cli_std_write_text(cli_host_path_join(cli_std_home(), "history"), rest) {
-        cli_std_cmd_error = "rolled back to " + target + ", but the rollback history still lists it first: " + cli_std_cmd_error
-        give back cli_std_say_problem("PARTLY ROLLED BACK")
+    pilot rest = array_new()
+    pilot mut i = 1
+    repeat until i >= array_len(history) {
+        array_push(rest, array_get(history, i))
+        i += 1
     }
+    array_release(history)
+    pilot moved = cli_std_ensure_store() and cli_std_save_selection(target, rest)
+    array_release(rest)
+    if not moved { give back cli_std_say_problem("NOT CHANGED") }
     say "  Rolled back."
     cli_std_say_selection(target)
     give back 0
@@ -785,7 +811,12 @@ task cli_std_cmd_pin(requested: word) -> int {
             cli_std_cmd_error = problem
             give back cli_std_say_problem("NOT PINNED")
         }
-        content = content + "version = \"" + version + "\"\nmanifest_sha256 = \"" + cli_std_file_sha256(cli_host_path_join(cli_std_version_dir(version), "std.toml")) + "\"\n"
+        pilot digest = cli_std_file_sha256(cli_host_path_join(cli_std_version_dir(version), "std.toml"))
+        if digest == "" {
+            cli_std_cmd_error = "cannot hash std " + version + "'s std.toml"
+            give back cli_std_say_problem("NOT PINNED")
+        }
+        content = content + "version = \"" + version + "\"\nmanifest_sha256 = \"" + digest + "\"\n"
     }
     if not cli_std_write_text(lock, content) { give back cli_std_say_problem("NOT PINNED") }
     if version == "bundled" { say "  Pinned this project to the bundled std (" + lock + ")." }
