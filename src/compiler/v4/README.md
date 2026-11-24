@@ -928,15 +928,20 @@ are atomic, because bible 7.18 calls `Shared<T>` atomic:
   examples take views in small helper tasks.
 
 Handles cross FREAK calls by value and as `lend` / `lend mut`, and ride in
-`maybe` / `result` carriers (`upgrade`, `or else`, user returns). Refused by
-name: handles inside other types (shape fields, list elements,
+`maybe` / `result` carriers (`upgrade`, `or else`, user returns). A carrier
+drop releases only its `Some` or `Ok` handle, so a result holds a handle
+only in `Ok`, beside an error that owns nothing. Guard and view projections
+are borrowed storage inside the box: Meiya refuses to move a field out of a
+guard (`Meiya refuses to move out of a SharedMut guard`) or out of a view
+(a lend holder); copy, lend or store a replacement instead. Refused by
+name: handles in a result's `Err`, a handle in `Ok` beside an owned error, handles inside other types (shape fields, list elements,
 `Shared<Shared<T>>`, generic arguments such as `Box<Shared<int>>`), Shared
 values inside generic instances, `maybe`/`result` payloads in a box, loans
 of a guard, whole reads of a view (read it through its fields), a borrow
 not bound by its own `pilot`, and user declarations of the runtime entry
 points. Program: `examples/shared_native.fk` (exact output, exit 0, and a
 panic run) in `check_v4_native_shapes`, also audited by
-`tests/v4_owned_word_codegen.py`; thirteen named rejections and the
+`tests/v4_owned_word_codegen.py`; seventeen named rejections and the
 `shared` area of `tests/v4_safety`.
 
 ### Persisted interpolation checkpoint (W3)

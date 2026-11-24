@@ -1,0 +1,23 @@
+-- A SharedMut guard only borrows the payload: moving a field out of it
+-- would leave the shared box's slot consumed for every other handle.
+-- bible: 4.4
+-- expect: reject borrowck
+-- error: Meiya refuses to move out of a SharedMut guard
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int, name: word }
+
+task steal(lend s: Shared<Ship>) -> void {
+    check result s.borrow_mut() {
+        ok(g) -> {
+            pilot n = g.name
+            say n
+        }
+        err(e) -> say "busy"
+    }
+}
+task main() -> int {
+    pilot a = Shared<Ship>::new(Ship { hp: 1, name: "Kei" })
+    steal(lend a)
+    give back 0
+}

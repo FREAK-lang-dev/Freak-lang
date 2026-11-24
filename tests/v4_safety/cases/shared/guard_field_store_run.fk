@@ -1,0 +1,33 @@
+-- Reads, copies and replacing stores through a guard keep the box whole.
+-- bible: 4.4
+-- expect: run
+-- stdout: 4
+-- stdout: 2
+-- stdout: Kei!
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int, name: word }
+
+task touch(lend s: Shared<Ship>) -> int {
+    check result s.borrow_mut() {
+        ok(g) -> {
+            g.hp = g.hp + 1
+            g.name = g.name + "!"
+            say g.name.length()
+            pilot copy_hp = g.hp
+            give back copy_hp
+        }
+        err(e) -> give back 0
+    }
+    give back 0
+}
+task look(lend s: Shared<Ship>) -> void {
+    pilot v = s.borrow()
+    say v.name
+}
+task main() -> int {
+    pilot a = Shared<Ship>::new(Ship { hp: 1, name: "Kei" })
+    say touch(lend a)
+    look(lend a)
+    give back 0
+}

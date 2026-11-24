@@ -18199,7 +18199,7 @@ NATIVE_MAPS_REJECTED = (
 # Any argument takes a view through one handle while a guard is live through
 # a clone of it. tests/v4_owned_word_codegen.py pins the same output.
 NATIVE_SHARED_EXPECTED = ("Takemikazuchi\n3\ntrue\nfalse\ntrue\nTakemikazuchi\n108\ntrue\nShiranui\n108\n108\nfalse\n216\n"
-                          "Shiranui\n108\nfalse\nGekishin\n9\nfalse\n4\nfalse\n1\nShiranui\n108\nShiranui\n108\nShiranui\n108\n")
+                          "Shiranui\n108\nfalse\nGekishin\n9\nfalse\n4\nfalse\n1\nShiranui\n108\nShiranui\n108\n7\nKasumi\n5\nShiranui\n108\n")
 NATIVE_SHARED_PANIC = "Shared value is already mutably borrowed"
 NATIVE_SHARED_RUNTIME = ("alloc", "retain", "release", "downgrade", "release_weak", "upgrade", "unique",
                          "begin_read", "end_read", "begin_write", "end_write")
@@ -18244,6 +18244,21 @@ NATIVE_SHARED_REJECTED = (
     ("tier3_shared_weak_borrow", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask main() -> int {\n    pilot a = Shared<P>::new(P { x: 1 })\n    pilot w = a.downgrade()\n"
      "    pilot v = w.borrow()\n    give back 0\n}\n",
      "Weak must upgrade before borrow"),
+    # A carrier drop releases only its Some or Ok handle.
+    ("tier3_shared_result_err_handle", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask make() -> result<int, Shared<P>> {\n    give back err(Shared<P>::new(P { x: 1 }))\n}\n"
+     "task main() -> int {\n    pilot r = make()\n    give back 0\n}\n",
+     "native result error payloads of Shared handles are not yet supported: result<int,Shared<P>>"),
+    ("tier3_shared_result_owned_error", "use std::mem::{Shared, Weak}\nshape P { x: int }\ntask make() -> result<Shared<P>, word> {\n    give back err(\"lost\" + \"!\")\n}\n"
+     "task main() -> int {\n    pilot r = make()\n    give back 0\n}\n",
+     "native results of a Shared handle with an owned error are not yet supported: result<Shared<P>,word>"),
+    # Guard and view projections are borrowed storage inside the box.
+    ("tier3_shared_guard_field_move", "use std::mem::{Shared, Weak}\nshape P { x: int, name: word }\ntask steal(lend s: Shared<P>) -> word {\n    check result s.borrow_mut() {\n"
+     "        ok(g) -> give back g.name\n        err(e) -> give back \"busy\"\n    }\n    give back \"none\"\n}\n"
+     "task main() -> int { give back 0 }\n",
+     "Meiya refuses to move out of a SharedMut guard"),
+    ("tier3_shared_view_field_move", "use std::mem::{Shared, Weak}\nshape P { x: int, name: word }\ntask steal(lend s: Shared<P>) -> word {\n    pilot v = s.borrow()\n    give back v.name\n}\n"
+     "task main() -> int { give back 0 }\n",
+     "Meiya refuses to move out through a lend holder"),
     # The box helpers link the runtime's counted-box entry points by name.
     ("tier3_shared_runtime_symbol", "use std::mem::{Shared, Weak}\nshape P { x: int }\nextern [C] {\n    task freak_v4_shared_retain(p: *void) -> void\n}\n"
      "task main() -> int {\n    pilot a = Shared<P>::new(P { x: 1 })\n    give back 0\n}\n",
