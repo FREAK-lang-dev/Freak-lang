@@ -634,14 +634,54 @@ task cli_std_fetch_index(scratch_dir: word) -> bool {
         cli_std_fail("the std index has no serial")
         give back false
     }
-    pilot seen = cli_std_read_value(cli_host_path_join(cli_std_home(), "index-serial"), "serial")
-    if seen != "" and hangar_registry_digits(seen) and word_to_int(seen) > cli_std_index_serial {
-        cli_std_fail("the std index is older than one already seen (serial " + word_from_int(cli_std_index_serial) + " < " + seen + "); refusing a rollback")
+    give back cli_std_record_serial(cli_std_index_serial)
+}
+
+-- The serial is the rollback guard: check it and record a newer one under an
+-- exclusive lock, so two processes that fetched serials 5 and 6 cannot both
+-- pass against 4 and then leave 5 recorded. An index it cannot record is not
+-- used.
+task cli_std_record_serial(serial: int) -> bool {
+    if not cli_std_ensure_store() { give back false }
+    pilot home = fs::open_dir_ticket(cli_std_home())
+    if not fs::result_ok(home) {
+        cli_std_fail("cannot open " + cli_std_home() + ": " + fs::result_error(home))
+        fs::result_release(home)
         give back false
     }
-    -- The serial is the rollback guard: an index it cannot record is not used.
-    if not cli_std_ensure_store() { give back false }
-    give back cli_std_write_text(cli_host_path_join(cli_std_home(), "index-serial"), "serial = \"" + word_from_int(cli_std_index_serial) + "\"\n")
+    hangar_graph_error = ""
+    pilot locks = package_private_directory(home, "locks")
+    fs::result_release(home)
+    if locks == 0 {
+        cli_std_fail("cannot open the std lock folder: " + hangar_graph_error)
+        give back false
+    }
+    pilot mut held = fs::lock_dir_ticket(locks, "index.lock")
+    pilot mut tries = 0
+    repeat until fs::result_ok(held) or tries >= 100 {
+        fs::result_release(held)
+        time::sleep(50)
+        held = fs::lock_dir_ticket(locks, "index.lock")
+        tries += 1
+    }
+    if not fs::result_ok(held) {
+        cli_std_fail("another hangar std command is still updating the index serial (" + fs::result_error(held) + "); try again")
+        fs::result_release(held)
+        fs::result_release(locks)
+        give back false
+    }
+    pilot path = cli_host_path_join(cli_std_home(), "index-serial")
+    pilot seen = cli_std_read_value(path, "serial")
+    pilot mut recorded = true
+    if seen != "" and hangar_registry_digits(seen) and word_to_int(seen) > serial {
+        cli_std_fail("the std index is older than one already seen (serial " + word_from_int(serial) + " < " + seen + "); refusing a rollback")
+        recorded = false
+    } else if seen != word_from_int(serial) {
+        recorded = cli_std_write_text(path, "serial = \"" + word_from_int(serial) + "\"\n")
+    }
+    fs::result_release(held)
+    fs::result_release(locks)
+    give back recorded
 }
 
 task cli_std_index_yanked_version(version: word) -> bool {

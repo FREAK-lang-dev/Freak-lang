@@ -345,6 +345,23 @@ def main() -> int:
             h.expect("update result builds", h.run("run", "p.fk"), 0, "marker=bundle-minor")
             publish(4)
             h.expect("older index serial refused", h.hangar("std", "update", extra=source), 1, "refusing a rollback")
+            serial_file = h.config / "std" / "index-serial"
+            lock_file = h.config / "std" / "locks" / "index.lock"
+            if os.name == "posix" and lock_file.exists():
+                # The serial check and write are one locked transaction: while
+                # another process holds the lock, nothing is read or recorded.
+                import fcntl
+                publish(6)
+                before_serial = serial_file.read_bytes()
+                with lock_file.open("r+b") as held:
+                    fcntl.flock(held, fcntl.LOCK_EX)
+                    h.expect("serial update waits for the index lock", h.hangar("std", "list", extra=source), 1,
+                             "still updating the index serial")
+                    assert serial_file.read_bytes() == before_serial, serial_file.read_text()
+                h.expect("serial update after the lock is released", h.hangar("std", "list", extra=source), 0)
+                assert '"6"' in serial_file.read_text(), serial_file.read_text()
+            elif os.name == "posix":
+                raise AssertionError(f"index lock file missing: {lock_file}")
         finally:
             server.shutdown()
 
