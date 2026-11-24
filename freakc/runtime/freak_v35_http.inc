@@ -646,6 +646,14 @@ static void freak_http_supervise(freak_http_server *server,uint64_t now) {
     }
 }
 static bool freak_http_start(freak_http_server *server) {
+#ifndef _WIN32
+    /* A peer that vanishes mid-reply must cost one connection, not the
+       worker. Like Rust and Go, a server ignores a default SIGPIPE so EPIPE
+       reaches the connection on every send path; a disposition the program
+       chose itself is left alone. */
+    struct sigaction pipe_action;
+    if(sigaction(SIGPIPE,NULL,&pipe_action)==0 && !(pipe_action.sa_flags&SA_SIGINFO) && pipe_action.sa_handler==SIG_DFL) signal(SIGPIPE,SIG_IGN);
+#endif
     /* Workers spawn once. Startup is committed only when the poller and the
        listener registration are ready, so a failed start can be retried. */
     if(!server->spawned) {
