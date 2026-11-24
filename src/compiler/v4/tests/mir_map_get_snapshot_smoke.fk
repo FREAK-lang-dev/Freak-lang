@@ -1,7 +1,8 @@
 -- Snapshot admission of a native map get checks its rows the way live MIR
 -- is checked: the map loan, the key type, no ABI and the maybe<V> result.
--- A valid int-key or word-key get roundtrips; a forged key or loan row
--- is refused atomically and the old sealed module stays exact.
+-- A valid int-key, word-key or lend-parameter get roundtrips; a forged
+-- key, loan type or loan local identity is refused atomically and the old
+-- sealed module stays exact.
 task v4_map_get_assert(condition: bool, label: word) -> void {
     if not condition { panic("map-get-snapshot " + label) }
 }
@@ -9,6 +10,9 @@ task v4_map_get_assert(condition: bool, label: word) -> void {
 task v4_map_get_source(mode: int) -> word {
     pilot open = chr(123)
     pilot close = chr(125)
+    if mode == 6 or mode == 7 {
+        give back "task peek(lend m: Map<int, int>, lend n: Map<int, int>) -> int " + open + "\n pilot g = m.get(1)\n give back g or else n.length()\n" + close + "\ntask main() -> int " + open + "\n pilot a: Map<int, int> = " + open + "1: 2" + close + "\n pilot b: Map<int, int> = " + open + "3: 4" + close + "\n give back peek(lend a, lend b)\n" + close + "\n"
+    }
     if mode == 2 or mode == 3 {
         give back "task main() -> int " + open + "\n pilot k = \"a\"\n pilot m: Map<word, int> = " + open + "\"a\": 2" + close + "\n pilot g = m.get(k)\n give back g or else 0\n" + close + "\n"
     }
@@ -17,7 +21,7 @@ task v4_map_get_source(mode: int) -> word {
 
 task v4_map_get_run() -> void {
     pilot mode = word_to_int(process::arg(1))
-    v4_map_get_assert(mode >= 0 and mode <= 4, "known mode")
+    v4_map_get_assert(mode >= 0 and mode <= 7, "known mode")
     pilot mir = v4_mir_text_cached("map-get-snapshot.fk", v4_map_get_source(mode))
     pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
     v4_map_get_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0 and v4_mir_word_plan_preflight(mir) == "", "baseline MIR and plan clean")
@@ -25,7 +29,9 @@ task v4_map_get_run() -> void {
     pilot module = v4_codegen_llvm_module_text(sealed, target)
     v4_map_get_assert(v4_codegen_llvm_native_module_error(sealed) == "" and module != "", "baseline module sealed")
     pilot payload = v4_mir_snapshot()
-    pilot body = v4_mir_lookup_body_name(mir, "main")
+    pilot body_name = "main"
+    if mode == 6 or mode == 7 { body_name = "peek" }
+    pilot body = v4_mir_lookup_body_name(mir, body_name)
     pilot get = -1
     pilot row = 0
     repeat until row >= v4_mir_body_rvalue_count(mir, body) {
@@ -33,7 +39,7 @@ task v4_map_get_run() -> void {
         row += 1
     }
     v4_map_get_assert(get >= 0 and v4_mir_rvalue_is_builtin_map(mir, body, get), "actual map get selected")
-    if mode == 0 or mode == 2 {
+    if mode == 0 or mode == 2 or mode == 6 {
         v4_map_get_assert(v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload, "valid get roundtrips")
         pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
         v4_map_get_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module, "fresh valid module exact")
@@ -54,6 +60,23 @@ task v4_map_get_run() -> void {
         -- A loan of a value that is not the map.
         pilot loan = v4_mir_rvalue_call_arg(mir, body, get, 0)
         array_set(v4_mir_body_rvalue_tys_handle(mir, body), loan, "lend Map<int,bool>")
+    }
+    if mode == 5 or mode == 7 {
+        -- The receiver's local row names another binding: in range and of
+        -- the same Map type for mode 7 (the other lend parameter).
+        pilot named = v4_mir_rvalue_call_arg(mir, body, get, 0)
+        v4_map_get_assert(v4_mir_rvalue_kind(mir, body, named) == v4_mir_rvalue_lend, "map get lends its receiver local")
+        named = v4_mir_rvalue_lhs(mir, body, named)
+        v4_map_get_assert(v4_mir_local_reference_is_exact(mir, body, named), "receiver local row is exact")
+        pilot receiver = v4_mir_rvalue_local_id(mir, body, named)
+        pilot other = -1
+        pilot local = 0
+        repeat until local >= v4_mir_body_local_count(mir, body) {
+            if local != receiver and other < 0 and (mode == 5 or v4_mir_local_ty(mir, body, local) == v4_mir_local_ty(mir, body, receiver)) { other = local }
+            local += 1
+        }
+        v4_map_get_assert(other >= 0, "another local exists")
+        array_set(v4_mir_body_rvalue_ops_handle(mir, body), named, "local#" + word_from_int(other))
     }
     v4_map_get_assert(not v4_mir_rvalue_is_builtin_map(mir, body, get), "forged row also fails the live check")
     pilot expected = "invalid native map get contract"

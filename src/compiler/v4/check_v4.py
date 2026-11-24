@@ -10231,8 +10231,9 @@ EXECUTABLE_SMOKES = [
             "map-access-bad-value-write-help=element of Map<word,int> expects int but got word",
         ],
     },
-    # Snapshot admission of a native map get: valid int and word keys
-    # roundtrip; a forged key or result row is refused atomically.
+    # Snapshot admission of a native map get: valid int-key, word-key and
+    # lend-parameter gets roundtrip; a forged key row, loan type or loan
+    # local identity is refused atomically.
     {
         "name": "MIR map get snapshot admission",
         "fixture": "mir_map_get_snapshot_smoke.fk",
@@ -10247,6 +10248,9 @@ EXECUTABLE_SMOKES = [
             {'argv': ['2'], 'expect': ['map-get-snapshot 2=passed valid=true restored=true fresh-module=true']},
             {'argv': ['3'], 'expect': ['map-get-snapshot 3=passed forged=true live=true atomic=true no-module=true old-seal=true recovered=true']},
             {'argv': ['4'], 'expect': ['map-get-snapshot 4=passed forged=true live=true atomic=true no-module=true old-seal=true recovered=true']},
+            {'argv': ['5'], 'expect': ['map-get-snapshot 5=passed forged=true live=true atomic=true no-module=true old-seal=true recovered=true']},
+            {'argv': ['6'], 'expect': ['map-get-snapshot 6=passed valid=true restored=true fresh-module=true']},
+            {'argv': ['7'], 'expect': ['map-get-snapshot 7=passed forged=true live=true atomic=true no-module=true old-seal=true recovered=true']},
         ],
     },
     {
