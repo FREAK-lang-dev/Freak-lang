@@ -928,17 +928,23 @@ static ssize_t freak_http_sendfile_quiet(int socket,int file,off_t *offset,size_
 #endif
 /* Stream the next part of a file response once the queued head is out.
    Linux hands the file to the socket with sendfile; elsewhere one 64 KiB
-   chunk at a time passes through the output queue. false: connection failed. */
+   chunk at a time passes through the output queue. One call moves at most
+   FREAK_HTTP_FILE_TURN bytes, so a reader that never pushes back cannot hold
+   the loop: the caller requeues the rest behind other connections.
+   false: connection failed. */
+#define FREAK_HTTP_FILE_TURN ((uint64_t)512*1024)
 static bool freak_http_pump_file(freak_http_conn *conn) {
-    while(conn->file_remaining && conn->writable && conn->out_offset==conn->out_length) {
+    uint64_t moved=0;
+    while(conn->file_remaining && conn->writable && conn->out_offset==conn->out_length && moved<FREAK_HTTP_FILE_TURN) {
 #if defined(__linux__) && !defined(FREAK_HTTP_NO_SENDFILE)
-        size_t wanted=conn->file_remaining>((uint64_t)1<<20)?((size_t)1<<20):(size_t)conn->file_remaining;
+        uint64_t turn=FREAK_HTTP_FILE_TURN-moved;
+        size_t wanted=conn->file_remaining>turn?(size_t)turn:(size_t)conn->file_remaining;
         off_t offset=(off_t)conn->file_offset;
         ssize_t sent=freak_http_sendfile_quiet(conn->socket,conn->file,&offset,wanted);
         if(sent<0 && errno==EINTR) continue;
         if(sent<0 && (errno==EAGAIN || errno==EWOULDBLOCK)) { conn->writable=false; break; }
         if(sent<=0) return false; /* a failed read or send, or the file shrank */
-        conn->file_offset+=(uint64_t)sent; conn->file_remaining-=(uint64_t)sent;
+        conn->file_offset+=(uint64_t)sent; conn->file_remaining-=(uint64_t)sent; moved+=(uint64_t)sent;
         conn->write_idle=freak_command_now_ms()+conn->server->limits.idle_ms;
 #else
         size_t wanted=conn->file_remaining>sizeof(freak_http_scratch)?sizeof(freak_http_scratch):(size_t)conn->file_remaining;
@@ -949,7 +955,7 @@ static bool freak_http_pump_file(freak_http_conn *conn) {
         if(got<0 && errno==EINTR) continue;
 #endif
         if(got<=0) return false;
-        conn->file_offset+=(uint64_t)got; conn->file_remaining-=(uint64_t)got;
+        conn->file_offset+=(uint64_t)got; conn->file_remaining-=(uint64_t)got; moved+=(uint64_t)got;
         freak_http_queue_out(conn,freak_http_scratch,(size_t)got);
         if(!freak_http_flush(conn)) return false;
 #endif
@@ -1001,6 +1007,9 @@ static void freak_http_service(freak_http_conn *conn) {
             if(conn->file>=0) {
                 if(!conn->writable) return;
                 if(!freak_http_pump_file(conn)) { freak_http_conn_destroy(conn); return; }
+                /* A turn's worth went out and the socket still takes more:
+                   yield to the loop and come back through the hot list. */
+                if(conn->file>=0) { if(conn->writable) freak_http_mark_hot(conn); return; }
                 continue;
             }
             freak_http_after_write(conn,now); continue;
