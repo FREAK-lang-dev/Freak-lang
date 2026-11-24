@@ -22,7 +22,10 @@
 -- signatures std bundles and the std index must carry. FREAK_STD_TRUSTED_KEY
 -- adds one more key for private mirrors and tests; `hangar std status` says
 -- when it is set.
-pilot FREAK_STD_TRUSTED_KEYS = ""
+-- freak-std release key (ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIELiewbqhEfYLVNUiXqE01ZDfjlWz6d7ds8YEkt2L04y freak-std),
+-- private half in the std-release environment. Print a key's raw form with
+-- `python tools/std_bundle.py pubkey KEY`.
+pilot FREAK_STD_TRUSTED_KEYS = "42e27b06ea8447d82d5354897a84d356437e3956cfa77b76cf18124b762f4e32"
 pilot FREAK_STD_DEFAULT_SOURCE = "https://hangar.freaklang.dev/std"
 pilot FREAK_STD_BUNDLE_LIMIT = 16777216
 pilot FREAK_STD_KEEP = 5
@@ -126,7 +129,7 @@ task stdm_parse(text: word) -> int {
                 cli_std_last_error = "std.toml line " + word_from_int(line_number) + ": bad name '" + name + "'"
                 give back manifest
             }
-            if value_text.length() < 2 or not value_text.starts_with("\"") or value.contains("\"") {
+            if value_text.length() < 2 or not value_text.starts_with("\"") or not value_text.ends_with("\"") or value.contains("\"") {
                 cli_std_last_error = "std.toml line " + word_from_int(line_number) + ": values must be one quoted string"
                 give back manifest
             }
@@ -204,7 +207,7 @@ task cli_std_space_at(text: word) -> int {
 task stdm_problem(manifest: int) -> word {
     if cli_std_last_error != "" { give back cli_std_last_error }
     pilot version = stdm_get(manifest, "std.version")
-    if version == "" or version != ver_to_string(ver_parse(version)) { give back "std.version must be a SemVer version" }
+    if not cli_std_valid_version(version) { give back "std.version must be a MAJOR.MINOR.PATCH version" }
     if stdm_get(manifest, "std.std_api") == "" or stdm_get(manifest, "std.abi") == "" { give back "std.std_api and std.abi are required" }
     pilot modules = stdm_section_names(manifest, "modules")
     pilot count = array_len(modules)
@@ -302,16 +305,61 @@ task cli_std_version_dir(version: word) -> word {
     give back cli_host_path_join(cli_std_store_dir(), version)
 }
 
+-- A std version is also a store folder name: MAJOR.MINOR.PATCH of digits,
+-- optionally "-" and dot-separated [0-9A-Za-z-] pre-release identifiers.
 task cli_std_valid_version(version: word) -> bool {
-    give back version != "" and version.length() <= 64 and version == ver_to_string(ver_parse(version)) and not version.contains("/") and not version.contains("\\")
+    if version == "" or version.length() > 64 { give back false }
+    pilot mut core = version
+    pilot mut suffix = ""
+    pilot mut i = 0
+    repeat until i >= version.length() {
+        pilot ch = version.char_at(i)
+        if ch == "+" { give back false }
+        if ch == "-" and suffix == "" and core == version {
+            core = version.substring(0, i)
+            suffix = version.substring(i + 1, version.length() - i - 1)
+            if suffix == "" { give back false }
+        }
+        i += 1
+    }
+    if not cli_std_dotted(core, "0123456789", 3) { give back false }
+    if suffix != "" and not cli_std_dotted(suffix, "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-", 0) { give back false }
+    give back version == ver_to_string(ver_parse(version))
 }
 
+-- Nonempty dot-separated parts drawn from `allowed`; exactly `parts` of them
+-- unless parts is 0.
+task cli_std_dotted(text: word, allowed: word, parts: int) -> bool {
+    pilot mut count = 1
+    pilot mut part_length = 0
+    pilot mut i = 0
+    repeat until i >= text.length() {
+        pilot ch = text.char_at(i)
+        if ch == "." {
+            if part_length == 0 { give back false }
+            count += 1
+            part_length = 0
+        } else {
+            if not allowed.contains(ch) { give back false }
+            part_length += 1
+        }
+        i += 1
+    }
+    if part_length == 0 { give back false }
+    give back parts == 0 or count == parts
+}
+
+-- Why the last cli_std_read_value file did not parse ("" when it did).
+pilot cli_std_read_problem = ""
 task cli_std_read_value(path: word, key: word) -> word {
+    cli_std_read_problem = ""
     if not fs::exists(path) { give back "" }
     pilot manifest = stdm_parse("[v]\n" + fs::read(path))
-    pilot value = stdm_get(manifest, "v." + key)
-    array_release(manifest)
+    cli_std_read_problem = cli_std_last_error
     cli_std_last_error = ""
+    pilot mut value = ""
+    if cli_std_read_problem == "" { value = stdm_get(manifest, "v." + key) }
+    array_release(manifest)
     give back value
 }
 
@@ -344,8 +392,14 @@ task cli_std_stored_problem(version: word) -> word {
     pilot mut problem = cli_std_fit_problem(manifest)
     if problem == "" and stdm_get(manifest, "std.version") != version { problem = "store folder " + version + " holds std " + stdm_get(manifest, "std.version") }
     if problem == "" {
+        pilot manifest_sha = cli_std_file_sha256(cli_host_path_join(dir, "std.toml"))
         pilot stamp = cli_std_read_value(cli_host_path_join(dir, ".verified"), "manifest_sha256")
-        if stamp == "" or stamp != cli_std_file_sha256(cli_host_path_join(dir, "std.toml")) { problem = "std " + version + " was changed after it was verified" }
+        if stamp == "" or stamp != manifest_sha { problem = "std " + version + " was changed after it was verified" }
+        -- The stamp only catches accidents; the signature is checked again
+        -- under this compiler's current keys.
+        pilot signature_path = cli_host_path_join(dir, "std.toml.sig")
+        if problem == "" and not fs::exists(signature_path) { problem = "std " + version + " has no std.toml.sig" }
+        if problem == "" and not cli_std_signed(cli_std_manifest_message(manifest_sha), fs::read(signature_path).trim()) { problem = "std " + version + " is not signed by a key this compiler trusts" }
     }
     if problem == "" {
         pilot files = stdm_section_names(manifest, "files")
@@ -360,6 +414,15 @@ task cli_std_stored_problem(version: word) -> word {
     }
     array_release(manifest)
     give back problem
+}
+
+task cli_std_hex(text: word) -> bool {
+    pilot mut i = 0
+    repeat until i >= text.length() {
+        if not "0123456789abcdef".contains(text.char_at(i)) { give back false }
+        i += 1
+    }
+    give back true
 }
 
 task cli_std_separator() -> word {
@@ -432,7 +495,18 @@ task cli_std_resolve() -> bool {
     if project != "" and not cli_std_ignore_pin and fs::exists(cli_host_path_join(project, "std.lock")) {
         cli_std_pin_file = cli_host_path_join(project, "std.lock")
         pilot pinned = cli_std_read_value(cli_std_pin_file, "version")
-        if pinned == "bundled" or pinned == cli_std_bundled_version {
+        if cli_std_read_problem != "" {
+            cli_std_error = cli_std_pin_file + " is malformed: " + cli_std_read_problem
+            give back false
+        }
+        pilot expected = cli_std_read_value(cli_std_pin_file, "manifest_sha256")
+        if expected != "" and (expected.length() != 64 or not cli_std_hex(expected)) {
+            cli_std_error = cli_std_pin_file + " has a malformed manifest_sha256"
+            give back false
+        }
+        -- "bundled" is the explicit opt-in. A numeric pin that only names the
+        -- bundled version number still has to match its recorded manifest.
+        if pinned == "bundled" or (pinned == cli_std_bundled_version and expected == "") {
             cli_std_active_source = "pinned"
             give back true
         }
@@ -445,7 +519,6 @@ task cli_std_resolve() -> bool {
             cli_std_error = "this project pins std " + pinned + " (" + cli_std_pin_file + "), but " + problem + ". Run 'hangar std update' or 'hangar std install <bundle>', or 'hangar std unpin'."
             give back false
         }
-        pilot expected = cli_std_read_value(cli_std_pin_file, "manifest_sha256")
         if expected != "" and expected != cli_std_file_sha256(cli_host_path_join(cli_std_version_dir(pinned), "std.toml")) {
             cli_std_error = "std " + pinned + " in the store differs from the one " + cli_std_pin_file + " pinned"
             give back false
@@ -497,6 +570,17 @@ task cli_std_plan() -> bool {
     pilot bundled_dir = cli_find_std_dir()
     if bundled_dir == "" { give back true }
     pilot bundled = cli_std_read_manifest(bundled_dir, true)
+    pilot bundled_problem = stdm_problem(bundled)
+    cli_std_last_error = ""
+    if bundled_problem != "" {
+        array_release(bundled)
+        cli_std_plan_ready = false
+        array_release(cli_std_plan_names)
+        array_release(cli_std_plan_modes)
+        array_release(cli_std_plan_paths)
+        cli_std_error = "the bundled " + cli_host_path_join(bundled_dir, "std.toml") + " is malformed: " + bundled_problem
+        give back false
+    }
     pilot mut manifest = bundled
     pilot updated = cli_std_active_dir != bundled_dir
     if updated { manifest = cli_std_read_manifest(cli_std_active_dir, false) }

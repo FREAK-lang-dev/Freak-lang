@@ -96,15 +96,42 @@ task cli_std_ensure_store() -> bool {
 }
 
 -- Replace a small text file atomically (write a sibling, then rename).
+-- Each write stages its own exclusively created sibling, so two hangar
+-- processes never publish each other's content.
+pilot cli_std_write_serial = 0
 task cli_std_write_text(path: word, content: word) -> bool {
-    pilot temporary = path + ".new"
-    if fs::exists(temporary) { fs::result_release(fs::remove_checked(temporary)) }
-    pilot bytes = ByteBuffer::new()
-    bytes.write_word(content)
-    pilot good = cli_std_checked(fs::write_bytes_checked(temporary, bytes), "cannot write " + temporary)
-    bytes.release()
-    if not good { give back false }
-    give back cli_std_checked(fs::rename_checked(temporary, path), "cannot replace " + path)
+    pilot injected = process::env("FREAK_STD_TEST_FAIL_WRITE")
+    if injected != "" and path.ends_with(injected) {
+        cli_std_fail("cannot write " + path + ": injected test failure")
+        give back false
+    }
+    pilot mut attempt = 0
+    repeat until attempt >= 16 {
+        cli_std_write_serial += 1
+        pilot temporary = path + ".new-" + word_from_int(time::now_ms()) + "-" + word_from_int(cli_std_write_serial)
+        pilot created = fs::exclusive_create(temporary, content)
+        if fs::result_ok(created) {
+            fs::result_release(created)
+            pilot moved = fs::rename_checked(temporary, path)
+            if fs::result_ok(moved) {
+                fs::result_release(moved)
+                give back true
+            }
+            cli_std_fail("cannot replace " + path + ": " + fs::result_error(moved))
+            fs::result_release(moved)
+            if fs::exists(temporary) { fs::result_release(fs::remove_checked(temporary)) }
+            give back false
+        }
+        pilot reason = fs::result_error(created)
+        fs::result_release(created)
+        if not fs::exists(temporary) {
+            cli_std_fail("cannot write " + temporary + ": " + reason)
+            give back false
+        }
+        attempt += 1
+    }
+    cli_std_fail("cannot find a free temporary name next to " + path)
+    give back false
 }
 
 task cli_std_history() -> int {
@@ -127,6 +154,11 @@ task cli_std_select(version: word, remember: bool) -> bool {
     if not cli_std_ensure_store() { give back false }
     pilot mut previous = cli_std_selected_version()
     if previous == "" { previous = "bundled" }
+    -- Publish the selection first: a failed selection leaves history alone,
+    -- so a retry records the previous selection exactly once.
+    pilot good = cli_std_write_text(cli_host_path_join(cli_std_home(), "selected"), "version = \"" + version + "\"\n")
+    cli_std_reset()
+    if not good { give back false }
     if remember and previous != version {
         pilot history = cli_std_history()
         pilot mut text = previous + "\n"
@@ -136,11 +168,12 @@ task cli_std_select(version: word, remember: bool) -> bool {
             i += 1
         }
         array_release(history)
-        if not cli_std_write_text(cli_host_path_join(cli_std_home(), "history"), text) { give back false }
+        if not cli_std_write_text(cli_host_path_join(cli_std_home(), "history"), text) {
+            cli_std_cmd_error = "std " + version + " is selected, but " + previous + " could not be added to the rollback history: " + cli_std_cmd_error
+            give back false
+        }
     }
-    pilot good = cli_std_write_text(cli_host_path_join(cli_std_home(), "selected"), "version = \"" + version + "\"\n")
-    cli_std_reset()
-    give back good
+    give back true
 }
 
 -- ===================== bundles =====================
@@ -323,10 +356,18 @@ task cli_std_install_frames(bytes: ByteBuffer, names: int, starts: int, lengths:
     if not cli_std_ensure_store() { give back "" }
 
     pilot final_dir = cli_std_version_dir(version)
+    pilot mut repair = false
     if fs::exists(final_dir) {
-        if cli_std_stored_problem(version) == "" and cli_std_file_sha256(cli_host_path_join(final_dir, "std.toml")) == manifest_sha { give back version }
-        cli_std_fail("a different or damaged std " + version + " is already in " + final_dir + "; remove it first (hangar std prune --all)")
-        give back ""
+        pilot stored_problem = cli_std_stored_problem(version)
+        pilot same = cli_std_file_sha256(cli_host_path_join(final_dir, "std.toml")) == manifest_sha
+        if stored_problem == "" and same { give back version }
+        if stored_problem == "" {
+            cli_std_fail("a different signed std " + version + " is already in " + final_dir + "; it is kept")
+            give back ""
+        }
+        -- A damaged copy is replaced by this verified bundle (selection and
+        -- pins keep pointing at the version, so they need no change).
+        repair = true
     }
     pilot stage = fs::temp_dir(cli_std_store_dir(), ".std-install-")
     if not fs::result_ok(stage) {
@@ -353,6 +394,10 @@ task cli_std_install_frames(bytes: ByteBuffer, names: int, starts: int, lengths:
         cli_std_checked(fs::write_bytes_checked(cli_host_path_join(stage_dir, ".verified"), stamp), "cannot write the install stamp")
         stamp.release()
     }
+    if cli_std_cmd_error == "" and repair {
+        say "  Replacing the damaged std " + version + " in " + final_dir
+        if not cli_std_remove_version(version) { cli_std_fail("cannot remove the damaged std " + version + " in " + final_dir) }
+    }
     if cli_std_cmd_error == "" {
         pilot moved = fs::rename_new_checked(stage_dir, final_dir)
         if fs::result_completed(moved) {
@@ -377,9 +422,13 @@ task cli_std_slash_at(text: word) -> int {
 }
 
 -- Installed versions, unsorted.
+pilot cli_std_installed_error = ""
 task cli_std_installed() -> int {
     pilot versions = array_new()
+    cli_std_installed_error = ""
+    if not fs::exists(cli_std_store_dir()) { give back versions }
     pilot listing = fs::list_dir_checked(cli_std_store_dir())
+    if not fs::result_ok(listing) { cli_std_installed_error = "cannot list " + cli_std_store_dir() + ": " + fs::result_error(listing) }
     if fs::result_ok(listing) {
         pilot mut i = 0
         repeat until i >= fs::result_count(listing) {
@@ -552,8 +601,9 @@ task cli_std_fetch_index(scratch_dir: word) -> bool {
         cli_std_fail("the std index is older than one already seen (serial " + word_from_int(cli_std_index_serial) + " < " + seen + "); refusing a rollback")
         give back false
     }
-    if cli_std_ensure_store() { cli_std_write_text(cli_host_path_join(cli_std_home(), "index-serial"), "serial = \"" + word_from_int(cli_std_index_serial) + "\"\n") }
-    give back true
+    -- The serial is the rollback guard: an index it cannot record is not used.
+    if not cli_std_ensure_store() { give back false }
+    give back cli_std_write_text(cli_host_path_join(cli_std_home(), "index-serial"), "serial = \"" + word_from_int(cli_std_index_serial) + "\"\n")
 }
 
 task cli_std_index_yanked_version(version: word) -> bool {
@@ -639,9 +689,28 @@ task cli_std_cmd_use(version: word) -> int {
         }
     }
     if not cli_std_select(version, true) { give back cli_std_say_problem("NOT CHANGED") }
-    if version == "bundled" { say "  Builds now use the bundled std " + cli_std_current_version() + "." }
-    else { say "  Builds now use std " + version + "." }
+    cli_std_say_selection(version)
     give back 0
+}
+
+-- Say what was selected, and what this folder's builds actually use when a
+-- std.lock, a checkout compiler or FREAK_STD=bundled overrides it.
+task cli_std_say_selection(version: word) -> void {
+    cli_std_search_cwd = true
+    cli_std_reset()
+    pilot resolved = cli_std_resolve()
+    if version == "bundled" { say "  Selected the bundled std " + cli_std_bundled_version + "." }
+    else { say "  Selected std " + version + "." }
+    pilot selected_dir = cli_find_std_dir()
+    if version != "bundled" { selected_dir = cli_std_version_dir(version) }
+    if not resolved { say "  " + C_BYELLOW + "Builds here fail: " + cli_std_error + C_RESET }
+    else if cli_std_active_dir != selected_dir {
+        pilot mut why = cli_std_active_source
+        if why == "pinned" { why = "pinned by " + cli_std_pin_file }
+        if why == "checkout" { why = "this compiler runs from a checkout" }
+        if why == "override" { why = "FREAK_STD=bundled" }
+        say "  " + C_BYELLOW + "Builds here still use std " + cli_std_active_version + " (" + why + ")." + C_RESET
+    }
 }
 
 task cli_std_cmd_rollback() -> int {
@@ -668,8 +737,12 @@ task cli_std_cmd_rollback() -> int {
         }
     }
     if not cli_std_select(target, false) { give back cli_std_say_problem("NOT CHANGED") }
-    cli_std_write_text(cli_host_path_join(cli_std_home(), "history"), rest)
-    say "  Rolled back. Builds now use std " + cli_std_current_version() + "."
+    if not cli_std_write_text(cli_host_path_join(cli_std_home(), "history"), rest) {
+        cli_std_cmd_error = "rolled back to " + target + ", but the rollback history still lists it first: " + cli_std_cmd_error
+        give back cli_std_say_problem("PARTLY ROLLED BACK")
+    }
+    say "  Rolled back."
+    cli_std_say_selection(target)
     give back 0
 }
 
@@ -737,6 +810,11 @@ task cli_std_cmd_prune(keep: int) -> int {
     cli_std_cmd_error = ""
     cli_std_search_cwd = true
     pilot installed = cli_std_installed()
+    if cli_std_installed_error != "" {
+        array_release(installed)
+        cli_std_cmd_error = cli_std_installed_error
+        give back cli_std_say_problem("PRUNE INCOMPLETE")
+    }
     pilot selected = cli_std_selected_version()
     pilot mut pinned = ""
     pilot project = cli_std_project_dir()
@@ -869,6 +947,12 @@ task cli_std_dispatch(args_cnt: int) -> int {
     if args_cnt >= 4 { action = hangar_arg(3) }
     pilot mut argument = ""
     if args_cnt >= 5 { argument = hangar_arg(4) }
+    -- At most one argument, except `prune --keep N`.
+    pilot prune_keep = action == "prune" and argument == "--keep"
+    if args_cnt > 6 or (args_cnt == 6 and not prune_keep) { give back cli_std_usage() }
+    if prune_keep and args_cnt != 6 { give back cli_std_usage() }
+    if action == "status" and argument != "" { give back cli_std_usage() }
+    if (action == "list" or action == "rollback" or action == "unpin") and argument != "" { give back cli_std_usage() }
     if action == "status" { give back cli_std_status() }
     if action == "update" {
         if argument != "" and argument != "--minor" { give back cli_std_usage() }
@@ -891,7 +975,11 @@ task cli_std_dispatch(args_cnt: int) -> int {
     if action == "unpin" { give back cli_std_cmd_unpin() }
     if action == "prune" {
         pilot mut keep = FREAK_STD_KEEP
-        if argument == "--keep" and args_cnt >= 6 and hangar_registry_digits(hangar_arg(5)) { keep = word_to_int(hangar_arg(5)) }
+        if prune_keep {
+            pilot count_text = hangar_arg(5)
+            if not hangar_registry_digits(count_text) or count_text.length() > 4 { give back cli_std_usage() }
+            keep = word_to_int(count_text)
+        }
         else if argument == "--all" { keep = 0 }
         else if argument != "" { give back cli_std_usage() }
         give back cli_std_cmd_prune(keep)

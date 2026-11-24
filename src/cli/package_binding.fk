@@ -221,7 +221,10 @@ task pb_parse_use(unit: int, start: int, collect: bool) -> void {
         standard = true
         if pb_value(i) != "::" { pb_token_error(i, "std import requires a declared module") give back }
         i += 1 internal_module = pb_value(i) i += 1
-        if not pb_std_module(internal_module) { pb_token_error(start, "unsupported standard module '" + internal_module + "'") give back }
+        if not pb_std_module(internal_module) {
+            if cli_std_error != "" { pb_token_error(start, "standard library: " + cli_std_error) give back }
+            pb_token_error(start, "unsupported standard module '" + internal_module + "'") give back
+        }
         if collect { pb_std_selectors = pb_std_selectors + "use std::" + internal_module + "\n" }
     } else if alias == "self" {
         if requester < 0 or pb_value(i) != "::" { pb_token_error(start, "self import requires a project module") give back }
