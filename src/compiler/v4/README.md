@@ -836,6 +836,49 @@ MIR also
 refuses control flow inside any index operand (`xs[f()?]`,
 `xs[pick(a and b)]`) until index operands are wired (#274).
 
+### Native maps and sets
+
+`Map<K, V>` and `Set<T>` are owned heap values with one header,
+`%"freak.map.header" = type { ptr, i64, i64, ptr, i64 }` (entries, length,
+capacity, index, slots), emitted as a named record with a `; freak.layout`
+note that the layout oracle checks on all four targets. Entries are stored
+by value in insertion order (`{ K, V }`, or `{ T }` for a set) behind an
+open-addressed index of entry numbers with linear probing, kept at least
+twice the length (8 slots at first). Entry growth reuses the list helpers.
+
+- **Keys and values.** Keys are `word` (hashed with FNV-1a over the bytes,
+  compared by content), `int`, `uint`, `tiny`, `char` and `bool`. Values are
+  scalars, words, and native shapes, tuples, fixed arrays and routes.
+- **Operations.** `Map::new()`, `Set::new()` and `{}` need a typed
+  destination; in a literal a later duplicate key wins. `m[k]` is a checked
+  `Index` place: a missing key panics with `map key not found` (exit 101),
+  and `m[k] += v` or `m[k].f = v` update the entry in place. `m[k] = v` is
+  `m.set(k, v)`: insert or replace, moving key and value in and dropping the
+  old value. `m.get(k)` gives back `maybe<V>` holding a fresh copy (words
+  are cloned). `m.remove(k)` gives back `bool` and keeps the remaining
+  entries in order. `length()` and `.length` read the header. A set has
+  `add` (a duplicate is dropped), `contains`, `remove` and `length`.
+- **Loans.** A lookup lends its word key. `set`, `add` and `remove` take a
+  `lend mut` of the receiver and the reads a `lend`, so a lend of `m[k]` is
+  a loan of the map: Meiya refuses an insert, a remove or a move of the map
+  while it lives, and an entry store whose right side lends the map
+  exclusively (`Meiya refuses to change a map while one of its entries is
+  assigned`).
+- **Ownership.** Maps and sets are Move types in Meiya's drop plan. One
+  private helper per map type, `@"freak.map.drop.Map<K,V>"`, releases the
+  key and value words and then both buffers. They cross FREAK calls by value
+  and as `lend` / `lend mut`, also through generic instances.
+
+`for each` over a map is refused by name: the bible gives `Map` no
+iteration order. Also refused by name: maps and sets inside other types,
+`num`, `float`, shape and tuple keys, `maybe`/`result`, list, map and set
+values, `get` of aggregates that own words, map and set operators, and user
+declarations of `freak.map.` helpers or the memmove and memset intrinsics.
+`keys`, `values`, `pairs`, `merge`, `get_or`, `Map::from` and the set
+algebra stay missing methods. Program: `examples/maps_native.fk` (exact
+output, exit 0, and a missing-key panic run) in `check_v4_native_shapes`,
+also audited by `tests/v4_owned_word_codegen.py`; 22 named rejections.
+
 ### Persisted interpolation checkpoint (W3)
 
 Expanded-AST-to-HIR lowering decodes each word once into a packed plan. Literal
