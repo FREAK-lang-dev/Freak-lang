@@ -2309,6 +2309,19 @@ task v4_borrowck_local_mode_for_path(mir_id: int, body_id: int, path_text: word)
     give back v4_mir_local_mode(mir_id, body_id, local_id)
 }
 
+-- A SharedMut<T> guard projects to the payload inside the shared box, which
+-- the guard only borrows: a field or element moved out through it would
+-- leave the box's slot consumed for every other handle.
+task v4_borrowck_path_moves_out_of_guard(mir_id: int, body_id: int, path_text: word) -> bool {
+    pilot canon = v4_borrowck_path_canon(path_text)
+    pilot root = v4_borrowck_path_root(canon)
+    if root == "" or canon == root { give back false }
+    pilot local_id = v4_borrowck_word_path_local(mir_id, body_id, root)
+    if local_id < 0 { local_id = v4_borrowck_find_local(mir_id, body_id, root) }
+    if local_id < 0 { give back false }
+    give back v4_mir_nominal_builtin_shared_base(mir_id, v4_mir_local_ty(mir_id, body_id, local_id)) == "SharedMut"
+}
+
 task v4_borrowck_lend_holder_mode_for_projection(mir_id: int, body_id: int, path_text: word, skip_leaf: bool) -> word {
     pilot canon = v4_borrowck_path_canon(path_text)
     pilot root = v4_borrowck_path_root(canon)
@@ -2560,6 +2573,12 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
             pilot target_message = "Meiya refuses to change a list while one of its elements is assigned"
             if target_conflict == "map" { target_message = "Meiya refuses to change a map while one of its entries is assigned" }
             v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, target_span, target_message, "the element address of " + path_text + " is formed before the right-hand side runs; compute the value into a pilot first"))
+            v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+            conflicts += 1
+        }
+        if path_kind == v4_borrowck_path_move and v4_borrowck_path_moves_out_of_guard(mir_id, body_id, path_text) {
+            pilot guard_stmt = v4_borrowck_path_stmt(borrow_id, result_id, path_idx)
+            v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, v4_borrowck_use_diag_span(mir_id, body_id, guard_stmt), "Meiya refuses to move out of a SharedMut guard", v4_borrowck_path_canon(path_text) + " stays owned by the shared allocation in block " + word_from_int(v4_borrowck_path_block(borrow_id, result_id, path_idx)) + " at statement " + word_from_int(guard_stmt) + "; lend it, copy it, or store a replacement through the guard"))
             v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
             conflicts += 1
         }

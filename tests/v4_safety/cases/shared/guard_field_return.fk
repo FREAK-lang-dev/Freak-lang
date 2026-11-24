@@ -1,0 +1,16 @@
+-- Returning a guard's field moves it out of the box too.
+-- bible: 4.4
+-- expect: reject borrowck
+-- error: Meiya refuses to move out of a SharedMut guard
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int, name: word }
+
+task steal(lend s: Shared<Ship>) -> word {
+    check result s.borrow_mut() {
+        ok(g) -> give back g.name
+        err(e) -> give back "busy"
+    }
+    give back "none"
+}
+task main() -> int { give back 0 }

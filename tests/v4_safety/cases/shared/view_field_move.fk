@@ -1,0 +1,13 @@
+-- A borrow view is a loan of the payload: its fields cannot move out.
+-- bible: 4.4
+-- expect: reject borrowck
+-- error: Meiya refuses to move out through a lend holder
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int, name: word }
+
+task steal(lend s: Shared<Ship>) -> word {
+    pilot v = s.borrow()
+    give back v.name
+}
+task main() -> int { give back 0 }
