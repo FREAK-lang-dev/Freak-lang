@@ -633,7 +633,13 @@ class Server:
     def checkpoint(self, phase: str, fixture: str | None = None, *, case: int | None = None):
         if self.progress is not None:self.progress.stage(phase,fixture,case=case)
     def connect(self):
-        s=socket.create_connection(('127.0.0.1',self.port),timeout=4);s.settimeout(4);return s
+        try:s=socket.create_connection(('127.0.0.1',self.port),timeout=4)
+        except ConnectionRefusedError as error:
+            # A refused connect means the server is gone: say how it ended.
+            code=self.process.poll();tail=b''
+            if code is not None and self.process.stderr is not None:tail=self.process.stderr.read()[-2000:]
+            raise AssertionError(f'server refused a connection (exit status {code}): {tail!r}') from error
+        s.settimeout(4);return s
     def exchange(self, data: bytes, *, split: int|None=None, eof=False, slow=False):
         with self.connect() as s:
             if split is None:s.sendall(data)
