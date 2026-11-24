@@ -148,6 +148,39 @@ def serve(directory: Path):
     return server
 
 
+def sign_probe(h: Harness, work: Path) -> None:
+    """Run src/cli/std_sign.fk directly on public-key encodings RFC 8032 rejects."""
+    seed = std_bundle.load_key(TRUSTED)
+    public = std_bundle.raw_public(seed)
+    message = "freak-std-probe"
+    signature = seed.sign(message.encode()).hex()
+    # y = p + 1 reduces to y = 1 (the identity point) if y >= p is not refused,
+    # and 01 00..00 80 is that point with a sign bit although x = 0.
+    cases = [
+        ("canonical key unpacks", public, 1),
+        ("canonical identity unpacks", "01" + "00" * 31, 1),
+        ("y = p refused", "ed" + "ff" * 30 + "7f", 0),
+        ("y = p + 1 refused", "ee" + "ff" * 30 + "7f", 0),
+        ("x = 0 with sign bit refused", "01" + "00" * 30 + "80", 0),
+    ]
+    body = "task main() {\n"
+    for index, (_, key, _) in enumerate(cases):
+        body += f'    pilot k{index} = stdsig_unpack_neg(stdsig_hex_bytes("{key}", 32)).length()\n'
+        body += f'    say "case{index}=" + word_from_int(k{index})\n'
+    body += f'    if stdsig_verify("{message}", "{signature}", "{public}") {{ say "verify=yes" }} else {{ say "verify=no" }}\n'
+    body += f'    if stdsig_verify("{message}x", "{signature}", "{public}") {{ say "forged=yes" }} else {{ say "forged=no" }}\n'
+    body += "}\n"
+    probe = work / "sign_probe.fk"
+    probe.write_text((REPO / "src/cli/std_sign.fk").read_text(encoding="utf-8") + "\n" + body, encoding="utf-8")
+    text = h.expect("std_sign probe runs", h.run("run", str(probe)), 0, "verify=yes", "forged=no")
+    for index, (label, _, unpacks) in enumerate(cases):
+        line = next((part for part in text.split() if part.startswith(f"case{index}=")), "")
+        got = int(line.split("=")[1]) if line else -1
+        if (got > 0) != bool(unpacks):
+            raise AssertionError(f"{label}: unpacked length {got}\n{text}")
+        print(f"PASS {label}")
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print(__doc__)
@@ -158,6 +191,7 @@ def main() -> int:
         h = Harness(freak, work)
         (work / "p.fk").write_text(PROGRAM, encoding="utf-8")
         (work / "uses_std.fk").write_text('task main() {\n    pilot a = std_abs(0 - 7)\n    say "abs={a}"\n}\n', encoding="utf-8")
+        sign_probe(h, work)
 
         h.expect("status with an empty store", h.hangar("std", "status"), 0, "Active:   std 0.16.0", "(bundled)")
 
@@ -195,12 +229,24 @@ def main() -> int:
 
         two = pack(work, make_std(work, "std-b", "bundle-two"), "0.16.2")
         h.expect("install 0.16.2", h.hangar("std", "install", str(two)), 0, "std 0.16.2 installed")
+        # Selection and history are one file: a failed write changes neither.
+        selected = h.config / "std" / "selected"
+        state = selected.read_bytes()
+        fail_selected = {"FREAK_STD_TEST_FAIL_WRITE": "selected"}
+        h.expect("failed use changes nothing", h.hangar("std", "use", "0.16.1", extra=fail_selected), 1, "NOT CHANGED")
+        assert selected.read_bytes() == state, selected.read_text()
+        h.expect("failed rollback changes nothing", h.hangar("std", "rollback", extra=fail_selected), 1, "NOT CHANGED")
+        assert selected.read_bytes() == state, selected.read_text()
+        assert not list(selected.parent.glob("selected.new*")), list(selected.parent.glob("selected.new*"))
         h.expect("rollback to 0.16.1", h.hangar("std", "rollback"), 0, "Rolled back", "Selected std 0.16.1.")
         h.expect("rollback to bundled", h.hangar("std", "rollback"), 0, "Selected the bundled std 0.16.0.")
         h.expect("nothing left to roll back", h.hangar("std", "rollback"), 1, "No earlier std selection")
         h.expect("bundled std lacks the marker", h.run("build", "p.fk"), 1, "unknown callable 'std_bundle_marker'")
 
-        h.expect("use 0.16.1", h.hangar("std", "use", "0.16.1"), 0, "Selected std 0.16.1.")
+        # A folder sync failure after the rename still leaves the new selection.
+        h.expect("use 0.16.1 despite a sync failure", h.hangar("std", "use", "0.16.1", extra={"FREAK_STD_TEST_FAIL_WRITE": "sync:selected"}),
+                 0, "could not sync its folder", "Selected std 0.16.1.")
+        h.expect("synced-late selection is active", h.hangar("std", "status"), 0, "Active:   std 0.16.1")
         stored_math = h.config / "std" / "store" / "0.16.1" / "math.fk"
         original = stored_math.read_bytes()
         stored_math.write_bytes(original + b"\n-- edited\n")
@@ -238,7 +284,14 @@ def main() -> int:
         h.expect("repin keeps the old pin until replaced", h.run("run", "src/main.fk", cwd=project), 0, "marker=bundle-two")
         (project / "std.lock").write_text('version = "0.16.2"\nmanifest_sha256 = "abc\n', encoding="utf-8")
         h.expect("unterminated lock value refused", h.run("build", "src/main.fk", cwd=project), 1, "std.lock is malformed")
+        (project / "std.lock").write_text('version = "0.16.2"\nmanifest_sha256 = ""\n', encoding="utf-8")
+        h.expect("empty lock digest refused", h.run("build", "src/main.fk", cwd=project), 1, "malformed manifest_sha256")
+        (project / "std.lock").write_text('version = "0.16.2"\n', encoding="utf-8")
+        h.expect("omitted lock digest allowed", h.run("run", "src/main.fk", cwd=project), 0, "marker=bundle-two")
         (project / "std.lock").write_bytes(pin_before)
+        h.expect("repin despite a sync failure", h.hangar("std", "pin", "0.16.2", cwd=project, extra={"FREAK_STD_TEST_FAIL_WRITE": "sync:std.lock"}),
+                 0, "could not sync its folder", "Pinned this project to std 0.16.2")
+        h.expect("synced-late pin is active", h.run("run", "src/main.fk", cwd=project), 0, "marker=bundle-two")
         h.expect("pin bundled by number", h.hangar("std", "pin", "0.16.0", cwd=project), 0, "Pinned this project to the bundled std")
         h.expect("bundled pin builds", h.run("build", "src/main.fk", cwd=project), 1, "unknown callable 'std_bundle_marker'")
         (project / "std.lock").write_text('version = "0.16.0"\nmanifest_sha256 = "' + "0" * 64 + '"\n', encoding="utf-8")

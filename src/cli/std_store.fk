@@ -355,16 +355,22 @@ task cli_std_dotted(text: word, allowed: word, parts: int) -> bool {
     give back parts == 0 or count == parts
 }
 
--- Why the last cli_std_read_value file did not parse ("" when it did).
+-- Why the last cli_std_read_value file did not parse ("" when it did), and
+-- whether its key was present at all (so `key = ""` differs from no key).
 pilot cli_std_read_problem = ""
+pilot cli_std_read_present = false
 task cli_std_read_value(path: word, key: word) -> word {
     cli_std_read_problem = ""
+    cli_std_read_present = false
     if not fs::exists(path) { give back "" }
     pilot manifest = stdm_parse("[v]\n" + fs::read(path))
     cli_std_read_problem = cli_std_last_error
     cli_std_last_error = ""
     pilot mut value = ""
-    if cli_std_read_problem == "" { value = stdm_get(manifest, "v." + key) }
+    if cli_std_read_problem == "" {
+        cli_std_read_present = stdm_has(manifest, "v." + key)
+        value = stdm_get(manifest, "v." + key)
+    }
     array_release(manifest)
     give back value
 }
@@ -506,7 +512,8 @@ task cli_std_resolve() -> bool {
             give back false
         }
         pilot expected = cli_std_read_value(cli_std_pin_file, "manifest_sha256")
-        if expected != "" and (expected.length() != 64 or not cli_std_hex(expected)) {
+        -- An omitted digest is allowed; a present one must be a full sha256.
+        if cli_std_read_present and (expected.length() != 64 or not cli_std_hex(expected)) {
             cli_std_error = cli_std_pin_file + " has a malformed manifest_sha256"
             give back false
         }
