@@ -146,7 +146,8 @@ answered in order. `set_keep_alive(server, idle_ms, max_requests)` sets how long
 an idle connection waits for its next request and how many requests one
 connection serves (`max_requests` 0 turns keep-alive off). Error responses
 always close. `set_max_connections(server, n)` caps open connections per worker;
-beyond it new connections wait in the kernel backlog. On POSIX the runtime
+beyond it new connections wait in the kernel backlog. Rejected requests still
+waiting for the application count against the cap too. On POSIX the runtime
 raises the soft open-file limit toward that cap.
 
 `set_workers(server, n)` (or `FREAK_HTTP_WORKERS=n` when the application never
