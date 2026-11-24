@@ -858,6 +858,12 @@ twice the length (8 slots at first). Entry growth reuses the list helpers.
   are cloned). `m.remove(k)` gives back `bool` and keeps the remaining
   entries in order. `length()` and `.length` read the header. A set has
   `add` (a duplicate is dropped), `contains`, `remove` and `length`.
+- **Control flow.** Literal keys and values may hold `and` / `or` and `?`,
+  typed or inferred: MIR wires them like list elements, so entries run in
+  order, a skipped operand never runs and a `?` that propagates stops the
+  entries after it. Lookup keys, `set` / `add` arguments and `m[k] = v`
+  values still refuse control flow by name (`control flow inside a map key
+  is not yet supported`); codegen refuses an and/or entry MIR did not wire.
 - **Loans.** A lookup lends its word key. `set`, `add` and `remove` take a
   `lend mut` of the receiver and the reads a `lend`, so a lend of `m[k]` is
   a loan of the map: Meiya refuses an insert, a remove or a move of the map
@@ -876,8 +882,10 @@ values, `get` of aggregates that own words, map and set operators, and user
 declarations of `freak.map.` helpers or the memmove and memset intrinsics.
 `keys`, `values`, `pairs`, `merge`, `get_or`, `Map::from` and the set
 algebra stay missing methods. Program: `examples/maps_native.fk` (exact
-output, exit 0, and a missing-key panic run) in `check_v4_native_shapes`,
-also audited by `tests/v4_owned_word_codegen.py`; 22 named rejections.
+output, exit 0, and a missing-key panic run) and
+`examples/maps_control_native.fk` (each probe prints when it runs) in
+`check_v4_native_shapes`, both also audited by
+`tests/v4_owned_word_codegen.py`; 25 named rejections.
 
 ### Persisted interpolation checkpoint (W3)
 
