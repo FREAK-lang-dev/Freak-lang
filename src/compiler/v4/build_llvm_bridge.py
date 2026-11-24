@@ -186,6 +186,15 @@ def build(clang: str, root: Path, output: Path, opt: int) -> Path:
 # Exact probe report, in order. Layout lines are the targets' own answers.
 PROBE_EXPECTED = [
     "lb-probe llvm-major={major}",
+    "lb-probe refused=second debug unit code -10",
+    "lb-probe refused=duplicate switch case code -4",
+    "lb-probe refused=non-constant switch case code -3",
+    "lb-probe refused=debug location without debug info code -10",
+    "lb-probe refused=unknown calling convention code -4",
+    "lb-probe refused=calling convention on a value code -3",
+    "lb-probe refused=type attribute without a type code -4",
+    "lb-probe refused=alignment not a power of two code -4",
+    "lb-probe refused=type attribute on a non-pointer code -3",
     "lb-probe refused=type ticket as value code -3",
     "lb-probe refused=load from a non-pointer code -3",
     "lb-probe refused=second terminator code -10",
@@ -196,6 +205,7 @@ PROBE_EXPECTED = [
     "lb-probe refused=call with too few arguments code -4",
     "lb-probe refused=unknown attribute code -4",
     "lb-probe verify=0",
+    "lb-probe refused=debug function after verify code -10",
     "lb-probe optimize=0",
     "lb-probe object=0",
     "lb-probe ir=0",
@@ -220,19 +230,31 @@ int64_t probe_call(int64_t);
 double probe_scale(int64_t);
 int64_t probe_pair_sum(const int64_t*);
 int64_t probe_hello(void);
+int64_t probe_classify(int64_t);
+int64_t probe_twice(int64_t);
+int64_t probe_byval_outer(int64_t, int64_t);
+struct probe_triple { int64_t a, b, c; };
+struct probe_triple probe_make_triple(int64_t);
 int main(void) {
     int64_t pair[2] = { 40, 2 };
+    struct probe_triple triple = probe_make_triple(7);
     printf("sum %lld %lld %lld\n", (long long)probe_sum(10), (long long)probe_sum(1), (long long)probe_sum(-5));
     printf("max %lld %lld\n", (long long)probe_max(-3, 4), (long long)probe_max(9, 2));
     printf("call %lld\n", (long long)probe_call(4));
     printf("scale %.2f\n", probe_scale(3));
     printf("pair %lld\n", (long long)probe_pair_sum(pair));
+    printf("classify %lld %lld %lld %lld\n", (long long)probe_classify(1), (long long)probe_classify(2),
+           (long long)probe_classify(5), (long long)probe_classify(3));
+    printf("twice %lld\n", (long long)probe_twice(5));
+    printf("byval %lld\n", (long long)probe_byval_outer(40, 2));
+    printf("triple %lld %lld %lld\n", (long long)triple.a, (long long)triple.b, (long long)triple.c);
     fflush(stdout);
     printf("hello %lld\n", (long long)probe_hello());
     return 0;
 }
 """
-DRIVER_EXPECTED = "sum 55 1 1\nmax 4 9\ncall 14\nscale 7.50\npair 42\nhello from the LLVM bridge\nhello 7\n"
+DRIVER_EXPECTED = ("sum 55 1 1\nmax 4 9\ncall 14\nscale 7.50\npair 42\nclassify 10 20 50 -1\ntwice 30\n"
+                   "byval 42\ntriple 7 14 21\nhello from the LLVM bridge\nhello 7\n")
 
 
 def check(clang: str, probe: Path) -> None:
@@ -268,6 +290,13 @@ def check(clang: str, probe: Path) -> None:
         module = (out / "probe.ll").read_text(encoding="utf-8")
         if f'target triple = "{triple}"' not in module or "@probe_sum" not in module:
             raise RuntimeError(f"LLVM bridge module text at O{level} lacks its triple or functions")
+        wanted = ['!DISubprogram(name: "probe_classify"', '"Debug Info Version"', "emissionKind: LineTablesOnly",
+                  "sret(%freak.probe.Triple)", "dereferenceable(16)"]
+        if level == 0:  # before inlining and switch lowering
+            wanted += ["switch i64", "fastcc", "byval(%freak.probe.Pair)", "!DILocation(line: 44, column: 9"]
+        missing = [text for text in wanted if text not in module]
+        if missing:
+            raise RuntimeError(f"LLVM bridge module text at O{level} lacks {missing}")
         print(f"LLVM bridge: O{level} probe report exact, object links and runs on {triple}")
 
 

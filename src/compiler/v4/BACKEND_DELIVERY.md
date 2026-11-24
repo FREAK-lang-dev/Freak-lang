@@ -194,19 +194,29 @@ over LLVM's C API; its header states the contract:
   structs, function types), functions, parameters, byte-string globals,
   blocks, constants, alloca (always in the entry block), load, store,
   arithmetic, comparisons, casts, select, field and element addresses,
-  extract and insert, calls (variadic too), phis, terminators, enum
-  attributes, verification, the `default<O0..O3>` pass pipelines, object,
-  assembly and IR text output, and the target's sizes, alignments and field
-  offsets.
+  extract and insert, calls (variadic too), phis, terminators including
+  `switch`, calling conventions on functions and calls (C, fast, cold, and
+  the x86-64 Win64 and System V ones, refused on other targets), attributes
+  on functions and on call sites (plain ones like `nounwind`, integer ones
+  like `align` and `dereferenceable`, and type ones like `sret` and `byval`,
+  each only through its own entry point and only where it can apply), DWARF
+  line tables (one unit per session, a subprogram per function, the
+  builder's current location), verification, the `default<O0..O3>` pass
+  pipelines, object, assembly and IR text output, and the target's sizes,
+  alignments and field offsets.
 
 **The gate** (`build_llvm_bridge.py --check`, CI job "V4 LLVM bridge"):
 [`tools/llvm_bridge_probe.fk`](tools/llvm_bridge_probe.fk) builds a module
 in FREAK (a loop with phis, select, calls between its own functions, a float
 conversion, struct field loads, a call to the C library's `puts` on a
-private string), refuses twelve kinds of misuse with the exact error codes,
-verifies, optimises and emits an object at O0, O1, O2 and O3, and reports
-layouts for the four release targets. The gate checks the report line for
-line, links each object with a C driver and checks its output exactly.
+private string, a `switch` with line-table locations, a `fastcc` internal
+function, a 24-byte struct returned through `sret` as C returns it, and a
+struct passed by `byval` copy), refuses 22 kinds of misuse with the exact
+error codes, verifies, optimises and emits an object at O0, O1, O2 and O3,
+and reports layouts for the four release targets. The gate checks the
+report line for line, checks the module text for the attributes, calling
+conventions and debug metadata, links each object with a C driver and
+checks its output exactly.
 
 First measurement for the size row: the probe, which links only the core,
 pass pipeline, x86-64 and AArch64 libraries, is 65 MB on Linux x86-64

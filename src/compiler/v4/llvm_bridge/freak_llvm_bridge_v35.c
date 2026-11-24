@@ -44,6 +44,19 @@ int64_t freak_lb35_attribute(int64_t session, int64_t function, int64_t index, f
     return freak_lb_attribute(session, function, index, name.data, name.length);
 }
 
+int64_t freak_lb35_attribute_int(int64_t session, int64_t target, int64_t index, freak_word name, int64_t value) {
+    return freak_lb_attribute_int(session, target, index, name.data, name.length, value);
+}
+
+int64_t freak_lb35_attribute_type(int64_t session, int64_t target, int64_t index, freak_word name, int64_t type) {
+    return freak_lb_attribute_type(session, target, index, name.data, name.length, type);
+}
+
+int64_t freak_lb35_debug_unit(int64_t session, freak_word file, freak_word directory, freak_word producer) {
+    return freak_lb_debug_unit(session, file.data, file.length, directory.data, directory.length,
+                               producer.data, producer.length);
+}
+
 int64_t freak_lb35_emit(int64_t session, int64_t format, freak_word path) {
     return freak_lb_emit(session, format, path.data, path.length);
 }
