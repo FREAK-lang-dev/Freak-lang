@@ -112,8 +112,8 @@ task main() -> void {
 }
 '''
 
-SCHEDULER_EXPECTED = """s10 s20 s30 
-10 20 11 21 12 22 
+SCHEDULER_EXPECTED = """s10 s20 s30\x20
+10 20 11 21 12 22\x20
 1
 144
 4
@@ -192,7 +192,7 @@ task main() -> void {
 '''
 
 WAITS_EXPECTED = """stalled
-woken late timed_out cancelled early curfew lifted 
+woken late timed_out cancelled early curfew lifted\x20
 1
 0
 3
