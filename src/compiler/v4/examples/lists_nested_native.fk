@@ -27,6 +27,11 @@ route Tree {
 
 shape Dir { name: word, subs: List<Dir> }
 
+-- Mutual recursion through a list: a Party holds its Members by list and
+-- each Member holds a Party by value. Only the list breaks the cycle.
+shape Party { members: List<Member>, size: int }
+shape Member { name: word, sub: Party }
+
 doctrine Count { task count(lend self) -> int }
 
 impl Count for Squad {
@@ -96,6 +101,12 @@ task tree_sum(t: Tree) -> int {
 task dir_count(lend d: Dir) -> int {
     pilot n = 1
     for each sub in d.subs { n += dir_count(lend sub) }
+    give back n
+}
+
+task party_count(lend p: Party) -> int {
+    pilot n = p.size
+    for each m in p.members { n += party_count(lend m.sub) }
     give back n
 }
 
@@ -178,5 +189,9 @@ task main() -> int {
     d.subs[0].subs.push(Dir { name: "d", subs: [] })
     say dir_count(lend d)
     say d.subs[1].subs[0].name
+    pilot mut p = Party { members: [], size: 1 }
+    p.members.push(Member { name: "Valkyrie", sub: Party { members: [Member { name: "Mitsurugi", sub: Party { members: [], size: 3 } }], size: 2 } })
+    say party_count(lend p)
+    say p.members[0].sub.members[0].name
     give back 0
 }
