@@ -477,9 +477,15 @@ task slow_reader(x: int) -> void {
 pilot stuck = 0
 pilot stuck_sent = 0
 task stuffer(x: int) -> void {
+    -- 64 KiB at a time: Windows takes one oversized send whole, so a
+    -- single 8 MiB send never fills the buffer there
     pilot blob = ByteBuffer::new()
-    repeat 262144 times { blob.write_word("0123456789abcdef0123456789abcdef") }
-    stuck_sent = tcp::socket_send_all(stuck, blob, 0, blob.length())
+    repeat 2048 times { blob.write_word("0123456789abcdef0123456789abcdef") }
+    repeat 128 times {
+        if tcp::socket_status(stuck) == 0 {
+            stuck_sent += tcp::socket_send_all(stuck, blob, 0, blob.length())
+        }
+    }
     blob.release()
 }
 
