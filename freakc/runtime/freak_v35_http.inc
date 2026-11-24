@@ -1063,12 +1063,16 @@ int64_t freak_http_server_next_request(int64_t server_ticket) {
     freak_http_server *server=freak_http_require_server(server_ticket); if(server->active) freak_http_fail("release the active request before accepting another");
     bool usable=!server->status && !freak_http_stopping(server);
     if(usable && !server->started && !freak_http_start(server)) { freak_http_request *failed=freak_http_new_request(server,NULL); int64_t ticket=freak_http_ticket_for(failed); server->active=ticket; freak_http_error(failed,500,"could not wait for HTTP connection"); return ticket; }
+    /* Poll (without waiting when work is queued) before every dispatch, so a
+       pipelining client cannot keep other connections from being accepted,
+       read, written or swept while its own requests keep the queue full. */
+    bool polled=false;
     for(;;) {
         if(server->status || freak_http_stopping(server)) {
             freak_http_request *failed=freak_http_new_request(server,NULL); int64_t ticket=freak_http_ticket_for(failed); server->active=ticket;
             freak_http_error(failed,503,server->status?"HTTP server is stopped or failed":"HTTP server stopped"); return ticket;
         }
-        if(server->ready_head) {
+        if(server->ready_head && polled) {
             freak_http_request *request=server->ready_head; server->ready_head=request->ready_next; if(!server->ready_head) server->ready_tail=NULL;
             int64_t ticket=freak_http_ticket_for(request); server->active=ticket;
             if(request->conn) { request->conn->state=FREAK_HTTP_CONN_APP; request->socket=request->conn->socket; }
@@ -1078,6 +1082,7 @@ int64_t freak_http_server_next_request(int64_t server_ticket) {
             freak_http_request *failed=freak_http_new_request(server,NULL); int64_t ticket=freak_http_ticket_for(failed); server->active=ticket;
             freak_http_error(failed,500,"could not wait for HTTP connection"); return ticket;
         }
+        polled=true;
     }
 }
 
@@ -1177,6 +1182,18 @@ int64_t freak_http_server_live_connections(void) { return (int64_t)freak_http_co
 int64_t freak_http_server_retained_bytes(void) {
     uint64_t bytes=freak_http_owned_bytes;
     for(size_t i=0;i<freak_http_request_slots;i++) if(freak_http_requests[i].request && freak_http_requests[i].request->body) bytes+=freak_byte_buffer_require(freak_http_requests[i].request->body,"HTTP retained-byte count")->capacity;
+    /* Requests still being parsed or waiting in the ready queue have no ticket
+       yet but already own body storage. A queued request is counted once, from
+       the queue, even while its connection still points at it. */
+    for(size_t i=0;i<freak_http_server_slots;i++) {
+        freak_http_server *server=freak_http_servers[i]; if(!server->in_use) continue;
+        for(freak_http_request *request=server->ready_head;request;request=request->ready_next)
+            if(!request->slot && request->body) bytes+=freak_byte_buffer_require(request->body,"HTTP retained-byte count")->capacity;
+        for(size_t c=0;c<server->conn_count;c++) {
+            freak_http_conn *conn=server->conns[c]; freak_http_request *request=conn->request;
+            if(request && !request->slot && conn->state!=FREAK_HTTP_CONN_QUEUED && request->body) bytes+=freak_byte_buffer_require(request->body,"HTTP retained-byte count")->capacity;
+        }
+    }
     if(bytes>INT64_MAX) freak_http_fail("retained-byte counter overflow"); return (int64_t)bytes;
 }
 
