@@ -1,0 +1,11 @@
+-- Large scalar payloads own no words, so they stay valid.
+-- bible: 4.4
+-- expect: build
+
+use std::mem::{Shared, Weak}
+
+task drop_it(s: Shared<[int; 65536]>) -> int { give back 0 }
+task main() -> int {
+    pilot a = Shared<[word; 3]>::new(["a", "b", "c"])
+    give back 0
+}
