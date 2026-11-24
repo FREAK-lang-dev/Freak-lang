@@ -839,7 +839,7 @@ task c_map_call(val: word) -> word {
     if val == "oni::timed_out" { give back "freak_oni_timed_out" }
     if val == "oni::current" { give back "freak_oni_current" }
     if val == "oni::state" { give back "freak_oni_state" }
-    if val == "oni::result" { give back "freak_oni_result" }
+    if val == "oni::returned" { give back "freak_oni_returned" }
     if val == "oni::release" { give back "freak_oni_release" }
     if val == "oni::curfew" { give back "freak_oni_curfew" }
     if val == "oni::stack_kib" { give back "freak_oni_stack_kib" }

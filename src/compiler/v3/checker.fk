@@ -1152,7 +1152,7 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "oni::timed_out" { give back "bool" }
     if name == "oni::current" { give back "int" }
     if name == "oni::state" { give back "int" }
-    if name == "oni::result" { give back "int" }
+    if name == "oni::returned" { give back "int" }
     if name == "oni::release" { give back "void" }
     if name == "oni::curfew" { give back "void" }
     if name == "oni::stack_kib" { give back "void" }
@@ -1361,7 +1361,7 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "oni::timed_out" { give back "" }
     if name == "oni::current" { give back "" }
     if name == "oni::state" { give back "int" }
-    if name == "oni::result" { give back "int" }
+    if name == "oni::returned" { give back "int" }
     if name == "oni::release" { give back "int" }
     if name == "oni::curfew" { give back "int" }
     if name == "oni::stack_kib" { give back "int" }

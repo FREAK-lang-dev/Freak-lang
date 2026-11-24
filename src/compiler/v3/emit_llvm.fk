@@ -1179,7 +1179,7 @@ task llvm_map_call_name(val: word) -> word {
     if val == "oni::timed_out" { give back "@freak_llvm_oni_timed_out" }
     if val == "oni::current" { give back "@freak_llvm_oni_current" }
     if val == "oni::state" { give back "@freak_llvm_oni_state" }
-    if val == "oni::result" { give back "@freak_llvm_oni_result" }
+    if val == "oni::returned" { give back "@freak_llvm_oni_returned" }
     if val == "oni::release" { give back "@freak_llvm_oni_release" }
     if val == "oni::curfew" { give back "@freak_llvm_oni_curfew" }
     if val == "oni::stack_kib" { give back "@freak_llvm_oni_stack_kib" }
@@ -4027,7 +4027,7 @@ task llvm_emit_runtime_decls() -> void {
     ir_declare("i64", "@freak_llvm_oni_timed_out", 0)
     ir_declare("i64", "@freak_llvm_oni_current", 0)
     ir_declare("i64", "@freak_llvm_oni_state", 1)
-    ir_declare("i64", "@freak_llvm_oni_result", 1)
+    ir_declare("i64", "@freak_llvm_oni_returned", 1)
     ir_declare("void", "@freak_llvm_oni_release", 1)
     ir_declare("void", "@freak_llvm_oni_curfew", 1)
     ir_declare("void", "@freak_llvm_oni_stack_kib", 1)
@@ -4090,7 +4090,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_byte_buffer_new|freak_llvm_byte_buffer_with_capacity|freak_llvm_byte_buffer_release|freak_llvm_byte_buffer_status|freak_llvm_byte_buffer_clear_status|freak_llvm_byte_buffer_reserve|freak_llvm_byte_buffer_capacity|freak_llvm_byte_buffer_length|freak_llvm_byte_buffer_position|freak_llvm_byte_buffer_remaining|freak_llvm_byte_buffer_clear|freak_llvm_byte_buffer_truncate|freak_llvm_byte_buffer_seek|freak_llvm_byte_buffer_write_byte|freak_llvm_byte_buffer_write_int|freak_llvm_byte_buffer_write_int_be|freak_llvm_byte_buffer_write_word|freak_llvm_byte_buffer_read_byte|freak_llvm_byte_buffer_read_int|freak_llvm_byte_buffer_read_int_be|freak_llvm_byte_buffer_read_word|freak_llvm_byte_buffer_slice|freak_llvm_byte_buffer_to_word|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_tcp_socket_connect|freak_llvm_tcp_socket_listen|freak_llvm_tcp_socket_accept|freak_llvm_tcp_socket_status|freak_llvm_tcp_socket_eof|freak_llvm_tcp_socket_local_port|freak_llvm_tcp_socket_send|freak_llvm_tcp_socket_send_all|freak_llvm_tcp_socket_receive|freak_llvm_tcp_socket_set_timeout|freak_llvm_tcp_socket_close|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_ui_set_clip|freak_llvm_ui_reset_clip|"
-    llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_oni_summon|freak_llvm_oni_resume|freak_llvm_oni_next_ready|freak_llvm_oni_suspend|freak_llvm_oni_suspend_for|freak_llvm_oni_wake|freak_llvm_oni_cancel|freak_llvm_oni_cancelled|freak_llvm_oni_timed_out|freak_llvm_oni_current|freak_llvm_oni_state|freak_llvm_oni_result|freak_llvm_oni_release|freak_llvm_oni_curfew|freak_llvm_oni_stack_kib|freak_llvm_oni_live|freak_llvm_oni_waiting|freak_llvm_oni_ready_count|freak_llvm_oni_poll|"
+    llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_oni_summon|freak_llvm_oni_resume|freak_llvm_oni_next_ready|freak_llvm_oni_suspend|freak_llvm_oni_suspend_for|freak_llvm_oni_wake|freak_llvm_oni_cancel|freak_llvm_oni_cancelled|freak_llvm_oni_timed_out|freak_llvm_oni_current|freak_llvm_oni_state|freak_llvm_oni_returned|freak_llvm_oni_release|freak_llvm_oni_curfew|freak_llvm_oni_stack_kib|freak_llvm_oni_live|freak_llvm_oni_waiting|freak_llvm_oni_ready_count|freak_llvm_oni_poll|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_word_snapshot_lines|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_fs_read_ticket|freak_llvm_fs_read_bytes_ticket|freak_llvm_fs_read_source_ticket|freak_llvm_fs_write_checked|freak_llvm_fs_write_bytes_checked|freak_llvm_fs_append_checked|freak_llvm_fs_rename_checked|freak_llvm_fs_rename_new_checked|freak_llvm_fs_mkdir_checked|freak_llvm_fs_remove_checked|freak_llvm_fs_rmdir_checked|freak_llvm_fs_exclusive_create|freak_llvm_fs_temp_dir|freak_llvm_fs_canonical_path|freak_llvm_fs_stat_checked|freak_llvm_fs_list_dir_checked|freak_llvm_fs_result_ok|freak_llvm_fs_result_word|freak_llvm_fs_result_error|freak_llvm_fs_result_bytes|freak_llvm_fs_result_kind|freak_llvm_fs_result_size|freak_llvm_fs_result_mode|freak_llvm_fs_result_count|freak_llvm_fs_result_entry|freak_llvm_fs_result_release|freak_llvm_fs_sha256_bytes|freak_llvm_process_command_poll|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_process_command_new|freak_llvm_process_command_arg|freak_llvm_process_command_cwd|freak_llvm_process_command_env|freak_llvm_process_command_unset_env|freak_llvm_process_command_spawn|freak_llvm_process_command_run|freak_llvm_process_command_spawn_inherit|freak_llvm_process_command_run_inherit|freak_llvm_process_command_wait|freak_llvm_process_command_status|freak_llvm_process_command_exit_code|freak_llvm_process_command_signal|freak_llvm_process_command_terminate|freak_llvm_process_command_release|freak_llvm_process_command_error|freak_llvm_process_command_stdout|freak_llvm_process_command_stderr|freak_llvm_process_command_stdout_bytes|freak_llvm_process_command_stderr_bytes|"

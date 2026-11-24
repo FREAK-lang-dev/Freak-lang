@@ -749,8 +749,8 @@ int64_t freak_oni_state(int64_t handle) {
     return slot < 0 ? 0 : freak_onis[slot].state;
 }
 
-int64_t freak_oni_result(int64_t handle) {
-    return freak_oni_require(handle, "result")->result;
+int64_t freak_oni_returned(int64_t handle) {
+    return freak_oni_require(handle, "returned")->result;
 }
 
 void freak_oni_release(int64_t handle) {
@@ -883,7 +883,7 @@ int64_t freak_llvm_oni_cancelled(void) { return freak_oni_cancelled() ? 1 : 0; }
 int64_t freak_llvm_oni_timed_out(void) { return freak_oni_timed_out() ? 1 : 0; }
 int64_t freak_llvm_oni_current(void) { return freak_oni_current(); }
 int64_t freak_llvm_oni_state(int64_t handle) { return freak_oni_state(handle); }
-int64_t freak_llvm_oni_result(int64_t handle) { return freak_oni_result(handle); }
+int64_t freak_llvm_oni_returned(int64_t handle) { return freak_oni_returned(handle); }
 void freak_llvm_oni_release(int64_t handle) { freak_oni_release(handle); }
 void freak_llvm_oni_curfew(int64_t ms) { freak_oni_curfew(ms); }
 void freak_llvm_oni_stack_kib(int64_t kib) { freak_oni_stack_kib(kib); }
