@@ -170,8 +170,9 @@ TLS.
 
 ### Longer-run path
 
-0.16 reaches nginx-class throughput for small responses on loopback (see the
-benchmark in the release notes). The remaining steps, roughly in order:
+On loopback the 0.16 floor serves small responses within about 20% of nginx
+per worker (92k vs 110k requests/s on one worker, 245k vs 308k on four; see
+`benchmarks/v35/http_server_load.md`). The remaining steps, roughly in order:
 
 1. Peer address on a request (`X-Real-IP`, per-IP limits).
 2. Streaming request and response bodies, and `sendfile`/`TransmitFile` for
