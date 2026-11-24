@@ -101,13 +101,17 @@ task cli_std_ensure_store() -> bool {
 pilot cli_std_write_serial = 0
 task cli_std_write_text(path: word, content: word) -> bool {
     -- Test hook: "<suffix>" fails the write before anything changes;
-    -- "sync:<suffix>" replaces the file and then reports a failed folder sync.
+    -- "sync:<suffix>" replaces the file and then reports a failed folder sync;
+    -- "create:<suffix>" reports a failed folder sync after creating the
+    -- temporary file. Both use the flags the runtime sets for that failure.
     pilot injected = process::env("FREAK_STD_TEST_FAIL_WRITE")
     pilot sync_only = injected.starts_with("sync:")
+    pilot create_only = injected.starts_with("create:")
     pilot mut injected_suffix = injected
     if sync_only { injected_suffix = injected.substring(5, injected.length()) }
+    if create_only { injected_suffix = injected.substring(7, injected.length()) }
     pilot inject = injected_suffix != "" and path.ends_with(injected_suffix)
-    if inject and not sync_only {
+    if inject and not sync_only and not create_only {
         cli_std_fail("cannot write " + path + ": injected test failure")
         give back false
     }
@@ -116,8 +120,19 @@ task cli_std_write_text(path: word, content: word) -> bool {
         cli_std_write_serial += 1
         pilot temporary = path + ".new-" + word_from_int(time::now_ms()) + "-" + word_from_int(cli_std_write_serial)
         pilot created = fs::exclusive_create(temporary, content)
-        if fs::result_ok(created) {
-            fs::result_release(created)
+        pilot mut made = fs::result_ok(created)
+        pilot mut made_unsynced = not made and fs::result_completed(created)
+        pilot mut create_reason = ""
+        if not made { create_reason = fs::result_error(created) }
+        fs::result_release(created)
+        if made and inject and create_only {
+            made = false
+            made_unsynced = true
+            create_reason = "injected folder sync failure"
+        }
+        -- A complete temporary whose folder sync failed is still ours and
+        -- whole; the rename below syncs the folder again, so publish it.
+        if made or made_unsynced {
             pilot moved = fs::rename_checked(temporary, path)
             -- landed_synced: replaced and synced. completed without it: the rename landed
             -- but the folder sync failed, so readers already see the new file.
@@ -126,7 +141,7 @@ task cli_std_write_text(path: word, content: word) -> bool {
             pilot mut reason = ""
             if not landed_synced { reason = fs::result_error(moved) }
             fs::result_release(moved)
-            if inject and landed_synced {
+            if inject and sync_only and landed_synced {
                 -- Same flags the runtime reports for a failed folder sync.
                 landed_synced = false
                 completed = true
@@ -141,10 +156,8 @@ task cli_std_write_text(path: word, content: word) -> bool {
             if fs::exists(temporary) { fs::result_release(fs::remove_checked(temporary)) }
             give back false
         }
-        pilot reason = fs::result_error(created)
-        fs::result_release(created)
         if not fs::exists(temporary) {
-            cli_std_fail("cannot write " + temporary + ": " + reason)
+            cli_std_fail("cannot write " + temporary + ": " + create_reason)
             give back false
         }
         attempt += 1
