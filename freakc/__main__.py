@@ -81,6 +81,8 @@ _MODULE_FILES: dict[str, list[str]] = {
     "std::ui": ["std/ui/window.fk"],
     "std::math3d": ["std/math3d.fk"],
     "std::zip": ["std/zip.fk"],
+    "std::random": ["std/random.fk"],
+    "std::crypto": ["std/crypto.fk"],
     "cockpit": [
         # Order: containers → theme → layout → widgets → ui
         "packages/cockpit/src/containers.fk",

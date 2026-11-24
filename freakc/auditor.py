@@ -1872,6 +1872,8 @@ def audit_conformance(paths: List[Path]) -> int:
         "std::math3d": "std/math3d.fk",
         "std::version": "std/version.fk",
         "std::zip": "std/zip.fk",
+        "std::random": "std/random.fk",
+        "std::crypto": "std/crypto.fk",
     }
     runtime_c = repo / "freakc" / "runtime" / "freak_runtime.c"
     runtime_src = runtime_c.read_text(encoding="utf-8") if runtime_c.exists() else ""
@@ -2399,7 +2401,7 @@ def audit_conformance(paths: List[Path]) -> int:
         "doctor": (
             repo / "src" / "cli" / "doctor.fk",
             (
-                "modules_expected\\\": 15",
+                "modules_expected\\\": 17",
                 "files_expected\\\": 37",
                 "FREAK_V3_ABI",
                 "FREAK_V3_RUNTIME_API",

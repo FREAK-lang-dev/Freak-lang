@@ -1,0 +1,72 @@
+-- ===================================================================
+-- FREAK Standard Library — std::random (V3.5 secure floor)
+-- ===================================================================
+-- Random numbers from the operating system's secure generator
+-- (BCryptGenRandom on Windows, arc4random_buf on macOS, getrandom or
+-- /dev/urandom elsewhere). Use these for nonces, tokens, salts and keys.
+-- There is no weak fallback: if the OS refuses, the program stops.
+--
+--   use std::random::{random_secure_int, random_secure_below, random_secure_hex}
+--
+-- The bible's seeded Rng, rand(), pick() and the SecureRng shape are V4.
+-- ===================================================================
+
+extern task freak_os_random_u64() -> int
+extern task freak_os_random_fill(out: ByteBuffer, count: int) -> int
+
+-- Append `count` random bytes (0 to 1 MiB) to `out`. False, with nothing
+-- appended, for a bad count or a buffer whose status isn't 0.
+task random_secure_fill(out: ByteBuffer, count: int) -> bool {
+    give back freak_os_random_fill(out, count) == 1
+}
+
+-- 64 random bits as an int (any value, negative ones included).
+task random_secure_int() -> int {
+    give back freak_os_random_u64()
+}
+
+-- 63 random bits: an int in [0, 9223372036854775807].
+task random_secure_bits63() -> int {
+    pilot v = freak_os_random_u64()
+    if v < 0 { give back v + 9223372036854775807 + 1 }
+    give back v
+}
+
+-- A uniform int in [0, n). 0 when n <= 0. No modulo bias: draws that
+-- would land in the uneven tail of the 63-bit range are thrown away.
+task random_secure_below(n: int) -> int {
+    if n <= 0 { give back 0 }
+    pilot tail = (9223372036854775807 % n + 1) % n
+    repeat while true {
+        pilot v = random_secure_bits63()
+        if tail == 0 { give back v % n }
+        if v <= 9223372036854775807 - tail { give back v % n }
+    }
+    give back 0
+}
+
+-- A uniform int in [lo, hi). lo when hi <= lo.
+task random_secure_range(lo: int, hi: int) -> int {
+    if hi <= lo { give back lo }
+    give back lo + random_secure_below(hi - lo)
+}
+
+-- `bytes` random bytes as lowercase hex (two characters per byte).
+task random_secure_hex(bytes: int) -> word {
+    pilot digits = "0123456789abcdef"
+    pilot mut out = ""
+    pilot mut left = bytes
+    repeat while left > 0 {
+        -- seven whole bytes per 63-bit draw
+        pilot mut v = random_secure_bits63()
+        pilot mut k = 0
+        repeat while k < 7 and left > 0 {
+            pilot b = v % 256
+            v = v / 256
+            out = out + digits.substring(b / 16, 1) + digits.substring(b % 16, 1)
+            k = k + 1
+            left = left - 1
+        }
+    }
+    give back out
+}
