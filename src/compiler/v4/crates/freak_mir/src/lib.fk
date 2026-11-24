@@ -7757,11 +7757,12 @@ task v4_mir_sum_rows_are_sensitive(ty: int, definition: word, locals: int, value
     give back false
 }
 
--- Snapshot rows of a native map get: a loan of a Map local (a lend of an
--- exact Map local or place row, or an exact lend parameter local), a key
--- of the key type (a shared `lend word` of a word row for word keys), no
--- ABI, and a maybe<V> result over the map's value type. A local row must
--- name its binding exactly, as v4_mir_local_reference_is_exact requires.
+-- Snapshot rows of a native map get: a loan of a Map local (a lend or
+-- lend mut of an exact Map local or place row, or an exact lend parameter
+-- local), a key of the key type (a shared `lend word` of a word row for
+-- word keys), no ABI, and a maybe<V> result over the map's value type. A
+-- local row must name its binding exactly, as
+-- v4_mir_local_reference_is_exact requires.
 task v4_mir_map_get_row_is_valid(ty: int, values: int, locals: int, value: int) -> bool {
     pilot row: word = array_get(values, value)
     pilot args = v4_mir_snapshot_field(row, 12)
@@ -7775,11 +7776,15 @@ task v4_mir_map_get_row_is_valid(ty: int, values: int, locals: int, value: int) 
     pilot map_ty = v4_ty_canonical_type(ty, v4_ty_lend_target_type(loan_ty))
     if not v4_ty_is_generic_instance_type(map_ty) or v4_ty_generic_base_name(map_ty) != "Map" or v4_ty_generic_arg_count(map_ty) != 2 { give back false }
     pilot loan_kind = v4_mir_snapshot_field(loan_row, 4)
-    if loan_kind == v4_mir_rvalue_lend {
+    if loan_kind == v4_mir_rvalue_lend or loan_kind == v4_mir_rvalue_lend_mut {
         pilot owner = word_to_int(v4_mir_snapshot_field_raw(loan_row, 7))
         if owner < 0 or owner >= loan or v4_mir_snapshot_field_raw(loan_row, 8) != "-1" { give back false }
         if v4_ty_canonical_type(ty, v4_mir_control_row_type(values, owner)) != map_ty { give back false }
-        if v4_ty_lend_mode(loan_ty) != v4_ty_param_mode_lend { give back false }
+        -- A `lend mut` loan also serves a shared get, but its kind and its
+        -- type must agree on the mode, as v4_mir_map_loan_type requires.
+        pilot wanted_mode = v4_ty_param_mode_lend
+        if loan_kind == v4_mir_rvalue_lend_mut { wanted_mode = v4_ty_param_mode_lend_mut }
+        if v4_ty_lend_mode(loan_ty) != wanted_mode { give back false }
         pilot owner_kind = v4_mir_snapshot_field(array_get(values, owner), 4)
         if owner_kind == v4_mir_rvalue_use_local {
             if v4_mir_sum_row_local(values, locals, owner) < 0 { give back false }
