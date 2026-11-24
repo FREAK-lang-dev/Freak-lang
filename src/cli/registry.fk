@@ -391,7 +391,9 @@ task hangar_changelog_level(line: word) -> int {
         if line.char_at(count) != "#" { break }
         count += 1
     }
-    if count == 0 or count > 6 or count >= line.length() { give back 0 }
+    if count == 0 or count > 6 { give back 0 }
+    -- "##" alone is an empty heading: it still ends a section.
+    if count >= line.length() { give back count }
     pilot after = line.char_at(count)
     if after != " " and after != "\t" { give back 0 }
     give back count

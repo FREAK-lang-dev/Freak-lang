@@ -282,6 +282,8 @@ def main() -> int:
             # entry and for the heading that ends it.
             (changed / "CHANGELOG.md").write_text("## 0.2.0\n\n   ## 0.1.0\n\n* First.\n", encoding="utf-8")
             refused([hangar, "publish", "--dry-run"], changed, env, "publish with an indented next heading", "no entry for 0.2.0")
+            (changed / "CHANGELOG.md").write_text("## 0.2.0\n##\n## 0.1.0\n\n* First.\n", encoding="utf-8")
+            refused([hangar, "publish", "--dry-run"], changed, env, "publish with an empty heading after the entry", "no entry for 0.2.0")
             if len(Registry.requests) != requests:
                 raise AssertionError("a publish refused for its changelog contacted the registry")
             (changed / "CHANGELOG.md").write_text("   ## 0.2.0\n\n* Indented.\n", encoding="utf-8")
