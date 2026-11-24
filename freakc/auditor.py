@@ -2344,6 +2344,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freakc/runtime/freak_runtime_api",
                 "std/freak_abi",
                 "std/freak_std_api",
+                "std/std.toml",
             }
         )
         expected_sources.update(path.relative_to(repo).as_posix()
