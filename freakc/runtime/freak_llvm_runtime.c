@@ -1118,7 +1118,8 @@ int64_t freak_v4_shared_upgrade(void *handle) {
 }
 
 /* get_mut: the only handle (strong 1), no Weak that could upgrade (weak is
-   the implicit 1) and no live view or guard. */
+   the implicit 1) and no live view or guard. The three loads are not one
+   snapshot: this relies on native V4 refusing to share a box across sorties. */
 int64_t freak_v4_shared_unique(void *handle) {
     if (!handle) return 0;
     freak_v4_shared_header *box = (freak_v4_shared_header *)handle;
