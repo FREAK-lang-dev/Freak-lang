@@ -182,6 +182,7 @@ jobs:
           python -u tests/v3_array_rescue.py ./build/freakc_v3_stage2$EXT
           python -u tests/v3_array_torture.py ./build/freakc_v3_stage2$EXT
           python -u tests/v3_array_review_regressions.py ./build/freakc_v3_stage2$EXT
+          python -u tests/v3_list_equality_word_sharing.py ./build/freakc_v3_stage2$EXT
           python -u tests/v3_array_benchmarks.py ./build/freakc_v3_stage2$EXT --output array-benchmarks.json
 
       - name: Preserve V3 array performance evidence
@@ -638,6 +639,7 @@ jobs:
           python -u tests/v3_array_rescue.py ./build/freakc_v3_stage2$EXT
           python -u tests/v3_array_torture.py ./build/freakc_v3_stage2$EXT
           python -u tests/v3_array_review_regressions.py ./build/freakc_v3_stage2$EXT
+          python -u tests/v3_list_equality_word_sharing.py ./build/freakc_v3_stage2$EXT
           python -u tests/v3_array_benchmarks.py ./build/freakc_v3_stage2$EXT --output array-benchmarks.json
 
       - name: Preserve V3 array performance evidence

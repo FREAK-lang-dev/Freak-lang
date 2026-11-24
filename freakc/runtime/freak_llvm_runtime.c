@@ -12,6 +12,7 @@
 #include "freak_runtime.h"
 extern int64_t freak_llvm_word_adopt(int64_t pointer);
 extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
+extern void freak_llvm_word_release_assigned(int64_t previous, int64_t replacement);
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifdef _WIN32
 #include <io.h>
@@ -381,7 +382,9 @@ void freak_llvm_array_set_owned(int64_t handle, int64_t index, int64_t item) {
                 (long long)index, (long long)a->length);
         exit(1);
     }
-    freak_llvm_word_release_replaced(a->data[index], item);
+    /* Assignment semantics: a shared item equal to the old slot is a second
+       owner, so the slot's own reference is dropped. */
+    freak_llvm_word_release_assigned(a->data[index], item);
     a->data[index] = item;
 }
 

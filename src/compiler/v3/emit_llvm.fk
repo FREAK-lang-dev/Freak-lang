@@ -1252,8 +1252,9 @@ task llvm_emit_args(args: word, clone_borrowed_words: bool, param_types: word, p
                 reg = llvm_v3_retain(reg, llvm_infer_expr_type(cur_id))
             }
             if clone_borrowed_words and llvm_word_expr_needs_clone(cur_id) {
+                -- The callee owns its parameter; share instead of copying bytes.
                 pilot clone_reg = next_reg()
-                ir_call(clone_reg, "@freak_llvm_word_clone", reg + "|")
+                ir_call(clone_reg, "@freak_llvm_word_share_or_clone", reg + "|")
                 reg = clone_reg
             }
             res = res + reg + "|"
@@ -1274,7 +1275,7 @@ task llvm_emit_args(args: word, clone_borrowed_words: bool, param_types: word, p
         }
         if clone_borrowed_words and llvm_word_expr_needs_clone(cur_id) {
             pilot clone_reg = next_reg()
-            ir_call(clone_reg, "@freak_llvm_word_clone", reg + "|")
+            ir_call(clone_reg, "@freak_llvm_word_share_or_clone", reg + "|")
             reg = clone_reg
         }
         res = res + reg + "|"
@@ -1723,7 +1724,22 @@ task llvm_emit_short_circuit(val: word, left: word, right: word) -> word {
 task llvm_emit_binop(val: word, left: word, right: word, id: word) -> word {
     if val == "and" or val == "or" { give back llvm_emit_short_circuit(val, left, right) }
     pilot l_reg = llvm_emit_expr(left)
-    pilot word_order = (val == "<" or val == ">" or val == "<=" or val == ">=") and llvm_infer_expr_type(left).starts_with("w")
+    pilot left_type = llvm_infer_expr_type(left)
+    if (val == "==" or val == "!=") and left_type.starts_with("a:") {
+        -- Lists compare element by element, never by handle. Hold the left
+        -- list while the right operand runs: it may replace that binding.
+        if not llvm_v3_temporary(left) { l_reg = llvm_v3_retain(l_reg, left_type) }
+        pilot list_r_reg = llvm_emit_expr(right)
+        pilot list_res = next_reg()
+        pilot same = list_res
+        if val == "!=" { same = next_reg() }
+        ir_call(same, "@freak_v3_array_equals", l_reg + "|" + list_r_reg + "|")
+        if val == "!=" { ir_int(list_res, "sub", "1", same) }
+        llvm_v3_release(l_reg, left_type)
+        llvm_v3_cleanup_temp(right, list_r_reg)
+        give back list_res
+    }
+    pilot word_order = (val == "<" or val == ">" or val == "<=" or val == ">=") and left_type.starts_with("w")
     if word_order and not llvm_word_expr_is_owned_temporary(left) {
         pilot snapshot = next_reg()
         ir_call(snapshot, "@freak_llvm_word_clone", l_reg + "|")
@@ -1938,6 +1954,42 @@ task llvm_emit_method(expr_id: word, val: word, left: word, right: word) -> word
         llvm_v3_cleanup_temp(push_id, push_reg)
         llvm_v3_release(obj_reg, recv_ty)
         give back "0"
+    }
+    if (val == "contains" or val == "join") and recv_ty.starts_with("a:") {
+        pilot elem_ty = recv_ty.substring(2, recv_ty.length() - 2)
+        pilot arg_id = word_from_int(tc_arg_at(right, 0))
+        -- The argument may call a task that replaces a borrowed receiver.
+        if not llvm_v3_temporary(left) { obj_reg = llvm_v3_retain(obj_reg, recv_ty) }
+        pilot arg_reg = llvm_emit_expr(arg_id)
+        if val == "contains" {
+            if elem_ty == "n" { arg_reg = llvm_coerce_num_bits(arg_reg, arg_id) }
+            ir_call(res_reg, "@freak_v3_array_contains", obj_reg + "|" + arg_reg + "|")
+        } else {
+            pilot join_tag = "0"
+            if elem_ty == "n" { join_tag = "1" }
+            if elem_ty == "b" { join_tag = "2" }
+            if elem_ty == "w" { join_tag = "3" }
+            ir_call(res_reg, "@freak_llvm_v3_array_join", obj_reg + "|" + arg_reg + "|" + join_tag + "|")
+        }
+        llvm_v3_cleanup_temp(arg_id, arg_reg)
+        llvm_v3_release(obj_reg, recv_ty)
+        give back res_reg
+    }
+    if val == "split" and recv_ty.starts_with("w") {
+        pilot sep_id = word_from_int(tc_arg_at(right, 0))
+        pilot pinned = false
+        if not llvm_word_expr_is_owned_temporary(left) and not ast_expr_is_inert(sep_id) {
+            -- The separator may call a task that replaces a borrowed receiver.
+            pilot pin_reg = next_reg()
+            ir_call(pin_reg, "@freak_llvm_word_share_or_clone", obj_reg + "|")
+            obj_reg = pin_reg
+            pinned = true
+        }
+        pilot args = llvm_emit_borrowed_args(right, "", 0)
+        pilot arg_cleanup = llvm_last_borrowed_cleanup
+        ir_call(res_reg, "@freak_llvm_v3_word_split", obj_reg + "|" + args)
+        if pinned { ir_call_void("@freak_llvm_word_release_replaced", obj_reg + "|" + "0" + "|") }
+        give back llvm_finish_borrowed_method(expr_id, left, obj_reg, arg_cleanup, res_reg)
     }
     if val == "pop" and recv_ty.starts_with("a:") {
         if not llvm_v3_temporary(left) { obj_reg = llvm_v3_retain(obj_reg, recv_ty) }
@@ -3137,7 +3189,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
             }
             pilot previous_reg = next_reg()
             ir_load(previous_reg, var_ptr)
-            ir_call_void("@freak_llvm_word_release_replaced", previous_reg + "|" + stored_reg + "|")
+            ir_call_void("@freak_llvm_word_release_assigned", previous_reg + "|" + stored_reg + "|")
         }
         ir_store(stored_reg, var_ptr)
         give back
@@ -3461,6 +3513,12 @@ task llvm_emit_runtime_decls() -> void {
     ir_declare("i64", "@freak_llvm_word_append_owned", 3)
     ir_declare("i64", "@freak_llvm_word_clone", 1)
     ir_declare("void", "@freak_llvm_word_release_replaced", 2)
+    ir_declare("void", "@freak_llvm_word_release_assigned", 2)
+    ir_declare("i64", "@freak_llvm_word_share_or_clone", 1)
+    ir_declare("i64", "@freak_v3_array_equals", 2)
+    ir_declare("i64", "@freak_v3_array_contains", 2)
+    ir_declare("i64", "@freak_llvm_v3_array_join", 3)
+    ir_declare("i64", "@freak_llvm_v3_word_split", 2)
     ir_declare("i64", "@freak_llvm_word_eq", 2)
     ir_declare("i64", "@freak_llvm_word_neq", 2)
     ir_declare("i64", "@freak_llvm_word_length", 1)
@@ -3663,7 +3721,7 @@ task llvm_emit_runtime_decls() -> void {
     ir_declare("i64", "@freak_llvm_process_command_stdout_bytes", 1)
     ir_declare("i64", "@freak_llvm_process_command_stderr_bytes", 1)
 
-    llvm_declared_funcs = "|puts|printf|strlen|freak_llvm_word_from_int|freak_llvm_word_from_bool|freak_llvm_word_concat|freak_llvm_word_eq|freak_llvm_word_neq|freak_llvm_word_length|freak_llvm_word_byte_length|freak_llvm_word_checksum|freak_llvm_word_snapshot_escape|freak_llvm_word_snapshot_unescape|freak_llvm_word_snapshot_line_count|freak_llvm_word_snapshot_line|freak_llvm_word_snapshot_field_count|freak_llvm_word_snapshot_field_raw|freak_llvm_word_char_at|freak_llvm_word_substring|freak_llvm_word_contains|freak_llvm_word_starts_with|freak_llvm_word_ends_with|freak_llvm_word_to_upper|freak_llvm_word_to_lower|freak_llvm_word_trim|freak_llvm_word_replace|freak_llvm_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_window|freak_llvm_ui_destroy_window|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_event_kind|freak_llvm_ui_event_key|freak_llvm_ui_event_pressed|freak_llvm_ui_event_character|freak_llvm_ui_event_mouse_x|freak_llvm_ui_event_mouse_y|freak_llvm_ui_event_button|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_llvm_ui_stroke_rect|freak_llvm_ui_fill_circle|freak_llvm_ui_draw_line|freak_llvm_ui_draw_text|freak_llvm_ui_measure_text|freak_llvm_math_sqrt|freak_llvm_math_pow|freak_llvm_math_sin|freak_llvm_math_cos|freak_llvm_math_tan|freak_llvm_math_floor|freak_llvm_math_ceil|freak_llvm_parse_num|freak_llvm_word_parse_int|freak_llvm_word_parse_num|freak_parse_status|freak_parse_clear_status|freak_llvm_format_num|freak_llvm_array_new|freak_llvm_array_push|freak_llvm_array_get|freak_llvm_array_len|freak_llvm_array_set|freak_llvm_array_release|freak_llvm_word_compare|freak_llvm_tcp_connect|freak_llvm_tcp_send|freak_llvm_tcp_recv_all|freak_llvm_tcp_recv|freak_llvm_tcp_close|freak_llvm_time_now_ms|"
+    llvm_declared_funcs = "|puts|printf|strlen|freak_llvm_word_from_int|freak_llvm_word_from_bool|freak_llvm_word_concat|freak_llvm_word_eq|freak_llvm_word_neq|freak_llvm_word_length|freak_llvm_word_byte_length|freak_llvm_word_share_or_clone|freak_llvm_word_release_assigned|freak_v3_array_equals|freak_v3_array_contains|freak_llvm_v3_array_join|freak_llvm_v3_word_split|freak_llvm_word_checksum|freak_llvm_word_snapshot_escape|freak_llvm_word_snapshot_unescape|freak_llvm_word_snapshot_line_count|freak_llvm_word_snapshot_line|freak_llvm_word_snapshot_field_count|freak_llvm_word_snapshot_field_raw|freak_llvm_word_char_at|freak_llvm_word_substring|freak_llvm_word_contains|freak_llvm_word_starts_with|freak_llvm_word_ends_with|freak_llvm_word_to_upper|freak_llvm_word_to_lower|freak_llvm_word_trim|freak_llvm_word_replace|freak_llvm_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_window|freak_llvm_ui_destroy_window|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_event_kind|freak_llvm_ui_event_key|freak_llvm_ui_event_pressed|freak_llvm_ui_event_character|freak_llvm_ui_event_mouse_x|freak_llvm_ui_event_mouse_y|freak_llvm_ui_event_button|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_llvm_ui_stroke_rect|freak_llvm_ui_fill_circle|freak_llvm_ui_draw_line|freak_llvm_ui_draw_text|freak_llvm_ui_measure_text|freak_llvm_math_sqrt|freak_llvm_math_pow|freak_llvm_math_sin|freak_llvm_math_cos|freak_llvm_math_tan|freak_llvm_math_floor|freak_llvm_math_ceil|freak_llvm_parse_num|freak_llvm_word_parse_int|freak_llvm_word_parse_num|freak_parse_status|freak_parse_clear_status|freak_llvm_format_num|freak_llvm_array_new|freak_llvm_array_push|freak_llvm_array_get|freak_llvm_array_len|freak_llvm_array_set|freak_llvm_array_release|freak_llvm_word_compare|freak_llvm_tcp_connect|freak_llvm_tcp_send|freak_llvm_tcp_recv_all|freak_llvm_tcp_recv|freak_llvm_tcp_close|freak_llvm_time_now_ms|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_word_repeated|freak_llvm_word_join|freak_llvm_word_join_owned|freak_llvm_word_append_owned|freak_llvm_word_builder_new|freak_llvm_word_builder_with_capacity|freak_llvm_word_builder_reserve|freak_llvm_word_builder_capacity|freak_llvm_word_builder_length|freak_llvm_word_builder_clear|freak_llvm_word_builder_append|freak_llvm_word_builder_append_char|freak_llvm_word_builder_append_int|freak_llvm_word_builder_finish|freak_llvm_word_builder_discard|freak_llvm_array_push_owned|freak_llvm_array_set_owned|freak_llvm_array_release_owned|freak_llvm_fs_list_dir|freak_llvm_fs_make_dir|freak_llvm_process_env|freak_llvm_process_set_env|freak_llvm_process_pid|freak_llvm_process_input|freak_llvm_time_monotonic_ns|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_byte_buffer_new|freak_llvm_byte_buffer_with_capacity|freak_llvm_byte_buffer_release|freak_llvm_byte_buffer_status|freak_llvm_byte_buffer_clear_status|freak_llvm_byte_buffer_reserve|freak_llvm_byte_buffer_capacity|freak_llvm_byte_buffer_length|freak_llvm_byte_buffer_position|freak_llvm_byte_buffer_remaining|freak_llvm_byte_buffer_clear|freak_llvm_byte_buffer_truncate|freak_llvm_byte_buffer_seek|freak_llvm_byte_buffer_write_byte|freak_llvm_byte_buffer_write_int|freak_llvm_byte_buffer_write_int_be|freak_llvm_byte_buffer_write_word|freak_llvm_byte_buffer_read_byte|freak_llvm_byte_buffer_read_int|freak_llvm_byte_buffer_read_int_be|freak_llvm_byte_buffer_read_word|freak_llvm_byte_buffer_slice|freak_llvm_byte_buffer_to_word|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_tcp_socket_connect|freak_llvm_tcp_socket_listen|freak_llvm_tcp_socket_accept|freak_llvm_tcp_socket_status|freak_llvm_tcp_socket_eof|freak_llvm_tcp_socket_local_port|freak_llvm_tcp_socket_send|freak_llvm_tcp_socket_send_all|freak_llvm_tcp_socket_receive|freak_llvm_tcp_socket_set_timeout|freak_llvm_tcp_socket_close|"

@@ -1544,6 +1544,8 @@ task tc_internal_runtime_source(source_file: word) -> bool {
 
 task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
     if tc_is_list(receiver_type) and (name == "length" or name == "push" or name == "pop" or name == "clear" or name == "reserve" or name == "capacity") { give back true }
+    -- join/contains read scalar or word elements; V3.5 shapes have no == or text form.
+    if tc_is_list(receiver_type) and (name == "join" or name == "contains") { give back not is_shape_name(tc_list_element(receiver_type)) }
     if receiver_type == "ByteBuffer" {
         if name == "release" or name == "status" or name == "clear_status" or name == "reserve" { give back true }
         if name == "capacity" or name == "length" or name == "position" or name == "remaining" { give back true }
@@ -1563,7 +1565,7 @@ task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
         if name == "snapshot_line_count" or name == "snapshot_line" { give back true }
         if name == "snapshot_lines" { give back true }
         if name == "snapshot_field_count" or name == "snapshot_field_raw" { give back true }
-        if name == "repeated" { give back true }
+        if name == "repeated" or name == "split" { give back true }
     }
     if receiver_type == "int" and (name == "to_num" or name == "to_word") { give back true }
     if receiver_type == "num" and (name == "to_int" or name == "to_word") { give back true }
@@ -1577,6 +1579,8 @@ task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
         if name == "push" or name == "clear" or name == "reserve" { give back "void" }
         if name == "pop" { give back tc_list_element(receiver_type) }
         if name == "capacity" or name == "length" { give back "int" }
+        if name == "join" { give back "word" }
+        if name == "contains" { give back "bool" }
     }
     if receiver_type == "ByteBuffer" {
         if name == "slice" { give back "ByteBuffer" }
@@ -1586,6 +1590,7 @@ task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
         give back "void"
     }
     if name == "snapshot_lines" { give back "int" }
+    if name == "split" { give back "List<word>" }
     if name == "to_int" or name == "parse_int" or name == "length" or name == "byte_length" or name == "checksum" or name == "snapshot_line_count" or name == "snapshot_field_count" { give back "int" }
     if name == "contains" or name == "starts_with" or name == "ends_with" { give back "bool" }
     if name == "to_num" or name == "parse_num" { give back "num" }
@@ -1594,7 +1599,8 @@ task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
 
 task tc_builtin_method_params(receiver_type: word, name: word) -> word {
     if tc_is_list(receiver_type) {
-        if name == "push" { give back tc_list_element(receiver_type) }
+        if name == "push" or name == "contains" { give back tc_list_element(receiver_type) }
+        if name == "join" { give back "word" }
         if name == "reserve" { give back "int" }
         give back ""
     }
@@ -1607,7 +1613,7 @@ task tc_builtin_method_params(receiver_type: word, name: word) -> word {
     }
     if receiver_type == "word" {
         if name == "char_at" or name == "snapshot_line" or name == "snapshot_field_raw" { give back "int" }
-        if name == "contains" or name == "starts_with" or name == "ends_with" { give back "word" }
+        if name == "contains" or name == "starts_with" or name == "ends_with" or name == "split" { give back "word" }
         if name == "substring" { give back "int,int" }
         if name == "replace" { give back "word,word" }
         if name == "repeated" { give back "int" }
@@ -1628,7 +1634,7 @@ task tc_arg_count(args: word) -> int {
 
 task tc_builtin_method_arity(name: word) -> int {
     if name == "push" { give back 1 }
-    if name == "char_at" or name == "contains" or name == "starts_with" or name == "ends_with" or name == "repeated" { give back 1 }
+    if name == "char_at" or name == "contains" or name == "starts_with" or name == "ends_with" or name == "repeated" or name == "split" or name == "join" { give back 1 }
     if name == "reserve" or name == "truncate" or name == "seek" or name == "write_byte" or name == "write_int" or name == "write_int_be" or name == "write_word" or name == "read_word" { give back 1 }
     if name == "slice" { give back 2 }
     if name == "snapshot_line" or name == "snapshot_field_raw" { give back 1 }
@@ -1978,6 +1984,11 @@ task tc_validate_binop(op: word, left_id: int, right_id: int, line: int, source_
         valid = left_type == "bool" and right_type == "bool"
     } else if op == "==" or op == "!=" {
         valid = tc_types_equality_compatible(left_type, right_type)
+        -- List equality compares elements; V3.5 shapes have no element ==.
+        if valid and tc_is_list(left_type) and is_shape_name(tc_list_element(left_type)) {
+            tc_diag("operator '" + op + "' compares List elements, and " + tc_list_element(left_type) + " values have no '==' in V3.5; compare the fields you care about in a loop", line, source_file)
+            give back
+        }
     } else if op == "<" or op == ">" or op == "<=" or op == ">=" {
         valid = (tc_is_numeric(left_type) and tc_is_numeric(right_type)) or (left_type == "word" and right_type == "word")
     }
