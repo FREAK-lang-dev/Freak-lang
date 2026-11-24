@@ -1,0 +1,23 @@
+-- A `<` inside a map method argument is a comparison, not a generic
+-- argument list: set, get, remove and contains each see their arguments,
+-- and a generic constructor argument still splits correctly.
+-- expect: run
+-- exit: 14
+
+shape Box<T> { v: T }
+task main() -> int {
+    pilot a = 1
+    pilot mut m: Map<bool, int> = Map::new()
+    m.set(1 < 2, 4)
+    m.set(a > 3, 2)
+    m.set((a < 2) == (3 > a), 8)
+    pilot mut b: Map<int, Box<int>> = Map::new()
+    b.set(a + 1, Box<int> { v: a + 0 })
+    b.set(3, Box<int> { v: 4 })
+    pilot mut s: Set<bool> = Set::new()
+    s.add(a < 2)
+    pilot hit = 0
+    if s.contains(2 > a) { hit = 1 }
+    if m.remove(5 < a) { hit += 0 }
+    give back (m.get(1 < 2) or else 0) + b[3].v + m.length() + hit
+}

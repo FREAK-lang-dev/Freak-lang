@@ -1,0 +1,16 @@
+-- A map literal converts each key as its entry is evaluated: the checked
+-- int to uint conversion of the first key fails before the second entry's
+-- value runs (later() would panic with another message).
+-- expect: panic
+-- exit: nonzero
+-- panic: int to uint conversion out of range
+
+task later() -> int {
+    panic("a later map entry ran first")
+    give back 0
+}
+task main() -> int {
+    pilot k = 0 - process::args_count()
+    pilot m: Map<uint, int> = {k: 1, 2: later()}
+    give back m.length()
+}

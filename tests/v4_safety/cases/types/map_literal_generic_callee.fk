@@ -1,0 +1,14 @@
+-- A map literal passed to a generic task infers its own type: the callee's
+-- T is no expectation, even inside a caller that declares its own T.
+-- expect: run
+-- exit: 5
+
+task total<T>(m: Map<word, T>) -> int {
+    give back m.length()
+}
+task wrap<T>(x: T) -> int {
+    give back total({"k": 1, "j": 2})
+}
+task main() -> int {
+    give back wrap("w") + total({"a": true}) + total({"b": "c", "d": "e"}) - 0
+}

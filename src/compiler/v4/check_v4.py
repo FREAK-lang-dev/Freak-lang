@@ -10231,6 +10231,24 @@ EXECUTABLE_SMOKES = [
             "map-access-bad-value-write-help=element of Map<word,int> expects int but got word",
         ],
     },
+    # Snapshot admission of a native map get: valid int and word keys
+    # roundtrip; a forged key or result row is refused atomically.
+    {
+        "name": "MIR map get snapshot admission",
+        "fixture": "mir_map_get_snapshot_smoke.fk",
+        "memory_limit_mb": 64,
+        "timeout": 60,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["map-get-snapshot 0=passed valid=true restored=true fresh-module=true"],
+        "runtime_cases": [
+            {'argv': ['0'], 'expect': ['map-get-snapshot 0=passed valid=true restored=true fresh-module=true']},
+            {'argv': ['1'], 'expect': ['map-get-snapshot 1=passed forged=true live=true atomic=true no-module=true old-seal=true recovered=true']},
+            {'argv': ['2'], 'expect': ['map-get-snapshot 2=passed valid=true restored=true fresh-module=true']},
+            {'argv': ['3'], 'expect': ['map-get-snapshot 3=passed forged=true live=true atomic=true no-module=true old-seal=true recovered=true']},
+            {'argv': ['4'], 'expect': ['map-get-snapshot 4=passed forged=true live=true atomic=true no-module=true old-seal=true recovered=true']},
+        ],
+    },
     {
         "name": "MIR shape construction",
         "fixture": "mir_shape_ctor_smoke.fk",
