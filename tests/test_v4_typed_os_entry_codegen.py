@@ -585,7 +585,7 @@ class PureGateTests(unittest.TestCase):
         core = fixture_core_source_root()
         names = [name for name in gate.source_names()
                  if name.startswith("src/compiler/v4/crates/") and name.endswith("/src/lib.fk")]
-        self.assertEqual(len(names), 22)
+        self.assertEqual(len(names), 23)
         with bootstrap_fixture_types() as (Parser, TypeChecker):
             programs = [Parser.from_source((core / name).read_text()) for name in names]
             target = "v4_typed_os_contract_run"
@@ -993,7 +993,7 @@ class PureGateTests(unittest.TestCase):
                          tuple("freakc/runtime/" + name for name in (*gate.RUNTIME_SOURCES, *gate.RUNTIME_HEADERS)) + gate.RUNTIME_VENDOR_HEADERS)
         self.assertEqual(tuple((gate.ROOT / gate.BOOTSTRAP_MANIFEST).read_text().splitlines()),
                          tuple("crates/" + crate + "/src/lib.fk" for crate in gate.CRATES))
-        self.assertEqual((len(gate.CRATES), len(gate.RUNTIME_SOURCES), len(gate.RUNTIME_HEADERS), len(gate.RUNTIME_VENDOR_HEADERS)), (22, 8, 12, 6))
+        self.assertEqual((len(gate.CRATES), len(gate.RUNTIME_SOURCES), len(gate.RUNTIME_HEADERS), len(gate.RUNTIME_VENDOR_HEADERS)), (23, 8, 12, 6))
         for name in (gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST, gate.RUNTIME_INVENTORY_READER, *gate.RUNTIME_VENDOR_HEADERS):
             self.assertIn(name, names)
         self.assertNotIn("v4_typed_os_inventory", sys.modules)
