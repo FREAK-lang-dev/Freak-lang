@@ -503,7 +503,9 @@ static void service(const char *profile) {
             else if(eq(p,"/large")) {
                 freak_http_request *native=freak_http_require_request(request);int amount=1024;setsockopt(native->socket,SOL_SOCKET,SO_SNDBUF,(const char *)&amount,sizeof(amount));
                 int64_t b=freak_byte_buffer_with_capacity(262144);freak_byte_buffer_record *r=freak_byte_buffer_require(b,"large fixture");for(size_t i=0;i<262144;i++)r->data[i]=(unsigned char)((i*17+3)&255);r->length=262144;sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
-            } else if(eq(p,"/empty")) sent=H(send_text)(request,W(""));
+            } else if(eq(p,"/slow")) { freak_time_sleep(150);sent=H(send_text)(request,W("slow")); }
+            else if(eq(p,"/retained")) { char body[32];snprintf(body,sizeof(body),"%lld",(long long)H(retained_bytes)());sent=H(send_text)(request,W(body)); }
+            else if(eq(p,"/empty")) sent=H(send_text)(request,W(""));
             else if(eq(p,"/204")) { REQUIRE(H(response_status)(request,204));sent=H(send_text)(request,W("ignored")); }
             else if(eq(p,"/205")) {
                 REQUIRE(H(response_status)(request,205));
@@ -522,9 +524,10 @@ static void service(const char *profile) {
         REQUIRE(H(live_requests)()==0&&H(live_servers)()==1);
         REQUIRE(!freak_c_owned_word_count&&!freak_llvm_owned_count&&!freak_json_live_documents&&!freak_json_live_nodes);
         /* Socket, descriptor and byte ownership are exact whenever no
-           connection is still open: one may be finishing a queued write, or
-           (keep-alive) already parsing its next request body. */
-        if(!H(live_connections)()) {
+           connection is still open and no request is queued: an open one may
+           be finishing a queued write or (keep-alive) parsing its next request
+           body, and a queued rejection outlives its closed connection. */
+        if(!H(live_connections)()&&!freak_http_require_server(server)->ready_head) {
             REQUIRE(!freak_byte_buffer_live_count&&H(live_sockets)()==1);
             if(listener_fds==-2) listener_fds=fds();
             REQUIRE(fds()==listener_fds);
@@ -942,6 +945,24 @@ def keepalive_corpus(s:Server):
     finally:
         slow.close()
     s.cases+=31
+    s.checkpoint('keepalive-corpus','pipelining-does-not-starve-others')
+    # Five pipelined 150 ms requests on one connection must not hold a second
+    # client until the whole pipeline drains: it is served after at most one
+    # more pipelined turn.
+    with s.connect() as piped:
+        piped.sendall(b''.join(request('/slow') for _ in range(5)));time.sleep(.02)
+        begin=time.monotonic();assert_response(s.exchange(request('/health',headers=[('Connection','close')])),200,b'healthy')
+        waited=time.monotonic()-begin;assert waited<.6,waited
+        responses,_=read_responses(piped,5);assert [r[2] for r in responses]==[b'slow']*5,responses
+    s.cases+=6
+    s.checkpoint('keepalive-corpus','undispatched-body-is-retained')
+    # A body still being received has no request ticket yet but must count.
+    baseline=int(s.exchange(request('/retained',headers=[('Connection','close')]))[2])
+    with s.connect() as upload:
+        upload.sendall(request('/echo','POST',b'',headers=[('Content-Length','200000')])+b'u'*100000);time.sleep(.2)
+        grown=int(s.exchange(request('/retained',headers=[('Connection','close')]))[2])
+        assert grown-baseline>=100000,(baseline,grown)
+    s.cases+=2
     s.checkpoint('keepalive-corpus','connection-burst-over-cap')
     # 200 simultaneous connections against a 64-connection cap: the backlog
     # holds the rest and every client is answered.
