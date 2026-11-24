@@ -948,11 +948,11 @@ task cli_std_cmd_update(allow_minor: bool, list_only: bool) -> int {
         give back cli_std_say_problem("NO INDEX")
     }
     -- Updates move the user's selection, so compare against it, not against
-    -- a project pin; the pin is only reported.
-    cli_std_ignore_pin = true
+    -- a project pin or a build-only override; the pin is only reported.
+    cli_std_selection_only = true
     cli_std_reset()
     pilot current = cli_std_current_version()
-    cli_std_ignore_pin = false
+    cli_std_selection_only = false
     cli_std_reset()
     pilot project = cli_std_project_dir()
     pilot mut pin_path = ""
