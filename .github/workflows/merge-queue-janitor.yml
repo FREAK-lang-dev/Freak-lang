@@ -1,0 +1,53 @@
+name: Merge queue janitor
+
+# When the merge queue rebuilds its groups (a PR leaves the queue, main moves,
+# a group fails), it deletes the old gh-readonly-queue/... branches but does
+# not cancel the workflow runs it started for them. Those runs then sit in the
+# runner queue for hours testing commits that can never land. Each merge_group
+# event (a new group) and a half-hourly sweep cancel every queued or running
+# merge_group run whose branch no longer exists.
+on:
+  merge_group:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: merge-queue-janitor
+  cancel-in-progress: false
+
+jobs:
+  cancel-stale-merge-queue-runs:
+    name: Cancel stale merge queue runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel runs for deleted merge queue branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          live="$(gh api --paginate "repos/$REPO/git/matching-refs/heads/gh-readonly-queue/" --jq '.[].ref')"
+          echo "Live merge queue branches:"
+          printf '  %s\n' $live
+          cancelled=0
+          for status in queued in_progress waiting pending requested; do
+            while IFS=$'\t' read -r id branch; do
+              [[ -n "$id" ]] || continue
+              [[ "$branch" == gh-readonly-queue/* ]] || continue
+              if grep -qxF "refs/heads/$branch" <<< "$live"; then
+                continue
+              fi
+              echo "Cancelling run $id ($status) for deleted branch $branch"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null || echo "  could not cancel $id"
+              cancelled=$((cancelled + 1))
+            done < <(gh api --paginate "repos/$REPO/actions/runs?event=merge_group&status=$status&per_page=100" \
+                       --jq '.workflow_runs[] | [.id, .head_branch] | @tsv')
+          done
+          echo "Cancelled $cancelled stale merge queue run(s)."
