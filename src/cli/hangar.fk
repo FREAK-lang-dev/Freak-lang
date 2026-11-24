@@ -2664,6 +2664,7 @@ task hangar_dispatch(args_cnt: int) -> int {
         say ""
         say C_BCYAN + "    audit" + C_RESET + "                        " + C_DIM + "Verify package integrity" + C_RESET
         say C_BCYAN + "    audit" + C_RESET + " --fix                 " + C_DIM + "Fix integrity issues" + C_RESET
+        say C_BCYAN + "    std" + C_RESET + " [update|use|rollback|pin]  " + C_DIM + "Update the standard library (hangar std help)" + C_RESET
         say C_BCYAN + "    auth login" + C_RESET + "                   " + C_DIM + "Sign in to the registry (opens a device code)" + C_RESET
         say C_BCYAN + "    auth status" + C_RESET + "                  " + C_DIM + "Show who you're signed in as" + C_RESET
         say C_BCYAN + "    auth logout" + C_RESET + "                  " + C_DIM + "Revoke this machine's session" + C_RESET
@@ -2766,6 +2767,8 @@ task hangar_dispatch(args_cnt: int) -> int {
         }
         if hangar_project_reads_graph(project_dir) { give back hangar_graph_audit(project_dir, fix_mode) }
         give back hangar_audit(project_dir, fix_mode)
+    } else if subcmd == "std" {
+        give back cli_std_dispatch(args_cnt)
     } else if subcmd == "auth" {
         pilot action = "status"
         if args_cnt >= 4 { action = hangar_arg(3) }

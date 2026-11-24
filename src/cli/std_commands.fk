@@ -1,0 +1,896 @@
+-- ===================================================================
+-- hangar std: install, select, pin and roll back std bundles
+-- ===================================================================
+-- A std bundle (.fkstd) is one framed file:
+--
+--   freak-std-bundle 1
+--   file <name> <byte length>
+--   <bytes>
+--   ...
+--   end
+--
+-- It must hold std.toml, std.toml.sig and every file std.toml's [files]
+-- table lists with its SHA-256, and nothing else. std.toml.sig is the hex
+-- Ed25519 signature of "freak-std-manifest-v1\n<sha256 of std.toml>".
+--
+-- The std index (<source>/index.txt, signed the same way with the
+-- "freak-std-index-v1\n" prefix in index.txt.sig) lists published bundles:
+--
+--   freak-std-index 1
+--   serial <n>
+--   std <version> <bundle sha256> <std_api> <abi> <runtime_api> <yes|no yanked> <compiler range>
+--
+-- Bundles download from <source>/std-<version>.fkstd. The source defaults to
+-- FREAK_STD_DEFAULT_SOURCE; FREAK_STD_SOURCE overrides it.
+-- ===================================================================
+
+pilot cli_std_cmd_error = ""
+pilot cli_std_index_versions = 0
+pilot cli_std_index_shas = 0
+pilot cli_std_index_fits = 0
+pilot cli_std_index_yanked = 0
+pilot cli_std_index_serial = 0
+
+task cli_std_fail(message: word) -> void {
+    if cli_std_cmd_error == "" { cli_std_cmd_error = message }
+}
+
+-- ===================== trust =====================
+
+task cli_std_trusted_keys() -> int {
+    pilot keys = array_new()
+    pilot mut all = FREAK_STD_TRUSTED_KEYS + " " + process::env("FREAK_STD_TRUSTED_KEY")
+    pilot mut current = ""
+    pilot mut i = 0
+    repeat until i > all.length() {
+        pilot mut ch = " "
+        if i < all.length() { ch = all.char_at(i) }
+        if ch == " " or ch == "\t" or ch == "\n" or ch == "," {
+            if current.length() == 64 { array_push(keys, current.to_lower()) }
+            current = ""
+        } else {
+            current = current + ch
+        }
+        i += 1
+    }
+    give back keys
+}
+
+task cli_std_signed(message: word, signature_hex: word) -> bool {
+    pilot keys = cli_std_trusted_keys()
+    pilot mut good = false
+    pilot mut i = 0
+    repeat until i >= array_len(keys) or good {
+        if stdsig_verify(message, signature_hex.trim(), array_get(keys, i)) { good = true }
+        i += 1
+    }
+    array_release(keys)
+    give back good
+}
+
+-- ===================== files =====================
+
+task cli_std_checked(ticket: int, operation: word) -> bool {
+    pilot good = fs::result_ok(ticket)
+    if not good { cli_std_fail(operation + ": " + fs::result_error(ticket)) }
+    fs::result_release(ticket)
+    give back good
+}
+
+task cli_std_ensure_dir(path: word) -> bool {
+    if fs::exists(path) { give back true }
+    fs::make_dir(path)
+    if not fs::exists(path) {
+        cli_std_fail("cannot create " + path)
+        give back false
+    }
+    give back true
+}
+
+task cli_std_ensure_store() -> bool {
+    if hangar_registry_ensure_config_dir() == "" {
+        cli_std_fail(hangar_registry_error)
+        give back false
+    }
+    give back cli_std_ensure_dir(cli_std_home()) and cli_std_ensure_dir(cli_std_store_dir())
+}
+
+-- Replace a small text file atomically (write a sibling, then rename).
+task cli_std_write_text(path: word, content: word) -> bool {
+    pilot temporary = path + ".new"
+    if fs::exists(temporary) { fs::result_release(fs::remove_checked(temporary)) }
+    pilot bytes = ByteBuffer::new()
+    bytes.write_word(content)
+    pilot good = cli_std_checked(fs::write_bytes_checked(temporary, bytes), "cannot write " + temporary)
+    bytes.release()
+    if not good { give back false }
+    give back cli_std_checked(fs::rename_checked(temporary, path), "cannot replace " + path)
+}
+
+task cli_std_history() -> int {
+    pilot versions = array_new()
+    pilot path = cli_host_path_join(cli_std_home(), "history")
+    if not fs::exists(path) { give back versions }
+    pilot text = fs::read(path)
+    pilot mut position = 0
+    repeat until position >= text.length() {
+        pilot line = toml_get_line(text, position).replace("\r", "").trim()
+        position = toml_line_end(text, position)
+        if line == "bundled" or cli_std_valid_version(line) { array_push(versions, line) }
+    }
+    give back versions
+}
+
+-- Select a version ("bundled" for the compiler's own std) and remember the
+-- previous selection for rollback.
+task cli_std_select(version: word, remember: bool) -> bool {
+    if not cli_std_ensure_store() { give back false }
+    pilot mut previous = cli_std_selected_version()
+    if previous == "" { previous = "bundled" }
+    if remember and previous != version {
+        pilot history = cli_std_history()
+        pilot mut text = previous + "\n"
+        pilot mut i = 0
+        repeat until i >= array_len(history) or i >= 20 {
+            text = text + array_get(history, i) + "\n"
+            i += 1
+        }
+        array_release(history)
+        if not cli_std_write_text(cli_host_path_join(cli_std_home(), "history"), text) { give back false }
+    }
+    pilot good = cli_std_write_text(cli_host_path_join(cli_std_home(), "selected"), "version = \"" + version + "\"\n")
+    cli_std_reset()
+    give back good
+}
+
+-- ===================== bundles =====================
+
+task cli_std_bundle_line(bytes: ByteBuffer) -> word {
+    pilot line = ByteBuffer::new()
+    pilot mut count = 0
+    repeat until bytes.remaining() == 0 or count > 512 {
+        pilot value = bytes.read_byte()
+        if value == 10 { break }
+        line.write_byte(value)
+        count += 1
+    }
+    pilot text = line.to_word()
+    line.release()
+    give back text
+}
+
+task cli_std_manifest_message(manifest_sha: word) -> word {
+    give back "freak-std-manifest-v1\n" + manifest_sha
+}
+
+task cli_std_index_message(index_sha: word) -> word {
+    give back "freak-std-index-v1\n" + index_sha
+}
+
+-- Verify a bundle file and install it into the store. Returns its version,
+-- or "" with cli_std_cmd_error set. expected_sha is the index's SHA-256 for
+-- the whole bundle ("" for a local file).
+task cli_std_install_bundle(path: word, expected_sha: word) -> word {
+    pilot read = fs::read_bytes_limit_ticket(path, FREAK_STD_BUNDLE_LIMIT)
+    if not fs::result_ok(read) {
+        cli_std_fail("cannot read " + path + ": " + fs::result_error(read))
+        fs::result_release(read)
+        give back ""
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot installed = cli_std_install_bytes(bytes, expected_sha)
+    bytes.release()
+    give back installed
+}
+
+task cli_std_install_bytes(bytes: ByteBuffer, expected_sha: word) -> word {
+    if expected_sha != "" and fs::sha256_bytes(bytes) != expected_sha {
+        cli_std_fail("the downloaded bundle does not match the index's SHA-256")
+        give back ""
+    }
+    bytes.seek(0)
+    if cli_std_bundle_line(bytes) != "freak-std-bundle 1" {
+        cli_std_fail("not a FREAK std bundle")
+        give back ""
+    }
+    pilot names = array_new()
+    pilot starts = array_new()
+    pilot lengths = array_new()
+    pilot mut finished = false
+    repeat until finished or cli_std_cmd_error != "" {
+        pilot header = cli_std_bundle_line(bytes)
+        if header == "end" {
+            finished = true
+        } else if header.starts_with("file ") {
+            pilot rest = header.substring(5, header.length() - 5)
+            pilot space = cli_std_space_at(rest)
+            pilot name = rest.substring(0, space)
+            pilot length_text = rest.substring(space + 1, rest.length() - space - 1)
+            if space <= 0 or not stdm_valid_file(name) or not hangar_registry_digits(length_text) or length_text.length() > 9 {
+                cli_std_fail("bad bundle entry: " + header)
+            } else {
+                pilot length = word_to_int(length_text)
+                pilot start = bytes.position()
+                if length > bytes.remaining() {
+                    cli_std_fail("bundle entry " + name + " is truncated")
+                } else {
+                    pilot mut seen = false
+                    pilot mut i = 0
+                    repeat until i >= array_len(names) {
+                        pilot other: word = array_get(names, i)
+                        if other == name { seen = true }
+                        i += 1
+                    }
+                    if seen { cli_std_fail("bundle lists " + name + " twice") }
+                    array_push(names, name)
+                    array_push(starts, word_from_int(start))
+                    array_push(lengths, word_from_int(length))
+                    bytes.seek(start + length)
+                    if bytes.remaining() == 0 or bytes.read_byte() != 10 { cli_std_fail("bundle entry " + name + " is not terminated") }
+                }
+            }
+        } else {
+            cli_std_fail("bad bundle line: " + header)
+        }
+    }
+    if cli_std_cmd_error == "" and bytes.remaining() != 0 { cli_std_fail("bundle has data after its end marker") }
+    pilot mut installed = ""
+    if cli_std_cmd_error == "" { installed = cli_std_install_frames(bytes, names, starts, lengths) }
+    array_release(names)
+    array_release(starts)
+    array_release(lengths)
+    give back installed
+}
+
+task cli_std_frame_index(names: int, name: word) -> int {
+    pilot mut i = 0
+    repeat until i >= array_len(names) {
+        pilot other: word = array_get(names, i)
+        if other == name { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task cli_std_frame(bytes: ByteBuffer, starts: int, lengths: int, index: int) -> ByteBuffer {
+    give back bytes.slice(word_to_int(array_get(starts, index)), word_to_int(array_get(lengths, index)))
+}
+
+task cli_std_install_frames(bytes: ByteBuffer, names: int, starts: int, lengths: int) -> word {
+    pilot manifest_index = cli_std_frame_index(names, "std.toml")
+    pilot signature_index = cli_std_frame_index(names, "std.toml.sig")
+    if manifest_index < 0 or signature_index < 0 {
+        cli_std_fail("bundle needs std.toml and std.toml.sig")
+        give back ""
+    }
+    pilot manifest_bytes = cli_std_frame(bytes, starts, lengths, manifest_index)
+    pilot manifest_sha = fs::sha256_bytes(manifest_bytes)
+    pilot manifest_text = manifest_bytes.to_word()
+    manifest_bytes.release()
+    pilot signature_bytes = cli_std_frame(bytes, starts, lengths, signature_index)
+    pilot signature = signature_bytes.to_word().trim()
+    signature_bytes.release()
+    if not cli_std_signed(cli_std_manifest_message(manifest_sha), signature) {
+        cli_std_fail("std.toml is not signed by a FREAK release key")
+        give back ""
+    }
+    pilot manifest = stdm_parse(manifest_text)
+    pilot problem = cli_std_fit_problem(manifest)
+    cli_std_last_error = ""
+    pilot version = stdm_get(manifest, "std.version")
+    if problem != "" {
+        array_release(manifest)
+        cli_std_fail("std " + version + " does not fit this compiler: " + problem)
+        give back ""
+    }
+    -- Every frame but the metadata must be listed with its hash, and every
+    -- unpinned module's file must be present. Pinned modules never travel.
+    pilot mut i = 0
+    repeat until i >= array_len(names) or cli_std_cmd_error != "" {
+        pilot name: word = array_get(names, i)
+        if name != "std.toml" and name != "std.toml.sig" {
+            pilot expected = stdm_get(manifest, "files." + name)
+            pilot frame = cli_std_frame(bytes, starts, lengths, i)
+            pilot actual = fs::sha256_bytes(frame)
+            frame.release()
+            if expected == "" { cli_std_fail("bundle file " + name + " is not listed in std.toml") }
+            else if expected != actual { cli_std_fail("bundle file " + name + " does not match std.toml") }
+        }
+        i += 1
+    }
+    pilot listed = stdm_section_names(manifest, "files")
+    i = 0
+    repeat until i >= array_len(listed) or cli_std_cmd_error != "" {
+        pilot name: word = array_get(listed, i)
+        if cli_std_frame_index(names, name) < 0 { cli_std_fail("std.toml lists " + name + ", which the bundle lacks") }
+        i += 1
+    }
+    array_release(listed)
+    pilot modules = stdm_section_names(manifest, "modules")
+    i = 0
+    repeat until i >= array_len(modules) or cli_std_cmd_error != "" {
+        pilot name: word = array_get(modules, i)
+        pilot file = stdm_module_file(stdm_get(manifest, "modules." + name))
+        pilot present = cli_std_frame_index(names, file) >= 0
+        if cli_std_is_pinned(name) and present { cli_std_fail("bundle may not carry pinned module " + name) }
+        if not cli_std_is_pinned(name) and not present { cli_std_fail("bundle lacks module " + name + " (" + file + ")") }
+        i += 1
+    }
+    array_release(modules)
+    array_release(manifest)
+    if cli_std_cmd_error != "" { give back "" }
+    if not cli_std_ensure_store() { give back "" }
+
+    pilot final_dir = cli_std_version_dir(version)
+    if fs::exists(final_dir) {
+        if cli_std_stored_problem(version) == "" and cli_std_file_sha256(cli_host_path_join(final_dir, "std.toml")) == manifest_sha { give back version }
+        cli_std_fail("a different or damaged std " + version + " is already in " + final_dir + "; remove it first (hangar std prune --all)")
+        give back ""
+    }
+    pilot stage = fs::temp_dir(cli_std_store_dir(), ".std-install-")
+    if not fs::result_ok(stage) {
+        cli_std_fail("cannot stage std " + version + ": " + fs::result_error(stage))
+        fs::result_release(stage)
+        give back ""
+    }
+    pilot stage_dir = fs::result_word(stage)
+    i = 0
+    repeat until i >= array_len(names) or cli_std_cmd_error != "" {
+        pilot name: word = array_get(names, i)
+        if name.contains("/") {
+            pilot sub = cli_host_path_join(stage_dir, name.substring(0, cli_std_slash_at(name)))
+            if not fs::exists(sub) { cli_std_checked(fs::mkdir_checked(sub), "cannot create " + sub) }
+        }
+        pilot frame = cli_std_frame(bytes, starts, lengths, i)
+        cli_std_checked(fs::write_bytes_checked(cli_host_path_join(stage_dir, name.replace("/", cli_std_separator())), frame), "cannot write " + name)
+        frame.release()
+        i += 1
+    }
+    if cli_std_cmd_error == "" {
+        pilot stamp = ByteBuffer::new()
+        stamp.write_word("manifest_sha256 = \"" + manifest_sha + "\"\n")
+        cli_std_checked(fs::write_bytes_checked(cli_host_path_join(stage_dir, ".verified"), stamp), "cannot write the install stamp")
+        stamp.release()
+    }
+    if cli_std_cmd_error == "" {
+        pilot moved = fs::rename_new_checked(stage_dir, final_dir)
+        if fs::result_completed(moved) {
+            fs::result_release(moved)
+            fs::result_release(stage)
+            give back version
+        }
+        cli_std_checked(moved, "cannot publish std " + version)
+    }
+    fs::result_release(fs::remove_temp_dir_checked(stage))
+    fs::result_release(stage)
+    give back ""
+}
+
+task cli_std_slash_at(text: word) -> int {
+    pilot mut i = 0
+    repeat until i >= text.length() {
+        if text.char_at(i) == "/" { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+-- Installed versions, unsorted.
+task cli_std_installed() -> int {
+    pilot versions = array_new()
+    pilot listing = fs::list_dir_checked(cli_std_store_dir())
+    if fs::result_ok(listing) {
+        pilot mut i = 0
+        repeat until i >= fs::result_count(listing) {
+            pilot name = fs::result_entry(listing, i)
+            if cli_std_valid_version(name) { array_push(versions, name) }
+            i += 1
+        }
+    }
+    fs::result_release(listing)
+    give back versions
+}
+
+task cli_std_remove_version(version: word) -> bool {
+    pilot dir = cli_std_version_dir(version)
+    pilot listing = fs::list_dir_checked(dir)
+    pilot mut good = fs::result_ok(listing)
+    if good {
+        pilot mut i = 0
+        repeat until i >= fs::result_count(listing) {
+            pilot name = fs::result_entry(listing, i)
+            pilot path = cli_host_path_join(dir, name)
+            -- Bundles hold at most one folder level (ui/ and the like).
+            pilot inner = fs::list_dir_checked(path)
+            if fs::result_ok(inner) {
+                pilot mut j = 0
+                repeat until j >= fs::result_count(inner) {
+                    fs::result_release(fs::remove_checked(cli_host_path_join(path, fs::result_entry(inner, j))))
+                    j += 1
+                }
+                fs::result_release(fs::rmdir_checked(path))
+            } else {
+                fs::result_release(fs::remove_checked(path))
+            }
+            fs::result_release(inner)
+            i += 1
+        }
+    }
+    fs::result_release(listing)
+    if good { good = cli_std_checked(fs::rmdir_checked(dir), "cannot remove " + dir) }
+    give back good
+}
+
+-- ===================== index =====================
+
+task cli_std_source() -> word {
+    pilot mut base = process::env("FREAK_STD_SOURCE").trim()
+    if base == "" { base = FREAK_STD_DEFAULT_SOURCE }
+    repeat while base.ends_with("/") { base = base.substring(0, base.length() - 1) }
+    give back base
+}
+
+task cli_std_index_release() -> void {
+    if cli_std_index_versions != 0 {
+        array_release(cli_std_index_versions)
+        array_release(cli_std_index_shas)
+        array_release(cli_std_index_fits)
+        array_release(cli_std_index_yanked)
+    }
+    cli_std_index_versions = 0
+}
+
+-- Split a line on single spaces (no empty fields).
+task cli_std_fields(line: word) -> int {
+    pilot fields = array_new()
+    pilot mut current = ""
+    pilot mut i = 0
+    repeat until i > line.length() {
+        pilot mut ch = " "
+        if i < line.length() { ch = line.char_at(i) }
+        if ch == " " {
+            if current != "" { array_push(fields, current) }
+            current = ""
+        } else {
+            current = current + ch
+        }
+        i += 1
+    }
+    give back fields
+}
+
+-- Download and verify the signed index into cli_std_index_* arrays.
+task cli_std_fetch_index(scratch_dir: word) -> bool {
+    cli_std_index_release()
+    pilot base = cli_std_source()
+    pilot index_path = cli_host_path_join(scratch_dir, "index.txt")
+    pilot sig_path = cli_host_path_join(scratch_dir, "index.txt.sig")
+    if not hangar_registry_request("GET", base + "/index.txt", scratch_dir, "", index_path, false) {
+        cli_std_fail(hangar_registry_error)
+        give back false
+    }
+    if hangar_registry_status == 404 {
+        cli_std_fail("no std index is published at " + base + " yet")
+        give back false
+    }
+    if hangar_registry_status != 200 {
+        cli_std_fail("std index request returned HTTP " + word_from_int(hangar_registry_status))
+        give back false
+    }
+    if not hangar_registry_request("GET", base + "/index.txt.sig", scratch_dir, "", sig_path, false) or hangar_registry_status != 200 {
+        cli_std_fail("the std index has no signature at " + base + "/index.txt.sig")
+        give back false
+    }
+    pilot read = fs::read_bytes_limit_ticket(index_path, 1048576)
+    if not fs::result_ok(read) {
+        cli_std_fail("cannot read the std index: " + fs::result_error(read))
+        fs::result_release(read)
+        give back false
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot digest = fs::sha256_bytes(bytes)
+    pilot text = bytes.to_word()
+    bytes.release()
+    if not cli_std_signed(cli_std_index_message(digest), fs::read(sig_path).trim()) {
+        cli_std_fail("the std index is not signed by a FREAK release key")
+        give back false
+    }
+    cli_std_index_versions = array_new()
+    cli_std_index_shas = array_new()
+    cli_std_index_fits = array_new()
+    cli_std_index_yanked = array_new()
+    cli_std_index_serial = 0 - 1
+    pilot mut position = 0
+    pilot mut first = true
+    repeat until position >= text.length() or cli_std_cmd_error != "" {
+        pilot line = toml_get_line(text, position).replace("\r", "").trim()
+        position = toml_line_end(text, position)
+        if first {
+            if line != "freak-std-index 1" { cli_std_fail("unknown std index format") }
+            first = false
+        } else if line == "" or line.starts_with("#") {
+            -- skip
+        } else {
+            pilot fields = cli_std_fields(line)
+            pilot kind: word = ""
+            if array_len(fields) > 0 { kind = array_get(fields, 0) }
+            if kind == "serial" and array_len(fields) == 2 and hangar_registry_digits(array_get(fields, 1)) and array_get(fields, 1).length() <= 12 {
+                cli_std_index_serial = word_to_int(array_get(fields, 1))
+            } else if kind == "std" and array_len(fields) >= 8 {
+                pilot version: word = array_get(fields, 1)
+                pilot sha: word = array_get(fields, 2)
+                pilot mut range = ""
+                pilot mut f = 7
+                repeat until f >= array_len(fields) {
+                    if range != "" { range = range + " " }
+                    range = range + array_get(fields, f)
+                    f += 1
+                }
+                if cli_std_valid_version(version) and stdsig_hex_bytes(sha, 32).length() == 32 {
+                    pilot entry = stdm_parse("[std]\nversion = \"" + version + "\"\nstd_api = \"" + array_get(fields, 3) + "\"\nabi = \"" + array_get(fields, 4) + "\"\nruntime_api = \"" + array_get(fields, 5) + "\"\ncompiler = \"" + range + "\"\n[modules]\nruntime = \"llvm runtime.fk\"\nui = \"use ui/window.fk\"\nhttp_server = \"use http_server.fk\"\n")
+                    pilot fit = cli_std_fit_problem(entry)
+                    cli_std_last_error = ""
+                    array_release(entry)
+                    array_push(cli_std_index_versions, version)
+                    array_push(cli_std_index_shas, sha.to_lower())
+                    array_push(cli_std_index_fits, fit)
+                    array_push(cli_std_index_yanked, array_get(fields, 6))
+                }
+            }
+            array_release(fields)
+        }
+    }
+    if cli_std_cmd_error != "" { give back false }
+    if cli_std_index_serial < 0 {
+        cli_std_fail("the std index has no serial")
+        give back false
+    }
+    pilot seen = cli_std_read_value(cli_host_path_join(cli_std_home(), "index-serial"), "serial")
+    if seen != "" and hangar_registry_digits(seen) and word_to_int(seen) > cli_std_index_serial {
+        cli_std_fail("the std index is older than one already seen (serial " + word_from_int(cli_std_index_serial) + " < " + seen + "); refusing a rollback")
+        give back false
+    }
+    if cli_std_ensure_store() { cli_std_write_text(cli_host_path_join(cli_std_home(), "index-serial"), "serial = \"" + word_from_int(cli_std_index_serial) + "\"\n") }
+    give back true
+}
+
+task cli_std_index_yanked_version(version: word) -> bool {
+    if cli_std_index_versions == 0 { give back false }
+    pilot mut i = 0
+    repeat until i >= array_len(cli_std_index_versions) {
+        pilot listed: word = array_get(cli_std_index_versions, i)
+        pilot yanked: word = array_get(cli_std_index_yanked, i)
+        if listed == version and yanked == "yes" { give back true }
+        i += 1
+    }
+    give back false
+}
+
+-- ===================== commands =====================
+
+task cli_std_current_version() -> word {
+    cli_std_resolve()
+    give back cli_std_active_version
+}
+
+task cli_std_say_problem(prefix: word) -> int {
+    say "  " + C_BRED + prefix + C_RESET + " " + cli_std_cmd_error
+    give back 1
+}
+
+task cli_std_status() -> int {
+    cli_std_search_cwd = true
+    cli_std_reset()
+    pilot resolved = cli_std_resolve()
+    say ""
+    say C_BMAGENTA + "  STANDARD LIBRARY" + C_RESET
+    say "  Bundled:  std " + cli_std_bundled_version + C_DIM + "  " + cli_find_std_dir() + C_RESET
+    pilot selected = cli_std_selected_version()
+    if selected != "" and selected != "bundled" { say "  Selected: std " + selected }
+    if cli_std_pin_file != "" { say "  Pinned:   std " + cli_std_read_value(cli_std_pin_file, "version") + C_DIM + "  " + cli_std_pin_file + C_RESET }
+    if resolved {
+        pilot mut why = cli_std_active_source
+        if why == "checkout" { why = "this compiler runs from a checkout, which always uses its own std" }
+        if why == "override" { why = "FREAK_STD=bundled" }
+        say "  Active:   std " + cli_std_active_version + C_DIM + "  (" + why + ")" + C_RESET
+    } else {
+        say "  " + C_BRED + "Active:   none" + C_RESET + "  " + cli_std_error
+    }
+    if cli_std_notice != "" { say "  " + C_BYELLOW + cli_std_notice + C_RESET }
+    pilot installed = cli_std_installed()
+    if array_len(installed) > 0 {
+        pilot mut list_text = ""
+        pilot mut i = 0
+        repeat until i >= array_len(installed) {
+            if list_text != "" { list_text = list_text + ", " }
+            list_text = list_text + array_get(installed, i)
+            i += 1
+        }
+        say "  Stored:   " + list_text + C_DIM + "  " + cli_std_store_dir() + C_RESET
+    }
+    array_release(installed)
+    if process::env("FREAK_STD_TRUSTED_KEY") != "" { say "  " + C_BYELLOW + "FREAK_STD_TRUSTED_KEY is set: bundles signed by that extra key are accepted." + C_RESET }
+    pilot keys = cli_std_trusted_keys()
+    if array_len(keys) == 0 { say C_DIM + "  This compiler has no std signing key, so it cannot take std updates." + C_RESET }
+    array_release(keys)
+    say ""
+    give back 0
+}
+
+task cli_std_cmd_install(path: word) -> int {
+    cli_std_cmd_error = ""
+    say "  Verifying " + path + C_DIM + " (signature check takes a moment)" + C_RESET
+    pilot version = cli_std_install_bundle(path, "")
+    if version == "" { give back cli_std_say_problem("NOT INSTALLED") }
+    if not cli_std_select(version, true) { give back cli_std_say_problem("INSTALLED, NOT SELECTED") }
+    say "  " + C_BGREEN + "std " + version + C_RESET + " installed and selected. Undo with: hangar std rollback"
+    give back 0
+}
+
+task cli_std_cmd_use(version: word) -> int {
+    cli_std_cmd_error = ""
+    if version != "bundled" {
+        pilot problem = cli_std_stored_problem(version)
+        if problem != "" {
+            cli_std_cmd_error = problem
+            give back cli_std_say_problem("CANNOT USE")
+        }
+    }
+    if not cli_std_select(version, true) { give back cli_std_say_problem("NOT CHANGED") }
+    if version == "bundled" { say "  Builds now use the bundled std " + cli_std_current_version() + "." }
+    else { say "  Builds now use std " + version + "." }
+    give back 0
+}
+
+task cli_std_cmd_rollback() -> int {
+    cli_std_cmd_error = ""
+    pilot history = cli_std_history()
+    if array_len(history) == 0 {
+        array_release(history)
+        say "  No earlier std selection to return to."
+        give back 1
+    }
+    pilot target: word = array_get(history, 0)
+    pilot mut rest = ""
+    pilot mut i = 1
+    repeat until i >= array_len(history) {
+        rest = rest + array_get(history, i) + "\n"
+        i += 1
+    }
+    array_release(history)
+    if target != "bundled" {
+        pilot problem = cli_std_stored_problem(target)
+        if problem != "" {
+            cli_std_cmd_error = problem
+            give back cli_std_say_problem("CANNOT ROLL BACK")
+        }
+    }
+    if not cli_std_select(target, false) { give back cli_std_say_problem("NOT CHANGED") }
+    cli_std_write_text(cli_host_path_join(cli_std_home(), "history"), rest)
+    say "  Rolled back. Builds now use std " + cli_std_current_version() + "."
+    give back 0
+}
+
+task cli_std_cmd_pin(requested: word) -> int {
+    cli_std_cmd_error = ""
+    cli_std_search_cwd = true
+    pilot project = cli_std_project_dir()
+    if project == "" {
+        say "  No hangar.toml here or above; std pins belong to a project."
+        give back 1
+    }
+    pilot lock = cli_host_path_join(project, "std.lock")
+    pilot mut version = requested
+    if version == "" {
+        -- Pin what this project builds with now, ignoring an existing pin.
+        if fs::exists(lock) { fs::result_release(fs::remove_checked(lock)) }
+        cli_std_reset()
+        if not cli_std_resolve() {
+            say "  " + cli_std_error
+            give back 1
+        }
+        version = cli_std_active_version
+        if cli_std_active_dir == cli_find_std_dir() { version = "bundled" }
+    }
+    pilot mut content = "# Standard library pin for this project, written by 'hangar std pin'. Commit it.\n"
+    if version == "bundled" or version == cli_std_bundled_version {
+        content = content + "version = \"bundled\"\n"
+        version = "bundled"
+    } else {
+        pilot problem = cli_std_stored_problem(version)
+        if problem != "" {
+            cli_std_cmd_error = problem
+            give back cli_std_say_problem("NOT PINNED")
+        }
+        content = content + "version = \"" + version + "\"\nmanifest_sha256 = \"" + cli_std_file_sha256(cli_host_path_join(cli_std_version_dir(version), "std.toml")) + "\"\n"
+    }
+    if not cli_std_write_text(lock, content) { give back cli_std_say_problem("NOT PINNED") }
+    if version == "bundled" { say "  Pinned this project to the bundled std (" + lock + ")." }
+    else { say "  Pinned this project to std " + version + " (" + lock + ")." }
+    give back 0
+}
+
+task cli_std_cmd_unpin() -> int {
+    cli_std_search_cwd = true
+    pilot project = cli_std_project_dir()
+    if project == "" or not fs::exists(cli_host_path_join(project, "std.lock")) {
+        say "  This project has no std pin."
+        give back 0
+    }
+    cli_std_cmd_error = ""
+    if not cli_std_checked(fs::remove_checked(cli_host_path_join(project, "std.lock")), "cannot remove std.lock") { give back cli_std_say_problem("NOT REMOVED") }
+    say "  Removed the std pin; builds follow your selected std again."
+    give back 0
+}
+
+task cli_std_cmd_prune(keep: int) -> int {
+    cli_std_cmd_error = ""
+    cli_std_search_cwd = true
+    pilot installed = cli_std_installed()
+    pilot selected = cli_std_selected_version()
+    pilot mut pinned = ""
+    pilot project = cli_std_project_dir()
+    if project != "" { pinned = cli_std_read_value(cli_host_path_join(project, "std.lock"), "version") }
+    -- Keep the newest `keep` versions plus the selected and pinned ones.
+    pilot mut removed = 0
+    pilot mut i = 0
+    repeat until i >= array_len(installed) {
+        pilot version: word = array_get(installed, i)
+        pilot mut newer = 0
+        pilot mut j = 0
+        repeat until j >= array_len(installed) {
+            if ver_gt(ver_parse(array_get(installed, j)), ver_parse(version)) { newer += 1 }
+            j += 1
+        }
+        if newer >= keep and version != selected and version != pinned {
+            if cli_std_remove_version(version) {
+                say "  Removed std " + version
+                removed += 1
+            }
+        }
+        i += 1
+    }
+    array_release(installed)
+    if cli_std_cmd_error != "" { give back cli_std_say_problem("PRUNE INCOMPLETE") }
+    if removed == 0 { say "  Nothing to prune." }
+    give back 0
+}
+
+task cli_std_cmd_update(allow_minor: bool, list_only: bool) -> int {
+    cli_std_cmd_error = ""
+    pilot keys = cli_std_trusted_keys()
+    pilot key_count = array_len(keys)
+    array_release(keys)
+    if key_count == 0 {
+        say "  This compiler has no std signing key, so it cannot take std updates."
+        give back 1
+    }
+    pilot scratch = hangar_registry_scratch(".std-")
+    if scratch == 0 {
+        say "  " + hangar_registry_error
+        give back 1
+    }
+    pilot scratch_dir = fs::result_word(scratch)
+    if not cli_std_fetch_index(scratch_dir) {
+        hangar_registry_discard(scratch)
+        give back cli_std_say_problem("NO INDEX")
+    }
+    pilot current = cli_std_current_version()
+    pilot current_parsed = ver_parse(current)
+    if list_only {
+        say ""
+        say C_BMAGENTA + "  STD BUNDLES" + C_RESET + C_DIM + "  " + cli_std_source() + "  (serial " + word_from_int(cli_std_index_serial) + ")" + C_RESET
+        pilot mut i = 0
+        repeat until i >= array_len(cli_std_index_versions) {
+            pilot version: word = array_get(cli_std_index_versions, i)
+            pilot fit: word = array_get(cli_std_index_fits, i)
+            pilot mut note = C_BGREEN + "fits" + C_RESET
+            if fit != "" { note = C_DIM + "does not fit: " + fit + C_RESET }
+            if array_get(cli_std_index_yanked, i) == "yes" { note = C_BRED + "yanked" + C_RESET }
+            if version == current { note = note + C_DIM + "  (active)" + C_RESET }
+            say "  std " + version + "  " + note
+            i += 1
+        }
+        say ""
+        hangar_registry_discard(scratch)
+        give back 0
+    }
+    pilot mut best = ""
+    pilot mut best_sha = ""
+    pilot mut skipped_minor = ""
+    pilot mut i = 0
+    repeat until i >= array_len(cli_std_index_versions) {
+        pilot version: word = array_get(cli_std_index_versions, i)
+        pilot parsed = ver_parse(version)
+        pilot fit: word = array_get(cli_std_index_fits, i)
+        pilot yanked: word = array_get(cli_std_index_yanked, i)
+        if fit == "" and yanked != "yes" and ver_gt(parsed, current_parsed) and ver_pre(parsed) == "" {
+            pilot same_line = ver_major(parsed) == ver_major(current_parsed) and ver_minor(parsed) == ver_minor(current_parsed)
+            if same_line or allow_minor {
+                if best == "" or ver_gt(parsed, ver_parse(best)) {
+                    best = version
+                    best_sha = array_get(cli_std_index_shas, i)
+                }
+            } else if skipped_minor == "" or ver_gt(parsed, ver_parse(skipped_minor)) {
+                skipped_minor = version
+            }
+        }
+        i += 1
+    }
+    if best == "" {
+        say "  std " + current + " is the newest that fits this compiler."
+        if skipped_minor != "" { say C_DIM + "  std " + skipped_minor + " adds new names; take it with: hangar std update --minor" + C_RESET }
+        if cli_std_index_yanked_version(current) { say "  " + C_BYELLOW + "std " + current + " was yanked; switch with: hangar std use bundled" + C_RESET }
+        hangar_registry_discard(scratch)
+        give back 0
+    }
+    pilot bundle_path = cli_host_path_join(scratch_dir, "bundle.fkstd")
+    say "  Downloading std " + best + C_DIM + "  " + cli_std_source() + "/std-" + best + ".fkstd" + C_RESET
+    if not hangar_registry_request("GET", cli_std_source() + "/std-" + best + ".fkstd", scratch_dir, "", bundle_path, false) or hangar_registry_status != 200 {
+        if hangar_registry_error != "" { cli_std_fail(hangar_registry_error) } else { cli_std_fail("bundle download returned HTTP " + word_from_int(hangar_registry_status)) }
+        hangar_registry_discard(scratch)
+        give back cli_std_say_problem("NOT UPDATED")
+    }
+    say C_DIM + "  Verifying the signature..." + C_RESET
+    pilot installed = cli_std_install_bundle(bundle_path, best_sha)
+    hangar_registry_discard(scratch)
+    if installed == "" { give back cli_std_say_problem("NOT UPDATED") }
+    if not cli_std_select(installed, true) { give back cli_std_say_problem("INSTALLED, NOT SELECTED") }
+    say "  " + C_BGREEN + "std " + current + " -> " + installed + C_RESET + ". Undo with: hangar std rollback"
+    if cli_std_pin_file != "" { say C_DIM + "  This project still pins its std in " + cli_std_pin_file + "; move it with: hangar std pin" + C_RESET }
+    give back 0
+}
+
+task cli_std_usage() -> int {
+    say "Usage: hangar std [status]               show bundled, selected, pinned and active std"
+    say "       hangar std update [--minor]       install and select the newest std that fits"
+    say "       hangar std list                   std bundles the index offers"
+    say "       hangar std install <file.fkstd>   install and select a downloaded bundle"
+    say "       hangar std use <version|bundled>  select a stored std"
+    say "       hangar std rollback               return to the previous selection"
+    say "       hangar std pin [version|bundled]  pin this project's std in std.lock"
+    say "       hangar std unpin                  remove this project's pin"
+    say "       hangar std prune [--keep N]       keep the newest N stored versions (default 5)"
+    give back 1
+}
+
+task cli_std_dispatch(args_cnt: int) -> int {
+    pilot mut action = "status"
+    if args_cnt >= 4 { action = hangar_arg(3) }
+    pilot mut argument = ""
+    if args_cnt >= 5 { argument = hangar_arg(4) }
+    if action == "status" { give back cli_std_status() }
+    if action == "update" {
+        if argument != "" and argument != "--minor" { give back cli_std_usage() }
+        give back cli_std_cmd_update(argument == "--minor", false)
+    }
+    if action == "list" { give back cli_std_cmd_update(false, true) }
+    if action == "install" {
+        if argument == "" { give back cli_std_usage() }
+        give back cli_std_cmd_install(argument)
+    }
+    if action == "use" {
+        if argument != "bundled" and not cli_std_valid_version(argument) { give back cli_std_usage() }
+        give back cli_std_cmd_use(argument)
+    }
+    if action == "rollback" { give back cli_std_cmd_rollback() }
+    if action == "pin" {
+        if argument != "" and argument != "bundled" and not cli_std_valid_version(argument) { give back cli_std_usage() }
+        give back cli_std_cmd_pin(argument)
+    }
+    if action == "unpin" { give back cli_std_cmd_unpin() }
+    if action == "prune" {
+        pilot mut keep = FREAK_STD_KEEP
+        if argument == "--keep" and args_cnt >= 6 and hangar_registry_digits(hangar_arg(5)) { keep = word_to_int(hangar_arg(5)) }
+        else if argument == "--all" { keep = 0 }
+        else if argument != "" { give back cli_std_usage() }
+        give back cli_std_cmd_prune(keep)
+    }
+    if action == "help" or action == "--help" or action == "-h" {
+        cli_std_usage()
+        give back 0
+    }
+    give back cli_std_usage()
+}

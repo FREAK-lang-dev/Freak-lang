@@ -41,6 +41,7 @@ pilot cli_std_plan_modes = 0
 pilot cli_std_plan_paths = 0
 pilot cli_std_last_error = ""
 pilot cli_std_search_cwd = false
+pilot cli_std_resolved_key = ""
 
 -- ===================== manifest =====================
 -- A manifest is a flat word array: key, value, key, value, ...
@@ -397,8 +398,13 @@ task cli_std_use_bundled(source: word) -> void {
 }
 
 task cli_std_resolve() -> bool {
-    if cli_std_resolved { give back cli_std_error == "" }
+    -- Cached per project: a process that binds sources for another project
+    -- (or first resolved before its package graph existed) resolves again.
+    pilot project_key = cli_std_project_dir()
+    if cli_std_resolved and project_key == cli_std_resolved_key { give back cli_std_error == "" }
+    if cli_std_resolved { cli_std_reset() }
     cli_std_resolved = true
+    cli_std_resolved_key = project_key
     cli_std_notice = ""
     cli_std_error = ""
     cli_std_pin_file = ""
@@ -420,7 +426,7 @@ task cli_std_resolve() -> bool {
         give back true
     }
 
-    pilot project = cli_std_project_dir()
+    pilot project = project_key
     if project != "" and fs::exists(cli_host_path_join(project, "std.lock")) {
         cli_std_pin_file = cli_host_path_join(project, "std.lock")
         pilot pinned = cli_std_read_value(cli_std_pin_file, "version")
@@ -475,8 +481,13 @@ task cli_std_reset() -> void {
 -- ===================== load plan =====================
 
 task cli_std_plan() -> bool {
-    if cli_std_plan_ready { give back true }
+    if cli_std_plan_ready and not cli_std_plan_stale() { give back true }
     if not cli_std_resolve() { give back false }
+    if cli_std_plan_ready {
+        array_release(cli_std_plan_names)
+        array_release(cli_std_plan_modes)
+        array_release(cli_std_plan_paths)
+    }
     cli_std_plan_names = array_new()
     cli_std_plan_modes = array_new()
     cli_std_plan_paths = array_new()
@@ -513,6 +524,10 @@ task cli_std_plan() -> bool {
     give back true
 }
 
+task cli_std_plan_stale() -> bool {
+    give back not cli_std_resolved or cli_std_project_dir() != cli_std_resolved_key
+}
+
 -- Importable `use std::<name>` modules (runtime is internal).
 task cli_std_module_known(name: word) -> bool {
     if name == "runtime" { give back false }
@@ -534,4 +549,10 @@ task cli_std_build_line() -> word {
     if cli_std_active_source == "selected" { give back "std " + cli_std_active_version + " (updated)" }
     if cli_std_active_source == "pinned" and cli_std_active_version != cli_std_bundled_version { give back "std " + cli_std_active_version + " (pinned by std.lock)" }
     give back ""
+}
+
+task cli_std_say_build_line() -> void {
+    pilot line = cli_std_build_line()
+    if line != "" { say C_DIM + "  " + line + C_RESET }
+    if cli_std_notice != "" { say C_BYELLOW + "  " + cli_std_notice + C_RESET }
 }
