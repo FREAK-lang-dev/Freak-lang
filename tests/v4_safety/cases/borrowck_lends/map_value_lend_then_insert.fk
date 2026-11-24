@@ -1,0 +1,12 @@
+-- A lend of m[k] is a loan of the map: inserting may grow and reindex the
+-- entry buffer, so it is refused while the value loan is live.
+-- expect: reject borrowck
+-- error: Meiya refuses overlapping mutable lends
+
+task read(lend x: int) -> int { give back x }
+task main() -> int {
+    pilot mut m: Map<word, int> = {"a": 1}
+    pilot r = lend m["a"]
+    m["b"] = 2
+    give back read(r)
+}

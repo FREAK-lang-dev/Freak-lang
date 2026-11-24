@@ -1,0 +1,11 @@
+-- set moves its word key into the map; the binding is gone afterwards.
+-- expect: reject borrowck
+-- error: Meiya remembers the field you already moved
+
+task main() -> int {
+    pilot key = "k"
+    pilot mut m: Map<word, int> = Map::new()
+    m.set(key, 1)
+    say key
+    give back 0
+}

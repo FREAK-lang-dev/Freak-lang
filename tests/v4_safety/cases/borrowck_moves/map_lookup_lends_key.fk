@@ -1,0 +1,12 @@
+-- A lookup lends its word key, so the binding is still usable afterwards.
+-- expect: run
+-- exit: 8
+
+task main() -> int {
+    pilot key = "k"
+    pilot mut m: Map<word, int> = Map::new()
+    m.set("k", 5)
+    pilot a = m[key]
+    pilot b = m.get(key) or else 0
+    give back a + b - 3 + key.length()
+}

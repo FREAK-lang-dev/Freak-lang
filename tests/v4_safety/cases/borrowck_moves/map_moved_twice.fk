@@ -1,0 +1,10 @@
+-- Maps are Move types.
+-- expect: reject borrowck
+-- error: Meiya remembers the field you already moved
+
+task take(m: Map<word, int>) -> int { give back m.length() }
+task main() -> int {
+    pilot m: Map<word, int> = {"a": 1}
+    pilot n = take(m)
+    give back take(m) + n
+}

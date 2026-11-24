@@ -1,0 +1,11 @@
+-- m[k] on a key the map does not hold panics; get(k) is the checked read.
+-- expect: panic
+-- panic: map key not found
+
+task main() -> int {
+    pilot m: Map<int, int> = {1: 10}
+    pilot k = process::args_count() + 1
+    say m.get(k) or else 0
+    say m[k]
+    give back 0
+}

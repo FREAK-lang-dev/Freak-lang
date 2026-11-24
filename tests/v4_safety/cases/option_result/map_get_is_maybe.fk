@@ -1,0 +1,9 @@
+-- get(k) gives back maybe<V>; it never unwraps implicitly.
+-- expect: reject mir
+-- error: local declaration type mismatch
+
+task main() -> int {
+    pilot m: Map<int, int> = {1: 10}
+    pilot v: int = m.get(1)
+    give back v
+}
