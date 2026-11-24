@@ -1,7 +1,10 @@
 # V3.5 HTTP transport and deployment profile
 
-The HTTP floor is a synchronous HTTP/1 transport for a small native application.
-The application owns its routes, validation, authorization and response policy.
+The HTTP floor is an HTTP/1 transport for native applications. The application
+owns its routes, validation, authorization and response policy and handles one
+request at a time; behind `next_request` an event loop serves every connection
+concurrently, keeps HTTP/1.1 connections alive and can spread one listener
+across worker processes (see "Concurrency, keep-alive and workers").
 The `http` project template demonstrates health, a named UTF-8 parameter and
 strict JSON POST roundtrip. It starts on `127.0.0.1:8080` and prints only its
 startup address. Its tests are ordinary native `std::test` programs.
@@ -40,12 +43,13 @@ smoke check. The service has no unauthenticated remote shutdown endpoint.
 
 ## Request and ownership contract
 
-One server owns at most one active request. `next_request(server)` returns an
-owned ticket for a complete request or a structured parse/socket/deadline
+One server hands the application at most one active request. `next_request(server)`
+returns an owned ticket for a complete request or a structured parse/socket/deadline
 failure. Successful `request_status` is 0; failures carry an HTTP status and
 an error word. The floor sends a bounded error response when the connection
-permits it, then closes. Release every request, including failed requests,
-before accepting another. Close every server, including a failed bind.
+permits it, then closes that connection. Release every request, including failed
+requests, before accepting another. Releasing a parsed request without sending a
+response closes its connection. Close every server, including a failed bind.
 
 Words returned by getters are independent managed values. `request_body` and
 `request_header_value_bytes` return independent owned ByteBuffers; release them
@@ -79,14 +83,17 @@ duplicates. The template decodes one named path component and rejects encoded
 separators, NUL, controls and invalid UTF-8.
 
 Response APIs reject CR/LF, invalid header tokens and caller-supplied framing
-headers. The floor supplies encoded-byte Content-Length and Connection: close.
+headers. The floor supplies encoded-byte Content-Length and the Connection
+header (`keep-alive` or `close`).
 HEAD emits the corresponding length without the body, including parser,
 size and deadline rejections once `HEAD ` has been accepted. An incomplete
 `HEAD` token or malformed method delimiter remains an ordinary parse error.
 A 204 response has no Content-Length or body; 205 emits Content-Length: 0
-without a body, and 304 has no body. Writes loop over real partial sends
-until completion or a deadline. The send return value reports completion;
-a parsed request can remain valid even when its response send fails.
+without a body, and 304 has no body. A send writes what the socket takes at
+once and queues the rest; the event loop finishes it (bounded by the body
+deadline and idle gap) while the application serves later requests. The send
+return value reports that the complete response was accepted for delivery; a
+later network failure only closes that connection.
 
 ## Limits and shutdown
 
@@ -101,26 +108,80 @@ a parsed request can remain valid even when its response send fails.
 | Absolute header deadline |5000ms |
 | Absolute body deadline |15000ms |
 | Idle deadline |2000ms |
-| Active handlers per server |1 |
+| Keep-alive idle / requests per connection |5000ms / 1000 |
+| Open connections per worker |4096 |
+| Listen backlog |SOMAXCONN |
+| Worker processes |1 (`FREAK_HTTP_WORKERS` overrides) |
+| Active handlers per worker |1 |
 
-`set_limits`, `set_chunk_limits` and `set_timeouts` configure a server before
+`set_limits`, `set_chunk_limits`, `set_timeouts`, `set_keep_alive`,
+`set_max_connections` and `set_workers` configure a server before
 it owns an active request. Values are checked; negative/oversized values fail.
 Absolute header/body deadlines do not reset when trickle bytes arrive. Idle
 deadlines track positive socket progress. Raw framing, decoded body, header
 metadata and response allocation have separate bounded admission.
 
-`stop` sets the server's atomic stop flag. Blocked accept/read/write checks it
+`stop` sets the server's atomic stop flag. A blocked `next_request` checks it
 between polls of at most 50ms, subject to host scheduling and bounded work in
-that poll. Wait for the blocked operation to return, release its request and
+that poll. Queued response bytes are dropped on stop. Wait for the blocked operation to return, release its request and
 then close the server. Concurrent `close`, release, configuration and arbitrary
 other runtime operations are not a supported thread-safety contract.
-The acceptance gate measures stop during blocked accept, read and write.
+The acceptance gate measures stop during blocked accept, read and a queued write.
 
-Requests run sequentially, so a slow client or handler blocks later clients.
-Socket deadlines bound network waits. They cannot safely preempt arbitrary
-application code; a hard handler CPU limit needs process isolation. The floor
-handles one request per connection and closes; keepalive, streaming, WebSocket,
-upgrades, application pipelining and parallel handlers are not provided.
+## Concurrency, keep-alive and workers
+
+Each worker process runs one event loop: epoll (edge-triggered) on Linux,
+kqueue on macOS and the BSDs, WSAPoll on Windows. The loop accepts, reads,
+parses and writes every open connection without blocking on any of them, and
+hands complete requests to the application in arrival order. A client that
+stalls mid-headers, trickles a body or stops reading its response only holds
+its own connection until its deadline; everyone else keeps being served.
+Handlers still run one at a time per worker, so a slow handler delays that
+worker's queue. Socket deadlines cannot safely preempt arbitrary application
+code; a hard handler CPU limit needs process isolation.
+
+HTTP/1.1 connections persist unless the client sends `Connection: close`;
+HTTP/1.0 persists only with `Connection: keep-alive`. Pipelined requests are
+answered in order. `set_keep_alive(server, idle_ms, max_requests)` sets how long
+an idle connection waits for its next request and how many requests one
+connection serves (`max_requests` 0 turns keep-alive off). Error responses
+always close. `set_max_connections(server, n)` caps open connections per worker;
+beyond it new connections wait in the kernel backlog. On POSIX the runtime
+raises the soft open-file limit toward that cap.
+
+`set_workers(server, n)` (or `FREAK_HTTP_WORKERS=n` when the application never
+calls it) starts `n` processes that share the listener at the first
+`next_request`; 0 means one per CPU. On Linux and macOS the extra workers are
+forked there and continue from that call; on Windows they are started as new
+copies of the program, inheriting the listening socket, and adopt it at their
+own matching `bind`/`open` call. Every worker runs the same request loop with
+its own memory: in-process state such as counters, caches or rate limits is per
+worker. `worker_index(server)` is 0 in the first process. The first process
+restarts a worker that exits (at most once a second per slot) and stops every
+worker in `close`; workers also stop when the first process dies (Linux parent
+death signal, a parent check on macOS, a job object on Windows). Use workers
+with one server per program.
+Open database connections and other sockets lazily, after the first
+`next_request` (or per worker): on Linux and macOS a socket opened before the
+fork is shared by every worker.
+
+The floor does not provide streaming bodies, WebSocket, upgrades, HTTP/2 or
+TLS.
+
+### Longer-run path
+
+0.16 reaches nginx-class throughput for small responses on loopback (see the
+benchmark in the release notes). The remaining steps, roughly in order:
+
+1. Peer address on a request (`X-Real-IP`, per-IP limits).
+2. Streaming request and response bodies, and `sendfile`/`TransmitFile` for
+   static files, so large files skip the userspace copy and the 64 MiB cap.
+3. IOCP on Windows instead of WSAPoll, and optionally io_uring on Linux.
+4. Response compression in the floor (gzip/brotli, plus precompressed files).
+5. With V4's threads and task values: worker threads sharing one process (and
+   its caches) instead of worker processes, and handlers that can await I/O so
+   one slow handler no longer delays its worker's queue.
+6. HTTP/2 and WebSocket upgrades once streaming exists.
 
 ## HTTPS and reverse proxies
 

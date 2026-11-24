@@ -1,6 +1,9 @@
--- Bounded synchronous HTTP/1 transport. The application owns routing.
+-- Bounded HTTP/1 transport. The application owns routing.
 -- Default bind is 127.0.0.1; non-loopback requires explicit opt-in with http_bind.
--- One active request per server; release it before the next accept.
+-- The application sees one active request at a time: release it before the
+-- next accept. Behind next_request an event loop (epoll/kqueue/WSAPoll) accepts,
+-- reads, parses and writes every connection concurrently, so a slow or stalled
+-- client only ties up its own connection.
 -- Headers retain repeats and trailer identity. Paths/query remain encoded;
 -- validate/decode them in the application without collapsing duplicate values.
 -- Request words and ByteBuffers are independent owners; release ByteBuffers.
@@ -8,12 +11,24 @@
 -- http_server::send_bytes borrows it; its caller keeps release responsibility.
 -- Release every request, including failed parses. The floor already sends an
 -- error response and closes malformed/oversized/timed-out connections.
--- Responses own framing: Connection: close, encoded-byte Content-Length,
+-- Responses own framing: Connection, encoded-byte Content-Length,
 -- HEAD without a body, 204 without Content-Length/body, 304 without a body.
--- stop is checked between polls of at most 50ms during accept/read/write; close after blocked
+-- A send returns 1 once the whole response is queued; the loop finishes
+-- writing it while the application serves the next request.
+-- HTTP/1.1 connections stay open (keep-alive, pipelining in order) unless the
+-- client asks to close; HTTP/1.0 only with Connection: keep-alive.
+-- stop is checked between polls of at most 50ms; close after blocked
 -- next_request has returned. Arbitrary handler code cannot be preempted.
 -- Defaults: line 8192, headers 32768, count 100, body 1048576 bytes; header 5000ms,
--- body 15000ms, idle 2000ms; aggregate chunk-size/extension wire 4096, trailers 8192 bytes.
+-- body 15000ms, idle 2000ms; aggregate chunk-size/extension wire 4096, trailers 8192 bytes;
+-- keep-alive idle 5000ms and 1000 requests per connection; 4096 open connections;
+-- listen backlog SOMAXCONN; 1 worker process (FREAK_HTTP_WORKERS overrides).
+-- Workers: http_set_workers(server, n) before the first next_request forks n
+-- processes sharing the listener (0 = one per CPU). Each worker runs your
+-- request loop with its own memory, so in-process counters are per worker.
+-- POSIX workers resume from that call; Windows workers rerun the program and
+-- adopt the listener at the matching http_bind. http_worker_index is 0 in the
+-- first process and 1..n-1 in the others.
 -- Strict llhttp: Host/framing ambiguity rejected, chunked supported;
 -- CONNECT, upgrades, non-identity content coding and other transfer codings fail.
 -- V3 has no closures/task values: dispatch in the caller's loop with when/if.
@@ -26,6 +41,10 @@ task http_local_port(server: int) -> int { give back http_server::local_port(ser
 task http_set_limits(server: int, line: int, headers: int, count: int, body: int) -> void { http_server::set_limits(server, line, headers, count, body) }
 task http_set_timeouts(server: int, headers_ms: int, body_ms: int, idle_ms: int) -> void { http_server::set_timeouts(server, headers_ms, body_ms, idle_ms) }
 task http_set_chunk_limits(server: int, metadata: int, trailers: int) -> void { http_server::set_chunk_limits(server, metadata, trailers) }
+task http_set_keep_alive(server: int, idle_ms: int, max_requests: int) -> void { http_server::set_keep_alive(server, idle_ms, max_requests) }
+task http_set_max_connections(server: int, count: int) -> void { http_server::set_max_connections(server, count) }
+task http_set_workers(server: int, count: int) -> void { http_server::set_workers(server, count) }
+task http_worker_index(server: int) -> int { give back http_server::worker_index(server) }
 task http_stop(server: int) -> void { http_server::stop(server) }
 task http_close(server: int) -> void { http_server::close(server) }
 task http_next_request(server: int) -> int { give back http_server::next_request(server) }

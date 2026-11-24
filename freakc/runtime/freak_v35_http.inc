@@ -326,7 +326,6 @@ static void freak_http_conn_destroy(freak_http_conn *conn) {
     if(conn->dead) return;
     freak_http_server *server=conn->server; conn->dead=true;
 #if defined(FREAK_HTTP_EPOLL)
-    /* A forked worker may briefly share this descriptor: drop interest first. */
     if(server->poller>=0) epoll_ctl(server->poller,EPOLL_CTL_DEL,conn->socket,NULL);
 #endif
     freak_http_close_socket(&conn->socket);
@@ -563,15 +562,18 @@ static void freak_http_become_child(freak_http_server *server,int index,pid_t pa
     prctl(PR_SET_PDEATHSIG,SIGTERM);
 #endif
     if(getppid()!=parent) _exit(0);
-    /* Inherited connections belong to the parent: drop our copies quietly. */
-    while(server->conn_count) freak_http_conn_destroy(server->conns[server->conn_count-1]);
-    while(server->ready_head) { freak_http_request *request=server->ready_head; server->ready_head=request->ready_next; request->conn=NULL; if(!request->slot) freak_http_free_request(request); }
-    server->ready_tail=NULL; server->hot=NULL; freak_http_bury(server);
+    /* The epoll instance is shared with the parent until we drop our
+       reference: close it before touching connections, so destroying them
+       below cannot remove the parent's interest in its own sockets. */
 #if defined(FREAK_HTTP_EPOLL)
     freak_http_poller_close(server);
 #elif defined(FREAK_HTTP_KQUEUE)
     server->poller=-1; /* kqueues are not inherited across fork */
 #endif
+    /* Inherited connections belong to the parent: drop our copies quietly. */
+    while(server->conn_count) freak_http_conn_destroy(server->conns[server->conn_count-1]);
+    while(server->ready_head) { freak_http_request *request=server->ready_head; server->ready_head=request->ready_next; request->conn=NULL; if(!request->slot) freak_http_free_request(request); }
+    server->ready_tail=NULL; server->hot=NULL; freak_http_bury(server);
     server->listener_armed=false;
     /* A respawned worker resumes inside a running loop: give it its own. */
     if(freak_http_poller_open(server)) freak_http_listener_arm(server,true);
