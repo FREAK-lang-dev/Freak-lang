@@ -1043,7 +1043,10 @@ def keepalive_corpus(s:Server):
         for i,client in enumerate(clients):client.sendall(request('/hello/c'+str(i),headers=[('Connection','close')]))
         for i,client in enumerate(clients):
             out=b''
-            while chunk:=client.recv(4096):out+=chunk
+            try:
+                while chunk:=client.recv(4096):out+=chunk
+            except OSError as error:
+                raise AssertionError(f'burst client {i} of {len(clients)} lost its connection after {len(out)} bytes: {error!r}') from error
             assert_response(parse_response(out),200,('c'+str(i)).encode())
     finally:
         for client in clients:client.close()
