@@ -34,7 +34,7 @@ EXPECTED = {
                            "4\n0\n6\ngo!!\n4\n14\n29\n29\n100\n6\n18\n4\ngo!!?\n21\n15\n8\n11\n8\nyz\nl0!\nfresher\n7\n"),
     "lists_native.fk": ("4\n6\n10\n14\n304\n0\n5\np0\np1\np2\nextra\nreplaced\nreplaced\np2\n4\ncsolo\n"
                         "one1\ntwo2\nTakeru!\nMeiya!\nSumika!\n10\n14\np0\np1\n3\n2.5\n2\n14\n"),
-    "lists_nested_native.fk": ("Sumika/Takeru!/Meiya\n5\n5\n2\nKei\n13\nca\n76\n3\nx\ny\nz\nz\nA!\nB!\n4\nkei\n149\n"
+    "lists_nested_native.fk": ("Sumika/Takeru!/Meiya\n5\n5\n2\nKei\n13\nca\n43\n76\n3\nx\ny\nz\nz\nA!\nB!\n4\nkei\n149\n"
                                "0\n4\n15\n-1\n26\n7\n13\n5\nc\n6\nMitsurugi\n"),
     "word_interpolation.fk": "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n",
 }

@@ -1,0 +1,10 @@
+-- A nested tuple destination carries its slot types down, so an empty
+-- list literal in an inner tuple slot has type context.
+-- expect: run
+-- exit: 43
+
+task main() -> int {
+    pilot mut pair: ((List<int>, int), int) = (([], 1), 2)
+    pair.0.0.push(40)
+    give back pair.0.0[0] + pair.0.1 + pair.1
+}

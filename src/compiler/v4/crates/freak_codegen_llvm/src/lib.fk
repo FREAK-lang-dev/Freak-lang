@@ -4031,10 +4031,14 @@ task v4_codegen_llvm_shape_records(mir_id: int) -> word {
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_generic_aggregate_records(mir_id))
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_closure_records(mir_id))
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_dyn_records(mir_id))
-    if v4_codegen_llvm_list_used { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_list_header_type() + "\tptr\ti64\ti64\n") }
     pilot out = word_join(parts)
     array_release(parts)
-    give back out + v4_codegen_llvm_sum_records(mir_id)
+    out = out + v4_codegen_llvm_sum_records(mir_id)
+    -- The header type follows any record that names it, so a shape with a
+    -- list field still has a layout when no emitted body touches a list;
+    -- the list runtime itself stays gated on v4_codegen_llvm_list_used.
+    if v4_codegen_llvm_list_used or out.contains(v4_codegen_llvm_list_header_type()) { out = out + v4_codegen_llvm_list_header_type() + "\tptr\ti64\ti64\n" }
+    give back out
 }
 
 task v4_codegen_llvm_record_line(records: word, wanted: int) -> word {

@@ -1,0 +1,11 @@
+-- A shape with a list field still lowers natively when no emitted body
+-- uses a list: the list header type follows the shape record that names it.
+-- expect: run
+-- exit: 3
+
+shape Bag { items: List<int>, n: int }
+
+task main() -> int {
+    pilot x = 3
+    give back x
+}

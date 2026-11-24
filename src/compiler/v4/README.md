@@ -763,7 +763,10 @@ type-erased pool:
   so inner lists and their words are released before the outer buffer is
   freed. Meiya projects a loan of `b.items` or `g[0]` onto its owner, so a
   push on, store into or exclusive loan of the owner (or an overlapping
-  element) waits for it. A tuple destination gives a `[]` slot its type.
+  element) waits for it. A tuple destination gives a `[]` slot its type,
+  through nested tuples too (`(([], 1), 2)`). A shape whose list field no
+  emitted body touches still gets the list header type and its layout;
+  only the list runtime waits for executable list use.
   A list is indirection (bible 1.5), so a type may hold a list of itself
   (`shape Dir { subs: List<Dir> }`, `route Tree { Node { kids:
   List<Tree> } }`, generic `Node<T>`), directly or through another type
@@ -821,7 +824,10 @@ and `examples/lists_nested_native.fk` (exact output, exit 0; the layout
 oracle sees the list-holding shapes and route, each clone and drop helper
 is defined once, and an outer drop helper calls its element's helper
 before `free`; `NATIVE_NESTED_LISTS_REJECTED`), both in
-`check_v4_native_shapes` and audited by `tests/v4_owned_word_codegen.py`.
+`check_v4_native_shapes` and audited by `tests/v4_owned_word_codegen.py`,
+and `examples/lists_unused_shape_native.fk` (a list field with no list
+use: the header layout is present and no `freak.list.` runtime symbol is
+defined or declared).
 MIR also
 refuses control flow inside any index operand (`xs[f()?]`,
 `xs[pick(a and b)]`) until index operands are wired (#274).
