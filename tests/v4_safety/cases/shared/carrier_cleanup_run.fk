@@ -1,0 +1,41 @@
+-- Carriers of handles drop on both paths: ok and err, some and nobody.
+-- bible: 4.4
+-- expect: run
+-- stdout: 7
+-- stdout: 5
+-- stdout: gone
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int, name: word }
+
+task launch(fail: bool) -> result<Shared<Ship>, int> {
+    if fail { give back err(7) }
+    give back ok(Shared<Ship>::new(Ship { hp: 5, name: "Kasumi" }))
+}
+task pick(here: bool, w: Shared<Ship>) -> maybe<Shared<Ship>> {
+    if here { give back some(w) }
+    give back nobody
+}
+task hp(lend s: Shared<Ship>) -> int {
+    pilot v = s.borrow()
+    give back v.hp
+}
+task main() -> int {
+    pilot failed = launch(true)
+    check result launch(true) {
+        ok(l) -> say hp(lend l)
+        err(code) -> say code
+    }
+    check result launch(false) {
+        ok(l) -> say hp(lend l)
+        err(code) -> say code
+    }
+    pilot s = Shared<Ship>::new(Ship { hp: 1, name: "Akane" })
+    pilot w = s.downgrade()
+    pilot kept = pick(false, s)
+    check w.upgrade() {
+        got back -> say "alive"
+        nobody -> say "gone"
+    }
+    give back 0
+}

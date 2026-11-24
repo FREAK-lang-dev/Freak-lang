@@ -1,0 +1,15 @@
+-- A carrier drop releases only its ok handle, so a handle in err is refused.
+-- bible: 4.4
+-- expect: reject codegen
+-- error: native result error payloads of Shared handles are not yet supported
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task make() -> result<int, Shared<Ship>> {
+    give back err(Shared<Ship>::new(Ship { hp: 1 }))
+}
+task main() -> int {
+    pilot r = make()
+    give back 0
+}
