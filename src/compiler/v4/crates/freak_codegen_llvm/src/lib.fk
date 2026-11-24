@@ -7078,6 +7078,68 @@ task v4_codegen_llvm_map_clone_lines(mir_id: int, value_ty: word, address: word,
 }
 
 -- The private helpers of one collection type `type_text`.
+-- remove: a missing key leaves the map untouched. A present entry's key
+-- and value are dropped, the last entry moves into its place (the bible
+-- gives maps no order; the last entry's index slot is repointed), and the
+-- freed index slot is closed by backward-shift deletion, so removal costs
+-- one probe cluster instead of an index rebuild. home gives an entry's
+-- first probe slot; slot_of finds the index slot that names an entry.
+task v4_codegen_llvm_map_remove_runtime_lines(mir_id: int, type_text: word) -> word {
+    pilot header_ty = v4_codegen_llvm_map_header_type()
+    pilot is_set: bool = v4_codegen_llvm_map_is_set(mir_id, type_text)
+    pilot entry = v4_codegen_llvm_map_entry_type(mir_id, type_text)
+    pilot key_ty = v4_mir_hash_collection_key_type(mir_id, type_text)
+    pilot key = v4_codegen_llvm_type(key_ty)
+    pilot value_ty = v4_mir_hash_collection_value_type(mir_id, type_text)
+    pilot find = v4_codegen_llvm_map_helper(mir_id, type_text, "find")
+    pilot home = v4_codegen_llvm_map_helper(mir_id, type_text, "home")
+    pilot slot_of = v4_codegen_llvm_map_helper(mir_id, type_text, "slot_of")
+    pilot open = " " + "{" + "\nentry:\n"
+    pilot close = "}" + "\n"
+    pilot out = "define internal i64 " + home + "(ptr %entries, i64 %mask, i64 %i)" + open
+    out = out + "  %ep = getelementptr inbounds " + entry + ", ptr %entries, i64 %i\n"
+    out = out + "  %kp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 0\n  %k = load " + key + ", ptr %kp\n"
+    out = out + v4_codegen_llvm_map_hash_lines(mir_id, key_ty, "%k", "%hash")
+    out = out + "  %home = and i64 %hash, %mask\n  ret i64 %home\n" + close
+    out = out + "define internal i64 " + slot_of + "(ptr %index, i64 %mask, ptr %entries, i64 %i)" + open
+    out = out + "  %start = call i64 " + home + "(ptr %entries, i64 %mask, i64 %i)\n  %tag = add i64 %i, 1\n  br label %loop\nloop:\n"
+    out = out + "  %pos = phi i64 [ %start, %entry ], [ %next, %step ]\n"
+    out = out + "  %sp = getelementptr inbounds i64, ptr %index, i64 %pos\n  %s = load i64, ptr %sp\n"
+    out = out + "  %hit = icmp eq i64 %s, %tag\n  br i1 %hit, label %found, label %step\nstep:\n"
+    out = out + "  %bump = add i64 %pos, 1\n  %next = and i64 %bump, %mask\n  br label %loop\nfound:\n  ret i64 %pos\n" + close
+    out = out + "define internal i1 " + v4_codegen_llvm_map_helper(mir_id, type_text, "remove") + "(ptr %h, " + key + " %k)" + open
+    out = out + "  %at = call i64 " + find + "(ptr %h, " + key + " %k)\n  %found = icmp sge i64 %at, 0\n  br i1 %found, label %take, label %miss\nmiss:\n  ret i1 false\ntake:\n"
+    out = out + "  %entries = load ptr, ptr %h\n"
+    out = out + "  %indexp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 3\n  %index = load ptr, ptr %indexp\n"
+    out = out + "  %slotsp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 4\n  %slots = load i64, ptr %slotsp\n  %mask = sub i64 %slots, 1\n"
+    -- The freed slot is found while the removed key is still alive.
+    out = out + "  %hole = call i64 " + slot_of + "(ptr %index, i64 %mask, ptr %entries, i64 %at)\n"
+    out = out + "  %ep = getelementptr inbounds " + entry + ", ptr %entries, i64 %at\n"
+    out = out + "  %kp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 0\n"
+    out = out + v4_codegen_llvm_drop_glue_at(mir_id, key_ty, "%kp", "", "%oldk", 0)
+    if not is_set {
+        out = out + "  %vp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 1\n"
+        out = out + v4_codegen_llvm_drop_glue_at(mir_id, value_ty, "%vp", "", "%oldv", 0)
+    }
+    out = out + "  %lenp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 1\n  %len = load i64, ptr %lenp\n  %last = sub i64 %len, 1\n"
+    out = out + "  %moved = icmp ne i64 %at, %last\n  br i1 %moved, label %move, label %shrink\nmove:\n"
+    out = out + "  %lastslot = call i64 " + slot_of + "(ptr %index, i64 %mask, ptr %entries, i64 %last)\n"
+    out = out + "  %lastp = getelementptr inbounds " + entry + ", ptr %entries, i64 %last\n  %lastv = load " + entry + ", ptr %lastp\n  store " + entry + " %lastv, ptr %ep\n"
+    out = out + "  %attag = add i64 %at, 1\n  %lsp = getelementptr inbounds i64, ptr %index, i64 %lastslot\n  store i64 %attag, ptr %lsp\n  br label %shrink\nshrink:\n"
+    out = out + "  store i64 %last, ptr %lenp\n  %hp = getelementptr inbounds i64, ptr %index, i64 %hole\n  store i64 0, ptr %hp\n  br label %shift\nshift:\n"
+    -- An entry at j may fill the gap unless its home lies cyclically in (gap, j].
+    out = out + "  %gap = phi i64 [ %hole, %shrink ], [ %gap, %keep ], [ %j, %fill ]\n"
+    out = out + "  %cur = phi i64 [ %hole, %shrink ], [ %j, %keep ], [ %j, %fill ]\n"
+    out = out + "  %jb = add i64 %cur, 1\n  %j = and i64 %jb, %mask\n  %jp = getelementptr inbounds i64, ptr %index, i64 %j\n  %s = load i64, ptr %jp\n"
+    out = out + "  %stop = icmp eq i64 %s, 0\n  br i1 %stop, label %done, label %test\ntest:\n"
+    out = out + "  %e = sub i64 %s, 1\n  %eh = call i64 " + home + "(ptr %entries, i64 %mask, i64 %e)\n"
+    out = out + "  %plain = icmp ule i64 %gap, %j\n  %after = icmp ult i64 %gap, %eh\n  %upto = icmp ule i64 %eh, %j\n"
+    out = out + "  %both = and i1 %after, %upto\n  %either = or i1 %after, %upto\n  %inside = select i1 %plain, i1 %both, i1 %either\n"
+    out = out + "  br i1 %inside, label %keep, label %fill\nkeep:\n  br label %shift\nfill:\n"
+    out = out + "  %gp = getelementptr inbounds i64, ptr %index, i64 %gap\n  store i64 %s, ptr %gp\n  store i64 0, ptr %jp\n  br label %shift\ndone:\n  ret i1 true\n" + close
+    give back out
+}
+
 task v4_codegen_llvm_map_type_runtime_lines(mir_id: int, type_text: word, with_get: bool) -> word {
     pilot header_ty = v4_codegen_llvm_map_header_type()
     pilot is_set: bool = v4_codegen_llvm_map_is_set(mir_id, type_text)
@@ -7144,25 +7206,10 @@ task v4_codegen_llvm_map_type_runtime_lines(mir_id: int, type_text: word, with_g
     out = out + "  call void " + reindex + "(ptr %h, i64 %wanted)\n  ret ptr %slot\nput:\n"
     out = out + "  %indexp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 3\n  %index = load ptr, ptr %indexp\n  %entries = load ptr, ptr %h\n"
     out = out + "  %mask = sub i64 %slots, 1\n  %at = sub i64 %len, 1\n  call void " + place + "(ptr %index, i64 %mask, ptr %entries, i64 %at)\n  ret ptr %slot\n" + close
-    -- contains, and remove: drop the entry's key and value, close the gap
-    -- (insertion order is kept) and rebuild the index.
+    -- contains, and remove (v4_codegen_llvm_map_remove_runtime_lines).
     out = out + "define internal i1 " + v4_codegen_llvm_map_helper(mir_id, type_text, "contains") + "(ptr %h, " + key + " %k)" + open
     out = out + "  %at = call i64 " + find + "(ptr %h, " + key + " %k)\n  %found = icmp sge i64 %at, 0\n  ret i1 %found\n" + close
-    out = out + "define internal i1 " + v4_codegen_llvm_map_helper(mir_id, type_text, "remove") + "(ptr %h, " + key + " %k)" + open
-    out = out + "  %at = call i64 " + find + "(ptr %h, " + key + " %k)\n  %found = icmp sge i64 %at, 0\n  br i1 %found, label %take, label %miss\nmiss:\n  ret i1 false\ntake:\n"
-    out = out + "  %entries = load ptr, ptr %h\n  %ep = getelementptr inbounds " + entry + ", ptr %entries, i64 %at\n"
-    out = out + "  %kp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 0\n"
-    out = out + v4_codegen_llvm_drop_glue_at(mir_id, key_ty, "%kp", "", "%oldk", 0)
-    if not is_set {
-        out = out + "  %vp = getelementptr inbounds " + entry + ", ptr %ep, i32 0, i32 1\n"
-        out = out + v4_codegen_llvm_drop_glue_at(mir_id, value_ty, "%vp", "", "%oldv", 0)
-    }
-    out = out + "  %lenp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 1\n  %len = load i64, ptr %lenp\n"
-    out = out + "  %last = sub i64 %len, 1\n  %tail = sub i64 %last, %at\n  %bytes = mul i64 %tail, " + v4_slice(size, 4, size.length()) + "\n"
-    out = out + "  %from = getelementptr inbounds " + entry + ", ptr %ep, i64 1\n"
-    out = out + "  call void @llvm.memmove.p0.p0.i64(ptr %ep, ptr %from, i64 %bytes, i1 false)\n  store i64 %last, ptr %lenp\n"
-    out = out + "  %slotsp = getelementptr inbounds " + header_ty + ", ptr %h, i32 0, i32 4\n  %slots = load i64, ptr %slotsp\n"
-    out = out + "  call void " + reindex + "(ptr %h, i64 %slots)\n  ret i1 true\n" + close
+    out = out + v4_codegen_llvm_map_remove_runtime_lines(mir_id, type_text)
     if is_set {
         -- add: a key already present is released; an absent one moves in.
         out = out + "define internal void " + v4_codegen_llvm_map_helper(mir_id, type_text, "add") + "(ptr %h, " + key + " %k)" + open

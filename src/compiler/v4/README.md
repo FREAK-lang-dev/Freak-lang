@@ -842,9 +842,13 @@ refuses control flow inside any index operand (`xs[f()?]`,
 `%"freak.map.header" = type { ptr, i64, i64, ptr, i64 }` (entries, length,
 capacity, index, slots), emitted as a named record with a `; freak.layout`
 note that the layout oracle checks on all four targets. Entries are stored
-by value in insertion order (`{ K, V }`, or `{ T }` for a set) behind an
+by value in a dense buffer (`{ K, V }`, or `{ T }` for a set) behind an
 open-addressed index of entry numbers with linear probing, kept at least
 twice the length (8 slots at first). Entry growth reuses the list helpers.
+Removal moves the last entry into the freed one and closes the freed index
+slot by backward-shift deletion, so it costs one probe cluster, never an
+index rebuild; the buffer order is not insertion order after a removal,
+which no operation exposes.
 
 - **Keys and values.** Keys are `word` (hashed with FNV-1a over the bytes,
   compared by content), `int`, `uint`, `tiny`, `char` and `bool`. Values are
@@ -855,8 +859,8 @@ twice the length (8 slots at first). Entry growth reuses the list helpers.
   and `m[k] += v` or `m[k].f = v` update the entry in place. `m[k] = v` is
   `m.set(k, v)`: insert or replace, moving key and value in and dropping the
   old value. `m.get(k)` gives back `maybe<V>` holding a fresh copy (words
-  are cloned). `m.remove(k)` gives back `bool` and keeps the remaining
-  entries in order. `length()` and `.length` read the header. A set has
+  are cloned). `m.remove(k)` gives back `bool`; a missing key leaves the
+  map untouched. `length()` and `.length` read the header. A set has
   `add` (a duplicate is dropped), `contains`, `remove` and `length`.
 - **Control flow.** Literal keys and values may hold `and` / `or` and `?`,
   typed or inferred: MIR wires them like list elements, so entries run in

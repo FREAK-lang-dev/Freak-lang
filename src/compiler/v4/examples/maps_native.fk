@@ -4,8 +4,8 @@
 -- list index past the end), m[k] = v (insert or replace, the same as
 -- m.set(k, v)), get(k) -> maybe<V> (a fresh copy), remove(k) -> bool,
 -- contains and length. Keys are word, int, uint, tiny, char
--- or bool; values are scalars, words, tuples and shapes. Entries are kept
--- in insertion order behind an open-addressed hash index. Maps and sets are
+-- or bool; values are scalars, words, tuples and shapes. Entries sit in a
+-- dense buffer behind an open-addressed hash index. Maps and sets are
 -- Move types in Meiya's drop plan; a lookup lends its key, set and add move
 -- key and value in, and a lend of m[k] is a loan of the map.
 -- tests/v4_owned_word_codegen.py runs it under ASan, UBSan and both
