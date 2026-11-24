@@ -276,8 +276,14 @@ def main() -> int:
             (changed / "CHANGELOG.md").write_text("# Changelog\n\n````md\n```\n## 0.2.0\n* example\n```\n````\n\n"
                                                   "## v0.2.0x\n\n* no\n", encoding="utf-8")
             refused([hangar, "publish", "--dry-run"], changed, env, "publish with a look-alike entry", "no entry for 0.2.0")
+            # Markdown allows up to 3 spaces before a heading, both for the
+            # entry and for the heading that ends it.
+            (changed / "CHANGELOG.md").write_text("## 0.2.0\n\n   ## 0.1.0\n\n* First.\n", encoding="utf-8")
+            refused([hangar, "publish", "--dry-run"], changed, env, "publish with an indented next heading", "no entry for 0.2.0")
             if len(Registry.requests) != requests:
                 raise AssertionError("a publish refused for its changelog contacted the registry")
+            (changed / "CHANGELOG.md").write_text("   ## 0.2.0\n\n* Indented.\n", encoding="utf-8")
+            run([hangar, "publish", "--dry-run"], changed, env, "publish --dry-run with an indented heading")
             # Em and en dashes are separators even with no spaces around them.
             for dash in ("\u2014", "\u2013"):
                 (changed / "CHANGELOG.md").write_text(f"## 0.2.0{dash}Highlights\n\n* Dashes.\n", encoding="utf-8")
@@ -300,6 +306,12 @@ def main() -> int:
             listing = run([hangar, "publish", "--dry-run"], changed, env, "publish --dry-run with project.changelog")
             if "docs/HISTORY.md" not in listing:
                 raise AssertionError(f"the declared changelog is not packed:\n{listing}")
+            # The same file may also stay under [assets] for hangar 0.15.x.
+            manifest = (changed / "hangar.toml").read_text(encoding="utf-8")
+            (changed / "hangar.toml").write_text(manifest + '\n[assets]\nchangelog = "docs/HISTORY.md"\n', encoding="utf-8")
+            listing = run([hangar, "publish", "--dry-run"], changed, env, "publish --dry-run with the changelog also an asset")
+            if "docs/HISTORY.md" not in listing:
+                raise AssertionError(f"the changelog asset is not packed:\n{listing}")
     finally:
         server.shutdown()
     print("registry install: passed")

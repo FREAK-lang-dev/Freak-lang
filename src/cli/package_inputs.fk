@@ -96,6 +96,16 @@ task package_input_allowed(path: word) -> bool {
     give back true
 }
 
+-- The role a pending input was declared with, or "" when it isn't declared.
+task package_input_role(path: word) -> word {
+    pilot index = 0
+    repeat until index >= array_len(package_pending_paths) {
+        if array_get(package_pending_paths, index) == path { give back array_get(package_pending_roles, index) }
+        index += 1
+    }
+    give back ""
+}
+
 task package_input_add(path: word, role: word) -> bool {
     if not package_input_allowed(path) {
         hangar_graph_fail("declared input is unsafe or names secret/cache/generated content: " + path)
@@ -169,7 +179,11 @@ task package_collect_declared_inputs(node: int, manifest_file: word) -> bool {
     pilot readme = hangar_graph_fact(node, "project.readme")
     if readme != "" { if not package_input_add(readme, "documentation") { give back false } }
     pilot changelog = hangar_graph_fact(node, "project.changelog")
-    if changelog != "" { if not package_input_add(changelog, "documentation") { give back false } }
+    -- Projects that also list the changelog under [assets] (so hangar 0.15.x
+    -- ships it) keep it as that asset.
+    if changelog != "" and package_input_role(changelog) != "asset" {
+        if not package_input_add(changelog, "documentation") { give back false }
+    }
     pilot license = hangar_graph_fact(node, "project.license_file")
     if license != "" { if not package_input_add(license, "documentation") { give back false } }
     give back true
