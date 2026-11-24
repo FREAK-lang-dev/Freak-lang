@@ -289,9 +289,12 @@ def main() -> int:
         (project / "std.lock").write_text('version = "0.16.2"\n', encoding="utf-8")
         h.expect("omitted lock digest allowed", h.run("run", "src/main.fk", cwd=project), 0, "marker=bundle-two")
         (project / "std.lock").write_bytes(pin_before)
-        h.expect("repin despite a sync failure", h.hangar("std", "pin", "0.16.2", cwd=project, extra={"FREAK_STD_TEST_FAIL_WRITE": "sync:std.lock"}),
-                 0, "could not sync its folder", "Pinned this project to std 0.16.2")
-        h.expect("synced-late pin is active", h.run("run", "src/main.fk", cwd=project), 0, "marker=bundle-two")
+        # A sync failure after the rename (ok = false, completed = true) still
+        # publishes the new pin: repin 0.16.2 -> 0.16.1 and build with it.
+        h.expect("repin despite a sync failure", h.hangar("std", "pin", "0.16.1", cwd=project, extra={"FREAK_STD_TEST_FAIL_WRITE": "sync:std.lock"}),
+                 0, "could not sync its folder", "Pinned this project to std 0.16.1")
+        h.expect("synced-late pin is active", h.run("run", "src/main.fk", cwd=project), 0, "std 0.16.1 (pinned by std.lock)", "marker=bundle-one")
+        (project / "std.lock").write_bytes(pin_before)
         h.expect("pin bundled by number", h.hangar("std", "pin", "0.16.0", cwd=project), 0, "Pinned this project to the bundled std")
         h.expect("bundled pin builds", h.run("build", "src/main.fk", cwd=project), 1, "unknown callable 'std_bundle_marker'")
         (project / "std.lock").write_text('version = "0.16.0"\nmanifest_sha256 = "' + "0" * 64 + '"\n', encoding="utf-8")
