@@ -197,7 +197,7 @@ def main() -> int:
 
         h.expect("status with an empty store", h.hangar("std", "status"), 0, "Active:   std 0.16.0", "(bundled)")
 
-        one = pack(work, make_std(work, "std-a", "bundle-one"), "0.16.1")
+        make_std(work, "std-a", "bundle-one")
         before = h.store()
         h.expect("foreign key refused", h.hangar("std", "install", str(pack(work, work / "std-a", "0.16.1", FOREIGN))),
                  1, "not signed by a FREAK release key")
