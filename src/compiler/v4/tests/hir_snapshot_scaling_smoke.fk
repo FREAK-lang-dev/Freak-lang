@@ -374,8 +374,10 @@ task v4_hir_scaling_children_empty(hir_id: int) -> bool {
     -- The raw file API clears this child; construction publishes its header.
     pilot word_plans = v4_hir_word_plans_handle(hir_id)
     if array_len(word_plans) != 0 { give back false }
-    if array_len(v4_hir_extern_return_owner_values_handle(hir_id)) != 0 or array_len(v4_hir_extern_return_values_handle(hir_id)) != 0 or array_len(v4_hir_extern_param_values_handle(hir_id)) != 0 { give back false }
-    if array_len(v4_hir_method_owner_values_handle(hir_id)) != 0 or array_len(v4_hir_method_values_handle(hir_id)) != 0 { give back false }
+    if array_len(v4_hir_extern_return_owner_values_handle(hir_id)) != 0 or array_len(v4_hir_extern_return_values_handle(hir_id)) != 0 or v4_hir_signature_slot_len(hir_id, v4_hir_signature_extern_params) != 0 { give back false }
+    if v4_hir_signature_slot_len(hir_id, v4_hir_signature_method_owners) != 0 or v4_hir_signature_slot_len(hir_id, v4_hir_signature_methods) != 0 { give back false }
+    -- Lazy signature arrays are released, not just emptied, on slot reuse.
+    if v4_hir_signature_slot(hir_id, v4_hir_signature_extern_params) >= 0 or v4_hir_signature_slot(hir_id, v4_hir_signature_method_owners) >= 0 or v4_hir_signature_slot(hir_id, v4_hir_signature_methods) >= 0 { give back false }
     if array_len(v4_hir_route_owner_values_handle(hir_id)) != 0 or array_len(v4_hir_route_case_values_handle(hir_id)) != 0 or array_len(v4_hir_route_field_values_handle(hir_id)) != 0 { give back false }
     if array_len(v4_hir_const_annotation_values_handle(hir_id)) != 0 { give back false }
     if array_len(v4_hir_shape_field_starts_handle(hir_id)) != 0 or array_len(v4_hir_shape_field_counts_handle(hir_id)) != 0 or array_len(v4_hir_shape_field_values_handle(hir_id)) != 0 { give back false }
@@ -433,9 +435,9 @@ task v4_hir_scaling_fill_children(hir_id: int) -> void {
     array_push(v4_hir_route_field_values_handle(hir_id), "old")
     array_push(v4_hir_extern_return_owner_values_handle(hir_id), "old")
     array_push(v4_hir_extern_return_values_handle(hir_id), "old")
-    array_push(v4_hir_extern_param_values_handle(hir_id), "old")
-    array_push(v4_hir_method_owner_values_handle(hir_id), "old")
-    array_push(v4_hir_method_values_handle(hir_id), "old")
+    array_push(v4_hir_signature_slot_writable(hir_id, v4_hir_signature_extern_params), "old")
+    array_push(v4_hir_signature_slot_writable(hir_id, v4_hir_signature_method_owners), "old")
+    array_push(v4_hir_signature_slot_writable(hir_id, v4_hir_signature_methods), "old")
     -- A dirty packed word child must also disappear before rebuilding.
     array_push(v4_hir_word_plans_handle(hir_id), "old")
 }
@@ -446,6 +448,9 @@ task v4_hir_scaling_file_slots(sample: word, before: word) -> void {
     pilot capacity_fresh = v4_hir_scaling_capacity()
     pilot empty_children: bool = v4_hir_scaling_children_empty(fresh)
     v4_hir_scaling_fill_children(fresh)
+    -- Filling dirties the three lazy signature arrays too; a truncated
+    -- high-water slot keeps them until it is reused, like its other children.
+    pilot capacity_filled = v4_hir_scaling_capacity()
     pilot restored: bool = true
     pilot truncated: bool = true
     pilot iteration = 0
@@ -476,11 +481,11 @@ task v4_hir_scaling_file_slots(sample: word, before: word) -> void {
         restored = false
     }
     pilot capacity_after = v4_hir_scaling_capacity()
-    say "hir-scaling-fresh-slot-forty-five-handles=" + word_from_bool(capacity_before - capacity_fresh == 45)
+    say "hir-scaling-fresh-slot-forty-two-handles=" + word_from_bool(capacity_before - capacity_fresh == 42)
     say "hir-scaling-reused-children-empty=" + word_from_bool(empty_children)
     say "hir-scaling-restore-repeated=" + word_from_bool(restored)
     say "hir-scaling-truncated-slots-hidden=" + word_from_bool(truncated)
-    say "hir-scaling-file-slot-capacity-stable=" + word_from_bool(capacity_after == capacity_fresh)
+    say "hir-scaling-file-slot-capacity-stable=" + word_from_bool(capacity_after == capacity_filled and capacity_fresh - capacity_filled == 3)
 }
 
 -- Preserve the pre-optimization wire semantics, including permissive low-level

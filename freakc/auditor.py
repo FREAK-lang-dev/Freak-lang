@@ -1627,11 +1627,11 @@ def _hir_lookup_scaling_errors(fixture: Path, harness: Path) -> List[str]:
     return _hir_lookup_probe_errors(fixture, harness, (
         "hir-scaling-annotation-duplicate-start", "hir-scaling-annotation-surplus-fields",
         "hir-scaling-old-v10-atomic",
-        "hir-scaling-fresh-slot-forty-five-handles", "hir-scaling-file-slot-capacity-stable",
+        "hir-scaling-fresh-slot-forty-two-handles", "hir-scaling-file-slot-capacity-stable",
     ), (
         "v4_hir_scaling_annotation_checks(before)",
         "v4_hir_scaling_file_slots(sample, before)",
-        "capacity_before - capacity_fresh == 45",
+        "capacity_before - capacity_fresh == 42",
         'array_push(v4_hir_route_owner_values_handle(hir_id), "old")',
         'array_push(v4_hir_route_case_values_handle(hir_id), "old")',
         'array_push(v4_hir_route_field_values_handle(hir_id), "old")',
@@ -3359,7 +3359,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "task parameter index guard accepted helper-indirected rescan",
             '"hir-scaling-512-params=true"',
             '"hir-scaling-param-missing-owner=true"',
-            '"hir-scaling-fresh-slot-forty-five-handles=true"',
+            '"hir-scaling-fresh-slot-forty-two-handles=true"',
         ):
             if needle not in harness_src:
                 task_param_boundary_missing.append(f"check_v4.py: {needle}")

@@ -208,8 +208,8 @@ task v4_hir_impl_smoke_snapshots() -> void {
     v4_hir_impl_smoke_assert(valid and restored == "hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted" and v4_hir_revision(0) == revision and v4_hir_impl_index_is_ready(0) and v4_session_semantic_restore_generation() == generation and v4_hir_file_len == 1, "fresh-owner preflight failure is atomic")
     v4_hir_impl_smoke_free_rest(held, 20)
     v4_hir_impl_smoke_assert(v4_hir_snapshot() == before and v4_hir_impl_smoke_capacity() == capacity, "reservation cleanup preserves capacity")
-    v4_hir_impl_smoke_assert(v4_hir_snapshot_restore(fresh).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_impl_index_is_ready(1) and v4_hir_next_impl_item(1, 0 - 1) == 1 and capacity - v4_hir_impl_smoke_capacity() == 45, "fresh owner uses exactly forty-five children")
-    say "hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=45"
+    v4_hir_impl_smoke_assert(v4_hir_snapshot_restore(fresh).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_impl_index_is_ready(1) and v4_hir_next_impl_item(1, 0 - 1) == 1 and capacity - v4_hir_impl_smoke_capacity() == 44, "fresh owner uses forty-two children and two lazy method arrays")
+    say "hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=44"
 }
 
 v4_hir_impl_smoke_revisions()
