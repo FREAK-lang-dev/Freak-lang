@@ -18,8 +18,10 @@ median wall time of ``--repeats`` runs, start-up included.
 
 import argparse
 import json
+import os
 import platform
 import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -51,10 +53,27 @@ def strip_attributes(module: str) -> str:
     return ATTRIBUTES.sub(r"\1", module)
 
 
-def build_module(source: Path, out: Path) -> str:
+def clang_path_env(clang: str, shim_dir: Path) -> dict:
+    """build_v4.py finds `clang` on PATH; make it resolve to the selected one."""
+    resolved = shutil.which(clang)
+    if not resolved:
+        raise SystemExit(f"clang not found: {clang}")
+    name = "clang.exe" if os.name == "nt" else "clang"
+    shim = shim_dir / name
+    if not shim.exists():
+        try:
+            shim.symlink_to(resolved)
+        except OSError:
+            shutil.copy2(resolved, shim)
+    env = dict(os.environ)
+    env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "")
+    return env
+
+
+def build_module(source: Path, out: Path, env: dict) -> str:
     result = subprocess.run([sys.executable, "-B", str(V4 / "build_v4.py"), str(source), "-o", str(out),
                              "--emit-llvm"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True)
+                            text=True, env=env, check=False)
     if result.returncode != 0:
         raise SystemExit(f"build_v4.py failed for {source.name}:\n{result.stdout}")
     return out.read_text(encoding="utf-8")
@@ -88,11 +107,14 @@ def main() -> int:
     rows = []
     with tempfile.TemporaryDirectory(prefix="freak-v4-helper-attributes-") as scratch:
         work = Path(scratch)
+        shim_dir = work / "clang-shim"
+        shim_dir.mkdir()
+        env = clang_path_env(args.clang, shim_dir)
         built = {}
         for source in sorted({case[1] for case in CASES}):
             stem = Path(source).stem
             marked = work / f"{stem}.ll"
-            text = build_module(HERE / source, marked)
+            text = build_module(HERE / source, marked, env)
             plain = strip_attributes(text)
             if plain == text:
                 raise SystemExit(f"{source}: codegen marked no runtime helper; nothing to compare")
