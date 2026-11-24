@@ -682,17 +682,25 @@ task cli_std_cmd_pin(requested: word) -> int {
         give back 1
     }
     pilot lock = cli_host_path_join(project, "std.lock")
+    -- Resolve as if unpinned: this loads the bundled version (so pinning it by
+    -- number works) and finds what an unpinned build would use, while any
+    -- existing std.lock stays in place until its replacement is written.
+    cli_std_ignore_pin = true
+    cli_std_reset()
+    pilot resolved = cli_std_resolve()
+    cli_std_ignore_pin = false
+    pilot unpinned_version = cli_std_active_version
+    pilot unpinned_bundled = cli_std_active_dir == cli_find_std_dir()
+    pilot resolve_problem = cli_std_error
+    cli_std_reset()
+    if not resolved {
+        say "  " + resolve_problem
+        give back 1
+    }
     pilot mut version = requested
     if version == "" {
-        -- Pin what this project builds with now, ignoring an existing pin.
-        if fs::exists(lock) { fs::result_release(fs::remove_checked(lock)) }
-        cli_std_reset()
-        if not cli_std_resolve() {
-            say "  " + cli_std_error
-            give back 1
-        }
-        version = cli_std_active_version
-        if cli_std_active_dir == cli_find_std_dir() { version = "bundled" }
+        version = unpinned_version
+        if unpinned_bundled { version = "bundled" }
     }
     pilot mut content = "# Standard library pin for this project, written by 'hangar std pin'. Commit it.\n"
     if version == "bundled" or version == cli_std_bundled_version {

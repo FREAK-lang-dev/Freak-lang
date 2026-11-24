@@ -42,6 +42,8 @@ pilot cli_std_plan_paths = 0
 pilot cli_std_last_error = ""
 pilot cli_std_search_cwd = false
 pilot cli_std_resolved_key = ""
+-- `hangar std pin` resolves as if the project had no std.lock yet.
+pilot cli_std_ignore_pin = false
 
 -- ===================== manifest =====================
 -- A manifest is a flat word array: key, value, key, value, ...
@@ -427,7 +429,7 @@ task cli_std_resolve() -> bool {
     }
 
     pilot project = project_key
-    if project != "" and fs::exists(cli_host_path_join(project, "std.lock")) {
+    if project != "" and not cli_std_ignore_pin and fs::exists(cli_host_path_join(project, "std.lock")) {
         cli_std_pin_file = cli_host_path_join(project, "std.lock")
         pilot pinned = cli_std_read_value(cli_std_pin_file, "version")
         if pinned == "bundled" or pinned == cli_std_bundled_version {

@@ -153,6 +153,8 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     package_inputs_release()
     hangar_graph_release()
     package_lock_release()
+    -- The std selection (std.lock, hangar std use) is a live input too.
+    cli_std_reset()
     cli_run_fingerprint_failure = ""
     pilot source: word = cli_prepare_source(src_file, target)
     cli_project_binding_release()
@@ -192,6 +194,8 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     material = material + "|self=" + cli_run_file_fingerprint(cli_executable_path())
     material = material + "|source=" + cli_run_file_fingerprint(src_file)
     material = material + "|bound-source=" + source_digest + "|graph=" + graph_digest
+    material = material + "|std=" + cli_std_active_source + ":" + cli_std_active_version + ":" + cli_std_active_dir
+    if cli_std_pin_file != "" { material = material + "|std-lock=" + cli_run_file_fingerprint(cli_std_pin_file) }
     if package_graph_ready {
         material = material + "|graph-lock=" + cli_run_file_fingerprint(package_join_host(package_parent_path(package_graph_manifest_path), "hangar.lock"))
         material = material + "|graph-snapshot=" + cli_run_file_fingerprint(package_graph_snapshot_path)

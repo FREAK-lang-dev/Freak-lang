@@ -202,6 +202,18 @@ def main() -> int:
         h.expect("pin 0.16.2", h.hangar("std", "pin", "0.16.2", cwd=project), 0, "Pinned this project to std 0.16.2")
         h.expect("select bundled", h.hangar("std", "use", "bundled"), 0)
         h.expect("project pin wins", h.run("run", "src/main.fk", cwd=project), 0, "std 0.16.2 (pinned by std.lock)", "marker=bundle-two")
+        # A failed rewrite keeps the old pin: std.lock.new is a non-empty
+        # folder, so the replacement cannot be staged.
+        pin_before = (project / "std.lock").read_bytes()
+        blocker = project / "std.lock.new"
+        (blocker / "keep").mkdir(parents=True)
+        h.expect("failed repin", h.hangar("std", "pin", cwd=project), 1, "NOT PINNED")
+        assert (project / "std.lock").read_bytes() == pin_before, "failed repin lost std.lock"
+        shutil.rmtree(blocker)
+        h.expect("repin keeps the old pin until replaced", h.run("run", "src/main.fk", cwd=project), 0, "marker=bundle-two")
+        h.expect("pin bundled by number", h.hangar("std", "pin", "0.16.0", cwd=project), 0, "Pinned this project to the bundled std")
+        h.expect("bundled pin builds", h.run("build", "src/main.fk", cwd=project), None, "unknown callable 'std_bundle_marker'")
+        h.expect("pin current selection", h.hangar("std", "pin", cwd=project), 0, "Pinned this project to the bundled std")
         (project / "std.lock").write_text('version = "0.16.9"\n', encoding="utf-8")
         h.expect("missing pin fails the build", h.run("build", "src/main.fk", cwd=project), 1, "pins std 0.16.9")
         h.expect("unpin", h.hangar("std", "unpin", cwd=project), 0, "Removed the std pin")
