@@ -2,55 +2,142 @@
 -- FREAK Standard Library — std::algorithm
 -- ===================================================================
 -- Sorting, searching, and array utility algorithms in pure FREAK.
--- Uses the C runtime array_* primitives as the underlying storage.
+-- array_* tasks work on array_new() handles; list_* tasks take and give
+-- back a List. Sorts are stable O(n log n) merge sorts.
 -- ===================================================================
 
--- Sort an integer array in-place using insertion sort.
--- handle: array handle from array_new()
+-- Sort an integer array in place (stable bottom-up merge sort, O(n log n)).
+-- handle: array handle from array_new(). Elements keep their original text.
 task array_sort_int(handle: int) -> void {
     pilot alen = array_len(handle)
     if alen <= 1 { give back }
-    pilot mut si = 1
-    repeat until si >= alen {
-        pilot key_w: word = array_get(handle, si)
-        pilot key = word_to_int(key_w)
-        pilot mut sj = si - 1
-        pilot mut sorted = false
-        repeat until sj < 0 or sorted {
-            pilot cw: word = array_get(handle, sj)
-            pilot cv = word_to_int(cw)
-            if cv > key {
-                array_set(handle, sj + 1, cw)
-                sj -= 1
-            } else {
-                sorted = true
+    pilot mut keys: List<int> = []
+    pilot mut words: List<word> = []
+    pilot mut idx: List<int> = []
+    pilot mut tmp: List<int> = []
+    keys.reserve(alen)
+    words.reserve(alen)
+    idx.reserve(alen)
+    tmp.reserve(alen)
+    pilot mut i = 0
+    pilot mut sorted = true
+    repeat alen times {
+        pilot w: word = array_get(handle, i)
+        pilot k = word_to_int(w)
+        if i > 0 and k < keys[i - 1] { sorted = false }
+        keys.push(k)
+        words.push(w)
+        idx.push(i)
+        tmp.push(0)
+        i += 1
+    }
+    if sorted { give back }
+    pilot mut width = 1
+    repeat until width >= alen {
+        pilot mut lo = 0
+        repeat until lo >= alen {
+            pilot mut mid = lo + width
+            if mid > alen { mid = alen }
+            pilot mut hi = lo + width * 2
+            if hi > alen { hi = alen }
+            pilot mut a = lo
+            pilot mut b = mid
+            pilot mut k = lo
+            repeat until k >= hi {
+                pilot mut take_left = false
+                if a < mid {
+                    if b >= hi {
+                        take_left = true
+                    } else if keys[idx[a]] <= keys[idx[b]] {
+                        take_left = true
+                    }
+                }
+                if take_left {
+                    tmp[k] = idx[a]
+                    a += 1
+                } else {
+                    tmp[k] = idx[b]
+                    b += 1
+                }
+                k += 1
             }
+            lo = hi
         }
-        array_set(handle, sj + 1, word_from_int(key))
-        si += 1
+        pilot mut c = 0
+        repeat alen times {
+            idx[c] = tmp[c]
+            c += 1
+        }
+        width = width * 2
+    }
+    i = 0
+    repeat alen times {
+        array_set(handle, i, words[idx[i]])
+        i += 1
     }
 }
 
--- Sort a word array in-place (lexicographic, using string comparison).
+-- Sort a word array in place (stable merge sort by unsigned bytes, the
+-- same order as freak_word_compare).
 task array_sort_word(handle: int) -> void {
     pilot alen = array_len(handle)
     if alen <= 1 { give back }
-    pilot mut si = 1
-    repeat until si >= alen {
-        pilot key_w: word = array_get(handle, si)
-        pilot mut sj = si - 1
-        pilot mut sorted = false
-        repeat until sj < 0 or sorted {
-            pilot cw: word = array_get(handle, sj)
-            if freak_word_compare(cw + "", key_w + "") > 0 {
-                array_set(handle, sj + 1, cw)
-                sj -= 1
-            } else {
-                sorted = true
+    pilot mut words: List<word> = []
+    pilot mut idx: List<int> = []
+    pilot mut tmp: List<int> = []
+    words.reserve(alen)
+    idx.reserve(alen)
+    tmp.reserve(alen)
+    pilot mut i = 0
+    repeat alen times {
+        pilot w: word = array_get(handle, i)
+        words.push(w)
+        idx.push(i)
+        tmp.push(0)
+        i += 1
+    }
+    pilot mut width = 1
+    repeat until width >= alen {
+        pilot mut lo = 0
+        repeat until lo >= alen {
+            pilot mut mid = lo + width
+            if mid > alen { mid = alen }
+            pilot mut hi = lo + width * 2
+            if hi > alen { hi = alen }
+            pilot mut a = lo
+            pilot mut b = mid
+            pilot mut k = lo
+            repeat until k >= hi {
+                pilot mut take_left = false
+                if a < mid {
+                    if b >= hi {
+                        take_left = true
+                    } else if freak_word_compare(words[idx[a]], words[idx[b]]) <= 0 {
+                        take_left = true
+                    }
+                }
+                if take_left {
+                    tmp[k] = idx[a]
+                    a += 1
+                } else {
+                    tmp[k] = idx[b]
+                    b += 1
+                }
+                k += 1
             }
+            lo = hi
         }
-        array_set(handle, sj + 1, key_w)
-        si += 1
+        pilot mut c = 0
+        repeat alen times {
+            idx[c] = tmp[c]
+            c += 1
+        }
+        width = width * 2
+    }
+    i = 0
+    repeat alen times {
+        array_set(handle, i, words[idx[i]])
+        i += 1
     }
 }
 
@@ -128,14 +215,14 @@ task array_copy(handle: int) -> int {
 task array_join(handle: int, sep: word) -> word {
     pilot alen = array_len(handle)
     if alen == 0 { give back "" }
-    pilot mut aj_out: word = array_get(handle, 0)
-    pilot mut ji = 1
-    repeat until ji >= alen {
-        pilot jw: word = array_get(handle, ji)
-        aj_out = aj_out + sep + jw
+    pilot b = word_builder::new()
+    pilot mut ji = 0
+    repeat alen times {
+        if ji > 0 { word_builder::append(b, sep) }
+        word_builder::append(b, array_get(handle, ji))
         ji += 1
     }
-    give back aj_out
+    give back word_builder::finish(b)
 }
 
 -- Count occurrences of a value in an array.
@@ -212,4 +299,124 @@ task array_min_int(handle: int) -> int {
         mi += 1
     }
     give back mn
+}
+
+-- Sort a List<int> in place, ascending (stable merge sort), and give it back:
+--   pilot sorted = list_sort_int(values)
+task list_sort_int(values: List<int>) -> List<int> {
+    pilot mut xs = values
+    pilot n = xs.length()
+    if n <= 1 { give back xs }
+    pilot mut tmp: List<int> = []
+    tmp.reserve(n)
+    pilot mut i = 0
+    pilot mut sorted = true
+    repeat n times {
+        if i > 0 and xs[i] < xs[i - 1] { sorted = false }
+        tmp.push(0)
+        i += 1
+    }
+    if sorted { give back xs }
+    pilot mut width = 1
+    repeat until width >= n {
+        pilot mut lo = 0
+        repeat until lo >= n {
+            pilot mut mid = lo + width
+            if mid > n { mid = n }
+            pilot mut hi = lo + width * 2
+            if hi > n { hi = n }
+            pilot mut a = lo
+            pilot mut b = mid
+            pilot mut k = lo
+            repeat until k >= hi {
+                pilot mut take_left = false
+                if a < mid {
+                    if b >= hi {
+                        take_left = true
+                    } else if xs[a] <= xs[b] {
+                        take_left = true
+                    }
+                }
+                if take_left {
+                    tmp[k] = xs[a]
+                    a += 1
+                } else {
+                    tmp[k] = xs[b]
+                    b += 1
+                }
+                k += 1
+            }
+            lo = hi
+        }
+        pilot mut c = 0
+        repeat n times {
+            xs[c] = tmp[c]
+            c += 1
+        }
+        width = width * 2
+    }
+    give back xs
+}
+
+-- Sort a List<word> in place by unsigned bytes (stable) and give it back.
+task list_sort_word(values: List<word>) -> List<word> {
+    pilot mut xs = values
+    pilot n = xs.length()
+    if n <= 1 { give back xs }
+    pilot mut idx: List<int> = []
+    pilot mut tmp: List<int> = []
+    idx.reserve(n)
+    tmp.reserve(n)
+    pilot mut i = 0
+    repeat n times {
+        idx.push(i)
+        tmp.push(0)
+        i += 1
+    }
+    pilot mut width = 1
+    repeat until width >= n {
+        pilot mut lo = 0
+        repeat until lo >= n {
+            pilot mut mid = lo + width
+            if mid > n { mid = n }
+            pilot mut hi = lo + width * 2
+            if hi > n { hi = n }
+            pilot mut a = lo
+            pilot mut b = mid
+            pilot mut k = lo
+            repeat until k >= hi {
+                pilot mut take_left = false
+                if a < mid {
+                    if b >= hi {
+                        take_left = true
+                    } else if freak_word_compare(xs[idx[a]], xs[idx[b]]) <= 0 {
+                        take_left = true
+                    }
+                }
+                if take_left {
+                    tmp[k] = idx[a]
+                    a += 1
+                } else {
+                    tmp[k] = idx[b]
+                    b += 1
+                }
+                k += 1
+            }
+            lo = hi
+        }
+        pilot mut c = 0
+        repeat n times {
+            idx[c] = tmp[c]
+            c += 1
+        }
+        width = width * 2
+    }
+    pilot mut out: List<word> = []
+    out.reserve(n)
+    i = 0
+    repeat n times {
+        out.push(xs[idx[i]])
+        i += 1
+    }
+    give back out
 }

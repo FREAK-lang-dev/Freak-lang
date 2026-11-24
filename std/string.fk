@@ -1,8 +1,18 @@
 -- ===================================================================
 -- FREAK Standard Library — std::string
 -- ===================================================================
--- String utility functions written in pure FREAK.
--- These operate on the word type using built-in methods.
+-- Word helpers in pure FREAK, built on the native word methods
+-- (substring, contains, replace, repeated, char_at) and word_builder.
+-- Every task here is linear in its input: results are built once with a
+-- builder or a single substring instead of re-copying the partial result
+-- for each character.
+--
+-- Offsets and lengths are UTF-8 byte counts, like word.length() and
+-- word.substring(start, length). string_char_count counts code points.
+--
+-- Each task scans its own input with native methods instead of calling
+-- another std task inside a loop, because a word passed to a task is
+-- moved (under --strict-borrow) or copied (legacy builds).
 -- ===================================================================
 
 task string_repeat(s: word, count: int) -> word {
@@ -12,260 +22,223 @@ task string_repeat(s: word, count: int) -> word {
 task string_pad_left(s: word, width: int, pad_char: word) -> word {
     pilot slen = s.length()
     if slen >= width { give back s }
-    pilot needed = width - slen
-    pilot padding = string_repeat(pad_char, needed)
-    give back padding + s
+    give back pad_char.repeated(width - slen) + s
 }
 
 task string_pad_right(s: word, width: int, pad_char: word) -> word {
     pilot slen = s.length()
     if slen >= width { give back s }
-    pilot needed = width - slen
-    pilot padding = string_repeat(pad_char, needed)
-    give back s + padding
+    give back s + pad_char.repeated(width - slen)
 }
 
+-- Pads both sides; the extra pad (odd remainder) goes on the right.
+task string_center(s: word, width: int, pad_char: word) -> word {
+    pilot slen = s.length()
+    if slen >= width { give back s }
+    pilot total = width - slen
+    pilot left = total / 2
+    give back pad_char.repeated(left) + s + pad_char.repeated(total - left)
+}
+
+-- Reverses by UTF-8 code point, so "héllo" becomes "olléh". Malformed
+-- sequences are reversed byte by byte; embedded NUL bytes are preserved.
 task string_reverse(s: word) -> word {
     pilot slen = s.length()
     if slen <= 1 { give back s }
-    pilot mut out = ""
-    pilot mut i = slen - 1
-    repeat slen times {
-        out = out + s.char_at(i)
-        i -= 1
-    }
-    give back out
-}
-
-task string_count(haystack: word, needle: word) -> int {
-    pilot hlen = haystack.length()
-    pilot nlen = needle.length()
-    if nlen == 0 { give back 0 }
-    if nlen > hlen { give back 0 }
-    pilot mut count = 0
-    pilot mut i = 0
-    pilot limit = hlen - nlen + 1
-    repeat limit times {
-        pilot mut match = true
-        pilot mut j = 0
-        repeat nlen times {
-            if match {
-                if haystack.char_at(i + j) != needle.char_at(j) {
-                    match = false
+    pilot b = word_builder::with_capacity(slen)
+    pilot mut end = slen
+    repeat until end <= 0 {
+        pilot c = s.char_at(end - 1)
+        if c < "\x80" {
+            word_builder::append(b, c)
+            end -= 1
+        } else {
+            pilot mut start = end - 1
+            pilot mut back = 0
+            pilot mut scanning = c <= "\xBF"
+            repeat until not scanning {
+                if start > 0 and back < 3 {
+                    start -= 1
+                    back += 1
+                    pilot p = s.char_at(start)
+                    scanning = p >= "\x80" and p <= "\xBF"
+                } else {
+                    scanning = false
                 }
             }
-            j += 1
+            if back > 0 {
+                pilot lead = s.char_at(start)
+                -- A code point starts with a lead byte (0xC2-0xF4). Anything
+                -- else is a stray continuation run: emit the last byte alone.
+                if not (lead >= "\xC2" and lead <= "\xF4") { start = end - 1 }
+            }
+            if end - start == 1 {
+                word_builder::append(b, c)
+            } else {
+                word_builder::append(b, s.substring(start, end - start))
+            }
+            end = start
         }
-        if match { count += 1 }
+    }
+    give back word_builder::finish(b)
+}
+
+-- Number of UTF-8 code points (bytes that are not continuation bytes).
+task string_char_count(s: word) -> int {
+    pilot slen = s.length()
+    pilot mut count = 0
+    pilot mut i = 0
+    repeat until i >= slen {
+        pilot c = s.char_at(i)
+        if not (c >= "\x80" and c <= "\xBF") { count += 1 }
         i += 1
     }
     give back count
 }
 
-task string_split(s: word, delim: word) -> word {
-    -- Returns pipe-delimited segments: "a|b|c"
-    pilot slen = s.length()
-    pilot dlen = delim.length()
-    if dlen == 0 { give back s }
-    pilot mut sp_out = ""
-    pilot mut sp_cur = ""
-    pilot mut sp_i = 0
-    repeat slen times {
-        pilot mut sp_match = true
-        if sp_i + dlen <= slen {
-            pilot mut sp_j = 0
-            repeat dlen times {
-                if sp_match {
-                    if s.char_at(sp_i + sp_j) != delim.char_at(sp_j) {
-                        sp_match = false
-                    }
+-- Overlapping occurrences: string_count("aaaa", "aa") == 3.
+task string_count(haystack: word, needle: word) -> int {
+    pilot hlen = haystack.length()
+    pilot nlen = needle.length()
+    if nlen == 0 or nlen > hlen { give back 0 }
+    if not haystack.contains(needle.repeated(1)) { give back 0 }
+    pilot first = needle.char_at(0)
+    pilot last = needle.char_at(nlen - 1)
+    pilot limit = hlen - nlen
+    pilot mut count = 0
+    pilot mut i = 0
+    repeat until i > limit {
+        if haystack.char_at(i) == first {
+            if haystack.char_at(i + nlen - 1) == last {
+                if nlen <= 2 {
+                    count += 1
+                } else if haystack.substring(i, nlen) == needle {
+                    count += 1
                 }
-                sp_j += 1
             }
-        } else {
-            sp_match = false
         }
-        if sp_match {
-            if sp_out == "" {
-                sp_out = sp_cur
-            } else {
-                sp_out = sp_out + "|" + sp_cur
-            }
-            sp_cur = ""
-            sp_i += dlen
-        } else {
-            sp_cur = sp_cur + s.char_at(sp_i)
-            sp_i += 1
-        }
+        i += 1
     }
-    -- Add last segment
-    if sp_out == "" {
-        sp_out = sp_cur
-    } else {
-        sp_out = sp_out + "|" + sp_cur
-    }
-    give back sp_out
+    give back count
 }
 
+-- Returns pipe-delimited segments: string_split("a,b,c", ",") == "a|b|c".
+-- Delimiters are matched left to right without overlap.
+task string_split(s: word, delim: word) -> word {
+    if delim.length() == 0 { give back s }
+    give back s.replace(delim, "|")
+}
+
+-- Joins pipe-delimited segments: string_join("a|b|c", "-") == "a-b-c".
 task string_join(parts: word, separator: word) -> word {
-    -- Joins pipe-delimited segments: "a|b|c" with separator
-    pilot plen = parts.length()
-    if plen == 0 { give back "" }
-    pilot mut jn_out = ""
-    pilot mut jn_cur = ""
-    pilot mut jn_first = true
-    pilot mut jn_i = 0
-    repeat plen times {
-        pilot jn_c = parts.char_at(jn_i)
-        if jn_c == "|" {
-            if jn_first {
-                jn_out = jn_cur
-                jn_first = false
-            } else {
-                jn_out = jn_out + separator + jn_cur
-            }
-            jn_cur = ""
-        } else {
-            jn_cur = jn_cur + jn_c
-        }
-        jn_i += 1
-    }
-    -- Add last segment
-    if jn_first {
-        jn_out = jn_cur
-    } else {
-        jn_out = jn_out + separator + jn_cur
-    }
-    give back jn_out
+    if parts.length() == 0 { give back "" }
+    give back parts.replace("|", separator)
 }
 
 task is_digit(c: word) -> bool {
-    if c == "0" { give back true }
-    if c == "1" { give back true }
-    if c == "2" { give back true }
-    if c == "3" { give back true }
-    if c == "4" { give back true }
-    if c == "5" { give back true }
-    if c == "6" { give back true }
-    if c == "7" { give back true }
-    if c == "8" { give back true }
-    if c == "9" { give back true }
-    give back false
+    if c.length() != 1 { give back false }
+    give back c >= "0" and c <= "9"
 }
 
 task is_alpha(c: word) -> bool {
-    -- Check lowercase
-    if c == "a" or c == "b" or c == "c" or c == "d" or c == "e" { give back true }
-    if c == "f" or c == "g" or c == "h" or c == "i" or c == "j" { give back true }
-    if c == "k" or c == "l" or c == "m" or c == "n" or c == "o" { give back true }
-    if c == "p" or c == "q" or c == "r" or c == "s" or c == "t" { give back true }
-    if c == "u" or c == "v" or c == "w" or c == "x" or c == "y" or c == "z" { give back true }
-    -- Check uppercase
-    if c == "A" or c == "B" or c == "C" or c == "D" or c == "E" { give back true }
-    if c == "F" or c == "G" or c == "H" or c == "I" or c == "J" { give back true }
-    if c == "K" or c == "L" or c == "M" or c == "N" or c == "O" { give back true }
-    if c == "P" or c == "Q" or c == "R" or c == "S" or c == "T" { give back true }
-    if c == "U" or c == "V" or c == "W" or c == "X" or c == "Y" or c == "Z" { give back true }
-    give back false
+    if c.length() != 1 { give back false }
+    if c >= "a" and c <= "z" { give back true }
+    give back c >= "A" and c <= "Z"
 }
 
 task is_whitespace(c: word) -> bool {
-    if c == " " { give back true }
-    if c == "\t" { give back true }
-    if c == "\n" { give back true }
-    if c == "\r" { give back true }
-    give back false
+    give back c == " " or c == "\t" or c == "\n" or c == "\r"
 }
 
 task string_starts_with(s: word, prefix: word) -> bool {
-    pilot slen = s.length()
-    pilot plen = prefix.length()
-    if plen > slen { give back false }
-    pilot mut si = 0
-    repeat plen times {
-        if s.char_at(si) != prefix.char_at(si) { give back false }
-        si += 1
-    }
-    give back true
+    give back s.starts_with(prefix)
 }
 
 task string_ends_with(s: word, suffix: word) -> bool {
+    give back s.ends_with(suffix)
+}
+
+-- An empty needle is not "contained" (kept from the original API).
+task string_contains(haystack: word, needle: word) -> bool {
+    if needle.length() == 0 { give back false }
+    give back haystack.contains(needle)
+}
+
+-- Trims space, tab, CR and LF from both ends (not other whitespace).
+task string_trim(s: word) -> word {
     pilot slen = s.length()
-    pilot xlen = suffix.length()
-    if xlen > slen { give back false }
-    pilot offset = slen - xlen
-    pilot mut ei = 0
-    repeat xlen times {
-        if s.char_at(offset + ei) != suffix.char_at(ei) { give back false }
-        ei += 1
+    pilot mut start = 0
+    pilot mut scanning = true
+    repeat until not scanning or start >= slen {
+        pilot c = s.char_at(start)
+        if c == " " or c == "\t" or c == "\n" or c == "\r" { start += 1 } else { scanning = false }
+    }
+    if start >= slen { give back "" }
+    pilot mut end = slen
+    scanning = true
+    repeat until not scanning or end <= start {
+        pilot c = s.char_at(end - 1)
+        if c == " " or c == "\t" or c == "\n" or c == "\r" { end -= 1 } else { scanning = false }
+    }
+    if start == 0 and end == slen { give back s }
+    give back s.substring(start, end - start)
+}
+
+-- Legacy helper: the trimmed text from tstart to the last non-whitespace byte.
+task string_trim_end(s: word, tstart: int) -> word {
+    pilot mut end = s.length()
+    pilot mut scanning = true
+    repeat until not scanning or end <= tstart {
+        pilot c = s.char_at(end - 1)
+        if c == " " or c == "\t" or c == "\n" or c == "\r" { end -= 1 } else { scanning = false }
+    }
+    if end <= tstart { give back "" }
+    give back s.substring(tstart, end - tstart)
+}
+
+task string_trim_left(s: word) -> word {
+    pilot slen = s.length()
+    pilot mut start = 0
+    pilot mut scanning = true
+    repeat until not scanning or start >= slen {
+        pilot c = s.char_at(start)
+        if c == " " or c == "\t" or c == "\n" or c == "\r" { start += 1 } else { scanning = false }
+    }
+    if start == 0 { give back s }
+    give back s.substring(start, slen - start)
+}
+
+task string_trim_right(s: word) -> word {
+    pilot slen = s.length()
+    pilot mut end = slen
+    pilot mut scanning = true
+    repeat until not scanning or end <= 0 {
+        pilot c = s.char_at(end - 1)
+        if c == " " or c == "\t" or c == "\n" or c == "\r" { end -= 1 } else { scanning = false }
+    }
+    if end == slen { give back s }
+    give back s.substring(0, end)
+}
+
+-- True for "" and for words made only of space, tab, CR and LF.
+task string_is_blank(s: word) -> bool {
+    pilot slen = s.length()
+    pilot mut i = 0
+    repeat until i >= slen {
+        pilot c = s.char_at(i)
+        if not (c == " " or c == "\t" or c == "\n" or c == "\r") { give back false }
+        i += 1
     }
     give back true
 }
 
-task string_contains(haystack: word, needle: word) -> bool {
-    give back string_count(haystack, needle) > 0
-}
-
-task string_trim(s: word) -> word {
-    pilot slen = s.length()
-    if slen == 0 { give back s }
-    pilot mut tstart = 0
-    repeat until tstart >= slen {
-        if not is_whitespace(s.char_at(tstart)) { give back string_trim_end(s, tstart) }
-        tstart += 1
-    }
-    give back ""
-}
-
-task string_trim_end(s: word, tstart: int) -> word {
-    pilot mut tend = s.length() - 1
-    repeat until tend < tstart {
-        if not is_whitespace(s.char_at(tend)) {
-            pilot mut tout = ""
-            pilot mut ti = tstart
-            repeat until ti > tend {
-                tout = tout + s.char_at(ti)
-                ti += 1
-            }
-            give back tout
-        }
-        tend -= 1
-    }
-    give back ""
-}
-
+-- Non-overlapping, left to right: string_replace("ababa", "ab", "X") == "XXa".
 task string_replace(s: word, old_str: word, new_str: word) -> word {
-    pilot slen = s.length()
-    pilot olen = old_str.length()
-    if olen == 0 { give back s }
-    pilot mut rout = ""
-    pilot mut ri = 0
-    repeat until ri >= slen {
-        pilot mut rmatch = true
-        if ri + olen <= slen {
-            pilot mut rj = 0
-            repeat olen times {
-                if rmatch {
-                    if s.char_at(ri + rj) != old_str.char_at(rj) {
-                        rmatch = false
-                    }
-                }
-                rj += 1
-            }
-        } else {
-            rmatch = false
-        }
-        if rmatch {
-            rout = rout + new_str
-            ri += olen
-        } else {
-            rout = rout + s.char_at(ri)
-            ri += 1
-        }
-    }
-    give back rout
+    if old_str.length() == 0 { give back s }
+    give back s.replace(old_str, new_str)
 }
 
+-- Bytes from start_idx up to (not including) end_idx, clamped to the word.
 task string_substring(s: word, start_idx: int, end_idx: int) -> word {
     pilot slen = s.length()
     pilot mut ss = start_idx
@@ -273,35 +246,91 @@ task string_substring(s: word, start_idx: int, end_idx: int) -> word {
     if ss < 0 { ss = 0 }
     if se > slen { se = slen }
     if ss >= se { give back "" }
-    pilot mut sub_out = ""
-    pilot mut si = ss
-    repeat until si >= se {
-        sub_out = sub_out + s.char_at(si)
-        si += 1
-    }
-    give back sub_out
+    give back s.substring(ss, se - ss)
 }
 
+-- First byte offset of needle, or -1. An empty needle is found at 0.
 task string_index_of(s: word, needle: word) -> int {
     pilot slen = s.length()
     pilot nlen = needle.length()
     if nlen == 0 { give back 0 }
     if nlen > slen { give back 0 - 1 }
-    pilot limit = slen - nlen + 1
-    pilot mut fi = 0
-    repeat limit times {
-        pilot mut fmatch = true
-        pilot mut fj = 0
-        repeat nlen times {
-            if fmatch {
-                if s.char_at(fi + fj) != needle.char_at(fj) {
-                    fmatch = false
-                }
+    if not s.contains(needle.repeated(1)) { give back 0 - 1 }
+    pilot first = needle.char_at(0)
+    pilot last = needle.char_at(nlen - 1)
+    pilot limit = slen - nlen
+    pilot mut i = 0
+    repeat until i > limit {
+        if s.char_at(i) == first {
+            if s.char_at(i + nlen - 1) == last {
+                if nlen <= 2 { give back i }
+                if s.substring(i, nlen) == needle { give back i }
             }
-            fj += 1
         }
-        if fmatch { give back fi }
-        fi += 1
+        i += 1
     }
     give back 0 - 1
+}
+
+-- First byte offset of needle at or after from (clamped to 0), or -1.
+-- An empty needle is found at from when from is inside the word.
+task string_index_of_from(s: word, needle: word, from: int) -> int {
+    pilot slen = s.length()
+    pilot nlen = needle.length()
+    pilot mut i = from
+    if i < 0 { i = 0 }
+    if nlen == 0 {
+        if i <= slen { give back i }
+        give back 0 - 1
+    }
+    if i + nlen > slen { give back 0 - 1 }
+    pilot first = needle.char_at(0)
+    pilot last = needle.char_at(nlen - 1)
+    pilot limit = slen - nlen
+    repeat until i > limit {
+        if s.char_at(i) == first {
+            if s.char_at(i + nlen - 1) == last {
+                if nlen <= 2 { give back i }
+                if s.substring(i, nlen) == needle { give back i }
+            }
+        }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+-- Last byte offset of needle, or -1. An empty needle is found at the end.
+task string_last_index_of(s: word, needle: word) -> int {
+    pilot slen = s.length()
+    pilot nlen = needle.length()
+    if nlen == 0 { give back slen }
+    if nlen > slen { give back 0 - 1 }
+    if not s.contains(needle.repeated(1)) { give back 0 - 1 }
+    pilot first = needle.char_at(0)
+    pilot last = needle.char_at(nlen - 1)
+    pilot mut i = slen - nlen
+    repeat until i < 0 {
+        if s.char_at(i) == first {
+            if s.char_at(i + nlen - 1) == last {
+                if nlen <= 2 { give back i }
+                if s.substring(i, nlen) == needle { give back i }
+            }
+        }
+        i -= 1
+    }
+    give back 0 - 1
+}
+
+-- Removes prefix once when present; otherwise returns s unchanged.
+task string_strip_prefix(s: word, prefix: word) -> word {
+    pilot plen = prefix.length()
+    if plen == 0 or not s.starts_with(prefix) { give back s }
+    give back s.substring(plen, s.length() - plen)
+}
+
+-- Removes suffix once when present; otherwise returns s unchanged.
+task string_strip_suffix(s: word, suffix: word) -> word {
+    pilot xlen = suffix.length()
+    if xlen == 0 or not s.ends_with(suffix) { give back s }
+    give back s.substring(0, s.length() - xlen)
 }
