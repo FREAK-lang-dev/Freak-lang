@@ -54,8 +54,11 @@ jobs:
                 echo "Keeping run $id: ref lookup for $branch returned $code"
                 continue
               fi
-              echo "Cancelling run $id ($status) for deleted branch $branch"
-              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null || echo "  could not cancel $id"
+              # force-cancel: a plain cancel still runs `if: always()` jobs
+              # (the build-and-test gates), which then wait hours for a
+              # runner. Nothing a deleted group reports can land.
+              echo "Force-cancelling run $id ($status) for deleted branch $branch"
+              gh api -X POST "repos/$REPO/actions/runs/$id/force-cancel" >/dev/null || echo "  could not cancel $id"
               cancelled=$((cancelled + 1))
             done < <(gh api --paginate "repos/$REPO/actions/runs?event=merge_group&status=$status&per_page=100" \
                        --jq '.workflow_runs[] | [.id, .head_branch] | @tsv')
