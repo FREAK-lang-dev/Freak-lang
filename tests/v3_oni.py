@@ -401,6 +401,188 @@ task main() -> void {
 }
 '''
 
+REVIEW = PARADE + r'''
+-- Regressions from review: each prints one line.
+
+-- an int task whose children grow the oni table still stores its result
+task leaf(x: int) -> void {
+    time::sleep(0)
+}
+task grower(x: int) -> int {
+    pilot i = 0
+    repeat 2000 times {
+        oni::summon("leaf", i)
+        i += 1
+    }
+    time::sleep(0)
+    give back 12345
+}
+
+-- a stale deadline from a released oni never wakes the next tenant
+task early(x: int) -> void {
+    oni::suspend_for(50)
+}
+task patient(x: int) -> void {
+    oni::suspend_for(5000)
+}
+task blank(x: int) -> void {
+    time::sleep(0)
+}
+task noop(x: int) -> void {
+    pilot y = x
+}
+
+pilot gate_port = 0
+pilot gate_listener = 0
+pilot accepted = 0
+task acceptor(x: int) -> void {
+    pilot c = tcp::socket_accept(gate_listener)
+    if tcp::socket_status(c) == 0 { accepted += 1 }
+    tcp::socket_close(c)
+}
+
+pilot feed = 0
+pilot fed = ""
+task reader(x: int) -> void {
+    pilot inbox = ByteBuffer::new()
+    pilot n = tcp::socket_receive(feed, inbox, 16)
+    if n > 0 { fed = "read " + word_from_int(n) } else { fed = "empty" }
+    inbox.release()
+}
+
+pilot slow_status = 0
+pilot slow_sock = 0
+task slow_reader(x: int) -> void {
+    pilot inbox = ByteBuffer::new()
+    pilot n = tcp::socket_receive(slow_sock, inbox, 16)
+    slow_status = tcp::socket_status(slow_sock)
+    inbox.release()
+}
+
+pilot stuck = 0
+pilot stuck_sent = 0
+task stuffer(x: int) -> void {
+    pilot blob = ByteBuffer::new()
+    repeat 262144 times { blob.write_word("0123456789abcdef0123456789abcdef") }
+    stuck_sent = tcp::socket_send_all(stuck, blob, 0, blob.length())
+    blob.release()
+}
+
+task main() -> void {
+    pilot g = oni::summon("grower", 0)
+    parade()
+    say oni::returned(g)
+
+    pilot a = oni::summon("early", 0)
+    oni::resume(oni::next_ready())
+    oni::wake(a)
+    oni::resume(oni::next_ready())
+    oni::release(a)
+    pilot b = oni::summon("patient", 0)
+    oni::resume(oni::next_ready())
+    pilot t0 = time::now_ms()
+    oni::poll(150)
+    if oni::state(b) == 3 { say "stale timer ignored" } else { say "woken by a stale timer" }
+    oni::cancel(b)
+    parade()
+    oni::release(b)
+
+    pilot first = oni::summon("blank", 0)
+    parade()
+    oni::release(first)
+    pilot aliased = 0
+    repeat 70000 times {
+        pilot h = oni::summon("blank", 0)
+        if h == first { aliased += 1 }
+        parade()
+        oni::release(h)
+    }
+    say aliased
+
+    pilot s = oni::summon("patient", 0)
+    oni::resume(s)
+    oni::wake(s)
+    oni::resume(s)
+    pilot sl = oni::summon("noop", 0)
+    oni::resume(sl)
+    oni::release(sl)
+    pilot q = oni::summon("early", 0)
+    oni::resume(q)
+    pilot t1 = time::now_ms()
+    oni::poll(0 - 1)
+    if time::now_ms() - t1 >= 30 { say "poll waited" } else { say "poll spun" }
+    parade()
+
+    gate_listener = tcp::socket_listen("127.0.0.1", 0, 8)
+    gate_port = tcp::socket_local_port(gate_listener)
+    oni::summon("acceptor", 0)
+    oni::summon("acceptor", 0)
+    oni::resume(oni::next_ready())
+    oni::resume(oni::next_ready())
+    pilot c1 = tcp::socket_connect("127.0.0.1", gate_port)
+    pilot c2 = tcp::socket_connect("127.0.0.1", gate_port)
+    parade()
+    say accepted
+    tcp::socket_close(c1)
+    tcp::socket_close(c2)
+
+    pilot writer = tcp::socket_connect("127.0.0.1", gate_port)
+    feed = tcp::socket_accept(gate_listener)
+    pilot r = oni::summon("reader", 0)
+    oni::resume(oni::next_ready())
+    oni::wake(r)
+    pilot t2 = time::now_ms()
+    oni::resume(oni::next_ready())
+    if time::now_ms() - t2 < 50 and oni::state(r) == 3 { say "woken reader parked again" } else { say "woken reader blocked" }
+    pilot out = ByteBuffer::new()
+    out.write_word("hey")
+    tcp::socket_send_all(writer, out, 0, out.length())
+    parade()
+    say fed
+    out.release()
+    tcp::socket_close(writer)
+    tcp::socket_close(feed)
+
+    tcp::socket_set_timeout(gate_listener, 40, 40)
+    pilot w2 = tcp::socket_connect("127.0.0.1", gate_port)
+    slow_sock = tcp::socket_accept(gate_listener)
+    oni::summon("slow_reader", 0)
+    pilot t3 = time::now_ms()
+    parade()
+    if slow_status == 10 and time::now_ms() - t3 < 2000 { say "inherited timeout" } else { say "no inherited timeout" }
+    tcp::socket_close(slow_sock)
+
+    stuck = tcp::socket_connect("127.0.0.1", gate_port)
+    pilot sink = tcp::socket_accept(gate_listener)
+    tcp::socket_set_timeout(stuck, 40, 40)
+    pilot st = oni::summon("stuffer", 0)
+    pilot t4 = time::now_ms()
+    oni::resume(oni::next_ready())
+    repeat 8 times {
+        oni::poll(10)
+        oni::wake(st)
+        if oni::state(st) != 4 { oni::resume(oni::next_ready()) }
+    }
+    parade()
+    if time::now_ms() - t4 < 120 and stuck_sent < 8388608 { say "send deadline kept" } else { say "send deadline stretched" }
+    tcp::socket_close(stuck)
+    tcp::socket_close(sink)
+    tcp::socket_close(w2)
+    tcp::socket_close(gate_listener)
+}
+'''
+
+REVIEW_EXPECTED = """12345
+stale timer ignored
+0
+poll waited
+2
+woken reader parked again
+read 3
+inherited timeout
+send deadline kept
+"""
+
 
 def plain(text: str) -> str:
     import re
@@ -429,7 +611,8 @@ def main() -> int:
         for name, program, expected in (
                 ("scheduler", SCHEDULER, SCHEDULER_EXPECTED),
                 ("waits", WAITS, WAITS_EXPECTED),
-                ("sockets", SOCKETS, SOCKETS_EXPECTED)):
+                ("sockets", SOCKETS, SOCKETS_EXPECTED),
+                ("review", REVIEW, REVIEW_EXPECTED)):
             source = root / f"{name}.fk"
             source.write_text(program, encoding="utf-8")
             for flags in profiles:

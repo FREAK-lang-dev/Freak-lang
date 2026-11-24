@@ -93,7 +93,9 @@ typedef struct {
     int64_t result;
     int64_t deadline_ms;   /* absolute monotonic ms; 0 = none */
     int64_t curfew_ms;     /* absolute monotonic ms; 0 = none */
-    int64_t park_sequence; /* bumps on every park, stales old heap entries */
+    int64_t park_sequence; /* bumps on every park, stales old heap entries; never reset */
+    int64_t io_index;      /* position in freak_oni_io_slots while parked on a socket */
+    int64_t io_next;       /* next oni parked on the same socket and direction (epoll) */
     uint64_t socket;       /* native socket when parked on READ/WRITE */
     size_t stack_size;
 #ifdef FREAK_ONI_FIBERS
@@ -118,6 +120,7 @@ static int64_t* freak_oni_ready = NULL;
 static int64_t freak_oni_ready_capacity = 0;
 static int64_t freak_oni_ready_head = 0;
 static int64_t freak_oni_ready_length = 0;
+static int64_t freak_oni_ready_live = 0;   /* entries whose oni is still queued */
 
 /* Deadline heap: (deadline, slot, park sequence), stale entries skipped. */
 typedef struct { int64_t deadline_ms; int64_t slot; int64_t sequence; } freak_oni_timer;
@@ -203,6 +206,7 @@ static void freak_oni_queue_ready(int64_t slot) {
     freak_oni_ready[(freak_oni_ready_head + freak_oni_ready_length) % freak_oni_ready_capacity] =
         freak_oni_make_handle(slot);
     freak_oni_ready_length += 1;
+    freak_oni_ready_live += 1;
     oni->in_ready_queue = true;
     oni->state = oni->state == FREAK_ONI_PARKED ? FREAK_ONI_READY : oni->state;
 }
@@ -328,31 +332,56 @@ static void freak_oni_io_add(int64_t slot) {
             freak_oni_io_slots, &freak_oni_io_capacity, sizeof(int64_t),
             "socket park table is too large");
     }
+    freak_onis[slot].io_index = freak_oni_io_count;
     freak_oni_io_slots[freak_oni_io_count++] = slot;
 #ifdef FREAK_ONI_EPOLL
+    /* Every oni waiting on a socket in one direction is kept, newest first. */
     freak_oni_record* oni = &freak_onis[slot];
     freak_oni_fd_interest* entry = freak_oni_fd_entry((int)oni->socket);
-    if (oni->park_kind == FREAK_ONI_PARK_READ) entry->reader = slot;
-    else entry->writer = slot;
+    if (oni->park_kind == FREAK_ONI_PARK_READ) {
+        oni->io_next = entry->reader;
+        entry->reader = slot;
+    } else {
+        oni->io_next = entry->writer;
+        entry->writer = slot;
+    }
     freak_oni_epoll_sync((int)oni->socket);
 #endif
 }
 
 static void freak_oni_io_remove(int64_t slot) {
-    for (int64_t i = 0; i < freak_oni_io_count; i++) {
-        if (freak_oni_io_slots[i] == slot) {
-            freak_oni_io_slots[i] = freak_oni_io_slots[--freak_oni_io_count];
-            break;
-        }
+    int64_t index = freak_onis[slot].io_index;
+    if (index >= 0 && index < freak_oni_io_count && freak_oni_io_slots[index] == slot) {
+        int64_t moved = freak_oni_io_slots[--freak_oni_io_count];
+        freak_oni_io_slots[index] = moved;
+        freak_onis[moved].io_index = index;
     }
+    freak_onis[slot].io_index = -1;
 #ifdef FREAK_ONI_EPOLL
     freak_oni_record* oni = &freak_onis[slot];
     freak_oni_fd_interest* entry = freak_oni_fd_entry((int)oni->socket);
-    if (entry->reader == slot) entry->reader = -1;
-    if (entry->writer == slot) entry->writer = -1;
-    freak_oni_epoll_sync((int)oni->socket);
+    int64_t* link = oni->park_kind == FREAK_ONI_PARK_READ ? &entry->reader : &entry->writer;
+    while (*link >= 0 && *link != slot) link = &freak_onis[*link].io_next;
+    if (*link == slot) *link = oni->io_next;
+    oni->io_next = -1;
 #endif
 }
+
+static void freak_oni_unpark(int64_t slot, int woke);
+
+#ifdef FREAK_ONI_EPOLL
+/* Wake every oni on one socket list; each retries its call and re-parks if it lost the race. */
+static int64_t freak_oni_wake_list(int64_t head) {
+    int64_t woken = 0;
+    while (head >= 0) {
+        int64_t next = freak_onis[head].io_next;
+        freak_oni_unpark(head, FREAK_ONI_WOKE_READY);
+        woken += 1;
+        head = next;
+    }
+    return woken;
+}
+#endif
 
 /* End a park: unhook it from sockets and the deadline count, queue it. */
 static void freak_oni_unpark(int64_t slot, int woke) {
@@ -564,7 +593,9 @@ typedef int64_t (*freak_oni_int_entry)(int64_t);
 static void freak_oni_run_current(void) {
     freak_oni_record* oni = &freak_onis[freak_oni_current_slot];
     if (oni->returns_int) {
-        oni->result = ((freak_oni_int_entry)(intptr_t)oni->entry)(oni->argument);
+        /* the table can grow while the task runs: store through a fresh pointer */
+        int64_t result = ((freak_oni_int_entry)(intptr_t)oni->entry)(oni->argument);
+        freak_onis[freak_oni_current_slot].result = result;
     } else {
         ((freak_oni_void_entry)(intptr_t)oni->entry)(oni->argument);
     }
@@ -680,8 +711,12 @@ int64_t freak_oni_summon(int64_t entry, int64_t returns_int, int64_t argument) {
     }
     freak_oni_record* oni = &freak_onis[slot];
     uint32_t generation = oni->generation;
+    int64_t sequence = oni->park_sequence; /* stale timers of the last tenant must never match */
     memset(oni, 0, sizeof(*oni));
     oni->generation = generation;
+    oni->park_sequence = sequence + 1;
+    oni->io_index = -1;
+    oni->io_next = -1;
     oni->next_free = -1;
     oni->entry = entry;
     oni->returns_int = returns_int != 0;
@@ -707,6 +742,7 @@ int64_t freak_oni_resume(int64_t handle) {
     if (oni->in_ready_queue) {
         /* leave the queue entry; next_ready skips oni that are not READY */
         oni->in_ready_queue = false;
+        freak_oni_ready_live -= 1;
     }
     oni->state = FREAK_ONI_RUNNING;
     freak_oni_current_slot = slot;
@@ -728,6 +764,7 @@ int64_t freak_oni_next_ready(void) {
         freak_oni_record* oni = &freak_onis[slot];
         if (!oni->in_ready_queue) continue;
         oni->in_ready_queue = false;
+        freak_oni_ready_live -= 1;
         if (oni->state != FREAK_ONI_READY) continue;
         return handle;
     }
@@ -787,7 +824,13 @@ void freak_oni_release(int64_t handle) {
     if (slot < 0) return;
     freak_oni_record* oni = &freak_onis[slot];
     if (oni->state != FREAK_ONI_DONE) freak_oni_fail("release of an oni that has not finished");
+    if (oni->in_ready_queue) {
+        oni->in_ready_queue = false;
+        freak_oni_ready_live -= 1;
+    }
     oni->state = FREAK_ONI_FREE;
+    /* a slot whose generation is used up retires, so old handles never alias */
+    if (oni->generation >= FREAK_ONI_GENERATION_MAX) return;
     oni->next_free = freak_oni_free_head;
     freak_oni_free_head = slot;
 }
@@ -807,7 +850,7 @@ int64_t freak_oni_live_count(void) { return freak_oni_live; }
 /* Oni the runtime itself can wake: socket parks plus deadline parks. */
 int64_t freak_oni_waiting(void) { return freak_oni_io_count + freak_oni_deadline_parks; }
 
-int64_t freak_oni_ready_count(void) { return freak_oni_ready_length; }
+int64_t freak_oni_ready_count(void) { return freak_oni_ready_live; }
 
 static int64_t freak_oni_fire_deadlines(int64_t now) {
     int64_t woken = 0;
@@ -828,7 +871,7 @@ int64_t freak_oni_poll(int64_t timeout_ms) {
     if (freak_oni_inside()) freak_oni_fail("poll is only allowed from the main stack (the parade loop)");
     int64_t now = freak_oni_now_ms();
     int64_t woken = freak_oni_fire_deadlines(now);
-    if (woken > 0 || freak_oni_ready_length > 0) timeout_ms = 0;
+    if (woken > 0 || freak_oni_ready_live > 0) timeout_ms = 0;
     if (freak_oni_io_count == 0 && freak_oni_deadline_parks == 0) return woken;
     int64_t next = freak_oni_next_deadline();
     if (next != 0) {
@@ -849,12 +892,8 @@ int64_t freak_oni_poll(int64_t timeout_ms) {
             freak_oni_fd_interest* entry = freak_oni_fd_entry(fd);
             uint32_t got = events[i].events;
             bool failed = (got & (EPOLLERR | EPOLLHUP)) != 0;
-            if (entry->reader >= 0 && (failed || (got & (EPOLLIN | EPOLLRDHUP)))) {
-                freak_oni_unpark(entry->reader, FREAK_ONI_WOKE_READY); woken += 1;
-            }
-            if (entry->writer >= 0 && (failed || (got & EPOLLOUT))) {
-                freak_oni_unpark(entry->writer, FREAK_ONI_WOKE_READY); woken += 1;
-            }
+            if (failed || (got & (EPOLLIN | EPOLLRDHUP))) woken += freak_oni_wake_list(entry->reader);
+            if (failed || (got & EPOLLOUT)) woken += freak_oni_wake_list(entry->writer);
         }
 #else
         int64_t count = freak_oni_io_count;

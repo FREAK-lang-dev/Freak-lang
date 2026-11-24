@@ -876,6 +876,9 @@ task pb_bind_expr(unit: int, expr: int) -> void {
             pilot name_expr = tc_arg_at(left, 0)
             if name_expr >= 0 and array_get(ast_expr_kinds, name_expr) == EXPR_STR {
                 pilot task_name = array_get(ast_expr_vals, name_expr)
+                if pb_missing_generated_access(unit, task_name, STMT_TASK) {
+                    pb_origin_error(array_get(ast_expr_files, name_expr), word_to_int(array_get(ast_expr_lines, name_expr)), task_name, "missing or unimported declaration '" + task_name + "'")
+                }
                 array_set(ast_expr_vals, name_expr, pb_resolve(unit, task_name, STMT_TASK, false))
             }
         }

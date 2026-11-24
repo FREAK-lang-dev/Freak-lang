@@ -498,7 +498,8 @@ def main() -> None:
         'impl Hidden { task make() -> Hidden { give back Hidden { value: 6 } } }\n'
         'task helper() -> int { give back secret }\n'
         'task api() -> int { pilot item = Hidden::make() give back helper() + item.value }\n'
-        'task other() -> int { give back 9 }\n'}, modules={'core': 'core.fk'},
+        'task other() -> int { give back 9 }\n'
+        'task worker(x: int) -> void { say x }\n'}, modules={'core': 'core.fk'},
         exports={'api': 'core::api', 'other': 'core::other'})
     write_project(identity_app, 'identity-app', {'main.fk':
         'use lib::{api}\ntask main() { say api() }\n'}, entry='main.fk', dependencies={'lib': '../lib'})
@@ -518,6 +519,7 @@ def main() -> None:
         'private-list-annotation': f'task consume(item: List<{prefix}Hidden>) {{}}\ntask main() {{}}',
         'private-associated': f'pilot item = {prefix}Hidden::make() say item.value',
         'unimported-public-call': f'say {prefix}other()',
+        'private-summon': f'oni::summon("{prefix}worker", 1)',
     }.items():
         declaration = body if 'annotation' in case else f'task main() {{ {body} }}'
         identity_file.write_text(f'use lib::{{api}}\n{declaration}\n')
