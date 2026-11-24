@@ -247,6 +247,10 @@ def main() -> int:
         h.expect("use 0.16.1 despite a sync failure", h.hangar("std", "use", "0.16.1", extra={"FREAK_STD_TEST_FAIL_WRITE": "sync:selected"}),
                  0, "could not sync its folder", "Selected std 0.16.1.")
         h.expect("synced-late selection is active", h.hangar("std", "status"), 0, "Active:   std 0.16.1")
+        h.expect("use bundled despite a temp-file sync failure", h.hangar("std", "use", "bundled", extra={"FREAK_STD_TEST_FAIL_WRITE": "create:selected"}),
+                 0, "Selected the bundled std")
+        assert not list(selected.parent.glob("selected.new*")), list(selected.parent.glob("selected.new*"))
+        h.expect("use 0.16.1 again", h.hangar("std", "use", "0.16.1"), 0, "Selected std 0.16.1.")
         stored_math = h.config / "std" / "store" / "0.16.1" / "math.fk"
         original = stored_math.read_bytes()
         stored_math.write_bytes(original + b"\n-- edited\n")
