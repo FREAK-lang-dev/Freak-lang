@@ -17906,7 +17906,7 @@ NATIVE_LISTS_REJECTED = (
      'native list runtime symbol conflict: @"llvm.umul.with.overflow.i64"'),
 )
 # Lists inside other types (tier 3 nested lists row): exit 0 and this output.
-NATIVE_NESTED_LISTS_EXPECTED = ("Sumika/Takeru!/Meiya\n5\n5\n2\nKei\n13\nca\n76\n3\nx\ny\nz\nz\nA!\nB!\n4\nkei\n149\n"
+NATIVE_NESTED_LISTS_EXPECTED = ("Sumika/Takeru!/Meiya\n5\n5\n2\nKei\n13\nca\n43\n76\n3\nx\ny\nz\nz\nA!\nB!\n4\nkei\n149\n"
                                 "0\n4\n15\n-1\n26\n7\n13\n5\nc\n6\nMitsurugi\n")
 # Layouts the oracle must see, and the private list helpers the module must
 # define once each: deep copies for for-each items and per-element drops.
@@ -18002,6 +18002,19 @@ def check_v4_native_nested_lists_module(module_text: str, triple: str) -> None:
         free_at = text.find("call void @free(")
         if inner_at < 0 or free_at < 0 or inner_at > free_at:
             raise RuntimeError(f"V4 nested lists module for {triple}: {outer} does not drop {inner} before freeing its buffer")
+
+
+def check_v4_native_unused_list_shape_module(module_text: str, triple: str) -> None:
+    """A list field with no executable list use: header layout present, list runtime absent."""
+    notes = native_layout_notes(module_text)
+    for name in ('%"freak.shape.Bag"', '%"freak.list.header"'):
+        if name not in notes:
+            raise RuntimeError(f"V4 unused list shape module for {triple} has no layout note for {name}")
+    if not re.search(r'^%"freak\.list\.header" = type \{ ptr, i64, i64 \}$', module_text, re.MULTILINE):
+        raise RuntimeError(f"V4 unused list shape module for {triple} does not define the list header type")
+    runtime = re.findall(r'^(?:define|declare)[^@\n]*(@"?freak\.list\.[^"(\s]*"?)', module_text, re.MULTILINE)
+    if runtime:
+        raise RuntimeError(f"V4 unused list shape module for {triple} emits list runtime: {', '.join(sorted(set(runtime)))}")
 
 
 # Rejected lend ABI programs: (stem, source, named reason).
@@ -18571,6 +18584,7 @@ def check_v4_native_shapes() -> None:
         ("generics", "generics_native.fk", NATIVE_GENERICS_EXPECTED),
         ("generics_lists", "generics_lists_native.fk", NATIVE_GENERICS_LISTS_EXPECTED),
         ("lists_nested", "lists_nested_native.fk", NATIVE_NESTED_LISTS_EXPECTED),
+        ("lists_unused_shape", "lists_unused_shape_native.fk", "7\n"),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -18609,6 +18623,8 @@ def check_v4_native_shapes() -> None:
                 check_v4_native_lists_layout_note(module_text, triple)
             if stem == "lists_nested":
                 check_v4_native_nested_lists_module(module_text, triple)
+            if stem == "lists_unused_shape":
+                check_v4_native_unused_list_shape_module(module_text, triple)
             probes += check_native_layout_oracle(module_text, triple)
             abi_probes += check_native_abi_oracle(module_text, triple)
             if stem == "agg_abi":

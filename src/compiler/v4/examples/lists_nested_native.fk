@@ -132,6 +132,10 @@ task main() -> int {
     say pair.0[1] + pair.1
     pilot grid: [List<word>; 2] = [["a"], ["b", "c"]]
     say grid[1][1] + grid[0][0]
+    -- A nested tuple destination carries its slot types down to `[]`.
+    pilot mut nest: ((List<int>, int), int) = (([], 1), 2)
+    nest.0.0.push(40)
+    say nest.0.0[0] + nest.0.1 + nest.1
 
     -- Nested lists: inner pushes, stores, moves out, and walks (each item a
     -- fresh copy of the inner list).

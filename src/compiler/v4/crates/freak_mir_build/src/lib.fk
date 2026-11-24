@@ -4945,7 +4945,11 @@ task v4_mir_tuple_type_add(tuple_ty: word, element_ty: word) -> word {
 task v4_mir_tuple_slot_list_expectation(mir_id: int, expected_ty: word, slot: int) -> word {
     if not v4_ty_is_known(expected_ty) or not v4_ty_is_tuple_type(expected_ty) or slot >= v4_ty_tuple_slot_count(expected_ty) { give back v4_ty_unknown }
     pilot slot_ty = v4_ty_tuple_slot_type(expected_ty, slot)
-    if v4_ty_list_element_type(v4_ty_canonical_type(v4_mir_ty_id(mir_id), slot_ty)) == v4_ty_unknown { give back v4_ty_unknown }
+    pilot canonical = v4_ty_canonical_type(v4_mir_ty_id(mir_id), slot_ty)
+    -- A nested tuple slot carries its type down, so `(([], 1), 2)` reaches
+    -- the inner list slot; scalar and other slots keep no expectation.
+    if v4_ty_is_tuple_type(canonical) { give back canonical }
+    if v4_ty_list_element_type(canonical) == v4_ty_unknown { give back v4_ty_unknown }
     give back slot_ty
 }
 

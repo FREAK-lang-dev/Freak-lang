@@ -1,0 +1,13 @@
+-- A shape with a list field that no emitted body touches as a list (tier 3
+-- nested lists row). The module still names the list header type, so the
+-- header record and its layout are emitted with Bag's; the list runtime
+-- (allocator, push, drop and clone helpers) stays out because no executable
+-- code uses a list. check_v4_native_shapes pins both halves.
+
+shape Bag { items: List<int>, n: int }
+
+task main() -> int {
+    pilot x = 3
+    say x + 4
+    give back 0
+}
