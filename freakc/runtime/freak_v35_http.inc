@@ -901,6 +901,21 @@ static void freak_http_conclude(freak_http_conn *conn) {
     if(request->status) freak_http_reject(conn);
     else if(request->message_done) { conn->state=FREAK_HTTP_CONN_QUEUED; freak_http_deliver(conn->server,request); }
 }
+#if defined(__linux__) && !defined(FREAK_HTTP_NO_SENDFILE)
+/* sendfile has no MSG_NOSIGNAL: a peer that vanished mid-download would
+   raise SIGPIPE and kill the worker. Block it for the call and consume the
+   one this call raised, so the failure reaches the connection instead. */
+static ssize_t freak_http_sendfile_quiet(int socket,int file,off_t *offset,size_t count) {
+    sigset_t pipe_set,previous; sigemptyset(&pipe_set); sigaddset(&pipe_set,SIGPIPE);
+    sigprocmask(SIG_BLOCK,&pipe_set,&previous);
+    ssize_t sent=sendfile(socket,file,offset,count); int error=errno;
+    if(sent<0 && error==EPIPE && !sigismember(&previous,SIGPIPE)) {
+        struct timespec zero={0,0};
+        while(sigtimedwait(&pipe_set,NULL,&zero)<0 && errno==EINTR) {}
+    }
+    sigprocmask(SIG_SETMASK,&previous,NULL); errno=error; return sent;
+}
+#endif
 /* Stream the next part of a file response once the queued head is out.
    Linux hands the file to the socket with sendfile; elsewhere one 64 KiB
    chunk at a time passes through the output queue. false: connection failed. */
@@ -909,7 +924,7 @@ static bool freak_http_pump_file(freak_http_conn *conn) {
 #if defined(__linux__) && !defined(FREAK_HTTP_NO_SENDFILE)
         size_t wanted=conn->file_remaining>((uint64_t)1<<20)?((size_t)1<<20):(size_t)conn->file_remaining;
         off_t offset=(off_t)conn->file_offset;
-        ssize_t sent=sendfile(conn->socket,conn->file,&offset,wanted);
+        ssize_t sent=freak_http_sendfile_quiet(conn->socket,conn->file,&offset,wanted);
         if(sent<0 && errno==EINTR) continue;
         if(sent<0 && (errno==EAGAIN || errno==EWOULDBLOCK)) { conn->writable=false; break; }
         if(sent<=0) return false; /* a failed read or send, or the file shrank */
