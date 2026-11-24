@@ -119,27 +119,25 @@ task cli_std_write_text(path: word, content: word) -> bool {
         if fs::result_ok(created) {
             fs::result_release(created)
             pilot moved = fs::rename_checked(temporary, path)
-            pilot mut synced = fs::result_ok(moved)
+            -- landed_synced: replaced and synced. completed without it: the rename landed
+            -- but the folder sync failed, so readers already see the new file.
+            pilot mut landed_synced = fs::result_ok(moved)
+            pilot mut completed = landed_synced or fs::result_completed(moved)
             pilot mut reason = ""
-            if synced and inject {
-                synced = false
+            if not landed_synced { reason = fs::result_error(moved) }
+            fs::result_release(moved)
+            if inject and landed_synced {
+                -- Same flags the runtime reports for a failed folder sync.
+                landed_synced = false
+                completed = true
                 reason = "injected folder sync failure"
-            } else if not synced {
-                reason = fs::result_error(moved)
             }
-            if synced {
-                fs::result_release(moved)
-                give back true
-            }
-            -- The rename landed but the folder sync did not: the new content
-            -- is what readers see now, so report success with a warning.
-            if fs::result_ok(moved) or fs::result_completed(moved) {
-                fs::result_release(moved)
+            if landed_synced { give back true }
+            if completed {
                 say "  warning: wrote " + path + " but could not sync its folder (" + reason + "); a crash right now could undo it."
                 give back true
             }
-            cli_std_fail("cannot replace " + path + ": " + fs::result_error(moved))
-            fs::result_release(moved)
+            cli_std_fail("cannot replace " + path + ": " + reason)
             if fs::exists(temporary) { fs::result_release(fs::remove_checked(temporary)) }
             give back false
         }
