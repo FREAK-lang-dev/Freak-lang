@@ -1,0 +1,12 @@
+-- Moving the map away while one of its values is lent is refused.
+-- expect: reject borrowck
+-- error: Meiya refuses this move while the value is borrowed
+
+task take(m: Map<word, int>) -> int { give back m.length() }
+task read(lend x: int) -> int { give back x }
+task main() -> int {
+    pilot m: Map<word, int> = {"a": 1}
+    pilot r = lend m["a"]
+    pilot n = take(m)
+    give back read(r) + n
+}

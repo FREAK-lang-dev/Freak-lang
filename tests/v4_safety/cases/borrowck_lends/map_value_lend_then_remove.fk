@@ -1,0 +1,15 @@
+-- A borrowed return out of a map keeps the map on loan at the caller; a
+-- remove while it lives is refused.
+-- expect: reject borrowck
+-- error: Meiya refuses overlapping mutable lends
+
+task peek(lend m: Map<word, int>) -> lend int {
+    give back lend m["a"]
+}
+task read(lend x: int) -> int { give back x }
+task main() -> int {
+    pilot mut m: Map<word, int> = {"a": 1}
+    pilot r = peek(lend m)
+    m.remove("a")
+    give back read(r)
+}

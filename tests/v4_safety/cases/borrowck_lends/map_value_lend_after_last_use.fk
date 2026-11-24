@@ -1,0 +1,12 @@
+-- Once the value loan's last use is behind it, the map may change again.
+-- expect: run
+-- exit: 6
+
+task read(lend x: int) -> int { give back x }
+task main() -> int {
+    pilot mut m: Map<word, int> = {"a": 1}
+    pilot r = lend m["a"]
+    pilot v = read(r)
+    m.set("b", 5)
+    give back v + m["b"]
+}

@@ -1,0 +1,14 @@
+-- `m[k] += rhs` forms the entry address before rhs runs; an rhs that may
+-- insert into m (an exclusive lend that sets) must be refused.
+-- expect: reject borrowck
+-- error: Meiya refuses to change a map while one of its entries is assigned
+
+task bump(lend mut m: Map<int, int>) -> int {
+    m.set(9, 9)
+    give back 1
+}
+task main() -> int {
+    pilot mut m: Map<int, int> = {1: 2}
+    m[1] += bump(lend mut m)
+    give back m[1]
+}

@@ -1,0 +1,10 @@
+-- set needs an exclusive loan; a shared lend parameter cannot grant one.
+-- expect: reject borrowck
+-- error: Meiya refuses an exclusive lend of an immutable lend parameter
+
+task add(lend m: Map<word, int>) -> void { m.set("b", 1) }
+task main() -> int {
+    pilot m: Map<word, int> = {"a": 1}
+    add(lend m)
+    give back m.length()
+}

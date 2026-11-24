@@ -1,0 +1,9 @@
+-- A fixed pilot map cannot grant the exclusive loan set needs.
+-- expect: reject borrowck
+-- error: fixed pilot cannot be modified
+
+task main() -> int {
+    fixed pilot m: Map<word, int> = {"a": 1}
+    m.set("b", 2)
+    give back 0
+}
