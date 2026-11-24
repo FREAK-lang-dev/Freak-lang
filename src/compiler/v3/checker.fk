@@ -1085,6 +1085,7 @@ task tc_namespace_owner(name: word) -> word {
 task tc_reserved_builtin_namespace_owner(name: word) -> bool {
     if name == "http_server" { give back true }
     if name == "json_document" { give back true }
+    if name == "oni" { give back true }
     give back name == "ByteBuffer" or name == "List" or name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui" or name == "word_builder"
 }
 
@@ -1140,6 +1141,25 @@ task tc_profile_helper_allowed(name: word) -> bool {
 
 task tc_builtin_call_type(name: word) -> word {
     if name.starts_with("ffi::") { give back ffi_builtin_ret(name) }
+    if name == "oni::summon" { give back "int" }
+    if name == "oni::resume" { give back "int" }
+    if name == "oni::next_ready" { give back "int" }
+    if name == "oni::suspend" { give back "void" }
+    if name == "oni::suspend_for" { give back "bool" }
+    if name == "oni::wake" { give back "void" }
+    if name == "oni::cancel" { give back "void" }
+    if name == "oni::cancelled" { give back "bool" }
+    if name == "oni::timed_out" { give back "bool" }
+    if name == "oni::current" { give back "int" }
+    if name == "oni::state" { give back "int" }
+    if name == "oni::result" { give back "int" }
+    if name == "oni::release" { give back "void" }
+    if name == "oni::curfew" { give back "void" }
+    if name == "oni::stack_kib" { give back "void" }
+    if name == "oni::live" { give back "int" }
+    if name == "oni::waiting" { give back "int" }
+    if name == "oni::ready_count" { give back "int" }
+    if name == "oni::poll" { give back "int" }
     if name == "process::platform_name" { give back "word" }
     if name == "process::stdout_is_terminal" { give back "bool" }
     if name == "process::platform_is_windows" { give back "bool" }
@@ -1330,6 +1350,25 @@ task tc_builtin_call_type(name: word) -> word {
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
     if name.starts_with("ffi::") and ffi_builtin_ret(name) != "" { give back ffi_builtin_params(name) }
+    if name == "oni::summon" { give back "word,int" }
+    if name == "oni::resume" { give back "int" }
+    if name == "oni::next_ready" { give back "" }
+    if name == "oni::suspend" { give back "" }
+    if name == "oni::suspend_for" { give back "int" }
+    if name == "oni::wake" { give back "int" }
+    if name == "oni::cancel" { give back "int" }
+    if name == "oni::cancelled" { give back "" }
+    if name == "oni::timed_out" { give back "" }
+    if name == "oni::current" { give back "" }
+    if name == "oni::state" { give back "int" }
+    if name == "oni::result" { give back "int" }
+    if name == "oni::release" { give back "int" }
+    if name == "oni::curfew" { give back "int" }
+    if name == "oni::stack_kib" { give back "int" }
+    if name == "oni::live" { give back "" }
+    if name == "oni::waiting" { give back "" }
+    if name == "oni::ready_count" { give back "" }
+    if name == "oni::poll" { give back "int" }
     if name == "process::platform_name" { give back "" }
     if name == "process::stdout_is_terminal" { give back "" }
     if name == "process::platform_is_windows" { give back "" }
@@ -1955,6 +1994,41 @@ task tc_validate_type_args(label: word, args: word, expected_types: word, line: 
     }
 }
 
+-- oni::summon("task", arg) names its task with a string literal: V3.5 has
+-- no task values, so the emitters pass that task's address to the runtime.
+-- The task takes one int and gives back void or int.
+task tc_validate_oni_summon(left: word, line: int, source_file: word) -> void {
+    tc_validate_args(left, line)
+    if tc_arg_count(left) != 2 {
+        tc_diag_code("E0005", "oni::summon expects 2 argument(s), a task name in quotes and an int, got " + word_from_int(tc_arg_count(left)), line, source_file)
+        give back
+    }
+    pilot name_id = tc_arg_at(left, 0)
+    if array_get(ast_expr_kinds, name_id) != EXPR_STR {
+        tc_diag_code("E0002", "oni::summon needs the task name as a plain string literal in double quotes, like oni::summon('worker', 0)", tc_expr_diag_line(name_id, line), tc_expr_diag_file(name_id, source_file))
+        give back
+    }
+    pilot task_name: word = array_get(ast_expr_vals, name_id)
+    pilot entry = tc_callable_entry(task_name)
+    if entry < 0 {
+        tc_diag_code("E0005", "oni::summon: there is no task named '" + task_name + "' to summon", tc_expr_diag_line(name_id, line), tc_expr_diag_file(name_id, source_file))
+        give back
+    }
+    pilot declaration_id = word_to_int(array_get(tc_callable_stmt_ids, entry))
+    pilot params: word = array_get(tc_callable_params, entry)
+    pilot returns: word = array_get(tc_callable_returns, entry)
+    pilot shape_ok = array_get(ast_stmt_kinds, declaration_id) == STMT_TASK and tc_arg_count(params) == 1 and tc_param_type_at(params, 0) == "int"
+    if shape_ok and returns != "" and returns != "void" and returns != "int" { shape_ok = false }
+    if not shape_ok {
+        tc_diag_code("E0002", "oni::summon: task '" + task_name + "' must take exactly one int and give back void or int", tc_expr_diag_line(name_id, line), tc_expr_diag_file(name_id, source_file))
+    }
+    pilot arg_id = tc_arg_at(left, 1)
+    pilot arg_type = tc_expr_type(arg_id)
+    if arg_type != "" and not tc_type_assignable("int", arg_type) {
+        tc_diag_code("E0002", "oni::summon argument 2 expects int, got " + arg_type, tc_expr_diag_line(arg_id, line), tc_expr_diag_file(arg_id, source_file))
+    }
+}
+
 task tc_validate_param_args(label: word, args: word, params: word, offset: int, line: int, source_file: word, raw_i64_abi: bool) -> void {
     pilot actual_count = tc_arg_count(args)
     pilot expected_count = tc_arg_count(params) - offset
@@ -2156,6 +2230,10 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         } else {
             tc_diag_unknown_method_receiver(val, line, source_file)
         }
+        give back
+    }
+    if kind == EXPR_CALL and val == "oni::summon" {
+        tc_validate_oni_summon(left, line, source_file)
         give back
     }
     if kind == EXPR_CALL and val == "List::new" {

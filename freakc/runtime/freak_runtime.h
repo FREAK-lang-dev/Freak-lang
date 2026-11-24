@@ -284,6 +284,46 @@ void freak_llvm_tcp_socket_set_timeout(
     int64_t handle, int64_t receive_ms, int64_t send_ms);
 void freak_llvm_tcp_socket_close(int64_t handle);
 
+/* std hook for hyakki: oni green tasks (freak_v35_oni.inc). */
+int64_t freak_oni_summon(int64_t entry, int64_t returns_int, int64_t argument);
+int64_t freak_oni_resume(int64_t handle);
+int64_t freak_oni_next_ready(void);
+void freak_oni_suspend(void);
+bool freak_oni_suspend_for(int64_t timeout_ms);
+void freak_oni_wake(int64_t handle);
+void freak_oni_cancel(int64_t handle);
+bool freak_oni_cancelled(void);
+bool freak_oni_timed_out(void);
+int64_t freak_oni_current(void);
+int64_t freak_oni_state(int64_t handle);
+int64_t freak_oni_result(int64_t handle);
+void freak_oni_release(int64_t handle);
+void freak_oni_curfew(int64_t ms);
+void freak_oni_stack_kib(int64_t kib);
+int64_t freak_oni_live_count(void);
+int64_t freak_oni_waiting(void);
+int64_t freak_oni_ready_count(void);
+int64_t freak_oni_poll(int64_t timeout_ms);
+int64_t freak_llvm_oni_summon(int64_t entry, int64_t returns_int, int64_t argument);
+int64_t freak_llvm_oni_resume(int64_t handle);
+int64_t freak_llvm_oni_next_ready(void);
+void freak_llvm_oni_suspend(void);
+int64_t freak_llvm_oni_suspend_for(int64_t ms);
+void freak_llvm_oni_wake(int64_t handle);
+void freak_llvm_oni_cancel(int64_t handle);
+int64_t freak_llvm_oni_cancelled(void);
+int64_t freak_llvm_oni_timed_out(void);
+int64_t freak_llvm_oni_current(void);
+int64_t freak_llvm_oni_state(int64_t handle);
+int64_t freak_llvm_oni_result(int64_t handle);
+void freak_llvm_oni_release(int64_t handle);
+void freak_llvm_oni_curfew(int64_t ms);
+void freak_llvm_oni_stack_kib(int64_t kib);
+int64_t freak_llvm_oni_live(void);
+int64_t freak_llvm_oni_waiting(void);
+int64_t freak_llvm_oni_ready_count(void);
+int64_t freak_llvm_oni_poll(int64_t timeout_ms);
+
 /* Equality test (byte-wise). */
 bool freak_word_eq(freak_word a, freak_word b);
 
