@@ -7757,6 +7757,45 @@ task v4_mir_sum_rows_are_sensitive(ty: int, definition: word, locals: int, value
     give back false
 }
 
+-- Snapshot rows of a native map get: a loan of a Map local (a lend of an
+-- exact Map row, or a lend parameter), a key of the key type (a
+-- shared `lend word` of a word row for word keys), no ABI, and a
+-- maybe<V> result over the map's value type.
+task v4_mir_map_get_row_is_valid(ty: int, values: int, value: int) -> bool {
+    pilot row: word = array_get(values, value)
+    pilot args = v4_mir_snapshot_field(row, 12)
+    if v4_mir_snapshot_field(row, 11) != "" or v4_mir_call_args_payload_count(args) != 2 { give back false }
+    pilot loan = v4_mir_call_args_payload_at(args, 0)
+    pilot key = v4_mir_call_args_payload_at(args, 1)
+    if loan < 0 or loan >= value or key < 0 or key >= value { give back false }
+    pilot loan_row: word = array_get(values, loan)
+    pilot loan_ty = v4_mir_snapshot_field(loan_row, 10)
+    if not v4_ty_is_lend_type(loan_ty) { give back false }
+    pilot map_ty = v4_ty_canonical_type(ty, v4_ty_lend_target_type(loan_ty))
+    if not v4_ty_is_generic_instance_type(map_ty) or v4_ty_generic_base_name(map_ty) != "Map" or v4_ty_generic_arg_count(map_ty) != 2 { give back false }
+    pilot loan_kind = v4_mir_snapshot_field(loan_row, 4)
+    if loan_kind == v4_mir_rvalue_lend {
+        pilot owner = word_to_int(v4_mir_snapshot_field_raw(loan_row, 7))
+        if owner < 0 or owner >= loan or v4_mir_snapshot_field_raw(loan_row, 8) != "-1" { give back false }
+        if v4_ty_canonical_type(ty, v4_mir_control_row_type(values, owner)) != map_ty { give back false }
+        if v4_ty_lend_mode(loan_ty) != v4_ty_param_mode_lend { give back false }
+    } else if loan_kind != v4_mir_rvalue_use_local {
+        give back false
+    }
+    pilot key_ty = v4_ty_canonical_type(ty, v4_ty_generic_arg(map_ty, 0))
+    pilot key_row: word = array_get(values, key)
+    pilot key_row_ty = v4_mir_snapshot_field(key_row, 10)
+    if key_ty == v4_ty_word {
+        if v4_mir_snapshot_field(key_row, 4) != v4_mir_rvalue_lend or key_row_ty != "lend word" or v4_mir_snapshot_field_raw(key_row, 8) != "-1" { give back false }
+        pilot key_owner = word_to_int(v4_mir_snapshot_field_raw(key_row, 7))
+        if key_owner < 0 or key_owner >= key or v4_mir_control_row_type(values, key_owner) != v4_ty_word { give back false }
+    } else if not v4_ty_types_compatible(key_ty, key_row_ty) {
+        give back false
+    }
+    pilot value_ty = v4_ty_canonical_type(ty, v4_ty_generic_arg(map_ty, 1))
+    give back v4_mir_snapshot_field(row, 10) == v4_ty_canonical_type(ty, "maybe<" + value_ty + ">")
+}
+
 task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) -> word {
     pilot row: word = array_get(values, value)
     if v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_call { give back "" }
@@ -7773,10 +7812,11 @@ task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) ->
     if not required { give back "" }
     pilot identity = v4_mir_snapshot_field(row, 13)
     if v4_mir_builtin_system_identity_kind(identity) != "" or identity == "builtin::word::to_int_maybe" { give back v4_mir_sum_row_intrinsic_error(ty, values, locals, value) }
-    -- A native map get gives back a fresh maybe<V> copy of the entry's value
-    -- (v4_mir_rvalue_is_builtin_map checks its loan and key).
+    -- A native map get gives back a fresh maybe<V> copy of the entry's value.
+    -- Its rows are checked as v4_mir_rvalue_is_builtin_map checks live MIR.
     if v4_mir_builtin_map_identity_kind(identity) == "map_get" {
         if v4_mir_snapshot_field(row, 6) != identity or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" or count != 2 { give back "invalid native map get contract" }
+        if not v4_mir_map_get_row_is_valid(ty, values, value) { give back "invalid native map get contract" }
         give back ""
     }
     if identity != "" or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" { give back "scalar sum calls require a resolved ordinary static task" }

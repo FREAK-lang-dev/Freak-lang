@@ -1,8 +1,9 @@
--- Native maps and sets (tier 3 collections rows L and M): Map<K, V> and
--- Set<T> literals, Map::new() and Set::new(), m[k] reads and in-place
--- updates (a missing key panics like a list index past the end), m[k] = v
--- (insert or replace, the same as m.set(k, v)), get(k) -> maybe<V> (a fresh
--- copy), remove(k) -> bool and length. Keys are word, int, uint, tiny, char
+-- Native maps and sets (tier 3 collections rows L and M): Map<K, V>
+-- literals and Map::new(), Set<T> built with Set::new() and add (sets have
+-- no literal), m[k] reads and in-place updates (a missing key panics like a
+-- list index past the end), m[k] = v (insert or replace, the same as
+-- m.set(k, v)), get(k) -> maybe<V> (a fresh copy), remove(k) -> bool,
+-- contains and length. Keys are word, int, uint, tiny, char
 -- or bool; values are scalars, words, tuples and shapes. Entries are kept
 -- in insertion order behind an open-addressed hash index. Maps and sets are
 -- Move types in Meiya's drop plan; a lookup lends its key, set and add move

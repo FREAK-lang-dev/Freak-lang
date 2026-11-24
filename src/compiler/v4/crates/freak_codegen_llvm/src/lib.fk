@@ -6858,14 +6858,27 @@ task v4_codegen_llvm_collect_map_lines(parts: int, mir_id: int, body_id: int, rv
     if kind == v4_mir_rvalue_call { map_kind = v4_mir_map_intrinsic_kind(mir_id, body_id, rvalue_id) }
     if kind == v4_mir_rvalue_map { map_kind = "literal" }
     if map_kind == "" { give back false }
+    -- A literal converts each key and value as soon as it is evaluated, so a
+    -- checked conversion that fails stops the entries after it.
     pilot arg = 0
     repeat until arg >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
         pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)
         v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, child, v4_codegen_llvm_temp_value(body_id, child), false)
+        if map_kind == "literal" { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_map_literal_conversion_lines(mir_id, body_id, rvalue_id, arg)) }
         arg += 1
     }
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_map_operation_lines(mir_id, body_id, rvalue_id, target, map_kind))
     give back true
+}
+
+-- The checked conversion of map literal child `arg` (key at even, value at
+-- odd positions) into the map's key or value type, named for its entry.
+task v4_codegen_llvm_map_literal_conversion_lines(mir_id: int, body_id: int, rvalue_id: int, arg: int) -> word {
+    pilot map_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot slot = "%map." + word_from_int(body_id) + "." + word_from_int(rvalue_id) + ".e" + word_from_int(arg / 2)
+    pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg)
+    if arg % 2 == 0 { give back v4_codegen_llvm_expected_lines(mir_id, body_id, child, v4_mir_hash_collection_key_type(mir_id, map_ty), slot + ".kc") }
+    give back v4_codegen_llvm_expected_lines(mir_id, body_id, child, v4_mir_hash_collection_value_type(mir_id, map_ty), slot + ".vc")
 }
 
 -- Literals, `new`, and the builtin calls over operands already evaluated.
@@ -6912,7 +6925,8 @@ task v4_codegen_llvm_map_operation_lines(mir_id: int, body_id: int, rvalue_id: i
 
 -- A literal stores its entries in source order into a buffer of exactly its
 -- length, then the seal helper builds the index; a later duplicate key
--- replaces the earlier entry's value, as `set` does.
+-- replaces the earlier entry's value, as `set` does. The operands and their
+-- conversions were emitted entry by entry by v4_codegen_llvm_collect_map_lines.
 task v4_codegen_llvm_map_literal_lines(mir_id: int, body_id: int, rvalue_id: int, target: word, prefix: word) -> word {
     pilot header_ty = v4_codegen_llvm_map_header_type()
     pilot map_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
@@ -6929,8 +6943,7 @@ task v4_codegen_llvm_map_literal_lines(mir_id: int, body_id: int, rvalue_id: int
         pilot key = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, pair * 2)
         pilot value = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, pair * 2 + 1)
         pilot slot = prefix + ".e" + word_from_int(pair)
-        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, key, key_ty, slot + ".kc"))
-        v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, value, value_ty, slot + ".vc"))
+        -- The .kc / .vc conversions ran as each operand was evaluated.
         v4_codegen_llvm_fragment_push(parts, "  " + slot + " = getelementptr inbounds " + entry + ", ptr " + prefix + ".data, i64 " + word_from_int(pair) + "\n")
         v4_codegen_llvm_fragment_push(parts, "  " + slot + ".k = getelementptr inbounds " + entry + ", ptr " + slot + ", i32 0, i32 0\n")
         v4_codegen_llvm_fragment_push(parts, "  store " + v4_codegen_llvm_type(key_ty) + " " + v4_codegen_llvm_expected_value(mir_id, body_id, key, key_ty, slot + ".kc") + ", ptr " + slot + ".k\n")
