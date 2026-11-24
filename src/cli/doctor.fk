@@ -348,6 +348,7 @@ task cli_doctor_std_missing(std_dir: word) -> word {
     if not fs::exists(std_dir + "/ui/window.fk") { missing = cli_doctor_append_missing(missing, "ui/window.fk") }
     if not fs::exists(std_dir + "/freak_abi") { missing = cli_doctor_append_missing(missing, "freak_abi") }
     if not fs::exists(std_dir + "/freak_std_api") { missing = cli_doctor_append_missing(missing, "freak_std_api") }
+    if not fs::exists(std_dir + "/std.toml") { missing = cli_doctor_append_missing(missing, "std.toml") }
     give back missing
 }
 
