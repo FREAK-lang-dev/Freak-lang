@@ -23,6 +23,8 @@ src/cli/package_registry.fk
 src/cli/package_sources.fk
 src/cli/registry.fk
 src/cli/package_binding.fk
+src/cli/std_sign.fk
+src/cli/std_store.fk
 src/cli/runtime_cache.fk
 src/cli/build.fk
 src/cli/irbuilder.fk
