@@ -1,114 +1,170 @@
 -- ===================================================================
 -- FREAK Standard Library — std::json
 -- ===================================================================
--- A JSON parser and serializer written in pure FREAK.
--- Uses dynamic arrays as the backing store for JSON values.
---
--- JSON values are stored as tagged entries in parallel arrays:
---   json_types[i]  = "s" | "n" | "b" | "null" | "a" | "o"
---   json_vals[i]   = string value (for s/n/b/null) or ""
---   json_children[i] = array handle of child indices (for a/o)
---   json_keys[i]   = array handle of key strings (for o only)
+-- A JSON parser, builder and serializer written in pure FREAK.
+-- For strict, document-scoped RFC 8259 parsing with explicit lifetimes
+-- use std::json_document; this module is the lenient legacy pool.
 --
 -- Parse with: json_parse(source) -> handle (int)
--- Access with: json_get_type, json_get_str, json_get_int, json_get_bool
--- Object access: json_obj_get(handle, key) -> child handle
--- Array access: json_arr_get(handle, index) -> child handle
--- Serialize with: json_stringify(handle) -> word
+--   json_ok() / json_last_error() / json_error_pos() report the first
+--   problem of the last parse (nothing is printed). On error the handle of
+--   whatever was read is still returned, as before.
+-- Access with: json_get_type ("s" | "n" | "b" | "null" | "a" | "o"),
+--   json_get_str, json_get_int, json_get_num, json_get_bool, json_is_null
+-- Object access: json_obj_get(handle, key) -> child handle (-1 if absent),
+--   json_obj_len, json_obj_key_at, json_obj_has
+-- Array access: json_arr_len, json_arr_get(handle, index) -> child handle
+-- Build with: json_new_null/bool/int/num/str/array/object,
+--   json_arr_push(array, child), json_obj_set(object, key, child)
+-- Serialize with: json_stringify(handle) -> word (compact, escaped)
+--   json_stringify_pretty(handle, indent) -> word
+-- Free every value with json_reset(); handles become invalid.
+--
+-- Strings decode \" \\ \/ \b \f \n \r \t and \uXXXX (surrogate pairs
+-- become one code point; a lone surrogate becomes U+FFFD). Numbers keep
+-- their source text, including exponents.
+--
+-- Storage: one pool of nodes in Lists, no array handle per container, so
+-- documents of any size fit (the LLVM array pool allows 1024 live arrays).
+-- A container's children (and object keys) are a slice of the shared edge
+-- lists: json_start[h] .. json_start[h] + json_size[h]. Parsed containers
+-- are packed exactly; pushing past json_cap[h] moves the slice to the end.
+-- The scanner reads bytes from a ByteBuffer copy of the source, which is
+-- about ten times faster than comparing one-byte words.
 -- ===================================================================
 
--- Value pool
-pilot mut json_types = 0
-pilot mut json_vals = 0
-pilot mut json_children = 0
-pilot mut json_keys = 0
+-- Node pool
+pilot mut json_types: List<word> = []
+pilot mut json_vals: List<word> = []
+pilot mut json_start: List<int> = []
+pilot mut json_size: List<int> = []
+pilot mut json_cap: List<int> = []
 pilot mut json_count = 0
 pilot mut json_inited = 0
 
+-- Children of every container, sliced by json_start/json_size.
+pilot mut json_edges: List<int> = []
+pilot mut json_edge_keys: List<word> = []
+
 -- Parser state
 pilot mut json_src = ""
+pilot mut json_buf = ByteBuffer::new()
+pilot mut json_wbuf = ByteBuffer::new()
 pilot mut json_pos = 0
 pilot mut json_len = 0
+pilot mut json_depth = 0
+pilot mut json_err = ""
+pilot mut json_err_at = 0 - 1
+pilot mut json_stack: List<int> = []
+pilot mut json_stack_keys: List<word> = []
 
 task json_init() -> void {
-    if json_inited == 0 {
-        json_types = array_new()
-        json_vals = array_new()
-        json_children = array_new()
-        json_keys = array_new()
-        json_count = 0
-        json_inited = 1
-    }
+    json_inited = 1
+}
+
+-- Release every pooled value. All existing handles become invalid.
+task json_reset() -> void {
+    json_types.clear()
+    json_vals.clear()
+    json_start.clear()
+    json_size.clear()
+    json_cap.clear()
+    json_edges.clear()
+    json_edge_keys.clear()
+    json_stack.clear()
+    json_stack_keys.clear()
+    json_buf.truncate(0)
+    json_wbuf.truncate(0)
+    json_src = ""
+    json_count = 0
+    json_inited = 0
 }
 
 -- Allocate a new JSON value slot, returns its index.
 task json_alloc(jtype: word, jval: word) -> int {
     pilot idx = json_count
-    array_push(json_types, jtype)
-    array_push(json_vals, jval)
-    array_push(json_children, word_from_int(0))
-    array_push(json_keys, word_from_int(0))
+    json_types.push(jtype)
+    json_vals.push(jval)
+    json_start.push(0)
+    json_size.push(0)
+    json_cap.push(0)
     json_count += 1
     give back idx
+}
+
+-- === Errors ===
+
+task json_fail(message: word) -> void {
+    if json_err == "" {
+        json_err = message
+        json_err_at = json_pos
+    }
+}
+
+-- True when the last json_parse found no error.
+task json_ok() -> bool {
+    give back json_err == ""
+}
+
+-- The first error of the last json_parse, or "".
+task json_last_error() -> word {
+    give back json_err + ""
+}
+
+-- Byte offset of the first error of the last json_parse, or -1.
+task json_error_pos() -> int {
+    give back json_err_at
 }
 
 -- === Accessors ===
 
 task json_get_type(handle: int) -> word {
-    give back array_get(json_types, handle)
+    give back json_types[handle]
 }
 
 task json_get_str(handle: int) -> word {
-    give back array_get(json_vals, handle)
+    give back json_vals[handle]
 }
 
 task json_get_int(handle: int) -> int {
-    pilot v: word = array_get(json_vals, handle)
+    pilot v: word = json_vals[handle]
     give back word_to_int(v)
 }
 
+task json_get_num(handle: int) -> num {
+    pilot v: word = json_vals[handle]
+    give back v.to_num()
+}
+
 task json_get_bool(handle: int) -> bool {
-    pilot v: word = array_get(json_vals, handle)
+    pilot v: word = json_vals[handle]
     give back v == "true"
 }
 
 task json_is_null(handle: int) -> bool {
-    pilot t: word = array_get(json_types, handle)
+    pilot t: word = json_types[handle]
     give back t == "null"
 }
 
 task json_arr_len(handle: int) -> int {
-    pilot ch: word = array_get(json_children, handle)
-    pilot ch_handle = word_to_int(ch)
-    give back array_len(ch_handle)
+    give back json_size[handle]
 }
 
 task json_arr_get(handle: int, index: int) -> int {
-    pilot ch: word = array_get(json_children, handle)
-    pilot ch_handle = word_to_int(ch)
-    pilot val_w: word = array_get(ch_handle, index)
-    give back word_to_int(val_w)
+    if index < 0 or index >= json_size[handle] { give back 0 - 1 }
+    give back json_edges[json_start[handle] + index]
 }
 
 task json_obj_len(handle: int) -> int {
-    pilot ks: word = array_get(json_keys, handle)
-    pilot ks_handle = word_to_int(ks)
-    give back array_len(ks_handle)
+    give back json_size[handle]
 }
 
 task json_obj_get(handle: int, key: word) -> int {
-    pilot ks: word = array_get(json_keys, handle)
-    pilot ks_handle = word_to_int(ks)
-    pilot ch: word = array_get(json_children, handle)
-    pilot ch_handle = word_to_int(ch)
-    pilot klen = array_len(ks_handle)
+    pilot base = json_start[handle]
     pilot mut ki = 0
-    repeat klen times {
-        pilot k: word = array_get(ks_handle, ki)
-        if k == key {
-            pilot v: word = array_get(ch_handle, ki)
-            give back word_to_int(v)
-        }
+    repeat json_size[handle] times {
+        pilot k: word = json_edge_keys[base + ki]
+        if k == key { give back json_edges[base + ki] }
         ki += 1
     }
     give back 0 - 1
@@ -119,196 +175,383 @@ task json_obj_has(handle: int, key: word) -> bool {
 }
 
 task json_obj_key_at(handle: int, index: int) -> word {
-    pilot ks: word = array_get(json_keys, handle)
-    pilot ks_handle = word_to_int(ks)
-    give back array_get(ks_handle, index)
+    if index < 0 or index >= json_size[handle] { give back "" }
+    give back json_edge_keys[json_start[handle] + index]
+}
+
+-- === Builders ===
+
+task json_new_null() -> int {
+    give back json_alloc("null", "")
+}
+
+task json_new_bool(value: bool) -> int {
+    if value { give back json_alloc("b", "true") }
+    give back json_alloc("b", "false")
+}
+
+task json_new_int(value: int) -> int {
+    give back json_alloc("n", word_from_int(value))
+}
+
+-- NaN and infinities have no JSON spelling and become null.
+task json_new_num(value: num) -> int {
+    if value != value or value - value != 0.0 { give back json_alloc("null", "") }
+    give back json_alloc("n", value.to_word())
+}
+
+task json_new_str(value: word) -> int {
+    give back json_alloc("s", value)
+}
+
+task json_new_array() -> int {
+    give back json_alloc("a", "")
+}
+
+task json_new_object() -> int {
+    give back json_alloc("o", "")
+}
+
+-- Make room for one more child of container h, moving its slice to the
+-- end of the edge lists when it is full.
+task json_grow(h: int) -> void {
+    pilot size = json_size[h]
+    pilot cap = json_cap[h]
+    if size < cap { give back }
+    pilot mut new_cap = cap * 2
+    if new_cap < 4 { new_cap = 4 }
+    pilot old_start = json_start[h]
+    pilot new_start = json_edges.length()
+    pilot mut i = 0
+    repeat new_cap times {
+        if i < size {
+            json_edges.push(json_edges[old_start + i])
+            json_edge_keys.push(json_edge_keys[old_start + i])
+        } else {
+            json_edges.push(0 - 1)
+            json_edge_keys.push("")
+        }
+        i += 1
+    }
+    json_start[h] = new_start
+    json_cap[h] = new_cap
+}
+
+task json_arr_push(array: int, child: int) -> void {
+    json_grow(array)
+    pilot slot = json_start[array] + json_size[array]
+    json_edges[slot] = child
+    json_size[array] = json_size[array] + 1
+}
+
+-- Replaces the value of an existing key, otherwise appends the key.
+task json_obj_set(object: int, key: word, child: int) -> void {
+    pilot base = json_start[object]
+    pilot mut ki = 0
+    repeat json_size[object] times {
+        pilot k: word = json_edge_keys[base + ki]
+        if k == key {
+            json_edges[base + ki] = child
+            give back
+        }
+        ki += 1
+    }
+    json_grow(object)
+    pilot slot = json_start[object] + json_size[object]
+    json_edges[slot] = child
+    json_edge_keys[slot] = key
+    json_size[object] = json_size[object] + 1
 }
 
 -- === Parser internals ===
 
+-- Byte at pos, or -1 outside the source.
+task json_byte_at(pos: int) -> int {
+    if pos < 0 or pos >= json_len { give back 0 - 1 }
+    json_buf.seek(pos)
+    give back json_buf.read_byte()
+}
+
+-- Legacy one-character accessors.
 task json_cur() -> word {
-    if json_pos >= json_len { give back "" }
     give back json_src.char_at(json_pos)
 }
 
 task json_advance() -> word {
-    pilot c = json_cur()
+    pilot c = json_src.char_at(json_pos)
     json_pos += 1
     give back c
 }
 
 task json_skip_ws() -> void {
+    if json_pos >= json_len { give back }
+    json_buf.seek(json_pos)
     repeat until json_pos >= json_len {
-        pilot c = json_cur()
-        if c != " " and c != "\n" and c != "\r" and c != "\t" {
-            give back
-        }
+        pilot v = json_buf.read_byte()
+        if v != 32 and v != 10 and v != 13 and v != 9 { give back }
         json_pos += 1
     }
 }
 
 task json_expect(ch: word) -> void {
-    pilot c = json_advance()
+    pilot c = json_src.char_at(json_pos)
+    json_pos += 1
     if c != ch {
-        say "JSON parse error: expected '" + ch + "' got '" + c + "'"
+        if c == "" {
+            json_fail("expected '" + ch + "' but the input ended")
+        } else {
+            json_fail("expected '" + ch + "' got '" + c + "'")
+        }
     }
+}
+
+-- Value of the four hex digits at json_pos, or -1.
+task json_hex4() -> int {
+    if json_pos + 4 > json_len { give back 0 - 1 }
+    json_buf.seek(json_pos)
+    pilot mut value = 0
+    repeat 4 times {
+        pilot v = json_buf.read_byte()
+        pilot mut d = 0 - 1
+        if v >= 48 and v <= 57 {
+            d = v - 48
+        } else if v >= 97 and v <= 102 {
+            d = v - 87
+        } else if v >= 65 and v <= 70 {
+            d = v - 55
+        }
+        if d < 0 { give back 0 - 1 }
+        value = value * 16 + d
+    }
+    give back value
+}
+
+-- json_pos is just after "\u". Returns the code point and moves past it.
+task json_parse_unicode_escape() -> int {
+    pilot hi = json_hex4()
+    if hi < 0 {
+        json_fail("bad \\u escape")
+        give back 65533
+    }
+    json_pos += 4
+    if hi >= 55296 and hi <= 56319 {
+        if json_byte_at(json_pos) == 92 and json_byte_at(json_pos + 1) == 117 {
+            json_pos += 2
+            pilot lo = json_hex4()
+            if lo >= 56320 and lo <= 57343 {
+                json_pos += 4
+                give back 65536 + (hi - 55296) * 1024 + (lo - 56320)
+            }
+            -- Not a low surrogate: leave it to be read as its own escape.
+            json_pos -= 2
+        }
+        give back 65533
+    }
+    if hi >= 56320 and hi <= 57343 { give back 65533 }
+    give back hi
 }
 
 task json_parse_string() -> word {
-    json_expect("\"")
-    pilot mut ps_out = ""
+    if json_byte_at(json_pos) != 34 {
+        json_expect("\"")
+        give back ""
+    }
+    json_pos += 1
+    pilot b = word_builder::new()
+    pilot mut run_start = json_pos
+    json_buf.seek(json_pos)
     repeat until json_pos >= json_len {
-        pilot c = json_advance()
-        if c == "\"" { give back ps_out }
-        if c == "\\" {
-            pilot esc = json_advance()
-            if esc == "n" {
-                ps_out = ps_out + "\n"
-            } else if esc == "t" {
-                ps_out = ps_out + "\t"
-            } else if esc == "r" {
-                ps_out = ps_out + "\r"
-            } else if esc == "\\" {
-                ps_out = ps_out + "\\"
-            } else if esc == "\"" {
-                ps_out = ps_out + "\""
-            } else if esc == "/" {
-                ps_out = ps_out + "/"
+        pilot v = json_buf.read_byte()
+        if v == 34 {
+            if json_pos > run_start { word_builder::append(b, json_src.substring(run_start, json_pos - run_start)) }
+            json_pos += 1
+            give back word_builder::finish(b)
+        }
+        if v == 92 {
+            if json_pos > run_start { word_builder::append(b, json_src.substring(run_start, json_pos - run_start)) }
+            pilot esc = json_byte_at(json_pos + 1)
+            json_pos += 2
+            if esc == 110 {
+                word_builder::append(b, "\n")
+            } else if esc == 116 {
+                word_builder::append(b, "\t")
+            } else if esc == 114 {
+                word_builder::append(b, "\r")
+            } else if esc == 92 {
+                word_builder::append(b, "\\")
+            } else if esc == 34 {
+                word_builder::append(b, "\"")
+            } else if esc == 47 {
+                word_builder::append(b, "/")
+            } else if esc == 98 {
+                word_builder::append(b, char_to_word(8))
+            } else if esc == 102 {
+                word_builder::append(b, char_to_word(12))
+            } else if esc == 117 {
+                pilot cp = json_parse_unicode_escape()
+                word_builder::append(b, char_to_word(cp))
+            } else if esc < 0 {
+                json_pos = json_len
             } else {
-                ps_out = ps_out + esc
+                -- Unknown escape: keep the escaped character (lenient).
+                word_builder::append(b, json_src.char_at(json_pos - 1))
             }
+            run_start = json_pos
+            if json_pos < json_len { json_buf.seek(json_pos) }
         } else {
-            ps_out = ps_out + c
+            json_pos += 1
         }
     }
-    give back ps_out
+    if json_len > run_start { word_builder::append(b, json_src.substring(run_start, json_len - run_start)) }
+    json_fail("unterminated string")
+    give back word_builder::finish(b)
 }
 
+-- Number text, kept as written: -?digits[.digits][(e|E)[+-]digits].
 task json_parse_number() -> word {
-    pilot mut pn_out = ""
-    pilot mut c = json_cur()
-    if c == "-" {
-        pn_out = "-"
-        json_pos += 1
-    }
-    repeat until json_pos >= json_len {
-        c = json_cur()
-        if c == "0" or c == "1" or c == "2" or c == "3" or c == "4" or c == "5" or c == "6" or c == "7" or c == "8" or c == "9" or c == "." {
-            pn_out = pn_out + c
+    pilot start = json_pos
+    json_buf.seek(json_pos)
+    pilot mut prev = 0
+    pilot mut scanning = true
+    repeat until not scanning or json_pos >= json_len {
+        pilot v = json_buf.read_byte()
+        if (v >= 48 and v <= 57) or v == 46 or v == 101 or v == 69 {
+            json_pos += 1
+        } else if v == 45 and json_pos == start {
+            json_pos += 1
+        } else if (v == 43 or v == 45) and (prev == 101 or prev == 69) {
             json_pos += 1
         } else {
-            give back pn_out
+            scanning = false
         }
+        prev = v
     }
-    give back pn_out
+    give back json_src.substring(start, json_pos - start)
 }
 
 task json_try_keyword(kw: word) -> bool {
     pilot kwlen = kw.length()
     if json_pos + kwlen > json_len { give back false }
-    pilot mut ki = 0
-    repeat kwlen times {
-        if json_src.char_at(json_pos + ki) != kw.char_at(ki) { give back false }
-        ki += 1
-    }
+    if json_src.substring(json_pos, kwlen) != kw { give back false }
     json_pos += kwlen
     give back true
+}
+
+-- Pack the children collected on the parse stack since base into the
+-- container's exact slice, then pop them.
+-- Object keys sit on their own stack from key_base (-1 for arrays).
+task json_close_container(h: int, base: int, key_base: int) -> void {
+    pilot count = json_stack.length() - base
+    json_start[h] = json_edges.length()
+    json_size[h] = count
+    json_cap[h] = count
+    pilot mut i = 0
+    repeat count times {
+        json_edges.push(json_stack[base + i])
+        if key_base >= 0 {
+            json_edge_keys.push(json_stack_keys[key_base + i])
+        } else {
+            json_edge_keys.push("")
+        }
+        i += 1
+    }
+    repeat count times {
+        pilot dropped_child = json_stack.pop()
+        if key_base >= 0 { pilot dropped_key = json_stack_keys.pop() }
+    }
 }
 
 -- Main recursive parser. Returns handle to parsed value.
 task json_parse_value() -> int {
     json_skip_ws()
-    pilot c = json_cur()
+    pilot v = json_byte_at(json_pos)
 
     -- String
-    if c == "\"" {
+    if v == 34 {
         pilot sv = json_parse_string()
         give back json_alloc("s", sv)
     }
 
     -- Number
-    if c == "-" or c == "0" or c == "1" or c == "2" or c == "3" or c == "4" or c == "5" or c == "6" or c == "7" or c == "8" or c == "9" {
+    if v == 45 or (v >= 48 and v <= 57) {
         pilot nv = json_parse_number()
         give back json_alloc("n", nv)
     }
 
-    -- Boolean true
-    if c == "t" {
-        if json_try_keyword("true") {
-            give back json_alloc("b", "true")
-        }
+    -- Booleans and null
+    if v == 116 {
+        if json_try_keyword("true") { give back json_alloc("b", "true") }
+    }
+    if v == 102 {
+        if json_try_keyword("false") { give back json_alloc("b", "false") }
+    }
+    if v == 110 {
+        if json_try_keyword("null") { give back json_alloc("null", "") }
     }
 
-    -- Boolean false
-    if c == "f" {
-        if json_try_keyword("false") {
-            give back json_alloc("b", "false")
-        }
-    }
-
-    -- Null
-    if c == "n" {
-        if json_try_keyword("null") {
-            give back json_alloc("null", "")
-        }
+    if (v == 91 or v == 123) and json_depth >= 512 {
+        json_fail("nesting deeper than 512 levels")
+        json_pos = json_len
+        give back 0 - 1
     }
 
     -- Array
-    if c == "[" {
+    if v == 91 {
         json_pos += 1
-        pilot arr_children = array_new()
+        json_depth += 1
         pilot arr_handle = json_alloc("a", "")
-        array_set(json_children, arr_handle, word_from_int(arr_children))
+        pilot base = json_stack.length()
         json_skip_ws()
-        if json_cur() != "]" {
-            pilot first_val = json_parse_value()
-            array_push(arr_children, word_from_int(first_val))
+        if json_byte_at(json_pos) != 93 {
+            json_stack.push(json_parse_value())
             json_skip_ws()
-            repeat until json_cur() != "," {
+            repeat until json_byte_at(json_pos) != 44 {
                 json_pos += 1
-                pilot next_val = json_parse_value()
-                array_push(arr_children, word_from_int(next_val))
+                json_stack.push(json_parse_value())
                 json_skip_ws()
             }
         }
         json_expect("]")
+        json_depth -= 1
+        json_close_container(arr_handle, base, 0 - 1)
         give back arr_handle
     }
 
     -- Object
-    if c == "{" {
+    if v == 123 {
         json_pos += 1
-        pilot obj_children = array_new()
-        pilot obj_keys = array_new()
+        json_depth += 1
         pilot obj_handle = json_alloc("o", "")
-        array_set(json_children, obj_handle, word_from_int(obj_children))
-        array_set(json_keys, obj_handle, word_from_int(obj_keys))
+        pilot base = json_stack.length()
+        pilot key_base = json_stack_keys.length()
         json_skip_ws()
-        if json_cur() != "}" {
-            pilot k1 = json_parse_string()
+        if json_byte_at(json_pos) != 125 {
+            json_stack_keys.push(json_parse_string())
             json_skip_ws()
             json_expect(":")
-            pilot v1 = json_parse_value()
-            array_push(obj_keys, k1)
-            array_push(obj_children, word_from_int(v1))
+            json_stack.push(json_parse_value())
             json_skip_ws()
-            repeat until json_cur() != "," {
+            repeat until json_byte_at(json_pos) != 44 {
                 json_pos += 1
                 json_skip_ws()
-                pilot kn = json_parse_string()
+                json_stack_keys.push(json_parse_string())
                 json_skip_ws()
                 json_expect(":")
-                pilot vn = json_parse_value()
-                array_push(obj_keys, kn)
-                array_push(obj_children, word_from_int(vn))
+                json_stack.push(json_parse_value())
                 json_skip_ws()
             }
         }
         json_expect("}")
+        json_depth -= 1
+        json_close_container(obj_handle, base, key_base)
         give back obj_handle
     }
 
-    say "JSON parse error: unexpected '" + c + "'"
+    if v < 0 {
+        json_fail("unexpected end of input")
+    } else {
+        json_fail("unexpected '" + json_src.char_at(json_pos) + "'")
+    }
     give back 0 - 1
 }
 
@@ -317,60 +560,120 @@ task json_parse_value() -> int {
 task json_parse(source: word) -> int {
     json_init()
     json_len = source.length()
+    json_buf.truncate(0)
+    json_buf.write_word(source.repeated(1))
     json_src = source
     json_pos = 0
-    give back json_parse_value()
+    json_depth = 0
+    json_err = ""
+    json_err_at = 0 - 1
+    json_stack.clear()
+    json_stack_keys.clear()
+    pilot root = json_parse_value()
+    json_skip_ws()
+    if json_pos < json_len { json_fail("unexpected trailing characters") }
+    json_src = ""
+    json_buf.truncate(0)
+    give back root
 }
 
 -- === Serializer ===
 
-task json_stringify(handle: int) -> word {
-    if handle < 0 { give back "null" }
-    pilot t: word = array_get(json_types, handle)
+-- Appends value as a quoted JSON string: quote, backslash and control
+-- characters are escaped; other bytes (including UTF-8) are copied.
+-- Builder handles are owned, so writers take the builder and give it back.
+task json_write_quoted(b: int, value: word) -> int {
+    word_builder::append(b, "\"")
+    pilot vlen = value.length()
+    json_wbuf.truncate(0)
+    json_wbuf.write_word(value.repeated(1))
+    json_wbuf.seek(0)
+    pilot mut run_start = 0
+    pilot mut i = 0
+    repeat vlen times {
+        pilot v = json_wbuf.read_byte()
+        if v == 34 or v == 92 or v < 32 {
+            if i > run_start { word_builder::append(b, value.substring(run_start, i - run_start)) }
+            if v == 34 {
+                word_builder::append(b, "\\\"")
+            } else if v == 92 {
+                word_builder::append(b, "\\\\")
+            } else if v == 10 {
+                word_builder::append(b, "\\n")
+            } else if v == 13 {
+                word_builder::append(b, "\\r")
+            } else if v == 9 {
+                word_builder::append(b, "\\t")
+            } else if v == 8 {
+                word_builder::append(b, "\\b")
+            } else if v == 12 {
+                word_builder::append(b, "\\f")
+            } else {
+                pilot digits = "0123456789abcdef"
+                word_builder::append(b, "\\u00" + digits.char_at(v / 16) + digits.char_at(v - v / 16 * 16))
+            }
+            run_start = i + 1
+        }
+        i += 1
+    }
+    if run_start == 0 {
+        word_builder::append(b, value)
+    } else if vlen > run_start {
+        word_builder::append(b, value.substring(run_start, vlen - run_start))
+    }
+    word_builder::append(b, "\"")
+    give back b
+}
 
+-- indent < 0 writes compact JSON; otherwise one value per line.
+task json_write_value(b: int, handle: int, indent: int, depth: int) -> int {
+    if handle < 0 {
+        word_builder::append(b, "null")
+        give back b
+    }
+    pilot t: word = json_types[handle]
     if t == "s" {
-        pilot sv: word = array_get(json_vals, handle)
-        give back "\"" + sv + "\""
+        give back json_write_quoted(b, json_vals[handle])
     }
-
-    if t == "n" {
-        give back array_get(json_vals, handle)
+    if t == "n" or t == "b" {
+        word_builder::append(b, json_vals[handle])
+        give back b
     }
-
-    if t == "b" {
-        give back array_get(json_vals, handle)
-    }
-
-    if t == "null" {
-        give back "null"
-    }
-
-    if t == "a" {
-        pilot alen = json_arr_len(handle)
-        pilot mut a_out = "["
-        pilot mut ai = 0
-        repeat alen times {
-            if ai > 0 { a_out = a_out + "," }
-            pilot child = json_arr_get(handle, ai)
-            a_out = a_out + json_stringify(child)
-            ai += 1
+    if t == "a" or t == "o" {
+        pilot size = json_size[handle]
+        if size == 0 {
+            if t == "a" { word_builder::append(b, "[]") } else { word_builder::append(b, "{}") }
+            give back b
         }
-        give back a_out + "]"
-    }
-
-    if t == "o" {
-        pilot olen = json_obj_len(handle)
-        pilot mut o_out = "{"
-        pilot mut oi = 0
-        repeat olen times {
-            if oi > 0 { o_out = o_out + "," }
-            pilot okey: word = json_obj_key_at(handle, oi)
-            pilot ov = json_arr_get(handle, oi)
-            o_out = o_out + "\"" + okey + "\":" + json_stringify(ov)
-            oi += 1
+        pilot mut w = b
+        if t == "a" { word_builder::append(w, "[") } else { word_builder::append(w, "{") }
+        pilot base = json_start[handle]
+        pilot mut i = 0
+        repeat size times {
+            if i > 0 { word_builder::append(w, ",") }
+            if indent >= 0 { word_builder::append(w, "\n" + " ".repeated(indent * (depth + 1))) }
+            if t == "o" {
+                w = json_write_quoted(w, json_edge_keys[base + i])
+                if indent >= 0 { word_builder::append(w, ": ") } else { word_builder::append(w, ":") }
+            }
+            w = json_write_value(w, json_edges[base + i], indent, depth + 1)
+            i += 1
         }
-        give back o_out + "}"
+        if indent >= 0 { word_builder::append(w, "\n" + " ".repeated(indent * depth)) }
+        if t == "a" { word_builder::append(w, "]") } else { word_builder::append(w, "}") }
+        give back w
     }
+    word_builder::append(b, "null")
+    give back b
+}
 
-    give back "null"
+task json_stringify(handle: int) -> word {
+    pilot b = json_write_value(word_builder::new(), handle, 0 - 1, 0)
+    give back word_builder::finish(b)
+}
+
+-- Pretty-printed JSON with indent spaces per level (indent < 0 is compact).
+task json_stringify_pretty(handle: int, indent: int) -> word {
+    pilot b = json_write_value(word_builder::new(), handle, indent, 0)
+    give back word_builder::finish(b)
 }
