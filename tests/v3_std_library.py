@@ -89,7 +89,7 @@ class LoopbackServer:
                         conn.sendall(b"HTTP/1.1 202 Accepted\r\nContent-Type: text/plain\r\n\r\nline1\r\n\r\nline2")
                     else:
                         conn.sendall(b"HTTP/1.1 201 Created\r\nContent-Length: 2\r\n\r\nok")
-        except BaseException as exc:  # surfaced by the caller
+        except Exception as exc:  # surfaced by the caller
             self.errors.append(repr(exc))
 
     def close(self) -> None:
