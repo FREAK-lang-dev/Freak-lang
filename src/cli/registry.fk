@@ -372,13 +372,37 @@ task hangar_changelog_level(line: word) -> int {
     give back count
 }
 
-task hangar_changelog_is_fence(line: word) -> bool {
-    pilot trimmed = line.trim()
-    give back trimmed.starts_with("```") or trimmed.starts_with("~~~")
+-- CommonMark fences: 3+ backticks or tildes, indented at most 3 spaces,
+-- closed only by a run of the same character at least as long with nothing
+-- after it. Gives the fence open after this line ("" outside one), or "?"
+-- when the line neither opens nor closes a fence.
+task hangar_changelog_fence_step(open: word, line: word) -> word {
+    pilot indent = 0
+    repeat until indent >= line.length() or indent > 3 {
+        if line.char_at(indent) != " " { break }
+        indent += 1
+    }
+    if indent > 3 or indent >= line.length() { give back "?" }
+    pilot mark = line.char_at(indent)
+    if mark != "`" and mark != "~" { give back "?" }
+    pilot stop = indent
+    repeat until stop >= line.length() {
+        if line.char_at(stop) != mark { break }
+        stop += 1
+    }
+    pilot run = line.substring(indent, stop - indent)
+    if run.length() < 3 { give back "?" }
+    pilot rest = line.substring(stop, line.length() - stop)
+    if open == "" {
+        if mark == "`" and rest.contains("`") { give back "?" }
+        give back run
+    }
+    if mark == open.char_at(0) and run.length() >= open.length() and rest.trim() == "" { give back "" }
+    give back "?"
 }
 
 task hangar_changelog_has_entry(text: word, version: word) -> bool {
-    pilot in_fence = false
+    pilot fence = ""
     pilot section = 0
     pilot start = 0
     pilot index = 0
@@ -388,10 +412,11 @@ task hangar_changelog_has_entry(text: word, version: word) -> bool {
             pilot line = text.substring(start, index - start)
             if line.ends_with("\r") { line = line.substring(0, line.length() - 1) }
             start = index + 1
-            if hangar_changelog_is_fence(line) {
+            pilot step = hangar_changelog_fence_step(fence, line)
+            if step != "?" {
                 if section > 0 { give back true }
-                in_fence = not in_fence
-            } else if not in_fence {
+                fence = step
+            } else if fence == "" {
                 pilot level = hangar_changelog_level(line)
                 if section > 0 {
                     if level > 0 and level <= section { give back false }
