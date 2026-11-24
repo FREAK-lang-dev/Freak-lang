@@ -1,16 +1,18 @@
 name: CI
 
+# No push trigger: main only moves through the merge queue (rebase method), and
+# the merge_group run already tested the exact commit that lands, so a push run
+# would repeat ~5 job-hours on an identical tree. Pull requests run Linux only;
+# macOS and Windows run in the merge queue group and on manual dispatch (see
+# tools/ci_scope.py).
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
-  # Runs the full set on a GitHub merge queue group (no-op until a
-  # queue is enabled in the ruleset).
   merge_group:
+  workflow_dispatch:
 
-# A new push to a pull request cancels its superseded run. Pushes to main are
-# never cancelled mid-run (a newer one waits), so every merge keeps coverage.
+# A new push to a pull request cancels its superseded run. Merge queue groups
+# and manual runs are never cancelled mid-run (a newer one waits).
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -34,6 +36,8 @@ jobs:
       pull-requests: read
     outputs:
       v3: ${{ steps.scope.outputs.v3 }}
+      v3_os: ${{ steps.scope.outputs.v3_os }}
+      windows: ${{ steps.scope.outputs.windows }}
     steps:
       - uses: actions/checkout@v4
 
@@ -66,7 +70,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Pull requests: ubuntu-latest only. Merge queue and manual runs:
+        # ubuntu-latest and macos-latest (tools/ci_scope.py).
+        os: ${{ fromJSON(needs.scope.outputs.v3_os) }}
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -441,13 +447,21 @@ jobs:
         run: python -u tests/v3_performance_lab.py ./build/freak$EXT
 
   # The ruleset requires "build-and-test (<os>)". This gate reports under
-  # that name so a V4-only pull request (V3 lanes skipped by scope) can merge,
-  # and it fails whenever the scope job or a V3 lane that should run did not
-  # succeed. It also closes the old gap where a failed Windows bootstrap build
-  # left windows-test-suites-a/b/c skipped (and skipped counts as passing).
+  # that name so a pull request can merge when scope skipped lanes (V4-only
+  # changes skip V3; pull requests skip macOS and Windows, which run in the
+  # merge queue group), and it fails whenever the scope job or a lane that
+  # should run did not succeed. It waits on the Windows suites too: they only
+  # run in the merge queue now, so the gate is what makes a failure there
+  # block the merge (a skipped or unrequired job would not).
   build-and-test-gate:
     name: build-and-test (${{ matrix.os }})
-    needs: [scope, build-and-test, windows-bootstrap-build]
+    needs:
+      - scope
+      - build-and-test
+      - windows-bootstrap-build
+      - windows-test-suites-a
+      - windows-test-suites-b
+      - windows-test-suites-c
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -460,31 +474,60 @@ jobs:
         env:
           SCOPE_RESULT: ${{ needs.scope.result }}
           RUN_V3: ${{ needs.scope.outputs.v3 }}
+          RUN_WINDOWS: ${{ needs.scope.outputs.windows }}
+          V3_OS: ${{ needs.scope.outputs.v3_os }}
+          GATE_OS: ${{ matrix.os }}
           BUILD_RESULT: ${{ needs.build-and-test.result }}
-          WINDOWS_BUILD_RESULT: ${{ needs.windows-bootstrap-build.result }}
+          WINDOWS_RESULTS: >-
+            ${{ needs.windows-bootstrap-build.result }}
+            ${{ needs.windows-test-suites-a.result }}
+            ${{ needs.windows-test-suites-b.result }}
+            ${{ needs.windows-test-suites-c.result }}
         shell: bash
         run: |
-          echo "scope=$SCOPE_RESULT v3=$RUN_V3 build-and-test=$BUILD_RESULT windows-bootstrap-build=$WINDOWS_BUILD_RESULT"
+          read -r -a windows <<< "$WINDOWS_RESULTS"
+          echo "scope=$SCOPE_RESULT v3=$RUN_V3 v3_os=$V3_OS windows=$RUN_WINDOWS"
+          echo "build-and-test=$BUILD_RESULT windows bootstrap/a/b/c=${windows[*]}"
           if [[ "$SCOPE_RESULT" != "success" ]]; then
             echo "::error::CI scope did not succeed ($SCOPE_RESULT)"; exit 1
           fi
-          if [[ "$RUN_V3" == "true" ]]; then
-            if [[ "$BUILD_RESULT" != "success" || "$WINDOWS_BUILD_RESULT" != "success" ]]; then
-              echo "::error::V3 lanes did not pass"; exit 1
-            fi
-            echo "V3 lanes passed"
-          elif [[ "$RUN_V3" == "false" ]]; then
-            if [[ "$BUILD_RESULT" != "skipped" || "$WINDOWS_BUILD_RESULT" != "skipped" ]]; then
+          all_are() {
+            local want="$1"; shift
+            local result
+            for result in "$@"; do [[ "$result" == "$want" ]] || return 1; done
+          }
+          if [[ "$RUN_V3" == "false" ]]; then
+            if [[ "$BUILD_RESULT" != "skipped" ]] || ! all_are skipped "${windows[@]}"; then
               echo "::error::V3 lanes were expected to be skipped"; exit 1
             fi
-            echo "V4-only pull request: V3 lanes skipped (they run on main)"
-          else
+            echo "V4-only pull request: V3 lanes skipped (they run in the merge queue)"
+            exit 0
+          fi
+          if [[ "$RUN_V3" != "true" ]]; then
             echo "::error::unexpected scope output '$RUN_V3'"; exit 1
           fi
+          if [[ "$BUILD_RESULT" != "success" ]]; then
+            echo "::error::V3 build and test did not pass ($BUILD_RESULT)"; exit 1
+          fi
+          if [[ "$RUN_WINDOWS" == "true" ]]; then
+            if ! all_are success "${windows[@]}"; then
+              echo "::error::V3 Windows lanes did not pass (${windows[*]})"; exit 1
+            fi
+          elif [[ "$RUN_WINDOWS" == "false" ]]; then
+            if ! all_are skipped "${windows[@]}"; then
+              echo "::error::V3 Windows lanes were expected to be skipped"; exit 1
+            fi
+          else
+            echo "::error::unexpected scope output windows='$RUN_WINDOWS'"; exit 1
+          fi
+          if [[ "$V3_OS" != *"\"$GATE_OS\""* ]]; then
+            echo "$GATE_OS lane skipped on this pull request; it runs in the merge queue group."
+          fi
+          echo "V3 lanes passed"
 
   windows-bootstrap-build:
     needs: scope
-    if: needs.scope.outputs.v3 == 'true'
+    if: needs.scope.outputs.v3 == 'true' && needs.scope.outputs.windows == 'true'
     runs-on: windows-latest
 
     steps:
