@@ -229,30 +229,71 @@ task ver_compare(a: word, b: word) -> int {
     if a_pre == "" and b_pre != "" { give back 1 }
     if a_pre != "" and b_pre == "" { give back 0 - 1 }
 
-    -- Lexicographic pre-release comparison (character by character)
-    pilot mut cmp_len = a_pre.length()
-    if b_pre.length() < cmp_len { cmp_len = b_pre.length() }
-    pilot mut ci = 0
-    repeat until ci >= cmp_len {
-        pilot ac: word = a_pre.char_at(ci)
-        pilot bc: word = b_pre.char_at(ci)
-        if ac != bc {
-            -- Compare by character code approximation using word_to_int on single digits
-            -- For general pre-release strings like "alpha" vs "beta", this is approximate
-            if ac == "a" and bc == "b" { give back 0 - 1 }
-            if ac == "b" and bc == "a" { give back 1 }
-            -- Numeric comparison for version pre-release numbers
-            pilot ai = word_to_int(ac)
-            pilot bi = word_to_int(bc)
-            if ai < bi { give back 0 - 1 }
-            if ai > bi { give back 1 }
-        }
-        ci += 1
-    }
-    if a_pre.length() < b_pre.length() { give back 0 - 1 }
-    if a_pre.length() > b_pre.length() { give back 1 }
+    if a_pre == "" { give back 0 }
+    give back ver_compare_pre(a_pre, b_pre)
+}
 
+-- Compare one dot-separated pre-release identifier (SemVer 2.0.0 rule 11):
+-- numeric identifiers compare as numbers and sort before alphanumeric
+-- ones; alphanumeric identifiers compare by ASCII bytes.
+task ver_cmp_ident(x: word, y: word) -> int {
+    pilot xlen = x.length()
+    pilot ylen = y.length()
+    pilot mut x_num = xlen > 0
+    pilot mut i = 0
+    repeat until i >= xlen {
+        pilot c = x.char_at(i)
+        if not (c >= "0" and c <= "9") { x_num = false }
+        i += 1
+    }
+    pilot mut y_num = ylen > 0
+    i = 0
+    repeat until i >= ylen {
+        pilot c = y.char_at(i)
+        if not (c >= "0" and c <= "9") { y_num = false }
+        i += 1
+    }
+    if x_num and y_num {
+        -- Compare digit strings without converting, so huge numbers work.
+        pilot mut xs = 0
+        repeat until xs >= xlen - 1 or x.char_at(xs) != "0" { xs += 1 }
+        pilot mut ys = 0
+        repeat until ys >= ylen - 1 or y.char_at(ys) != "0" { ys += 1 }
+        if xlen - xs < ylen - ys { give back 0 - 1 }
+        if xlen - xs > ylen - ys { give back 1 }
+        pilot xd = x.substring(xs, xlen - xs)
+        pilot yd = y.substring(ys, ylen - ys)
+        if xd < yd { give back 0 - 1 }
+        if xd > yd { give back 1 }
+        give back 0
+    }
+    if x_num { give back 0 - 1 }
+    if y_num { give back 1 }
+    if x < y { give back 0 - 1 }
+    if x > y { give back 1 }
     give back 0
+}
+
+-- Compare two non-empty pre-release strings such as "alpha.10" and
+-- "alpha.2" (-1, 0 or 1). A longer list of equal identifiers is greater.
+task ver_compare_pre(a: word, b: word) -> int {
+    pilot alen = a.length()
+    pilot blen = b.length()
+    pilot mut ai = 0
+    pilot mut bi = 0
+    repeat until ai > alen or bi > blen {
+        pilot mut ae = ai
+        repeat until ae >= alen or a.char_at(ae) == "." { ae += 1 }
+        pilot mut be = bi
+        repeat until be >= blen or b.char_at(be) == "." { be += 1 }
+        pilot order = ver_cmp_ident(a.substring(ai, ae - ai), b.substring(bi, be - bi))
+        if order != 0 { give back order }
+        ai = ae + 1
+        bi = be + 1
+    }
+    if ai > alen and bi > blen { give back 0 }
+    if ai > alen { give back 0 - 1 }
+    give back 1
 }
 
 task ver_eq(a: word, b: word) -> bool {

@@ -1,0 +1,247 @@
+-- std library contract fixture (tests/v3_std_library.py runs it on C and LLVM).
+-- It runs every module check and prints a summary. The std::http client
+-- checks live in v35_std_http_client.fk because std/http.fk is LLVM-only.
+
+pilot mut checks = 0
+pilot mut fails = 0
+
+task ck(label: word, cond: bool) -> void {
+    checks += 1
+    if not cond {
+        fails += 1
+        say "FAIL " + label
+    }
+}
+
+task zero() -> word { give back char_to_word(0) }
+
+task check_string() -> void {
+    ck("repeat", string_repeat("ab", 3) == "ababab")
+    ck("padl", string_pad_left("x", 4, "0") == "000x")
+    ck("padr", string_pad_right("x", 3, ".") == "x..")
+    ck("padl wide", string_pad_left("abcdef", 3, "0") == "abcdef")
+    ck("center", string_center("ab", 7, "*") == "**ab***")
+    ck("rev", string_reverse("abcd") == "dcba")
+    ck("rev nul", string_reverse("a" + zero() + "b") == "b" + zero() + "a")
+    ck("rev utf8", string_reverse("héllo Ω!") == "!Ω olléh")
+    ck("rev 4byte", string_reverse("a😀b") == "b😀a")
+    ck("rev empty", string_reverse("") == "")
+    ck("charcount", string_char_count("héllo Ω😀") == 8)
+    ck("count", string_count("aaaa", "aa") == 3)
+    ck("count empty", string_count("abc", "") == 0)
+    ck("count abc", string_count("abcabcab", "abc") == 2)
+    ck("count miss", string_count("abc", "zz") == 0)
+    ck("split", string_split("a,b,c", ",") == "a|b|c")
+    ck("split multi", string_split("a::b::", "::") == "a|b|")
+    ck("join", string_join("a|b|c", "::") == "a::b::c")
+    ck("trim", string_trim(" \tvalue\r\n") == "value")
+    ck("trim all", string_trim(" \t\n") == "")
+    ck("trim none", string_trim("v") == "v")
+    ck("trim_end legacy", string_trim_end("  ab  ", 2) == "ab")
+    ck("trim left", string_trim_left("  ab  ") == "ab  ")
+    ck("trim right", string_trim_right("  ab  ") == "  ab")
+    ck("blank", string_is_blank(" \t") and string_is_blank("") and not string_is_blank(" x"))
+    ck("replace", string_replace("ababa", "ab", "X") == "XXa")
+    ck("replace empty", string_replace("ab", "", "X") == "ab")
+    ck("replace utf", string_replace("a-b-a", "a", "Ω") == "Ω-b-Ω")
+    ck("substr", string_substring("abcdef", 1, 4) == "bcd")
+    ck("substr clamp", string_substring("abc", -5, 99) == "abc")
+    ck("substr empty", string_substring("abc", 2, 1) == "")
+    ck("idx", string_index_of("abcabc", "bc") == 1)
+    ck("idx empty", string_index_of("abc", "") == 0)
+    ck("idx miss", string_index_of("abc", "abcd") == -1)
+    ck("idx long", string_index_of("xxabxabcd", "abc") == 5)
+    ck("idx 1", string_index_of("hello", "l") == 2)
+    ck("idx from", string_index_of_from("abcabc", "bc", 2) == 4)
+    ck("idx from neg", string_index_of_from("abcabc", "a", -3) == 0)
+    ck("idx from end", string_index_of_from("abc", "", 3) == 3)
+    ck("idx from past", string_index_of_from("abc", "c", 3) == -1)
+    ck("last", string_last_index_of("abcabc", "bc") == 4)
+    ck("last miss", string_last_index_of("abc", "d") == -1)
+    ck("last empty", string_last_index_of("abc", "") == 3)
+    ck("starts", string_starts_with("éclair", "é"))
+    ck("ends", string_ends_with("helloΩ", "Ω"))
+    ck("contains", string_contains("hello", "ell") and not string_contains("hello", ""))
+    ck("digit", is_digit("7") and not is_digit("a") and not is_digit("12") and not is_digit(""))
+    ck("alpha", is_alpha("q") and is_alpha("Z") and not is_alpha("1") and not is_alpha("é"))
+    ck("ws", is_whitespace("\t") and not is_whitespace("x"))
+    ck("strip pre", string_strip_prefix("v1.2", "v") == "1.2" and string_strip_prefix("1.2", "v") == "1.2")
+    ck("strip suf", string_strip_suffix("a.fk", ".fk") == "a" and string_strip_suffix("a.fk", ".c") == "a.fk")
+}
+
+task check_json() -> void {
+    pilot root = json_parse("{\"s\":\"hello\",\"a\":[2,true,null],\"u\":\"Ω\"}")
+    ck("ok", json_ok())
+    ck("objlen", json_obj_len(root) == 3)
+    ck("s", json_get_str(json_obj_get(root, "s")) == "hello")
+    pilot children = json_obj_get(root, "a")
+    ck("arrlen", json_arr_len(children) == 3)
+    ck("int", json_get_int(json_arr_get(children, 0)) == 2)
+    ck("bool", json_get_bool(json_arr_get(children, 1)))
+    ck("null", json_is_null(json_arr_get(children, 2)))
+    ck("roundtrip", json_stringify(root) == "{\"s\":\"hello\",\"a\":[2,true,null],\"u\":\"Ω\"}")
+    pilot esc = json_parse("[\"q\\\"b\\\\s\\/n\\n\\t\\u00e9\\ud83d\\ude00\\u0001\"]")
+    ck("esc ok", json_ok())
+    pilot e0 = json_get_str(json_arr_get(esc, 0))
+    ck("esc decode", e0 == "q\"b\\s/n\n\té😀" + char_to_word(1))
+    ck("esc encode", json_stringify(esc) == "[\"q\\\"b\\\\s/n\\n\\té😀\\u0001\"]")
+    pilot lone = json_parse("\"\\ud800x\"")
+    ck("lone surrogate", json_get_str(lone) == "�x")
+    pilot nums = json_parse("[1.5e3, -2E-2, 0, 12]")
+    ck("num text", json_get_str(json_arr_get(nums, 0)) == "1.5e3")
+    ck("num val", json_get_num(json_arr_get(nums, 0)) == 1500.0)
+    ck("num neg exp", json_get_str(json_arr_get(nums, 1)) == "-2E-2")
+    ck("compact", json_stringify(nums) == "[1.5e3,-2E-2,0,12]")
+    pilot bad = json_parse("{\"a\": [1, 2}")
+    ck("bad flagged", not json_ok())
+    ck("bad msg", json_last_error() == "expected ']' got '}'")
+    ck("bad pos", json_error_pos() == 12)
+    pilot trailing = json_parse("[1] x")
+    ck("trailing", json_last_error() == "unexpected trailing characters")
+    pilot eof = json_parse("[1,")
+    ck("eof", json_last_error() == "unexpected end of input")
+    pilot unterminated = json_parse("\"abc")
+    ck("unterminated", json_last_error() == "unterminated string" and json_get_str(unterminated) == "abc")
+    pilot good = json_parse(" {} ")
+    ck("reset error", json_ok() and json_last_error() == "" and json_error_pos() == -1)
+    ck("empty containers", json_stringify(json_parse("[{},[]]")) == "[{},[]]")
+    pilot o = json_new_object()
+    json_obj_set(o, "name", json_new_str("Takeru \"Shirogane\""))
+    json_obj_set(o, "power", json_new_int(9000))
+    json_obj_set(o, "ratio", json_new_num(0.25))
+    json_obj_set(o, "alive", json_new_bool(true))
+    pilot list = json_new_array()
+    json_arr_push(list, json_new_int(1))
+    json_arr_push(list, json_new_null())
+    json_obj_set(o, "list", list)
+    json_obj_set(o, "power", json_new_int(9001))
+    ck("built", json_stringify(o) == "{\"name\":\"Takeru \\\"Shirogane\\\"\",\"power\":9001,\"ratio\":0.25,\"alive\":true,\"list\":[1,null]}")
+    ck("pretty", json_stringify_pretty(json_parse("{\"a\":[1,{}],\"b\":\"x\"}"), 2) == "{\n  \"a\": [\n    1,\n    {}\n  ],\n  \"b\": \"x\"\n}")
+    ck("nan", json_stringify(json_new_num(0.0 / 0.0)) == "null")
+    ck("neg handle", json_stringify(0 - 1) == "null")
+    pilot mut deep = ""
+    repeat 600 times { deep = deep + "[" }
+    pilot d = json_parse(deep)
+    ck("depth", json_last_error() == "nesting deeper than 512 levels")
+    json_reset()
+    pilot again = json_parse("[7,8]")
+    ck("after reset", json_arr_len(again) == 2 and again == 0)
+    json_reset()
+}
+
+task check_algorithm() -> void {
+    pilot numbers = array_new()
+    array_push(numbers, "9") array_push(numbers, "-3")
+    array_push(numbers, "9") array_push(numbers, "0")
+    array_sort_int(numbers)
+    ck("sort int", array_join(numbers, ",") == "-3,0,9,9")
+    ck("sum", array_sum_int(numbers) == 15)
+    ck("minmax", array_min_int(numbers) == -3 and array_max_int(numbers) == 9)
+    ck("bsearch", array_binary_search_int(numbers, -3) == 0)
+    ck("find", array_find(numbers, "missing") == -1)
+    ck("count", array_count(numbers, "9") == 2)
+    pilot copied = array_copy(numbers)
+    array_reverse(copied)
+    ck("reverse", array_join(copied, ";") == "9;9;0;-3")
+    pilot extremes = array_new()
+    array_push(extremes, "9223372036854775807")
+    array_push(extremes, "-9223372036854775808") array_push(extremes, "0")
+    array_sort_int(extremes)
+    ck("extremes", array_join(extremes, ",") == "-9223372036854775808,0,9223372036854775807")
+    pilot words = array_new()
+    array_push(words, "Ω") array_push(words, ("a" + zero() + "second"))
+    array_push(words, "z") array_push(words, ("a" + zero() + "third"))
+    array_push(words, "") array_push(words, "é")
+    array_sort_word(words)
+    ck("w0", array_get(words, 0) == "")
+    ck("w1", array_get(words, 1) == ("a" + zero() + "second"))
+    ck("w2", array_get(words, 2) == ("a" + zero() + "third"))
+    ck("w3", array_get(words, 3) == "z")
+    ck("w4", array_get(words, 4) == "é")
+    ck("w5", array_get(words, 5) == "Ω")
+    pilot one = array_new()
+    array_push(one, "5")
+    array_sort_int(one)
+    ck("single", array_join(one, ",") == "5")
+    ck("join empty", array_join(array_new(), ",") == "")
+    pilot mut li: List<int> = [5, 3, 9, 1, 3, 0, -2]
+    pilot sorted = list_sort_int(li)
+    ck("list int", sorted.length() == 7 and sorted[0] == -2 and sorted[1] == 0 and sorted[3] == 3 and sorted[6] == 9)
+    pilot mut lw: List<word> = ["pear", "apple", "fig", "apple2", "Banana"]
+    pilot sw = list_sort_word(lw)
+    ck("list word", sw[0] == "Banana" and sw[1] == "apple" and sw[2] == "apple2" and sw[3] == "fig" and sw[4] == "pear")
+    -- big pseudo-random
+    pilot big = array_new()
+    pilot mut x = 12345
+    repeat 3000 times {
+        x = (x * 1103515245 + 12345) - (x * 1103515245 + 12345) / 2147483648 * 2147483648
+        array_push(big, word_from_int(x - 1000000000))
+    }
+    array_sort_int(big)
+    pilot mut good = true
+    pilot mut i = 1
+    repeat 2999 times {
+        if word_to_int(array_get(big, i - 1)) > word_to_int(array_get(big, i)) { good = false }
+        i += 1
+    }
+    ck("big sorted", good)
+}
+
+task check_convert() -> void {
+    ck("hex neg", int_to_hex(-255) == "-ff")
+    ck("bin neg", int_to_bin(-13) == "-1101")
+    ck("oct", int_to_oct(511) == "777")
+    ck("hex 0", int_to_hex(0) == "0")
+    ck("hex min", int_to_hex(-9223372036854775808) == "-8000000000000000")
+    ck("hex max", int_to_hex(9223372036854775807) == "7fffffffffffffff")
+    ck("base36", int_to_base(35, 36) == "z" and int_to_base(36, 36) == "10")
+    ck("bad base", int_to_base(5, 1) == "")
+    ck("safe", word_to_int_safe("-12034") == -12034)
+    ck("safe bad", word_to_int_safe("12x") == 0)
+    ck("safe min", word_to_int_safe("-9223372036854775808") == -9223372036854775808)
+    ck("safe dash", word_to_int_safe("-") == 0)
+    ck("digit", char_to_digit("7") == 7 and char_to_digit("x") == -1 and char_to_digit("") == -1)
+    ck("base digit", char_to_base_digit("F") == 15 and char_to_base_digit("z") == 35 and char_to_base_digit("!") == -1)
+    ck("hex2int", hex_to_int("0xFF") == 255 and hex_to_int("-ff") == -255 and hex_to_int("dead_beef") == 3735928559)
+    ck("hex2int min", hex_to_int("-8000000000000000") == -9223372036854775808)
+    ck("hex bad", hex_to_int("0xZZ") == 0 and hex_to_int("") == 0 and hex_to_int("0x") == 0)
+    ck("bin2int", bin_to_int("0b1011") == 11 and oct_to_int("0o777") == 511)
+    ck("bool", bool_to_word(false) == "false")
+    ck("word bool", word_to_bool(" Hai ") and word_to_bool("YES") and word_to_bool("1") and not word_to_bool("iie") and not word_to_bool("maybe"))
+}
+
+task check_version() -> void {
+    ck("parse", ver_parse("v1.2.3-alpha+build.7") == "1:2:3:alpha:build.7")
+    ck("tostr", ver_to_string("1:2:3:alpha:build.7") == "1.2.3-alpha+build.7")
+    ck("cmp", ver_compare("1:2:3::", "1:2:4::") == -1)
+    ck("cmp pre", ver_compare("1:2:3:alpha:", "1:2:3::") == -1)
+    ck("bump minor", ver_bump_minor("1:2:3:x:y") == "1:3:0::")
+    ck("bump patch", ver_bump_patch("1:2:3:x:y") == "1:2:4::")
+    ck("sat range", ver_satisfies("1.5.0", ">=1.0.0 <2.0.0"))
+    ck("sat caret", not ver_satisfies("2.0.0", "^1.0.0"))
+    ck("sat tilde", ver_satisfies("2.4.9", "~2.4.0") and not ver_satisfies("2.5.0", "~2.4.0"))
+    ck("sat star", ver_satisfies("7.0.0", "*"))
+    ck("sat 0.x", ver_satisfies("0.2.9", "^0.2.0") and not ver_satisfies("0.3.1", "^0.2.0"))
+    ck("sat 0.0.x", ver_satisfies("0.0.3", "^0.0.3") and not ver_satisfies("0.0.4", "^0.0.3"))
+    pilot order = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0"]
+    pilot mut i = 0
+    repeat 7 times {
+        pilot a = ver_parse(order[i])
+        pilot b = ver_parse(order[i + 1])
+        ck("semver order " + order[i], ver_compare(a + "", b + "") == -1 and ver_compare(b + "", a) == 1)
+        i += 1
+    }
+    ck("pre eq", ver_compare(ver_parse("1.0.0-rc.01"), ver_parse("1.0.0-rc.1")) == 0)
+    ck("pre big", ver_compare(ver_parse("1.0.0-n.99999999999999999999"), ver_parse("1.0.0-n.100000000000000000000")) == -1)
+    ck("rc vs beta", ver_gt(ver_parse("2.0.0-rc.1"), ver_parse("2.0.0-beta.9")))
+}
+
+task main() {
+    check_string()
+    check_json()
+    check_algorithm()
+    check_convert()
+    check_version()
+    say "std library checks " + word_from_int(checks) + " failed " + word_from_int(fails)
+    if fails > 0 { process::exit(1) }
+}
