@@ -17881,16 +17881,17 @@ NATIVE_LISTS_REJECTED = (
 )
 # Lists inside other types (tier 3 nested lists row): exit 0 and this output.
 NATIVE_NESTED_LISTS_EXPECTED = ("Sumika/Takeru!/Meiya\n5\n5\n2\nKei\n13\nca\n76\n3\nx\ny\nz\nz\nA!\nB!\n4\nkei\n149\n"
-                                "0\n4\n15\n-1\n26\n7\n13\n5\nc\n")
+                                "0\n4\n15\n-1\n26\n7\n13\n5\nc\n6\nMitsurugi\n")
 # Layouts the oracle must see, and the private list helpers the module must
 # define once each: deep copies for for-each items and per-element drops.
 NATIVE_NESTED_LISTS_LAYOUTS = ('%"freak.shape.Squad"', '%"freak.shape.Bag<int>"', '%"freak.shape.Bag<word>"', '%"freak.route.Order"',
-                               '%"freak.route.Tree"', '%"freak.shape.Dir"')
+                               '%"freak.route.Tree"', '%"freak.shape.Dir"',
+                               '%"freak.shape.Party"', '%"freak.shape.Member"')
 NATIVE_NESTED_LISTS_HELPERS = (
     '@"freak.list.clone.List<int>"', '@"freak.list.clone.List<word>"', '@"freak.list.clone.List<List<word>>"',
     '@"freak.list.clone.Squad"', '@"freak.list.clone.Order"', '@"freak.list.clone.Tree"', '@"freak.list.clone.List<Tree>"',
     '@"freak.list.drop.List<int>"', '@"freak.list.drop.List<List<word>>"', '@"freak.list.drop.Squad"', '@"freak.list.drop.Order"',
-    '@"freak.list.drop.Tree"', '@"freak.list.drop.Dir"',
+    '@"freak.list.drop.Tree"', '@"freak.list.drop.Dir"', '@"freak.list.clone.Member"', '@"freak.list.drop.Member"',
 )
 # Nested-list programs native code or Meiya refuses: (stem, source, reason).
 NATIVE_NESTED_LISTS_REJECTED = (
@@ -17939,6 +17940,14 @@ NATIVE_NESTED_LISTS_REJECTED = (
      "shape Holder { kids: List<Dir>, n: int }\n"
      "task main() -> int {\n    pilot h = Holder { kids: [], n: 1 }\n    give back h.n\n}\n",
      "native aggregate maybe/result slots are not yet supported: Dir.bad"),
+    # Only a list breaks a cycle: shapes that hold each other by value stay
+    # infinite, even when a list leads into the cycle.
+    ("tier3_nested_list_mutual_by_value", "shape A { b: B }\nshape B { a: A }\n"
+     "task main() -> int { give back 0 }\n",
+     "Yuuko infinite shape: B contains itself by value via B -> A -> B"),
+    ("tier3_nested_list_cycle_behind_list", "shape Top { bs: List<B> }\nshape B { c: C }\nshape C { b: B }\n"
+     "task main() -> int {\n    pilot t = Top { bs: [] }\n    give back t.bs.length()\n}\n",
+     "Yuuko infinite shape: B contains itself by value via B -> C -> B"),
     # `[]` matches an empty list and nothing else.
     ("tier3_nested_list_empty_pattern_non_list", "task main() -> int {\n    pilot n = 3\n    when n {\n"
      "        [] -> give back 1\n        _ -> give back 0\n    }\n    give back 2\n}\n",

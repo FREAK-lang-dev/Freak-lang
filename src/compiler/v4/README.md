@@ -766,9 +766,12 @@ type-erased pool:
   element) waits for it. A tuple destination gives a `[]` slot its type.
   A list is indirection (bible 1.5), so a type may hold a list of itself
   (`shape Dir { subs: List<Dir> }`, `route Tree { Node { kids:
-  List<Tree> } }`, generic `Node<T>`): the native type check leaves an
-  element type whose check is in progress to that check, and every drop
-  and clone helper recurses through its list's own helper.
+  List<Tree> } }`, generic `Node<T>`), directly or through another type
+  (`shape Party { members: List<Member> }` with `shape Member { sub:
+  Party }`): the native type check leaves a type whose check is in
+  progress to that check, restarts by-value cycle tracking at each list
+  boundary (shapes that hold each other by value stay refused), and every
+  drop and clone helper recurses through its list's own helper.
 - **Operations.** A literal allocates exactly its length (`[]` is the empty
   header; a typed destination gives `[]` its type and narrows numeric
   elements). `xs.push(v)` takes a `lend mut` of `xs` and moves `v` into the

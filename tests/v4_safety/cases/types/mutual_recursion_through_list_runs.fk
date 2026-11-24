@@ -1,0 +1,14 @@
+-- Two shapes may hold each other when a list sits on the cycle (bible 1.5):
+-- A holds Bs by list and each B holds an A by value. Native lowering keeps
+-- the list boundary, so this is finite and runs.
+-- expect: run
+-- exit: 3
+
+shape A { bs: List<B>, n: int }
+shape B { a: A, tag: word }
+
+task main() -> int {
+    pilot mut a = A { bs: [], n: 1 }
+    a.bs.push(B { a: A { bs: [], n: 2 }, tag: "x" })
+    give back a.bs[0].a.n + a.n
+}

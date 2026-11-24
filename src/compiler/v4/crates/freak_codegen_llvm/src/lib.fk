@@ -41,6 +41,11 @@ pilot v4_codegen_llvm_shape_lines = 0
 pilot v4_codegen_llvm_shape_ok = ","
 pilot v4_codegen_llvm_shape_ok_mir = 0 - 1
 pilot v4_codegen_llvm_shape_visiting = ","
+-- The in-progress types entered by value since the nearest list boundary:
+-- meeting one of these again is a by-value cycle. A type in visiting but
+-- not here was reached through a list (bible 1.5 indirection), so
+-- `shape A { bs: List<B> }` with `shape B { a: A }` is finite.
+pilot v4_codegen_llvm_shape_by_value = ","
 -- Set when a list element check leaned on a type still in progress; such a
 -- result is memoized only once the outermost check has finished.
 pilot v4_codegen_llvm_shape_assumed: bool = false
@@ -3396,18 +3401,26 @@ task v4_codegen_llvm_native_shape_error(mir_id: int, type_text: word, depth: int
         v4_codegen_llvm_shape_ok_mir = mir_id
         v4_codegen_llvm_shape_ok = ","
         v4_codegen_llvm_shape_visiting = ","
+        v4_codegen_llvm_shape_by_value = ","
         v4_codegen_llvm_shape_assumed = false
     }
     pilot canonical = v4_ty_canonical_type(ty_id, type_text)
     pilot ok_key = "," + canonical + "@" + word_from_int(depth) + ","
     if v4_codegen_llvm_shape_ok.contains(ok_key) { give back "" }
-    if v4_codegen_llvm_shape_visiting.contains("," + canonical + ",") { give back "native shape contains itself by value: " + type_text }
+    if v4_codegen_llvm_shape_by_value.contains("," + canonical + ",") { give back "native shape contains itself by value: " + type_text }
+    if v4_codegen_llvm_shape_visiting.contains("," + canonical + ",") {
+        v4_codegen_llvm_shape_assumed = true
+        give back ""
+    }
     pilot saved_visiting = v4_codegen_llvm_shape_visiting
+    pilot saved_by_value = v4_codegen_llvm_shape_by_value
     pilot saved_assumed: bool = v4_codegen_llvm_shape_assumed
     v4_codegen_llvm_shape_assumed = false
     v4_codegen_llvm_shape_visiting = saved_visiting + canonical + ","
+    v4_codegen_llvm_shape_by_value = saved_by_value + canonical + ","
     pilot error = v4_codegen_llvm_native_aggregate_slots_error(mir_id, ty_id, kind, type_text, depth)
     v4_codegen_llvm_shape_visiting = saved_visiting
+    v4_codegen_llvm_shape_by_value = saved_by_value
     pilot assumed: bool = v4_codegen_llvm_shape_assumed
     v4_codegen_llvm_shape_assumed = saved_assumed or assumed
     if error == "" and (not assumed or saved_visiting == ",") { v4_codegen_llvm_shape_ok = v4_codegen_llvm_shape_ok + canonical + "@" + word_from_int(depth) + "," }
@@ -6222,7 +6235,13 @@ task v4_codegen_llvm_native_list_slot_error(mir_id: int, type_text: word, depth:
         v4_codegen_llvm_shape_assumed = true
         give back ""
     }
-    give back v4_codegen_llvm_native_type_error_depth(element, false, depth + 1)
+    -- The list header is the boundary: by-value cycle tracking restarts
+    -- inside the element, while visiting still holds every type in progress.
+    pilot saved_by_value = v4_codegen_llvm_shape_by_value
+    v4_codegen_llvm_shape_by_value = ","
+    pilot error = v4_codegen_llvm_native_type_error_depth(element, false, depth + 1)
+    v4_codegen_llvm_shape_by_value = saved_by_value
+    give back error
 }
 
 -- List literals, list builtin calls (`push`, `length`) and list loop items.
