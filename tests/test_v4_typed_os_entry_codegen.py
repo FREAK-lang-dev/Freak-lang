@@ -993,7 +993,7 @@ class PureGateTests(unittest.TestCase):
                          tuple("freakc/runtime/" + name for name in (*gate.RUNTIME_SOURCES, *gate.RUNTIME_HEADERS)) + gate.RUNTIME_VENDOR_HEADERS)
         self.assertEqual(tuple((gate.ROOT / gate.CRATE_MANIFEST).read_text().splitlines()),
                          tuple("crates/" + crate + "/src/lib.fk" for crate in gate.CRATES))
-        self.assertEqual((len(gate.CRATES), len(gate.RUNTIME_SOURCES), len(gate.RUNTIME_HEADERS), len(gate.RUNTIME_VENDOR_HEADERS)), (23, 8, 12, 6))
+        self.assertEqual((len(gate.CRATES), len(gate.RUNTIME_SOURCES), len(gate.RUNTIME_HEADERS), len(gate.RUNTIME_VENDOR_HEADERS)), (23, 8, 13, 6))
         for name in (gate.CRATE_MANIFEST, gate.RUNTIME_MANIFEST, gate.RUNTIME_INVENTORY_READER, *gate.RUNTIME_VENDOR_HEADERS):
             self.assertIn(name, names)
         self.assertNotIn("v4_typed_os_inventory", sys.modules)
