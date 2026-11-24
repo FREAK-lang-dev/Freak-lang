@@ -1557,17 +1557,17 @@ task llvm_ffi_builtin_walk(emit_decls: bool) -> void {
             pilot symbol = llvm_map_call_name(builtin).substring(1, llvm_map_call_name(builtin).length() - 1)
             pilot ret = "i64"
             if ffi_builtin_ret(builtin) == "void" { ret = "void" }
-            pilot params = ""
+            pilot param_count = 0
             pilot spec = ffi_builtin_params(builtin)
             if spec != "" {
-                params = "i64"
+                param_count = 1
                 pilot k = 0
                 repeat spec.length() times {
-                    if spec.char_at(k) == "," { params = params + ", i64" }
+                    if spec.char_at(k) == "," { param_count += 1 }
                     k += 1
                 }
             }
-            if emit_decls { llvm_emit_line("declare " + ret + " @" + symbol + "(" + params + ")") }
+            if emit_decls { ir_declare(ret, "@" + symbol, param_count) }
             else { llvm_declared_funcs = llvm_declared_funcs + symbol + "|" }
             part = ""
         } else { part = part + c }
