@@ -519,6 +519,15 @@ task stdsig_pack_point(p: List<int>) -> List<int> {
 
 -- Decode a public key and negate it. Returns an empty list when invalid.
 task stdsig_unpack_neg(key: List<int>) -> List<int> {
+    pilot empty_key: List<int> = []
+    -- RFC 8032 5.1.3: an encoded y at or above p = 2^255 - 19 is not a point.
+    pilot mut y_high = key[31] % 128 == 127 and key[0] >= 237
+    pilot mut b = 1
+    repeat until b >= 31 or not y_high {
+        if key[b] != 255 { y_high = false }
+        b += 1
+    }
+    if y_high { give back empty_key }
     pilot z = stdsig_gf1()
     pilot y = stdsig_unpack25519(key, 0)
     pilot num0 = stdsig_sq(y)
@@ -539,6 +548,8 @@ task stdsig_unpack_neg(key: List<int>) -> List<int> {
         pilot empty: List<int> = []
         give back empty
     }
+    -- x = 0 has no negative: a set sign bit there is a malformed encoding.
+    if key[31] / 128 == 1 and stdsig_gf_equal(x, stdsig_gf0()) { give back empty_key }
     if stdsig_parity(x) == key[31] / 128 { x = stdsig_sub(stdsig_gf0(), x) }
     give back stdsig_point(x, y, z, stdsig_mul(x, y))
 }

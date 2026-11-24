@@ -151,6 +151,7 @@ def main() -> int:
         work = Path(temporary)
         h = Harness(freak, work)
         (work / "p.fk").write_text(PROGRAM, encoding="utf-8")
+        (work / "uses_std.fk").write_text('task main() {\n    pilot a = std_abs(0 - 7)\n    say "abs={a}"\n}\n', encoding="utf-8")
 
         h.expect("status with an empty store", h.hangar("std", "status"), 0, "Active:   std 0.16.0", "(bundled)")
 
@@ -181,20 +182,31 @@ def main() -> int:
 
         two = pack(work, make_std(work, "std-b", "bundle-two"), "0.16.2")
         h.expect("install 0.16.2", h.hangar("std", "install", str(two)), 0, "std 0.16.2 installed")
-        h.expect("rollback to 0.16.1", h.hangar("std", "rollback"), 0, "Builds now use std 0.16.1")
-        h.expect("rollback to bundled", h.hangar("std", "rollback"), 0, "Builds now use std 0.16.0")
+        h.expect("rollback to 0.16.1", h.hangar("std", "rollback"), 0, "Rolled back", "Selected std 0.16.1.")
+        h.expect("rollback to bundled", h.hangar("std", "rollback"), 0, "Selected the bundled std 0.16.0.")
         h.expect("nothing left to roll back", h.hangar("std", "rollback"), 1, "No earlier std selection")
-        h.expect("bundled std lacks the marker", h.run("build", "p.fk"), None, "unknown callable 'std_bundle_marker'")
+        h.expect("bundled std lacks the marker", h.run("build", "p.fk"), 1, "unknown callable 'std_bundle_marker'")
 
-        h.expect("use 0.16.1", h.hangar("std", "use", "0.16.1"), 0, "Builds now use std 0.16.1")
+        h.expect("use 0.16.1", h.hangar("std", "use", "0.16.1"), 0, "Selected std 0.16.1.")
         stored_math = h.config / "std" / "store" / "0.16.1" / "math.fk"
         original = stored_math.read_bytes()
         stored_math.write_bytes(original + b"\n-- edited\n")
-        damaged = h.expect("damaged store falls back", h.run("build", "p.fk"), None,
+        damaged = h.expect("damaged store falls back", h.run("build", "p.fk"), 1,
                            "selected std 0.16.1 is not used", "does not match its manifest")
         assert "unknown callable 'std_bundle_marker'" in damaged, damaged
-        stored_math.write_bytes(original)
+        h.expect("bundled std works after the fallback", h.run("run", "uses_std.fk"), 0,
+                 "selected std 0.16.1 is not used", "abs=7")
+        h.expect("reinstall repairs a damaged version", h.hangar("std", "install", str(one)), 0,
+                 "Replacing the damaged std 0.16.1", "installed and selected")
+        assert stored_math.read_bytes() == original
+        h.expect("repaired version builds", h.run("run", "p.fk"), 0, "std 0.16.1 (updated)", "marker=bundle-one")
         h.expect("use unknown version refused", h.hangar("std", "use", "0.16.7"), 1, "is not installed")
+        h.expect("path-like version refused", h.hangar("std", "use", ".."), 1, "hangar std")
+        h.expect("empty version parts refused", h.hangar("std", "pin", "0..1"), 1, "hangar std")
+        h.expect("extra prune arguments refused", h.hangar("std", "prune", "--all", "--keep", "5"), 1, "hangar std")
+        assert "0.16.1" in h.store() and "0.16.2" in h.store(), h.store()
+        h.expect("unsigned store copy refused", h.run("build", "p.fk", extra={"FREAK_STD_TRUSTED_KEY": ""}), 1,
+                 "not signed by a key this compiler trusts")
 
         project = work / "proj"
         h.expect("project init", h.hangar("init", str(project)), 0)
@@ -202,17 +214,22 @@ def main() -> int:
         h.expect("pin 0.16.2", h.hangar("std", "pin", "0.16.2", cwd=project), 0, "Pinned this project to std 0.16.2")
         h.expect("select bundled", h.hangar("std", "use", "bundled"), 0)
         h.expect("project pin wins", h.run("run", "src/main.fk", cwd=project), 0, "std 0.16.2 (pinned by std.lock)", "marker=bundle-two")
-        # A failed rewrite keeps the old pin: std.lock.new is a non-empty
-        # folder, so the replacement cannot be staged.
+        h.expect("use reports the project pin", h.hangar("std", "use", "0.16.1", cwd=project), 0,
+                 "Selected std 0.16.1.", "Builds here still use std 0.16.2 (pinned by")
+        h.expect("select bundled again", h.hangar("std", "use", "bundled"), 0)
+        # A failed rewrite keeps the old pin.
         pin_before = (project / "std.lock").read_bytes()
-        blocker = project / "std.lock.new"
-        (blocker / "keep").mkdir(parents=True)
-        h.expect("failed repin", h.hangar("std", "pin", cwd=project), 1, "NOT PINNED")
+        h.expect("failed repin", h.hangar("std", "pin", cwd=project, extra={"FREAK_STD_TEST_FAIL_WRITE": "std.lock"}), 1, "NOT PINNED")
         assert (project / "std.lock").read_bytes() == pin_before, "failed repin lost std.lock"
-        shutil.rmtree(blocker)
+        assert not list(project.glob("std.lock.new*")), list(project.glob("std.lock.new*"))
         h.expect("repin keeps the old pin until replaced", h.run("run", "src/main.fk", cwd=project), 0, "marker=bundle-two")
+        (project / "std.lock").write_text('version = "0.16.2"\nmanifest_sha256 = "abc\n', encoding="utf-8")
+        h.expect("unterminated lock value refused", h.run("build", "src/main.fk", cwd=project), 1, "std.lock is malformed")
+        (project / "std.lock").write_bytes(pin_before)
         h.expect("pin bundled by number", h.hangar("std", "pin", "0.16.0", cwd=project), 0, "Pinned this project to the bundled std")
-        h.expect("bundled pin builds", h.run("build", "src/main.fk", cwd=project), None, "unknown callable 'std_bundle_marker'")
+        h.expect("bundled pin builds", h.run("build", "src/main.fk", cwd=project), 1, "unknown callable 'std_bundle_marker'")
+        (project / "std.lock").write_text('version = "0.16.0"\nmanifest_sha256 = "' + "0" * 64 + '"\n', encoding="utf-8")
+        h.expect("numeric pin of the bundled number checks its digest", h.run("build", "src/main.fk", cwd=project), 1, "pins std 0.16.0")
         h.expect("pin current selection", h.hangar("std", "pin", cwd=project), 0, "Pinned this project to the bundled std")
         (project / "std.lock").write_text('version = "0.16.9"\n', encoding="utf-8")
         h.expect("missing pin fails the build", h.run("build", "src/main.fk", cwd=project), 1, "pins std 0.16.9")
@@ -231,6 +248,15 @@ def main() -> int:
             subprocess.run([sys.executable, str(REPO / "tools/std_bundle.py"), "index", "--serial", str(serial),
                             "--key", key, "--out", str(site), "--yank", "0.16.4", str(three), str(four), str(minor)],
                            check=True, capture_output=True)
+
+        truncated = work / "truncated.fkstd"
+        truncated.write_bytes(three.read_bytes()[:-40])
+        for label, extra_args in (("index refuses a truncated bundle", ["--serial", "1", str(truncated)]),
+                                  ("index refuses a negative serial", ["--serial", "-1", str(three)])):
+            refused = subprocess.run([sys.executable, str(REPO / "tools/std_bundle.py"), "index", "--key", TRUSTED,
+                                      "--out", str(work / "refused-index"), *extra_args], capture_output=True)
+            assert refused.returncode != 0 and not (work / "refused-index" / "index.txt").exists(), (label, refused)
+            print(f"PASS {label}")
 
         server = serve(site)
         try:
@@ -251,7 +277,7 @@ def main() -> int:
 
         h.expect("prune keeps the newest and the selected", h.hangar("std", "prune", "--keep", "1"), 0, "Removed std 0.16.1")
         assert h.store() == ["0.17.0"], h.store()
-        h.expect("bundled override", h.run("run", "p.fk", extra={"FREAK_STD": "bundled"}), None, "unknown callable 'std_bundle_marker'")
+        h.expect("bundled override", h.run("run", "p.fk", extra={"FREAK_STD": "bundled"}), 1, "unknown callable 'std_bundle_marker'")
     print("std bundles: all checks passed")
     return 0
 
