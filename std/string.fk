@@ -40,8 +40,9 @@ task string_center(s: word, width: int, pad_char: word) -> word {
     give back pad_char.repeated(left) + s + pad_char.repeated(total - left)
 }
 
--- Reverses by UTF-8 code point, so "héllo" becomes "olléh". Malformed
--- sequences are reversed byte by byte; embedded NUL bytes are preserved.
+-- Reverses by UTF-8 code point, so "héllo" becomes "olléh". Bytes that are
+-- not part of a well-formed sequence (truncated, overlong, surrogate, stray
+-- continuation) are reversed byte by byte; embedded NUL bytes are preserved.
 task string_reverse(s: word) -> word {
     pilot slen = s.length()
     if slen <= 1 { give back s }
@@ -67,10 +68,22 @@ task string_reverse(s: word) -> word {
                 }
             }
             if back > 0 {
+                -- Keep the group only when it is one well-formed UTF-8 scalar:
+                -- a lead byte whose length matches the continuation run, with
+                -- no overlong, surrogate or above-U+10FFFF encoding. Anything
+                -- else is malformed: emit the last byte alone.
                 pilot lead = s.char_at(start)
-                -- A code point starts with a lead byte (0xC2-0xF4). Anything
-                -- else is a stray continuation run: emit the last byte alone.
-                if not (lead >= "\xC2" and lead <= "\xF4") { start = end - 1 }
+                pilot second = s.char_at(start + 1)
+                pilot mut want = 0
+                if lead >= "\xC2" and lead <= "\xDF" { want = 2 }
+                if lead >= "\xE0" and lead <= "\xEF" { want = 3 }
+                if lead >= "\xF0" and lead <= "\xF4" { want = 4 }
+                pilot mut good = want == end - start
+                if lead == "\xE0" and second < "\xA0" { good = false }
+                if lead == "\xED" and second > "\x9F" { good = false }
+                if lead == "\xF0" and second < "\x90" { good = false }
+                if lead == "\xF4" and second > "\x8F" { good = false }
+                if not good { start = end - 1 }
             }
             if end - start == 1 {
                 word_builder::append(b, c)

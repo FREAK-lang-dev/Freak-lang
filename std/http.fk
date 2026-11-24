@@ -134,7 +134,9 @@ task http_decode_chunked(body: word) -> word {
                         h += 1
                     }
                 }
-                if d < 0 {
+                if d < 0 or size > blen / 16 {
+                    -- A size larger than the whole body is malformed; checking
+                    -- before the multiply keeps the int from overflowing.
                     running = false
                     in_size = false
                 } else {
@@ -150,7 +152,13 @@ task http_decode_chunked(body: word) -> word {
             if size == 0 {
                 running = false
             } else {
-                word_builder::append(b, body.substring(data_start, size))
+                if size > blen - data_start {
+                    -- Truncated chunk: keep the bytes that did arrive.
+                    word_builder::append(b, body.substring(data_start, blen - data_start))
+                    running = false
+                } else {
+                    word_builder::append(b, body.substring(data_start, size))
+                }
                 pos = data_start + size
                 if body.char_at(pos) == "\r" { pos += 1 }
                 if body.char_at(pos) == "\n" { pos += 1 }
