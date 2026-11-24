@@ -16,10 +16,17 @@ import ci_scope  # noqa: E402
 
 
 class CiScope(unittest.TestCase):
-    def test_push_always_runs_v3(self) -> None:
-        self.assertTrue(ci_scope.needs_v3("push", ["src/compiler/v4/crates/a.fk"])[0])
-        self.assertTrue(ci_scope.needs_v3("push", None)[0])
-        self.assertTrue(ci_scope.needs_v3("merge_group", ["src/compiler/v4/crates/a.fk"])[0])
+    def test_unscoped_events_always_run_v3(self) -> None:
+        for event in ("push", "schedule", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertTrue(ci_scope.needs_v3(event, ["src/compiler/v4/crates/a.fk"])[0])
+                self.assertTrue(ci_scope.needs_v3(event, None)[0])
+
+    def test_v4_only_merge_group_skips_v3(self) -> None:
+        self.assertFalse(ci_scope.needs_v3("merge_group", ["src/compiler/v4/crates/a.fk"])[0])
+        self.assertTrue(ci_scope.needs_v3("merge_group", ["src/compiler/v4/crates/a.fk", "std/json.fk"])[0])
+        self.assertTrue(ci_scope.needs_v3("merge_group", None)[0])
+        self.assertTrue(ci_scope.needs_v3("merge_group", [])[0])
 
     def test_pull_requests_run_linux_only(self) -> None:
         v3_os, windows, _ = ci_scope.platforms("pull_request")
@@ -27,7 +34,7 @@ class CiScope(unittest.TestCase):
         self.assertFalse(windows)
 
     def test_merge_queue_and_manual_runs_cover_every_platform(self) -> None:
-        for event in ("merge_group", "workflow_dispatch", "push"):
+        for event in ("merge_group", "schedule", "workflow_dispatch", "push"):
             with self.subTest(event=event):
                 v3_os, windows, _ = ci_scope.platforms(event)
                 self.assertEqual(v3_os, ["ubuntu-latest", "macos-latest"])

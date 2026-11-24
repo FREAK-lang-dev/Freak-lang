@@ -3,12 +3,15 @@ name: CI
 # No push trigger: main only moves through the merge queue (rebase method), and
 # the merge_group run already tested the exact commit that lands, so a push run
 # would repeat ~5 job-hours on an identical tree. Pull requests run Linux only;
-# macOS and Windows run in the merge queue group and on manual dispatch (see
-# tools/ci_scope.py).
+# macOS and Windows run in the merge queue group, nightly and on manual
+# dispatch. A pull request or queue group whose change is V4-only skips the V3
+# lanes entirely (see tools/ci_scope.py); the nightly run always has them.
 on:
   pull_request:
     branches: [main]
   merge_group:
+  schedule:
+    - cron: "17 1 * * *"
   workflow_dispatch:
 
 # A new push to a pull request cancels its superseded run. Merge queue groups
@@ -24,9 +27,10 @@ env:
   CLANG_FLAGS: "-w -O2 -D_CRT_SECURE_NO_WARNINGS"
 
 jobs:
-  # Pull requests that only touch V4-only paths (see tools/ci_scope.py) skip
-  # the V3 lanes below; V4 CI and the locked bootstrap still run for them, and
-  # pushes to main always run everything. Fail-closed: any doubt runs V3.
+  # Pull requests and merge queue groups that only touch V4-only paths (see
+  # tools/ci_scope.py) skip the V3 lanes below; V4 CI and the locked bootstrap
+  # still run for them, and nightly and manual runs always run everything.
+  # Fail-closed: any doubt runs V3.
   scope:
     name: CI scope
     runs-on: ubuntu-latest
@@ -56,6 +60,21 @@ jobs:
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
             --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed-files.txt" \
             || rm -f "$RUNNER_TEMP/changed-files.txt"
+
+      # The group's own change: its head against the commit it was built on
+      # (main, or the group ahead of it in the queue). Two tree objects diff
+      # without history, so a depth-1 fetch of the base is enough.
+      - name: List changed files (merge queue)
+        if: github.event_name == 'merge_group'
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        shell: bash
+        run: |
+          if ! { git fetch --no-tags --depth=1 origin "$BASE_SHA" \
+              && git diff --no-renames --name-only "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/changed-files.txt"; }; then
+            rm -f "$RUNNER_TEMP/changed-files.txt"
+          fi
 
       - name: Decide which lanes run
         id: scope
