@@ -1888,7 +1888,7 @@ freak hangar clean         -- clear cache
 | `std::math`, `std::math3d` | ✅ Implemented (pure FREAK) |
 | `std::string`, `std::convert`, `std::algorithm`, `std::version`, `std::zip` | ✅ Implemented (pure FREAK) |
 | `std::json`, `std::http` | ✅ Implemented (pure FREAK + TCP runtime) |
-| `std::http_server` | ✅ V3.5 bounded HTTP/1 transport (C/LLVM runtime): one event loop per worker process (epoll/kqueue/WSAPoll) serving many connections, keep-alive and pipelining, optional worker processes; application-owned routing and JSON policy, one active request per worker, no TLS. See [deployment profile](docs/v35-http-floor.md). |
+| `std::http_server` | ✅ V3.5 bounded HTTP/1 transport (C/LLVM runtime): one event loop per worker process (epoll/kqueue/WSAPoll) serving many connections, keep-alive and pipelining, optional worker processes, streamed file responses (`http_send_file`); application-owned routing and JSON policy, one active request per worker, no TLS. See [deployment profile](docs/v35-http-floor.md). |
 | `std::fs`, `std::time`, `std::bytes` | ✅ Implemented (C runtime) |
 | `std::process` | ⚠️ Partial in shipping V3; the normative `args() -> List<word>` surface requires the V4 list ABI |
 | `std::ui` | ⚠️ Partial in V3 — LLVM/Windows Win32-GDI window, indexed event, and raw drawing floor only; no owned event-list API, POSIX native backend, or executable C UI path. COCKPIT is a Maverick source preview, not a frozen-V3 package. |
