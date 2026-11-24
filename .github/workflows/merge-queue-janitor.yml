@@ -44,6 +44,16 @@ jobs:
               if grep -qxF "refs/heads/$branch" <<< "$live"; then
                 continue
               fi
+              # The snapshot above may predate a group formed since. A run's
+              # branch exists before the run does, so recheck the exact ref
+              # now and cancel only when GitHub says it is gone.
+              code="$(curl -sS -o /dev/null -w '%{http_code}' \
+                -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                "$GITHUB_API_URL/repos/$REPO/git/ref/heads/$branch" || echo error)"
+              if [[ "$code" != "404" ]]; then
+                echo "Keeping run $id: ref lookup for $branch returned $code"
+                continue
+              fi
               echo "Cancelling run $id ($status) for deleted branch $branch"
               gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null || echo "  could not cancel $id"
               cancelled=$((cancelled + 1))
