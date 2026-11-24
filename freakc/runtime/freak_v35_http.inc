@@ -1,7 +1,12 @@
 #ifndef FREAK_V35_HTTP_INCLUDED
 #define FREAK_V35_HTTP_INCLUDED 1
-/* Synchronous, bounded HTTP/1 request transport. Routing belongs to the
-   application. Included after the shared ByteBuffer/socket/word substrate. */
+/* Bounded HTTP/1 request transport with a per-process event loop. Routing
+   belongs to the application, which still sees one request at a time through
+   next_request. Behind it the runtime accepts, reads, parses and writes every
+   connection concurrently (epoll on Linux, kqueue on macOS/BSD, WSAPoll on
+   Windows), keeps HTTP/1.1 connections alive, and can fan one listener out to
+   worker processes for multi-core throughput. Included after the shared
+   ByteBuffer/socket/word substrate. */
 #if __has_include("third_party/llhttp/freak_amalgamation.inc")
 #include "third_party/llhttp/freak_amalgamation.inc"
 #else
@@ -10,28 +15,78 @@
 #ifndef _WIN32
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/resource.h>
+#if defined(__linux__)
+#include <sys/epoll.h>
+#include <sys/prctl.h>
+#define FREAK_HTTP_EPOLL 1
+/* accept4 is declared only under _GNU_SOURCE; the symbol is in every libc. */
+extern int accept4(int,struct sockaddr *,socklen_t *,int);
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+#include <sys/event.h>
+#define FREAK_HTTP_KQUEUE 1
+#else
+#define FREAK_HTTP_POLL 1
+#endif
+#else
+#define FREAK_HTTP_WSAPOLL 1
 #endif
 
 #define FREAK_HTTP_SERVER_DOMAIN UINT64_C(0x9000000000000000)
 #define FREAK_HTTP_REQUEST_DOMAIN UINT64_C(0xb000000000000000)
 #define FREAK_HTTP_DOMAIN_MASK UINT64_C(0xf000000000000000)
 #define FREAK_HTTP_GENERATION_MAX UINT32_C(0x0fffffff)
+#define FREAK_HTTP_MAX_WORKERS 256
+#define FREAK_HTTP_EVENTS 256
+#define FREAK_HTTP_SWEEP_MS 10
+#ifdef _WIN32
+#define FREAK_HTTP_POLL_IN POLLRDNORM
+#define FREAK_HTTP_POLL_OUT POLLWRNORM
+#else
+#define FREAK_HTTP_POLL_IN POLLIN
+#define FREAK_HTTP_POLL_OUT POLLOUT
+#endif
+enum { FREAK_HTTP_CONN_READ=1, FREAK_HTTP_CONN_QUEUED, FREAK_HTTP_CONN_APP, FREAK_HTTP_CONN_WRITE, FREAK_HTTP_CONN_DRAIN };
 typedef struct { size_t line,headers,count,body,chunk_metadata,trailers; uint64_t header_ms,body_ms,idle_ms; } freak_http_limits;
 typedef struct { unsigned char *data; size_t length,capacity; } freak_http_text;
 typedef struct { freak_http_text name,value; bool trailer; } freak_http_header;
-typedef struct {
+typedef struct freak_http_conn freak_http_conn;
+typedef struct freak_http_request freak_http_request;
+typedef struct freak_http_server {
     uint32_t generation;
-    bool in_use;
+    bool in_use,started,workers_set;
     atomic_bool stopping;
     freak_native_socket listener;
-    int status,port;
-    int64_t active;
+    int status,port,family,requested_port;
+    int64_t active,ticket;
     freak_http_limits limits;
+    uint64_t keep_alive_ms; size_t keep_alive_requests,max_connections;
+    int workers,worker_index;
+    /* Event loop. */
+#if defined(FREAK_HTTP_EPOLL) || defined(FREAK_HTTP_KQUEUE)
+    int poller;
+#endif
+    bool listener_armed;
+    uint64_t accept_pause_until,next_sweep;
+    freak_http_conn **conns; size_t conn_count,conn_capacity;
+    freak_http_conn *graveyard,*hot;
+    freak_http_request *ready_head,*ready_tail;
+    /* Worker supervision. */
+#ifdef _WIN32
+    HANDLE job,parent_process;
+    HANDLE children[FREAK_HTTP_MAX_WORKERS];
+#else
+    pid_t children[FREAK_HTTP_MAX_WORKERS];
+    pid_t parent_pid;
+#endif
+    uint64_t respawn_after[FREAK_HTTP_MAX_WORKERS];
+    char address[128];
     char error[192];
 } freak_http_server;
-typedef struct {
-    uint32_t generation;
-    bool in_use,headers_done,message_done,line_done,chunk_line,expect_continue,responded,head_method;
+struct freak_http_request {
+    uint32_t slot;
+    bool headers_done,message_done,line_done,chunk_line,expect_continue,responded,head_method,started,persistent;
     freak_native_socket socket;
     int status,response_status;
     int64_t server,body;
@@ -43,15 +98,30 @@ typedef struct {
     size_t header_count,header_capacity,response_count,response_capacity,response_wire;
     int current_header;
     llhttp_t parser;
-    llhttp_settings_t settings;
+    freak_http_conn *conn;
+    freak_http_request *ready_next;
     char error[192];
-} freak_http_request;
+};
+struct freak_http_conn {
+    freak_native_socket socket;
+    freak_http_server *server;
+    size_t index,served,drained;
+    int state;
+    bool readable,writable,close_after_write,drain_after_write,dead,hot;
+    freak_http_request *request;
+    freak_http_conn *grave_next,*hot_next;
+    unsigned char *in,*out; size_t in_length,in_offset,out_length,out_offset;
+    uint64_t idle_deadline,write_deadline,write_idle,drain_deadline;
+};
+typedef struct { uint32_t generation; freak_http_request *request; } freak_http_ticket;
 typedef union { max_align_t alignment; struct { size_t size; } metadata; } freak_http_allocation;
-static size_t freak_http_owned_bytes, freak_http_server_live, freak_http_request_live, freak_http_socket_live;
+static size_t freak_http_owned_bytes, freak_http_server_live, freak_http_request_live, freak_http_socket_live, freak_http_connection_live;
 static freak_http_server **freak_http_servers;
-static freak_http_request **freak_http_requests;
+static freak_http_ticket *freak_http_requests;
 static size_t freak_http_server_slots,freak_http_server_capacity,freak_http_request_slots,freak_http_request_capacity;
-static bool freak_http_cleanup_registered;
+static bool freak_http_cleanup_registered,freak_http_settings_ready;
+static llhttp_settings_t freak_http_settings;
+static unsigned char freak_http_scratch[65536];
 
 static _Noreturn void freak_http_fail(const char *message) { fprintf(stderr,"FREAK: HTTP floor: %s\n",message); exit(1); }
 static void *freak_http_allocate(size_t size) {
@@ -65,9 +135,10 @@ static void freak_http_free(void *pointer) {
     freak_http_allocation *block=(freak_http_allocation *)pointer-1;
     freak_http_owned_bytes-=block->metadata.size; free(block);
 }
+static size_t freak_http_size(const void *pointer) { return pointer?((const freak_http_allocation *)pointer-1)->metadata.size:0; }
 static void *freak_http_grow(void *pointer,size_t size) {
     void *grown=freak_http_allocate(size);
-    if(pointer) { size_t old=((freak_http_allocation *)pointer-1)->metadata.size; memcpy(grown,pointer,old<size?old:size); freak_http_free(pointer); }
+    if(pointer) { size_t old=freak_http_size(pointer); memcpy(grown,pointer,old<size?old:size); freak_http_free(pointer); }
     return grown;
 }
 static void freak_http_close_socket(freak_native_socket *socket) {
@@ -101,8 +172,8 @@ static freak_http_server *freak_http_require_server(int64_t ticket) {
 static freak_http_request *freak_http_require_request(int64_t ticket) {
     uint64_t bits=(uint64_t)ticket; uint32_t slot=(uint32_t)bits,generation=(uint32_t)(bits>>32)&FREAK_HTTP_GENERATION_MAX;
     if((bits&FREAK_HTTP_DOMAIN_MASK)!=FREAK_HTTP_REQUEST_DOMAIN || !slot || slot>freak_http_request_slots) freak_http_fail("invalid or stale request ticket");
-    freak_http_request *request=freak_http_requests[slot-1];
-    if(!request->in_use || request->generation!=generation) freak_http_fail("invalid or stale request ticket"); return request;
+    freak_http_ticket *entry=&freak_http_requests[slot-1];
+    if(!entry->request || entry->generation!=generation) freak_http_fail("invalid or stale request ticket"); return entry->request;
 }
 static freak_http_server *freak_http_find_server(int64_t ticket) {
     uint64_t bits=(uint64_t)ticket; uint32_t slot=(uint32_t)bits;
@@ -110,6 +181,7 @@ static freak_http_server *freak_http_find_server(int64_t ticket) {
     freak_http_server *server=freak_http_servers[slot-1];
     return server->in_use && server->generation==((bits>>32)&FREAK_HTTP_GENERATION_MAX) ? server : NULL;
 }
+static bool freak_http_stopping(const freak_http_server *server) { return atomic_load_explicit(&((freak_http_server *)server)->stopping,memory_order_acquire); }
 static void freak_http_error(freak_http_request *request,int status,const char *message) {
     if(!request->status) { request->status=status; snprintf(request->error,sizeof(request->error),"%s",message); }
 }
@@ -135,23 +207,168 @@ static int64_t freak_http_bytes(const unsigned char *bytes,size_t length) {
 static void freak_http_release_headers(freak_http_header *headers,size_t count) {
     for(size_t i=0;i<count;i++) { freak_http_free(headers[i].name.data); freak_http_free(headers[i].value.data); } freak_http_free(headers);
 }
-static void freak_http_dispose_request(freak_http_request *request) {
-    freak_http_close_socket(&request->socket);
-    freak_http_server *server=freak_http_find_server(request->server);
-    if(server) server->active=0;
+/* Growable byte queue: the unread pipelined input or unsent output of a
+   connection. Offsets keep partial progress without memmove per write. */
+static void freak_http_queue_append(unsigned char **queue,size_t *length,size_t *offset,const void *bytes,size_t count) {
+    if(!count) return;
+    if(*offset && *offset==*length) { *offset=0; *length=0; }
+    size_t capacity=freak_http_size(*queue);
+    if(*length+count>capacity) {
+        size_t live=*length-*offset;
+        if(*offset && live+count<=capacity) { memmove(*queue,*queue+*offset,live); }
+        else {
+            size_t next=capacity?capacity:4096; while(next<live+count) { if(next>SIZE_MAX/2) freak_http_fail("queue overflow"); next*=2; }
+            unsigned char *grown=freak_http_allocate(next); if(live) memcpy(grown,*queue+*offset,live); freak_http_free(*queue); *queue=grown;
+        }
+        *length=live; *offset=0;
+    }
+    memcpy(*queue+*length,bytes,count); *length+=count;
+}
+static void freak_http_free_request(freak_http_request *request) {
     freak_http_free(request->method.data); freak_http_free(request->target.data);
     freak_http_release_headers(request->headers,request->header_count);
     freak_http_release_headers(request->response_headers,request->response_count);
-    freak_byte_buffer_release(request->body);
-    uint32_t generation=request->generation; memset(request,0,sizeof(*request)); request->generation=generation;
-    request->socket=FREAK_INVALID_NATIVE_SOCKET; freak_http_request_live--;
+    if(request->body) freak_byte_buffer_release(request->body);
+    if(request->slot) {
+        freak_http_ticket *entry=&freak_http_requests[request->slot-1]; entry->request=NULL; freak_http_request_live--;
+    }
+    freak_http_free(request);
 }
+static int freak_http_on_method(llhttp_t *,const char *,size_t); static int freak_http_on_target(llhttp_t *,const char *,size_t);
+static int freak_http_on_field(llhttp_t *,const char *,size_t); static int freak_http_on_value(llhttp_t *,const char *,size_t);
+static int freak_http_on_value_complete(llhttp_t *); static int freak_http_on_headers(llhttp_t *);
+static int freak_http_on_body(llhttp_t *,const char *,size_t); static int freak_http_on_chunk(llhttp_t *);
+static int freak_http_on_chunk_complete(llhttp_t *); static int freak_http_on_complete(llhttp_t *);
+static void freak_http_init_settings(void) {
+    if(freak_http_settings_ready) return;
+    llhttp_settings_t *settings=&freak_http_settings; llhttp_settings_init(settings);
+    settings->on_method=freak_http_on_method; settings->on_url=freak_http_on_target;
+    settings->on_header_field=freak_http_on_field; settings->on_header_value=freak_http_on_value;
+    settings->on_header_value_complete=freak_http_on_value_complete; settings->on_headers_complete=freak_http_on_headers;
+    settings->on_body=freak_http_on_body; settings->on_chunk_header=freak_http_on_chunk;
+    settings->on_chunk_complete=freak_http_on_chunk_complete; settings->on_message_complete=freak_http_on_complete;
+    freak_http_settings_ready=true;
+}
+static freak_http_request *freak_http_new_request(freak_http_server *server,freak_http_conn *conn) {
+    freak_http_request *request=freak_http_allocate(sizeof(freak_http_request));
+    request->socket=FREAK_INVALID_NATIVE_SOCKET; request->server=server->ticket; request->limits=server->limits;
+    request->current_header=-1; request->response_status=200; request->conn=conn;
+    freak_http_init_settings(); llhttp_init(&request->parser,HTTP_REQUEST,&freak_http_settings); request->parser.data=request;
+    return request;
+}
+static int64_t freak_http_ticket_for(freak_http_request *request) {
+    size_t slot=0;
+    while(slot<freak_http_request_slots && (freak_http_requests[slot].request || freak_http_requests[slot].generation==FREAK_HTTP_GENERATION_MAX)) slot++;
+    if(slot==freak_http_request_slots) {
+        if(slot>=UINT32_MAX-1) freak_http_fail("request ticket table exhausted");
+        if(slot==freak_http_request_capacity) { size_t next=freak_http_request_capacity?freak_http_request_capacity*2:16; freak_http_requests=freak_http_grow(freak_http_requests,next*sizeof(*freak_http_requests)); freak_http_request_capacity=next; }
+        freak_http_request_slots++;
+    }
+    freak_http_ticket *entry=&freak_http_requests[slot]; entry->generation++; entry->request=request;
+    request->slot=(uint32_t)(slot+1); freak_http_request_live++;
+    if(!request->body) request->body=freak_byte_buffer_new();
+    return (int64_t)(FREAK_HTTP_REQUEST_DOMAIN|((uint64_t)entry->generation<<32)|(slot+1));
+}
+
+/* ── Poller: one abstraction over epoll, kqueue and (WSA)poll ─────────── */
+static bool freak_http_poller_open(freak_http_server *server) {
+#if defined(FREAK_HTTP_EPOLL)
+    server->poller=epoll_create1(EPOLL_CLOEXEC); return server->poller>=0;
+#elif defined(FREAK_HTTP_KQUEUE)
+    server->poller=kqueue(); if(server->poller<0) return false;
+    int flags=fcntl(server->poller,F_GETFD,0); if(flags>=0) fcntl(server->poller,F_SETFD,flags|FD_CLOEXEC); return true;
+#else
+    (void)server; return true;
+#endif
+}
+static void freak_http_poller_close(freak_http_server *server) {
+#if defined(FREAK_HTTP_EPOLL) || defined(FREAK_HTTP_KQUEUE)
+    if(server->poller>=0) { close(server->poller); server->poller=-1; }
+#else
+    (void)server;
+#endif
+}
+/* Connections are edge-triggered for read and write once, for their whole
+   life: state changes never cost a syscall. readable/writable remember an
+   edge until a call reports would-block. */
+static bool freak_http_poller_add(freak_http_conn *conn) {
+#if defined(FREAK_HTTP_EPOLL)
+    struct epoll_event event={0}; event.events=EPOLLIN|EPOLLOUT|EPOLLRDHUP|EPOLLET; event.data.ptr=conn;
+    return epoll_ctl(conn->server->poller,EPOLL_CTL_ADD,conn->socket,&event)==0;
+#elif defined(FREAK_HTTP_KQUEUE)
+    struct kevent changes[2];
+    EV_SET(&changes[0],conn->socket,EVFILT_READ,EV_ADD|EV_CLEAR,0,0,conn);
+    EV_SET(&changes[1],conn->socket,EVFILT_WRITE,EV_ADD|EV_CLEAR,0,0,conn);
+    return kevent(conn->server->poller,changes,2,NULL,0,NULL)==0;
+#else
+    (void)conn; return true;
+#endif
+}
+static void freak_http_listener_arm(freak_http_server *server,bool armed) {
+    if(server->listener_armed==armed || server->listener==FREAK_INVALID_NATIVE_SOCKET) return;
+#if defined(FREAK_HTTP_EPOLL)
+    if(armed) {
+        struct epoll_event event={0}; event.events=EPOLLIN; event.data.ptr=NULL;
+        /* Workers share one listener: wake one of them per connection. */
+#ifdef EPOLLEXCLUSIVE
+        if(server->workers>1) event.events|=EPOLLEXCLUSIVE;
+#endif
+        if(epoll_ctl(server->poller,EPOLL_CTL_ADD,server->listener,&event)!=0) return;
+    } else epoll_ctl(server->poller,EPOLL_CTL_DEL,server->listener,NULL);
+#elif defined(FREAK_HTTP_KQUEUE)
+    struct kevent change; EV_SET(&change,server->listener,EVFILT_READ,armed?EV_ADD:EV_DELETE,0,0,NULL);
+    if(kevent(server->poller,&change,1,NULL,0,NULL)!=0 && armed) return;
+#endif
+    server->listener_armed=armed;
+}
+
+static void freak_http_conn_destroy(freak_http_conn *conn) {
+    if(conn->dead) return;
+    freak_http_server *server=conn->server; conn->dead=true;
+#if defined(FREAK_HTTP_EPOLL)
+    /* A forked worker may briefly share this descriptor: drop interest first. */
+    if(server->poller>=0) epoll_ctl(server->poller,EPOLL_CTL_DEL,conn->socket,NULL);
+#endif
+    freak_http_close_socket(&conn->socket);
+    if(conn->request) {
+        freak_http_request *request=conn->request; conn->request=NULL; request->conn=NULL; request->socket=FREAK_INVALID_NATIVE_SOCKET;
+        /* An internal parse state belongs to the connection; a queued one is
+           still delivered, as a failed request, so the queue stays valid. */
+        if(conn->state==FREAK_HTTP_CONN_QUEUED) { if(!request->status) freak_http_error(request,503,"HTTP connection closed"); }
+        else if(!request->slot) freak_http_free_request(request);
+    }
+    size_t last=server->conn_count-1;
+    if(conn->index!=last) { server->conns[conn->index]=server->conns[last]; server->conns[conn->index]->index=conn->index; }
+    server->conn_count--; freak_http_connection_live--;
+    freak_http_free(conn->in); freak_http_free(conn->out); conn->in=conn->out=NULL;
+    conn->grave_next=server->graveyard; server->graveyard=conn;
+}
+static void freak_http_bury(freak_http_server *server) {
+    if(!server->graveyard) return;
+    freak_http_conn **link=&server->hot;
+    while(*link) { if((*link)->dead) *link=(*link)->hot_next; else link=&(*link)->hot_next; }
+    while(server->graveyard) { freak_http_conn *conn=server->graveyard; server->graveyard=conn->grave_next; freak_http_free(conn); }
+}
+static void freak_http_deliver(freak_http_server *server,freak_http_request *request) {
+    request->ready_next=NULL;
+    if(server->ready_tail) server->ready_tail->ready_next=request; else server->ready_head=request;
+    server->ready_tail=request;
+}
+
 static void freak_http_cleanup(void) {
 #if defined(FREAK_RUNTIME_OWNERSHIP_AUDIT) || defined(FREAK_C_RUNTIME_OWNERSHIP_AUDIT)
     if(freak_http_server_live || freak_http_request_live) { fprintf(stderr,"FREAK: ownership audit found live HTTP server/request owners\n"); _Exit(1); }
 #endif
-    for(size_t i=0;i<freak_http_request_slots;i++) { if(freak_http_requests[i]->in_use) freak_http_dispose_request(freak_http_requests[i]); freak_http_free(freak_http_requests[i]); }
-    for(size_t i=0;i<freak_http_server_slots;i++) { if(freak_http_servers[i]->in_use) freak_http_close_socket(&freak_http_servers[i]->listener); freak_http_free(freak_http_servers[i]); }
+    for(size_t i=0;i<freak_http_server_slots;i++) {
+        freak_http_server *server=freak_http_servers[i];
+        if(server->in_use) {
+            while(server->conn_count) freak_http_conn_destroy(server->conns[server->conn_count-1]);
+            while(server->ready_head) { freak_http_request *request=server->ready_head; server->ready_head=request->ready_next; request->conn=NULL; if(!request->slot) freak_http_free_request(request); }
+            freak_http_bury(server); freak_http_close_socket(&server->listener); freak_http_poller_close(server); freak_http_free(server->conns);
+        }
+        freak_http_free(server);
+    }
+    for(size_t i=0;i<freak_http_request_slots;i++) if(freak_http_requests[i].request) { freak_http_request *request=freak_http_requests[i].request; request->conn=NULL; freak_http_free_request(request); }
     freak_http_free(freak_http_requests); freak_http_free(freak_http_servers);
 }
 static void freak_http_register(void) {
@@ -167,24 +384,32 @@ static int64_t freak_http_new_server(void) {
     }
     freak_http_server *server=freak_http_servers[slot]; uint32_t generation=server->generation+1; memset(server,0,sizeof(*server));
     server->generation=generation; server->in_use=true; atomic_init(&server->stopping,false); server->listener=FREAK_INVALID_NATIVE_SOCKET;
-    server->limits=(freak_http_limits){8192,32768,100,1048576,4096,8192,5000,15000,2000}; freak_http_server_live++;
-    return (int64_t)(FREAK_HTTP_SERVER_DOMAIN|((uint64_t)generation<<32)|(slot+1));
-}
-static int64_t freak_http_new_request(int64_t server_ticket) {
-    size_t slot=0;
-    while(slot<freak_http_request_slots && (freak_http_requests[slot]->in_use || freak_http_requests[slot]->generation==FREAK_HTTP_GENERATION_MAX)) slot++;
-    if(slot==freak_http_request_slots) {
-        if(slot>=UINT32_MAX-1) freak_http_fail("request ticket table exhausted");
-        if(slot==freak_http_request_capacity) { size_t next=freak_http_request_capacity?freak_http_request_capacity*2:16; freak_http_requests=freak_http_grow(freak_http_requests,next*sizeof(*freak_http_requests)); freak_http_request_capacity=next; }
-        freak_http_requests[slot]=freak_http_allocate(sizeof(freak_http_request)); freak_http_request_slots++;
-    }
-    freak_http_request *request=freak_http_requests[slot]; uint32_t generation=request->generation+1; memset(request,0,sizeof(*request));
-    request->generation=generation; request->in_use=true; request->socket=FREAK_INVALID_NATIVE_SOCKET;
-    request->server=server_ticket; request->limits=freak_http_require_server(server_ticket)->limits;
-    request->body=freak_byte_buffer_new(); request->current_header=-1; request->response_status=200; freak_http_request_live++;
-    return (int64_t)(FREAK_HTTP_REQUEST_DOMAIN|((uint64_t)generation<<32)|(slot+1));
+#if defined(FREAK_HTTP_EPOLL) || defined(FREAK_HTTP_KQUEUE)
+    server->poller=-1;
+#endif
+    server->limits=(freak_http_limits){8192,32768,100,1048576,4096,8192,5000,15000,2000};
+    server->keep_alive_ms=5000; server->keep_alive_requests=1000; server->max_connections=4096; server->workers=1;
+    freak_http_server_live++;
+    server->ticket=(int64_t)(FREAK_HTTP_SERVER_DOMAIN|((uint64_t)generation<<32)|(slot+1));
+    return server->ticket;
 }
 
+/* ── Binding, including adoption of a listener a parent worker shared ─── */
+#ifdef _WIN32
+static bool freak_http_adopt_listener(freak_http_server *server,const char *address,int64_t port) {
+    char inherited[512]; DWORD length=GetEnvironmentVariableA("FREAK_HTTP_WORKER_LISTENER",inherited,sizeof(inherited));
+    if(!length || length>=sizeof(inherited)) return false;
+    unsigned long long handle=0; int requested=0,actual=0,index=0,family=0; unsigned long parent=0; char bound[128]={0};
+    if(sscanf(inherited,"%llu|%d|%d|%d|%d|%lu|%127s",&handle,&requested,&actual,&family,&index,&parent,bound)!=7) return false;
+    if(requested!=port || strcmp(bound,address)!=0) return false;
+    SetEnvironmentVariableA("FREAK_HTTP_WORKER_LISTENER",NULL);
+    server->listener=(SOCKET)handle; freak_http_socket_live++;
+    if(!freak_http_nonblocking(server->listener)) return false;
+    server->port=actual; server->family=family; server->worker_index=index; server->workers=1; server->workers_set=true;
+    server->parent_process=OpenProcess(SYNCHRONIZE,FALSE,(DWORD)parent);
+    return true;
+}
+#endif
 int64_t freak_http_server_bind(freak_word address,int64_t port,int64_t allow_non_loopback) {
     int64_t ticket=freak_http_new_server(); freak_http_server *server=freak_http_require_server(ticket);
     if(port<0 || port>65535 || (allow_non_loopback!=0 && allow_non_loopback!=1) || !address.data || !address.length || address.length>127 || memchr(address.data,0,address.length)) goto invalid;
@@ -195,8 +420,11 @@ int64_t freak_http_server_bind(freak_word address,int64_t port,int64_t allow_non
     else if(inet_pton(AF_INET6,name,&v6->sin6_addr)==1) { family=AF_INET6; v6->sin6_family=AF_INET6; v6->sin6_port=htons((uint16_t)port); static const unsigned char local[16]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}; loopback=memcmp(&v6->sin6_addr,local,16)==0; }
     else goto invalid;
     if(!loopback && !allow_non_loopback) { snprintf(server->error,sizeof(server->error),"non-loopback bind requires explicit opt-in"); server->status=2; return ticket; }
+    memcpy(server->address,name,address.length+1); server->family=family; server->requested_port=(int)port;
 #ifdef _WIN32
     freak_wsa_init();
+    if(freak_http_adopt_listener(server,name,port)) return ticket;
+    if(server->listener!=FREAK_INVALID_NATIVE_SOCKET) goto failed;
 #endif
     server->listener=socket(family,SOCK_STREAM,IPPROTO_TCP);
     if(server->listener==FREAK_INVALID_NATIVE_SOCKET) goto failed;
@@ -209,7 +437,9 @@ int64_t freak_http_server_bind(freak_word address,int64_t port,int64_t allow_non
 #endif
     if(!freak_http_nonblocking(server->listener)) goto failed;
     size_t address_size=family==AF_INET?sizeof(*v4):sizeof(*v6);
-    if(bind(server->listener,(struct sockaddr *)&storage,(int)address_size)!=0 || listen(server->listener,16)!=0) goto failed;
+    /* SOMAXCONN asks for the kernel's own ceiling (net.core.somaxconn on
+       Linux); bursts queue in the kernel while the loop is busy. */
+    if(bind(server->listener,(struct sockaddr *)&storage,(int)address_size)!=0 || listen(server->listener,SOMAXCONN)!=0) goto failed;
 #ifdef _WIN32
     int actual_size=(int)sizeof(storage);
 #else
@@ -223,7 +453,7 @@ failed:
     freak_http_close_socket(&server->listener); snprintf(server->error,sizeof(server->error),"could not bind/listen HTTP socket"); server->status=2; return ticket;
 }
 int64_t freak_http_server_open(int64_t port) { return freak_http_server_bind(freak_word_lit("127.0.0.1"),port,0); }
-int64_t freak_http_server_status(int64_t ticket) { freak_http_server *server=freak_http_require_server(ticket); return atomic_load_explicit(&server->stopping,memory_order_acquire)?1:server->status; }
+int64_t freak_http_server_status(int64_t ticket) { freak_http_server *server=freak_http_require_server(ticket); return freak_http_stopping(server)?1:server->status; }
 freak_word freak_http_server_error(int64_t ticket) { return freak_word_copy_cstr(freak_http_require_server(ticket)->error); }
 int64_t freak_http_server_local_port(int64_t ticket) { return freak_http_require_server(ticket)->port; }
 static freak_http_server *freak_http_configurable(int64_t ticket) { freak_http_server *server=freak_http_require_server(ticket); if(server->active) freak_http_fail("cannot change options while a request is active"); return server; }
@@ -242,51 +472,184 @@ void freak_http_server_set_chunk_limits(int64_t ticket,int64_t metadata,int64_t 
     if(metadata<4 || metadata>1048576 || trailers<2 || trailers>1048576) freak_http_fail("invalid HTTP chunk limits");
     server->limits.chunk_metadata=(size_t)metadata; server->limits.trailers=(size_t)trailers;
 }
+void freak_http_server_set_keep_alive(int64_t ticket,int64_t idle_ms,int64_t max_requests) {
+    freak_http_server *server=freak_http_configurable(ticket);
+    if(idle_ms<1 || idle_ms>3600000 || max_requests<0 || max_requests>1000000000) freak_http_fail("invalid HTTP keep-alive options");
+    server->keep_alive_ms=(uint64_t)idle_ms; server->keep_alive_requests=(size_t)max_requests;
+}
+void freak_http_server_set_max_connections(int64_t ticket,int64_t count) {
+    freak_http_server *server=freak_http_configurable(ticket);
+    if(count<1 || count>1048576) freak_http_fail("invalid HTTP connection limit");
+    server->max_connections=(size_t)count;
+}
+void freak_http_server_set_workers(int64_t ticket,int64_t count) {
+    freak_http_server *server=freak_http_configurable(ticket);
+    if(count<0 || count>FREAK_HTTP_MAX_WORKERS) freak_http_fail("invalid HTTP worker count");
+    if(server->started) freak_http_fail("workers must be set before the first next_request");
+    if(server->worker_index) return; /* an adopted worker never spawns */
+    server->workers=(int)count; server->workers_set=true;
+}
+int64_t freak_http_server_worker_index(int64_t ticket) { return freak_http_require_server(ticket)->worker_index; }
 void freak_http_server_stop(int64_t ticket) { atomic_store_explicit(&freak_http_require_server(ticket)->stopping,true,memory_order_release); }
+
+/* ── Worker processes ─────────────────────────────────────────────────── */
+static int freak_http_cpu_count(void) {
+#ifdef _WIN32
+    SYSTEM_INFO info; GetSystemInfo(&info); return info.dwNumberOfProcessors>0?(int)info.dwNumberOfProcessors:1;
+#else
+    long count=sysconf(_SC_NPROCESSORS_ONLN); return count>0?(int)count:1;
+#endif
+}
+static void freak_http_stop_children(freak_http_server *server) {
+#ifdef _WIN32
+    for(int i=1;i<FREAK_HTTP_MAX_WORKERS;i++) if(server->children[i]) { TerminateProcess(server->children[i],0); WaitForSingleObject(server->children[i],2000); CloseHandle(server->children[i]); server->children[i]=NULL; }
+    if(server->job) { CloseHandle(server->job); server->job=NULL; }
+    if(server->parent_process) { CloseHandle(server->parent_process); server->parent_process=NULL; }
+#else
+    bool any=false;
+    for(int i=1;i<FREAK_HTTP_MAX_WORKERS;i++) if(server->children[i]>0) { kill(server->children[i],SIGTERM); any=true; }
+    if(!any) return;
+    uint64_t deadline=freak_command_now_ms()+2000;
+    for(;;) {
+        bool waiting=false;
+        for(int i=1;i<FREAK_HTTP_MAX_WORKERS;i++) if(server->children[i]>0) {
+            pid_t done=waitpid(server->children[i],NULL,WNOHANG);
+            if(done==server->children[i] || (done<0 && errno==ECHILD)) server->children[i]=0; else waiting=true;
+        }
+        if(!waiting) return;
+        if(freak_command_now_ms()>=deadline) {
+            for(int i=1;i<FREAK_HTTP_MAX_WORKERS;i++) if(server->children[i]>0) { kill(server->children[i],SIGKILL); waitpid(server->children[i],NULL,0); server->children[i]=0; }
+            return;
+        }
+        freak_time_sleep(5);
+    }
+#endif
+}
+#ifdef _WIN32
+static bool freak_http_spawn_worker(freak_http_server *server,int index) {
+    if(!server->job) {
+        server->job=CreateJobObjectW(NULL,NULL); if(!server->job) return false;
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits; memset(&limits,0,sizeof(limits));
+        limits.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(server->job,JobObjectExtendedLimitInformation,&limits,sizeof(limits));
+    }
+    char value[512]; snprintf(value,sizeof(value),"%llu|%d|%d|%d|%d|%lu|%s",(unsigned long long)server->listener,server->requested_port,server->port,server->family,index,(unsigned long)GetCurrentProcessId(),server->address);
+    HANDLE handles[4]; int count=0; handles[count++]=(HANDLE)server->listener;
+    HANDLE standard[3]={GetStdHandle(STD_INPUT_HANDLE),GetStdHandle(STD_OUTPUT_HANDLE),GetStdHandle(STD_ERROR_HANDLE)};
+    for(int i=0;i<3;i++) { if(standard[i] && standard[i]!=INVALID_HANDLE_VALUE && SetHandleInformation(standard[i],HANDLE_FLAG_INHERIT,HANDLE_FLAG_INHERIT)) { bool seen=false; for(int j=0;j<count;j++) if(handles[j]==standard[i]) seen=true; if(!seen) handles[count++]=standard[i]; } else standard[i]=NULL; }
+    if(!SetHandleInformation((HANDLE)server->listener,HANDLE_FLAG_INHERIT,HANDLE_FLAG_INHERIT)) return false;
+    SIZE_T size=0; InitializeProcThreadAttributeList(NULL,1,0,&size);
+    LPPROC_THREAD_ATTRIBUTE_LIST attributes=(LPPROC_THREAD_ATTRIBUTE_LIST)HeapAlloc(GetProcessHeap(),0,size);
+    bool ok=attributes && InitializeProcThreadAttributeList(attributes,1,0,&size) && UpdateProcThreadAttribute(attributes,0,PROC_THREAD_ATTRIBUTE_HANDLE_LIST,handles,count*sizeof(HANDLE),NULL,NULL);
+    STARTUPINFOEXW startup; memset(&startup,0,sizeof(startup)); startup.StartupInfo.cb=sizeof(startup); startup.lpAttributeList=attributes;
+    if(standard[0]||standard[1]||standard[2]) { startup.StartupInfo.dwFlags=STARTF_USESTDHANDLES; startup.StartupInfo.hStdInput=standard[0]; startup.StartupInfo.hStdOutput=standard[1]; startup.StartupInfo.hStdError=standard[2]; }
+    PROCESS_INFORMATION process; memset(&process,0,sizeof(process));
+    wchar_t module[32768]; DWORD length=GetModuleFileNameW(NULL,module,32768);
+    wchar_t *command=_wcsdup(GetCommandLineW());
+    SetEnvironmentVariableA("FREAK_HTTP_WORKER_LISTENER",value);
+    if(ok) ok=length>0 && length<32768 && command && CreateProcessW(module,command,NULL,NULL,TRUE,EXTENDED_STARTUPINFO_PRESENT|CREATE_SUSPENDED,NULL,NULL,&startup.StartupInfo,&process);
+    SetEnvironmentVariableA("FREAK_HTTP_WORKER_LISTENER",NULL);
+    SetHandleInformation((HANDLE)server->listener,HANDLE_FLAG_INHERIT,0);
+    free(command); if(attributes) { DeleteProcThreadAttributeList(attributes); HeapFree(GetProcessHeap(),0,attributes); }
+    if(!ok) return false;
+    AssignProcessToJobObject(server->job,process.hProcess); ResumeThread(process.hThread); CloseHandle(process.hThread);
+    server->children[index]=process.hProcess; return true;
+}
+#else
+static void freak_http_become_child(freak_http_server *server,int index,pid_t parent) {
+    server->worker_index=index; server->workers=1; server->parent_pid=parent;
+    for(int i=0;i<FREAK_HTTP_MAX_WORKERS;i++) server->children[i]=0;
+#ifdef __linux__
+    prctl(PR_SET_PDEATHSIG,SIGTERM);
+#endif
+    if(getppid()!=parent) _exit(0);
+    /* Inherited connections belong to the parent: drop our copies quietly. */
+    while(server->conn_count) freak_http_conn_destroy(server->conns[server->conn_count-1]);
+    while(server->ready_head) { freak_http_request *request=server->ready_head; server->ready_head=request->ready_next; request->conn=NULL; if(!request->slot) freak_http_free_request(request); }
+    server->ready_tail=NULL; server->hot=NULL; freak_http_bury(server);
+#if defined(FREAK_HTTP_EPOLL)
+    freak_http_poller_close(server);
+#elif defined(FREAK_HTTP_KQUEUE)
+    server->poller=-1; /* kqueues are not inherited across fork */
+#endif
+    server->listener_armed=false;
+    /* A respawned worker resumes inside a running loop: give it its own. */
+    if(freak_http_poller_open(server)) freak_http_listener_arm(server,true);
+}
+static bool freak_http_spawn_worker(freak_http_server *server,int index) {
+    fflush(NULL); pid_t parent=getpid(); pid_t child=fork();
+    if(child<0) return false;
+    if(child==0) { freak_http_become_child(server,index,parent); return true; }
+    server->children[index]=child; return true;
+}
+#endif
+static void freak_http_supervise(freak_http_server *server,uint64_t now) {
+    if(server->worker_index) {
+#ifdef _WIN32
+        if(server->parent_process && WaitForSingleObject(server->parent_process,0)==WAIT_OBJECT_0) atomic_store_explicit(&server->stopping,true,memory_order_release);
+#else
+        if(server->parent_pid && getppid()!=server->parent_pid) atomic_store_explicit(&server->stopping,true,memory_order_release);
+#endif
+        return;
+    }
+    if(freak_http_stopping(server)) return;
+    for(int i=1;i<server->workers && i<FREAK_HTTP_MAX_WORKERS;i++) {
+#ifdef _WIN32
+        if(server->children[i] && WaitForSingleObject(server->children[i],0)==WAIT_OBJECT_0) { CloseHandle(server->children[i]); server->children[i]=NULL; server->respawn_after[i]=now+1000; }
+        if(!server->children[i] && now>=server->respawn_after[i]) { if(!freak_http_spawn_worker(server,i)) server->respawn_after[i]=now+1000; }
+#else
+        if(server->children[i]>0) { pid_t done=waitpid(server->children[i],NULL,WNOHANG); if(done==server->children[i] || (done<0 && errno==ECHILD)) { server->children[i]=0; server->respawn_after[i]=now+1000; } }
+        if(!server->children[i] && now>=server->respawn_after[i]) {
+            if(!freak_http_spawn_worker(server,i)) server->respawn_after[i]=now+1000;
+            else if(server->worker_index) return; /* this is the new child */
+        }
+#endif
+    }
+}
+static bool freak_http_start(freak_http_server *server) {
+    server->started=true;
+    if(!server->workers_set) {
+        const char *requested=getenv("FREAK_HTTP_WORKERS");
+        if(requested && *requested) { char *end=NULL; long count=strtol(requested,&end,10); if(end && !*end && count>=0 && count<=FREAK_HTTP_MAX_WORKERS) server->workers=(int)count; }
+    }
+    if(server->workers==0) server->workers=freak_http_cpu_count();
+    if(server->workers>FREAK_HTTP_MAX_WORKERS) server->workers=FREAK_HTTP_MAX_WORKERS;
+#ifndef _WIN32
+    struct rlimit files;
+    if(getrlimit(RLIMIT_NOFILE,&files)==0 && files.rlim_cur!=RLIM_INFINITY && files.rlim_cur<server->max_connections+64) {
+        rlim_t wanted=(rlim_t)server->max_connections+64; if(files.rlim_max!=RLIM_INFINITY && wanted>files.rlim_max) wanted=files.rlim_max;
+        if(wanted>files.rlim_cur) { files.rlim_cur=wanted; setrlimit(RLIMIT_NOFILE,&files); }
+    }
+#endif
+    if(!server->worker_index) for(int i=1;i<server->workers;i++) {
+        if(!freak_http_spawn_worker(server,i)) server->respawn_after[i]=freak_command_now_ms()+1000;
+        else if(server->worker_index) break; /* child: stop spawning */
+    }
+#if defined(FREAK_HTTP_EPOLL) || defined(FREAK_HTTP_KQUEUE)
+    if(server->poller<0 && !freak_http_poller_open(server)) return false;
+#endif
+    freak_http_listener_arm(server,true);
+    return true;
+}
 void freak_http_server_close(int64_t ticket) {
     freak_http_server *server=freak_http_require_server(ticket); atomic_store_explicit(&server->stopping,true,memory_order_release);
-    freak_http_close_socket(&server->listener);
-    for(size_t i=0;i<freak_http_request_slots;i++) if(freak_http_requests[i]->in_use && freak_http_requests[i]->server==ticket) {
-        freak_http_request *request=freak_http_requests[i]; freak_http_close_socket(&request->socket);
-        if(!request->responded) freak_http_error(request,503,"HTTP server closed");
+    if(!server->worker_index) freak_http_stop_children(server);
+#ifdef _WIN32
+    else if(server->parent_process) { CloseHandle(server->parent_process); server->parent_process=NULL; }
+#endif
+    while(server->conn_count) freak_http_conn_destroy(server->conns[server->conn_count-1]);
+    while(server->ready_head) { freak_http_request *request=server->ready_head; server->ready_head=request->ready_next; request->conn=NULL; if(!request->slot) freak_http_free_request(request); }
+    server->ready_tail=NULL; freak_http_bury(server);
+    freak_http_close_socket(&server->listener); freak_http_poller_close(server);
+    freak_http_free(server->conns); server->conns=NULL; server->conn_capacity=0;
+    for(size_t i=0;i<freak_http_request_slots;i++) {
+        freak_http_request *request=freak_http_requests[i].request;
+        if(request && request->server==ticket) { request->conn=NULL; request->socket=FREAK_INVALID_NATIVE_SOCKET; if(!request->responded) freak_http_error(request,503,"HTTP server closed"); }
     }
     server->in_use=false; freak_http_server_live--;
 }
 
-static int freak_http_wait_socket(freak_http_server *server,freak_native_socket socket,bool write,uint64_t deadline,uint64_t idle) {
-    for(;;) {
-        if(atomic_load_explicit(&server->stopping,memory_order_acquire)) return -2;
-        uint64_t now=freak_command_now_ms(); if(now>=deadline || now>=idle) return 0;
-        uint64_t left=deadline-now; if(idle-now<left) left=idle-now; int delay=(int)(left<50?left:50);
-#ifdef _WIN32
-        fd_set read_set,write_set,error_set; FD_ZERO(&read_set); FD_ZERO(&write_set); FD_ZERO(&error_set);
-        if(write) FD_SET(socket,&write_set); else FD_SET(socket,&read_set); FD_SET(socket,&error_set);
-        struct timeval timeout={delay/1000,(delay%1000)*1000};
-        int ready=select(0,&read_set,&write_set,&error_set,&timeout);
-#else
-        struct pollfd descriptor={socket,write?POLLOUT:POLLIN,0}; int ready=poll(&descriptor,1,delay);
-#endif
-        if(ready>0) return 1;
-        if(ready<0 && !freak_tcp_socket_error_is_interrupted()) return -1;
-    }
-}
-static bool freak_http_send_all(freak_http_request *request,const void *data,size_t length,uint64_t deadline) {
-    freak_http_server *server=freak_http_find_server(request->server); if(!server) return false;
-    size_t offset=0; uint64_t idle=freak_command_now_ms()+request->limits.idle_ms;
-    while(offset<length) {
-        if(freak_http_wait_socket(server,request->socket,true,deadline,idle)!=1) return false;
-        size_t wanted=length-offset; if(wanted>INT_MAX) wanted=INT_MAX;
-#ifdef _WIN32
-        int sent=send(request->socket,(const char *)data+offset,(int)wanted,0);
-#else
-        ssize_t sent=send(request->socket,(const char *)data+offset,wanted,freak_tcp_socket_send_flags());
-#endif
-        if(sent<0 && (freak_tcp_socket_error_is_interrupted() || freak_tcp_socket_error_is_timeout())) continue;
-        if(sent<=0) return false;
-        offset+=(size_t)sent; idle=freak_command_now_ms()+request->limits.idle_ms;
-    }
-    return true;
-}
+/* ── Wire parsing (llhttp callbacks; unchanged admission policy) ──────── */
 static bool freak_http_valid_host(const unsigned char *value,size_t length) {
     if(!length || length>320) return false;
     size_t host_length=length,port_start=length;
@@ -376,121 +739,344 @@ static int freak_http_on_headers(llhttp_t *parser) {
     if(lengths>1 || transfers>1 || (lengths && transfers)) { freak_http_error(request,400,"ambiguous request framing"); return -1; }
     if(expects>1) { freak_http_error(request,417,"duplicate expectation"); return -1; }
     if((parser->flags&F_CONTENT_LENGTH) && parser->content_length>request->limits.body) { freak_http_error(request,413,"request body exceeds limit"); return -1; }
-    request->headers_done=true; request->chunk_line=(parser->flags&F_CHUNKED)!=0; return 0;
+    request->headers_done=true; request->chunk_line=(parser->flags&F_CHUNKED)!=0; request->persistent=llhttp_should_keep_alive(parser)!=0; return 0;
 }
+static size_t freak_http_body_length(freak_http_request *request) { return request->body?freak_byte_buffer_require(request->body,"HTTP decoded body")->length:0; }
 static int freak_http_on_body(llhttp_t *parser,const char *bytes,size_t length) {
-    freak_http_request *request=parser->data; freak_byte_buffer_record *body=freak_byte_buffer_require(request->body,"HTTP decoded body");
-    if(length>request->limits.body-body->length) { freak_http_error(request,413,"decoded request body exceeds limit"); return -1; }
-    freak_byte_buffer_append_bytes(body,(const uint8_t *)bytes,length); return 0;
+    freak_http_request *request=parser->data;
+    if(length>request->limits.body-freak_http_body_length(request)) { freak_http_error(request,413,"decoded request body exceeds limit"); return -1; }
+    if(!request->body) request->body=freak_byte_buffer_new();
+    freak_byte_buffer_append_bytes(freak_byte_buffer_require(request->body,"HTTP decoded body"),(const uint8_t *)bytes,length); return 0;
 }
 static int freak_http_on_chunk(llhttp_t *parser) {
-    freak_http_request *request=parser->data; freak_byte_buffer_record *body=freak_byte_buffer_require(request->body,"HTTP chunk size");
-    if(parser->content_length>request->limits.body-body->length) { freak_http_error(request,413,"chunk exceeds remaining request body limit"); return -1; }
+    freak_http_request *request=parser->data;
+    if(parser->content_length>request->limits.body-freak_http_body_length(request)) { freak_http_error(request,413,"chunk exceeds remaining request body limit"); return -1; }
     request->chunk_line=false; return 0;
 }
 static int freak_http_on_chunk_complete(llhttp_t *parser) { freak_http_request *request=parser->data; request->chunk_line=(parser->flags&F_TRAILING)==0; return 0; }
-static int freak_http_on_complete(llhttp_t *parser) { ((freak_http_request *)parser->data)->message_done=true; return HPE_PAUSED; }
+static int freak_http_on_complete(llhttp_t *parser) { freak_http_request *request=parser->data; request->message_done=true; request->persistent=request->persistent && llhttp_should_keep_alive(parser)!=0; return HPE_PAUSED; }
 
 static const char *freak_http_reason(int status) {
     switch(status) { case 200:return "OK";case 201:return "Created";case 204:return "No Content";case 205:return "Reset Content";case 304:return "Not Modified";case 400:return "Bad Request";case 404:return "Not Found";case 405:return "Method Not Allowed";case 408:return "Request Timeout";case 413:return "Content Too Large";case 414:return "URI Too Long";case 417:return "Expectation Failed";case 431:return "Request Header Fields Too Large";case 500:return "Internal Server Error";case 501:return "Not Implemented";case 503:return "Service Unavailable";case 505:return "HTTP Version Not Supported";default:return "Response"; }
 }
-static void freak_http_finish_rejection(freak_http_request *request) {
-    freak_http_server *server=freak_http_find_server(request->server);
-    if(!server || atomic_load_explicit(&server->stopping,memory_order_acquire)) return;
+
+/* ── Connection I/O ───────────────────────────────────────────────────── */
+static bool freak_http_would_block(void) {
 #ifdef _WIN32
-    if(shutdown(request->socket,SD_SEND)!=0) return;
+    return WSAGetLastError()==WSAEWOULDBLOCK;
 #else
-    if(shutdown(request->socket,SHUT_WR)!=0) return;
+    return errno==EAGAIN || errno==EWOULDBLOCK;
 #endif
-    /* Flush the complete reply before closing with unread trickle input.
-       A peer cannot extend this fixed grace period or the discard budget. */
-    uint64_t grace=request->limits.idle_ms<50?request->limits.idle_ms:50;
-    uint64_t deadline=freak_command_now_ms()+grace;
-    unsigned char discarded[4096]; size_t drained=0;
-    while(drained<65536) {
-        if(freak_http_wait_socket(server,request->socket,false,deadline,deadline)!=1) return;
-        if(atomic_load_explicit(&server->stopping,memory_order_acquire) || freak_command_now_ms()>=deadline) return;
-        size_t wanted=65536-drained; if(wanted>sizeof(discarded)) wanted=sizeof(discarded);
+}
+static long freak_http_send_some(freak_native_socket socket,const unsigned char *data,size_t length) {
+    size_t wanted=length>INT_MAX?INT_MAX:length;
+    for(;;) {
 #ifdef _WIN32
-        int received=recv(request->socket,(char *)discarded,(int)wanted,0);
+        int sent=send(socket,(const char *)data,(int)wanted,0);
 #else
-        ssize_t received=recv(request->socket,discarded,wanted,0);
+        ssize_t sent=send(socket,(const char *)data,wanted,freak_tcp_socket_send_flags());
 #endif
-        if(received<0 && (freak_tcp_socket_error_is_interrupted() || freak_tcp_socket_error_is_timeout())) continue;
-        if(received<=0) return;
-        drained+=(size_t)received;
+        if(sent<0 && freak_tcp_socket_error_is_interrupted()) continue;
+        if(sent<0 && freak_http_would_block()) return 0;
+        if(sent<=0) return -1;
+        return (long)sent;
     }
 }
-static void freak_http_reject(freak_http_request *request,bool nonblocking) {
-    if(request->socket==FREAK_INVALID_NATIVE_SOCKET) return;
+static long freak_http_recv_some(freak_native_socket socket,unsigned char *data,size_t length) {
+    for(;;) {
+#ifdef _WIN32
+        int received=recv(socket,(char *)data,(int)length,0);
+#else
+        ssize_t received=recv(socket,data,length,0);
+#endif
+        if(received<0 && freak_tcp_socket_error_is_interrupted()) continue;
+        if(received<0 && freak_http_would_block()) return -2;
+        if(received<0) return -1;
+        return (long)received;
+    }
+}
+/* Write as much queued output as the socket takes. false: connection failed. */
+static bool freak_http_flush(freak_http_conn *conn) {
+    while(conn->out_offset<conn->out_length && conn->writable) {
+        long sent=freak_http_send_some(conn->socket,conn->out+conn->out_offset,conn->out_length-conn->out_offset);
+        if(sent<0) return false;
+        if(sent==0) { conn->writable=false; break; }
+        conn->out_offset+=(size_t)sent; conn->write_idle=freak_command_now_ms()+conn->server->limits.idle_ms;
+    }
+    if(conn->out_offset==conn->out_length) { conn->out_offset=conn->out_length=0; }
+    return true;
+}
+static void freak_http_queue_out(freak_http_conn *conn,const void *bytes,size_t length) { freak_http_queue_append(&conn->out,&conn->out_length,&conn->out_offset,bytes,length); }
+static void freak_http_begin_read(freak_http_conn *conn,uint64_t now) {
+    conn->request=freak_http_new_request(conn->server,conn); conn->state=FREAK_HTTP_CONN_READ;
+    conn->idle_deadline=now+(conn->served?conn->server->keep_alive_ms:conn->server->limits.idle_ms);
+}
+static void freak_http_reject(freak_http_conn *conn) {
+    freak_http_server *server=conn->server; freak_http_request *request=conn->request;
+    conn->request=NULL; request->conn=NULL; request->socket=FREAK_INVALID_NATIVE_SOCKET;
+    freak_http_deliver(server,request);
+    if(freak_http_stopping(server)) { freak_http_conn_destroy(conn); return; }
     const char *reason=freak_http_reason(request->status); char response[512];
     int size=snprintf(response,sizeof(response),"HTTP/1.1 %d %s\r\nContent-Length: %zu\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n%s%s",request->status,reason,strlen(reason)+1,request->head_method?"":reason,request->head_method?"":"\n");
-    bool sent=size>0 && (size_t)size<sizeof(response) && freak_http_send_all(request,response,(size_t)size,freak_command_now_ms()+request->limits.idle_ms);
-    if(sent && nonblocking) freak_http_finish_rejection(request);
-    freak_http_close_socket(&request->socket);
+    if(size<=0 || (size_t)size>=sizeof(response)) { freak_http_conn_destroy(conn); return; }
+    conn->in_length=conn->in_offset=0;
+    uint64_t now=freak_command_now_ms();
+    freak_http_queue_out(conn,response,(size_t)size); conn->close_after_write=true; conn->drain_after_write=true;
+    conn->state=FREAK_HTTP_CONN_WRITE; conn->write_deadline=now+request->limits.idle_ms; conn->write_idle=now+request->limits.idle_ms;
 }
-int64_t freak_http_server_next_request(int64_t server_ticket) {
-    freak_http_server *server=freak_http_require_server(server_ticket); if(server->active) freak_http_fail("release the active request before accepting another");
-    int64_t ticket=freak_http_new_request(server_ticket); freak_http_request *request=freak_http_require_request(ticket); server->active=ticket;
-    if(server->status || atomic_load_explicit(&server->stopping,memory_order_acquire)) { freak_http_error(request,503,"HTTP server is stopped or failed"); return ticket; }
-    for(;;) {
-        int ready=freak_http_wait_socket(server,server->listener,false,UINT64_MAX,UINT64_MAX);
-        if(ready!=1) { freak_http_error(request,ready==-2?503:500,ready==-2?"HTTP server stopped":"could not wait for HTTP connection"); return ticket; }
-        request->socket=accept(server->listener,NULL,NULL);
-        if(request->socket==FREAK_INVALID_NATIVE_SOCKET) { if(freak_tcp_socket_error_is_interrupted() || freak_tcp_socket_error_is_timeout()) continue; freak_http_error(request,500,"could not accept HTTP connection"); return ticket; }
-        freak_http_socket_live++; break;
-    }
-    freak_tcp_socket_configure_no_sigpipe(request->socket);
-    if(!freak_http_nonblocking(request->socket)) { freak_http_error(request,500,"could not configure HTTP connection"); freak_http_reject(request,false); return ticket; }
-    llhttp_settings_init(&request->settings);
-    request->settings.on_method=freak_http_on_method; request->settings.on_url=freak_http_on_target;
-    request->settings.on_header_field=freak_http_on_field; request->settings.on_header_value=freak_http_on_value;
-    request->settings.on_header_value_complete=freak_http_on_value_complete; request->settings.on_headers_complete=freak_http_on_headers;
-    request->settings.on_body=freak_http_on_body; request->settings.on_chunk_header=freak_http_on_chunk;
-    request->settings.on_chunk_complete=freak_http_on_chunk_complete; request->settings.on_message_complete=freak_http_on_complete;
-    llhttp_init(&request->parser,HTTP_REQUEST,&request->settings); request->parser.data=request;
-    uint64_t now=freak_command_now_ms(); request->header_deadline=now+request->limits.header_ms; request->idle_deadline=now+request->limits.idle_ms;
-    unsigned char bytes[4096];
-    while(!request->status && !request->message_done) {
-        uint64_t deadline=request->headers_done?request->body_deadline:request->header_deadline;
-        int ready=freak_http_wait_socket(server,request->socket,false,deadline,request->idle_deadline);
-        if(ready!=1) { freak_http_error(request,ready==-2?503:ready==0?408:400,ready==-2?"HTTP server stopped":ready==0?"HTTP request deadline exceeded":"HTTP socket read failed"); break; }
-#ifdef _WIN32
-        int received=recv(request->socket,(char *)bytes,sizeof(bytes),0);
-#else
-        ssize_t received=recv(request->socket,bytes,sizeof(bytes),0);
-#endif
-        if(received<0 && (freak_tcp_socket_error_is_interrupted() || freak_tcp_socket_error_is_timeout())) continue;
-        if(received<=0) { freak_http_error(request,400,"incomplete HTTP request or reset peer"); break; }
-        request->idle_deadline=freak_command_now_ms()+request->limits.idle_ms;
-        for(size_t i=0;i<(size_t)received && !request->status && !request->message_done;i++) {
-            uint64_t tick=freak_command_now_ms();
-            if(tick>=(request->headers_done?request->body_deadline:request->header_deadline)) { freak_http_error(request,408,"absolute HTTP request deadline exceeded"); break; }
-            size_t raw_limit=request->limits.body*16+request->limits.line+request->limits.headers+request->limits.chunk_metadata+request->limits.trailers;
-            if(++request->raw_wire>raw_limit) { freak_http_error(request,413,"raw HTTP request exceeds framing budget"); break; }
-            bool was_headers=request->headers_done;
-            if(!was_headers) {
-                if(!request->line_done) { if(++request->line_wire>request->limits.line) { freak_http_error(request,414,"request line exceeds limit"); break; } }
-                else if(++request->header_wire>request->limits.headers) { freak_http_error(request,431,"request headers exceed limit"); break; }
-            } else if(request->parser.flags&F_TRAILING) {
-                if(++request->trailer_wire>request->limits.trailers) { freak_http_error(request,431,"request trailers exceed limit"); break; }
-            } else if(request->chunk_line && ++request->chunk_wire>request->limits.chunk_metadata) { freak_http_error(request,413,"chunk framing/extensions exceed metadata limit"); break; }
-            llhttp_errno_t parsed=llhttp_execute(&request->parser,(const char *)bytes+i,1);
-            if(parsed!=HPE_OK && !(parsed==HPE_PAUSED && request->message_done)) { if(!request->status) freak_http_error(request,400,"malformed HTTP request framing"); break; }
-            /* llhttp can recognize HEAD before its token ends. Only an accepted
-               space confirms the method for a later parse/deadline rejection. */
-            if(bytes[i]==' ' && llhttp_get_method(&request->parser)==HTTP_HEAD) request->head_method=true;
-            if(!request->line_done && bytes[i]=='\n') request->line_done=true;
-            if(!was_headers && request->headers_done) {
-                request->body_deadline=freak_command_now_ms()+request->limits.body_ms;
-                if(request->expect_continue && !request->message_done && ((request->parser.flags&F_CHUNKED)||request->parser.content_length)) {
-                    static const char interim[]="HTTP/1.1 100 Continue\r\n\r\n";
-                    if(!freak_http_send_all(request,interim,sizeof(interim)-1,request->body_deadline)) { freak_http_error(request,400,"could not send 100 Continue"); break; }
-                }
+/* Feed bytes one at a time so every wire budget is exact. Returns consumed. */
+static size_t freak_http_feed(freak_http_conn *conn,const unsigned char *bytes,size_t length,uint64_t tick) {
+    freak_http_request *request=conn->request;
+    if(!request->started) { request->started=true; request->header_deadline=tick+request->limits.header_ms; }
+    request->idle_deadline=tick+request->limits.idle_ms;
+    size_t i=0;
+    for(;i<length && !request->status && !request->message_done;i++) {
+        if(tick>=(request->headers_done?request->body_deadline:request->header_deadline)) { freak_http_error(request,408,"absolute HTTP request deadline exceeded"); break; }
+        size_t raw_limit=request->limits.body*16+request->limits.line+request->limits.headers+request->limits.chunk_metadata+request->limits.trailers;
+        if(++request->raw_wire>raw_limit) { freak_http_error(request,413,"raw HTTP request exceeds framing budget"); break; }
+        bool was_headers=request->headers_done;
+        if(!was_headers) {
+            if(!request->line_done) { if(++request->line_wire>request->limits.line) { freak_http_error(request,414,"request line exceeds limit"); break; } }
+            else if(++request->header_wire>request->limits.headers) { freak_http_error(request,431,"request headers exceed limit"); break; }
+        } else if(request->parser.flags&F_TRAILING) {
+            if(++request->trailer_wire>request->limits.trailers) { freak_http_error(request,431,"request trailers exceed limit"); break; }
+        } else if(request->chunk_line && ++request->chunk_wire>request->limits.chunk_metadata) { freak_http_error(request,413,"chunk framing/extensions exceed metadata limit"); break; }
+        llhttp_errno_t parsed=llhttp_execute(&request->parser,(const char *)bytes+i,1);
+        if(parsed!=HPE_OK && !(parsed==HPE_PAUSED && request->message_done)) { if(!request->status) freak_http_error(request,400,"malformed HTTP request framing"); break; }
+        /* llhttp can recognize HEAD before its token ends. Only an accepted
+           space confirms the method for a later parse/deadline rejection. */
+        if(bytes[i]==' ' && llhttp_get_method(&request->parser)==HTTP_HEAD) request->head_method=true;
+        if(!request->line_done && bytes[i]=='\n') request->line_done=true;
+        if(!was_headers && request->headers_done) {
+            request->body_deadline=tick+request->limits.body_ms;
+            if(request->expect_continue && !request->message_done && ((request->parser.flags&F_CHUNKED)||request->parser.content_length)) {
+                static const char interim[]="HTTP/1.1 100 Continue\r\n\r\n";
+                freak_http_queue_out(conn,interim,sizeof(interim)-1);
             }
         }
     }
-    if(request->status) freak_http_reject(request,true); return ticket;
+    return i;
+}
+static void freak_http_conclude(freak_http_conn *conn) {
+    freak_http_request *request=conn->request;
+    if(request->status) freak_http_reject(conn);
+    else if(request->message_done) { conn->state=FREAK_HTTP_CONN_QUEUED; freak_http_deliver(conn->server,request); }
+}
+static void freak_http_after_write(freak_http_conn *conn,uint64_t now) {
+    if(!conn->close_after_write) { conn->served++; freak_http_begin_read(conn,now); return; }
+    if(conn->drain_after_write && !freak_http_stopping(conn->server)) {
+#ifdef _WIN32
+        if(shutdown(conn->socket,SD_SEND)!=0) { freak_http_conn_destroy(conn); return; }
+#else
+        if(shutdown(conn->socket,SHUT_WR)!=0) { freak_http_conn_destroy(conn); return; }
+#endif
+        /* Flush the complete reply before closing with unread trickle input.
+           A peer cannot extend this fixed grace period or the discard budget. */
+        uint64_t grace=conn->server->limits.idle_ms<50?conn->server->limits.idle_ms:50;
+        conn->state=FREAK_HTTP_CONN_DRAIN; conn->drain_deadline=now+grace; conn->drained=0; return;
+    }
+    freak_http_conn_destroy(conn);
+}
+static void freak_http_mark_hot(freak_http_conn *conn) {
+    if(conn->hot || conn->dead) return; conn->hot=true; conn->hot_next=conn->server->hot; conn->server->hot=conn;
+}
+static void freak_http_service(freak_http_conn *conn) {
+    int round=0;
+    for(;round<64 && !conn->dead;round++) {
+        if(conn->out_offset<conn->out_length && conn->writable && !freak_http_flush(conn)) { freak_http_conn_destroy(conn); return; }
+        uint64_t now=freak_command_now_ms();
+        switch(conn->state) {
+        case FREAK_HTTP_CONN_WRITE:
+            if(conn->out_offset<conn->out_length) return;
+            freak_http_after_write(conn,now); continue;
+        case FREAK_HTTP_CONN_READ: {
+            if(conn->in_offset<conn->in_length) {
+                size_t used=freak_http_feed(conn,conn->in+conn->in_offset,conn->in_length-conn->in_offset,now);
+                conn->in_offset+=used; if(conn->in_offset==conn->in_length) conn->in_offset=conn->in_length=0;
+                if(conn->request->status || conn->request->message_done) { freak_http_conclude(conn); continue; }
+            }
+            if(!conn->readable) return;
+            long received=freak_http_recv_some(conn->socket,freak_http_scratch,sizeof(freak_http_scratch));
+            if(received==-2) { conn->readable=false; return; }
+            if(received<=0) {
+                conn->readable=false;
+                if(!conn->request->started) { freak_http_conn_destroy(conn); return; }
+                freak_http_error(conn->request,400,received==0?"incomplete HTTP request or reset peer":"HTTP socket read failed");
+                freak_http_conclude(conn); continue;
+            }
+            size_t used=freak_http_feed(conn,freak_http_scratch,(size_t)received,now);
+            if(used<(size_t)received && !conn->request->status) freak_http_queue_append(&conn->in,&conn->in_length,&conn->in_offset,freak_http_scratch+used,(size_t)received-used);
+            if(conn->request->status || conn->request->message_done) freak_http_conclude(conn);
+            continue;
+        }
+        case FREAK_HTTP_CONN_DRAIN: {
+            if(!conn->readable) return;
+            size_t wanted=65536-conn->drained; if(wanted>sizeof(freak_http_scratch)) wanted=sizeof(freak_http_scratch);
+            long received=freak_http_recv_some(conn->socket,freak_http_scratch,wanted);
+            if(received==-2) { conn->readable=false; return; }
+            if(received<=0) { freak_http_conn_destroy(conn); return; }
+            conn->drained+=(size_t)received; if(conn->drained>=65536) { freak_http_conn_destroy(conn); return; }
+            continue;
+        }
+        default: return; /* QUEUED/APP: the application's turn */
+        }
+    }
+    /* Out of budget with an edge still pending: revisit without waiting. */
+    if(!conn->dead) freak_http_mark_hot(conn);
+}
+static void freak_http_accept(freak_http_server *server) {
+    for(int accepted=0;accepted<64;accepted++) {
+        if(server->conn_count>=server->max_connections) { freak_http_listener_arm(server,false); return; }
+#if defined(__linux__)
+        freak_native_socket socket_value=accept4(server->listener,NULL,NULL,SOCK_NONBLOCK|SOCK_CLOEXEC);
+#else
+        freak_native_socket socket_value=accept(server->listener,NULL,NULL);
+#endif
+        if(socket_value==FREAK_INVALID_NATIVE_SOCKET) {
+            if(freak_tcp_socket_error_is_interrupted()) continue;
+            if(freak_http_would_block()) return;
+#ifndef _WIN32
+            if(errno==ECONNABORTED || errno==EPROTO) continue;
+#else
+            if(WSAGetLastError()==WSAECONNRESET) continue;
+#endif
+            /* Out of descriptors or memory: back off instead of spinning. */
+            freak_http_listener_arm(server,false); server->accept_pause_until=freak_command_now_ms()+50; return;
+        }
+        freak_http_socket_live++;
+        freak_tcp_socket_configure_no_sigpipe(socket_value);
+#if defined(__linux__)
+        bool configured=true;
+#else
+        bool configured=freak_http_nonblocking(socket_value);
+#endif
+        int enabled=1; setsockopt(socket_value,IPPROTO_TCP,TCP_NODELAY,(const char *)&enabled,sizeof(enabled));
+        if(!configured) { freak_http_close_socket(&socket_value); continue; }
+        freak_http_conn *conn=freak_http_allocate(sizeof(freak_http_conn));
+        conn->socket=socket_value; conn->server=server; conn->readable=true; conn->writable=true;
+        if(server->conn_count==server->conn_capacity) { size_t next=server->conn_capacity?server->conn_capacity*2:64; server->conns=freak_http_grow(server->conns,next*sizeof(*server->conns)); server->conn_capacity=next; }
+        conn->index=server->conn_count; server->conns[server->conn_count++]=conn; freak_http_connection_live++;
+        freak_http_begin_read(conn,freak_command_now_ms());
+        if(!freak_http_poller_add(conn)) { freak_http_conn_destroy(conn); continue; }
+        freak_http_service(conn);
+    }
+}
+static void freak_http_sweep(freak_http_server *server,uint64_t now) {
+    for(size_t i=server->conn_count;i>0;i--) {
+        freak_http_conn *conn=server->conns[i-1];
+        switch(conn->state) {
+        case FREAK_HTTP_CONN_READ: {
+            freak_http_request *request=conn->request;
+            if(!request->started) { if(now>=conn->idle_deadline) freak_http_conn_destroy(conn); break; }
+            uint64_t deadline=request->headers_done?request->body_deadline:request->header_deadline;
+            if(now>=deadline || now>=request->idle_deadline) {
+                freak_http_error(request,408,"HTTP request deadline exceeded"); freak_http_reject(conn); if(!conn->dead) freak_http_service(conn);
+            }
+            break;
+        }
+        case FREAK_HTTP_CONN_WRITE: if(now>=conn->write_deadline || now>=conn->write_idle) freak_http_conn_destroy(conn); break;
+        case FREAK_HTTP_CONN_DRAIN: if(now>=conn->drain_deadline) freak_http_conn_destroy(conn); break;
+        default: break;
+        }
+    }
+    if(!server->listener_armed && now>=server->accept_pause_until && server->conn_count<server->max_connections) freak_http_listener_arm(server,true);
+    freak_http_supervise(server,now);
+}
+/* One wait for readiness plus the resulting work. false: the poller failed. */
+static bool freak_http_poll_once(freak_http_server *server) {
+    uint64_t now=freak_command_now_ms();
+    int timeout=server->conn_count?FREAK_HTTP_SWEEP_MS:50;
+    if(server->ready_head || server->hot) timeout=0;
+#if defined(FREAK_HTTP_EPOLL)
+    struct epoll_event events[FREAK_HTTP_EVENTS];
+    int ready=epoll_wait(server->poller,events,FREAK_HTTP_EVENTS,timeout);
+    if(ready<0 && errno!=EINTR) return false;
+    for(int i=0;i<ready;i++) {
+        freak_http_conn *conn=events[i].data.ptr;
+        if(!conn) { freak_http_accept(server); continue; }
+        if(conn->dead) continue;
+        if(events[i].events&(EPOLLIN|EPOLLRDHUP|EPOLLHUP|EPOLLERR)) conn->readable=true;
+        if(events[i].events&(EPOLLOUT|EPOLLHUP|EPOLLERR)) conn->writable=true;
+        freak_http_service(conn);
+    }
+#elif defined(FREAK_HTTP_KQUEUE)
+    struct kevent events[FREAK_HTTP_EVENTS]; struct timespec wait={timeout/1000,(long)(timeout%1000)*1000000L};
+    int ready=kevent(server->poller,NULL,0,events,FREAK_HTTP_EVENTS,&wait);
+    if(ready<0 && errno!=EINTR) return false;
+    for(int i=0;i<ready;i++) {
+        freak_http_conn *conn=events[i].udata;
+        if(!conn) { if(events[i].filter==EVFILT_READ) freak_http_accept(server); continue; }
+        if(conn->dead) continue;
+        if(events[i].filter==EVFILT_READ) conn->readable=true;
+        if(events[i].filter==EVFILT_WRITE) conn->writable=true;
+        if(events[i].flags&(EV_EOF|EV_ERROR)) { conn->readable=true; conn->writable=true; }
+    }
+    for(int i=0;i<ready;i++) { freak_http_conn *conn=events[i].udata; if(conn && !conn->dead) freak_http_service(conn); }
+#else
+    /* Level-triggered (WSA)poll emulates the edges: ask only for readiness a
+       connection is waiting on. */
+    size_t capacity=server->conn_count+1;
+#ifdef _WIN32
+    WSAPOLLFD *descriptors=freak_http_allocate(capacity*sizeof(WSAPOLLFD));
+#else
+    struct pollfd *descriptors=freak_http_allocate(capacity*sizeof(struct pollfd));
+#endif
+    freak_http_conn **owners=freak_http_allocate(capacity*sizeof(freak_http_conn *)); size_t count=0;
+    if(server->listener_armed) { descriptors[count].fd=server->listener; descriptors[count].events=FREAK_HTTP_POLL_IN; owners[count++]=NULL; }
+    for(size_t i=0;i<server->conn_count;i++) {
+        freak_http_conn *conn=server->conns[i]; short events=0;
+        if((conn->state==FREAK_HTTP_CONN_READ || conn->state==FREAK_HTTP_CONN_DRAIN) && !conn->readable) events|=FREAK_HTTP_POLL_IN;
+        if(conn->out_offset<conn->out_length && !conn->writable) events|=FREAK_HTTP_POLL_OUT;
+        if(!events) continue;
+        descriptors[count].fd=conn->socket; descriptors[count].events=events; descriptors[count].revents=0; owners[count++]=conn;
+    }
+    int ready;
+#ifdef _WIN32
+    if(!count) { Sleep((DWORD)timeout); ready=0; }
+    else ready=WSAPoll(descriptors,(ULONG)count,timeout);
+    if(ready<0 && WSAGetLastError()!=WSAEINTR) { freak_http_free(descriptors); freak_http_free(owners); return false; }
+#else
+    ready=poll(descriptors,(nfds_t)count,timeout);
+    if(ready<0 && errno!=EINTR) { freak_http_free(descriptors); freak_http_free(owners); return false; }
+#endif
+    for(size_t i=0;ready>0 && i<count;i++) {
+        short revents=descriptors[i].revents; if(!revents) continue;
+        freak_http_conn *conn=owners[i];
+        if(!conn) { freak_http_accept(server); continue; }
+        if(conn->dead) continue;
+        if(revents&(FREAK_HTTP_POLL_IN|POLLHUP|POLLERR)) conn->readable=true;
+        if(revents&(FREAK_HTTP_POLL_OUT|POLLHUP|POLLERR)) conn->writable=true;
+        freak_http_service(conn);
+    }
+    freak_http_free(descriptors); freak_http_free(owners);
+#endif
+    freak_http_conn *hot=server->hot; server->hot=NULL;
+    while(hot) { freak_http_conn *conn=hot; hot=conn->hot_next; conn->hot=false; if(!conn->dead) freak_http_service(conn); }
+    now=freak_command_now_ms();
+    if(now>=server->next_sweep) { server->next_sweep=now+FREAK_HTTP_SWEEP_MS; freak_http_sweep(server,now); }
+    freak_http_bury(server);
+    return true;
+}
+int64_t freak_http_server_next_request(int64_t server_ticket) {
+    freak_http_server *server=freak_http_require_server(server_ticket); if(server->active) freak_http_fail("release the active request before accepting another");
+    bool usable=!server->status && !freak_http_stopping(server);
+    if(usable && !server->started && !freak_http_start(server)) { freak_http_request *failed=freak_http_new_request(server,NULL); int64_t ticket=freak_http_ticket_for(failed); server->active=ticket; freak_http_error(failed,500,"could not wait for HTTP connection"); return ticket; }
+    for(;;) {
+        if(server->status || freak_http_stopping(server)) {
+            freak_http_request *failed=freak_http_new_request(server,NULL); int64_t ticket=freak_http_ticket_for(failed); server->active=ticket;
+            freak_http_error(failed,503,server->status?"HTTP server is stopped or failed":"HTTP server stopped"); return ticket;
+        }
+        if(server->ready_head) {
+            freak_http_request *request=server->ready_head; server->ready_head=request->ready_next; if(!server->ready_head) server->ready_tail=NULL;
+            int64_t ticket=freak_http_ticket_for(request); server->active=ticket;
+            if(request->conn) { request->conn->state=FREAK_HTTP_CONN_APP; request->socket=request->conn->socket; }
+            return ticket;
+        }
+        if(!freak_http_poll_once(server)) {
+            freak_http_request *failed=freak_http_new_request(server,NULL); int64_t ticket=freak_http_ticket_for(failed); server->active=ticket;
+            freak_http_error(failed,500,"could not wait for HTTP connection"); return ticket;
+        }
+    }
 }
 
 int64_t freak_http_server_request_status(int64_t ticket) { return freak_http_require_request(ticket)->status; }
@@ -511,7 +1097,7 @@ int64_t freak_http_server_request_header_find(int64_t ticket,freak_word name,int
     for(size_t i=(size_t)start;i<request->header_count;i++) { freak_http_text *candidate=&request->headers[i].name; if(candidate->length!=name.length) continue; bool match=true; for(size_t j=0;j<name.length;j++) if(candidate->data[j]!=freak_http_lower((unsigned char)name.data[j])) { match=false; break; } if(match) return (int64_t)i; } return -1;
 }
 int64_t freak_http_server_request_body(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); freak_byte_buffer_record *body=freak_byte_buffer_require(request->body,"HTTP body getter"); const unsigned char *data=body->data; size_t length=body->length; return freak_http_bytes(data,length); }
-static bool freak_http_respondable(freak_http_request *request) { if(!request->message_done || request->status || request->responded || request->socket==FREAK_INVALID_NATIVE_SOCKET) { snprintf(request->error,sizeof(request->error),"request cannot receive another response"); return false; } return true; }
+static bool freak_http_respondable(freak_http_request *request) { if(!request->message_done || request->status || request->responded || !request->conn) { snprintf(request->error,sizeof(request->error),"request cannot receive another response"); return false; } return true; }
 int64_t freak_http_server_response_status(int64_t ticket,int64_t status) { freak_http_request *request=freak_http_require_request(ticket); if(!freak_http_respondable(request) || status<200 || status>599) { snprintf(request->error,sizeof(request->error),"response status must be 200 through 599"); return 0; } request->response_status=(int)status; return 1; }
 int64_t freak_http_server_response_header(int64_t ticket,freak_word name,freak_word value) {
     freak_http_request *request=freak_http_require_request(ticket); if(!freak_http_respondable(request)) return 0;
@@ -528,37 +1114,67 @@ int64_t freak_http_server_response_header(int64_t ticket,freak_word name,freak_w
 invalid:
     snprintf(request->error,sizeof(request->error),"invalid, framing-owned, or oversized response header"); return 0;
 }
+/* Queue the response and write what the socket takes now; the event loop
+   finishes the rest while the application handles the next request.
+   1 means the complete response was accepted for delivery. */
 static int64_t freak_http_send(freak_http_request *request,const unsigned char *body,size_t length,const char *type) {
     if(!freak_http_respondable(request)) return 0;
     if(request->response_status!=205 && length>request->limits.body) { snprintf(request->error,sizeof(request->error),"response body exceeds configured limit"); return 0; }
-    freak_http_text wire={0}; char first[256];
-    int count=snprintf(first,sizeof(first),"HTTP/1.1 %d %s\r\nConnection: close\r\n",request->response_status,freak_http_reason(request->response_status));
-    freak_http_text_append(&wire,first,(size_t)count,request->limits.headers+1024);
-    if(request->response_status!=204) { count=snprintf(first,sizeof(first),"Content-Length: %zu\r\n",request->response_status==205?0:length); freak_http_text_append(&wire,first,(size_t)count,request->limits.headers+1024); }
+    freak_http_conn *conn=request->conn; freak_http_server *server=conn->server;
+    bool keep=server->keep_alive_requests>0 && request->persistent && conn->served+1<server->keep_alive_requests && !freak_http_stopping(server);
+    freak_http_text wire={0}; char first[256]; size_t limit=request->limits.headers+1024;
+    int count=snprintf(first,sizeof(first),"HTTP/1.1 %d %s\r\nConnection: %s\r\n",request->response_status,freak_http_reason(request->response_status),keep?"keep-alive":"close");
+    freak_http_text_append(&wire,first,(size_t)count,limit);
+    if(request->response_status!=204) { count=snprintf(first,sizeof(first),"Content-Length: %zu\r\n",request->response_status==205?0:length); freak_http_text_append(&wire,first,(size_t)count,limit); }
     bool content_type=false;
     for(size_t i=0;i<request->response_count;i++) {
         freak_http_header *header=&request->response_headers[i]; if(freak_http_equal(header->name.data,header->name.length,"content-type")) content_type=true;
-        freak_http_text_append(&wire,header->name.data,header->name.length,request->limits.headers+1024); freak_http_text_append(&wire,": ",2,request->limits.headers+1024);
-        freak_http_text_append(&wire,header->value.data,header->value.length,request->limits.headers+1024); freak_http_text_append(&wire,"\r\n",2,request->limits.headers+1024);
+        freak_http_text_append(&wire,header->name.data,header->name.length,limit); freak_http_text_append(&wire,": ",2,limit);
+        freak_http_text_append(&wire,header->value.data,header->value.length,limit); freak_http_text_append(&wire,"\r\n",2,limit);
     }
-    if(!content_type) { freak_http_text_append(&wire,"Content-Type: ",14,request->limits.headers+1024); freak_http_text_append(&wire,type,strlen(type),request->limits.headers+1024); freak_http_text_append(&wire,"\r\n",2,request->limits.headers+1024); }
-    freak_http_text_append(&wire,"\r\n",2,request->limits.headers+1024);
-    uint64_t deadline=freak_command_now_ms()+request->limits.body_ms;
-    bool sent=freak_http_send_all(request,wire.data,wire.length,deadline);
+    if(!content_type) { freak_http_text_append(&wire,"Content-Type: ",14,limit); freak_http_text_append(&wire,type,strlen(type),limit); freak_http_text_append(&wire,"\r\n",2,limit); }
+    freak_http_text_append(&wire,"\r\n",2,limit);
     bool omit=request->response_status==204 || request->response_status==205 || request->response_status==304 || freak_http_equal(request->method.data,request->method.length,"head");
-    if(sent && !omit && length) sent=freak_http_send_all(request,body,length,deadline);
-    freak_http_free(wire.data); freak_http_close_socket(&request->socket); request->responded=true;
-    if(!sent) snprintf(request->error,sizeof(request->error),"could not send complete HTTP response before deadline"); return sent?1:0;
+    if(omit) length=0;
+    request->responded=true; conn->request=NULL; request->conn=NULL; request->socket=FREAK_INVALID_NATIVE_SOCKET;
+    uint64_t now=freak_command_now_ms();
+    conn->state=FREAK_HTTP_CONN_WRITE; conn->close_after_write=!keep; conn->drain_after_write=false;
+    conn->write_deadline=now+request->limits.body_ms; conn->write_idle=now+request->limits.idle_ms;
+    /* Small bodies travel in the header's segment; large ones are written in
+       place and only their unsent tail is copied. */
+    bool failed=false;
+    if(length<=16384) { freak_http_queue_out(conn,wire.data,wire.length); if(length) freak_http_queue_out(conn,body,length); failed=!freak_http_flush(conn); }
+    else {
+        freak_http_queue_out(conn,wire.data,wire.length); failed=!freak_http_flush(conn);
+        size_t offset=0;
+        while(!failed && conn->out_offset==conn->out_length && conn->writable && offset<length) {
+            long sent=freak_http_send_some(conn->socket,body+offset,length-offset);
+            if(sent<0) failed=true; else if(sent==0) conn->writable=false; else offset+=(size_t)sent;
+        }
+        if(!failed && offset<length) freak_http_queue_out(conn,body+offset,length-offset);
+    }
+    freak_http_free(wire.data);
+    if(failed) { freak_http_conn_destroy(conn); freak_http_bury(server); snprintf(request->error,sizeof(request->error),"could not send complete HTTP response"); return 0; }
+    freak_http_service(conn); freak_http_bury(server);
+    return 1;
 }
 int64_t freak_http_server_send_bytes(int64_t ticket,int64_t body_ticket) { freak_http_request *request=freak_http_require_request(ticket); freak_byte_buffer_record *body=freak_byte_buffer_require(body_ticket,"HTTP response body"); if(body->status!=FREAK_BYTE_BUFFER_OK) { snprintf(request->error,sizeof(request->error),"response ByteBuffer has a pending error"); return 0; } return freak_http_send(request,body->data,body->length,"application/octet-stream"); }
 int64_t freak_http_server_send_text(int64_t ticket,freak_word body) { freak_http_request *request=freak_http_require_request(ticket); if(!freak_byte_buffer_utf8_valid((const uint8_t *)body.data,body.length)) { snprintf(request->error,sizeof(request->error),"text response requires NUL-free UTF-8"); return 0; } return freak_http_send(request,(const unsigned char *)body.data,body.length,"text/plain; charset=utf-8"); }
-void freak_http_server_request_release(int64_t ticket) { freak_http_dispose_request(freak_http_require_request(ticket)); }
+void freak_http_server_request_release(int64_t ticket) {
+    freak_http_request *request=freak_http_require_request(ticket);
+    freak_http_server *server=freak_http_find_server(request->server);
+    if(server && server->active==ticket) server->active=0;
+    /* Released without a response: the connection cannot be reused. */
+    if(request->conn) { freak_http_conn *conn=request->conn; conn->request=NULL; request->conn=NULL; freak_http_conn_destroy(conn); if(server) freak_http_bury(server); }
+    freak_http_free_request(request);
+}
 int64_t freak_http_server_live_servers(void) { return (int64_t)freak_http_server_live; }
 int64_t freak_http_server_live_requests(void) { return (int64_t)freak_http_request_live; }
 int64_t freak_http_server_live_sockets(void) { return (int64_t)freak_http_socket_live; }
+int64_t freak_http_server_live_connections(void) { return (int64_t)freak_http_connection_live; }
 int64_t freak_http_server_retained_bytes(void) {
     uint64_t bytes=freak_http_owned_bytes;
-    for(size_t i=0;i<freak_http_request_slots;i++) if(freak_http_requests[i]->in_use) bytes+=freak_byte_buffer_require(freak_http_requests[i]->body,"HTTP retained-byte count")->capacity;
+    for(size_t i=0;i<freak_http_request_slots;i++) if(freak_http_requests[i].request && freak_http_requests[i].request->body) bytes+=freak_byte_buffer_require(freak_http_requests[i].request->body,"HTTP retained-byte count")->capacity;
     if(bytes>INT64_MAX) freak_http_fail("retained-byte counter overflow"); return (int64_t)bytes;
 }
 
@@ -571,6 +1187,10 @@ int64_t freak_llvm_http_server_local_port(int64_t server) { return freak_http_se
 void freak_llvm_http_server_set_limits(int64_t server, int64_t line_bytes, int64_t header_bytes, int64_t header_count, int64_t body_bytes) { freak_http_server_set_limits(server, line_bytes, header_bytes, header_count, body_bytes); }
 void freak_llvm_http_server_set_timeouts(int64_t server, int64_t header_ms, int64_t body_ms, int64_t idle_ms) { freak_http_server_set_timeouts(server, header_ms, body_ms, idle_ms); }
 void freak_llvm_http_server_set_chunk_limits(int64_t server, int64_t chunk_metadata_bytes, int64_t trailer_bytes) { freak_http_server_set_chunk_limits(server, chunk_metadata_bytes, trailer_bytes); }
+void freak_llvm_http_server_set_keep_alive(int64_t server, int64_t idle_ms, int64_t max_requests) { freak_http_server_set_keep_alive(server, idle_ms, max_requests); }
+void freak_llvm_http_server_set_max_connections(int64_t server, int64_t count) { freak_http_server_set_max_connections(server, count); }
+void freak_llvm_http_server_set_workers(int64_t server, int64_t count) { freak_http_server_set_workers(server, count); }
+int64_t freak_llvm_http_server_worker_index(int64_t server) { return freak_http_server_worker_index(server); }
 void freak_llvm_http_server_stop(int64_t server) { freak_http_server_stop(server); }
 void freak_llvm_http_server_close(int64_t server) { freak_http_server_close(server); }
 int64_t freak_llvm_http_server_next_request(int64_t server) { return freak_http_server_next_request(server); }

@@ -194,6 +194,7 @@ static ssize_t stop_fixture_send(int,const void *,size_t,int);
 #endif
 #ifdef USE_LLVM_ADAPTER
 #define H(name) freak_llvm_http_server_##name
+#define freak_llvm_http_server_live_connections freak_http_server_live_connections
 #define J(name) freak_llvm_json_document_##name
 #define W(s) ((int64_t)(intptr_t)(s))
 static freak_word view(int64_t w) { return freak_llvm_word_view(w); }
@@ -365,17 +366,16 @@ static void stop_tests(void) {
         pthread_t thread;REQUIRE(pthread_create(&thread,NULL,accept_thread,&c)==0);freak_time_sleep(30);
 #endif
         if(c.writing) {
+            /* Responses are queued: send returns once the socket pushes back,
+               and the unsent tail waits in the event loop. stop/close must
+               still end promptly and drop it without retaining anything. */
             uint64_t limit=freak_command_now_ms()+2000;
-            while(!atomic_load_explicit(&c.ready,memory_order_acquire)) {
-                if(atomic_load_explicit(&c.completed,memory_order_acquire))stop_setup_failure(&c,"worker_completed_before_backpressure");
+            while(!atomic_load_explicit(&c.ready,memory_order_acquire)||!atomic_load_explicit(&c.completed,memory_order_acquire)) {
                 if(atomic_load_explicit(&c.probe_failed,memory_order_acquire))stop_setup_failure(&c,"writability_probe_failed");
                 if(freak_command_now_ms()>=limit)stop_setup_failure(&c,"backpressure_deadline");
                 freak_time_sleep(1);
             }
-            freak_time_sleep(30);
-            if(atomic_load_explicit(&c.completed,memory_order_acquire))stop_setup_failure(&c,"worker_completed_before_stop");
-            if(atomic_load_explicit(&c.probe_failed,memory_order_acquire))stop_setup_failure(&c,"writability_probe_failed");
-            if(freak_command_now_ms()>=limit)stop_setup_failure(&c,"setup_deadline");
+            REQUIRE(H(live_connections)()==1);
         }
         uint64_t start=freak_command_now_ms();H(stop)(c.server);
 #ifdef _WIN32
@@ -385,7 +385,7 @@ static void stop_tests(void) {
 #endif
         uint64_t elapsed=freak_command_now_ms()-start;
         int64_t request_status=H(request_status)(c.request),expected_status=c.writing?0:503,server_status=H(status)(c.server);
-        if(elapsed>=500||request_status!=expected_status||server_status!=1||(c.writing&&c.sent)) {
+        if(elapsed>=500||request_status!=expected_status||server_status!=1||(c.writing&&!c.sent)) {
             __auto_type error=H(request_error)(c.request);freak_word message=view(error);
             fprintf(stderr,"STOP_CHECK reading=%d writing=%d elapsed_ms=%llu request_status=%lld expected_status=%lld server_status=%lld sent=%d error=%.*s\n",
                 reading,c.writing,(unsigned long long)elapsed,(long long)request_status,(long long)expected_status,(long long)server_status,c.sent,(int)message.length,message.data);
@@ -394,7 +394,7 @@ static void stop_tests(void) {
         REQUIRE(elapsed<500);
         REQUIRE(request_status==expected_status);
         REQUIRE(server_status==1);
-        if(c.writing)REQUIRE(!c.sent);
+        if(c.writing)REQUIRE(c.sent);
         if(client!=FREAK_INVALID_NATIVE_SOCKET) freak_tcp_socket_native_close(client);
         H(request_release)(c.request);H(close)(c.server);base();
     }
@@ -455,8 +455,10 @@ static void service(const char *profile) {
     bool tight=!strcmp(profile,"tight");
     if(tight) { H(set_limits)(server,128,512,8,64);H(set_chunk_limits)(server,64,64);H(set_timeouts)(server,220,260,120); }
     else H(set_timeouts)(server,1200,5000,1000);
+    /* The classic corpora read every response to EOF: one request per connection. */
+    H(set_keep_alive)(server,1000,0);
     printf("PORT %lld\n",(long long)H(local_port)(server));fflush(stdout);
-    size_t requests=0,baseline_retained=0,pool_checks=0;pool_snapshot warmed={0};bool quit=false;int listener_fds=fds();
+    size_t requests=0,baseline_retained=0,pool_checks=0;pool_snapshot warmed={0};bool quit=false,baseline_taken=false;int listener_fds=-2;
     while(!quit) {
         int64_t request=H(next_request)(server);
         if(!H(request_status)(request)) {
@@ -514,11 +516,17 @@ static void service(const char *profile) {
             REQUIRE(view(path).length==p.length&&view(method).length==m.length);drop(method);drop(path);drop(target);drop(query);
         } else H(request_release)(request);
         requests++;
-        REQUIRE(H(live_requests)()==0&&H(live_servers)()==1&&H(live_sockets)()==1);
+        REQUIRE(H(live_requests)()==0&&H(live_servers)()==1);
         REQUIRE(!freak_byte_buffer_live_count&&!freak_c_owned_word_count&&!freak_llvm_owned_count&&!freak_json_live_documents&&!freak_json_live_nodes);
-        REQUIRE(fds()==listener_fds);
-        if(requests==20) baseline_retained=H(retained_bytes)();
-        if(requests>20) REQUIRE((size_t)H(retained_bytes)()==baseline_retained);
+        /* Socket, descriptor and byte ownership are exact whenever no
+           connection is still finishing a queued write in the event loop. */
+        if(!H(live_connections)()) {
+            REQUIRE(H(live_sockets)()==1);
+            if(listener_fds==-2) listener_fds=fds();
+            REQUIRE(fds()==listener_fds);
+            if(requests>=20&&!baseline_taken) { baseline_retained=H(retained_bytes)();baseline_taken=true; }
+            else if(baseline_taken) REQUIRE((size_t)H(retained_bytes)()==baseline_retained);
+        }
         /* By 512 requests JSON, binary, malformed and large-body paths have all
            run; table sizes must then stay flat through the remaining soak. */
         if(requests==512) warmed=pools();
@@ -843,7 +851,9 @@ def exercise(exe:Path,env,soak:int,progress:HttpProgress|None=None):
                 'byte_buffer_capacity':counts[7],'byte_buffer_slots':counts[8],'json_document_capacity':counts[9],
                 'json_document_slots':counts[10],'llvm_word_buckets':counts[11]}
             if profile=='normal' and soak>=512:assert counts[5]>0,counts
-            if profile=='normal' and os.sys.platform.startswith('linux'):assert counts[1]>0 and counts[2]>0,counts
+            # Partial kernel sends must occur; send failures are no longer
+            # visible to the handler once a response is queued.
+            if profile=='normal' and os.sys.platform.startswith('linux'):assert counts[1]>0,counts
         finally:
             s.abort()
     return report
