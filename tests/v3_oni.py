@@ -389,6 +389,10 @@ DIAGNOSTICS = [
      "oni::summon argument 2 expects int"),
     ("arity", 'task w(x: int) -> void { }\ntask main() -> void {\n    oni::summon("w")\n}\n',
      "oni::summon expects 2 argument(s)"),
+    ("unresolved_arg", 'task w(x: int) -> void { }\ntask main() -> void {\n    oni::summon("w", List::new())\n}\n',
+     "oni::summon argument 2 has an unresolved type"),
+    ("global_order", 'task w(x: int) -> int { give back later }\npilot h = oni::summon("w", 0)\npilot r = oni::resume(h)\npilot later = 42\ntask main() -> void {\n    say r\n}\n',
+     "depends on global 'later' before it is initialized"),
 ]
 
 RUNTIME_FAILURE = PARADE + r'''
@@ -430,6 +434,17 @@ task blank(x: int) -> void {
 }
 task noop(x: int) -> void {
     pilot y = x
+}
+task huge(x: int) -> void {
+    if oni::suspend_for(9223372036854775807) { say "huge wait woken" } else { say "huge wait expired" }
+}
+pilot bad_send_status = 0
+task bad_sender(x: int) -> void {
+    pilot blob = ByteBuffer::new()
+    blob.write_word("abc")
+    pilot n = tcp::socket_send(x, blob, 0, 0 - 1)
+    bad_send_status = tcp::socket_status(x)
+    blob.release()
 }
 
 pilot gate_port = 0
@@ -568,7 +583,46 @@ task main() -> void {
     tcp::socket_close(stuck)
     tcp::socket_close(sink)
     tcp::socket_close(w2)
+
+    pilot bs = tcp::socket_connect("127.0.0.1", gate_port)
+    pilot bs_peer = tcp::socket_accept(gate_listener)
+    oni::summon("bad_sender", bs)
+    parade()
+    say bad_send_status
+    tcp::socket_close(bs)
+    tcp::socket_close(bs_peer)
     tcp::socket_close(gate_listener)
+
+    pilot ra = oni::summon("blank", 0)
+    pilot rb = oni::summon("blank", 0)
+    oni::resume(ra)
+    say oni::ready_count()
+    if oni::next_ready() == rb { say "fifo kept after direct resume" } else { say "direct resume jumped the queue" }
+    oni::resume(rb)
+    parade()
+    oni::release(ra)
+    oni::release(rb)
+
+    pilot keeper = oni::summon("early", 0)
+    oni::resume(oni::next_ready())
+    repeat 300 times {
+        pilot w = oni::summon("patient", 0)
+        oni::resume(w)
+        oni::wake(w)
+        oni::resume(w)
+        oni::release(w)
+    }
+    pilot t5 = time::now_ms()
+    parade()
+    if oni::state(keeper) == 4 and time::now_ms() - t5 < 1000 { say "timers kept after sweep" } else { say "timers lost in sweep" }
+    oni::release(keeper)
+
+    pilot hg = oni::summon("huge", 0)
+    oni::resume(oni::next_ready())
+    oni::poll(10)
+    oni::wake(hg)
+    parade()
+    oni::release(hg)
 }
 '''
 
@@ -581,6 +635,11 @@ woken reader parked again
 read 3
 inherited timeout
 send deadline kept
+1
+2
+fifo kept after direct resume
+timers kept after sweep
+huge wait woken
 """
 
 

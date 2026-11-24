@@ -5599,7 +5599,11 @@ static int64_t freak_tcp_socket_oni_send(
     int64_t total = 0;
     int64_t deadline = 0;
     freak_tcp_socket_record* first = freak_tcp_socket_lookup(handle);
-    if (first && first->send_timeout_ms > 0) {
+    if (!first) return 0;
+    freak_byte_buffer_record* checked = NULL;
+    /* same verdict as the blocking path, before the first try or any park */
+    if (!freak_tcp_socket_validate_send(first, source, offset, count, &checked)) return 0;
+    if (first->send_timeout_ms > 0) {
         deadline = freak_time_monotonic_ns() / 1000000 + first->send_timeout_ms;
     }
     while (total < count) {

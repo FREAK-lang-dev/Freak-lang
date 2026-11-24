@@ -11,7 +11,7 @@ waiting on sockets and deadlines. The scheduler loop, joins, channels,
 select and semaphores live in the **hyakki** Hangar package. Most programs
 should `use hyakki` rather than drive `oni::*` by hand.
 
-Available from 0.17.0 on the V3.5 compiler, LLVM and C backends.
+Available from the first release after 0.15.2, on the V3.5 compiler, LLVM and C backends.
 
 ## The smallest parade
 

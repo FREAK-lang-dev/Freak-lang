@@ -94,6 +94,7 @@ typedef struct {
     int64_t deadline_ms;   /* absolute monotonic ms; 0 = none */
     int64_t curfew_ms;     /* absolute monotonic ms; 0 = none */
     int64_t park_sequence; /* bumps on every park, stales old heap entries; never reset */
+    int64_t ready_ticket;  /* bumps on every enqueue, stales old ring entries; never reset */
     int64_t io_index;      /* position in freak_oni_io_slots while parked on a socket */
     int64_t io_next;       /* next oni parked on the same socket and direction (epoll) */
     uint64_t socket;       /* native socket when parked on READ/WRITE */
@@ -115,8 +116,10 @@ static int64_t freak_oni_current_slot = -1;
 static int64_t freak_oni_live = 0;           /* summoned, not yet done */
 static size_t freak_oni_stack_bytes = 256 * 1024;
 
-/* Ready queue: a ring of handles. */
-static int64_t* freak_oni_ready = NULL;
+/* Ready queue: a ring of (handle, ticket). An entry is live only while its
+   ticket is the oni's latest, so a direct resume leaves no second entry. */
+typedef struct { int64_t handle; int64_t ticket; } freak_oni_ready_entry;
+static freak_oni_ready_entry* freak_oni_ready = NULL;
 static int64_t freak_oni_ready_capacity = 0;
 static int64_t freak_oni_ready_head = 0;
 static int64_t freak_oni_ready_length = 0;
@@ -127,6 +130,7 @@ typedef struct { int64_t deadline_ms; int64_t slot; int64_t sequence; } freak_on
 static freak_oni_timer* freak_oni_timers = NULL;
 static int64_t freak_oni_timer_count = 0;
 static int64_t freak_oni_timer_capacity = 0;
+static int64_t freak_oni_timer_compact_at = 64; /* sweep stale timers at this size */
 
 /* Socket parks, for the poll() / WSAPoll path and for counting. */
 static int64_t* freak_oni_io_slots = NULL;
@@ -194,8 +198,8 @@ static void freak_oni_queue_ready(int64_t slot) {
     if (oni->in_ready_queue) return;
     if (freak_oni_ready_length == freak_oni_ready_capacity) {
         int64_t old = freak_oni_ready_capacity;
-        int64_t* grown = (int64_t*)freak_oni_grow(
-            NULL, &freak_oni_ready_capacity, sizeof(int64_t), "ready queue is too large");
+        freak_oni_ready_entry* grown = (freak_oni_ready_entry*)freak_oni_grow(
+            NULL, &freak_oni_ready_capacity, sizeof(freak_oni_ready_entry), "ready queue is too large");
         for (int64_t i = 0; i < freak_oni_ready_length; i++) {
             grown[i] = freak_oni_ready[(freak_oni_ready_head + i) % old];
         }
@@ -203,8 +207,11 @@ static void freak_oni_queue_ready(int64_t slot) {
         freak_oni_ready = grown;
         freak_oni_ready_head = 0;
     }
-    freak_oni_ready[(freak_oni_ready_head + freak_oni_ready_length) % freak_oni_ready_capacity] =
-        freak_oni_make_handle(slot);
+    oni->ready_ticket += 1;
+    freak_oni_ready_entry* entry =
+        &freak_oni_ready[(freak_oni_ready_head + freak_oni_ready_length) % freak_oni_ready_capacity];
+    entry->handle = freak_oni_make_handle(slot);
+    entry->ticket = oni->ready_ticket;
     freak_oni_ready_length += 1;
     freak_oni_ready_live += 1;
     oni->in_ready_queue = true;
@@ -213,7 +220,24 @@ static void freak_oni_queue_ready(int64_t slot) {
 
 /* ---- deadline heap ---------------------------------------------- */
 
+static bool freak_oni_timer_live(const freak_oni_timer* timer);
+static void freak_oni_timer_sift_down(int64_t i);
+
+/* Timers of parks that ended early stay in the heap until they reach the
+   head. When the heap doubles past its last sweep, drop every stale entry
+   and rebuild, so memory follows live timers and not finished waits. */
+static void freak_oni_timer_compact(void) {
+    int64_t kept = 0;
+    for (int64_t i = 0; i < freak_oni_timer_count; i++) {
+        if (freak_oni_timer_live(&freak_oni_timers[i])) freak_oni_timers[kept++] = freak_oni_timers[i];
+    }
+    freak_oni_timer_count = kept;
+    for (int64_t i = kept / 2 - 1; i >= 0; i--) freak_oni_timer_sift_down(i);
+    freak_oni_timer_compact_at = kept * 2 > 64 ? kept * 2 : 64;
+}
+
 static void freak_oni_timer_push(int64_t deadline_ms, int64_t slot, int64_t sequence) {
+    if (freak_oni_timer_count >= freak_oni_timer_compact_at) freak_oni_timer_compact();
     if (freak_oni_timer_count == freak_oni_timer_capacity) {
         freak_oni_timers = (freak_oni_timer*)freak_oni_grow(
             freak_oni_timers, &freak_oni_timer_capacity, sizeof(freak_oni_timer),
@@ -233,11 +257,7 @@ static void freak_oni_timer_push(int64_t deadline_ms, int64_t slot, int64_t sequ
     }
 }
 
-static void freak_oni_timer_pop(void) {
-    freak_oni_timer_count -= 1;
-    if (freak_oni_timer_count == 0) return;
-    freak_oni_timers[0] = freak_oni_timers[freak_oni_timer_count];
-    int64_t i = 0;
+static void freak_oni_timer_sift_down(int64_t i) {
     for (;;) {
         int64_t left = i * 2 + 1, right = left + 1, best = i;
         if (left < freak_oni_timer_count &&
@@ -250,6 +270,13 @@ static void freak_oni_timer_pop(void) {
         freak_oni_timers[i] = swap;
         i = best;
     }
+}
+
+static void freak_oni_timer_pop(void) {
+    freak_oni_timer_count -= 1;
+    if (freak_oni_timer_count == 0) return;
+    freak_oni_timers[0] = freak_oni_timers[freak_oni_timer_count];
+    freak_oni_timer_sift_down(0);
 }
 
 static bool freak_oni_timer_live(const freak_oni_timer* timer) {
@@ -605,6 +632,12 @@ static void freak_oni_run_current(void) {
     freak_oni_switch_out(oni, true);
 }
 
+/* now + ms, saturating: a huge duration means "practically never". */
+static int64_t freak_oni_deadline_after(int64_t now, int64_t ms) {
+    if (ms > INT64_MAX - now) return INT64_MAX;
+    return now + ms;
+}
+
 /* Park the running oni and switch back to the main stack. */
 static int freak_oni_park(int kind, uint64_t socket, int64_t timeout_ms) {
     if (!freak_oni_inside()) freak_oni_fail("park called outside an oni");
@@ -614,7 +647,7 @@ static int freak_oni_park(int kind, uint64_t socket, int64_t timeout_ms) {
     int64_t now = 0;
     int64_t deadline = 0;
     bool curfew_cut = false;
-    if (timeout_ms > 0) { now = freak_oni_now_ms(); deadline = now + timeout_ms; }
+    if (timeout_ms > 0) { now = freak_oni_now_ms(); deadline = freak_oni_deadline_after(now, timeout_ms); }
     if (oni->curfew_ms != 0) {
         if (deadline == 0 || oni->curfew_ms < deadline) { deadline = oni->curfew_ms; curfew_cut = true; }
         if (now == 0) now = freak_oni_now_ms();
@@ -712,9 +745,11 @@ int64_t freak_oni_summon(int64_t entry, int64_t returns_int, int64_t argument) {
     freak_oni_record* oni = &freak_onis[slot];
     uint32_t generation = oni->generation;
     int64_t sequence = oni->park_sequence; /* stale timers of the last tenant must never match */
+    int64_t ticket = oni->ready_ticket;    /* nor its stale ready entries */
     memset(oni, 0, sizeof(*oni));
     oni->generation = generation;
     oni->park_sequence = sequence + 1;
+    oni->ready_ticket = ticket;
     oni->io_index = -1;
     oni->io_next = -1;
     oni->next_free = -1;
@@ -756,13 +791,14 @@ int64_t freak_oni_resume(int64_t handle) {
 
 int64_t freak_oni_next_ready(void) {
     while (freak_oni_ready_length > 0) {
-        int64_t handle = freak_oni_ready[freak_oni_ready_head];
+        freak_oni_ready_entry entry = freak_oni_ready[freak_oni_ready_head];
+        int64_t handle = entry.handle;
         freak_oni_ready_head = (freak_oni_ready_head + 1) % freak_oni_ready_capacity;
         freak_oni_ready_length -= 1;
         int64_t slot = freak_oni_slot(handle);
         if (slot < 0) continue;
         freak_oni_record* oni = &freak_onis[slot];
-        if (!oni->in_ready_queue) continue;
+        if (!oni->in_ready_queue || entry.ticket != oni->ready_ticket) continue;
         oni->in_ready_queue = false;
         freak_oni_ready_live -= 1;
         if (oni->state != FREAK_ONI_READY) continue;
@@ -837,7 +873,8 @@ void freak_oni_release(int64_t handle) {
 
 void freak_oni_curfew(int64_t ms) {
     if (!freak_oni_inside()) freak_oni_fail("curfew called outside an oni");
-    freak_onis[freak_oni_current_slot].curfew_ms = ms > 0 ? freak_oni_now_ms() + ms : 0;
+    freak_onis[freak_oni_current_slot].curfew_ms =
+        ms > 0 ? freak_oni_deadline_after(freak_oni_now_ms(), ms) : 0;
 }
 
 void freak_oni_stack_kib(int64_t kib) {
@@ -886,7 +923,9 @@ int64_t freak_oni_poll(int64_t timeout_ms) {
 #if defined(FREAK_ONI_EPOLL)
         struct epoll_event events[256];
         int ready;
-        do { ready = epoll_wait(freak_oni_epoll, events, 256, wait); } while (ready < 0 && errno == EINTR);
+        /* a signal (EINTR) ends this wait early; the deadlines below run and
+           the caller polls again with the remaining time */
+        ready = epoll_wait(freak_oni_epoll, events, 256, wait);
         for (int i = 0; i < ready; i++) {
             int fd = (int)events[i].data.u64;
             freak_oni_fd_interest* entry = freak_oni_fd_entry(fd);
@@ -918,7 +957,7 @@ int64_t freak_oni_poll(int64_t timeout_ms) {
 #ifdef _WIN32
         ready = WSAPoll(fds, (ULONG)count, wait);
 #else
-        do { ready = poll(fds, (nfds_t)count, wait); } while (ready < 0 && errno == EINTR);
+        ready = poll(fds, (nfds_t)count, wait); /* EINTR: see the epoll branch */
 #endif
         if (ready > 0) {
             for (int64_t i = 0; i < count; i++) {

@@ -174,6 +174,13 @@ task ir_ptrtoint(dest: word, value: word) -> void {
     ir_text("    " + dest + " = ptrtoint i8* " + value + " to i64")
 }
 
+-- ptrtoint with the operand's own pointer type, for function symbols whose
+-- type is not i8* (typed-pointer LLVM checks it; opaque pointers ignore it).
+task ir_ptrtoint_typed(dest: word, pointer_type: word, value: word) -> void {
+    if llvm_builder_active { freak_ib2_cast(dest, "ptrtoint", value) give back }
+    llvm_emit_line("    " + dest + " = ptrtoint " + pointer_type + " " + value + " to i64")
+}
+
 task ir_string_pointer(dest: word, length: word, global_name: word) -> void {
     if llvm_builder_active { freak_ib2_string_pointer(dest, global_name) if not llvm_builder_shadow_text { give back } }
     ir_text("    " + dest + " = getelementptr inbounds [" + length + " x i8], [" + length + " x i8]* " + global_name + ", i64 0, i64 0")
@@ -1805,7 +1812,7 @@ task llvm_emit_oni_summon(left: word) -> word {
     -- in case its body comes later in the module (text IR allows forward uses).
     if llvm_builder_active { ir_declare(return_type, symbol, 1) }
     pilot address = next_reg()
-    ir_ptrtoint(address, symbol)
+    ir_ptrtoint_typed(address, return_type + " (i64)*", symbol)
     pilot handle = next_reg()
     ir_call(handle, "@freak_llvm_oni_summon", address + "|" + returns_int + "|" + arg + "|")
     give back handle

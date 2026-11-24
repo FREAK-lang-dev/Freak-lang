@@ -2024,7 +2024,9 @@ task tc_validate_oni_summon(left: word, line: int, source_file: word) -> void {
     }
     pilot arg_id = tc_arg_at(left, 1)
     pilot arg_type = tc_expr_type(arg_id)
-    if arg_type != "" and not tc_type_assignable("int", arg_type) {
+    if arg_type == "" {
+        tc_diag_code("E0002", "oni::summon argument 2 has an unresolved type", tc_expr_diag_line(arg_id, line), tc_expr_diag_file(arg_id, source_file))
+    } else if not tc_type_assignable("int", arg_type) {
         tc_diag_code("E0002", "oni::summon argument 2 expects int, got " + arg_type, tc_expr_diag_line(arg_id, line), tc_expr_diag_file(arg_id, source_file))
     }
 }
@@ -3016,6 +3018,15 @@ task tc_dependency_walk_expr(expr_id: int, local_names: int, local_types: int, l
     }
     if kind == EXPR_CALL {
         tc_dependency_walk_args(left, local_names, local_types, local_count, global_index, global_name, visited)
+        if val == "oni::summon" {
+            -- the summoned task can run (oni::resume) before later globals
+            -- exist, so its literal name is a call edge like a direct call
+            pilot task_id = tc_arg_at(left, 0)
+            if task_id >= 0 and array_get(ast_expr_kinds, task_id) == EXPR_STR {
+                tc_dependency_walk_callable(tc_callable_entry(array_get(ast_expr_vals, task_id)), global_index, global_name, visited)
+            }
+            give back
+        }
         if not val.starts_with("shape::ctor::") {
             pilot entry = tc_callable_entry(val)
             if entry < 0 { entry = tc_associated_callable_entry(val) }
@@ -3159,6 +3170,7 @@ task tc_dependency_expr_has_task_call(expr_id: int) -> bool {
     pilot left: word = array_get(ast_expr_lefts, expr_id)
     pilot right: word = array_get(ast_expr_rights, expr_id)
     if kind == EXPR_CALL {
+        if val == "oni::summon" { give back true }
         pilot entry = tc_callable_entry(val)
         if entry < 0 { entry = tc_associated_callable_entry(val) }
         if entry >= 0 {

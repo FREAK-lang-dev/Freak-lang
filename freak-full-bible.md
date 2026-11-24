@@ -1045,12 +1045,15 @@ task final_goodbye(pilot: Eishi) -> void mood<.muv_luv> { ... }
 > structured-concurrency model below as the V4 destination — once it
 > ships, prefer it over raw `std::thread`.
 
-### 3.0 V3.5 floor: the `oni` hook (0.17.0)
+### 3.0 V3.5 floor: the `oni` hook (after 0.15.2)
 
 > ⚠️ **V3.5 floor, not the squadron model.** An *oni* is a FREAK task on its
-> own small stack. Many oni share one OS thread, and an oni that waits on a
-> socket or a deadline parks so another can run (stackful green threads,
-> Go/Loom style, no `async`/`await` colouring).
+> own small stack. Many oni share one OS thread. An oni parks so another can
+> run when it waits in `tcp::socket_accept`, `tcp::socket_connect`,
+> `tcp::socket_receive`, `tcp::socket_send`/`socket_send_all` or
+> `time::sleep` (stackful green threads, Go/Loom style, no `async`/`await`
+> colouring). Everything else still blocks the thread: the `http` client,
+> `http_server`, `fs::*` and `process::*`.
 >
 > - `oni::summon("task", arg) -> int` is the only language addition. The
 >   name must be a string literal naming a top-level task `(int) -> void` or
