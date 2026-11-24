@@ -67,10 +67,10 @@ task http_set_max_response(bytes: int) -> void {
 -- Value of the first header called name (case-insensitive), trimmed, or "".
 task http_resp_header(handle: int, name: word) -> word {
     pilot raw: word = array_get(http_resp_headers_raw, handle)
-    give back http_header_value(raw, name)
+    give back http_raw_header_value(raw, name)
 }
 
-task http_header_value(raw: word, name: word) -> word {
+task http_raw_header_value(raw: word, name: word) -> word {
     pilot want = name.to_lower()
     pilot rlen = raw.length()
     -- Skip the status line.
@@ -197,7 +197,7 @@ task http_split_response(raw: word) -> int {
     }
     pilot headers = raw.substring(0, header_end)
     pilot mut body = raw.substring(header_end, rlen - header_end)
-    if http_header_value(headers.repeated(1), "transfer-encoding").to_lower().contains("chunked") {
+    if http_raw_header_value(headers.repeated(1), "transfer-encoding").to_lower().contains("chunked") {
         body = http_decode_chunked(body)
     }
     give back http_alloc_resp(status, body, headers)
