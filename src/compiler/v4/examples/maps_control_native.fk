@@ -1,0 +1,61 @@
+-- Control flow inside native map literals (tier 3 Map row). Short-circuit
+-- `and` / `or` and `?` in keys and values, in typed and inferred literals,
+-- are wired by MIR like list elements: entries run in order, a skipped
+-- operand never runs, and a `?` that propagates stops the entries after it
+-- (dropping the words built so far). Each probe prints when it runs, so the
+-- pinned output shows exactly which ones did: one `side ran` from an `or`
+-- whose left side is false, and one `side_int ran` from the entry after a
+-- `?` that did not propagate. check_v4_native_shapes pins the output and
+-- tests/v4_owned_word_codegen.py runs it under the ownership audits.
+
+task side() -> bool {
+    say "side ran"
+    give back true
+}
+
+task side_int() -> int {
+    say "side_int ran"
+    give back 9
+}
+
+task half(n: int) -> maybe<int> {
+    if n % 2 == 1 { give back nobody }
+    give back some(n / 2)
+}
+
+task label(b: bool) -> word {
+    if b { give back "yes" }
+    give back "no"
+}
+
+task entries(n: int) -> maybe<int> {
+    pilot inferred = {half(n)?: false and side(), 7: true or side()}
+    pilot typed: Map<int, bool> = {1: false and side(), half(n + 2)?: true or side()}
+    pilot keys = {false and side(): 1, true or side(): 2}
+    pilot typed_keys: Map<bool, word> = {false and side(): "f" + "!", true or side(): label(false or side())}
+    pilot words = {"a" + "b": label(false and side()), "c": label(true or side())}
+    say inferred[n / 2]
+    say inferred[7]
+    say typed[half(n + 2) or else 0]
+    say keys[true] - keys[false]
+    say typed_keys[true]
+    say words["ab"] + words["c"]
+    pilot after: Map<int, int> = {1: half(n + 2)?, 2: side_int()}
+    pilot stopped: Map<int, int> = {1: half(n + 1)?, 2: side_int()}
+    give back some(after[1] + after[2] + stopped.length())
+}
+
+task partial(n: int) -> maybe<int> {
+    pilot m = {"a" + "b": 1, "c" + "d": half(n)?}
+    pilot t: Map<word, word> = {"x" + "y": "v" + "w", "z": "q" + "r", "k" + "!": "s" + "t"}
+    pilot u: Map<int, word> = {1: "p" + "q", half(n + 2)?: "r" + "s"}
+    give back some(m.length() + t.length() + u.length())
+}
+
+task main() -> int {
+    say entries(3) or else 0 - 1
+    say entries(4) or else 0 - 2
+    say partial(3) or else 0
+    say partial(4) or else 0
+    give back 0
+}

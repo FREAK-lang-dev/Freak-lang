@@ -384,10 +384,11 @@ task v4_mir_rvalue_needs_control_flow_step(mir_id: int, body_id: int, rvalue_id:
         pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
         if op == v4_mir_bin_and or op == v4_mir_bin_or { give back true }
     }
-    -- List, tuple and fixed-array literal elements evaluate in order like
-    -- call arguments, so their short-circuits and `?` are wired by the
-    -- call-argument path below, at any nesting depth.
-    if kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_array {
+    -- List, tuple, fixed-array and map literal children (a map's keys and
+    -- values, entry by entry) evaluate in order like call arguments, so their
+    -- short-circuits and `?` are wired by the call-argument path below, at
+    -- any nesting depth, whether the literal is typed or inferred.
+    if kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_map {
         pilot element_id = 0
         repeat until element_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
             if v4_mir_rvalue_needs_control_flow_limited(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, element_id)) { give back true }
@@ -513,7 +514,7 @@ task v4_mir_wire_control_flow_rvalue_step(mir_id: int, body_id: int, block_id: i
     }
 
     pilot current_block = block_id
-    if (kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_array) and v4_mir_rvalue_needs_control_flow(mir_id, body_id, rvalue_id) {
+    if (kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_map) and v4_mir_rvalue_needs_control_flow(mir_id, body_id, rvalue_id) {
         pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
         pilot first_arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
         if lhs >= 0 and lhs != first_arg {
@@ -12241,11 +12242,17 @@ task v4_mir_add_map_intrinsic(mir_id: int, body_id: int, family: word, kind: wor
 }
 
 -- A map key or set element, lowered against the collection's key type. A
--- lookup lends a word key (`lend word`); a stored key moves in.
+-- lookup lends a word key (`lend word`); a stored key moves in. Literal
+-- entries are wired by the control-flow normalizer like list elements; a
+-- lookup, method argument or entry store still refuses control flow.
 task v4_mir_lower_map_key(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, collection_ty: word, lookup: bool, span: word) -> int {
+    give back v4_mir_lower_map_key_in(mir_id, body_id, stream_id, start_token, end_token, collection_ty, lookup, false, span)
+}
+
+task v4_mir_lower_map_key_in(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, collection_ty: word, lookup: bool, literal: bool, span: word) -> int {
     pilot key_ty = v4_mir_hash_collection_key_type(mir_id, collection_ty)
     pilot key = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, start_token, end_token, key_ty)
-    if v4_mir_rvalue_needs_control_flow(mir_id, body_id, key) {
+    if not literal and v4_mir_rvalue_needs_control_flow(mir_id, body_id, key) {
         v4_mir_add_type_error(mir_id, span, "control flow inside a map key is not yet supported", "evaluate the key into a pilot first, like pilot k = f()? or pilot k = pick(a and b)")
     }
     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, key)
@@ -12257,9 +12264,13 @@ task v4_mir_lower_map_key(mir_id: int, body_id: int, stream_id: int, start_token
 }
 
 task v4_mir_lower_map_value(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, collection_ty: word, span: word) -> int {
+    give back v4_mir_lower_map_value_in(mir_id, body_id, stream_id, start_token, end_token, collection_ty, false, span)
+}
+
+task v4_mir_lower_map_value_in(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, collection_ty: word, literal: bool, span: word) -> int {
     pilot value_ty = v4_mir_hash_collection_value_type(mir_id, collection_ty)
     pilot value = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, start_token, end_token, value_ty)
-    if v4_mir_rvalue_needs_control_flow(mir_id, body_id, value) {
+    if not literal and v4_mir_rvalue_needs_control_flow(mir_id, body_id, value) {
         v4_mir_add_type_error(mir_id, span, "control flow inside a map value is not yet supported", "evaluate the value into a pilot first, then store it")
     }
     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value)
@@ -12366,8 +12377,8 @@ task v4_mir_try_lower_expected_map_literal(mir_id: int, body_id: int, stream_id:
         if colon_token < 0 {
             v4_mir_add_type_error(mir_id, expr_span, "malformed map entry", "expected key: value inside map literal")
         } else {
-            pilot key = v4_mir_lower_map_key(mir_id, body_id, stream_id, pair_start, colon_token, collection_ty, false, expr_span)
-            pilot value = v4_mir_lower_map_value(mir_id, body_id, stream_id, colon_token + 1, pair_end, collection_ty, expr_span)
+            pilot key = v4_mir_lower_map_key_in(mir_id, body_id, stream_id, pair_start, colon_token, collection_ty, false, true, expr_span)
+            pilot value = v4_mir_lower_map_value_in(mir_id, body_id, stream_id, colon_token + 1, pair_end, collection_ty, true, expr_span)
             array_push(children_handle, word_from_int(key))
             array_push(children_handle, word_from_int(value))
             if not aggregate_lend_reported {
