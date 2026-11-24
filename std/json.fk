@@ -29,8 +29,10 @@
 -- A container's children (and object keys) are a slice of the shared edge
 -- lists: json_start[h] .. json_start[h] + json_size[h]. Parsed containers
 -- are packed exactly; pushing past json_cap[h] moves the slice to the end.
--- The scanner reads bytes from a ByteBuffer copy of the source, which is
--- about ten times faster than comparing one-byte words.
+-- The parser is one loop over a ByteBuffer copy of the source with an
+-- explicit container stack: reading integer bytes is about ten times
+-- faster than comparing one-byte words, and nesting never recurses.
+-- No ByteBuffer outlives a call.
 -- ===================================================================
 
 -- Node pool
@@ -48,8 +50,6 @@ pilot mut json_edge_keys: List<word> = []
 
 -- Parser state
 pilot mut json_src = ""
-pilot mut json_buf = ByteBuffer::new()
-pilot mut json_wbuf = ByteBuffer::new()
 pilot mut json_pos = 0
 pilot mut json_len = 0
 pilot mut json_depth = 0
@@ -73,8 +73,6 @@ task json_reset() -> void {
     json_edge_keys.clear()
     json_stack.clear()
     json_stack_keys.clear()
-    json_buf.truncate(0)
-    json_wbuf.truncate(0)
     json_src = ""
     json_count = 0
     json_inited = 0
@@ -263,183 +261,11 @@ task json_obj_set(object: int, key: word, child: int) -> void {
     json_size[object] = json_size[object] + 1
 }
 
--- === Parser internals ===
-
--- Byte at pos, or -1 outside the source.
-task json_byte_at(pos: int) -> int {
-    if pos < 0 or pos >= json_len { give back 0 - 1 }
-    json_buf.seek(pos)
-    give back json_buf.read_byte()
-}
-
--- Legacy one-character accessors.
-task json_cur() -> word {
-    give back json_src.char_at(json_pos)
-}
-
-task json_advance() -> word {
-    pilot c = json_src.char_at(json_pos)
-    json_pos += 1
-    give back c
-}
-
-task json_skip_ws() -> void {
-    if json_pos >= json_len { give back }
-    json_buf.seek(json_pos)
-    repeat until json_pos >= json_len {
-        pilot v = json_buf.read_byte()
-        if v != 32 and v != 10 and v != 13 and v != 9 { give back }
-        json_pos += 1
-    }
-}
-
-task json_expect(ch: word) -> void {
-    pilot c = json_src.char_at(json_pos)
-    json_pos += 1
-    if c != ch {
-        if c == "" {
-            json_fail("expected '" + ch + "' but the input ended")
-        } else {
-            json_fail("expected '" + ch + "' got '" + c + "'")
-        }
-    }
-}
-
--- Value of the four hex digits at json_pos, or -1.
-task json_hex4() -> int {
-    if json_pos + 4 > json_len { give back 0 - 1 }
-    json_buf.seek(json_pos)
-    pilot mut value = 0
-    repeat 4 times {
-        pilot v = json_buf.read_byte()
-        pilot mut d = 0 - 1
-        if v >= 48 and v <= 57 {
-            d = v - 48
-        } else if v >= 97 and v <= 102 {
-            d = v - 87
-        } else if v >= 65 and v <= 70 {
-            d = v - 55
-        }
-        if d < 0 { give back 0 - 1 }
-        value = value * 16 + d
-    }
-    give back value
-}
-
--- json_pos is just after "\u". Returns the code point and moves past it.
-task json_parse_unicode_escape() -> int {
-    pilot hi = json_hex4()
-    if hi < 0 {
-        json_fail("bad \\u escape")
-        give back 65533
-    }
-    json_pos += 4
-    if hi >= 55296 and hi <= 56319 {
-        if json_byte_at(json_pos) == 92 and json_byte_at(json_pos + 1) == 117 {
-            json_pos += 2
-            pilot lo = json_hex4()
-            if lo >= 56320 and lo <= 57343 {
-                json_pos += 4
-                give back 65536 + (hi - 55296) * 1024 + (lo - 56320)
-            }
-            -- Not a low surrogate: leave it to be read as its own escape.
-            json_pos -= 2
-        }
-        give back 65533
-    }
-    if hi >= 56320 and hi <= 57343 { give back 65533 }
-    give back hi
-}
-
-task json_parse_string() -> word {
-    if json_byte_at(json_pos) != 34 {
-        json_expect("\"")
-        give back ""
-    }
-    json_pos += 1
-    pilot b = word_builder::new()
-    pilot mut run_start = json_pos
-    json_buf.seek(json_pos)
-    repeat until json_pos >= json_len {
-        pilot v = json_buf.read_byte()
-        if v == 34 {
-            if json_pos > run_start { word_builder::append(b, json_src.substring(run_start, json_pos - run_start)) }
-            json_pos += 1
-            give back word_builder::finish(b)
-        }
-        if v == 92 {
-            if json_pos > run_start { word_builder::append(b, json_src.substring(run_start, json_pos - run_start)) }
-            pilot esc = json_byte_at(json_pos + 1)
-            json_pos += 2
-            if esc == 110 {
-                word_builder::append(b, "\n")
-            } else if esc == 116 {
-                word_builder::append(b, "\t")
-            } else if esc == 114 {
-                word_builder::append(b, "\r")
-            } else if esc == 92 {
-                word_builder::append(b, "\\")
-            } else if esc == 34 {
-                word_builder::append(b, "\"")
-            } else if esc == 47 {
-                word_builder::append(b, "/")
-            } else if esc == 98 {
-                word_builder::append(b, char_to_word(8))
-            } else if esc == 102 {
-                word_builder::append(b, char_to_word(12))
-            } else if esc == 117 {
-                pilot cp = json_parse_unicode_escape()
-                word_builder::append(b, char_to_word(cp))
-            } else if esc < 0 {
-                json_pos = json_len
-            } else {
-                -- Unknown escape: keep the escaped character (lenient).
-                word_builder::append(b, json_src.char_at(json_pos - 1))
-            }
-            run_start = json_pos
-            if json_pos < json_len { json_buf.seek(json_pos) }
-        } else {
-            json_pos += 1
-        }
-    }
-    if json_len > run_start { word_builder::append(b, json_src.substring(run_start, json_len - run_start)) }
-    json_fail("unterminated string")
-    give back word_builder::finish(b)
-}
-
--- Number text, kept as written: -?digits[.digits][(e|E)[+-]digits].
-task json_parse_number() -> word {
-    pilot start = json_pos
-    json_buf.seek(json_pos)
-    pilot mut prev = 0
-    pilot mut scanning = true
-    repeat until not scanning or json_pos >= json_len {
-        pilot v = json_buf.read_byte()
-        if (v >= 48 and v <= 57) or v == 46 or v == 101 or v == 69 {
-            json_pos += 1
-        } else if v == 45 and json_pos == start {
-            json_pos += 1
-        } else if (v == 43 or v == 45) and (prev == 101 or prev == 69) {
-            json_pos += 1
-        } else {
-            scanning = false
-        }
-        prev = v
-    }
-    give back json_src.substring(start, json_pos - start)
-}
-
-task json_try_keyword(kw: word) -> bool {
-    pilot kwlen = kw.length()
-    if json_pos + kwlen > json_len { give back false }
-    if json_src.substring(json_pos, kwlen) != kw { give back false }
-    json_pos += kwlen
-    give back true
-}
+-- === Parser ===
 
 -- Pack the children collected on the parse stack since base into the
--- container's exact slice, then pop them.
--- Object keys sit on their own stack from key_base (-1 for arrays).
+-- container's exact slice, then pop them. Object keys sit on their own
+-- stack from key_base (-1 for arrays).
 task json_close_container(h: int, base: int, key_base: int) -> void {
     pilot count = json_stack.length() - base
     json_start[h] = json_edges.length()
@@ -461,107 +287,28 @@ task json_close_container(h: int, base: int, key_base: int) -> void {
     }
 }
 
--- Main recursive parser. Returns handle to parsed value.
-task json_parse_value() -> int {
-    json_skip_ws()
-    pilot v = json_byte_at(json_pos)
-
-    -- String
-    if v == 34 {
-        pilot sv = json_parse_string()
-        give back json_alloc("s", sv)
-    }
-
-    -- Number
-    if v == 45 or (v >= 48 and v <= 57) {
-        pilot nv = json_parse_number()
-        give back json_alloc("n", nv)
-    }
-
-    -- Booleans and null
-    if v == 116 {
-        if json_try_keyword("true") { give back json_alloc("b", "true") }
-    }
-    if v == 102 {
-        if json_try_keyword("false") { give back json_alloc("b", "false") }
-    }
-    if v == 110 {
-        if json_try_keyword("null") { give back json_alloc("null", "") }
-    }
-
-    if (v == 91 or v == 123) and json_depth >= 512 {
-        json_fail("nesting deeper than 512 levels")
-        json_pos = json_len
-        give back 0 - 1
-    }
-
-    -- Array
-    if v == 91 {
-        json_pos += 1
-        json_depth += 1
-        pilot arr_handle = json_alloc("a", "")
-        pilot base = json_stack.length()
-        json_skip_ws()
-        if json_byte_at(json_pos) != 93 {
-            json_stack.push(json_parse_value())
-            json_skip_ws()
-            repeat until json_byte_at(json_pos) != 44 {
-                json_pos += 1
-                json_stack.push(json_parse_value())
-                json_skip_ws()
-            }
-        }
-        json_expect("]")
-        json_depth -= 1
-        json_close_container(arr_handle, base, 0 - 1)
-        give back arr_handle
-    }
-
-    -- Object
-    if v == 123 {
-        json_pos += 1
-        json_depth += 1
-        pilot obj_handle = json_alloc("o", "")
-        pilot base = json_stack.length()
-        pilot key_base = json_stack_keys.length()
-        json_skip_ws()
-        if json_byte_at(json_pos) != 125 {
-            json_stack_keys.push(json_parse_string())
-            json_skip_ws()
-            json_expect(":")
-            json_stack.push(json_parse_value())
-            json_skip_ws()
-            repeat until json_byte_at(json_pos) != 44 {
-                json_pos += 1
-                json_skip_ws()
-                json_stack_keys.push(json_parse_string())
-                json_skip_ws()
-                json_expect(":")
-                json_stack.push(json_parse_value())
-                json_skip_ws()
-            }
-        }
-        json_expect("}")
-        json_depth -= 1
-        json_close_container(obj_handle, base, key_base)
-        give back obj_handle
-    }
-
-    if v < 0 {
-        json_fail("unexpected end of input")
+-- Records "expected 'ch' got 'x'" (or "... but the input ended"). Like the
+-- legacy parser, the error position is just past the offending byte.
+task json_fail_expected(ch: word, pos: int) -> void {
+    pilot c = json_src.char_at(pos)
+    if c == "" {
+        json_pos = pos
+        json_fail("expected '" + ch + "' but the input ended")
     } else {
-        json_fail("unexpected '" + json_src.char_at(json_pos) + "'")
+        json_pos = pos + 1
+        json_fail("expected '" + ch + "' got '" + c + "'")
     }
-    give back 0 - 1
 }
 
--- === Public API ===
-
+-- One iterative pass over the source bytes (a ByteBuffer local to this
+-- task) with an explicit container stack, so nesting never recurses.
+-- Modes: 0 value, 1 object key, 2 colon, 3 just opened, 4 after a value.
 task json_parse(source: word) -> int {
     json_init()
     json_len = source.length()
-    json_buf.truncate(0)
-    json_buf.write_word(source.repeated(1))
+    pilot len = json_len
+    pilot buf = ByteBuffer::with_capacity(len)
+    buf.write_word(source.repeated(1))
     json_src = source
     json_pos = 0
     json_depth = 0
@@ -569,11 +316,253 @@ task json_parse(source: word) -> int {
     json_err_at = 0 - 1
     json_stack.clear()
     json_stack_keys.clear()
-    pilot root = json_parse_value()
-    json_skip_ws()
-    if json_pos < json_len { json_fail("unexpected trailing characters") }
+    pilot mut frames: List<int> = []
+    pilot mut frame_base: List<int> = []
+    pilot mut frame_keys: List<int> = []
+    pilot mut root = 0 - 1
+    pilot mut pos = 0
+    pilot mut mode = 0
+    pilot mut finished = false
+    repeat until finished {
+        -- Skip whitespace and look at the next byte (-1 at the end).
+        pilot mut b = 0 - 1
+        if pos < len {
+            buf.seek(pos)
+            b = buf.read_byte()
+            repeat until pos >= len or not (b == 32 or b == 10 or b == 13 or b == 9) {
+                pos += 1
+                if pos < len { b = buf.read_byte() } else { b = 0 - 1 }
+            }
+        }
+        pilot depth = frames.length()
+        pilot mut is_obj = false
+        if depth > 0 { is_obj = frame_keys[depth - 1] >= 0 }
+        pilot mut node = 0 - 2
+        if mode == 2 {
+            if b == 58 {
+                pos += 1
+            } else {
+                json_fail_expected(":", pos)
+                pos += 1
+            }
+            mode = 0
+        } else if mode == 3 or mode == 4 {
+            pilot mut close = 93
+            pilot mut close_ch = "]"
+            if is_obj {
+                close = 125
+                close_ch = "}"
+            }
+            if mode == 3 and b != close {
+                if is_obj { mode = 1 } else { mode = 0 }
+            } else if mode == 4 and b == 44 {
+                pos += 1
+                if is_obj { mode = 1 } else { mode = 0 }
+            } else {
+                if b != close { json_fail_expected(close_ch, pos) }
+                pos += 1
+                node = frames.pop()
+                json_close_container(node, frame_base.pop(), frame_keys.pop())
+                json_depth -= 1
+            }
+        } else if b == 34 {
+            -- String (a value, or a key in mode 1)
+            pos += 1
+            pilot sb = word_builder::new()
+            pilot mut run_start = pos
+            pilot mut closed = false
+            buf.seek(pos)
+            repeat until closed or pos >= len {
+                pilot v = buf.read_byte()
+                if v == 34 {
+                    if pos > run_start { word_builder::append(sb, json_src.substring(run_start, pos - run_start)) }
+                    pos += 1
+                    closed = true
+                } else if v == 92 {
+                    if pos > run_start { word_builder::append(sb, json_src.substring(run_start, pos - run_start)) }
+                    pilot mut esc = 0 - 1
+                    if pos + 1 < len { esc = buf.read_byte() }
+                    pos += 2
+                    if esc == 110 {
+                        word_builder::append(sb, "\n")
+                    } else if esc == 116 {
+                        word_builder::append(sb, "\t")
+                    } else if esc == 114 {
+                        word_builder::append(sb, "\r")
+                    } else if esc == 92 {
+                        word_builder::append(sb, "\\")
+                    } else if esc == 34 {
+                        word_builder::append(sb, "\"")
+                    } else if esc == 47 {
+                        word_builder::append(sb, "/")
+                    } else if esc == 98 {
+                        word_builder::append(sb, char_to_word(8))
+                    } else if esc == 102 {
+                        word_builder::append(sb, char_to_word(12))
+                    } else if esc == 117 {
+                        -- \uXXXX, joining a surrogate pair into one code point
+                        pilot mut cp = 65533
+                        pilot mut units = 0
+                        pilot mut first = 0 - 1
+                        pilot mut reading = true
+                        repeat until not reading {
+                            pilot mut value = 0 - 1
+                            if pos + 4 <= len {
+                                buf.seek(pos)
+                                value = 0
+                                repeat 4 times {
+                                    pilot h = buf.read_byte()
+                                    pilot mut d = 0 - 1
+                                    if h >= 48 and h <= 57 {
+                                        d = h - 48
+                                    } else if h >= 97 and h <= 102 {
+                                        d = h - 87
+                                    } else if h >= 65 and h <= 70 {
+                                        d = h - 55
+                                    }
+                                    if d < 0 or value < 0 {
+                                        value = 0 - 1
+                                    } else {
+                                        value = value * 16 + d
+                                    }
+                                }
+                            }
+                            reading = false
+                            if value < 0 {
+                                json_pos = pos
+                                json_fail("bad \\u escape")
+                                if units > 0 { pos -= 2 }
+                            } else if units == 0 {
+                                pos += 4
+                                if value >= 55296 and value <= 56319 {
+                                    first = value
+                                    units = 1
+                                    buf.seek(pos)
+                                    if pos + 1 < len and buf.read_byte() == 92 and buf.read_byte() == 117 {
+                                        pos += 2
+                                        reading = true
+                                    }
+                                } else if value < 56320 or value > 57343 {
+                                    cp = value
+                                }
+                            } else if value >= 56320 and value <= 57343 {
+                                pos += 4
+                                cp = 65536 + (first - 55296) * 1024 + (value - 56320)
+                            } else {
+                                -- Not a low surrogate: read it as its own escape.
+                                pos -= 2
+                            }
+                        }
+                        word_builder::append(sb, char_to_word(cp))
+                    } else if esc < 0 {
+                        pos = len
+                    } else {
+                        -- Unknown escape: keep the escaped character (lenient).
+                        word_builder::append(sb, json_src.char_at(pos - 1))
+                    }
+                    run_start = pos
+                    if pos < len { buf.seek(pos) }
+                } else {
+                    pos += 1
+                }
+            }
+            if not closed {
+                if len > run_start { word_builder::append(sb, json_src.substring(run_start, len - run_start)) }
+                json_pos = len
+                json_fail("unterminated string")
+            }
+            pilot text = word_builder::finish(sb)
+            if mode == 1 {
+                json_stack_keys.push(text)
+                mode = 2
+            } else {
+                node = json_alloc("s", text)
+            }
+        } else if mode == 1 {
+            json_fail_expected("\"", pos)
+            pos += 1
+            json_stack_keys.push("")
+            mode = 2
+        } else if b == 45 or (b >= 48 and b <= 57) {
+            -- Number text, kept as written: -?digits[.digits][(e|E)[+-]digits]
+            pilot start = pos
+            pos += 1
+            pilot mut prev = b
+            pilot mut scanning = true
+            repeat until not scanning or pos >= len {
+                pilot v = buf.read_byte()
+                if (v >= 48 and v <= 57) or v == 46 or v == 101 or v == 69 {
+                    pos += 1
+                } else if (v == 43 or v == 45) and (prev == 101 or prev == 69) {
+                    pos += 1
+                } else {
+                    scanning = false
+                }
+                prev = v
+            }
+            node = json_alloc("n", json_src.substring(start, pos - start))
+        } else if b == 116 and json_src.substring(pos, 4) == "true" {
+            pos += 4
+            node = json_alloc("b", "true")
+        } else if b == 102 and json_src.substring(pos, 5) == "false" {
+            pos += 5
+            node = json_alloc("b", "false")
+        } else if b == 110 and json_src.substring(pos, 4) == "null" {
+            pos += 4
+            node = json_alloc("null", "")
+        } else if (b == 91 or b == 123) and depth >= 512 {
+            json_pos = pos
+            json_fail("nesting deeper than 512 levels")
+            -- Unwind every open container without reading further.
+            pos = len
+            node = 0 - 1
+        } else if b == 91 or b == 123 {
+            pos += 1
+            json_depth += 1
+            if b == 91 {
+                frames.push(json_alloc("a", ""))
+                frame_keys.push(0 - 1)
+            } else {
+                frames.push(json_alloc("o", ""))
+                frame_keys.push(json_stack_keys.length())
+            }
+            frame_base.push(json_stack.length())
+            mode = 3
+        } else {
+            json_pos = pos
+            if b < 0 {
+                json_fail("unexpected end of input")
+            } else {
+                json_fail("unexpected '" + json_src.char_at(pos) + "'")
+            }
+            node = 0 - 1
+        }
+        if node != 0 - 2 {
+            if frames.length() == 0 {
+                root = node
+                finished = true
+            } else {
+                json_stack.push(node)
+                mode = 4
+            }
+        }
+    }
+    -- Anything but whitespace after the root value is an error.
+    if pos < len {
+        buf.seek(pos)
+        pilot mut trailing = false
+        repeat until trailing or pos >= len {
+            pilot v = buf.read_byte()
+            if v == 32 or v == 10 or v == 13 or v == 9 { pos += 1 } else { trailing = true }
+        }
+        if trailing {
+            json_pos = pos
+            json_fail("unexpected trailing characters")
+        }
+    }
+    buf.release()
+    json_pos = pos
     json_src = ""
-    json_buf.truncate(0)
     give back root
 }
 
@@ -585,13 +574,13 @@ task json_parse(source: word) -> int {
 task json_write_quoted(b: int, value: word) -> int {
     word_builder::append(b, "\"")
     pilot vlen = value.length()
-    json_wbuf.truncate(0)
-    json_wbuf.write_word(value.repeated(1))
-    json_wbuf.seek(0)
+    pilot buf = ByteBuffer::with_capacity(vlen)
+    buf.write_word(value.repeated(1))
+    buf.seek(0)
     pilot mut run_start = 0
     pilot mut i = 0
     repeat vlen times {
-        pilot v = json_wbuf.read_byte()
+        pilot v = buf.read_byte()
         if v == 34 or v == 92 or v < 32 {
             if i > run_start { word_builder::append(b, value.substring(run_start, i - run_start)) }
             if v == 34 {
@@ -616,6 +605,7 @@ task json_write_quoted(b: int, value: word) -> int {
         }
         i += 1
     }
+    buf.release()
     if run_start == 0 {
         word_builder::append(b, value)
     } else if vlen > run_start {

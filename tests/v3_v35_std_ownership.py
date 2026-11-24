@@ -34,22 +34,8 @@ task std_gate_check(condition: bool) -> void {
 -- Release fixture-owned legacy pools explicitly. The public legacy modules
 -- retain their original process-global state and lifetime policy.
 task std_gate_clear_pools() -> void {
-    if json_inited != 0 {
-        pilot mut i = 0
-        repeat json_count times {
-            pilot t: word = array_get(json_types, i)
-            if t == "a" or t == "o" {
-                array_release(word_to_int(array_get(json_children, i)))
-            }
-            if t == "o" { array_release(word_to_int(array_get(json_keys, i))) }
-            i += 1
-        }
-        array_release(json_types) json_types = 0
-        array_release(json_vals) json_vals = 0
-        array_release(json_children) json_children = 0
-        array_release(json_keys) json_keys = 0
-        json_src = "" json_count = 0 json_inited = 0
-    }
+    -- std::json keeps its pool in Lists; json_reset() empties them.
+    if json_inited != 0 { json_reset() }
     if http_inited != 0 {
         array_release(http_resp_statuses) http_resp_statuses = 0
         array_release(http_resp_bodies) http_resp_bodies = 0

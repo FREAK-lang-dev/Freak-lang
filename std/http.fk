@@ -8,7 +8,14 @@
 --   say http_resp_status(resp)
 --   say http_resp_body(resp)
 --
--- For HTTPS, use port 443 with an external TLS wrapper (future).
+--   pilot ctype = http_resp_header(resp, "content-type")
+--   pilot r = http_request("PATCH", "example.com", "/item/1", 80,
+--                          "application/json", "{\"a\":1}")
+--
+-- Responses are read until the server closes the connection, up to
+-- http_set_max_response(bytes) (8 MiB by default). Chunked bodies
+-- (Transfer-Encoding: chunked) are decoded. For HTTPS, use port 443 with
+-- an external TLS wrapper (future).
 -- ===================================================================
 
 -- Response storage
@@ -17,6 +24,7 @@ pilot mut http_resp_bodies = 0
 pilot mut http_resp_headers_raw = 0
 pilot mut http_resp_count = 0
 pilot mut http_inited = 0
+pilot mut http_max_response = 8388608
 
 task http_init() -> void {
     if http_inited == 0 {
@@ -52,171 +60,192 @@ task http_resp_headers(handle: int) -> word {
     give back array_get(http_resp_headers_raw, handle)
 }
 
+task http_set_max_response(bytes: int) -> void {
+    if bytes > 0 { http_max_response = bytes }
+}
+
+-- Value of the first header called name (case-insensitive), trimmed, or "".
+task http_resp_header(handle: int, name: word) -> word {
+    pilot raw: word = array_get(http_resp_headers_raw, handle)
+    give back http_header_value(raw, name)
+}
+
+task http_header_value(raw: word, name: word) -> word {
+    pilot want = name.to_lower()
+    pilot rlen = raw.length()
+    -- Skip the status line.
+    pilot mut pos = 0
+    repeat until pos >= rlen or raw.char_at(pos) == "\n" { pos += 1 }
+    pos += 1
+    repeat until pos >= rlen {
+        pilot mut end = pos
+        repeat until end >= rlen or raw.char_at(end) == "\n" { end += 1 }
+        pilot mut line_end = end
+        if line_end > pos and raw.char_at(line_end - 1) == "\r" { line_end -= 1 }
+        pilot mut colon = pos
+        repeat until colon >= line_end or raw.char_at(colon) == ":" { colon += 1 }
+        if colon < line_end {
+            if raw.substring(pos, colon - pos).trim().to_lower() == want {
+                give back raw.substring(colon + 1, line_end - colon - 1).trim()
+            }
+        }
+        pos = end + 1
+    }
+    give back ""
+}
+
 -- === Parse HTTP response ===
 
 task http_parse_status(line: word) -> int {
-    -- Parse "HTTP/1.1 200 OK" -> 200
-    -- Find first space, then parse 3-digit status
+    -- Parse "HTTP/1.1 200 OK" -> 200: the three characters after the first space.
     pilot slen = line.length()
     pilot mut si = 0
-    -- Skip to first space
-    repeat slen times {
-        if line.char_at(si) == " " {
-            -- Parse next 3 chars as status code
-            pilot mut code_str = ""
-            pilot mut ci = si + 1
-            repeat 3 times {
-                if ci < slen {
-                    code_str = code_str + line.char_at(ci)
-                    ci += 1
-                }
-            }
-            give back word_to_int(code_str)
-        }
+    repeat until si >= slen {
+        if line.char_at(si) == " " { give back word_to_int(line.substring(si + 1, 3)) }
         si += 1
     }
     give back 0
 }
 
-task http_split_response(raw: word) -> int {
-    -- Split raw HTTP response into status, headers, body
-    -- Look for \r\n\r\n boundary between headers and body
-    pilot rlen = raw.length()
-    pilot mut ri = 0
-    pilot mut header_end = 0 - 1
-    pilot mut prev3 = ""
-    pilot mut prev2 = ""
-    pilot mut prev1 = ""
+-- Decode a chunked body: hex size line, data, CRLF ... until a 0 chunk.
+-- Malformed framing keeps what was decoded so far.
+task http_decode_chunked(body: word) -> word {
+    pilot blen = body.length()
+    pilot b = word_builder::new()
+    pilot mut pos = 0
+    pilot mut running = true
+    repeat until not running or pos >= blen {
+        pilot mut size = 0
+        pilot mut digits = 0
+        pilot mut i = pos
+        pilot mut in_size = true
+        repeat until i >= blen or body.char_at(i) == "\n" {
+            pilot c = body.char_at(i).to_lower()
+            if c == ";" or c == "\r" or c == " " { in_size = false }
+            if in_size {
+                pilot mut d = 0 - 1
+                if c >= "0" and c <= "9" {
+                    d = word_to_int(c)
+                } else if c >= "a" and c <= "f" {
+                    pilot hex = "abcdef"
+                    pilot mut h = 0
+                    repeat 6 times {
+                        if hex.char_at(h) == c { d = 10 + h }
+                        h += 1
+                    }
+                }
+                if d < 0 {
+                    running = false
+                    in_size = false
+                } else {
+                    size = size * 16 + d
+                    digits += 1
+                }
+            }
+            i += 1
+        }
+        if digits == 0 or i >= blen { running = false }
+        if running {
+            pilot data_start = i + 1
+            if size == 0 {
+                running = false
+            } else {
+                word_builder::append(b, body.substring(data_start, size))
+                pos = data_start + size
+                if body.char_at(pos) == "\r" { pos += 1 }
+                if body.char_at(pos) == "\n" { pos += 1 }
+            }
+        }
+    }
+    give back word_builder::finish(b)
+}
 
-    repeat rlen times {
-        pilot ch = raw.char_at(ri)
-        if prev2 == "\r" and prev1 == "\n" and ch == "\n" {
-            -- Found \r\n...\n — likely \r\n\r\n
-            header_end = ri + 1
+task http_split_response(raw: word) -> int {
+    -- Split raw HTTP response into status, headers, body at the first blank
+    -- line (CRLF CRLF, or a bare LF blank line from lenient servers).
+    pilot rlen = raw.length()
+    pilot mut header_end = 0 - 1
+    pilot mut status_end = 0 - 1
+    pilot mut ri = 0
+    repeat until ri >= rlen or header_end >= 0 {
+        if raw.char_at(ri) == "\n" {
+            if status_end < 0 { status_end = ri }
+            pilot next = raw.char_at(ri + 1)
+            if next == "\n" {
+                header_end = ri + 2
+            } else if next == "\r" and raw.char_at(ri + 2) == "\n" {
+                header_end = ri + 3
+            }
         }
-        if prev3 == "\r" and prev2 == "\n" and prev1 == "\r" and ch == "\n" {
-            header_end = ri + 1
-        }
-        prev3 = prev2
-        prev2 = prev1
-        prev1 = ch
         ri += 1
     }
+    if status_end < 0 { status_end = rlen }
+    if status_end > 0 and raw.char_at(status_end - 1) == "\r" { status_end -= 1 }
+    pilot status = http_parse_status(raw.substring(0, status_end))
 
-    -- Extract status line (first line)
-    pilot mut status_line = ""
-    pilot mut li = 0
-    repeat rlen times {
-        pilot lc = raw.char_at(li)
-        if lc == "\r" or lc == "\n" {
-            -- end of status line found
-            li = rlen
-        } else {
-            status_line = status_line + lc
-        }
-        li += 1
-    }
-
-    pilot status = http_parse_status(status_line)
-
-    -- Extract headers and body
-    pilot mut headers = ""
-    pilot mut body = ""
-    if header_end > 0 {
-        -- Headers: from start to header_end
-        pilot mut hi = 0
-        repeat header_end times {
-            if hi < rlen {
-                headers = headers + raw.char_at(hi)
-            }
-            hi += 1
-        }
-        -- Body: from header_end to end
-        pilot mut bi = header_end
-        repeat rlen times {
-            if bi < rlen {
-                body = body + raw.char_at(bi)
-            }
-            bi += 1
-        }
-    } else {
+    if header_end <= 0 {
         -- No header/body separator found
-        headers = raw
+        give back http_alloc_resp(status, "", raw)
     }
-
+    pilot headers = raw.substring(0, header_end)
+    pilot mut body = raw.substring(header_end, rlen - header_end)
+    if http_header_value(headers.repeated(1), "transfer-encoding").to_lower().contains("chunked") {
+        body = http_decode_chunked(body)
+    }
     give back http_alloc_resp(status, body, headers)
 }
 
 -- === HTTP methods ===
 
-task http_get(host: word, path: word, port: int) -> int {
+-- Send one request and read the whole response. with_body adds
+-- Content-Type and Content-Length headers and the body.
+task http_send(method: word, host: word, path: word, port: int, content_type: word, body: word, with_body: bool) -> int {
     http_init()
 
-    pilot fd = tcp_connect(host, port)
+    pilot fd = tcp_connect(host.repeated(1), port)
     if fd < 0 {
         give back http_alloc_resp(0, "Connection failed", "")
     }
 
-    -- Build HTTP/1.1 GET request
-    pilot req = "GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: FREAK/0.8\r\n\r\n"
+    pilot mut req = method + " " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: FREAK/0.8\r\n"
+    if with_body {
+        req = req + "Content-Type: " + content_type + "\r\nContent-Length: " + word_from_int(body.length()) + "\r\n\r\n" + body
+    } else {
+        req = req + "\r\n"
+    }
     tcp_send(fd, req)
 
     -- Read full response
-    pilot raw = tcp_recv_all(fd, 65536)
+    pilot raw = tcp_recv_all(fd, http_max_response)
     tcp_close(fd)
 
     give back http_split_response(raw)
+}
+
+-- Any method. Content headers are sent when there is a body or a content
+-- type, and always for POST, PUT and PATCH.
+task http_request(method: word, host: word, path: word, port: int, content_type: word, body: word) -> int {
+    pilot verb = method.to_upper()
+    pilot with_body = body != "" or content_type != "" or verb == "POST" or verb == "PUT" or verb == "PATCH"
+    give back http_send(verb, host, path, port, content_type, body, with_body)
+}
+
+task http_get(host: word, path: word, port: int) -> int {
+    give back http_send("GET", host, path, port, "", "", false)
 }
 
 task http_post(host: word, path: word, port: int, content_type: word, body: word) -> int {
-    http_init()
-
-    pilot fd = tcp_connect(host, port)
-    if fd < 0 {
-        give back http_alloc_resp(0, "Connection failed", "")
-    }
-
-    pilot body_len = word_from_int(body.length())
-    pilot req = "POST " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: FREAK/0.8\r\nContent-Type: " + content_type + "\r\nContent-Length: " + body_len + "\r\n\r\n" + body
-    tcp_send(fd, req)
-
-    pilot raw = tcp_recv_all(fd, 65536)
-    tcp_close(fd)
-
-    give back http_split_response(raw)
+    give back http_send("POST", host, path, port, content_type, body, true)
 }
 
 task http_put(host: word, path: word, port: int, content_type: word, body: word) -> int {
-    http_init()
+    give back http_send("PUT", host, path, port, content_type, body, true)
+}
 
-    pilot fd = tcp_connect(host, port)
-    if fd < 0 {
-        give back http_alloc_resp(0, "Connection failed", "")
-    }
-
-    pilot body_len = word_from_int(body.length())
-    pilot req = "PUT " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: FREAK/0.8\r\nContent-Type: " + content_type + "\r\nContent-Length: " + body_len + "\r\n\r\n" + body
-    tcp_send(fd, req)
-
-    pilot raw = tcp_recv_all(fd, 65536)
-    tcp_close(fd)
-
-    give back http_split_response(raw)
+task http_patch(host: word, path: word, port: int, content_type: word, body: word) -> int {
+    give back http_send("PATCH", host, path, port, content_type, body, true)
 }
 
 task http_delete(host: word, path: word, port: int) -> int {
-    http_init()
-
-    pilot fd = tcp_connect(host, port)
-    if fd < 0 {
-        give back http_alloc_resp(0, "Connection failed", "")
-    }
-
-    pilot req = "DELETE " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: FREAK/0.8\r\n\r\n"
-    tcp_send(fd, req)
-
-    pilot raw = tcp_recv_all(fd, 65536)
-    tcp_close(fd)
-
-    give back http_split_response(raw)
+    give back http_send("DELETE", host, path, port, "", "", false)
 }

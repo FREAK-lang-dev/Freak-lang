@@ -329,6 +329,10 @@ jobs:
           ./build/freak$EXT build tests/json_test.fk
           ./tests/json_test$EXT
 
+      - name: Test — std library contracts (string/json/algorithm/convert/version/http)
+        shell: bash
+        run: python -u tests/v3_std_library.py --freak ./build/freak$EXT
+
       - name: Test — file I/O runtime
         shell: bash
         run: |
@@ -831,6 +835,10 @@ jobs:
         run: |
           ./build/freak$EXT build tests/json_test.fk
           ./tests/json_test$EXT
+
+      - name: Test — std library contracts (string/json/algorithm/convert/version/http)
+        shell: bash
+        run: python -u tests/v3_std_library.py --freak ./build/freak$EXT
 
       - name: Test — file I/O runtime
         shell: bash

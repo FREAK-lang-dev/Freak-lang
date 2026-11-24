@@ -1,0 +1,57 @@
+-- std::http client contract fixture (LLVM: std/http.fk is loaded only for
+-- LLVM builds). With no arguments it checks response parsing offline;
+-- tests/v3_std_library.py passes "PORT" of a loopback server for the rest.
+
+pilot mut checks = 0
+pilot mut fails = 0
+
+task ck(label: word, cond: bool) -> void {
+    checks += 1
+    if not cond {
+        fails += 1
+        say "FAIL " + label
+    }
+}
+
+task zero() -> word { give back char_to_word(0) }
+
+task check_offline() -> void {
+    pilot response = http_split_response(("HTTP/1.1 201 Created\r\nX-A: b\r\n\r\na" + zero() + "Ω"))
+    ck("status", http_resp_status(response) == 201)
+    ck("body nul", http_resp_body(response) == ("a" + zero() + "Ω"))
+    ck("headers", http_resp_headers(response) == "HTTP/1.1 201 Created\r\nX-A: b\r\n\r\n")
+    ck("bad status", http_parse_status("not-http") == 0)
+    ck("header lookup", http_resp_header(response, "x-a") == "b" and http_resp_header(response, "nope") == "")
+    pilot chunked = http_split_response("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n5;x=y\r\npedia\r\n0\r\n\r\n")
+    ck("offline chunked", http_resp_body(chunked) == "Wikipedia")
+    pilot lf = http_split_response("HTTP/1.0 404 Not Found\nServer: x\n\nmissing")
+    ck("bare lf", http_resp_status(lf) == 404 and http_resp_body(lf) == "missing" and http_resp_header(lf, "server") == "x")
+    pilot nosep = http_split_response("HTTP/1.1 500 Oops")
+    ck("no separator", http_resp_status(nosep) == 500 and http_resp_body(nosep) == "" and http_resp_headers(nosep) == "HTTP/1.1 500 Oops")
+}
+
+task check_online(port: int) -> void {
+    pilot c = http_get("127.0.0.1", "/chunked", port)
+    ck("chunked", http_resp_body(c) == "hello, world")
+    ck("chunk header", http_resp_header(c, "X-TEST") == "yes")
+    pilot big = http_get("127.0.0.1", "/big", port)
+    ck("big body", http_resp_body(big).length() == 300000)
+    pilot crlf = http_get("127.0.0.1", "/crlfbody", port)
+    ck("first blank line", http_resp_status(crlf) == 202 and http_resp_body(crlf) == "line1\r\n\r\nline2")
+    pilot p = http_patch("127.0.0.1", "/patch", port, "application/json", "{\"a\":1}")
+    ck("patch", http_resp_status(p) == 201 and http_resp_body(p) == "ok")
+    pilot h = http_request("head", "127.0.0.1", "/h", port, "", "")
+    ck("head", http_resp_status(h) == 201)
+    pilot post = http_post("127.0.0.1", "/post", port, "text/plain", "postΩ")
+    ck("post", http_resp_status(post) == 201)
+    pilot fail = http_get("127.0.0.1", "/x", 1)
+    ck("conn fail", http_resp_status(fail) == 0)
+}
+
+task main() {
+    http_init()
+    check_offline()
+    if process::arg(1) != "" { check_online(word_to_int(process::arg(1))) }
+    say "std http checks " + word_from_int(checks) + " failed " + word_from_int(fails)
+    if fails > 0 { process::exit(1) }
+}

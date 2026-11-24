@@ -1,83 +1,63 @@
 -- ===================================================================
 -- FREAK Standard Library — std::convert
 -- ===================================================================
--- Number-to-string conversion utilities in pure FREAK.
+-- Number <-> text conversion utilities in pure FREAK.
+-- Digits are produced from a negative accumulator, so the most negative
+-- int (-9223372036854775808) converts exactly in every base.
 -- ===================================================================
 
-task int_to_hex(n: int) -> word {
+-- n in any base from 2 to 36 (lowercase digits); "" for another base.
+task int_to_base(n: int, base: int) -> word {
+    if base < 2 or base > 36 { give back "" }
     if n == 0 { give back "0" }
-    pilot hex_chars = "0123456789abcdef"
-    pilot mut neg = false
+    pilot digits = "0123456789abcdefghijklmnopqrstuvwxyz"
     pilot mut val = n
-    if val < 0 {
-        neg = true
-        val = 0 - val
+    if val > 0 { val = 0 - val }
+    pilot mut out = ""
+    repeat until val == 0 {
+        pilot rem = val - val / base * base
+        out = digits.char_at(0 - rem) + out
+        val = val / base
     }
-    pilot mut hex_out = ""
-    repeat until val <= 0 {
-        pilot rem = val - val / 16 * 16
-        hex_out = hex_chars.char_at(rem) + hex_out
-        val = val / 16
-    }
-    if neg { hex_out = "-" + hex_out }
-    give back hex_out
+    if n < 0 { give back "-" + out }
+    give back out
+}
+
+task int_to_hex(n: int) -> word {
+    give back int_to_base(n, 16)
 }
 
 task int_to_bin(n: int) -> word {
-    if n == 0 { give back "0" }
-    pilot mut neg = false
-    pilot mut val = n
-    if val < 0 {
-        neg = true
-        val = 0 - val
-    }
-    pilot mut bin_out = ""
-    repeat until val <= 0 {
-        pilot rem = val - val / 2 * 2
-        if rem == 1 {
-            bin_out = "1" + bin_out
-        } else {
-            bin_out = "0" + bin_out
-        }
-        val = val / 2
-    }
-    if neg { bin_out = "-" + bin_out }
-    give back bin_out
+    give back int_to_base(n, 2)
 }
 
 task int_to_oct(n: int) -> word {
-    if n == 0 { give back "0" }
-    pilot oct_chars = "01234567"
-    pilot mut neg = false
-    pilot mut val = n
-    if val < 0 {
-        neg = true
-        val = 0 - val
-    }
-    pilot mut oct_out = ""
-    repeat until val <= 0 {
-        pilot rem = val - val / 8 * 8
-        oct_out = oct_chars.char_at(rem) + oct_out
-        val = val / 8
-    }
-    if neg { oct_out = "-" + oct_out }
-    give back oct_out
+    give back int_to_base(n, 8)
 }
 
 task char_to_digit(c: word) -> int {
-    if c == "0" { give back 0 }
-    if c == "1" { give back 1 }
-    if c == "2" { give back 2 }
-    if c == "3" { give back 3 }
-    if c == "4" { give back 4 }
-    if c == "5" { give back 5 }
-    if c == "6" { give back 6 }
-    if c == "7" { give back 7 }
-    if c == "8" { give back 8 }
-    if c == "9" { give back 9 }
+    if c.length() != 1 { give back 0 - 1 }
+    if c >= "0" and c <= "9" { give back word_to_int(c) }
     give back 0 - 1
 }
 
+-- Value of one digit character in bases up to 36 (case-insensitive), or -1.
+task char_to_base_digit(c: word) -> int {
+    if c.length() != 1 { give back 0 - 1 }
+    if c >= "0" and c <= "9" { give back word_to_int(c) }
+    pilot letters = "abcdefghijklmnopqrstuvwxyz"
+    pilot lower = c.to_lower()
+    if lower >= "a" and lower <= "z" {
+        pilot mut i = 0
+        repeat 26 times {
+            if letters.char_at(i) == lower { give back 10 + i }
+            i += 1
+        }
+    }
+    give back 0 - 1
+}
+
+-- Decimal text to int; 0 for empty or malformed text (legacy behavior).
 task word_to_int_safe(s: word) -> int {
     pilot slen = s.length()
     if slen == 0 { give back 0 }
@@ -89,16 +69,79 @@ task word_to_int_safe(s: word) -> int {
     }
     pilot mut num = 0
     repeat until wi >= slen {
-        pilot d = char_to_digit(s.char_at(wi))
-        if d < 0 { give back 0 }
-        num = num * 10 + d
+        pilot c = s.char_at(wi)
+        if not (c >= "0" and c <= "9") { give back 0 }
+        num = num * 10 - word_to_int(c)
         wi += 1
     }
-    if neg { give back 0 - num }
-    give back num
+    if neg { give back num }
+    give back 0 - num
+}
+
+-- Text in base 2..36 to int, with an optional leading '-' and, for base 16,
+-- 2 and 8, an optional 0x / 0b / 0o prefix. Underscores are skipped.
+-- Returns 0 for empty or malformed text, like word_to_int_safe.
+task base_to_int(s: word, base: int) -> int {
+    if base < 2 or base > 36 { give back 0 }
+    pilot slen = s.length()
+    pilot mut i = 0
+    pilot mut neg = false
+    if s.char_at(0) == "-" {
+        neg = true
+        i = 1
+    }
+    if i + 2 <= slen and s.char_at(i) == "0" {
+        pilot mark = s.char_at(i + 1).to_lower()
+        if (base == 16 and mark == "x") or (base == 2 and mark == "b") or (base == 8 and mark == "o") { i += 2 }
+    }
+    if i >= slen { give back 0 }
+    pilot letters = "abcdefghijklmnopqrstuvwxyz"
+    pilot mut num = 0
+    repeat until i >= slen {
+        pilot c = s.char_at(i)
+        if c != "_" {
+            pilot mut d = 0 - 1
+            if c >= "0" and c <= "9" {
+                d = word_to_int(c)
+            } else {
+                pilot lower = c.to_lower()
+                if lower >= "a" and lower <= "z" {
+                    pilot mut li = 0
+                    repeat 26 times {
+                        if letters.char_at(li) == lower { d = 10 + li }
+                        li += 1
+                    }
+                }
+            }
+            if d < 0 or d >= base { give back 0 }
+            num = num * base - d
+        }
+        i += 1
+    }
+    if neg { give back num }
+    give back 0 - num
+}
+
+task hex_to_int(s: word) -> int {
+    give back base_to_int(s, 16)
+}
+
+task bin_to_int(s: word) -> int {
+    give back base_to_int(s, 2)
+}
+
+task oct_to_int(s: word) -> int {
+    give back base_to_int(s, 8)
 }
 
 task bool_to_word(b: bool) -> word {
     if b { give back "true" }
     give back "false"
+}
+
+-- FREAK's bool spellings: true/yes/hai and false/no/iie (any case), plus
+-- "1"/"0". Anything else is false.
+task word_to_bool(s: word) -> bool {
+    pilot t = s.trim().to_lower()
+    give back t == "true" or t == "yes" or t == "hai" or t == "1"
 }

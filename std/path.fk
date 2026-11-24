@@ -22,9 +22,7 @@
 -- Helpers use explicit copies internally, without a std-module borrow privilege.
 
 task path_byte_count(value: word) -> int {
-    pilot mut index = 0
-    repeat until value.char_at(index) == "" { index += 1 }
-    give back index
+    give back value.length()
 }
 
 task path_separator_style(ch: word, windows: bool) -> bool {
