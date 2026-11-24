@@ -3,15 +3,22 @@ name: V4 CI
 # Main only moves through the merge queue (rebase method): the merge_group run
 # already tested the exact commit that lands, so a push to main runs only the
 # LLVM bridge job, which keeps main's LLVM cache warm for pull requests (a
-# cache saved by a merge queue branch is not visible to them). Pull requests
-# run Linux only; macOS and Windows run in the merge queue group and on manual
-# dispatch, because those runners are the scarcest.
+# cache saved by a merge queue branch is not visible to them).
+#
+# Platforms, because macOS (5 slots) and Windows runners are the scarcest:
+# - pull requests run Linux only;
+# - the merge queue adds one macOS and Windows smoke (V4 fast) on top of Linux;
+# - the nightly schedule and manual dispatch run the full matrix on main,
+#   including the macOS/Windows native backend, runtime helpers, safety, LSP
+#   and Windows runtime jobs. nightly-report.yml files an issue if it fails.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
   merge_group:
+  schedule:
+    - cron: "17 1 * * *"
   workflow_dispatch:
 
 # A new push to a pull request cancels its superseded run. Merge queue groups
@@ -116,7 +123,7 @@ jobs:
       fail-fast: false
       matrix:
         # Pull requests: Linux only; merge queue and manual runs: all three.
-        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') }}
+        os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
 
@@ -139,7 +146,7 @@ jobs:
 
   v4-native-platforms:
     name: V4 native backend (${{ matrix.os }})
-    if: github.event_name != 'push' && github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -186,7 +193,7 @@ jobs:
       fail-fast: false
       matrix:
         # Pull requests: Linux only; merge queue and manual runs: all three.
-        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') }}
+        os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -243,7 +250,7 @@ jobs:
       fail-fast: false
       matrix:
         # Pull requests: Linux only; merge queue and manual runs: all three.
-        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') }}
+        os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -715,7 +722,7 @@ jobs:
 
   v4-runtime-windows:
     name: V4 runtime windows
-    if: github.event_name != 'push' && github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
 
     steps:

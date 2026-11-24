@@ -5,8 +5,9 @@ The V3 lanes in ``.github/workflows/ci.yml`` build the V3.5 compiler, the
 native CLI and Hangar, then run their contracts on Linux, macOS and Windows.
 None of those lanes read the V4 crates, the V4 fixtures or the V4 harnesses,
 so a pull request that only touches those files cannot change their result.
-Such a pull request skips the V3 lanes; every merge queue group still runs
-them.
+Such a pull request skips the V3 lanes, and so does its merge queue group
+when the group's own change (the diff from the group's base commit to its
+head) is V4-only. The nightly schedule and manual runs always run them.
 
 Pull requests run the V3 lanes on Linux only. macOS and Windows runners are
 the scarcest (the account shares 20 concurrent jobs, 5 of them macOS), and a
@@ -21,6 +22,7 @@ it, an unreadable file list or a truncated one keeps the V3 lanes on.
 Usage::
 
     python tools/ci_scope.py --event pull_request --files changed.txt
+    python tools/ci_scope.py --event merge_group --files changed.txt
     python tools/ci_scope.py --event push
 
 ``--files`` holds one repository path per line (both sides of a rename).
@@ -64,6 +66,9 @@ V4_ONLY_PATTERNS: tuple[str, ...] = (
     ".github/workflows/v4-locked-bootstrap.yml",
 )
 
+# Events whose changed-file list can switch the V3 lanes off.
+SCOPED_EVENTS: tuple[str, ...] = ("pull_request", "merge_group")
+
 # The pull request files API stops listing at 3000 entries.
 FILE_LIST_LIMIT = 3000
 
@@ -77,7 +82,7 @@ def is_v4_only(path: str) -> bool:
 
 
 def needs_v3(event: str, paths: list[str] | None) -> tuple[bool, str]:
-    if event != "pull_request":
+    if event not in SCOPED_EVENTS:
         return True, f"event {event!r} always runs the V3 lanes"
     if paths is None:
         return True, "changed-file list unavailable"

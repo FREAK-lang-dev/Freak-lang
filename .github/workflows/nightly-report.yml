@@ -1,0 +1,50 @@
+name: Nightly report
+
+# The merge queue runs macOS and Windows as a slim smoke (see v4-ci.yml); the
+# full matrix runs nightly on main. When a nightly run fails, open an issue
+# (or comment on the open one) so a platform-only break is seen the next
+# morning instead of in the next release.
+on:
+  workflow_run:
+    workflows: ["CI", "V4 CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    name: File nightly failure
+    if: >-
+      github.event.workflow_run.event == 'schedule' &&
+      github.event.workflow_run.conclusion != 'success' &&
+      github.event.workflow_run.conclusion != 'cancelled' &&
+      github.event.workflow_run.conclusion != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Open or update the nightly issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="[nightly] $WORKFLOW full matrix failed"
+          jobs=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" \
+            --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | "- \(.name) (\(.conclusion))"' || true)
+          body=$(printf 'Nightly `%s` on `%s` ended **%s**: %s\n\nFailed jobs:\n%s\n' \
+            "$WORKFLOW" "${SHA:0:7}" "$CONCLUSION" "$RUN_URL" "${jobs:-"- (could not list jobs)"}")
+          existing=$(gh issue list -R "$REPO" --state open --search "\"$title\" in:title" \
+            --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -n1)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" -R "$REPO" --body "$body"
+          else
+            gh issue create -R "$REPO" --title "$title" --body "$body"
+          fi
