@@ -1856,15 +1856,26 @@ freak_word freak_word_to_lower(freak_word w) {
     return freak_word_own(buf, w.length);
 }
 
+/* Offset of the first needle at or after `from`, or SIZE_MAX. memchr finds
+   candidate first bytes, so a scan costs about one pass over the haystack. */
+static size_t freak_word_find_from(const char* hay, size_t hay_length,
+                                   const char* needle, size_t needle_length, size_t from) {
+    if (needle_length == 0) return from <= hay_length ? from : SIZE_MAX;
+    if (needle_length > hay_length) return SIZE_MAX;
+    size_t last = hay_length - needle_length;
+    while (from <= last) {
+        const char* hit = (const char*)memchr(hay + from, (unsigned char)needle[0], last - from + 1);
+        if (!hit) return SIZE_MAX;
+        size_t at = (size_t)(hit - hay);
+        if (needle_length == 1 || memcmp(hit + 1, needle + 1, needle_length - 1) == 0) return at;
+        from = at + 1;
+    }
+    return SIZE_MAX;
+}
+
 bool freak_word_contains(freak_word haystack, freak_word needle) {
     if (needle.length == 0) return true;
-    if (needle.length > haystack.length) return false;
-    for (size_t i = 0; i <= haystack.length - needle.length; i++) {
-        if (memcmp(haystack.data + i, needle.data, needle.length) == 0) {
-            return true;
-        }
-    }
-    return false;
+    return freak_word_find_from(haystack.data, haystack.length, needle.data, needle.length, 0) != SIZE_MAX;
 }
 
 bool freak_word_starts_with(freak_word w, freak_word prefix) {
@@ -1903,11 +1914,10 @@ freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s) 
     }
     /* Count occurrences */
     size_t count = 0;
-    for (size_t i = 0; i <= w.length - old_s.length; i++) {
-        if (memcmp(w.data + i, old_s.data, old_s.length) == 0) {
-            count++;
-            i += old_s.length - 1;
-        }
+    for (size_t at = freak_word_find_from(w.data, w.length, old_s.data, old_s.length, 0);
+         at != SIZE_MAX;
+         at = freak_word_find_from(w.data, w.length, old_s.data, old_s.length, at + old_s.length)) {
+        count++;
     }
     if (count == 0) {
         char* buf = (char*)malloc(w.length + 1);
@@ -1934,17 +1944,17 @@ freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s) 
     }
     char* buf = (char*)malloc(new_len + 1);
     if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
-    size_t j = 0;
-    for (size_t i = 0; i < w.length; ) {
-        if (i + old_s.length <= w.length &&
-            memcmp(w.data + i, old_s.data, old_s.length) == 0) {
-            memcpy(buf + j, new_s.data, new_s.length);
-            j += new_s.length;
-            i += old_s.length;
-        } else {
-            buf[j++] = w.data[i++];
-        }
+    size_t j = 0, i = 0;
+    for (size_t at = freak_word_find_from(w.data, w.length, old_s.data, old_s.length, 0);
+         at != SIZE_MAX;
+         at = freak_word_find_from(w.data, w.length, old_s.data, old_s.length, i)) {
+        memcpy(buf + j, w.data + i, at - i);
+        j += at - i;
+        memcpy(buf + j, new_s.data, new_s.length);
+        j += new_s.length;
+        i = at + old_s.length;
     }
+    memcpy(buf + j, w.data + i, w.length - i);
     buf[new_len] = '\0';
     return freak_word_own(buf, new_len);
 }
@@ -2901,6 +2911,31 @@ typedef struct freak_llvm_owned_word {
 static freak_llvm_owned_word** freak_llvm_owned_buckets = NULL;
 static size_t freak_llvm_owned_bucket_count = 0;
 static size_t freak_llvm_owned_count = 0;
+/* Released registry records are kept for reuse: every owned word needs one,
+   and a malloc/free pair per word showed up in request-heavy servers. */
+static freak_llvm_owned_word* freak_llvm_owned_spare = NULL;
+static size_t freak_llvm_owned_spare_count = 0;
+#define FREAK_LLVM_OWNED_SPARE_MAX 4096
+
+static freak_llvm_owned_word* freak_llvm_owned_record_new(void) {
+    freak_llvm_owned_word* record = freak_llvm_owned_spare;
+    if (record) {
+        freak_llvm_owned_spare = record->next;
+        freak_llvm_owned_spare_count -= 1;
+        return record;
+    }
+    return (freak_llvm_owned_word*)malloc(sizeof(*record));
+}
+
+static void freak_llvm_owned_record_free(freak_llvm_owned_word* record) {
+    if (freak_llvm_owned_spare_count >= FREAK_LLVM_OWNED_SPARE_MAX) {
+        free(record);
+        return;
+    }
+    record->next = freak_llvm_owned_spare;
+    freak_llvm_owned_spare = record;
+    freak_llvm_owned_spare_count += 1;
+}
 
 static size_t freak_llvm_owned_bucket(void* pointer, size_t bucket_count) {
     uint64_t value = (uint64_t)(uintptr_t)pointer;
@@ -3020,7 +3055,7 @@ int64_t freak_llvm_word_try_adopt_sized(int64_t pointer, size_t length) {
 #endif
     if (!freak_llvm_owned_ensure_capacity()) return 0;
     size_t bucket = freak_llvm_owned_bucket((void*)pointer, freak_llvm_owned_bucket_count);
-    freak_llvm_owned_word* owned = (freak_llvm_owned_word*)malloc(sizeof(*owned));
+    freak_llvm_owned_word* owned = freak_llvm_owned_record_new();
     if (!owned) return 0;
     owned->pointer = (void*)pointer;
     owned->length = length;
@@ -3040,12 +3075,11 @@ int64_t freak_llvm_word_adopt_sized(int64_t pointer, size_t length) {
         exit(1);
     }
     if (!pointer) return pointer;
-    freak_llvm_owned_word* existing = freak_llvm_owned_find((void*)pointer, NULL);
-    if (existing && existing->length != length) {
+    int64_t adopted = freak_llvm_word_try_adopt_sized(pointer, length);
+    if (!adopted && freak_llvm_owned_find((void*)pointer, NULL)) {
         fprintf(stderr, "FREAK: conflicting owned word length\n");
         exit(1);
     }
-    int64_t adopted = freak_llvm_word_try_adopt_sized(pointer, length);
     if (!adopted) {
         fprintf(stderr, "FREAK: out of memory tracking an owned word\n");
         exit(1);
@@ -3164,7 +3198,7 @@ void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement) {
             }
             *link = owned->next;
             free(owned->pointer);
-            free(owned);
+            freak_llvm_owned_record_free(owned);
             freak_llvm_owned_count -= 1;
             return;
         }
@@ -3276,8 +3310,20 @@ int64_t freak_llvm_word_append_owned(int64_t previous, int64_t suffix, int64_t r
  */
 int64_t freak_llvm_word_from_int(int64_t n) {
     char* buf = (char*)malloc(32);
-    snprintf(buf, 32, "%lld", (long long)n);
-    return freak_llvm_word_adopt((int64_t)buf);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    /* Same text as "%lld", without the printf machinery or a strlen. */
+    char digits[24];
+    int count = 0;
+    uint64_t magnitude = n < 0 ? (uint64_t)0 - (uint64_t)n : (uint64_t)n;
+    do {
+        digits[count++] = (char)('0' + (int)(magnitude % 10));
+        magnitude /= 10;
+    } while (magnitude != 0);
+    size_t len = 0;
+    if (n < 0) buf[len++] = '-';
+    while (count > 0) buf[len++] = digits[--count];
+    buf[len] = '\0';
+    return freak_llvm_word_adopt_sized((int64_t)buf, len);
 }
 
 int64_t freak_llvm_word_from_bool(int64_t b) {
@@ -4102,6 +4148,16 @@ static void freak_byte_buffer_append_bytes(
 static bool freak_byte_buffer_utf8_valid(const uint8_t* data, size_t length) {
     size_t i = 0;
     while (i < length) {
+        /* ASCII fast path: eight bytes with no high bit and no NUL. */
+        while (i + 8 <= length) {
+            uint64_t chunk;
+            memcpy(&chunk, data + i, 8);
+            if ((chunk & UINT64_C(0x8080808080808080)) != 0) break;
+            if (((chunk - UINT64_C(0x0101010101010101)) & ~chunk &
+                    UINT64_C(0x8080808080808080)) != 0) break;
+            i += 8;
+        }
+        if (i >= length) break;
         uint8_t first = data[i++];
         if (first == 0) return false;
         if (first <= 0x7f) continue;

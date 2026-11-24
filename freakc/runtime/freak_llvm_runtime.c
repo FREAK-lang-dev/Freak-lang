@@ -223,7 +223,10 @@ _Noreturn void freak_llvm_panic(int64_t message) {
 /* The C backend arrays store freak_word structs (24 bytes each).
    The LLVM backend passes all values as int64_t (8 bytes), so we
    need a separate pool that stores int64_t. */
-#define FREAK_LLVM_MAX_ARRAYS 1024
+/* The pool grows on demand (a server with many requests in flight holds
+   many arrays at once); FREAK_LLVM_MAX_ARRAYS caps it so a leak still
+   fails loudly instead of eating the machine. */
+#define FREAK_LLVM_MAX_ARRAYS (1 << 24)
 typedef struct {
     int64_t* data;
     int64_t  length;
@@ -232,8 +235,22 @@ typedef struct {
     uint32_t generation;
     bool     in_use;
 } freak_llvm_dyn_array;
-static freak_llvm_dyn_array freak_llvm_arrays[FREAK_LLVM_MAX_ARRAYS];
+static freak_llvm_dyn_array* freak_llvm_arrays = NULL;
 static int64_t freak_llvm_array_count = 0;
+static int64_t freak_llvm_array_capacity = 0;
+/* Room for one more slot; false when the cap is reached or memory ran out. */
+static bool freak_llvm_array_reserve(void) {
+    if (freak_llvm_array_count < freak_llvm_array_capacity) return true;
+    if (freak_llvm_array_capacity >= FREAK_LLVM_MAX_ARRAYS) return false;
+    int64_t next = freak_llvm_array_capacity ? freak_llvm_array_capacity * 2 : 1024;
+    if (next > FREAK_LLVM_MAX_ARRAYS) next = FREAK_LLVM_MAX_ARRAYS;
+    freak_llvm_dyn_array* grown = (freak_llvm_dyn_array*)realloc(freak_llvm_arrays, (size_t)next * sizeof(*grown));
+    if (!grown) return false;
+    memset(grown + freak_llvm_array_capacity, 0, (size_t)(next - freak_llvm_array_capacity) * sizeof(*grown));
+    freak_llvm_arrays = grown;
+    freak_llvm_array_capacity = next;
+    return true;
+}
 static int64_t freak_llvm_array_free_head = -1;
 
 #define FREAK_LLVM_ARRAY_GENERATION_MAX UINT32_C(0x7fffffff)
@@ -259,24 +276,25 @@ int64_t freak_llvm_array_new(void) {
         freak_llvm_array_free_head = freak_llvm_arrays[h].next_free;
         freak_llvm_arrays[h].generation += 1;
     } else {
-        if (freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS) {
+        if (!freak_llvm_array_reserve()) {
             fprintf(stderr, "FREAK: too many live arrays (max %d)\n", FREAK_LLVM_MAX_ARRAYS);
             exit(1);
         }
         h = freak_llvm_array_count++;
         freak_llvm_arrays[h].generation = 1;
     }
+    /* No storage until the first push: many arrays (per-request scratch
+       lists, optional fields) are created and released empty. */
     freak_llvm_arrays[h].length = 0;
-    freak_llvm_arrays[h].capacity = 64;
+    freak_llvm_arrays[h].capacity = 0;
     freak_llvm_arrays[h].next_free = -1;
     freak_llvm_arrays[h].in_use = true;
-    freak_llvm_arrays[h].data = (int64_t*)malloc(64 * sizeof(int64_t));
-    if (!freak_llvm_arrays[h].data) { fprintf(stderr, "FREAK: OOM\n"); exit(1); }
+    freak_llvm_arrays[h].data = NULL;
     return freak_llvm_array_make_handle(h, freak_llvm_arrays[h].generation);
 }
 
 int64_t freak_llvm_word_snapshot_lines(int64_t source) {
-    if (freak_llvm_array_free_head < 0 && freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS) return -1;
+    if (freak_llvm_array_free_head < 0 && !freak_llvm_array_reserve()) return -1;
     const char* text = (const char*)source;
     /* Preserve registered Word lengths, including embedded NUL bytes. Unknown
        foreign pointers still require one C-string scan; line adoption is sized. */
@@ -333,7 +351,7 @@ void freak_llvm_array_push(int64_t handle, int64_t item) {
     if (slot < 0) return;
     freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
     if (a->length >= a->capacity) {
-        a->capacity *= 2;
+        a->capacity = a->capacity ? a->capacity * 2 : 8;
         a->data = (int64_t*)realloc(a->data, (size_t)a->capacity * sizeof(int64_t));
         if (!a->data) { fprintf(stderr, "FREAK: OOM growing array\n"); exit(1); }
     }
