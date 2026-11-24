@@ -58,7 +58,17 @@ ByteBuffer arguments. Ordinary facade `http_send_bytes` consumes its buffer
 parameter and releases it after the send; a caller must not use or release that
 moved owner. `http_send_json` borrows a scalar document ticket, serializes into
 an owned temporary ByteBuffer and releases that buffer on success or failure.
-The caller still releases the JSON document. Released, stale or foreign tickets
+The caller still releases the JSON document.
+
+`http_send_file(request, path)` streams a regular file as the body, at any
+size, outside the buffered-body cap: Linux hands it to the socket with
+`sendfile`, macOS and Windows read it 64 KiB at a time, so memory stays flat.
+It sets `Content-Length` from the file size and `Content-Type:
+application/octet-stream` unless the application set one. A file response has
+no total write deadline; it is closed only when no progress is made for
+`idle_ms`. If the file cannot be opened (missing, a directory, a FIFO), it
+returns 0, `request_error` says why, and the request can still be answered.
+Released, stale or foreign tickets
 fail before accessing a reused socket or buffer. Copying a scalar ticket does
 not preserve its lifetime after release or subsequent slot reuse.
 
@@ -180,8 +190,9 @@ per worker (92k vs 110k requests/s on one worker, 245k vs 308k on four; see
 `benchmarks/v35/http_server_load.md`). The remaining steps, roughly in order:
 
 1. Peer address on a request (`X-Real-IP`, per-IP limits).
-2. Streaming request and response bodies, and `sendfile`/`TransmitFile` for
-   static files, so large files skip the userspace copy and the 64 MiB cap.
+2. Streaming request bodies and generated response bodies (chunked). File
+   responses already stream (`http_send_file`, with `sendfile` on Linux);
+   `TransmitFile` on Windows and Range requests would follow.
 3. IOCP on Windows instead of WSAPoll, and optionally io_uring on Linux.
 4. Response compression in the floor (gzip/brotli, plus precompressed files).
 5. With V4's threads and task values: worker threads sharing one process (and

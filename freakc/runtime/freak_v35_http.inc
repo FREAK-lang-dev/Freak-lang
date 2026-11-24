@@ -20,6 +20,7 @@
 #if defined(__linux__)
 #include <sys/epoll.h>
 #include <sys/prctl.h>
+#include <sys/sendfile.h>
 #define FREAK_HTTP_EPOLL 1
 /* accept4 is declared only under _GNU_SOURCE; the symbol is in every libc. */
 extern int accept4(int,struct sockaddr *,socklen_t *,int);
@@ -114,6 +115,8 @@ struct freak_http_conn {
     freak_http_request *request;
     freak_http_conn *grave_next,*hot_next;
     unsigned char *in,*out; size_t in_length,in_offset,out_length,out_offset;
+    /* A streamed file response: -1 when none. */
+    int file; uint64_t file_offset,file_remaining;
     uint64_t accepted_at,idle_deadline,write_deadline,write_idle,drain_deadline;
 };
 typedef struct { uint32_t generation; freak_http_request *request; } freak_http_ticket;
@@ -332,13 +335,22 @@ static bool freak_http_listener_arm(freak_http_server *server,bool armed) {
     server->listener_armed=armed; return true;
 }
 
+static void freak_http_close_file(freak_http_conn *conn) {
+    if(conn->file<0) return;
+#ifdef _WIN32
+    _close(conn->file);
+#else
+    close(conn->file);
+#endif
+    conn->file=-1; conn->file_remaining=0;
+}
 static void freak_http_conn_destroy(freak_http_conn *conn) {
     if(conn->dead) return;
     freak_http_server *server=conn->server; conn->dead=true;
 #if defined(FREAK_HTTP_EPOLL)
     if(server->poller>=0) epoll_ctl(server->poller,EPOLL_CTL_DEL,conn->socket,NULL);
 #endif
-    freak_http_close_socket(&conn->socket);
+    freak_http_close_socket(&conn->socket); freak_http_close_file(conn);
     if(conn->request) {
         freak_http_request *request=conn->request; conn->request=NULL; request->conn=NULL; request->socket=FREAK_INVALID_NATIVE_SOCKET;
         /* An internal parse state belongs to the connection; a queued one is
@@ -889,6 +901,37 @@ static void freak_http_conclude(freak_http_conn *conn) {
     if(request->status) freak_http_reject(conn);
     else if(request->message_done) { conn->state=FREAK_HTTP_CONN_QUEUED; freak_http_deliver(conn->server,request); }
 }
+/* Stream the next part of a file response once the queued head is out.
+   Linux hands the file to the socket with sendfile; elsewhere one 64 KiB
+   chunk at a time passes through the output queue. false: connection failed. */
+static bool freak_http_pump_file(freak_http_conn *conn) {
+    while(conn->file_remaining && conn->writable && conn->out_offset==conn->out_length) {
+#if defined(__linux__) && !defined(FREAK_HTTP_NO_SENDFILE)
+        size_t wanted=conn->file_remaining>((uint64_t)1<<20)?((size_t)1<<20):(size_t)conn->file_remaining;
+        off_t offset=(off_t)conn->file_offset;
+        ssize_t sent=sendfile(conn->socket,conn->file,&offset,wanted);
+        if(sent<0 && errno==EINTR) continue;
+        if(sent<0 && (errno==EAGAIN || errno==EWOULDBLOCK)) { conn->writable=false; break; }
+        if(sent<=0) return false; /* a failed read or send, or the file shrank */
+        conn->file_offset+=(uint64_t)sent; conn->file_remaining-=(uint64_t)sent;
+        conn->write_idle=freak_command_now_ms()+conn->server->limits.idle_ms;
+#else
+        size_t wanted=conn->file_remaining>sizeof(freak_http_scratch)?sizeof(freak_http_scratch):(size_t)conn->file_remaining;
+#ifdef _WIN32
+        int got=_read(conn->file,freak_http_scratch,(unsigned)wanted);
+#else
+        ssize_t got=pread(conn->file,freak_http_scratch,wanted,(off_t)conn->file_offset);
+        if(got<0 && errno==EINTR) continue;
+#endif
+        if(got<=0) return false;
+        conn->file_offset+=(uint64_t)got; conn->file_remaining-=(uint64_t)got;
+        freak_http_queue_out(conn,freak_http_scratch,(size_t)got);
+        if(!freak_http_flush(conn)) return false;
+#endif
+    }
+    if(!conn->file_remaining) freak_http_close_file(conn);
+    return true;
+}
 /* Deadlines are checked before new bytes are parsed, not only by the sweep:
    bytes that arrive late must not complete a request that already expired.
    1: an idle connection expired (close quietly); 2: a request expired (408). */
@@ -930,6 +973,11 @@ static void freak_http_service(freak_http_conn *conn) {
         switch(conn->state) {
         case FREAK_HTTP_CONN_WRITE:
             if(conn->out_offset<conn->out_length) return;
+            if(conn->file>=0) {
+                if(!conn->writable) return;
+                if(!freak_http_pump_file(conn)) { freak_http_conn_destroy(conn); return; }
+                continue;
+            }
             freak_http_after_write(conn,now); continue;
         case FREAK_HTTP_CONN_READ: {
             if(!conn->request->status && !conn->request->message_done) {
@@ -1000,7 +1048,7 @@ static void freak_http_accept(freak_http_server *server) {
         int enabled=1; setsockopt(socket_value,IPPROTO_TCP,TCP_NODELAY,(const char *)&enabled,sizeof(enabled));
         if(!configured) { freak_http_close_socket(&socket_value); continue; }
         freak_http_conn *conn=freak_http_allocate(sizeof(freak_http_conn));
-        conn->socket=socket_value; conn->server=server; conn->readable=true; conn->writable=true; conn->accepted_at=freak_command_now_ms();
+        conn->socket=socket_value; conn->server=server; conn->readable=true; conn->writable=true; conn->file=-1; conn->accepted_at=freak_command_now_ms();
         if(server->conn_count==server->conn_capacity) { size_t next=server->conn_capacity?server->conn_capacity*2:64; server->conns=freak_http_grow(server->conns,next*sizeof(*server->conns)); server->conn_capacity=next; }
         conn->index=server->conn_count; server->conns[server->conn_count++]=conn; freak_http_connection_live++;
         freak_http_begin_read(conn,freak_command_now_ms());
@@ -1070,7 +1118,7 @@ static bool freak_http_poll_once(freak_http_server *server) {
     for(size_t i=0;i<server->conn_count;i++) {
         freak_http_conn *conn=server->conns[i]; short events=0;
         if((conn->state==FREAK_HTTP_CONN_READ || conn->state==FREAK_HTTP_CONN_DRAIN) && !conn->readable) events|=FREAK_HTTP_POLL_IN;
-        if(conn->out_offset<conn->out_length && !conn->writable) events|=FREAK_HTTP_POLL_OUT;
+        if((conn->out_offset<conn->out_length || conn->file>=0) && !conn->writable) events|=FREAK_HTTP_POLL_OUT;
         if(!events) continue;
         descriptors[count].fd=conn->socket; descriptors[count].events=events; descriptors[count].revents=0; owners[count++]=conn;
     }
@@ -1167,15 +1215,15 @@ invalid:
 /* Queue the response and write what the socket takes now; the event loop
    finishes the rest while the application handles the next request.
    1 means the complete response was accepted for delivery. */
-static int64_t freak_http_send(freak_http_request *request,const unsigned char *body,size_t length,const char *type) {
-    if(!freak_http_respondable(request)) return 0;
-    if(request->response_status!=205 && length>request->limits.body) { snprintf(request->error,sizeof(request->error),"response body exceeds configured limit"); return 0; }
+/* Queue the status line and headers, detach the request and put its
+   connection in WRITE. *omit: the body must not be sent (HEAD, 204, 205, 304). */
+static freak_http_conn *freak_http_begin_response(freak_http_request *request,uint64_t length,const char *type,bool *omit_body) {
     freak_http_conn *conn=request->conn; freak_http_server *server=conn->server;
     bool keep=server->keep_alive_requests>0 && request->persistent && conn->served+1<server->keep_alive_requests && !freak_http_stopping(server);
     freak_http_text wire={0}; char first[256]; size_t limit=request->limits.headers+1024;
     int count=snprintf(first,sizeof(first),"HTTP/1.1 %d %s\r\nConnection: %s\r\n",request->response_status,freak_http_reason(request->response_status),keep?"keep-alive":"close");
     freak_http_text_append(&wire,first,(size_t)count,limit);
-    if(request->response_status!=204) { count=snprintf(first,sizeof(first),"Content-Length: %zu\r\n",request->response_status==205?0:length); freak_http_text_append(&wire,first,(size_t)count,limit); }
+    if(request->response_status!=204) { count=snprintf(first,sizeof(first),"Content-Length: %llu\r\n",(unsigned long long)(request->response_status==205?0:length)); freak_http_text_append(&wire,first,(size_t)count,limit); }
     bool content_type=false;
     for(size_t i=0;i<request->response_count;i++) {
         freak_http_header *header=&request->response_headers[i]; if(freak_http_equal(header->name.data,header->name.length,"content-type")) content_type=true;
@@ -1185,19 +1233,27 @@ static int64_t freak_http_send(freak_http_request *request,const unsigned char *
     if(!content_type) { freak_http_text_append(&wire,"Content-Type: ",14,limit); freak_http_text_append(&wire,type,strlen(type),limit); freak_http_text_append(&wire,"\r\n",2,limit); }
     freak_http_text_append(&wire,"\r\n",2,limit);
     bool omit=request->response_status==204 || request->response_status==205 || request->response_status==304 || freak_http_equal(request->method.data,request->method.length,"head");
-    if(omit) length=0;
+    *omit_body=omit;
     request->responded=true; conn->request=NULL; request->conn=NULL; request->socket=FREAK_INVALID_NATIVE_SOCKET;
     uint64_t now=freak_command_now_ms();
     /* A persistent client may have pipelined more requests: closing with them
        unread can reset the connection before the last response is read. */
     conn->state=FREAK_HTTP_CONN_WRITE; conn->close_after_write=!keep; conn->drain_after_write=!keep && request->persistent;
     conn->write_deadline=now+request->limits.body_ms; conn->write_idle=now+request->limits.idle_ms;
+    freak_http_queue_out(conn,wire.data,wire.length); freak_http_free(wire.data);
+    return conn;
+}
+static int64_t freak_http_send(freak_http_request *request,const unsigned char *body,size_t length,const char *type) {
+    if(!freak_http_respondable(request)) return 0;
+    if(request->response_status!=205 && length>request->limits.body) { snprintf(request->error,sizeof(request->error),"response body exceeds configured limit"); return 0; }
+    bool omit=false; freak_http_conn *conn=freak_http_begin_response(request,length,type,&omit); freak_http_server *server=conn->server;
+    if(omit) length=0;
     /* Small bodies travel in the header's segment; large ones are written in
        place and only their unsent tail is copied. */
     bool failed=false;
-    if(length<=16384) { freak_http_queue_out(conn,wire.data,wire.length); if(length) freak_http_queue_out(conn,body,length); failed=!freak_http_flush(conn); }
+    if(length<=16384) { if(length) freak_http_queue_out(conn,body,length); failed=!freak_http_flush(conn); }
     else {
-        freak_http_queue_out(conn,wire.data,wire.length); failed=!freak_http_flush(conn);
+        failed=!freak_http_flush(conn);
         size_t offset=0;
         while(!failed && conn->out_offset==conn->out_length && conn->writable && offset<length) {
             long sent=freak_http_send_some(conn->socket,body+offset,length-offset);
@@ -1205,13 +1261,62 @@ static int64_t freak_http_send(freak_http_request *request,const unsigned char *
         }
         if(!failed && offset<length) freak_http_queue_out(conn,body+offset,length-offset);
     }
-    freak_http_free(wire.data);
     if(failed) { freak_http_conn_destroy(conn); freak_http_bury(server); snprintf(request->error,sizeof(request->error),"could not send complete HTTP response"); return 0; }
     freak_http_service(conn); freak_http_bury(server);
     return 1;
 }
 int64_t freak_http_server_send_bytes(int64_t ticket,int64_t body_ticket) { freak_http_request *request=freak_http_require_request(ticket); freak_byte_buffer_record *body=freak_byte_buffer_require(body_ticket,"HTTP response body"); if(body->status!=FREAK_BYTE_BUFFER_OK) { snprintf(request->error,sizeof(request->error),"response ByteBuffer has a pending error"); return 0; } return freak_http_send(request,body->data,body->length,"application/octet-stream"); }
 int64_t freak_http_server_send_text(int64_t ticket,freak_word body) { freak_http_request *request=freak_http_require_request(ticket); if(!freak_byte_buffer_utf8_valid((const uint8_t *)body.data,body.length)) { snprintf(request->error,sizeof(request->error),"text response requires NUL-free UTF-8"); return 0; } return freak_http_send(request,(const unsigned char *)body.data,body.length,"text/plain; charset=utf-8"); }
+/* Open a regular file read-only for a streamed response; -1 on failure. */
+static int freak_http_open_response_file(freak_word path,uint64_t *size,const char **problem) {
+    if(!path.data || !path.length || memchr(path.data,'\0',path.length)) { *problem="response file path is empty or contains NUL"; return -1; }
+    char *name=malloc(path.length+1); if(!name) { *problem="response file path allocation failed"; return -1; }
+    memcpy(name,path.data,path.length); name[path.length]='\0';
+    int descriptor=-1;
+#ifdef _WIN32
+    int wide_count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,name,-1,NULL,0);
+    wchar_t *wide_name=wide_count?malloc((size_t)wide_count*sizeof(*wide_name)):NULL;
+    if(wide_name && MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,name,-1,wide_name,wide_count)) {
+        wide_name=freak_fs_windows_filename(wide_name);
+        if(wide_name) descriptor=_wopen(wide_name,_O_RDONLY|_O_BINARY|_O_NOINHERIT);
+    }
+    free(wide_name); free(name);
+    struct _stat64 metadata;
+    if(descriptor>=0 && (_fstat64(descriptor,&metadata)!=0 || !(metadata.st_mode&_S_IFREG))) { _close(descriptor); *problem="response file is not a regular file"; return -1; }
+#else
+    /* Nonblocking open refuses to wait on a FIFO; regular files ignore it. */
+    descriptor=open(name,O_RDONLY|O_NONBLOCK|O_CLOEXEC); free(name);
+    struct stat metadata;
+    if(descriptor>=0 && (fstat(descriptor,&metadata)!=0 || !S_ISREG(metadata.st_mode))) { close(descriptor); *problem="response file is not a regular file"; return -1; }
+#endif
+    if(descriptor<0) { *problem="cannot open response file"; return -1; }
+    *size=(uint64_t)metadata.st_size; return descriptor;
+}
+/* Stream a file as the response body, at any size: nothing is buffered
+   beyond one chunk. On failure (missing file, directory) the request stays
+   unanswered, so the application can still send an error. */
+int64_t freak_http_server_send_file(int64_t ticket,freak_word path) {
+    freak_http_request *request=freak_http_require_request(ticket);
+    if(!freak_http_respondable(request)) return 0;
+    const char *problem=NULL; uint64_t size=0;
+    int file=freak_http_open_response_file(path,&size,&problem);
+    if(file<0) { snprintf(request->error,sizeof(request->error),"%s",problem); return 0; }
+    bool omit=false; freak_http_conn *conn=freak_http_begin_response(request,size,"application/octet-stream",&omit); freak_http_server *server=conn->server;
+    if(omit || !size) {
+#ifdef _WIN32
+        _close(file);
+#else
+        close(file);
+#endif
+    } else {
+        /* A large download may take as long as it keeps making progress:
+           only the idle gap between writes is bounded. */
+        conn->file=file; conn->file_offset=0; conn->file_remaining=size; conn->write_deadline=UINT64_MAX;
+    }
+    if(!freak_http_flush(conn)) { freak_http_conn_destroy(conn); freak_http_bury(server); snprintf(request->error,sizeof(request->error),"could not send complete HTTP response"); return 0; }
+    freak_http_service(conn); freak_http_bury(server);
+    return 1;
+}
 void freak_http_server_request_release(int64_t ticket) {
     freak_http_request *request=freak_http_require_request(ticket);
     freak_http_server *server=freak_http_find_server(request->server);
@@ -1274,6 +1379,7 @@ int64_t freak_llvm_http_server_request_body(int64_t request) { return freak_http
 int64_t freak_llvm_http_server_response_status(int64_t request, int64_t status) { return freak_http_server_response_status(request, status); }
 int64_t freak_llvm_http_server_response_header(int64_t request, int64_t name, int64_t value) { return freak_http_server_response_header(request, freak_llvm_word_view(name), freak_llvm_word_view(value)); }
 int64_t freak_llvm_http_server_send_bytes(int64_t request, int64_t body) { return freak_http_server_send_bytes(request, body); }
+int64_t freak_llvm_http_server_send_file(int64_t request, int64_t path) { return freak_http_server_send_file(request, freak_llvm_word_view(path)); }
 int64_t freak_llvm_http_server_send_text(int64_t request, int64_t body) { return freak_http_server_send_text(request, freak_llvm_word_view(body)); }
 void freak_llvm_http_server_request_release(int64_t request) { freak_http_server_request_release(request); }
 int64_t freak_llvm_http_server_live_servers(void) { return freak_http_server_live_servers(); }

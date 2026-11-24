@@ -1090,6 +1090,8 @@ int64_t freak_http_server_response_header(int64_t request, freak_word name, frea
 int64_t freak_llvm_http_server_response_header(int64_t request, int64_t name, int64_t value);
 int64_t freak_http_server_send_bytes(int64_t request, int64_t body);
 int64_t freak_llvm_http_server_send_bytes(int64_t request, int64_t body);
+int64_t freak_http_server_send_file(int64_t request, freak_word path);
+int64_t freak_llvm_http_server_send_file(int64_t request, int64_t path);
 int64_t freak_http_server_send_text(int64_t request, freak_word body);
 int64_t freak_llvm_http_server_send_text(int64_t request, int64_t body);
 void freak_http_server_request_release(int64_t request);

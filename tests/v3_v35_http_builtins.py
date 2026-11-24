@@ -47,6 +47,7 @@ OPERATIONS = [
     "response_status",
     "response_header",
     "send_bytes",
+    "send_file",
     "send_text",
     "request_release",
     "live_servers",
@@ -88,6 +89,7 @@ PROGRAM = '''task main() {
     pilot value_response_status: int = http_server::response_status(request, 200)
     pilot value_response_header: int = http_server::response_header(request, "X-Test", "X-Test")
     pilot value_send_bytes: int = http_server::send_bytes(request, bytes)
+    pilot value_send_file: int = http_server::send_file(request, "index.html")
     pilot value_send_text: int = http_server::send_text(request, "body")
     pilot value_live_servers: int = http_server::live_servers()
     pilot value_live_requests: int = http_server::live_requests()
@@ -111,6 +113,7 @@ NEGATIVE = {
     'body_is_buffer': ('pilot body: int = http_server::request_body(1)', "cannot initialize int binding 'body' with ByteBuffer", False),
     'status_is_int': ('pilot status: bool = http_server::request_status(1)', "cannot initialize bool binding 'status' with int", False),
     'send_bytes_type': ('http_server::send_bytes(1, "bytes")', 'argument 2 expects ByteBuffer, got word', False),
+    'send_file_type': ('http_server::send_file(1, 2)', 'argument 2 expects word, got int', False),
     'header_value_type': ('http_server::response_header(1, "X-Test", 2)', 'argument 3 expects word, got int', False),
     'unknown_operation': ('http_server::request_magic(1)', "unknown callable 'http_server::request_magic'", False),
     'released_server': ('pilot server = http_server::open(0); http_server::close(server); http_server::status(server)', "You gave this away", True),

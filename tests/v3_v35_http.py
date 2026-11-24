@@ -481,6 +481,18 @@ static void service(const char *profile) {
                 else sent=H(send_text)(request,W("healthy"));
             } else if(p.length>7&&!memcmp(p.data,"/hello/",7)) {
                 int64_t b=bytes(p.data+7,p.length-7);sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
+            } else if(eq(p,"/file")||eq(p,"/file-missing")||eq(p,"/file-dir")) {
+                /* Streamed file responses bypass the buffered-body cap; a file
+                   that cannot be opened leaves the request answerable. */
+                const char *file=getenv("FREAK_HTTP_TEST_FILE");REQUIRE(file);char missing[4096];snprintf(missing,sizeof(missing),"%s.missing",file);
+                bool real=eq(p,"/file");const char *target=real?file:eq(p,"/file-missing")?missing:".";
+                if(real) REQUIRE(H(response_header)(request,W("Content-Type"),W("application/zip")));
+                sent=H(send_file)(request,W(target));
+                if(!real) {
+                    REQUIRE(!sent);__auto_type error=H(request_error)(request);REQUIRE(view(error).length>0);
+                    if(eq(p,"/file-missing")) REQUIRE(eq(view(error),"cannot open response file"));
+                    drop(error);REQUIRE(H(response_status)(request,404));sent=H(send_text)(request,W("no file"));
+                }
             } else if(eq(p,"/echo")) {
                 int64_t b=H(request_body)(request);sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
             } else if(eq(p,"/header-bytes")) {
@@ -614,7 +626,7 @@ class Server:
             assert select.select([self.process.stdout],[],[],5)[0], 'server did not start'
         line=self.process.stdout.readline()
         assert line.startswith(b'PORT '),(line,self.process.poll())
-        self.port=int(line.split()[1]);self.cases=0
+        self.port=int(line.split()[1]);self.cases=0;self.env=env
     def checkpoint(self, phase: str, fixture: str | None = None, *, case: int | None = None):
         if self.progress is not None:self.progress.stage(phase,fixture,case=case)
     def connect(self):
@@ -921,6 +933,22 @@ def keepalive_corpus(s:Server):
         assert [r[2] for r in responses]==[b'p0',b'p1',b'p2',b'p3',b'p4'],responses
         assert responses[-1][1][b'connection']==b'close',responses
         assert rest==b'' and client.recv(1)==b'';s.cases+=1
+    s.checkpoint('keepalive-corpus','file-streaming')
+    expected=Path(s.env['FREAK_HTTP_TEST_FILE']).read_bytes()
+    with s.connect() as client:
+        client.sendall(request('/file')+request('/file-missing')+request('/file-dir')+request('/health'))
+        responses,rest=read_responses(client,4)
+        assert responses[0][0]==200 and responses[0][1][b'content-type']==b'application/zip' and responses[0][1][b'connection']==b'keep-alive'
+        assert hashlib.sha256(responses[0][2]).digest()==hashlib.sha256(expected).digest(),len(responses[0][2])
+        assert [(r[0],r[2]) for r in responses[1:]]==[(404,b'no file'),(404,b'no file'),(200,b'healthy')],responses[1:]
+        assert rest==b'';s.cases+=1
+    with s.connect() as client:
+        # HEAD announces the length and sends no body: the next response follows at once.
+        client.sendall(request('/file',method='HEAD')+request('/health'));raw=b''
+        while raw.count(b'\r\n\r\n')<2 or not raw.endswith(b'healthy'):
+            chunk=client.recv(65536);assert chunk,raw;raw+=chunk
+        head,second=raw.split(b'\r\n\r\n',1)
+        assert b'Content-Length: '+str(len(expected)).encode() in head and second.startswith(b'HTTP/1.1 200'),raw[:400];s.cases+=1
     s.checkpoint('keepalive-corpus','http10')
     with s.connect() as client:
         client.sendall(request('/health',version='HTTP/1.0').replace(b'Host: localhost\r\n',b''))
@@ -1114,6 +1142,8 @@ def main():
         progress.stage('input-provenance-complete')
         with tempfile.TemporaryDirectory(prefix='freak-http-floor-') as temporary:
             root=Path(temporary);h=root/'http.c';h.write_text(HARNESS)
+            # Eight MiB and change: far past the 1 MiB buffered-body cap.
+            stream=root/'stream.bin';stream.write_bytes(hashlib.sha256(b'freak').digest()*(262144)+b'tail'*31);env['FREAK_HTTP_TEST_FILE']=str(stream)
             flags=['-lws2_32','-lshell32'] if os.name=='nt' else ['-lm','-pthread']
             if os.sys.platform.startswith('linux'):flags+=['-Wl,--wrap=send']
             if args.sanitize:

@@ -1175,6 +1175,7 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "http_server::response_status" { give back "int" }
     if name == "http_server::response_header" { give back "int" }
     if name == "http_server::send_bytes" { give back "int" }
+    if name == "http_server::send_file" { give back "int" }
     if name == "http_server::send_text" { give back "int" }
     if name == "http_server::request_release" { give back "void" }
     if name == "http_server::live_servers" { give back "int" }
@@ -1364,6 +1365,7 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "http_server::response_status" { give back "int,int" }
     if name == "http_server::response_header" { give back "int,word,word" }
     if name == "http_server::send_bytes" { give back "int,ByteBuffer" }
+    if name == "http_server::send_file" { give back "int,word" }
     if name == "http_server::send_text" { give back "int,word" }
     if name == "http_server::request_release" { give back "int" }
     if name == "http_server::live_servers" { give back "" }
