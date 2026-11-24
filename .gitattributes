@@ -50,3 +50,4 @@ freakc/runtime/freak_v4_unicode_lower_tables.h text eol=lf
 
 # llhttp's upstream SHA256SUMS accepts exact vendor bytes on every platform.
 third_party/llhttp/** -text
+std/std.toml text eol=lf

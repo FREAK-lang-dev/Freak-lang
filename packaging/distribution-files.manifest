@@ -27,6 +27,7 @@ std/path.fk|std/path.fk
 std/ui/window.fk|std/ui/window.fk
 std/freak_abi|std/freak_abi
 std/freak_std_api|std/freak_std_api
+std/std.toml|std/std.toml
 third_party/llhttp/LICENSE|runtime/third_party/llhttp/LICENSE
 third_party/llhttp/LICENSE-MIT|runtime/third_party/llhttp/LICENSE-MIT
 third_party/llhttp/PATCHES.md|runtime/third_party/llhttp/PATCHES.md
