@@ -185,10 +185,12 @@ class CompilerArrayOracleTests(unittest.TestCase):
     def test_legacy_namespace_source_fence_rejects_expansion_or_missing_admission(self):
         source = (gate.ROOT / "freakc/runtime/freak_llvm_runtime.c").read_text()
         gate.namespace_source_guard(source)
-        for old, new in (("#define FREAK_LLVM_MAX_ARRAYS 1024", "#define FREAK_LLVM_MAX_ARRAYS 2048"),
+        for old, new in (("#define FREAK_LLVM_ARRAY_GENERATION_MAX UINT32_C(0x3fffffff)",
+                          "#define FREAK_LLVM_ARRAY_GENERATION_MAX UINT32_C(0x7fffffff)"),
                          ("if (handle < 0) return -1;", "if (handle == -1) return -1;"),
                          ("slot >= freak_llvm_array_count", "slot > freak_llvm_array_count"),
-                         ("freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS", "freak_llvm_array_count > FREAK_LLVM_MAX_ARRAYS")):
+                         ("if (!freak_llvm_array_reserve()) {", "if (false) {"),
+                         ("a->generation >= FREAK_LLVM_ARRAY_GENERATION_MAX", "a->generation > FREAK_LLVM_ARRAY_GENERATION_MAX")):
             self.assertIn(old, source)
             start = 0 if old.startswith("#define") else source.index("static int64_t freak_llvm_array_slot_for_handle(")
             changed = source[:start] + source[start:].replace(old, new, 1)

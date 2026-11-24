@@ -226,7 +226,9 @@ _Noreturn void freak_llvm_panic(int64_t message) {
 /* The pool grows on demand (a server with many requests in flight holds
    many arrays at once); FREAK_LLVM_MAX_ARRAYS caps it so a leak still
    fails loudly instead of eating the machine. */
+#ifndef FREAK_LLVM_MAX_ARRAYS
 #define FREAK_LLVM_MAX_ARRAYS (1 << 24)
+#endif
 typedef struct {
     int64_t* data;
     int64_t  length;
@@ -253,7 +255,12 @@ static bool freak_llvm_array_reserve(void) {
 }
 static int64_t freak_llvm_array_free_head = -1;
 
-#define FREAK_LLVM_ARRAY_GENERATION_MAX UINT32_C(0x7fffffff)
+/* Generations stay below bit 30, so a legacy handle never has bit 62 set and
+   can never carry the V4 compiler-array ticket domain (0b010 in bits 63..61),
+   whatever slot it names. A V4 ticket in turn always carries a generation with
+   bit 30 set, which no legacy slot ever reaches. This keeps the two handle
+   namespaces apart now that the legacy pool grows past 1024 slots. */
+#define FREAK_LLVM_ARRAY_GENERATION_MAX UINT32_C(0x3fffffff)
 
 static int64_t freak_llvm_array_make_handle(int64_t slot, uint32_t generation) {
     return (int64_t)(((uint64_t)generation << 32) | (uint64_t)(uint32_t)slot);

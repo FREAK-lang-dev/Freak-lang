@@ -83,6 +83,10 @@ static void* probe_memcpy(void* dst, const void* src, size_t length) {
 #endif
 #define memcpy probe_memcpy
 #define FREAK_ARRAY_LIVE_LIMIT 16
+/* The production LLVM pool grows to 2^24 arrays; exhaust a small one here. */
+#define FREAK_LLVM_MAX_ARRAYS 1024
+/* Free registry records at once so allocation counts stay exact. */
+#define FREAK_LLVM_OWNED_SPARE_MAX 0
 #define FREAK_C_RUNTIME_OWNERSHIP_AUDIT 1
 #define FREAK_RUNTIME_OWNERSHIP_AUDIT 1
 #include "../freakc/runtime/freak_runtime.c"
@@ -103,8 +107,15 @@ static int64_t split(const char* source, int llvm) {
     strlen_calls = strlen_bytes = copied_bytes = allocation_calls = 0;
     int64_t handle = llvm ? freak_llvm_word_snapshot_lines((int64_t)source)
                           : freak_word_snapshot_lines(w);
-    assert(strlen_calls == (size_t)llvm);
-    assert(strlen_bytes == (llvm ? w.length : 0));
+    /* The growable LLVM pool may refuse before scanning (its table is the
+       first allocation); a returned handle must have scanned exactly once. */
+    if (handle >= 0) {
+        assert(strlen_calls == (size_t)llvm);
+        assert(strlen_bytes == (llvm ? w.length : 0));
+    } else {
+        assert(strlen_calls <= (size_t)llvm);
+        assert(strlen_bytes <= (llvm ? w.length : 0));
+    }
     assert(copied_bytes <= w.length);
     return handle;
 }
@@ -243,10 +254,15 @@ int main(void) {
     fail_after = 0;
     assert(split("x", 0) == -1 && freak_array_count == 0);
     assert(split("x", 1) == -1 && freak_llvm_array_count == 0);
+    /* The LLVM pool table is a lasting allocation; grow it once so the fault
+       counts below start at the line buffers, as with a fixed table. */
+    fail_after = -1;
+    assert(freak_llvm_array_reserve() && freak_llvm_array_count == 0);
+    size_t table_allocations = live_allocations;
     /* Fresh LLVM ownership-registry allocation failure releases both buffers. */
     fail_after = 2;
     assert(split("x", 1) == -1 && freak_llvm_owned_bucket_count == 0);
-    assert(live_allocations == 0);
+    assert(live_allocations == table_allocations);
     fail_after = -1;
     const char* singleton[] = {"x"};
     const char* blanks[] = {"", ""};

@@ -28,8 +28,10 @@ _Static_assert(FREAK_V4_COMPILER_ARRAY_GENERATION_MAX > 0 &&
 
 #define V4_ARRAY_DOMAIN UINT64_C(0x4000000000000000)
 #define V4_ARRAY_DOMAIN_MASK UINT64_C(0xe000000000000000)
-/* The pinned legacy LLVM pool accepts only slots0..1023, even when its wider
-   31-bit generation overlaps this domain. Revalidate before changing that pool. */
+/* Legacy LLVM array generations stay below bit 30 (FREAK_LLVM_ARRAY_GENERATION_MAX),
+   so legacy handles never carry this domain and V4 tickets never match a legacy
+   generation, at any slot. The slot bias is kept as a second fence. Revalidate
+   before changing either pool's handle encoding. */
 #define V4_ARRAY_SLOT_BIAS UINT32_C(1024)
 
 typedef struct {

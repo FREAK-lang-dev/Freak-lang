@@ -2915,7 +2915,9 @@ static size_t freak_llvm_owned_count = 0;
    and a malloc/free pair per word showed up in request-heavy servers. */
 static freak_llvm_owned_word* freak_llvm_owned_spare = NULL;
 static size_t freak_llvm_owned_spare_count = 0;
+#ifndef FREAK_LLVM_OWNED_SPARE_MAX
 #define FREAK_LLVM_OWNED_SPARE_MAX 4096
+#endif
 
 static freak_llvm_owned_word* freak_llvm_owned_record_new(void) {
     freak_llvm_owned_word* record = freak_llvm_owned_spare;
