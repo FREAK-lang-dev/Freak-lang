@@ -291,6 +291,12 @@ task cli_prepare_source(src_file: word, target: word) -> word {
         say "Package error: " + hangar_graph_error
         give back ""
     }
+    if not cli_std_resolve() {
+        say "Standard library error: " + cli_std_error
+        say "Code generation skipped due to source admission errors."
+        give back ""
+    }
+    if cli_std_notice != "" { say C_DIM + "  " + cli_std_notice + C_RESET }
     source = cli_load_project_source(src_file, source, target)
     if cli_project_source_error != "" {
         say "Package binding error: " + cli_project_source_error
@@ -2085,81 +2091,27 @@ task cli_append_mapped_source(current: word, path: word) -> word {
 }
 
 task cli_load_std(source: word, target: word) -> word {
-    -- Load the standard library source files.
-    -- Returns concatenated source, or "" if std not found.
+    -- Load the standard library source files in manifest order (std.toml).
+    -- Returns concatenated source, or "" if std not found. Updated std
+    -- bundles replace only unpinned modules; see std_store.fk.
     pilot std_dir: word = cli_find_std_dir()
     if std_dir == "" { give back "" }
+    if not cli_std_plan() { give back "" }
     pilot std_src = ""
-    if target == "llvm" {
-        pilot rt_path = std_dir + "/runtime.fk"
-        if fs::exists(rt_path) { trusted_internal_runtime_source_file = rt_path }
-        std_src = cli_append_mapped_source(std_src, rt_path)
-    }
-    pilot math_path = std_dir + "/math.fk"
-    std_src = cli_append_mapped_source(std_src, math_path)
-    pilot string_path = std_dir + "/string.fk"
-    std_src = cli_append_mapped_source(std_src, string_path)
-    pilot convert_path = std_dir + "/convert.fk"
-    std_src = cli_append_mapped_source(std_src, convert_path)
-    pilot algo_path = std_dir + "/algorithm.fk"
-    std_src = cli_append_mapped_source(std_src, algo_path)
-    pilot need_math3d = false
-    if source.contains("use std::math3d") {
-        need_math3d = true
-    }
-    if source.contains("use std::math3d::{") {
-        need_math3d = true
-    }
-    pilot math3d_path = std_dir + "/math3d.fk"
-    if need_math3d and fs::exists(math3d_path) {
-        std_src = cli_append_mapped_source(std_src, math3d_path)
-    }
-    pilot need_zip = false
-    if source.contains("use std::zip") {
-        need_zip = true
-    }
-    if source.contains("use std::zip::{") {
-        need_zip = true
-    }
-    pilot zip_path = std_dir + "/zip.fk"
-    if need_zip and fs::exists(zip_path) {
-        std_src = cli_append_mapped_source(std_src, zip_path)
-    }
-    pilot json_path = std_dir + "/json.fk"
-    std_src = cli_append_mapped_source(std_src, json_path)
-    if source.contains("use std::test") {
-        std_src = cli_append_mapped_source(std_src, std_dir + "/test.fk")
-    }
-    if source.contains("use std::json_document") {
-        std_src = cli_append_mapped_source(std_src, std_dir + "/json_document.fk")
-    }
-    pilot version_path = std_dir + "/version.fk"
-    std_src = cli_append_mapped_source(std_src, version_path)
-    -- std::ui — window and canvas types. Loaded conditionally because most
-    -- programs don't need it, and pulling its shape definitions into every
-    -- compile would slow plain CLI builds. Without it, programs that
-    -- `use std::ui` would parse `WindowConfig { ... }` as an identifier
-    -- followed by an unrecognized block, since `is_shape_name` looks at
-    -- the current shape registry only.
-    pilot need_ui = false
-    if source.contains("use std::ui") {
-        need_ui = true
-    }
-    pilot ui_path = std_dir + "/ui/window.fk"
-    if need_ui and fs::exists(ui_path) {
-        std_src = cli_append_mapped_source(std_src, ui_path)
-    }
-    if source.contains("use std::http_server") {
-        std_src = cli_append_mapped_source(std_src, std_dir + "/http_server.fk")
-    }
-    -- http.fk uses TCP socket functions (tcp_recv_all returns freak_word)
-    -- which only work correctly with the LLVM backend's i64 representation.
-    -- The C backend's freak_word struct type causes type mismatches.
-    if target == "llvm" {
-        pilot http_path = std_dir + "/http.fk"
-        if fs::exists(http_path) {
-            std_src = cli_append_mapped_source(std_src, http_path)
+    pilot mut i = 0
+    repeat until i >= array_len(cli_std_plan_names) {
+        pilot name: word = array_get(cli_std_plan_names, i)
+        pilot mode: word = array_get(cli_std_plan_modes, i)
+        pilot path: word = array_get(cli_std_plan_paths, i)
+        pilot mut wanted = mode == "always"
+        if mode == "llvm" { wanted = target == "llvm" }
+        -- `use std::ui` also matches `use std::ui::{...}`, as before.
+        if mode == "use" { wanted = source.contains("use std::" + name) }
+        if wanted and fs::exists(path) {
+            if name == "runtime" { trusted_internal_runtime_source_file = path }
+            std_src = cli_append_mapped_source(std_src, path)
         }
+        i += 1
     }
     give back std_src
 }

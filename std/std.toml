@@ -1,0 +1,36 @@
+# FREAK standard library manifest.
+#
+# The compiler reads this file to learn which std modules exist, when each one
+# is pasted into a program, and in which order. Order matters: a shape must be
+# declared before code that names it.
+#
+# Load modes:
+#   always   every build
+#   llvm     every LLVM build (the C backend skips it)
+#   use      only when the program says `use std::<name>`
+#
+# runtime, ui and http_server are pinned: they bind to the C runtime that ships
+# with the compiler, so they always come from the compiler's own std folder,
+# even when an updated std bundle is active (`hangar std status`).
+[std]
+version = "0.16.0"
+std_api = "freak-v3-std-api-1"
+abi = "freak-v3-abi-1"
+runtime_api = "freak-v3-runtime-api-3"
+compiler = ">=0.15.2"
+
+[modules]
+runtime = "llvm runtime.fk"
+math = "always math.fk"
+string = "always string.fk"
+convert = "always convert.fk"
+algorithm = "always algorithm.fk"
+math3d = "use math3d.fk"
+zip = "use zip.fk"
+json = "always json.fk"
+test = "use test.fk"
+json_document = "use json_document.fk"
+version = "always version.fk"
+ui = "use ui/window.fk"
+http_server = "use http_server.fk"
+http = "llvm http.fk"

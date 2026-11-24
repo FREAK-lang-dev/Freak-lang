@@ -1,0 +1,537 @@
+-- ===================================================================
+-- FREAK std bundles: manifest, resolution and the per-user store
+-- ===================================================================
+-- The compiler's own std folder (cli_find_std_dir) is the "bundled" std.
+-- Updated std bundles are signed releases of the pure-FREAK modules that
+-- live per user under <HANGAR_CONFIG_DIR>/std (default ~/.hangar/std):
+--
+--   store/<version>/   immutable, verified copy of one bundle
+--   selected           the version builds use when no project pins one
+--   history            earlier selections, newest first (for rollback)
+--   index-serial       highest signed index serial seen (no downgrades)
+--
+-- Which std a build uses, for every module that is not pinned:
+--   1. FREAK_STD=bundled, or a compiler run from a checkout: bundled
+--   2. a project std.lock next to hangar.toml: that exact version
+--   3. the user's selected bundle, while it fits this compiler
+--   4. otherwise bundled
+-- Pinned modules (runtime, ui, http_server) always come from bundled.
+-- ===================================================================
+
+-- Raw Ed25519 public keys (64 hex characters each, space separated) whose
+-- signatures std bundles and the std index must carry. FREAK_STD_TRUSTED_KEY
+-- adds one more key for private mirrors and tests; `hangar std status` says
+-- when it is set.
+pilot FREAK_STD_TRUSTED_KEYS = ""
+pilot FREAK_STD_DEFAULT_SOURCE = "https://hangar.freaklang.dev/std"
+pilot FREAK_STD_BUNDLE_LIMIT = 16777216
+pilot FREAK_STD_KEEP = 5
+
+pilot cli_std_resolved = false
+pilot cli_std_active_dir = ""
+pilot cli_std_active_version = ""
+pilot cli_std_active_source = ""
+pilot cli_std_bundled_version = ""
+pilot cli_std_notice = ""
+pilot cli_std_error = ""
+pilot cli_std_pin_file = ""
+pilot cli_std_plan_ready = false
+pilot cli_std_plan_names = 0
+pilot cli_std_plan_modes = 0
+pilot cli_std_plan_paths = 0
+pilot cli_std_last_error = ""
+pilot cli_std_search_cwd = false
+
+-- ===================== manifest =====================
+-- A manifest is a flat word array: key, value, key, value, ...
+-- Keys are "<section>.<name>"; insertion order is preserved.
+
+task stdm_unquote(text: word) -> word {
+    pilot t = text.trim()
+    if t.length() >= 2 and t.starts_with("\"") and t.ends_with("\"") { give back t.substring(1, t.length() - 2) }
+    give back ""
+}
+
+task stdm_valid_name(name: word) -> bool {
+    if name == "" or name.length() > 64 { give back false }
+    pilot allowed = "abcdefghijklmnopqrstuvwxyz0123456789_-."
+    pilot mut i = 0
+    repeat until i >= name.length() {
+        if not allowed.contains(name.char_at(i)) { give back false }
+        i += 1
+    }
+    give back true
+}
+
+-- Relative std file path: segments of [a-z0-9_] joined by "/", ending ".fk"
+-- or one of the bundle's metadata names.
+task stdm_valid_file(path: word) -> bool {
+    if path == "std.toml" or path == "std.toml.sig" { give back true }
+    if path.length() > 128 or not path.ends_with(".fk") { give back false }
+    pilot stem = path.substring(0, path.length() - 3)
+    if stem == "" or stem.starts_with("/") or stem.ends_with("/") or stem.contains("//") { give back false }
+    pilot allowed = "abcdefghijklmnopqrstuvwxyz0123456789_/"
+    pilot mut slashes = 0
+    pilot mut i = 0
+    repeat until i >= stem.length() {
+        pilot ch = stem.char_at(i)
+        if not allowed.contains(ch) { give back false }
+        if ch == "/" { slashes += 1 }
+        i += 1
+    }
+    give back slashes <= 1
+}
+
+task stdm_parse(text: word) -> int {
+    pilot manifest = array_new()
+    cli_std_last_error = ""
+    pilot mut section = ""
+    pilot mut position = 0
+    pilot mut line_number = 0
+    repeat until position >= text.length() {
+        pilot raw = toml_get_line(text, position)
+        position = toml_line_end(text, position)
+        line_number += 1
+        pilot line = raw.replace("\r", "").trim()
+        if line == "" or line.starts_with("#") {
+            -- blank or comment
+        } else if line.starts_with("[") and line.ends_with("]") {
+            section = line.substring(1, line.length() - 2).trim()
+            if not stdm_valid_name(section) {
+                cli_std_last_error = "std.toml line " + word_from_int(line_number) + ": bad section name"
+                give back manifest
+            }
+        } else {
+            pilot mut equals = 0 - 1
+            pilot mut in_quote = false
+            pilot mut i = 0
+            repeat until i >= line.length() or equals >= 0 {
+                pilot ch = line.char_at(i)
+                if ch == "\"" { in_quote = not in_quote }
+                if ch == "=" and not in_quote { equals = i }
+                i += 1
+            }
+            if equals <= 0 or section == "" {
+                cli_std_last_error = "std.toml line " + word_from_int(line_number) + ": expected name = \"value\" inside a [section]"
+                give back manifest
+            }
+            pilot mut name = line.substring(0, equals).trim()
+            if name.starts_with("\"") { name = stdm_unquote(name) }
+            pilot value_text = line.substring(equals + 1, line.length() - equals - 1).trim()
+            pilot value = stdm_unquote(value_text)
+            if not stdm_valid_name(name) and not stdm_valid_file(name) {
+                cli_std_last_error = "std.toml line " + word_from_int(line_number) + ": bad name '" + name + "'"
+                give back manifest
+            }
+            if value_text.length() < 2 or not value_text.starts_with("\"") or value.contains("\"") {
+                cli_std_last_error = "std.toml line " + word_from_int(line_number) + ": values must be one quoted string"
+                give back manifest
+            }
+            if stdm_has(manifest, section + "." + name) {
+                cli_std_last_error = "std.toml line " + word_from_int(line_number) + ": duplicate " + section + "." + name
+                give back manifest
+            }
+            array_push(manifest, section + "." + name)
+            array_push(manifest, value)
+        }
+    }
+    give back manifest
+}
+
+task stdm_has(manifest: int, key: word) -> bool {
+    pilot mut i = 0
+    repeat until i >= array_len(manifest) {
+        pilot k: word = array_get(manifest, i)
+        if k == key { give back true }
+        i += 2
+    }
+    give back false
+}
+
+task stdm_get(manifest: int, key: word) -> word {
+    pilot mut i = 0
+    repeat until i >= array_len(manifest) {
+        pilot k: word = array_get(manifest, i)
+        if k == key { give back array_get(manifest, i + 1) }
+        i += 2
+    }
+    give back ""
+}
+
+-- Names under one section, in file order.
+task stdm_section_names(manifest: int, section: word) -> int {
+    pilot names = array_new()
+    pilot prefix = section + "."
+    pilot mut i = 0
+    repeat until i >= array_len(manifest) {
+        pilot k: word = array_get(manifest, i)
+        if k.starts_with(prefix) { array_push(names, k.substring(prefix.length(), k.length() - prefix.length())) }
+        i += 2
+    }
+    give back names
+}
+
+-- Module entry "mode file" → mode, or "" when malformed.
+task stdm_module_mode(entry: word) -> word {
+    pilot space = cli_std_space_at(entry)
+    if space <= 0 { give back "" }
+    pilot mode = entry.substring(0, space)
+    if mode != "always" and mode != "llvm" and mode != "use" { give back "" }
+    give back mode
+}
+
+task stdm_module_file(entry: word) -> word {
+    pilot space = cli_std_space_at(entry)
+    if space <= 0 { give back "" }
+    pilot file = entry.substring(space + 1, entry.length() - space - 1).trim()
+    if not stdm_valid_file(file) or file == "std.toml" or file == "std.toml.sig" { give back "" }
+    give back file
+}
+
+task cli_std_space_at(text: word) -> int {
+    pilot mut i = 0
+    repeat until i >= text.length() {
+        if text.char_at(i) == " " { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+-- Validate the shape every manifest must have; "" when sound.
+task stdm_problem(manifest: int) -> word {
+    if cli_std_last_error != "" { give back cli_std_last_error }
+    pilot version = stdm_get(manifest, "std.version")
+    if version == "" or version != ver_to_string(ver_parse(version)) { give back "std.version must be a SemVer version" }
+    if stdm_get(manifest, "std.std_api") == "" or stdm_get(manifest, "std.abi") == "" { give back "std.std_api and std.abi are required" }
+    pilot modules = stdm_section_names(manifest, "modules")
+    pilot count = array_len(modules)
+    if count == 0 {
+        array_release(modules)
+        give back "[modules] is empty"
+    }
+    pilot mut i = 0
+    repeat until i >= count {
+        pilot name: word = array_get(modules, i)
+        pilot entry = stdm_get(manifest, "modules." + name)
+        if stdm_module_mode(entry) == "" or stdm_module_file(entry) == "" {
+            array_release(modules)
+            give back "module " + name + " needs \"always|llvm|use <file.fk>\""
+        }
+        i += 1
+    }
+    array_release(modules)
+    give back ""
+}
+
+task cli_std_default_manifest_text() -> word {
+    pilot mut text = "[std]\nversion = \"" + FREAK_VERSION + "\"\nstd_api = \"" + FREAK_V3_STD_API + "\"\nabi = \"" + FREAK_V3_ABI + "\"\nruntime_api = \"" + FREAK_V3_RUNTIME_API + "\"\ncompiler = \">=0.15.2\"\n\n[modules]\n"
+    text = text + "runtime = \"llvm runtime.fk\"\nmath = \"always math.fk\"\nstring = \"always string.fk\"\nconvert = \"always convert.fk\"\nalgorithm = \"always algorithm.fk\"\n"
+    text = text + "math3d = \"use math3d.fk\"\nzip = \"use zip.fk\"\njson = \"always json.fk\"\ntest = \"use test.fk\"\njson_document = \"use json_document.fk\"\n"
+    text = text + "version = \"always version.fk\"\nui = \"use ui/window.fk\"\nhttp_server = \"use http_server.fk\"\nhttp = \"llvm http.fk\"\n"
+    give back text
+}
+
+task cli_std_is_pinned(name: word) -> bool {
+    give back name == "runtime" or name == "ui" or name == "http_server"
+}
+
+-- Manifest of a std folder; bundled payloads older than std.toml use the
+-- built-in default, which lists exactly the modules they shipped.
+task cli_std_read_manifest(dir: word, allow_default: bool) -> int {
+    pilot path = cli_host_path_join(dir, "std.toml")
+    if not fs::exists(path) {
+        if allow_default { give back stdm_parse(cli_std_default_manifest_text()) }
+        cli_std_last_error = "missing std.toml"
+        give back array_new()
+    }
+    give back stdm_parse(fs::read(path))
+}
+
+-- ===================== compatibility =====================
+
+task cli_std_runtime_api_level(token: word) -> int {
+    pilot prefix = "freak-v3-runtime-api-"
+    if not token.starts_with(prefix) { give back 0 - 1 }
+    pilot digits = token.substring(prefix.length(), token.length() - prefix.length())
+    if digits == "" or not hangar_registry_digits(digits) or digits.length() > 6 { give back 0 - 1 }
+    give back word_to_int(digits)
+}
+
+-- Why a bundle manifest does not fit this compiler; "" when it fits.
+task cli_std_fit_problem(manifest: int) -> word {
+    pilot problem = stdm_problem(manifest)
+    if problem != "" { give back problem }
+    if stdm_get(manifest, "std.std_api") != FREAK_V3_STD_API { give back "needs std API " + stdm_get(manifest, "std.std_api") + ", this compiler has " + FREAK_V3_STD_API }
+    if stdm_get(manifest, "std.abi") != FREAK_V3_ABI { give back "needs ABI " + stdm_get(manifest, "std.abi") + ", this compiler has " + FREAK_V3_ABI }
+    pilot wanted = cli_std_runtime_api_level(stdm_get(manifest, "std.runtime_api"))
+    pilot have = cli_std_runtime_api_level(cli_payload_runtime_api_value(cli_find_runtime_dir()))
+    if wanted < 0 { give back "std.runtime_api is not a runtime API level" }
+    if have < wanted { give back "needs " + stdm_get(manifest, "std.runtime_api") + ", the runtime has " + cli_payload_runtime_api_value(cli_find_runtime_dir()) }
+    pilot range = stdm_get(manifest, "std.compiler")
+    if range == "" { give back "std.compiler range is required" }
+    if not version_matches_constraint(FREAK_VERSION, range) { give back "supports compilers " + range + ", this is " + FREAK_VERSION }
+    -- The bundle must keep every pinned module in its plan (with the same
+    -- name), so the bundled runtime/ui/http_server still load in order.
+    pilot names = stdm_section_names(manifest, "modules")
+    pilot mut pinned_seen = 0
+    pilot mut i = 0
+    repeat until i >= array_len(names) {
+        pilot name: word = array_get(names, i)
+        if cli_std_is_pinned(name) { pinned_seen += 1 }
+        i += 1
+    }
+    array_release(names)
+    if pinned_seen != 3 { give back "must list the pinned modules runtime, ui and http_server" }
+    give back ""
+}
+
+-- ===================== store paths =====================
+
+task cli_std_home() -> word {
+    give back cli_host_path_join(hangar_registry_config_dir(), "std")
+}
+
+task cli_std_store_dir() -> word {
+    give back cli_host_path_join(cli_std_home(), "store")
+}
+
+task cli_std_version_dir(version: word) -> word {
+    give back cli_host_path_join(cli_std_store_dir(), version)
+}
+
+task cli_std_valid_version(version: word) -> bool {
+    give back version != "" and version.length() <= 64 and version == ver_to_string(ver_parse(version)) and not version.contains("/") and not version.contains("\\")
+}
+
+task cli_std_read_value(path: word, key: word) -> word {
+    if not fs::exists(path) { give back "" }
+    pilot manifest = stdm_parse("[v]\n" + fs::read(path))
+    pilot value = stdm_get(manifest, "v." + key)
+    array_release(manifest)
+    cli_std_last_error = ""
+    give back value
+}
+
+task cli_std_selected_version() -> word {
+    pilot version = cli_std_read_value(cli_host_path_join(cli_std_home(), "selected"), "version")
+    if version == "bundled" or cli_std_valid_version(version) { give back version }
+    give back ""
+}
+
+task cli_std_file_sha256(path: word) -> word {
+    pilot read = fs::read_bytes_limit_ticket(path, FREAK_STD_BUNDLE_LIMIT)
+    if not fs::result_ok(read) {
+        fs::result_release(read)
+        give back ""
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot digest = fs::sha256_bytes(bytes)
+    bytes.release()
+    give back digest
+}
+
+-- Check a stored bundle: manifest shape, fit, the install stamp, and every
+-- listed file's hash. "" when it can be used.
+task cli_std_stored_problem(version: word) -> word {
+    if not cli_std_valid_version(version) { give back "not a std version: " + version }
+    pilot dir = cli_std_version_dir(version)
+    if not fs::exists(cli_host_path_join(dir, "std.toml")) { give back "std " + version + " is not installed" }
+    pilot manifest = cli_std_read_manifest(dir, false)
+    pilot mut problem = cli_std_fit_problem(manifest)
+    if problem == "" and stdm_get(manifest, "std.version") != version { problem = "store folder " + version + " holds std " + stdm_get(manifest, "std.version") }
+    if problem == "" {
+        pilot stamp = cli_std_read_value(cli_host_path_join(dir, ".verified"), "manifest_sha256")
+        if stamp == "" or stamp != cli_std_file_sha256(cli_host_path_join(dir, "std.toml")) { problem = "std " + version + " was changed after it was verified" }
+    }
+    if problem == "" {
+        pilot files = stdm_section_names(manifest, "files")
+        pilot mut i = 0
+        repeat until i >= array_len(files) or problem != "" {
+            pilot file: word = array_get(files, i)
+            pilot expected = stdm_get(manifest, "files." + file)
+            if cli_std_file_sha256(cli_host_path_join(dir, file.replace("/", cli_std_separator()))) != expected { problem = "std " + version + " file " + file + " does not match its manifest" }
+            i += 1
+        }
+        array_release(files)
+    }
+    array_release(manifest)
+    give back problem
+}
+
+task cli_std_separator() -> word {
+    if process::platform_is_windows() { give back "\\" }
+    give back "/"
+}
+
+-- ===================== resolution =====================
+
+-- The project folder for std.lock. Builds use the project the package graph
+-- admitted for the source file; hangar std commands (cli_std_search_cwd)
+-- use the nearest hangar.toml at or above the working directory.
+task cli_std_project_dir() -> word {
+    if package_graph_ready and package_graph_manifest_path != "" { give back package_parent_path(package_graph_manifest_path) }
+    if not cli_std_search_cwd { give back "" }
+    pilot resolved = fs::canonical_path(".")
+    if not fs::result_ok(resolved) {
+        fs::result_release(resolved)
+        give back ""
+    }
+    pilot mut dir = fs::result_word(resolved)
+    fs::result_release(resolved)
+    pilot mut depth = 0
+    repeat until depth >= 64 {
+        if fs::exists(cli_host_path_join(dir, "hangar.toml")) { give back dir }
+        pilot parent = cli_path_parent(dir)
+        if parent == "" or parent == dir { give back "" }
+        dir = parent
+        depth += 1
+    }
+    give back ""
+}
+
+task cli_std_use_bundled(source: word) -> void {
+    cli_std_active_dir = cli_find_std_dir()
+    cli_std_active_version = cli_std_bundled_version
+    cli_std_active_source = source
+}
+
+task cli_std_resolve() -> bool {
+    if cli_std_resolved { give back cli_std_error == "" }
+    cli_std_resolved = true
+    cli_std_notice = ""
+    cli_std_error = ""
+    cli_std_pin_file = ""
+    pilot bundled_dir = cli_find_std_dir()
+    pilot bundled = cli_std_read_manifest(bundled_dir, true)
+    cli_std_bundled_version = stdm_get(bundled, "std.version")
+    if cli_std_bundled_version == "" { cli_std_bundled_version = FREAK_VERSION }
+    array_release(bundled)
+    cli_std_last_error = ""
+    cli_std_use_bundled("bundled")
+    if bundled_dir == "" or cli_payload_is_resolution_error(bundled_dir) { give back true }
+    pilot override = process::env("FREAK_STD").trim()
+    if override == "bundled" {
+        cli_std_active_source = "override"
+        give back true
+    }
+    if cli_executable_repo_root() != "" and process::env("FREAK_STD_STORE") != "1" {
+        cli_std_active_source = "checkout"
+        give back true
+    }
+
+    pilot project = cli_std_project_dir()
+    if project != "" and fs::exists(cli_host_path_join(project, "std.lock")) {
+        cli_std_pin_file = cli_host_path_join(project, "std.lock")
+        pilot pinned = cli_std_read_value(cli_std_pin_file, "version")
+        if pinned == "bundled" or pinned == cli_std_bundled_version {
+            cli_std_active_source = "pinned"
+            give back true
+        }
+        if not cli_std_valid_version(pinned) {
+            cli_std_error = cli_std_pin_file + " does not name a std version"
+            give back false
+        }
+        pilot problem = cli_std_stored_problem(pinned)
+        if problem != "" {
+            cli_std_error = "this project pins std " + pinned + " (" + cli_std_pin_file + "), but " + problem + ". Run 'hangar std update' or 'hangar std install <bundle>', or 'hangar std unpin'."
+            give back false
+        }
+        pilot expected = cli_std_read_value(cli_std_pin_file, "manifest_sha256")
+        if expected != "" and expected != cli_std_file_sha256(cli_host_path_join(cli_std_version_dir(pinned), "std.toml")) {
+            cli_std_error = "std " + pinned + " in the store differs from the one " + cli_std_pin_file + " pinned"
+            give back false
+        }
+        cli_std_active_dir = cli_std_version_dir(pinned)
+        cli_std_active_version = pinned
+        cli_std_active_source = "pinned"
+        give back true
+    }
+
+    pilot selected = cli_std_selected_version()
+    if selected == "" or selected == "bundled" { give back true }
+    pilot selected_problem = cli_std_stored_problem(selected)
+    if selected_problem != "" {
+        cli_std_notice = "selected std " + selected + " is not used: " + selected_problem + "; building with bundled std " + cli_std_bundled_version
+        give back true
+    }
+    cli_std_active_dir = cli_std_version_dir(selected)
+    cli_std_active_version = selected
+    cli_std_active_source = "selected"
+    give back true
+}
+
+-- Forget the cached resolution (after hangar std commands change it).
+task cli_std_reset() -> void {
+    cli_std_resolved = false
+    if cli_std_plan_ready {
+        array_release(cli_std_plan_names)
+        array_release(cli_std_plan_modes)
+        array_release(cli_std_plan_paths)
+    }
+    cli_std_plan_ready = false
+}
+
+-- ===================== load plan =====================
+
+task cli_std_plan() -> bool {
+    if cli_std_plan_ready { give back true }
+    if not cli_std_resolve() { give back false }
+    cli_std_plan_names = array_new()
+    cli_std_plan_modes = array_new()
+    cli_std_plan_paths = array_new()
+    cli_std_plan_ready = true
+    pilot bundled_dir = cli_find_std_dir()
+    if bundled_dir == "" { give back true }
+    pilot bundled = cli_std_read_manifest(bundled_dir, true)
+    pilot mut manifest = bundled
+    pilot updated = cli_std_active_dir != bundled_dir
+    if updated { manifest = cli_std_read_manifest(cli_std_active_dir, false) }
+    cli_std_last_error = ""
+    pilot names = stdm_section_names(manifest, "modules")
+    pilot mut i = 0
+    repeat until i >= array_len(names) {
+        pilot name: word = array_get(names, i)
+        pilot mut entry = stdm_get(manifest, "modules." + name)
+        pilot mut dir = cli_std_active_dir
+        if cli_std_is_pinned(name) {
+            entry = stdm_get(bundled, "modules." + name)
+            dir = bundled_dir
+        }
+        pilot mode = stdm_module_mode(entry)
+        pilot file = stdm_module_file(entry)
+        if mode != "" and file != "" {
+            array_push(cli_std_plan_names, name)
+            array_push(cli_std_plan_modes, mode)
+            array_push(cli_std_plan_paths, dir + "/" + file)
+        }
+        i += 1
+    }
+    array_release(names)
+    if updated { array_release(manifest) }
+    array_release(bundled)
+    give back true
+}
+
+-- Importable `use std::<name>` modules (runtime is internal).
+task cli_std_module_known(name: word) -> bool {
+    if name == "runtime" { give back false }
+    -- std::ffi has no source file: the compiler supplies its C aliases.
+    if name == "ffi" { give back true }
+    if not cli_std_plan() { give back false }
+    pilot mut i = 0
+    repeat until i >= array_len(cli_std_plan_names) {
+        pilot known: word = array_get(cli_std_plan_names, i)
+        if known == name { give back true }
+        i += 1
+    }
+    give back false
+}
+
+-- One line naming the std a build used, when it is not the bundled copy.
+task cli_std_build_line() -> word {
+    if not cli_std_resolve() { give back "" }
+    if cli_std_active_source == "selected" { give back "std " + cli_std_active_version + " (updated)" }
+    if cli_std_active_source == "pinned" and cli_std_active_version != cli_std_bundled_version { give back "std " + cli_std_active_version + " (pinned by std.lock)" }
+    give back ""
+}

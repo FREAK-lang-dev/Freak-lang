@@ -100,6 +100,9 @@ task probe_append(current: word, path: word) -> word {
     source_map_register(path, source)
     give back current + source + "\n"
 }
+task cli_std_module_known(module: word) -> bool {
+    give back module == "math" or module == "string" or module == "convert" or module == "algorithm" or module == "json" or module == "json_document" or module == "version" or module == "test" or module == "math3d" or module == "zip" or module == "ui" or module == "http" or module == "http_server"
+}
 task cli_load_std(source: word, target: word) -> word {
     pilot root = process::env("FREAK_BINDING_TEST_STD")
     pilot probe_result = ""
