@@ -1,0 +1,22 @@
+-- Interpolation reads payload fields through a guard and through a view.
+-- bible: 4.4
+-- expect: run
+-- stdout: Kei has 3
+-- stdout: view Kei 3
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int, name: word }
+
+task show(lend s: Shared<Ship>) -> void {
+    check result s.borrow_mut() {
+        ok(g) -> say "{g.name} has {g.hp}"
+        err(e) -> say "busy"
+    }
+    pilot v = s.borrow()
+    say "view {v.name} {v.hp}"
+}
+task main() -> int {
+    pilot a = Shared<Ship>::new(Ship { hp: 3, name: "Kei" })
+    show(lend a)
+    give back 0
+}
