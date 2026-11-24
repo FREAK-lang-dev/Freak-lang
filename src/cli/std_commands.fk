@@ -483,6 +483,7 @@ task cli_std_remove_version(version: word) -> bool {
     pilot dir = cli_std_version_dir(version)
     pilot listing = fs::list_dir_checked(dir)
     pilot mut good = fs::result_ok(listing)
+    if not good { cli_std_fail("cannot list " + dir + ": " + fs::result_error(listing)) }
     if good {
         pilot mut i = 0
         repeat until i >= fs::result_count(listing) {
@@ -928,6 +929,7 @@ task cli_std_cmd_prune(keep: int) -> int {
 
 task cli_std_cmd_update(allow_minor: bool, list_only: bool) -> int {
     cli_std_cmd_error = ""
+    cli_std_search_cwd = true
     pilot keys = cli_std_trusted_keys()
     pilot key_count = array_len(keys)
     array_release(keys)
@@ -945,7 +947,16 @@ task cli_std_cmd_update(allow_minor: bool, list_only: bool) -> int {
         hangar_registry_discard(scratch)
         give back cli_std_say_problem("NO INDEX")
     }
+    -- Updates move the user's selection, so compare against it, not against
+    -- a project pin; the pin is only reported.
+    cli_std_ignore_pin = true
+    cli_std_reset()
     pilot current = cli_std_current_version()
+    cli_std_ignore_pin = false
+    cli_std_reset()
+    pilot project = cli_std_project_dir()
+    pilot mut pin_path = ""
+    if project != "" and fs::exists(cli_host_path_join(project, "std.lock")) { pin_path = cli_host_path_join(project, "std.lock") }
     pilot current_parsed = ver_parse(current)
     if list_only {
         say ""
@@ -1007,7 +1018,7 @@ task cli_std_cmd_update(allow_minor: bool, list_only: bool) -> int {
     if installed == "" { give back cli_std_say_problem("NOT UPDATED") }
     if not cli_std_select(installed, true) { give back cli_std_say_problem("INSTALLED, NOT SELECTED") }
     say "  " + C_BGREEN + "std " + current + " -> " + installed + C_RESET + ". Undo with: hangar std rollback"
-    if cli_std_pin_file != "" { say C_DIM + "  This project still pins its std in " + cli_std_pin_file + "; move it with: hangar std pin" + C_RESET }
+    if pin_path != "" { say C_DIM + "  This project still pins its std in " + pin_path + "; move it with: hangar std pin" + C_RESET }
     give back 0
 }
 

@@ -324,11 +324,12 @@ def main() -> int:
 
         truncated = work / "truncated.fkstd"
         truncated.write_bytes(three.read_bytes()[:-40])
-        for label, extra_args in (("index refuses a truncated bundle", ["--serial", "1", str(truncated)]),
-                                  ("index refuses a negative serial", ["--serial", "-1", str(three)])):
+        for label, reason, extra_args in (("index refuses a truncated bundle", "is truncated", ["--serial", "1", str(truncated)]),
+                                          ("index refuses a negative serial", "--serial must be", ["--serial", "-1", str(three)])):
             refused = subprocess.run([sys.executable, str(REPO / "tools/std_bundle.py"), "index", "--key", TRUSTED,
                                       "--out", str(work / "refused-index"), *extra_args], capture_output=True)
-            assert refused.returncode != 0 and not (work / "refused-index" / "index.txt").exists(), (label, refused)
+            assert refused.returncode != 0 and reason in refused.stderr.decode("utf-8", "replace"), (label, refused)
+            assert not (work / "refused-index" / "index.txt").exists(), (label, refused)
             print(f"PASS {label}")
 
         server = serve(site)
@@ -339,7 +340,11 @@ def main() -> int:
             publish(5)
             h.expect("use 0.16.2 before update", h.hangar("std", "use", "0.16.2"), 0)
             h.expect("list the index", h.hangar("std", "list", extra=source), 0, "std 0.16.3  fits", "std 0.16.4  yanked", "std 0.17.0  fits")
-            h.expect("patch update skips yanked and minor", h.hangar("std", "update", extra=source), 0, "std 0.16.2 -> 0.16.3")
+            pinned_project = work / "pinned-proj"
+            h.expect("pinned project init", h.hangar("init", str(pinned_project)), 0)
+            (pinned_project / "std.lock").write_text('version = "bundled"\n', encoding="utf-8")
+            h.expect("patch update skips yanked and minor", h.hangar("std", "update", cwd=pinned_project, extra=source), 0,
+                     "std 0.16.2 -> 0.16.3", "This project still pins its std in")
             h.expect("no newer patch", h.hangar("std", "update", extra=source), 0, "is the newest that fits", "hangar std update --minor")
             h.expect("minor update", h.hangar("std", "update", "--minor", extra=source), 0, "std 0.16.3 -> 0.17.0")
             h.expect("update result builds", h.run("run", "p.fk"), 0, "marker=bundle-minor")
