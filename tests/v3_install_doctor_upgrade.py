@@ -70,6 +70,7 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             "freakc/runtime/freak_runtime_api",
             "std/freak_abi",
             "std/freak_std_api",
+            "std/std.toml",
         }
     )
     expected_sources.update(path.relative_to(repo).as_posix() for path in (repo / "third_party" / "llhttp").rglob("*") if path.is_file())
@@ -95,7 +96,7 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             runtime_destinations.append(relative)
         elif destination.startswith("std/"):
             relative = destination.removeprefix("std/")
-            if destination not in ("std/freak_abi", "std/freak_std_api"):
+            if destination not in ("std/freak_abi", "std/freak_std_api", "std/std.toml"):
                 std_destinations.append(relative)
         else:
             relative = destination
