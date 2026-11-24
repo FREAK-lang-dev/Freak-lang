@@ -829,6 +829,7 @@ task c_map_call(val: word) -> word {
     if val == "tcp::socket_receive" { give back "freak_tcp_socket_receive" }
     if val == "tcp::socket_set_timeout" { give back "freak_tcp_socket_set_timeout" }
     if val == "tcp::socket_close" { give back "freak_tcp_socket_close" }
+    if val == "oni::summon" { give back "freak_oni_summon" }
     if val == "oni::resume" { give back "freak_oni_resume" }
     if val == "oni::next_ready" { give back "freak_oni_next_ready" }
     if val == "oni::suspend" { give back "freak_oni_suspend" }
