@@ -2040,7 +2040,7 @@ Collection rules:
 - Removing an element drops the collection's ownership of that element. If the element is `Shared<T>`, the allocation remains alive while other strong references exist.
 - `map[key]` reads or updates the entry for `key` in place and panics with `map key not found` when there is none; `map.get(key)` is the checked read and gives back `maybe<V>` holding a copy. `map[key] = val` is `map.set(key, val)`: it inserts or replaces, moving key and value into the map. `map.remove(key)` and `set.remove(val)` give back whether an entry was removed, `set.add(val)` keeps the first of two equal values, and `map.length` / `set.length` count entries. A lookup lends its key.
 - Lending `map[key]` borrows the map: it cannot be changed or moved while that loan is live.
-- Iteration order of `Map` and `Set` is not specified, so `for each` over them is V4 work (🔜). Maverick's native maps keep insertion order internally but do not promise it.
+- Iteration order of `Map` and `Set` is not specified, so `for each` over them is V4 work (🔜). Maverick's native maps store entries densely and reorder them on removal.
 
 ### 7.5 std::iter (lazy, all collections)
 

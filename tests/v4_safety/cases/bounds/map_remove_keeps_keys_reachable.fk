@@ -1,0 +1,82 @@
+-- remove moves the last entry into the freed one and closes the freed index
+-- slot by backward shift. Every key that stays must stay reachable with its
+-- value, a removed key must be gone, and removing a missing key changes
+-- nothing. Maps of 1 to 60 entries cover probe clusters that wrap around
+-- the index; removal runs in three orders (forwards, backwards, both ends), then the map drains.
+-- expect: run
+-- stdout: missing-key removes: 0
+-- stdout: bad lookups: 0
+-- stdout: drained: 0
+-- exit: 0
+
+task bad_lookups(lend m: Map<int, int>, n: int, gone_mod: int, gone_rem: int) -> int {
+    pilot bad = 0
+    pilot k = 0
+    repeat until k >= n {
+        pilot gone = k % gone_mod == gone_rem
+        pilot key = k * 7 + 3
+        check m.get(key) {
+            got v -> {
+                if gone or v != k { bad += 1 }
+            }
+            nobody -> {
+                if not gone { bad += 1 }
+            }
+        }
+        k += 1
+    }
+    give back bad
+}
+
+task main() -> int {
+    pilot missing = 0
+    pilot bad = 0
+    pilot left = 0
+    pilot n = 1
+    repeat until n > 60 {
+        pilot order = 0
+        repeat until order >= 3 {
+            pilot mut m: Map<int, int> = Map::new()
+            pilot k = 0
+            repeat until k >= n {
+                m[k * 7 + 3] = k
+                k += 1
+            }
+            if m.remove(0 - 1) { missing += 1 }
+            if m.remove(n * 7 + 10) { missing += 1 }
+            if m.length() != n { missing += 1 }
+            bad += bad_lookups(lend m, n, n + 1, n)
+            -- remove every third key, forwards, backwards or from both ends
+            pilot step = 0
+            repeat until step >= n {
+                k = step
+                if order == 1 { k = n - 1 - step }
+                if order == 2 {
+                    k = step / 2
+                    if step % 2 == 1 { k = n - 1 - step / 2 }
+                }
+                if k % 3 == 1 {
+                    if not m.remove(k * 7 + 3) { bad += 1 }
+                    if m.remove(k * 7 + 3) { bad += 1 }
+                }
+                step += 1
+            }
+            bad += bad_lookups(lend m, n, 3, 1)
+            k = 0
+            repeat until k >= n {
+                if k % 3 != 1 {
+                    if not m.remove(k * 7 + 3) { bad += 1 }
+                    bad += bad_lookups(lend m, k + 1, 1, 0)
+                }
+                k += 1
+            }
+            left += m.length()
+            order += 1
+        }
+        n += 1
+    }
+    say "missing-key removes: " + word_from_int(missing)
+    say "bad lookups: " + word_from_int(bad)
+    say "drained: " + word_from_int(left)
+    give back 0
+}
