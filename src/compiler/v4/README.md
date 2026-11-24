@@ -882,14 +882,16 @@ which no operation exposes.
 `for each` over a map is refused by name: the bible gives `Map` no
 iteration order. Also refused by name: maps and sets inside other types,
 `num`, `float`, shape and tuple keys, `maybe`/`result`, list, map and set
-values, `get` of aggregates that own words, map and set operators, and user
-declarations of `freak.map.` helpers or the memmove and memset intrinsics.
+values, `get` of aggregates that own words, map and set operators, maps and
+sets at a C boundary (codegen's C surface walker fences them by name, also
+inside an extern function pointer type), and user declarations of
+`freak.map.` helpers or the memmove and memset intrinsics.
 `keys`, `values`, `pairs`, `merge`, `get_or`, `Map::from` and the set
 algebra stay missing methods. Program: `examples/maps_native.fk` (exact
 output, exit 0, and a missing-key panic run) and
 `examples/maps_control_native.fk` (each probe prints when it runs) in
 `check_v4_native_shapes`, both also audited by
-`tests/v4_owned_word_codegen.py`; 25 named rejections.
+`tests/v4_owned_word_codegen.py`; 27 named rejections.
 
 ### Persisted interpolation checkpoint (W3)
 

@@ -4399,6 +4399,15 @@ task v4_codegen_llvm_native_type_error(type_text: word, allow_void: bool) -> wor
 -- v4_codegen_llvm_signature_is_c_width_decl) and skip this fence for those
 -- positions; everywhere else (FREAK signatures, locals, pointees, callbacks,
 -- function types, aliases) C widths and wchar remain fenced by name.
+-- A Map<K, V> or Set<T> surface, spelled directly or through its canonical
+-- form; the walker fences it by name at a C boundary.
+task v4_codegen_llvm_c_surface_is_hash_collection(ty_id: int, surface: word) -> bool {
+    pilot canonical = v4_ty_canonical_type(ty_id, surface)
+    if not v4_ty_is_generic_instance_type(canonical) { give back false }
+    pilot base = v4_ty_generic_base_name(canonical)
+    give back (base == "Map" and v4_ty_generic_arg_count(canonical) == 2) or (base == "Set" and v4_ty_generic_arg_count(canonical) == 1)
+}
+
 task v4_codegen_llvm_native_c_surface_error_depth(ty_id: int, surface: word, c_boundary: bool, direct: bool, depth: int) -> word {
     if depth > 32 { give back "native C ABI surface nesting exceeds supported depth" }
     pilot alias_name = v4_ty_surface_ffi_alias_name(surface)
@@ -4415,6 +4424,8 @@ task v4_codegen_llvm_native_c_surface_error_depth(ty_id: int, surface: word, c_b
     if c_boundary and (v4_ty_is_tuple_type(surface) or v4_ty_is_fixed_array_type(surface)) { give back "native tuple and array C ABI by value is not yet supported: " + surface }
     -- A native route is a { tag, payload } struct, not a C enum integer.
     if c_boundary and v4_ty_route_signature_id_for_name(ty_id, v4_ty_canonical_type(ty_id, surface)) >= 0 { give back "native route C ABI is not yet supported: " + surface }
+    -- A native map or set is an owned hash header, not a C type.
+    if c_boundary and v4_codegen_llvm_c_surface_is_hash_collection(ty_id, surface) { give back "native map and set C ABI is not yet supported: " + surface }
     if c_boundary and (surface == v4_ty_bool or surface == v4_ty_tiny or surface == v4_ty_char) { give back "native C scalar ABI not yet supported: " + surface }
     if v4_ty_is_surface_ffi_alias_type(surface) { give back "" }
     if v4_ty_is_raw_pointer_type(surface) { give back v4_codegen_llvm_native_c_surface_error_depth(ty_id, v4_ty_raw_pointer_target_type(surface), false, false, depth + 1) }

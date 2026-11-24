@@ -7721,6 +7721,7 @@ EXECUTABLE_SMOKES = [
             "h6-native-ffi-width cast-alias=true impl-raw=true callback-retained=true named=true no-module=true",
             "h6-native-ffi-width portable=true pointers=true floats=true internal-bool-tiny=true recovery=true",
             "h6-native-ffi-width aliases=8 nested-params-returns=true pointees=true bare-scalars=true variadic=true",
+            "h6-native-ffi-width maps=true sets=true nested-extern=true language-task=true",
             "h6-native-ffi-width locals=true cycles=true depth-bound=true cast-raw=true sealed=true",
             "h6-native-ffi-width pressure=true restore=true changed-facts=true sealed=true",
         ],
@@ -10251,6 +10252,8 @@ EXECUTABLE_SMOKES = [
             {'argv': ['5'], 'expect': ['map-get-snapshot 5=passed forged=true live=true atomic=true no-module=true old-seal=true recovered=true']},
             {'argv': ['6'], 'expect': ['map-get-snapshot 6=passed valid=true restored=true fresh-module=true']},
             {'argv': ['7'], 'expect': ['map-get-snapshot 7=passed forged=true live=true atomic=true no-module=true old-seal=true recovered=true']},
+            {'argv': ['8'], 'expect': ['map-get-snapshot 8=passed valid=true restored=true fresh-module=true']},
+            {'argv': ['9'], 'expect': ['map-get-snapshot 9=passed forged=true live=true atomic=true no-module=true old-seal=true recovered=true']},
         ],
     },
     {
@@ -18118,6 +18121,13 @@ NATIVE_MAPS_REJECTED = (
     ("tier3_map_shape_field", "shape Reg { m: Map<int, int> }\n"
      "task main() -> int {\n    pilot r = Reg { m: Map::new() }\n    give back 0\n}\n",
      "native maps and sets inside other types are not yet supported: Map<int,int>"),
+    # An extern C function pointer type never carries a map or set header.
+    ("tier3_map_extern_fn_pointer", "task relay(f: extern [C] task(m: Map<int, int>) -> std::ffi::c_int) -> int {\n    give back 0\n}\n"
+     "task main() -> int {\n    give back 0\n}\n",
+     "native maps and sets inside other types are not yet supported: Map<int,int>"),
+    ("tier3_set_extern_fn_pointer_return", "task relay(f: extern [C] task() -> (std::ffi::c_int, Set<int>)) -> int {\n    give back 0\n}\n"
+     "task main() -> int {\n    give back 0\n}\n",
+     "native maps and sets inside other types are not yet supported: Set<int>"),
     ("tier3_map_list_items", "task main() -> int {\n    pilot xs: List<Map<int, int>> = []\n    give back 0\n}\n",
      "native maps and sets inside other types are not yet supported: Map<int,int>"),
     ("tier3_map_get_word_shape", "shape P { name: word }\n"

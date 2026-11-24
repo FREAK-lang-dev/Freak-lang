@@ -88,6 +88,13 @@ task h6_width_run() -> void {
     h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task(x:std::ffi::c_isize,args:...)->std::ffi::c_isize", false) == "native C variadic function pointers are not yet supported", "variadic function pointers remain fenced")
     h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "Hidden", false) == reason and v4_codegen_llvm_native_c_surface_error(ty, "*mutHidden", false) == reason, "recursive aliases preserve forbidden widths")
     say "h6-native-ffi-width aliases=8 nested-params-returns=true pointees=true bare-scalars=true variadic=true"
+    -- A native map or set header never crosses a C boundary, directly or
+    -- through a nested extern function pointer; FREAK task types keep it.
+    pilot map_reason = "native map and set C ABI is not yet supported: "
+    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "Map<int,int>", true) == map_reason + "Map<int,int>" and v4_codegen_llvm_native_c_surface_error(ty, "Set<word>", true) == map_reason + "Set<word>", "maps and sets fenced at C boundary")
+    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task(m:Map<int,int>)->std::ffi::c_isize", false) == map_reason + "Map<int,int>" and v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task()->Set<int>", false) == map_reason + "Set<int>", "nested extern map and set surfaces fenced")
+    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "Map<int,int>", false) == "" and v4_codegen_llvm_native_c_surface_error(ty, "task(m:Map<int,int>)->Set<int>", false) == "", "language map and set surfaces stay native")
+    say "h6-native-ffi-width maps=true sets=true nested-extern=true language-task=true"
 
     pilot annotation = 0 - 1
     -- The two authored main annotations have exact record order.
