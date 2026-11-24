@@ -349,6 +349,9 @@ def main() -> int:
                      "std 0.16.2 -> 0.16.3", "This project still pins its std in")
             h.expect("no newer patch", h.hangar("std", "update", extra=source), 0, "is the newest that fits", "hangar std update --minor")
             h.expect("minor update", h.hangar("std", "update", "--minor", extra=source), 0, "std 0.16.3 -> 0.17.0")
+            overrides = dict(source, FREAK_STD="bundled", FREAK_STD_STORE="0")
+            h.expect("update ignores build-only overrides", h.hangar("std", "update", extra=overrides), 0,
+                     "std 0.17.0 is the newest that fits")
             h.expect("update result builds", h.run("run", "p.fk"), 0, "marker=bundle-minor")
             publish(4)
             h.expect("older index serial refused", h.hangar("std", "update", extra=source), 1, "refusing a rollback")

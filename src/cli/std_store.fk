@@ -47,6 +47,9 @@ pilot cli_std_search_cwd = false
 pilot cli_std_resolved_key = ""
 -- `hangar std pin` resolves as if the project had no std.lock yet.
 pilot cli_std_ignore_pin = false
+-- `hangar std update` compares against the saved selection alone: no pin and
+-- no build-only override (FREAK_STD=bundled, a checkout's bundled std).
+pilot cli_std_selection_only = false
 
 -- ===================== manifest =====================
 -- A manifest is a flat word array: key, value, key, value, ...
@@ -508,17 +511,17 @@ task cli_std_resolve() -> bool {
     cli_std_use_bundled("bundled")
     if bundled_dir == "" or cli_payload_is_resolution_error(bundled_dir) { give back true }
     pilot override = process::env("FREAK_STD").trim()
-    if override == "bundled" {
+    if override == "bundled" and not cli_std_selection_only {
         cli_std_active_source = "override"
         give back true
     }
-    if cli_executable_repo_root() != "" and process::env("FREAK_STD_STORE") != "1" {
+    if not cli_std_selection_only and cli_executable_repo_root() != "" and process::env("FREAK_STD_STORE") != "1" {
         cli_std_active_source = "checkout"
         give back true
     }
 
     pilot project = project_key
-    if project != "" and not cli_std_ignore_pin and fs::exists(cli_host_path_join(project, "std.lock")) {
+    if project != "" and not cli_std_ignore_pin and not cli_std_selection_only and fs::exists(cli_host_path_join(project, "std.lock")) {
         cli_std_pin_file = cli_host_path_join(project, "std.lock")
         pilot pinned = cli_std_read_value(cli_std_pin_file, "version")
         if cli_std_read_problem != "" {
