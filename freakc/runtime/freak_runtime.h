@@ -438,6 +438,11 @@ double  freak_math_floor(double x);
 double  freak_math_ceil(double x);
 int64_t freak_math_random_int(int64_t min_val, int64_t max_val);
 double  freak_math_random_float(void);
+int64_t freak_os_random_u64(void);
+int64_t freak_os_random_fill(int64_t out, int64_t count);
+int64_t freak_crypto_sha256(int64_t data, int64_t out);
+int64_t freak_crypto_hmac_sha256(int64_t key, int64_t message, int64_t out);
+int64_t freak_crypto_pbkdf2_sha256(int64_t password, int64_t salt, int64_t rounds, int64_t length, int64_t out);
 
 /* ------------------------------------------------------------------ */
 /*  Closures                                                          */

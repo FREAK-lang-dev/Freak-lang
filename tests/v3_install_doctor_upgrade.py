@@ -337,7 +337,7 @@ def check_static_contracts(repo: Path) -> None:
     assert "unresolved WinGet placeholder" in release_text
     assert "dist/freak/runtime/freak_runtime.o" not in release_text
     assert "packaging/distribution-files.manifest text eol=lf" in attributes_text
-    assert 'doc["checks"]["stdlib"]["modules_expected"] == 15' in ci_text
+    assert 'doc["checks"]["stdlib"]["modules_expected"] == 17' in ci_text
     for needle in (
         "task hangar_install_freak() -> int",
         "FREAK_UPGRADE_SCRIPT",
@@ -346,7 +346,7 @@ def check_static_contracts(repo: Path) -> None:
     ):
         assert needle in hangar_text, f"upgrade path missing {needle}"
     for needle in (
-        "modules_expected\\\": 15",
+        "modules_expected\\\": 17",
         "ui/window.fk",
         "scoop install mingw-mstorsjo-llvm-ucrt",
         "FREAK_DOCTOR_INSTALL_COMMAND",
@@ -1737,8 +1737,8 @@ def check_doctor(
     assert report["checks"]["runtime"]["files_expected"] == len(
         [destination for _, destination in manifest_entries(repo) if destination.startswith("runtime/")]
     )
-    assert report["checks"]["stdlib"]["modules_found"] == 15
-    assert report["checks"]["stdlib"]["modules_expected"] == 15
+    assert report["checks"]["stdlib"]["modules_found"] == 17
+    assert report["checks"]["stdlib"]["modules_expected"] == 17
     assert report["checks"]["abi"] == {
         "ok": True,
         "expected": "freak-v3-abi-1",
@@ -1747,8 +1747,8 @@ def check_doctor(
     }
     assert report["checks"]["runtime_api"] == {
         "ok": True,
-        "expected": "freak-v3-runtime-api-4",
-        "runtime": "freak-v3-runtime-api-4",
+        "expected": "freak-v3-runtime-api-6",
+        "runtime": "freak-v3-runtime-api-6",
     }
     assert report["checks"]["upgrade"]["pending"] is False
 
@@ -1780,7 +1780,7 @@ def check_doctor(
     assert missing_api_report["checks"]["abi"]["ok"] is True
     assert missing_api_report["checks"]["runtime_api"] == {
         "ok": False,
-        "expected": "freak-v3-runtime-api-4",
+        "expected": "freak-v3-runtime-api-6",
         "runtime": "missing",
     }
     missing_api_human = run_cli(compiler, cwd, env, "doctor")
@@ -1815,7 +1815,7 @@ def check_doctor(
             "param([switch]$Upgrade,[switch]$SkipDeps)\n"
             "$runtime = Join-Path $env:FREAK_HOME 'runtime'\n"
             "$marker = Join-Path $runtime 'freak_runtime_api'\n"
-            "[IO.File]::WriteAllText($marker, \"freak-v3-runtime-api-4`n\")\n"
+            "[IO.File]::WriteAllText($marker, \"freak-v3-runtime-api-6`n\")\n"
             "[IO.File]::WriteAllText($env:FREAK_DOCTOR_RUNTIME_API_FIX_SENTINEL, "
             "\"$Upgrade|$SkipDeps|$env:FREAK_RELEASE_TAG|$env:FREAK_INSTALL_UPGRADE\")\n"
             "$bin = Join-Path $env:FREAK_HOME 'bin'\n"
@@ -1829,7 +1829,7 @@ def check_doctor(
         fix_script = root / "doctor-runtime-api-fix.sh"
         fix_script.write_text(
             "#!/usr/bin/env bash\nset -e\n"
-            "printf 'freak-v3-runtime-api-4\\n' > "
+            "printf 'freak-v3-runtime-api-6\\n' > "
             '"$FREAK_HOME/runtime/freak_runtime_api"\n'
             "printf '%s|%s|%s' \"$FREAK_RELEASE_TAG\" \"$FREAK_HOME\" \"$*\" > "
             '"$FREAK_DOCTOR_RUNTIME_API_FIX_SENTINEL"\n',
@@ -1845,7 +1845,7 @@ def check_doctor(
     assert "Repairing the compiler/runtime/stdlib payload" in fixed_api.stdout
     assert "Upgrade payload staged successfully" in fixed_api.stdout
     assert runtime_api.read_text(encoding="utf-8").strip() == (
-        "freak-v3-runtime-api-4"
+        "freak-v3-runtime-api-6"
     )
     fix_record = fix_sentinel.read_text(encoding="utf-8")
     if sys.platform == "win32":
@@ -1879,8 +1879,8 @@ def check_doctor(
     repaired_api_report = json.loads(repaired_api.stdout)
     assert repaired_api_report["checks"]["runtime_api"] == {
         "ok": True,
-        "expected": "freak-v3-runtime-api-4",
-        "runtime": "freak-v3-runtime-api-4",
+        "expected": "freak-v3-runtime-api-6",
+        "runtime": "freak-v3-runtime-api-6",
     }
 
     runtime_api.write_text("freak-v3-runtime-api-999\n", encoding="utf-8")

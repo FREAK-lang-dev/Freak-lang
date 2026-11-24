@@ -1766,6 +1766,8 @@ task hangar_install_freak_v014_legacy_protocol() -> int {
     array_push(std_files, "math.fk")
     array_push(std_files, "math3d.fk")
     array_push(std_files, "zip.fk")
+    array_push(std_files, "random.fk")
+    array_push(std_files, "crypto.fk")
     array_push(std_files, "string.fk")
     array_push(std_files, "convert.fk")
     array_push(std_files, "algorithm.fk")

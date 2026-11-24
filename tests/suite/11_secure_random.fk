@@ -1,0 +1,25 @@
+-- std::random: OS-secure ints, ranges and hex (exact output is the checks, never the numbers)
+use std::random::{random_secure_int, random_secure_below, random_secure_range, random_secure_hex, random_secure_bits63}
+
+task main() -> void {
+    pilot a = random_secure_int()
+    pilot b = random_secure_int()
+    if a == b { say "same twice" }
+    pilot mut good = true
+    pilot mut seen = 0
+    for each i in 0..2000 {
+        pilot v = random_secure_below(10)
+        if v < 0 or v >= 10 { good = false }
+        if v == 9 { seen = seen + 1 }
+        pilot r = random_secure_range(-5, 5)
+        if r < -5 or r >= 5 { good = false }
+        if random_secure_bits63() < 0 { good = false }
+    }
+    if random_secure_below(0) != 0 { good = false }
+    if random_secure_below(1) != 0 { good = false }
+    pilot h = random_secure_hex(18)
+    if h.byte_length() != 36 { good = false }
+    if random_secure_hex(0) != "" { good = false }
+    if seen < 100 or seen > 320 { good = false }
+    if good { say "random ok" } else { say "random BAD" }
+}

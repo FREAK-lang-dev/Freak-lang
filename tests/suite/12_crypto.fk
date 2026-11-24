@@ -1,0 +1,70 @@
+-- std::crypto: SHA-256 (FIPS 180-4), HMAC-SHA-256 (RFC 4231) and
+-- PBKDF2-HMAC-SHA-256 (RFC 7914 vectors); std::random byte fill.
+use std::crypto::{crypto_sha256, crypto_hmac_sha256, crypto_pbkdf2_sha256}
+use std::random::{random_secure_fill}
+
+task hex_of(b: ByteBuffer) -> word {
+    pilot digits = "0123456789abcdef"
+    pilot mut buf = b
+    pilot mut out = ""
+    buf.seek(0)
+    repeat while buf.remaining() > 0 {
+        pilot v = buf.read_byte()
+        out = out + digits.substring(v / 16, 1) + digits.substring(v % 16, 1)
+    }
+    give back out
+}
+
+task bytes_of(w: word) -> ByteBuffer {
+    pilot mut b = ByteBuffer::new()
+    b.write_word(w)
+    give back b
+}
+
+task main() -> void {
+    pilot mut out = ByteBuffer::new()
+    pilot abc = bytes_of("abc")
+    say crypto_sha256(abc, out)
+    say hex_of(out)
+    out.clear()
+    pilot empty = ByteBuffer::new()
+    crypto_sha256(empty, out)
+    say hex_of(out)
+    out.clear()
+    pilot jefe = bytes_of("Jefe")
+    pilot what = bytes_of("what do ya want for nothing?")
+    crypto_hmac_sha256(jefe, what, out)
+    say hex_of(out)
+    out.clear()
+    pilot mut big_key = ByteBuffer::new()
+    repeat 131 times { big_key.write_byte(170) }
+    pilot first = bytes_of("Test Using Larger Than Block-Size Key - Hash Key First")
+    crypto_hmac_sha256(big_key, first, out)
+    say hex_of(out)
+    out.clear()
+    pilot pw = bytes_of("password")
+    pilot salt = bytes_of("salt")
+    crypto_pbkdf2_sha256(pw, salt, 1, 32, out)
+    say hex_of(out)
+    out.clear()
+    crypto_pbkdf2_sha256(pw, salt, 4096, 40, out)
+    say hex_of(out)
+    out.clear()
+    say crypto_pbkdf2_sha256(pw, salt, 0, 32, out)
+    say out.length()
+    pilot mut r = ByteBuffer::new()
+    say random_secure_fill(r, 1000)
+    say r.length()
+    say random_secure_fill(r, -1)
+    say r.length()
+    out.release()
+    abc.release()
+    empty.release()
+    jefe.release()
+    what.release()
+    big_key.release()
+    first.release()
+    pw.release()
+    salt.release()
+    r.release()
+}

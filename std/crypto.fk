@@ -1,0 +1,34 @@
+-- ===================================================================
+-- FREAK Standard Library — std::crypto (V3.5 hashing floor)
+-- ===================================================================
+-- SHA-256, HMAC-SHA-256 and PBKDF2-HMAC-SHA-256 over ByteBuffers, run
+-- natively by the runtime. For protocol code: SCRAM logins, signed
+-- cookies and tokens, content hashes.
+--
+--   use std::crypto::{crypto_sha256, crypto_hmac_sha256, crypto_pbkdf2_sha256}
+--
+-- Each appends its result to `out` and gives back true, or false (with
+-- nothing appended) for a bad argument or a buffer whose status isn't 0.
+-- For random bytes see std::random. Ciphers, signatures and constant-time
+-- comparison are V4.
+-- ===================================================================
+
+extern task freak_crypto_sha256(data: ByteBuffer, out: ByteBuffer) -> int
+extern task freak_crypto_hmac_sha256(key: ByteBuffer, message: ByteBuffer, out: ByteBuffer) -> int
+extern task freak_crypto_pbkdf2_sha256(password: ByteBuffer, salt: ByteBuffer, rounds: int, length: int, out: ByteBuffer) -> int
+
+-- The 32-byte SHA-256 digest of every byte in `data`.
+task crypto_sha256(data: ByteBuffer, out: ByteBuffer) -> bool {
+    give back freak_crypto_sha256(data, out) == 1
+}
+
+-- The 32-byte HMAC-SHA-256 of `message` under `key`.
+task crypto_hmac_sha256(key: ByteBuffer, message: ByteBuffer, out: ByteBuffer) -> bool {
+    give back freak_crypto_hmac_sha256(key, message, out) == 1
+}
+
+-- `length` bytes (1 to 1 MiB) of PBKDF2-HMAC-SHA-256 after `rounds`
+-- iterations (1 to 100,000,000).
+task crypto_pbkdf2_sha256(password: ByteBuffer, salt: ByteBuffer, rounds: int, length: int, out: ByteBuffer) -> bool {
+    give back freak_crypto_pbkdf2_sha256(password, salt, rounds, length, out) == 1
+}

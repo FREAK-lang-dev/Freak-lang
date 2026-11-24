@@ -840,6 +840,8 @@ completion remain open.
 | `time::sleep`, duration literals | ⚠️ | 📖 V4 | sleep works; literals like `500.milliseconds` not parsed |
 | V3 scalar time/PID/environment | ⚠️ | V3 campaign | Separate epoch milliseconds and monotonic nanoseconds; PID and owned UTF-8 environment snapshots/mutation. C/LLVM probes cover clock edges, lock behavior and concurrent C ownership audit. Python owned `env`/`env_var` results reject; structured process/fs/random campaign work and Linux execution remain pending. |
 | `random::rand`, `random::seed` | ⚠️ | 📖 V4 | runtime present, FREAK API unclear |
+| `std::crypto` hashing floor | ⚠️ | V3.5 floor | [std/crypto.fk](std/crypto.fk): `crypto_sha256`, `crypto_hmac_sha256`, `crypto_pbkdf2_sha256` over ByteBuffers (runtime `freak_crypto_*`, FIPS 180-4 / RFC 2104 / RFC 8018). Vectors (FIPS, RFC 4231, RFC 7914) in [tests/suite/12_crypto.fk](tests/suite/12_crypto.fk). Ciphers, signatures, constant-time compare remain V4. |
+| `random::secure()` (OS entropy) | ⚠️ | V3.5 scalar floor | [std/random.fk](std/random.fk): `random_secure_int`, `random_secure_bits63`, `random_secure_below` (no modulo bias), `random_secure_range`, `random_secure_hex` over `freak_os_random_u64` (BCryptGenRandom / arc4random_buf / getrandom or /dev/urandom, no weak fallback). C/LLVM coverage in [tests/suite/11_secure_random.fk](tests/suite/11_secure_random.fk). The `SecureRng` shape, seeded `Rng`, `rand()` and `pick()` remain V4. |
 | `process::run`, `process::exit` | ⚠️ | Partial | Exit is implemented; legacy process helpers do not prove structured argv/capture/stdin/cwd/environment support. Native structured process campaign acceptance remains pending. |
 | `process::exec_capture` | ✅ | ✅ | runtime |
 | `thread::spawn`, `Atomic<T>` | ❌ | 📖 V4 | std::thread Planned per CLAUDE.md |
@@ -1147,7 +1149,7 @@ E. **§4 Borrow Checker** — split into:
 
 F. **§5 Anime Layer** — per-feature status; `foreshadow-audit`/`audit-miracles`/`audit-trust`/`audit-science` are ✅; everything else 📖 V4.
 
-G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`) and richer test blocks as Planned. Ordinary `std::test` assertion helpers are available in current V3.5 development. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`; `std::process` and `std::ui` partial).
+G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`) and richer test blocks as Planned. Ordinary `std::test` assertion helpers are available in current V3.5 development. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`; `std::process`, `std::random`, `std::crypto` and `std::ui` partial).
 
 H. **§13 CLI** — keep `freak vibe`, `--voice`, `--clearance`, and `--build-mode` marked V4. Current V3.5 development supports build/run `-o`/`--output`; `audit-conformance` is implemented.
 

@@ -16,7 +16,7 @@
 version = "0.16.0"
 std_api = "freak-v3-std-api-1"
 abi = "freak-v3-abi-1"
-runtime_api = "freak-v3-runtime-api-4"
+runtime_api = "freak-v3-runtime-api-6"
 compiler = ">=0.15.2"
 
 [modules]
@@ -33,4 +33,6 @@ json_document = "use json_document.fk"
 version = "always version.fk"
 ui = "use ui/window.fk"
 http_server = "use http_server.fk"
+random = "use random.fk"
+crypto = "use crypto.fk"
 http = "llvm http.fk"

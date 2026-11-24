@@ -1827,6 +1827,68 @@ double freak_math_random_float(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  std::random — the operating system's secure generator             */
+/* ------------------------------------------------------------------ */
+
+/* 64 bits from the OS CSPRNG: BCryptGenRandom on Windows, arc4random_buf
+   on Apple, getrandom (or /dev/urandom where it is missing) elsewhere.
+   There is no weak fallback: if the OS refuses, the program stops. */
+#if defined(_WIN32)
+#include <bcrypt.h>
+#pragma comment(lib, "bcrypt.lib")
+#elif defined(__linux__) && defined(__has_include)
+#if __has_include(<sys/random.h>)
+#include <sys/random.h>
+#define FREAK_HAVE_GETRANDOM 1
+#endif
+#endif
+
+static void freak_os_random_fail(const char* why) {
+    fprintf(stderr, "FREAK: the operating system's secure random source failed (%s)\n", why);
+    exit(1);
+}
+
+static void freak_os_random_bytes(uint8_t* out, size_t length) {
+#if defined(_WIN32)
+    if (!BCRYPT_SUCCESS(BCryptGenRandom(NULL, out, (ULONG)length, BCRYPT_USE_SYSTEM_PREFERRED_RNG)))
+        freak_os_random_fail("BCryptGenRandom");
+#elif defined(__APPLE__)
+    arc4random_buf(out, length);
+#else
+    size_t got = 0;
+#if defined(FREAK_HAVE_GETRANDOM)
+    while (got < length) {
+        ssize_t n = getrandom(out + got, length - got, 0);
+        if (n > 0) { got += (size_t)n; continue; }
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && errno == ENOSYS) break;
+        freak_os_random_fail("getrandom");
+    }
+#endif
+    if (got < length) {
+        int fd = open("/dev/urandom", O_RDONLY);
+        if (fd < 0) freak_os_random_fail("/dev/urandom");
+        while (got < length) {
+            ssize_t n = read(fd, out + got, length - got);
+            if (n > 0) { got += (size_t)n; continue; }
+            if (n < 0 && errno == EINTR) continue;
+            close(fd);
+            freak_os_random_fail("/dev/urandom");
+        }
+        close(fd);
+    }
+#endif
+}
+
+int64_t freak_os_random_u64(void) {
+    uint8_t bytes[8];
+    freak_os_random_bytes(bytes, sizeof(bytes));
+    int64_t value = 0;
+    memcpy(&value, bytes, sizeof(value));
+    return value;
+}
+
+/* ------------------------------------------------------------------ */
 /*  String methods                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -4339,18 +4401,44 @@ void freak_byte_buffer_write_byte(freak_byte_buffer_handle handle, int64_t value
     freak_byte_buffer_append_bytes(buffer, &byte, 1);
 }
 
-static void freak_byte_buffer_write_integer(
+/* 8-byte loads and stores: one unaligned memcpy plus a byte swap when the
+   wanted order isn't the host's, instead of a byte-at-a-time loop. */
+static inline uint64_t freak_byte_buffer_swap64(uint64_t v) {
+#if defined(__GNUC__) || defined(__clang__)
+    return __builtin_bswap64(v);
+#else
+    v = ((v & UINT64_C(0x00ff00ff00ff00ff)) << 8) | ((v >> 8) & UINT64_C(0x00ff00ff00ff00ff));
+    v = ((v & UINT64_C(0x0000ffff0000ffff)) << 16) | ((v >> 16) & UINT64_C(0x0000ffff0000ffff));
+    return (v << 32) | (v >> 32);
+#endif
+}
+
+static inline bool freak_byte_buffer_host_big_endian(void) {
+#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__)
+    return __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__;
+#else
+    const uint16_t probe = 1;
+    uint8_t first;
+    memcpy(&first, &probe, 1);
+    return first == 0;
+#endif
+}
+
+static inline void freak_byte_buffer_write_integer(
         int64_t handle, int64_t value, bool big_endian, const char* operation) {
     freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, operation);
     if (buffer->status != FREAK_BYTE_BUFFER_OK) return;
     uint64_t raw = 0;
     memcpy(&raw, &value, sizeof(raw));
-    uint8_t bytes[8];
-    for (size_t i = 0; i < 8; i += 1) {
-        size_t index = big_endian ? 7 - i : i;
-        bytes[index] = (uint8_t)(raw & UINT64_C(0xff));
-        raw >>= 8;
+    if (big_endian != freak_byte_buffer_host_big_endian()) raw = freak_byte_buffer_swap64(raw);
+    if (buffer->length + 8 <= buffer->capacity && buffer->length + 8 > buffer->length) {
+        memcpy(buffer->data + buffer->length, &raw, sizeof(raw));
+        buffer->length += 8;
+        freak_word_foundation_audit_byte_buffer_copy(8);
+        return;
     }
+    uint8_t bytes[8];
+    memcpy(bytes, &raw, sizeof(bytes));
     freak_byte_buffer_append_bytes(buffer, bytes, sizeof(bytes));
 }
 
@@ -4377,7 +4465,7 @@ int64_t freak_byte_buffer_read_byte(freak_byte_buffer_handle handle) {
     return (int64_t)buffer->data[buffer->cursor++];
 }
 
-static int64_t freak_byte_buffer_read_integer(
+static inline int64_t freak_byte_buffer_read_integer(
         int64_t handle, bool big_endian, const char* operation) {
     freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, operation);
     if (buffer->status != FREAK_BYTE_BUFFER_OK) return 0;
@@ -4386,10 +4474,8 @@ static int64_t freak_byte_buffer_read_integer(
         return 0;
     }
     uint64_t raw = 0;
-    for (size_t i = 0; i < 8; i += 1) {
-        size_t index = big_endian ? i : 7 - i;
-        raw = (raw << 8) | (uint64_t)buffer->data[buffer->cursor + index];
-    }
+    memcpy(&raw, buffer->data + buffer->cursor, sizeof(raw));
+    if (big_endian != freak_byte_buffer_host_big_endian()) raw = freak_byte_buffer_swap64(raw);
     buffer->cursor += 8;
     int64_t value = 0;
     memcpy(&value, &raw, sizeof(value));
@@ -4867,6 +4953,7 @@ static void freak_wsa_init(void) {
 #else
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #endif
@@ -5087,6 +5174,21 @@ static void freak_tcp_socket_configure_no_sigpipe(freak_native_socket socket_val
 #endif
 }
 
+/* Client streams send each request as soon as it is written, as libpq and
+   Go's net package do: with Nagle on, a second small write waits for the
+   peer's delayed ACK (about 40 ms on Linux) when the peer has nothing to
+   answer yet, e.g. a pipelined batch before its Sync. */
+static void freak_tcp_socket_configure_no_delay(freak_native_socket socket_value) {
+#if defined(TCP_NODELAY)
+    int enabled = 1;
+    (void)setsockopt(
+        socket_value, IPPROTO_TCP, TCP_NODELAY,
+        (const char*)&enabled, (socklen_t)sizeof(enabled));
+#else
+    (void)socket_value;
+#endif
+}
+
 static int freak_tcp_socket_send_flags(void) {
 #ifdef MSG_NOSIGNAL
     return MSG_NOSIGNAL;
@@ -5133,6 +5235,7 @@ freak_tcp_socket_handle freak_tcp_socket_connect(freak_word host, int64_t port) 
         opened = true;
         freak_tcp_socket_configure_no_sigpipe(native_socket);
         if (connect(native_socket, address->ai_addr, (int)address->ai_addrlen) == 0) {
+            freak_tcp_socket_configure_no_delay(native_socket);
             socket_record->native_socket = native_socket;
             socket_record->role = FREAK_TCP_SOCKET_ROLE_STREAM;
             break;
@@ -5629,7 +5732,16 @@ static int64_t freak_v3_count, freak_v3_capacity, freak_v3_free = -1;
 static int64_t freak_v3_arrays_live, freak_v3_shapes_live, freak_v3_words_live;
 static uint64_t freak_v3_visit;
 
-static void freak_v3_fail(const char *message) {
+/* Handle checks run on every container access; keep the checks inline and
+   the failure reports out of line. */
+#if defined(__GNUC__) || defined(__clang__)
+#define FREAK_V3_HOT static inline __attribute__((always_inline))
+#define FREAK_V3_COLD __attribute__((noinline, cold, noreturn))
+#else
+#define FREAK_V3_HOT static inline
+#define FREAK_V3_COLD
+#endif
+FREAK_V3_COLD static void freak_v3_fail(const char *message) {
     fprintf(stderr, "FREAK: %s\n", message);
     exit(1);
 }
@@ -5642,7 +5754,7 @@ static void *freak_v3_alloc(size_t count, size_t size) {
 static void freak_v3_kind(int64_t kind) {
     if (kind < FREAK_V3_INT || kind > FREAK_V3_C_WORD) freak_v3_fail("invalid array element kind");
 }
-static freak_v3_container *freak_v3_object(int64_t handle, bool shape) {
+FREAK_V3_HOT freak_v3_container *freak_v3_object(int64_t handle, bool shape) {
     uint64_t raw = (uint64_t)handle;
     uint32_t slot = (uint32_t)raw;
     uint32_t generation = (uint32_t)(raw >> 32);
@@ -5653,12 +5765,13 @@ static freak_v3_container *freak_v3_object(int64_t handle, bool shape) {
         freak_v3_fail("invalid or released container handle");
     return p;
 }
-static void freak_v3_index(freak_v3_container *p, int64_t index) {
-    if (index < 0 || index >= p->length) {
-        fprintf(stderr, "FREAK: %s index %lld out of bounds (len %lld)\n",
-                p->shape ? "shape field" : "array", (long long)index, (long long)p->length);
-        exit(1);
-    }
+FREAK_V3_COLD static void freak_v3_index_fail(freak_v3_container *p, int64_t index) {
+    fprintf(stderr, "FREAK: %s index %lld out of bounds (len %lld)\n",
+            p->shape ? "shape field" : "array", (long long)index, (long long)p->length);
+    exit(1);
+}
+FREAK_V3_HOT void freak_v3_index(freak_v3_container *p, int64_t index) {
+    if (index < 0 || index >= p->length) freak_v3_index_fail(p, index);
 }
 static int64_t freak_v3_new(bool shape, int64_t kind, int64_t count) {
     freak_v3_kind(kind);
@@ -5695,7 +5808,7 @@ static int64_t freak_v3_new(bool shape, int64_t kind, int64_t count) {
 }
 int64_t freak_v3_array_new(int64_t kind) { return freak_v3_new(false, kind, 0); }
 int64_t freak_v3_shape_new(int64_t fields) { return freak_v3_new(true, 0, fields); }
-static int64_t freak_v3_retain(int64_t handle, bool shape) {
+FREAK_V3_HOT int64_t freak_v3_retain(int64_t handle, bool shape) {
     freak_v3_container *p = freak_v3_object(handle, shape);
     if (p->refs == INT64_MAX) freak_v3_fail("container reference count overflow");
     p->refs++;
@@ -5723,11 +5836,16 @@ static void freak_v3_drop(int64_t kind, int64_t value) {
         freak_word_release_owned(p); free(p); freak_v3_words_live--;
     } else if (kind == FREAK_V3_SHAPE && value) freak_v3_shape_release(value);
 }
-static void freak_v3_release(int64_t handle, bool shape) {
+static void freak_v3_destroy(int64_t handle);
+FREAK_V3_HOT void freak_v3_release(int64_t handle, bool shape) {
     /* A consumed compiler binding is cleared to zero before scope cleanup. */
     if (!handle) return;
     freak_v3_container *p = freak_v3_object(handle, shape);
     if (--p->refs) return;
+    freak_v3_destroy(handle);
+}
+static void freak_v3_destroy(int64_t handle) {
+    freak_v3_container *p;
     /* Iterative destruction also handles deeply nested owned shapes without
        depending on the native call-stack limit. The registry cannot grow. */
     int64_t local[64], *pending = local;
@@ -5859,7 +5977,7 @@ static void freak_v3_no_cycle(int64_t owner, int64_t value) {
     }
     free(seen);
 }
-static freak_v3_container *freak_v3_field(int64_t h, int64_t i) {
+FREAK_V3_HOT freak_v3_container *freak_v3_field(int64_t h, int64_t i) {
     freak_v3_container *p = freak_v3_object(h, true); freak_v3_index(p, i);
     if (p->kinds[i] == 255) freak_v3_fail("uninitialized shape field");
     return p;
@@ -6089,6 +6207,189 @@ int64_t freak_v3_live_words(void) { return freak_v3_words_live; }
 /* Shares the word and ByteBuffer owners above; not a second runtime. */
 #include "freak_v35_process.inc"
 #include "freak_v35_fs.inc"
+
+/* ------------------------------------------------------------------ */
+/*  std::crypto floor: SHA-256, HMAC-SHA-256, PBKDF2-HMAC-SHA-256      */
+/* ------------------------------------------------------------------ */
+
+/* Byte-oriented primitives over ByteBuffer handles for protocol code
+   (SCRAM logins, signed tokens). Results are appended to `out`; each call
+   gives back 1, or 0 for a bad argument or a buffer already in a failed
+   state (nothing is appended then). FIPS 180-4 / RFC 2104 / RFC 8018. */
+typedef struct {
+    uint32_t state[8];
+    uint64_t length;
+    unsigned char block[64];
+    size_t used;
+} freak_crypto_sha256_ctx;
+
+static void freak_crypto_sha256_init(freak_crypto_sha256_ctx *ctx) {
+    static const uint32_t initial[8] = {
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+    };
+    memcpy(ctx->state, initial, sizeof(initial));
+    ctx->length = 0;
+    ctx->used = 0;
+}
+
+static void freak_crypto_sha256_update(
+        freak_crypto_sha256_ctx *ctx, const unsigned char *data, size_t length) {
+    ctx->length += (uint64_t)length;
+    if (ctx->used) {
+        size_t take = 64 - ctx->used;
+        if (take > length) take = length;
+        memcpy(ctx->block + ctx->used, data, take);
+        ctx->used += take; data += take; length -= take;
+        if (ctx->used < 64) return;
+        freak_fs_sha_block(ctx->state, ctx->block);
+        ctx->used = 0;
+    }
+    while (length >= 64) { freak_fs_sha_block(ctx->state, data); data += 64; length -= 64; }
+    if (length) { memcpy(ctx->block, data, length); ctx->used = length; }
+}
+
+static void freak_crypto_sha256_final(freak_crypto_sha256_ctx *ctx, unsigned char digest[32]) {
+    uint64_t bits = ctx->length * 8;
+    unsigned char pad[72] = {0x80};
+    size_t pad_length = ctx->used < 56 ? 56 - ctx->used : 120 - ctx->used;
+    for (unsigned i = 0; i < 8; i++) pad[pad_length + i] = (unsigned char)(bits >> (56 - 8 * i));
+    uint64_t saved = ctx->length;
+    freak_crypto_sha256_update(ctx, pad, pad_length + 8);
+    ctx->length = saved;
+    for (unsigned i = 0; i < 8; i++) {
+        digest[i * 4] = (unsigned char)(ctx->state[i] >> 24);
+        digest[i * 4 + 1] = (unsigned char)(ctx->state[i] >> 16);
+        digest[i * 4 + 2] = (unsigned char)(ctx->state[i] >> 8);
+        digest[i * 4 + 3] = (unsigned char)ctx->state[i];
+    }
+}
+
+typedef struct { freak_crypto_sha256_ctx inner, outer; } freak_crypto_hmac_key;
+
+static void freak_crypto_hmac_prepare(
+        freak_crypto_hmac_key *key, const unsigned char *secret, size_t length) {
+    unsigned char block[64] = {0};
+    if (length > 64) {
+        freak_crypto_sha256_ctx digest;
+        freak_crypto_sha256_init(&digest);
+        freak_crypto_sha256_update(&digest, secret, length);
+        freak_crypto_sha256_final(&digest, block);
+    } else if (length) {
+        memcpy(block, secret, length);
+    }
+    unsigned char inner_pad[64], outer_pad[64];
+    for (unsigned i = 0; i < 64; i++) {
+        inner_pad[i] = (unsigned char)(block[i] ^ 0x36);
+        outer_pad[i] = (unsigned char)(block[i] ^ 0x5c);
+    }
+    freak_crypto_sha256_init(&key->inner);
+    freak_crypto_sha256_update(&key->inner, inner_pad, 64);
+    freak_crypto_sha256_init(&key->outer);
+    freak_crypto_sha256_update(&key->outer, outer_pad, 64);
+}
+
+static void freak_crypto_hmac(
+        const freak_crypto_hmac_key *key, const unsigned char *message, size_t length,
+        const unsigned char *more, size_t more_length, unsigned char mac[32]) {
+    freak_crypto_sha256_ctx ctx = key->inner;
+    freak_crypto_sha256_update(&ctx, message, length);
+    if (more_length) freak_crypto_sha256_update(&ctx, more, more_length);
+    unsigned char inner[32];
+    freak_crypto_sha256_final(&ctx, inner);
+    ctx = key->outer;
+    freak_crypto_sha256_update(&ctx, inner, 32);
+    freak_crypto_sha256_final(&ctx, mac);
+}
+
+static freak_byte_buffer_record *freak_crypto_input(int64_t handle, const char *operation) {
+    freak_byte_buffer_record *buffer = freak_byte_buffer_require(handle, operation);
+    return buffer->status == FREAK_BYTE_BUFFER_OK ? buffer : NULL;
+}
+
+static const unsigned char *freak_crypto_bytes(freak_byte_buffer_record *buffer) {
+    static const unsigned char empty[1] = {0};
+    return buffer->length ? buffer->data : empty;
+}
+
+int64_t freak_crypto_sha256(int64_t data, int64_t out) {
+    freak_byte_buffer_record *input = freak_crypto_input(data, "crypto_sha256");
+    freak_byte_buffer_record *output = freak_crypto_input(out, "crypto_sha256");
+    if (!input || !output) return 0;
+    freak_crypto_sha256_ctx ctx;
+    unsigned char digest[32];
+    freak_crypto_sha256_init(&ctx);
+    freak_crypto_sha256_update(&ctx, freak_crypto_bytes(input), input->length);
+    freak_crypto_sha256_final(&ctx, digest);
+    freak_byte_buffer_append_bytes(output, digest, 32);
+    return output->status == FREAK_BYTE_BUFFER_OK ? 1 : 0;
+}
+
+int64_t freak_crypto_hmac_sha256(int64_t key, int64_t message, int64_t out) {
+    freak_byte_buffer_record *secret = freak_crypto_input(key, "crypto_hmac_sha256");
+    freak_byte_buffer_record *input = freak_crypto_input(message, "crypto_hmac_sha256");
+    freak_byte_buffer_record *output = freak_crypto_input(out, "crypto_hmac_sha256");
+    if (!secret || !input || !output) return 0;
+    freak_crypto_hmac_key prepared;
+    unsigned char mac[32];
+    freak_crypto_hmac_prepare(&prepared, freak_crypto_bytes(secret), secret->length);
+    freak_crypto_hmac(&prepared, freak_crypto_bytes(input), input->length, NULL, 0, mac);
+    freak_byte_buffer_append_bytes(output, mac, 32);
+    return output->status == FREAK_BYTE_BUFFER_OK ? 1 : 0;
+}
+
+/* PBKDF2 with HMAC-SHA-256: `length` derived bytes (1 to 1 MiB) after
+   `rounds` iterations (1 to 100,000,000). */
+int64_t freak_crypto_pbkdf2_sha256(
+        int64_t password, int64_t salt, int64_t rounds, int64_t length, int64_t out) {
+    freak_byte_buffer_record *secret = freak_crypto_input(password, "crypto_pbkdf2_sha256");
+    freak_byte_buffer_record *seasoning = freak_crypto_input(salt, "crypto_pbkdf2_sha256");
+    freak_byte_buffer_record *output = freak_crypto_input(out, "crypto_pbkdf2_sha256");
+    if (!secret || !seasoning || !output) return 0;
+    if (rounds < 1 || rounds > 100000000 || length < 1 || length > 1048576) return 0;
+    freak_crypto_hmac_key prepared;
+    freak_crypto_hmac_prepare(&prepared, freak_crypto_bytes(secret), secret->length);
+    /* the salt may be the output buffer itself: copy it before appending */
+    size_t salt_length = seasoning->length;
+    unsigned char *salt_copy = (unsigned char *)malloc(salt_length ? salt_length : 1);
+    if (!salt_copy) freak_byte_buffer_fail("out of memory deriving a key");
+    if (salt_length) memcpy(salt_copy, seasoning->data, salt_length);
+    int64_t left = length;
+    for (uint32_t block = 1; left > 0; block++) {
+        unsigned char counter[4] = {
+            (unsigned char)(block >> 24), (unsigned char)(block >> 16),
+            (unsigned char)(block >> 8), (unsigned char)block
+        };
+        unsigned char u[32], t[32];
+        freak_crypto_hmac(&prepared, salt_copy, salt_length, counter, 4, u);
+        memcpy(t, u, 32);
+        for (int64_t round = 1; round < rounds; round++) {
+            freak_crypto_hmac(&prepared, u, 32, NULL, 0, u);
+            for (unsigned i = 0; i < 32; i++) t[i] ^= u[i];
+        }
+        size_t take = left < 32 ? (size_t)left : 32;
+        freak_byte_buffer_append_bytes(output, t, take);
+        left -= (int64_t)take;
+    }
+    memset(&prepared, 0, sizeof(prepared));
+    free(salt_copy);
+    return output->status == FREAK_BYTE_BUFFER_OK ? 1 : 0;
+}
+
+/* `count` bytes (0 to 1 MiB) from the OS secure generator, appended. */
+int64_t freak_os_random_fill(int64_t out, int64_t count) {
+    freak_byte_buffer_record *output = freak_crypto_input(out, "random_secure_fill");
+    if (!output || count < 0 || count > 1048576) return 0;
+    unsigned char chunk[256];
+    while (count > 0) {
+        size_t take = count < 256 ? (size_t)count : 256;
+        freak_os_random_bytes(chunk, take);
+        freak_byte_buffer_append_bytes(output, chunk, take);
+        count -= (int64_t)take;
+    }
+    memset(chunk, 0, sizeof(chunk));
+    return output->status == FREAK_BYTE_BUFFER_OK ? 1 : 0;
+}
 #include "freak_v35_json.inc"
 #include "freak_v35_http.inc"
 
