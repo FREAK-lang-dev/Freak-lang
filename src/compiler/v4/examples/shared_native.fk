@@ -103,6 +103,13 @@ task keep(s: Shared<Ship>, wanted: bool) -> maybe<Shared<Ship>> {
     give back nobody
 }
 
+-- A result holds a handle only in ok, beside an error that owns nothing;
+-- the err path leaves the ok slot empty.
+task launch(fail: bool) -> result<Shared<Ship>, int> {
+    if fail { give back err(7) }
+    give back ok(Shared<Ship>::new(Ship { hp: 5, name: "Kasumi" }))
+}
+
 -- Payload drop glue runs once, when the last strong handle goes.
 task signal_level(lend s: Shared<Signal>) -> int {
     pilot v = s.borrow()
@@ -150,6 +157,16 @@ task main() -> int {
     check keep(e, true) {
         got k -> show(lend k)
         nobody -> say "none"
+    }
+    pilot failed = launch(true)
+    pilot launched = launch(false)
+    check result launch(true) {
+        ok(l) -> show(lend l)
+        err(code) -> say code
+    }
+    check result launch(false) {
+        ok(l) -> show(lend l)
+        err(code) -> say code
     }
     pilot f = a2.clone()
     pilot kept = keep(f, false) or else b.clone()

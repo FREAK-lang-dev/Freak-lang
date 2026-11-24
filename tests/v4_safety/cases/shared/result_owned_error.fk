@@ -1,0 +1,15 @@
+-- A handle in ok beside an error that owns a word is refused too.
+-- bible: 4.4
+-- expect: reject codegen
+-- error: native results of a Shared handle with an owned error are not yet supported
+
+use std::mem::{Shared, Weak}
+shape Ship { hp: int }
+
+task make() -> result<Shared<Ship>, word> {
+    give back err("lost" + "!")
+}
+task main() -> int {
+    pilot r = make()
+    give back 0
+}

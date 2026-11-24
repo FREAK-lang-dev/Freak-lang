@@ -5557,7 +5557,20 @@ task v4_codegen_llvm_native_sum_error(mir_id: int, type_text: word, depth: int) 
     if family == "result" { first = "Ok" }
     pilot error = v4_codegen_llvm_native_sum_payload_error(mir_id, v4_ty_native_sum_case_type(ty_id, type_text, first), type_text, depth)
     if error != "" or family != "result" { give back error }
-    give back v4_codegen_llvm_native_sum_payload_error(mir_id, v4_ty_native_sum_case_type(ty_id, type_text, "Err"), type_text, depth)
+    error = v4_codegen_llvm_native_sum_payload_error(mir_id, v4_ty_native_sum_case_type(ty_id, type_text, "Err"), type_text, depth)
+    if error != "" { give back error }
+    give back v4_codegen_llvm_native_shared_result_error(mir_id, type_text)
+}
+
+-- A carrier's handle drop releases only the Some or Ok handle
+-- (v4_codegen_llvm_sum_handle_drop_lines), so a result holds a handle only
+-- in Ok, beside an error that owns nothing.
+task v4_codegen_llvm_native_shared_result_error(mir_id: int, type_text: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot failure = v4_ty_native_sum_case_type(ty_id, type_text, "Err")
+    if v4_codegen_llvm_is_shared_handle(mir_id, failure) { give back "native result error payloads of Shared handles are not yet supported: " + type_text }
+    if v4_codegen_llvm_is_shared_handle(mir_id, v4_ty_native_sum_case_type(ty_id, type_text, "Ok")) and v4_codegen_llvm_word_leaf_count(mir_id, failure, 0) != 0 { give back "native results of a Shared handle with an owned error are not yet supported: " + type_text }
+    give back ""
 }
 
 -- A word payload is owned by its carrier; any other payload follows the
