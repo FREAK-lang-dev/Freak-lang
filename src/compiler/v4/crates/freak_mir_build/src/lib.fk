@@ -12593,6 +12593,8 @@ task v4_mir_word_plan_path(mir: int, body: int, hir: int, literal: int, piece: i
         pilot field_span = v4_hir_word_path_part_span(hir, literal, piece, part)
         pilot projected_type = value_type
         if v4_ty_is_lend_type(projected_type) { projected_type = v4_ty_lend_target_type(projected_type) }
+        -- A SharedMut guard projects to its payload, as v4_mir_lower_place does.
+        if v4_mir_nominal_builtin_shared_base(mir, projected_type) == "SharedMut" { projected_type = v4_ty_shared_target_type(projected_type) }
         value_type = v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir), projected_type, field)
         if not v4_ty_is_known(value_type) { give back v4_mir_word_plan_error(mir, body, field_span, "unknown interpolation field " + path + "." + field) }
         path = path + "." + field
