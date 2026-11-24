@@ -1,0 +1,706 @@
+-- ===================================================================
+-- FREAK std bundles: native Ed25519 signature check (RFC 8032)
+-- ===================================================================
+-- Out-of-band standard library bundles are accepted only when their
+-- manifest digest carries a valid Ed25519 signature from a key compiled
+-- into this binary. Verification runs here, in FREAK, so updating std
+-- needs no ssh-keygen/openssl/minisign on the user's machine.
+--
+-- V3.5 has no bitwise operators and traps on integer overflow, so:
+--   * field elements are 16 limbs of 16 bits (the TweetNaCl layout) and
+--     every carry uses floor division instead of arithmetic shifts;
+--   * SHA-512 words are (hi, lo) pairs of 32-bit halves; rotations are
+--     division/multiplication by powers of two and xor/and use a byte table.
+-- Only public data is processed, so nothing here needs to be constant time.
+-- ===================================================================
+
+pilot mut stdsig_xor_table: List<int> = []
+pilot mut stdsig_and_table: List<int> = []
+pilot stdsig_tables_ready = false
+
+task stdsig_fdiv(x: int, d: int) -> int {
+    -- Floor division for positive d.
+    if x >= 0 { give back x / d }
+    give back 0 - ((0 - x + d - 1) / d)
+}
+
+task stdsig_fmod(x: int, d: int) -> int {
+    give back x - stdsig_fdiv(x, d) * d
+}
+
+task stdsig_pow2(n: int) -> int {
+    pilot mut value = 1
+    pilot mut i = 0
+    repeat until i >= n {
+        value = value * 2
+        i += 1
+    }
+    give back value
+}
+
+task stdsig_build_tables() -> void {
+    if stdsig_tables_ready { give back }
+    pilot mut a = 0
+    repeat until a >= 256 {
+        pilot mut b = 0
+        repeat until b >= 256 {
+            pilot mut x = 0
+            pilot mut n = 0
+            pilot mut bit = 1
+            pilot mut ra = a
+            pilot mut rb = b
+            repeat until bit >= 256 {
+                pilot ba = ra % 2
+                pilot bb = rb % 2
+                if ba != bb { x += bit }
+                if ba == 1 and bb == 1 { n += bit }
+                ra = ra / 2
+                rb = rb / 2
+                bit = bit * 2
+            }
+            stdsig_xor_table.push(x)
+            stdsig_and_table.push(n)
+            b += 1
+        }
+        a += 1
+    }
+    stdsig_tables_ready = true
+}
+
+task stdsig_xor32(a: int, b: int) -> int {
+    pilot mut acc = 0
+    pilot mut scale = 1
+    pilot mut ra = a
+    pilot mut rb = b
+    pilot mut k = 0
+    repeat until k >= 4 {
+        acc += stdsig_xor_table[(ra % 256) * 256 + (rb % 256)] * scale
+        ra = ra / 256
+        rb = rb / 256
+        scale = scale * 256
+        k += 1
+    }
+    give back acc
+}
+
+task stdsig_and32(a: int, b: int) -> int {
+    pilot mut acc = 0
+    pilot mut scale = 1
+    pilot mut ra = a
+    pilot mut rb = b
+    pilot mut k = 0
+    repeat until k >= 4 {
+        acc += stdsig_and_table[(ra % 256) * 256 + (rb % 256)] * scale
+        ra = ra / 256
+        rb = rb / 256
+        scale = scale * 256
+        k += 1
+    }
+    give back acc
+}
+
+-- ===================== SHA-512 =====================
+
+task stdsig_sha512_k() -> List<int> {
+    give back [1116352408, 3609767458, 1899447441, 602891725, 3049323471, 3964484399, 3921009573, 2173295548, 961987163, 4081628472, 1508970993, 3053834265, 2453635748, 2937671579, 2870763221, 3664609560, 3624381080, 2734883394, 310598401, 1164996542, 607225278, 1323610764, 1426881987, 3590304994, 1925078388, 4068182383, 2162078206, 991336113, 2614888103, 633803317, 3248222580, 3479774868, 3835390401, 2666613458, 4022224774, 944711139, 264347078, 2341262773, 604807628, 2007800933, 770255983, 1495990901, 1249150122, 1856431235, 1555081692, 3175218132, 1996064986, 2198950837, 2554220882, 3999719339, 2821834349, 766784016, 2952996808, 2566594879, 3210313671, 3203337956, 3336571891, 1034457026, 3584528711, 2466948901, 113926993, 3758326383, 338241895, 168717936, 666307205, 1188179964, 773529912, 1546045734, 1294757372, 1522805485, 1396182291, 2643833823, 1695183700, 2343527390, 1986661051, 1014477480, 2177026350, 1206759142, 2456956037, 344077627, 2730485921, 1290863460, 2820302411, 3158454273, 3259730800, 3505952657, 3345764771, 106217008, 3516065817, 3606008344, 3600352804, 1432725776, 4094571909, 1467031594, 275423344, 851169720, 430227734, 3100823752, 506948616, 1363258195, 659060556, 3750685593, 883997877, 3785050280, 958139571, 3318307427, 1322822218, 3812723403, 1537002063, 2003034995, 1747873779, 3602036899, 1955562222, 1575990012, 2024104815, 1125592928, 2227730452, 2716904306, 2361852424, 442776044, 2428436474, 593698344, 2756734187, 3733110249, 3204031479, 2999351573, 3329325298, 3815920427, 3391569614, 3928383900, 3515267271, 566280711, 3940187606, 3454069534, 4118630271, 4000239992, 116418474, 1914138554, 174292421, 2731055270, 289380356, 3203993006, 460393269, 320620315, 685471733, 587496836, 852142971, 1086792851, 1017036298, 365543100, 1126000580, 2618297676, 1288033470, 3409855158, 1501505948, 4234509866, 1607167915, 987167468, 1816402316, 1246189591]
+}
+
+-- Rotate the 64-bit word (hi, lo) right by r and write it to out[at], out[at+1].
+task stdsig_rotr(hi: int, lo: int, r: int, out: List<int>, at: int) -> void {
+    pilot mut h = hi
+    pilot mut l = lo
+    pilot mut s = r
+    if s >= 32 {
+        h = lo
+        l = hi
+        s = s - 32
+    }
+    if s == 0 {
+        out[at] = h
+        out[at + 1] = l
+        give back
+    }
+    pilot low = stdsig_pow2(s)
+    pilot high = stdsig_pow2(32 - s)
+    out[at] = h / low + (l % low) * high
+    out[at + 1] = l / low + (h % low) * high
+}
+
+task stdsig_shr(hi: int, lo: int, s: int, out: List<int>, at: int) -> void {
+    pilot low = stdsig_pow2(s)
+    pilot high = stdsig_pow2(32 - s)
+    out[at] = hi / low
+    out[at + 1] = lo / low + (hi % low) * high
+}
+
+-- out[at..] = rotr(x, a) ^ rotr(x, b) ^ (rotr or shr)(x, c)
+task stdsig_sigma(hi: int, lo: int, a: int, b: int, c: int, shift_last: bool, out: List<int>, at: int) -> void {
+    pilot mut t: List<int> = [0, 0, 0, 0, 0, 0]
+    stdsig_rotr(hi, lo, a, t, 0)
+    stdsig_rotr(hi, lo, b, t, 2)
+    if shift_last { stdsig_shr(hi, lo, c, t, 4) } else { stdsig_rotr(hi, lo, c, t, 4) }
+    out[at] = stdsig_xor32(stdsig_xor32(t[0], t[2]), t[4])
+    out[at + 1] = stdsig_xor32(stdsig_xor32(t[1], t[3]), t[5])
+}
+
+task stdsig_sha512_block(state: List<int>, block: List<int>, base: int, k: List<int>) -> void {
+    pilot mut w: List<int> = []
+    pilot mut i = 0
+    repeat until i >= 16 {
+        pilot o = base + i * 8
+        w.push(((block[o] * 256 + block[o + 1]) * 256 + block[o + 2]) * 256 + block[o + 3])
+        w.push(((block[o + 4] * 256 + block[o + 5]) * 256 + block[o + 6]) * 256 + block[o + 7])
+        i += 1
+    }
+    pilot mut s: List<int> = [0, 0, 0, 0]
+    repeat until i >= 80 {
+        stdsig_sigma(w[(i - 15) * 2], w[(i - 15) * 2 + 1], 1, 8, 7, true, s, 0)
+        stdsig_sigma(w[(i - 2) * 2], w[(i - 2) * 2 + 1], 19, 61, 6, true, s, 2)
+        pilot lo = s[1] + s[3] + w[(i - 7) * 2 + 1] + w[(i - 16) * 2 + 1]
+        pilot hi = s[0] + s[2] + w[(i - 7) * 2] + w[(i - 16) * 2] + lo / 4294967296
+        w.push(hi % 4294967296)
+        w.push(lo % 4294967296)
+        i += 1
+    }
+    pilot mut v: List<int> = []
+    i = 0
+    repeat until i >= 16 {
+        v.push(state[i])
+        i += 1
+    }
+    i = 0
+    repeat until i >= 80 {
+        -- v = a b c d e f g h as (hi, lo) pairs at 0,2,4,...,14
+        stdsig_sigma(v[8], v[9], 14, 18, 41, false, s, 0)
+        pilot ch_hi = stdsig_xor32(stdsig_and32(v[8], v[10]), stdsig_and32(4294967295 - v[8], v[12]))
+        pilot ch_lo = stdsig_xor32(stdsig_and32(v[9], v[11]), stdsig_and32(4294967295 - v[9], v[13]))
+        pilot t1_lo = v[15] + s[1] + ch_lo + k[i * 2 + 1] + w[i * 2 + 1]
+        pilot t1_hi = (v[14] + s[0] + ch_hi + k[i * 2] + w[i * 2] + t1_lo / 4294967296) % 4294967296
+        pilot t1_low = t1_lo % 4294967296
+        stdsig_sigma(v[0], v[1], 28, 34, 39, false, s, 2)
+        pilot maj_hi = stdsig_xor32(stdsig_xor32(stdsig_and32(v[0], v[2]), stdsig_and32(v[0], v[4])), stdsig_and32(v[2], v[4]))
+        pilot maj_lo = stdsig_xor32(stdsig_xor32(stdsig_and32(v[1], v[3]), stdsig_and32(v[1], v[5])), stdsig_and32(v[3], v[5]))
+        pilot t2_lo = s[3] + maj_lo
+        pilot t2_hi = (s[2] + maj_hi + t2_lo / 4294967296) % 4294967296
+        pilot t2_low = t2_lo % 4294967296
+        -- shift registers down: h=g g=f f=e e=d+t1 d=c c=b b=a a=t1+t2
+        v[14] = v[12]
+        v[15] = v[13]
+        v[12] = v[10]
+        v[13] = v[11]
+        v[10] = v[8]
+        v[11] = v[9]
+        pilot e_lo = v[7] + t1_low
+        v[8] = (v[6] + t1_hi + e_lo / 4294967296) % 4294967296
+        v[9] = e_lo % 4294967296
+        v[6] = v[4]
+        v[7] = v[5]
+        v[4] = v[2]
+        v[5] = v[3]
+        v[2] = v[0]
+        v[3] = v[1]
+        pilot a_lo = t1_low + t2_low
+        v[0] = (t1_hi + t2_hi + a_lo / 4294967296) % 4294967296
+        v[1] = a_lo % 4294967296
+        i += 1
+    }
+    i = 0
+    repeat until i >= 8 {
+        pilot lo = state[i * 2 + 1] + v[i * 2 + 1]
+        pilot hi = state[i * 2] + v[i * 2] + lo / 4294967296
+        state[i * 2] = hi % 4294967296
+        state[i * 2 + 1] = lo % 4294967296
+        i += 1
+    }
+}
+
+-- SHA-512 of a byte list; returns 64 bytes.
+task stdsig_sha512(message: List<int>) -> List<int> {
+    stdsig_build_tables()
+    pilot k = stdsig_sha512_k()
+    pilot mut state: List<int> = [1779033703, 4089235720, 3144134277, 2227873595, 1013904242, 4271175723, 2773480762, 1595750129, 1359893119, 2917565137, 2600822924, 725511199, 528734635, 4215389547, 1541459225, 327033209]
+    pilot length = message.length()
+    pilot mut padded: List<int> = []
+    pilot mut i = 0
+    repeat until i >= length {
+        padded.push(message[i])
+        i += 1
+    }
+    padded.push(128)
+    repeat until padded.length() % 128 == 112 { padded.push(0) }
+    -- 128-bit big-endian bit length; messages here are far below 2^53 bits.
+    i = 0
+    repeat until i >= 8 {
+        padded.push(0)
+        i += 1
+    }
+    pilot mut bits = length * 8
+    pilot mut tail: List<int> = [0, 0, 0, 0, 0, 0, 0, 0]
+    i = 7
+    repeat until i < 0 {
+        tail[i] = bits % 256
+        bits = bits / 256
+        i -= 1
+    }
+    i = 0
+    repeat until i >= 8 {
+        padded.push(tail[i])
+        i += 1
+    }
+    pilot mut offset = 0
+    repeat until offset >= padded.length() {
+        stdsig_sha512_block(state, padded, offset, k)
+        offset += 128
+    }
+    pilot mut digest: List<int> = []
+    i = 0
+    repeat until i >= 16 {
+        pilot mut word_value = state[i]
+        pilot mut bytes: List<int> = [0, 0, 0, 0]
+        pilot mut j = 3
+        repeat until j < 0 {
+            bytes[j] = word_value % 256
+            word_value = word_value / 256
+            j -= 1
+        }
+        j = 0
+        repeat until j >= 4 {
+            digest.push(bytes[j])
+            j += 1
+        }
+        i += 1
+    }
+    give back digest
+}
+
+-- ===================== GF(2^255 - 19) =====================
+
+task stdsig_gf(values: List<int>) -> List<int> {
+    pilot mut out: List<int> = []
+    pilot mut i = 0
+    repeat until i >= 16 {
+        out.push(values[i])
+        i += 1
+    }
+    give back out
+}
+
+task stdsig_gf0() -> List<int> { give back [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
+task stdsig_gf1() -> List<int> { give back [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
+task stdsig_gf_d() -> List<int> { give back [30883, 4953, 19914, 30187, 55467, 16705, 2637, 112, 59544, 30585, 16505, 36039, 65139, 11119, 27886, 20995] }
+task stdsig_gf_d2() -> List<int> { give back [61785, 9906, 39828, 60374, 45398, 33411, 5274, 224, 53552, 61171, 33010, 6542, 64743, 22239, 55772, 9222] }
+task stdsig_gf_x() -> List<int> { give back [54554, 36645, 11616, 51542, 42930, 38181, 51040, 26924, 56412, 64982, 57905, 49316, 21502, 52590, 14035, 8553] }
+task stdsig_gf_y() -> List<int> { give back [26200, 26214, 26214, 26214, 26214, 26214, 26214, 26214, 26214, 26214, 26214, 26214, 26214, 26214, 26214, 26214] }
+task stdsig_gf_i() -> List<int> { give back [41136, 18958, 6951, 50414, 58488, 44335, 6150, 12099, 55207, 15867, 153, 11085, 57099, 20417, 9344, 11139] }
+
+task stdsig_car(o: List<int>) -> void {
+    pilot mut i = 0
+    repeat until i >= 16 {
+        pilot c = stdsig_fdiv(o[i], 65536)
+        o[i] = o[i] - c * 65536
+        if i < 15 { o[i + 1] = o[i + 1] + c } else { o[0] = o[0] + 38 * c }
+        i += 1
+    }
+}
+
+task stdsig_add(a: List<int>, b: List<int>) -> List<int> {
+    pilot mut out: List<int> = []
+    pilot mut i = 0
+    repeat until i >= 16 {
+        out.push(a[i] + b[i])
+        i += 1
+    }
+    give back out
+}
+
+task stdsig_sub(a: List<int>, b: List<int>) -> List<int> {
+    pilot mut out: List<int> = []
+    pilot mut i = 0
+    repeat until i >= 16 {
+        out.push(a[i] - b[i])
+        i += 1
+    }
+    give back out
+}
+
+task stdsig_mul(a: List<int>, b: List<int>) -> List<int> {
+    pilot mut t: List<int> = []
+    pilot mut i = 0
+    repeat until i >= 31 {
+        t.push(0)
+        i += 1
+    }
+    i = 0
+    repeat until i >= 16 {
+        pilot ai = a[i]
+        pilot mut j = 0
+        repeat until j >= 16 {
+            t[i + j] = t[i + j] + ai * b[j]
+            j += 1
+        }
+        i += 1
+    }
+    i = 0
+    repeat until i >= 15 {
+        t[i] = t[i] + 38 * t[i + 16]
+        i += 1
+    }
+    pilot mut out: List<int> = []
+    i = 0
+    repeat until i >= 16 {
+        out.push(t[i])
+        i += 1
+    }
+    stdsig_car(out)
+    stdsig_car(out)
+    give back out
+}
+
+task stdsig_sq(a: List<int>) -> List<int> { give back stdsig_mul(a, a) }
+
+task stdsig_inv(input: List<int>) -> List<int> {
+    pilot mut c = stdsig_gf(input)
+    pilot mut a = 253
+    repeat until a < 0 {
+        c = stdsig_sq(c)
+        if a != 2 and a != 4 { c = stdsig_mul(c, input) }
+        a -= 1
+    }
+    give back c
+}
+
+task stdsig_pow2523(input: List<int>) -> List<int> {
+    pilot mut c = stdsig_gf(input)
+    pilot mut a = 250
+    repeat until a < 0 {
+        c = stdsig_sq(c)
+        if a != 1 { c = stdsig_mul(c, input) }
+        a -= 1
+    }
+    give back c
+}
+
+task stdsig_pack25519(n: List<int>) -> List<int> {
+    pilot mut t = stdsig_gf(n)
+    stdsig_car(t)
+    stdsig_car(t)
+    stdsig_car(t)
+    pilot mut j = 0
+    repeat until j >= 2 {
+        pilot mut m: List<int> = stdsig_gf0()
+        m[0] = t[0] - 65517
+        pilot mut i = 1
+        repeat until i >= 15 {
+            pilot mut borrow = 0
+            if m[i - 1] < 0 { borrow = 1 }
+            m[i] = t[i] - 65535 - borrow
+            m[i - 1] = stdsig_fmod(m[i - 1], 65536)
+            i += 1
+        }
+        pilot mut borrow14 = 0
+        if m[14] < 0 { borrow14 = 1 }
+        m[15] = t[15] - 32767 - borrow14
+        m[14] = stdsig_fmod(m[14], 65536)
+        if m[15] >= 0 { t = m }
+        j += 1
+    }
+    pilot mut out: List<int> = []
+    pilot mut i = 0
+    repeat until i >= 16 {
+        out.push(t[i] % 256)
+        out.push(t[i] / 256)
+        i += 1
+    }
+    give back out
+}
+
+task stdsig_unpack25519(bytes: List<int>, at: int) -> List<int> {
+    pilot mut out: List<int> = []
+    pilot mut i = 0
+    repeat until i >= 16 {
+        out.push(bytes[at + 2 * i] + 256 * bytes[at + 2 * i + 1])
+        i += 1
+    }
+    out[15] = out[15] % 32768
+    give back out
+}
+
+task stdsig_gf_equal(a: List<int>, b: List<int>) -> bool {
+    pilot pa = stdsig_pack25519(a)
+    pilot pb = stdsig_pack25519(b)
+    pilot mut i = 0
+    repeat until i >= 32 {
+        if pa[i] != pb[i] { give back false }
+        i += 1
+    }
+    give back true
+}
+
+task stdsig_parity(a: List<int>) -> int {
+    pilot packed = stdsig_pack25519(a)
+    give back packed[0] % 2
+}
+
+-- ===================== Edwards points (X, Y, Z, T) =====================
+-- A point is a List<int> of 64 limbs: X at 0, Y at 16, Z at 32, T at 48.
+
+task stdsig_part(p: List<int>, index: int) -> List<int> {
+    pilot mut out: List<int> = []
+    pilot mut i = 0
+    repeat until i >= 16 {
+        out.push(p[index * 16 + i])
+        i += 1
+    }
+    give back out
+}
+
+task stdsig_point(x: List<int>, y: List<int>, z: List<int>, t: List<int>) -> List<int> {
+    pilot mut out: List<int> = []
+    pilot mut i = 0
+    repeat until i >= 16 { out.push(x[i]) i += 1 }
+    i = 0
+    repeat until i >= 16 { out.push(y[i]) i += 1 }
+    i = 0
+    repeat until i >= 16 { out.push(z[i]) i += 1 }
+    i = 0
+    repeat until i >= 16 { out.push(t[i]) i += 1 }
+    give back out
+}
+
+task stdsig_point_add(p: List<int>, q: List<int>) -> List<int> {
+    pilot p0 = stdsig_part(p, 0)
+    pilot p1 = stdsig_part(p, 1)
+    pilot p2 = stdsig_part(p, 2)
+    pilot p3 = stdsig_part(p, 3)
+    pilot q0 = stdsig_part(q, 0)
+    pilot q1 = stdsig_part(q, 1)
+    pilot q2 = stdsig_part(q, 2)
+    pilot q3 = stdsig_part(q, 3)
+    pilot a = stdsig_mul(stdsig_sub(p1, p0), stdsig_sub(q1, q0))
+    pilot b = stdsig_mul(stdsig_add(p0, p1), stdsig_add(q0, q1))
+    pilot c = stdsig_mul(stdsig_mul(p3, q3), stdsig_gf_d2())
+    pilot d0 = stdsig_mul(p2, q2)
+    pilot d = stdsig_add(d0, d0)
+    pilot e = stdsig_sub(b, a)
+    pilot f = stdsig_sub(d, c)
+    pilot g = stdsig_add(d, c)
+    pilot h = stdsig_add(b, a)
+    give back stdsig_point(stdsig_mul(e, f), stdsig_mul(h, g), stdsig_mul(g, f), stdsig_mul(e, h))
+}
+
+-- scalar is 32 little-endian bytes starting at `at`.
+task stdsig_scalarmult(q: List<int>, scalar: List<int>, at: int) -> List<int> {
+    pilot mut r = stdsig_point(stdsig_gf0(), stdsig_gf1(), stdsig_gf1(), stdsig_gf0())
+    pilot mut i = 255
+    repeat until i < 0 {
+        r = stdsig_point_add(r, r)
+        pilot byte_value = scalar[at + i / 8]
+        pilot bit = (byte_value / stdsig_pow2(i % 8)) % 2
+        if bit == 1 { r = stdsig_point_add(r, q) }
+        i -= 1
+    }
+    give back r
+}
+
+task stdsig_base() -> List<int> {
+    pilot x = stdsig_gf_x()
+    pilot y = stdsig_gf_y()
+    give back stdsig_point(x, y, stdsig_gf1(), stdsig_mul(x, y))
+}
+
+task stdsig_pack_point(p: List<int>) -> List<int> {
+    pilot zi = stdsig_inv(stdsig_part(p, 2))
+    pilot tx = stdsig_mul(stdsig_part(p, 0), zi)
+    pilot ty = stdsig_mul(stdsig_part(p, 1), zi)
+    pilot mut out = stdsig_pack25519(ty)
+    out[31] = out[31] + 128 * stdsig_parity(tx)
+    give back out
+}
+
+-- Decode a public key and negate it. Returns an empty list when invalid.
+task stdsig_unpack_neg(key: List<int>) -> List<int> {
+    pilot z = stdsig_gf1()
+    pilot y = stdsig_unpack25519(key, 0)
+    pilot num0 = stdsig_sq(y)
+    pilot den0 = stdsig_mul(num0, stdsig_gf_d())
+    pilot num = stdsig_sub(num0, z)
+    pilot den = stdsig_add(z, den0)
+    pilot den2 = stdsig_sq(den)
+    pilot den4 = stdsig_sq(den2)
+    pilot den6 = stdsig_mul(den4, den2)
+    pilot mut t = stdsig_mul(stdsig_mul(den6, num), den)
+    t = stdsig_pow2523(t)
+    t = stdsig_mul(stdsig_mul(stdsig_mul(t, num), den), den)
+    pilot mut x = stdsig_mul(t, den)
+    pilot mut chk = stdsig_mul(stdsig_sq(x), den)
+    if not stdsig_gf_equal(chk, num) { x = stdsig_mul(x, stdsig_gf_i()) }
+    chk = stdsig_mul(stdsig_sq(x), den)
+    if not stdsig_gf_equal(chk, num) {
+        pilot empty: List<int> = []
+        give back empty
+    }
+    if stdsig_parity(x) == key[31] / 128 { x = stdsig_sub(stdsig_gf0(), x) }
+    give back stdsig_point(x, y, z, stdsig_mul(x, y))
+}
+
+-- ===================== scalars mod L =====================
+
+task stdsig_l() -> List<int> {
+    give back [237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247, 162, 222, 249, 222, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16]
+}
+
+-- Reduce 64 little-endian bytes modulo L (TweetNaCl modL).
+task stdsig_mod_l(input: List<int>) -> List<int> {
+    pilot l = stdsig_l()
+    pilot mut x = stdsig_gf(input)
+    pilot mut fill = 16
+    repeat until fill >= 64 {
+        x.push(input[fill])
+        fill += 1
+    }
+    pilot mut i = 63
+    repeat until i < 32 {
+        pilot mut carry = 0
+        pilot mut j = i - 32
+        repeat until j >= i - 12 {
+            x[j] = x[j] + carry - 16 * x[i] * l[j - (i - 32)]
+            carry = stdsig_fdiv(x[j] + 128, 256)
+            x[j] = x[j] - carry * 256
+            j += 1
+        }
+        x[j] = x[j] + carry
+        x[i] = 0
+        i -= 1
+    }
+    pilot mut carry = 0
+    pilot mut j = 0
+    repeat until j >= 32 {
+        x[j] = x[j] + carry - stdsig_fdiv(x[31], 16) * l[j]
+        carry = stdsig_fdiv(x[j], 256)
+        x[j] = stdsig_fmod(x[j], 256)
+        j += 1
+    }
+    j = 0
+    repeat until j >= 32 {
+        x[j] = x[j] - carry * l[j]
+        j += 1
+    }
+    pilot mut out: List<int> = []
+    i = 0
+    repeat until i >= 32 {
+        x[i + 1] = x[i + 1] + stdsig_fdiv(x[i], 256)
+        out.push(stdsig_fmod(x[i], 256))
+        i += 1
+    }
+    give back out
+}
+
+-- S must be canonical (S < L), which rules out malleated signatures.
+task stdsig_scalar_canonical(signature: List<int>) -> bool {
+    pilot l = stdsig_l()
+    pilot mut i = 31
+    repeat until i < 0 {
+        pilot s = signature[32 + i]
+        if s < l[i] { give back true }
+        if s > l[i] { give back false }
+        i -= 1
+    }
+    give back false
+}
+
+-- ===================== bytes and hex =====================
+
+task stdsig_hex_value(ch: word) -> int {
+    pilot digits = "0123456789abcdef"
+    pilot lower = ch.to_lower()
+    pilot mut i = 0
+    repeat until i >= 16 {
+        if digits.char_at(i) == lower { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+-- Decode exactly `count` bytes of hex; returns an empty list when malformed.
+task stdsig_hex_bytes(text: word, count: int) -> List<int> {
+    pilot mut out: List<int> = []
+    pilot clean = text.trim()
+    if clean.length() != count * 2 { give back out }
+    pilot mut i = 0
+    repeat until i >= count {
+        pilot high = stdsig_hex_value(clean.char_at(i * 2))
+        pilot low = stdsig_hex_value(clean.char_at(i * 2 + 1))
+        if high < 0 or low < 0 {
+            pilot empty: List<int> = []
+            give back empty
+        }
+        out.push(high * 16 + low)
+        i += 1
+    }
+    give back out
+}
+
+task stdsig_hex_text(bytes: List<int>) -> word {
+    pilot digits = "0123456789abcdef"
+    pilot mut out = ""
+    pilot mut i = 0
+    repeat until i >= bytes.length() {
+        out = out + digits.char_at(bytes[i] / 16) + digits.char_at(bytes[i] % 16)
+        i += 1
+    }
+    give back out
+}
+
+task stdsig_word_bytes(text: word) -> List<int> {
+    pilot mut out: List<int> = []
+    pilot buffer = ByteBuffer::new()
+    buffer.write_word(text)
+    buffer.seek(0)
+    repeat until buffer.remaining() == 0 { out.push(buffer.read_byte()) }
+    buffer.release()
+    give back out
+}
+
+-- ===================== verify =====================
+
+-- Verify an Ed25519 signature (64 bytes) over message bytes with a 32-byte key.
+task stdsig_verify_bytes(message: List<int>, signature: List<int>, key: List<int>) -> bool {
+    if signature.length() != 64 or key.length() != 32 { give back false }
+    if not stdsig_scalar_canonical(signature) { give back false }
+    pilot negated = stdsig_unpack_neg(key)
+    if negated.length() == 0 { give back false }
+    pilot mut input: List<int> = []
+    pilot mut i = 0
+    repeat until i >= 32 {
+        input.push(signature[i])
+        i += 1
+    }
+    i = 0
+    repeat until i >= 32 {
+        input.push(key[i])
+        i += 1
+    }
+    i = 0
+    repeat until i >= message.length() {
+        input.push(message[i])
+        i += 1
+    }
+    pilot h = stdsig_mod_l(stdsig_sha512(input))
+    pilot p = stdsig_scalarmult(negated, h, 0)
+    pilot q = stdsig_scalarmult(stdsig_base(), signature, 32)
+    pilot r = stdsig_pack_point(stdsig_point_add(p, q))
+    i = 0
+    repeat until i >= 32 {
+        if r[i] != signature[i] { give back false }
+        i += 1
+    }
+    give back true
+}
+
+-- Hex convenience form: message is text, signature/key are hex.
+task stdsig_verify(message: word, signature_hex: word, key_hex: word) -> bool {
+    pilot signature = stdsig_hex_bytes(signature_hex, 64)
+    pilot key = stdsig_hex_bytes(key_hex, 32)
+    if signature.length() != 64 or key.length() != 32 { give back false }
+    give back stdsig_verify_bytes(stdsig_word_bytes(message), signature, key)
+}
