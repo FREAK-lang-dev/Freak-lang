@@ -10876,6 +10876,7 @@ EXECUTABLE_SMOKES = [
             "shared-alias-concrete-distinct-overlap=false",
             "shared-weak-upgrade-plan-clean=true",
             "shared-weak-forged-upgrade-receiver=invalid Shared carrier intrinsic receiver",
+            "shared-weak-forged-upgrade-operand=invalid Shared carrier intrinsic receiver",
         ],
     },
     {

@@ -7888,6 +7888,9 @@ task v4_mir_sum_row_shared_error(ty: int, values: int, value: int) -> word {
     pilot family = "Shared"
     if identity == v4_mir_builtin_weak_upgrade { family = "Weak" }
     if not v4_ty_is_generic_instance_type(owner_ty) or v4_ty_generic_arg_count(owner_ty) != 1 or v4_ty_generic_base_name(owner_ty) != family or v4_ty_type_signature_id_for_name(ty, family) >= 0 { give back "invalid Shared carrier intrinsic receiver" }
+    -- The loan's operand must be the handle the loan's type names.
+    pilot operand = word_to_int(v4_mir_snapshot_field_raw(child_row, 7))
+    if operand < 0 or operand >= child or v4_ty_canonical_type(ty, v4_mir_control_row_type(values, operand)) != owner_ty { give back "invalid Shared carrier intrinsic receiver" }
     if v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_call or v4_mir_snapshot_field(row, 6) != owner_ty + "." + v4_mir_builtin_shared_method_surface_name(identity) or v4_mir_snapshot_field(row, 11) != "" { give back "invalid Shared carrier intrinsic contract" }
     if v4_ty_canonical_type(ty, v4_mir_snapshot_field(row, 10)) != v4_ty_canonical_type(ty, v4_mir_builtin_shared_method_result_type(identity, owner_ty)) { give back "invalid Shared carrier intrinsic result" }
     give back ""
