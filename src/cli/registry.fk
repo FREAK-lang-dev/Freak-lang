@@ -371,6 +371,19 @@ task hangar_changelog_heading_names(heading: word, version: word) -> bool {
     give back hangar_changelog_token_is(token, version)
 }
 
+-- The line without the up-to-3 spaces Markdown allows before a heading. A
+-- line indented 4+ spaces is code, so it comes back unchanged (and then
+-- isn't a heading).
+task hangar_changelog_unindent(line: word) -> word {
+    pilot indent = 0
+    repeat until indent >= line.length() or indent > 3 {
+        if line.char_at(indent) != " " { break }
+        indent += 1
+    }
+    if indent == 0 or indent > 3 { give back line }
+    give back line.substring(indent, line.length() - indent)
+}
+
 -- A heading's level (1-6), or 0 when the line isn't a heading.
 task hangar_changelog_level(line: word) -> int {
     pilot count = 0
@@ -429,11 +442,12 @@ task hangar_changelog_has_entry(text: word, version: word) -> bool {
                 if section > 0 { give back true }
                 fence = step
             } else if fence == "" {
-                pilot level = hangar_changelog_level(line)
+                pilot bare = hangar_changelog_unindent(line)
+                pilot level = hangar_changelog_level(bare)
                 if section > 0 {
                     if level > 0 and level <= section { give back false }
                     if line.trim() != "" { give back true }
-                } else if level > 0 and hangar_changelog_heading_names(line.substring(level, line.length() - level), version) {
+                } else if level > 0 and hangar_changelog_heading_names(bare.substring(level, bare.length() - level), version) {
                     section = level
                 }
             }
