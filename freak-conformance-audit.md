@@ -546,7 +546,7 @@ parity. This does not claim native C UI support or general collection fields.
 
 ### §3 CONCURRENCY — FULL MODEL ([freak-full-bible.md:740-834](freak-full-bible.md))
 
-**Section verdict: 📖 entire section tagged V4 except `std::thread` reference.** None of the squadron primitives exist.
+**Section verdict: 📖 entire section tagged V4 except the §3.0 `oni` floor (implemented in V3.5) and the `std::thread` reference.** None of the squadron primitives exist.
 
 | §3 contract | Status | Verdict |
 |---|---|---|

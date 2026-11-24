@@ -51,7 +51,7 @@ Inside an oni, these calls park instead of blocking the thread:
 | Call | Parks until |
 |---|---|
 | `time::sleep(ms)` | the deadline passes (`ms <= 0` just yields) |
-| `tcp::socket_connect` | the connection completes or fails |
+| `tcp::socket_connect` | the connection completes or fails (a hostname lookup still blocks the thread first; pass an IP address to avoid it) |
 | `tcp::socket_accept` | a client is waiting |
 | `tcp::socket_receive` | bytes, EOF or an error |
 | `tcp::socket_send` / `socket_send_all` | the kernel takes more bytes |

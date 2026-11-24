@@ -1035,9 +1035,10 @@ task final_goodbye(pilot: Eishi) -> void mood<.muv_luv> { ... }
 
 ## SECTION 3: CONCURRENCY — FULL MODEL
 
-> **🔜 V4 — entire section.** None of the squadron primitives (`xm3`,
-> `sortie`, `formation`, `BriefingRoom`, `wingman`) parse or run in
-> v0.13.x. The lexer rejects `\|\|` as a branch separator (it's lexed
+> **🔜 V4 — entire section except the §3.0 `oni` floor.** None of the
+> squadron primitives (`xm3`, `sortie`, `formation`, `BriefingRoom`,
+> `wingman`) parse or run in V3.5. The `oni` hook in §3.0 is implemented
+> in V3.5. The lexer rejects `\|\|` as a branch separator (it's lexed
 > as logical OR), and none of the squadron keywords are recognized.
 >
 > **v0.13.x escape hatch:** the only currently-available concurrency

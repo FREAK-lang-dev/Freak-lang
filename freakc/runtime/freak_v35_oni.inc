@@ -193,9 +193,36 @@ static freak_oni_record* freak_oni_require(int64_t handle, const char* operation
 
 static bool freak_oni_inside(void) { return freak_oni_current_slot >= 0; }
 
+static bool freak_oni_ready_entry_live(const freak_oni_ready_entry* entry) {
+    int64_t slot = freak_oni_slot(entry->handle);
+    if (slot < 0) return false;
+    const freak_oni_record* oni = &freak_onis[slot];
+    return oni->in_ready_queue && entry->ticket == oni->ready_ticket;
+}
+
+/* Direct resume and release leave dead entries behind. Before the ring
+   grows, drop them in place (order kept), so the ring follows ready oni
+   and not every oni that ever ran. */
+static void freak_oni_ready_compact(void) {
+    int64_t kept = 0;
+    for (int64_t i = 0; i < freak_oni_ready_length; i++) {
+        freak_oni_ready_entry entry = freak_oni_ready[(freak_oni_ready_head + i) % freak_oni_ready_capacity];
+        if (freak_oni_ready_entry_live(&entry)) {
+            freak_oni_ready[(freak_oni_ready_head + kept) % freak_oni_ready_capacity] = entry;
+            kept += 1;
+        }
+    }
+    freak_oni_ready_length = kept;
+}
+
 static void freak_oni_queue_ready(int64_t slot) {
     freak_oni_record* oni = &freak_onis[slot];
     if (oni->in_ready_queue) return;
+    /* compact first when at least half the ring is dead */
+    if (freak_oni_ready_length == freak_oni_ready_capacity &&
+            freak_oni_ready_live * 2 <= freak_oni_ready_capacity) {
+        freak_oni_ready_compact();
+    }
     if (freak_oni_ready_length == freak_oni_ready_capacity) {
         int64_t old = freak_oni_ready_capacity;
         freak_oni_ready_entry* grown = (freak_oni_ready_entry*)freak_oni_grow(

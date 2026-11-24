@@ -603,6 +603,17 @@ task main() -> void {
     oni::release(ra)
     oni::release(rb)
 
+    pilot waiting_one = oni::summon("blank", 0)
+    repeat 100000 times {
+        pilot d = oni::summon("noop", 0)
+        oni::resume(d)
+        oni::release(d)
+    }
+    if oni::ready_count() == 1 and oni::next_ready() == waiting_one { say "ring kept order through sweeps" } else { say "ring lost its order" }
+    oni::resume(waiting_one)
+    parade()
+    oni::release(waiting_one)
+
     pilot keeper = oni::summon("early", 0)
     oni::resume(oni::next_ready())
     repeat 300 times {
@@ -638,6 +649,7 @@ send deadline kept
 1
 2
 fifo kept after direct resume
+ring kept order through sweeps
 timers kept after sweep
 huge wait woken
 """
