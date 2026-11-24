@@ -53,11 +53,15 @@ def strip_attributes(module: str) -> str:
     return ATTRIBUTES.sub(r"\1", module)
 
 
-def clang_path_env(clang: str, shim_dir: Path) -> dict:
-    """build_v4.py finds `clang` on PATH; make it resolve to the selected one."""
-    resolved = shutil.which(clang)
-    if not resolved:
+def clang_path_env(clang: str, shim_dir: Path) -> tuple:
+    """build_v4.py finds `clang` on PATH; make it resolve to the selected one.
+
+    Returns the absolute clang path (used for linking too) and the environment.
+    """
+    found = shutil.which(clang)
+    if not found:
         raise SystemExit(f"clang not found: {clang}")
+    resolved = str(Path(found).resolve())
     name = "clang.exe" if os.name == "nt" else "clang"
     shim = shim_dir / name
     if not shim.exists():
@@ -67,7 +71,7 @@ def clang_path_env(clang: str, shim_dir: Path) -> dict:
             shutil.copy2(resolved, shim)
     env = dict(os.environ)
     env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "")
-    return env
+    return resolved, env
 
 
 def build_module(source: Path, out: Path, env: dict) -> str:
@@ -109,7 +113,7 @@ def main() -> int:
         work = Path(scratch)
         shim_dir = work / "clang-shim"
         shim_dir.mkdir()
-        env = clang_path_env(args.clang, shim_dir)
+        clang, env = clang_path_env(args.clang, shim_dir)
         built = {}
         for source in sorted({case[1] for case in CASES}):
             stem = Path(source).stem
@@ -123,8 +127,8 @@ def main() -> int:
             unmarked = work / f"{stem}.plain.ll"
             unmarked.write_text(plain, encoding="utf-8")
             built[source] = (work / f"{stem}.plain", work / f"{stem}.marked")
-            link(args.clang, unmarked, built[source][0])
-            link(args.clang, marked, built[source][1])
+            link(clang, unmarked, built[source][0])
+            link(clang, marked, built[source][1])
         print(f"{'case':<28} {'without s':>10} {'with s':>8} {'speed-up':>9}")
         for label, source, arguments, note in CASES:
             plain_exe, marked_exe = built[source]
@@ -148,7 +152,7 @@ def main() -> int:
                          "median_with_s": with_attributes, "speedup": without / with_attributes})
             print(f"{label:<28} {without:>10.3f} {with_attributes:>8.3f} {without / with_attributes:>8.2f}x")
     if args.json:
-        clang_version = subprocess.run([args.clang, "--version"], stdout=subprocess.PIPE, text=True).stdout.splitlines()[0]
+        clang_version = subprocess.run([clang, "--version"], stdout=subprocess.PIPE, text=True).stdout.splitlines()[0]
         args.json.write_text(json.dumps({"platform": platform.platform(), "machine": platform.machine(),
                                          "clang": clang_version, "repeats": args.repeats, "rows": rows},
                                         indent=2) + "\n", encoding="utf-8")
