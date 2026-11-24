@@ -332,7 +332,15 @@ task hangar_publish_inputs(project_dir: word, manifest: word) -> int {
 -- src/changelog.ts, checked here so a publish fails before packing.
 
 task hangar_changelog_separator(c: word) -> bool {
-    give back c == " " or c == "\t" or c == "[" or c == "]" or c == "(" or c == ")" or c == "<" or c == ">" or c == "`" or c == "*" or c == "_" or c == ":" or c == "," or c == "|" or c == "—" or c == "–"
+    give back c == " " or c == "\t" or c == "[" or c == "]" or c == "(" or c == ")" or c == "<" or c == ">" or c == "`" or c == "*" or c == "_" or c == ":" or c == "," or c == "|"
+}
+
+-- Em and en dashes are 3 bytes in UTF-8 and char_at returns one byte, so
+-- they are matched as substrings.
+task hangar_changelog_dash_at(heading: word, index: int) -> bool {
+    if index + 3 > heading.length() { give back false }
+    pilot three = heading.substring(index, 3)
+    give back three == "—" or three == "–"
 }
 
 task hangar_changelog_token_is(token: word, version: word) -> bool {
@@ -348,7 +356,11 @@ task hangar_changelog_heading_names(heading: word, version: word) -> bool {
     pilot index = 0
     repeat until index >= heading.length() {
         pilot c = heading.char_at(index)
-        if hangar_changelog_separator(c) {
+        if hangar_changelog_dash_at(heading, index) {
+            if hangar_changelog_token_is(token, version) { give back true }
+            token = ""
+            index += 2
+        } else if hangar_changelog_separator(c) {
             if hangar_changelog_token_is(token, version) { give back true }
             token = ""
         } else {

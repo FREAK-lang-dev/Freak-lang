@@ -278,6 +278,12 @@ def main() -> int:
             refused([hangar, "publish", "--dry-run"], changed, env, "publish with a look-alike entry", "no entry for 0.2.0")
             if len(Registry.requests) != requests:
                 raise AssertionError("a publish refused for its changelog contacted the registry")
+            # Em and en dashes are separators even with no spaces around them.
+            for dash in ("\u2014", "\u2013"):
+                (changed / "CHANGELOG.md").write_text(f"## 0.2.0{dash}Highlights\n\n* Dashes.\n", encoding="utf-8")
+                run([hangar, "publish", "--dry-run"], changed, env, f"publish --dry-run with a U+{ord(dash):04X} heading")
+            (changed / "CHANGELOG.md").write_text("## 0.2.0\u2014x\u20130.1.0\n\n* Dashes.\n", encoding="utf-8")
+            run([hangar, "publish", "--dry-run"], changed, env, "publish --dry-run with dash-joined versions")
             entry = "# Changelog\r\n\r\n## [0.2.0] - 2026-11-24\r\n\r\n* Beacons blink.\r\n\r\n## 0.1.0\r\n\r\n* First.\r\n"
             (changed / "CHANGELOG.md").write_bytes(entry.encode())
             run([hangar, "publish", "--dry-run"], changed, env, "publish --dry-run with a changelog")
