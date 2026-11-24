@@ -942,6 +942,15 @@ def keepalive_corpus(s:Server):
         assert hashlib.sha256(responses[0][2]).digest()==hashlib.sha256(expected).digest(),len(responses[0][2])
         assert [(r[0],r[2]) for r in responses[1:]]==[(404,b'no file'),(404,b'no file'),(200,b'healthy')],responses[1:]
         assert rest==b'';s.cases+=1
+    # A client that aborts a download mid-file must not take the worker down
+    # (sendfile has no MSG_NOSIGNAL).
+    for linger in (False,True):
+        client=s.connect();client.sendall(request('/file'));got=b''
+        while len(got)<65536:
+            chunk=client.recv(65536);assert chunk,got;got+=chunk
+        if linger:client.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,struct.pack('ii',1,0))
+        client.close();time.sleep(.2)
+        assert_response(s.exchange(request('/health',headers=[('Connection','close')])),200,b'healthy');s.cases+=1
     with s.connect() as client:
         # HEAD announces the length and sends no body: the next response follows at once.
         client.sendall(request('/file',method='HEAD')+request('/health'));raw=b''
