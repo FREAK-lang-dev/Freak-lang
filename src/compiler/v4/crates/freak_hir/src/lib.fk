@@ -25,14 +25,18 @@ pilot v4_hir_error = "Error"
 pilot v4_hir_snapshot_format = "freak-hir-snapshot-v14"
 pilot v4_hir_extern_return_owner_values = 0
 pilot v4_hir_extern_return_values = 0
--- Extern member parameters (architecture lane A1): eight packed words per
--- parameter, ranged by each member row's parameter count and start.
-pilot v4_hir_extern_param_values = 0
--- Impl and doctrine methods (architecture lane A1): owners hold item-indexed
--- start/count pairs, methods five packed words (name, segment span, return
--- form, return type, return span).
-pilot v4_hir_method_owner_values = 0
-pilot v4_hir_method_values = 0
+-- Signature facts (architecture lane A1), three lazy per-file arrays in one
+-- outer array of stride three. Slot 0 holds extern member parameters (eight
+-- packed words per parameter, ranged by each member row's parameter count
+-- and start); slot 1 impl and doctrine method owners (item-indexed
+-- start/count pairs); slot 2 their methods (five packed words: name, segment
+-- span, return form, return type, return span). A slot stays "-1" until a
+-- file has such a fact, so files without externs, impls or doctrines pay no
+-- array handles for them.
+pilot v4_hir_signature_slots = 0
+pilot v4_hir_signature_extern_params = 0
+pilot v4_hir_signature_method_owners = 1
+pilot v4_hir_signature_methods = 2
 pilot v4_hir_route_owner_values = 0
 pilot v4_hir_route_case_values = 0
 pilot v4_hir_route_field_values = 0
@@ -113,9 +117,7 @@ task v4_hir_init() -> void {
         -- Failed construction leaves the original global references untouched.
         pilot new_extern_return_owner_values = array_new()
         pilot new_extern_return_values = array_new()
-        pilot new_extern_param_values = array_new()
-        pilot new_method_owner_values = array_new()
-        pilot new_method_values = array_new()
+        pilot new_signature_slots = array_new()
         pilot new_route_owner_values = array_new()
         pilot new_route_case_values = array_new()
         pilot new_route_field_values = array_new()
@@ -159,12 +161,10 @@ task v4_hir_init() -> void {
         pilot new_task_param_type_spans = array_new()
         pilot new_task_param_segment_spans = array_new()
         pilot new_diags = array_new()
-        if new_word_plans < 0 or new_extern_return_owner_values < 0 or new_extern_return_values < 0 or new_extern_param_values < 0 or new_method_owner_values < 0 or new_method_values < 0 or new_route_owner_values < 0 or new_route_case_values < 0 or new_route_field_values < 0 or new_const_annotation_values < 0 or new_shape_field_starts < 0 or new_shape_field_counts < 0 or new_shape_field_values < 0 or new_files < 0 or new_expansions < 0 or new_revisions < 0 or new_item_kinds < 0 or new_item_names < 0 or new_item_defs < 0 or new_item_spans < 0 or new_item_parse_nodes < 0 or new_alias_target_types < 0 or new_alias_target_spans < 0 or new_local_annotation_items < 0 or new_local_annotation_stmt_spans < 0 or new_local_annotation_types < 0 or new_local_annotation_type_spans < 0 or new_task_return_items < 0 or new_task_return_forms < 0 or new_task_return_types < 0 or new_task_return_spans < 0 or new_annotation_indexes < 0 or new_return_indexes < 0 or new_task_param_indexes < 0 or new_impl_indexes < 0 or new_task_param_owner_items < 0 or new_task_param_owner_counts < 0 or new_task_param_items < 0 or new_task_param_ordinals < 0 or new_task_param_names < 0 or new_task_param_name_spans < 0 or new_task_param_modes < 0 or new_task_param_lifetimes < 0 or new_task_param_lifetime_spans < 0 or new_task_param_types < 0 or new_task_param_type_spans < 0 or new_task_param_segment_spans < 0 or new_diags < 0 {
+        if new_word_plans < 0 or new_extern_return_owner_values < 0 or new_extern_return_values < 0 or new_signature_slots < 0 or new_route_owner_values < 0 or new_route_case_values < 0 or new_route_field_values < 0 or new_const_annotation_values < 0 or new_shape_field_starts < 0 or new_shape_field_counts < 0 or new_shape_field_values < 0 or new_files < 0 or new_expansions < 0 or new_revisions < 0 or new_item_kinds < 0 or new_item_names < 0 or new_item_defs < 0 or new_item_spans < 0 or new_item_parse_nodes < 0 or new_alias_target_types < 0 or new_alias_target_spans < 0 or new_local_annotation_items < 0 or new_local_annotation_stmt_spans < 0 or new_local_annotation_types < 0 or new_local_annotation_type_spans < 0 or new_task_return_items < 0 or new_task_return_forms < 0 or new_task_return_types < 0 or new_task_return_spans < 0 or new_annotation_indexes < 0 or new_return_indexes < 0 or new_task_param_indexes < 0 or new_impl_indexes < 0 or new_task_param_owner_items < 0 or new_task_param_owner_counts < 0 or new_task_param_items < 0 or new_task_param_ordinals < 0 or new_task_param_names < 0 or new_task_param_name_spans < 0 or new_task_param_modes < 0 or new_task_param_lifetimes < 0 or new_task_param_lifetime_spans < 0 or new_task_param_types < 0 or new_task_param_type_spans < 0 or new_task_param_segment_spans < 0 or new_diags < 0 {
             array_release(new_extern_return_owner_values)
             array_release(new_extern_return_values)
-            array_release(new_extern_param_values)
-            array_release(new_method_owner_values)
-            array_release(new_method_values)
+            array_release(new_signature_slots)
             array_release(new_route_owner_values)
             array_release(new_route_case_values)
             array_release(new_route_field_values)
@@ -212,9 +212,7 @@ task v4_hir_init() -> void {
         }
         v4_hir_extern_return_owner_values = new_extern_return_owner_values
         v4_hir_extern_return_values = new_extern_return_values
-        v4_hir_extern_param_values = new_extern_param_values
-        v4_hir_method_owner_values = new_method_owner_values
-        v4_hir_method_values = new_method_values
+        v4_hir_signature_slots = new_signature_slots
         v4_hir_route_owner_values = new_route_owner_values
         v4_hir_route_case_values = new_route_case_values
         v4_hir_route_field_values = new_route_field_values
@@ -263,8 +261,9 @@ task v4_hir_init() -> void {
     }
 }
 
--- File slots own their forty-five child arrays. Logical snapshot truncation keeps
--- high-water slots reachable; reusing a slot must release its previous children.
+-- File slots own their forty-two child arrays, plus up to three lazy signature
+-- arrays. Logical snapshot truncation keeps high-water slots reachable;
+-- reusing a slot must release its previous children.
 -- Fresh slots allocate once, without immediately overwriting those handles.
 task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
     v4_hir_init()
@@ -273,9 +272,9 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
     repeat until array_len(v4_hir_files) > hir_id {
         array_push(v4_hir_extern_return_owner_values, word_from_int(array_new()))
         array_push(v4_hir_extern_return_values, word_from_int(array_new()))
-        array_push(v4_hir_extern_param_values, word_from_int(array_new()))
-        array_push(v4_hir_method_owner_values, word_from_int(array_new()))
-        array_push(v4_hir_method_values, word_from_int(array_new()))
+        array_push(v4_hir_signature_slots, "-1")
+        array_push(v4_hir_signature_slots, "-1")
+        array_push(v4_hir_signature_slots, "-1")
         array_push(v4_hir_route_owner_values, word_from_int(array_new()))
         array_push(v4_hir_route_case_values, word_from_int(array_new()))
         array_push(v4_hir_route_field_values, word_from_int(array_new()))
@@ -336,12 +335,9 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_set(v4_hir_extern_return_owner_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_extern_return_values_handle(hir_id))
         array_set(v4_hir_extern_return_values, hir_id, word_from_int(array_new()))
-        array_release(v4_hir_extern_param_values_handle(hir_id))
-        array_set(v4_hir_extern_param_values, hir_id, word_from_int(array_new()))
-        array_release(v4_hir_method_owner_values_handle(hir_id))
-        array_set(v4_hir_method_owner_values, hir_id, word_from_int(array_new()))
-        array_release(v4_hir_method_values_handle(hir_id))
-        array_set(v4_hir_method_values, hir_id, word_from_int(array_new()))
+        v4_hir_signature_slot_clear(hir_id, v4_hir_signature_extern_params)
+        v4_hir_signature_slot_clear(hir_id, v4_hir_signature_method_owners)
+        v4_hir_signature_slot_clear(hir_id, v4_hir_signature_methods)
         array_release(v4_hir_route_owner_values_handle(hir_id))
         array_set(v4_hir_route_owner_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_route_case_values_handle(hir_id))
@@ -1851,8 +1847,7 @@ task v4_hir_lower_extern_member_return(hir_id: int, item_id: int, stream: int, s
     -- Empty quoted recovery can still have a declaration span and fall back.
     if surface == "" and recovery_arrow { array_push(values, "1") } else { array_push(values, "0") }
     array_push(values, v4_hir_span_from_tokens(stream, start, end))
-    pilot params = v4_hir_extern_param_values_handle(hir_id)
-    pilot param_start = array_len(params) / 8
+    pilot param_start = v4_hir_signature_slot_len(hir_id, v4_hir_signature_extern_params) / 8
     pilot param_count = v4_hir_lower_extern_member_params(hir_id, stream, start, end)
     array_push(values, word_from_int(param_count))
     array_push(values, word_from_int(param_start))
@@ -2005,8 +2000,10 @@ task v4_hir_copy_expand_diags(hir_id: int, expansion_id: int) -> void {
 task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
     if v4_hir_ready == 0 { give back 0 - 1 }
-    pilot required = 4
-    if v4_hir_file_len >= array_len(v4_hir_files) { required += 45 }
+    -- Four finalizer scratch arrays and up to three lazy signature arrays,
+    -- plus forty-two children for a new high-water slot.
+    pilot required = 7
+    if v4_hir_file_len >= array_len(v4_hir_files) { required += 42 }
     if v4_hir_lookup_handles_available(required) == false { give back 0 - 1 }
     pilot hir_id = v4_hir_file_new(file_id, expansion_id)
     v4_hir_copy_expand_diags(hir_id, expansion_id)
@@ -3292,20 +3289,29 @@ task v4_hir_begin_snapshot_restore() -> void {
 }
 
 -- Restore is synchronous. Reserve the peak additional handle requirement
--- before touching live slots: forty-five per new high-water file plus four
--- finalizer scratch arrays. Reused files free all children before replacing
--- them. The line index remains held throughout preflight and restoration.
+-- before touching live slots: forty-two per new high-water file, up to three
+-- lazy signature arrays per file with method owners or extern parameters, and
+-- four finalizer scratch arrays. Reused files free all children before
+-- replacing them. The line index remains held throughout preflight and
+-- restoration.
 task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
     pilot files = 0
+    pilot owner_lines = 0
+    pilot param_lines = 0
     pilot line_id = 0
     repeat until line_id >= array_len(records) {
         pilot line: word = array_get(records, line_id)
         if line.starts_with("hir|") { files += 1 }
+        if line.starts_with("hir-method-owner|") { owner_lines += 1 }
+        if line.starts_with("hir-extern-param|") { param_lines += 1 }
         line_id += 1
     }
     pilot fresh = files - array_len(v4_hir_files)
     if fresh < 0 { fresh = 0 }
-    give back v4_hir_lookup_handles_available(fresh * 45 + 4)
+    -- Distinct files holding each lazy kind never exceed the file count.
+    if owner_lines > files { owner_lines = files }
+    if param_lines > files { param_lines = files }
+    give back v4_hir_lookup_handles_available(fresh * 42 + owner_lines * 2 + param_lines + 4)
 }
 
 task v4_hir_lookup_handles_available(needed: int) -> bool {
@@ -3352,9 +3358,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     pilot original_file_len = v4_hir_file_len
     pilot original_extern_return_owner_values = v4_hir_extern_return_owner_values
     pilot original_extern_return_values = v4_hir_extern_return_values
-    pilot original_extern_param_values = v4_hir_extern_param_values
-    pilot original_method_owner_values = v4_hir_method_owner_values
-    pilot original_method_values = v4_hir_method_values
+    pilot original_signature_slots = v4_hir_signature_slots
     pilot original_route_owner_values = v4_hir_route_owner_values
     pilot original_route_case_values = v4_hir_route_case_values
     pilot original_route_field_values = v4_hir_route_field_values
@@ -3408,9 +3412,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
         if admitted_cold {
             array_release(v4_hir_extern_return_owner_values)
             array_release(v4_hir_extern_return_values)
-            array_release(v4_hir_extern_param_values)
-            array_release(v4_hir_method_owner_values)
-            array_release(v4_hir_method_values)
+            array_release(v4_hir_signature_slots)
             array_release(v4_hir_route_owner_values)
             array_release(v4_hir_route_case_values)
             array_release(v4_hir_route_field_values)
@@ -3456,9 +3458,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             array_release(v4_hir_diags)
             v4_hir_extern_return_owner_values = original_extern_return_owner_values
             v4_hir_extern_return_values = original_extern_return_values
-            v4_hir_extern_param_values = original_extern_param_values
-            v4_hir_method_owner_values = original_method_owner_values
-            v4_hir_method_values = original_method_values
+            v4_hir_signature_slots = original_signature_slots
             v4_hir_route_owner_values = original_route_owner_values
             v4_hir_route_case_values = original_route_case_values
             v4_hir_route_field_values = original_route_field_values
@@ -6097,8 +6097,34 @@ task v4_hir_restore_extern_return_records(records: int) -> void {
 -- parameter list once, with the same permissive token rules TY used for
 -- non-ordinary signatures, so a recovered segment keeps its old sentinels:
 -- name "", mode value, no lifetime, unknown ("") type and no spans.
+-- A file's signature slot array, or -1 while it holds no facts of that kind.
+task v4_hir_signature_slot(hir_id: int, slot: int) -> int {
+    give back word_to_int(array_get(v4_hir_signature_slots, hir_id * 3 + slot))
+}
+
+-- The slot array, allocated on first write; -1 only when no handle is left.
+task v4_hir_signature_slot_writable(hir_id: int, slot: int) -> int {
+    pilot handle = v4_hir_signature_slot(hir_id, slot)
+    if handle >= 0 { give back handle }
+    handle = array_new()
+    if handle >= 0 { array_set(v4_hir_signature_slots, hir_id * 3 + slot, word_from_int(handle)) }
+    give back handle
+}
+
+task v4_hir_signature_slot_len(hir_id: int, slot: int) -> int {
+    pilot handle = v4_hir_signature_slot(hir_id, slot)
+    if handle < 0 { give back 0 }
+    give back array_len(handle)
+}
+
+task v4_hir_signature_slot_clear(hir_id: int, slot: int) -> void {
+    pilot handle = v4_hir_signature_slot(hir_id, slot)
+    if handle >= 0 { array_release(handle) }
+    array_set(v4_hir_signature_slots, hir_id * 3 + slot, "-1")
+}
+
 task v4_hir_extern_param_values_handle(hir_id: int) -> int {
-    give back word_to_int(array_get(v4_hir_extern_param_values, hir_id))
+    give back v4_hir_signature_slot(hir_id, v4_hir_signature_extern_params)
 }
 
 task v4_hir_extern_member_param_count(hir_id: int, item_id: int, member_id: int) -> int {
@@ -6283,11 +6309,13 @@ task v4_hir_extern_param_type_span_from_tokens(stream_id: int, start_token: int,
 }
 
 task v4_hir_lower_extern_member_params(hir_id: int, stream: int, start: int, end: int) -> int {
-    pilot params = v4_hir_extern_param_values_handle(hir_id)
     pilot open_token = v4_hir_method_find_token_value(stream, start, end, "(")
     pilot close_token = 0 - 1
     if open_token >= 0 { close_token = v4_hir_extern_param_matching_paren(stream, open_token, end) }
     pilot count = v4_hir_extern_param_count_from_tokens(stream, open_token, close_token)
+    if count <= 0 { give back 0 }
+    pilot params = v4_hir_signature_slot_writable(hir_id, v4_hir_signature_extern_params)
+    if params < 0 { give back 0 }
     pilot param_id = 0
     repeat until param_id >= count {
         pilot segment_start = v4_hir_extern_param_segment_start(stream, open_token, close_token, param_id)
@@ -6322,7 +6350,7 @@ task v4_hir_extern_param_total() -> int {
     pilot total = 0
     pilot hir = 0
     repeat until hir >= v4_hir_file_count() {
-        total += array_len(v4_hir_extern_param_values_handle(hir)) / 8
+        total += v4_hir_signature_slot_len(hir, v4_hir_signature_extern_params) / 8
         hir += 1
     }
     give back total
@@ -6366,8 +6394,11 @@ task v4_hir_restore_extern_param_records(records: int) -> void {
         pilot row = 0
         repeat until row >= array_len(values) / 6 {
             pilot count = word_to_int(array_get(values, row * 6 + 4))
+            if count > 0 and params < 0 { params = v4_hir_signature_slot_writable(hir, v4_hir_signature_extern_params) }
+            if params < 0 { count = 0 }
             total += count
-            array_set(values, row * 6 + 5, word_from_int(array_len(params) / 8))
+            array_set(values, row * 6 + 4, word_from_int(count))
+            array_set(values, row * 6 + 5, word_from_int(v4_hir_signature_slot_len(hir, v4_hir_signature_extern_params) / 8))
             pilot param = 0
             repeat until param >= count {
                 array_push(params, "")
@@ -6415,11 +6446,11 @@ pilot v4_hir_method_return_arrow = "arrow"
 pilot v4_hir_method_return_implicit = "implicit-block"
 
 task v4_hir_method_owner_values_handle(hir_id: int) -> int {
-    give back word_to_int(array_get(v4_hir_method_owner_values, hir_id))
+    give back v4_hir_signature_slot(hir_id, v4_hir_signature_method_owners)
 }
 
 task v4_hir_method_values_handle(hir_id: int) -> int {
-    give back word_to_int(array_get(v4_hir_method_values, hir_id))
+    give back v4_hir_signature_slot(hir_id, v4_hir_signature_methods)
 }
 
 task v4_hir_item_owns_methods(hir_id: int, item_id: int) -> bool {
@@ -6430,8 +6461,8 @@ task v4_hir_item_owns_methods(hir_id: int, item_id: int) -> bool {
 task v4_hir_method_count(hir_id: int, item_id: int) -> int {
     if hir_id < 0 or hir_id >= v4_hir_file_len or item_id < 0 or item_id >= v4_hir_item_count(hir_id) { give back 0 }
     -- Non-owner slots are padding with count 0; no counted kind read is needed.
+    if item_id * 2 + 1 >= v4_hir_signature_slot_len(hir_id, v4_hir_signature_method_owners) { give back 0 }
     pilot owners = v4_hir_method_owner_values_handle(hir_id)
-    if item_id * 2 + 1 >= array_len(owners) { give back 0 }
     give back word_to_int(array_get(owners, item_id * 2 + 1))
 }
 
@@ -6465,8 +6496,9 @@ task v4_hir_method_return_span(hir_id: int, item_id: int, method_id: int) -> wor
 }
 
 task v4_hir_method_prepare_owner(hir_id: int, item_id: int, count: int) -> void {
-    pilot owners = v4_hir_method_owner_values_handle(hir_id)
-    pilot values = v4_hir_method_values_handle(hir_id)
+    pilot owners = v4_hir_signature_slot_writable(hir_id, v4_hir_signature_method_owners)
+    pilot values = v4_hir_signature_slot_writable(hir_id, v4_hir_signature_methods)
+    if owners < 0 or values < 0 { give back }
     repeat until array_len(owners) >= (item_id + 1) * 2 {
         array_push(owners, "-1")
         array_push(owners, "0")
@@ -6685,7 +6717,7 @@ task v4_hir_method_total() -> int {
     pilot total = 0
     pilot hir = 0
     repeat until hir >= v4_hir_file_count() {
-        total += array_len(v4_hir_method_values_handle(hir)) / 5
+        total += v4_hir_signature_slot_len(hir, v4_hir_signature_methods) / 5
         hir += 1
     }
     give back total

@@ -280,12 +280,12 @@ task v4_interp_resource_run() -> void {
     say "interpolation-resource restores=24 capacity-stable=true retired-plan=true source-stable=true"
 
     v4_interp_resource_assert(v4_hir_snapshot_restore(growth).starts_with("hir-snapshot-restore ok=1") and v4_hir_file_count() == 2 and v4_hir_word_plan_ready(1), "fresh-file recovery publishes complete plans")
-    v4_interp_resource_assert(v4_interp_resource_available() == capacity - 45, "growth owns exactly forty-five children")
-    capacity -= 45
+    v4_interp_resource_assert(v4_interp_resource_available() == capacity - 42, "growth owns exactly forty-two children")
+    capacity -= 42
     v4_interp_resource_assert(v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=1") and v4_hir_file_count() == 1 and v4_hir_snapshot() == payload and v4_interp_resource_available() == capacity, "logical shrink retains high-water policy")
     v4_interp_resource_assert(v4_hir_snapshot_restore(growth).starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == growth and v4_interp_resource_available() == capacity, "regrowth reuses retained children")
     v4_interp_resource_assert(v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == payload and v4_interp_resource_available() == capacity, "final shrink stable")
-    say "interpolation-resource growth=45 shrink-stable=true regrow-stable=true"
+    say "interpolation-resource growth=42 shrink-stable=true regrow-stable=true"
 
     pilot query_generation = v4_query_generation()
     generation = v4_session_semantic_restore_generation()

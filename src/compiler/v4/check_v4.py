@@ -1108,7 +1108,7 @@ EXECUTABLE_SMOKES = [
             'hir-impl-index 1024-items=true 512-impls=true logarithmic=true zero-impl-constant=true',
             'hir-impl-index snapshot-v11=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true',
             'hir-impl-index resource-readonly=true build-failure-cold=true recovery=true',
-            'hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=45',
+            'hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=44',
         ],
     },
     {
@@ -2862,7 +2862,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-forty-five-handles=true",
+            "hir-scaling-fresh-slot-forty-two-handles=true",
             "hir-scaling-512-params=true",
             "hir-scaling-64-param-files=true",
             "hir-scaling-512-param-tasks=true",
@@ -11577,7 +11577,7 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "interpolation-resource malformed-atomic=true ticket-boundary=true fresh-admission=true query-atomic=true restore-boundary=true decoder-conservation=true",
             "interpolation-resource restores=24 capacity-stable=true retired-plan=true source-stable=true",
-            "interpolation-resource growth=45 shrink-stable=true regrow-stable=true",
+            "interpolation-resource growth=42 shrink-stable=true regrow-stable=true",
             "interpolation-resource invalidation=true transitive-editor=true regeneration=true recovery=true",
         ],
     },
@@ -11655,8 +11655,8 @@ EXECUTABLE_SMOKES = [
         "expect_mode": "line",
         "expect_unique": True,
         "expect": [
-            "cold-hir-constructor rejected=48 exact-refs=true capacity-stable=true source-stable=true",
-            "cold-hir-constructor admitted=48 warm-stable=true original-sentinels=true",
+            "cold-hir-constructor rejected=46 exact-refs=true capacity-stable=true source-stable=true",
+            "cold-hir-constructor admitted=46 warm-stable=true original-sentinels=true",
         ],
     },
     {
@@ -11668,8 +11668,8 @@ EXECUTABLE_SMOKES = [
         "expect_unique": True,
         "expect": [
             "cold-hir-restore malformed=true v10=true cold-refs=true capacity-stable=true",
-            "cold-hir-restore init-boundary=true lookup-rollback=true nonempty-exact=true handles=93",
-            "cold-hir-restore empty-exact=true handles=48 warm-pressure=true high-water=true recovery=true",
+            "cold-hir-restore init-boundary=true lookup-rollback=true nonempty-exact=true handles=88",
+            "cold-hir-restore empty-exact=true handles=46 warm-pressure=true high-water=true recovery=true",
         ],
     },
     {'name': 'Panic literal and dynamic short-circuit contracts',
