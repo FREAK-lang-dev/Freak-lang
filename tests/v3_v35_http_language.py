@@ -75,6 +75,13 @@ task app_dispatch(request: int) -> bool {
         }
         give back false
     }
+    if path == "/download" {
+        if http_send_file(request, http_request_query(request)) == 0 {
+            pilot status = http_response_status(request, 404)
+            pilot sent = http_send_text(request, http_request_error(request))
+        }
+        give back false
+    }
     if path.starts_with("/hello/") {
         pilot name = path.substring(7, path.length() - 7)
         pilot sent = http_send_text(request, name)
@@ -207,6 +214,11 @@ def consumer_corpus(server:Server,soak:int):
     assert_response(server.exchange(request('/204','HEAD')),204,b'',head=True)
     reset_content_corpus(server)
     response_size_corpus(server,1048576)
+    server.checkpoint('language-consumer','file-download')
+    # http_send_file from FREAK: three times the buffered-body cap.
+    download=Path(server.env['FREAK_HTTP_TEST_DOWNLOAD']);expected=download.read_bytes()
+    assert_response(server.exchange(request('/download?'+download.as_posix())),200,expected)
+    assert_response(server.exchange(request('/download?'+download.as_posix()+'.missing')),404,b'cannot open response file')
     server.checkpoint('language-consumer','bodyless-and-header-responses')
     for method in ('GET','HEAD'):
         h=assert_response(server.exchange(request('/304',method)),304,b'',head=method=='HEAD');assert h[b'content-length']==b'7'
@@ -251,6 +263,7 @@ def main():
         progress.stage('input-provenance-complete')
         with tempfile.TemporaryDirectory(prefix='freak-http-language-') as temporary:
             root=Path(temporary);suffix='.exe' if os.name=='nt' else ''
+            download=root/'download.bin';download.write_bytes(bytes(range(256))*12289);env['FREAK_HTTP_TEST_DOWNLOAD']=str(download)
             if args.sanitize:
                 progress.stage('sanitizer-control','compile')
                 control=root/'control.c';control.write_text('#include <stdlib.h>\nint main(int n,char **v){volatile char *p=malloc(1);p[n+4]=3;free((void*)p);return 0;}\n');binary=root/'control'
