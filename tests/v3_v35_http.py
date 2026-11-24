@@ -464,6 +464,11 @@ static void service(const char *profile) {
     size_t requests=0,baseline_retained=0,pool_checks=0;pool_snapshot warmed={0};bool quit=false,baseline_taken=false;int listener_fds=-2;
     while(!quit) {
         int64_t request=H(next_request)(server);
+        /* Queued requests stay bounded by the connection cap even when their
+           connections are gone (rejections hold memory until dispatched). */
+        { freak_http_server *native=freak_http_require_server(server);size_t queued=0;
+          for(freak_http_request *q=native->ready_head;q;q=q->ready_next)queued++;
+          REQUIRE(queued<=2*native->max_connections); }
         if(!H(request_status)(request)) {
             __auto_type method=H(request_method)(request),path=H(request_path)(request),target=H(request_target)(request),query=H(request_query)(request);
             freak_word p=view(path),m=view(method);bool sent=true;
@@ -963,6 +968,24 @@ def keepalive_corpus(s:Server):
         grown=int(s.exchange(request('/retained',headers=[('Connection','close')]))[2])
         assert grown-baseline>=100000,(baseline,grown)
     s.cases+=2
+    s.checkpoint('keepalive-corpus','rejection-flood-is-bounded')
+    # 200 truncated uploads arrive while the application is busy: their
+    # queued rejections count against the 64-connection cap, so admission
+    # pauses instead of queueing every one of them (the harness checks the
+    # queue length on every dispatch).
+    busy=s.connect()
+    try:
+        busy.sendall(request('/slow',headers=[('Connection','close')]));time.sleep(.03)
+        flood=[socket.create_connection(('127.0.0.1',s.port),timeout=10) for _ in range(200)]
+        for client in flood:client.sendall(request('/echo','POST',b'',headers=[('Content-Length','1000')])+b'truncated')
+        for client in flood:client.close()
+        out=b''
+        while chunk:=busy.recv(4096):out+=chunk
+        assert_response(parse_response(out),200,b'slow')
+    finally:
+        busy.close()
+    for _ in range(3):assert_response(s.exchange(request('/health',headers=[('Connection','close')])),200,b'healthy')
+    s.cases+=204
     s.checkpoint('keepalive-corpus','connection-burst-over-cap')
     # 200 simultaneous connections against a 64-connection cap: the backlog
     # holds the rest and every client is answered.
