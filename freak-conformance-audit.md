@@ -40,8 +40,9 @@ body-span, malformed-header diagnostic, local-map Bool CFG and restoration
 contracts, including missing-condition assignment/call bodies with a typed
 declaration and a following conditional; their native fixture executions are
 pending. Inline map-literal
-indexing retains its existing unsupported type boundary, and these controls do
-not claim executable map LLVM lowering.
+indexing retains its existing unsupported type boundary. Since tier 3 maps, the
+local `Map<word, bool>` header modes (13 to 15) publish a native module; the
+nested-map mode stays refused.
 The existing two native examples retain their zero-pass, nested-control and
 short-circuit checks. `v35_native_while_casing_execute_smoke.fk` adds three
 actual native programs covering task/local/parameter names, aliases, and
@@ -828,7 +829,7 @@ completion remain open.
 | `std::math` (`sqrt`, `pow`, `sin`, `cos`, `tan`, `floor`, `ceil`) | ⚠️ | V3 campaign | Only these 7 `math::` names are wired in the checker/runtime; `abs`/`min`/`max`/`clamp`/`log`/`exp`/`gcd`/`lcm`/inverse-trig/degree helpers remain planned |
 | `std::math3d` | ✅ | ✅ | [std/math3d.fk](std/math3d.fk) |
 | Numeric methods (`int::checked_add`, etc.) | ⚠️ | 📖 V4 | partial; many overflow-safe variants missing |
-| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | V3 List covers literals, `List::filled`/`List::new`/`List::with_capacity`, checked indexing, mutable indexed assignment, `length`/`capacity`/`reserve`/`clear`/`push`/`pop`, iteration, and owned word/shape cleanup (`tests/v3_list_methods.py` C/LLVM parity). Element-wise `==`/`!=`, `contains` and `join` work on lists of `int`/`num`/`bool`/`word` (rejected for shape elements) with C/LLVM parity in [tests/v3_list_equality_word_sharing.py](tests/v3_list_equality_word_sharing.py); Map is Python-bootstrap-only (literal + handle-based emission, no V3 surface); Set NOT IMPLEMENTED |
+| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | V3 List covers literals, `List::filled`/`List::new`/`List::with_capacity`, checked indexing, mutable indexed assignment, `length`/`capacity`/`reserve`/`clear`/`push`/`pop`, iteration, and owned word/shape cleanup (`tests/v3_list_methods.py` C/LLVM parity). Element-wise `==`/`!=`, `contains` and `join` work on lists of `int`/`num`/`bool`/`word` (rejected for shape elements) with C/LLVM parity in [tests/v3_list_equality_word_sharing.py](tests/v3_list_equality_word_sharing.py); Map is Python-bootstrap-only in V3 (literal + handle-based emission, no V3 surface). V4 Maverick tier 3 lowers `Map<K,V>` and `Set<T>` natively: literals, `Map::new`/`Set::new`, `m[k]` (missing key panics), `m[k] = v` as `set`, `get` -> `maybe<V>`, `remove` -> `bool`, `length`, `add`/`contains`, word and integer-like keys, Meiya loans and drops (`examples/maps_native.fk`, bible §7.4 collection rules); `keys`/`values`/`pairs`/`merge`/`get_or`/`Map::from`, set algebra and map iteration remain V4 |
 | `Lineup<T>` FIFO queue | ❌ | 📖 V4 | not in stdlib |
 | `.filter` / `.collect` lazy iterators | ❌ | 📖 V4 | List has eager methods only |
 | `ask(prompt)` stdin | ✅ | ✅ | runtime |
