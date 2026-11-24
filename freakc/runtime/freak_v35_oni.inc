@@ -285,29 +285,40 @@ static freak_oni_fd_interest* freak_oni_fd_entry(int fd) {
     return &freak_oni_fds[fd];
 }
 
+/* Each socket is registered once, edge-triggered, for both directions, and
+   stays registered until it closes. Callers try the read, write or accept
+   first and park only on EAGAIN, so an edge that fires while nobody waits
+   is never needed. This keeps epoll_ctl off the per-message path. */
 static void freak_oni_epoll_sync(int fd) {
     freak_oni_fd_interest* entry = freak_oni_fd_entry(fd);
-    uint32_t wanted = 0;
-    if (entry->reader >= 0) wanted |= EPOLLIN | EPOLLRDHUP;
-    if (entry->writer >= 0) wanted |= EPOLLOUT;
-    if (wanted == entry->events) return;
+    if (entry->events != 0) return;
+    if (entry->reader < 0 && entry->writer < 0) return;
     if (freak_oni_epoll < 0) {
         freak_oni_epoll = epoll_create1(EPOLL_CLOEXEC);
         if (freak_oni_epoll < 0) freak_oni_fail("cannot create the epoll poller");
     }
     struct epoll_event event;
     memset(&event, 0, sizeof(event));
-    event.events = wanted;
+    event.events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET;
     event.data.u64 = (uint64_t)fd;
-    int op = entry->events == 0 ? EPOLL_CTL_ADD : (wanted == 0 ? EPOLL_CTL_DEL : EPOLL_CTL_MOD);
-    if (epoll_ctl(freak_oni_epoll, op, fd, &event) != 0) {
-        if (op == EPOLL_CTL_ADD && errno == EEXIST) {
-            epoll_ctl(freak_oni_epoll, EPOLL_CTL_MOD, fd, &event);
-        } else if (op != EPOLL_CTL_DEL) {
+    if (epoll_ctl(freak_oni_epoll, EPOLL_CTL_ADD, fd, &event) != 0) {
+        if (errno != EEXIST || epoll_ctl(freak_oni_epoll, EPOLL_CTL_MOD, fd, &event) != 0) {
             freak_oni_fail("cannot register a socket with epoll");
         }
     }
-    entry->events = wanted;
+    entry->events = event.events;
+}
+
+/* The socket is closing: forget its registration (close removes it from epoll). */
+static void freak_oni_epoll_forget(int fd) {
+    if (fd < 0 || (int64_t)fd >= freak_oni_fd_capacity) return;
+    freak_oni_fd_interest* entry = &freak_oni_fds[fd];
+    if (entry->events != 0 && freak_oni_epoll >= 0) {
+        struct epoll_event event;
+        memset(&event, 0, sizeof(event));
+        (void)epoll_ctl(freak_oni_epoll, EPOLL_CTL_DEL, fd, &event);
+    }
+    entry->events = 0;
 }
 #endif
 
@@ -607,6 +618,20 @@ static int freak_oni_wait_socket(uint64_t socket, bool for_write, int64_t timeou
     return woke == FREAK_ONI_WOKE_READY ? 1 : 0;
 }
 
+/* Cooperative budget: an oni whose socket calls keep succeeding without
+   ever parking bows after this many, so one hot connection cannot starve
+   the parade. Refilled on every resume. */
+#define FREAK_ONI_BUDGET 128
+static int64_t freak_oni_budget = FREAK_ONI_BUDGET;
+
+static void freak_oni_sleep(int64_t ms);
+
+static void freak_oni_spend(void) {
+    if (!freak_oni_inside()) return;
+    if (--freak_oni_budget > 0) return;
+    freak_oni_sleep(0);
+}
+
 static void freak_oni_sleep(int64_t ms) {
     if (ms <= 0) {
         /* bow: let the others run */
@@ -628,6 +653,9 @@ static void freak_oni_socket_closing(uint64_t socket) {
         int64_t slot = freak_oni_io_slots[i];
         if (freak_onis[slot].socket == socket) freak_oni_unpark(slot, FREAK_ONI_WOKE_TIMEOUT);
     }
+#ifdef FREAK_ONI_EPOLL
+    freak_oni_epoll_forget((int)socket);
+#endif
 }
 
 /* ---- the FREAK-facing API --------------------------------------- */
@@ -682,6 +710,7 @@ int64_t freak_oni_resume(int64_t handle) {
     }
     oni->state = FREAK_ONI_RUNNING;
     freak_oni_current_slot = slot;
+    freak_oni_budget = FREAK_ONI_BUDGET;
     freak_oni_switch_in(oni);
     freak_oni_current_slot = -1;
     oni = &freak_onis[slot];

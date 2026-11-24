@@ -1559,6 +1559,7 @@ static bool freak_oni_hooked(void);
 static int freak_oni_wait_socket(uint64_t socket, bool for_write, int64_t timeout_ms);
 static void freak_oni_sleep(int64_t ms);
 static void freak_oni_socket_closing(uint64_t socket);
+static void freak_oni_spend(void);
 
 static _Noreturn void freak_system_runtime_fail(const char* message) {
     fprintf(stderr, "FREAK: %s\n", message);
@@ -5032,6 +5033,9 @@ static size_t freak_tcp_socket_live_count = 0;
 
 static void freak_tcp_socket_native_close(freak_native_socket socket_value) {
     if (socket_value == FREAK_INVALID_NATIVE_SOCKET) return;
+    /* Oni parked on this socket wake up and see it gone; its poller
+       registration is forgotten before the number can be reused. */
+    freak_oni_socket_closing((uint64_t)socket_value);
 #ifdef _WIN32
     closesocket(socket_value);
 #else
@@ -5416,17 +5420,44 @@ freak_tcp_socket_handle freak_tcp_socket_accept(freak_tcp_socket_handle listener
     }
     freak_native_socket accepted;
     if (freak_oni_hooked()) {
-        /* Inside an oni: park until a connection waits, then fetch the record again. */
-        bool ready = freak_tcp_socket_oni_wait(
-            listener_record->native_socket, false, listener_record->receive_timeout_ms);
-        listener_record = freak_tcp_socket_lookup(listener);
-        if (!listener_record) return freak_tcp_socket_create(FREAK_TCP_SOCKET_ACCEPT_FAILED);
-        if (!ready) {
-            freak_tcp_socket_set_error(listener_record, FREAK_TCP_SOCKET_TIMED_OUT);
-            return freak_tcp_socket_create(FREAK_TCP_SOCKET_TIMED_OUT);
+        /* Inside an oni: try a nonblocking accept first and park only while
+           nobody is waiting (edge-triggered epoll relies on this order).
+           Fetch the record again after every park. */
+        int64_t deadline = listener_record->receive_timeout_ms > 0
+            ? freak_time_monotonic_ns() / 1000000 + listener_record->receive_timeout_ms : 0;
+        for (;;) {
+            freak_tcp_socket_set_blocking(listener_record->native_socket, false);
+            do {
+                accepted = accept(listener_record->native_socket, NULL, NULL);
+            } while (accepted == FREAK_INVALID_NATIVE_SOCKET &&
+                     freak_tcp_socket_error_is_interrupted());
+            bool would_block = accepted == FREAK_INVALID_NATIVE_SOCKET &&
+                freak_tcp_socket_error_would_block();
+            freak_tcp_socket_set_blocking(listener_record->native_socket, true);
+            if (accepted != FREAK_INVALID_NATIVE_SOCKET) {
+                /* BSD and Windows hand the nonblocking flag to the new socket */
+                freak_tcp_socket_set_blocking(accepted, true);
+                break;
+            }
+            if (!would_block) break;
+            int64_t wait_ms = 0;
+            if (deadline != 0) {
+                wait_ms = deadline - freak_time_monotonic_ns() / 1000000;
+                if (wait_ms <= 0) wait_ms = -1;
+            }
+            bool ready = wait_ms >= 0 && freak_tcp_socket_oni_wait(
+                listener_record->native_socket, false, wait_ms);
+            listener_record = freak_tcp_socket_lookup(listener);
+            if (!listener_record) return freak_tcp_socket_create(FREAK_TCP_SOCKET_ACCEPT_FAILED);
+            if (!ready) {
+                freak_tcp_socket_set_error(listener_record, FREAK_TCP_SOCKET_TIMED_OUT);
+                return freak_tcp_socket_create(FREAK_TCP_SOCKET_TIMED_OUT);
+            }
+            if (listener_record->status != FREAK_TCP_SOCKET_OK) {
+                return freak_tcp_socket_create(listener_record->status);
+            }
         }
-    }
-    do {
+    } else do {
         accepted = accept(listener_record->native_socket, NULL, NULL);
     } while (accepted == FREAK_INVALID_NATIVE_SOCKET &&
              freak_tcp_socket_error_is_interrupted());
@@ -5442,6 +5473,7 @@ freak_tcp_socket_handle freak_tcp_socket_accept(freak_tcp_socket_handle listener
         freak_tcp_socket_require(result, "accept result");
     result_record->native_socket = accepted;
     result_record->role = FREAK_TCP_SOCKET_ROLE_STREAM;
+    freak_oni_spend();
     return result;
 }
 
@@ -5556,6 +5588,7 @@ static int64_t freak_tcp_socket_oni_send(
 #endif
         if (sent > 0) {
             total += sent;
+            freak_oni_spend();
             if (!all) return total;
             continue;
         }
@@ -5620,10 +5653,12 @@ int64_t freak_tcp_socket_receive(
         int64_t max_bytes) {
     freak_tcp_socket_record* socket_record =
         freak_tcp_socket_require(handle, "receive");
+#ifdef _WIN32
     if (freak_oni_hooked() && socket_record->status == FREAK_TCP_SOCKET_OK &&
             socket_record->role == FREAK_TCP_SOCKET_ROLE_STREAM && !socket_record->eof &&
             max_bytes > 0) {
-        /* Inside an oni: park until readable, then fetch the records again. */
+        /* Inside an oni (Windows): park until readable, then fetch the records again.
+           POSIX tries the read first and parks only on EAGAIN, below. */
         bool ready = freak_tcp_socket_oni_wait(
             socket_record->native_socket, false, socket_record->receive_timeout_ms);
         socket_record = freak_tcp_socket_lookup(handle);
@@ -5633,6 +5668,7 @@ int64_t freak_tcp_socket_receive(
             return 0;
         }
     }
+#endif
     if (socket_record->status != FREAK_TCP_SOCKET_OK) return 0;
     if (socket_record->role != FREAK_TCP_SOCKET_ROLE_STREAM) {
         freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_WRONG_ROLE);
@@ -5656,6 +5692,46 @@ int64_t freak_tcp_socket_receive(
         return 0;
     }
     int received;
+#ifndef _WIN32
+    /* Inside an oni: read without blocking and park only when nothing is
+       there (edge-triggered epoll relies on this order). The records can
+       move while parked, so fetch them again before retrying. */
+    bool oni_read = freak_oni_hooked();
+    int64_t oni_deadline = 0;
+    if (oni_read && socket_record->receive_timeout_ms > 0) {
+        oni_deadline = freak_time_monotonic_ns() / 1000000 + socket_record->receive_timeout_ms;
+    }
+    for (;;) {
+        do {
+            received = recv(
+                socket_record->native_socket,
+                (char*)buffer->data + buffer->length,
+                (int)requested,
+                oni_read ? MSG_DONTWAIT : 0);
+        } while (received < 0 && freak_tcp_socket_error_is_interrupted());
+        if (!(oni_read && received < 0 && freak_tcp_socket_error_would_block())) break;
+        int64_t wait_ms = 0;
+        if (oni_deadline != 0) {
+            wait_ms = oni_deadline - freak_time_monotonic_ns() / 1000000;
+            if (wait_ms <= 0) wait_ms = -1;
+        }
+        bool ready = wait_ms >= 0 && freak_tcp_socket_oni_wait(
+            socket_record->native_socket, false, wait_ms);
+        socket_record = freak_tcp_socket_lookup(handle);
+        if (!socket_record) return 0;
+        if (!ready) {
+            freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_TIMED_OUT);
+            return 0;
+        }
+        if (socket_record->status != FREAK_TCP_SOCKET_OK || socket_record->eof) return 0;
+        buffer = freak_byte_buffer_require(destination, "TCP socket receive destination");
+        if (buffer->status != FREAK_BYTE_BUFFER_OK ||
+                !freak_byte_buffer_ensure_append(buffer, requested)) {
+            freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_INVALID_ARGUMENT);
+            return 0;
+        }
+    }
+#else
     do {
         received = recv(
             socket_record->native_socket,
@@ -5663,6 +5739,7 @@ int64_t freak_tcp_socket_receive(
             (int)requested,
             0);
     } while (received < 0 && freak_tcp_socket_error_is_interrupted());
+#endif
     if (received == 0) {
         socket_record->eof = true;
         return 0;
@@ -5675,6 +5752,7 @@ int64_t freak_tcp_socket_receive(
         return 0;
     }
     buffer->length += (size_t)received;
+    freak_oni_spend(); /* records may move after this: nothing below touches them */
     return (int64_t)received;
 }
 
@@ -5727,10 +5805,6 @@ void freak_tcp_socket_close(freak_tcp_socket_handle handle) {
         exit(1);
     }
     freak_tcp_socket_record* socket_record = &freak_tcp_sockets[slot];
-    if (socket_record->native_socket != FREAK_INVALID_NATIVE_SOCKET) {
-        /* Oni parked on this socket wake up and see it gone. */
-        freak_oni_socket_closing((uint64_t)socket_record->native_socket);
-    }
     freak_tcp_socket_native_close(socket_record->native_socket);
     socket_record->native_socket = FREAK_INVALID_NATIVE_SOCKET;
     socket_record->status = FREAK_TCP_SOCKET_OK;

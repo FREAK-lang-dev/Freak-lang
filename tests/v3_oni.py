@@ -301,6 +301,28 @@ task closer(x: int) -> void {
     tcp::socket_close(doomed)
 }
 
+-- A reader whose data is always there must still let others run.
+pilot hog_sock = 0
+pilot hog_done = 0
+pilot witnessed = 0
+task hog(x: int) -> void {
+    pilot inbox = ByteBuffer::new()
+    repeat until false {
+        pilot n = tcp::socket_receive(hog_sock, inbox, 16)
+        if n == 0 { break }
+        inbox.clear()
+    }
+    inbox.release()
+    hog_done = 1
+}
+
+task witness(x: int) -> void {
+    repeat until hog_done == 1 {
+        witnessed += 1
+        time::sleep(0)
+    }
+}
+
 task main() -> void {
     pilot listener = tcp::socket_listen("127.0.0.1", 0, 256)
     port = tcp::socket_local_port(listener)
@@ -328,6 +350,21 @@ task main() -> void {
     say closed_ok
     tcp::socket_close(peer)
     tcp::socket_close(l2)
+
+    pilot l3 = tcp::socket_listen("127.0.0.1", 0, 4)
+    pilot writer = tcp::socket_connect("127.0.0.1", tcp::socket_local_port(l3))
+    hog_sock = tcp::socket_accept(l3)
+    pilot blob = ByteBuffer::new()
+    repeat 1024 times { blob.write_word("0123456789abcdef0123456789abcdef") }
+    tcp::socket_send_all(writer, blob, 0, blob.length())
+    tcp::socket_close(writer)
+    blob.release()
+    oni::summon("hog", 0)
+    oni::summon("witness", 0)
+    parade()
+    if witnessed >= 8 { say "shared" } else { say "hogged" }
+    tcp::socket_close(hog_sock)
+    tcp::socket_close(l3)
 }
 '''
 
@@ -336,6 +373,7 @@ SOCKETS_EXPECTED = """200
 ticked
 1
 1
+shared
 """
 
 DIAGNOSTICS = [
