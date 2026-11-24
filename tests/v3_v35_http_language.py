@@ -164,6 +164,8 @@ task main() {
         process::exit(2)
     }
     http_set_timeouts(server, 1200, 5000, 1000)
+    -- The framing corpus reads every response to EOF, so serve one request per connection.
+    http_set_keep_alive(server, 1000, 0)
     say "PORT " + word_from_int(http_local_port(server))
     pilot mut finished = false
     repeat until finished {
