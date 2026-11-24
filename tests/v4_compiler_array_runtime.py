@@ -150,9 +150,9 @@ def validate_completion(report: dict, sanitized: bool) -> None:
 
 
 def namespace_source_guard(source: str) -> None:
-    """Pin the concrete legacy pool fence on which biased tickets depend."""
-    if not re.search(r"^#define FREAK_LLVM_MAX_ARRAYS 1024\s*$", source, re.M):
-        raise AssertionError("legacy LLVM pool capacity changed: revalidate private ticket namespace")
+    """Pin the legacy generation fence that keeps V4 tickets out of legacy handles."""
+    if not re.search(r"^#define FREAK_LLVM_ARRAY_GENERATION_MAX UINT32_C\(0x3fffffff\)\s*$", source, re.M):
+        raise AssertionError("legacy LLVM generation fence changed: revalidate private ticket namespace")
     start = source.index("static int64_t freak_llvm_array_slot_for_handle(")
     end = source.index("\nint64_t freak_llvm_array_new(", start)
     decoder = source[start:end]
@@ -161,7 +161,8 @@ def namespace_source_guard(source: str) -> None:
     if ("if (handle < 0) return -1;" not in decoder or
             "slot >= freak_llvm_array_count" not in decoder or
             "freak_llvm_arrays[slot]" not in decoder or
-            "freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS" not in constructor):
+            "if (!freak_llvm_array_reserve()) {" not in constructor or
+            "a->generation >= FREAK_LLVM_ARRAY_GENERATION_MAX" not in source):
         raise AssertionError("legacy LLVM slot admission changed: revalidate private ticket namespace")
 
 
