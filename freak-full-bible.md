@@ -438,6 +438,12 @@ for each item in list {
 }
 ```
 
+Destructuring patterns cover tuples `(a, b)`, sequences `[a, b]` (fixed
+arrays, and lists, where the arm matches exactly that length and `[]` an
+empty list) and route/variant payloads `Case { field }`. There is no map
+destructuring pattern: a map is read with `m[k]` or `m.get(k)` (§7.4), never
+taken apart by a pattern.
+
 The condition of `repeat while` and `while` must be `bool`; it is tested
 before every pass, including the first. They share the existing loop rules
 for `break`, `continue`, lexical cleanup and early return.
