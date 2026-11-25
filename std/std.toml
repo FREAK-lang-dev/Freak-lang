@@ -16,7 +16,7 @@
 version = "0.16.0"
 std_api = "freak-v3-std-api-1"
 abi = "freak-v3-abi-1"
-runtime_api = "freak-v3-runtime-api-3"
+runtime_api = "freak-v3-runtime-api-4"
 compiler = ">=0.15.2"
 
 [modules]
