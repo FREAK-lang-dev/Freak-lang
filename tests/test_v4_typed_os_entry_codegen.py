@@ -972,11 +972,11 @@ class PureGateTests(unittest.TestCase):
     def prepare_fake_tree(self, base):
         original = base / "original"; original.mkdir()
         names = [*gate.OWNED_NAMES, gate.SUPPORT_NAME, gate.GUARD_NAME,
-                 gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST,
+                 gate.CRATE_MANIFEST, gate.RUNTIME_MANIFEST,
                  *("src/compiler/v4/crates/" + crate + "/src/lib.fk" for crate in gate.CRATES),
                  *("freakc/runtime/" + name for name in (*gate.RUNTIME_SOURCES, *gate.RUNTIME_HEADERS)),
                  *gate.RUNTIME_VENDOR_HEADERS, "freakc/__main__.py", gate.RUNTIME_INVENTORY_READER]
-        real_metadata = (gate.SUPPORT_NAME, gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST, gate.RUNTIME_INVENTORY_READER)
+        real_metadata = (gate.SUPPORT_NAME, gate.CRATE_MANIFEST, gate.RUNTIME_MANIFEST, gate.RUNTIME_INVENTORY_READER)
         for name in names:
             path = original / name; path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes((gate.ROOT / name).read_bytes() if name in real_metadata else b"inert source-only metadata\n")
@@ -991,10 +991,10 @@ class PureGateTests(unittest.TestCase):
         names = gate.source_names()
         self.assertEqual(gate.runtime_input_names(gate.ROOT),
                          tuple("freakc/runtime/" + name for name in (*gate.RUNTIME_SOURCES, *gate.RUNTIME_HEADERS)) + gate.RUNTIME_VENDOR_HEADERS)
-        self.assertEqual(tuple((gate.ROOT / gate.BOOTSTRAP_MANIFEST).read_text().splitlines()),
+        self.assertEqual(tuple((gate.ROOT / gate.CRATE_MANIFEST).read_text().splitlines()),
                          tuple("crates/" + crate + "/src/lib.fk" for crate in gate.CRATES))
         self.assertEqual((len(gate.CRATES), len(gate.RUNTIME_SOURCES), len(gate.RUNTIME_HEADERS), len(gate.RUNTIME_VENDOR_HEADERS)), (23, 8, 12, 6))
-        for name in (gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST, gate.RUNTIME_INVENTORY_READER, *gate.RUNTIME_VENDOR_HEADERS):
+        for name in (gate.CRATE_MANIFEST, gate.RUNTIME_MANIFEST, gate.RUNTIME_INVENTORY_READER, *gate.RUNTIME_VENDOR_HEADERS):
             self.assertIn(name, names)
         self.assertNotIn("v4_typed_os_inventory", sys.modules)
 
@@ -1004,7 +1004,7 @@ class PureGateTests(unittest.TestCase):
             with patch.object(gate, "ROOT", original):
                 sources = gate.source_hashes(); report = {"source_hashes": sources}
                 gate.validate_source_closure(report, frozen)
-                declared = (gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST, *gate.runtime_input_names(original))
+                declared = (gate.CRATE_MANIFEST, gate.RUNTIME_MANIFEST, *gate.runtime_input_names(original))
                 for name in declared:
                     for root in (original, frozen):
                         path = root / name; saved = path.read_bytes()
@@ -1021,7 +1021,7 @@ class PureGateTests(unittest.TestCase):
                         gate.validate_source_closure({"source_hashes": forged}, frozen)
                 with self.assertRaisesRegex(RuntimeError, "ordered"):
                     gate.validate_source_closure({"source_hashes": dict(reversed(list(sources.items())))}, frozen)
-                for manifest in (gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST):
+                for manifest in (gate.CRATE_MANIFEST, gate.RUNTIME_MANIFEST):
                     path = frozen / manifest; saved = path.read_bytes()
                     try:
                         lines = saved.splitlines(keepends=True)
@@ -1040,7 +1040,7 @@ class PureGateTests(unittest.TestCase):
             with patch.object(gate, "ROOT", original):
                 supports = tuple(gate.load_support(frozen, names, role) for role in ("native", "compiler", "bootstrap"))
                 report = {"source_hashes": gate.source_hashes(), "compiler": {"selected": str(compiler), "path": str(compiler), "sha256": gate.sha(compiler)}}
-                declared = (gate.BOOTSTRAP_MANIFEST, gate.RUNTIME_MANIFEST, *gate.runtime_input_names(original))
+                declared = (gate.CRATE_MANIFEST, gate.RUNTIME_MANIFEST, *gate.runtime_input_names(original))
                 # The actual Pins/check body must reject before the checker is
                 # loaded, before its first process guard can run.
                 for name in declared:

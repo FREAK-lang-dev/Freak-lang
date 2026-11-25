@@ -158,9 +158,9 @@ class ArchitectureLaneGuards(unittest.TestCase):
         self.assertNotIn("v4_hir_", self.codegen)
 
 
-    def boundary_violations(self, crate, mutate):
-        """Run the crate boundary gate with one crate's text mutated."""
-        target = guard.crate_path(crate)
+    def boundary_violations(self, crate, mutate, target=None):
+        """Run the crate boundary gate with one crate's (or file's) text mutated."""
+        target = guard.crate_path(crate) if target is None else target
         original = guard.read_text
 
         def patched(path):
@@ -211,6 +211,21 @@ class ArchitectureLaneGuards(unittest.TestCase):
         self.assertLess(order.index("freak_borrowck"), order.index("freak_mir_transform"))
         self.assertLess(order.index("freak_mir_transform"), order.index("freak_codegen_llvm"))
         self.assertNotIn("v4_borrowck_", self.codegen)
+
+    def test_transform_is_a_development_crate_not_a_frozen_bootstrap_source(self):
+        frozen = guard.read_text(guard.V4_ROOT / "bootstrap-sources.manifest").splitlines()
+        self.assertNotIn("crates/freak_mir_transform/src/lib.fk", frozen)
+        self.assertIn("crates/freak_mir_transform/src/lib.fk", guard.CRATE_SOURCE_PATHS)
+        self.assertEqual(self.boundary_violations(None, lambda text: text, guard.V4_ROOT / "bootstrap-sources.manifest"), "")
+
+    def test_frozen_bootstrap_order_drift_is_rejected(self):
+        def swap(text):
+            lines = text.splitlines(keepends=True)
+            lines[0], lines[1] = lines[1], lines[0]
+            return "".join(lines)
+
+        found = self.boundary_violations(None, swap, guard.V4_ROOT / "bootstrap-sources.manifest")
+        self.assertIn("frozen bootstrap-sources.manifest must stay an ordered subsequence", found)
 
 
 if __name__ == "__main__":

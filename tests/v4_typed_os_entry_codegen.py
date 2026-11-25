@@ -27,7 +27,7 @@ DARWIN_DEPLOYMENT_SOURCE = "/* Observe the selected Clang deployment target; no 
 RUNTIME_SOURCES = ("freak_llvm_runtime.c", "freak_v4_word_runtime.c", "freak_v4_compiler_array_runtime.c", "freak_v4_numeric_runtime.c", "freak_v4_unicode_runtime.c", "freak_v4_system_runtime.c", "freak_v4_panic_runtime.c", "freak_runtime.c")
 RUNTIME_HEADERS = ("freak_runtime.h", "freak_v4_word_runtime.h", "freak_v4_compiler_array_runtime.h", "freak_v4_numeric_runtime.h", "freak_v4_unicode_runtime.h", "freak_v4_unicode_lower_tables.h", "freak_v4_system_runtime.h", "freak_v4_panic_runtime.h", "freak_v35_process.inc", "freak_v35_fs.inc", "freak_v35_json.inc", "freak_v35_http.inc")
 RUNTIME_VENDOR_HEADERS = ("third_party/llhttp/freak_amalgamation.inc", "third_party/llhttp/include/llhttp.h", "third_party/llhttp/src/llhttp.h", "third_party/llhttp/src/api.c", "third_party/llhttp/src/http.c", "third_party/llhttp/src/llhttp.c")
-BOOTSTRAP_MANIFEST = "src/compiler/v4/bootstrap-sources.manifest"
+CRATE_MANIFEST = "src/compiler/v4/crate-sources.manifest"
 RUNTIME_MANIFEST = "src/compiler/v4/native-runtime.manifest"
 RUNTIME_INVENTORY_READER = "freakc/v4_native_runtime.py"
 CRATES = ("freak_span", "freak_diag", "freak_macro_api", "freak_arena", "freak_intern", "freak_session", "freak_target", "freak_lex", "freak_parse", "freak_expand", "freak_hir", "freak_resolve", "freak_ty", "freak_mir", "freak_mir_build", "freak_borrowck", "freak_mir_transform", "freak_codegen_llvm", "freak_query", "freak_driver", "freak_editor", "freak_snapshot", "freak_lsp")
@@ -734,9 +734,9 @@ def runtime_input_names(root):
 def source_names(root=None):
     if root is None: root = ROOT
     expected_crates = tuple("crates/" + crate + "/src/lib.fk" for crate in CRATES)
-    require(tuple((root / BOOTSTRAP_MANIFEST).read_text(encoding="utf-8").splitlines()) == expected_crates,
+    require(tuple((root / CRATE_MANIFEST).read_text(encoding="utf-8").splitlines()) == expected_crates,
             "exact ordered bootstrap manifest inventory")
-    names = [*OWNED_NAMES, SUPPORT_NAME, GUARD_NAME, BOOTSTRAP_MANIFEST, RUNTIME_MANIFEST,
+    names = [*OWNED_NAMES, SUPPORT_NAME, GUARD_NAME, CRATE_MANIFEST, RUNTIME_MANIFEST,
              *("src/compiler/v4/crates/" + crate + "/src/lib.fk" for crate in CRATES),
              *runtime_input_names(root)]
     names += [str(path.relative_to(root)).replace("\\", "/") for path in sorted((root / "freakc").rglob("*.py"))]
