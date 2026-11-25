@@ -1,0 +1,52 @@
+-- Owned temporaries (tier 3 drops row). A discarded route or dyn-holding
+-- value that is not a call result spills to an entry-block slot and its
+-- drop glue runs there; a call result is released from its own result
+-- slot. A scalar slot projected out of a word-owning call result is read,
+-- then the result slot's drop glue releases the whole temporary.
+-- check_v4_native_shapes runs this program; tests/v4_owned_word_codegen.py
+-- runs it under ASan and UBSan.
+doctrine Unit {
+    task power(lend self) -> int
+}
+impl Unit for int {
+    task power(lend self) -> int { give back self }
+}
+shape Pilot { name: word, power: int }
+shape Squad { lead: dyn Unit, size: int }
+shape Hangar { units: List<int>, bay: int }
+route Signal {
+    Text { body: word }
+    Roster { ids: List<int> }
+    Silent
+}
+
+task callsign(k: int) -> word { give back "Valkyrie" + word_from_int(k) }
+task enlist(name: word, power: int) -> Pilot { give back Pilot { name: name + "!", power: power } }
+task form(k: int) -> Squad { give back Squad { lead: k, size: k + 1 } }
+task hangar(bay: int) -> Hangar { give back Hangar { units: [1, 2, 3], bay: bay } }
+task radio(k: int) -> Signal { give back Signal::Text { body: callsign(k) } }
+task tally(k: int) -> (word, int) { give back (callsign(k), k * 10) }
+
+task main() -> int {
+    Signal::Text { body: callsign(1) }
+    Signal::Roster { ids: [4, 5] }
+    pilot held = Signal::Text { body: callsign(2) }
+    held
+    radio(3)
+    Signal::Silent
+    Squad { lead: 7, size: 1 }
+    form(2)
+    say enlist(callsign(4), 40).power
+    say hangar(6).bay
+    say tally(5).1
+    say form(8).size
+    pilot mut sum = 0
+    pilot mut i = 0
+    while i < 3 {
+        Signal::Text { body: callsign(i) }
+        sum = sum + enlist(callsign(i), i).power
+        i = i + 1
+    }
+    say sum
+    give back 0
+}

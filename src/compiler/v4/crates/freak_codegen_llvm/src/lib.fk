@@ -2050,7 +2050,31 @@ task v4_codegen_llvm_aggregate_abi_slots(mir_id: int, body_id: int) -> word {
         }
         value += 1
     }
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body_id) {
+        pilot root = v4_mir_stmt_rvalue(mir_id, body_id, stmt)
+        if v4_codegen_llvm_discard_needs_slot(mir_id, body_id, stmt) { out = out + "  " + v4_codegen_llvm_discard_slot(body_id, root) + " = alloca " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, root)) + "\n" }
+        stmt += 1
+    }
     give back out
+}
+
+-- A discarded owned value whose drop glue reads memory (a route payload,
+-- or an erased box an aggregate holds) and that is not already in a call's
+-- result slot is spilled to an entry-block slot and released there.
+task v4_codegen_llvm_discard_slot(body_id: int, rvalue_id: int) -> word {
+    give back "%discard." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+}
+
+task v4_codegen_llvm_discard_needs_slot(mir_id: int, body_id: int, stmt_id: int) -> bool {
+    pilot root = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+    if v4_codegen_llvm_active_owned_mir != mir_id or v4_mir_stmt_kind(mir_id, body_id, stmt_id) != v4_mir_stmt_expr or root < 0 { give back false }
+    pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, root)
+    if v4_ty_canonical_type(v4_mir_ty_id(mir_id), value_ty) == v4_ty_word or v4_codegen_llvm_is_owned_dyn(mir_id, value_ty) or not v4_codegen_llvm_type_owns_words(mir_id, value_ty) { give back false }
+    if v4_codegen_llvm_is_list(mir_id, value_ty) or v4_codegen_llvm_is_map(mir_id, value_ty) or v4_codegen_llvm_is_shared_handle(mir_id, value_ty) { give back false }
+    if not v4_codegen_llvm_type_has_route_words(mir_id, value_ty, 0) and not v4_codegen_llvm_type_holds_dyn(mir_id, value_ty, 0) { give back false }
+    if v4_codegen_llvm_call_is_freak_abi(mir_id, body_id, root) and v4_codegen_llvm_call_returns_aggregate(mir_id, body_id, root) { give back false }
+    give back v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, root) and v4_codegen_llvm_word_rvalue_is_owned(mir_id, body_id, root)
 }
 
 -- Temporary projections (`f(x).y`, `f(x).0`, `f(x)[i]`). A Project reads
@@ -2095,12 +2119,30 @@ task v4_codegen_llvm_projection_needs_check(mir_id: int, body_id: int, rvalue_id
     give back value < 0 or value >= length
 }
 
+-- A projection of a call result that owns words, reading a slot that owns
+-- none: the temporary sits in the call's result slot, so its drop glue
+-- releases every leaf there once the slot is read. A projected slot that
+-- owns words would be moved out of the temporary and stays named.
+task v4_codegen_llvm_projection_drops_rest(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    pilot operand = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    if v4_codegen_llvm_active_owned_mir != mir_id or operand < 0 or v4_codegen_llvm_type_owns_words(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) { give back false }
+    give back v4_codegen_llvm_type_owns_words(mir_id, v4_mir_rvalue_ty(mir_id, body_id, operand)) and v4_codegen_llvm_call_is_freak_abi(mir_id, body_id, operand) and v4_codegen_llvm_call_returns_aggregate(mir_id, body_id, operand)
+}
+
+task v4_codegen_llvm_projection_rest_drop(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if not v4_codegen_llvm_projection_drops_rest(mir_id, body_id, rvalue_id) { give back "" }
+    pilot operand = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    pilot glue = v4_codegen_llvm_drop_glue_at(mir_id, v4_mir_rvalue_ty(mir_id, body_id, operand), v4_codegen_llvm_abi_ret_slot(body_id, operand), "", "%project.rest." + word_from_int(body_id) + "." + word_from_int(rvalue_id), 0)
+    if glue.length() < 3 { give back "" }
+    give back "\n" + v4_slice(glue, 0, glue.length() - 1)
+}
+
 task v4_codegen_llvm_projection_instruction(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
     pilot operand = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
     pilot index = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
     pilot base_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, operand))
     pilot base_value = v4_codegen_llvm_rvalue_value(mir_id, body_id, operand)
-    if not v4_codegen_llvm_projection_needs_check(mir_id, body_id, rvalue_id) { give back target + " = extractvalue " + base_ty + " " + base_value + ", " + word_from_int(v4_codegen_llvm_const_index(mir_id, body_id, index)) }
+    if not v4_codegen_llvm_projection_needs_check(mir_id, body_id, rvalue_id) { give back target + " = extractvalue " + base_ty + " " + base_value + ", " + word_from_int(v4_codegen_llvm_const_index(mir_id, body_id, index)) + v4_codegen_llvm_projection_rest_drop(mir_id, body_id, rvalue_id) }
     pilot slot = v4_codegen_llvm_projection_slot(body_id, rvalue_id)
     pilot index_value = v4_codegen_llvm_rvalue_value(mir_id, body_id, index)
     pilot length = word_from_int(v4_codegen_llvm_fixed_array_length(mir_id, v4_mir_rvalue_ty(mir_id, body_id, operand)))
@@ -2111,7 +2153,7 @@ task v4_codegen_llvm_projection_instruction(mir_id: int, body_id: int, rvalue_id
     out = out + v4_codegen_llvm_bounds_panic_lines("%" + label, index_value, length)
     out = out + "  unreachable\n" + label + ".ok:\n"
     out = out + "  %" + label + ".p = getelementptr inbounds " + base_ty + ", ptr " + slot + ", i64 0, i64 " + index_value + "\n"
-    give back out + "  " + target + " = load " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) + ", ptr %" + label + ".p"
+    give back out + "  " + target + " = load " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) + ", ptr %" + label + ".p" + v4_codegen_llvm_projection_rest_drop(mir_id, body_id, rvalue_id)
 }
 
 -- The caller's copies: each aggregate argument (already converted by its
@@ -5878,6 +5920,11 @@ task v4_codegen_llvm_owned_temporary_drop(mir: int, body: int, value: int, site:
     if v4_ty_canonical_type(v4_mir_ty_id(mir), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir, value_ty) {
         -- A route's payload, or an erased box an aggregate holds, is
         -- released in memory: the call's result slot.
+        if (v4_codegen_llvm_type_has_route_words(mir, value_ty, 0) or v4_codegen_llvm_type_holds_dyn(mir, value_ty, 0)) and not (v4_codegen_llvm_call_is_freak_abi(mir, body, value) and v4_codegen_llvm_call_returns_aggregate(mir, body, value)) {
+            pilot slot = v4_codegen_llvm_discard_slot(body, value)
+            pilot spill = "  store " + v4_codegen_llvm_type(value_ty) + " " + v4_codegen_llvm_rvalue_value(mir, body, value) + ", ptr " + slot + "\n"
+            give back spill + v4_codegen_llvm_drop_glue_at(mir, value_ty, slot, "", "%agg.discard." + site, 0)
+        }
         if v4_codegen_llvm_type_has_route_words(mir, value_ty, 0) or v4_codegen_llvm_type_holds_dyn(mir, value_ty, 0) { give back v4_codegen_llvm_drop_glue_at(mir, value_ty, v4_codegen_llvm_abi_ret_slot(body, value), "", "%agg.discard." + site, 0) }
         give back v4_codegen_llvm_aggregate_word_drop_lines(mir, value_ty, v4_codegen_llvm_rvalue_value(mir, body, value), "%agg.discard." + site)
     }
@@ -9172,17 +9219,6 @@ task v4_codegen_llvm_native_dyn_body_error(mir_id: int, body_id: int) -> word {
         }
         value += 1
     }
-    pilot stmt_id = 0
-    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
-        pilot root = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-        -- A discarded aggregate that holds dyn values is released from its
-        -- call's result slot; other discarded aggregates stay named.
-        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_expr and root >= 0 {
-            pilot root_ty = v4_mir_rvalue_ty(mir_id, body_id, root)
-            if v4_codegen_llvm_type_holds_dyn(mir_id, root_ty, 0) and not v4_codegen_llvm_is_owned_dyn(mir_id, root_ty) and not (v4_codegen_llvm_call_is_freak_abi(mir_id, body_id, root) and v4_codegen_llvm_call_returns_aggregate(mir_id, body_id, root)) { give back "native discarded values that hold dyn values are not yet supported: " + v4_mir_rvalue_text(mir_id, body_id, root) }
-        }
-        stmt_id += 1
-    }
     give back ""
 }
 
@@ -9395,6 +9431,12 @@ task v4_codegen_llvm_collect_owned_special_lines(parts: int, mir_id: int, body_i
     if kind == v4_mir_rvalue_closure { give back v4_codegen_llvm_collect_closure_lines(parts, mir_id, body_id, rvalue_id, target) }
     if v4_codegen_llvm_collect_list_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back true }
     if v4_codegen_llvm_collect_map_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back true }
+    give back v4_codegen_llvm_collect_dyn_or_shared_lines(parts, mir_id, body_id, rvalue_id, target, kind)
+}
+
+-- Kept out of collect_owned_special_lines so its frame (on the recursive
+-- owned rvalue path) stays the size it was before owned dyn landed.
+task v4_codegen_llvm_collect_dyn_or_shared_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
     if v4_codegen_llvm_collect_dyn_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back true }
     give back v4_codegen_llvm_collect_shared_lines(parts, mir_id, body_id, rvalue_id, target, kind)
 }
@@ -9612,8 +9654,8 @@ task v4_codegen_llvm_drop_plan_error(mir_id: int) -> word {
             pilot kind = v4_mir_stmt_kind(mir_id, body, stmt)
             pilot place = v4_mir_stmt_place(mir_id, body, stmt)
             pilot root = v4_mir_stmt_rvalue(mir_id, body, stmt)
-            -- A discarded route that owns words is released from its call's result slot.
-            if kind == v4_mir_stmt_expr and root >= 0 and v4_codegen_llvm_word_rvalue_is_owned(mir_id, body, root) and v4_codegen_llvm_type_has_route_words(mir_id, v4_mir_rvalue_ty(mir_id, body, root), 0) and not (v4_codegen_llvm_call_is_freak_abi(mir_id, body, root) and v4_codegen_llvm_call_returns_aggregate(mir_id, body, root)) { give back "native discarded route values that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, root) }
+            -- A discarded route that owns words is released in memory: its
+            -- call's result slot, or the statement's discard slot.
             if (kind == v4_mir_stmt_assign or kind == v4_mir_stmt_local) and place >= 0 and (v4_codegen_llvm_type_owns_words(mir_id, v4_mir_place_ty(mir_id, body, place)) or (v4_mir_place_kind(mir_id, body, place) == v4_mir_place_index and v4_codegen_llvm_sum_owned_word_field(mir_id, v4_mir_place_ty(mir_id, body, place)) != "")) {
                 pilot place_kind = v4_mir_place_kind(mir_id, body, place)
                 -- A lent word parameter itself is replaced with a drop of the old word.
@@ -9928,7 +9970,7 @@ task v4_codegen_llvm_aggregate_word_ownership_error(mir_id: int, body: int) -> w
         pilot leaves = v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0)
         if leaves > 256 or leaves < 0 { error = "native aggregates owning more than 256 words are not yet supported: " + type_text }
         if error == "" and kind == v4_mir_rvalue_unary and (v4_mir_rvalue_op(mir_id, body, value) == v4_mir_unary_project or v4_mir_rvalue_op(mir_id, body, value) == v4_mir_unary_project_index) {
-            if v4_codegen_llvm_type_owns_words(mir_id, v4_mir_rvalue_ty(mir_id, body, v4_mir_rvalue_lhs(mir_id, body, value))) { error = "native projections of temporaries that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, value) }
+            if v4_codegen_llvm_type_owns_words(mir_id, v4_mir_rvalue_ty(mir_id, body, v4_mir_rvalue_lhs(mir_id, body, value))) and not v4_codegen_llvm_projection_drops_rest(mir_id, body, value) { error = "native projections of temporaries that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, value) }
         }
         if error == "" and kind == v4_mir_rvalue_array and leaves > 0 {
             pilot children = v4_mir_rvalue_call_arg_count(mir_id, body, value)

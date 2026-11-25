@@ -18023,13 +18023,12 @@ NATIVE_NESTED_LISTS_REJECTED = (
      "task apply(f: task(xs: List<int>) -> int) -> int { give back 0 }\n"
      "task main() -> int { give back apply(count) }\n",
      "native task values with list parameters or results are not yet supported: List<int>"),
-    # The owned-temporary and route-discard fences cover list leaves too.
+    # The owned-temporary fence covers list leaves too: projecting a list
+    # slot out of a temporary would move it (a scalar slot is native, as
+    # is a discarded route literal: NATIVE_DROPS_NOW_NATIVE).
     ("tier3_nested_list_temporary_projection", "shape Bag { items: List<int>, n: int }\n"
-     "task make() -> Bag { give back Bag { items: [1], n: 2 } }\ntask main() -> int { give back make().n }\n",
-     "native projections of temporaries that own words are not yet supported: make ( ) . n"),
-    ("tier3_nested_list_route_discard", "route Order {\n    Batch { ids: List<int> }\n    Halt\n}\n"
-     "task main() -> int {\n    Order::Batch { ids: [1] }\n    give back 0\n}\n",
-     "native discarded route values that own words are not yet supported: Order :: Batch { ids : [ 1 ] }"),
+     "task make() -> Bag { give back Bag { items: [1], n: 2 } }\ntask main() -> int {\n    pilot xs = make().items\n    give back xs.length()\n}\n",
+     "native projections of temporaries that own words are not yet supported: make ( ) . items"),
     ("tier3_nested_list_move_capture", "shape Bag { items: List<int>, n: int }\n"
      "task main() -> int {\n    pilot b = Bag { items: [1], n: 2 }\n    pilot f = move |k: int| {\n        give back k + b.n\n    }\n"
      "    give back f(1)\n}\n",
@@ -19142,10 +19141,10 @@ NATIVE_DYN_OWNED_REJECTED = (
      "native Shared handles of dyn values are not yet supported: Shared<dyn Unit>"),
     ("tier3_dyn_owned_task_value", NATIVE_DYN_OWNED_UNIT + "task main() -> int {\n    pilot u = make(2)\n    pilot g = consume\n    give back g(u)\n}\n",
      "native task values and closures with dyn values are not yet supported: task(u:dyn Unit)->int"),
-    # A discarded aggregate literal has no result slot to release from.
-    ("tier3_dyn_owned_discarded_literal", NATIVE_DYN_OWNED_UNIT + "shape Holder { u: dyn Unit, n: int }\n"
-     "task main() -> int {\n    Holder { u: make(1), n: 2 }\n    give back 0\n}\n",
-     "native discarded values that hold dyn values are not yet supported: Holder { u : make ( 1 ) , n : 2 }"),
+    # Projecting a dyn slot out of a temporary would move its box out.
+    ("tier3_dyn_owned_temporary_projection", NATIVE_DYN_OWNED_UNIT + "shape Holder { u: dyn Unit, n: int }\n"
+     "task hold() -> Holder { give back Holder { u: make(1), n: 2 }\n}\ntask main() -> int {\n    pilot u = hold().u\n    give back u.power()\n}\n",
+     "native projections of temporaries that own words are not yet supported: hold ( ) . u"),
     # Meiya keeps moves of owned dyn values single-owner.
     ("tier3_dyn_owned_use_after_move", NATIVE_DYN_OWNED_UNIT + "task main() -> int {\n    pilot a = make(2)\n"
      "    pilot n = consume(a)\n    give back n + consume(a)\n}\n",
@@ -19238,6 +19237,7 @@ def check_v4_native_shapes() -> None:
         ("list_sums", "lists_sums_native.fk", NATIVE_LIST_SUMS_EXPECTED),
         ("raw_alloc", "raw_alloc_native.fk", NATIVE_RAW_ALLOC_EXPECTED),
         ("dyn_owned", "dyn_owned_native.fk", NATIVE_DYN_OWNED_EXPECTED),
+        ("drops_temporaries", "drops_temporaries_native.fk", "40\n6\n50\n9\n3\n"),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -19372,10 +19372,12 @@ def check_v4_native_shapes() -> None:
                     raise RuntimeError(f"V4 layout oracle accepted {stem} for {triple} without its payload notes")
     rejected_cases = (
         # Word fields, partial moves and slot stores are native (drops row,
-        # examples/drops_native.fk); projections of word temporaries are not.
+        # examples/drops_native.fk), and so is a scalar slot projected out
+        # of a word temporary (NATIVE_DROPS_NOW_NATIVE); projecting a word
+        # slot out of a temporary would move it and stays named.
         ("tier3_shape_word_temporary_projection", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
-         "task main() -> int { give back make(\"x\", 1).n }\n",
-         "native projections of temporaries that own words are not yet supported: make ( x , 1 ) . n"),
+         "task main() -> int { give back make(\"x\", 1).name.length() }\n",
+         "native projections of temporaries that own words are not yet supported: make ( x , 1 ) . name"),
         ("tier3_shape_word_use_after_move", "shape Named { name: word, n: int }\ntask make(t: word, n: int) -> Named { give back Named { name: t, n: n } }\n"
          "task main() -> int {\n    pilot a = make(\"x\", 1)\n    pilot b = a\n    give back a.n\n}\n",
          "Meiya remembers the field you already moved"),
@@ -20145,6 +20147,27 @@ def native_function_text(module_text: str, name: str) -> str:
     return match.group(1)
 
 
+# Owned temporaries the drops row used to refuse: (stem, source, stdout),
+# each built and run exactly (exit 0). A discarded route or dyn-holding
+# value that is not a call result spills to an entry-block slot and drops
+# there; a scalar slot projected out of a word-owning call result is read,
+# then the result slot's drop glue releases the whole temporary.
+NATIVE_DROPS_NOW_NATIVE = (
+    ("tier3_drop_route_literal_discard", "route Msg {\n    Text { body: word }\n    Quit\n}\n"
+     "task main() -> int {\n    Msg::Text { body: \"x\" + \"y\" }\n    pilot m = Msg::Text { body: \"z\" + \"w\" }\n    m\n"
+     "    Msg::Quit\n    say 1\n    give back 0\n}\n", "1\n"),
+    ("tier3_nested_list_route_discard", "route Order {\n    Batch { ids: List<int> }\n    Halt\n}\n"
+     "task main() -> int {\n    Order::Batch { ids: [1] }\n    say 2\n    give back 0\n}\n", "2\n"),
+    ("tier3_dyn_owned_discarded_literal", NATIVE_DYN_OWNED_UNIT + "shape Holder { u: dyn Unit, n: int }\n"
+     "task main() -> int {\n    Holder { u: make(1), n: 2 }\n    say 3\n    give back 0\n}\n", "3\n"),
+    ("tier3_shape_word_temporary_projection", "shape Named { name: word, n: int }\n"
+     "task make(t: word, n: int) -> Named { give back Named { name: t + \"!\", n: n } }\n"
+     "task main() -> int {\n    say make(\"x\", 4).n\n    give back 0\n}\n", "4\n"),
+    ("tier3_nested_list_temporary_projection", "shape Bag { items: List<int>, n: int }\n"
+     "task make() -> Bag { give back Bag { items: [1], n: 2 } }\ntask main() -> int {\n    say make().n\n    give back 0\n}\n", "2\n"),
+)
+
+
 def check_v4_native_drops() -> None:
     """Pin drop placement, order, flags and partial-move nulls in the IR."""
     source = V4_ROOT / "examples" / "drops_native.fk"
@@ -20203,10 +20226,26 @@ def check_v4_native_drops() -> None:
             raise RuntimeError(f"V4 `?` operands are not moved on both edges in {function}: {rows}")
     if [int(local) for site, local in NATIVE_DROP_ROW.findall(native_function_text(try_text, "relay")) if site == "return.3"] != [2]:
         raise RuntimeError("V4 `?` error edge does not drop exactly the other live word")
+    for stem, text, expected in NATIVE_DROPS_NOW_NATIVE:
+        native_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        native_source.write_text(text, encoding="utf-8")
+        native_exe = RUNTIME_BUILD_ROOT / (f"{stem}.exe" if sys.platform == "win32" else f"{stem}.native")
+        native_exe.unlink(missing_ok=True)
+        built = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(native_source), "-o", str(native_exe)],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if built.returncode != 0 or not native_exe.exists():
+            raise RuntimeError(f"V4 rejected the now-native drops case {stem}:\n{built.stdout}{built.stderr}")
+        ran = run_with_heartbeat([str(native_exe)], label=f"V4 {stem} execute", timeout_seconds=10, memory_limit_mb=128)
+        if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != expected:
+            raise RuntimeError(f"V4 now-native drops case {stem} ran wrong: exit={ran.returncode} stdout={ran.stdout!r}")
     rejected_cases = (
-        ("tier3_drop_route_literal_discard", "route Msg {\n    Text { body: word }\n    Quit\n}\n"
-         "task main() -> int {\n    Msg::Text { body: \"x\" }\n    give back 0\n}\n",
-         "native discarded route values that own words are not yet supported"),
+        # An element projected out of a temporary array moves its words, so
+        # a chain through it stays named even when the last slot is scalar.
+        ("tier3_drop_temporary_index_projection", "task trio(k: int) -> [(word, int); 2] { give back [(\"a\" + \"b\", k), (\"c\" + \"d\", k + 1)] }\n"
+         "task main() -> int {\n    pilot i = 1\n    say trio(5)[i].1\n    give back 0\n}\n",
+         "native projections of temporaries that own words are not yet supported: trio ( 5 ) [ i ]"),
         ("tier3_drop_route_carrier_payload", "route Msg {\n    Text { body: result<word, word> }\n    Quit\n}\n"
          "task main() -> int {\n    pilot m = Msg::Quit\n    give back 0\n}\n",
          "native route payload fields that own words are not yet supported: Msg::Text.body"),
@@ -20222,7 +20261,8 @@ def check_v4_native_drops() -> None:
         )
         if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
             raise RuntimeError(f"V4 drops case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
-    print(f"V4 native drops: sites={len(sites)} ordered={len(ordered)} try=moved rejections={len(rejected_cases)}")
+    print(f"V4 native drops: sites={len(sites)} ordered={len(ordered)} try=moved now-native={len(NATIVE_DROPS_NOW_NATIVE)} "
+          f"rejections={len(rejected_cases)}")
 
 
 # Tier 3 patterns: when over tuples, fixed arrays and route payloads (nested,
