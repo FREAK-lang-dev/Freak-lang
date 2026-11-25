@@ -1,0 +1,13 @@
+-- Allocation requires .pilot or higher.
+-- bible: 7.18
+-- expect: reject mir
+-- error: raw allocation requires .pilot or higher; current honor is .cadet
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task main() -> int {
+    trust me "raw memory" on my honor as .cadet {
+        pilot p: *mut int = alloc(8)
+    }
+    give back 0
+}

@@ -1,0 +1,20 @@
+-- A free the program declares is the program's own, not the builtin.
+-- expect: run
+-- exit: 42
+
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    trust me "c heap" on my honor as .pilot {
+        p.write(42t)
+        pilot v: int = p.read()
+        free(p)
+        give back v
+    }
+    give back 1
+}
