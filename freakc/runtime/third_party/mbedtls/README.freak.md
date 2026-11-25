@@ -31,15 +31,25 @@ programs don't carry Mbed TLS.
 ## Updating
 
 1. Download the release archive and check its SHA-256 against the release notes.
-2. Extract it to an empty directory and run:
+2. Extract it to an empty directory and run (Clang must be on `PATH`, or
+   pass its path with `--clang`; the generator needs it even without
+   `--verify`):
 
    ```sh
-   python -u tools/mbedtls_amalgamate.py <extracted mbedtls-3.6.x> --verify
+   python -u tools/mbedtls_amalgamate.py "./mbedtls-3.6.8" --verify
    ```
 
-   It applies `PATCHES` (if any) to a copy of the tree first, and stops if
-   an anchor is no longer there exactly once. `--verify` preprocesses every unit for
-   eight targets (Linux x86-64 and AArch64, Windows MSVC x64 and Arm64,
-   MinGW, macOS x86-64 and Arm64, and FreeBSD), once from the patched
-   upstream tree and once from the `.inc`, and fails if any token differs.
+   with your extraction path in place of `./mbedtls-3.6.8`. It applies
+   `PATCHES` (if any) to a copy of the tree first, and stops if an anchor is
+   no longer there exactly once. `--verify` preprocesses every unit for eight
+   targets (Linux x86-64 and AArch64, Windows MSVC x64 and Arm64, MinGW,
+   macOS x86-64 and Arm64, and FreeBSD), once from the patched upstream tree
+   and once from the `.inc`, against empty stand-ins for the system headers,
+   and fails unless both give the same preprocessing tokens and the same
+   errors. Whitespace between tokens is ignored; string and character
+   literals are compared whole. It doesn't compile the units against each
+   target's real SDK.
+
+   Each `.inc` banner keeps the copyright notices of the upstream files it
+   was built from, since the generator strips their comments.
 3. Update `UPSTREAM.json`, then run the TLS suite test (`tests/suite/13_tls`).

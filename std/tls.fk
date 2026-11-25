@@ -44,6 +44,7 @@ extern task freak_tls_verified(session: int) -> int
 extern task freak_tls_info(session: int, what: int, out: ByteBuffer) -> int
 extern task freak_tls_last_error(out: ByteBuffer) -> int
 extern task freak_tls_live_sessions() -> int
+extern task freak_tls_closed_cleanly(session: int) -> int
 
 fixed pilot TLS_WANT_READ = -1
 fixed pilot TLS_WANT_WRITE = -2
@@ -106,13 +107,19 @@ task tls_set_nonblocking(session: int, on: bool) -> void {
 task tls_handshake(session: int) -> int { give back freak_tls_handshake(session) }
 
 -- Bytes accepted (encrypted and queued) from data[offset, offset + count),
--- or a TLS_* code. After TLS_WANT_WRITE, call tls_flush when writable.
+-- or a TLS_* code. Before the handshake is done, tls_send runs it and
+-- gives back its TLS_WANT_* code with nothing accepted: retry the same
+-- range (or finish tls_handshake first). Accepted bytes can still be
+-- queued on a non-blocking socket, even after a positive result: when
+-- tls_status is TLS_WANT_WRITE, call tls_flush once the socket is writable.
 -- A send that times out (socket send timeout) ends the session: later
 -- calls give back TLS_FAILED.
 task tls_send(session: int, data: ByteBuffer, offset: int, count: int) -> int {
     give back freak_tls_send(session, data, offset, count)
 }
 
+-- Sends queued output (accepted bytes, or handshake and close_notify
+-- records). 0 when nothing is left, else a TLS_* code.
 task tls_flush(session: int) -> int { give back freak_tls_flush(session) }
 
 -- Everything in `data`, for blocking sockets. False on any failure.
@@ -135,7 +142,9 @@ task tls_send_text(session: int, text: word) -> bool {
 }
 
 -- Appends up to max_bytes decrypted bytes to `out`: the count, 0 when the
--- peer closed the connection, or a TLS_* code.
+-- peer closed the connection, or a TLS_* code. A 0 after an EOF or reset
+-- without close_notify may mean a truncated stream: check
+-- tls_closed_cleanly.
 task tls_receive(session: int, out: ByteBuffer, max_bytes: int) -> int {
     give back freak_tls_receive(session, out, max_bytes)
 }
@@ -202,3 +211,7 @@ task tls_last_error() -> word {
 
 -- TLS sessions not yet released (a leak check).
 task tls_live_sessions() -> int { give back freak_tls_live_sessions() }
+
+-- True once the peer's close_notify arrived, so the stream ended on purpose;
+-- false while open or after an EOF or reset that could be a truncation.
+task tls_closed_cleanly(session: int) -> bool { give back freak_tls_closed_cleanly(session) == 1 }
