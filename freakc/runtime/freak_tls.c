@@ -430,6 +430,7 @@ struct freak_tls_conn {
     int handshake_done;
     int close_sent;       /* our close_notify went out */
     int peer_notified;    /* the peer's close_notify arrived */
+    int read_closed;      /* the peer finished: close_notify, EOF or reset */
     size_t pending_write; /* bytes queued by a write that hit WANT_WRITE */
     char message[256];
 };
@@ -568,6 +569,7 @@ static int freak_tls_conn_fail(freak_tls_conn *conn, int code, const char *what)
         /* fall through */
     case MBEDTLS_ERR_SSL_CONN_EOF:
     case MBEDTLS_ERR_NET_CONN_RESET:
+        conn->read_closed = 1;
         conn->status = FREAK_TLS_CLOSED;
         snprintf(conn->message, sizeof(conn->message), "%s: the peer closed the connection", what);
         return FREAK_TLS_CLOSED;
@@ -590,9 +592,21 @@ static int freak_tls_conn_fail(freak_tls_conn *conn, int code, const char *what)
     return FREAK_TLS_FAILED;
 }
 
+/* A send that timed out may have put part of a record on the wire, and the
+   API has no way to retry that exact record, so the session ends there. */
+static int freak_tls_conn_write_fail(freak_tls_conn *conn, int code, const char *what) {
+    int result = freak_tls_conn_fail(conn, code, what);
+    if (result == FREAK_TLS_TIMED_OUT && conn->ssl.MBEDTLS_PRIVATE(out_left) > 0) {
+        conn->status = FREAK_TLS_FAILED;
+        snprintf(conn->message, sizeof(conn->message), "%s: timed out partway through a record; the session can't continue", what);
+    }
+    return result;
+}
+
 static int freak_tls_conn_handshake(freak_tls_conn *conn) {
     if (conn->handshake_done) return 0;
-    if (conn->status == FREAK_TLS_FAILED || conn->status == FREAK_TLS_CLOSED) return conn->status;
+    if (conn->status == FREAK_TLS_FAILED) return FREAK_TLS_FAILED;
+    if (conn->read_closed) return FREAK_TLS_CLOSED;
     for (;;) {
         int code = mbedtls_ssl_handshake(&conn->ssl);
         if (code == 0) { conn->handshake_done = 1; conn->status = 0; return 0; }
@@ -605,13 +619,13 @@ static int freak_tls_conn_handshake(freak_tls_conn *conn) {
 
 static int freak_tls_conn_read(freak_tls_conn *conn, unsigned char *out, size_t count) {
     if (conn->status == FREAK_TLS_FAILED) return FREAK_TLS_FAILED;
-    if (conn->status == FREAK_TLS_CLOSED) return 0;
+    if (conn->read_closed) return 0;
     if (count == 0) return 0;
     if (count > (size_t)INT_MAX) count = (size_t)INT_MAX;
     for (;;) {
         int code = mbedtls_ssl_read(&conn->ssl, out, count);
         if (code > 0) { conn->status = 0; if (!conn->handshake_done) conn->handshake_done = mbedtls_ssl_is_handshake_over(&conn->ssl); return code; }
-        if (code == 0) { conn->status = FREAK_TLS_CLOSED; return 0; }
+        if (code == 0) { conn->read_closed = 1; conn->status = FREAK_TLS_CLOSED; return 0; }
 #if defined(MBEDTLS_SSL_PROTO_TLS1_3) && defined(MBEDTLS_SSL_SESSION_TICKETS)
         if (code == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) continue;
 #endif
@@ -630,11 +644,12 @@ static int freak_tls_conn_flush(freak_tls_conn *conn) {
         if (conn->status == FREAK_TLS_WANT_READ || conn->status == FREAK_TLS_WANT_WRITE) conn->status = 0;
         return 0;
     }
-    return freak_tls_conn_fail(conn, code, "TLS write failed");
+    return freak_tls_conn_write_fail(conn, code, "TLS write failed");
 }
 
 static int freak_tls_conn_write(freak_tls_conn *conn, const unsigned char *data, size_t count) {
-    if (conn->status == FREAK_TLS_FAILED || conn->status == FREAK_TLS_CLOSED) return conn->status;
+    if (conn->status == FREAK_TLS_FAILED) return FREAK_TLS_FAILED;
+    if (conn->read_closed || conn->status == FREAK_TLS_CLOSED) return FREAK_TLS_CLOSED;
     if (conn->close_sent) {
         snprintf(conn->message, sizeof(conn->message), "TLS write failed: the session was closed");
         return FREAK_TLS_CLOSED;
@@ -668,11 +683,11 @@ static int freak_tls_conn_write(freak_tls_conn *conn, const unsigned char *data,
         }
         if (total > 0) {
             /* Report what went out; the error comes back on the next call. */
-            freak_tls_conn_fail(conn, code, "TLS write failed");
+            freak_tls_conn_write_fail(conn, code, "TLS write failed");
             if (conn->status == FREAK_TLS_WANT_READ || conn->status == FREAK_TLS_WANT_WRITE) conn->status = 0;
             break;
         }
-        return freak_tls_conn_fail(conn, code, "TLS write failed");
+        return freak_tls_conn_write_fail(conn, code, "TLS write failed");
     }
     if (!conn->handshake_done) conn->handshake_done = mbedtls_ssl_is_handshake_over(&conn->ssl);
     /* Nothing left queued: an earlier WANT_* no longer describes the session. */
@@ -692,7 +707,7 @@ static int freak_tls_conn_close(freak_tls_conn *conn) {
     if (conn->status == FREAK_TLS_FAILED || conn->close_sent) return 0;
     /* A peer that sent close_notify still waits for ours; a peer that just
        dropped the connection (EOF or reset) can't receive it. */
-    if (conn->status == FREAK_TLS_CLOSED && !conn->peer_notified) return 0;
+    if (conn->read_closed && !conn->peer_notified) return 0;
     if (conn->pending_write) {
         int flushed = freak_tls_conn_flush(conn);
         if (flushed != 0) return flushed == FREAK_TLS_CLOSED ? 0 : flushed;
@@ -701,10 +716,10 @@ static int freak_tls_conn_close(freak_tls_conn *conn) {
     if (code == 0) {
         /* Reads stay open so the caller can wait for the peer's close_notify. */
         conn->close_sent = 1;
-        if (conn->status != FREAK_TLS_CLOSED) conn->status = 0;
+        conn->status = conn->read_closed ? FREAK_TLS_CLOSED : 0;
         return 0;
     }
-    int result = freak_tls_conn_fail(conn, code, "TLS close failed");
+    int result = freak_tls_conn_write_fail(conn, code, "TLS close failed");
     return result == FREAK_TLS_CLOSED ? 0 : result;
 }
 
