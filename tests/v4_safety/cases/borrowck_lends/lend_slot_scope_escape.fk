@@ -1,0 +1,16 @@
+-- A loan of a block-local value stored into an outer holder would dangle
+-- once the block ends; native builds refuse the store.
+-- bible: 4.1
+-- expect: reject codegen
+-- error: native writes that store a loan into existing aggregate storage are not yet supported: holder.0
+
+shape Ship { hp: int }
+task main() -> int {
+    pilot mut a = Ship { hp: 3 }
+    pilot mut holder = (lend mut a, 0)
+    if true {
+        pilot mut tmp = Ship { hp: 1 }
+        holder.0 = lend mut tmp
+    }
+    give back holder.0.hp
+}

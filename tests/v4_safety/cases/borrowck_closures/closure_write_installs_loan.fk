@@ -1,0 +1,16 @@
+-- A mut closure that stores a new loan into captured storage installs a
+-- loan its creating frame never sees; the effect summary refuses it.
+-- bible: 1.8
+-- expect: reject mir
+-- error: Meiya cannot model closure writes into loan-bearing captured storage yet
+
+shape Ship { hp: int }
+task main() -> int {
+    pilot mut a = Ship { hp: 3 }
+    pilot mut b = Ship { hp: 4 }
+    pilot mut holder = (lend mut a, 0)
+    pilot writer = mut |_| { holder.0 = lend mut b }
+    writer()
+    b.hp = 92
+    give back holder.0.hp
+}
