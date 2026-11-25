@@ -17912,6 +17912,56 @@ NATIVE_CLOSURES_EXPECTED = ("42\n15\n1\n5\n9\n7\n9\n13\n6\ntrue\n12\n22\n40\n11\
 NATIVE_CLOSURES_NESTED_BODIES = 28
 NATIVE_CLOSURES_NESTED_EXPECTED = ("14\n11\n106\n12\n7\n201\n202\n6\n202\n4\n3\nx\nYuuko?\nYuuko?!\nYuuko\n5\n0\n"
                                    "[Takemikazuchi]\n8\n42\ntrue\n101\n")
+# Aggregate lend slots: loans stored where a tuple, shape, route payload or
+# generic instance is declared, and closure writes to their lend-free leaves.
+NATIVE_LEND_SLOTS_EXPECTED = "10\n1\n42\n6\n10\n32\n40\n1\n1\n0\nTakeru\n5\n11\n"
+NATIVE_LEND_SLOT_SHIP = "shape Ship { hp: int }\n"
+NATIVE_LEND_SLOTS_REJECTED = (
+    # A loan enters an aggregate only where it is declared: storing one into
+    # existing storage could outlive a local whose block ends first.
+    ("tier3_lend_slot_rebind", NATIVE_LEND_SLOT_SHIP + "task main() -> int {\n    pilot mut a = Ship { hp: 3 }\n"
+     "    pilot mut b = Ship { hp: 4 }\n    pilot mut holder = (lend mut a, 0)\n    holder.0 = lend mut b\n"
+     "    give back holder.0.hp\n}\n",
+     "native writes that store a loan into existing aggregate storage are not yet supported: holder.0"),
+    ("tier3_lend_slot_scope_escape", NATIVE_LEND_SLOT_SHIP + "task main() -> int {\n    pilot mut a = Ship { hp: 3 }\n"
+     "    pilot mut outer = (lend mut a, 0)\n    if true {\n        pilot mut tmp = Ship { hp: 1 }\n"
+     "        pilot inner = (lend mut tmp, 0)\n        outer = inner\n    }\n    give back outer.0.hp\n}\n",
+     "native writes that store a loan into existing aggregate storage are not yet supported: outer"),
+    ("tier3_lend_slot_route_reassign", NATIVE_LEND_SLOT_SHIP + "route Pick {\n    Got { r: lend mut Ship }\n    Nobody\n}\n"
+     "task main() -> int {\n    pilot mut p = Pick::Nobody\n    pilot mut t = Ship { hp: 1 }\n"
+     "    p = Pick::Got { r: lend mut t }\n    give back 0\n}\n",
+     "native writes that store a loan into existing aggregate storage are not yet supported: p"),
+    # Word, list and dyn loans keep their own carriers; none is a slot yet.
+    ("tier3_lend_slot_word", "task main() -> int {\n    pilot w = \"hi\"\n    pilot holder = (lend w, 7)\n    give back holder.1\n}\n",
+     "native aggregate lend slots are not yet supported: (lend word,int).0"),
+    ("tier3_lend_slot_list", "task main() -> int {\n    pilot mut xs: List<int> = [1, 2]\n    pilot h = (lend mut xs, 0)\n    give back h.1\n}\n",
+     "native aggregate lend slots are not yet supported: (lend mut List<int>,int).0"),
+    # Collections whose elements hold loans stay fenced.
+    ("tier3_lend_slot_list_element", NATIVE_LEND_SLOT_SHIP + "task main() -> int {\n    pilot mut a = Ship { hp: 3 }\n"
+     "    pilot mut items: List<(lend mut Ship, int)> = []\n    items.push((lend mut a, 1))\n    give back items.length()\n}\n",
+     "native lists of loans are not yet supported: List<(lend mut Ship,int)>"),
+    ("tier3_lend_slot_map_value", NATIVE_LEND_SLOT_SHIP + "task main() -> int {\n    pilot a = Ship { hp: 3 }\n"
+     "    pilot mut m: Map<word, (lend Ship, int)> = {}\n    m.set(\"a\", (lend a, 1))\n    give back m.length()\n}\n",
+     "native maps of loans are not yet supported: Map<word,(lend Ship,int)>"),
+    # Meiya proves every slot loan: the owner is frozen while the holder lives.
+    ("tier3_lend_slot_owner_write", NATIVE_LEND_SLOT_SHIP + "task main() -> int {\n    pilot mut a = Ship { hp: 3 }\n"
+     "    pilot holder = (lend mut a, 0)\n    a.hp = 5\n    give back holder.0.hp\n}\n",
+     "Meiya refuses this rewrite while the value is borrowed"),
+    ("tier3_lend_slot_owner_move", NATIVE_LEND_SLOT_SHIP + "task main() -> int {\n    pilot mut a = Ship { hp: 3 }\n"
+     "    pilot holder = (lend mut a, 0)\n    pilot moved = a\n    give back holder.0.hp\n}\n",
+     "Meiya refuses this move while the value is borrowed"),
+    ("tier3_lend_slot_overlap", NATIVE_LEND_SLOT_SHIP + "task main() -> int {\n    pilot mut a = Ship { hp: 3 }\n"
+     "    pilot h1 = (lend mut a, 0)\n    pilot h2 = (lend mut a, 0)\n    h1.0.hp = 4\n    h2.0.hp = 5\n    give back 0\n}\n",
+     "Meiya refuses overlapping mutable lends"),
+    ("tier3_lend_slot_holder_moved", NATIVE_LEND_SLOT_SHIP + "task main() -> int {\n    pilot mut a = Ship { hp: 3 }\n"
+     "    pilot holder = (lend mut a, 2)\n    pilot moved = holder\n    give back holder.0.hp\n}\n",
+     "Meiya remembers the field you already moved"),
+    ("tier3_lend_slot_return_local", NATIVE_LEND_SLOT_SHIP + "shape Slot { r: lend mut Ship, n: int }\n"
+     "task bad(lend mut s: Ship) -> Slot {\n    pilot mut local = Ship { hp: 1 }\n    give back Slot { r: lend mut local, n: 0 }\n}\n"
+     "task main() -> int {\n    pilot mut a = Ship { hp: 3 }\n    pilot h = bad(lend mut a)\n    give back h.r.hp\n}\n",
+     "Meiya refuses to return an aggregate loan of an owned value"),
+)
+
 # Closures inside generic instances: one closure body per instance.
 NATIVE_CLOSURES_GENERIC_BODIES = 22
 NATIVE_CLOSURES_GENERIC_EXPECTED = ("3\nhi\ntrue\n9\n7\nfalse\n2\ntrue\n2\n2\n9\n2.5\nTakeru\n6\n21\n3\n4.5\n5\nfive\n7\n")
@@ -18727,7 +18777,7 @@ NATIVE_GENERICS_REJECTED = (
 
 def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
     notes = {}
-    for match in re.finditer(r"^; freak\.layout (\S+) size=(\d+) align=(\d+) offsets=([\d,]*)$", module, re.MULTILINE):
+    for match in re.finditer(r'^; freak\.layout (%"[^"]+"|\S+) size=(\d+) align=(\d+) offsets=([\d,]*)$', module, re.MULTILINE):
         offsets = [int(part) for part in match.group(4).split(",") if part]
         notes[match.group(1)] = (int(match.group(2)), int(match.group(3)), offsets)
     return notes
@@ -18736,7 +18786,7 @@ def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
 def native_payload_notes(module: str) -> dict[str, tuple[int, int, list[str]]]:
     """Route payload notes: union size, union alignment and each case struct."""
     notes = {}
-    for match in re.finditer(r"^; freak\.payload (\S+) size=(\d+) align=(\d+) cases=(.+)$", module, re.MULTILINE):
+    for match in re.finditer(r'^; freak\.payload (%"[^"]+"|\S+) size=(\d+) align=(\d+) cases=(.+)$', module, re.MULTILINE):
         notes[match.group(1)] = (int(match.group(2)), int(match.group(3)), match.group(4).split(" | "))
     return notes
 
@@ -18828,7 +18878,7 @@ def check_native_layout_oracle(module: str, triple: str) -> int:
     return len(expected) + checked
 
 
-NATIVE_ABI_NOTE = re.compile(r"^; freak\.abi (@\S+) (%\S+) size=(\d+) align=(\d+) type=(.+?)(?: pass=(lend|lend_mut))?$")
+NATIVE_ABI_NOTE = re.compile(r'^; freak\.abi (@"[^"]+"|@\S+) (%\S+) size=(\d+) align=(\d+) type=(.+?)(?: pass=(lend|lend_mut))?$')
 
 
 NATIVE_LEND_SIGNATURE = re.compile(r"^task (\w+)(<[^>]*>)?\((.*)\) ->", re.MULTILINE)
@@ -19144,6 +19194,17 @@ def check_native_generic_instances(module: str, triple: str) -> None:
         raise RuntimeError(f"V4 generics module for {triple} has no layout notes for {', '.join(missing)}")
 
 
+def check_v4_native_lend_slots_module(module_text: str, triple: str) -> None:
+    """A lend slot is a ptr in its aggregate's named type and layout note."""
+    for name, body in (('%"freak.shape.Slot"', "{ ptr, i64 }"), ('%"freak.shape.Box<lend mut Ship>"', "{ ptr, i64 }")):
+        if f"{name} = type {body}" not in module_text:
+            raise RuntimeError(f"V4 lend slots module for {triple} does not lay out {name} as {body}")
+        if not re.search(r"^; freak\.layout " + re.escape(name) + " size=", module_text, re.MULTILINE):
+            raise RuntimeError(f"V4 lend slots module for {triple} has no layout note for {name}")
+    if not re.search(r'^; freak\.payload %"freak\.route\.Pick" size=\d+ align=\d+ cases=\{ ptr \}$', module_text, re.MULTILINE):
+        raise RuntimeError(f"V4 lend slots module for {triple} does not carry Pick's loan as a ptr payload")
+
+
 def check_v4_native_shapes() -> None:
     """Tier 3 shapes: build and run natively; check layouts on all targets."""
     from build_v4 import host_target
@@ -19175,6 +19236,7 @@ def check_v4_native_shapes() -> None:
         ("lists_unused_shape", "lists_unused_shape_native.fk", "7\n"),
         ("list_sums", "lists_sums_native.fk", NATIVE_LIST_SUMS_EXPECTED),
         ("raw_alloc", "raw_alloc_native.fk", NATIVE_RAW_ALLOC_EXPECTED),
+        ("lend_slots", "lend_slots_native.fk", NATIVE_LEND_SLOTS_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -19229,6 +19291,8 @@ def check_v4_native_shapes() -> None:
                 check_v4_native_shared_module(module_text, triple)
             if stem == "raw_alloc":
                 check_v4_native_raw_alloc_module(module_text, triple)
+            if stem == "lend_slots":
+                check_v4_native_lend_slots_module(module_text, triple)
             probes += check_native_layout_oracle(module_text, triple)
             abi_probes += check_native_abi_oracle(module_text, triple)
             if stem == "agg_abi":
@@ -19434,7 +19498,7 @@ def check_v4_native_shapes() -> None:
          "impl Eq for V { task equals(lend self, other: lend V) -> bool { give back self.x == other.x } }\n"
          "task main() -> int { pilot a = V { x: 1 }\n if a == a { give back 1 }\n give back 0 }\n",
          "Meiya cannot store a lend in parameter 1 of Eq::equals yet"),
-    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_SHARED_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED + NATIVE_LIST_SUMS_REJECTED + NATIVE_RAW_ALLOC_REJECTED
+    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_SHARED_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED + NATIVE_LIST_SUMS_REJECTED + NATIVE_RAW_ALLOC_REJECTED + NATIVE_LEND_SLOTS_REJECTED
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")
@@ -20004,16 +20068,12 @@ def check_v4_native_closures_nested() -> None:
          "        if n > 0 { give back n }\n        give back t\n    }\n    give back 0\n}\n",
          "Yuuko found closure returns that disagree: int and word"),
         # The effect summary refuses a write that installs a loan into
-        # captured storage; a lend-free leaf write passes it but native
-        # aggregate lend slots are still named.
+        # captured storage; a lend-free leaf write passes it and runs
+        # (closure_leaf_writes in lend_slots_native.fk).
         ("tier3_closure_installs_loan", "shape Ship { hp: int }\ntask run(first: Ship, second: Ship) -> int {\n"
          "    pilot mut holder = (lend mut first, 0)\n    pilot writer = mut |_| { holder.0 = lend mut second }\n    writer()\n"
          "    give back holder.0.hp\n}\ntask main() -> int {\n    say run(Ship { hp: 2 }, Ship { hp: 3 })\n    give back 0\n}\n",
          "Meiya cannot model closure writes into loan-bearing captured storage yet"),
-        ("tier3_closure_leaf_write_lend_slot", "shape Ship { hp: int }\ntask run(first: Ship) -> int {\n"
-         "    pilot mut holder = (lend mut first, 0)\n    pilot setter = mut |v: int| { holder.1 = v }\n    setter(5)\n"
-         "    give back holder.1\n}\ntask main() -> int {\n    say run(Ship { hp: 2 })\n    give back 0\n}\n",
-         "native aggregate lend slots are not yet supported"),
     )
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"

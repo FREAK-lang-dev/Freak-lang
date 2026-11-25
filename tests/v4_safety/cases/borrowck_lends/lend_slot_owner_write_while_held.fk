@@ -1,0 +1,12 @@
+-- The owner of a loan held in a tuple slot is frozen while the tuple lives.
+-- bible: 4.1
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+
+shape Ship { hp: int }
+task main() -> int {
+    pilot mut a = Ship { hp: 3 }
+    pilot holder = (lend mut a, 0)
+    a.hp = 5
+    give back holder.0.hp
+}
