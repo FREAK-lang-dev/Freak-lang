@@ -39,6 +39,7 @@
 #include <windows.h>
 #include <wincrypt.h>
 #else
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -469,6 +470,18 @@ static int freak_tls_socket_reset(void) {
 #endif
 }
 
+static int freak_tls_native_set_nonblocking(uintptr_t native, int on) {
+#ifdef _WIN32
+    u_long mode = on ? 1 : 0;
+    return ioctlsocket((SOCKET)native, FIONBIO, &mode) == 0;
+#else
+    int flags = fcntl((int)native, F_GETFL, 0);
+    if (flags < 0) return 0;
+    flags = on ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
+    return fcntl((int)native, F_SETFL, flags) == 0;
+#endif
+}
+
 static int freak_tls_bio_send(void *context, const unsigned char *data, size_t length) {
     freak_tls_conn *conn = (freak_tls_conn *)context;
     uintptr_t native;
@@ -614,6 +627,13 @@ static int freak_tls_conn_flush(freak_tls_conn *conn) {
 
 static int freak_tls_conn_write(freak_tls_conn *conn, const unsigned char *data, size_t count) {
     if (conn->status == FREAK_TLS_FAILED || conn->status == FREAK_TLS_CLOSED) return conn->status;
+    /* Finish the handshake first. A write that runs it implicitly can hit
+       WANT_WRITE with handshake records queued, and those must not be
+       counted as accepted application bytes. */
+    if (!conn->handshake_done) {
+        int shaken = freak_tls_conn_handshake(conn);
+        if (shaken != 0) return shaken;
+    }
     if (conn->pending_write) {
         int flushed = freak_tls_conn_flush(conn);
         if (flushed != 0) return flushed;
@@ -887,7 +907,14 @@ int64_t freak_tls_server_new(int64_t config, int64_t tcp) {
 }
 
 void freak_tls_set_nonblocking(int64_t session, int64_t on) {
-    freak_tls_session_require(session, "tls_set_nonblocking")->nonblocking = on != 0;
+    freak_tls_conn *conn = freak_tls_session_require(session, "tls_set_nonblocking");
+    uintptr_t native;
+    /* Switch the socket itself, so send/recv return instead of waiting. */
+    if (!freak_tls_conn_socket(conn, &native) || !freak_tls_native_set_nonblocking(native, on != 0)) {
+        snprintf(conn->message, sizeof(conn->message), "tls_set_nonblocking: could not change the socket's blocking mode");
+        return;
+    }
+    conn->nonblocking = on != 0;
 }
 
 int64_t freak_tls_handshake(int64_t session) {
