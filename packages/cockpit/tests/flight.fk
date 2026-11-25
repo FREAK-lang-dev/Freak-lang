@@ -1,0 +1,79 @@
+use self::blackbox::{
+    cockpit_blackbox_count,
+    cockpit_blackbox_dump,
+    cockpit_blackbox_find_text,
+    cockpit_blackbox_line
+}
+use self::flight::{
+    cockpit_flight_begin_frame,
+    cockpit_flight_click_text,
+    cockpit_flight_close,
+    cockpit_flight_end_frame,
+    cockpit_flight_key,
+    cockpit_flight_open,
+    cockpit_flight_quit,
+    cockpit_flight_type
+}
+use self::layout::{
+    cockpit_layout_capacity,
+    cockpit_layout_release
+}
+use self::state::{
+    cockpit_fail,
+    cockpit_key_enter,
+    cockpit_ui_should_close
+}
+use self::theme::{
+    cockpit_theme_dark,
+    cockpit_theme_release
+}
+use self::controls::{
+    cockpit_widget_toggle
+}
+use self::widgets::{
+    cockpit_widget_button,
+    cockpit_widget_heading,
+    cockpit_widget_input_ex
+}
+
+-- Flight sim: a whole cockpit flown with no window. Links with no UI backend.
+
+task main() {
+    pilot layout = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    pilot theme = cockpit_theme_dark()
+    cockpit_flight_open(320, 200)
+    pilot callsign = ""
+    pilot armed = false
+    pilot launches = 0
+    pilot frame = 0
+    pilot first_frame = ""
+    repeat until cockpit_ui_should_close() {
+        if frame == 1 {
+            if not cockpit_flight_click_text("callsign") { cockpit_fail("placeholder not drawn") }
+            cockpit_flight_type("Eagle")
+        }
+        if frame == 2 { pilot hit = cockpit_flight_click_text("Launch") }
+        if frame == 3 { pilot hit = cockpit_flight_click_text("Armed") }
+        if frame == 4 { cockpit_flight_key(cockpit_key_enter) }
+        if frame == 5 { cockpit_flight_quit() }
+        cockpit_flight_begin_frame(layout, theme)
+        cockpit_widget_heading(0, layout, theme, "Launch control")
+        callsign = cockpit_widget_input_ex(0, layout, theme, callsign, 200, "callsign", false)
+        if cockpit_widget_button(0, layout, theme, "Launch", 0) { launches += 1 }
+        armed = cockpit_widget_toggle(0, layout, theme, "Armed", armed)
+        cockpit_flight_end_frame()
+        if frame == 0 { first_frame = cockpit_blackbox_dump() }
+        say "frame " + word_from_int(frame) + ": callsign=" + callsign + " launches=" + word_from_int(launches) + " armed=" + bool_word(armed) + " commands=" + word_from_int(cockpit_blackbox_count())
+        frame += 1
+        if frame > 20 { cockpit_fail("sim never closed") }
+    }
+    say first_frame
+    cockpit_flight_close()
+    cockpit_layout_release(layout)
+    cockpit_theme_release(theme)
+}
+
+task bool_word(value: bool) -> word {
+    if value { give back "on" }
+    give back "off"
+}

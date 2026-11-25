@@ -1,5 +1,7 @@
 use self::blackbox::{
-    cockpit_blackbox_begin
+    cockpit_blackbox_begin,
+    cockpit_blackbox_field,
+    cockpit_blackbox_find_text
 }
 use self::frame::{
     cockpit_frame_finish,
@@ -109,6 +111,18 @@ task cockpit_flight_click(x: int, y: int) -> void {
     cockpit_flight_move(x, y)
     cockpit_flight_press(x, y)
     cockpit_flight_release(x, y)
+}
+
+-- Clicks the middle of where this text was drawn in the last frame, the way
+-- a person aims at a button's label. Gives back false (and clicks nothing)
+-- if the last frame didn't draw that text.
+task cockpit_flight_click_text(text: word) -> bool {
+    pilot command = cockpit_blackbox_find_text(text)
+    if command < 0 { give back false }
+    pilot x = cockpit_blackbox_field(command, 1) + cockpit_blackbox_field(command, 3) / 2
+    pilot y = cockpit_blackbox_field(command, 2) + cockpit_blackbox_field(command, 4) / 2
+    cockpit_flight_click(x, y)
+    give back true
 }
 
 -- A wheel turn over (x, y); positive dy scrolls content up, like Windows.
