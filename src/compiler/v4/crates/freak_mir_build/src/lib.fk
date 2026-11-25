@@ -7129,11 +7129,11 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
     pilot summary_body = 0 - 1
     if not v4_ty_is_closure_type(closure_ty) {
         closure_ty = v4_ty_closure_type_prefix(mode) + "()->" + v4_ty_unknown
-    } else if v4_mir_build_generic_env != "" {
-        -- TY types a closure against its generic task; an instance would need
-        -- the closure type substituted too (the nested and generic closures row).
-        v4_mir_add_type_error(mir_id, expr_span, "native closures inside generic instances are not yet supported: " + v4_mir_body_name(mir_id, body_id), "move the closure into a nongeneric task, or pass a task value until generic closures land")
     } else {
+        -- TY types a closure against its generic task; an instance sees it
+        -- with the instance env applied, and its body is lowered under that
+        -- env too, so every parameter, local and capture type is concrete.
+        closure_ty = v4_mir_build_generic_type(mir_id, closure_ty)
         -- Analysis and editor MIR keep the closure aggregate, but seal its
         -- result exactly as native builds do: the body is lowered into a
         -- scratch MIR that is never published, and only the sealed type, a
