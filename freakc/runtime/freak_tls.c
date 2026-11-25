@@ -398,6 +398,18 @@ static freak_tls_config *freak_tls_make_server_config(
         freak_tls_config_unref(config);
         return NULL;
     }
+    /* The Certificate handshake message goes out in one record: 8 bytes of
+       headers plus, per certificate, its DER and 5 bytes of framing (TLS
+       1.3 sizes, which are the larger). Refuse a chain that can't fit now
+       rather than failing every handshake later. */
+    size_t chain_bytes = 8;
+    for (const mbedtls_x509_crt *crt = &config->own_cert; crt && crt->raw.p; crt = crt->next) chain_bytes += crt->raw.len + 5;
+    if (chain_bytes > MBEDTLS_SSL_OUT_CONTENT_LEN) {
+        snprintf(message, sizeof(message), "the certificate chain is too large (%zu bytes; one TLS record holds %d)", chain_bytes, (int)MBEDTLS_SSL_OUT_CONTENT_LEN);
+        freak_tls_set_global_error(message);
+        freak_tls_config_unref(config);
+        return NULL;
+    }
     mbedtls_ssl_conf_authmode(&config->conf, MBEDTLS_SSL_VERIFY_NONE);
 #if defined(MBEDTLS_SSL_SESSION_TICKETS) && defined(MBEDTLS_SSL_TICKET_C)
     /* Session tickets so returning clients skip the full handshake. Keys
@@ -654,6 +666,14 @@ static int freak_tls_conn_flush(freak_tls_conn *conn) {
             return 0;
         }
         return freak_tls_conn_write_fail(conn, code, "TLS flush failed");
+    }
+    if (conn->ssl.MBEDTLS_PRIVATE(out_left) == 0) {
+        /* Another library call (an alert sent from a read, say) already
+           flushed the queued record. Writing again would copy fresh bytes
+           out of the empty literal below. */
+        conn->pending_write = 0;
+        if (conn->status == FREAK_TLS_WANT_READ || conn->status == FREAK_TLS_WANT_WRITE) conn->status = 0;
+        return 0;
     }
     /* With output still queued, mbedtls_ssl_write only flushes it and
        reports the queued length; it never reads the data argument. */
