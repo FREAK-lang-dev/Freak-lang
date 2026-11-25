@@ -1,0 +1,20 @@
+-- The shared loan lasts for the call only: the caller may rewrite or move
+-- the word afterwards, and each word is dropped once.
+-- bible: 16.1
+-- expect: run
+-- stdout: 2
+-- stdout: 3
+-- stdout: yo!!
+
+extern [C] {
+    task strnlen(lend text: word) -> std::ffi::c_size
+}
+task keep(w: word) -> word { give back w + "!" }
+task main() -> int {
+    pilot mut w = "hi"
+    say word_from_int(strnlen(lend w))
+    w = "yo!"
+    say word_from_int(strnlen(lend w))
+    say keep(w)
+    give back 0
+}

@@ -1,0 +1,9 @@
+-- C cannot hand back a FREAK word.
+-- bible: 16.1
+-- expect: reject ty
+-- error: extern return type is not FFI-safe
+
+extern [C] {
+    task name() -> word
+}
+task main() -> int { give back 0 }

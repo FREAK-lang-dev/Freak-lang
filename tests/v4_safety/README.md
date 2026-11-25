@@ -34,7 +34,7 @@ case, there is no crate prepending as in the `src/compiler/v4/tests` smokes.
 | `exhaustiveness` | `when`/`check route` exhaustiveness, unreachable arms, unknown cases, missing returns, `never` |
 | `init` | definite initialization of locals |
 | `unsafe` | `trust me` gating of raw-pointer read/write/deref/offset/cast, honor levels, `*const` writes, closures |
-| `ffi` | FFI-safe extern parameter/return types, `@layout(C)`, `@repr`, unwinder imports, `@extern_callback`, callback types |
+| `ffi` | FFI-safe extern parameter/return types, `@layout(C)`, `@repr`, unwinder imports, `@extern_callback`, callback types, `lend word` extern parameters (bytes and length, loans, refused word forms) |
 | `shared` | `Shared<T>`/`Weak<T>`/`SharedMut<T>` surface rules |
 | `types` | Yuuko: infinite shapes/variants, alias nominality and cycles, constant cycles, basic mismatches |
 | `diagnostics` | message wording, spans, help text and error counts |
