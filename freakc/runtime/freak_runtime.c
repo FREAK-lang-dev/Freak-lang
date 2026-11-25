@@ -5343,6 +5343,7 @@ freak_tcp_socket_handle freak_tcp_socket_connect(freak_word host, int64_t port) 
             freak_tcp_socket_set_blocking(native_socket, true);
             socket_record = freak_tcp_socket_require(handle, "connect result");
             if (connected) {
+                freak_tcp_socket_configure_no_delay(native_socket);
                 socket_record->native_socket = native_socket;
                 socket_record->role = FREAK_TCP_SOCKET_ROLE_STREAM;
                 break;
