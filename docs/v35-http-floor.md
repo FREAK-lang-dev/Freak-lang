@@ -67,8 +67,9 @@ an owned temporary ByteBuffer and releases that buffer on success or failure.
 The caller still releases the JSON document.
 
 `http_send_file(request, path)` streams a regular file as the body, at any
-size, outside the buffered-body cap: Linux hands it to the socket with
-`sendfile`, macOS and Windows read it 64 KiB at a time, so memory stays flat.
+size, outside the buffered-body cap: Linux and macOS hand it to the socket
+with `sendfile`; Windows reads it 64 KiB at a time and sends straight from
+that chunk, copying only what the socket did not take, so memory stays flat.
 Each loop turn moves at most 512 KiB of one download, so a fast reader shares
 the worker with other connections instead of holding it until the file ends.
 On POSIX systems a started server ignores `SIGPIPE` when it still has the
@@ -227,8 +228,11 @@ per worker (92k vs 110k requests/s on one worker, 245k vs 308k on four; see
    per-IP limits can build on it.
 2. Streaming request bodies and generated response bodies (chunked). File
    responses already stream (`http_send_file`, with `sendfile` on Linux) and
-   answer Range and conditional requests (after 0.16); `TransmitFile` on
-   Windows would follow.
+   answer Range and conditional requests (after 0.16). `TransmitFile` on
+   Windows belongs with step 3: it completes as overlapped I/O, which WSAPoll
+   cannot wait on, and client editions of Windows run at most two
+   `TransmitFile` calls at once and queue the rest, so one slow download
+   would hold up the others.
 3. IOCP on Windows instead of WSAPoll, and optionally io_uring on Linux.
 4. Response compression in the floor (gzip/brotli, plus precompressed files).
 5. With V4's threads and task values: worker threads sharing one process (and

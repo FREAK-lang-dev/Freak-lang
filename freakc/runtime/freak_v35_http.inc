@@ -27,6 +27,10 @@ extern int accept4(int,struct sockaddr *,socklen_t *,int);
 #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
 #include <sys/event.h>
 #define FREAK_HTTP_KQUEUE 1
+#if defined(__APPLE__) && !defined(FREAK_HTTP_NO_SENDFILE)
+#include <sys/uio.h>
+#define FREAK_HTTP_BSD_SENDFILE 1
+#endif
 #else
 #define FREAK_HTTP_POLL 1
 #endif
@@ -945,6 +949,26 @@ static ssize_t freak_http_sendfile_quiet(int socket,int file,off_t *offset,size_
    the loop: the caller requeues the rest behind other connections.
    false: connection failed. */
 #define FREAK_HTTP_FILE_TURN ((uint64_t)512*1024)
+#if defined(FREAK_HTTP_BSD_SENDFILE) || (defined(FREAK_HTTP_TEST_BSD_SENDFILE) && defined(__linux__))
+#ifndef FREAK_HTTP_BSD_SENDFILE
+#define FREAK_HTTP_BSD_SENDFILE 1
+#endif
+/* macOS sendfile: *sent is what went out even when it fails with EAGAIN or
+   EINTR part way. Accepted sockets carry SO_NOSIGPIPE, so a vanished peer
+   is an EPIPE here, not a signal. FREAK_HTTP_TEST_BSD_SENDFILE emulates
+   these semantics with Linux sendfile so the pump is exercised there too. */
+static int freak_http_sendfile_bsd(int file,int socket,uint64_t offset,uint64_t count,uint64_t *sent) {
+#if defined(__APPLE__)
+    off_t length=(off_t)count; int result=sendfile(file,socket,(off_t)offset,&length,NULL,0);
+    *sent=length>0?(uint64_t)length:0; return result;
+#else
+    off_t at=(off_t)offset; ssize_t moved=sendfile(socket,file,&at,(size_t)(count>(1u<<30)?(1u<<30):count));
+    if(moved<0) { *sent=0; return -1; }
+    *sent=(uint64_t)moved; if(moved>0 && (uint64_t)moved<count) { errno=EAGAIN; return -1; }
+    return 0;
+#endif
+}
+#endif
 static bool freak_http_pump_file(freak_http_conn *conn) {
     uint64_t moved=0;
     while(conn->file_remaining && conn->writable && conn->out_offset==conn->out_length && moved<FREAK_HTTP_FILE_TURN) {
@@ -958,6 +982,18 @@ static bool freak_http_pump_file(freak_http_conn *conn) {
         if(sent<=0) return false; /* a failed read or send, or the file shrank */
         conn->file_offset+=(uint64_t)sent; conn->file_remaining-=(uint64_t)sent; moved+=(uint64_t)sent;
         conn->write_idle=freak_command_now_ms()+conn->server->limits.idle_ms;
+#elif defined(FREAK_HTTP_BSD_SENDFILE)
+        uint64_t turn=FREAK_HTTP_FILE_TURN-moved,sent=0;
+        uint64_t wanted=conn->file_remaining>turn?turn:conn->file_remaining;
+        int result=freak_http_sendfile_bsd(conn->file,(int)conn->socket,conn->file_offset,wanted,&sent); int error=errno;
+        if(sent>wanted) sent=wanted;
+        if(sent) {
+            conn->file_offset+=sent; conn->file_remaining-=sent; moved+=sent;
+            conn->write_idle=freak_command_now_ms()+conn->server->limits.idle_ms;
+        }
+        if(result<0 && error==EINTR) continue;
+        if(result<0 && (error==EAGAIN || error==EWOULDBLOCK)) { conn->writable=false; break; }
+        if(result<0 || !sent) return false; /* a failed read or send, or the file shrank */
 #else
         size_t wanted=conn->file_remaining>sizeof(freak_http_scratch)?sizeof(freak_http_scratch):(size_t)conn->file_remaining;
 #ifdef _WIN32
@@ -968,8 +1004,16 @@ static bool freak_http_pump_file(freak_http_conn *conn) {
 #endif
         if(got<=0) return false;
         conn->file_offset+=(uint64_t)got; conn->file_remaining-=(uint64_t)got; moved+=(uint64_t)got;
-        freak_http_queue_out(conn,freak_http_scratch,(size_t)got);
-        if(!freak_http_flush(conn)) return false;
+        /* The output queue is empty here: send straight from the chunk and
+           copy only what the socket did not take. */
+        size_t offset=0;
+        while(conn->writable && offset<(size_t)got) {
+            long sent=freak_http_send_some(conn->socket,freak_http_scratch+offset,(size_t)got-offset);
+            if(sent<0) return false;
+            if(sent==0) conn->writable=false;
+            else { offset+=(size_t)sent; conn->write_idle=freak_command_now_ms()+conn->server->limits.idle_ms; }
+        }
+        if(offset<(size_t)got) freak_http_queue_out(conn,freak_http_scratch+offset,(size_t)got-offset);
 #endif
     }
     if(!conn->file_remaining) freak_http_close_file(conn);

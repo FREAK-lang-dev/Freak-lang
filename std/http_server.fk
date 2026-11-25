@@ -74,7 +74,7 @@ task http_send_bytes(request: int, body: ByteBuffer) -> int {
     give back sent
 }
 task http_send_text(request: int, body: word) -> int { give back http_server::send_text(request, body) }
--- Streams a regular file at any size (sendfile on Linux). 0 leaves the
+-- Streams a regular file at any size (sendfile on Linux and macOS). 0 leaves the
 -- request unanswered, with http_request_error saying why (missing file,
 -- directory), so the application can still send an error response.
 -- With the default 200 status it also sends ETag, Last-Modified and
