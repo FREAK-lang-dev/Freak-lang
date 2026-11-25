@@ -79,6 +79,28 @@ application/octet-stream` unless the application set one. A file response has
 no total write deadline; it is closed only when no progress is made for
 `idle_ms`. If the file cannot be opened (missing, a directory, a FIFO), it
 returns 0, `request_error` says why, and the request can still be answered.
+
+When the response status is still the default 200, `http_send_file` also
+handles caching and resumable downloads by itself:
+
+- It sends `ETag` (`"<mtime hex>-<size hex>"`), `Last-Modified` and
+  `Accept-Ranges: bytes`. If the application already set `ETag` or
+  `Last-Modified`, those values are kept and used for the checks below.
+- A GET or HEAD whose `If-None-Match` names the tag (weak comparison, or `*`)
+  gets `304 Not Modified`. Without `If-None-Match`, an `If-Modified-Since` at
+  or after the modification time does the same. All three HTTP date forms are
+  accepted; a header that is not a date is ignored.
+- A GET with one `Range: bytes=` range gets `206 Partial Content` with
+  `Content-Range`, streamed from that offset (`first-last`, `first-` and the
+  `-suffix` forms). A range that starts past the end gets `416 Range Not
+  Satisfiable` with `Content-Range: bytes */<size>`. Several ranges, another
+  unit or bad syntax are ignored and the whole file is sent, as RFC 9110
+  allows. `If-Range` keeps the range only while its tag (strong comparison)
+  or date still matches; otherwise the whole file is sent.
+
+A status the application set itself (for example a 404 page served from a
+file) is sent as is, without validators or ranges.
+
 Released, stale or foreign tickets
 fail before accessing a reused socket or buffer. Copying a scalar ticket does
 not preserve its lifetime after release or subsequent slot reuse.
@@ -204,8 +226,9 @@ per worker (92k vs 110k requests/s on one worker, 245k vs 308k on four; see
    `request_peer_port`); a trusted-proxy policy for forwarded headers and
    per-IP limits can build on it.
 2. Streaming request bodies and generated response bodies (chunked). File
-   responses already stream (`http_send_file`, with `sendfile` on Linux);
-   `TransmitFile` on Windows and Range requests would follow.
+   responses already stream (`http_send_file`, with `sendfile` on Linux) and
+   answer Range and conditional requests (after 0.16); `TransmitFile` on
+   Windows would follow.
 3. IOCP on Windows instead of WSAPoll, and optionally io_uring on Linux.
 4. Response compression in the floor (gzip/brotli, plus precompressed files).
 5. With V4's threads and task values: worker threads sharing one process (and

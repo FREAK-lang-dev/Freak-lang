@@ -7,6 +7,8 @@ The fixture application owns its routing; the runtime only parses and sends.
 """
 from __future__ import annotations
 import argparse
+import datetime
+import email.utils
 import hashlib
 import http.client
 import json
@@ -913,8 +915,9 @@ def tight_corpus(s:Server):
     assert_response(s.exchange(request('/echo','POST',headers=[('Content-Length','2')])+b'a',eof=True),400)
     assert_rejection(s.exchange(request('/echo','HEAD',headers=[('Content-Length','2')])+b'a',eof=True),400,head=True)
 
-def read_responses(client,count:int):
-    """Read exactly count Content-Length-framed responses from one socket."""
+def read_responses(client,count:int,bodyless=False):
+    """Read exactly count Content-Length-framed responses from one socket.
+    A 304, or any response to HEAD, has no body whatever its Content-Length."""
     buffer=b'';responses=[]
     while len(responses)<count:
         while b'\r\n\r\n' not in buffer:
@@ -923,12 +926,86 @@ def read_responses(client,count:int):
         head,rest=buffer.split(b'\r\n\r\n',1);lines=head.split(b'\r\n');fields={}
         for line in lines[1:]:
             k,v=line.split(b':',1);fields[k.strip().lower()]=v.strip()
-        length=int(fields.get(b'content-length',b'0'))
+        length=0 if bodyless or lines[0].split()[1]==b'304' else int(fields.get(b'content-length',b'0'))
         while len(rest)<length:
             chunk=client.recv(65536);assert chunk,(responses,rest)
             rest+=chunk
         responses.append((int(lines[0].split()[1]),fields,rest[:length]));buffer=rest[length:]
     return responses,buffer
+
+def file_ranges_and_validators(s:Server,expected:bytes):
+    """http_send_file: ETag/Last-Modified/Accept-Ranges, 304 for a matching
+    If-None-Match or If-Modified-Since, single Range requests as 206/416 and
+    If-Range, all on one keep-alive connection so every framing is checked."""
+    size=len(expected)
+    # The keepalive profile caps a connection at five requests: carry on over
+    # a fresh one each time the server announces the close.
+    connection={'client':s.connect()}
+    try:
+        def get(headers=(),method='GET'):
+            client=connection['client']
+            client.sendall(request('/file',method=method,headers=headers))
+            responses,rest=read_responses(client,1,bodyless=method=="HEAD");assert rest==b'',rest
+            status,fields,body=responses[0]
+            if fields[b'connection']==b'close':
+                assert client.recv(1)==b'';client.close();connection['client']=s.connect()
+            s.cases+=1;return status,fields,body
+        status,fields,body=get()
+        assert status==200 and body==expected and fields[b'accept-ranges']==b'bytes',fields
+        tag=fields[b'etag'];modified=fields[b'last-modified']
+        assert tag.startswith(b'"') and tag.endswith(b'"') and len(tag)>2,tag
+        stamp=email.utils.parsedate_to_datetime(modified.decode())
+        assert abs(stamp.timestamp()-Path(s.env['FREAK_HTTP_TEST_FILE']).stat().st_mtime)<1.5,(modified,stamp)
+        def ranged(spec,first,last,extra=()):
+            status,fields,body=get([('Range',spec),*extra])
+            assert status==206 and fields[b'content-range']==f'bytes {first}-{last}/{size}'.encode(),(spec,status,fields)
+            assert fields[b'content-length']==str(last-first+1).encode() and body==expected[first:last+1],(spec,len(body))
+        ranged('bytes=0-99',0,99)
+        ranged('bytes=5000000-5000099',5000000,5000099)
+        ranged('bytes=5000000-',5000000,size-1)
+        ranged('bytes=-10',size-10,size-1)
+        ranged(f'bytes=-{size*2}',0,size-1)
+        ranged(f'bytes=7-{size*3}',7,size-1)
+        ranged('Bytes=3-4',3,4)
+        for spec in (f'bytes={size}-',f'bytes={size+5}-{size+9}','bytes=-0'):
+            status,fields,body=get([('Range',spec)])
+            assert status==416 and fields[b'content-range']==f'bytes */{size}'.encode() and fields[b'content-length']==b'0' and body==b'',(spec,status,fields)
+        # Ignored Range headers: the whole file, as 200.
+        for spec in ('bytes=0-1,5-6','bytes=5-2','items=0-1','bytes=x-1','bytes=-','bytes=99999999999999999999-'):
+            status,fields,body=get([('Range',spec)])
+            assert status==200 and body==expected and b'content-range' not in fields,(spec,status,fields)
+        # HEAD never ranges; other methods neither.
+        status,fields,_=get([('Range','bytes=0-9')],method='HEAD');assert status==200 and fields[b'content-length']==str(size).encode(),fields
+        # Conditional GET.
+        old=email.utils.format_datetime(stamp-datetime.timedelta(days=1),usegmt=True).encode()
+        newer=email.utils.format_datetime(stamp+datetime.timedelta(days=1),usegmt=True).encode()
+        asctime=f'{stamp:%a %b} {stamp.day:2d} {stamp:%H:%M:%S %Y}'
+        rfc850=stamp.strftime('%A, %d-%b-%y %H:%M:%S GMT')
+        for headers in ([('If-None-Match',tag.decode())],[('If-None-Match','"other", '+tag.decode())],[('If-None-Match','W/'+tag.decode())],[('If-None-Match','*')],
+                        [('If-Modified-Since',modified.decode())],[('If-Modified-Since',newer.decode())],[('If-Modified-Since',asctime)],[('If-Modified-Since',rfc850)],
+                        [('If-None-Match',tag.decode()),('If-Modified-Since',old.decode())],[('If-None-Match',tag.decode()),('Range','bytes=0-1')]):
+            status,fields,body=get(headers)
+            assert status==304 and body==b'' and fields[b'etag']==tag and fields[b'content-length']==str(size).encode(),(headers,status,fields)
+        status,_,_=get([('If-None-Match',tag.decode())],method='HEAD');assert status==304
+        for headers in ([('If-None-Match','"other"')],[('If-Modified-Since',old.decode())],[('If-Modified-Since','not a date')],
+                        [('If-None-Match','"other"'),('If-Modified-Since',modified.decode())]):
+            status,fields,body=get(headers);assert status==200 and body==expected,(headers,status,fields)
+        # If-Range: the range only while the validator is current (strong).
+        ranged('bytes=0-9',0,9,[('If-Range',tag.decode())])
+        ranged('bytes=0-9',0,9,[('If-Range',modified.decode())])
+        for validator in ('"stale"','W/'+tag.decode(),old.decode()):
+            status,fields,body=get([('Range','bytes=0-9'),('If-Range',validator)])
+            assert status==200 and body==expected,(validator,status,fields)
+        client=connection['client'];client.sendall(request('/health'));responses,_=read_responses(client,1);assert responses[0][2]==b'healthy';s.cases+=1
+    finally:
+        connection['client'].close()
+    # A range deep into a file far past one 512 KiB pump turn.
+    with s.connect() as client:
+        first=200_000_003
+        client.sendall(request('/file-big',headers=[('Range',f'bytes={first}-{first+70000}')]));responses,_=read_responses(client,1)
+        status,fields,body=responses[0];big=Path(s.env['FREAK_HTTP_TEST_BIG_FILE']).stat().st_size
+        assert status==206 and fields[b'content-range']==f'bytes {first}-{first+70000}/{big}'.encode() and body==b'\0'*70001,(status,fields,len(body))
+        s.cases+=1
 
 def keepalive_corpus(s:Server):
     s.checkpoint('keepalive-corpus','peer-address')
@@ -1012,6 +1089,8 @@ def keepalive_corpus(s:Server):
             chunk=client.recv(65536);assert chunk,raw;raw+=chunk
         head,second=raw.split(b'\r\n\r\n',1)
         assert b'Content-Length: '+str(len(expected)).encode() in head and second.startswith(b'HTTP/1.1 200'),raw[:400];s.cases+=1
+    s.checkpoint('keepalive-corpus','file-ranges-and-validators')
+    file_ranges_and_validators(s,expected)
     s.checkpoint('keepalive-corpus','http10')
     with s.connect() as client:
         client.sendall(request('/health',version='HTTP/1.0').replace(b'Host: localhost\r\n',b''))
