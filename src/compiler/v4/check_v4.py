@@ -18,15 +18,19 @@ from functools import lru_cache
 from pathlib import Path
 
 
-BOOTSTRAP_SOURCE_PATHS = tuple(
-    (Path(__file__).resolve().parent / "bootstrap-sources.manifest")
+# crate-sources.manifest is the development crate order. The locked public
+# bootstrap keeps its own frozen bootstrap-sources.manifest (hash-pinned in
+# bootstrap.lock), so new crates are added here only; check_crate_boundaries
+# requires the frozen list to stay an ordered subsequence of this one.
+CRATE_SOURCE_PATHS = tuple(
+    (Path(__file__).resolve().parent / "crate-sources.manifest")
     .read_text(encoding="utf-8").splitlines()
 )
-if (not BOOTSTRAP_SOURCE_PATHS or len(set(BOOTSTRAP_SOURCE_PATHS)) != len(BOOTSTRAP_SOURCE_PATHS)
+if (not CRATE_SOURCE_PATHS or len(set(CRATE_SOURCE_PATHS)) != len(CRATE_SOURCE_PATHS)
         or any(not re.fullmatch(r"crates/freak_[a-z_]+/src/lib\.fk", path)
-               for path in BOOTSTRAP_SOURCE_PATHS)):
-    raise RuntimeError("invalid authoritative V4 bootstrap source inventory")
-CRATE_ORDER = [Path(path).parts[1] for path in BOOTSTRAP_SOURCE_PATHS]
+               for path in CRATE_SOURCE_PATHS)):
+    raise RuntimeError("invalid authoritative V4 crate source inventory")
+CRATE_ORDER = [Path(path).parts[1] for path in CRATE_SOURCE_PATHS]
 
 
 def repo_root() -> Path:
@@ -14123,6 +14127,12 @@ def check_crate_boundaries() -> None:
     transform_index = CRATE_ORDER.index("freak_mir_transform")
     if not borrowck_index < transform_index < CRATE_ORDER.index("freak_codegen_llvm"):
         violations.append("boundary violation: crate order must be freak_borrowck < freak_mir_transform < freak_codegen_llvm")
+    frozen_paths = read_text(V4_ROOT / "bootstrap-sources.manifest").splitlines()
+    remaining = iter(CRATE_SOURCE_PATHS)
+    if not all(path in remaining for path in frozen_paths):
+        violations.append(
+            "boundary violation: frozen bootstrap-sources.manifest must stay an ordered subsequence of crate-sources.manifest"
+        )
 
     mir_build_text = read_text(crate_path("freak_mir_build"))
     builder_tasks = frozenset(

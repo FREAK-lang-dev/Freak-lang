@@ -230,7 +230,7 @@ def main() -> int:
                         help="parse this file in bootstrap compatibility mode: V3 root pilot "
                              "globals and root statements (default: strict root scope, bible 17.4)")
     parser.add_argument("--with-crates", action="store_true",
-                        help="prepend the V4 crates in CRATE_ORDER (bootstrap-sources.manifest) "
+                        help="prepend the V4 crates in CRATE_ORDER (crate-sources.manifest) "
                              "to the sources; implies --bootstrap-root")
     args = parser.parse_args()
     if args.compiler is not None:

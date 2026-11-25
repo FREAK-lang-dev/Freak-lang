@@ -1518,6 +1518,14 @@ Current FREAK compilation still works best with concatenated source files, so th
 freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> freak_session -> freak_target -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_mir_build -> freak_borrowck -> freak_mir_transform -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
 ```
 
+`crate-sources.manifest` is this development order; `check_v4.py`,
+`build_v4.py` and the stage 1 self-host build read it. The locked public
+bootstrap keeps its own `bootstrap-sources.manifest`, whose hash
+`bootstrap.lock` pins together with the frozen source commit, so a new crate
+(such as `freak_mir_transform`) is added to `crate-sources.manifest` only.
+The boundary check requires the frozen list to remain an ordered subsequence
+of the development list.
+
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
 
 Token-boundary lookup uses a lexer-owned derived index of decoded start/end
