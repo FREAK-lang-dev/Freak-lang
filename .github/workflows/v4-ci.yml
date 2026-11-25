@@ -144,6 +144,33 @@ jobs:
       - name: Borrow checker and safety suites
         run: python -u tests/v4_safety/run_safety.py --json "${{ runner.temp }}/v4-safety.json"
 
+  # Web lane (wasm32-unknown-wasip1): every runnable V4 example is built as a
+  # native program and as a wasm module, and both must exit, print and fail
+  # the same way (Node's WASI runs the module). Linux only: the platform
+  # layer is host-independent and Apple's Clang has no WebAssembly backend.
+  v4-wasm:
+    name: V4 wasm (ubuntu-latest)
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Clang and wasm-ld
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: Native and wasm32 parity for every V4 example
+        run: python -u tests/v4_wasm_parity.py
+
   v4-native-platforms:
     name: V4 native backend (${{ matrix.os }})
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

@@ -17904,11 +17904,44 @@ def check_checked_source_runtime(clang: str) -> None:
 
 
 
-NATIVE_LAYOUT_TRIPLES = (
-    "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-w64-windows-gnu",
-    # The first 32-bit target: pointers shrink to 4 bytes, i64/double stay 8.
-    "wasm32-unknown-wasip1",
-)
+class NativeLayoutTriples:
+    """The targets the layout and ABI oracles ask Clang about.
+
+    The four 64-bit release targets always run. wasm32-unknown-wasip1, the
+    first 32-bit target (pointers shrink to 4 bytes, i64/double stay 8), runs
+    whenever this Clang has the WebAssembly backend. Apple's Clang does not,
+    so macOS skips it with a note; everywhere else a Clang without it fails."""
+
+    BASE = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-w64-windows-gnu")
+    WASM = "wasm32-unknown-wasip1"
+
+    def __init__(self) -> None:
+        self._triples: tuple[str, ...] | None = None
+
+    def _resolve(self) -> tuple[str, ...]:
+        if self._triples is None:
+            clang = shutil.which("clang")
+            listed = subprocess.run([clang, "-print-targets"], capture_output=True, text=True, timeout=60) if clang else None
+            if listed is not None and listed.returncode == 0 and re.search(r"^\s*wasm32\b", listed.stdout, re.MULTILINE):
+                self._triples = self.BASE + (self.WASM,)
+            elif sys.platform == "darwin":
+                print(f"layout oracles: this Clang has no WebAssembly backend; {self.WASM} is checked on Linux and Windows")
+                self._triples = self.BASE
+            else:
+                raise RuntimeError(f"layout oracles need a Clang with the WebAssembly backend for {self.WASM}")
+        return self._triples
+
+    def __iter__(self):
+        return iter(self._resolve())
+
+    def __len__(self) -> int:
+        return len(self._resolve())
+
+    def __contains__(self, triple: object) -> bool:
+        return triple in self._resolve()
+
+
+NATIVE_LAYOUT_TRIPLES = NativeLayoutTriples()
 NATIVE_SHAPES_EXPECTED = "3\n4\n14\n2\n50\n1\n42\ntrue\ntrue\n2.5\ntrue\ntrue\nfalse\n9\n6\n"
 NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\nfalse\nfill\n6\n6\nfill\n7\nslot\nfill\n6\nfill\n0\ntrue\ntrue\n4\n"
 NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"

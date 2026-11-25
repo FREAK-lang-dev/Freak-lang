@@ -240,12 +240,12 @@ implements their widths, extension rules and promotions. Raw aliases, nested
 callback signatures, pointer payloads, local annotations and explicit casts
 retain that fence. Pure FREAK scalar types retain their internal representation.
 `freak_target` now supplies validated scalar layout descriptors for `c_int`,
-`c_uint`, `c_long` and `c_ulong`: C int is 32 bits on all four targets; C long
-is 32 bits on Windows and 64 bits on the three LP64 targets. Signedness,
+`c_uint`, `c_long` and `c_ulong`: C int is 32 bits on all five targets; C long
+is 32 bits on Windows and wasm32 and 64 bits on the three LP64 targets. Signedness,
 size, alignment and LLVM carrier readers reject unknown descriptors. These
 layout facts preserve TargetSpec v1 and do not admit the fenced C types into
 native signatures. A header-free Clang oracle checks storage and ordinary C
-direct/indirect signatures on all four targets; foreign binaries are not executed.
+direct/indirect signatures on all five targets; foreign binaries are not executed.
 The guard suite links a real C helper to check signed values and nonzero upper
 32 bits, float widths, pointers, void calls and callbacks in both directions.
 Quoted-name escaping preserves complete UTF-8 bytes and remains exact when
@@ -543,7 +543,7 @@ Closure rvalue carries the sealed type.
   order. A borrow or mut capture's slot is `ptr` (the address of the captured
   storage), and a copy or move capture's slot holds the value. Each env type
   gets a `; freak.layout` note, which `check_v4_native_closures` checks against
-  Clang on all four targets.
+  Clang on all five targets.
 - **Placement.** The environment is an entry-block `alloca` per closure
   expression in the creating frame, filled where the closure is created. That
   is sound only because the value never leaves the frame: codegen accepts a
@@ -595,7 +595,7 @@ Programs: `examples/closures_native.fk` (exact output, 23 closure bodies,
 closure bodies, 7 nested, word parameters and results, `valgrind` clean).
 `check_v4_native_closures` and `check_v4_native_closures_nested` (run by
 `check_v4_native_shapes`) build and run them, check every environment layout
-and the aggregate ABI notes on four targets, check each nested environment
+and the aggregate ABI notes on five targets, check each nested environment
 sits in its outer closure's frame, and check 18 and 9 rejected cases.
 
 ### Generic instances (monomorphization)
@@ -648,7 +648,7 @@ Program: `examples/generics_native.fk` (exact output and exit 22, `valgrind`
 clean), run by `check_v4_native_shapes`, which also checks that every
 instance symbol in `NATIVE_GENERICS_SYMBOLS` is defined once, that no
 template is emitted, and that every instance layout reaches the oracle on
-four targets, plus the `NATIVE_GENERICS_REJECTED` cases.
+five targets, plus the `NATIVE_GENERICS_REJECTED` cases.
 
 ### Lend calling convention
 
@@ -741,7 +741,7 @@ a doctrine non-object-safe in TY. Program: `examples/dyn_native.fk` (exact
 output, exit 234), run by `check_v4_native_dyn` from `check_v4_native_shapes`
 with the layout oracle, the vtable oracle (note, constant and Clang agree;
 tampered sizes, slot orders and foreign impl slots fail) and Clang assembly
-on four targets, a dispatch-only module, and 22 named rejections. The
+on five targets, a dispatch-only module, and 22 named rejections. The
 `freak.dyn.` and `freak.vtable.` symbol prefixes are reserved.
 
 ### Native lists
@@ -749,7 +749,7 @@ on four targets, a dispatch-only module, and 22 named rejections. The
 `List<T>` is an owned heap value. Every list is one header,
 `%"freak.list.header" = type { ptr, i64, i64 }` (data, length, capacity),
 emitted as a named record with a `; freak.layout` note that the layout
-oracle checks on all four targets. Elements are stored by value in a
+oracle checks on all five targets. Elements are stored by value in a
 buffer typed per element type (`getelementptr T`), with no boxing and no
 type-erased pool:
 
@@ -841,7 +841,7 @@ refuses control flow inside any index operand (`xs[f()?]`,
 `Map<K, V>` and `Set<T>` are owned heap values with one header,
 `%"freak.map.header" = type { ptr, i64, i64, ptr, i64 }` (entries, length,
 capacity, index, slots), emitted as a named record with a `; freak.layout`
-note that the layout oracle checks on all four targets. Entries are stored
+note that the layout oracle checks on all five targets. Entries are stored
 by value in a dense buffer (`{ K, V }`, or `{ T }` for a set) behind an
 open-addressed index of entry numbers with linear probing, kept at least
 twice the length (8 slots at first). Entry growth reuses the list helpers.
@@ -898,7 +898,7 @@ output, exit 0, and a missing-key panic run) and
 `Shared<T>`, `Weak<T>` and the `SharedMut<T>` guard are each one `ptr` to a
 counted box, `%"freak.shared.box.T" = type { i64, i64, i64, T }` (strong,
 weak, borrow, payload), with a `; freak.layout` note per payload type that
-the layout oracle checks on all four targets. The counts live in the native
+the layout oracle checks on all five targets. The counts live in the native
 runtime (`freak_v4_shared_*` in `freakc/runtime/freak_llvm_runtime.c`) and
 are atomic, because bible 7.18 calls `Shared<T>` atomic:
 
@@ -945,6 +945,49 @@ points. Program: `examples/shared_native.fk` (exact output, exit 0, and a
 panic run) in `check_v4_native_shapes`, also audited by
 `tests/v4_owned_word_codegen.py`; nineteen named rejections and the
 `shared` area of `tests/v4_safety`.
+
+### wasm32 target (Web lane W1 to W3)
+
+`wasm32-unknown-wasip1` is the fifth `freak_target` record and the first
+32-bit one: pointers are 4 bytes, `c_long` is 32 bits, and `i64` and `double`
+keep 8-byte alignment. FREAK's own types do not change: `int` stays `i64` and
+words stay `i64` handles, so the same Runtime MIR lowers to both widths. Two
+places meet C's `size_t` and get target-specific lowering on a 32-bit target:
+list helpers call `realloc` through `@freak.libc.realloc`, which answers null
+(the out-of-memory panic) for a request `size_t` cannot hold, and extern
+declarations that spell `c_size`, `c_isize`, `usize` or `isize` get the
+ordinary C-width shim with checked narrowing. Callbacks and variadic calls
+with those aliases, and references to such a declaration that are not direct
+calls, fail closed by name until the JS bridge row.
+
+```
+python src/compiler/v4/build_v4.py hello.fk -o hello.wasm --target wasm32-unknown-wasip1
+node --no-warnings src/compiler/v4/wasm/run_wasi.mjs hello.wasm
+```
+
+The module links the V4 core runtime with `freakc/runtime/wasi`, a
+freestanding platform layer over four WASI preview 1 imports (`fd_write`,
+`proc_exit`, `args_sizes_get`, `args_get`): a size-class allocator on linear
+memory, stdio with buffered stdout and a printf subset whose `%g` is exact
+(round-half-even on the binary value, like glibc), `exit`/`atexit`, and
+argument setup from `_start`. No wasi-libc or sysroot is involved; the
+headers in `wasi/include` rename every libc function except the allocator
+and `mem*` to `freak_pal_*`, so a FREAK `task open` cannot replace the
+runtime's own file calls. Files are not wired to preopens yet: `fs::read`
+reports an error. The parts of the V3 runtime that V4 code still calls (the
+owned-word registry, byte words, `freak_word_to_int`, Shared boxes) are
+extracted from `freak_runtime.c` and `freak_llvm_runtime.c` at build time by
+`wasm_target.py`, so they cannot drift from the native copies, and the
+native runtime inventory is untouched. Clang 18+ with `wasm-ld` (lld) is
+required; the link uses `--fatal-warnings`, so a C declaration whose
+signature disagrees with the runtime fails to link instead of trapping.
+
+`tests/v4_wasm_parity.py` (CI job "V4 wasm") builds every example natively
+and as wasm and requires the same exit status, stdout and stderr under Node,
+plus a generated number-formatting program; `indirect_calls` and
+`literal_say` are pinned fences (ssize_t callbacks, runtime helpers declared
+as `c_isize`). The layout and ABI oracles ask Clang about wasm32 on every
+host whose Clang has the WebAssembly backend (all but Apple's).
 
 ### Persisted interpolation checkpoint (W3)
 
