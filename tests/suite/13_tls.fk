@@ -279,6 +279,70 @@ task send_timeout() -> word {
     give back outcome
 }
 
+-- A close that can't finish because the socket is full: sends after it
+-- must be refused, and the close must still complete once the peer reads.
+task close_backpressure() -> word {
+    pilot server_config = tls_server_config(test_cert(), test_key(), "")
+    pilot client_config = tls_client_config("", 2, test_ca())
+    pilot listener = tcp::socket_listen("127.0.0.1", 0, 8)
+    pilot client_tcp = tcp::socket_connect("127.0.0.1", tcp::socket_local_port(listener))
+    pilot server_tcp = tcp::socket_accept(listener)
+    pilot client = tls_client(client_config, client_tcp, "localhost")
+    pilot server = tls_server(server_config, server_tcp)
+    tls_set_nonblocking(client, true)
+    tls_set_nonblocking(server, true)
+    pilot mut outcome = ""
+    if both_handshakes(client, server) != 0 {
+        outcome = "handshake failed"
+    } else {
+        pilot mut chunk = ByteBuffer::new()
+        pilot mut i = 0
+        repeat while i < 16384 {
+            chunk.write_byte(i % 3)
+            i = i + 1
+        }
+        pilot mut sent = 0
+        pilot mut queued = false
+        pilot mut broken = false
+        repeat while not queued and not broken and sent < 268435456 {
+            pilot n = tls_send(client, chunk, 0, 16384)
+            if n > 0 { sent = sent + n }
+            if n < -2 { broken = true }
+            if tls_status(client) == -2 { queued = true }
+        }
+        pilot first_close = tls_close(client)
+        outcome = "close " + word_from_int(first_close)
+        pilot late = tls_send(client, chunk, 0, 100)
+        if late < -2 { outcome = outcome + " send-refused" } else { outcome = outcome + " send-gave " + word_from_int(late) }
+        chunk.release()
+        pilot mut arrived_n = 0
+        pilot mut closed = first_close
+        pilot mut end = 1
+        pilot mut rounds = 0
+        repeat while (closed != 0 or end > 0 or end == -1 or end == -2) and rounds < 10000000 {
+            if end != 0 and end > -3 {
+                pilot mut part = ByteBuffer::new()
+                end = tls_receive(server, part, 65536)
+                part.release()
+                if end > 0 { arrived_n = arrived_n + end }
+            }
+            if closed != 0 and closed > -3 { closed = tls_close(client) }
+            rounds = rounds + 1
+        }
+        if closed == 0 { outcome = outcome + " closed" } else { outcome = outcome + " close-stuck " + word_from_int(closed) }
+        if arrived_n == sent { outcome = outcome + " exact" } else { outcome = outcome + " extra " + word_from_int(arrived_n - sent) }
+        if end == 0 and tls_closed_cleanly(server) { outcome = outcome + " clean-end" } else { outcome = outcome + " end " + word_from_int(end) }
+    }
+    tls_release(client)
+    tls_release(server)
+    tcp::socket_close(client_tcp)
+    tcp::socket_close(server_tcp)
+    tcp::socket_close(listener)
+    tls_config_release(client_config)
+    tls_config_release(server_config)
+    give back outcome
+}
+
 task main() {
     say "full: " + run_case("localhost", 2, "http/1.1")
     say "ip: " + run_case("127.0.0.1", 2, "")
@@ -287,6 +351,7 @@ task main() {
     say "no verify: " + run_case("evil.example", 0, "")
     say "backpressure: " + backpressure()
     say "send timeout: " + send_timeout()
+    say "close backpressure: " + close_backpressure()
     pilot bad = tls_server_config(test_cert(), test_other_key(), "")
     say "mismatched key: " + word_from_int(bad) + " " + tls_last_error()
     pilot garbage = tls_client_config("", 2, "not a certificate")

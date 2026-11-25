@@ -152,8 +152,9 @@ task tls_receive(session: int, out: ByteBuffer, max_bytes: int) -> int {
 -- Decrypted bytes already waiting (a readable socket isn't needed for them).
 task tls_pending(session: int) -> int { give back freak_tls_pending(session) }
 
--- Sends close_notify. 0, or TLS_WANT_WRITE on a non-blocking socket. Sends
--- fail afterwards, but tls_receive keeps working until the peer's own
+-- Sends close_notify. 0, or TLS_WANT_WRITE on a non-blocking socket (call it
+-- again until it gives back 0). Sends fail from the first call on, even while
+-- the close still waits for the socket, but tls_receive keeps working until the peer's own
 -- close_notify arrives (it gives back 0 then).
 task tls_close(session: int) -> int { give back freak_tls_close_notify(session) }
 

@@ -428,6 +428,7 @@ struct freak_tls_conn {
     int nonblocking;
     int status;           /* last result code (0 ok, FREAK_TLS_*) */
     int handshake_done;
+    int close_started;    /* tls_close began: no more application data */
     int close_sent;       /* our close_notify went out */
     int peer_notified;    /* the peer's close_notify arrived */
     int read_closed;      /* the peer finished: close_notify, EOF or reset */
@@ -668,7 +669,7 @@ static int freak_tls_conn_flush(freak_tls_conn *conn) {
 static int freak_tls_conn_write(freak_tls_conn *conn, const unsigned char *data, size_t count) {
     if (conn->status == FREAK_TLS_FAILED) return FREAK_TLS_FAILED;
     if (conn->read_closed || conn->status == FREAK_TLS_CLOSED) return FREAK_TLS_CLOSED;
-    if (conn->close_sent) {
+    if (conn->close_started) {
         snprintf(conn->message, sizeof(conn->message), "TLS write failed: the session was closed");
         return FREAK_TLS_CLOSED;
     }
@@ -679,7 +680,9 @@ static int freak_tls_conn_write(freak_tls_conn *conn, const unsigned char *data,
         int shaken = freak_tls_conn_handshake(conn);
         if (shaken != 0) return shaken;
     }
-    if (conn->pending_write) {
+    /* Send whatever is still queued first, so mbedtls_ssl_write never
+       mistakes an old record for this call's data. */
+    if (conn->pending_write || conn->ssl.MBEDTLS_PRIVATE(out_left) > 0) {
         int flushed = freak_tls_conn_flush(conn);
         if (flushed != 0) return flushed;
     }
@@ -726,6 +729,9 @@ static int freak_tls_conn_close(freak_tls_conn *conn) {
     /* A peer that sent close_notify still waits for ours; a peer that just
        dropped the connection (EOF or reset) can't receive it. */
     if (conn->read_closed && !conn->peer_notified) return 0;
+    /* From here on no application data may follow, even while the
+       close itself waits for the socket. */
+    conn->close_started = 1;
     if (conn->pending_write) {
         int flushed = freak_tls_conn_flush(conn);
         if (flushed != 0) return flushed == FREAK_TLS_CLOSED ? 0 : flushed;
