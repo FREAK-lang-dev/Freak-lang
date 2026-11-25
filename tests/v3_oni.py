@@ -330,6 +330,26 @@ task witness(x: int) -> void {
     }
 }
 
+-- A refused connect must fail inside an oni while another oni keeps
+-- running (on Windows this is the sliced SO_ERROR wait).
+pilot dead_port = 0
+pilot refused_ok = 0
+pilot refused_done = 0
+pilot bystander_ticks = 0
+task refused(x: int) -> void {
+    pilot sock = tcp::socket_connect("127.0.0.1", dead_port)
+    if tcp::socket_status(sock) == 4 { refused_ok = 1 }
+    tcp::socket_close(sock)
+    refused_done = 1
+}
+
+task bystander(x: int) -> void {
+    repeat until refused_done == 1 {
+        bystander_ticks += 1
+        time::sleep(1)
+    }
+}
+
 task main() -> void {
     pilot listener = tcp::socket_listen("127.0.0.1", 0, 256)
     port = tcp::socket_local_port(listener)
@@ -372,6 +392,14 @@ task main() -> void {
     if witnessed >= 8 { say "shared" } else { say "hogged" }
     tcp::socket_close(hog_sock)
     tcp::socket_close(l3)
+
+    pilot l4 = tcp::socket_listen("127.0.0.1", 0, 4)
+    dead_port = tcp::socket_local_port(l4)
+    tcp::socket_close(l4)
+    oni::summon("refused", 0)
+    oni::summon("bystander", 0)
+    parade()
+    if refused_ok == 1 and bystander_ticks >= 1 { say "refused" } else { say "connect stuck" }
 }
 '''
 
@@ -381,6 +409,7 @@ ticked
 1
 1
 shared
+refused
 """
 
 DIAGNOSTICS = [
