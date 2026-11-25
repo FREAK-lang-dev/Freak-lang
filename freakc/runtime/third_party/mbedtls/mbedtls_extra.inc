@@ -4555,6 +4555,12 @@
 
 #define MBEDTLS_NO_PLATFORM_ENTROPY
 #define MBEDTLS_ENTROPY_HARDWARE_ALT
+
+ \
+
+#if defined(_MSC_VER)
+#define MBEDTLS_NO_UDBL_DIVISION
+#endif
 #line 1 "library/cipher.c"
  \
 \

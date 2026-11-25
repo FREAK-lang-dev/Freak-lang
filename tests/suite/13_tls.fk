@@ -26,7 +26,7 @@ task both_handshakes(client: int, server: int) -> int {
     pilot mut c = 1
     pilot mut s = 1
     pilot mut rounds = 0
-    repeat while (c != 0 or s != 0) and rounds < 500 {
+    repeat while (c != 0 or s != 0) and rounds < 5000 {
         if c != 0 {
             c = tls_handshake(client)
             if c < -2 { give back c }
@@ -35,21 +35,37 @@ task both_handshakes(client: int, server: int) -> int {
             s = tls_handshake(server)
             if s < -2 { give back s * 10 }
         }
+        -- Loopback delivery isn't instant everywhere (macOS): give the
+        -- other side's bytes a moment instead of spinning.
+        if c != 0 or s != 0 { time::sleep(1) }
         rounds = rounds + 1
     }
     if c != 0 or s != 0 { give back -99 }
     give back 0
 }
 
--- Read until `want` bytes arrived or 500 tries passed.
+-- Read until `want` bytes arrived or about 5 s passed.
 task read_some(session: int, out: ByteBuffer, want: int) -> int {
     pilot mut tries = 0
-    repeat while out.length() < want and tries < 500 {
+    repeat while out.length() < want and tries < 5000 {
         pilot n = tls_receive(session, out, 65536)
         if n == 0 or n < -2 { give back n }
+        if n < 0 { time::sleep(1) }
         tries = tries + 1
     }
     give back out.length()
+}
+
+-- One receive that waits (up to about 5 s) past TLS_WANT_READ/WRITE.
+task receive_settled(session: int, out: ByteBuffer, max_bytes: int) -> int {
+    pilot mut n = tls_receive(session, out, max_bytes)
+    pilot mut tries = 0
+    repeat while (n == -1 or n == -2) and tries < 5000 {
+        time::sleep(1)
+        n = tls_receive(session, out, max_bytes)
+        tries = tries + 1
+    }
+    give back n
 }
 
 task run_case(host: word, verify: int, alpn: word) -> word {
@@ -130,13 +146,13 @@ task run_case(host: word, verify: int, alpn: word) -> word {
         if tls_pending(server) == 0 { outcome = outcome + " drained" }
         tls_close(client)
         pilot mut tail = ByteBuffer::new()
-        pilot closed = tls_receive(server, tail, 16)
+        pilot closed = receive_settled(server, tail, 16)
         if closed == 0 and tls_closed_cleanly(server) { outcome = outcome + " close-seen" }
         -- The server answers with its own close_notify, which the client,
         -- having closed first, still reads.
         pilot mut back = ByteBuffer::new()
         if tls_receive(client, back, 16) == -1 { outcome = outcome + " client-waits" }
-        if tls_close(server) == 0 and tls_receive(client, back, 16) == 0 { outcome = outcome + " both-closed" }
+        if tls_close(server) == 0 and receive_settled(client, back, 16) == 0 { outcome = outcome + " both-closed" }
         back.release()
         ping.release()
         arrived.release()
@@ -264,7 +280,10 @@ task send_timeout() -> word {
             pilot mut part = ByteBuffer::new()
             pilot n = tls_receive(server, part, 65536)
             part.release()
-            if n > 0 { drained = drained + n } else { idle = idle + 1 }
+            if n > 0 { drained = drained + n } else {
+                idle = idle + 1
+                time::sleep(1)
+            }
         }
         if drained > 0 { outcome = outcome + " drained" }
         pilot again = tls_send(client, chunk, 0, 2)

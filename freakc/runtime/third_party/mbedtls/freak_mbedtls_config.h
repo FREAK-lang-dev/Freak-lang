@@ -76,3 +76,9 @@
    mbedtls_hardware_poll), so mbedTLS needs no bcrypt import library. */
 #define MBEDTLS_NO_PLATFORM_ENTROPY
 #define MBEDTLS_ENTROPY_HARDWARE_ALT
+
+/* Clang on the MSVC runtime has no __udivti3 to link against, so bignum
+   must not divide 128-bit values there (it uses its portable path). */
+#if defined(_MSC_VER)
+#define MBEDTLS_NO_UDBL_DIVISION
+#endif
