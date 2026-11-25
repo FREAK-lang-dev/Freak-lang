@@ -2444,7 +2444,7 @@ task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "hir-extern-param" { give back 13 }
     if kind == "hir-method-owner" { give back 4 }
     if kind == "hir-method" { give back 9 }
-    if kind == "hir-method-type-arg" { give back 9 }
+    if kind == "hir-method-type-arg" { give back 11 }
     if kind == "hir-route-owner" { give back 5 }
     if kind == "hir-route-case" { give back 9 }
     if kind == "hir-route-field" { give back 10 }
@@ -6979,11 +6979,16 @@ task v4_hir_restore_method_records(records: int) -> void {
 -- and keeps a row for each `<` written right after `.name` or `::name`: the
 -- separator, method and bracket spans, whether the method token is a name,
 -- and the type text between the brackets. MIR Build reads these rows instead
--- of walking angle brackets. Layout: [rows, closed], then seven columns per
--- row; column 6 of row k names the row whose `>` comes k-th in the source,
--- so lookups by method and by `>` both bisect.
+-- of walking angle brackets. A closed list also records what its brackets
+-- hold (nothing, something that starts like a type, or something else) and
+-- the token after its `>`, which `.cast<T>()` checks. Layout: [rows,
+-- closed], then nine columns per row; column 8 of row k names the row whose
+-- `>` comes k-th in the source, so lookups by method and by `>` both bisect.
 pilot v4_hir_method_type_arg_named = "named"
 pilot v4_hir_method_type_arg_unnamed = "unnamed"
+pilot v4_hir_method_type_arg_inner_empty = "empty"
+pilot v4_hir_method_type_arg_inner_type = "type"
+pilot v4_hir_method_type_arg_inner_other = "other"
 
 task v4_hir_method_type_arg_values_handle(hir_id: int) -> int {
     give back v4_hir_signature_slot(hir_id, v4_hir_signature_method_type_args)
@@ -7001,11 +7006,11 @@ task v4_hir_method_type_arg_closed_count(hir_id: int) -> int {
 }
 
 task v4_hir_method_type_arg_value(hir_id: int, row: int, column: int) -> word {
-    if row < 0 or row >= v4_hir_method_type_arg_count(hir_id) or column < 0 or column >= 6 {
-        if column == 2 or column == 5 { give back "" }
+    if row < 0 or row >= v4_hir_method_type_arg_count(hir_id) or column < 0 or column >= 8 {
+        if column == 2 or column == 5 or column == 6 { give back "" }
         give back V4_NO_SPAN
     }
-    give back array_get(v4_hir_method_type_arg_values_handle(hir_id), 2 + row * 7 + column)
+    give back array_get(v4_hir_method_type_arg_values_handle(hir_id), 2 + row * 9 + column)
 }
 
 task v4_hir_method_type_arg_separator_span(hir_id: int, row: int) -> word {
@@ -7035,6 +7040,17 @@ task v4_hir_method_type_arg_type_text(hir_id: int, row: int) -> word {
     give back v4_hir_method_type_arg_value(hir_id, row, 5)
 }
 
+-- What a closed list's brackets hold: "empty", "type" (its first token is a
+-- name, keyword or lifetime, or `*`, `(` or `[`) or "other"; "" unclosed.
+task v4_hir_method_type_arg_inner(hir_id: int, row: int) -> word {
+    give back v4_hir_method_type_arg_value(hir_id, row, 6)
+}
+
+-- The token after a closed list's `>`; V4_NO_SPAN when unclosed or at the end.
+task v4_hir_method_type_arg_after_close_span(hir_id: int, row: int) -> word {
+    give back v4_hir_method_type_arg_value(hir_id, row, 7)
+}
+
 -- The row whose method token starts at method_offset, or -1.
 task v4_hir_method_type_arg_after_method(hir_id: int, method_offset: int) -> int {
     pilot low = 0
@@ -7055,7 +7071,7 @@ task v4_hir_method_type_arg_closing_at(hir_id: int, close_offset: int) -> int {
     pilot values = v4_hir_method_type_arg_values_handle(hir_id)
     repeat until low >= high {
         pilot mid = (low + high) / 2
-        pilot row = word_to_int(array_get(values, 2 + mid * 7 + 6))
+        pilot row = word_to_int(array_get(values, 2 + mid * 9 + 8))
         pilot start = v4_span_start(v4_hir_method_type_arg_close_span(hir_id, row))
         if start == close_offset { give back row }
         if start < close_offset { low = mid + 1 } else { high = mid }
@@ -7064,9 +7080,9 @@ task v4_hir_method_type_arg_closing_at(hir_id: int, close_offset: int) -> int {
 }
 
 task v4_hir_method_type_arg_index_emit(values: int, row: int, closed: int, last_close: int) -> int {
-    pilot close_start = v4_span_start(array_get(values, 2 + row * 7 + 4))
+    pilot close_start = v4_span_start(array_get(values, 2 + row * 9 + 4))
     if close_start <= last_close { give back 0 - 1 }
-    array_set(values, 2 + closed * 7 + 6, word_from_int(row))
+    array_set(values, 2 + closed * 9 + 8, word_from_int(row))
     give back close_start
 }
 
@@ -7083,12 +7099,12 @@ task v4_hir_method_type_arg_index_closes(values: int) -> bool {
     pilot valid: bool = true
     pilot row = 0
     repeat until row >= rows or not valid {
-        array_set(values, 2 + row * 7 + 6, "-1")
-        pilot open_start = v4_span_start(array_get(values, 2 + row * 7 + 3))
+        array_set(values, 2 + row * 9 + 8, "-1")
+        pilot open_start = v4_span_start(array_get(values, 2 + row * 9 + 3))
         pilot popping: bool = depth > 0
         repeat until not popping or not valid {
             pilot top = word_to_int(array_get(stack, depth - 1))
-            if v4_span_start(array_get(values, 2 + top * 7 + 4)) < open_start {
+            if v4_span_start(array_get(values, 2 + top * 9 + 4)) < open_start {
                 last_close = v4_hir_method_type_arg_index_emit(values, top, closed, last_close)
                 if last_close < 0 { valid = false }
                 closed += 1
@@ -7098,7 +7114,7 @@ task v4_hir_method_type_arg_index_closes(values: int) -> bool {
                 popping = false
             }
         }
-        pilot close: word = array_get(values, 2 + row * 7 + 4)
+        pilot close: word = array_get(values, 2 + row * 9 + 4)
         pilot no_span = V4_NO_SPAN
         if close == no_span {
             if depth > 0 { valid = false }
@@ -7131,9 +7147,21 @@ task v4_hir_method_type_arg_push_row(values: int, stream: int, separator: int, m
     array_push(values, v4_lex_token_span(stream, open))
     array_push(values, V4_NO_SPAN)
     array_push(values, "")
+    array_push(values, "")
+    array_push(values, V4_NO_SPAN)
     array_push(values, "-1")
     array_set(values, 0, word_from_int(row + 1))
     give back row
+}
+
+task v4_hir_method_type_arg_inner_kind(stream: int, open: int, close: int) -> word {
+    pilot first = v4_hir_skip_trivia(stream, open + 1, close)
+    if first >= close { give back v4_hir_method_type_arg_inner_empty }
+    pilot first_type = v4_lex_token_type(stream, first)
+    if first_type == v4_tok_ident or first_type == v4_tok_keyword or first_type == v4_tok_lifetime { give back v4_hir_method_type_arg_inner_type }
+    pilot value = v4_lex_token_syntax_value(stream, first)
+    if value == "*" or value == "(" or value == "[" { give back v4_hir_method_type_arg_inner_type }
+    give back v4_hir_method_type_arg_inner_other
 }
 
 -- False only when no handle is left for the rows or the bracket stack.
@@ -7182,8 +7210,11 @@ task v4_hir_lower_method_type_args(hir_id: int) -> bool {
                 pilot row = word_to_int(array_get(pending, depth * 2))
                 if row >= 0 {
                     pilot open = word_to_int(array_get(pending, depth * 2 + 1))
-                    array_set(values, 2 + row * 7 + 4, v4_lex_token_span(stream, idx))
-                    array_set(values, 2 + row * 7 + 5, v4_hir_shape_type_text(stream, open + 1, idx))
+                    array_set(values, 2 + row * 9 + 4, v4_lex_token_span(stream, idx))
+                    array_set(values, 2 + row * 9 + 5, v4_hir_shape_type_text(stream, open + 1, idx))
+                    array_set(values, 2 + row * 9 + 6, v4_hir_method_type_arg_inner_kind(stream, open, idx))
+                    pilot after = v4_hir_skip_trivia(stream, idx + 1, count)
+                    if after < count and v4_lex_token_type(stream, after) != v4_tok_eof { array_set(values, 2 + row * 9 + 7, v4_lex_token_span(stream, after)) }
                 }
             }
         }
@@ -7207,7 +7238,7 @@ task v4_hir_method_type_arg_total() -> int {
 task v4_hir_snapshot_method_type_arg_line(hir: int, row: int) -> word {
     pilot out = "hir-method-type-arg|" + word_from_int(hir) + "|" + word_from_int(row)
     pilot column = 0
-    repeat until column >= 6 {
+    repeat until column >= 8 {
         out = out + "|" + v4_hir_snapshot_escape(v4_hir_method_type_arg_value(hir, row, column))
         column += 1
     }
@@ -7233,15 +7264,29 @@ task v4_hir_snapshot_method_type_arg_record_is_valid(line: word) -> bool {
     pilot open = v4_hir_snapshot_field(line, 6)
     pilot close = v4_hir_snapshot_field(line, 7)
     pilot type_text = v4_hir_snapshot_field(line, 8)
+    pilot inner = v4_hir_snapshot_field_raw(line, 9)
+    pilot after = v4_hir_snapshot_field(line, 10)
     if named != v4_hir_method_type_arg_named and named != v4_hir_method_type_arg_unnamed { give back false }
     if not v4_hir_snapshot_span_is_canonical_nonempty(separator) or not v4_hir_snapshot_span_is_canonical_nonempty(method) or not v4_hir_snapshot_span_is_canonical_nonempty(open) { give back false }
     pilot file = v4_span_file(separator)
     if v4_span_file(method) != file or v4_span_file(open) != file { give back false }
     if v4_span_end(separator) > v4_span_start(method) or v4_span_end(method) > v4_span_start(open) { give back false }
     pilot no_span = V4_NO_SPAN
-    if close == no_span { give back type_text == "" }
+    if close == no_span {
+        pilot unclosed_text_clear: bool = type_text == ""
+        pilot unclosed_inner_clear: bool = inner == ""
+        pilot unclosed_after_clear: bool = after == no_span
+        give back unclosed_text_clear and unclosed_inner_clear and unclosed_after_clear
+    }
     if not v4_hir_snapshot_span_is_canonical_nonempty(close) or v4_span_file(close) != file { give back false }
-    give back v4_span_end(open) <= v4_span_start(close)
+    if v4_span_end(open) > v4_span_start(close) { give back false }
+    -- Brackets that hold nothing spell no type text; anything else does.
+    pilot empty: bool = inner == v4_hir_method_type_arg_inner_empty
+    if inner != v4_hir_method_type_arg_inner_empty and inner != v4_hir_method_type_arg_inner_type and inner != v4_hir_method_type_arg_inner_other { give back false }
+    pilot has_text: bool = type_text != ""
+    if empty == has_text { give back false }
+    if after == no_span { give back true }
+    give back v4_hir_snapshot_span_is_canonical_nonempty(after) and v4_span_file(after) == file and v4_span_end(close) <= v4_span_start(after)
 }
 
 -- Rows arrive per file in ordinal order (the snapshot writes them that way),
@@ -7306,7 +7351,7 @@ task v4_hir_snapshot_method_type_arg_slots_are_valid(records: int, files: int, r
             if valid and (v4_span_start(open) <= last_open or v4_span_start(method) <= last_method) { valid = false }
             if valid {
                 pilot column = 0
-                repeat until column >= 6 {
+                repeat until column >= 8 {
                     array_push(values, v4_hir_snapshot_field(line, column + 3))
                     column += 1
                 }
@@ -7336,7 +7381,7 @@ task v4_hir_restore_method_type_arg_records(records: int) -> void {
                 array_push(values, "0")
             }
             pilot column = 0
-            repeat until column >= 6 {
+            repeat until column >= 8 {
                 array_push(values, v4_hir_snapshot_field(line, column + 3))
                 column += 1
             }

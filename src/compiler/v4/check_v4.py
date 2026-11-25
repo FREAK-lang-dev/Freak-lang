@@ -2729,10 +2729,10 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "mta-parse-diagnostics=0",
             "mta-rows=4 closed=3",
-            "mta-row0 sep=0@36:37 method=0@37:40 named open=0@40:41 close=0@44:45 text=int",
-            "mta-row1 sep=0@66:68 method=0@68:72 named open=0@72:73 close=0@88:89 text=List<int>,word",
-            "mta-row2 sep=0@111:112 method=0@112:113 unnamed open=0@113:114 close=0@115:116 text=1",
-            "mta-row3 sep=0@156:157 method=0@157:160 named open=0@161:162 close=0:0@0:0 text=",
+            "mta-row0 sep=0@36:37 method=0@37:40 named open=0@40:41 close=0@44:45 text=int inner=type after=0@45:46",
+            "mta-row1 sep=0@66:68 method=0@68:72 named open=0@72:73 close=0@88:89 text=List<int>,word inner=type after=0@89:90",
+            "mta-row2 sep=0@111:112 method=0@112:113 unnamed open=0@113:114 close=0@115:116 text=1 inner=other after=0@121:126",
+            "mta-row3 sep=0@156:157 method=0@157:160 named open=0@161:162 close=0:0@0:0 text= inner= after=0:0@0:0",
             "mta-after-get=0",
             "mta-after-make=1",
             "mta-after-len=3",
@@ -14155,6 +14155,16 @@ def mir_build_method_type_arg_violations(source: str) -> list[str]:
     shape = freak_task_body(source, "v4_mir_is_generic_instance_method_call_shape") or ""
     if "v4_mir_method_type_arg_open(" not in shape or '== "<"' in shape:
         violations.append("generic instance method call shape does not read HIR method type argument facts")
+    # Raw-pointer `.cast<T>()` reads where the list closes, what it holds and
+    # the token after its `>` from the same rows.
+    raw_pointer = freak_task_body(source, "v4_mir_try_lower_builtin_raw_pointer_instance_method") or ""
+    for required in ("v4_hir_method_type_arg_close_span", "v4_hir_method_type_arg_after_close_span",
+                     "v4_hir_method_type_arg_inner", "v4_hir_method_type_arg_type_text"):
+        if required not in raw_pointer:
+            violations.append(f"raw-pointer cast does not read HIR method type argument facts: {required}")
+    for forbidden in ("v4_ty_type_text", "type_open + 1", "type_close + 1", "v4_mir_cast_target_starts_like_type"):
+        if forbidden in raw_pointer:
+            violations.append(f"raw-pointer cast reads its type argument list from tokens: {forbidden}")
     hir_source = freak_task_body(source, "v4_mir_type_arg_hir") or ""
     if "v4_mir_build_hir_id" not in hir_source or "v4_parse_stream_id(v4_hir_tree_id(" not in hir_source:
         violations.append("method type argument facts are read without checking the lowered HIR file")
@@ -14986,7 +14996,6 @@ def check_mir_local_annotation_boundary() -> None:
             violations.append(f"impl annotation bridge reconstructs annotation syntax: {forbidden}")
 
     allowed_type_text_tasks = {
-        "v4_mir_try_lower_builtin_raw_pointer_instance_method",
         "v4_mir_try_lower_associated_method_call",
         "v4_mir_shape_ctor_name",
         "v4_mir_constructor_head_name",

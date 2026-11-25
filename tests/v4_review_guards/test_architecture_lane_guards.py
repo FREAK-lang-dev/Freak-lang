@@ -226,6 +226,27 @@ class ArchitectureLaneGuards(unittest.TestCase):
         )
         self.assertIn("method type argument facts are read without checking the lowered HIR file", found)
 
+    def test_raw_pointer_cast_token_walk_is_rejected(self):
+        found = self.mir_build_type_arg_violations(
+            lambda text: text.replace(
+                "if v4_span_start(v4_hir_method_type_arg_after_close_span(v4_mir_build_hir_id, row)) != open_offset {",
+                "if v4_mir_skip_trivia(stream_id, type_close + 1) != open_token {",
+                1,
+            )
+        )
+        self.assertIn("raw-pointer cast does not read HIR method type argument facts: v4_hir_method_type_arg_after_close_span", found)
+        self.assertIn("raw-pointer cast reads its type argument list from tokens: type_close + 1", found)
+
+    def test_raw_pointer_cast_text_from_tokens_is_rejected(self):
+        found = self.mir_build_type_arg_violations(
+            lambda text: text.replace(
+                "v4_mir_compact_type_text(v4_hir_method_type_arg_type_text(v4_mir_build_hir_id, row))\n        target_pointee = v4_ty_canonical_type",
+                "v4_mir_compact_type_text(v4_ty_type_text(stream_id, type_open + 1, open_token))\n        target_pointee = v4_ty_canonical_type",
+                1,
+            )
+        )
+        self.assertIn("raw-pointer cast reads its type argument list from tokens: v4_ty_type_text", found)
+
     def test_boundary_gate_runs_method_type_arg_guard(self):
         found = self.boundary_violations(
             "freak_mir_build",

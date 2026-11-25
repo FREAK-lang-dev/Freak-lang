@@ -3432,26 +3432,6 @@ task v4_mir_raw_pointer_method_type_arg_open(stream_id: int, method_token: int, 
     give back v4_mir_method_type_arg_open(stream_id, method_token, open_token)
 }
 
-task v4_mir_raw_pointer_method_type_arg_close(stream_id: int, type_open: int, open_token: int) -> int {
-    pilot idx = type_open
-    pilot depth = 0
-    repeat until idx >= open_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot value = v4_lex_token_syntax_value(stream_id, idx)
-            if value == "<" {
-                depth += 1
-            } else if value == ">" {
-                depth -= 1
-                if depth == 0 {
-                    give back idx
-                }
-            }
-        }
-        idx += 1
-    }
-    give back 0 - 1
-}
-
 task v4_mir_reject_method_type_args(mir_id: int, stream_id: int, expr_span: word, owner_ty: word, method_name: word, call_glyph: word, method_token: int, open_token: int) -> bool {
     if v4_mir_method_type_arg_open(stream_id, method_token, open_token) < 0 {
         give back false
@@ -3466,18 +3446,6 @@ task v4_mir_reject_method_type_args(mir_id: int, stream_id: int, expr_span: word
     }
     v4_mir_add_type_error(mir_id, expr_span, "method takes no type arguments", owner_ty + call_glyph + method_name + " is not a generic method; remove <" + type_text + "> before the call parentheses")
     give back true
-}
-
-task v4_mir_cast_target_starts_like_type(stream_id: int, target_start: int, type_close: int) -> bool {
-    if target_start < 0 or target_start >= type_close {
-        give back false
-    }
-    pilot token_type = v4_lex_token_type(stream_id, target_start)
-    if token_type == v4_tok_ident or token_type == v4_tok_keyword or token_type == v4_tok_lifetime {
-        give back true
-    }
-    pilot token_value = v4_lex_token_syntax_value(stream_id, target_start)
-    give back token_value == "*" or token_value == "(" or token_value == "["
 }
 
 task v4_mir_body_impl_hir_item(mir_id: int, body_id: int) -> int {
@@ -3637,8 +3605,8 @@ task v4_mir_type_reference_is_declared(mir_id: int, sig_id: int, type_text: word
     give back v4_mir_type_reference_is_declared_for_body(mir_id, 0 - 1, sig_id, type_text)
 }
 
-task v4_mir_validate_raw_pointer_cast_target(mir_id: int, body_id: int, stream_id: int, target_start: int, type_close: int, target_pointee: word, expr_span: word) -> bool {
-    if not v4_mir_cast_target_starts_like_type(stream_id, target_start, type_close) {
+task v4_mir_validate_raw_pointer_cast_target(mir_id: int, body_id: int, starts_like_type: bool, target_pointee: word, expr_span: word) -> bool {
+    if not starts_like_type {
         v4_mir_add_type_error(mir_id, expr_span, "cast target type is invalid", ".cast<T>() needs a type name, raw pointer, tuple, fixed array, or generic instance between the angle brackets")
         give back false
     }
@@ -3786,32 +3754,35 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_cast, receiver_rvalue, 0 - 1, expr_span, v4_ty_unknown)
         }
 
-        pilot type_close = v4_mir_raw_pointer_method_type_arg_close(stream_id, type_open, open_token)
-        if type_close < 0 {
+        -- HIR's facts for the `<...>` list: where it closes, what it holds and
+        -- the token after its `>`.
+        pilot row = v4_mir_method_type_arg_row(stream_id, method_token)
+        pilot type_close = v4_hir_method_type_arg_close_span(v4_mir_build_hir_id, row)
+        pilot open_offset = v4_mir_token_start_offset(stream_id, open_token)
+        if type_close == V4_NO_SPAN or v4_span_start(type_close) >= open_offset {
             v4_mir_add_type_error(mir_id, expr_span, "cast needs a target type parameter", "close the cast target with '>' before the call parentheses")
             v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, close_token)
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_cast, receiver_rvalue, 0 - 1, expr_span, v4_ty_unknown)
         }
-        pilot after_type_close = v4_mir_skip_trivia(stream_id, type_close + 1)
-        if after_type_close != open_token {
+        if v4_span_start(v4_hir_method_type_arg_after_close_span(v4_mir_build_hir_id, row)) != open_offset {
             v4_mir_add_type_error(mir_id, expr_span, "cast target syntax is invalid", "call .cast<T>() directly after the target type; remove tokens between '>' and '('")
             v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, close_token)
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_cast, receiver_rvalue, 0 - 1, expr_span, v4_ty_unknown)
         }
 
-        pilot target_start = v4_mir_skip_trivia(stream_id, type_open + 1)
-        if target_start >= type_close {
+        pilot inner = v4_hir_method_type_arg_inner(v4_mir_build_hir_id, row)
+        if inner == v4_hir_method_type_arg_inner_empty {
             v4_mir_add_type_error(mir_id, expr_span, "cast needs a target type parameter", "supply a non-empty pointee type, e.g. " + receiver_ty + ".cast<tiny>()")
             v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, close_token)
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_cast, receiver_rvalue, 0 - 1, expr_span, v4_ty_unknown)
         }
 
-        pilot target_pointee = v4_mir_compact_type_text(v4_ty_type_text(stream_id, target_start, type_close))
+        pilot target_pointee = v4_mir_compact_type_text(v4_hir_method_type_arg_type_text(v4_mir_build_hir_id, row))
         target_pointee = v4_ty_canonical_type(v4_mir_ty_id(mir_id), target_pointee)
         -- An instance casts to its concrete pointee.
         target_pointee = v4_mir_build_generic_type(mir_id, target_pointee)
         pilot result_ty = v4_ty_raw_pointer_with_target_type(receiver_ty, target_pointee)
-        pilot valid_cast_target = v4_mir_validate_raw_pointer_cast_target(mir_id, body_id, stream_id, target_start, type_close, target_pointee, expr_span)
+        pilot valid_cast_target = v4_mir_validate_raw_pointer_cast_target(mir_id, body_id, inner == v4_hir_method_type_arg_inner_type, target_pointee, expr_span)
         if not valid_cast_target {
             result_ty = v4_ty_unknown
         }
