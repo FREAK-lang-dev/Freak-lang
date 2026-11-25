@@ -21,7 +21,7 @@
   "env_set": {
     "FREAK_HOME": "$dir"
   },
-  "post_install": "Write-Output 'FREAK $version (\"Maverick\") installed. Run: freak version'",
+  "post_install": "Write-Output 'FREAK $version (\"Afterburner\") installed. Run: freak version'",
   "checkver": {
     "github": "https://github.com/FREAK-lang-dev/Freak-lang",
     "regex": "v([\\d.]+)"
