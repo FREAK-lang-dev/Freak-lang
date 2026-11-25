@@ -1178,8 +1178,11 @@ callback semantics are unchanged. HIR snapshot v12 requires one four-field
 same-file contained spans. Validation and capacity preflight precede mutation.
 Two packed per-file arrays store owner pairs and member quadruples; detached
 declared-return reads do not consult lexer, parser or expansion state.
-Impl/doctrine return declarations and nonordinary parameter signatures remain
-explicitly named token-facing fallbacks. Other non-ordinary signatures, the
+Impl/doctrine return declarations remain an explicitly named token-facing
+fallback. Task parameter signatures have none left: HIR adds a parameter owner
+for every parsed task (an empty one for a malformed list, with its diagnostic),
+extern members read their own HIR facts, and a signature with neither arm has
+no parameters. Other non-ordinary signatures, the
 remaining MIR body families, and all other type families remain explicit
 follow-up slices. These boundaries change fact ownership, not language
 semantics or backend representation. Symbol-valued annotated locals still

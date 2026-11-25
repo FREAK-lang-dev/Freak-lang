@@ -31,9 +31,9 @@ class TaskParameterGuards(unittest.TestCase):
         original = "give back v4_hir_task_param_count(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))"
         self.assertIn(original, body)
         mutant = source.replace(body, body.replace(original, "give back hidden_param_bridge(ty_id, sig_id)", 1), 1)
-        mutant += "\ntask hidden_param_bridge(ty_id: int, sig_id: int) -> int {\n give back v4_ty_nonordinary_signature_param_count_fallback(ty_id, sig_id)\n}\n"
+        mutant += "\ntask hidden_param_bridge(ty_id: int, sig_id: int) -> int {\n give back v4_ty_param_count_from_tokens(v4_ty_signature_stream_id(ty_id), 0, 1)\n}\n"
         findings = guard.task_param_ordinary_call_closure_violations(mutant)
-        self.assertTrue(any("v4_ty_nonordinary_signature_param_count_fallback" in finding for finding in findings))
+        self.assertTrue(any("hidden_param_bridge uses _token" in finding for finding in findings), findings)
 
     def test_commented_parameter_adapter_still_mutates(self):
         original_read = guard.read_text
@@ -45,7 +45,7 @@ class TaskParameterGuards(unittest.TestCase):
         with patch.object(guard, "read_text", side_effect=lambda p: commented if p == ty_path else original_read(p)):
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 guard.check_task_param_hir_boundary()
-        self.assertIn("ordinary fallback rejected", output.getvalue())
+        self.assertIn("ordinary token fallback rejected", output.getvalue())
 
 
 class TaskReturnGuards(unittest.TestCase):

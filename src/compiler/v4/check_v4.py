@@ -14033,15 +14033,19 @@ def architecture_lane_violations(ty_source: str, codegen_source: str) -> list[st
         if "v4_ty_type_text" in body or "v4_ty_return_type_end" in body or "v4_ty_find_top_level_token" in body:
             violations.append("impl/doctrine method return reader reconstructs a declared type from tokens")
             break
-    # A1 extern member parameters: every public parameter reader takes the HIR
-    # extern arm before the token fallback kept for recovered and non-task signatures.
+    # A1 task parameters: every public parameter reader answers from HIR (the
+    # ordinary task arm, then the extern member arm). Every parsed task owns HIR
+    # parameter facts, so there is no token fallback left to reach.
     for key in ("count", "name", "mode", "lifetime", "lifetime_span", "surface_type", "type_span", "segment_span", "name_span"):
         name = f"v4_ty_signature_param_{key}"
         body = freak_task_body(ty_source, name) or ""
-        fallback = f"v4_ty_nonordinary_signature_param_{key}_fallback"
         arm = body.find("v4_ty_signature_extern_param_member(")
-        if arm < 0 or "v4_hir_extern_" not in body or fallback not in body or body.find(fallback) < arm:
-            violations.append(f"{name} reaches the token fallback without the HIR extern parameter arm")
+        if arm < 0 or "v4_hir_extern_" not in body:
+            violations.append(f"{name} has no HIR extern parameter arm")
+        if "_fallback" in body or "nonordinary" in body or "_token" in body or "v4_lex_" in body:
+            violations.append(f"{name} reads task parameters from tokens")
+    if re.search(r"(?m)^task v4_ty_nonordinary_signature_param_", ty_source):
+        violations.append("TY still defines a token fallback for task parameters")
     member_body = freak_task_body(ty_source, "v4_ty_signature_extern_param_member") or ""
     if "v4_hir_extern_member_count" not in member_body or "_token" in member_body:
         violations.append("extern parameter dispatch does not check the HIR member range")
@@ -15708,15 +15712,15 @@ def check_task_param_hir_boundary() -> None:
                 )
 
     public_contracts = {
-        "v4_ty_signature_param_count": ("v4_hir_task_param_count", "v4_ty_nonordinary_signature_param_count_fallback"),
-        "v4_ty_signature_param_name": ("v4_hir_task_param_name", "v4_ty_nonordinary_signature_param_name_fallback"),
-        "v4_ty_signature_param_mode": ("v4_hir_task_param_mode", "v4_ty_nonordinary_signature_param_mode_fallback"),
-        "v4_ty_signature_param_lifetime": ("v4_hir_task_param_lifetime", "v4_ty_nonordinary_signature_param_lifetime_fallback"),
-        "v4_ty_signature_param_lifetime_span": ("v4_hir_task_param_lifetime_span", "v4_ty_nonordinary_signature_param_lifetime_span_fallback"),
-        "v4_ty_signature_param_surface_type": ("v4_hir_task_param_surface_type", "v4_ty_nonordinary_signature_param_surface_type_fallback"),
-        "v4_ty_signature_param_type_span": ("v4_hir_task_param_type_span", "v4_ty_nonordinary_signature_param_type_span_fallback"),
-        "v4_ty_signature_param_segment_span": ("v4_hir_task_param_segment_span", "v4_ty_nonordinary_signature_param_segment_span_fallback"),
-        "v4_ty_signature_param_name_span": ("v4_hir_task_param_name_span", "v4_ty_nonordinary_signature_param_name_span_fallback"),
+        "v4_ty_signature_param_count": ("v4_hir_task_param_count",),
+        "v4_ty_signature_param_name": ("v4_hir_task_param_name",),
+        "v4_ty_signature_param_mode": ("v4_hir_task_param_mode",),
+        "v4_ty_signature_param_lifetime": ("v4_hir_task_param_lifetime",),
+        "v4_ty_signature_param_lifetime_span": ("v4_hir_task_param_lifetime_span",),
+        "v4_ty_signature_param_surface_type": ("v4_hir_task_param_surface_type",),
+        "v4_ty_signature_param_type_span": ("v4_hir_task_param_type_span",),
+        "v4_ty_signature_param_segment_span": ("v4_hir_task_param_segment_span",),
+        "v4_ty_signature_param_name_span": ("v4_hir_task_param_name_span",),
     }
     for task_name, required in public_contracts.items():
         body = freak_task_body(ty_source, task_name)
@@ -15728,7 +15732,7 @@ def check_task_param_hir_boundary() -> None:
         for needle in required:
             if needle not in body:
                 violations.append(f"task parameter TY adapter missing {needle}: {task_name}")
-        for forbidden in ("v4_lex_", "v4_parse_", "v4_expand_", "v4_ty_type_text"):
+        for forbidden in ("v4_lex_", "v4_parse_", "v4_expand_", "v4_ty_type_text", "_fallback", "_token"):
             if forbidden in body:
                 violations.append(f"ordinary task parameter adapter reconstructs syntax: {task_name} uses {forbidden}")
 
@@ -15764,7 +15768,7 @@ def check_task_param_hir_boundary() -> None:
         masked_ty_source = freak_mask_line_comments(ty_source)
         mutated_body = param_count_body.replace(
             canonical_count_return,
-            "give back v4_ty_nonordinary_signature_param_count_fallback(ty_id, sig_id)",
+            "give back v4_ty_param_count_from_tokens(v4_ty_signature_stream_id(ty_id), 0, 1)",
             1,
         )
         if param_count_body not in masked_ty_source:
@@ -15772,17 +15776,17 @@ def check_task_param_hir_boundary() -> None:
         mutated_source = masked_ty_source.replace(param_count_body, mutated_body, 1)
         probe_violations = task_param_ordinary_call_closure_violations(mutated_source)
         if not any(
-            "v4_ty_nonordinary_signature_param_" in violation
+            "v4_ty_param_count_from_tokens" in violation
             for violation in probe_violations
         ):
-            violations.append("task parameter boundary guard self-test accepted ordinary fallback")
+            violations.append("task parameter boundary guard self-test accepted ordinary token fallback")
 
     if violations:
         for violation in violations:
             print(violation)
         raise SystemExit(1)
 
-    print("task parameter boundary guard self-test: ordinary fallback rejected")
+    print("task parameter boundary guard self-test: ordinary token fallback rejected")
     print("no syntax past HIR: ordinary task parameter contracts and spans")
 
 
