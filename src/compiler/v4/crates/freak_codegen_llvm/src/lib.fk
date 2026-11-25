@@ -6489,6 +6489,14 @@ task v4_codegen_llvm_native_list_type_error(mir_id: int, type_text: word, depth:
 
 -- A list as a value or as a shape field, tuple or array slot or list
 -- element: its header is one owned slot (tier 3 nested lists row).
+task v4_codegen_llvm_sum_has_loan_payload(mir_id: int, type_text: word) -> bool {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot kind = v4_mir_scalar_sum_kind(mir_id, type_text)
+    if kind != "Maybe" and kind != "Result" { give back false }
+    if v4_ty_native_sum_family(kind) == "maybe" { give back v4_ty_is_lend_type(v4_ty_native_sum_case_type(ty_id, type_text, "Some")) }
+    give back v4_ty_is_lend_type(v4_ty_native_sum_case_type(ty_id, type_text, "Ok")) or v4_ty_is_lend_type(v4_ty_native_sum_case_type(ty_id, type_text, "Err"))
+}
+
 task v4_codegen_llvm_native_list_slot_error(mir_id: int, type_text: word, depth: int) -> word {
     if depth > 32 { give back "native list nesting exceeds supported depth: " + type_text }
     pilot element = v4_codegen_llvm_list_element(mir_id, type_text)
@@ -6497,7 +6505,12 @@ task v4_codegen_llvm_native_list_slot_error(mir_id: int, type_text: word, depth:
     if element == v4_ty_void or element == v4_ty_never { give back "native lists of void are not supported: " + type_text }
     -- A carrier element is stored by value, as a carrier local is: its one
     -- word field (if any) is released by the element drop helper.
-    if v4_mir_scalar_sum_kind(mir_id, element) != "" { give back v4_codegen_llvm_native_sum_error(mir_id, element, depth + 1) }
+    -- Its glue has no handle retain or release, so a carrier of a Shared
+    -- handle, BorrowError or loan stays out of lists.
+    if v4_mir_scalar_sum_kind(mir_id, element) != "" {
+        if v4_codegen_llvm_type_names_shared(mir_id, element) or v4_codegen_llvm_sum_has_loan_payload(mir_id, element) { give back "native lists of maybe/result values holding Shared handles or loans are not yet supported: " + type_text }
+        give back v4_codegen_llvm_native_sum_error(mir_id, element, depth + 1)
+    }
     pilot unadmitted = v4_codegen_llvm_unadmitted_sum_error(mir_id, element)
     if unadmitted != "" { give back unadmitted }
     if v4_ty_is_maybe_type(element) { give back "native lists of maybe/result values are not yet supported: " + type_text }
