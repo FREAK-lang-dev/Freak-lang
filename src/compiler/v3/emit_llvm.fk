@@ -177,8 +177,8 @@ task ir_ptrtoint(dest: word, value: word) -> void {
 -- ptrtoint with the operand's own pointer type, for function symbols whose
 -- type is not i8* (typed-pointer LLVM checks it; opaque pointers ignore it).
 task ir_ptrtoint_typed(dest: word, pointer_type: word, value: word) -> void {
-    if llvm_builder_active { freak_ib2_cast(dest, "ptrtoint", value) give back }
-    llvm_emit_line("    " + dest + " = ptrtoint " + pointer_type + " " + value + " to i64")
+    if llvm_builder_active { freak_ib2_cast(dest, "ptrtoint", value) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = ptrtoint " + pointer_type + " " + value + " to i64")
 }
 
 task ir_string_pointer(dest: word, length: word, global_name: word) -> void {
