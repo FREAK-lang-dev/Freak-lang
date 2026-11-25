@@ -9,7 +9,7 @@
 
 pilot v4_target_wire_format = "freak-target-spec-v1"
 pilot v4_target_tag_spec = "TargetSpec"
--- The four canonical v1 records fit within this fixed admission budget.
+-- The five canonical v1 records fit within this fixed admission budget.
 -- Bound framed input before loops: bootstrap LLVM word access may scan bytes.
 pilot v4_target_record_max_bytes = 512
 
@@ -17,25 +17,33 @@ pilot v4_target_triple_linux_x86_64 = "x86_64-unknown-linux-gnu"
 pilot v4_target_triple_linux_aarch64 = "aarch64-unknown-linux-gnu"
 pilot v4_target_triple_macos_aarch64 = "aarch64-apple-darwin"
 pilot v4_target_triple_windows_x86_64 = "x86_64-w64-windows-gnu"
+-- The first 32-bit target: WebAssembly with WASI preview 1 imports. It is a
+-- compile target, not a release host; browsers run it through a WASI shim.
+pilot v4_target_triple_wasm32_wasip1 = "wasm32-unknown-wasip1"
 
 pilot v4_target_arch_x86_64 = "x86_64"
 pilot v4_target_arch_aarch64 = "aarch64"
+pilot v4_target_arch_wasm32 = "wasm32"
 
 pilot v4_target_os_linux = "linux"
 pilot v4_target_os_macos = "macos"
 pilot v4_target_os_windows = "windows"
+pilot v4_target_os_wasi = "wasi"
 
 pilot v4_target_environment_gnu = "gnu"
 pilot v4_target_environment_darwin = "darwin"
+pilot v4_target_environment_wasip1 = "wasip1"
 
 pilot v4_target_endian_little = "little"
 
 pilot v4_target_c_data_model_lp64 = "lp64"
 pilot v4_target_c_data_model_llp64 = "llp64"
+pilot v4_target_c_data_model_ilp32 = "ilp32"
 
 pilot v4_target_object_format_elf = "elf"
 pilot v4_target_object_format_macho = "mach-o"
 pilot v4_target_object_format_coff = "coff"
+pilot v4_target_object_format_wasm = "wasm"
 
 pilot v4_target_cc_c = "C"
 pilot v4_target_cc_cdecl = "cdecl"
@@ -47,10 +55,15 @@ pilot v4_target_cc_vectorcall = "vectorcall"
 pilot v4_target_link_clang_gnu = "clang-driver-gnu"
 pilot v4_target_link_clang_darwin = "clang-driver-darwin"
 pilot v4_target_link_clang_ucrt = "clang-driver-ucrt"
+-- wasm-ld over the V4 core runtime and FREAK's own WASI platform layer;
+-- no wasi-libc or host sysroot is involved.
+pilot v4_target_link_wasm_ld_wasip1 = "wasm-ld-wasip1"
 
 pilot v4_target_entry_posix_main = "posix-main"
 pilot v4_target_entry_darwin_main = "darwin-main"
 pilot v4_target_entry_ucrt_main = "ucrt-main"
+-- The platform layer exports _start, reads WASI args and calls main.
+pilot v4_target_entry_wasi_start = "wasi-start"
 
 task v4_target_pack_field(field: word) -> word {
     give back word_from_int(field.length()) + ":" + field
@@ -145,7 +158,7 @@ task v4_target_field(record: word, wanted: int) -> word {
     give back ""
 }
 
--- Raw encoder used by the four canonical constructors and validation tests.
+-- Raw encoder used by the five canonical constructors and validation tests.
 -- Consumers should call v4_target_spec_new rather than construct records.
 task v4_target_spec_record(triple: word, arch: word, os: word, environment: word, pointer_width: int, endianness: word, c_data_model: word, object_format: word, calling_conventions: word, executable_prefix: word, executable_suffix: word, object_prefix: word, object_suffix: word, link_policy: word, entry_policy: word) -> word {
     pilot record = v4_target_pack_field(v4_target_tag_spec)
@@ -172,6 +185,7 @@ task v4_target_normalize_triple(triple: word) -> word {
     if triple == v4_target_triple_linux_aarch64 { give back triple }
     if triple == v4_target_triple_macos_aarch64 { give back triple }
     if triple == v4_target_triple_windows_x86_64 { give back triple }
+    if triple == v4_target_triple_wasm32_wasip1 { give back triple }
     -- Release slugs, architecture aliases, case variants, and unknown
     -- triples are deliberately not guessed by the target authority.
     give back ""
@@ -190,6 +204,9 @@ task v4_target_spec_new(triple: word) -> word {
     }
     if canonical == v4_target_triple_windows_x86_64 {
         give back v4_target_spec_record(canonical, v4_target_arch_x86_64, v4_target_os_windows, v4_target_environment_gnu, 64, v4_target_endian_little, v4_target_c_data_model_llp64, v4_target_object_format_coff, "C,cdecl,system,win64,vectorcall", "", ".exe", "", ".obj", v4_target_link_clang_ucrt, v4_target_entry_ucrt_main)
+    }
+    if canonical == v4_target_triple_wasm32_wasip1 {
+        give back v4_target_spec_record(canonical, v4_target_arch_wasm32, v4_target_os_wasi, v4_target_environment_wasip1, 32, v4_target_endian_little, v4_target_c_data_model_ilp32, v4_target_object_format_wasm, "C,cdecl,system", "", ".wasm", "", ".o", v4_target_link_wasm_ld_wasip1, v4_target_entry_wasi_start)
     }
     give back ""
 }
@@ -214,7 +231,7 @@ task v4_target_spec_decode(record: word) -> word {
 }
 
 task v4_target_spec_count() -> int {
-    give back 4
+    give back 5
 }
 
 task v4_target_spec_at(target_id: int) -> word {
@@ -222,6 +239,7 @@ task v4_target_spec_at(target_id: int) -> word {
     if target_id == 1 { give back v4_target_spec_new(v4_target_triple_linux_aarch64) }
     if target_id == 2 { give back v4_target_spec_new(v4_target_triple_macos_aarch64) }
     if target_id == 3 { give back v4_target_spec_new(v4_target_triple_windows_x86_64) }
+    if target_id == 4 { give back v4_target_spec_new(v4_target_triple_wasm32_wasip1) }
     give back ""
 }
 
@@ -266,7 +284,7 @@ task v4_target_c_integer_descriptor(target_spec: word, scalar_key: word) -> word
         if scalar_key == "c_long" { give back "c-signed64" }
         give back "c-unsigned64"
     }
-    if model == v4_target_c_data_model_llp64 {
+    if model == v4_target_c_data_model_llp64 or model == v4_target_c_data_model_ilp32 {
         if scalar_key == "c_long" { give back "c-signed32" }
         give back "c-unsigned32"
     }
@@ -293,8 +311,8 @@ task v4_target_c_integer_size(descriptor: word) -> int {
     give back width / 8
 }
 
--- The four registered targets align these integers to their byte size.
--- Header-free four-target C oracle coverage pins this restricted contract;
+-- The five registered targets align these integers to their byte size.
+-- Header-free five-target C oracle coverage pins this restricted contract;
 -- this is not a general aggregate, packed-field, or function-ABI rule.
 task v4_target_c_integer_alignment(descriptor: word) -> int {
     give back v4_target_c_integer_size(descriptor)
@@ -312,22 +330,32 @@ task v4_target_c_integer_llvm_carrier(descriptor: word) -> word {
 -- width on this target (c_long and c_ulong follow the data model); the
 -- extension attribute is what Clang puts on a parameter or return of that C
 -- type: x86_64 SysV and Apple arm64 extend i1/i8/i16, the Microsoft x64 ABI
--- extends only _Bool, and AAPCS64 Linux extends nothing. Unknown keys and
+-- extends only _Bool, AAPCS64 Linux extends nothing, and wasm32 extends
+-- i1/i8/i16 like SysV. Unknown keys and
 -- invalid targets fail closed with "" / -1.
 task v4_target_c_scalar_carrier(target_spec: word, scalar_key: word) -> word {
     if not v4_target_spec_valid(target_spec) { give back "" }
     if scalar_key == "c_bool" { give back "i1" }
     if scalar_key == "c_char" or scalar_key == "c_uchar" { give back "i8" }
     if scalar_key == "c_short" or scalar_key == "c_ushort" { give back "i16" }
+    -- size_t / ptrdiff_t: the target's pointer width. Codegen asks for these
+    -- only on targets whose pointers are narrower than FREAK's 64-bit int.
+    if scalar_key == "c_size" or scalar_key == "c_isize" {
+        pilot width = v4_target_spec_pointer_width(target_spec)
+        if width == 32 { give back "i32" }
+        if width == 64 { give back "i64" }
+        give back ""
+    }
     give back v4_target_c_integer_llvm_carrier(v4_target_c_integer_descriptor(target_spec, scalar_key))
 }
 
 -- 1 signed, 0 unsigned, -1 unknown. Plain C char is unsigned on AArch64
--- Linux and signed on the other three registered targets.
+-- Linux and signed on the other four registered targets.
 task v4_target_c_scalar_signedness(target_spec: word, scalar_key: word) -> int {
     if v4_target_c_scalar_carrier(target_spec, scalar_key) == "" { give back 0 - 1 }
     if scalar_key == "c_bool" or scalar_key == "c_uchar" or scalar_key == "c_ushort" { give back 0 }
-    if scalar_key == "c_short" { give back 1 }
+    if scalar_key == "c_short" or scalar_key == "c_isize" { give back 1 }
+    if scalar_key == "c_size" { give back 0 }
     if scalar_key == "c_char" {
         if v4_target_field(target_spec, 3) == v4_target_arch_aarch64 and v4_target_field(target_spec, 4) == v4_target_os_linux { give back 0 }
         give back 1
@@ -365,7 +393,8 @@ task v4_target_carrier_size(target_spec: word, carrier: word) -> int {
     give back 0 - 1
 }
 
--- The four registered targets align every scalar carrier to its size.
+-- The five registered targets align every scalar carrier to its size
+-- (wasm32 keeps i64 and double at 8 bytes; only ptr shrinks to 4).
 task v4_target_carrier_align(target_spec: word, carrier: word) -> int {
     give back v4_target_carrier_size(target_spec, carrier)
 }
@@ -476,6 +505,7 @@ task v4_target_release_name(target_spec: word) -> word {
     if triple == v4_target_triple_linux_aarch64 { give back "linux-arm64" }
     if triple == v4_target_triple_macos_aarch64 { give back "macos-arm64" }
     if triple == v4_target_triple_windows_x86_64 { give back "windows-x64" }
+    if triple == v4_target_triple_wasm32_wasip1 { give back "wasm32-wasip1" }
     give back ""
 }
 

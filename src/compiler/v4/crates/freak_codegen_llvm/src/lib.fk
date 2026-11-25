@@ -1177,10 +1177,12 @@ task v4_codegen_llvm_c_width_target_error(codegen_id: int, target_spec: word) ->
 -- FREAK call sites use. Narrowing goes through the checked runtime helpers;
 -- the C result widens by the C type's signedness.
 task v4_codegen_llvm_c_width_module_lines(codegen_id: int, decl_id: int, target_spec: word) -> word {
+    give back v4_codegen_llvm_c_width_module_lines_for(codegen_id, decl_id, target_spec, v4_codegen_llvm_decl_return(codegen_id, decl_id), v4_codegen_llvm_decl_params(codegen_id, decl_id))
+}
+
+task v4_codegen_llvm_c_width_module_lines_for(codegen_id: int, decl_id: int, target_spec: word, ret: word, params_text: word) -> word {
     pilot cc = v4_codegen_llvm_decl_cc(codegen_id, decl_id)
     pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl_id)
-    pilot ret = v4_codegen_llvm_decl_return(codegen_id, decl_id)
-    pilot params_text = v4_codegen_llvm_decl_params(codegen_id, decl_id)
     pilot suffix = v4_codegen_llvm_ffi_call_suffix(v4_codegen_llvm_decl_abi(codegen_id, decl_id))
     pilot line = v4_codegen_llvm_decl_line(codegen_id, decl_id)
     pilot noreturn: bool = v4_slice(line, line.length() - 9, line.length()) == " noreturn"
@@ -6756,7 +6758,7 @@ task v4_codegen_llvm_list_globals() -> word {
 -- The helpers link libc's allocator under its C names, so a module with
 -- lists may not declare or define those symbols itself.
 task v4_codegen_llvm_list_symbol_error(codegen_id: int) -> word {
-    pilot reserved = ",@realloc,@free,@llvm.umul.with.overflow.i64,@\"llvm.umul.with.overflow.i64\","
+    pilot reserved = ",@realloc,@free,@llvm.umul.with.overflow.i64,@\"llvm.umul.with.overflow.i64\",@freak.libc.realloc,@\"freak.libc.realloc\","
     pilot body = 0
     repeat until body >= v4_codegen_llvm_body_count(codegen_id) {
         pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body)
@@ -9875,9 +9877,131 @@ task v4_codegen_llvm_native_target_error(codegen_id: int, target_spec: word) -> 
     }
     native_error = v4_codegen_llvm_c_width_target_error(codegen_id, target_spec)
     if native_error != "" { give back native_error }
+    native_error = v4_codegen_llvm_pointer_sized_target_error(codegen_id, target_spec)
+    if native_error != "" { give back native_error }
     native_error = v4_codegen_llvm_c_call_target_error(codegen_id, target_spec)
     if native_error != "" { give back native_error }
     give back v4_codegen_llvm_shape_layout_error(array_get(v4_codegen_llvm_shape_lines, codegen_id), target_spec)
+}
+
+-- Pointer-sized std::ffi aliases (c_size, c_isize, usize, isize). TY carries
+-- them as 64-bit uint/int, which is the C width only where pointers are 64
+-- bits, so the target-neutral plan spells them as plain i64. On a 32-bit
+-- target (wasm32) module_text marks those plan positions with the c_size /
+-- c_isize C-width keys and the ordinary C-width shim narrows them (checked)
+-- and widens the result; FREAK call sites are pointed at the shim. Positions
+-- the shim cannot cover (variadic declarations, @extern_callback exports and
+-- references that are not direct calls) fail closed.
+task v4_codegen_llvm_ptrsize_key(surface: word) -> word {
+    pilot name = v4_ty_surface_ffi_alias_name(surface)
+    if name == "c_size" or name == "usize" { give back "c_size" }
+    if name == "c_isize" or name == "isize" { give back "c_isize" }
+    give back ""
+}
+
+task v4_codegen_llvm_ptrsize_signature(codegen_id: int, decl_id: int) -> int {
+    pilot mir_id = v4_codegen_llvm_file_mir_id(codegen_id)
+    if mir_id < 0 { give back 0 - 1 }
+    give back v4_ty_task_signature_id_for_name(v4_mir_ty_id(mir_id), v4_codegen_llvm_decl_name(codegen_id, decl_id))
+}
+
+task v4_codegen_llvm_ptrsize_signature_used(ty_id: int, sig: int) -> bool {
+    if v4_codegen_llvm_ptrsize_key(v4_ty_signature_return_surface_type(ty_id, sig)) != "" { give back true }
+    pilot param = 0
+    repeat until param >= v4_ty_signature_fixed_param_count(ty_id, sig) {
+        if v4_codegen_llvm_ptrsize_key(v4_ty_signature_param_surface_type(ty_id, sig, param)) != "" { give back true }
+        param += 1
+    }
+    give back false
+}
+
+-- The plan return with a virtual marker, or "" when it stays as planned.
+task v4_codegen_llvm_ptrsize_return(codegen_id: int, decl_id: int) -> word {
+    pilot sig = v4_codegen_llvm_ptrsize_signature(codegen_id, decl_id)
+    if sig < 0 { give back "" }
+    pilot ty_id = v4_mir_ty_id(v4_codegen_llvm_file_mir_id(codegen_id))
+    pilot key = v4_codegen_llvm_ptrsize_key(v4_ty_signature_return_surface_type(ty_id, sig))
+    if key == "" or v4_codegen_llvm_decl_return(codegen_id, decl_id) != "i64" { give back "" }
+    give back "$R." + key + "$"
+}
+
+-- The plan parameter list with virtual markers, or "" when none applies.
+task v4_codegen_llvm_ptrsize_params(codegen_id: int, decl_id: int) -> word {
+    pilot sig = v4_codegen_llvm_ptrsize_signature(codegen_id, decl_id)
+    if sig < 0 { give back "" }
+    pilot ty_id = v4_mir_ty_id(v4_codegen_llvm_file_mir_id(codegen_id))
+    pilot params_text = v4_codegen_llvm_decl_params(codegen_id, decl_id)
+    pilot out = ""
+    pilot changed: bool = false
+    pilot index = 0
+    pilot start = 0
+    repeat until start >= params_text.length() {
+        pilot stop = v4_codegen_llvm_c_width_part_end(params_text, start)
+        pilot part = v4_slice(params_text, start, stop)
+        if index < v4_ty_signature_fixed_param_count(ty_id, sig) {
+            pilot key = v4_codegen_llvm_ptrsize_key(v4_ty_signature_param_surface_type(ty_id, sig, index))
+            if key != "" and part == "i64" {
+                part = "$P." + key + "$"
+                changed = true
+            }
+        }
+        if index > 0 { out = out + ", " }
+        out = out + part
+        index += 1
+        start = stop + 2
+    }
+    if not changed { give back "" }
+    give back out
+}
+
+task v4_codegen_llvm_ptrsize_symbol_char(ch: word) -> bool {
+    give back ch != "" and ch != "(" and (v4_codegen_llvm_is_symbol_char(ch) or ch == "\"")
+}
+
+-- A shimmed declaration may only be called directly: any other reference
+-- to its symbol would still see the 64-bit plan type.
+task v4_codegen_llvm_ptrsize_reference_error(codegen_id: int, symbol: word) -> word {
+    pilot body_id = 0
+    repeat until body_id >= v4_codegen_llvm_body_count(codegen_id) {
+        pilot text = v4_codegen_llvm_body_line(codegen_id, body_id)
+        pilot at = v4_index_of_from(text, "@", 0)
+        repeat until at < 0 {
+            if v4_slice(text, at, at + symbol.length()) == symbol {
+                pilot next = text.char_at(at + symbol.length())
+                if next != "(" and not v4_codegen_llvm_ptrsize_symbol_char(next) { give back "pointer-sized C integers at a C boundary need a direct call on this target: " + symbol }
+            }
+            at = v4_index_of_from(text, "@", at + 1)
+        }
+        body_id += 1
+    }
+    give back ""
+}
+
+task v4_codegen_llvm_pointer_sized_target_error(codegen_id: int, target_spec: word) -> word {
+    if v4_target_spec_pointer_width(target_spec) == 64 { give back "" }
+    pilot mir_id = v4_codegen_llvm_file_mir_id(codegen_id)
+    if mir_id < 0 { give back "" }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot triple = v4_target_spec_triple(target_spec)
+    pilot sig = 0
+    repeat until sig >= v4_ty_signature_count(ty_id) {
+        if v4_ty_signature_call_abi(ty_id, sig) != "" or v4_ty_signature_has_extern_callback(ty_id, sig) {
+            if v4_codegen_llvm_ptrsize_signature_used(ty_id, sig) {
+                pilot direct: bool = v4_codegen_llvm_signature_is_extern_decl(ty_id, sig) and not v4_ty_signature_is_variadic(ty_id, sig)
+                if not direct { give back "pointer-sized C integers at this C boundary are not yet supported on " + triple + ": " + v4_ty_signature_name(ty_id, sig) }
+            }
+        }
+        sig += 1
+    }
+    pilot decl_id = 0
+    repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
+        if v4_codegen_llvm_ptrsize_params(codegen_id, decl_id) != "" or v4_codegen_llvm_ptrsize_return(codegen_id, decl_id) != "" {
+            pilot error = v4_codegen_llvm_ptrsize_reference_error(codegen_id, v4_codegen_llvm_decl_symbol(codegen_id, decl_id))
+            if error != "" { give back error }
+        }
+        decl_id += 1
+    }
+    give back ""
 }
 
 task v4_codegen_llvm_runtime_symbol_error(codegen_id: int, symbol: word, params: word) -> word {
@@ -9951,6 +10075,59 @@ task v4_codegen_llvm_global_release_lines(mir_id: int) -> word {
     give back out
 }
 
+-- Direct calls to a declaration that got a pointer-width shim call the shim.
+task v4_codegen_llvm_ptrsize_redirect(text: word, symbols: word) -> word {
+    if symbols == "" { give back text }
+    pilot out = text
+    pilot start = 0
+    repeat until start >= symbols.length() {
+        pilot stop = v4_index_of_from(symbols, "\n", start)
+        pilot symbol = v4_slice(symbols, start, stop)
+        out = v4_codegen_llvm_replace_all(out, " " + symbol + "(", " " + v4_codegen_llvm_c_width_shim_symbol(symbol) + "(")
+        start = stop + 1
+    }
+    give back out
+}
+
+-- The list helpers call libc realloc with an i64 size, which is size_t on
+-- every 64-bit target. A 32-bit target declares realloc with its own size_t
+-- and reaches it through a private helper that answers null (the helpers'
+-- out-of-memory panic) for a request size_t cannot hold, so a large i64
+-- size never wraps into a small allocation.
+task v4_codegen_llvm_size_t_resolve(text: word, target_spec: word) -> word {
+    pilot width = v4_target_spec_pointer_width(target_spec)
+    pilot decl = "declare ptr @realloc(ptr, i64)\n"
+    if width == 64 or not text.contains(decl) { give back text }
+    pilot size_t = "i" + word_from_int(width)
+    pilot limit = "4294967295"
+    pilot helper = "declare ptr @realloc(ptr, " + size_t + ")\n"
+    helper = helper + "define internal ptr @freak.libc.realloc(ptr %p, i64 %n) " + "{" + "\nentry:\n"
+    helper = helper + "  %big = icmp ugt i64 %n, " + limit + "\n  br i1 %big, label %none, label %ask\nnone:\n  ret ptr null\nask:\n"
+    helper = helper + "  %size = trunc i64 %n to " + size_t + "\n  %got = call ptr @realloc(ptr %p, " + size_t + " %size)\n  ret ptr %got\n" + "}" + "\n"
+    -- Calls first: the helper's own call must keep reaching libc.
+    give back v4_codegen_llvm_replace_all(v4_codegen_llvm_replace_all(text, "call ptr @realloc(ptr ", "call ptr @freak.libc.realloc(ptr "), decl, helper)
+}
+
+task v4_codegen_llvm_replace_all(text: word, needle: word, replacement: word) -> word {
+    if needle == "" or not text.contains(needle) { give back text }
+    pilot first = needle.char_at(0)
+    pilot parts = v4_codegen_llvm_fragment_new()
+    pilot emitted = 0
+    pilot at = v4_index_of_from(text, first, 0)
+    repeat until at < 0 {
+        if v4_slice(text, at, at + needle.length()) == needle {
+            v4_codegen_llvm_fragment_push(parts, v4_slice(text, emitted, at))
+            v4_codegen_llvm_fragment_push(parts, replacement)
+            emitted = at + needle.length()
+            at = v4_index_of_from(text, first, emitted)
+        } else {
+            at = v4_index_of_from(text, first, at + 1)
+        }
+    }
+    v4_codegen_llvm_fragment_push(parts, v4_slice(text, emitted, text.length()))
+    give back v4_codegen_llvm_fragment_finish(parts)
+}
+
 -- Target selection stays explicit. Definition headers in the declaration plan
 -- are metadata; only external declarations and complete bodies enter a module.
 task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
@@ -9968,9 +10145,11 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
         v4_codegen_llvm_fragment_push(parts, globals)
     }
     v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_shape_module_lines(array_get(v4_codegen_llvm_shape_lines, codegen_id), target_spec))
-    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_runtime_attributes(v4_codegen_llvm_dyn_resolve(array_get(v4_codegen_llvm_word_runtime_lines, codegen_id), array_get(v4_codegen_llvm_shape_lines, codegen_id), target_spec)))
+    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_size_t_resolve(v4_codegen_llvm_runtime_attributes(v4_codegen_llvm_dyn_resolve(array_get(v4_codegen_llvm_word_runtime_lines, codegen_id), array_get(v4_codegen_llvm_shape_lines, codegen_id), target_spec)), target_spec))
     pilot declaration_index = v4_codegen_llvm_decl_symbol_index_new(codegen_id)
     pilot c_width_used: bool = false
+    pilot narrow_pointers: bool = v4_target_spec_pointer_width(target_spec) != 64
+    pilot redirected = ""
     pilot decl_id = 0
     repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
         pilot line = v4_codegen_llvm_decl_line(codegen_id, decl_id)
@@ -9984,7 +10163,21 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
             }
         }
         if v4_codegen_llvm_starts_with(line, "declare ") and not supplied and first == decl_id {
-            if v4_codegen_llvm_decl_has_c_width(codegen_id, decl_id) and v4_codegen_llvm_decl_params(codegen_id, decl_id).contains("...") {
+            pilot ptr_params = ""
+            pilot ptr_ret = ""
+            if narrow_pointers and not v4_codegen_llvm_decl_params(codegen_id, decl_id).contains("...") {
+                ptr_params = v4_codegen_llvm_ptrsize_params(codegen_id, decl_id)
+                ptr_ret = v4_codegen_llvm_ptrsize_return(codegen_id, decl_id)
+            }
+            if ptr_params != "" or ptr_ret != "" {
+                if ptr_params == "" { ptr_params = v4_codegen_llvm_decl_params(codegen_id, decl_id) }
+                if ptr_ret == "" { ptr_ret = v4_codegen_llvm_decl_return(codegen_id, decl_id) }
+                if not c_width_used { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_c_width_runtime_declarations()) }
+                c_width_used = true
+                v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_c_width_module_lines_for(codegen_id, decl_id, target_spec, ptr_ret, ptr_params))
+                -- A C-width declaration's call sites already call its shim.
+                if not v4_codegen_llvm_decl_has_c_width(codegen_id, decl_id) { redirected = redirected + v4_codegen_llvm_decl_symbol(codegen_id, decl_id) + "\n" }
+            } else if v4_codegen_llvm_decl_has_c_width(codegen_id, decl_id) and v4_codegen_llvm_decl_params(codegen_id, decl_id).contains("...") {
                 -- Variadic: no shim; call sites use the C call plan.
                 v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_c_width_resolve_text(line, target_spec))
                 v4_codegen_llvm_fragment_push(parts, "\n")
@@ -10003,7 +10196,7 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
     pilot helpers_used: bool = false
     pilot body_id = 0
     repeat until body_id >= v4_codegen_llvm_body_count(codegen_id) {
-        pilot body_text = v4_codegen_llvm_body_line(codegen_id, body_id)
+        pilot body_text = v4_codegen_llvm_ptrsize_redirect(v4_codegen_llvm_body_line(codegen_id, body_id), redirected)
         if body_text.contains("@freak.cabi.narrow.") or body_text.contains("@freak.cabi.widen.") { helpers_used = true }
         v4_codegen_llvm_fragment_push(parts, "\n")
         v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_abi_resolve(v4_codegen_llvm_c_width_resolve_text(body_text, target_spec), array_get(v4_codegen_llvm_shape_lines, codegen_id), target_spec))
