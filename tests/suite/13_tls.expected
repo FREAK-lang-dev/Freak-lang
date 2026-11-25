@@ -5,6 +5,7 @@ chain only: early-send-waits TLSv1.3 alpn=/ verified peer-cert end-point no-clie
 no verify: early-send-waits TLSv1.3 alpn=/ peer-cert end-point no-client-cert echo-ok drained close-seen client-waits both-closed
 backpressure: queued drained status-0 send-after-ok truncation-seen
 send timeout: first -5 drained then refused
+close backpressure: close -2 send-refused closed exact clean-end
 mismatched key: 0 the private key doesn't belong to the certificate
 bad ca: 0 true
 live sessions: 0
