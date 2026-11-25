@@ -17966,11 +17966,9 @@ NATIVE_LISTS_REJECTED = (
      "list method receiver must be a place"),
     ("tier3_list_untyped_empty", "task main() -> int {\n    pilot xs = []\n    give back 0\n}\n",
      "empty list literal needs type context"),
-    # Later rows: Sum elements, list operators, moved list captures. Lists
-    # inside other types and route items that own words are native (nested
-    # lists row, examples/lists_nested_native.fk).
-    ("tier3_list_maybe_elements", "task main() -> int {\n    pilot xs: List<maybe<int>> = [some(1)]\n    give back 0\n}\n",
-     "native lists of maybe/result values are not yet supported: List<maybe<int>>"),
+    # Later rows: list operators, moved list captures. Lists inside other
+    # types, route items that own words (examples/lists_nested_native.fk)
+    # and maybe/result elements (examples/lists_sums_native.fk) are native.
     ("tier3_list_equality", "task main() -> int {\n    pilot xs: List<int> = [1]\n    pilot ys: List<int> = [1]\n"
      "    if xs == ys { give back 1 }\n    give back 0\n}\n",
      "native list operators are not yet supported"),
@@ -18038,9 +18036,6 @@ NATIVE_NESTED_LISTS_REJECTED = (
      "native list operators are not yet supported"),
     ("tier3_nested_list_repeat_fill", "task main() -> int {\n    pilot a: [List<int>; 3] = [[]; 3]\n    give back a[0].length()\n}\n",
      "fixed-array repeat value must be Copy or Cloneable"),
-    ("tier3_nested_list_shape_maybe_elements", "shape Q { slots: List<maybe<int>> }\n"
-     "task main() -> int {\n    pilot q = Q { slots: [some(1)] }\n    give back 0\n}\n",
-     "native lists of maybe/result values are not yet supported: List<maybe<int>>"),
     # A type holding a list of a type in progress is checked once that type
     # finishes: Holder is not native because Dir has a sum slot.
     ("tier3_nested_list_recursive_bad_slot", "shape Dir { subs: List<Holder>, bad: maybe<int> }\n"
@@ -18060,6 +18055,91 @@ NATIVE_NESTED_LISTS_REJECTED = (
      "        [] -> give back 1\n        _ -> give back 0\n    }\n    give back 2\n}\n",
      "unsupported when arm pattern"),
 )
+
+
+# Lists of maybe/result values (tier 3, lists inside other types row):
+# examples/lists_sums_native.fk, exit 0 and this output.
+NATIVE_LIST_SUMS_EXPECTED = ("5\n206\n311\nagain\nnobody\nnobody\nnobody\nnobody\nheld\n13\nskip\nfound\n"
+                             "ok a\nerr 4\nok c\nok c\nE replaced\nE no\nbad\n7\n2\n1014\n0\n104\n4\n"
+                             "ok x\nerr 9\nok yz\nlog\nfirst again\n")
+# Carrier layouts the oracle must see (result<char, word> lives only inside
+# an empty list), and the element helpers defined once each.
+NATIVE_LIST_SUMS_LAYOUTS = ('%"freak.sum.maybe<word>"', '%"freak.sum.result<word,int>"', '%"freak.sum.result<int,word>"',
+                            '%"freak.sum.maybe<Point>"', '%"freak.sum.maybe<Dir>"', '%"freak.sum.result<char,word>"')
+NATIVE_LIST_SUMS_HELPERS = (
+    '@"freak.list.drop.maybe<int>"', '@"freak.list.drop.maybe<word>"', '@"freak.list.drop.result<word,int>"',
+    '@"freak.list.drop.result<word,word>"', '@"freak.list.drop.result<int,word>"', '@"freak.list.drop.result<char,word>"',
+    '@"freak.list.drop.maybe<Point>"', '@"freak.list.drop.maybe<Dir>"', '@"freak.list.drop.List<maybe<word>>"',
+    '@"freak.list.clone.maybe<word>"', '@"freak.list.clone.result<word,int>"', '@"freak.list.clone.result<word,word>"',
+    '@"freak.list.clone.result<int,word>"', '@"freak.list.clone.List<maybe<word>>"',
+)
+# The one word field each carrier element owns (getelementptr field index).
+NATIVE_LIST_SUMS_WORD_FIELDS = (("maybe<word>", "1"), ("result<word,int>", "1"), ("result<int,word>", "2"),
+                                ("result<word,word>", "1"), ("result<char,word>", "2"))
+# Programs over lists of carriers that native code, the MIR sum proof or
+# Meiya refuses: (stem, source, named reason).
+NATIVE_LIST_SUMS_REJECTED = (
+    ("tier3_list_sums_aggregate_word_payload", "task main() -> int {\n    pilot xs: List<maybe<(int, word)>> = []\n    give back xs.length()\n}\n",
+     "native maybe/result aggregate payloads that own words are not yet supported: (int,word)"),
+    ("tier3_list_sums_nested_payload", "task main() -> int {\n    pilot xs: List<maybe<maybe<int>>> = []\n    give back xs.length()\n}\n",
+     "native nested maybe/result payloads are not yet supported: maybe<maybe<int>>"),
+    ("tier3_list_sums_element_equality", "task main() -> int {\n    pilot xs: List<maybe<int>> = [some(1)]\n    pilot m: maybe<int> = some(1)\n"
+     "    if xs[0] == m { give back 1 }\n    give back 0\n}\n",
+     "native scalar sum equality is not yet supported"),
+    ("tier3_list_sums_task_value", "task count(xs: List<maybe<int>>) -> int { give back xs.length() }\n"
+     "task apply(f: task(xs: List<maybe<int>>) -> int) -> int { give back 0 }\n"
+     "task main() -> int { give back apply(count) }\n",
+     "native task values with list parameters or results are not yet supported: List<maybe<int>>"),
+    ("tier3_list_sums_map_value", "task main() -> int {\n    pilot m: Map<word, List<maybe<int>>> = {}\n    give back 0\n}\n",
+     "native map values of lists, maps or sets are not yet supported: Map<word,List<maybe<int>>>"),
+    # The sum proof sees a carrier pushed in and then used again.
+    ("tier3_list_sums_push_moves_item", "task main() -> int {\n    pilot xs: List<maybe<word>> = []\n    pilot m: maybe<word> = some(\"held\")\n"
+     "    xs.push(m)\n    check m {\n        got w -> say w\n        nobody -> say \"none\"\n    }\n    give back xs.length()\n}\n",
+     "scalar sum use requires a live owner"),
+    # Carrier storage is never lent (no lend sum parameters or locals yet).
+    ("tier3_list_sums_lend_element", "task peek(lend m: maybe<int>) -> int { give back 0 }\n"
+     "task main() -> int {\n    pilot xs: List<maybe<int>> = [some(1)]\n    give back peek(lend xs[0])\n}\n",
+     "borrowed scalar sum storage is not yet supported"),
+    # Reading an element moves it out of the list.
+    ("tier3_list_sums_element_moved_twice", "task main() -> int {\n    pilot xs: List<result<word, int>> = [ok(\"a\")]\n"
+     "    pilot a = xs[0]\n    pilot b = xs[0]\n    give back 0\n}\n",
+     "Meiya remembers the field you already moved"),
+)
+
+
+def check_v4_native_list_sums_module(module_text: str, triple: str) -> None:
+    """Lists of carriers: layouts noted, helpers once, each drop releases the word field before free, clones skip empty fields."""
+    notes = native_layout_notes(module_text)
+    missing = [name for name in NATIVE_LIST_SUMS_LAYOUTS if name not in notes]
+    if missing:
+        raise RuntimeError(f"V4 list sums module for {triple} has no layout notes for {', '.join(missing)}")
+    defined = re.findall(r'^define internal [^@]*(@"[^"]+")\(', module_text, re.MULTILINE)
+    for symbol in NATIVE_LIST_SUMS_HELPERS:
+        if defined.count(symbol) != 1:
+            raise RuntimeError(f"V4 list sums module for {triple} defines {symbol} {defined.count(symbol)} times")
+    for carrier, field in NATIVE_LIST_SUMS_WORD_FIELDS:
+        for kind in ("drop", "clone"):
+            if kind == "clone" and carrier == "result<char,word>":
+                continue
+            symbol = f'@"freak.list.{kind}.{carrier}"'
+            body = re.search(r"^define internal \S+ " + re.escape(symbol) + r"\(.*?^}$", module_text, re.MULTILINE | re.DOTALL)
+            if body is None:
+                raise RuntimeError(f"V4 list sums module for {triple} has no {symbol} body")
+            text = body.group(0)
+            if not re.search(r"getelementptr inbounds [^\n]*, i32 0, i32 " + field + r"\n", text):
+                raise RuntimeError(f"V4 list sums module for {triple}: {symbol} does not address word field {field}")
+            if kind == "drop":
+                drop_at = text.find("call void @freak_v4_word_drop(")
+                free_at = text.find("call void @free(")
+                if drop_at < 0 or free_at < 0 or drop_at > free_at:
+                    raise RuntimeError(f"V4 list sums module for {triple}: {symbol} does not release words before freeing")
+            elif not re.search(r"icmp ne i64 \S+, 0\n\s*br i1", text):
+                raise RuntimeError(f"V4 list sums module for {triple}: {symbol} clones an empty word field")
+    # A carrier with no word field has a drop helper that only frees.
+    for carrier in ("maybe<int>", "maybe<Point>", "maybe<Dir>"):
+        body = re.search(r'^define internal void @"freak\.list\.drop\.' + re.escape(carrier) + r'"\(.*?^}$', module_text, re.MULTILINE | re.DOTALL)
+        if body is None or "@freak_v4_word_drop" in body.group(0):
+            raise RuntimeError(f"V4 list sums module for {triple}: the {carrier} drop helper is missing or releases words")
 
 
 def check_v4_native_nested_lists_module(module_text: str, triple: str) -> None:
@@ -18881,6 +18961,7 @@ def check_v4_native_shapes() -> None:
         ("generics_lists", "generics_lists_native.fk", NATIVE_GENERICS_LISTS_EXPECTED),
         ("lists_nested", "lists_nested_native.fk", NATIVE_NESTED_LISTS_EXPECTED),
         ("lists_unused_shape", "lists_unused_shape_native.fk", "7\n"),
+        ("list_sums", "lists_sums_native.fk", NATIVE_LIST_SUMS_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -18925,6 +19006,8 @@ def check_v4_native_shapes() -> None:
                 check_v4_native_nested_lists_module(module_text, triple)
             if stem == "lists_unused_shape":
                 check_v4_native_unused_list_shape_module(module_text, triple)
+            if stem == "list_sums":
+                check_v4_native_list_sums_module(module_text, triple)
             if stem == "maps":
                 check_v4_native_maps_layout_note(module_text, triple)
             if stem == "shared":
@@ -19134,7 +19217,7 @@ def check_v4_native_shapes() -> None:
          "impl Eq for V { task equals(lend self, other: lend V) -> bool { give back self.x == other.x } }\n"
          "task main() -> int { pilot a = V { x: 1 }\n if a == a { give back 1 }\n give back 0 }\n",
          "Meiya cannot store a lend in parameter 1 of Eq::equals yet"),
-    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_SHARED_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED
+    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_SHARED_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED + NATIVE_LIST_SUMS_REJECTED
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")

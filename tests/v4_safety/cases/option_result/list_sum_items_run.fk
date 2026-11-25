@@ -1,0 +1,31 @@
+-- Lists of maybe/result carriers lower natively: pushes, stores (the old
+-- word is released), walks whose items are copies, and an early return
+-- that moves only the copy it returns.
+-- expect: run
+-- exit: 7
+
+task first_ok(lend rs: List<result<word, int>>) -> result<word, int> {
+    for each r in rs {
+        check result r {
+            ok(w) -> give back ok(w)
+            err(n) -> say n
+        }
+    }
+    give back err(0)
+}
+
+task main() -> int {
+    pilot rs: List<result<word, int>> = [err(1), ok("one"), ok("two")]
+    rs[2] = err(5)
+    rs.push(ok("three"))
+    pilot n = 0
+    check result first_ok(lend rs) {
+        ok(w) -> n += w.length()
+        err(e) -> n += e
+    }
+    pilot ms: List<maybe<int>> = [some(4), nobody]
+    for each m in ms {
+        n += m or else 0
+    }
+    give back n
+}

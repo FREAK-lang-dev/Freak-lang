@@ -36,6 +36,9 @@ EXPECTED = {
                         "one1\ntwo2\nTakeru!\nMeiya!\nSumika!\n10\n14\np0\np1\n3\n2.5\n2\n14\n"),
     "lists_nested_native.fk": ("Sumika/Takeru!/Meiya\n5\n5\n2\nKei\n13\nca\n43\n76\n3\nx\ny\nz\nz\nA!\nB!\n4\nkei\n149\n"
                                "0\n4\n15\n-1\n26\n7\n13\n5\nc\n6\nMitsurugi\n"),
+    "lists_sums_native.fk": ("5\n206\n311\nagain\nnobody\nnobody\nnobody\nnobody\nheld\n13\nskip\nfound\n"
+                             "ok a\nerr 4\nok c\nok c\nE replaced\nE no\nbad\n7\n2\n1014\n0\n104\n4\n"
+                             "ok x\nerr 9\nok yz\nlog\nfirst again\n"),
     "maps_native.fk": ("10\n3\nSumika\nTakeru!\n3\n100\n9850\n34\n66\nfalse\n16\n-1\n66\n2\nuno\ntres\n"
                        "none\n6\nk\n1\n2\ntrue\ntrue\nfalse\n1\n20\n4\n"),
     "maps_control_native.fk": "-1\nside ran\nfalse\ntrue\ntrue\n1\nyes\nnoyes\nside_int ran\n-2\n0\n7\n",
