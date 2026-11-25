@@ -116,7 +116,7 @@ task replay_caret(window: int, layout: ByteBuffer, theme: int) -> void {
     if cockpit_text_prev(unicode, 3) != 1 { cockpit_fail("prev skips e acute") }
     if cockpit_text_next(unicode, 1) != 3 { cockpit_fail("next skips e acute") }
     if cockpit_text_next(unicode, 3) != 7 { cockpit_fail("next skips emoji") }
-    if cockpit_text_mask(unicode) != "•••" { cockpit_fail("mask counts scalars") }
+    if cockpit_text_mask(unicode) != "***" { cockpit_fail("mask counts scalars") }
     cockpit_ui_focus_input(0)
     next_frame(layout)
     press_key(cockpit_key_left)
