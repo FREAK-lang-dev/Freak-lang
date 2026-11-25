@@ -20354,7 +20354,7 @@ NATIVE_C_WORDS_EXPECTED = (
 # Named refusals around word bytes at a C boundary: (stem, source, reason).
 NATIVE_C_WORDS_REJECTED = (
     ("tier3_c_word_by_value", "extern [C] { task f(s: word) -> std::ffi::c_int }\ntask main() -> int { give back 0 }\n",
-     "f.s passes a word by value"),
+     "f.s uses word; that is a FREAK string fat pointer, not a C char*. Declare it as a lend word parameter"),
     ("tier3_c_word_lend_mut", "extern [C] { task f(lend mut s: word) -> std::ffi::c_int }\ntask main() -> int { give back 0 }\n",
      "f.s is lend mut word; C must not write the bytes a FREAK word owns"),
     ("tier3_c_word_return", "extern [C] { task f() -> word }\ntask main() -> int { give back 0 }\n",

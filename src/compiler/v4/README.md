@@ -529,7 +529,7 @@ forwarded `lend` parameter work). The bytes are UTF-8 and are not
 NUL-terminated for C, and an embedded NUL is an ordinary byte, so C must use
 the length; the pointer is valid only during the call.
 
-Refused by name: by-value `word` parameters (`passes a word by value`),
+Refused by name: by-value `word` parameters (the help names `lend word`),
 `lend mut word` (C must not write the bytes a word owns), word returns, words
 behind an alias, `lend word` in `@extern_callback` tasks (C would hand the
 callback bytes no word owns) and in extern function pointer types,
