@@ -1070,10 +1070,15 @@ def keepalive_corpus(s:Server):
     s.cases+=204
     s.checkpoint('keepalive-corpus','connection-burst-over-cap')
     # 200 simultaneous connections against a 64-connection cap: the backlog
-    # holds the rest and every client is answered.
-    clients=[socket.create_connection(('127.0.0.1',s.port),timeout=10) for _ in range(200)]
+    # holds the rest and every client is answered. Each client sends its
+    # request as soon as it connects: an admitted connection that stays
+    # silent past the idle window is closed by design, and opening all 200
+    # first can take longer than that on a slow runner.
+    clients=[]
     try:
-        for i,client in enumerate(clients):client.sendall(request('/hello/c'+str(i),headers=[('Connection','close')]))
+        for i in range(200):
+            client=socket.create_connection(('127.0.0.1',s.port),timeout=10);clients.append(client)
+            client.sendall(request('/hello/c'+str(i),headers=[('Connection','close')]))
         for i,client in enumerate(clients):
             out=b''
             try:
