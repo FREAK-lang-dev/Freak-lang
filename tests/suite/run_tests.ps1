@@ -60,7 +60,7 @@ foreach ($fk in $TestFiles) {
 
     try {
         $LASTEXITCODE = $null
-        & $FreakBin build $fk.FullName 2>&1 | Out-Null
+        $BuildOutput = & $FreakBin build $fk.FullName 2>&1
         $BuildExitCode = $LASTEXITCODE
     } catch {
         Write-Host "  FAIL  $Name  (compiler invocation failed)"
@@ -70,6 +70,7 @@ foreach ($fk in $TestFiles) {
 
     if ($null -eq $BuildExitCode -or $BuildExitCode -ne 0) {
         Write-Host "  FAIL  $Name  (compiler failed, exit $BuildExitCode)"
+        $BuildOutput | Select-Object -Last 40 | ForEach-Object { Write-Host "        $_" }
         $Fail++
         continue
     }
