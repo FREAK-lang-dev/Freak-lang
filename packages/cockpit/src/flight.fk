@@ -1,5 +1,6 @@
 use self::blackbox::{
     cockpit_blackbox_begin,
+    cockpit_blackbox_release,
     cockpit_blackbox_field,
     cockpit_blackbox_find_text
 }
@@ -11,6 +12,7 @@ use self::state::{
     cockpit_ui_begin_events,
     cockpit_ui_delta_ms_value,
     cockpit_ui_feed_event,
+    cockpit_ui_release_state,
     cockpit_ui_reset
 }
 use self::toast::{
@@ -50,6 +52,8 @@ task cockpit_flight_close() -> void {
     if cockpit_flight_events != 0 { array_release(cockpit_flight_events) cockpit_flight_events = 0 }
     cockpit_flight_event_count = 0
     cockpit_toasts_release()
+    cockpit_blackbox_release()
+    cockpit_ui_release_state()
 }
 
 -- The window was resized; takes effect next frame.

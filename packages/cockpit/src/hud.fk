@@ -147,8 +147,8 @@ impl Cockpit {
     task land(self) -> void {
         if self.owns_theme { cockpit_theme_release(self.theme) }
         self.layout.release()
-        if self.sim { cockpit_flight_close() }
-        else if not self.hosted { cockpit_ui_close(self.window) }
+        if self.sim or self.hosted { cockpit_flight_close() }
+        else { cockpit_ui_close(self.window) }
     }
 
     -- The theme handle, for cockpit_theme_get and friends.

@@ -201,6 +201,39 @@ task replay_focus_keys(window: int, layout: ByteBuffer, theme: int) -> void {
     type_char(115)
     pilot secret = cockpit_widget_input_ex(window, layout, theme, "pa", 180, "Password", true)
     check_text(secret, "pas", "password edits")
+
+    -- Typing right after Shift+Tab lands in the earlier field, one frame on.
+    pilot left = "L"
+    pilot right = "R"
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    hold_key(cockpit_key_shift, true)
+    press_key(cockpit_key_tab)
+    hold_key(cockpit_key_shift, false)
+    type_char(120)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(right, "R", "shift tab source keeps later keys out")
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lx", "keys after shift tab carry to the earlier field")
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    check_text(left, "Lx", "carried keys play once")
+
+    -- Same for a Tab that wraps from the last field to the first.
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    press_key(cockpit_key_tab)
+    type_char(121)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lxy", "keys after a tab wrap carry to the first field")
+    check_text(right, "R", "wrap source stays put")
     say "PASS focus keys"
 }
 

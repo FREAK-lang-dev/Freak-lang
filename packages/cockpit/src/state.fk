@@ -75,6 +75,9 @@ pilot cockpit_ui_caret = -1
 pilot cockpit_ui_input_scroll = 0
 pilot cockpit_ui_caret_epoch = 0
 pilot cockpit_ui_focus_wrap = false
+-- First edit after a Shift+Tab that moved focus to an input that already ran
+-- this frame. Those edits replay next frame, when that input has focus.
+pilot cockpit_ui_carry_from = -1
 pilot cockpit_ui_last_focusable = -1
 pilot cockpit_ui_frame_last_focusable = -1
 pilot cockpit_ui_submit_widget = -1
@@ -156,6 +159,15 @@ task cockpit_clip_contains(x: int, y: int) -> bool {
     give back x >= cockpit_values_get_int(cockpit_ui_clip_stack, offset) and y >= cockpit_values_get_int(cockpit_ui_clip_stack, offset + 1) and x < cockpit_values_get_int(cockpit_ui_clip_stack, offset + 2) and y < cockpit_values_get_int(cockpit_ui_clip_stack, offset + 3)
 }
 
+-- Gives back the arrays cockpit_ui_reset made. Window and sim close call it.
+task cockpit_ui_release_state() -> void {
+    if cockpit_ui_edits != 0 { array_release(cockpit_ui_edits) cockpit_ui_edits = 0 }
+    if cockpit_ui_clip_stack != 0 { array_release(cockpit_ui_clip_stack) cockpit_ui_clip_stack = 0 }
+    if cockpit_ui_keys_down != 0 { array_release(cockpit_ui_keys_down) cockpit_ui_keys_down = 0 }
+    if cockpit_ui_memory != 0 { array_release(cockpit_ui_memory) cockpit_ui_memory = 0 }
+    if cockpit_ui_keys_pressed != 0 { array_release(cockpit_ui_keys_pressed) cockpit_ui_keys_pressed = 0 }
+}
+
 task cockpit_ui_reset() -> void {
     if cockpit_ui_edits != 0 { array_release(cockpit_ui_edits) }
     cockpit_ui_edits = array_new()
@@ -196,6 +208,7 @@ task cockpit_ui_reset() -> void {
 
 task cockpit_ui_begin_events() -> void {
     cockpit_ui_resolve_tabs()
+    pilot carried = cockpit_ui_carry_edits()
     cockpit_ui_frame_last_focusable = cockpit_ui_last_focusable
     cockpit_ui_last_focusable = 0 - 1
     cockpit_ui_submit_widget = 0 - 1
@@ -205,7 +218,7 @@ task cockpit_ui_begin_events() -> void {
     cockpit_ui_mouse_clicked_value = false
     cockpit_ui_character_value = 0
     cockpit_ui_backspace_value = false
-    cockpit_ui_edit_count = 0
+    cockpit_ui_edit_count = carried
     cockpit_ui_scroll_value = 0
     cockpit_ui_widget_counter = 0
     cockpit_ui_modal_scope = false
@@ -491,6 +504,31 @@ task cockpit_ui_register_focusable(widget_id: int) -> void {
     }
 }
 
+-- Moves the edits a backward focus jump (or a Tab wrap) left unplayed to the front of the
+-- queue, with their Tab claims cleared, and gives back how many there are.
+task cockpit_ui_carry_edits() -> int {
+    pilot start = cockpit_ui_carry_from
+    cockpit_ui_carry_from = 0 - 1
+    if cockpit_ui_edits == 0 or start < 0 or start >= cockpit_ui_edit_count { give back 0 }
+    pilot count = cockpit_ui_edit_count - start
+    pilot index = 0
+    repeat count times {
+        pilot from = (start + index) * 3
+        pilot edit = cockpit_values_get_int(cockpit_ui_edits, from)
+        pilot mut x = cockpit_values_get_int(cockpit_ui_edits, from + 1)
+        pilot mut y = cockpit_values_get_int(cockpit_ui_edits, from + 2)
+        if edit == cockpit_edit_tab or edit == cockpit_edit_back_tab {
+            x = 0 - 1
+            y = 0 - 1
+        }
+        cockpit_values_set_int(cockpit_ui_edits, index * 3, edit)
+        cockpit_values_set_int(cockpit_ui_edits, index * 3 + 1, x)
+        cockpit_values_set_int(cockpit_ui_edits, index * 3 + 2, y)
+        index += 1
+    }
+    give back count
+}
+
 -- Unclaimed forward Tab wraps to the first focusable widget of the next frame.
 -- Shift+Tab with no focused widget selects the last focusable widget.
 task cockpit_ui_resolve_tabs() -> void {
@@ -498,12 +536,16 @@ task cockpit_ui_resolve_tabs() -> void {
     -- A wrap that no focusable widget claimed during the previous frame expires.
     cockpit_ui_focus_wrap = false
     pilot index = 0
-    repeat cockpit_ui_edit_count times {
+    pilot mut resolved = cockpit_ui_edit_count
+    if cockpit_ui_carry_from >= 0 and cockpit_ui_carry_from < resolved { resolved = cockpit_ui_carry_from }
+    repeat resolved times {
         pilot offset = index * 3
         pilot edit = cockpit_values_get_int(cockpit_ui_edits, offset)
         if edit == cockpit_edit_tab and cockpit_values_get_int(cockpit_ui_edits, offset + 2) < 0 {
             cockpit_ui_focus_wrap = true
             cockpit_ui_focused_input = 0 - 1
+            -- What was typed after the wrap goes to the input that claims it.
+            if cockpit_ui_carry_from < 0 or index + 1 < cockpit_ui_carry_from { cockpit_ui_carry_from = index + 1 }
         }
         if edit == cockpit_edit_back_tab and cockpit_values_get_int(cockpit_ui_edits, offset + 1) < 0 and cockpit_ui_last_focusable >= 0 {
             cockpit_ui_focused_input = cockpit_ui_last_focusable
@@ -557,7 +599,11 @@ task cockpit_ui_edit_input(text: word, widget_id: int, x: int, y: int, width: in
                     cockpit_values_set_int(cockpit_ui_edits, offset + 2, target)
                     focused = target == widget_id
                     -- An earlier widget already ran; it takes focus from the next frame.
-                    if not focused and target < widget_id { cockpit_ui_focused_input = target cockpit_ui_caret = 0 - 1 }
+                    if not focused and target < widget_id {
+                        cockpit_ui_focused_input = target
+                        cockpit_ui_caret = 0 - 1
+                        if cockpit_ui_carry_from < 0 or index + 1 < cockpit_ui_carry_from { cockpit_ui_carry_from = index + 1 }
+                    }
                 } else { focused = false }
             } else if edit == cockpit_edit_tab and source >= 0 and source != widget_id and target < 0 {
                 cockpit_values_set_int(cockpit_ui_edits, offset + 2, widget_id)
