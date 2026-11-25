@@ -2396,6 +2396,9 @@ refused until monomorphized layout queries exist.
 > A C width alias (`c_int`, `c_short`, ...) in a type argument stays
 > fenced by name like every other non-boundary C width position, and an
 > array length in a type argument must be a non-negative constant.
+> A shape with `@layout(..., packed=N)`, directly or nested, is refused
+> by name in layout queries, `zeroed`, `alloc` and `read_unaligned` until
+> native records honor packing.
 
 `Shared<T>` is the official tool for IDE widget graphs, syntax tree
 sharing, cached diagnostics, and UI state that outlives one function call.

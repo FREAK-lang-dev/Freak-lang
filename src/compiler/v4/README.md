@@ -1615,7 +1615,8 @@ name. `copy_nonoverlapping` and `lend *ptr` (`.ace+`) and `direct_order`
 The std::mem names are builtins wherever the program declares none of its own.
 A type argument keeps its spelled surface for the C width fence
 (`size_of<c_int>()` is refused by name, not answered with the int width), its
-array lengths must be non-negative constants, and a layout query in a constant
+array lengths must be non-negative constants, a packed `@layout` shape is refused
+by name (native records ignore packing), and a layout query in a constant
 context (root `fixed pilot`, array lengths, repeat counts) is refused as
 `layout queries in constant expressions are not yet supported`: TY constants
 are target independent and the query folds per target.
