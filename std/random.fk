@@ -48,6 +48,14 @@ task random_secure_below(n: int) -> int {
 -- A uniform int in [lo, hi). lo when hi <= lo.
 task random_secure_range(lo: int, hi: int) -> int {
     if hi <= lo { give back lo }
+    -- hi - lo would overflow: the range covers more than half of all ints,
+    -- so plain 64-bit draws land inside it more than half the time.
+    if lo < 0 and hi > 9223372036854775807 + lo {
+        repeat while true {
+            pilot v = freak_os_random_u64()
+            if v >= lo and v < hi { give back v }
+        }
+    }
     give back lo + random_secure_below(hi - lo)
 }
 

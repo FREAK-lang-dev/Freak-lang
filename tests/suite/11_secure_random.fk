@@ -15,6 +15,19 @@ task main() -> void {
         if r < -5 or r >= 5 { good = false }
         if random_secure_bits63() < 0 { good = false }
     }
+    -- ranges wider than the largest int (hi - lo would overflow)
+    pilot lowest = -9223372036854775807 - 1
+    pilot highest = 9223372036854775807
+    for each i in 0..200 {
+        pilot w = random_secure_range(-1, highest)
+        if w < -1 or w >= highest { good = false }
+        pilot x = random_secure_range(lowest, highest)
+        if x == highest { good = false }
+        pilot y = random_secure_range(lowest, 0)
+        if y >= 0 { good = false }
+        pilot z = random_secure_range(lowest, -1)
+        if z >= -1 { good = false }
+    }
     if random_secure_below(0) != 0 { good = false }
     if random_secure_below(1) != 0 { good = false }
     pilot h = random_secure_hex(18)
