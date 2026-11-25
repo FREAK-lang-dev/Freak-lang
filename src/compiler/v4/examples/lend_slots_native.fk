@@ -1,0 +1,89 @@
+-- Native aggregate lend slots. A loan stored in a tuple, shape, route payload
+-- or generic instance slot is a pointer to storage the aggregate does not
+-- own: it is read and written through and never dropped. A loan enters an
+-- aggregate where the aggregate is declared; storing one into existing
+-- aggregate storage stays named until Meiya ends loans with their block.
+-- Meiya proves each loan; mut closures write lend-free leaves of
+-- loan-bearing captures (the closure effect summary) and those run too.
+shape Ship { hp: int }
+
+shape Slot { r: lend mut Ship, n: int }
+
+shape Box<T> { value: T, count: int }
+
+route Pick {
+    Got { r: lend mut Ship }
+    Nobody
+}
+
+-- An aggregate holding a loan, passed by value: the callee writes through it.
+task repair(h: (lend mut Ship, int)) -> int {
+    h.0.hp = h.0.hp + h.1
+    give back h.0.hp
+}
+
+task strike(p: Pick) -> int {
+    when p {
+        Pick::Got { r } -> {
+            r.hp = r.hp - 1
+            give back 1
+        }
+        Pick::Nobody -> give back 0
+    }
+}
+
+-- The closure effect summary admits writes that install no loan: the int
+-- slot beside the lend, and a field written through the lend.
+task closure_leaf_writes(first: Ship) -> int {
+    pilot mut holder = (lend mut first, 0)
+    pilot setter = mut |v: int| { holder.1 = v }
+    setter(5)
+    pilot hit = mut |d: int| { holder.0.hp = holder.0.hp - d }
+    hit(1)
+    give back holder.1 + holder.0.hp
+}
+
+task main() -> int {
+    pilot mut a = Ship { hp: 7 }
+    pilot mut b = Ship { hp: 9 }
+    -- Write through the slot and beside it; a second holder takes b.
+    pilot mut holder = (lend mut a, 3)
+    holder.0.hp = holder.0.hp + holder.1
+    holder.1 = 0
+    pilot other = (lend mut b, holder.1)
+    other.0.hp = other.1 + 1
+    say a.hp
+    say b.hp
+    -- A shared loan, read through a borrow closure.
+    pilot e = Ship { hp: 40 }
+    pilot seen = (lend e, 2)
+    pilot peek = |_| => seen.0.hp + seen.1
+    say peek()
+    -- A shape field and a generic instance slot holding loans.
+    pilot mut c = Ship { hp: 3 }
+    pilot mut s = Slot { r: lend mut c, n: 2 }
+    s.r.hp = s.r.hp * s.n
+    say c.hp
+    pilot boxed: Box<lend mut Ship> = Box { value: lend mut c, count: 4 }
+    boxed.value.hp = boxed.value.hp + boxed.count
+    say c.hp
+    -- Nested slots, a by-value pass and a destructure.
+    pilot mut d = Ship { hp: 2 }
+    pilot mut nest = ((lend mut d, 10), 20)
+    nest.0.0.hp = nest.0.0.hp + nest.0.1 + nest.1
+    say d.hp
+    say repair((lend mut d, 8))
+    pilot (r, k) = (lend mut d, 1)
+    r.hp = k
+    say d.hp
+    -- A route payload loan, and a loan of storage that owns a word.
+    say strike(Pick::Got { r: lend mut d })
+    say d.hp
+    pilot mut named = ("Takeru", 4)
+    pilot mut view = (lend mut named, 0)
+    view.1 = view.0.1 + 1
+    say view.0.0
+    say view.1
+    say closure_leaf_writes(Ship { hp: 7 })
+    give back 0
+}

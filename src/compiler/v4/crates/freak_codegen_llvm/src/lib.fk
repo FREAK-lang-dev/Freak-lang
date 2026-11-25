@@ -3460,13 +3460,45 @@ task v4_codegen_llvm_list_leaf_paths(mir_id: int, type_text: word, prefix: word)
     give back out
 }
 
+-- A lend slot of an aggregate (the 0 of `(lend mut ship, 0)`) is the address
+-- of storage the aggregate does not own, like a lend local: a `ptr` its drop
+-- never follows. Meiya proves the loan; only loans of scalars and fixed
+-- layouts (shapes, tuples, fixed arrays, routes) are native slots. Word,
+-- list, map and dyn loans in slots stay named.
+task v4_codegen_llvm_native_lend_slot_error(mir_id: int, slot_ty: word, context: word, depth: int) -> word {
+    pilot target = v4_ty_lend_target_type(slot_ty)
+    if not v4_codegen_llvm_is_place_lend(mir_id, slot_ty) or target == v4_ty_word or v4_codegen_llvm_is_list(mir_id, target) or v4_codegen_llvm_is_map(mir_id, target) { give back "native aggregate lend slots are not yet supported: " + context }
+    give back v4_codegen_llvm_native_type_error_depth(target, false, depth + 1)
+}
+
+-- Where a native aggregate may take a loan: only where it is declared. A
+-- loan stored at a binding's own `pilot` names storage visible there, which
+-- outlives that binding. An assignment into existing loan-bearing storage
+-- (`holder.0 = lend mut b`, `outer = inner`) could store a loan of a local
+-- whose block ends first, which Meiya does not yet refuse, so it is named.
+-- Rebinding a plain lend local keeps its own native path.
+task v4_codegen_llvm_native_loan_store_error(mir_id: int, body_id: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body_id) {
+        pilot place = v4_mir_stmt_place(mir_id, body_id, stmt)
+        if v4_mir_stmt_kind(mir_id, body_id, stmt) == v4_mir_stmt_assign and place >= 0 {
+            pilot place_ty = v4_mir_place_ty(mir_id, body_id, place)
+            pilot plain_lend_local: bool = v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_local and v4_ty_is_lend_type(place_ty)
+            if not plain_lend_local and v4_ty_type_may_store_lend(ty_id, place_ty) { give back "native writes that store a loan into existing aggregate storage are not yet supported: " + v4_mir_place_text(mir_id, body_id, place) }
+        }
+        stmt += 1
+    }
+    give back ""
+}
+
 -- One aggregate slot: scalars, owned words, pointers and nested aggregates.
 -- A word slot is owned by its aggregate: the aggregate moves as one value
 -- and its drop releases every word leaf (v4_codegen_llvm_word_leaf_paths).
 task v4_codegen_llvm_native_slot_error(mir_id: int, slot_ty: word, context: word, depth: int) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
     if slot_ty == "" or slot_ty == v4_ty_unknown { give back "native aggregate slot type is unresolved: " + context }
-    if v4_ty_is_lend_type(slot_ty) { give back "native aggregate lend slots are not yet supported: " + context }
+    if v4_ty_is_lend_type(slot_ty) { give back v4_codegen_llvm_native_lend_slot_error(mir_id, slot_ty, context, depth) }
     if v4_ty_is_native_scalar_sum(ty_id, slot_ty) { give back "native aggregate maybe/result slots are not yet supported: " + context }
     if v4_ty_canonical_type(ty_id, slot_ty) == v4_ty_word { give back "" }
     -- A list slot is one owned header; the aggregate's drop glue frees it.
@@ -5292,6 +5324,8 @@ task v4_codegen_llvm_native_mir_error(mir_id: int) -> word {
         }
         error = v4_codegen_llvm_native_closure_use_error(mir_id, body_id)
         if error != "" { give back error }
+        error = v4_codegen_llvm_native_loan_store_error(mir_id, body_id)
+        if error != "" { give back error }
         pilot block_id = 0
         pilot block_count = v4_mir_body_block_count(mir_id, body_id)
         if block_count <= 0 { give back "invalid native body without blocks" }
@@ -6531,7 +6565,9 @@ task v4_codegen_llvm_native_list_slot_error(mir_id: int, type_text: word, depth:
     if depth > 32 { give back "native list nesting exceeds supported depth: " + type_text }
     pilot element = v4_codegen_llvm_list_element(mir_id, type_text)
     if element == "" or element == v4_ty_unknown { give back "native list element type is unresolved: " + type_text }
-    if v4_ty_is_lend_type(element) { give back "native lists of loans are not yet supported: " + type_text }
+    -- Aggregate lend slots are native, but a list element holding a loan
+    -- (List<(lend mut Ship, int)>) is not.
+    if v4_ty_is_lend_type(element) or v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), element) { give back "native lists of loans are not yet supported: " + type_text }
     if element == v4_ty_void or element == v4_ty_never { give back "native lists of void are not supported: " + type_text }
     -- A carrier element is stored by value, as a carrier local is: its one
     -- word field (if any) is released by the element drop helper.
@@ -7229,7 +7265,7 @@ task v4_codegen_llvm_native_map_type_error(mir_id: int, type_text: word, depth: 
     if v4_codegen_llvm_map_is_set(mir_id, type_text) { give back "" }
     pilot value = v4_mir_hash_collection_value_type(mir_id, type_text)
     if value == "" or value == v4_ty_unknown { give back "native map value type is unresolved: " + type_text }
-    if v4_ty_is_lend_type(value) { give back "native maps of loans are not yet supported: " + type_text }
+    if v4_ty_is_lend_type(value) or v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), value) { give back "native maps of loans are not yet supported: " + type_text }
     if value == v4_ty_void or value == v4_ty_never { give back "native map values of void are not supported: " + type_text }
     if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), value) or v4_mir_scalar_sum_kind(mir_id, value) != "" or v4_ty_is_maybe_type(value) { give back "native map values of maybe/result are not yet supported: " + type_text }
     if v4_codegen_llvm_is_list(mir_id, value) or v4_codegen_llvm_is_map(mir_id, value) { give back "native map values of lists, maps or sets are not yet supported: " + type_text }
