@@ -27,6 +27,8 @@ use self::layout::{
     cockpit_layout_release
 }
 use self::state::{
+    cockpit_ui_reset,
+    cockpit_fail,
     cockpit_ui_delta_ms,
     cockpit_ui_request_close,
     cockpit_ui_should_close,
@@ -39,6 +41,7 @@ use self::theme::{
     cockpit_theme_release
 }
 use self::toast::{
+    cockpit_toasts_reset,
     cockpit_toast,
     cockpit_toast_danger,
     cockpit_toast_info,
@@ -96,28 +99,38 @@ shape Cockpit {
     layout: ByteBuffer,
     theme: int,
     owns_theme: bool,
-    sim: bool
+    sim: bool,
+    hosted: bool
 }
 
 -- Opens a window with the dark theme. window is 0 if it couldn't open.
 task sortie(title: word, width: int, height: int) -> Cockpit {
-    give back Cockpit { window: cockpit_ui_open(title, width, height, true), layout: ByteBuffer::with_capacity(cockpit_layout_capacity()), theme: cockpit_theme_dark(), owns_theme: true, sim: false }
+    give back Cockpit { window: cockpit_ui_open(title, width, height, true), layout: ByteBuffer::with_capacity(cockpit_layout_capacity()), theme: cockpit_theme_dark(), owns_theme: true, sim: false, hosted: false }
 }
 
 -- Opens a window with your theme. land() leaves the theme for you to release.
 task sortie_painted(title: word, width: int, height: int, theme: int) -> Cockpit {
-    give back Cockpit { window: cockpit_ui_open(title, width, height, true), layout: ByteBuffer::with_capacity(cockpit_layout_capacity()), theme: theme, owns_theme: false, sim: false }
+    give back Cockpit { window: cockpit_ui_open(title, width, height, true), layout: ByteBuffer::with_capacity(cockpit_layout_capacity()), theme: theme, owns_theme: false, sim: false, hosted: false }
 }
 
 -- A cockpit with no window, flown by the flight sim (cockpit_flight_*).
 task sortie_sim(width: int, height: int) -> Cockpit {
     cockpit_flight_open(width, height)
-    give back Cockpit { window: 0, layout: ByteBuffer::with_capacity(cockpit_layout_capacity()), theme: cockpit_theme_dark(), owns_theme: true, sim: true }
+    give back Cockpit { window: 0, layout: ByteBuffer::with_capacity(cockpit_layout_capacity()), theme: cockpit_theme_dark(), owns_theme: true, sim: true, hosted: false }
+}
+
+-- A cockpit whose frames another package drives (cockpit-uplink). Its driver
+-- starts and ends frames; landed() and over() on it are mistakes.
+task sortie_hosted(theme: int) -> Cockpit {
+    cockpit_ui_reset()
+    cockpit_toasts_reset()
+    give back Cockpit { window: 0, layout: ByteBuffer::with_capacity(cockpit_layout_capacity()), theme: theme, owns_theme: false, sim: false, hosted: true }
 }
 
 impl Cockpit {
     -- Starts the next frame. True once the window has closed: stop drawing then.
     task landed(self) -> bool {
+        if self.hosted { cockpit_fail("COCKPIT this cockpit is flown by its driver: call landed() on the driver") }
         if self.sim { cockpit_flight_begin_frame(self.layout, self.theme) }
         else { cockpit_ui_begin_frame(self.window, self.layout, self.theme) }
         give back cockpit_ui_should_close()
@@ -125,6 +138,7 @@ impl Cockpit {
 
     -- Ends the frame and puts it on screen.
     task over(self) -> void {
+        if self.hosted { cockpit_fail("COCKPIT this cockpit is flown by its driver: call over() on the driver") }
         if self.sim { cockpit_flight_end_frame() }
         else { cockpit_ui_end_frame(self.window) }
     }
@@ -134,7 +148,7 @@ impl Cockpit {
         if self.owns_theme { cockpit_theme_release(self.theme) }
         self.layout.release()
         if self.sim { cockpit_flight_close() }
-        else { cockpit_ui_close(self.window) }
+        else if not self.hosted { cockpit_ui_close(self.window) }
     }
 
     -- The theme handle, for cockpit_theme_get and friends.
@@ -185,7 +199,7 @@ impl Cockpit {
     -- - value + buttons, clamped to the range.
     task stepper(self, value: int, minimum: int, maximum: int, step: int) -> int { give back cockpit_widget_stepper(self.window, self.layout, self.theme, value, minimum, maximum, step) }
 
-    -- A bar filled to value percent, with a label.
+    -- A bar filled to value per mille (0..1000), with a label.
     task progress(self, value: int, label: word) -> void { cockpit_widget_progress(self.window, self.layout, self.theme, value, label) }
 
     -- A thin line across.
