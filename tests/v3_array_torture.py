@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+from runtime_objects import runtime_objects
 
 from v3_array_rescue import execute_case, require_ok, run
 
@@ -252,10 +253,11 @@ def native_run(repo: Path, root: Path, backend: str, name: str, generated: Path)
     runtime = repo / "freakc/runtime"
     clang = shutil.which(os.environ.get("FREAK_CLANG", "clang"))
     assert clang, "Clang is required"
-    command = [clang, "-O2", str(generated), str(runtime / "freak_runtime.c"), "-I", str(runtime), "-o", str(binary)]
-    if backend == "llvm":
-        command.append(str(runtime / "freak_llvm_runtime.c"))
-    command += ["-D_CRT_SECURE_NO_WARNINGS", "-lws2_32"] if sys.platform == "win32" else ["-lm", "-fsanitize=address", "-fno-omit-frame-pointer"]
+    flags = ["-O2", "-I", str(runtime)]
+    flags += ["-D_CRT_SECURE_NO_WARNINGS"] if sys.platform == "win32" else ["-fsanitize=address", "-fno-omit-frame-pointer"]
+    sources = [runtime / "freak_runtime.c"] + ([runtime / "freak_llvm_runtime.c"] if backend == "llvm" else [])
+    command = [clang, *flags, str(generated), *runtime_objects(clang, sources, flags, root), "-o", str(binary)]
+    command += ["-lws2_32"] if sys.platform == "win32" else ["-lm"]
     require_ok(run(command, root, 120), f"{name}/{backend} native link")
     return run([str(binary)], root)
 
