@@ -7164,22 +7164,68 @@ task v4_hir_method_type_arg_inner_kind(stream: int, open: int, close: int) -> wo
     give back v4_hir_method_type_arg_inner_other
 }
 
+task v4_hir_method_type_arg_pending_set(pending: int, entry: int, first: int, second: int) -> void {
+    if entry * 2 < array_len(pending) {
+        array_set(pending, entry * 2, word_from_int(first))
+        array_set(pending, entry * 2 + 1, word_from_int(second))
+    } else {
+        array_push(pending, word_from_int(first))
+        array_push(pending, word_from_int(second))
+    }
+}
+
 -- False only when no handle is left for the rows or the bracket stack.
 task v4_hir_lower_method_type_args(hir_id: int) -> bool {
     pilot stream = v4_hir_item_stream_id(hir_id)
     if stream < 0 { give back true }
     -- Two entries per open `<`: its row (-1 when it is not a method's) and token.
+    -- A list never holds a `{`, a `}` or a statement end, so the opens of the
+    -- current statement sit above `base`, and every `{` pushes a marker entry
+    -- (the outer `base` and paren depth) that its `}` pops. Opens left at a
+    -- statement end stay unclosed, which keeps comparisons in long blocks from
+    -- pairing across statements.
     pilot pending = array_new()
     if pending < 0 { give back false }
     pilot values = 0 - 1
     pilot valid: bool = true
     pilot depth = 0
+    pilot base = 0
+    pilot paren = 0
     pilot count = v4_lex_token_count(stream)
     pilot idx = 0
     repeat until idx >= count or not valid {
-        if v4_lex_token_type(stream, idx) != v4_tok_trivia {
+        pilot tok_type = v4_lex_token_type(stream, idx)
+        if tok_type == v4_tok_trivia {
+            if paren == 0 and depth > base and v4_lex_token_value(stream, idx) == "\n" {
+                -- A line that starts with |> continues the statement above it.
+                pilot next = v4_hir_skip_trivia(stream, idx + 1, count)
+                pilot next_value = v4_lex_token_syntax_value(stream, next)
+                if next_value != "|>" { depth = base }
+            }
+        } else {
             pilot val = v4_lex_token_syntax_value(stream, idx)
-            if val == "<" {
+            if val == "(" or val == "[" {
+                paren += 1
+            } else if val == ")" or val == "]" {
+                if paren > 0 { paren -= 1 }
+            } else if val == ";" {
+                if paren == 0 { depth = base }
+            } else if val == "{" {
+                depth = base
+                v4_hir_method_type_arg_pending_set(pending, depth, base, paren)
+                depth += 1
+                base = depth
+                paren = 0
+            } else if val == "}" {
+                if base > 0 {
+                    depth = base - 1
+                    base = word_to_int(array_get(pending, depth * 2))
+                    paren = word_to_int(array_get(pending, depth * 2 + 1))
+                } else {
+                    depth = 0
+                    paren = 0
+                }
+            } else if val == "<" {
                 pilot row = 0 - 1
                 pilot method = v4_hir_previous_nontrivia(stream, idx - 1, 0)
                 pilot separator = 0 - 1
@@ -7197,15 +7243,9 @@ task v4_hir_lower_method_type_args(hir_id: int) -> bool {
                         if values < 0 { valid = false } else { row = v4_hir_method_type_arg_push_row(values, stream, separator, method, idx) }
                     }
                 }
-                if depth * 2 < array_len(pending) {
-                    array_set(pending, depth * 2, word_from_int(row))
-                    array_set(pending, depth * 2 + 1, word_from_int(idx))
-                } else {
-                    array_push(pending, word_from_int(row))
-                    array_push(pending, word_from_int(idx))
-                }
+                v4_hir_method_type_arg_pending_set(pending, depth, row, idx)
                 depth += 1
-            } else if val == ">" and depth > 0 {
+            } else if val == ">" and depth > base {
                 depth -= 1
                 pilot row = word_to_int(array_get(pending, depth * 2))
                 if row >= 0 {
@@ -7280,11 +7320,12 @@ task v4_hir_snapshot_method_type_arg_record_is_valid(line: word) -> bool {
     }
     if not v4_hir_snapshot_span_is_canonical_nonempty(close) or v4_span_file(close) != file { give back false }
     if v4_span_end(open) > v4_span_start(close) { give back false }
-    -- Brackets that hold nothing spell no type text; anything else does.
+    -- Brackets that hold nothing spell no type text. Others may spell none
+    -- too (`<"">` spells the empty literal payload).
     pilot empty: bool = inner == v4_hir_method_type_arg_inner_empty
     if inner != v4_hir_method_type_arg_inner_empty and inner != v4_hir_method_type_arg_inner_type and inner != v4_hir_method_type_arg_inner_other { give back false }
     pilot has_text: bool = type_text != ""
-    if empty == has_text { give back false }
+    if empty and has_text { give back false }
     if after == no_span { give back true }
     give back v4_hir_snapshot_span_is_canonical_nonempty(after) and v4_span_file(after) == file and v4_span_end(close) <= v4_span_start(after)
 }

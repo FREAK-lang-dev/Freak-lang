@@ -1,0 +1,69 @@
+-- V4 method type argument HIR facts: bounds and odd payloads (architecture lane A1).
+-- Verification prepends the V4 crates before this file.
+
+-- Comparisons after a field, one per line: no `<` here may pair with a `>`
+-- in a later statement, so no row closes and no text is spelled.
+task v4_mta_scale_source(pairs: int) -> word {
+    pilot src = "task main() -> int {\n"
+    pilot idx = 0
+    repeat until idx >= pairs {
+        src = src + "    say s.n < 0\n"
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= pairs {
+        src = src + "    say 1 > 0\n"
+        idx += 1
+    }
+    -- Braces built apart so no word literal holds `{...}`.
+    src = src + "    if s.n < 1 " + "{" + " say 2 " + "}" + " else if 3 > 4 " + "{" + " say 5 " + "}" + "\n"
+    src = src + "    pilot r = s.n < 1; pilot q = 2 > 3\n"
+    src = src + "    pilot g = s.get<int>(1)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mta_scale_pairs = 400
+pilot v4_mta_scale_stream = v4_lex_text(0, v4_mta_scale_source(v4_mta_scale_pairs))
+pilot v4_mta_scale_tree = v4_parse_stream(0, v4_mta_scale_stream)
+pilot v4_mta_scale_hir = v4_hir_lower_tree(0, v4_mta_scale_tree)
+
+-- A string literal between the brackets spells its (empty) payload; the
+-- snapshot must still validate and restore so MIR can report the bad cast.
+task v4_mta_literal_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot p = q.cast<" + "\"\"" + ">()\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mta_literal_src = v4_mta_literal_source()
+pilot v4_mta_literal_stream = v4_lex_text(1, v4_mta_literal_src)
+pilot v4_mta_literal_tree = v4_parse_stream(1, v4_mta_literal_stream)
+pilot v4_mta_literal_hir = v4_hir_lower_tree(1, v4_mta_literal_tree)
+
+task v4_mta_scale_run() -> void {
+    pilot hir = v4_mta_scale_hir
+    pilot rows = v4_hir_method_type_arg_count(hir)
+    say "mta-scale-rows=" + word_from_int(rows) + " closed=" + word_from_int(v4_hir_method_type_arg_closed_count(hir))
+    pilot spelled = 0
+    pilot row = 0
+    repeat until row >= rows {
+        if v4_hir_method_type_arg_type_text(hir, row) != "" { spelled += 1 }
+        row += 1
+    }
+    say "mta-scale-spelled=" + word_from_int(spelled)
+    say "mta-scale-last=" + v4_hir_method_type_arg_type_text(hir, rows - 1) + " inner=" + v4_hir_method_type_arg_inner(hir, rows - 1)
+
+    pilot lit = v4_mta_literal_hir
+    say "mta-literal-rows=" + word_from_int(v4_hir_method_type_arg_count(lit)) + " closed=" + word_from_int(v4_hir_method_type_arg_closed_count(lit)) + " text=" + v4_hir_method_type_arg_type_text(lit, 0) + " inner=" + v4_hir_method_type_arg_inner(lit, 0)
+    pilot before = v4_hir_snapshot()
+    pilot validation = v4_hir_snapshot_validate(before)
+    say "mta-literal-validate=" + word_from_bool(validation.starts_with("hir-snapshot-import ok=1"))
+    pilot restored = v4_hir_snapshot_restore(before)
+    say "mta-literal-roundtrip=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == before)
+}
+
+v4_mta_scale_run()

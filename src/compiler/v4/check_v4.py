@@ -2752,6 +2752,21 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "method type argument HIR bounds",
+        "fixture": "hir_method_type_arg_scaling_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "mta-scale-rows=403 closed=1",
+            "mta-scale-spelled=1",
+            "mta-scale-last=int inner=type",
+            "mta-literal-rows=1 closed=1 text= inner=other",
+            "mta-literal-validate=true",
+            "mta-literal-roundtrip=true",
+        ],
+    },
+    {
         "name": "extern member return snapshot contracts",
         "fixture": "extern_return_snapshot_smoke.fk",
         "memory_limit_mb": 64,
