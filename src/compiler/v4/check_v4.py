@@ -17914,7 +17914,7 @@ NATIVE_CLOSURES_NESTED_EXPECTED = ("14\n11\n106\n12\n7\n201\n202\n6\n202\n4\n3\n
                                    "[Takemikazuchi]\n8\n42\ntrue\n101\n")
 # Aggregate lend slots: loans stored where a tuple, shape, route payload or
 # generic instance is declared, and closure writes to their lend-free leaves.
-NATIVE_LEND_SLOTS_EXPECTED = "10\n1\n42\n6\n10\n32\n40\n1\n1\n0\nTakeru\n5\n11\n"
+NATIVE_LEND_SLOTS_EXPECTED = "10\n1\n42\n6\n10\n32\n40\n1\n1\n0\nTakeru\n5\n11\n300\n20\n"
 NATIVE_LEND_SLOT_SHIP = "shape Ship { hp: int }\n"
 NATIVE_LEND_SLOTS_REJECTED = (
     # A loan enters an aggregate only where it is declared: storing one into

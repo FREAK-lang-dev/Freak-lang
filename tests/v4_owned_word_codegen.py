@@ -41,7 +41,7 @@ EXPECTED = {
                              "ok x\nerr 9\nok yz\nlog\nfirst again\n"),
     "maps_native.fk": ("10\n3\nSumika\nTakeru!\n3\n100\n9850\n34\n66\nfalse\n16\n-1\n66\n2\nuno\ntres\n"
                        "none\n6\nk\n1\n2\ntrue\ntrue\nfalse\n1\n20\n4\n"),
-    "lend_slots_native.fk": "10\n1\n42\n6\n10\n32\n40\n1\n1\n0\nTakeru\n5\n11\n",
+    "lend_slots_native.fk": "10\n1\n42\n6\n10\n32\n40\n1\n1\n0\nTakeru\n5\n11\n300\n20\n",
     "maps_control_native.fk": "-1\nside ran\nfalse\ntrue\ntrue\n1\nyes\nnoyes\nside_int ran\n-2\n0\n7\n",
     "shared_native.fk": ("Takemikazuchi\n3\ntrue\nfalse\ntrue\nTakemikazuchi\n108\ntrue\nShiranui\n108\n108\nfalse\n216\n"
                          "Shiranui\n108\nfalse\nGekishin\n9\nfalse\n4\nfalse\n1\nShiranui\n108\nShiranui\n108\n7\nKasumi\n5\nShiranui\n108\n"),

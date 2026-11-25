@@ -653,7 +653,10 @@ Ship>`) over a scalar or a fixed layout (shape, tuple, fixed array, route) is
 a `ptr` in the aggregate's LLVM type and layout note, like a lend local. It
 is read and written through, passed and destructured with its aggregate,
 and never dropped: the aggregate does not own the loan's storage, even when
-that storage owns words. Meiya proves each loan. A loan enters an aggregate
+that storage owns words. The pointer is indirection (bible 17.4), so a type
+may hold a loan of itself (`route Chain { End, Link { next: lend Chain } }`);
+codegen restarts its by-value cycle check at the loan, as it does at a list
+element. Meiya proves each loan. A loan enters an aggregate
 only where the aggregate is declared, so its source is visible there and
 outlives the aggregate. Storing a loan into existing aggregate storage
 (`holder.0 = lend mut b`, `outer = inner`, a route reassigned) is refused by

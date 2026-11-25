@@ -16,6 +16,12 @@ route Pick {
     Nobody
 }
 
+-- A lend is indirection (bible 17.4): a route may hold a loan of itself.
+route Chain {
+    End
+    Link { next: lend Chain, n: int }
+}
+
 -- An aggregate holding a loan, passed by value: the callee writes through it.
 task repair(h: (lend mut Ship, int)) -> int {
     h.0.hp = h.0.hp + h.1
@@ -29,6 +35,13 @@ task strike(p: Pick) -> int {
             give back 1
         }
         Pick::Nobody -> give back 0
+    }
+}
+
+task link_n(c: Chain) -> int {
+    when c {
+        Chain::End -> give back 0
+        Chain::Link { next, n } -> give back n
     }
 }
 
@@ -85,5 +98,11 @@ task main() -> int {
     say view.0.0
     say view.1
     say closure_leaf_writes(Ship { hp: 7 })
+    -- A chain of loans of the same route.
+    pilot end = Chain::End
+    pilot one = Chain::Link { next: lend end, n: 1 }
+    pilot two = Chain::Link { next: lend one, n: 20 }
+    say link_n(Chain::Link { next: lend two, n: 300 })
+    say link_n(two)
     give back 0
 }
