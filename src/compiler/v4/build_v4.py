@@ -32,6 +32,15 @@ def v35_seed_module():
     return v35_seed
 
 
+def wasm_target_module():
+    """wasm_target, imported on first use (only wasm32 links need it)."""
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import wasm_target
+    return wasm_target
+
+
 def llvm_text_floor_module():
     """llvm_text_floor, imported on first use for the same reason as v35_seed."""
     here = str(Path(__file__).resolve().parent)
@@ -279,8 +288,14 @@ def main() -> int:
 def build(args: argparse.Namespace, parser: argparse.ArgumentParser, clang: str, flattened: FlattenedSource | None,
           sources: list[Path]) -> int:
     target = args.target or host_target()
-    if not args.emit_llvm and target != host_target():
-        parser.error("native linking currently supports the host TargetSpec; use --emit-llvm for cross targets")
+    wasm = target == "wasm32-unknown-wasip1"
+    if not args.emit_llvm and target != host_target() and not wasm:
+        parser.error("native linking currently supports the host TargetSpec and wasm32-unknown-wasip1; "
+                     "use --emit-llvm for other cross targets")
+    if wasm and not args.emit_llvm:
+        wasm_error = wasm_target_module().linker_error(clang)
+        if wasm_error:
+            parser.error(wasm_error)
     try:
         require_distinct_output(args.source, args.output)
         require_supported_clang(clang)
@@ -319,11 +334,18 @@ def build(args: argparse.Namespace, parser: argparse.ArgumentParser, clang: str,
             with tempfile.TemporaryDirectory(prefix="freak-v4-link-") as temporary:
                 llvm_path = Path(temporary) / "module.ll"
                 llvm_path.write_bytes(module.encode("utf-8"))
-                result = checks.run_with_heartbeat(
-                    native_link_command(clang, llvm_path, args.output),
-                    label="V4 native link", timeout_seconds=120, memory_limit_mb=1024,
-                )
-            if result.returncode != 0:
+                if wasm:
+                    # One self-contained module: V4 core runtime plus FREAK's
+                    # own WASI platform layer, no wasi-libc (wasm_target.py).
+                    wasm_target_module().link(clang, llvm_path, args.output,
+                                              checks.RUNTIME_BUILD_ROOT / "wasm_runtime")
+                    result = None
+                else:
+                    result = checks.run_with_heartbeat(
+                        native_link_command(clang, llvm_path, args.output),
+                        label="V4 native link", timeout_seconds=120, memory_limit_mb=1024,
+                    )
+            if result is not None and result.returncode != 0:
                 raise RuntimeError(f"LLVM native link failed:\n{result.stdout}{result.stderr}")
         print(f"built {args.output}")
     except RuntimeError as exc:
