@@ -59,7 +59,7 @@ Pipeline (full compiler):
 | §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`; current V3.5 development also provides installed native `freak test` for ordinary programs declared in `[tests]`, and `-o`/`--output` for build/run. V4: `freak vibe`, the `test "name" { ... }` framework, `--voice=…`, `--clearance=…`, `--build-mode=…`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
 | §15 Cheatsheet | ⚠️ Partial | Reflects §1-§14 status. |
-| §16 FFI | ⚠️ Partial | V3.5 (0.16.0) calls C functions in prebuilt `.so`/`.dylib`/`.dll` libraries on both backends: `extern [C, link="..."]` blocks with std::ffi C widths, raw pointers, `@link_name`, `if target_os` blocks, run-time `load="..."` binding, `ffi::*` C-string/memory/loader helpers, and `--link=`/`--lib-dir=` (§16 V3.5 note, §16.7). V4 has landed substantial section-16 work (extern ABI metadata, layout attributes, callback surface validation + `@extern_callback` task export with trampolines, stack-unwinder import diagnostics, raw-pointer `.is_null()`, trust-me-gated `*ptr`/`.read()` read, `*ptr = value`/`.write(value)` write, `.offset(n)`, `.cast<U>()`, fieldless `@repr(...)` route/variant FFI safety, target-width C integer aliases with sign/zero extension and checked narrowing on extern declarations, `@extern_callback` trampolines and extern function pointer calls, native C variadic calls with the default argument promotions, and more). Per-landing breakdown lives in [freak-conformance-audit.md §16](freak-conformance-audit.md#§16-system-boundaries-ffi). Still V4: runtime panic-catch in trampoline bodies, raw allocation/freeing, `std::os` platform modules, error-code translation. |
+| §16 FFI | ⚠️ Partial | V3.5 (0.16.0) calls C functions in prebuilt `.so`/`.dylib`/`.dll` libraries on both backends: `extern [C, link="..."]` blocks with std::ffi C widths, raw pointers, `@link_name`, `if target_os` blocks, run-time `load="..."` binding, `ffi::*` C-string/memory/loader helpers, and `--link=`/`--lib-dir=` (§16 V3.5 note, §16.7). V4 has landed substantial section-16 work (extern ABI metadata, layout attributes, callback surface validation + `@extern_callback` task export with trampolines, stack-unwinder import diagnostics, raw-pointer `.is_null()`, trust-me-gated `*ptr`/`.read()` read, `*ptr = value`/`.write(value)` write, `.offset(n)`, `.cast<U>()`, fieldless `@repr(...)` route/variant FFI safety, target-width C integer aliases with sign/zero extension and checked narrowing on extern declarations, `@extern_callback` trampolines and extern function pointer calls, native C variadic calls with the default argument promotions, `lend` word extern parameters as `(const char*, size_t)` (§16.1), and more). Per-landing breakdown lives in [freak-conformance-audit.md §16](freak-conformance-audit.md#§16-system-boundaries-ffi). Still V4: runtime panic-catch in trampoline bodies, raw allocation/freeing, `std::os` platform modules, error-code translation. |
 | §17 Compiler Internals + IDE | 🔜 V4 | Panic infrastructure, tolerant parsing, AST node IDs, incremental parsing, autocomplete, IDE-mode error reporting are V4. V4 TY now diagnoses alias-cycle loops; the broader 00-Unit IDE/compiler-internals surface remains in progress. |
 
 ### 0.3 V4 roadmap and conformance
@@ -3177,13 +3177,46 @@ FFI-safe types:
 - Fieldless `@repr(...)` variants.
 - Fixed arrays `[T; N]` where `T` is FFI-safe.
 - Extern function pointers: `extern [C] task(...) -> T`.
+- `lend name: word` as a parameter of an extern block member (word bytes at
+  a C boundary, below).
 
-Not FFI-safe by default: `word`, `List<T>`, `Map<K,V>`, `Set<T>`,
+Not FFI-safe by default: `word` (in any other position), `List<T>`, `Map<K,V>`, `Set<T>`,
 `Shared<T>`, `Weak<T>`, `dyn D`, closures, `maybe<T>`, `result<T,E>`,
 payload variants, and any shape without an explicit layout annotation.
 
 Yuuko note: "A FREAK `word` is not a `char*`. If you hand it to C raw,
 the BETA are no longer the main threat."
+
+Word bytes at a C boundary: a `lend` word parameter of an extern task lends C
+the word's bytes for the duration of the call. It is two C parameters, the
+bytes as `const char*` and then their byte length as `size_t` (the target's
+C `size_t` width):
+
+```
+extern [C] {
+    task count_byte(lend text: word, byte: std::ffi::c_int) -> std::ffi::c_size
+}
+-- C: size_t count_byte(const char *text, size_t text_len, int byte);
+
+task main() -> int {
+    pilot greeting = "hello world"
+    pilot ls = count_byte(lend greeting, 108)   -- 3; greeting is still ours
+    give back 0
+}
+```
+
+Rules:
+
+- The caller keeps the word. The call holds a shared loan, as for a FREAK
+  `lend` parameter, so the word cannot be moved or rewritten while C runs;
+  the loan ends when the call returns. Nothing is copied or dropped.
+- The bytes are UTF-8 and are not NUL-terminated for C, and an embedded NUL
+  is an ordinary byte. C must use the length and must not keep the pointer
+  after the call. Use `ffi::cstring` when C needs a terminated copy.
+- C must not write the bytes: `lend mut word` is not FFI-safe, and neither
+  is a word passed by value, a word return, a word behind an alias, or a
+  word parameter of an `@extern_callback` task or extern function pointer
+  type (C would hand FREAK bytes that no word owns).
 
 V4 implementation status: validated target descriptors now expose signedness,
 size, alignment and LLVM carriers for C int32, LP64 long64 and Windows LLP64
@@ -3198,7 +3231,11 @@ spell these widths too (both call directions are checked), and a variadic
 call promotes each `...` argument as C does (`bool`/`tiny` to `int`, `char` to
 `unsigned int`, `float32` to `double`). C widths elsewhere (FREAK task
 signatures, locals, pointees), `wchar` and variadic function pointers keep
-their named fences.
+their named fences. A `lend` word parameter of an extern declaration lowers
+to its `(const char*, size_t)` pair through the declaration's shim, with
+`size_t` at the target's pointer width; variadic declarations with such a
+parameter, and such declarations used as task values, are still refused by
+name.
 
 ### 16.2 extern Blocks and Calling Conventions
 
