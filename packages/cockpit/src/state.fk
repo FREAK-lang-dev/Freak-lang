@@ -447,10 +447,11 @@ task cockpit_text_scalars(text: word, limit: int) -> int {
     give back count
 }
 
--- Replaces each scalar with a bullet for password display.
+-- Replaces each scalar with an asterisk for password display (ASCII: the
+-- Windows backend draws through the ANSI text calls).
 task cockpit_text_mask(text: word) -> word {
     pilot masked = ""
-    repeat cockpit_text_scalars(text, text.length()) times { masked = masked + "•" }
+    repeat cockpit_text_scalars(text, text.length()) times { masked = masked + "*" }
     give back masked
 }
 

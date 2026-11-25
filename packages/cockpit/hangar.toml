@@ -4,7 +4,7 @@ version = "0.2.0"
 kind = "lib"
 author = "FREAK Core Team"
 edition = "alternative-3"
-description = "Source-only immediate-mode UI toolkit for FREAK: widgets, layout, themes, keyboard editing, charts, toasts and motion."
+description = "Fly a native UI by hand, every frame. Source-only immediate-mode widgets, layout, themes, caret editing, charts, toasts and motion for FREAK (Windows window backend)."
 readme = "README.md"
 
 [modules]
@@ -201,5 +201,8 @@ cockpit_words_set = "containers::cockpit_words_set"
 
 [tests]
 pure = "tests/pure.fk"
+
+[assets]
+changelog = "CHANGELOG.md"
 
 [dependencies]
