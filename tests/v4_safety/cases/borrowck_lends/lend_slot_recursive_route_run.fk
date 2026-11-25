@@ -1,0 +1,27 @@
+-- A lend is indirection: a route payload may hold a loan of the same route,
+-- so a chain of loans is a finite layout, not a shape containing itself.
+-- bible: 17.4
+-- expect: run
+-- stdout: 300
+-- stdout: 20
+
+route Chain {
+    End
+    Link { next: lend Chain, n: int }
+}
+
+task link_n(c: Chain) -> int {
+    when c {
+        Chain::End -> give back 0
+        Chain::Link { next, n } -> give back n
+    }
+}
+
+task main() -> int {
+    pilot end = Chain::End
+    pilot one = Chain::Link { next: lend end, n: 1 }
+    pilot two = Chain::Link { next: lend one, n: 20 }
+    say link_n(Chain::Link { next: lend two, n: 300 })
+    say link_n(two)
+    give back 0
+}

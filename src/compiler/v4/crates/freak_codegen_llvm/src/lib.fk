@@ -3468,7 +3468,20 @@ task v4_codegen_llvm_list_leaf_paths(mir_id: int, type_text: word, prefix: word)
 task v4_codegen_llvm_native_lend_slot_error(mir_id: int, slot_ty: word, context: word, depth: int) -> word {
     pilot target = v4_ty_lend_target_type(slot_ty)
     if not v4_codegen_llvm_is_place_lend(mir_id, slot_ty) or target == v4_ty_word or v4_codegen_llvm_is_list(mir_id, target) or v4_codegen_llvm_is_map(mir_id, target) { give back "native aggregate lend slots are not yet supported: " + context }
-    give back v4_codegen_llvm_native_type_error_depth(target, false, depth + 1)
+    -- A lend is indirection (bible 17.4): `route Chain { End, Link { next:
+    -- lend Chain } }` is finite. A target whose check is already in progress
+    -- is left to that check, as for list elements.
+    if v4_codegen_llvm_shape_ok_mir == mir_id and v4_codegen_llvm_shape_visiting.contains("," + v4_ty_canonical_type(v4_mir_ty_id(mir_id), target) + ",") {
+        v4_codegen_llvm_shape_assumed = true
+        give back ""
+    }
+    -- The pointer is the boundary: by-value cycle tracking restarts inside
+    -- the target, while visiting still holds every type in progress.
+    pilot saved_by_value = v4_codegen_llvm_shape_by_value
+    v4_codegen_llvm_shape_by_value = ","
+    pilot error = v4_codegen_llvm_native_type_error_depth(target, false, depth + 1)
+    v4_codegen_llvm_shape_by_value = saved_by_value
+    give back error
 }
 
 -- Where a native aggregate may take a loan: only where it is declared. A
