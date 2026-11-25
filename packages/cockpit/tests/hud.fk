@@ -1,0 +1,41 @@
+use self::flight::{
+    cockpit_flight_click_text,
+    cockpit_flight_quit,
+    cockpit_flight_type
+}
+use self::hud::{
+    Cockpit,
+    sortie_sim
+}
+
+-- The Cockpit shape, flown by the sim.
+
+task main() {
+    pilot p = sortie_sim(320, 200)
+    pilot callsign = ""
+    pilot armed = false
+    pilot launches = 0
+    pilot frame = 0
+    repeat until p.landed() {
+        p.heading("Launch control")
+        callsign = p.input_hint(callsign, "callsign")
+        p.row(32)
+        if p.button("Launch") { launches += 1 }
+        if p.button("Abort") { launches = 0 }
+        p.end()
+        armed = p.toggle("Armed", armed)
+        p.over()
+        say "frame " + word_from_int(frame) + ": " + callsign + " launches=" + word_from_int(launches) + " " + word_from_int(p.width()) + "x" + word_from_int(p.height())
+        if frame == 0 {
+            pilot hit = cockpit_flight_click_text("callsign")
+            cockpit_flight_type("Valkyrie")
+        }
+        if frame == 1 { pilot hit = cockpit_flight_click_text("Launch") }
+        if frame == 2 { pilot hit = cockpit_flight_click_text("Launch") }
+        if frame == 3 { pilot hit = cockpit_flight_click_text("Abort") }
+        if frame == 4 { cockpit_flight_quit() }
+        frame += 1
+    }
+    p.land()
+    say "landed after " + word_from_int(frame) + " frames"
+}
