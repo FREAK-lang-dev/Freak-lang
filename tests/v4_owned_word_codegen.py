@@ -42,6 +42,14 @@ EXPECTED = {
     "shared_native.fk": ("Takemikazuchi\n3\ntrue\nfalse\ntrue\nTakemikazuchi\n108\ntrue\nShiranui\n108\n108\nfalse\n216\n"
                          "Shiranui\n108\nfalse\nGekishin\n9\nfalse\n4\nfalse\n1\nShiranui\n108\nShiranui\n108\n7\nKasumi\n5\nShiranui\n108\n"),
     "word_interpolation.fk": "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n",
+    "c_words_native.fk": ("count_l=3\ngreeting=hello world\nlengths=11006\nscalars=5\nlead_bytes=1\nbyte_3=195\nnul_len=3\n"
+                          "nul_count=1\nsame_storage=yes\ncopy_storage=no\ncopy_bytes=yes\nother_bytes=no\nempty_len=11\n"
+                          "callsign_k=1 rank=2\nsquad_a=1\nchecksum_total=100320\nchecksum=3582672807\nmoved=Valkyrie\nshort_len=-11\n"),
+}
+
+# Programs that lend words to C link their real C helpers from examples/.
+C_HELPERS = {
+    "c_words_native.fk": "c_words_native_helpers.c",
 }
 
 
@@ -88,6 +96,8 @@ def main() -> int:
                 llvm_path.write_bytes(module.encode("utf-8"))
                 binary = directory / (name + (".exe" if os.name == "nt" else ".native"))
                 command = build.native_link_command(args.clang, llvm_path, binary)
+                if name in C_HELPERS:
+                    command.insert(command.index("-o"), str(checks.V4_ROOT / "examples" / C_HELPERS[name]))
                 command += ["-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1",
                             "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1"]
                 if not args.plain:
