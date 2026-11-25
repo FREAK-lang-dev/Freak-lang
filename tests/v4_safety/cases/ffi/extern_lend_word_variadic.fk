@@ -1,0 +1,12 @@
+-- The variadic call plan has no (const char*, size_t) pair yet.
+-- bible: 16.2
+-- expect: reject codegen
+-- error: native lend word parameters of variadic C declarations are not yet supported
+
+extern [C] {
+    task show(lend text: word, args: ...) -> std::ffi::c_int
+}
+task main() -> int {
+    pilot w = "hi"
+    give back show(lend w, 1)
+}

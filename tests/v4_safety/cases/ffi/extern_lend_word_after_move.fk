@@ -1,0 +1,14 @@
+-- A moved word cannot be lent to C.
+-- bible: 4.2
+-- expect: reject borrowck
+-- error: w was moved
+
+extern [C] {
+    task strnlen(lend text: word) -> std::ffi::c_size
+}
+task eat(w: word) -> int { give back 0 }
+task main() -> int {
+    pilot w = "hi"
+    eat(w)
+    give back strnlen(lend w)
+}
