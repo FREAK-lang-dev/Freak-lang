@@ -12142,6 +12142,18 @@ task v4_ty_validate_extern_member_link_name_contract(ty_id: int, sig_id: int) ->
     }
 }
 
+-- Word bytes at a C boundary (tier 3 C ABI, bible section 16.1): a `lend s:
+-- word` parameter of an extern block member is the only way a word crosses
+-- into C. It lowers to two C parameters, the bytes as `const char*` and their
+-- byte length as `size_t`; the caller keeps the word and Meiya holds a shared
+-- loan for the call. The bytes are not NUL-terminated for C. By-value words,
+-- `lend mut word`, word returns and words in callbacks stay refused.
+task v4_ty_extern_param_is_c_word_loan(ty_id: int, sig_id: int, param_id: int) -> bool {
+    if v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 { give back false }
+    if v4_ty_signature_param_mode(ty_id, sig_id, param_id) != v4_ty_param_mode_lend { give back false }
+    give back v4_ty_signature_param_surface_type(ty_id, sig_id, param_id) == "word"
+}
+
 task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void {
     if v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 {
         give back
@@ -12151,14 +12163,18 @@ task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void 
     pilot param_id = 0
     pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
     repeat until param_id >= param_count {
-        if v4_ty_signature_param_is_variadic(ty_id, sig_id, param_id) == false {
+        if v4_ty_signature_param_is_variadic(ty_id, sig_id, param_id) == false and v4_ty_extern_param_is_c_word_loan(ty_id, sig_id, param_id) == false {
             pilot param_surface = v4_ty_signature_param_surface_type(ty_id, sig_id, param_id)
             pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
             pilot param_context = member_name + " argument " + word_from_int(param_id + 1)
             if param_name != "" {
                 param_context = member_name + "." + param_name
             }
-            if v4_ty_validate_callback_surface_contract(ty_id, param_surface, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), param_context, "") == false and v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, "") == false {
+            if param_surface == "word" and v4_ty_signature_param_mode(ty_id, sig_id, param_id) == v4_ty_param_mode_lend_mut {
+                v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", param_context + " is lend mut word; C must not write the bytes a FREAK word owns. Pass lend word for read-only bytes, or a *mut tiny buffer.")
+            } else if param_surface == "word" {
+                v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", param_context + " passes a word by value; a word is a FREAK string, not a C char*. Write lend " + param_name + ": word to lend C its bytes as (const char*, size_t), or use *const tiny.")
+            } else if v4_ty_validate_callback_surface_contract(ty_id, param_surface, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), param_context, "") == false and v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, "") == false {
                 v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, param_surface, param_context))
             }
         }
@@ -12344,7 +12360,13 @@ task v4_ty_validate_extern_callback_export_contract(ty_id: int, sig_id: int) -> 
             if param_name != "" {
                 param_context = task_name + "." + param_name
             }
-            v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "@extern_callback parameter type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, param_surface, param_context))
+            pilot help = v4_ty_ffi_boundary_help(ty_id, param_surface, param_context)
+            -- C would hand the callback raw bytes that no FREAK word owns, so
+            -- a word loan has nothing to borrow from on this side.
+            if param_surface == "word" and v4_ty_signature_param_mode(ty_id, sig_id, param_id) != v4_ty_param_mode_value {
+                help = param_context + " lends a word to a callback; lend word crosses the C ABI only into an extern declaration. Take *const tiny and a std::ffi::c_size length instead."
+            }
+            v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "@extern_callback parameter type is not FFI-safe", help)
             give back
         }
         param_id += 1

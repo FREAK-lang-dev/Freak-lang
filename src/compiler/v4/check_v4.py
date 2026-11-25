@@ -19155,6 +19155,7 @@ def check_v4_native_shapes() -> None:
     check_v4_native_c_widths()
     check_v4_native_maybe_result()
     check_v4_native_c_abi()
+    check_v4_native_c_words()
     check_v4_native_closures()
     check_v4_native_closures_nested()
     check_v4_native_dyn()
@@ -20182,13 +20183,17 @@ def native_c_abi_clean(part: str) -> str:
     return re.sub(r"\s+", " ", part).strip()
 
 
-def native_c_abi_facts(text: str) -> set[tuple[str, str, str]]:
+NATIVE_C_ABI_CALLEES = r"ca_\w+|snprintf"
+
+
+def native_c_abi_facts(text: str, callees: str = NATIVE_C_ABI_CALLEES) -> set[tuple[str, str, str]]:
     """Every C boundary in a module: declarations and trampoline definitions
     as (kind, name, ret(params)), and C call sites as ("call", callee, shape)
-    with values removed; calls through a pointer have callee "*"."""
+    with values removed; calls through a pointer have callee "*". callees is
+    the regex of the C symbols the module and its oracle share."""
     facts = set()
     for line in text.splitlines():
-        declared = re.match(r"^(declare|define) (.*?) @(ca_\w+|snprintf|__freak_callback_\w+)\((.*?)\)", line)
+        declared = re.match(r"^(declare|define) (.*?) @(" + callees + r"|__freak_callback_\w+)\((.*?)\)", line)
         if declared:
             kind, result, name, params = declared.groups()
             if kind == "declare" and name.startswith("__freak_callback_"):
@@ -20198,7 +20203,7 @@ def native_c_abi_facts(text: str) -> set[tuple[str, str, str]]:
             cleaned = [native_c_abi_clean(re.sub(r" %[\w.]+$", "", part)) for part in native_c_abi_split_args(params)]
             facts.add((kind, name, native_c_abi_clean(result) + "(" + ", ".join(cleaned) + ")"))
             continue
-        called = re.search(r"\bcall (.*?) (@ca_\w+|@snprintf|%[\w.]+)\((.*)\)", line)
+        called = re.search(r"\bcall (.*?) (@(?:" + callees + r")|%[\w.]+)\((.*)\)", line)
         if not called:
             continue
         result, callee, args = called.groups()
@@ -20312,6 +20317,141 @@ def check_v4_native_c_abi() -> None:
             raise RuntimeError(f"V4 C ABI case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
     print(f"V4 native C ABI: run=exact narrowing=checked clang-facts={compared} "
           f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+
+
+# Tier 3 C ABI: word bytes at a C boundary. A `lend s: word` parameter of an
+# extern declaration is the pair (const char*, size_t); the oracle is the
+# same boundary written as C, which Clang lowers on every target so the
+# declarations and the shims' C call sites can be compared with V4's (size_t
+# is Clang's own __SIZE_TYPE__ there). The helpers are real C.
+NATIVE_C_WORDS_ORACLE = """typedef __SIZE_TYPE__ size_t;
+size_t cw_count_byte(const char *bytes, size_t length, int byte);
+unsigned cw_checksum(const char *bytes, size_t length);
+_Bool cw_same(const char *left, size_t left_length, const char *right, size_t right_length);
+int cw_byte_at(const char *bytes, size_t length, size_t index);
+long cw_lengths(long scale, const char *first, size_t first_length, const char *second, size_t second_length);
+void cw_remember(const char *bytes, size_t length);
+_Bool cw_is_remembered(const char *bytes, size_t length);
+short cw_short_len(const char *bytes, size_t length);
+void oracle(const char *p, size_t n, int c, long l) {
+    cw_count_byte(p, n, c);
+    cw_checksum(p, n);
+    cw_same(p, n, p, n);
+    cw_byte_at(p, n, n);
+    cw_lengths(l, p, n, p, n);
+    cw_remember(p, n);
+    cw_is_remembered(p, n);
+    cw_short_len(p, n);
+}
+"""
+
+NATIVE_C_WORDS_EXPECTED = (
+    "count_l=3\ngreeting=hello world\nlengths=11006\nscalars=5\nlead_bytes=1\nbyte_3=195\nnul_len=3\nnul_count=1\n"
+    "same_storage=yes\ncopy_storage=no\ncopy_bytes=yes\nother_bytes=no\nempty_len=11\ncallsign_k=1 rank=2\nsquad_a=1\n"
+    "checksum_total=100320\nchecksum=3582672807\nmoved=Valkyrie\nshort_len=-11\n"
+)
+
+# Named refusals around word bytes at a C boundary: (stem, source, reason).
+NATIVE_C_WORDS_REJECTED = (
+    ("tier3_c_word_by_value", "extern [C] { task f(s: word) -> std::ffi::c_int }\ntask main() -> int { give back 0 }\n",
+     "f.s passes a word by value"),
+    ("tier3_c_word_lend_mut", "extern [C] { task f(lend mut s: word) -> std::ffi::c_int }\ntask main() -> int { give back 0 }\n",
+     "f.s is lend mut word; C must not write the bytes a FREAK word owns"),
+    ("tier3_c_word_return", "extern [C] { task f() -> word }\ntask main() -> int { give back 0 }\n",
+     "f return uses word; that is a FREAK string fat pointer"),
+    ("tier3_c_word_alias", "alias Text = word\nextern [C] { task f(lend s: Text) -> std::ffi::c_int }\ntask main() -> int { give back 0 }\n",
+     "extern parameter type is not FFI-safe"),
+    ("tier3_c_word_callback", "@extern_callback(\"C\")\ntask cb(lend s: word) -> std::ffi::c_int { give back 0 }\n"
+     "task main() -> int { give back 0 }\n", "cb.s lends a word to a callback"),
+    ("tier3_c_word_callback_type", "extern [C] { task f(cb: extern [C] task(lend s: word) -> std::ffi::c_int) -> void }\n"
+     "task main() -> int { give back 0 }\n", "callback parameter type is not FFI-safe"),
+    ("tier3_c_word_variadic", "extern [C] { task f(lend s: word, args: ...) -> std::ffi::c_int }\n"
+     "task main() -> int {\n    pilot w = \"hi\"\n    give back f(lend w, 1)\n}\n",
+     "native lend word parameters of variadic C declarations are not yet supported: f"),
+    ("tier3_c_word_task_value", "extern [C] { task f(lend s: word) -> std::ffi::c_int }\n"
+     "task main() -> int {\n    pilot p = f\n    give back 0\n}\n", "native word task pointer contracts are not yet supported"),
+    ("tier3_c_word_needs_lend", "extern [C] { task f(lend s: word) -> std::ffi::c_size }\n"
+     "task main() -> int {\n    pilot w = \"hi\"\n    give back f(w)\n}\n", "borrowed call argument needs lend"),
+    ("tier3_c_word_temporary", "extern [C] { task f(lend s: word) -> std::ffi::c_size }\n"
+     "task main() -> int { give back f(lend \"abc\") }\n", "lend source must be a place"),
+    ("tier3_c_word_after_move", "extern [C] { task f(lend s: word) -> std::ffi::c_size }\ntask eat(w: word) -> int { give back 0 }\n"
+     "task main() -> int {\n    pilot w = \"hi\"\n    eat(w)\n    give back f(lend w)\n}\n", "w was moved"),
+    ("tier3_c_word_rewrite_lent", "extern [C] { task f(lend s: word) -> std::ffi::c_int }\n"
+     "task main() -> int {\n    pilot mut w = \"hi\"\n    pilot r = lend w\n    w = \"yo\"\n    give back f(r)\n}\n",
+     "Meiya refuses this rewrite while the value is borrowed"),
+)
+
+
+def check_v4_native_c_words() -> None:
+    """Tier 3 C ABI: lend word extern parameters as (const char*, size_t), checked against Clang."""
+    from build_v4 import host_target, native_link_command
+
+    clang = shutil.which("clang")
+    source = V4_ROOT / "examples" / "c_words_native.fk"
+    helpers = V4_ROOT / "examples" / "c_words_native_helpers.c"
+    oracle_source = RUNTIME_BUILD_ROOT / "tier3_c_words_oracle.c"
+    oracle_source.write_text(NATIVE_C_WORDS_ORACLE, encoding="utf-8")
+    compared = 0
+    for triple in NATIVE_LAYOUT_TRIPLES:
+        module_path = RUNTIME_BUILD_ROOT / f"tier3_c_words_{triple}.ll"
+        module_path.unlink(missing_ok=True)
+        emitted = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+            label=f"V4 C words module {triple}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not module_path.exists():
+            raise RuntimeError(f"V4 could not emit the C words module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+        module = module_path.read_text(encoding="utf-8")
+        oracle = run_with_heartbeat(
+            [clang, f"--target={triple}", "-O0", "-w", "-S", "-emit-llvm", str(oracle_source), "-o", "-"],
+            label=f"V4 C words oracle {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if oracle.returncode != 0:
+            raise RuntimeError(f"Clang rejected the C words oracle for {triple}:\n{oracle.stderr}")
+        ours = native_c_abi_facts(module, r"cw_\w+")
+        theirs = native_c_abi_facts(oracle.stdout, r"cw_\w+")
+        # Eight declarations and eight call shapes, every word a (ptr, size_t) pair.
+        if sum(1 for fact in theirs if fact[0] == "declare") != 8 or ours != theirs:
+            raise RuntimeError(f"V4 C word boundaries disagree with Clang on {triple}:\n"
+                               f"V4 only: {sorted(ours - theirs)}\nClang only: {sorted(theirs - ours)}")
+        compared += len(theirs)
+        # Each shim lends the caller's storage: no word is built, cloned or
+        # dropped on the way to C, and C never needs a terminator.
+        shims = re.findall(r'^define internal [^\n]*@"freak\.cabi\.cw_\w+"\(.*?^\}', module, re.MULTILINE | re.DOTALL)
+        if len(shims) != 8 or any(re.search(r"@freak_v4_word_(?:from_bytes|clone|concat|drop)\b|@strlen\b", shim) for shim in shims) \
+                or any("@freak_v4_word_bytes(" not in shim or "inttoptr i64 %a" not in shim for shim in shims):
+            raise RuntimeError(f"V4 C word shims do not lend the word's own bytes on {triple}")
+        assembled = run_with_heartbeat(
+            [clang, f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
+            label=f"V4 C words object {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if assembled.returncode != 0:
+            raise RuntimeError(f"Clang rejected the V4 C words module for {triple}:\n{assembled.stderr}")
+    host = host_target()
+    module_path = RUNTIME_BUILD_ROOT / f"tier3_c_words_{host}.ll"
+    executable = RUNTIME_BUILD_ROOT / ("tier3_c_words.exe" if sys.platform == "win32" else "tier3_c_words.native")
+    executable.unlink(missing_ok=True)
+    command = native_link_command(clang, module_path, executable)
+    command.insert(command.index("-o"), str(helpers))
+    linked = run_with_heartbeat(command, label="V4 C words link", timeout_seconds=180, memory_limit_mb=1024)
+    if linked.returncode != 0 or not executable.exists():
+        raise RuntimeError(f"V4 C words program did not link with real C:\n{linked.stdout}{linked.stderr}")
+    ran = run_with_heartbeat([str(executable)], label="V4 native C words execute", timeout_seconds=10, memory_limit_mb=128)
+    if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != NATIVE_C_WORDS_EXPECTED:
+        raise RuntimeError(f"V4 native C words printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
+    for stem, text, reason in NATIVE_C_WORDS_REJECTED:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 C words case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    print(f"V4 native C words: run=exact clang-facts={compared} targets={len(NATIVE_LAYOUT_TRIPLES)} "
+          f"rejections={len(NATIVE_C_WORDS_REJECTED)}")
 
 
 def check_v4_build_command() -> None:
