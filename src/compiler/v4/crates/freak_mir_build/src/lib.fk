@@ -37,6 +37,8 @@ pilot v4_mir_control_probe_depth = 0
 
 -- Set while lowering a module that mentions dyn (v4_mir_build_seal_dyn_facts).
 pilot v4_mir_build_saw_dyn: bool = false
+-- The HIR file v4_mir_lower_ty is lowering; MIR Build reads its facts.
+pilot v4_mir_build_hir_id: int = 0 - 1
 
 task v4_mir_build_init() -> void {
     if v4_mir_build_ready == 0 {
@@ -906,33 +908,45 @@ task v4_mir_binary_candidate_has_left_operand(stream_id: int, start_token: int, 
     give back v4_mir_token_can_end_expr(stream_id, prev)
 }
 
-task v4_mir_generic_method_type_arg_open_for_close(stream_id: int, start_token: int, close_token: int, end_token: int) -> int {
-    pilot idx = close_token
-    pilot depth = 0
-    repeat until idx < start_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_syntax_value(stream_id, idx)
-            if val == ">" {
-                depth += 1
-            } else if val == "<" {
-                depth -= 1
-                if depth == 0 {
-                    pilot method_token = v4_mir_prev_nontrivia(stream_id, idx - 1, start_token)
-                    pilot separator_token = v4_mir_prev_nontrivia(stream_id, method_token - 1, start_token)
-                    if method_token >= start_token and separator_token >= start_token {
-                        pilot separator = v4_lex_token_syntax_value(stream_id, separator_token)
-                        pilot method_tok_type = v4_lex_token_type(stream_id, method_token)
-                        if (separator == "." or separator == "::") and (method_tok_type == v4_tok_ident or method_tok_type == v4_tok_keyword) {
-                            give back idx
-                        }
-                    }
-                    give back 0 - 1
-                }
-            }
-        }
-        idx -= 1
+-- Method type arguments are HIR facts (architecture lane A1): HIR pairs the
+-- angle brackets of the whole file once and keeps the `<` lists written right
+-- after `.name` or `::name`. Every stream MIR Build walks is that file's.
+task v4_mir_type_arg_hir(stream_id: int) -> int {
+    pilot hir_id = v4_mir_build_hir_id
+    if hir_id < 0 or v4_parse_stream_id(v4_hir_tree_id(hir_id)) != stream_id {
+        give back 0 - 1
     }
-    give back 0 - 1
+    give back hir_id
+}
+
+task v4_mir_token_start_offset(stream_id: int, token: int) -> int {
+    give back v4_span_start(v4_lex_token_span(stream_id, token))
+}
+
+-- The HIR row of the `<` list right after method_token, or -1.
+task v4_mir_method_type_arg_row(stream_id: int, method_token: int) -> int {
+    pilot hir_id = v4_mir_type_arg_hir(stream_id)
+    if hir_id < 0 or method_token < 0 {
+        give back 0 - 1
+    }
+    give back v4_hir_method_type_arg_after_method(hir_id, v4_mir_token_start_offset(stream_id, method_token))
+}
+
+-- The `<` of a named method's type argument list closed by close_token, when
+-- the whole `.name<...>` / `::name<...>` lies at or after start_token.
+task v4_mir_generic_method_type_arg_open_for_close(stream_id: int, start_token: int, close_token: int, end_token: int) -> int {
+    pilot hir_id = v4_mir_type_arg_hir(stream_id)
+    if hir_id < 0 {
+        give back 0 - 1
+    }
+    pilot row = v4_hir_method_type_arg_closing_at(hir_id, v4_mir_token_start_offset(stream_id, close_token))
+    if row < 0 or not v4_hir_method_type_arg_is_named(hir_id, row) {
+        give back 0 - 1
+    }
+    if v4_span_start(v4_hir_method_type_arg_separator_span(hir_id, row)) < v4_mir_token_start_offset(stream_id, start_token) {
+        give back 0 - 1
+    }
+    give back v4_mir_first_token_at_or_after(stream_id, v4_span_start(v4_hir_method_type_arg_open_span(hir_id, row)))
 }
 
 task v4_mir_binary_tier_matches(op: word, tier: int) -> bool {
@@ -1014,8 +1028,7 @@ task v4_mir_is_generic_instance_method_call_shape(stream_id: int, first: int, la
     if method_token >= open_token {
         give back false
     }
-    pilot type_open = v4_mir_skip_trivia(stream_id, method_token + 1)
-    give back type_open < open_token and v4_lex_token_syntax_value(stream_id, type_open) == "<"
+    give back v4_mir_method_type_arg_open(stream_id, method_token, open_token) >= 0
 }
 
 task v4_mir_find_or_else_op(stream_id: int, start_token: int, end_token: int) -> int {
@@ -3402,10 +3415,15 @@ task v4_mir_raw_pointer_method_arg_count_error(mir_id: int, body_id: int, stream
     v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, close_token)
 }
 
+-- The `<` right after method_token when it comes before the call's `(`.
 task v4_mir_method_type_arg_open(stream_id: int, method_token: int, open_token: int) -> int {
-    pilot next_token = v4_mir_skip_trivia(stream_id, method_token + 1)
-    if next_token < open_token and v4_lex_token_syntax_value(stream_id, next_token) == "<" {
-        give back next_token
+    pilot row = v4_mir_method_type_arg_row(stream_id, method_token)
+    if row < 0 {
+        give back 0 - 1
+    }
+    pilot type_open = v4_mir_first_token_at_or_after(stream_id, v4_span_start(v4_hir_method_type_arg_open_span(v4_mir_build_hir_id, row)))
+    if type_open < open_token {
+        give back type_open
     }
     give back 0 - 1
 }
@@ -3435,15 +3453,16 @@ task v4_mir_raw_pointer_method_type_arg_close(stream_id: int, type_open: int, op
 }
 
 task v4_mir_reject_method_type_args(mir_id: int, stream_id: int, expr_span: word, owner_ty: word, method_name: word, call_glyph: word, method_token: int, open_token: int) -> bool {
-    pilot type_open = v4_mir_method_type_arg_open(stream_id, method_token, open_token)
-    if type_open < 0 {
+    if v4_mir_method_type_arg_open(stream_id, method_token, open_token) < 0 {
         give back false
     }
 
+    -- HIR spells the list like TY; one closed after the `(` shows as "...".
     pilot type_text = "..."
-    pilot type_close = v4_mir_raw_pointer_method_type_arg_close(stream_id, type_open, open_token)
-    if type_close > type_open {
-        type_text = v4_mir_compact_type_text(v4_ty_type_text(stream_id, type_open + 1, type_close))
+    pilot row = v4_mir_method_type_arg_row(stream_id, method_token)
+    pilot type_close = v4_hir_method_type_arg_close_span(v4_mir_build_hir_id, row)
+    if type_close != V4_NO_SPAN and v4_span_start(type_close) < v4_mir_token_start_offset(stream_id, open_token) {
+        type_text = v4_mir_compact_type_text(v4_hir_method_type_arg_type_text(v4_mir_build_hir_id, row))
     }
     v4_mir_add_type_error(mir_id, expr_span, "method takes no type arguments", owner_ty + call_glyph + method_name + " is not a generic method; remove <" + type_text + "> before the call parentheses")
     give back true
@@ -11810,6 +11829,7 @@ task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {
     v4_mir_copy_ty_diags(mir_id, ty_id)
     pilot resolve_id = v4_ty_resolve_id(ty_id)
     pilot hir_id = v4_resolve_hir_id(resolve_id)
+    v4_mir_build_hir_id = hir_id
     pilot tree_id = v4_hir_tree_id(hir_id)
     pilot stream_id = v4_parse_stream_id(tree_id)
 

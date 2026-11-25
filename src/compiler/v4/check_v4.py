@@ -2721,6 +2721,37 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "method type argument HIR facts",
+        "fixture": "hir_method_type_arg_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "mta-parse-diagnostics=0",
+            "mta-rows=4 closed=3",
+            "mta-row0 sep=0@36:37 method=0@37:40 named open=0@40:41 close=0@44:45 text=int",
+            "mta-row1 sep=0@66:68 method=0@68:72 named open=0@72:73 close=0@88:89 text=List<int>,word",
+            "mta-row2 sep=0@111:112 method=0@112:113 unnamed open=0@113:114 close=0@115:116 text=1",
+            "mta-row3 sep=0@156:157 method=0@157:160 named open=0@161:162 close=0:0@0:0 text=",
+            "mta-after-get=0",
+            "mta-after-make=1",
+            "mta-after-len=3",
+            "mta-after-p=-1",
+            "mta-closing-get=0",
+            "mta-closing-make=1",
+            "mta-closing-inner-list=-1",
+            "mta-closing-comparison=-1",
+            "mta-snapshot-lines=true",
+            "mta-roundtrip=true",
+            "mta-reject-counts=true",
+            "mta-reject-order=true",
+            "mta-reject-schema=true",
+            "mta-reject-spans=true",
+            "mta-reject-matching=true",
+            "mta-after-rejects=true",
+        ],
+    },
+    {
         "name": "extern member return snapshot contracts",
         "fixture": "extern_return_snapshot_smoke.fk",
         "memory_limit_mb": 64,
@@ -11075,7 +11106,7 @@ EXECUTABLE_SMOKES = [
             "local-annotation-mir-diagnostics=0",
             "local-annotation-borrow-status=clean",
             "local-annotation-borrow-diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v14 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 extern-params=0 method-owners=0 methods=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v15 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 extern-params=0 method-owners=0 methods=0 method-type-args=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 diagnostics=0 skipped-other=0 live-files=1",
             "local-annotation-restored-count=4",
             "local-annotation-restored-fixed=char",
@@ -11157,7 +11188,7 @@ EXECUTABLE_SMOKES = [
             "task-return-mir-diagnostics=0",
             "task-return-borrow-status=clean",
             "ty-snapshot format=freak-ty-snapshot-v1 files=1 signatures=3 diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v14 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 extern-params=0 method-owners=0 methods=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v15 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 extern-params=0 method-owners=0 methods=0 method-type-args=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=3 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 diagnostics=0 skipped-other=0 live-files=1",
             "task-return-restored-form=explicit",
             "task-return-restored-surface=lend 'a maybe<[word;2]>",
@@ -11203,7 +11234,7 @@ EXECUTABLE_SMOKES = [
             "task-param-mir-span-semantic=true",
             "task-param-meiya-status=clean",
             "task-param-editor-label-definition=true",
-            "hir-snapshot format=freak-hir-snapshot-v14",
+            "hir-snapshot format=freak-hir-snapshot-v15",
             "task-param-restored-count=4",
             "task-param-schema-variants-rejected=true",
             "task-param-schema-variants-atomic=true",
@@ -14092,6 +14123,44 @@ def architecture_lane_violations(ty_source: str, codegen_source: str) -> list[st
     return violations
 
 
+# A1 method type arguments: MIR Build reads HIR's method type argument rows
+# instead of pairing angle brackets or spelling the list from tokens.
+MIR_BUILD_METHOD_TYPE_ARG_READERS = (
+    "v4_mir_generic_method_type_arg_open_for_close",
+    "v4_mir_method_type_arg_open",
+    "v4_mir_reject_method_type_args",
+)
+MIR_BUILD_METHOD_TYPE_ARG_TOKEN_READS = (
+    "v4_lex_token_syntax_value",
+    "v4_lex_token_type",
+    "v4_mir_skip_trivia",
+    "v4_mir_prev_nontrivia",
+    "v4_ty_type_text",
+    "v4_mir_raw_pointer_method_type_arg_close",
+)
+
+
+def mir_build_method_type_arg_violations(source: str) -> list[str]:
+    violations: list[str] = []
+    for name in MIR_BUILD_METHOD_TYPE_ARG_READERS:
+        body = freak_task_body(source, name)
+        if body is None:
+            violations.append(f"boundary missing: freak_mir_build method type argument reader {name}")
+            continue
+        if "v4_hir_method_type_arg_" not in body and "v4_mir_method_type_arg_" not in body:
+            violations.append(f"{name} does not read HIR method type argument facts")
+        for forbidden in MIR_BUILD_METHOD_TYPE_ARG_TOKEN_READS:
+            if forbidden in body:
+                violations.append(f"{name} reads method type arguments from tokens: {forbidden}")
+    shape = freak_task_body(source, "v4_mir_is_generic_instance_method_call_shape") or ""
+    if "v4_mir_method_type_arg_open(" not in shape or '== "<"' in shape:
+        violations.append("generic instance method call shape does not read HIR method type argument facts")
+    hir_source = freak_task_body(source, "v4_mir_type_arg_hir") or ""
+    if "v4_mir_build_hir_id" not in hir_source or "v4_parse_stream_id(v4_hir_tree_id(" not in hir_source:
+        violations.append("method type argument facts are read without checking the lowered HIR file")
+    return violations
+
+
 def mir_authority_violations(source: str) -> list[str]:
     references = sorted(set(re.findall(
         r"\bv4_(?:lex|parse|expand|hir|resolve|borrowck|codegen)_[A-Za-z0-9_]*\b",
@@ -14116,6 +14185,7 @@ def check_crate_boundaries() -> None:
     # Authority owns records and validation. Construction and later-stage
     # analysis remain separate even when all crates compile into one source.
     violations.extend(mir_authority_violations(read_text(crate_path("freak_mir"))))
+    violations.extend(mir_build_method_type_arg_violations(read_text(crate_path("freak_mir_build"))))
     violations.extend(
         architecture_lane_violations(
             read_text(crate_path("freak_ty")), read_text(crate_path("freak_codegen_llvm"))
@@ -14820,7 +14890,7 @@ def check_mir_local_annotation_boundary() -> None:
     violations.extend(hir_lookup_index_violations(hir_source))
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v14"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v15"',
         "pilot v4_hir_local_annotation_items = 0",
         "pilot v4_hir_local_annotation_stmt_spans = 0",
         "pilot v4_hir_local_annotation_types = 0",
@@ -14916,7 +14986,6 @@ def check_mir_local_annotation_boundary() -> None:
             violations.append(f"impl annotation bridge reconstructs annotation syntax: {forbidden}")
 
     allowed_type_text_tasks = {
-        "v4_mir_reject_method_type_args",
         "v4_mir_try_lower_builtin_raw_pointer_instance_method",
         "v4_mir_try_lower_associated_method_call",
         "v4_mir_shape_ctor_name",
@@ -14964,7 +15033,7 @@ def check_task_return_hir_boundary() -> None:
         violations.append("task return boundary unexpectedly changed the TY snapshot format")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v14"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v15"',
         "pilot v4_hir_task_return_items = 0",
         "pilot v4_hir_task_return_forms = 0",
         "pilot v4_hir_task_return_types = 0",
@@ -15710,7 +15779,7 @@ def check_task_param_hir_boundary() -> None:
                 violations.append("task parameter scalar-read guard accepted changed field or cached bound")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v14"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v15"',
         'pilot v4_hir_task_param_mode_value = "value"',
         'pilot v4_hir_task_param_mode_lend = "lend"',
         'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
