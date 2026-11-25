@@ -849,21 +849,39 @@ type-erased pool:
   native runtime itself uses; allocation failure panics with
   `list allocation failed`.
 
-Refused by name: lists of `maybe`/`result` values (the MIR sum proof
-admits sum carriers only in locals, so element places and loop items of a
-sum type wait for it), list operators (including equality of aggregates
-that hold lists), moved list captures, task values with list parameters or
-results, repeat fills of lists, and user declarations of `realloc`/`free`
-in a module that uses lists. Programs: `examples/lists_native.fk` (exact
-output, exit 0, and an out-of-bounds panic run; sixteen named rejections)
+- **`maybe`/`result` elements.** A carrier is an element by value, as a
+  carrier local is (bible 7.4). The MIR sum proof admits it in exactly
+  four list positions: an `Index` place over a list of exactly that
+  carrier, a `UsePlace` read of one, a `LoopItem` over a shared list loan,
+  and the item `push` moves in; a call it checks may also take a `lend` /
+  `lend mut` list argument. Reading `xs[i]` moves the element out (a
+  carrier is not Copy, even `maybe<int>`) and leaves the zero carrier, so
+  the list's drop skips it and Meiya refuses the list afterwards. The
+  element drop helper releases a carrier's one word field (an inactive
+  payload is zero), a `for each` copy clones that field only when it holds
+  a word, and `xs[i] = v` releases the old word through `DropSlot`. A
+  carrier type reached only through a list (`List<result<char, word>>`
+  with no carrier value in any body) still gets its type definition.
+
+Refused by name: list operators (including equality of aggregates that
+hold lists, and carrier element equality), moved list captures, task
+values with list parameters or results, repeat fills of lists (bible 1.15
+asks `Cloneable` of a non-Copy repeat value, and V4 gives `List` no
+`Cloneable`), carrier elements whose payload is an aggregate owning words
+or another carrier, and user declarations of `realloc`/`free` in a module
+that uses lists. Programs: `examples/lists_native.fk` (exact
+output, exit 0, and an out-of-bounds panic run; fifteen named rejections)
 and `examples/lists_nested_native.fk` (exact output, exit 0; the layout
 oracle sees the list-holding shapes and route, each clone and drop helper
 is defined once, and an outer drop helper calls its element's helper
 before `free`; `NATIVE_NESTED_LISTS_REJECTED`), both in
 `check_v4_native_shapes` and audited by `tests/v4_owned_word_codegen.py`,
-and `examples/lists_unused_shape_native.fk` (a list field with no list
+`examples/lists_unused_shape_native.fk` (a list field with no list
 use: the header layout is present and no `freak.list.` runtime symbol is
-defined or declared).
+defined or declared), and `examples/lists_sums_native.fk` (exact output,
+exit 0; carrier layouts on four targets, each element drop helper
+releases the carrier's word field before `free` and each clone helper
+skips an empty one; `NATIVE_LIST_SUMS_REJECTED`).
 MIR also
 refuses control flow inside any index operand (`xs[f()?]`,
 `xs[pick(a and b)]`) until index operands are wired (#274).

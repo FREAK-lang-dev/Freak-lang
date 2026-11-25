@@ -2066,6 +2066,7 @@ Collection rules:
 - `List<dyn D>` stores owned doctrine objects as fat pointers plus drop glue.
 - `List<Shared<dyn D>>` stores shared pointers to erased objects and is the preferred representation for UI trees, scene graphs, IDE buffers, and other cyclic-ish systems.
 - `Map<K,V>` keys must implement `Eq + Hashable`. `dyn` keys are forbidden unless the doctrine object also exposes stable equality and hashing through an object-safe doctrine.
+- A list holds `maybe`/`result` values by value, like any other element. They are not `Copy`, even over scalar payloads: reading `xs[i]` or `xs.get(i)` moves the element out, `push` moves one in, `xs[i] = v` drops the old one, and each `for each` item is the walker's own copy.
 - Removing an element drops the collection's ownership of that element. If the element is `Shared<T>`, the allocation remains alive while other strong references exist.
 - `map[key]` reads or updates the entry for `key` in place and panics with `map key not found` when there is none; `map.get(key)` is the checked read and gives back `maybe<V>` holding a copy. `map[key] = val` is `map.set(key, val)`: it inserts or replaces, moving key and value into the map. `map.remove(key)` and `set.remove(val)` give back whether an entry was removed, `set.add(val)` keeps the first of two equal values, and `map.length` / `set.length` count entries. A lookup lends its key.
 - Lending `map[key]` borrows the map: it cannot be changed or moved while that loan is live.
