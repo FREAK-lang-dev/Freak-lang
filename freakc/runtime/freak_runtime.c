@@ -1834,8 +1834,10 @@ double freak_math_random_float(void) {
    on Apple, getrandom (or /dev/urandom where it is missing) elsewhere.
    There is no weak fallback: if the OS refuses, the program stops. */
 #if defined(_WIN32)
-#include <bcrypt.h>
-#pragma comment(lib, "bcrypt.lib")
+/* BCryptGenRandom is looked up at run time, so programs need no bcrypt
+   import library on either the MSVC or the MinGW toolchain. */
+typedef LONG (WINAPI *freak_bcrypt_gen_random_fn)(void *, unsigned char *, ULONG, ULONG);
+#define FREAK_BCRYPT_USE_SYSTEM_PREFERRED_RNG 0x00000002
 #elif defined(__linux__) && defined(__has_include)
 #if __has_include(<sys/random.h>)
 #include <sys/random.h>
@@ -1850,8 +1852,19 @@ static void freak_os_random_fail(const char* why) {
 
 static void freak_os_random_bytes(uint8_t* out, size_t length) {
 #if defined(_WIN32)
-    if (!BCRYPT_SUCCESS(BCryptGenRandom(NULL, out, (ULONG)length, BCRYPT_USE_SYSTEM_PREFERRED_RNG)))
-        freak_os_random_fail("BCryptGenRandom");
+    static freak_bcrypt_gen_random_fn gen_random = NULL;
+    if (!gen_random) {
+        HMODULE bcrypt = LoadLibraryW(L"bcrypt.dll");
+        if (bcrypt) gen_random = (freak_bcrypt_gen_random_fn)(void *)GetProcAddress(bcrypt, "BCryptGenRandom");
+        if (!gen_random) freak_os_random_fail("bcrypt.dll");
+    }
+    while (length > 0) {
+        ULONG take = length > 0x40000000u ? 0x40000000u : (ULONG)length;
+        if (gen_random(NULL, out, take, FREAK_BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0)
+            freak_os_random_fail("BCryptGenRandom");
+        out += take;
+        length -= take;
+    }
 #elif defined(__APPLE__)
     arc4random_buf(out, length);
 #else
