@@ -183,7 +183,7 @@ def main() -> None:
     # Each declared example parses its real self imports and links against the
     # same platform ABI. The deterministic poll closes the example's own window
     # on its first frame; interactive Windows behavior is a separate gate.
-    for example in ('smoke', 'showcase', 'calculator', 'settings', 'mission_control'):
+    for example in ('smoke', 'showcase', 'calculator', 'settings', 'mission_control', 'sortie'):
         for backend in ('c', 'llvm'):
             generated = work / f'example-{example}.{"c" if backend == "c" else "ll"}'
             source = copied / f'examples/{example}.fk'

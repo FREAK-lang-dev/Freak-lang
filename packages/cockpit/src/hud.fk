@@ -154,6 +154,9 @@ impl Cockpit {
     -- The theme handle, for cockpit_theme_get and friends.
     task theme_handle(self) -> int { give back self.theme }
 
+    -- One of the theme's colors: p.color(cockpit_theme_success).
+    task color(self, field: int) -> int { give back cockpit_theme_get(self.theme, field) }
+
     -- Draws a big bold line of text.
     task heading(self, text: word) -> void { cockpit_widget_heading(self.window, self.layout, self.theme, text) }
 
