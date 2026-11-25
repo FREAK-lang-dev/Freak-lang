@@ -8465,11 +8465,11 @@ task v4_codegen_llvm_native_closure_rvalue_error(mir_id: int, body_id: int, rval
         }
         give back "invalid native closure capture: " + text
     }
-    -- A closure in a generic task needs that task's monomorphized body (the
-    -- generics row): its parameter and result types may name the task's
-    -- type parameters.
-    pilot context = v4_mir_body_context_signature_id(mir_id, body_id)
-    if context >= 0 and v4_ty_signature_type_generic_count(v4_mir_ty_id(mir_id), context) > 0 { give back "native generic closures need a monomorphized task body: " + text }
+    -- A closure in a generic task runs only from that task's monomorphized
+    -- instances, whose closure bodies MIR lowered under the instance env; the
+    -- template's own closure (its types still name type parameters) is never
+    -- emitted.
+    if v4_mir_body_is_generic_template(mir_id, body_id) { give back "native generic closures need a monomorphized task body: " + text }
     -- A closure inside a closure body is checked as that body's own rvalue.
     pilot closure_body = v4_mir_closure_rvalue_body(mir_id, body_id, rvalue_id)
     if closure_body < 0 { give back "native closures are lowered only in ordinary tasks, with FREAK parameter types: " + text }
