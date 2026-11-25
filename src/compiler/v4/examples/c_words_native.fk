@@ -1,0 +1,86 @@
+-- Tier 3 C ABI: word bytes at a C boundary.
+-- A `lend s: word` parameter of an extern [C] task lowers to two C
+-- parameters: `const char*` to the word's bytes, then their byte length as
+-- `size_t` at the target's C width. The caller keeps the word: Meiya holds a
+-- shared loan for the call, and nothing is copied, dropped or NUL-terminated
+-- for C, so C must use the length (the helpers never call strlen). By-value
+-- words, `lend mut word`, word results and words in callbacks stay refused.
+-- check_v4_native_c_words links this with c_words_native_helpers.c.
+
+extern [C] {
+    task cw_count_byte(lend text: word, byte: std::ffi::c_int) -> std::ffi::c_size
+    task cw_checksum(lend text: word) -> std::ffi::c_uint
+    task cw_same(lend left: word, lend right: word) -> std::ffi::c_bool
+    task cw_byte_at(lend text: word, index: std::ffi::c_size) -> std::ffi::c_int
+    task cw_lengths(scale: std::ffi::c_long, lend first: word, lend second: word) -> std::ffi::c_long
+    task cw_remember(lend text: word) -> void
+    task cw_is_remembered(lend text: word) -> std::ffi::c_bool
+    task cw_short_len(lend text: word) -> std::ffi::c_short
+}
+
+shape Pilot {
+    callsign: word
+    rank: int
+}
+
+task show(label: word, value: bool) -> void {
+    if value { say label + "=yes" } else { say label + "=no" }
+}
+
+-- A FREAK lend parameter forwards the same loan to C.
+task count_in(lend text: word, byte: int) -> int {
+    give back cw_count_byte(lend text, byte)
+}
+
+task main() -> int {
+    pilot greeting = "hello world"
+    say "count_l=" + word_from_int(cw_count_byte(lend greeting, 108))
+    say "greeting=" + greeting
+
+    -- Byte length, not scalar count: e-acute is two UTF-8 bytes.
+    pilot accented = "café!"
+    say "lengths=" + word_from_int(cw_lengths(1000, lend greeting, lend accented))
+    say "scalars=" + word_from_int(accented.length())
+    say "lead_bytes=" + word_from_int(count_in(lend accented, 195))
+    say "byte_3=" + word_from_int(cw_byte_at(lend accented, 3))
+
+    -- An embedded NUL is an ordinary byte; C sees all three bytes.
+    pilot nul = "a\0b"
+    say "nul_len=" + word_from_int(cw_lengths(1, lend nul, lend nul) / 2)
+    say "nul_count=" + word_from_int(cw_count_byte(lend nul, 0))
+
+    -- The pointer is the word's own storage: no copy is made.
+    cw_remember(lend greeting)
+    show("same_storage", cw_is_remembered(lend greeting))
+    pilot copy = greeting + ""
+    show("copy_storage", cw_is_remembered(lend copy))
+    show("copy_bytes", cw_same(lend greeting, lend copy))
+    show("other_bytes", cw_same(lend greeting, lend accented))
+
+    -- Empty words pass length 0.
+    pilot empty = ""
+    say "empty_len=" + word_from_int(cw_lengths(1, lend empty, lend greeting))
+
+    -- Fields, list elements and words built at run time.
+    pilot ace = Pilot { callsign: "Valkyrie", rank: 2 }
+    say "callsign_k=" + word_from_int(cw_count_byte(lend ace.callsign, 107)) + " rank=" + word_from_int(ace.rank)
+    pilot squad = ["Takeru", "Sumika", "Meiya"]
+    say "squad_a=" + word_from_int(cw_count_byte(lend squad[2], 97))
+    pilot mut total: int = 0
+    pilot mut round: int = 0
+    repeat until round >= 200 {
+        pilot built = "round " + word_from_int(round)
+        total = total + cw_checksum(lend built) % 1000
+        round += 1
+    }
+    say "checksum_total=" + word_from_int(total)
+    say "checksum=" + word_from_int(cw_checksum(lend greeting))
+
+    -- The loan ends with the call: the word can move afterwards.
+    pilot moved = ace.callsign
+    say "moved=" + moved
+
+    -- A C-width result widens as before.
+    say "short_len=" + word_from_int(cw_short_len(lend greeting))
+    give back 0
+}
