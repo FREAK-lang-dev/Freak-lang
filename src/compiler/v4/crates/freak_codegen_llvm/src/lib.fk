@@ -2465,6 +2465,7 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
         if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_ptr_is_null {
             give back target + " = icmp eq ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ", null"
         }
+        if v4_codegen_llvm_is_raw_mem_op(v4_mir_rvalue_op(mir_id, body_id, rvalue_id)) { give back v4_codegen_llvm_raw_mem_instruction(mir_id, body_id, rvalue_id, target) }
         if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_deref {
             pilot pointee_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
             give back target + " = load " + pointee_ty + ", ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand)
@@ -4999,7 +5000,11 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
         error = v4_codegen_llvm_native_place_error(mir_id, body_id, lhs, 0)
         if error != "" { give back error }
     }
-    error = v4_codegen_llvm_native_type_error(type_text, kind == v4_mir_rvalue_call)
+    if kind == v4_mir_rvalue_unary and v4_codegen_llvm_is_raw_mem_op(v4_mir_rvalue_op(mir_id, body_id, rvalue_id)) {
+        error = v4_codegen_llvm_native_raw_mem_error(mir_id, body_id, rvalue_id)
+        if error != "" { give back error }
+    }
+    error = v4_codegen_llvm_native_type_error(type_text, kind == v4_mir_rvalue_call or (kind == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_raw_free))
     if error != "" { give back error }
     pilot llvm_type = v4_codegen_llvm_type(type_text)
     if v4_codegen_llvm_is_literal_aggregate(kind) {
@@ -5075,7 +5080,7 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
     }
     if kind == v4_mir_rvalue_unary {
         if op == v4_mir_unary_project or op == v4_mir_unary_project_index { give back v4_codegen_llvm_native_projection_error(mir_id, body_id, rvalue_id) }
-        if op != v4_mir_unary_neg and op != v4_mir_unary_not and op != v4_mir_unary_ptr_is_null and op != v4_mir_unary_deref and op != v4_mir_unary_ptr_offset and op != v4_mir_unary_ptr_cast and op != v4_mir_unary_num_convert { give back "unsupported native unary operator: " + op }
+        if op != v4_mir_unary_neg and op != v4_mir_unary_not and op != v4_mir_unary_ptr_is_null and op != v4_mir_unary_deref and op != v4_mir_unary_ptr_offset and op != v4_mir_unary_ptr_cast and op != v4_mir_unary_num_convert and not v4_codegen_llvm_is_raw_mem_op(op) { give back "unsupported native unary operator: " + op }
         if op == v4_mir_unary_num_convert and (not v4_ty_is_float(v4_mir_rvalue_ty(mir_id, body_id, lhs)) or v4_codegen_llvm_numeric_kind(type_text) == "" or v4_codegen_llvm_numeric_kind(type_text) == "num") { give back "invalid native numeric conversion operand" }
         if op == v4_mir_unary_neg {
             pilot operand_ty = v4_mir_rvalue_ty(mir_id, body_id, lhs)
@@ -5478,7 +5483,11 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         if v4_codegen_llvm_list_drop_types != "\n" { v4_codegen_llvm_list_used = true }
         if native_error == "" and v4_codegen_llvm_list_used { native_error = v4_codegen_llvm_list_symbol_error(codegen_id) }
         if native_error == "" and maps_used { native_error = v4_codegen_llvm_map_symbol_error(codegen_id) }
-        pilot index_checks: bool = owned_words and (v4_codegen_llvm_mir_has_index_checks(mir_id) or v4_codegen_llvm_list_used or v4_codegen_llvm_shared_used)
+        -- Raw allocation panics through the module's panic policy.
+        pilot raw_alloc_used: bool = v4_codegen_llvm_mir_uses_raw_op(mir_id, v4_mir_unary_raw_alloc)
+        pilot raw_free_used: bool = v4_codegen_llvm_mir_uses_raw_op(mir_id, v4_mir_unary_raw_free)
+        if native_error == "" and (raw_alloc_used or raw_free_used) { native_error = v4_codegen_llvm_raw_symbol_error(codegen_id, raw_alloc_used) }
+        pilot index_checks: bool = owned_words and (v4_codegen_llvm_mir_has_index_checks(mir_id) or v4_codegen_llvm_list_used or v4_codegen_llvm_shared_used or raw_alloc_used)
         if owned_words and (v4_codegen_llvm_mir_has_owned_words(mir_id) or index_checks) {
             runtime = v4_codegen_llvm_word_runtime_declarations()
         }
@@ -5499,6 +5508,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         if owned_words { dyn_lines = v4_codegen_llvm_dyn_module_lines(mir_id, runtime + global_lines) }
         if v4_codegen_llvm_list_used { runtime = runtime + v4_codegen_llvm_list_runtime_lines(mir_id) }
         if maps_used { runtime = runtime + v4_codegen_llvm_map_runtime_lines(mir_id, runtime) }
+        if raw_alloc_used or raw_free_used { runtime = runtime + v4_codegen_llvm_raw_runtime_lines(raw_alloc_used, raw_free_used, runtime) }
         if native_error == "" { native_error = v4_codegen_llvm_numeric_runtime_symbol_error(codegen_id) }
         runtime = runtime + global_lines + dyn_lines
         array_set(v4_codegen_llvm_word_runtime_lines, codegen_id, runtime)
@@ -5508,6 +5518,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         if v4_codegen_llvm_list_used { globals = globals + v4_codegen_llvm_list_globals() }
         if maps_used { globals = globals + v4_codegen_llvm_map_globals() }
         if v4_codegen_llvm_shared_used { globals = globals + v4_codegen_llvm_shared_globals() }
+        if raw_alloc_used { globals = globals + v4_codegen_llvm_raw_globals() }
         pilot entry = v4_codegen_llvm_native_entry(mir_id)
         if native_error == "" and entry != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_setup_args", "i64, i64") }
         if native_error == "" and globals != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_say", "i64") }
@@ -6958,6 +6969,158 @@ task v4_codegen_llvm_list_symbol_error(codegen_id: int) -> word {
     repeat until decl >= v4_codegen_llvm_decl_count(codegen_id) {
         pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl)
         if reserved.contains("," + symbol + ",") or symbol.starts_with("@freak.list.") or symbol.starts_with("@\"freak.list.") { give back "native list runtime symbol conflict: " + symbol }
+        decl += 1
+    }
+    give back ""
+}
+
+-- Raw allocation and layout queries (tier 3, bible 7.18). MIR seals them as
+-- unary rows; codegen lowers alloc to a private helper over libc calloc
+-- (zeroed, alloc(0) gives a unique pointer, a negative size or a failed
+-- allocation panics), free to libc free, and the layout queries to
+-- constants LLVM folds with the target's DataLayout.
+-- A layout type has a fixed native layout and owns nothing: a scalar, a raw
+-- pointer, or a tuple or fixed array of layout types.
+task v4_codegen_llvm_raw_layout_type(mir_id: int, type_text: word, depth: int) -> bool {
+    if depth > 32 { give back false }
+    pilot ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text)
+    if ty == v4_ty_int or ty == v4_ty_uint or ty == v4_ty_tiny or ty == v4_ty_num or ty == v4_ty_float or ty == v4_ty_float32 or ty == v4_ty_bool or ty == v4_ty_char { give back true }
+    if v4_ty_is_raw_pointer_type(ty) { give back true }
+    if v4_ty_is_tuple_type(ty) {
+        pilot slot = 0
+        repeat until slot >= v4_ty_tuple_slot_count(ty) {
+            if not v4_codegen_llvm_raw_layout_type(mir_id, v4_ty_tuple_slot_type(ty, slot), depth + 1) { give back false }
+            slot += 1
+        }
+        give back v4_ty_tuple_slot_count(ty) > 0
+    }
+    if v4_ty_is_fixed_array_type(ty) { give back v4_codegen_llvm_raw_layout_type(mir_id, v4_ty_fixed_array_element_type(ty), depth + 1) }
+    -- A nongeneric shape of layout types has a record and a freak_target layout.
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig = v4_mir_shape_signature(mir_id, ty)
+    if sig < 0 or v4_ty_signature_generic_count(ty_id, sig) != 0 or v4_codegen_llvm_native_shape_error(mir_id, ty, 0) != "" { give back false }
+    pilot field = 0
+    repeat until field >= v4_ty_shape_field_count(ty_id, sig) {
+        if not v4_codegen_llvm_raw_layout_type(mir_id, v4_ty_shape_field_type(ty_id, sig, field), depth + 1) { give back false }
+        field += 1
+    }
+    give back true
+}
+
+task v4_codegen_llvm_is_raw_mem_op(op: word) -> bool {
+    give back op == v4_mir_unary_raw_alloc or op == v4_mir_unary_raw_free or op == v4_mir_unary_raw_null or op == v4_mir_unary_size_of or op == v4_mir_unary_align_of or op == v4_mir_unary_zeroed or op == v4_mir_unary_ptr_read_unaligned
+}
+
+task v4_codegen_llvm_raw_mem_query_name(op: word) -> word {
+    if op == v4_mir_unary_size_of { give back "size_of" }
+    if op == v4_mir_unary_align_of { give back "align_of" }
+    give back "zeroed"
+}
+
+-- The checked shape of each raw memory row; unsupported pointees are named.
+task v4_codegen_llvm_native_raw_mem_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back "native raw memory operations need the owned word path" }
+    pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if lhs < 0 or v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id) >= 0 { give back "invalid native raw memory operands" }
+    pilot lhs_ty = v4_mir_rvalue_ty(mir_id, body_id, lhs)
+    if op == v4_mir_unary_raw_null {
+        if v4_mir_rvalue_kind(mir_id, body_id, lhs) != v4_mir_rvalue_const_int or v4_mir_rvalue_text(mir_id, body_id, lhs) != "0" or not v4_ty_is_raw_pointer_type(type_text) { give back "invalid native null pointer" }
+        give back ""
+    }
+    if op == v4_mir_unary_raw_alloc {
+        if not v4_ty_is_mutable_raw_pointer_type(type_text) or (lhs_ty != v4_ty_int and lhs_ty != v4_ty_uint) { give back "invalid native raw allocation" }
+        pilot pointee = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_raw_pointer_target_type(type_text))
+        if pointee != v4_ty_void and not v4_codegen_llvm_raw_layout_type(mir_id, pointee, 0) { give back "native raw allocation is not yet supported for this pointee: " + type_text }
+        give back ""
+    }
+    if op == v4_mir_unary_raw_free {
+        if type_text != v4_ty_void or not v4_ty_is_mutable_raw_pointer_type(lhs_ty) { give back "invalid native raw free" }
+        give back ""
+    }
+    if op == v4_mir_unary_ptr_read_unaligned {
+        if not v4_ty_is_raw_pointer_type(lhs_ty) or v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_raw_pointer_target_type(lhs_ty)) != v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) { give back "invalid native unaligned read" }
+        if not v4_codegen_llvm_raw_layout_type(mir_id, type_text, 0) { give back "native unaligned reads are not yet supported for this pointee: " + lhs_ty }
+        give back ""
+    }
+    if v4_mir_rvalue_kind(mir_id, body_id, lhs) != v4_mir_rvalue_unary or v4_mir_rvalue_op(mir_id, body_id, lhs) != v4_mir_unary_raw_null or not v4_ty_is_raw_pointer_type(lhs_ty) { give back "invalid native layout query operand" }
+    pilot queried = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_raw_pointer_target_type(lhs_ty))
+    if not v4_codegen_llvm_raw_layout_type(mir_id, queried, 0) { give back "native " + v4_codegen_llvm_raw_mem_query_name(op) + " is not yet supported for this type: " + queried }
+    if op == v4_mir_unary_zeroed {
+        if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) != queried { give back "invalid native zeroed result" }
+    } else if type_text != v4_ty_int { give back "invalid native layout query result" }
+    give back ""
+}
+
+-- One instruction per raw memory row (RawFree has no result).
+task v4_codegen_llvm_raw_mem_instruction(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
+    pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    pilot operand = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    if op == v4_mir_unary_raw_null { give back target + " = getelementptr i8, ptr null, i64 0" }
+    if op == v4_mir_unary_raw_alloc { give back target + " = call ptr @freak.raw.alloc(i64 " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ")" }
+    if op == v4_mir_unary_raw_free { give back "call void @free(ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ")" }
+    if op == v4_mir_unary_ptr_read_unaligned { give back target + " = load " + v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) + ", ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ", align 1" }
+    pilot queried = v4_codegen_llvm_type(v4_ty_raw_pointer_target_type(v4_mir_rvalue_ty(mir_id, body_id, operand)))
+    if op == v4_mir_unary_zeroed { give back target + " = freeze " + queried + " zeroinitializer" }
+    if op == v4_mir_unary_size_of { give back target + " = add i64 0, ptrtoint (ptr getelementptr (" + queried + ", ptr null, i32 1) to i64)" }
+    -- align_of: the offset of T after an i1 in a C-layout pair.
+    give back target + " = add i64 0, ptrtoint (ptr getelementptr (" + "{" + " i1, " + queried + " " + "}" + ", ptr null, i32 0, i32 1) to i64)"
+}
+
+task v4_codegen_llvm_mir_uses_raw_op(mir_id: int, wanted: word) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back false }
+    pilot body = v4_codegen_llvm_next_emitted_body(mir_id, 0)
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
+            if v4_mir_rvalue_kind(mir_id, body, value) == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body, value) == wanted { give back true }
+            value += 1
+        }
+        body = v4_codegen_llvm_next_emitted_body(mir_id, body + 1)
+    }
+    give back false
+}
+
+-- The allocation helper and libc's allocator under its C names; the list
+-- helpers may already declare free.
+task v4_codegen_llvm_raw_runtime_lines(alloc_used: bool, free_used: bool, declared: word) -> word {
+    pilot out = ""
+    if free_used and not declared.contains("declare void @free(ptr)") { out = out + "declare void @free(ptr)\n" }
+    if not alloc_used { give back out }
+    out = out + "declare ptr @calloc(i64, i64)\n"
+    out = out + "define internal ptr @freak.raw.alloc(i64 %bytes) " + "{" + "\nentry:\n"
+    out = out + "  %negative = icmp slt i64 %bytes, 0\n  br i1 %negative, label %range, label %ask\nask:\n"
+    out = out + "  %none = icmp eq i64 %bytes, 0\n  %size = select i1 %none, i64 1, i64 %bytes\n"
+    out = out + "  %data = call ptr @calloc(i64 1, i64 %size)\n  %lost = icmp eq ptr %data, null\n"
+    out = out + "  br i1 %lost, label %fail, label %ok\nok:\n  ret ptr %data\n"
+    out = out + "range:\n  %range.msg = call i64 @freak_v4_word_from_bytes(i64 ptrtoint (ptr @freak.raw.range to i64), i64 23)\n"
+    out = out + "  call void " + v4_codegen_llvm_panic_symbol() + "(i64 %range.msg) noreturn\n  unreachable\n"
+    out = out + "fail:\n  %fail.msg = call i64 @freak_v4_word_from_bytes(i64 ptrtoint (ptr @freak.raw.oom to i64), i64 21)\n"
+    out = out + "  call void " + v4_codegen_llvm_panic_symbol() + "(i64 %fail.msg) noreturn\n  unreachable\n" + "}" + "\n"
+    give back out
+}
+
+task v4_codegen_llvm_raw_globals() -> word {
+    pilot out = "@freak.raw.range = private unnamed_addr constant [24 x i8] c\"alloc size out of range\\00\", align 1\n"
+    give back out + "@freak.raw.oom = private unnamed_addr constant [22 x i8] c\"raw allocation failed\\00\", align 1\n"
+}
+
+-- The helpers link libc's allocator under its C names, so a module that
+-- allocates or frees raw memory may not declare or define those symbols.
+task v4_codegen_llvm_raw_symbol_error(codegen_id: int, alloc_used: bool) -> word {
+    pilot reserved = ",@free,"
+    if alloc_used { reserved = ",@free,@calloc," }
+    pilot body = 0
+    repeat until body >= v4_codegen_llvm_body_count(codegen_id) {
+        pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body)
+        if reserved.contains("," + symbol + ",") or symbol.starts_with("@freak.raw.") or symbol.starts_with("@\"freak.raw.") { give back "native raw allocation runtime symbol conflict: " + symbol }
+        body += 1
+    }
+    pilot decl = 0
+    repeat until decl >= v4_codegen_llvm_decl_count(codegen_id) {
+        pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl)
+        if reserved.contains("," + symbol + ",") or symbol.starts_with("@freak.raw.") or symbol.starts_with("@\"freak.raw.") { give back "native raw allocation runtime symbol conflict: " + symbol }
         decl += 1
     }
     give back ""
