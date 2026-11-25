@@ -18092,6 +18092,10 @@ NATIVE_LIST_SUMS_REJECTED = (
      "native task values with list parameters or results are not yet supported: List<maybe<int>>"),
     ("tier3_list_sums_map_value", "task main() -> int {\n    pilot m: Map<word, List<maybe<int>>> = {}\n    give back 0\n}\n",
      "native map values of lists, maps or sets are not yet supported: Map<word,List<maybe<int>>>"),
+    # Element glue has no handle retain or release.
+    ("tier3_list_sums_shared_payload", "use std::mem::{Shared, Weak}\n"
+     "task main() -> int {\n    pilot xs: List<maybe<Shared<int>>> = []\n    give back xs.length()\n}\n",
+     "native lists of maybe/result values holding Shared handles or loans are not yet supported: List<maybe<Shared<int>>>"),
     # The sum proof sees a carrier pushed in and then used again.
     ("tier3_list_sums_push_moves_item", "task main() -> int {\n    pilot xs: List<maybe<word>> = []\n    pilot m: maybe<word> = some(\"held\")\n"
      "    xs.push(m)\n    check m {\n        got w -> say w\n        nobody -> say \"none\"\n    }\n    give back xs.length()\n}\n",

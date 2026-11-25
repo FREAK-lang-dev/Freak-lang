@@ -835,8 +835,9 @@ Refused by name: list operators (including equality of aggregates that
 hold lists, and carrier element equality), moved list captures, task
 values with list parameters or results, repeat fills of lists (bible 1.15
 asks `Cloneable` of a non-Copy repeat value, and V4 gives `List` no
-`Cloneable`), carrier elements whose payload is an aggregate owning words
-or another carrier, and user declarations of `realloc`/`free` in a module
+`Cloneable`), carrier elements whose payload is an aggregate owning words,
+another carrier, a Shared handle or a loan (element glue has no handle
+retain or release), and user declarations of `realloc`/`free` in a module
 that uses lists. Programs: `examples/lists_native.fk` (exact
 output, exit 0, and an out-of-bounds panic run; fifteen named rejections)
 and `examples/lists_nested_native.fk` (exact output, exit 0; the layout
