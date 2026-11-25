@@ -1,6 +1,9 @@
 /* mbedTLS 3.6.8, keys unit, amalgamated for the FREAK runtime by
    tools/mbedtls_amalgamate.py. Generated: don't edit by hand.
-   SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later (see LICENSE). */
+   SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later (see LICENSE).
+   Notices kept from the upstream files in this unit:
+     Copyright The Mbed TLS Contributors (78 files)
+*/
 #line 1 "freak_mbedtls_config.h"
  \
 \

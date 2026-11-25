@@ -23,6 +23,7 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+COPYRIGHT = re.compile(r'^[ \t/*]*(Copyright\b[^\n]*?)[ \t*/]*$', re.M)
 VENDOR = REPO / "freakc" / "runtime" / "third_party" / "mbedtls"
 CONFIG = VENDOR / "freak_mbedtls_config.h"
 
@@ -102,6 +103,7 @@ class Amalgamator:
     regions that are false on every target are left out."""
 
     def __init__(self, root: Path, static_macros, defined_somewhere):
+        self.notices = {}
         self.root = root
         self.static = static_macros
         self.defined_somewhere = defined_somewhere
@@ -162,7 +164,12 @@ class Amalgamator:
             self.done.add(path)
         self.out.append(f'#line 1 "{label}"\n')
         configuring = False and bool(CONFIG_HEADERS.search(path.as_posix()))
-        lines = strip_c_comments(path.read_text(encoding="utf-8")).splitlines(keepends=True)
+        source = path.read_text(encoding="utf-8")
+        # Comments are stripped below, so keep each input's copyright notice
+        # for the banner (Apache-2.0 section 4(c)).
+        for notice in COPYRIGHT.findall(source):
+            self.notices.setdefault(" ".join(notice.split()), set()).add(label)
+        lines = strip_c_comments(source).splitlines(keepends=True)
         # Directive text with its backslash continuations joined (the lines
         # themselves are copied unchanged).
         joined = []
@@ -337,10 +344,7 @@ def build(root: Path, version: str, clang: str, stubs: Path, config_dir: Path):
     for unit, files in unit_files(root).items():
         static, defined_somewhere = static_macros(root, clang, stubs, config_dir, unit, files)
         amalgamator = Amalgamator(root, static, defined_somewhere)
-        amalgamator.out.append(
-            f"/* mbedTLS {version}, {unit} unit, amalgamated for the FREAK runtime by\n"
-            f"   tools/mbedtls_amalgamate.py. Generated: don't edit by hand.\n"
-            f"   SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later (see LICENSE). */\n")
+        amalgamator.out.append("")  # the banner, once the notices are known
         amalgamator.emit_file(CONFIG.resolve(), "freak_mbedtls_config.h")
         for name in files:
             amalgamator.emit_file((root / "library" / name).resolve(), "library/" + name)
@@ -348,6 +352,14 @@ def build(root: Path, version: str, clang: str, stubs: Path, config_dir: Path):
             # After the library file, whose common.h opens private fields.
             for header in GLUE_HEADERS:
                 amalgamator.emit_file((root / "include" / header).resolve(), "include/" + header)
+        notices = "".join(
+            f"     {notice} ({len(labels)} file{'s' if len(labels) != 1 else ''})\n"
+            for notice, labels in sorted(amalgamator.notices.items()))
+        amalgamator.out[0] = (
+            f"/* mbedTLS {version}, {unit} unit, amalgamated for the FREAK runtime by\n"
+            f"   tools/mbedtls_amalgamate.py. Generated: don't edit by hand.\n"
+            f"   SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later (see LICENSE).\n"
+            f"   Notices kept from the upstream files in this unit:\n{notices}*/\n")
         outputs[unit] = "".join(amalgamator.out)
     return outputs
 
@@ -368,6 +380,9 @@ def stub_system_headers(root: Path, stubs: Path):
         target.write_text("")
 
 
+TOKENS = re.compile(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|[^\s"\']+|\S')
+
+
 def preprocess(clang: str, source: Path, includes, target: str, stubs: Path) -> str:
     command = [clang, "-E", "-P", "-nostdinc", "-isystem", str(stubs), "--target=" + target]
     for include in includes:
@@ -381,7 +396,9 @@ def preprocess(clang: str, source: Path, includes, target: str, stubs: Path) -> 
     errors = sorted(set(re.findall(r'error: (.*)', result.stderr)))
     text = re.sub(r'"[^"\n]*?/((?:library|include)/[\w./]+)"', r'"\1"', result.stdout)
     text = re.sub(r'"[^"\n]*?/(freak_mbedtls_config\.h)"', r'"\1"', text)
-    return " ".join(text.split()) + "\n" + "\n".join(errors)
+    # Whitespace between tokens doesn't matter; inside string and character
+    # literals it does, so those are kept whole.
+    return " ".join(TOKENS.findall(text)) + "\n" + "\n".join(errors)
 
 
 def workspace(root: Path, temp: Path):
@@ -405,7 +422,7 @@ def verify(root: Path, outputs, clang: str, stubs: Path, config_dir: Path):
             b = preprocess(clang, amalgamated, [], target, stubs)
             if a != b:
                 raise SystemExit(f"{unit} unit differs from upstream for {target}")
-        print(f"  {unit}: identical to upstream (plus any PATCHES) on {len(TARGETS)} targets")
+        print(f"  {unit}: same preprocessed tokens as upstream (plus any PATCHES) on {len(TARGETS)} targets")
 
 
 def main():

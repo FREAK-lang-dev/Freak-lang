@@ -50,4 +50,7 @@ freakc/runtime/freak_v4_unicode_lower_tables.h text eol=lf
 
 # llhttp's upstream SHA256SUMS accepts exact vendor bytes on every platform.
 third_party/llhttp/** -text
+
+# Mbed TLS vendor files are pinned by the LF bytes in their SHA256SUMS.
+freakc/runtime/third_party/mbedtls/** -text
 std/std.toml text eol=lf

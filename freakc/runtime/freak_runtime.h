@@ -512,6 +512,7 @@ int64_t freak_tls_status(int64_t session);
 int64_t freak_tls_verified(int64_t session);
 int64_t freak_tls_info(int64_t session, int64_t what, int64_t out);
 int64_t freak_tls_last_error(int64_t out);
+int64_t freak_tls_closed_cleanly(int64_t session);
 int64_t freak_tls_live_sessions(void);
 
 /* ------------------------------------------------------------------ */

@@ -1,7 +1,7 @@
 -- std::tls: a client and a server in one process over loopback, both on
 -- non-blocking sessions so the two handshakes can take turns. The test CA
 -- and the localhost certificate (P-256) are valid until 2126.
-use std::tls::{tls_client_config, tls_server_config, tls_client, tls_server, tls_set_nonblocking, tls_handshake, tls_send, tls_receive, tls_pending, tls_close, tls_release, tls_config_release, tls_flush, tls_status, tls_verified, tls_alpn, tls_version, tls_error, tls_last_error, tls_live_sessions, tls_peer_certificate, tls_server_end_point}
+use std::tls::{tls_client_config, tls_server_config, tls_client, tls_server, tls_set_nonblocking, tls_handshake, tls_send, tls_receive, tls_pending, tls_close, tls_release, tls_config_release, tls_flush, tls_status, tls_closed_cleanly, tls_verified, tls_alpn, tls_version, tls_error, tls_last_error, tls_live_sessions, tls_peer_certificate, tls_server_end_point}
 use std::crypto::{crypto_sha256}
 
 task test_ca() -> word {
@@ -111,9 +111,12 @@ task run_case(host: word, verify: int, alpn: word) -> word {
             i = i + 1
         }
         pilot mut sent = 0
-        repeat while sent < ping.length() {
+        pilot mut tries = 0
+        repeat while sent < ping.length() and tries < 100000 {
             pilot n = tls_send(client, ping, sent, ping.length() - sent)
             if n > 0 { sent = sent + n }
+            if n < -2 { tries = 100000 }
+            tries = tries + 1
         }
         pilot mut arrived = ByteBuffer::new()
         read_some(server, arrived, ping.length())
@@ -128,7 +131,7 @@ task run_case(host: word, verify: int, alpn: word) -> word {
         tls_close(client)
         pilot mut tail = ByteBuffer::new()
         pilot closed = tls_receive(server, tail, 16)
-        if closed == 0 { outcome = outcome + " close-seen" }
+        if closed == 0 and tls_closed_cleanly(server) { outcome = outcome + " close-seen" }
         -- The server answers with its own close_notify, which the client,
         -- having closed first, still reads.
         pilot mut back = ByteBuffer::new()
@@ -162,6 +165,7 @@ task backpressure() -> word {
     tls_set_nonblocking(client, true)
     tls_set_nonblocking(server, true)
     pilot mut outcome = ""
+    pilot mut client_open = true
     if both_handshakes(client, server) != 0 {
         outcome = "handshake failed"
     } else {
@@ -173,9 +177,11 @@ task backpressure() -> word {
         }
         pilot mut sent = 0
         pilot mut queued = false
-        repeat while not queued and sent < 268435456 {
+        pilot mut broken = false
+        repeat while not queued and not broken and sent < 268435456 {
             pilot n = tls_send(client, chunk, 0, 16384)
             if n > 0 { sent = sent + n }
+            if n < -2 { broken = true }
             if tls_status(client) == -2 { queued = true }
         }
         if queued { outcome = "queued" } else { outcome = "never-queued" }
@@ -193,10 +199,23 @@ task backpressure() -> word {
         pilot more = tls_send(client, chunk, 0, 100)
         if more == 100 and tls_status(client) == 0 { outcome = outcome + " send-after-ok" }
         chunk.release()
+        -- Drop the TCP connection without close_notify: the server's
+        -- receive ends with 0, but not cleanly.
+        tcp::socket_close(client_tcp)
+        client_open = false
+        pilot mut end = 1
+        pilot mut spins = 0
+        repeat while end != 0 and end > -3 and spins < 1000000 {
+            pilot mut part = ByteBuffer::new()
+            end = tls_receive(server, part, 65536)
+            part.release()
+            spins = spins + 1
+        }
+        if end == 0 and not tls_closed_cleanly(server) { outcome = outcome + " truncation-seen" }
     }
     tls_release(client)
     tls_release(server)
-    tcp::socket_close(client_tcp)
+    if client_open { tcp::socket_close(client_tcp) }
     tcp::socket_close(server_tcp)
     tcp::socket_close(listener)
     tls_config_release(client_config)
