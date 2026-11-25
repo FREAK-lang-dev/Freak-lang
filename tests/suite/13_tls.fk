@@ -178,7 +178,9 @@ task backpressure() -> word {
         pilot mut sent = 0
         pilot mut queued = false
         pilot mut broken = false
-        repeat while not queued and not broken and sent < 268435456 {
+        pilot mut attempts = 0
+        repeat while not queued and not broken and sent < 268435456 and attempts < 1000000 {
+            attempts = attempts + 1
             pilot n = tls_send(client, chunk, 0, 16384)
             if n > 0 { sent = sent + n }
             if n < -2 { broken = true }
@@ -304,7 +306,9 @@ task close_backpressure() -> word {
         pilot mut sent = 0
         pilot mut queued = false
         pilot mut broken = false
-        repeat while not queued and not broken and sent < 268435456 {
+        pilot mut attempts = 0
+        repeat while not queued and not broken and sent < 268435456 and attempts < 1000000 {
+            attempts = attempts + 1
             pilot n = tls_send(client, chunk, 0, 16384)
             if n > 0 { sent = sent + n }
             if n < -2 { broken = true }
