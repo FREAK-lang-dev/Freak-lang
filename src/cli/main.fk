@@ -49,6 +49,7 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
     pilot cross_seen = ""
     pilot plus03_seen = false
     pilot strict_seen = false
+    pilot llvm_text_seen = false
     pilot output_requested = ""
     pilot graph_requested = ""
     pilot manifest_requested = ""
@@ -82,6 +83,13 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
             }
             target = "llvm"
             backend_seen = "llvm"
+        } else if flag == "--llvm-text" {
+            if backend_seen != "" and backend_seen != "llvm" {
+                give back cli_flag_error("conflicting backend flags")
+            }
+            target = "llvm"
+            backend_seen = "llvm"
+            llvm_text_seen = true
         } else if flag == "--strict-borrow" {
             strict_seen = true
         } else if flag.starts_with("--diagnostic-cast=") {
@@ -227,6 +235,7 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
     }
 
     strict_borrow = strict_seen
+    if llvm_text_seen { cli_ib_mode = "off" } else { cli_ib_mode = "auto" }
     cli_requested_output = output_requested
     cli_requested_link_libs = link_libs_requested
     cli_requested_lib_dirs = lib_dirs_requested
@@ -480,6 +489,8 @@ task freakc_cli_main() -> void {
         cli_show_version()
         give back
     }
+
+    if subcmd == "v4" { process::exit(cli_v4_forward(2)) }
 
     if subcmd == "bootstrap-v4" or subcmd == "bootstrap" {
         pilot source_root = ""

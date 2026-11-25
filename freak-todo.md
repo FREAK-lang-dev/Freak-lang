@@ -268,6 +268,7 @@
 - [ ] JIT mode via OrcJIT (LB7 — deferred to V4)
 - [x] Optimization levels (--opt=0/1/2/3)
 - [x] DWARF debug info — minimal LineTablesOnly (LB10): DISubprogram per function + per-instruction !dbg metadata in IR; verified with !llvm.dbg.cu / !llvm.module.flags
+- [x] In-process LLVM IRBuilder backend (0.16.0 default): `ib_bridge.c` + `ir_*` sinks, `--llvm-text` fallback, IRBuilder differential CI gate on Linux/macOS/Windows
 
 ---
 

@@ -1,0 +1,58 @@
+-- ===================================================================
+-- FREAK CLI — `freak v4 ...` forwarder
+-- ===================================================================
+-- Release archives ship a prebuilt V4 preview under <install root>/v4/
+-- (launcher, private engine and its hashed runtime snapshot). This file
+-- only finds that launcher and hands it every remaining argument; the
+-- launcher itself verifies its engine/runtime bytes before doing anything.
+-- ===================================================================
+
+task cli_v4_launcher_in(root: word) -> word {
+    if root == "" { give back "" }
+    pilot mut name = "v4/freak-v4"
+    if cli_is_windows() { name = name + ".exe" }
+    pilot candidate = cli_host_path_join(root, name)
+    if fs::exists(candidate) { give back candidate }
+    give back ""
+}
+
+task cli_v4_forward(arg_start: int) -> int {
+    -- 1. The archive layout beside the running binary (<root>/bin/freak).
+    -- 2. An explicit FREAK_HOME. 3. Platform install roots (WinGet aliases).
+    pilot mut launcher = cli_v4_launcher_in(cli_executable_payload_home())
+    if launcher == "" { launcher = cli_v4_launcher_in(process::env("FREAK_HOME")) }
+    if launcher == "" { launcher = cli_v4_launcher_in(cli_default_payload_home()) }
+    if launcher == "" {
+        pilot mut where = cli_executable_payload_home()
+        if where == "" { where = "<install root>" }
+        say ""
+        say "  x V4 PREVIEW NOT FOUND -- the next-generation compiler isn't in this hangar."
+        say "    Looked for: " + cli_host_path_join(where, "v4/freak-v4")
+        say "    Release archives (0.16.0+) bundle it; this install has no v4/ directory."
+        say "    Build one yourself (absolute paths, new private directory):"
+        say "      freak bootstrap-v4 --source=/path/to/Freak-lang/src/compiler/v4 --output=" + cli_host_path_join(where, "v4")
+        say "    \"The unit isn't ready yet. Sortie anyway, and you sortie alone.\""
+        say ""
+        give back 1
+    }
+    -- Arguments stay independent argv entries; the preview inherits the
+    -- terminal and its exit status is the CLI's exit status.
+    pilot command = process::command_new(launcher)
+    pilot mut index = arg_start
+    pilot count = process::args_count()
+    repeat until index >= count {
+        process::command_arg(command, process::arg(index))
+        index += 1
+    }
+    pilot status = process::command_run_inherit(command, 0)
+    pilot mut code = 1
+    if status == 2 {
+        code = process::command_exit_code(command)
+    } else if status == 4 {
+        code = 128 + process::command_signal(command)
+    } else {
+        say "  x V4 PREVIEW LAUNCH FAILED " + process::command_error(command)
+    }
+    process::command_release(command)
+    give back code
+}

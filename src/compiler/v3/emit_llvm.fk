@@ -24,9 +24,13 @@ pilot llvm_integer_failure_operations = ""
 
 pilot llvm_builder_active = false
 pilot llvm_builder_fallback = false
+pilot llvm_builder_fallback_line = ""
+pilot llvm_builder_shadow_text = true
 pilot llvm_integer_failure_edges = ""
 
+extern task freak_ib2_bind(library: word) -> int
 extern task freak_ib2_available() -> int
+extern task freak_ib2_version() -> word
 extern task freak_ib2_open(module_name: word, source_file: word, source_dir: word) -> int
 extern task freak_ib2_error() -> word
 extern task freak_ib2_close() -> int
@@ -60,11 +64,20 @@ extern task freak_ib2_ret_void() -> int
 extern task freak_ib2_ret_i32(value: word) -> int
 extern task freak_ib2_unreachable() -> int
 extern task freak_ib2_integer_failure(edges: word) -> int
+extern task freak_ib2_declare_typed(symbol: word, ret: word, params: word) -> int
+extern task freak_ib2_global_pointer(name: word) -> int
+extern task freak_ib2_begin_function_typed(symbol: word, ret: word, params: word) -> int
+extern task freak_ib2_call_typed(dest: word, callee: word, ret: word, arguments: word) -> int
+extern task freak_ib2_convert(dest: word, operation: word, from_type: word, value: word, to_type: word) -> int
+extern task freak_ib2_ret_typed(type_name: word, value: word) -> int
 
 task llvm_emit(s: word) -> void {
     if llvm_builder_active {
-        if s != "" { llvm_builder_fallback = true }
-        give back
+        if s != "" {
+            if not llvm_builder_fallback { llvm_builder_fallback_line = s }
+            llvm_builder_fallback = true
+        }
+        if not llvm_builder_shadow_text { give back }
     }
     fs::append(out_file, s)
 }
@@ -87,139 +100,139 @@ task ir_args_text(arguments: word) -> word {
 }
 
 task ir_call(dest: word, callee: word, arguments: word) -> void {
-    if llvm_builder_active { freak_ib2_call(dest, callee, arguments, 0) give back }
-    llvm_emit_line("    " + dest + " = call i64 " + callee + "(" + ir_args_text(arguments) + ")")
+    if llvm_builder_active { freak_ib2_call(dest, callee, arguments, 0) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = call i64 " + callee + "(" + ir_args_text(arguments) + ")")
 }
 
 task ir_call_void(callee: word, arguments: word) -> void {
-    if llvm_builder_active { freak_ib2_call("", callee, arguments, 1) give back }
-    llvm_emit_line("    call void " + callee + "(" + ir_args_text(arguments) + ")")
+    if llvm_builder_active { freak_ib2_call("", callee, arguments, 1) if not llvm_builder_shadow_text { give back } }
+    ir_text("    call void " + callee + "(" + ir_args_text(arguments) + ")")
 }
 
 task ir_load(dest: word, pointer: word) -> void {
-    if llvm_builder_active { freak_ib2_load(dest, pointer) give back }
-    llvm_emit_line("    " + dest + " = load i64, i64* " + pointer)
+    if llvm_builder_active { freak_ib2_load(dest, pointer) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = load i64, i64* " + pointer)
 }
 
 task ir_store(value: word, pointer: word) -> void {
-    if llvm_builder_active { freak_ib2_store(value, pointer) give back }
-    llvm_emit_line("    store i64 " + value + ", i64* " + pointer)
+    if llvm_builder_active { freak_ib2_store(value, pointer) if not llvm_builder_shadow_text { give back } }
+    ir_text("    store i64 " + value + ", i64* " + pointer)
 }
 
 task ir_alloca(dest: word) -> void {
-    if llvm_builder_active { freak_ib2_alloca(dest) give back }
-    llvm_emit_line("    " + dest + " = alloca i64")
+    if llvm_builder_active { freak_ib2_alloca(dest) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = alloca i64")
 }
 
 task ir_int(dest: word, operation: word, left: word, right: word) -> void {
-    if llvm_builder_active { freak_ib2_int(dest, operation, left, right) give back }
-    llvm_emit_line("    " + dest + " = " + operation + " i64 " + left + ", " + right)
+    if llvm_builder_active { freak_ib2_int(dest, operation, left, right) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = " + operation + " i64 " + left + ", " + right)
 }
 
 task ir_icmp(dest: word, predicate: word, left: word, right: word) -> void {
-    if llvm_builder_active { freak_ib2_icmp(dest, predicate, left, right) give back }
-    llvm_emit_line("    " + dest + " = icmp " + predicate + " i64 " + left + ", " + right)
+    if llvm_builder_active { freak_ib2_icmp(dest, predicate, left, right) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = icmp " + predicate + " i64 " + left + ", " + right)
 }
 
 task ir_fcmp(dest: word, predicate: word, left: word, right: word) -> void {
-    if llvm_builder_active { freak_ib2_fcmp(dest, predicate, left, right) give back }
-    llvm_emit_line("    " + dest + " = fcmp " + predicate + " double " + left + ", " + right)
+    if llvm_builder_active { freak_ib2_fcmp(dest, predicate, left, right) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = fcmp " + predicate + " double " + left + ", " + right)
 }
 
 task ir_float(dest: word, operation: word, left: word, right: word) -> void {
-    if llvm_builder_active { freak_ib2_float(dest, operation, left, right) give back }
-    llvm_emit_line("    " + dest + " = " + operation + " double " + left + ", " + right)
+    if llvm_builder_active { freak_ib2_float(dest, operation, left, right) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = " + operation + " double " + left + ", " + right)
 }
 
 task ir_zext(dest: word, value: word) -> void {
-    if llvm_builder_active { freak_ib2_cast(dest, "zext1", value) give back }
-    llvm_emit_line("    " + dest + " = zext i1 " + value + " to i64")
+    if llvm_builder_active { freak_ib2_cast(dest, "zext1", value) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = zext i1 " + value + " to i64")
 }
 
 task ir_and1(dest: word, left: word, right: word) -> void {
-    if llvm_builder_active { freak_ib2_and1(dest, left, right) give back }
-    llvm_emit_line("    " + dest + " = and i1 " + left + ", " + right)
+    if llvm_builder_active { freak_ib2_and1(dest, left, right) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = and i1 " + left + ", " + right)
 }
 
 task ir_i64_to_double(dest: word, value: word) -> void {
-    if llvm_builder_active { freak_ib2_cast(dest, "i2d", value) give back }
-    llvm_emit_line("    " + dest + " = bitcast i64 " + value + " to double")
+    if llvm_builder_active { freak_ib2_cast(dest, "i2d", value) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = bitcast i64 " + value + " to double")
 }
 
 task ir_double_to_i64(dest: word, value: word) -> void {
-    if llvm_builder_active { freak_ib2_cast(dest, "d2i", value) give back }
-    llvm_emit_line("    " + dest + " = bitcast double " + value + " to i64")
+    if llvm_builder_active { freak_ib2_cast(dest, "d2i", value) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = bitcast double " + value + " to i64")
 }
 
 task ir_sitofp(dest: word, value: word) -> void {
-    if llvm_builder_active { freak_ib2_cast(dest, "sitofp", value) give back }
-    llvm_emit_line("    " + dest + " = sitofp i64 " + value + " to double")
+    if llvm_builder_active { freak_ib2_cast(dest, "sitofp", value) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = sitofp i64 " + value + " to double")
 }
 
 task ir_ptrtoint(dest: word, value: word) -> void {
-    if llvm_builder_active { freak_ib2_cast(dest, "ptrtoint", value) give back }
-    llvm_emit_line("    " + dest + " = ptrtoint i8* " + value + " to i64")
+    if llvm_builder_active { freak_ib2_cast(dest, "ptrtoint", value) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = ptrtoint i8* " + value + " to i64")
 }
 
 task ir_string_pointer(dest: word, length: word, global_name: word) -> void {
-    if llvm_builder_active { freak_ib2_string_pointer(dest, global_name) give back }
-    llvm_emit_line("    " + dest + " = getelementptr inbounds [" + length + " x i8], [" + length + " x i8]* " + global_name + ", i64 0, i64 0")
+    if llvm_builder_active { freak_ib2_string_pointer(dest, global_name) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = getelementptr inbounds [" + length + " x i8], [" + length + " x i8]* " + global_name + ", i64 0, i64 0")
 }
 
 task ir_br(label: word) -> void {
-    if llvm_builder_active { freak_ib2_br(label) give back }
-    llvm_emit_line("    br label %" + label)
+    if llvm_builder_active { freak_ib2_br(label) if not llvm_builder_shadow_text { give back } }
+    ir_text("    br label %" + label)
 }
 
 task ir_cond_br(condition: word, then_label: word, else_label: word) -> void {
-    if llvm_builder_active { freak_ib2_cond_br(condition, then_label, else_label, 0) give back }
-    llvm_emit_line("    br i1 " + condition + ", label %" + then_label + ", label %" + else_label)
+    if llvm_builder_active { freak_ib2_cond_br(condition, then_label, else_label, 0) if not llvm_builder_shadow_text { give back } }
+    ir_text("    br i1 " + condition + ", label %" + then_label + ", label %" + else_label)
 }
 
 -- A branch whose true edge is a cold failure path.
 task ir_cond_br_cold(condition: word, then_label: word, else_label: word) -> void {
-    if llvm_builder_active { freak_ib2_cond_br(condition, then_label, else_label, 1) give back }
-    llvm_emit_line("    br i1 " + condition + ", label %" + then_label + ", label %" + else_label + ", !prof !\{!\"branch_weights\", i32 1, i32 1048575\}")
+    if llvm_builder_active { freak_ib2_cond_br(condition, then_label, else_label, 1) if not llvm_builder_shadow_text { give back } }
+    ir_text("    br i1 " + condition + ", label %" + then_label + ", label %" + else_label + ", !prof !\{!\"branch_weights\", i32 1, i32 1048575\}")
 }
 
 task ir_label(name: word) -> void {
-    if llvm_builder_active { freak_ib2_label(name) give back }
-    llvm_emit_line(name + ":")
+    if llvm_builder_active { freak_ib2_label(name) if not llvm_builder_shadow_text { give back } }
+    ir_text(name + ":")
 }
 
 task ir_phi2(dest: word, first: word, first_block: word, second: word, second_block: word) -> void {
-    if llvm_builder_active { freak_ib2_phi2(dest, first, first_block, second, second_block) give back }
-    llvm_emit_line("    " + dest + " = phi i64 [ " + first + ", %" + first_block + " ], [ " + second + ", %" + second_block + " ]")
+    if llvm_builder_active { freak_ib2_phi2(dest, first, first_block, second, second_block) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = phi i64 [ " + first + ", %" + first_block + " ], [ " + second + ", %" + second_block + " ]")
 }
 
 task ir_overflow(dest: word, operation: word, left: word, right: word) -> void {
-    if llvm_builder_active { freak_ib2_overflow(dest, operation, left, right) give back }
-    llvm_emit_line("    " + dest + " = call \{i64, i1\} @llvm.s" + operation + ".with.overflow.i64(i64 " + left + ", i64 " + right + ")")
+    if llvm_builder_active { freak_ib2_overflow(dest, operation, left, right) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = call \{i64, i1\} @llvm.s" + operation + ".with.overflow.i64(i64 " + left + ", i64 " + right + ")")
 }
 
 task ir_extract(dest: word, pair: word, index: int) -> void {
-    if llvm_builder_active { freak_ib2_extract(dest, pair, index) give back }
-    llvm_emit_line("    " + dest + " = extractvalue \{i64, i1\} " + pair + ", " + word_from_int(index))
+    if llvm_builder_active { freak_ib2_extract(dest, pair, index) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = extractvalue \{i64, i1\} " + pair + ", " + word_from_int(index))
 }
 
 task ir_ret(value: word) -> void {
-    if llvm_builder_active { freak_ib2_ret(value) give back }
-    llvm_emit_line("    ret i64 " + value)
+    if llvm_builder_active { freak_ib2_ret(value) if not llvm_builder_shadow_text { give back } }
+    ir_text("    ret i64 " + value)
 }
 
 task ir_ret_void() -> void {
-    if llvm_builder_active { freak_ib2_ret_void() give back }
-    llvm_emit_line("    ret void")
+    if llvm_builder_active { freak_ib2_ret_void() if not llvm_builder_shadow_text { give back } }
+    ir_text("    ret void")
 }
 
 task ir_unreachable() -> void {
-    if llvm_builder_active { freak_ib2_unreachable() give back }
-    llvm_emit_line("    unreachable")
+    if llvm_builder_active { freak_ib2_unreachable() if not llvm_builder_shadow_text { give back } }
+    ir_text("    unreachable")
 }
 
 task ir_comment(text: word) -> void {
-    if llvm_builder_active { give back }
-    llvm_emit_line("    ; " + text)
+    if llvm_builder_active and not llvm_builder_shadow_text { give back }
+    ir_text("    ; " + text)
 }
 
 task ir_declare(return_type: word, symbol: word, parameters: int) -> void {
@@ -227,7 +240,7 @@ task ir_declare(return_type: word, symbol: word, parameters: int) -> void {
         pilot returns_void = 0
         if return_type == "void" { returns_void = 1 }
         freak_ib2_declare(symbol, returns_void, parameters)
-        give back
+        if not llvm_builder_shadow_text { give back }
     }
     pilot text = ""
     pilot index = 0
@@ -236,12 +249,12 @@ task ir_declare(return_type: word, symbol: word, parameters: int) -> void {
         text = text + "i64"
         index += 1
     }
-    llvm_emit_line("declare " + return_type + " " + symbol + "(" + text + ")")
+    ir_text("declare " + return_type + " " + symbol + "(" + text + ")")
 }
 
 task ir_global(name: word) -> void {
-    if llvm_builder_active { freak_ib2_global("g_" + name) give back }
-    llvm_emit_line("@g_" + name + " = global i64 0")
+    if llvm_builder_active { freak_ib2_global("g_" + name) if not llvm_builder_shadow_text { give back } }
+    ir_text("@g_" + name + " = global i64 0")
 }
 
 -- returns: "void", "i64"
@@ -259,92 +272,158 @@ task ir_begin_function(return_type: word, symbol: word, parameters: int, debug_n
         if return_type == "void" { returns = 0 }
         if line_no <= 0 { line_no = 1 }
         freak_ib2_begin_function(symbol, returns, parameters, debug_name, line_no)
-        give back
+        if not llvm_builder_shadow_text { give back }
     }
-    llvm_emit_line("define " + return_type + " " + symbol + "(" + parameter_text + ")" + debug_attribute + " \{")
+    ir_text("define " + return_type + " " + symbol + "(" + parameter_text + ")" + debug_attribute + " \{")
 }
 
 task ir_begin_c_main() -> void {
     pilot debug_attribute = llvm_dbg_begin_func("main", 1)
-    if llvm_builder_active { freak_ib2_begin_function("main", 2, 2, "main", 1) give back }
-    llvm_emit_line("define i32 @main(i32 %argc, i8** %argv)" + debug_attribute + " \{")
+    if llvm_builder_active { freak_ib2_begin_function("main", 2, 2, "main", 1) if not llvm_builder_shadow_text { give back } }
+    ir_text("define i32 @main(i32 %argc, i8** %argv)" + debug_attribute + " \{")
 }
 
 task ir_c_main_arguments() -> void {
-    if llvm_builder_active { freak_ib2_cast("%argc_ext", "sext32", "%argc") freak_ib2_cast("%argv_ptr", "ptrtoint", "%argv") give back }
-    llvm_emit_line("    %argc_ext = sext i32 %argc to i64")
-    llvm_emit_line("    %argv_ptr = ptrtoint i8** %argv to i64")
+    if llvm_builder_active { freak_ib2_cast("%argc_ext", "sext32", "%argc") freak_ib2_cast("%argv_ptr", "ptrtoint", "%argv") if not llvm_builder_shadow_text { give back } }
+    ir_text("    %argc_ext = sext i32 %argc to i64")
+    ir_text("    %argv_ptr = ptrtoint i8** %argv to i64")
 }
 
 task ir_ret_i32(dest: word, value: word) -> void {
-    if llvm_builder_active { freak_ib2_ret_i32(value) give back }
+    if llvm_builder_active { freak_ib2_ret_i32(value) if not llvm_builder_shadow_text { give back } }
     if value == "" {
-        llvm_emit_line("    ret i32 0")
+        ir_text("    ret i32 0")
         give back
     }
-    llvm_emit_line("    " + dest + " = trunc i64 " + value + " to i32")
-    llvm_emit_line("    ret i32 " + dest)
+    ir_text("    " + dest + " = trunc i64 " + value + " to i32")
+    ir_text("    ret i32 " + dest)
 }
 
 task ir_end_function() -> void {
-    if llvm_builder_active { freak_ib2_end_function() give back }
-    llvm_emit_line("\}")
+    if llvm_builder_active { freak_ib2_end_function() if not llvm_builder_shadow_text { give back } }
+    ir_text("\}")
 }
 
 task ir_set_line(line_no: int) -> void {
     if llvm_builder_active { freak_ib2_set_line(line_no) }
 }
 
+-- value is the LLVM c"..." body (\HH escapes), so both sinks see the same bytes.
 task ir_string_literal(name: word, value: word, declaration: word) -> void {
-    if llvm_builder_active { freak_ib2_string(name, value) give back }
+    if llvm_builder_active { freak_ib2_string(name, value) if not llvm_builder_shadow_text { give back } }
     string_literals = string_literals + declaration
 }
 
 task ir_declare_integer_support() -> void {
-    if llvm_builder_active { freak_ib2_declare_support(1) give back }
-    llvm_emit_line("declare void @__freak_int_fail(i8*, i8*) cold noreturn")
-    llvm_emit_line("declare \{i64, i1\} @llvm.sadd.with.overflow.i64(i64, i64)")
-    llvm_emit_line("declare \{i64, i1\} @llvm.ssub.with.overflow.i64(i64, i64)")
-    llvm_emit_line("declare \{i64, i1\} @llvm.smul.with.overflow.i64(i64, i64)")
-    llvm_emit_line("@__freak_int_overflow = private unnamed_addr constant [9 x i8] c\"overflow\\00\"")
-    llvm_emit_line("@__freak_int_division_by_zero = private unnamed_addr constant [17 x i8] c\"division by zero\\00\"")
-    llvm_emit_line("@__freak_int_addition = private unnamed_addr constant [9 x i8] c\"addition\\00\"")
-    llvm_emit_line("@__freak_int_subtraction = private unnamed_addr constant [12 x i8] c\"subtraction\\00\"")
-    llvm_emit_line("@__freak_int_multiplication = private unnamed_addr constant [15 x i8] c\"multiplication\\00\"")
-    llvm_emit_line("@__freak_int_division = private unnamed_addr constant [9 x i8] c\"division\\00\"")
-    llvm_emit_line("@__freak_int_remainder = private unnamed_addr constant [10 x i8] c\"remainder\\00\"")
-    llvm_emit_line("@__freak_int_negation = private unnamed_addr constant [9 x i8] c\"negation\\00\"")
+    if llvm_builder_active { freak_ib2_declare_support(1) if not llvm_builder_shadow_text { give back } }
+    ir_text("declare void @__freak_int_fail(i8*, i8*) cold noreturn")
+    ir_text("declare \{i64, i1\} @llvm.sadd.with.overflow.i64(i64, i64)")
+    ir_text("declare \{i64, i1\} @llvm.ssub.with.overflow.i64(i64, i64)")
+    ir_text("declare \{i64, i1\} @llvm.smul.with.overflow.i64(i64, i64)")
+    ir_text("@__freak_int_overflow = private unnamed_addr constant [9 x i8] c\"overflow\\00\"")
+    ir_text("@__freak_int_division_by_zero = private unnamed_addr constant [17 x i8] c\"division by zero\\00\"")
+    ir_text("@__freak_int_addition = private unnamed_addr constant [9 x i8] c\"addition\\00\"")
+    ir_text("@__freak_int_subtraction = private unnamed_addr constant [12 x i8] c\"subtraction\\00\"")
+    ir_text("@__freak_int_multiplication = private unnamed_addr constant [15 x i8] c\"multiplication\\00\"")
+    ir_text("@__freak_int_division = private unnamed_addr constant [9 x i8] c\"division\\00\"")
+    ir_text("@__freak_int_remainder = private unnamed_addr constant [10 x i8] c\"remainder\\00\"")
+    ir_text("@__freak_int_negation = private unnamed_addr constant [9 x i8] c\"negation\\00\"")
 }
 
 task ir_declare_libc() -> void {
-    if llvm_builder_active { freak_ib2_declare_support(2) give back }
-    llvm_emit_line("declare i32 @puts(i8*)")
-    llvm_emit_line("declare i32 @printf(i8*, ...)")
-    llvm_emit_line("declare i64 @strlen(i8*)")
+    if llvm_builder_active { freak_ib2_declare_support(2) if not llvm_builder_shadow_text { give back } }
+    ir_text("declare i32 @puts(i8*)")
+    ir_text("declare i32 @printf(i8*, ...)")
+    ir_text("declare i64 @strlen(i8*)")
 }
 
 task ir_result_drop_helper() -> void {
-    if llvm_builder_active { freak_ib2_declare_support(3) give back }
-    llvm_emit_line("define internal void @__freak_drop_result(i64 %ticket) \{")
-    llvm_emit_line("entry:")
-    llvm_emit_line("    %live = icmp ne i64 %ticket, 0")
-    llvm_emit_line("    br i1 %live, label %release, label %done")
-    llvm_emit_line("release:")
-    llvm_emit_line("    call void @freak_llvm_fs_result_release(i64 %ticket)")
-    llvm_emit_line("    br label %done")
-    llvm_emit_line("done:")
-    llvm_emit_line("    ret void")
-    llvm_emit_line("\}")
+    if llvm_builder_active { freak_ib2_declare_support(3) if not llvm_builder_shadow_text { give back } }
+    ir_text("define internal void @__freak_drop_result(i64 %ticket) \{")
+    ir_text("entry:")
+    ir_text("    %live = icmp ne i64 %ticket, 0")
+    ir_text("    br i1 %live, label %release, label %done")
+    ir_text("release:")
+    ir_text("    call void @freak_llvm_fs_result_release(i64 %ticket)")
+    ir_text("    br label %done")
+    ir_text("done:")
+    ir_text("    ret void")
+    ir_text("\}")
 }
 
 task ir_integer_failure_block() -> void {
     if llvm_integer_failure_reasons == "" { give back }
-    if llvm_builder_active { freak_ib2_integer_failure(llvm_integer_failure_edges) give back }
-    llvm_emit_line("integer.fail:")
-    llvm_emit_line("    %integer.reason = phi i8* " + llvm_integer_failure_reasons)
-    llvm_emit_line("    %integer.operation = phi i8* " + llvm_integer_failure_operations)
-    llvm_emit_line("    call void @__freak_int_fail(i8* %integer.reason, i8* %integer.operation)")
-    llvm_emit_line("    unreachable")
+    if llvm_builder_active { freak_ib2_integer_failure(llvm_integer_failure_edges) if not llvm_builder_shadow_text { give back } }
+    ir_text("integer.fail:")
+    ir_text("    %integer.reason = phi i8* " + llvm_integer_failure_reasons)
+    ir_text("    %integer.operation = phi i8* " + llvm_integer_failure_operations)
+    ir_text("    call void @__freak_int_fail(i8* %integer.reason, i8* %integer.operation)")
+    ir_text("    unreachable")
+}
+
+-- ===================== TYPED SINKS (native FFI at C widths) =============
+-- Items are "|"-terminated: "TYPE[ ATTR]" for declarations, "TYPE[ ATTR] VALUE"
+-- for parameters and arguments. The text sink joins them with ", ".
+
+task ir_typed_list_text(items: word) -> word {
+    pilot text = ""
+    pilot current = ""
+    pilot i = 0
+    repeat until i >= items.length() {
+        pilot ch = items.char_at(i)
+        if ch == "|" {
+            if text != "" { text = text + ", " }
+            text = text + current
+            current = ""
+        } else { current = current + ch }
+        i += 1
+    }
+    give back text
+}
+
+task ir_declare_typed(return_type: word, symbol: word, params: word) -> void {
+    if llvm_builder_active { freak_ib2_declare_typed(symbol, return_type, params) if not llvm_builder_shadow_text { give back } }
+    ir_text("declare " + return_type + " " + symbol + "(" + ir_typed_list_text(params) + ")")
+}
+
+task ir_global_pointer(name: word) -> void {
+    if llvm_builder_active { freak_ib2_global_pointer(name) if not llvm_builder_shadow_text { give back } }
+    ir_text(name + " = internal global i8* null")
+}
+
+-- A private NUL-terminated C string constant; value is the c"..." body.
+task ir_cstring_constant(name: word, size: word, value: word) -> void {
+    if llvm_builder_active { freak_ib2_string(name, value + "\\00") if not llvm_builder_shadow_text { give back } }
+    ir_text(name + " = private unnamed_addr constant [" + size + " x i8] c\"" + value + "\\00\"")
+}
+
+task ir_begin_function_typed(return_type: word, symbol: word, params: word) -> void {
+    if llvm_builder_active { freak_ib2_begin_function_typed(symbol, return_type, params) if not llvm_builder_shadow_text { give back } }
+    ir_text("define internal " + return_type + " " + symbol + "(" + ir_typed_list_text(params) + ") \{")
+}
+
+task ir_call_typed(dest: word, return_type: word, callee: word, arguments: word) -> void {
+    if llvm_builder_active { freak_ib2_call_typed(dest, callee, return_type, arguments) if not llvm_builder_shadow_text { give back } }
+    if return_type == "void" {
+        ir_text("    call void " + callee + "(" + ir_typed_list_text(arguments) + ")")
+        give back
+    }
+    ir_text("    " + dest + " = call " + return_type + " " + callee + "(" + ir_typed_list_text(arguments) + ")")
+}
+
+-- trunc, sext, zext, fptrunc, fpext, inttoptr, ptrtoint, bitcast
+task ir_convert(dest: word, operation: word, from_type: word, value: word, to_type: word) -> void {
+    if llvm_builder_active { freak_ib2_convert(dest, operation, from_type, value, to_type) if not llvm_builder_shadow_text { give back } }
+    ir_text("    " + dest + " = " + operation + " " + from_type + " " + value + " to " + to_type)
+}
+
+task ir_ret_typed(type_name: word, value: word) -> void {
+    if llvm_builder_active { freak_ib2_ret_typed(type_name, value) if not llvm_builder_shadow_text { give back } }
+    if type_name == "void" {
+        ir_text("    ret void")
+        give back
+    }
+    ir_text("    ret " + type_name + " " + value)
 }
 
 -- In builder mode every instruction goes through an ir_* sink. A raw line
@@ -352,9 +431,20 @@ task ir_integer_failure_block() -> void {
 -- module is marked and the CLI re-emits it through the text path instead.
 task llvm_emit_line(s: word) -> void {
     if llvm_builder_active {
-        if s != "" and not s.starts_with(";") and not s.starts_with("    ;") { llvm_builder_fallback = true }
-        give back
+        if s != "" and not s.starts_with(";") and not s.starts_with("    ;") {
+            if not llvm_builder_fallback { llvm_builder_fallback_line = s }
+            llvm_builder_fallback = true
+        }
     }
+    ir_text(s)
+}
+
+-- Text sink: one line of textual IR, with the current !dbg location
+-- attached to instructions. In builder mode it only writes while the
+-- text shadow is on (the shadow .ll is the fallback when the builder
+-- module can't be used).
+task ir_text(s: word) -> void {
+    if llvm_builder_active and not llvm_builder_shadow_text { give back }
     pilot out = s
     if llvm_dbg_current_scope_id > 0 and llvm_dbg_current_line > 0 {
         if s.starts_with("    ") and not s.starts_with("    ;") {
@@ -533,7 +623,7 @@ task register_string_literal(val: word) -> word {
     pilot null_term_len = llvm_string_byte_len(real_val) + 1
     pilot escaped = llvm_escape_str(real_val)
     pilot decl = id + " = private unnamed_addr constant [" + word_from_int(null_term_len) + " x i8] c\"" + escaped + "\\00\", align 1\n"
-    ir_string_literal(id, real_val, decl)
+    ir_string_literal(id, escaped, decl)
     give back id
 }
 
@@ -1514,14 +1604,15 @@ task llvm_ffi_param_attr(abi: word) -> word {
     give back ""
 }
 
+-- "|"-terminated items for the typed ir_* sinks.
 task llvm_ffi_param_list(extra: word, named: bool) -> word {
     pilot out = ""
     pilot j = 0
     repeat ffi_param_count(extra) times {
-        if j > 0 { out = out + ", " }
         pilot abi = ffi_param_abi(extra, j)
         out = out + llvm_ffi_type(abi) + llvm_ffi_param_attr(abi)
         if named { out = out + " %p" + word_from_int(j) }
+        out = out + "|"
         j += 1
     }
     give back out
@@ -1534,7 +1625,7 @@ task llvm_ffi_callee(name: word, extra: word) -> word {
 
 task llvm_ffi_cstring_const(global_name: word, text: word) -> word {
     pilot size = word_from_int(llvm_string_byte_len(text) + 1)
-    llvm_emit_line(global_name + " = private unnamed_addr constant [" + size + " x i8] c\"" + llvm_escape_str(text) + "\\00\"")
+    ir_cstring_constant(global_name, size, llvm_escape_str(text))
     give back "getelementptr inbounds ([" + size + " x i8], [" + size + " x i8]* " + global_name + ", i64 0, i64 0)"
 }
 
@@ -1585,21 +1676,21 @@ task llvm_emit_ffi_decl(eid: word) -> void {
         pilot safe = llvm_c_safe_ident(name)
         pilot lib_ptr = llvm_ffi_cstring_const("@__freak_ffi_lib_" + safe, ffi_field(extra, 2))
         pilot sym_ptr = llvm_ffi_cstring_const("@__freak_ffi_sym_" + safe, symbol)
-        llvm_emit_line("@__freak_ffi_cache_" + safe + " = internal global i8* null")
-        llvm_emit_line("define internal " + ret_type + " @__freak_ffi_stub_" + safe + "(" + llvm_ffi_param_list(extra, true) + ") {")
-        llvm_emit_line("entry:")
-        llvm_emit_line("    %fn = call i8* @freak_ffi_lazy(i8* " + lib_ptr + ", i8* " + sym_ptr + ", i8** @__freak_ffi_cache_" + safe + ")")
+        ir_global_pointer("@__freak_ffi_cache_" + safe)
+        ir_begin_function_typed(ret_type, "@__freak_ffi_stub_" + safe, llvm_ffi_param_list(extra, true))
+        ir_label("entry")
+        ir_call_typed("%fn", "i8*", "@freak_ffi_lazy", "i8* " + lib_ptr + "|i8* " + sym_ptr + "|i8** @__freak_ffi_cache_" + safe + "|")
         pilot call_args = llvm_ffi_param_list(extra, true)
         if ret_type == "void" {
-            llvm_emit_line("    call void %fn(" + call_args + ")")
-            llvm_emit_line("    ret void")
+            ir_call_typed("", "void", "%fn", call_args)
+            ir_ret_typed("void", "")
         } else {
-            llvm_emit_line("    %r = call " + ret_type + " %fn(" + call_args + ")")
-            llvm_emit_line("    ret " + ret_type + " %r")
+            ir_call_typed("%r", ret_type, "%fn", call_args)
+            ir_ret_typed(ret_type, "%r")
         }
-        llvm_emit_line("}")
+        ir_end_function()
         if not llvm_is_runtime_func("freak_ffi_lazy") and not llvm_ffi_declared.contains("|freak_ffi_lazy|") {
-            llvm_emit_line("declare i8* @freak_ffi_lazy(i8*, i8*, i8**)")
+            ir_declare_typed("i8*", "@freak_ffi_lazy", "i8*|i8*|i8**|")
             llvm_ffi_declared = llvm_ffi_declared + "|freak_ffi_lazy|"
         }
         give back
@@ -1609,7 +1700,7 @@ task llvm_emit_ffi_decl(eid: word) -> void {
     -- function type, so the call site still uses this member's C signature.
     if llvm_is_runtime_func(symbol) or llvm_ffi_declared.contains("|" + symbol + "|") { give back }
     llvm_ffi_declared = llvm_ffi_declared + "|" + symbol + "|"
-    llvm_emit_line("declare " + ret_type + " @" + symbol + "(" + llvm_ffi_param_list(extra, false) + ")")
+    ir_declare_typed(ret_type, "@" + symbol, llvm_ffi_param_list(extra, false))
 }
 
 -- Converts a FREAK i64 value (num travels as double bits) to the C argument.
@@ -1621,21 +1712,21 @@ task llvm_ffi_arg(reg: word, arg_id: word, abi: word) -> word {
         pilot dbl = llvm_i64_to_double(bits)
         if t == "double" { give back dbl }
         pilot narrow = next_reg()
-        llvm_emit_line("    " + narrow + " = fptrunc double " + dbl + " to float")
+        ir_convert(narrow, "fptrunc", "double", dbl, "float")
         give back narrow
     }
     if t == "i8*" {
         pilot p = next_reg()
-        llvm_emit_line("    " + p + " = inttoptr i64 " + reg + " to i8*")
+        ir_convert(p, "inttoptr", "i64", reg, "i8*")
         give back p
     }
     if t == "i1" {
         pilot b = next_reg()
-        llvm_emit_line("    " + b + " = icmp ne i64 " + reg + ", 0")
+        ir_icmp(b, "ne", reg, "0")
         give back b
     }
     pilot n = next_reg()
-    llvm_emit_line("    " + n + " = trunc i64 " + reg + " to " + t)
+    ir_convert(n, "trunc", "i64", reg, t)
     give back n
 }
 
@@ -1646,13 +1737,13 @@ task llvm_ffi_result(reg: word, abi: word) -> word {
     if t == "double" { give back llvm_double_to_i64(reg) }
     if t == "float" {
         pilot wide = next_reg()
-        llvm_emit_line("    " + wide + " = fpext float " + reg + " to double")
+        ir_convert(wide, "fpext", "float", reg, "double")
         give back llvm_double_to_i64(wide)
     }
     pilot out = next_reg()
-    if t == "i8*" { llvm_emit_line("    " + out + " = ptrtoint i8* " + reg + " to i64") give back out }
-    if ffi_abi_is_unsigned(abi) { llvm_emit_line("    " + out + " = zext " + t + " " + reg + " to i64") }
-    else { llvm_emit_line("    " + out + " = sext " + t + " " + reg + " to i64") }
+    if t == "i8*" { ir_convert(out, "ptrtoint", "i8*", reg, "i64") give back out }
+    if ffi_abi_is_unsigned(abi) { ir_convert(out, "zext", t, reg, "i64") }
+    else { ir_convert(out, "sext", t, reg, "i64") }
     give back out
 }
 
@@ -1663,19 +1754,18 @@ task llvm_emit_ffi_call(val: word, extra: word, left: word) -> word {
         pilot arg_id = word_from_int(tc_arg_at(left, j))
         pilot abi = ffi_param_abi(extra, j)
         pilot reg = llvm_ffi_arg(llvm_emit_expr(arg_id), arg_id, abi)
-        if j > 0 { args = args + ", " }
-        args = args + llvm_ffi_type(abi) + llvm_ffi_param_attr(abi) + " " + reg
+        args = args + llvm_ffi_type(abi) + llvm_ffi_param_attr(abi) + " " + reg + "|"
         j += 1
     }
     pilot ret_abi = ffi_field(extra, 4)
     pilot ret_type = llvm_ffi_type(ret_abi)
     pilot callee = llvm_ffi_callee(val, extra)
     if ret_type == "void" {
-        llvm_emit_line("    call void " + callee + "(" + args + ")")
+        ir_call_typed("", "void", callee, args)
         give back "0"
     }
     pilot raw = next_reg()
-    llvm_emit_line("    " + raw + " = call " + ret_type + " " + callee + "(" + args + ")")
+    ir_call_typed(raw, ret_type, callee, args)
     give back llvm_ffi_result(raw, ret_abi)
 }
 
@@ -3960,9 +4050,10 @@ task emit_llvm_program() -> void {
     string_literals = ""
     string_literals_count = 0
     llvm_dbg_init()
+    if llvm_builder_active { freak_ib2_open(input_file, llvm_dbg_current_file, llvm_dbg_current_dir) }
 
     -- Write empty file (streaming appends from here)
-    if not llvm_builder_active { fs::write(out_file, "") }
+    if not llvm_builder_active or llvm_builder_shadow_text { fs::write(out_file, "") }
 
     llvm_emit_line("; FREAK LLVM IR Generator (v3)")
     llvm_emit_line("")
@@ -4210,11 +4301,32 @@ task emit_llvm_program() -> void {
     llvm_dbg_current_line = 0
 
     -- Append string literals at end
-    if llvm_builder_active { give back }
-    llvm_emit_line("")
-    llvm_emit_line("; String Literals")
-    llvm_emit_line(string_literals)
-    llvm_emit_line("!llvm.dbg.cu = !\{!" + word_from_int(llvm_dbg_cu_id) + "\}")
-    llvm_emit_line("!llvm.module.flags = !\{!" + word_from_int(llvm_dbg_append("!\{i32 7, !\"Dwarf Version\", i32 4\}")) + ", !" + word_from_int(llvm_dbg_append("!\{i32 2, !\"Debug Info Version\", i32 3\}")) + "\}")
-    llvm_emit_line(llvm_dbg_md)
+    ir_text("")
+    ir_text("; String Literals")
+    ir_text(string_literals)
+    ir_text("!llvm.dbg.cu = !\{!" + word_from_int(llvm_dbg_cu_id) + "\}")
+    ir_text("!llvm.module.flags = !\{!" + word_from_int(llvm_dbg_append("!\{i32 7, !\"Dwarf Version\", i32 4\}")) + ", !" + word_from_int(llvm_dbg_append("!\{i32 2, !\"Debug Info Version\", i32 3\}")) + "\}")
+    ir_text(llvm_dbg_md)
+}
+
+-- Lower the program through the LLVM IRBuilder bridge and write `output`
+-- (kind 0 = object, 1 = textual IR printed from the builder module,
+-- 2 = bitcode). The textual .ll is still streamed to out_file as a shadow.
+-- Returns 1 when `output` was written, 0 when the builder is unavailable or
+-- the module needed a lowering that has no builder form yet (the shadow .ll
+-- is complete), and -1 when the bridge reported an error
+-- (freak_ib2_error() says why; the shadow .ll is still complete).
+task emit_llvm_program_builder(output: word, kind: int, triple: word, optimization: int) -> int {
+    if freak_ib2_available() == 0 { give back 0 }
+    llvm_builder_active = true
+    llvm_builder_fallback = false
+    llvm_builder_fallback_line = ""
+    emit_llvm_program()
+    llvm_builder_active = false
+    if llvm_builder_fallback {
+        freak_ib2_close()
+        give back 0
+    }
+    if freak_ib2_finish(output, kind, triple, optimization) == 0 { give back 0 - 1 }
+    give back 1
 }

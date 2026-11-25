@@ -924,6 +924,7 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 
 | Contract | Status | Verdict |
 |---|---|---|
+| V3.5 LLVM backend builds through LLVM's IRBuilder (0.16.0) | ✅ | 🛠 Release `freak` links LLVM 22.1.8; `tests/v3_irbuilder_differential.py` (CI lane "V3.5 IRBuilder differential") requires identical behavior to `--llvm-text` over the corpus and zero bridge errors (programs whose text build fails or whose text binary times out are skipped; wall-clock/network programs are built both ways but not run; the gate fails if no program was compared at run time) |
 | `power<N>` erased at runtime | N/A | 📖 V4 |
 | `mood` compiles to uint8_t | ❌ | 📖 V4 |
 | Variants → tag + payload | ⚠️ | 📖 V4 | V4 native codegen lowers concrete routes/variants without word payloads to `{ tag, [n x iA] }`, the payload sized and aligned as a C union of the case structs (`; freak.layout` / `; freak.payload` notes, Clang oracle on four targets). Generic routes, word payloads and the C ABI of `@repr` routes still expand |

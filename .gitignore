@@ -50,3 +50,5 @@ hangar_cache/
 
 # Claude Code (worktrees, per-project state, local settings)
 .claude/
+.llvm-irbuilder/
+freakc/runtime/LLVM-C.dll

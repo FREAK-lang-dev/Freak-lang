@@ -198,6 +198,11 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     }
     material = material + "|target=" + target + "|profile=" + profile + "|clang-opt=" + opt + "|lto=" + lto
     material = material + "|runtime-policy=" + runtime_policy + "|runtime-stats=" + runtime_stats + "|cross=" + cross + "|strict=" + strict_label
+    -- --llvm-text / FREAK_IRBUILDER=off must rebuild rather than reuse a
+    -- binary the IRBuilder emitted (they are the miscompile escape hatch).
+    pilot ib_label = "text"
+    if target == "llvm" and cli_ib_enabled() { ib_label = "irbuilder-" + cli_ib_llvm_version() }
+    material = material + "|llvm-emit=" + ib_label
     -- Native FFI link inputs: the command-line requests, plus the contents of
     -- every library file they and the source's link= values can resolve to.
     material = material + "|ffi-link=" + cli_requested_link_libs + "|ffi-lib-dirs=" + cli_requested_lib_dirs

@@ -146,7 +146,7 @@ function Recover-OrphanedPayloadTransaction {
 
     if ($backups.Count -eq 1) {
         $backupRoot = $backups[0].FullName
-        $allowedTopLevel = @("bin", "runtime", "runtime.missing", "std", "std.missing", "templates", "templates.missing", "distribution-files.manifest", "distribution-files.manifest.missing")
+        $allowedTopLevel = @("bin", "runtime", "runtime.missing", "std", "std.missing", "templates", "templates.missing", "v4", "v4.missing", "distribution-files.manifest", "distribution-files.manifest.missing")
         foreach ($entry in Get-ChildItem -LiteralPath $backupRoot -Force -ErrorAction SilentlyContinue) {
             if ($allowedTopLevel -notcontains $entry.Name) {
                 Err "Interrupted installer backup contains an unexpected entry; backup preserved at $backupRoot"
@@ -165,6 +165,7 @@ function Recover-OrphanedPayloadTransaction {
             [pscustomobject]@{ Live = "$InstallDir\runtime"; Backup = "$backupRoot\runtime" },
             [pscustomobject]@{ Live = "$InstallDir\std"; Backup = "$backupRoot\std" },
             [pscustomobject]@{ Live = "$InstallDir\templates"; Backup = "$backupRoot\templates" },
+            [pscustomobject]@{ Live = "$InstallDir\v4"; Backup = "$backupRoot\v4" },
             [pscustomobject]@{ Live = "$InstallDir\distribution-files.manifest"; Backup = "$backupRoot\distribution-files.manifest" },
             [pscustomobject]@{ Live = "$BinDir\freak.exe"; Backup = "$backupRoot\bin\freak.exe" },
             [pscustomobject]@{ Live = "$BinDir\hangar.exe"; Backup = "$backupRoot\bin\hangar.exe" }
@@ -323,6 +324,8 @@ $StageRuntime = Join-Path $StageDir "runtime"
 $StageStd = Join-Path $StageDir "std"
 $StageTemplates = Join-Path $StageDir "templates"
 $StageManifest = Join-Path $StageDir "distribution-files.manifest"
+# Optional prebuilt V4 preview bundle (release archives since v0.16.0).
+$StageV4 = Join-Path $StageDir "v4"
 New-Item -ItemType Directory -Path $ExtractDir, $StageBin, $StageRuntime, $StageStd, $StageTemplates -Force | Out-Null
 
 function Get-ManifestEntries {
@@ -409,6 +412,15 @@ function Assert-StagedPayload {
         $path = Join-Path $StageDir $entry.Destination
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Err "Staged payload is missing $($entry.Destination)" }
         if ((Get-Item -LiteralPath $path).Length -eq 0) { Err "Staged payload is empty: $($entry.Destination)" }
+    }
+    if (Test-Path -LiteralPath $StageV4) {
+        if (-not (Test-Path -LiteralPath $StageV4 -PathType Container)) { Err "Staged V4 preview is not a directory" }
+        foreach ($name in @("freak-v4.exe", "freak-v4-engine.exe")) {
+            $path = Join-Path $StageV4 $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Err "Staged V4 preview is missing v4\$name" }
+            if ((Get-Item -LiteralPath $path).Length -eq 0) { Err "Staged V4 preview is empty: v4\$name" }
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $StageV4 "runtime") -PathType Container)) { Err "Staged V4 preview is missing v4\runtime" }
     }
 }
 
@@ -791,11 +803,16 @@ function Install-StagedPayload {
         Copy-Item -Path "$StageStd\*" -Destination "$applyRoot\std" -Recurse -Force
         Get-ChildItem -LiteralPath $StageTemplates -Force | Copy-Item -Destination "$applyRoot\templates" -Recurse -Force
         Copy-Item -LiteralPath $StageManifest -Destination "$applyRoot\distribution-files.manifest" -Force
+        if (Test-Path -LiteralPath $StageV4 -PathType Container) {
+            Copy-Item -LiteralPath $StageV4 -Destination "$applyRoot\v4" -Recurse -Force
+        }
 
         $items = @(
             [pscustomobject]@{ Live = "$InstallDir\runtime"; Pending = "$applyRoot\runtime"; Backup = "$backupRoot\runtime"; Prepared = $false; HadOriginal = $false },
             [pscustomobject]@{ Live = "$InstallDir\std"; Pending = "$applyRoot\std"; Backup = "$backupRoot\std"; Prepared = $false; HadOriginal = $false },
             [pscustomobject]@{ Live = "$InstallDir\templates"; Pending = "$applyRoot\templates"; Backup = "$backupRoot\templates"; Prepared = $false; HadOriginal = $false },
+            # Optional: an archive without v4\ removes a stale preview (kept in the backup until commit).
+            [pscustomobject]@{ Live = "$InstallDir\v4"; Pending = "$applyRoot\v4"; Backup = "$backupRoot\v4"; Prepared = $false; HadOriginal = $false },
             [pscustomobject]@{ Live = "$InstallDir\distribution-files.manifest"; Pending = "$applyRoot\distribution-files.manifest"; Backup = "$backupRoot\distribution-files.manifest"; Prepared = $false; HadOriginal = $false }
         )
         if (-not $UpgradeMode) {
@@ -836,7 +853,9 @@ function Install-StagedPayload {
         }
         for ($index = 0; $index -lt $items.Count; $index++) {
             $item = $items[$index]
-            Move-Item -LiteralPath $item.Pending -Destination $item.Live
+            if (Test-Path -LiteralPath $item.Pending) {
+                Move-Item -LiteralPath $item.Pending -Destination $item.Live
+            }
             if ($index -eq 0 -and (Test-Truthy $env:FREAK_INSTALL_TEST_FAIL_APPLY)) {
                 throw "injected apply failure"
             }
@@ -909,6 +928,9 @@ try {
             if (Test-Path -LiteralPath "$ExtractDir\freak\templates" -PathType Container) {
                 Get-ChildItem -LiteralPath "$ExtractDir\freak\templates" -Force | Copy-Item -Destination $StageTemplates -Recurse -Force
             }
+            if (Test-Path -LiteralPath "$ExtractDir\freak\v4" -PathType Container) {
+                Copy-Item -LiteralPath "$ExtractDir\freak\v4" -Destination $StageV4 -Recurse -Force
+            }
             $archiveManifest = "$ExtractDir\freak\distribution-files.manifest"
             if (Test-Path -LiteralPath $archiveManifest -PathType Leaf) {
                 Copy-Item -LiteralPath $archiveManifest -Destination $StageManifest -Force
@@ -967,6 +989,7 @@ Ok "  Compiler: $BinDir\freak.exe"
 Ok "  Hangar:   $BinDir\hangar.exe"
 Ok "  Runtime:  $InstallDir\runtime\"
 Ok "  Std lib:  $InstallDir\std\"
+if (Test-Path -LiteralPath "$InstallDir\v4" -PathType Container) { Ok "  V4 preview: $InstallDir\v4\ (run: freak v4 --help)" }
 if ($UpgradeMode) {
     Ok "  Binary replacement will complete after the invoking process exits."
     Ok "  Durable state: $BinDir\.freak-upgrade-pending"

@@ -124,6 +124,10 @@ jobs:
           ./build/freakc_v3_stage2${{ matrix.ext }} build/freakc_v3.fk --c
           clang -o build/freakc_v3_stage2${{ matrix.ext }} build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
 
+      - name: Fetch pinned LLVM for the IRBuilder
+        shell: bash
+        run: python -u tools/irbuilder_cli.py fetch --dest "$RUNNER_TEMP/freak-llvm"
+
       - name: Build full CLI (Stage 2 — current V3 compiler + CLI + Hangar)
         shell: bash
         run: |
@@ -133,7 +137,12 @@ jobs:
             cat "$source" >> build/freakc_cli.fk
           done < packaging/cli-sources.manifest
           ./build/freakc_v3_stage2${{ matrix.ext }} build/freakc_cli.fk --c
-          clang -o build/freak${{ matrix.ext }} build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
+          # 0.16.0: the released freak lowers V3.5 programs through the
+          # in-process LLVM IRBuilder (static LLVM; LLVM-C.dll on Windows).
+          python -u tools/irbuilder_cli.py link --llvm "$RUNNER_TEMP/freak-llvm" --cli-c build/freakc_cli.fk.c --out build/freak${{ matrix.ext }}
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp "$RUNNER_TEMP/freak-llvm/bin/LLVM-C.dll" freakc/runtime/LLVM-C.dll
+          fi
           # Create hangar binary (same binary, BusyBox pattern)
           cp build/freak${{ matrix.ext }} build/hangar${{ matrix.ext }}
 
@@ -148,8 +157,10 @@ jobs:
       - name: Smoke test (CLI build command)
         shell: bash
         run: |
-          ./build/freak${{ matrix.ext }} build tests/hello.fk
+          FREAK_IRBUILDER_TRACE=1 ./build/freak${{ matrix.ext }} build tests/hello.fk | tee "$RUNNER_TEMP/hello-build.log"
           ./tests/hello${{ matrix.ext }}
+          # The release must ship the IRBuilder live, not the text fallback.
+          grep -q "irbuilder: irbuilder" "$RUNNER_TEMP/hello-build.log"
 
       - name: Smoke test (CLI version)
         shell: bash
@@ -177,11 +188,107 @@ jobs:
             cp freakc/runtime/freak_runtime.obj dist/freak/runtime/
             cp freakc/runtime/freak_llvm_runtime.obj dist/freak/runtime/
             cp freakc/runtime/freak_ui_win32.obj dist/freak/runtime/
+            cp freakc/runtime/LLVM-C.dll dist/freak/runtime/
           fi
           cp packaging/distribution-files.manifest dist/freak/distribution-files.manifest
           # Standalone binaries for direct download
           cp build/freak${{ matrix.ext }} dist/freak-${{ matrix.target }}${{ matrix.ext }}
           cp build/hangar${{ matrix.ext }} dist/hangar-${{ matrix.target }}${{ matrix.ext }}
+
+      # `freak v4` forwards to <install root>/v4/freak-v4. Build that bundle
+      # with the staged, installed-layout CLI from this commit's own
+      # src/compiler/v4 (unlocked mode; the locked lane stays pinned).
+      # Every target must produce and smoke it, or the release fails here.
+      - name: Prepare private V4 bundle directories (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # The checked runtime requires output parents owned by the caller's
+          # TokenUser with a protected DACL; an elevated runner token would
+          # otherwise make new directories owned by Administrators.
+          $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+          $system = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-18'
+          $admins = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-32-544'
+          foreach ($name in @('freak-v4-bundle', 'freak-v4-smoke')) {
+            $path = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) { throw "V4 bundle directory already exists: $path" }
+            New-Item -ItemType Directory -Path $path | Out-Null
+            $acl = New-Object System.Security.AccessControl.DirectorySecurity
+            $acl.SetOwner($user)
+            $acl.SetAccessRuleProtection($true, $false)
+            foreach ($sid in @($user, $system, $admins)) {
+              $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+            }
+            Set-Acl -LiteralPath $path -AclObject $acl
+            $owner = (Get-Acl -LiteralPath $path).GetOwner([System.Security.Principal.SecurityIdentifier])
+            if ($owner -ne $user) { throw "V4 bundle directory owner is $owner, expected $user" }
+          }
+
+      - name: Bootstrap bundled V4 preview into the archive payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext="${{ matrix.ext }}"
+          native() { if [[ "$RUNNER_OS" == "Windows" ]]; then cygpath -w "$1"; else printf '%s\n' "$1"; fi; }
+          stage="$RUNNER_TEMP/freak-v4-bundle"
+          smoke="$RUNNER_TEMP/freak-v4-smoke"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            test ! -e "$stage" && test ! -e "$smoke"
+            mkdir -m 700 "$stage" "$smoke"
+          fi
+          test -d "$stage" && test -d "$smoke"
+          freak="$PWD/dist/freak/bin/freak$ext"
+          # Run from the staged installed layout (bin/ beside runtime/, std/).
+          env -u FREAK_HOME "$freak" bootstrap-v4 \
+            --source="$(native "$PWD/src/compiler/v4")" \
+            --output="$(native "$stage/v4")"
+          built="$stage/v4"
+          for name in "freak-v4$ext" "freak-v4-engine$ext" bootstrap-report.json runtime-sha256.manifest; do
+            test -s "$built/$name" || { echo "::error::bootstrap-v4 produced no $name"; exit 1; }
+          done
+          test ! -e dist/freak/v4
+          mkdir -p dist/freak/v4
+          cp "$built/freak-v4$ext" "$built/freak-v4-engine$ext" "$built/bootstrap-report.json" dist/freak/v4/
+          # Ship exactly the hashed runtime inventory the launcher verifies.
+          while read -r hash relative; do
+            [[ -n "$relative" ]] || continue
+            relative=${relative%$'\r'}
+            mkdir -p "dist/freak/v4/runtime/$(dirname "$relative")"
+            cp "$built/runtime/$relative" "dist/freak/v4/runtime/$relative"
+          done < "$built/runtime-sha256.manifest"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            chmod -R u=rwX,go=rX dist/freak/v4
+            chmod 755 "dist/freak/v4/freak-v4" "dist/freak/v4/freak-v4-engine"
+          fi
+          cat dist/freak/v4/bootstrap-report.json
+          # Smoke the staged bundle through the public `freak v4` forwarder.
+          env -u FREAK_HOME "$freak" v4 --version
+          cat > "$smoke/v4_smoke.fk" <<'FK'
+          shape Pilot { name: word, kills: int }
+
+          task total(lend xs: List<int>) -> int {
+              pilot acc = 0
+              for each x in xs {
+                  acc += x
+              }
+              give back acc
+          }
+
+          task main() -> int {
+              pilot ace = Pilot { name: "V4_BUNDLE_OK", kills: 7 }
+              pilot kills: List<int> = [3, 4, 5]
+              kills.push(ace.kills)
+              say ace.name
+              say word_from_int(total(lend kills))
+              give back 0
+          }
+          FK
+          env -u FREAK_HOME "$freak" v4 check "$(native "$smoke/v4_smoke.fk")"
+          env -u FREAK_HOME "$freak" v4 build "$(native "$smoke/v4_smoke.fk")" \
+            --output="$(native "$smoke/v4_smoke$ext")"
+          output=$("$smoke/v4_smoke$ext" | tr -d '\r' | tr '\n' ' ')
+          test "$output" = "V4_BUNDLE_OK 19 " || { echo "::error::bundled V4 smoke printed: $output"; exit 1; }
+          echo "Bundled V4 preview verified for ${{ matrix.target }}"
 
       - name: Finalize and smoke exact release archive
         shell: bash

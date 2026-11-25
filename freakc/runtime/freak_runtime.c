@@ -1951,7 +1951,7 @@ freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s) 
 
 static const char* freak_word_byte_literal(unsigned char value) {
     static char byte_words[256][2];
-    static atomic_bool ready = ATOMIC_VAR_INIT(false);
+    static atomic_bool ready = false;
     static atomic_flag init_lock = ATOMIC_FLAG_INIT;
     if (!atomic_load_explicit(&ready, memory_order_acquire)) {
         while (atomic_flag_test_and_set_explicit(&init_lock, memory_order_acquire)) {
@@ -6044,7 +6044,9 @@ int64_t freak_v3_live_words(void) { return freak_v3_words_live; }
 /* builder as unavailable and keeps the textual .ll path.             */
 /* ------------------------------------------------------------------ */
 #ifndef FREAK_IB2_LINKED
+int64_t freak_ib2_bind(freak_word l) { (void)l; return 0; }
 int64_t freak_ib2_available(void) { return 0; }
+freak_word freak_ib2_version(void) { return freak_word_lit(""); }
 int64_t freak_ib2_open(freak_word m, freak_word f, freak_word d) { (void)m; (void)f; (void)d; return 0; }
 freak_word freak_ib2_error(void) { return freak_word_lit("this freak was built without the LLVM IRBuilder"); }
 int64_t freak_ib2_close(void) { return 0; }
@@ -6078,6 +6080,12 @@ int64_t freak_ib2_ret_void(void) { return 0; }
 int64_t freak_ib2_ret_i32(freak_word v) { (void)v; return 0; }
 int64_t freak_ib2_unreachable(void) { return 0; }
 int64_t freak_ib2_integer_failure(freak_word e) { (void)e; return 0; }
+int64_t freak_ib2_declare_typed(freak_word s, freak_word r, freak_word p) { (void)s; (void)r; (void)p; return 0; }
+int64_t freak_ib2_global_pointer(freak_word n) { (void)n; return 0; }
+int64_t freak_ib2_begin_function_typed(freak_word s, freak_word r, freak_word p) { (void)s; (void)r; (void)p; return 0; }
+int64_t freak_ib2_call_typed(freak_word d, freak_word c, freak_word r, freak_word a) { (void)d; (void)c; (void)r; (void)a; return 0; }
+int64_t freak_ib2_convert(freak_word d, freak_word o, freak_word f, freak_word v, freak_word t) { (void)d; (void)o; (void)f; (void)v; (void)t; return 0; }
+int64_t freak_ib2_ret_typed(freak_word t, freak_word v) { (void)t; (void)v; return 0; }
 #endif
 
 /* ===================================================================
