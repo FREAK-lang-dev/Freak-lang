@@ -80,6 +80,7 @@ FLIGHT_STDOUT = ['frame 0: callsign= launches=0 armed=off commands=21',
                  'circle 22 142 7 #e6e6f0',
                  'text 62 135 14 #e6e6f0 "Armed"',
                  'unclip']
+HUD_STDOUT = ['frame 0:  launches=0 320x200', 'frame 1: Valkyrie launches=0 320x200', 'frame 2: Valkyrie launches=1 320x200', 'frame 3: Valkyrie launches=2 320x200', 'frame 4: Valkyrie launches=0 320x200', 'landed after 5 frames']
 WIDGETS_STDOUT = ['PASS layout', 'PASS motion', 'PASS controls', 'PASS toasts', 'PASS themes']
 
 
@@ -152,7 +153,8 @@ def main() -> None:
              ('keyboard-editing-replay', copied, copied / 'tests/replay_input.fk', INPUT_STDOUT, True),
              ('widgets-motion-toast-replay', copied, copied / 'tests/replay_widgets.fk', WIDGETS_STDOUT, True),
              # The flight sim links with no UI platform at all.
-             ('flight-sim-no-platform', copied, copied / 'tests/flight.fk', FLIGHT_STDOUT, False)]
+             ('flight-sim-no-platform', copied, copied / 'tests/flight.fk', FLIGHT_STDOUT, False),
+             ('cockpit-shape-sim', copied, copied / 'tests/hud.fk', HUD_STDOUT, True)]
     for case, graph_root, source, expected, use_mock in cases:
         for backend in ('c', 'llvm'):
             generated = work / f'{case}.{"c" if backend == "c" else "ll"}'
