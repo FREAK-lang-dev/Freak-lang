@@ -238,8 +238,12 @@ task client(i: int) -> void {
     time::sleep(i % 7)
     tcp::socket_send_all(sock, out, 0, out.length())
     pilot inbox = ByteBuffer::new()
-    pilot n = tcp::socket_receive(sock, inbox, 4096)
-    if n == out.length() { replies += 1 }
+    -- one receive may return only part of the echo: read until it is all here
+    repeat until inbox.length() >= out.length() {
+        pilot n = tcp::socket_receive(sock, inbox, 4096)
+        if n == 0 { break }
+    }
+    if inbox.length() == out.length() { replies += 1 }
     out.release()
     inbox.release()
     tcp::socket_close(sock)
@@ -248,17 +252,20 @@ task client(i: int) -> void {
 -- 4 MiB through one echo connection while the ticker keeps running.
 task big(x: int) -> void {
     pilot sock = tcp::socket_connect("127.0.0.1", port)
-    pilot out = ByteBuffer::with_capacity(4194304)
-    pilot i = 0
-    repeat 65536 times {
+    -- 16 KiB at a time, each echo read back before the next send, so the
+    -- bytes in flight never outgrow the smallest socket buffers
+    pilot out = ByteBuffer::new()
+    repeat 256 times {
         out.write_word("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-        i += 1
     }
-    pilot sent = tcp::socket_send_all(sock, out, 0, out.length())
-    pilot inbox = ByteBuffer::new()
-    repeat until inbox.length() >= sent {
-        pilot n = tcp::socket_receive(sock, inbox, 65536)
-        if n == 0 { break }
+    pilot sent = 0
+    pilot inbox = ByteBuffer::with_capacity(4194304)
+    repeat 256 times {
+        sent += tcp::socket_send_all(sock, out, 0, out.length())
+        repeat until inbox.length() >= sent {
+            pilot n = tcp::socket_receive(sock, inbox, 65536)
+            if n == 0 { break }
+        }
     }
     if sent == 4194304 and inbox.length() == sent { big_ok = 1 }
     out.release()

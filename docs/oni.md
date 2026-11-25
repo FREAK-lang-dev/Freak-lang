@@ -68,7 +68,7 @@ Outside an oni (on the main stack) nothing changes: every call blocks as before.
 | Builtin | Meaning |
 |---|---|
 | `oni::summon("task", arg) -> int` | New oni running `task(arg)`, queued ready. The name must be a string literal naming a top-level `task (int) -> void` or `(int) -> int`. Returns a handle. |
-| `oni::next_ready() -> int` | Pop the ready queue, or 0 when it is empty. |
+| `oni::next_ready() -> int` | Pop the ready queue, or 0 when it is empty. Every 64 picks it also takes a nonblocking `oni::poll(0)` itself, so a queue that never empties cannot starve parked sockets and deadlines. |
 | `oni::resume(h) -> int` | Run `h` until it parks or finishes. Main stack only. Returns its state. |
 | `oni::poll(timeout_ms) -> int` | Wait for sockets and deadlines and mark the woken oni ready. `-1` waits until something can wake, and returns at once if nothing can. Returns how many woke. Main stack only. |
 | `oni::suspend()` | Park the current oni until `oni::wake`. |

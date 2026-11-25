@@ -1809,8 +1809,13 @@ task llvm_emit_oni_summon(left: word) -> word {
     }
     pilot arg = llvm_emit_expr(word_from_int(tc_arg_at(left, 1)))
     -- The in-process builder resolves globals by name; declare the task first
-    -- in case its body comes later in the module (text IR allows forward uses).
-    if llvm_builder_active { ir_declare(return_type, symbol, 1) }
+    -- in case its body comes later in the module. Builder only: the text
+    -- shadow is mid-function here and already allows the forward use.
+    if llvm_builder_active {
+        pilot returns_void = 0
+        if return_type == "void" { returns_void = 1 }
+        freak_ib2_declare(symbol, returns_void, 1)
+    }
     pilot address = next_reg()
     ir_ptrtoint_typed(address, return_type + " (i64)*", symbol)
     pilot handle = next_reg()

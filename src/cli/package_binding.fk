@@ -872,7 +872,7 @@ task pb_bind_expr(unit: int, expr: int) -> void {
         if kind == EXPR_CALL { pb_bind_args(unit, left) }
         -- oni::summon("task", arg) names its task in a string literal; bind
         -- that name like a call so it reaches the flattened declaration.
-        if kind == EXPR_CALL and value == "oni::summon" and left != "" {
+        if kind == EXPR_CALL and bound == "oni::summon" and left != "" {
             pilot name_expr = tc_arg_at(left, 0)
             if name_expr >= 0 and array_get(ast_expr_kinds, name_expr) == EXPR_STR {
                 pilot task_name = array_get(ast_expr_vals, name_expr)

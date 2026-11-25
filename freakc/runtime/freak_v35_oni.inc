@@ -425,11 +425,11 @@ static void freak_oni_unpark(int64_t slot, int woke);
 
 #ifdef FREAK_ONI_EPOLL
 /* Wake every oni on one socket list; each retries its call and re-parks if it lost the race. */
-static int64_t freak_oni_wake_list(int64_t head) {
+static int64_t freak_oni_wake_list(int64_t head, int woke) {
     int64_t woken = 0;
     while (head >= 0) {
         int64_t next = freak_onis[head].io_next;
-        freak_oni_unpark(head, FREAK_ONI_WOKE_READY);
+        freak_oni_unpark(head, woke);
         woken += 1;
         head = next;
     }
@@ -505,7 +505,7 @@ __asm__(
 #endif
     ".p2align 2\n"
     FREAK_ONI_SYM(freak_oni_switch) ":\n"
-    "    sub sp, sp, #160\n"
+    "    sub sp, sp, #176\n"
     "    stp x19, x20, [sp, #0]\n"
     "    stp x21, x22, [sp, #16]\n"
     "    stp x23, x24, [sp, #32]\n"
@@ -516,6 +516,8 @@ __asm__(
     "    stp d10, d11, [sp, #112]\n"
     "    stp d12, d13, [sp, #128]\n"
     "    stp d14, d15, [sp, #144]\n"
+    "    mrs x2, fpcr\n"
+    "    str x2, [sp, #160]\n"
     "    mov x2, sp\n"
     "    str x2, [x0]\n"
     "    mov sp, x1\n"
@@ -529,7 +531,9 @@ __asm__(
     "    ldp d10, d11, [sp, #112]\n"
     "    ldp d12, d13, [sp, #128]\n"
     "    ldp d14, d15, [sp, #144]\n"
-    "    add sp, sp, #160\n"
+    "    ldr x2, [sp, #160]\n"
+    "    msr fpcr, x2\n"
+    "    add sp, sp, #176\n"
     "    ret\n"
 );
 #endif
@@ -567,9 +571,10 @@ static void freak_oni_stack_make(freak_oni_record* oni) {
     frame[7] = (uintptr_t)&freak_oni_trampoline;
     frame[8] = 0;
 #else
-    /* x19..x28, x29, x30=trampoline, d8..d15 */
-    frame = (uintptr_t*)(top - 160);
-    memset(frame, 0, 160);
+    /* x19..x28, x29, x30=trampoline, d8..d15, fpcr (0: round to nearest,
+       no traps), padding to keep sp 16-byte aligned */
+    frame = (uintptr_t*)(top - 176);
+    memset(frame, 0, 176);
     frame[11] = (uintptr_t)&freak_oni_trampoline;
 #endif
     oni->sp = frame;
@@ -739,14 +744,29 @@ static void freak_oni_sleep(int64_t ms) {
 
 /* A socket is closing: wake every oni parked on it (they find it gone). */
 static void freak_oni_socket_closing(uint64_t socket) {
+#ifdef FREAK_ONI_EPOLL
+    /* the per-fd lists hold exactly the oni parked on this socket */
+    int fd = (int)socket;
+    if (fd >= 0 && (int64_t)fd < freak_oni_fd_capacity) {
+        (void)freak_oni_wake_list(freak_oni_fds[fd].reader, FREAK_ONI_WOKE_TIMEOUT);
+        (void)freak_oni_wake_list(freak_oni_fds[fd].writer, FREAK_ONI_WOKE_TIMEOUT);
+    }
+    freak_oni_epoll_forget(fd);
+#else
     for (int64_t i = freak_oni_io_count - 1; i >= 0; i--) {
         if (i >= freak_oni_io_count) continue;
         int64_t slot = freak_oni_io_slots[i];
         if (freak_onis[slot].socket == socket) freak_oni_unpark(slot, FREAK_ONI_WOKE_TIMEOUT);
     }
-#ifdef FREAK_ONI_EPOLL
-    freak_oni_epoll_forget((int)socket);
 #endif
+}
+
+/* The running oni was cancelled or its curfew has passed: a sliced wait
+   (see the Windows connect) should stop instead of parking again. */
+static bool freak_oni_must_stop(void) {
+    if (!freak_oni_inside()) return false;
+    freak_oni_record* oni = &freak_onis[freak_oni_current_slot];
+    return oni->cancelled || (oni->curfew_ms != 0 && oni->curfew_ms <= freak_oni_now_ms());
 }
 
 /* ---- the FREAK-facing API --------------------------------------- */
@@ -816,7 +836,20 @@ int64_t freak_oni_resume(int64_t handle) {
     return oni->state;
 }
 
+int64_t freak_oni_poll(int64_t timeout_ms);
+
+/* A ready queue that never drains (a hot socket bowing on its budget)
+   must not starve parked sockets and deadlines: every this many picks,
+   next_ready takes a nonblocking look itself. */
+#define FREAK_ONI_POLL_EVERY 64
+static int64_t freak_oni_picks_since_poll = 0;
+
 int64_t freak_oni_next_ready(void) {
+    if (!freak_oni_inside() && freak_oni_ready_live > 0 &&
+            (freak_oni_io_count > 0 || freak_oni_timer_count > 0) &&
+            ++freak_oni_picks_since_poll >= FREAK_ONI_POLL_EVERY) {
+        (void)freak_oni_poll(0);
+    }
     while (freak_oni_ready_length > 0) {
         freak_oni_ready_entry entry = freak_oni_ready[freak_oni_ready_head];
         int64_t handle = entry.handle;
@@ -933,6 +966,7 @@ static int64_t freak_oni_fire_deadlines(int64_t now) {
    wakes (returns at once when nothing could). Returns oni woken. */
 int64_t freak_oni_poll(int64_t timeout_ms) {
     if (freak_oni_inside()) freak_oni_fail("poll is only allowed from the main stack (the parade loop)");
+    freak_oni_picks_since_poll = 0;
     int64_t now = freak_oni_now_ms();
     int64_t woken = freak_oni_fire_deadlines(now);
     if (woken > 0 || freak_oni_ready_live > 0) timeout_ms = 0;
@@ -958,8 +992,8 @@ int64_t freak_oni_poll(int64_t timeout_ms) {
             freak_oni_fd_interest* entry = freak_oni_fd_entry(fd);
             uint32_t got = events[i].events;
             bool failed = (got & (EPOLLERR | EPOLLHUP)) != 0;
-            if (failed || (got & (EPOLLIN | EPOLLRDHUP))) woken += freak_oni_wake_list(entry->reader);
-            if (failed || (got & EPOLLOUT)) woken += freak_oni_wake_list(entry->writer);
+            if (failed || (got & (EPOLLIN | EPOLLRDHUP))) woken += freak_oni_wake_list(entry->reader, FREAK_ONI_WOKE_READY);
+            if (failed || (got & EPOLLOUT)) woken += freak_oni_wake_list(entry->writer, FREAK_ONI_WOKE_READY);
         }
 #else
         int64_t count = freak_oni_io_count;
