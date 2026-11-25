@@ -19,7 +19,7 @@ fixed pilot cockpit_bb_fields = 8
 
 -- Text metrics: one advance table per (font size, bold) slot, 95 printable
 -- ASCII characters each. Until the window calibrates a slot, every byte is
--- cockpit_bb_default_advance pixels wide (the flight-sim metrics).
+-- half the font size wide, rounded up (the flight-sim metrics: 7 px at 14).
 fixed pilot cockpit_bb_default_advance = 7
 fixed pilot cockpit_bb_max_font = 96
 fixed pilot cockpit_bb_glyphs = 95
@@ -181,7 +181,7 @@ task cockpit_bb_measure(text: word, font_size: int, bold: bool) -> int {
     pilot slot = cockpit_bb_slot(font_size, bold)
     if not cockpit_bb_is_calibrated(slot) {
         cockpit_bb_want(slot)
-        give back text.length() * cockpit_bb_default_advance
+        give back text.length() * ((cockpit_blackbox_slot_size(slot) + 1) / 2)
     }
     pilot base = slot * cockpit_bb_glyphs
     pilot bytes = ByteBuffer::new()
@@ -293,4 +293,10 @@ task cockpit_blackbox_find_text(text: word) -> int {
         index += 1
     }
     give back -1
+}
+
+-- How wide text is at this size, by the current metrics (the same widths the
+-- widgets laid out with).
+task cockpit_blackbox_measure(text: word, font_size: int, bold: bool) -> int {
+    give back cockpit_bb_measure(text, font_size, bold)
 }
