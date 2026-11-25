@@ -1,3 +1,10 @@
+use self::blackbox::{
+    cockpit_bb_measure,
+    cockpit_bb_reset_clip,
+    cockpit_bb_set_clip,
+    cockpit_blackbox_height,
+    cockpit_blackbox_width
+}
 use self::containers::{
     cockpit_values_get_int,
     cockpit_values_set_int
@@ -95,8 +102,8 @@ task cockpit_fail(message: word) -> void {
 
 task cockpit_clip_push(window: int, x: int, y: int, width: int, height: int) -> void {
     if cockpit_ui_clip_depth >= 32 { cockpit_fail("COCKPIT clip stack exhausted") }
-    pilot screen_w = ui::get_width(window)
-    pilot screen_h = ui::get_height(window)
+    pilot screen_w = cockpit_blackbox_width()
+    pilot screen_h = cockpit_blackbox_height()
     if width < 0 { width = 0 }
     if height < 0 { height = 0 }
     if x < 0 { width += x x = 0 }
@@ -128,18 +135,18 @@ task cockpit_clip_push(window: int, x: int, y: int, width: int, height: int) -> 
     cockpit_values_set_int(cockpit_ui_clip_stack, offset + 2, right)
     cockpit_values_set_int(cockpit_ui_clip_stack, offset + 3, bottom)
     cockpit_ui_clip_depth += 1
-    ui::set_clip(window, x, y, right - x, bottom - y)
+    cockpit_bb_set_clip(x, y, right - x, bottom - y)
 }
 
 task cockpit_clip_pop(window: int) -> void {
     if cockpit_ui_clip_depth <= 0 { cockpit_fail("COCKPIT clip stack underflow") }
     cockpit_ui_clip_depth -= 1
-    if cockpit_ui_clip_depth == 0 { ui::reset_clip(window) }
+    if cockpit_ui_clip_depth == 0 { cockpit_bb_reset_clip() }
     else {
         pilot offset = (cockpit_ui_clip_depth - 1) * 4
         pilot x = cockpit_values_get_int(cockpit_ui_clip_stack, offset)
         pilot y = cockpit_values_get_int(cockpit_ui_clip_stack, offset + 1)
-        ui::set_clip(window, x, y, cockpit_values_get_int(cockpit_ui_clip_stack, offset + 2) - x, cockpit_values_get_int(cockpit_ui_clip_stack, offset + 3) - y)
+        cockpit_bb_set_clip(x, y, cockpit_values_get_int(cockpit_ui_clip_stack, offset + 2) - x, cockpit_values_get_int(cockpit_ui_clip_stack, offset + 3) - y)
     }
 }
 
@@ -465,7 +472,7 @@ task cockpit_text_hit(text: word, target: int, font_size: int, password: bool) -
         offset = cockpit_text_next(text, offset)
         pilot prefix = text.substring(0, offset)
         if password { prefix = cockpit_text_mask(prefix) }
-        pilot distance = ui::measure_text(prefix, font_size, 0, 0) - target
+        pilot distance = cockpit_bb_measure(prefix, font_size, false) - target
         if distance < 0 { distance = 0 - distance }
         if distance < best_distance {
             best = offset
@@ -591,7 +598,7 @@ task cockpit_ui_edit_input(text: word, widget_id: int, x: int, y: int, width: in
         if edited { cockpit_ui_caret_epoch = time::now_ms() }
         pilot shown = next_text.substring(0, caret)
         if password { shown = cockpit_text_mask(shown) }
-        pilot caret_px = ui::measure_text(shown, font_size, 0, 0)
+        pilot caret_px = cockpit_bb_measure(shown, font_size, false)
         pilot inner = width - 16
         if inner < 1 { inner = 1 }
         if caret_px - scroll > inner { scroll = caret_px - inner }

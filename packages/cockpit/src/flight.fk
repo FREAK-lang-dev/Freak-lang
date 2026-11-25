@@ -1,0 +1,174 @@
+use self::blackbox::{
+    cockpit_blackbox_begin
+}
+use self::frame::{
+    cockpit_frame_finish,
+    cockpit_frame_start
+}
+use self::state::{
+    cockpit_ui_begin_events,
+    cockpit_ui_delta_ms_value,
+    cockpit_ui_feed_event,
+    cockpit_ui_reset
+}
+use self::toast::{
+    cockpit_toasts_release,
+    cockpit_toasts_reset
+}
+
+-- COCKPIT flight sim: fly a cockpit with no window at all.
+-- Queue what the pilot does, then run a frame. Events land in the frame that
+-- follows them, the same way a real window delivers them. The drawing goes to
+-- the black box, where a test reads it back (cockpit_blackbox_dump and friends).
+-- Nothing here touches ui::, so a flight-sim test links and runs on any OS.
+
+pilot cockpit_flight_events = 0
+pilot cockpit_flight_event_count = 0
+pilot cockpit_flight_width = 640
+pilot cockpit_flight_height = 480
+pilot cockpit_flight_step_ms = 16
+pilot cockpit_flight_mouse_x = 0
+pilot cockpit_flight_mouse_y = 0
+
+-- Starts a sim with a window of this size. Call once, like cockpit_ui_open.
+task cockpit_flight_open(width: int, height: int) -> void {
+    cockpit_ui_reset()
+    cockpit_toasts_reset()
+    if cockpit_flight_events != 0 { array_release(cockpit_flight_events) }
+    cockpit_flight_events = array_new()
+    cockpit_flight_event_count = 0
+    cockpit_flight_width = width
+    cockpit_flight_height = height
+    cockpit_flight_step_ms = 16
+    cockpit_flight_mouse_x = 0
+    cockpit_flight_mouse_y = 0
+}
+
+task cockpit_flight_close() -> void {
+    if cockpit_flight_events != 0 { array_release(cockpit_flight_events) cockpit_flight_events = 0 }
+    cockpit_flight_event_count = 0
+    cockpit_toasts_release()
+}
+
+-- The window was resized; takes effect next frame.
+task cockpit_flight_resize(width: int, height: int) -> void {
+    cockpit_flight_width = width
+    cockpit_flight_height = height
+}
+
+-- Milliseconds each frame takes (default 16). Animations follow this clock,
+-- so a sim run is the same every time.
+task cockpit_flight_frame_ms(ms: int) -> void {
+    if ms < 0 { ms = 0 }
+    if ms > 100 { ms = 100 }
+    cockpit_flight_step_ms = ms
+}
+
+task cockpit_flight_put(slot: int, value: int) -> void {
+    if slot < array_len(cockpit_flight_events) { array_set(cockpit_flight_events, slot, word_from_int(value)) }
+    else { array_push(cockpit_flight_events, word_from_int(value)) }
+}
+
+task cockpit_flight_queue(kind: int, key: int, character: int, button: int, pressed: int, x: int, y: int, scroll: int) -> void {
+    if cockpit_flight_events == 0 { cockpit_flight_events = array_new() }
+    if cockpit_flight_event_count >= 64 { give back }
+    pilot base = cockpit_flight_event_count * 8
+    cockpit_flight_put(base, kind)
+    cockpit_flight_put(base + 1, key)
+    cockpit_flight_put(base + 2, character)
+    cockpit_flight_put(base + 3, button)
+    cockpit_flight_put(base + 4, pressed)
+    cockpit_flight_put(base + 5, x)
+    cockpit_flight_put(base + 6, y)
+    cockpit_flight_put(base + 7, scroll)
+    cockpit_flight_event_count += 1
+}
+
+task cockpit_flight_queued() -> int { give back cockpit_flight_event_count }
+
+task cockpit_flight_move(x: int, y: int) -> void {
+    cockpit_flight_mouse_x = x
+    cockpit_flight_mouse_y = y
+    cockpit_flight_queue(4, 0, 0, 0, 0, x, y, 0)
+}
+
+task cockpit_flight_press(x: int, y: int) -> void {
+    cockpit_flight_mouse_x = x
+    cockpit_flight_mouse_y = y
+    cockpit_flight_queue(4, 0, 0, 1, 1, x, y, 0)
+}
+
+task cockpit_flight_release(x: int, y: int) -> void {
+    cockpit_flight_mouse_x = x
+    cockpit_flight_mouse_y = y
+    cockpit_flight_queue(4, 0, 0, 1, 0, x, y, 0)
+}
+
+-- Move there, press and let go, all before the next frame.
+task cockpit_flight_click(x: int, y: int) -> void {
+    cockpit_flight_move(x, y)
+    cockpit_flight_press(x, y)
+    cockpit_flight_release(x, y)
+}
+
+-- A wheel turn over (x, y); positive dy scrolls content up, like Windows.
+task cockpit_flight_wheel(dy: int, x: int, y: int) -> void {
+    cockpit_flight_move(x, y)
+    cockpit_flight_queue(5, 0, 0, 0, 0, x, y, dy)
+}
+
+task cockpit_flight_key_down(key: int) -> void { cockpit_flight_queue(2, key, 0, 0, 1, cockpit_flight_mouse_x, cockpit_flight_mouse_y, 0) }
+task cockpit_flight_key_up(key: int) -> void { cockpit_flight_queue(2, key, 0, 0, 0, cockpit_flight_mouse_x, cockpit_flight_mouse_y, 0) }
+
+-- Presses and releases a key (cockpit_key_* codes).
+task cockpit_flight_key(key: int) -> void {
+    cockpit_flight_key_down(key)
+    cockpit_flight_key_up(key)
+}
+
+-- Holds the modifier, taps the key, lets go: cockpit_flight_chord(cockpit_key_ctrl, cockpit_key_letter("S")).
+task cockpit_flight_chord(modifier: int, key: int) -> void {
+    cockpit_flight_key_down(modifier)
+    cockpit_flight_key(key)
+    cockpit_flight_key_up(modifier)
+}
+
+-- Types one character by code (what a WM_CHAR would carry).
+task cockpit_flight_char(code: int) -> void {
+    cockpit_flight_queue(3, 0, code, 0, 0, cockpit_flight_mouse_x, cockpit_flight_mouse_y, 0)
+}
+
+-- Types printable ASCII text. Each byte is one character event.
+task cockpit_flight_type(text: word) -> void {
+    pilot bytes = ByteBuffer::new()
+    bytes.write_word(text)
+    bytes.seek(0)
+    repeat text.length() times { cockpit_flight_char(bytes.read_byte()) }
+    bytes.release()
+}
+
+-- The window lost (or gained) keyboard focus.
+task cockpit_flight_blur() -> void { cockpit_flight_queue(7, 0, 0, 0, 0, 0, 0, 0) }
+
+-- The pilot closed the window: cockpit_ui_should_close() is true after the next frame begins.
+task cockpit_flight_quit() -> void { cockpit_flight_queue(1, 0, 0, 0, 0, 0, 0, 0) }
+
+-- Runs the queued events into a new frame and starts drawing it.
+task cockpit_flight_begin_frame(layout: ByteBuffer, theme: int) -> void {
+    cockpit_ui_delta_ms_value = cockpit_flight_step_ms
+    cockpit_ui_begin_events()
+    pilot index = 0
+    repeat cockpit_flight_event_count times {
+        pilot base = index * 8
+        cockpit_ui_feed_event(word_to_int(array_get(cockpit_flight_events, base)), word_to_int(array_get(cockpit_flight_events, base + 1)), word_to_int(array_get(cockpit_flight_events, base + 2)), word_to_int(array_get(cockpit_flight_events, base + 3)), word_to_int(array_get(cockpit_flight_events, base + 4)), word_to_int(array_get(cockpit_flight_events, base + 5)), word_to_int(array_get(cockpit_flight_events, base + 6)), word_to_int(array_get(cockpit_flight_events, base + 7)))
+        index += 1
+    }
+    cockpit_flight_event_count = 0
+    cockpit_blackbox_begin(cockpit_flight_width, cockpit_flight_height)
+    cockpit_frame_start(layout, theme)
+}
+
+-- Finishes the frame. The black box now holds everything it drew.
+task cockpit_flight_end_frame() -> void {
+    cockpit_frame_finish()
+}
