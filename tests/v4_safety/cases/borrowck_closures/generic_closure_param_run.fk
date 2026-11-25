@@ -1,0 +1,16 @@
+-- A closure inside a generic task runs once per instance: apply<int> and
+-- apply<word> each lower the closure with T substituted.
+-- bible: 1.8
+-- expect: run
+-- stdout: 3
+-- stdout: hi
+
+task apply<T>(x: T) -> T {
+    pilot f = |v: T| => v
+    give back f(x)
+}
+task main() -> int {
+    say apply(3)
+    say apply("hi")
+    give back 0
+}

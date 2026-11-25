@@ -17912,6 +17912,47 @@ NATIVE_CLOSURES_EXPECTED = ("42\n15\n1\n5\n9\n7\n9\n13\n6\ntrue\n12\n22\n40\n11\
 NATIVE_CLOSURES_NESTED_BODIES = 28
 NATIVE_CLOSURES_NESTED_EXPECTED = ("14\n11\n106\n12\n7\n201\n202\n6\n202\n4\n3\nx\nYuuko?\nYuuko?!\nYuuko\n5\n0\n"
                                    "[Takemikazuchi]\n8\n42\ntrue\n101\n")
+# Closures inside generic instances: one closure body per instance.
+NATIVE_CLOSURES_GENERIC_BODIES = 22
+NATIVE_CLOSURES_GENERIC_EXPECTED = ("3\nhi\ntrue\n9\n7\nfalse\n2\ntrue\n2\n2\n9\n2.5\nTakeru\n6\n21\n3\n4.5\n5\nfive\n7\n")
+# Every owner a generic closures module names a closure body by: the
+# instances, then the one nongeneric task.
+NATIVE_CLOSURES_GENERIC_SYMBOLS = (
+    "apply<int>", "apply<word>", "apply<bool>", "apply<Point>", "first_of<int,num>", "first_of<bool,int>",
+    "store<int>", "store<bool>", "count_twice<int>", "count_twice<word>", "nested<int>", "nested<num>",
+    "shout<int>", "unbox<int>", "pair_up<int,num>", "through<int>", "through<word>",
+)
+# Generic closures that stay refused, each by name: Meiya checks the template
+# generically, and each instance's concrete types meet the same native fences
+# as a nongeneric closure.
+NATIVE_CLOSURES_GENERIC_REJECTED = (
+    # The template is checked for every T: a borrowed T cannot be given back
+    # by value, though the only instance is keep<int>.
+    ("tier3_closure_generic_borrow_return", "task keep<T>(a: T) -> T {\n    pilot read = |_| => a\n    give back read()\n}\n"
+     "task main() -> int {\n    say keep(3)\n    give back 0\n}\n",
+     "Meiya refuses to move out of a borrowed parameter"),
+    ("tier3_closure_generic_copy_capture", "task dup<T>(a: T) -> T {\n    pilot again = copy |_| => a\n    give back again()\n}\n"
+     "task main() -> int {\n    say dup(3)\n    give back 0\n}\n",
+     "Yuuko cannot copy this closure capture"),
+    ("tier3_closure_generic_oneshot_twice", "task twice<T>(a: T) -> int {\n    pilot once = move |_| => a\n"
+     "    pilot first = once()\n    pilot second = once()\n    give back 0\n}\ntask main() -> int {\n    say twice(3)\n    give back 0\n}\n",
+     "once was moved at statement 1, so statement 2 cannot use once yet"),
+    ("tier3_closure_generic_rewrite_under_borrow", "task peek<T>(x: T) -> int {\n    pilot mut k: int = 5\n    pilot f = |v: T| => k\n"
+     "    k = 6\n    give back f(x)\n}\ntask main() -> int {\n    say peek(true)\n    give back 0\n}\n",
+     "Meiya refuses this rewrite while the value is borrowed"),
+    ("tier3_closure_generic_mut_through_lend", "task reset<T>(lend x: T, y: T) -> int {\n    pilot put = mut |_| { x = y }\n"
+     "    put()\n    give back 0\n}\ntask main() -> int {\n    pilot n = 1\n    say reset(lend n, 2)\n    give back 0\n}\n",
+     "a mut closure cannot capture an immutable lend: x"),
+    # An instance whose T is word meets the word fences of nongeneric closures.
+    ("tier3_closure_generic_word_move", "task hold<T>(a: T) -> T {\n    pilot take = move |_| => a\n    give back take()\n}\n"
+     "task main() -> int {\n    say hold(\"w\")\n    give back 0\n}\n",
+     "native closure captures that move words are not yet supported: a"),
+    # Closures in impl methods are not lowered, generic owners included.
+    ("tier3_closure_generic_impl_method", "shape Box<T> { value: T, count: int }\nimpl Box<T> {\n    task tally(self) -> int {\n"
+     "        pilot f = |_| => self.count\n        give back f()\n    }\n}\ntask main() -> int {\n"
+     "    pilot b: Box<int> = Box { value: 1, count: 4 }\n    say b.tally()\n    give back 0\n}\n",
+     "native closures are lowered only in ordinary tasks, with FREAK parameter types"),
+)
 # The FREAK aggregate calling convention: stdout, then main's exit status.
 NATIVE_DROPS_EXPECTED = ("5\n9\n3\n13\n0\nsxxxxx\nh2\n4\ntaken\nrepaired\nl\nr\nsecond\nx1\n12\nmaybe\n3\n3\n"
                          "B\nuno\nnewer\ncd\n1\nrenamed\nreset\n5\n5\n6\n9\n9\n9\n1\n53\n9\nbox\n1\n0\n")
@@ -18622,10 +18663,12 @@ NATIVE_GENERICS_REJECTED = (
     ("tier3_generic_c_callback", "@extern_callback(\"C\")\ntask echo<T>(v: T) -> T { give back v }\n"
      "task main() -> int { give back echo(3) }\n",
      "@extern_callback parameter type is not FFI-safe"),
-    # Closures inside generic bodies belong to the closures lane.
-    ("tier3_generic_closure", "task bump<T>(x: T) -> T {\n    pilot g = |v: T| => v\n    give back g(x)\n}\n"
-     "task main() -> int { give back bump(4) }\n",
-     "native closures inside generic instances are not yet supported: bump<int>"),
+    # Closures inside generic instances run; an instance whose T is word
+    # still meets the mutable word capture fence.
+    ("tier3_generic_closure", "task bump<T>(x: T, y: T) -> int {\n    pilot mut slot: T = x\n"
+     "    pilot set = mut |v: T| { slot = v }\n    set(y)\n    give back 0\n}\n"
+     "task main() -> int { give back bump(\"a\", \"b\") }\n",
+     "native mutable closure captures of words are not yet supported: slot"),
     # A generic callback with concrete C surfaces is fenced before any
     # trampoline names the template, whether or not an instance exists.
     ("tier3_generic_c_callback_concrete", "use std::ffi::c_int\n@extern_callback(\"C\")\n"
@@ -19415,6 +19458,7 @@ def check_v4_native_shapes() -> None:
     check_v4_native_c_words()
     check_v4_native_closures()
     check_v4_native_closures_nested()
+    check_v4_native_closures_generic()
     check_v4_native_dyn()
 
 
@@ -19936,12 +19980,8 @@ def check_v4_native_closures_nested() -> None:
         if assembled.returncode != 0:
             raise RuntimeError(f"Clang rejected the V4 nested closures module for {triple}:\n{assembled.stderr}")
     rejected_cases = (
-        # Generic closures are not lowered yet. Generic tasks are now
-        # monomorphized, so the closure meets its fence in MIR build, named
-        # by the instance that holds it.
-        ("tier3_closure_generic", "task apply<T>(x: T) -> T {\n    pilot f = |v: T| => v\n    give back f(x)\n}\n"
-         "task main() -> int {\n    say apply(3)\n    give back 0\n}\n",
-         "native closures inside generic instances are not yet supported: apply<int>"),
+        # Generic closures run (closures_generic_native.fk); their refusals
+        # are NATIVE_CLOSURES_GENERIC_REJECTED.
         # A MutCallable reached through a borrow capture has no exclusive access.
         ("tier3_closure_mut_callable_through_lend", "task main() -> int {\n    pilot mut count: int = 0\n"
          "    pilot bump = mut |_| { count += 1 }\n    pilot outer = |_| { bump() }\n    outer()\n    say count\n    give back 0\n}\n",
@@ -19988,6 +20028,84 @@ def check_v4_native_closures_nested() -> None:
             raise RuntimeError(f"V4 nested closure case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
     print(f"V4 native nested closures: run=exact bodies={NATIVE_CLOSURES_NESTED_BODIES} layout-probes={probes} abi-probes={abi_probes} "
           f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+
+
+def check_v4_native_closures_generic() -> None:
+    """Tier 3 generic closures: exact run, one closure body per instance on four targets, named rejections."""
+    source = V4_ROOT / "examples" / "closures_generic_native.fk"
+    executable = RUNTIME_BUILD_ROOT / ("tier3_native_closures_generic.exe" if sys.platform == "win32" else "tier3_native_closures_generic.native")
+    executable.unlink(missing_ok=True)
+    built = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(executable)],
+        label="V4 build command: native generic closures", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if built.returncode != 0 or not executable.exists():
+        raise RuntimeError(f"V4 rejected the native generic closures program:\n{built.stdout}{built.stderr}")
+    ran = run_with_heartbeat([str(executable)], label="V4 native generic closures execute", timeout_seconds=10, memory_limit_mb=128)
+    if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != NATIVE_CLOSURES_GENERIC_EXPECTED:
+        raise RuntimeError(f"V4 native generic closures printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
+    probes = 0
+    abi_probes = 0
+    for triple in NATIVE_LAYOUT_TRIPLES:
+        module_path = RUNTIME_BUILD_ROOT / f"tier3_native_closures_generic_{triple}.ll"
+        module_path.unlink(missing_ok=True)
+        emitted = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+            label=f"V4 generic closures module {triple}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not module_path.exists():
+            raise RuntimeError(f"V4 could not emit the generic closures module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+        module_text = module_path.read_text(encoding="utf-8")
+        envs = re.findall(r'^%"freak\.closure\.env\.[^"]+" = type ', module_text, re.MULTILINE)
+        bodies = re.findall(r'^define [^@]*@"(freak\.closure\.[^"]+)"\((.*)\)', module_text, re.MULTILINE)
+        if len(envs) != NATIVE_CLOSURES_GENERIC_BODIES or len(bodies) != NATIVE_CLOSURES_GENERIC_BODIES:
+            raise RuntimeError(f"V4 generic closures module for {triple} has {len(envs)} environments for {len(bodies)} closure bodies")
+        for _, params in bodies:
+            if not re.match(r"(ptr noalias sret\([^)]*\) [^,]*%ret, )?ptr %env(,|$)", params):
+                raise RuntimeError(f"V4 generic closure body on {triple} does not take its environment first: {params}")
+        # Each closure body is named by the instance it was lowered in (or the
+        # nongeneric task); no template closure and no closure of an uncalled
+        # generic task is emitted.
+        owners = {name[len("freak.closure."):].split(".", 1)[0] for name, _ in bodies}
+        if owners != set(NATIVE_CLOSURES_GENERIC_SYMBOLS) | {"plain"}:
+            raise RuntimeError(f"V4 generic closures module for {triple} names the wrong closure owners: {sorted(owners)}")
+        for owner in NATIVE_CLOSURES_GENERIC_SYMBOLS:
+            if not re.search(r'^define [^@]*@"' + re.escape(owner) + r'"\(', module_text, re.MULTILINE):
+                raise RuntimeError(f"V4 generic closures module for {triple} has no instance body {owner}")
+        if re.search(r'@"?unused[<"(]', module_text):
+            raise RuntimeError(f"V4 generic closures module for {triple} emitted the uncalled generic task or its closure")
+        # A nested closure in an instance extends the instance closure's
+        # symbol, and its environment lives in that closure body's frame.
+        nested = sorted(name for name, _ in bodies if name.count(".") == 4)
+        if len(nested) != 2 or not all(name.startswith(("freak.closure.nested<int>.", "freak.closure.nested<num>.")) for name in nested):
+            raise RuntimeError(f"V4 generic closures module for {triple} lacks the nested instance closures: {nested}")
+        for name in nested:
+            outer = name.rsplit(".", 1)[0]
+            outer_text = native_function_text(module_text, outer)
+            env = "freak.closure.env." + name[len("freak.closure."):]
+            if not re.search(r'^  %closure\.env\.\d+\.\d+ = alloca %"' + re.escape(env) + '"$', outer_text, re.MULTILINE):
+                raise RuntimeError(f"V4 nested generic closure {name} on {triple} has no environment in {outer}'s frame")
+        probes += check_native_layout_oracle(module_text, triple)
+        abi_probes += check_native_abi_oracle(module_text, triple)
+        assembled = run_with_heartbeat(
+            [shutil.which("clang"), f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
+            label=f"V4 generic closures object {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if assembled.returncode != 0:
+            raise RuntimeError(f"Clang rejected the V4 generic closures module for {triple}:\n{assembled.stderr}")
+    for stem, text, reason in NATIVE_CLOSURES_GENERIC_REJECTED:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 generic closure case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    print(f"V4 native generic closures: run=exact bodies={NATIVE_CLOSURES_GENERIC_BODIES} instances={len(NATIVE_CLOSURES_GENERIC_SYMBOLS)} "
+          f"layout-probes={probes} abi-probes={abi_probes} targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(NATIVE_CLOSURES_GENERIC_REJECTED)}")
 
 
 # Tier 3 drops: Meiya's Runtime drop plan, as native code emits it. The drops

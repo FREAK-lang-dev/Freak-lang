@@ -1,0 +1,13 @@
+-- A copy capture needs a Copy type; a bare type parameter is not one.
+-- bible: 1.8
+-- expect: reject mir
+-- error: Yuuko cannot copy this closure capture
+
+task dup<T>(a: T) -> T {
+    pilot again = copy |_| => a
+    give back again()
+}
+task main() -> int {
+    say dup(3)
+    give back 0
+}
