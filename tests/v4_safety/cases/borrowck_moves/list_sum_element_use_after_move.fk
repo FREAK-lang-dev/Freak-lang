@@ -1,0 +1,10 @@
+-- A moved-out carrier element leaves the list partly moved, so Meiya
+-- refuses the list until the end of its life.
+-- expect: reject borrowck
+-- error: Meiya remembers the field you already moved
+
+task main() -> int {
+    pilot xs: List<result<word, int>> = [ok("a"), err(1)]
+    pilot first = xs[0]
+    give back xs.length()
+}

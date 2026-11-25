@@ -1,0 +1,9 @@
+-- A list of maybe<int> takes carriers, not bare payloads.
+-- expect: reject mir
+-- error: list push type mismatch
+
+task main() -> int {
+    pilot xs: List<maybe<int>> = [some(1)]
+    xs.push(3)
+    give back xs.length()
+}

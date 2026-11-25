@@ -1,0 +1,11 @@
+-- Reading a carrier element moves it out of the list: a second read of
+-- the same slot is a use after move.
+-- expect: reject borrowck
+-- error: Meiya remembers the field you already moved
+
+task main() -> int {
+    pilot xs: List<maybe<word>> = [some("a"), nobody]
+    pilot a = xs[0]
+    pilot b = xs[0]
+    give back 0
+}
