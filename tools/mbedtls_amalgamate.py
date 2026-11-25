@@ -16,12 +16,9 @@ any token differs. Run it after every update.
 """
 import argparse
 import hashlib
-import json
-import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -398,18 +395,17 @@ def workspace(root: Path, temp: Path):
 
 def verify(root: Path, outputs, clang: str, stubs: Path, config_dir: Path):
     temp = config_dir.parent
-    if True:
-        for unit, files in unit_files(root).items():
-            upstream = temp / f"upstream_{unit}.c"
-            upstream.write_text(entry_text(root, unit, files))
-            amalgamated = temp / f"amalgamated_{unit}.c"
-            amalgamated.write_text(outputs[unit])
-            for target in TARGETS:
-                a = preprocess(clang, upstream, [root, root / "include", root / "library", config_dir], target, stubs)
-                b = preprocess(clang, amalgamated, [], target, stubs)
-                if a != b:
-                    raise SystemExit(f"{unit} unit differs from upstream for {target}")
-            print(f"  {unit}: identical to upstream (plus any PATCHES) on {len(TARGETS)} targets")
+    for unit, files in unit_files(root).items():
+        upstream = temp / f"upstream_{unit}.c"
+        upstream.write_text(entry_text(root, unit, files))
+        amalgamated = temp / f"amalgamated_{unit}.c"
+        amalgamated.write_text(outputs[unit])
+        for target in TARGETS:
+            a = preprocess(clang, upstream, [root, root / "include", root / "library", config_dir], target, stubs)
+            b = preprocess(clang, amalgamated, [], target, stubs)
+            if a != b:
+                raise SystemExit(f"{unit} unit differs from upstream for {target}")
+        print(f"  {unit}: identical to upstream (plus any PATCHES) on {len(TARGETS)} targets")
 
 
 def main():
