@@ -957,8 +957,10 @@ list helpers call `realloc` through `@freak.libc.realloc`, which answers null
 (the out-of-memory panic) for a request `size_t` cannot hold, and extern
 declarations that spell `c_size`, `c_isize`, `usize` or `isize` get the
 ordinary C-width shim with checked narrowing. Callbacks and variadic calls
-with those aliases, and references to such a declaration that are not direct
-calls, fail closed by name until the JS bridge row.
+with those aliases, C function pointer types that spell them at any depth
+(in a signature, a local or an expression), and references to such a
+declaration that are not direct calls, fail closed by name until the JS
+bridge row.
 
 ```
 python src/compiler/v4/build_v4.py hello.fk -o hello.wasm --target wasm32-unknown-wasip1
@@ -986,7 +988,7 @@ signature disagrees with the runtime fails to link instead of trapping.
 and as wasm and requires the same exit status, stdout and stderr under Node,
 plus a generated number-formatting program; `indirect_calls` and
 `literal_say` are pinned fences (ssize_t callbacks, runtime helpers declared
-as `c_isize`). The layout and ABI oracles ask Clang about wasm32 on every
+as `c_isize`), and two compile-only programs pin the function pointer fence. The layout and ABI oracles ask Clang about wasm32 on every
 host whose Clang has the WebAssembly backend (all but Apple's).
 
 ### Persisted interpolation checkpoint (W3)

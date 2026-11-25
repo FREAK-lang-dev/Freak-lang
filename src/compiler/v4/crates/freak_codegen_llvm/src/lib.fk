@@ -9905,6 +9905,33 @@ task v4_codegen_llvm_ptrsize_signature(codegen_id: int, decl_id: int) -> int {
     give back v4_ty_task_signature_id_for_name(v4_mir_ty_id(mir_id), v4_codegen_llvm_decl_name(codegen_id, decl_id))
 }
 
+-- An extern function pointer type that spells a pointer-sized alias in its
+-- own signature, at any depth. Calls through such a pointer take the C call
+-- plan, which has no pointer-sized key, so they would keep the 64-bit plan
+-- type and trap on a 32-bit target.
+task v4_codegen_llvm_ptrsize_fn_type_used(type_text: word) -> bool {
+    if not v4_ty_is_surface_extern_function_pointer_type(type_text) { give back false }
+    pilot ret = v4_ty_function_type_return_text(type_text)
+    if v4_codegen_llvm_ptrsize_key(ret) != "" or v4_codegen_llvm_ptrsize_fn_type_used(ret) { give back true }
+    pilot param = 0
+    repeat until param >= v4_ty_function_type_fixed_param_count(type_text) {
+        pilot surface = v4_ty_function_type_param_surface(type_text, param)
+        if v4_codegen_llvm_ptrsize_key(surface) != "" or v4_codegen_llvm_ptrsize_fn_type_used(surface) { give back true }
+        param += 1
+    }
+    give back false
+}
+
+task v4_codegen_llvm_ptrsize_signature_fn_type_used(ty_id: int, sig: int) -> bool {
+    if v4_codegen_llvm_ptrsize_fn_type_used(v4_ty_signature_return_surface_type(ty_id, sig)) { give back true }
+    pilot param = 0
+    repeat until param >= v4_ty_signature_fixed_param_count(ty_id, sig) {
+        if v4_codegen_llvm_ptrsize_fn_type_used(v4_ty_signature_param_surface_type(ty_id, sig, param)) { give back true }
+        param += 1
+    }
+    give back false
+}
+
 task v4_codegen_llvm_ptrsize_signature_used(ty_id: int, sig: int) -> bool {
     if v4_codegen_llvm_ptrsize_key(v4_ty_signature_return_surface_type(ty_id, sig)) != "" { give back true }
     pilot param = 0
@@ -9991,7 +10018,24 @@ task v4_codegen_llvm_pointer_sized_target_error(codegen_id: int, target_spec: wo
                 if not direct { give back "pointer-sized C integers at this C boundary are not yet supported on " + triple + ": " + v4_ty_signature_name(ty_id, sig) }
             }
         }
+        if v4_codegen_llvm_ptrsize_signature_fn_type_used(ty_id, sig) { give back "pointer-sized C integers in a C function pointer type are not yet supported on " + triple + ": " + v4_ty_signature_name(ty_id, sig) }
         sig += 1
+    }
+    pilot body_id = 0
+    repeat until body_id >= v4_mir_body_count(mir_id) {
+        pilot found: bool = false
+        pilot local_id = 0
+        repeat until found or local_id >= v4_mir_body_local_count(mir_id, body_id) {
+            found = v4_codegen_llvm_ptrsize_fn_type_used(v4_mir_local_ty(mir_id, body_id, local_id))
+            local_id += 1
+        }
+        pilot rvalue_id = 0
+        repeat until found or rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+            found = v4_codegen_llvm_ptrsize_fn_type_used(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+            rvalue_id += 1
+        }
+        if found { give back "pointer-sized C integers in a C function pointer type are not yet supported on " + triple + ": " + v4_mir_body_name(mir_id, body_id) }
+        body_id += 1
     }
     pilot decl_id = 0
     repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {

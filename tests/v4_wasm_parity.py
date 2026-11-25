@@ -44,6 +44,32 @@ WASM_FENCED = {
     "literal_say": "function signature mismatch: freak_llvm_process_args_count",
 }
 
+# Programs that only need to compile: the host build must emit and the wasm
+# build must stop at the fence. They declare C functions nothing defines, so
+# they are never linked or run.
+WASM_FENCE_SOURCES = {
+    # A C factory returning a function pointer whose own signature uses a
+    # pointer-sized alias: the indirect call has no 32-bit shim.
+    "ptrsize_fn_pointer_factory": ("""extern [C] {
+    task ps_get_counter() -> extern [C] task() -> std::ffi::c_isize
+}
+
+task main() -> int {
+    pilot counter = ps_get_counter()
+    give back counter()
+}
+""", "pointer-sized C integers in a C function pointer type are not yet supported on wasm32-unknown-wasip1"),
+    # The same pointer as a parameter of an ordinary FREAK task.
+    "ptrsize_fn_pointer_param": ("""task call_it(cb: extern [C] task(n: std::ffi::c_size) -> int) -> int {
+    give back cb(3)
+}
+
+task main() -> int {
+    give back 0
+}
+""", "pointer-sized C integers in a C function pointer type are not yet supported on wasm32-unknown-wasip1: call_it"),
+}
+
 # Number formatting the platform layer must print exactly like glibc %g:
 # rounding ties, exponent switches, denormals, huge values and signed zero.
 NUM_FORMAT_SOURCE = """task main() -> int {
@@ -137,6 +163,27 @@ def build_case(compiler: Path, clang: str, source: Path, work: Path) -> dict:
     return case
 
 
+def fence_case(compiler: Path, name: str, source_text: str, reason: str, work: Path) -> dict:
+    case = {"name": name}
+    source = work / (name + ".fk")
+    source.write_text(source_text, encoding="utf-8")
+    try:
+        build_v4.emit_module(compiler, source, build_v4.host_target())
+    except RuntimeError as exc:
+        case["fail"] = "host emit failed: " + str(exc).strip()[-400:]
+        return case
+    try:
+        build_v4.emit_module(compiler, source, WASM)
+    except RuntimeError as exc:
+        if reason in str(exc):
+            case["fenced"] = reason
+        else:
+            case["fail"] = "wasm emit stopped for another reason: " + str(exc).strip()[-400:]
+        return case
+    case["fail"] = "wasm emit passed a pinned fence: " + reason
+    return case
+
+
 def compare(case: dict, node: list[str]) -> dict:
     if "skip" in case or "fail" in case or "fenced" in case:
         return case
@@ -189,6 +236,9 @@ def main(argv: list[str] | None = None) -> int:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
             built = list(pool.map(lambda source: build_case(compiler, clang, source, work), sources))
             results = list(pool.map(lambda case: compare(case, node), built))
+            if not args.examples:
+                results += list(pool.map(lambda item: fence_case(compiler, item[0], *item[1], work),
+                                         WASM_FENCE_SOURCES.items()))
 
     passed = [case for case in results if not ({"fail", "skip", "fenced"} & case.keys())]
     fenced = [case for case in results if "fenced" in case]
