@@ -512,6 +512,37 @@ with 19 stacked varargs, callbacks both ways), checks the narrowing panics,
 and compares every declaration, trampoline and C call site with Clang's own
 lowering of the same boundary written in C on all four `freak_target` triples.
 
+### Word bytes at a C boundary
+
+A word crosses into C only as a `lend s: word` parameter of an extern block
+member (bible section 16.1). It lowers to two C parameters: `const char*` to
+the word's own bytes, then their byte length as C `size_t`, whose width is
+`v4_target_c_size_carrier` (the pointer width: 64 bits on all four
+registered targets, LLP64 Windows included). The declaration's
+FREAK-signature shim (`@"freak.cabi.NAME"`, the same shim the C widths use)
+takes the word handle, reads the length through `freak_v4_word_bytes` (a
+consumed or foreign handle panics) and passes the handle's data pointer, so
+nothing is copied, cloned or dropped. The caller keeps the word: Meiya holds
+a shared loan for the call, which ends when the call returns, and the call
+site writes `lend w` as for FREAK tasks (fields, list elements and a
+forwarded `lend` parameter work). The bytes are UTF-8 and are not
+NUL-terminated for C, and an embedded NUL is an ordinary byte, so C must use
+the length; the pointer is valid only during the call.
+
+Refused by name: by-value `word` parameters (`passes a word by value`),
+`lend mut word` (C must not write the bytes a word owns), word returns, words
+behind an alias, `lend word` in `@extern_callback` tasks (C would hand the
+callback bytes no word owns) and in extern function pointer types,
+variadic declarations with a `lend word` parameter (`native lend word
+parameters of variadic C declarations are not yet supported`), and such
+declarations as task values. `check_v4_native_c_words` (from
+`check_v4_native_shapes`) links `examples/c_words_native.fk` with
+`examples/c_words_native_helpers.c` (real C that never calls `strlen`),
+compares every declaration and C call site with Clang's lowering of the same
+boundary on four targets, checks that the shims never build, clone or drop a
+word, and runs 12 named rejections; `tests/v4_owned_word_codegen.py` repeats
+the run under the ownership audits.
+
 ### Native closures
 
 `build_v4.py` lowers closures in ordinary tasks to native code. The build
@@ -686,7 +717,8 @@ address of the caller's place, on every target:
 
 Refused by name: lend parameters across the C ABI (`extern`,
 `@extern_callback`, `native lend parameters across the C ABI are not yet
-supported`), lend-typed parameters written as a type rather than a mode,
+supported`) other than `lend word` on extern declarations (word bytes at a C
+boundary, above), lend-typed parameters written as a type rather than a mode,
 lend locals other than value bindings of a loan, task value types with
 lend parameters (`native task values with lend parameters are not yet
 supported`), `lend mut` of a module global and other lend pointee types. Meiya refuses an exclusive loan rooted at a shared `lend` parameter
