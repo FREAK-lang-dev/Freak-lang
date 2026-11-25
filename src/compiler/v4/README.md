@@ -456,11 +456,18 @@ leaf exactly once; stores into word slots, and whole replacement through a
 `maybe` or `result` carrier is moved on both edges: the error edge hands the
 error word to the caller and the continuing edge takes the value, so neither
 edge drops the carrier. Codegen fails
-closed when the plan does not cover an owned local. Still refused by name:
-projections of word-owning temporaries, repeat fills of words, aggregates
-owning more than 256 words, discarded route values that own words other than
-calls (`native discarded route values that own words are not yet supported`),
-and `result<word, word>` carriers inside route payloads. Projections of call results (`f(x).y`, `f(x).0`, `f(x)[i]`) lower
+closed when the plan does not cover an owned local. A discarded value that
+is not a call result and owns words or dyn values (a route literal, a shape
+literal holding a `dyn D`) spills to an entry-block slot (`%discard.B.R`) and
+drops there; a scalar slot projected out of a word-owning call result
+(`make("x", 4).n`) is read, then the call's result slot releases the whole
+temporary (`examples/drops_temporaries_native.fk`). Still refused by name:
+projections of word, list or dyn slots out of temporaries and chains through
+an element of a temporary (`native projections of temporaries that own words
+are not yet supported`; the projection would move out of the temporary),
+repeat fills of words (MIR would have to lower them through `Cloneable`),
+aggregates owning more than 256 words (drop glue is unrolled per leaf), and
+`result<word, word>` carriers inside route payloads. Projections of call results (`f(x).y`, `f(x).0`, `f(x)[i]`) lower
 through the sealed MIR `Project` / `ProjectIndex` unary facts with bounds
 checks. Program: `examples/agg_abi_native.fk` (exact output, exit 42); the
 word-owning subset is also audited by `tests/v4_owned_word_codegen.py` under
@@ -810,7 +817,8 @@ points at a heap box the value owns:
 Refused by name: `for each` over `List<dyn D>` (items are copies, and the
 vtable's clone is null), by-value reads of list elements, dyn values in
 `maybe`/`result` carriers, maps and sets, `Shared<dyn D>`, task values and
-closures, and discarded aggregate literals holding dyn values. Program:
+closures. A discarded aggregate literal holding dyn values spills to a slot
+and drops like a local. Program:
 `examples/dyn_owned_native.fk` (exact output, exit 0, valgrind clean), run by
 `check_v4_native_shapes` with the layout, ABI and vtable oracles (shim slots
 included) and Clang assembly on four targets plus 11 named rejections; it is

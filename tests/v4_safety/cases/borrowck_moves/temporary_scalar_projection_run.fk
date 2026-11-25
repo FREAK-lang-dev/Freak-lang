@@ -1,0 +1,17 @@
+-- A scalar slot read out of a call result that owns words releases the
+-- rest of the temporary.
+-- bible: 4.1
+-- expect: run
+-- stdout: 4
+-- stdout: 9
+
+shape Named { name: word, n: int }
+
+task make(t: word, n: int) -> Named { give back Named { name: t + "!", n: n } }
+task pair() -> (word, int) { give back ("p" + "q", 9) }
+
+task main() -> int {
+    say make("x", 4).n
+    say pair().1
+    give back 0
+}

@@ -1,0 +1,12 @@
+-- Projecting a word slot out of a temporary would move it out; it stays named.
+-- bible: 4.1
+-- expect: reject codegen
+-- error: native projections of temporaries that own words are not yet supported: make ( x , 1 ) . name
+
+shape Named { name: word, n: int }
+
+task make(t: word, n: int) -> Named { give back Named { name: t, n: n } }
+
+task main() -> int {
+    give back make("x", 1).name.length()
+}
