@@ -5926,6 +5926,9 @@ task v4_codegen_llvm_word_local_is_owned(mir_id: int, body_id: int, local_id: in
 
 task v4_codegen_llvm_word_rvalue_is_owned(mir_id: int, body_id: int, rvalue_id: int) -> bool {
     pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    -- A read Meiya's plan marks as a partial move (a field or element moved
+    -- out, its slot nulled) is the full expression's own value.
+    if v4_codegen_llvm_rvalue_is_owned_move_out(mir_id, body_id, rvalue_id) { give back true }
     if v4_codegen_llvm_is_shared_handle(mir_id, value_ty) {
         pilot handle_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
         if handle_kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
@@ -5941,6 +5944,15 @@ task v4_codegen_llvm_word_rvalue_is_owned(mir_id: int, body_id: int, rvalue_id: 
     if kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
     if v4_codegen_llvm_rvalue_is_global_read(mir_id, body_id, rvalue_id) { give back true }
     give back kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err
+}
+
+task v4_codegen_llvm_rvalue_is_owned_move_out(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_use_place { give back false }
+    pilot place_kind = v4_mir_place_kind(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+    if place_kind != v4_mir_place_field and place_kind != v4_mir_place_index { give back false }
+    if not v4_mir_drop_rvalue_is_partial(mir_id, body_id, rvalue_id) { give back false }
+    pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    give back v4_codegen_llvm_word_leaf_count(mir_id, value_ty, 0) > 0 or v4_codegen_llvm_sum_owned_word_field(mir_id, value_ty) != "" or v4_codegen_llvm_is_list(mir_id, value_ty)
 }
 
 -- A word a loan observes that no local owns: the full expression releases

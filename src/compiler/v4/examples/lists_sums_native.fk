@@ -140,6 +140,21 @@ task nested() -> void {
     say log.name
 }
 
+-- A discarded element read still moves the element out: the full
+-- expression releases the carrier's word (the owned-word gate counts it).
+task discards() -> void {
+    pilot xs: List<maybe<word>> = [some("hello")]
+    xs[0]
+    pilot es: List<result<int, word>> = [err("bad")]
+    es[0]
+    pilot ws: List<result<word, word>> = [ok("s")]
+    ws.get(0)
+    pilot g: List<List<maybe<word>>> = [[some("a"), nobody]]
+    g[0][0]
+    pilot l = Log { name: "log", entries: [ok("x")] }
+    l.entries[0]
+}
+
 task main() -> int {
     pilot ws = names(5)
     say ws.length()
@@ -174,5 +189,6 @@ task main() -> int {
         got v -> say "first " + v
         nobody -> say "first none"
     }
+    discards()
     give back 0
 }
