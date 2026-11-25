@@ -742,11 +742,11 @@ def _build_windows_recording_launcher(
             f"stdout bytes: {completed.stdout.hex()}\nstderr bytes: {completed.stderr.hex()}"
         )
     wrapper_bytes = _read_bounded_file(wrapper, MAX_RECORDER_SOURCE_BYTES, "native recording launcher")
-    linker_after = _linker_identity_from_trace(clang, command[1:], command_sha256, work_dir, environment, 30.0)
+    linker_after = _linker_identity_from_trace(clang, command[1:], command_sha256, work_dir, environment, LAUNCHER_BUILD_TIMEOUT_SECONDS)
     for field in ("observed_path", "path", "sha256", "bytes", "version_exit_code", "version_stdout_base64", "version_stderr_base64"):
         if linker[field] != linker_after[field]:
             raise LabError("native recording launcher linker changed while building")
-    if source.read_bytes() != source_bytes or compiler != _tool_identity(clang, environment, work_dir, 30.0):
+    if source.read_bytes() != source_bytes or compiler != _tool_identity(clang, environment, work_dir, LAUNCHER_BUILD_TIMEOUT_SECONDS):
         raise LabError("native recording launcher source or compiler changed while building")
     if wrapper_bytes != _read_bounded_file(wrapper, MAX_RECORDER_SOURCE_BYTES, "native recording launcher"):
         raise LabError("native recording launcher changed while identifying its linker")
@@ -2532,7 +2532,7 @@ def _validate_windows_recording_launcher(
     with tempfile.TemporaryDirectory(prefix="freak-v3-recorder-revalidate-") as temporary:
         work_dir = Path(temporary).resolve()
         environment = _clean_environment(clang)
-        if compiler != _tool_identity(clang, environment, work_dir, 30.0):
+        if compiler != _tool_identity(clang, environment, work_dir, LAUNCHER_BUILD_TIMEOUT_SECONDS):
             raise LabError(f"{context} launcher compiler identity is stale")
         # The shared linker validator traces from its own directory. Stage the
         # canonical input and make only that trace's input spelling absolute.
@@ -2542,7 +2542,7 @@ def _validate_windows_recording_launcher(
         trace_arguments[trace_arguments.index("record_clang_launcher.c")] = str(source_path)
         _validate_linker_identity(
             build.get("linker"), f"{context}.launcher_build.linker", clang, trace_arguments,
-            environment, 30.0, command_sha256,
+            environment, LAUNCHER_BUILD_TIMEOUT_SECONDS, command_sha256,
         )
         _, canonical_wrapper, live_build = _build_windows_recording_launcher(
             work_dir, clang, python_executable, recorder_path,
