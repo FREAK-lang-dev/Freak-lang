@@ -68,6 +68,11 @@ MAX_RECORDING_LOG_BYTES = 16 * 1024 * 1024
 MAX_MANIFEST_JSON_BYTES = 4 * 1024 * 1024
 MAX_RESULT_JSON_BYTES = 256 * 1024 * 1024
 MAX_RECORDER_SOURCE_BYTES = 1024 * 1024
+# Building the tiny Windows recording launcher normally takes a second or two,
+# but a busy hosted runner (cold disk cache, antivirus scanning the fresh
+# clang/lld outputs) has needed more than 30 s. A timeout here fails the whole
+# release gate, so give the one-off build plenty of headroom.
+LAUNCHER_BUILD_TIMEOUT_SECONDS = 300.0
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
 
 _ROOT_MANIFEST_KEYS = {"schema", "cases"}
@@ -722,15 +727,15 @@ def _build_windows_recording_launcher(
     work_dir: Path, clang: Path, python_executable: str, recorder_path: str,
 ) -> tuple[bytes, bytes, dict[str, Any]]:
     environment = _clean_environment(clang)
-    compiler = _tool_identity(clang, environment, work_dir, 30.0)
+    compiler = _tool_identity(clang, environment, work_dir, LAUNCHER_BUILD_TIMEOUT_SECONDS)
     source_bytes = _windows_recording_launcher_source(python_executable, recorder_path)
     source = work_dir / "record_clang_launcher.c"
     wrapper = work_dir / "record-clang.exe"
     source.write_bytes(source_bytes)
     command = _windows_recording_launcher_command(clang, compiler["target_triple"])
     command_sha256 = _json_sha256(command)
-    linker = _linker_identity_from_trace(clang, command[1:], command_sha256, work_dir, environment, 30.0)
-    completed = _run_bytes(command, cwd=work_dir, environment=environment, timeout=30.0)
+    linker = _linker_identity_from_trace(clang, command[1:], command_sha256, work_dir, environment, LAUNCHER_BUILD_TIMEOUT_SECONDS)
+    completed = _run_bytes(command, cwd=work_dir, environment=environment, timeout=LAUNCHER_BUILD_TIMEOUT_SECONDS)
     if completed.returncode != 0:
         raise LabError(
             f"native recording launcher build failed with exit {completed.returncode}\n"
