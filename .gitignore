@@ -16,6 +16,8 @@
 build/v4_smoke/
 build/llvm/
 build/llvm_bridge_probe
+build/llvm_bridge_v4_probe
+build/llvm_bridge_v4_probe.ll
 build/v4_scale_bench/
 # freak-lsp build output (src/compiler/v4/build_lsp.py)
 build/freak-lsp
