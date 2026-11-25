@@ -18371,6 +18371,10 @@ NATIVE_RAW_ALLOC_EXPECTED = ("8\n1\n16\n8\n3\n16\n8\ntrue\nfalse\n285\n0\n7\n7\n
 NATIVE_RAW_ALLOC_PANIC = "alloc size out of range"
 
 
+NATIVE_RAW_PACKED_PRELUDE = ("use std::ffi::{c_float, c_double}\n@layout(C, packed=1)\n"
+                             "shape Packet { tag: c_float, value: c_double }\n")
+
+
 def native_raw_case(stem: str, level: str, body: str, prelude: str = "") -> tuple[str, str]:
     """A main whose body runs inside one trust me block at level ("" for none)."""
     inner = "".join("        " + line + "\n" for line in body.split("\n"))
@@ -18479,6 +18483,19 @@ NATIVE_RAW_ALLOC_REJECTED = tuple(case + (reason,) for case, reason in (
      "layout queries in constant expressions are not yet supported"),
     (("tier3_raw_null_root_constant", "fixed pilot P = null<int>()\ntask main() -> int {\n    give back 0\n}\n"),
      "raw memory builtins in constant expressions are not yet supported"),
+    # Native records are LLVM structs at natural alignment; a packed layout
+    # (bible 16.3) is refused by name, directly or nested, until records
+    # honor it.
+    (native_raw_case("tier3_raw_size_of_packed", "", "pilot n = size_of<Packet>()", NATIVE_RAW_PACKED_PRELUDE),
+     "native size_of is not yet supported for packed layouts: Packet"),
+    (native_raw_case("tier3_raw_size_of_packed_field", "", "pilot n = size_of<Wrap>()", NATIVE_RAW_PACKED_PRELUDE + "shape Wrap { p: Packet }\n"),
+     "native size_of is not yet supported for packed layouts: Packet"),
+    (native_raw_case("tier3_raw_align_of_packed_slot", "", "pilot n = align_of<[(tiny, Packet); 2]>()", NATIVE_RAW_PACKED_PRELUDE),
+     "native align_of is not yet supported for packed layouts: Packet"),
+    (native_raw_case("tier3_raw_zeroed_packed", "pilot", "pilot z: Packet = zeroed<Packet>()", NATIVE_RAW_PACKED_PRELUDE),
+     "native zeroed is not yet supported for packed layouts: Packet"),
+    (native_raw_case("tier3_raw_alloc_packed", "pilot", "pilot p: *mut Packet = alloc(12)\nfree(p)", NATIVE_RAW_PACKED_PRELUDE),
+     "native raw allocation is not yet supported for packed layouts: Packet"),
 ))
 
 

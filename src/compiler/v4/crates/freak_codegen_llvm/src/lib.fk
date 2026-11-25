@@ -7016,6 +7016,37 @@ task v4_codegen_llvm_raw_layout_type(mir_id: int, type_text: word, depth: int) -
     give back true
 }
 
+-- The first @layout(..., packed=N) shape reachable through tuples, fixed
+-- arrays and shape fields of type_text, or "". Native records are LLVM
+-- structs at natural alignment, so a packed layout (bible 16.3) is not
+-- honored yet and layout queries refuse it by name.
+task v4_codegen_llvm_raw_packed_shape(mir_id: int, type_text: word, depth: int) -> word {
+    if depth > 32 { give back "" }
+    pilot ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text)
+    if v4_ty_is_tuple_type(ty) {
+        pilot slot = 0
+        repeat until slot >= v4_ty_tuple_slot_count(ty) {
+            pilot found = v4_codegen_llvm_raw_packed_shape(mir_id, v4_ty_tuple_slot_type(ty, slot), depth + 1)
+            if found != "" { give back found }
+            slot += 1
+        }
+        give back ""
+    }
+    if v4_ty_is_fixed_array_type(ty) { give back v4_codegen_llvm_raw_packed_shape(mir_id, v4_ty_fixed_array_element_type(ty), depth + 1) }
+    if v4_ty_is_raw_pointer_type(ty) { give back "" }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig = v4_mir_shape_signature(mir_id, ty)
+    if sig < 0 { give back "" }
+    if v4_ty_signature_layout_packed(ty_id, sig) != "" { give back ty }
+    pilot field = 0
+    repeat until field >= v4_ty_shape_field_count(ty_id, sig) {
+        pilot found = v4_codegen_llvm_raw_packed_shape(mir_id, v4_ty_shape_field_type(ty_id, sig, field), depth + 1)
+        if found != "" { give back found }
+        field += 1
+    }
+    give back ""
+}
+
 task v4_codegen_llvm_raw_mem_has_type_arg(op: word) -> bool {
     give back op == v4_mir_unary_raw_null or op == v4_mir_unary_size_of or op == v4_mir_unary_align_of or op == v4_mir_unary_zeroed
 }
@@ -7045,6 +7076,8 @@ task v4_codegen_llvm_native_raw_mem_error(mir_id: int, body_id: int, rvalue_id: 
     if op == v4_mir_unary_raw_alloc {
         if not v4_ty_is_mutable_raw_pointer_type(type_text) or (lhs_ty != v4_ty_int and lhs_ty != v4_ty_uint) { give back "invalid native raw allocation" }
         pilot pointee = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_raw_pointer_target_type(type_text))
+        pilot packed_pointee = v4_codegen_llvm_raw_packed_shape(mir_id, pointee, 0)
+        if packed_pointee != "" { give back "native raw allocation is not yet supported for packed layouts: " + packed_pointee }
         if pointee != v4_ty_void and not v4_codegen_llvm_raw_layout_type(mir_id, pointee, 0) { give back "native raw allocation is not yet supported for this pointee: " + type_text }
         give back ""
     }
@@ -7054,11 +7087,15 @@ task v4_codegen_llvm_native_raw_mem_error(mir_id: int, body_id: int, rvalue_id: 
     }
     if op == v4_mir_unary_ptr_read_unaligned {
         if not v4_ty_is_raw_pointer_type(lhs_ty) or v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_raw_pointer_target_type(lhs_ty)) != v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) { give back "invalid native unaligned read" }
+        pilot packed_read = v4_codegen_llvm_raw_packed_shape(mir_id, type_text, 0)
+        if packed_read != "" { give back "native unaligned reads are not yet supported for packed layouts: " + packed_read }
         if not v4_codegen_llvm_raw_layout_type(mir_id, type_text, 0) { give back "native unaligned reads are not yet supported for this pointee: " + lhs_ty }
         give back ""
     }
     if v4_mir_rvalue_kind(mir_id, body_id, lhs) != v4_mir_rvalue_unary or v4_mir_rvalue_op(mir_id, body_id, lhs) != v4_mir_unary_raw_null or not v4_ty_is_raw_pointer_type(lhs_ty) { give back "invalid native layout query operand" }
     pilot queried = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_raw_pointer_target_type(lhs_ty))
+    pilot packed = v4_codegen_llvm_raw_packed_shape(mir_id, queried, 0)
+    if packed != "" { give back "native " + v4_codegen_llvm_raw_mem_query_name(op) + " is not yet supported for packed layouts: " + packed }
     if not v4_codegen_llvm_raw_layout_type(mir_id, queried, 0) { give back "native " + v4_codegen_llvm_raw_mem_query_name(op) + " is not yet supported for this type: " + queried }
     if op == v4_mir_unary_zeroed {
         if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) != queried { give back "invalid native zeroed result" }

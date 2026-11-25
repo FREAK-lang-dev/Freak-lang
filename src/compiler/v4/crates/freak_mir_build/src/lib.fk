@@ -3833,6 +3833,21 @@ task v4_mir_raw_mem_intrinsic_name(name: word) -> bool {
 }
 
 -- The names that take one type argument before their parentheses.
+-- A SizeOf or AlignOf rvalue inside the unary/binary tree of rvalue_id.
+task v4_mir_rvalue_has_layout_query(mir_id: int, body_id: int, rvalue_id: int, depth: int) -> bool {
+    if rvalue_id < 0 or depth > 64 { give back false }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_unary {
+        pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+        if op == v4_mir_unary_size_of or op == v4_mir_unary_align_of { give back true }
+        give back v4_mir_rvalue_has_layout_query(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), depth + 1)
+    }
+    if kind == v4_mir_rvalue_binary {
+        give back v4_mir_rvalue_has_layout_query(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), depth + 1) or v4_mir_rvalue_has_layout_query(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id), depth + 1)
+    }
+    give back false
+}
+
 task v4_mir_unary_is_raw_mem(op: word) -> bool {
     give back op == v4_mir_unary_raw_alloc or op == v4_mir_unary_raw_free or op == v4_mir_unary_raw_null or op == v4_mir_unary_size_of or op == v4_mir_unary_align_of or op == v4_mir_unary_zeroed or op == v4_mir_unary_ptr_read_unaligned
 }
@@ -4799,7 +4814,7 @@ task v4_mir_fixed_array_count_from_rvalue(mir_id: int, body_id: int, count_rvalu
         }
         give back const_text
     }
-    if v4_ty_text_has_layout_query(v4_mir_rvalue_text(mir_id, body_id, count_rvalue)) {
+    if v4_mir_rvalue_has_layout_query(mir_id, body_id, count_rvalue, 0) {
         v4_mir_add_type_error(mir_id, expr_span, v4_ty_layout_query_const_message(), "array repeat count: " + v4_ty_layout_query_const_help(v4_mir_rvalue_text(mir_id, body_id, count_rvalue)))
         give back v4_ty_unknown
     }
