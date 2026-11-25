@@ -1,0 +1,150 @@
+-- std::tls: a client and a server in one process over loopback, both on
+-- non-blocking sessions so the two handshakes can take turns. The test CA
+-- and the localhost certificate (P-256) are valid until 2126.
+use std::tls::{tls_client_config, tls_server_config, tls_client, tls_server, tls_set_nonblocking, tls_handshake, tls_send, tls_receive, tls_pending, tls_close, tls_release, tls_config_release, tls_verified, tls_alpn, tls_version, tls_error, tls_last_error, tls_live_sessions, tls_peer_certificate, tls_server_end_point}
+use std::crypto::{crypto_sha256}
+
+task test_ca() -> word {
+    give back "-----BEGIN CERTIFICATE-----\nMIIBiDCCAS2gAwIBAgIUWGz5dumcxJ63K2rbnhDiY/mcQiowCgYIKoZIzj0EAwIw\nGDEWMBQGA1UEAwwNRlJFQUsgVGVzdCBDQTAgFw0yNjExMjUwMTAyMDRaGA8yMTI2\nMTEwMTAxMDIwNFowGDEWMBQGA1UEAwwNRlJFQUsgVGVzdCBDQTBZMBMGByqGSM49\nAgEGCCqGSM49AwEHA0IABOTyPlyjte1W9Sy7siwUt1vSL2buyusGIOuz3PmNsriF\nV5GLrjinB5CdDow5A2igAsJ857v2yNLBDuS/frY02rijUzBRMB0GA1UdDgQWBBRM\nqIsRlp1O3/KxwUAN8RzL3fk7rzAfBgNVHSMEGDAWgBRMqIsRlp1O3/KxwUAN8RzL\n3fk7rzAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0kAMEYCIQChf0xAxvFX\napvhRtTtkjlcGKFCxkGYATaemtlKNkuYLQIhAKu3hOTZ3QKwhqr77UsQD+A4fZW3\nXF3PS5enzTtyDqXJ\n-----END CERTIFICATE-----\n"
+}
+
+task test_cert() -> word {
+    give back "-----BEGIN CERTIFICATE-----\nMIIBvDCCAWOgAwIBAgIUGSB2Rnl8SfWeo9RqYV2oS90ukx4wCgYIKoZIzj0EAwIw\nGDEWMBQGA1UEAwwNRlJFQUsgVGVzdCBDQTAgFw0yNjExMjUwMTAyMDRaGA8yMTI2\nMTEwMTAxMDIwNFowFDESMBAGA1UEAwwJbG9jYWxob3N0MFkwEwYHKoZIzj0CAQYI\nKoZIzj0DAQcDQgAEjpHEcKVbswqxDerEQ9E+7r2uROqLF8HtQLlZCwY4qo7ZTrrG\nVl8lMCy/MG8dptWIZ9LLmAewC9Km3yj56FIxrKOBjDCBiTAaBgNVHREEEzARggls\nb2NhbGhvc3SHBH8AAAEwCQYDVR0TBAIwADALBgNVHQ8EBAMCB4AwEwYDVR0lBAww\nCgYIKwYBBQUHAwEwHQYDVR0OBBYEFNn/ZKUFYuqua/ALp/RQ8p24otraMB8GA1Ud\nIwQYMBaAFEyoixGWnU7f8rHBQA3xHMvd+TuvMAoGCCqGSM49BAMCA0cAMEQCIE4L\nrRpgFp8bQ3m4Y0PrpPujy6bBzAbh+yFDaH+gI+YXAiB0zvmXNQ9F4cAE7oYk/nRK\nu8TkE7pECGHN17WYecTGLw==\n-----END CERTIFICATE-----\n"
+}
+
+task test_key() -> word {
+    give back "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcOltWph1SWLopIl9\nHo19ouAHMW6CWp1V44vU4sYg98uhRANCAASOkcRwpVuzCrEN6sRD0T7uva5E6osX\nwe1AuVkLBjiqjtlOusZWXyUwLL8wbx2m1Yhn0suYB7AL0qbfKPnoUjGs\n-----END PRIVATE KEY-----\n"
+}
+
+task test_other_key() -> word {
+    give back "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgyRetm/O7B51WMCwF\nl2ttTHC5YT3aFhe8f4OOKNDMCuyhRANCAAQ92C7wfHKYVXVSE7k8auIttmujg/ed\nu4uQjUpurTsxwSne8Hl9Yk/l6HI/dKTtxjjZcs8C5rfrUPBfHSA16HOg\n-----END PRIVATE KEY-----\n"
+}
+
+-- Both handshakes, alternating, each socket waiting at most 20 ms per try.
+-- 0 when both finished, else the first failure code (client first).
+task both_handshakes(client: int, server: int) -> int {
+    pilot mut c = 1
+    pilot mut s = 1
+    pilot mut rounds = 0
+    repeat while (c != 0 or s != 0) and rounds < 500 {
+        if c != 0 {
+            c = tls_handshake(client)
+            if c < -2 { give back c }
+        }
+        if s != 0 {
+            s = tls_handshake(server)
+            if s < -2 { give back s * 10 }
+        }
+        rounds = rounds + 1
+    }
+    if c != 0 or s != 0 { give back -99 }
+    give back 0
+}
+
+-- Read until `want` bytes arrived or 500 tries passed.
+task read_some(session: int, out: ByteBuffer, want: int) -> int {
+    pilot mut tries = 0
+    repeat while out.length() < want and tries < 500 {
+        pilot n = tls_receive(session, out, 65536)
+        if n == 0 or n < -2 { give back n }
+        tries = tries + 1
+    }
+    give back out.length()
+}
+
+task run_case(host: word, verify: int, alpn: word) -> word {
+    pilot server_config = tls_server_config(test_cert(), test_key(), "h2,http/1.1")
+    pilot client_config = tls_client_config(alpn, verify, test_ca())
+    if server_config == 0 or client_config == 0 { give back "config failed: " + tls_last_error() }
+    pilot listener = tcp::socket_listen("127.0.0.1", 0, 8)
+    pilot port = tcp::socket_local_port(listener)
+    pilot client_tcp = tcp::socket_connect("127.0.0.1", port)
+    pilot server_tcp = tcp::socket_accept(listener)
+    tcp::socket_set_timeout(client_tcp, 20, 2000)
+    tcp::socket_set_timeout(server_tcp, 20, 2000)
+    pilot client = tls_client(client_config, client_tcp, host)
+    pilot server = tls_server(server_config, server_tcp)
+    tls_set_nonblocking(client, true)
+    tls_set_nonblocking(server, true)
+    pilot mut outcome = ""
+    pilot code = both_handshakes(client, server)
+    if code != 0 {
+        outcome = "handshake " + word_from_int(code)
+        if tls_error(client).contains("certificate verify failed") { outcome = outcome + " (verify failed)" }
+    } else {
+        outcome = tls_version(client) + " alpn=" + tls_alpn(client) + "/" + tls_alpn(server)
+        if tls_verified(client) { outcome = outcome + " verified" }
+        pilot mut cert = ByteBuffer::new()
+        tls_peer_certificate(client, cert)
+        if cert.length() > 100 { outcome = outcome + " peer-cert" }
+        -- tls-server-end-point of an ECDSA-SHA256 certificate is its SHA-256
+        pilot mut want = ByteBuffer::new()
+        pilot mut got_ep = ByteBuffer::new()
+        crypto_sha256(cert, want)
+        if tls_server_end_point(client, got_ep) and got_ep.length() == 32 {
+            pilot mut same = true
+            pilot mut j = 0
+            repeat while j < 32 {
+                if want.read_byte() != got_ep.read_byte() { same = false }
+                j = j + 1
+            }
+            if same { outcome = outcome + " end-point" }
+        }
+        want.release()
+        got_ep.release()
+        pilot mut none = ByteBuffer::new()
+        if not tls_peer_certificate(server, none) and none.length() == 0 { outcome = outcome + " no-client-cert" }
+        none.release()
+        cert.release()
+        -- 20 KiB each way: more than one 16 KiB record.
+        pilot mut ping = ByteBuffer::new()
+        pilot mut i = 0
+        repeat while i < 20480 {
+            ping.write_byte(i % 251)
+            i = i + 1
+        }
+        pilot mut sent = 0
+        repeat while sent < ping.length() {
+            pilot n = tls_send(client, ping, sent, ping.length() - sent)
+            if n > 0 { sent = sent + n }
+        }
+        pilot mut arrived = ByteBuffer::new()
+        read_some(server, arrived, ping.length())
+        pilot mut same = arrived.length() == ping.length()
+        pilot mut j = 0
+        repeat while same and j < arrived.length() {
+            if arrived.read_byte() != j % 251 { same = false }
+            j = j + 1
+        }
+        if same { outcome = outcome + " echo-ok" } else { outcome = outcome + " echo-BAD " + word_from_int(arrived.length()) }
+        if tls_pending(server) == 0 { outcome = outcome + " drained" }
+        tls_close(client)
+        pilot mut tail = ByteBuffer::new()
+        pilot closed = tls_receive(server, tail, 16)
+        if closed == 0 { outcome = outcome + " close-seen" }
+        ping.release()
+        arrived.release()
+        tail.release()
+    }
+    tls_release(client)
+    tls_release(server)
+    tcp::socket_close(client_tcp)
+    tcp::socket_close(server_tcp)
+    tcp::socket_close(listener)
+    tls_config_release(client_config)
+    tls_config_release(server_config)
+    give back outcome
+}
+
+task main() {
+    say "full: " + run_case("localhost", 2, "http/1.1")
+    say "ip: " + run_case("127.0.0.1", 2, "")
+    say "wrong host: " + run_case("evil.example", 2, "")
+    say "chain only: " + run_case("evil.example", 1, "")
+    say "no verify: " + run_case("evil.example", 0, "")
+    pilot bad = tls_server_config(test_cert(), test_other_key(), "")
+    say "mismatched key: " + word_from_int(bad) + " " + tls_last_error()
+    pilot garbage = tls_client_config("", 2, "not a certificate")
+    say "bad ca: " + word_from_int(garbage) + " " + tls_last_error().contains("could not read the CA certificates").to_word()
+    say "live sessions: " + word_from_int(tls_live_sessions())
+}

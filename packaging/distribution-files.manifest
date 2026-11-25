@@ -26,6 +26,7 @@ std/runtime.fk|std/runtime.fk
 std/path.fk|std/path.fk
 std/random.fk|std/random.fk
 std/crypto.fk|std/crypto.fk
+std/tls.fk|std/tls.fk
 std/ui/window.fk|std/ui/window.fk
 std/freak_abi|std/freak_abi
 std/freak_std_api|std/freak_std_api
@@ -75,4 +76,15 @@ freakc/runtime/freak_v4_unicode_runtime.h|runtime/freak_v4_unicode_runtime.h
 freakc/runtime/freak_v4_unicode_lower_tables.h|runtime/freak_v4_unicode_lower_tables.h
 freakc/runtime/freak_v4_system_runtime.h|runtime/freak_v4_system_runtime.h
 freakc/runtime/freak_v4_panic_runtime.h|runtime/freak_v4_panic_runtime.h
+freakc/runtime/freak_tls.c|runtime/freak_tls.c
+freakc/runtime/freak_tls_core.c|runtime/freak_tls_core.c
+freakc/runtime/freak_tls_extra.c|runtime/freak_tls_extra.c
+freakc/runtime/third_party/mbedtls/LICENSE|runtime/third_party/mbedtls/LICENSE
+freakc/runtime/third_party/mbedtls/README.freak.md|runtime/third_party/mbedtls/README.freak.md
+freakc/runtime/third_party/mbedtls/SHA256SUMS|runtime/third_party/mbedtls/SHA256SUMS
+freakc/runtime/third_party/mbedtls/UPSTREAM.json|runtime/third_party/mbedtls/UPSTREAM.json
+freakc/runtime/third_party/mbedtls/freak_mbedtls_config.h|runtime/third_party/mbedtls/freak_mbedtls_config.h
+freakc/runtime/third_party/mbedtls/mbedtls_core.inc|runtime/third_party/mbedtls/mbedtls_core.inc
+freakc/runtime/third_party/mbedtls/mbedtls_extra.inc|runtime/third_party/mbedtls/mbedtls_extra.inc
+freakc/runtime/third_party/mbedtls/mbedtls_keys.inc|runtime/third_party/mbedtls/mbedtls_keys.inc
 src/compiler/v4/native-runtime.manifest|runtime/v4-native.manifest

@@ -6403,6 +6403,63 @@ int64_t freak_os_random_fill(int64_t out, int64_t count) {
     memset(chunk, 0, sizeof(chunk));
     return output->status == FREAK_BYTE_BUFFER_OK ? 1 : 0;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Bridge for the optional TLS unit (freak_tls.c)                     */
+/* ------------------------------------------------------------------ */
+
+/* Filled in by freak_tls.c at start-up when a program links std::tls. */
+const freak_tls_c_api *freak_tls_api = NULL;
+
+/* The OS socket behind a live TCP stream handle. False, never a stop, for a
+   stale, closed, failed or listening handle: TLS turns that into an error. */
+bool freak_tls_bridge_socket(int64_t tcp_handle, uintptr_t *native_socket) {
+    int64_t slot = freak_tcp_socket_slot_for_handle(tcp_handle);
+    if (slot < 0) return false;
+    freak_tcp_socket_record *record = &freak_tcp_sockets[slot];
+    if (record->status != FREAK_TCP_SOCKET_OK ||
+            record->role != FREAK_TCP_SOCKET_ROLE_STREAM ||
+            record->native_socket == FREAK_INVALID_NATIVE_SOCKET) return false;
+    *native_socket = (uintptr_t)record->native_socket;
+    return true;
+}
+
+/* A read-only view of a ByteBuffer, or NULL when its status isn't 0. */
+const unsigned char *freak_tls_bridge_bytes(int64_t buffer, size_t *length) {
+    freak_byte_buffer_record *record = freak_byte_buffer_require(buffer, "tls");
+    if (record->status != FREAK_BYTE_BUFFER_OK) return NULL;
+    static const unsigned char empty[1] = {0};
+    *length = record->length;
+    return record->length ? record->data : empty;
+}
+
+bool freak_tls_bridge_append(int64_t buffer, const unsigned char *data, size_t length) {
+    freak_byte_buffer_record *record = freak_byte_buffer_require(buffer, "tls");
+    freak_byte_buffer_append_bytes(record, data, length);
+    return record->status == FREAK_BYTE_BUFFER_OK;
+}
+
+/* Room for `count` more bytes at the end of a buffer (NULL if it can't
+   grow); freak_tls_bridge_commit then keeps the bytes actually written. */
+unsigned char *freak_tls_bridge_reserve(int64_t buffer, size_t count) {
+    freak_byte_buffer_record *record = freak_byte_buffer_require(buffer, "tls");
+    if (record->status != FREAK_BYTE_BUFFER_OK) return NULL;
+    if (!freak_byte_buffer_ensure_append(record, count)) return NULL;
+    return record->data + record->length;
+}
+
+void freak_tls_bridge_commit(int64_t buffer, size_t count) {
+    freak_byte_buffer_record *record = freak_byte_buffer_require(buffer, "tls");
+    if (count > record->capacity - record->length) {
+        freak_byte_buffer_fail("TLS committed more bytes than it reserved");
+    }
+    record->length += count;
+    freak_word_foundation_audit_byte_buffer_copy(count);
+}
+
+void freak_tls_bridge_random(unsigned char *out, size_t length) {
+    freak_os_random_bytes(out, length);
+}
 #include "freak_v35_json.inc"
 #include "freak_v35_http.inc"
 

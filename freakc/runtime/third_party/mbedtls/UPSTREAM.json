@@ -1,0 +1,12 @@
+{
+  "name": "Mbed TLS",
+  "version": "3.6.8",
+  "branch": "LTS 3.6",
+  "repository": "https://github.com/Mbed-TLS/mbedtls",
+  "tag": "mbedtls-3.6.8",
+  "tag_commit": "82e69999f91126589a28b70dd75b69fbcabe2711",
+  "release_archive": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.8/mbedtls-3.6.8.tar.bz2",
+  "release_archive_sha256": "bc54b818e87f49c0b3281dd85d24adaede0e63b4e822e3fbd49c005a38b9595b",
+  "license": "Apache-2.0 OR GPL-2.0-or-later",
+  "generated_by": "tools/mbedtls_amalgamate.py"
+}
