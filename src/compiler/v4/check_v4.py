@@ -18446,6 +18446,39 @@ NATIVE_RAW_ALLOC_REJECTED = tuple(case + (reason,) for case, reason in (
     (native_raw_case("tier3_raw_calloc_symbol", "pilot", "pilot p: *mut tiny = alloc(8)\nfree(p)",
                      "extern [C] {\n    task calloc(n: std::ffi::c_size, size: std::ffi::c_size) -> *mut tiny\n}\n"),
      "native raw allocation runtime symbol conflict: @calloc"),
+    # A type argument keeps its spelled C width: V4 stores C widths as int,
+    # so a query would answer 8 for a 4-byte c_int.
+    (native_raw_case("tier3_raw_size_of_c_int", "", "pilot n = size_of<std::ffi::c_int>()", "use std::ffi::c_int\n"),
+     "native C scalar ABI not yet supported: std::ffi::c_int"),
+    (native_raw_case("tier3_raw_align_of_c_short", "", "pilot n = align_of<c_short>()", "use std::ffi::c_short\n"),
+     "native C scalar ABI not yet supported: c_short"),
+    (native_raw_case("tier3_raw_size_of_c_int_tuple", "", "pilot n = size_of<(std::ffi::c_int, tiny)>()", "use std::ffi::c_int\n"),
+     "native C scalar ABI not yet supported: std::ffi::c_int"),
+    (native_raw_case("tier3_raw_zeroed_c_int", "pilot", "pilot z: int = zeroed<c_int>()", "use std::ffi::c_int\n"),
+     "native C scalar ABI not yet supported: c_int"),
+    (native_raw_case("tier3_raw_null_c_int", "", "pilot p: *int = null<c_int>()", "use std::ffi::c_int\n"),
+     "native C scalar ABI not yet supported: c_int"),
+    # Array lengths in a type argument resolve to non-negative constants.
+    (native_raw_case("tier3_raw_size_of_negative_array", "", "pilot n = size_of<[tiny; -1]>()"),
+     "array length of size_of type argument must be non-negative"),
+    (native_raw_case("tier3_raw_align_of_unresolved_array", "", "pilot n = align_of<[tiny; missing]>()"),
+     "array length of align_of type argument must be compile-time constant"),
+    (native_raw_case("tier3_raw_zeroed_nested_negative_array", "pilot", "pilot z = zeroed<[[tiny; 2]; -3]>()"),
+     "array length of zeroed type argument must be non-negative"),
+    # Layout queries fold per target in codegen; TY constants are target
+    # independent, so constant contexts refuse them by name.
+    (native_raw_case("tier3_raw_layout_array_length", "", "pilot a: [tiny; size_of<int>()] = [0t; 8]"),
+     "layout queries in constant expressions are not yet supported"),
+    (native_raw_case("tier3_raw_layout_repeat_count", "", "pilot a = [0t; size_of<int>()]"),
+     "layout queries in constant expressions are not yet supported"),
+    (("tier3_raw_layout_root_constant", "fixed pilot N = size_of<int>()\ntask main() -> int {\n    give back N\n}\n"),
+     "layout queries in constant expressions are not yet supported"),
+    (("tier3_raw_layout_root_constant_expr", "fixed pilot N = 1 + align_of<int>()\ntask main() -> int {\n    give back 0\n}\n"),
+     "layout queries in constant expressions are not yet supported"),
+    (("tier3_raw_layout_shape_field_length", "shape S { a: [tiny; size_of<int>()] }\ntask main() -> int {\n    give back 0\n}\n"),
+     "layout queries in constant expressions are not yet supported"),
+    (("tier3_raw_null_root_constant", "fixed pilot P = null<int>()\ntask main() -> int {\n    give back 0\n}\n"),
+     "raw memory builtins in constant expressions are not yet supported"),
 ))
 
 

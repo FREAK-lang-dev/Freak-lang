@@ -1,0 +1,11 @@
+-- TY constants are target independent, so a root constant refuses a layout
+-- query by name.
+-- bible: 7.18
+-- expect: reject ty
+-- error: layout queries in constant expressions are not yet supported
+
+fixed pilot N = size_of<int>()
+
+task main() -> int {
+    give back 0
+}
