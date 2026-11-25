@@ -204,6 +204,62 @@ task backpressure() -> word {
     give back outcome
 }
 
+-- A blocking client with a short send timeout and a server that never
+-- reads: once a send times out, the session must refuse further sends
+-- instead of reporting bytes it can't deliver.
+task send_timeout() -> word {
+    pilot server_config = tls_server_config(test_cert(), test_key(), "")
+    pilot client_config = tls_client_config("", 2, test_ca())
+    pilot listener = tcp::socket_listen("127.0.0.1", 0, 8)
+    pilot client_tcp = tcp::socket_connect("127.0.0.1", tcp::socket_local_port(listener))
+    pilot server_tcp = tcp::socket_accept(listener)
+    pilot client = tls_client(client_config, client_tcp, "localhost")
+    pilot server = tls_server(server_config, server_tcp)
+    tls_set_nonblocking(client, true)
+    tls_set_nonblocking(server, true)
+    pilot mut outcome = ""
+    if both_handshakes(client, server) != 0 {
+        outcome = "handshake failed"
+    } else {
+        tls_set_nonblocking(client, false)
+        tcp::socket_set_timeout(client_tcp, 2000, 50)
+        pilot mut chunk = ByteBuffer::new()
+        pilot mut i = 0
+        repeat while i < 16384 {
+            chunk.write_byte(i % 5)
+            i = i + 1
+        }
+        pilot mut sent = 0
+        pilot mut last = 0
+        repeat while last >= 0 and sent < 268435456 {
+            last = tls_send(client, chunk, 0, 16384)
+            if last > 0 { sent = sent + last }
+        }
+        outcome = "first " + word_from_int(last)
+        -- Let the server drain the socket so a retry could go through.
+        pilot mut drained = 0
+        pilot mut idle = 0
+        repeat while idle < 200 {
+            pilot mut part = ByteBuffer::new()
+            pilot n = tls_receive(server, part, 65536)
+            part.release()
+            if n > 0 { drained = drained + n } else { idle = idle + 1 }
+        }
+        if drained > 0 { outcome = outcome + " drained" }
+        pilot again = tls_send(client, chunk, 0, 2)
+        if again < 0 { outcome = outcome + " then refused" } else { outcome = outcome + " then accepted " + word_from_int(again) }
+        chunk.release()
+    }
+    tls_release(client)
+    tls_release(server)
+    tcp::socket_close(client_tcp)
+    tcp::socket_close(server_tcp)
+    tcp::socket_close(listener)
+    tls_config_release(client_config)
+    tls_config_release(server_config)
+    give back outcome
+}
+
 task main() {
     say "full: " + run_case("localhost", 2, "http/1.1")
     say "ip: " + run_case("127.0.0.1", 2, "")
@@ -211,6 +267,7 @@ task main() {
     say "chain only: " + run_case("evil.example", 1, "")
     say "no verify: " + run_case("evil.example", 0, "")
     say "backpressure: " + backpressure()
+    say "send timeout: " + send_timeout()
     pilot bad = tls_server_config(test_cert(), test_other_key(), "")
     say "mismatched key: " + word_from_int(bad) + " " + tls_last_error()
     pilot garbage = tls_client_config("", 2, "not a certificate")

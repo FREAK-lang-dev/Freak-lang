@@ -107,6 +107,8 @@ task tls_handshake(session: int) -> int { give back freak_tls_handshake(session)
 
 -- Bytes accepted (encrypted and queued) from data[offset, offset + count),
 -- or a TLS_* code. After TLS_WANT_WRITE, call tls_flush when writable.
+-- A send that times out (socket send timeout) ends the session: later
+-- calls give back TLS_FAILED.
 task tls_send(session: int, data: ByteBuffer, offset: int, count: int) -> int {
     give back freak_tls_send(session, data, offset, count)
 }
