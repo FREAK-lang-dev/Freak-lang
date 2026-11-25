@@ -53,6 +53,33 @@ int64_t freak_ui_measure_text_word(freak_word text,int64_t size,int64_t bold,int
 
 
 INPUT_STDOUT = ['PASS caret editing', 'PASS focus keys', 'PASS shortcuts']
+FLIGHT_STDOUT = ['frame 0: callsign= launches=0 armed=off commands=21',
+                 'frame 1: callsign=Eagle launches=0 armed=off commands=22',
+                 'frame 2: callsign=Eagle launches=1 armed=off commands=21',
+                 'frame 3: callsign=Eagle launches=1 armed=on commands=21',
+                 'frame 4: callsign=Eagle launches=1 armed=on commands=21',
+                 'frame 5: callsign=Eagle launches=1 armed=on commands=21',
+                 'clear #16161e',
+                 'clip 12 12 98 30',
+                 'text 12 16 20 bold #e6e6f0 "Launch control"',
+                 'unclip',
+                 'clip 12 50 200 32',
+                 'fill 12 50 200 32 #262636',
+                 'stroke 12 50 200 32 #3a3a4e 1',
+                 'text 20 58 14 #8080a0 "callsign"',
+                 'unclip',
+                 'clip 12 90 66 32',
+                 'fill 12 90 66 32 #262636',
+                 'stroke 12 90 66 32 #3a3a4e 1',
+                 'text 24 98 14 bold #e6e6f0 "Launch"',
+                 'unclip',
+                 'clip 12 130 85 24',
+                 'circle 22 142 10 #3a3a4e',
+                 'circle 42 142 10 #3a3a4e',
+                 'fill 22 132 20 20 #3a3a4e',
+                 'circle 22 142 7 #e6e6f0',
+                 'text 62 135 14 #e6e6f0 "Armed"',
+                 'unclip']
 WIDGETS_STDOUT = ['PASS layout', 'PASS motion', 'PASS controls', 'PASS toasts', 'PASS themes']
 
 
@@ -123,7 +150,9 @@ def main() -> None:
              ('declared-pure-test', copied, copied / 'tests/pure.fk', [], False),
              ('shared-private-state-replay', copied, copied / 'tests/replay.fk', legacy.REPLAY_STDOUT, True),
              ('keyboard-editing-replay', copied, copied / 'tests/replay_input.fk', INPUT_STDOUT, True),
-             ('widgets-motion-toast-replay', copied, copied / 'tests/replay_widgets.fk', WIDGETS_STDOUT, True)]
+             ('widgets-motion-toast-replay', copied, copied / 'tests/replay_widgets.fk', WIDGETS_STDOUT, True),
+             # The flight sim links with no UI platform at all.
+             ('flight-sim-no-platform', copied, copied / 'tests/flight.fk', FLIGHT_STDOUT, False)]
     for case, graph_root, source, expected, use_mock in cases:
         for backend in ('c', 'llvm'):
             generated = work / f'{case}.{"c" if backend == "c" else "ll"}'

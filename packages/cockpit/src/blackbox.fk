@@ -35,6 +35,11 @@ pilot cockpit_bb_calibrated = 0
 pilot cockpit_bb_wanted = 0
 pilot cockpit_bb_wanted_count = 0
 pilot cockpit_bb_frames = 0
+pilot cockpit_bb_clip_set = false
+pilot cockpit_bb_clip_x = 0
+pilot cockpit_bb_clip_y = 0
+pilot cockpit_bb_clip_w = 0
+pilot cockpit_bb_clip_h = 0
 
 task cockpit_bb_ready() -> void {
     if cockpit_bb_ops == 0 { cockpit_bb_ops = array_new() }
@@ -54,6 +59,7 @@ task cockpit_blackbox_begin(width: int, height: int) -> void {
     cockpit_bb_width = width
     cockpit_bb_height = height
     cockpit_bb_frames += 1
+    cockpit_bb_clip_set = false
 }
 
 task cockpit_blackbox_release() -> void {
@@ -136,6 +142,18 @@ task cockpit_bb_draw_text(text: word, x: int, y: int, color: int, font_size: int
 }
 
 task cockpit_bb_set_clip(x: int, y: int, width: int, height: int) -> void {
+    -- unclip then the same clip again is a no-op pair: drop the unclip.
+    if cockpit_bb_count > 0 and cockpit_bb_clip_set {
+        if cockpit_blackbox_field(cockpit_bb_count - 1, 0) == cockpit_bb_unclip and x == cockpit_bb_clip_x and y == cockpit_bb_clip_y and width == cockpit_bb_clip_w and height == cockpit_bb_clip_h {
+            cockpit_bb_count -= 1
+            give back
+        }
+    }
+    cockpit_bb_clip_set = true
+    cockpit_bb_clip_x = x
+    cockpit_bb_clip_y = y
+    cockpit_bb_clip_w = width
+    cockpit_bb_clip_h = height
     cockpit_bb_record(cockpit_bb_clip, x, y, width, height, 0, 0, 0)
 }
 

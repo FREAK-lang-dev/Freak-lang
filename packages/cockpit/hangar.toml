@@ -28,6 +28,7 @@ example_mission_control = "examples/mission_control.fk"
 replay_fixture = "tests/replay.fk"
 replay_input_fixture = "tests/replay_input.fk"
 replay_widgets_fixture = "tests/replay_widgets.fk"
+flight_fixture = "tests/flight.fk"
 
 [exports]
 cockpit_align_center = "layout::cockpit_align_center"

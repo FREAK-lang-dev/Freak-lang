@@ -21,11 +21,14 @@ SOURCE_ORDER = (
     "containers.fk",
     "layout.fk",
     "theme.fk",
+    "blackbox.fk",
     "state.fk",
     "widgets.fk",
     "motion.fk",
     "controls.fk",
     "toast.fk",
+    "frame.fk",
+    "flight.fk",
     "ui.fk",
 )
 
