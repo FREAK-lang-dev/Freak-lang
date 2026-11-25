@@ -1,0 +1,19 @@
+-- A closure nested in a closure of a generic instance: the move closure owns
+-- x, the inner closure takes a T parameter.
+-- bible: 1.8
+-- expect: run
+-- stdout: 9
+-- stdout: 2.5
+
+task nested<T>(x: T) -> T {
+    pilot outer = move |_| {
+        pilot inner = |w: T| => w
+        give back inner(x)
+    }
+    give back outer()
+}
+task main() -> int {
+    say nested(9)
+    say nested(2.5)
+    give back 0
+}

@@ -1,0 +1,15 @@
+-- A OneShot in a generic task is consumed by its first call.
+-- bible: 1.8
+-- expect: reject borrowck
+-- error: once was moved
+
+task twice<T>(a: T) -> int {
+    pilot once = move |_| => a
+    pilot first = once()
+    pilot second = once()
+    give back 0
+}
+task main() -> int {
+    say twice(3)
+    give back 0
+}

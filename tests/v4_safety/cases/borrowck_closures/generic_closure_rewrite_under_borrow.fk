@@ -1,0 +1,16 @@
+-- A borrow capture inside a generic task keeps its loan live until the
+-- closure's last call; rewriting the owner first is refused.
+-- bible: 1.8
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+
+task peek<T>(x: T) -> int {
+    pilot mut k: int = 5
+    pilot f = |v: T| => k
+    k = 6
+    give back f(x)
+}
+task main() -> int {
+    say peek(true)
+    give back 0
+}

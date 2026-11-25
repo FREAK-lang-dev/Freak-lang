@@ -1,0 +1,18 @@
+-- A mut closure in a generic instance writes a T-typed local through its
+-- capture; the owner sees the write after the call.
+-- bible: 1.8
+-- expect: run
+-- stdout: 2
+-- stdout: true
+
+task store<T>(x: T, y: T) -> T {
+    pilot mut slot: T = x
+    pilot set = mut |v: T| { slot = v }
+    set(y)
+    give back slot
+}
+task main() -> int {
+    say store(1, 2)
+    say store(false, true)
+    give back 0
+}
