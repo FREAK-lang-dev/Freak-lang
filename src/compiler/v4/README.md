@@ -603,14 +603,26 @@ Closure rvalue carries the sealed type.
   shadow outer names in the outer closure's capture scan. A closure may
   capture a closure by borrow, copy (Callable is Copy), `mut` or `move`;
   Meiya refuses a MutCallable call through an immutable lend and keeps a
-  captured closure's loans live through its holder. Closures in generic tasks
-  are named until monomorphized task bodies exist.
+  captured closure's loans live through its holder.
+- **Generic closures.** A closure in a generic task is lowered once per
+  instance, inside that instance's body: TY's closure type gets the
+  instance's substitution, and the body is lowered under it, so every
+  parameter, capture, local and result is concrete. The symbol names the
+  instance (`freak.closure.apply<int>.541`; nested ones extend it). The
+  template's closures are never emitted (codegen keeps `native generic
+  closures need a monomorphized task body` for a template body), and a
+  generic task nobody calls emits no closure. Meiya checks the template for
+  every type argument and each instance with its concrete types, so a
+  borrowed `T` capture cannot be given back by value, and an instance whose
+  `T` is `word` meets the word fences above.
 - **Effect summaries.** A `mut` closure writing loan-bearing captured storage
   is checked against its lowered body (`v4_mir_closure_capture_installs_loan`):
   a write that can install a loan (a loan-bearing place rooted at the capture,
   `lend mut` of one, a nested `mut` capture) is refused; a write to a
-  lend-free leaf is allowed. Mutating receiver calls on such captures stay
-  refused.
+  lend-free leaf is allowed, and runs natively now that aggregates hold
+  loans (see "Aggregate lend slots"). Mutating receiver calls on such
+  captures stay refused, and no summary yet transfers an installed loan to
+  the caller's borrow state.
 - **Also named:** parameters without declared types, closures whose parameters keep a C ABI (C aliases,
   task function types; no body is lowered), value captures of other owned
   carriers such as scalar sums, closure bodies that use scalar sums or system
@@ -622,12 +634,36 @@ Closure rvalue carries the sealed type.
   without an ordinary signature and reports the call's arity instead.
 
 Programs: `examples/closures_native.fk` (exact output, 23 closure bodies,
-`valgrind` clean) and `examples/closures_nested_native.fk` (exact output, 28
-closure bodies, 7 nested, word parameters and results, `valgrind` clean).
-`check_v4_native_closures` and `check_v4_native_closures_nested` (run by
-`check_v4_native_shapes`) build and run them, check every environment layout
-and the aggregate ABI notes on four targets, check each nested environment
-sits in its outer closure's frame, and check 18 and 9 rejected cases.
+`valgrind` clean), `examples/closures_nested_native.fk` (exact output, 28
+closure bodies, 7 nested, word parameters and results, `valgrind` clean) and
+`examples/closures_generic_native.fk` (exact output, 22 closure bodies over
+17 instances, `valgrind` clean). `check_v4_native_closures`,
+`check_v4_native_closures_nested` and `check_v4_native_closures_generic` (run
+by `check_v4_native_shapes`) build and run them, check every environment
+layout and the aggregate ABI notes on four targets, check each nested
+environment sits in its outer closure's frame, check that each generic
+closure is named by a defined instance and that no template closure is
+emitted, and check 18, 7 and 7 rejected cases.
+
+### Aggregate lend slots
+
+A loan stored in a tuple, shape field, route payload or generic instance
+slot (`(lend mut ship, 0)`, `Slot { r: lend mut ship }`, `Box<lend mut
+Ship>`) over a scalar or a fixed layout (shape, tuple, fixed array, route) is
+a `ptr` in the aggregate's LLVM type and layout note, like a lend local. It
+is read and written through, passed and destructured with its aggregate,
+and never dropped: the aggregate does not own the loan's storage, even when
+that storage owns words. Meiya proves each loan. A loan enters an aggregate
+only where the aggregate is declared, so its source is visible there and
+outlives the aggregate. Storing a loan into existing aggregate storage
+(`holder.0 = lend mut b`, `outer = inner`, a route reassigned) is refused by
+name (`native writes that store a loan into existing aggregate storage are
+not yet supported`), because Meiya does not yet end a loan with its source's
+block. Word, list, map and dyn loans in slots, and lists and maps whose
+elements hold loans, stay named. Program: `examples/lend_slots_native.fk`
+(exact output, `valgrind` clean, also audited by
+`tests/v4_owned_word_codegen.py`), run by `check_v4_native_shapes` with 12
+`NATIVE_LEND_SLOTS_REJECTED` cases.
 
 ### Generic instances (monomorphization)
 
@@ -672,8 +708,9 @@ once, and repeat requests find it by def. Caps, all named: instance depth 24
 of type arguments (`native generic instance types grow too large`, which
 stops doubling polymorphic recursion). Also named: a call whose type
 arguments cannot all be inferred from its arguments, generic task values,
-generic C callbacks (TY's FFI check), closures inside generic bodies (the
-closures lane), and `maybe`/`result` with generic aggregate payloads.
+generic C callbacks (TY's FFI check), and `maybe`/`result` with generic
+aggregate payloads. Closures inside generic tasks are lowered per instance
+(see "Native closures").
 
 Program: `examples/generics_native.fk` (exact output and exit 22, `valgrind`
 clean), run by `check_v4_native_shapes`, which also checks that every
@@ -1373,9 +1410,8 @@ installed loan at invocation, and allows writes to lend-free leaves. Closure par
 `.`/`::` member positions. Capture
 mode is visible through semantic, hover, definition, completion, LSP, MIR and
 borrowck snapshots, and deterministic all-family invalidation/diff reports.
-Nested closures are lowered (see "Native closures"); generic closure
-inference, borrowed-return closure contracts and `Send`/`Sync` remain later
-slices. Native closure environments are described
+Nested and generic closures are lowered (see "Native closures");
+borrowed-return closure contracts and `Send`/`Sync` remain later slices. Native closure environments are described
 under "Native closures" above.
 The Borrow Checker gate has now started with `lend` / `lend mut` parameter
 contracts and explicit `lend value` / `lend mut value` expressions carried
