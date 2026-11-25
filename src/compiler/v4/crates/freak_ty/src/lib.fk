@@ -12173,7 +12173,7 @@ task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void 
             if param_surface == "word" and v4_ty_signature_param_mode(ty_id, sig_id, param_id) == v4_ty_param_mode_lend_mut {
                 v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", param_context + " is lend mut word; C must not write the bytes a FREAK word owns. Pass lend word for read-only bytes, or a *mut tiny buffer.")
             } else if param_surface == "word" {
-                v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", param_context + " passes a word by value; a word is a FREAK string, not a C char*. Declare it as a lend word parameter to lend C its bytes as (const char*, size_t), or use *const tiny.")
+                v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", param_context + " uses word; that is a FREAK string fat pointer, not a C char*. Declare it as a lend word parameter to lend C its bytes as (const char*, size_t), or use *const tiny.")
             } else if v4_ty_validate_callback_surface_contract(ty_id, param_surface, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), param_context, "") == false and v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, "") == false {
                 v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, param_surface, param_context))
             }
