@@ -1,0 +1,15 @@
+-- copy_nonoverlapping requires .ace or higher.
+-- bible: 7.18
+-- expect: reject mir
+-- error: copy_nonoverlapping requires .ace or higher; current honor is .pilot
+
+use std::mem::{alloc, free, copy_nonoverlapping}
+
+task main() -> int {
+    trust me "raw memory" on my honor as .pilot {
+        pilot p: *mut int = alloc(16)
+        copy_nonoverlapping<int>(p, p, 1)
+        free(p)
+    }
+    give back 0
+}

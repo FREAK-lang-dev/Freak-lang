@@ -1,0 +1,11 @@
+-- direct_order inline assembly is a trust me operation.
+-- bible: 16.4
+-- expect: reject mir
+-- error: direct_order needs trust me block
+
+task main() -> int {
+    direct_order [x86_64] {
+        nop
+    }
+    give back 0
+}

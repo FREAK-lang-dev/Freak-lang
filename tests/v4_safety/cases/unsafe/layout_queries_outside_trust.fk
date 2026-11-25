@@ -1,0 +1,13 @@
+-- size_of, align_of and null need no trust me.
+-- bible: 16.4
+-- expect: check
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+shape Cell { hp: int, armor: tiny }
+
+task main() -> int {
+    pilot p: *int = null<int>()
+    if p.is_null() { give back size_of<Cell>() + align_of<(int, tiny)>() }
+    give back 0
+}

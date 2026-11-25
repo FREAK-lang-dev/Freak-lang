@@ -1,0 +1,105 @@
+-- Native raw allocation and the honor-rank operation matrix (tier 3 row
+-- "Raw allocation and free"). alloc(bytes) gives back zeroed memory for the
+-- *mut T its binding names (alloc(0) is a unique pointer that still needs
+-- free); free(p) releases it. size_of<T>(), align_of<T>() and null<T>() are
+-- safe anywhere; reads need .cadet, writes, alloc, free and zeroed<T>()
+-- .pilot, and offset, cast and read_unaligned .ace. check_v4_native_shapes
+-- pins the output and runs it under valgrind; any argument asks for a
+-- negative size, which panics (exit 101).
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+shape Cell { hp: int, armor: tiny }
+
+-- Allocation in one task, release in another: the pointer is a plain value.
+task squares(n: int) -> *mut int {
+    pilot p: *mut int = null<int>()
+    trust me "a buffer of n ints" on my honor as .ace {
+        p = alloc(size_of<int>() * n)
+        pilot i = 0
+        repeat until i >= n {
+            p.offset(i).write(i * i)
+            i += 1
+        }
+    }
+    give back p
+}
+
+task total(p: *mut int, n: int) -> int {
+    pilot sum = 0
+    trust me "sum the buffer" on my honor as .ace {
+        pilot i = 0
+        repeat until i >= n {
+            sum += p.offset(i).read()
+            i += 1
+        }
+    }
+    give back sum
+}
+
+task release(p: *mut int) -> void {
+    trust me "hand the buffer back" on my honor as .pilot {
+        free(p)
+    }
+}
+
+task main() -> int {
+    -- Layout queries need no trust me; LLVM folds them per target.
+    say size_of<int>()
+    say align_of<tiny>()
+    say size_of<(int, tiny)>()
+    say align_of<(int, tiny)>()
+    say size_of<[tiny; 3]>()
+    say size_of<Cell>()
+    say size_of<*mut Cell>()
+    pilot none: *int = null<int>()
+    say none.is_null()
+
+    pilot n = 10
+    pilot buffer = squares(n)
+    say buffer.is_null()
+    say total(buffer, n)
+    release(buffer)
+
+    trust me "the whole matrix" on my honor as .ace {
+        -- Fresh memory is zeroed.
+        pilot fresh: *mut int = alloc(size_of<int>() * 4)
+        pilot second: int = fresh.offset(3).read()
+        say second
+        *fresh = 7
+        pilot first: int = *fresh
+        say first
+        say fresh.read_unaligned()
+        -- A byte view of the same memory.
+        pilot bytes: *mut tiny = fresh.cast<tiny>()
+        bytes.offset(8).write(5t)
+        pilot back: int = bytes.offset(8).read()
+        say back
+        pilot word_one: int = fresh.offset(1).read()
+        say word_one != 0
+        free(fresh)
+
+        pilot cell: *mut Cell = alloc(size_of<Cell>())
+        cell.write(Cell { hp: 40, armor: 2t })
+        pilot got: Cell = cell.read()
+        say got.hp + got.armor
+        free(cell)
+
+        pilot blank: (int, bool) = zeroed<(int, bool)>()
+        say blank.0
+        say blank.1
+        pilot empty: *mut tiny = alloc(0)
+        say empty.is_null()
+        free(empty)
+    }
+
+    -- A negative size panics (exit 101) when the program gets an argument.
+    pilot ask = 16
+    if process::args_count() > 1 { ask = 0 - 16 }
+    trust me "a checked size" on my honor as .pilot {
+        pilot probe: *mut tiny = alloc(ask)
+        free(probe)
+    }
+    say "done"
+    give back 0
+}
