@@ -3082,7 +3082,7 @@ task v4_codegen_llvm_native_type_error_depth(type_text: word, allow_void: bool, 
     if v4_codegen_llvm_active_owned_mir >= 0 and v4_ty_is_lend_type(type_text) and v4_ty_lend_mode(type_text) == v4_ty_param_mode_lend and v4_ty_lend_target_type(type_text) == v4_ty_word { give back "" }
     -- Where a dyn loan may appear is checked by native_dyn_error.
     if v4_codegen_llvm_active_owned_mir >= 0 and v4_codegen_llvm_is_dyn_ref(type_text) {
-        if depth == 0 { give back "" }
+        if depth == 0 or v4_ty_is_dyn_type(type_text) { give back "" }
         give back "native dyn values inside other types are not yet supported: " + type_text
     }
     -- An aggregate or scalar loan is a pointer to its storage; callback and
@@ -3216,6 +3216,8 @@ task v4_codegen_llvm_word_leaf_count(mir_id: int, type_text: word, depth: int) -
     if v4_codegen_llvm_is_list(mir_id, type_text) or v4_codegen_llvm_is_map(mir_id, type_text) { give back 1 }
     -- A Shared, Weak or SharedMut handle owns one reference to its box.
     if v4_codegen_llvm_is_shared_handle(mir_id, type_text) { give back 1 }
+    -- An owned dyn value owns one erased box (v4_codegen_llvm_is_owned_dyn).
+    if v4_codegen_llvm_is_owned_dyn(mir_id, type_text) { give back 1 }
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
     if kind == "" { give back v4_codegen_llvm_route_word_leaf_count(mir_id, type_text, depth) }
     if kind == "array" {
@@ -3301,6 +3303,7 @@ task v4_codegen_llvm_drop_glue_at(mir_id: int, type_text: word, address: word, c
     if v4_codegen_llvm_is_list(mir_id, type_text) { give back v4_codegen_llvm_list_drop_lines(mir_id, type_text, address, "", cond, temp) }
     if v4_codegen_llvm_is_map(mir_id, type_text) { give back v4_codegen_llvm_map_drop_lines(mir_id, type_text, address, "", cond, temp) }
     if v4_codegen_llvm_is_shared_handle(mir_id, type_text) { give back v4_codegen_llvm_shared_drop_lines(mir_id, type_text, address, cond, temp) }
+    if v4_codegen_llvm_is_owned_dyn(mir_id, type_text) { give back v4_codegen_llvm_dyn_drop_lines(address, cond, temp) }
     -- A carrier (a list element) releases its word field in place.
     pilot sum_field = v4_codegen_llvm_sum_owned_word_field(mir_id, type_text)
     if sum_field != "" {
@@ -5087,6 +5090,7 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
     }
     if kind == v4_mir_rvalue_unary {
         if op == v4_mir_unary_project or op == v4_mir_unary_project_index { give back v4_codegen_llvm_native_projection_error(mir_id, body_id, rvalue_id) }
+        if op == v4_mir_unary_dyn_box and v4_codegen_llvm_active_owned_mir == mir_id { give back "" }
         if op != v4_mir_unary_neg and op != v4_mir_unary_not and op != v4_mir_unary_ptr_is_null and op != v4_mir_unary_deref and op != v4_mir_unary_ptr_offset and op != v4_mir_unary_ptr_cast and op != v4_mir_unary_num_convert and not v4_codegen_llvm_is_raw_mem_op(op) { give back "unsupported native unary operator: " + op }
         if op == v4_mir_unary_num_convert and (not v4_ty_is_float(v4_mir_rvalue_ty(mir_id, body_id, lhs)) or v4_codegen_llvm_numeric_kind(type_text) == "" or v4_codegen_llvm_numeric_kind(type_text) == "num") { give back "invalid native numeric conversion operand" }
         if op == v4_mir_unary_neg {
@@ -5480,7 +5484,8 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
         if owned_words { v4_codegen_llvm_map_get_types = v4_codegen_llvm_mir_map_types(mir_id, true) }
         pilot maps_used: bool = v4_codegen_llvm_map_types != "\n"
         -- A map's entry buffer grows through the list helpers.
-        v4_codegen_llvm_list_used = owned_words and (v4_codegen_llvm_mir_uses_lists(mir_id) or maps_used)
+        -- An owned dyn box comes from the same libc allocator.
+        v4_codegen_llvm_list_used = owned_words and (v4_codegen_llvm_mir_uses_lists(mir_id) or maps_used or v4_codegen_llvm_mir_uses_owned_dyn(mir_id))
         v4_codegen_llvm_shared_used = owned_words and v4_codegen_llvm_mir_uses_shared(mir_id)
         if native_error == "" and v4_codegen_llvm_shared_used { native_error = v4_codegen_llvm_shared_symbol_error(codegen_id) }
         -- Shared drop helpers are generated first: a list payload's drop
@@ -5869,9 +5874,11 @@ task v4_codegen_llvm_owned_temporary_drop(mir: int, body: int, value: int, site:
     if v4_codegen_llvm_is_map(mir, value_ty) { give back v4_codegen_llvm_map_drop_lines(mir, value_ty, "", v4_codegen_llvm_rvalue_value(mir, body, value), "", "%map.discard." + site) }
     if v4_codegen_llvm_is_shared_handle(mir, value_ty) { give back v4_codegen_llvm_shared_handle_drop_call(mir, value_ty, v4_codegen_llvm_rvalue_value(mir, body, value)) }
     if v4_codegen_llvm_sum_handle_field(mir, value_ty) != "" { give back v4_codegen_llvm_sum_handle_drop_lines(mir, value_ty, v4_codegen_llvm_rvalue_value(mir, body, value), "%sum.discard." + site) }
+    if v4_codegen_llvm_is_owned_dyn(mir, value_ty) { give back v4_codegen_llvm_dyn_value_drop_lines(v4_codegen_llvm_rvalue_value(mir, body, value), "", "%dyn.discard." + site) }
     if v4_ty_canonical_type(v4_mir_ty_id(mir), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir, value_ty) {
-        -- A route's payload is read in memory: the call's result slot.
-        if v4_codegen_llvm_type_has_route_words(mir, value_ty, 0) { give back v4_codegen_llvm_drop_glue_at(mir, value_ty, v4_codegen_llvm_abi_ret_slot(body, value), "", "%agg.discard." + site, 0) }
+        -- A route's payload, or an erased box an aggregate holds, is
+        -- released in memory: the call's result slot.
+        if v4_codegen_llvm_type_has_route_words(mir, value_ty, 0) or v4_codegen_llvm_type_holds_dyn(mir, value_ty, 0) { give back v4_codegen_llvm_drop_glue_at(mir, value_ty, v4_codegen_llvm_abi_ret_slot(body, value), "", "%agg.discard." + site, 0) }
         give back v4_codegen_llvm_aggregate_word_drop_lines(mir, value_ty, v4_codegen_llvm_rvalue_value(mir, body, value), "%agg.discard." + site)
     }
     pilot carrier = v4_mir_scalar_sum_kind(mir, v4_mir_rvalue_ty(mir, body, value))
@@ -6003,6 +6010,7 @@ task v4_codegen_llvm_word_rvalue_is_owned(mir_id: int, body_id: int, rvalue_id: 
     if v4_codegen_llvm_active_owned_mir == mir_id and v4_ty_canonical_type(v4_mir_ty_id(mir_id), value_ty) != v4_ty_word and v4_codegen_llvm_type_owns_words(mir_id, value_ty) {
         pilot aggregate_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
         if aggregate_kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
+        if aggregate_kind == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_dyn_box { give back true }
         give back aggregate_kind == v4_mir_rvalue_call or v4_codegen_llvm_is_literal_aggregate(aggregate_kind) or aggregate_kind == v4_mir_rvalue_list or aggregate_kind == v4_mir_rvalue_map
     }
     if not v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), value_ty) { give back false }
@@ -8602,6 +8610,204 @@ task v4_codegen_llvm_dyn_drop_symbol(concrete: word) -> word {
     give back v4_codegen_llvm_symbol("freak.dyn.drop." + concrete)
 }
 
+
+-- Owned dyn values (tier 3, owned dyn row). An owned `dyn D` is the same
+-- fat pointer as a loan, `{ ptr data, ptr vtable }`, whose data points at a
+-- heap box this value owns: a DynBox erasure (MIR's explicit owned
+-- erasure) allocates the box with the concrete value's size and moves the
+-- value in. Its drop calls the vtable's drop entry on the box, then frees
+-- the box; a moved-out slot holds a null data pointer, which the release
+-- skips. Owned dyn values live in locals and by-value parameters, return
+-- from tasks, sit in shape, tuple and fixed array slots, route payloads,
+-- generic instances (`Box<dyn D>` for a user `shape Box<T>`) and list
+-- elements, and lend onward as the pair itself. A by-value `self` method
+-- reaches its vtable slot through a private shim that moves the value out
+-- of the box, frees the box and calls the impl. Meiya's drop plan owns
+-- every move and drop; codegen only owns the drop glue.
+task v4_codegen_llvm_is_owned_dyn(mir_id: int, type_text: word) -> bool {
+    if mir_id < 0 or v4_codegen_llvm_active_owned_mir != mir_id or type_text == "" or type_text == v4_ty_unknown { give back false }
+    give back v4_ty_is_dyn_type(type_text)
+}
+
+-- Whether a value of this type owns an erased box at any depth: an owned
+-- dyn, or a shape, tuple, array, route or list that holds one. Any other
+-- surface is answered from its type text.
+task v4_codegen_llvm_type_holds_dyn(mir_id: int, type_text: word, depth: int) -> bool {
+    if depth > 32 or type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lend_type(type_text) { give back false }
+    if v4_codegen_llvm_is_owned_dyn(mir_id, type_text) { give back true }
+    if v4_codegen_llvm_is_list(mir_id, type_text) { give back v4_codegen_llvm_type_holds_dyn(mir_id, v4_codegen_llvm_list_element(mir_id, type_text), depth + 1) }
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
+    if kind == "array" { give back v4_codegen_llvm_type_holds_dyn(mir_id, v4_ty_fixed_array_element_type(type_text), depth + 1) }
+    if kind != "" {
+        pilot slot = 0
+        repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, type_text) {
+            if v4_codegen_llvm_type_holds_dyn(mir_id, v4_codegen_llvm_aggregate_slot_type(mir_id, type_text, slot), depth + 1) { give back true }
+            slot += 1
+        }
+        give back false
+    }
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, type_text)
+    if sig < 0 { give back type_text.contains("dyn ") }
+    pilot case_id = 0
+    repeat until case_id >= v4_ty_route_case_count(v4_mir_ty_id(mir_id), v4_codegen_llvm_route_sig(mir_id, sig)) {
+        pilot field = 0
+        repeat until field >= v4_codegen_llvm_route_field_count(mir_id, sig, case_id) {
+            if v4_codegen_llvm_type_holds_dyn(mir_id, v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field), depth + 1) { give back true }
+            field += 1
+        }
+        case_id += 1
+    }
+    give back false
+}
+
+-- Release the box of an owned dyn value (null data releases nothing).
+task v4_codegen_llvm_dyn_value_drop_lines(value: word, cond: word, temp: word) -> word {
+    pilot pair = v4_codegen_llvm_dyn_ref_type()
+    pilot out = "  " + temp + ".dyn.data = extractvalue " + pair + " " + value + ", 0\n"
+    out = out + "  " + temp + ".dyn.vt = extractvalue " + pair + " " + value + ", 1\n"
+    pilot data = temp + ".dyn.data"
+    if cond != "" {
+        data = temp + ".dyn.live"
+        out = out + "  " + data + " = select i1 " + cond + ", ptr " + temp + ".dyn.data, ptr null\n"
+    }
+    give back out + "  call void @freak.dyn.release(ptr " + data + ", ptr " + temp + ".dyn.vt)\n"
+}
+
+-- Drop glue of an owned dyn in place at `address`.
+task v4_codegen_llvm_dyn_drop_lines(address: word, cond: word, temp: word) -> word {
+    pilot out = "  " + temp + ".dyn.pair = load " + v4_codegen_llvm_dyn_ref_type() + ", ptr " + address + "\n"
+    give back out + v4_codegen_llvm_dyn_value_drop_lines(temp + ".dyn.pair", cond, temp)
+}
+
+-- A DynBox: evaluate the concrete value, move it into a fresh box and pair
+-- the box with the erasure's sealed vtable. Its own collector keeps the
+-- recursive one's frame unchanged.
+task v4_codegen_llvm_collect_dyn_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
+    if kind != v4_mir_rvalue_unary or v4_mir_rvalue_op(mir_id, body_id, rvalue_id) != v4_mir_unary_dyn_box { give back false }
+    pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, child, v4_codegen_llvm_temp_value(body_id, child), false)
+    pilot vtable = v4_mir_dyn_erase_vtable(mir_id, body_id, rvalue_id)
+    pilot concrete = v4_mir_dyn_vtable_concrete(mir_id, vtable)
+    pilot llvm_ty = v4_codegen_llvm_type(concrete)
+    pilot pair = v4_codegen_llvm_dyn_ref_type()
+    v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, child, concrete, target + ".v"))
+    v4_codegen_llvm_fragment_push(parts, "  " + target + ".box = call ptr @freak.dyn.alloc(i64 ptrtoint (ptr getelementptr (" + llvm_ty + ", ptr null, i32 1) to i64))\n")
+    v4_codegen_llvm_fragment_push(parts, "  store " + llvm_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, child, concrete, target + ".v") + ", ptr " + target + ".box\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + target + ".data = insertvalue " + pair + " undef, ptr " + target + ".box, 0\n")
+    v4_codegen_llvm_fragment_push(parts, "  " + target + " = insertvalue " + pair + " " + target + ".data, ptr " + v4_codegen_llvm_dyn_vtable_symbol(mir_id, vtable) + ", 1\n")
+    give back true
+}
+
+-- Whether a module's emitted bodies hold owned dyn values, so it links the
+-- box helpers.
+task v4_codegen_llvm_mir_uses_owned_dyn(mir_id: int) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id { give back false }
+    pilot body = v4_codegen_llvm_next_emitted_body(mir_id, 0)
+    repeat until body >= v4_mir_body_count(mir_id) {
+        if v4_codegen_llvm_type_holds_dyn(mir_id, v4_mir_body_callable_return_type(mir_id, body), 0) { give back true }
+        pilot local = 0
+        repeat until local >= v4_mir_body_local_count(mir_id, body) {
+            if v4_mir_local_mode(mir_id, body, local) == v4_ty_param_mode_value and v4_codegen_llvm_type_holds_dyn(mir_id, v4_mir_local_ty(mir_id, body, local), 0) { give back true }
+            local += 1
+        }
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir_id, body) {
+            if v4_codegen_llvm_type_holds_dyn(mir_id, v4_mir_rvalue_ty(mir_id, body, value), 0) { give back true }
+            value += 1
+        }
+        body = v4_codegen_llvm_next_emitted_body(mir_id, body + 1)
+    }
+    give back false
+}
+
+-- The box helpers: allocation (a failed one panics through the module's
+-- panic policy) and release through the vtable's drop entry.
+task v4_codegen_llvm_dyn_box_runtime_lines() -> word {
+    pilot open = "{" + "\nentry:\n"
+    pilot out = "@freak.dyn.oom = private unnamed_addr constant [22 x i8] c\"dyn allocation failed\\00\", align 1\n"
+    out = out + "define internal ptr @freak.dyn.alloc(i64 %size) " + open
+    out = out + "  %none = icmp eq i64 %size, 0\n  %ask = select i1 %none, i64 1, i64 %size\n"
+    out = out + "  %data = call ptr @realloc(ptr null, i64 %ask)\n  %lost = icmp eq ptr %data, null\n"
+    out = out + "  br i1 %lost, label %fail, label %ok\nok:\n  ret ptr %data\n"
+    out = out + "fail:\n  %msg = call i64 @freak_v4_word_from_bytes(i64 ptrtoint (ptr @freak.dyn.oom to i64), i64 21)\n"
+    out = out + "  call void " + v4_codegen_llvm_panic_symbol() + "(i64 %msg) noreturn\n  unreachable\n" + "}" + "\n"
+    out = out + "define internal void @freak.dyn.release(ptr %data, ptr %vt) " + open
+    out = out + "  %none = icmp eq ptr %data, null\n  br i1 %none, label %done, label %drop\ndrop:\n"
+    out = out + "  %slot = getelementptr inbounds " + "{" + " i64, i64, i64, ptr, ptr " + "}" + ", ptr %vt, i32 0, i32 3\n"
+    out = out + "  %fn = load ptr, ptr %slot\n  call void %fn(ptr %data)\n  call void @free(ptr %data)\n"
+    give back out + "  br label %done\ndone:\n  ret void\n" + "}" + "\n"
+}
+
+task v4_codegen_llvm_dyn_shim_symbol(mir_id: int, body: int) -> word {
+    give back v4_codegen_llvm_symbol("freak.dyn.self." + v4_mir_body_name(mir_id, body))
+}
+
+-- A vtable slot of a by-value `self` method: the receiver is the data
+-- pointer, as for every slot. The shim moves the value out of the box
+-- (an aggregate is passed by its address, as the aggregate convention
+-- passes any by-value aggregate), calls the impl and frees the box. Its
+-- other parameters and result follow the impl body's own signature.
+task v4_codegen_llvm_dyn_shim_lines(mir_id: int, body: int) -> word {
+    pilot concrete = v4_mir_body_callable_param_type(mir_id, body, 0)
+    pilot llvm_ty = v4_codegen_llvm_type(concrete)
+    pilot return_ty = v4_codegen_llvm_body_return_llvm_type(mir_id, body)
+    pilot params = ""
+    pilot args = ""
+    if v4_codegen_llvm_body_uses_sret(mir_id, body) {
+        pilot result_ty = v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body))
+        params = "ptr sret(" + result_ty + ") %ret, "
+        args = "ptr sret(" + result_ty + ") %ret, "
+    }
+    params = params + "ptr %data"
+    pilot out = ""
+    if v4_codegen_llvm_param_is_aggregate(mir_id, body, 0) { args = args + "ptr %data" } else {
+        out = "  %self = load " + llvm_ty + ", ptr %data\n"
+        args = args + llvm_ty + " %self"
+    }
+    pilot param = 1
+    repeat until param >= v4_mir_body_callable_param_count(mir_id, body) {
+        pilot param_ty = v4_codegen_llvm_type(v4_mir_body_callable_param_type(mir_id, body, param))
+        if v4_codegen_llvm_param_is_aggregate(mir_id, body, param) or v4_codegen_llvm_local_is_lent_param(mir_id, body, param) { param_ty = "ptr" }
+        params = params + ", " + param_ty + " %arg." + word_from_int(param)
+        args = args + ", " + param_ty + " %arg." + word_from_int(param)
+        param += 1
+    }
+    pilot call = "call ccc " + return_ty + " " + v4_codegen_llvm_callable_symbol(mir_id, v4_mir_body_name(mir_id, body)) + "(" + args + ")"
+    if return_ty == "void" { out = out + "  " + call + "\n" } else { out = out + "  %r = " + call + "\n" }
+    out = out + "  call void @free(ptr %data)\n"
+    if return_ty == "void" { out = out + "  ret void\n" } else { out = out + "  ret " + return_ty + " %r\n" }
+    give back "define internal ccc " + return_ty + " " + v4_codegen_llvm_dyn_shim_symbol(mir_id, body) + "(" + params + ") " + "{" + "\nentry:\n" + out + "}" + "\n"
+}
+
+-- A by-value `self` doctrine method: its slot holds the shim.
+task v4_codegen_llvm_dyn_slot_is_by_value(mir_id: int, vtable: int, slot: int) -> bool {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig = v4_ty_doctrine_signature_id_for_name(ty_id, v4_mir_dyn_vtable_doctrine(mir_id, vtable))
+    if sig < 0 { give back false }
+    pilot mode = v4_ty_doctrine_method_param_mode(ty_id, sig, slot, 0)
+    give back mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut
+}
+
+-- Where owned dyn values may not appear yet: inside maybe/result carriers,
+-- maps and sets, Shared handles, closures and task values (these copy,
+-- share or erase their payloads without a box drop), and as loop items,
+-- which are copies (dyn values have no clone). "" when admitted.
+task v4_codegen_llvm_dyn_surface_error(mir_id: int, type_text: word) -> word {
+    if type_text == "" or type_text == v4_ty_unknown { give back "" }
+    if v4_ty_is_lend_type(type_text) {
+        if v4_ty_is_dyn_type(v4_ty_lend_target_type(type_text)) { give back "" }
+        give back v4_codegen_llvm_dyn_surface_error(mir_id, v4_ty_lend_target_type(type_text))
+    }
+    if not v4_codegen_llvm_type_holds_dyn(mir_id, type_text, 0) { give back "" }
+    if v4_codegen_llvm_is_owned_dyn(mir_id, type_text) { give back v4_codegen_llvm_dyn_doctrine_error(mir_id, type_text) }
+    if v4_mir_scalar_sum_kind(mir_id, type_text) != "" or v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), type_text) or v4_ty_is_maybe_type(type_text) or type_text.starts_with("result<") { give back "native maybe/result values that hold dyn values are not yet supported: " + type_text }
+    if v4_codegen_llvm_is_map(mir_id, type_text) { give back "native maps and sets of dyn values are not yet supported: " + type_text }
+    if v4_codegen_llvm_is_shared_handle(mir_id, type_text) { give back "native Shared handles of dyn values are not yet supported: " + type_text }
+    if v4_ty_is_closure_type(type_text) or v4_ty_is_surface_task_function_type(type_text) { give back "native task values and closures with dyn values are not yet supported: " + type_text }
+    if v4_codegen_llvm_is_list(mir_id, type_text) or v4_codegen_llvm_aggregate_kind(mir_id, type_text) != "" or v4_codegen_llvm_route_signature(mir_id, type_text) >= 0 { give back "" }
+    give back "native owned dyn values are not yet supported in " + type_text
+}
+
 -- A `lend w: dyn D` / `lend mut w: dyn D` parameter of a FREAK task.
 task v4_codegen_llvm_local_is_dyn_param(mir_id: int, body_id: int, local_id: int) -> bool {
     if v4_codegen_llvm_active_owned_mir != mir_id or local_id < 0 or local_id >= v4_mir_body_callable_param_count(mir_id, body_id) { give back false }
@@ -8649,7 +8855,8 @@ task v4_codegen_llvm_dyn_call_prelude(mir_id: int, body_id: int, rvalue_id: int)
     pilot pair = v4_codegen_llvm_dyn_ref_type()
     pilot value = v4_codegen_llvm_rvalue_value(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0))
     pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0))
-    pilot vtable_ty = v4_codegen_llvm_dyn_vtable_type(v4_ty_dyn_doctrine_base_name(v4_ty_lend_target_type(receiver_ty)))
+    if v4_ty_is_lend_type(receiver_ty) { receiver_ty = v4_ty_lend_target_type(receiver_ty) }
+    pilot vtable_ty = v4_codegen_llvm_dyn_vtable_type(v4_ty_dyn_doctrine_base_name(receiver_ty))
     pilot out = v4_codegen_llvm_dyn_call_temp(body_id, rvalue_id, "data") + " = extractvalue " + pair + " " + value + ", 0\n  "
     out = out + v4_codegen_llvm_dyn_call_temp(body_id, rvalue_id, "vt") + " = extractvalue " + pair + " " + value + ", 1\n  "
     out = out + v4_codegen_llvm_dyn_call_temp(body_id, rvalue_id, "slot") + " = getelementptr inbounds " + vtable_ty + ", ptr " + v4_codegen_llvm_dyn_call_temp(body_id, rvalue_id, "vt") + ", i32 0, i32 " + word_from_int(v4_codegen_llvm_dyn_header_slots + slot) + "\n  "
@@ -8662,10 +8869,7 @@ task v4_codegen_llvm_dyn_call_prelude(mir_id: int, body_id: int, rvalue_id: int)
 task v4_codegen_llvm_dyn_lend_value_lines(mir_id: int, body_id: int, rvalue_id: int, target: word, address: word) -> word {
     pilot pair = v4_codegen_llvm_dyn_ref_type()
     pilot vtable = v4_mir_dyn_erase_vtable(mir_id, body_id, rvalue_id)
-    if vtable < 0 {
-        pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
-        give back "  " + target + " = load " + pair + ", ptr " + v4_codegen_llvm_local_slot(v4_mir_rvalue_local_id(mir_id, body_id, child)) + "\n"
-    }
+    if vtable < 0 { give back "  " + target + " = load " + pair + ", ptr " + address + "\n" }
     pilot out = "  " + target + ".data = insertvalue " + pair + " undef, ptr " + address + ", 0\n"
     give back out + "  " + target + " = insertvalue " + pair + " " + target + ".data, ptr " + v4_codegen_llvm_dyn_vtable_symbol(mir_id, vtable) + ", 1\n"
 }
@@ -8705,9 +8909,14 @@ task v4_codegen_llvm_dyn_vtable_error(mir_id: int, vtable_id: int) -> word {
         pilot body = v4_mir_dyn_vtable_slot_body(mir_id, vtable_id, slot)
         if body < 0 or body >= v4_mir_body_count(mir_id) { give back "native dyn vtable has no impl body for " + label }
         pilot mode = v4_ty_doctrine_method_param_mode(ty_id, sig, slot, 0)
-        if mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut { give back "native dyn vtables cannot hold by-value self methods yet: " + label }
         pilot explicit = v4_ty_doctrine_method_explicit_param_count(ty_id, sig, slot)
-        pilot same: bool = v4_mir_body_callable_param_count(mir_id, body) == explicit + 1 and v4_mir_body_callable_param_mode(mir_id, body, 0) == mode and v4_codegen_llvm_local_is_lent_param(mir_id, body, 0)
+        -- A by-value self slot is the impl's shim: its receiver is the value.
+        pilot receiver_ok: bool = v4_codegen_llvm_local_is_lent_param(mir_id, body, 0)
+        if mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut {
+            if mode != v4_ty_param_mode_value { give back "native dyn vtable slot does not match its doctrine method: " + label }
+            receiver_ok = v4_mir_body_callable_param_count(mir_id, body) > 0 and v4_mir_local_mode(mir_id, body, 0) == mode and v4_ty_canonical_type(ty_id, v4_mir_body_callable_param_type(mir_id, body, 0)) == concrete
+        }
+        pilot same: bool = v4_mir_body_callable_param_count(mir_id, body) == explicit + 1 and v4_mir_body_callable_param_mode(mir_id, body, 0) == mode and receiver_ok
         same = same and v4_ty_canonical_type(ty_id, v4_mir_body_callable_return_type(mir_id, body)) == v4_ty_canonical_type(ty_id, v4_ty_doctrine_method_return_type(ty_id, sig, slot))
         pilot param = 1
         repeat until param > explicit or not same {
@@ -8750,7 +8959,21 @@ task v4_codegen_llvm_native_dyn_lend_error(mir_id: int, body_id: int, rvalue_id:
             if mutable_kind and v4_mir_local_mode(mir_id, body_id, local) != v4_ty_param_mode_lend_mut { give back "invalid native dyn reborrow: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
             give back ""
         }
-        if v4_codegen_llvm_is_dyn_ref(source_ty) { give back "native dyn loans are passed as parameters written lend w: dyn D; other dyn values are not yet supported: " + source_ty }
+        if child_kind == v4_mir_rvalue_use_local {
+            pilot local = v4_mir_rvalue_local_id(mir_id, body_id, child)
+            if local < 0 or local >= v4_mir_body_local_count(mir_id, body_id) or v4_mir_local_ty(mir_id, body_id, local) != source_ty { give back "invalid native local operand" }
+            pilot local_mode = v4_mir_local_mode(mir_id, body_id, local)
+            -- An owned dyn local lends its own fat pointer.
+            if source_ty == dyn_ty and local_mode == v4_ty_param_mode_value { give back "" }
+            -- A type-form lend dyn D local reborrows the loan it holds.
+            if v4_ty_is_lend_type(source_ty) and v4_ty_lend_target_type(source_ty) == dyn_ty and local_mode == v4_ty_param_mode_value {
+                if mutable_kind and v4_ty_lend_mode(source_ty) != v4_ty_param_mode_lend_mut { give back "native dyn erasure cannot lend mut through a shared lend: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
+                give back ""
+            }
+        }
+        -- A dyn field or element place lends the fat pointer stored there.
+        if child_kind == v4_mir_rvalue_use_place and source_ty == dyn_ty { give back v4_codegen_llvm_dyn_place_lend_error(mir_id, body_id, rvalue_id, mutable_kind) }
+        if v4_codegen_llvm_is_dyn_ref(source_ty) { give back "native dyn reborrows keep their doctrine and lend owned dyn D locals, lend dyn D locals, dyn parameters and dyn places: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
         give back "native dyn erasure has no sealed vtable: " + source_ty + " to " + type_text
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
@@ -8766,8 +8989,16 @@ task v4_codegen_llvm_native_dyn_lend_error(mir_id: int, body_id: int, rvalue_id:
         give back ""
     }
     if child_kind != v4_mir_rvalue_use_place { give back "native dyn erasure needs a local, field or element place: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
+    give back v4_codegen_llvm_dyn_place_lend_error(mir_id, body_id, rvalue_id, mutable_kind)
+}
+
+-- A dyn loan of a field or element place (an erasure of a concrete one or a
+-- reborrow of a dyn one): rooted at a local, never a module global, and
+-- never lend mut through a shared loan.
+task v4_codegen_llvm_dyn_place_lend_error(mir_id: int, body_id: int, rvalue_id: int, mutable_kind: bool) -> word {
+    pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
     pilot place = v4_mir_rvalue_lhs(mir_id, body_id, child)
-    error = v4_codegen_llvm_native_place_error(mir_id, body_id, place, 0)
+    pilot error = v4_codegen_llvm_native_place_error(mir_id, body_id, place, 0)
     if error != "" { give back error }
     pilot root = place
     pilot steps = 0
@@ -8790,17 +9021,26 @@ task v4_codegen_llvm_native_dyn_call_error(mir_id: int, body_id: int, rvalue_id:
     if receiver < 0 or receiver != v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id) or v4_mir_rvalue_abi(mir_id, body_id, rvalue_id) != "" { give back "invalid native dyn call: " + text }
     pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver)
     pilot receiver_kind = v4_mir_rvalue_kind(mir_id, body_id, receiver)
-    if receiver_kind != v4_mir_rvalue_lend and receiver_kind != v4_mir_rvalue_lend_mut { give back "native dyn calls need a lend w: dyn D or lend mut w: dyn D receiver: " + text }
-    if not v4_ty_is_lend_type(receiver_ty) or not v4_ty_is_dyn_type(v4_ty_lend_target_type(receiver_ty)) { give back "invalid native dyn call: " + text }
-    pilot error = v4_codegen_llvm_dyn_doctrine_error(mir_id, v4_ty_lend_target_type(receiver_ty))
+    pilot dyn_ty = receiver_ty
+    if v4_ty_is_lend_type(receiver_ty) { dyn_ty = v4_ty_lend_target_type(receiver_ty) }
+    if not v4_ty_is_dyn_type(dyn_ty) { give back "invalid native dyn call: " + text }
+    pilot error = v4_codegen_llvm_dyn_doctrine_error(mir_id, dyn_ty)
     if error != "" { give back error }
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot sig = v4_codegen_llvm_dyn_call_doctrine_sig(mir_id, body_id, rvalue_id)
     pilot slot = v4_mir_dyn_call_slot(mir_id, body_id, rvalue_id)
     if sig < 0 or slot >= v4_ty_doctrine_method_count(ty_id, sig) { give back "invalid native dyn call: " + text }
     pilot mode = v4_ty_doctrine_method_param_mode(ty_id, sig, slot, 0)
-    if mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut { give back "native dyn vtables cannot hold by-value self methods yet: " + text }
-    if v4_ty_lend_mode(receiver_ty) != mode { give back "invalid native dyn call receiver: " + text }
+    if mode != v4_ty_param_mode_lend and mode != v4_ty_param_mode_lend_mut {
+        -- A by-value self call consumes an owned dyn value: its slot's shim
+        -- moves the value out of the box and frees the box.
+        if mode != v4_ty_param_mode_value or v4_ty_is_lend_type(receiver_ty) { give back "native by-value self dyn calls need an owned dyn D receiver: " + text }
+    } else if receiver_kind == v4_mir_rvalue_lend or receiver_kind == v4_mir_rvalue_lend_mut {
+        if not v4_ty_is_lend_type(receiver_ty) or v4_ty_lend_mode(receiver_ty) != mode { give back "invalid native dyn call receiver: " + text }
+    } else if receiver_kind == v4_mir_rvalue_use_local and v4_ty_is_lend_type(receiver_ty) {
+        -- A type-form lend dyn D local is the loan itself.
+        if mode == v4_ty_param_mode_lend_mut and v4_ty_lend_mode(receiver_ty) != mode { give back "invalid native dyn call receiver: " + text }
+    } else { give back "native dyn calls need a lend w: dyn D or lend mut w: dyn D receiver: " + text }
     if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) != v4_ty_doctrine_method_explicit_param_count(ty_id, sig, slot) + 1 { give back "invalid native dyn call arity: " + text }
     if v4_ty_canonical_type(ty_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) != v4_ty_canonical_type(ty_id, v4_ty_doctrine_method_return_type(ty_id, sig, slot)) { give back "invalid native dyn call result: " + text }
     give back ""
@@ -8816,7 +9056,7 @@ task v4_codegen_llvm_native_dyn_error(mir_id: int) -> word {
         if v4_codegen_llvm_signature_is_callable(ty_id, sig_id) {
             pilot c_boundary: bool = v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig or v4_ty_signature_call_abi(ty_id, sig_id) != "" or v4_ty_signature_has_extern_callback(ty_id, sig_id)
             pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
-            if return_ty.contains("dyn ") { give back "native dyn results are not yet supported: " + return_ty }
+            if c_boundary and return_ty.contains("dyn ") { give back "native dyn values across the C ABI are not yet supported: " + return_ty }
             pilot param_id = 0
             repeat until param_id >= v4_ty_signature_fixed_param_count(ty_id, sig_id) {
                 pilot param_ty = v4_ty_signature_param_type(ty_id, sig_id, param_id)
@@ -8830,63 +9070,135 @@ task v4_codegen_llvm_native_dyn_error(mir_id: int) -> word {
     -- has no vtable; each instance is checked with its concrete type.
     pilot body_id = v4_codegen_llvm_next_emitted_body(mir_id, 0)
     repeat until body_id >= v4_mir_body_count(mir_id) {
-        pilot return_ty = v4_mir_body_callable_return_type(mir_id, body_id)
-        if return_ty.contains("dyn ") { give back "native dyn results are not yet supported: " + return_ty }
-        pilot local_id = 0
-        repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
-            pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_id)
-            if local_ty.contains("dyn ") {
-                if v4_codegen_llvm_local_is_dyn_param(mir_id, body_id, local_id) {
-                    pilot error = v4_codegen_llvm_dyn_doctrine_error(mir_id, local_ty)
-                    if error != "" { give back error }
-                } else if v4_ty_is_lend_type(local_ty) and v4_ty_is_dyn_type(v4_ty_lend_target_type(local_ty)) {
-                    give back "native dyn loans are passed as parameters written lend w: dyn D; lend-typed dyn locals and parameters are not yet supported: " + v4_mir_local_name(mir_id, body_id, local_id)
-                } else {
-                    give back "native owned dyn values are not yet supported: " + local_ty
-                }
-            }
-            local_id += 1
-        }
-        pilot value = 0
-        repeat until value >= v4_mir_body_rvalue_count(mir_id, body_id) {
-            pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
-            pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value)
-            if kind == v4_mir_rvalue_call and v4_mir_dyn_call_slot(mir_id, body_id, value) >= 0 {
-                pilot error = v4_codegen_llvm_native_dyn_call_error(mir_id, body_id, value)
-                if error != "" { give back error }
-            }
-            if value_ty.contains("dyn ") {
-                if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_ty_is_lend_type(value_ty) and v4_ty_is_dyn_type(v4_ty_lend_target_type(value_ty)) {
-                    pilot error = v4_codegen_llvm_native_dyn_lend_error(mir_id, body_id, value)
-                    if error != "" { give back error }
-                } else if kind == v4_mir_rvalue_use_local and v4_codegen_llvm_local_is_dyn_param(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, value)) {
-                    -- A dyn parameter is only ever reborrowed; it never moves.
-                    pilot owner = value + 1
-                    pilot lent: bool = false
-                    repeat until owner >= v4_mir_body_rvalue_count(mir_id, body_id) or lent {
-                        pilot owner_kind = v4_mir_rvalue_kind(mir_id, body_id, owner)
-                        if (owner_kind == v4_mir_rvalue_lend or owner_kind == v4_mir_rvalue_lend_mut) and v4_mir_rvalue_lhs(mir_id, body_id, owner) == value { lent = true }
-                        owner += 1
-                    }
-                    if not lent { give back "native dyn parameters can only be lent onward, not moved: " + v4_mir_rvalue_text(mir_id, body_id, value) }
-                } else if kind == v4_mir_rvalue_call {
-                    give back "native dyn results are not yet supported: " + value_ty
-                } else {
-                    give back "native owned dyn values are not yet supported: " + value_ty
-                }
-            }
-            value += 1
-        }
-        pilot stmt_id = 0
-        repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
-            pilot place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
-            pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
-            if place >= 0 and (stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign) and v4_mir_place_ty(mir_id, body_id, place).contains("dyn ") { give back "native dyn values cannot be stored yet: " + v4_mir_place_text(mir_id, body_id, place) }
-            stmt_id += 1
-        }
+        pilot error = v4_codegen_llvm_native_dyn_body_error(mir_id, body_id)
+        if error != "" { give back error }
         body_id = v4_codegen_llvm_next_emitted_body(mir_id, body_id + 1)
     }
     give back ""
+}
+
+-- A dyn result: an owned dyn value (or a type that holds one); a loan of
+-- an erased value cannot outlive the callee's arguments yet.
+task v4_codegen_llvm_dyn_result_error(mir_id: int, return_ty: word) -> word {
+    if not return_ty.contains("dyn ") { give back v4_codegen_llvm_dyn_surface_error(mir_id, return_ty) }
+    if v4_ty_is_lend_type(return_ty) { give back "native dyn loan results are not yet supported: " + return_ty }
+    give back v4_codegen_llvm_dyn_surface_error(mir_id, return_ty)
+}
+
+-- A local of dyn type: a `lend w: dyn D` parameter, a type-form `lend dyn D`
+-- local or parameter, or an owned dyn (or a type holding one).
+task v4_codegen_llvm_dyn_local_error(mir_id: int, body_id: int, local_id: int) -> word {
+    pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_id)
+    if v4_codegen_llvm_local_is_dyn_param(mir_id, body_id, local_id) { give back v4_codegen_llvm_dyn_doctrine_error(mir_id, local_ty) }
+    if v4_ty_is_lend_type(local_ty) {
+        if v4_ty_is_dyn_type(v4_ty_lend_target_type(local_ty)) {
+            if local_id < v4_mir_body_callable_param_count(mir_id, body_id) { give back "native lend-typed dyn parameters are not yet supported; declare the mode instead (lend w: dyn D): " + v4_mir_local_name(mir_id, body_id, local_id) }
+            if v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value { give back "native dyn loans of loans are not supported: " + v4_mir_local_name(mir_id, body_id, local_id) }
+            give back v4_codegen_llvm_dyn_doctrine_error(mir_id, v4_ty_lend_target_type(local_ty))
+        }
+        give back ""
+    }
+    if v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value and v4_ty_is_dyn_type(local_ty) { give back "native dyn parameters lend as lend w: dyn D or move as w: dyn D: " + v4_mir_local_name(mir_id, body_id, local_id) }
+    give back v4_codegen_llvm_dyn_surface_error(mir_id, local_ty)
+}
+
+-- Whether a place chain reads through a list element (a by-value read of
+-- one would copy the element; lists hand out loans of dyn elements).
+task v4_codegen_llvm_place_through_list(mir_id: int, body_id: int, place_id: int) -> bool {
+    pilot place = place_id
+    pilot steps = 0
+    repeat until steps > 64 or place < 0 {
+        pilot kind = v4_mir_place_kind(mir_id, body_id, place)
+        if kind != v4_mir_place_field and kind != v4_mir_place_index { give back false }
+        pilot base = v4_mir_place_base(mir_id, body_id, place)
+        if kind == v4_mir_place_index and base >= 0 and v4_codegen_llvm_is_list(mir_id, v4_mir_place_ty(mir_id, body_id, base)) { give back true }
+        place = base
+        steps += 1
+    }
+    give back false
+}
+
+task v4_codegen_llvm_native_dyn_body_error(mir_id: int, body_id: int) -> word {
+    pilot error = v4_codegen_llvm_dyn_result_error(mir_id, v4_mir_body_callable_return_type(mir_id, body_id))
+    if error != "" { give back error }
+    pilot local_id = 0
+    repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
+        error = v4_codegen_llvm_dyn_local_error(mir_id, body_id, local_id)
+        if error != "" { give back error }
+        local_id += 1
+    }
+    pilot count = v4_mir_body_rvalue_count(mir_id, body_id)
+    pilot value = 0
+    repeat until value >= count {
+        pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
+        pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value)
+        if kind == v4_mir_rvalue_call and v4_mir_dyn_call_slot(mir_id, body_id, value) >= 0 {
+            error = v4_codegen_llvm_native_dyn_call_error(mir_id, body_id, value)
+            if error != "" { give back error }
+        }
+        if kind == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body_id, value) == v4_mir_unary_dyn_box {
+            error = v4_codegen_llvm_native_dyn_box_error(mir_id, body_id, value)
+            if error != "" { give back error }
+        } else if (kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut) and v4_ty_is_lend_type(value_ty) and v4_ty_is_dyn_type(v4_ty_lend_target_type(value_ty)) {
+            error = v4_codegen_llvm_native_dyn_lend_error(mir_id, body_id, value)
+            if error != "" { give back error }
+        } else if kind == v4_mir_rvalue_use_local and v4_codegen_llvm_local_is_dyn_param(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, value)) {
+            -- A dyn parameter is only ever reborrowed; it never moves.
+            pilot owner = value + 1
+            pilot lent: bool = false
+            repeat until owner >= count or lent {
+                pilot owner_kind = v4_mir_rvalue_kind(mir_id, body_id, owner)
+                if (owner_kind == v4_mir_rvalue_lend or owner_kind == v4_mir_rvalue_lend_mut) and v4_mir_rvalue_lhs(mir_id, body_id, owner) == value { lent = true }
+                owner += 1
+            }
+            if not lent { give back "native dyn parameters can only be lent onward, not moved: " + v4_mir_rvalue_text(mir_id, body_id, value) }
+        } else if kind == v4_mir_rvalue_loop_item and v4_codegen_llvm_type_holds_dyn(mir_id, value_ty, 0) {
+            give back "native loop items that hold dyn values are not yet supported (dyn values have no clone): " + value_ty
+        } else if kind == v4_mir_rvalue_use_place and v4_codegen_llvm_type_holds_dyn(mir_id, value_ty, 0) and v4_codegen_llvm_place_through_list(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value)) {
+            -- Calls on a dyn list element lend it; a by-value read would copy it.
+            pilot lent: bool = false
+            pilot owner = value + 1
+            repeat until owner >= count or lent {
+                pilot owner_kind = v4_mir_rvalue_kind(mir_id, body_id, owner)
+                if (owner_kind == v4_mir_rvalue_lend or owner_kind == v4_mir_rvalue_lend_mut) and v4_mir_rvalue_lhs(mir_id, body_id, owner) == value { lent = true }
+                owner += 1
+            }
+            if not lent { give back "native reads of dyn values out of list elements are not yet supported; lend the element: " + v4_mir_rvalue_text(mir_id, body_id, value) }
+        } else if v4_codegen_llvm_is_dyn_ref(value_ty) and v4_ty_is_lend_type(value_ty) and kind != v4_mir_rvalue_use_local {
+            give back "native dyn loans are passed as parameters or held in lend dyn D locals; other dyn loans are not yet supported: " + v4_mir_rvalue_text(mir_id, body_id, value)
+        } else {
+            error = v4_codegen_llvm_dyn_surface_error(mir_id, value_ty)
+            if error != "" { give back error }
+        }
+        value += 1
+    }
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        pilot root = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+        -- A discarded aggregate that holds dyn values is released from its
+        -- call's result slot; other discarded aggregates stay named.
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_expr and root >= 0 {
+            pilot root_ty = v4_mir_rvalue_ty(mir_id, body_id, root)
+            if v4_codegen_llvm_type_holds_dyn(mir_id, root_ty, 0) and not v4_codegen_llvm_is_owned_dyn(mir_id, root_ty) and not (v4_codegen_llvm_call_is_freak_abi(mir_id, body_id, root) and v4_codegen_llvm_call_returns_aggregate(mir_id, body_id, root)) { give back "native discarded values that hold dyn values are not yet supported: " + v4_mir_rvalue_text(mir_id, body_id, root) }
+        }
+        stmt_id += 1
+    }
+    give back ""
+}
+
+-- An owned erasure: a sealed vtable over the operand's concrete type.
+task v4_codegen_llvm_native_dyn_box_error(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    if child < 0 or child >= rvalue_id or v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id) >= 0 or not v4_ty_is_dyn_type(type_text) { give back "invalid native dyn erasure operand" }
+    pilot error = v4_codegen_llvm_dyn_doctrine_error(mir_id, type_text)
+    if error != "" { give back error }
+    pilot source_ty = v4_mir_rvalue_ty(mir_id, body_id, child)
+    pilot vtable = v4_mir_dyn_erase_vtable(mir_id, body_id, rvalue_id)
+    if vtable < 0 { give back "native dyn erasure has no sealed vtable: " + source_ty + " to " + type_text }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_mir_dyn_vtable_doctrine(mir_id, vtable) != v4_ty_dyn_doctrine_base_name(type_text) or v4_ty_canonical_type(ty_id, source_ty) != v4_mir_dyn_vtable_concrete(mir_id, vtable) { give back "invalid native dyn vtable: " + v4_mir_rvalue_text(mir_id, body_id, rvalue_id) }
+    give back v4_codegen_llvm_dyn_vtable_error(mir_id, vtable)
 }
 
 -- Vtable struct records for shape_records: one per doctrine that a sealed
@@ -8931,8 +9243,12 @@ task v4_codegen_llvm_dyn_vtable_is_used(mir_id: int, vtable: int) -> bool {
 
 task v4_codegen_llvm_dyn_module_lines(mir_id: int, runtime: word) -> word {
     pilot count = v4_mir_dyn_vtable_count(mir_id)
-    if count <= 0 { give back "" }
+    pilot box_lines = ""
+    if v4_codegen_llvm_mir_uses_owned_dyn(mir_id) { box_lines = v4_codegen_llvm_dyn_box_runtime_lines() }
+    if count <= 0 { give back box_lines }
     pilot parts = v4_codegen_llvm_fragment_new()
+    pilot shims = ","
+    pilot shim_lines = ""
     pilot needs_word_drop: bool = false
     pilot used = ""
     pilot vtable = 0
@@ -8959,14 +9275,24 @@ task v4_codegen_llvm_dyn_module_lines(mir_id: int, runtime: word) -> word {
             v4_codegen_llvm_fragment_push(parts, symbol + " = internal constant " + v4_codegen_llvm_dyn_vtable_type(v4_mir_dyn_vtable_doctrine(mir_id, vtable)) + " {" + " i64 " + word_from_int(v4_mir_dyn_vtable_type_id(mir_id, vtable)) + ", $freak.dyn.layout " + llvm_ty + "$, ptr " + drop_symbol + ", ptr null")
             pilot slot = 0
             repeat until slot >= v4_mir_dyn_vtable_slot_count(mir_id, vtable) {
-                v4_codegen_llvm_fragment_push(parts, ", ptr " + v4_codegen_llvm_callable_symbol(mir_id, v4_mir_body_name(mir_id, v4_mir_dyn_vtable_slot_body(mir_id, vtable, slot))))
+                pilot slot_body = v4_mir_dyn_vtable_slot_body(mir_id, vtable, slot)
+                pilot slot_symbol = v4_codegen_llvm_callable_symbol(mir_id, v4_mir_body_name(mir_id, slot_body))
+                if v4_codegen_llvm_dyn_slot_is_by_value(mir_id, vtable, slot) {
+                    slot_symbol = v4_codegen_llvm_dyn_shim_symbol(mir_id, slot_body)
+                    pilot key = word_from_int(slot_body) + ","
+                    if not shims.contains("," + key) {
+                        shims = shims + key
+                        shim_lines = shim_lines + v4_codegen_llvm_dyn_shim_lines(mir_id, slot_body)
+                    }
+                }
+                v4_codegen_llvm_fragment_push(parts, ", ptr " + slot_symbol)
                 slot += 1
             }
             v4_codegen_llvm_fragment_push(parts, " " + "}" + "\n")
         }
         vtable += 1
     }
-    pilot out = v4_codegen_llvm_fragment_finish(parts)
+    pilot out = box_lines + v4_codegen_llvm_fragment_finish(parts) + shim_lines
     if needs_word_drop and not runtime.contains("@freak_v4_word_drop(") { give back "declare void @freak_v4_word_drop(i64)\n" + out }
     give back out
 }
@@ -9069,6 +9395,7 @@ task v4_codegen_llvm_collect_owned_special_lines(parts: int, mir_id: int, body_i
     if kind == v4_mir_rvalue_closure { give back v4_codegen_llvm_collect_closure_lines(parts, mir_id, body_id, rvalue_id, target) }
     if v4_codegen_llvm_collect_list_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back true }
     if v4_codegen_llvm_collect_map_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back true }
+    if v4_codegen_llvm_collect_dyn_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back true }
     give back v4_codegen_llvm_collect_shared_lines(parts, mir_id, body_id, rvalue_id, target, kind)
 }
 
@@ -9639,7 +9966,8 @@ task v4_codegen_llvm_owned_word_error(mir_id: int) -> word {
             pilot local_ty = v4_mir_local_ty(mir_id, body, local)
             pilot param: bool = local < v4_mir_body_callable_param_count(mir_id, body)
             if v4_codegen_llvm_is_place_lend(mir_id, local_ty) and param { give back "native lend-typed parameters are not yet supported; declare the mode instead (lend p: T)" }
-            if v4_ty_is_lend_type(local_ty) and not v4_codegen_llvm_is_place_lend(mir_id, local_ty) and (param or not v4_codegen_llvm_is_shared_word_lend(local_ty)) { give back "native borrowed word local storage is not yet supported" }
+            -- A type-form lend dyn D local holds its fat pointer (native_dyn_error).
+            if v4_ty_is_lend_type(local_ty) and not v4_codegen_llvm_is_place_lend(mir_id, local_ty) and not (v4_codegen_llvm_is_dyn_ref(local_ty) and not param) and (param or not v4_codegen_llvm_is_shared_word_lend(local_ty)) { give back "native borrowed word local storage is not yet supported" }
             local += 1
         }
         pilot value = 0

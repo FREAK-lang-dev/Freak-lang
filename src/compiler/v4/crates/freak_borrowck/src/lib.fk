@@ -8894,7 +8894,13 @@ pilot v4_borrowck_word_plan_resource_failed: bool = false
 -- local moves as one value; a field read of it is never counted as a move
 -- of the local (native lowering refuses those partial moves by name).
 task v4_borrowck_type_is_owned_storage(mir_id: int, type_text: word) -> bool {
-    give back v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), type_text) or v4_borrowck_type_is_heap_collection(mir_id, type_text) or v4_borrowck_type_is_shared_handle(mir_id, type_text) or v4_borrowck_aggregate_holds_word(mir_id, type_text, 0)
+    give back v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), type_text) or v4_borrowck_type_is_heap_collection(mir_id, type_text) or v4_borrowck_type_is_shared_handle(mir_id, type_text) or v4_borrowck_type_is_owned_dyn(type_text) or v4_borrowck_aggregate_holds_word(mir_id, type_text, 0)
+}
+
+-- An owned `dyn D` owns its erased box (tier 3, owned dyn row): its drop
+-- runs the vtable's drop entry and frees the box. A loan of one does not.
+task v4_borrowck_type_is_owned_dyn(type_text: word) -> bool {
+    give back type_text != "" and type_text != v4_ty_unknown and v4_ty_is_dyn_type(type_text)
 }
 
 -- A prelude Shared<T>, Weak<T> or SharedMut<T> handle owns one reference to
@@ -8920,7 +8926,7 @@ task v4_borrowck_aggregate_holds_word(mir_id: int, type_text: word, depth: int) 
     pilot ty_id = v4_mir_ty_id(mir_id)
     if depth > 32 or type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lend_type(type_text) { give back false }
     if v4_ty_canonical_type(ty_id, type_text) == v4_ty_word { give back depth > 0 }
-    if depth > 0 and v4_borrowck_type_is_heap_collection(mir_id, type_text) { give back true }
+    if depth > 0 and (v4_borrowck_type_is_heap_collection(mir_id, type_text) or v4_borrowck_type_is_owned_dyn(type_text)) { give back true }
     if v4_ty_is_fixed_array_type(type_text) { give back v4_borrowck_aggregate_holds_word(mir_id, v4_ty_fixed_array_element_type(type_text), depth + 1) }
     if v4_ty_is_tuple_type(type_text) {
         pilot slot = 0

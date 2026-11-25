@@ -1,0 +1,141 @@
+-- Owned dyn Doctrine (tier 3 "owned and boxed dyn Doctrine values" row).
+-- An owned `dyn Unit` is the same pair as a loan, { data pointer, vtable
+-- pointer }, but its data points at a heap box the value owns: erasing
+-- `Pilot { ... }` into a `dyn Unit` slot allocates a box of the concrete
+-- size and moves the value in. Locals, by-value parameters, results,
+-- shape fields, tuples, fixed arrays, route payloads, `Box<dyn Unit>` (a
+-- user generic shape; the owned dyn is itself the box) and `List<dyn Unit>`
+-- elements hold such pairs and move them as one value. Meiya's drop plan
+-- decides every drop; a drop calls the vtable's drop entry on the box and
+-- frees it, a moved-out slot holds a null box. A by-value `self` method
+-- reaches its slot through a shim that moves the value out of the box and
+-- frees the box. Owned dyn values lend onward as `lend dyn Unit` (also in
+-- type-form `lend dyn Unit` locals). check_v4_native_dyn_owned runs this
+-- program; tests/v4_owned_word_codegen.py runs it under ASan and UBSan.
+doctrine Unit {
+    task label(lend self) -> word
+    task power(lend self) -> int
+    task train(lend mut self, by: int) -> void
+    task spend(self) -> int
+    task retire(self, tag: word) -> word
+}
+shape Pilot { name: word, power: int }
+shape Squad { lead: dyn Unit, size: int }
+shape Box<T> { v: T }
+route Order {
+    Hold
+    Sortie { unit: dyn Unit, wave: int }
+}
+
+impl Unit for Pilot {
+    task label(lend self) -> word { give back "pilot " + self.name }
+    task power(lend self) -> int { give back self.power }
+    task train(lend mut self, by: int) -> void { self.power = self.power + by }
+    task spend(self) -> int { give back self.power }
+    task retire(self, tag: word) -> word { give back tag + " " + self.name }
+}
+impl Unit for int {
+    task label(lend self) -> word { give back "count " + word_from_int(self) }
+    task power(lend self) -> int { give back self }
+    task train(lend mut self, by: int) -> void { self = self + by }
+    task spend(self) -> int { give back self }
+    task retire(self, tag: word) -> word { give back tag + " #" + word_from_int(self) }
+}
+-- A squad erased into a dyn owns another erased box: its drop entry runs
+-- the squad's drop glue, which releases the lead's box.
+impl Unit for Squad {
+    task label(lend self) -> word { give back "squad of " + self.lead.label() }
+    task power(lend self) -> int { give back self.lead.power() + self.size }
+    task train(lend mut self, by: int) -> void { self.size = self.size + by }
+    task spend(self) -> int { give back discharge(self.lead) + self.size }
+    task retire(self, tag: word) -> word { give back self.lead.retire(tag) }
+}
+
+-- A dyn result: either branch erases into a fresh box.
+task enlist(k: int) -> dyn Unit {
+    if k > 0 { give back Pilot { name: "Cadet" + word_from_int(k), power: k } }
+    give back k
+}
+task form(k: int) -> Squad { give back Squad { lead: enlist(k), size: k } }
+-- A by-value dyn parameter: the callee owns the box and the by-value self
+-- call consumes it.
+task discharge(u: dyn Unit) -> int { give back u.spend() }
+task relay(u: dyn Unit) -> dyn Unit { give back u }
+task idle(u: dyn Unit) -> int { give back 1 }
+task report(lend u: dyn Unit) -> int {
+    say u.label()
+    give back u.power()
+}
+task drill(lend mut u: dyn Unit) -> void { u.train(10) }
+task peek(lend s: Squad) -> int { give back s.lead.power() }
+-- A store into a dyn field through a loan releases the old box in place.
+task promote(lend mut s: Squad) -> void {
+    s.lead.train(1)
+    s.lead = enlist(30)
+}
+task same<T>(x: T) -> T { give back x }
+
+task main() -> int {
+    pilot mut takeru: dyn Unit = Pilot { name: "Takeru", power: 40 }
+    pilot view: lend mut dyn Unit = lend mut takeru
+    view.train(3)
+    drill(lend mut takeru)
+    pilot seen: lend dyn Unit = lend takeru
+    say seen.label()
+    pilot total = report(lend takeru)
+    -- Replacing a dyn local releases the old box first.
+    pilot mut spare: dyn Unit = Pilot { name: "Spare", power: 1 }
+    spare = 6
+    say spare.label()
+    pilot mut squad = Squad { lead: enlist(2), size: 1 }
+    squad.lead = enlist(9)
+    say squad.lead.label()
+    promote(lend mut squad)
+    pilot lead_power = peek(lend squad)
+    pilot moved = squad.lead
+    say moved.label()
+    pilot pair = (enlist(3), 4)
+    say pair.0.label()
+    pilot rank = [enlist(1), enlist(0)]
+    say rank[1].label()
+    pilot mut wing: List<dyn Unit> = [enlist(1), 7]
+    wing.push(enlist(5))
+    wing[1] = enlist(6)
+    say wing[1].label()
+    say word_from_int(wing.length())
+    pilot boxed: Box<dyn Unit> = Box { v: enlist(2) }
+    say boxed.v.label()
+    pilot order = Order::Sortie { unit: enlist(7), wave: 2 }
+    pilot hold = Order::Hold
+    -- Discarded results release their boxes.
+    enlist(4)
+    form(5)
+    pilot kept = relay(enlist(8))
+    pilot farewell = kept.retire("farewell")
+    say farewell
+    pilot count: dyn Unit = 9
+    pilot tally = count.retire("tally")
+    say tally
+    pilot nested: dyn Unit = Squad { lead: enlist(0), size: 2 }
+    say nested.label()
+    pilot veteran: dyn Unit = form(6)
+    pilot spent = veteran.spend()
+    pilot honor: dyn Unit = Squad { lead: 5, size: 1 }
+    pilot medal = honor.retire("medal")
+    say medal
+    pilot echo = same(enlist(12))
+    say echo.label()
+    -- A box consumed on one path only is dropped under its flag.
+    pilot mut sum = 0
+    pilot mut i = 0
+    while i < 3 {
+        pilot recruit = enlist(i)
+        if i == 1 { sum = sum + discharge(recruit) }
+        i = i + 1
+    }
+    pilot reserve = enlist(20)
+    if total > 100 { sum = sum + discharge(reserve) }
+    sum = sum + total + lead_power + spent + idle(enlist(1)) + nested.power() + discharge(enlist(11))
+    say word_from_int(sum)
+    give back 0
+}

@@ -18684,7 +18684,7 @@ NATIVE_GENERICS_REJECTED = (
 
 def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
     notes = {}
-    for match in re.finditer(r"^; freak\.layout (\S+) size=(\d+) align=(\d+) offsets=([\d,]*)$", module, re.MULTILINE):
+    for match in re.finditer(r'^; freak\.layout (%"[^"]+"|\S+) size=(\d+) align=(\d+) offsets=([\d,]*)$', module, re.MULTILINE):
         offsets = [int(part) for part in match.group(4).split(",") if part]
         notes[match.group(1)] = (int(match.group(2)), int(match.group(3)), offsets)
     return notes
@@ -18693,7 +18693,7 @@ def native_layout_notes(module: str) -> dict[str, tuple[int, int, list[int]]]:
 def native_payload_notes(module: str) -> dict[str, tuple[int, int, list[str]]]:
     """Route payload notes: union size, union alignment and each case struct."""
     notes = {}
-    for match in re.finditer(r"^; freak\.payload (\S+) size=(\d+) align=(\d+) cases=(.+)$", module, re.MULTILINE):
+    for match in re.finditer(r'^; freak\.payload (%"[^"]+"|\S+) size=(\d+) align=(\d+) cases=(.+)$', module, re.MULTILINE):
         notes[match.group(1)] = (int(match.group(2)), int(match.group(3)), match.group(4).split(" | "))
     return notes
 
@@ -19101,6 +19101,111 @@ def check_native_generic_instances(module: str, triple: str) -> None:
         raise RuntimeError(f"V4 generics module for {triple} has no layout notes for {', '.join(missing)}")
 
 
+# Owned dyn Doctrine (tier 3 owned dyn row): examples/dyn_owned_native.fk.
+# tests/v4_owned_word_codegen.py pins the same output under ASan and UBSan.
+NATIVE_DYN_OWNED_EXPECTED = ("pilot Takeru\npilot Takeru\ncount 6\npilot Cadet9\npilot Cadet30\npilot Cadet3\ncount 0\n"
+                             "pilot Cadet6\n3\npilot Cadet2\nfarewell Cadet8\ntally #9\nsquad of count 0\nmedal #5\n"
+                             "pilot Cadet12\n110\n")
+# A by-value self method is written "name!": its slot holds the shim.
+NATIVE_DYN_OWNED_DOCTRINES = {"Unit": ["label", "power", "train", "spend!", "retire!"]}
+# (Pilot, Unit), (int, Unit), (Squad, Unit).
+NATIVE_DYN_OWNED_VTABLES = 3
+NATIVE_DYN_OWNED_UNIT = ("doctrine Unit {\n    task power(lend self) -> int\n    task spend(self) -> int\n}\n"
+                         "shape Pilot { name: word, power: int }\nimpl Unit for Pilot {\n"
+                         "    task power(lend self) -> int { give back self.power }\n"
+                         "    task spend(self) -> int { give back self.power }\n}\n"
+                         "impl Unit for int {\n    task power(lend self) -> int { give back self }\n"
+                         "    task spend(self) -> int { give back self }\n}\n"
+                         "task make(k: int) -> dyn Unit {\n    if k > 0 { give back Pilot { name: \"P\", power: k } }\n    give back k\n}\n"
+                         "task consume(u: dyn Unit) -> int { give back u.spend() }\n")
+# Rejected owned dyn programs: (stem, source, named reason). Surfaces that
+# copy, share or erase their payload without a box drop stay fenced by name.
+NATIVE_DYN_OWNED_REJECTED = (
+    # A for-each item is a copy of its element, and dyn values have no clone.
+    ("tier3_dyn_owned_loop_item", NATIVE_DYN_OWNED_UNIT + "task main() -> int {\n    pilot xs: List<dyn Unit> = [make(1)]\n"
+     "    pilot mut n = 0\n    for each x in xs { n = n + x.power() }\n    give back n\n}\n",
+     "native loop items that hold dyn values are not yet supported (dyn values have no clone): dyn Unit"),
+    # Moving an element out of a list would leave a hole; lend it instead.
+    ("tier3_dyn_owned_list_read", NATIVE_DYN_OWNED_UNIT + "task main() -> int {\n    pilot xs: List<dyn Unit> = [make(1)]\n"
+     "    pilot y = xs[0]\n    give back y.power()\n}\n",
+     "native reads of dyn values out of list elements are not yet supported; lend the element: xs [ 0 ]"),
+    ("tier3_dyn_owned_maybe", NATIVE_DYN_OWNED_UNIT + "task pick(k: int) -> maybe<dyn Unit> {\n    if k > 0 { give back some(make(k)) }\n"
+     "    give back nobody\n}\ntask main() -> int {\n    pilot m = pick(1)\n    give back 0\n}\n",
+     "native maybe/result values that hold dyn values are not yet supported: maybe<dyn Unit>"),
+    ("tier3_dyn_owned_result", NATIVE_DYN_OWNED_UNIT + "task main() -> int {\n    pilot r: result<dyn Unit, word> = ok(make(1))\n    give back 0\n}\n",
+     "native maybe/result values that hold dyn values are not yet supported: result<dyn Unit,word>"),
+    ("tier3_dyn_owned_map", NATIVE_DYN_OWNED_UNIT + "task main() -> int {\n    pilot mut m: Map<word, dyn Unit> = {\"b\": make(2)}\n"
+     "    m.set(\"a\", make(1))\n    give back 0\n}\n",
+     "native maps and sets of dyn values are not yet supported: Map<word,dyn Unit>"),
+    ("tier3_dyn_owned_shared", "use std::mem::{Shared, Weak}\n" + NATIVE_DYN_OWNED_UNIT
+     + "task main() -> int {\n    pilot s = Shared<dyn Unit>::new(make(1))\n    give back 0\n}\n",
+     "native Shared handles of dyn values are not yet supported: Shared<dyn Unit>"),
+    ("tier3_dyn_owned_task_value", NATIVE_DYN_OWNED_UNIT + "task main() -> int {\n    pilot u = make(2)\n    pilot g = consume\n    give back g(u)\n}\n",
+     "native task values and closures with dyn values are not yet supported: task(u:dyn Unit)->int"),
+    # A discarded aggregate literal has no result slot to release from.
+    ("tier3_dyn_owned_discarded_literal", NATIVE_DYN_OWNED_UNIT + "shape Holder { u: dyn Unit, n: int }\n"
+     "task main() -> int {\n    Holder { u: make(1), n: 2 }\n    give back 0\n}\n",
+     "native discarded values that hold dyn values are not yet supported: Holder { u : make ( 1 ) , n : 2 }"),
+    # Meiya keeps moves of owned dyn values single-owner.
+    ("tier3_dyn_owned_use_after_move", NATIVE_DYN_OWNED_UNIT + "task main() -> int {\n    pilot a = make(2)\n"
+     "    pilot n = consume(a)\n    give back n + consume(a)\n}\n",
+     "Meiya remembers the field you already moved"),
+    ("tier3_dyn_owned_by_value_through_loan", NATIVE_DYN_OWNED_UNIT + "task main() -> int {\n    pilot a = make(2)\n"
+     "    pilot w: lend dyn Unit = lend a\n    give back w.spend()\n}\n",
+     "dyn method takes self by value"),
+    # Owned dyn boxes come from libc's allocator under its C names.
+    ("tier3_dyn_owned_reserved_free", "extern [C] {\n    task free(p: *void) -> void\n}\n" + NATIVE_DYN_OWNED_UNIT
+     + "task main() -> int { give back consume(make(1)) }\n",
+     "native list runtime symbol conflict: @free"),
+)
+
+
+def check_v4_native_dyn_owned_module(module_text: str, triple: str) -> int:
+    """Owned dyn: vtables with shim slots, the box helpers and the pair ABI."""
+    if len(NATIVE_DYN_VTABLE_NOTE.findall(module_text)) != NATIVE_DYN_OWNED_VTABLES:
+        raise RuntimeError(f"V4 owned dyn module for {triple} does not have one vtable per (type, doctrine) pair erased")
+    probes = check_native_vtable_oracle(module_text, triple, NATIVE_DYN_OWNED_DOCTRINES)
+    alloc = re.search(r"^define internal ptr @freak\.dyn\.alloc\(i64 %size\) \{\n(.*?)^\}$", module_text, re.MULTILINE | re.DOTALL)
+    release = re.search(r"^define internal void @freak\.dyn\.release\(ptr %data, ptr %vt\) \{\n(.*?)^\}$", module_text, re.MULTILINE | re.DOTALL)
+    if alloc is None or "call ptr @realloc(ptr null, i64 %ask)" not in alloc.group(1) or "noreturn" not in alloc.group(1):
+        raise RuntimeError(f"V4 owned dyn module for {triple} has no checked box allocation helper")
+    # Release skips a moved-out (null) box, runs the vtable's drop entry
+    # (header slot 3) on the box, then frees it.
+    if release is None or not re.search(r"icmp eq ptr %data, null.*getelementptr inbounds \{ i64, i64, i64, ptr, ptr \}, ptr %vt, i32 0, i32 3"
+                                        r".*call void %fn\(ptr %data\)\n  call void @free\(ptr %data\)", release.group(1), re.DOTALL):
+        raise RuntimeError(f"V4 owned dyn module for {triple} does not release boxes through the vtable drop entry")
+    sizes = re.findall(r"call ptr @freak\.dyn\.alloc\(i64 ([^\n]*)\)\n", module_text)
+    if not sizes or any(not re.fullmatch(r"ptrtoint \(ptr getelementptr \((.+), ptr null, i32 1\) to i64\)", size) for size in sizes):
+        raise RuntimeError(f"V4 owned dyn boxes on {triple} are not sized by their concrete type: {sizes}")
+    # By-value dyn parameters and dyn results are the { ptr, ptr } pair.
+    for task in ("discharge", "relay", "idle"):
+        if not re.search(r"^define ccc (?:i64|\{ ptr, ptr \}) @" + task + r"\(\{ ptr, ptr \} %arg\.0\)", module_text, re.MULTILINE):
+            raise RuntimeError(f"V4 owned dyn parameter of {task} on {triple} is not the {{ ptr, ptr }} pair")
+    for task in ("enlist", "relay"):
+        if not re.search(r"^define ccc \{ ptr, ptr \} @" + task + r"\(", module_text, re.MULTILINE):
+            raise RuntimeError(f"V4 owned dyn result of {task} on {triple} is not the {{ ptr, ptr }} pair")
+    # A shim slot pointed straight at the impl would leak the box.
+    direct = re.sub(r'ptr @"freak\.dyn\.self\.(Pilot::spend)"', r'ptr @"\1"', module_text, count=1)
+    if direct == module_text:
+        raise RuntimeError(f"V4 owned dyn shim tamper case did not apply on {triple}")
+    try:
+        check_native_vtable_oracle(direct, triple, NATIVE_DYN_OWNED_DOCTRINES)
+    except RuntimeError as error:
+        if "declaration order" not in str(error):
+            raise
+    else:
+        raise RuntimeError(f"V4 dyn vtable oracle accepted a by-value slot without its shim on {triple}")
+    module_path = RUNTIME_BUILD_ROOT / f"tier3_native_dyn_owned_object_{triple}.ll"
+    module_path.write_text(module_text, encoding="utf-8")
+    assembled = run_with_heartbeat(
+        [shutil.which("clang"), f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
+        label=f"V4 owned dyn object {triple}", timeout_seconds=60, memory_limit_mb=512,
+    )
+    if assembled.returncode != 0:
+        raise RuntimeError(f"Clang rejected the V4 owned dyn module for {triple}:\n{assembled.stderr}")
+    return probes
+
+
 def check_v4_native_shapes() -> None:
     """Tier 3 shapes: build and run natively; check layouts on all targets."""
     from build_v4 import host_target
@@ -19132,6 +19237,7 @@ def check_v4_native_shapes() -> None:
         ("lists_unused_shape", "lists_unused_shape_native.fk", "7\n"),
         ("list_sums", "lists_sums_native.fk", NATIVE_LIST_SUMS_EXPECTED),
         ("raw_alloc", "raw_alloc_native.fk", NATIVE_RAW_ALLOC_EXPECTED),
+        ("dyn_owned", "dyn_owned_native.fk", NATIVE_DYN_OWNED_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -19186,6 +19292,8 @@ def check_v4_native_shapes() -> None:
                 check_v4_native_shared_module(module_text, triple)
             if stem == "raw_alloc":
                 check_v4_native_raw_alloc_module(module_text, triple)
+            if stem == "dyn_owned":
+                probes += check_v4_native_dyn_owned_module(module_text, triple)
             probes += check_native_layout_oracle(module_text, triple)
             abi_probes += check_native_abi_oracle(module_text, triple)
             if stem == "agg_abi":
@@ -19391,7 +19499,8 @@ def check_v4_native_shapes() -> None:
          "impl Eq for V { task equals(lend self, other: lend V) -> bool { give back self.x == other.x } }\n"
          "task main() -> int { pilot a = V { x: 1 }\n if a == a { give back 1 }\n give back 0 }\n",
          "Meiya cannot store a lend in parameter 1 of Eq::equals yet"),
-    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_SHARED_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED + NATIVE_LIST_SUMS_REJECTED + NATIVE_RAW_ALLOC_REJECTED
+    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_SHARED_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED \
+        + NATIVE_LIST_SUMS_REJECTED + NATIVE_RAW_ALLOC_REJECTED + NATIVE_DYN_OWNED_REJECTED
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")
@@ -19459,10 +19568,23 @@ def check_native_vtable_oracle(module: str, triple: str, doctrines: dict[str, li
         if drop != f'@"freak.dyn.drop.{concrete}"' or not re.search(r"^define internal void " + re.escape(drop) + r"\(ptr %self\)", module, re.MULTILINE):
             raise RuntimeError(f"V4 dyn vtable {symbol} on {triple} has no drop entry for {concrete}: {drop}")
         found = re.findall(r'ptr @"([^"]+)"', slots)
-        expected_slots = [f"{concrete}::{method}" for method in doctrines.get(doctrine, [])]
+        # A by-value self method (written "name!") sits behind its shim,
+        # which moves the value out of the box, calls the impl and frees
+        # the box.
+        expected_slots = [f"freak.dyn.self.{concrete}::{method[:-1]}" if method.endswith("!") else f"{concrete}::{method}"
+                          for method in doctrines.get(doctrine, [])]
         if doctrine not in doctrines or found != expected_slots:
             raise RuntimeError(f"V4 dyn vtable {symbol} on {triple} impl slots {found} are not {expected_slots} "
                                f"({doctrine}'s declaration order for {concrete})")
+        for slot in found:
+            if not slot.startswith("freak.dyn.self."):
+                continue
+            impl = slot[len("freak.dyn.self."):]
+            shim = re.search(r'^define internal ccc \S+ @"' + re.escape(slot) + r'"\((?:ptr sret\([^)]*\) %ret, )?ptr %data(?:, [^)]*)?\) \{\n(.*?)^\}$',
+                             module, re.MULTILINE | re.DOTALL)
+            if shim is None or not re.search(r'call ccc \S+ @"' + re.escape(impl) + r'"\((?:ptr sret\([^)]*\) %ret, )?(?:ptr %data|\S+ %self)[,)]', shim.group(1)) \
+                    or "call void @free(ptr %data)" not in shim.group(1):
+                raise RuntimeError(f"V4 dyn vtable {symbol} on {triple} slot {slot} is not a shim that calls {impl} and frees the box")
         methods = found
         vtable_type = re.search(r'^%"freak\.dyn\.vtable\.' + re.escape(doctrine) + r'" = type \{ (.*) \}$', module, re.MULTILINE)
         if vtable_type is None or vtable_type.group(1).split(", ") != ["i64", "i64", "i64", "ptr", "ptr"] + ["ptr"] * len(methods):
@@ -19513,25 +19635,36 @@ NATIVE_DYN_MEIYA_SHARED_MUT = "Meiya refuses an exclusive lend of an immutable l
 # Meiya also refuses an exclusive loan through a local that holds a shared
 # loan (`pilot q = lend b`, then `lend mut q.sq`) before the dyn lowering.
 NATIVE_DYN_MEIYA_HOLDER_MUT = "Meiya refuses an exclusive lend through an immutable lend"
+# Programs the lend slice refused that the owned dyn row made native:
+# (stem, source, exit status). Each must build and run exactly.
+NATIVE_DYN_NOW_NATIVE = (
+    ("tier3_dyn_owned_local", NATIVE_DYN_WIDGET + "task main() -> int {\n    pilot s = Square { side: 2 }\n"
+     "    pilot w: dyn Widget = s\n    give back w.area()\n}\n", 4),
+    ("tier3_dyn_by_value_param", NATIVE_DYN_WIDGET + "task show(w: dyn Widget) -> int { give back w.area() + 1 }\n"
+     "task main() -> int { give back show(Square { side: 3 }) }\n", 10),
+    ("tier3_dyn_list", NATIVE_DYN_WIDGET + "task count(lend xs: List<dyn Widget>) -> int { give back xs[0].area() + xs.length() }\n"
+     "task main() -> int {\n    pilot xs: List<dyn Widget> = [Square { side: 2 }, Square { side: 1 }]\n    give back count(lend xs)\n}\n", 6),
+    ("tier3_dyn_lend_local", NATIVE_DYN_WIDGET + "task main() -> int {\n    pilot s = Square { side: 2 }\n"
+     "    pilot w: lend dyn Widget = lend s\n    give back w.area()\n}\n", 4),
+    # A by-value self slot is a shim; a loan of an erased value never calls
+    # it (MIR refuses `w.take()` through a loan: tier3_dyn_by_value_call).
+    ("tier3_dyn_by_value_slot", "doctrine Widget {\n    task area(lend self) -> int\n    task take(self) -> int\n}\n"
+     "shape Square { side: int }\nimpl Widget for Square {\n    task area(lend self) -> int { give back self.side }\n"
+     "    task take(self) -> int { give back self.side }\n}\ntask show(lend w: dyn Widget) -> int { give back w.area() }\n"
+     "task main() -> int {\n    pilot s = Square { side: 2 }\n    pilot o: dyn Widget = Square { side: 5 }\n"
+     "    give back show(lend s) + o.take()\n}\n", 7),
+)
 # Rejected dyn programs: (stem, source, named reason or reasons, any of which may name it).
 NATIVE_DYN_REJECTED = (
-    ("tier3_dyn_owned_local", NATIVE_DYN_WIDGET + "task main() -> int {\n    pilot s = Square { side: 2 }\n"
-     "    pilot w: dyn Widget = s\n    give back 0\n}\n",
-     "native owned dyn values are not yet supported: dyn Widget"),
-    ("tier3_dyn_by_value_param", NATIVE_DYN_WIDGET + "task show(w: dyn Widget) -> int { give back 1 }\ntask main() -> int { give back 0 }\n",
-     "native owned dyn values are not yet supported: dyn Widget"),
-    ("tier3_dyn_list", NATIVE_DYN_WIDGET + "task count(xs: List<dyn Widget>) -> int { give back 0 }\ntask main() -> int { give back 0 }\n",
-     "native owned dyn values are not yet supported: List<dyn Widget>"),
-    # The type form `w: lend dyn D` stays fenced like other lend-typed params.
+    # The type form `w: lend dyn D` stays fenced like other lend-typed params
+    # (type-form lend dyn D locals are native: NATIVE_DYN_NOW_NATIVE).
     ("tier3_dyn_type_form_param", NATIVE_DYN_WIDGET + "task show(w: lend dyn Widget) -> int { give back w.area() }\n"
      "task main() -> int {\n    pilot s = Square { side: 2 }\n    give back show(lend s)\n}\n",
-     "lend-typed dyn locals and parameters are not yet supported: w"),
-    ("tier3_dyn_lend_local", NATIVE_DYN_WIDGET + "task main() -> int {\n    pilot s = Square { side: 2 }\n"
-     "    pilot w: lend dyn Widget = lend s\n    give back 0\n}\n",
-     "lend-typed dyn locals and parameters are not yet supported: w"),
+     "native lend-typed dyn parameters are not yet supported; declare the mode instead (lend w: dyn D): w"),
+    # Owned dyn results are native; a loan result would outlive its callee.
     ("tier3_dyn_result", NATIVE_DYN_WIDGET + "task wrap(lend s: Square) -> lend dyn Widget { give back lend s }\n"
      "task main() -> int { give back 0 }\n",
-     "native dyn results are not yet supported: lend dyn Widget"),
+     "native dyn loan results are not yet supported: lend dyn Widget"),
     ("tier3_dyn_slot_field", NATIVE_DYN_WIDGET + "shape Slot { w: lend dyn Widget, n: int }\ntask main() -> int {\n"
      "    pilot s = Square { side: 2 }\n    pilot k = Slot { w: lend s, n: 1 }\n    give back k.n\n}\n",
      "native aggregate lend slots are not yet supported: Slot.w"),
@@ -19549,12 +19682,6 @@ NATIVE_DYN_REJECTED = (
     ("tier3_dyn_generic_method", "doctrine Widget {\n    task pick<T>(lend self, x: T) -> T\n}\n"
      "task show(lend w: dyn Widget) -> int { give back 0 }\ntask main() -> int { give back 0 }\n",
      "Widget::method pick has generic parameters"),
-    # A by-value self slot would move out of the loan the vtable is reached through.
-    ("tier3_dyn_by_value_slot", "doctrine Widget {\n    task area(lend self) -> int\n    task take(self) -> int\n}\n"
-     "shape Square { side: int }\nimpl Widget for Square {\n    task area(lend self) -> int { give back self.side }\n"
-     "    task take(self) -> int { give back self.side }\n}\ntask show(lend w: dyn Widget) -> int { give back w.area() }\n"
-     "task main() -> int {\n    pilot s = Square { side: 2 }\n    give back show(lend s)\n}\n",
-     "native dyn vtables cannot hold by-value self methods yet: Square::take"),
     ("tier3_dyn_by_value_call", "doctrine Widget {\n    task take(self) -> int\n}\nshape Square { side: int }\n"
      "impl Widget for Square {\n    task take(self) -> int { give back self.side }\n}\n"
      "task show(lend w: dyn Widget) -> int { give back w.take() }\ntask main() -> int { give back 0 }\n",
@@ -19725,6 +19852,20 @@ def check_v4_native_dyn() -> None:
         if assembled.returncode != 0:
             raise RuntimeError(f"Clang rejected the dispatch-only dyn module for {triple}:\n{assembled.stderr}")
         objects += 1
+    for stem, text, exit_status in NATIVE_DYN_NOW_NATIVE:
+        native_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        native_source.write_text(text, encoding="utf-8")
+        native_exe = RUNTIME_BUILD_ROOT / (f"{stem}.exe" if sys.platform == "win32" else f"{stem}.native")
+        native_exe.unlink(missing_ok=True)
+        built = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(native_source), "-o", str(native_exe)],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if built.returncode != 0 or not native_exe.exists():
+            raise RuntimeError(f"V4 rejected the now-native dyn case {stem}:\n{built.stdout}{built.stderr}")
+        ran = run_with_heartbeat([str(native_exe)], label=f"V4 {stem} execute", timeout_seconds=10, memory_limit_mb=128)
+        if ran.returncode != exit_status or ran.stdout != "":
+            raise RuntimeError(f"V4 now-native dyn case {stem} ran wrong: exit={ran.returncode} stdout={ran.stdout!r}")
     for stem, text, reason in NATIVE_DYN_REJECTED:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")
@@ -19738,7 +19879,8 @@ def check_v4_native_dyn() -> None:
         if rejected.returncode == 0 or output.exists() or not any(item in rejected.stdout + rejected.stderr for item in reasons):
             raise RuntimeError(f"V4 dyn case {stem} was not rejected with: {' or '.join(reasons)}\n{rejected.stdout}{rejected.stderr}")
     print(f"V4 native dyn: run=exact layout-probes={probes} vtable-probes={vtable_probes} "
-          f"targets={len(NATIVE_LAYOUT_TRIPLES)} objects={objects} rejections={len(NATIVE_DYN_REJECTED)}")
+          f"targets={len(NATIVE_LAYOUT_TRIPLES)} objects={objects} now-native={len(NATIVE_DYN_NOW_NATIVE)} "
+          f"rejections={len(NATIVE_DYN_REJECTED)}")
 
 
 def check_v4_native_closures() -> None:

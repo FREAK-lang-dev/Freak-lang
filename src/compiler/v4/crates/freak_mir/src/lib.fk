@@ -93,6 +93,12 @@ pilot v4_mir_unary_align_of = "AlignOf"
 pilot v4_mir_unary_zeroed = "Zeroed"
 -- p.read_unaligned(): a load at alignment 1 (bible 16.3 packed layouts).
 pilot v4_mir_unary_ptr_read_unaligned = "PtrReadUnaligned"
+-- An owned erasure (tier 3, owned dyn row): its lhs is a concrete value of
+-- a type that implements the doctrine and its type is the owned `dyn D`
+-- the value now lives as. MIR Build adds one wherever a concrete value
+-- flows into an owned dyn position, so the concrete type stays visible and
+-- the erasure moves its operand like any other unary.
+pilot v4_mir_unary_dyn_box = "DynBox"
 pilot v4_mir_call_raw_ptr_write = "#RawPtrWrite"
 pilot v4_mir_call_say_literal = "#SayLiteral"
 
@@ -1422,6 +1428,9 @@ task v4_mir_type_is_concrete(ty_id: int, surface: word, depth: int) -> bool {
         give back v4_mir_type_is_concrete(ty_id, pointee, depth + 1)
     }
     if v4_ty_is_fixed_array_type(type_text) { give back v4_mir_type_is_concrete(ty_id, v4_ty_fixed_array_element_type(type_text), depth + 1) }
+    -- An owned or lent `dyn D` of a declared, non-generic doctrine is one
+    -- erased value (tier 3, owned dyn row), so Box<dyn D> is an instance.
+    if v4_ty_is_dyn_type(type_text) { give back v4_ty_dyn_doctrine_name(type_text) == v4_ty_dyn_doctrine_base_name(type_text) and v4_ty_doctrine_signature_id_for_name(ty_id, v4_ty_dyn_doctrine_base_name(type_text)) >= 0 }
     if v4_ty_is_tuple_type(type_text) {
         pilot slot = 0
         repeat until slot >= v4_ty_tuple_slot_count(type_text) {
@@ -2605,7 +2614,8 @@ task v4_mir_closure_call_doctrine(mir_id: int, body_id: int, rvalue_id: int) -> 
 --     (concrete type, doctrine) pair erased in the module; slot k is the
 --     impl body of the doctrine's k-th method in declaration order
 --   E mir body rvalue vtable  a Lend/LendMut that erases a concrete place
---     into `lend dyn D` / `lend mut dyn D` through that vtable
+--     into `lend dyn D` / `lend mut dyn D` through that vtable, or a DynBox
+--     that erases a concrete value into an owned `dyn D`
 --   C mir body rvalue slot    a call dispatched through vtable slot `slot`
 --   D mir index doctrine slots  a doctrine some vtable or sealed call uses,
 --     so its vtable type exists even in a module that only dispatches
