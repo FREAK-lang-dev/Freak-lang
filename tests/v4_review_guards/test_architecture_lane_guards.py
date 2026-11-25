@@ -134,14 +134,20 @@ class ArchitectureLaneGuards(unittest.TestCase):
         stripped = body.replace(arm, "", 1)
         stripped = "\n".join(line for line in stripped.split("\n") if "v4_hir_extern_param_name" not in line)
         found = self.violations(ty=self.ty.replace(body, stripped, 1))
-        self.assertTrue(any("v4_ty_signature_param_name reaches the token fallback without the HIR extern parameter arm" in v for v in found), found)
+        self.assertTrue(any("v4_ty_signature_param_name has no HIR extern parameter arm" in v for v in found), found)
 
-    def test_extern_param_arm_after_fallback_is_rejected(self):
+    def test_param_reader_token_fallback_is_rejected(self):
         body = guard.freak_task_body(self.ty, "v4_ty_signature_param_mode")
         self.assertIsNotNone(body)
-        ty = self.ty.replace(body, body.replace("v4_ty_signature_extern_param_member(", "v4_ty_nonordinary_signature_param_mode_fallback(ty_id, sig_id, 0)\n    pilot late = v4_ty_signature_extern_param_member(", 1), 1)
+        ty = self.ty.replace(body, body.replace('give back ""', 'give back v4_lex_token_value(v4_ty_signature_stream_id(ty_id), 0)', 1), 1)
+        self.assertNotEqual(ty, self.ty)
         found = self.violations(ty=ty)
-        self.assertTrue(any("v4_ty_signature_param_mode reaches the token fallback without the HIR extern parameter arm" in v for v in found), found)
+        self.assertTrue(any("v4_ty_signature_param_mode reads task parameters from tokens" in v for v in found), found)
+
+    def test_restored_nonordinary_param_fallback_task_is_rejected(self):
+        ty = self.ty + "\ntask v4_ty_nonordinary_signature_param_count_fallback(ty_id: int, sig_id: int) -> int {\n    give back 0\n}\n"
+        found = self.violations(ty=ty)
+        self.assertIn("TY still defines a token fallback for task parameters", found)
 
     def test_extern_param_member_must_check_hir_range(self):
         body = guard.freak_task_body(self.ty, "v4_ty_signature_extern_param_member")
