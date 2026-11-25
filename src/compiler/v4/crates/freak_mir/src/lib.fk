@@ -81,6 +81,18 @@ pilot v4_mir_unary_num_convert = "NumConvert"
 -- the index operand into a fixed array.
 pilot v4_mir_unary_project = "Project"
 pilot v4_mir_unary_project_index = "ProjectIndex"
+-- Raw allocation and layout queries (bible 7.18). RawAlloc reads a byte
+-- count and gives back the destination's *mut T; RawFree reads a *mut T and
+-- is void; RawNull reads a ConstInt 0 and is the null *T. SizeOf, AlignOf
+-- and Zeroed read a RawNull whose pointer type names the queried T.
+pilot v4_mir_unary_raw_alloc = "RawAlloc"
+pilot v4_mir_unary_raw_free = "RawFree"
+pilot v4_mir_unary_raw_null = "RawNull"
+pilot v4_mir_unary_size_of = "SizeOf"
+pilot v4_mir_unary_align_of = "AlignOf"
+pilot v4_mir_unary_zeroed = "Zeroed"
+-- p.read_unaligned(): a load at alignment 1 (bible 16.3 packed layouts).
+pilot v4_mir_unary_ptr_read_unaligned = "PtrReadUnaligned"
 pilot v4_mir_call_raw_ptr_write = "#RawPtrWrite"
 pilot v4_mir_call_say_literal = "#SayLiteral"
 

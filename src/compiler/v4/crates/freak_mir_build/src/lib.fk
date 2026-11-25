@@ -969,6 +969,7 @@ task v4_mir_find_binary_op(stream_id: int, start_token: int, end_token: int, tie
                 }
             } else if depth == 0 and val == ">" {
                 pilot type_open = v4_mir_generic_method_type_arg_open_for_close(stream_id, start_token, idx, end_token)
+                if type_open < start_token { type_open = v4_mir_raw_mem_type_arg_open_for_close(stream_id, start_token, idx, end_token) }
                 if type_open >= start_token {
                     idx = type_open
                 } else if v4_mir_binary_tier_matches(val, tier) and v4_mir_binary_candidate_has_left_operand(stream_id, start_token, idx) {
@@ -3677,6 +3678,13 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_deref, receiver_rvalue, 0 - 1, expr_span, v4_ty_raw_pointer_target_type(receiver_ty))
     }
 
+    if method_name == "read_unaligned" {
+        v4_mir_reject_method_type_args(mir_id, stream_id, expr_span, receiver_ty, method_name, ".", method_token, open_token)
+        v4_mir_raw_pointer_method_arg_count_error(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, open_token, close_token, 0)
+        v4_mir_check_raw_mem_trust(mir_id, expr_span, "raw-pointer unaligned read", "ace")
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_read_unaligned, receiver_rvalue, 0 - 1, expr_span, v4_ty_raw_pointer_target_type(receiver_ty))
+    }
+
     if method_name == "write" {
         v4_mir_reject_method_type_args(mir_id, stream_id, expr_span, receiver_ty, method_name, ".", method_token, open_token)
         pilot actual_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
@@ -3809,6 +3817,192 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
     }
 
     give back 0 - 1
+}
+
+-- Raw allocation and layout queries (bible 7.18, 16.4): the std::mem names
+-- alloc, free, null<T>(), size_of<T>(), align_of<T>(), zeroed<T>() and
+-- copy_nonoverlapping<T>(...) are builtins while nothing in scope shadows
+-- them (a local, a task, an extern member such as a C free, or an import).
+-- The honor matrix: layout queries and null need no trust me; zeroed,
+-- alloc and free need .pilot; copy_nonoverlapping needs .ace.
+task v4_mir_raw_mem_intrinsic_name(name: word) -> bool {
+    give back name == "alloc" or name == "free" or v4_mir_raw_mem_typed_intrinsic_name(name)
+}
+
+-- The names that take one type argument before their parentheses.
+task v4_mir_raw_mem_typed_intrinsic_name(name: word) -> bool {
+    give back name == "null" or name == "size_of" or name == "align_of" or name == "zeroed" or name == "copy_nonoverlapping"
+}
+
+-- `name<T>(`: the `<` that opens the type argument of a raw memory builtin
+-- whose `>` is close_token, so the binary operator scan skips it.
+task v4_mir_raw_mem_type_arg_open_for_close(stream_id: int, start_token: int, close_token: int, end_token: int) -> int {
+    pilot after = v4_mir_next_nontrivia(stream_id, close_token + 1, end_token)
+    if after >= end_token or v4_lex_token_syntax_value(stream_id, after) != "(" { give back 0 - 1 }
+    pilot idx = close_token
+    pilot depth = 0
+    repeat until idx < start_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
+            if val == ">" {
+                depth += 1
+            } else if val == "<" {
+                depth -= 1
+                if depth == 0 {
+                    pilot name_token = v4_mir_prev_nontrivia(stream_id, idx - 1, start_token)
+                    if name_token < start_token or v4_lex_token_type(stream_id, name_token) != v4_tok_ident { give back 0 - 1 }
+                    if not v4_mir_raw_mem_typed_intrinsic_name(v4_lex_token_syntax_value(stream_id, name_token)) { give back 0 - 1 }
+                    pilot before = v4_mir_prev_nontrivia(stream_id, name_token - 1, start_token)
+                    if before >= start_token and (v4_mir_token_can_end_expr(stream_id, before) or v4_lex_token_syntax_value(stream_id, before) == "." or v4_lex_token_syntax_value(stream_id, before) == "::") { give back 0 - 1 }
+                    give back idx
+                }
+            }
+        }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_raw_mem_name_is_shadowed(mir_id: int, body_id: int, name: word, span: word) -> bool {
+    if v4_mir_find_local_visible_at(mir_id, body_id, name, v4_span_start(span)) >= 0 or v4_mir_signature_id_for_name(mir_id, name) >= 0 { give back true }
+    if v4_mir_closure_local_shadows(mir_id, body_id, name, span) { give back true }
+    give back v4_resolve_def_for_name(v4_ty_resolve_id(v4_mir_ty_id(mir_id)), name) != ""
+}
+
+-- Outside trust me the operation is refused by name; inside, the honor
+-- ladder decides. Every refusal names the rank the operation needs.
+task v4_mir_check_raw_mem_trust(mir_id: int, span: word, operation: word, required_level: word) -> void {
+    if v4_mir_inside_trust_me() == false {
+        v4_mir_add_type_error(mir_id, span, operation + " needs trust me block", "wrap it in trust me \"reason\" on my honor as ." + required_level + " or higher; bible sections 4.5 and 16.4 allow " + operation + " only inside trust me")
+        give back
+    }
+    v4_mir_check_trust_honor(mir_id, span, operation, required_level)
+}
+
+-- The type argument of name<T>(...), checked and canonical, or "" after a
+-- named error. Generic type arguments are not sized in V4 yet.
+task v4_mir_raw_mem_type_arg(mir_id: int, body_id: int, stream_id: int, name: word, type_open: int, type_close: int, expr_span: word) -> word {
+    pilot target_start = v4_mir_skip_trivia(stream_id, type_open + 1)
+    if target_start >= type_close or not v4_mir_cast_target_starts_like_type(stream_id, target_start, type_close) {
+        v4_mir_add_type_error(mir_id, expr_span, name + " needs a type argument", "write " + name + "<T>() with a type between the angle brackets, e.g. " + name + "<int>()")
+        give back ""
+    }
+    pilot ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_mir_compact_type_text(v4_ty_type_text(stream_id, target_start, type_close)))
+    ty = v4_mir_build_generic_type(mir_id, ty)
+    pilot sig_id = v4_mir_body_context_signature_id(mir_id, body_id)
+    if (sig_id >= 0 and v4_ty_signature_declares_type_generic_name(v4_mir_ty_id(mir_id), sig_id, ty)) or v4_mir_body_impl_declares_type_generic_name(mir_id, body_id, ty) {
+        v4_mir_add_type_error(mir_id, expr_span, name + " type argument must be concrete", name + "<" + ty + "> names a generic parameter; V4 does not size generic types yet")
+        give back ""
+    }
+    if not v4_mir_type_reference_is_declared_for_body(mir_id, body_id, sig_id, ty) {
+        v4_mir_add_type_error(mir_id, expr_span, name + " type argument is not declared", ty + " is not a declared value type")
+        give back ""
+    }
+    give back ty
+}
+
+task v4_mir_raw_mem_null_rvalue(mir_id: int, body_id: int, expr_text: word, expr_span: word, pointer_ty: word) -> int {
+    pilot zero = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "0", "", 0 - 1, 0 - 1, expr_span, v4_ty_int)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_raw_null, zero, 0 - 1, expr_span, pointer_ty)
+}
+
+-- The one value argument of alloc(bytes) or free(p), or -1 after a named
+-- arity error (the arguments are still lowered for their diagnostics).
+task v4_mir_raw_mem_single_arg(mir_id: int, body_id: int, stream_id: int, name: word, open: int, close: int, expr_span: word, expected_ty: word) -> int {
+    pilot count = v4_mir_call_arg_count(stream_id, open, close)
+    if count != 1 {
+        v4_mir_add_type_error(mir_id, expr_span, name + " takes one argument", name + " takes exactly one argument but got " + word_from_int(count))
+        v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open, close)
+        give back 0 - 1
+    }
+    pilot arg_start = v4_mir_skip_trivia(stream_id, open + 1)
+    pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close)
+    if v4_mir_call_arg_label(stream_id, arg_start, arg_end) != "" { v4_mir_add_type_error(mir_id, expr_span, name + " takes no named arguments", "pass the argument of " + name + " by position") }
+    give back v4_mir_lower_expr_expected(mir_id, body_id, stream_id, v4_mir_call_arg_value_start(stream_id, arg_start, arg_end), arg_end, expected_ty)
+}
+
+task v4_mir_try_lower_raw_mem_intrinsic(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
+    if v4_lex_token_type(stream_id, first) != v4_tok_ident or v4_lex_token_syntax_value(stream_id, last) != ")" { give back 0 - 1 }
+    pilot name = v4_lex_token_syntax_value(stream_id, first)
+    if not v4_mir_raw_mem_intrinsic_name(name) or v4_mir_raw_mem_name_is_shadowed(mir_id, body_id, name, expr_span) { give back 0 - 1 }
+    pilot open = v4_mir_next_nontrivia(stream_id, first + 1, last + 1)
+    pilot type_open = 0 - 1
+    pilot type_close = 0 - 1
+    if v4_lex_token_syntax_value(stream_id, open) == "<" {
+        type_open = open
+        type_close = v4_mir_raw_pointer_method_type_arg_close(stream_id, type_open, last + 1)
+        if type_close < 0 { give back 0 - 1 }
+        open = v4_mir_next_nontrivia(stream_id, type_close + 1, last + 1)
+    }
+    if v4_lex_token_syntax_value(stream_id, open) != "(" or v4_mir_find_matching_paren(stream_id, open, last + 1) != last { give back 0 - 1 }
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    pilot typed = v4_mir_raw_mem_typed_intrinsic_name(name)
+    if typed and type_open < 0 {
+        v4_mir_add_type_error(mir_id, expr_span, name + " needs a type argument", "write " + name + "<T>(...) with the type between angle brackets, e.g. " + name + "<int>()")
+        v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open, last)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+    }
+    if not typed and type_open >= 0 {
+        v4_mir_add_type_error(mir_id, expr_span, name + " takes no type arguments", name + " takes its pointee from the raw pointer, not from <...>; write pilot p: *mut T = alloc(size_of<T>())")
+    }
+
+    if name == "alloc" {
+        pilot bytes = v4_mir_raw_mem_single_arg(mir_id, body_id, stream_id, name, open, last, expr_span, v4_ty_int)
+        if bytes >= 0 {
+            pilot bytes_ty = v4_mir_rvalue_ty(mir_id, body_id, bytes)
+            if v4_ty_is_known(bytes_ty) and bytes_ty != v4_ty_int and bytes_ty != v4_ty_uint and bytes_ty != v4_ty_never { v4_mir_add_type_error(mir_id, expr_span, "alloc size must be int or uint", "alloc(bytes) takes a byte count such as size_of<T>() * n; got " + bytes_ty) }
+        }
+        v4_mir_check_raw_mem_trust(mir_id, expr_span, "raw allocation", "pilot")
+        pilot result_ty = v4_ty_unknown
+        if v4_ty_is_mutable_raw_pointer_type(expected_ty) {
+            result_ty = expected_ty
+        } else {
+            v4_mir_add_type_error(mir_id, expr_span, "alloc needs a *mut T destination", "alloc gives back untyped memory, so the binding names the pointee: write pilot p: *mut T = alloc(size_of<T>() * n)")
+        }
+        if bytes < 0 { give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown) }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_raw_alloc, bytes, 0 - 1, expr_span, result_ty)
+    }
+    if name == "free" {
+        pilot pointer = v4_mir_raw_mem_single_arg(mir_id, body_id, stream_id, name, open, last, expr_span, v4_ty_unknown)
+        if pointer >= 0 {
+            pilot pointer_ty = v4_mir_rvalue_ty(mir_id, body_id, pointer)
+            if v4_ty_is_known(pointer_ty) and pointer_ty != v4_ty_never and not v4_ty_is_mutable_raw_pointer_type(pointer_ty) { v4_mir_add_type_error(mir_id, expr_span, "free needs a *mut T", "free(p) releases memory from alloc, which gives back *mut T; got " + pointer_ty) }
+        }
+        v4_mir_check_raw_mem_trust(mir_id, expr_span, "raw free", "pilot")
+        if pointer < 0 { give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown) }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_raw_free, pointer, 0 - 1, expr_span, v4_ty_void)
+    }
+
+    pilot ty = v4_mir_raw_mem_type_arg(mir_id, body_id, stream_id, name, type_open, type_close, expr_span)
+    if name == "copy_nonoverlapping" {
+        v4_mir_check_raw_mem_trust(mir_id, expr_span, "copy_nonoverlapping", "ace")
+        v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open, last)
+        v4_mir_add_type_error(mir_id, expr_span, "native copy_nonoverlapping is not yet supported: " + expr_text, "copy element by element with p.offset(i).read() and q.offset(i).write(v) inside trust me at .ace")
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+    }
+    pilot count = v4_mir_call_arg_count(stream_id, open, last)
+    if count != 0 {
+        v4_mir_add_type_error(mir_id, expr_span, name + " takes no arguments", name + "<T>() takes no arguments but got " + word_from_int(count))
+        v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open, last)
+    }
+    if ty == "" { give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown) }
+    if name == "null" {
+        pilot pointer_ty = "*" + ty
+        if v4_ty_is_raw_pointer_type(expected_ty) and v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_raw_pointer_target_type(expected_ty)) == ty { pointer_ty = expected_ty }
+        give back v4_mir_raw_mem_null_rvalue(mir_id, body_id, expr_text, expr_span, pointer_ty)
+    }
+    if ty == v4_ty_void or ty == v4_ty_never {
+        v4_mir_add_type_error(mir_id, expr_span, name + " needs a sized type", ty + " has no values to lay out; " + name + " takes a sized type such as int or (int, tiny)")
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+    }
+    pilot query = v4_mir_raw_mem_null_rvalue(mir_id, body_id, expr_text, expr_span, "*" + ty)
+    if name == "zeroed" {
+        v4_mir_check_raw_mem_trust(mir_id, expr_span, "zeroed", "pilot")
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_zeroed, query, 0 - 1, expr_span, ty)
+    }
+    pilot op = v4_mir_unary_size_of
+    if name == "align_of" { op = v4_mir_unary_align_of }
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, op, query, 0 - 1, expr_span, v4_ty_int)
 }
 
 task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
@@ -6975,7 +7169,13 @@ task v4_mir_try_lower_lend_expr(mir_id: int, body_id: int, stream_id: int, first
     if mode == v4_ty_param_mode_lend_mut and v4_mir_rvalue_kind(mir_id, body_id, operand_id) == v4_mir_rvalue_use_place {
         v4_mir_check_root_const_place_mutation(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, operand_id))
     }
-    if not v4_mir_lend_source_is_place(mir_id, body_id, operand_id) {
+    pilot operand_op = v4_mir_rvalue_op(mir_id, body_id, operand_id)
+    if v4_mir_rvalue_kind(mir_id, body_id, operand_id) == v4_mir_rvalue_unary and (operand_op == v4_mir_unary_deref or operand_op == v4_mir_unary_ptr_read_unaligned) {
+        -- Bible 16.4: a lend of a raw-pointer referent needs a proof the
+        -- compiler accepts only inside trust me; V4 has no such proof yet.
+        v4_mir_check_raw_mem_trust(mir_id, expr_span, "lend of a raw-pointer referent", "ace")
+        v4_mir_add_type_error(mir_id, expr_span, "native lends of raw-pointer referents are not yet supported: " + v4_mir_expr_text(stream_id, first, last + 1), "read the referent into a local with p.read() and lend the local")
+    } else if not v4_mir_lend_source_is_place(mir_id, body_id, operand_id) {
         v4_mir_add_type_error(mir_id, expr_span, "lend source must be a place", "Meiya can only loan a named local, field, index, or deref place; store the value first")
     }
 
@@ -7370,6 +7570,8 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
 
     pilot control_named = v4_mir_try_lower_control_named_intrinsic(mir_id, body_id, stream_id, first, last, expr_span)
     if control_named >= 0 { give back control_named }
+    pilot raw_mem = v4_mir_try_lower_raw_mem_intrinsic(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
+    if raw_mem >= 0 { give back raw_mem }
     pilot system_named = v4_mir_try_lower_system_named_intrinsic(mir_id, body_id, stream_id, first, last, expr_span)
     if system_named >= 0 { give back system_named }
     pilot word_named = v4_mir_try_lower_word_named_intrinsic(mir_id, body_id, stream_id, first, last, expr_span)
@@ -11299,6 +11501,26 @@ task v4_mir_lower_say_literal_stmt(mir_id: int, body_id: int, block_id: int, str
     give back block_id
 }
 
+-- Bible 4.5: direct_order [arch] { asm } is inline assembly, at .commander
+-- or higher. V4 does not lower it: the block is refused by name with the
+-- rank it needs, and its body is never read as FREAK.
+task v4_mir_is_direct_order_stmt(mir_id: int, body_id: int, stream_id: int, first: int, stmt_end: int) -> bool {
+    if v4_lex_token_type(stream_id, first) != v4_tok_ident or v4_lex_token_syntax_value(stream_id, first) != "direct_order" { give back false }
+    pilot open = v4_mir_next_nontrivia(stream_id, first + 1, stmt_end)
+    if open >= stmt_end or v4_lex_token_syntax_value(stream_id, open) != "[" { give back false }
+    give back v4_mir_find_local_visible_at(mir_id, body_id, "direct_order", v4_span_start(v4_lex_token_span(stream_id, first))) < 0
+}
+
+task v4_mir_lower_direct_order_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, first: int, stmt_end: int) -> int {
+    pilot span = v4_mir_span_from_tokens(stream_id, first, stmt_end)
+    pilot head_end = v4_mir_next_nontrivia(stream_id, first + 1, stmt_end)
+    repeat until head_end >= stmt_end or v4_lex_token_syntax_value(stream_id, head_end) == "]" { head_end += 1 }
+    if head_end < stmt_end { head_end += 1 }
+    v4_mir_check_raw_mem_trust(mir_id, span, "direct_order", "commander")
+    v4_mir_add_type_error(mir_id, span, "native direct_order inline assembly is not yet supported: " + v4_mir_expr_text(stream_id, first, head_end), "V4 does not lower inline assembly; call an assembly or C routine through an extern [C] block instead")
+    give back block_id
+}
+
 task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> int {
     pilot first = v4_mir_skip_trivia(stream_id, stmt_start)
     if first >= stmt_end {
@@ -11346,6 +11568,8 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
         give back v4_mir_lower_only_on_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "trust" {
         give back v4_mir_lower_trust_me_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+    } else if v4_mir_is_direct_order_stmt(mir_id, body_id, stream_id, first, stmt_end) {
+        give back v4_mir_lower_direct_order_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     }
