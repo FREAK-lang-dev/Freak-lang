@@ -6,6 +6,9 @@ pilot CLI_RUNTIME_CACHE_FILE_LIMIT = 67108864
 pilot CLI_RUNTIME_CACHE_META_LIMIT = 1048576
 pilot CLI_RUNTIME_CACHE_DEP_LIMIT = 4096
 pilot mut cli_runtime_cache_profile = "o0"
+-- Set by cli_load_std when the program (or a package) uses std::tls: the
+-- build then compiles and links the optional TLS runtime units (mbedTLS).
+pilot mut cli_link_tls = false
 pilot mut cli_runtime_cache_policy = "default"
 pilot mut cli_runtime_cache_stats = "off"
 pilot mut cli_runtime_cache_context_ready = false
@@ -430,12 +433,20 @@ task cli_runtime_cache_units(runtime_dir: word, target: word, cross: word) -> in
     if target == "llvm" { array_push(units, "freak_llvm_runtime.c") }
     array_push(units, "freak_runtime.c")
     if cli_runtime_cache_ui(runtime_dir, cross) { array_push(units, "ui/win32_backend.c") }
+    if cli_link_tls {
+        array_push(units, "freak_tls.c")
+        array_push(units, "freak_tls_core.c")
+        array_push(units, "freak_tls_extra.c")
+    }
     give back units
 }
 
 task cli_runtime_cache_stem(unit: word) -> word {
     if unit == "freak_runtime.c" { give back "common" }
     if unit == "freak_llvm_runtime.c" { give back "llvm" }
+    if unit == "freak_tls.c" { give back "tls" }
+    if unit == "freak_tls_core.c" { give back "tls_core" }
+    if unit == "freak_tls_extra.c" { give back "tls_extra" }
     give back "ui"
 }
 

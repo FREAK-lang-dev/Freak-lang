@@ -1289,7 +1289,8 @@ task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> wor
 
 task cli_runtime_link_plan(runtime_dir: word, lto: word, cross: word) -> word {
     pilot runtime_obj_ext = cli_precompiled_runtime_extension(runtime_dir)
-    if cli_link_is_windows(cross) and cross == "" and lto == "off" and runtime_obj_ext != "" {
+    -- The packaged Windows objects don't include the optional TLS units.
+    if cli_link_is_windows(cross) and cross == "" and lto == "off" and runtime_obj_ext != "" and not cli_link_tls {
         give back "bundle"
     }
     give back "source"
@@ -1783,6 +1784,11 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         } else {
             process::command_arg(command, runtime_dir + "/freak_runtime.c")
         }
+        if cli_link_tls {
+            process::command_arg(command, runtime_dir + "/freak_tls.c")
+            process::command_arg(command, runtime_dir + "/freak_tls_core.c")
+            process::command_arg(command, runtime_dir + "/freak_tls_extra.c")
+        }
         cli_build_lto_args(command, lto)
 
         if not is_win {
@@ -2098,6 +2104,7 @@ task cli_load_std(source: word, target: word) -> word {
     -- Returns concatenated source, or "" if std not found. Updated std
     -- bundles replace only unpinned modules; see std_store.fk.
     pilot std_dir: word = cli_find_std_dir()
+    cli_link_tls = false
     if std_dir == "" { give back "" }
     if not cli_std_plan() { give back "" }
     pilot std_src = ""
@@ -2112,6 +2119,7 @@ task cli_load_std(source: word, target: word) -> word {
         if mode == "use" { wanted = source.contains("use std::" + name) }
         if wanted and fs::exists(path) {
             if name == "runtime" { trusted_internal_runtime_source_file = path }
+            if name == "tls" { cli_link_tls = true }
             std_src = cli_append_mapped_source(std_src, path)
         }
         i += 1

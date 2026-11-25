@@ -1,0 +1,8 @@
+full: TLSv1.3 alpn=http/1.1/http/1.1 verified peer-cert end-point no-client-cert echo-ok drained close-seen
+ip: TLSv1.3 alpn=/ verified peer-cert end-point no-client-cert echo-ok drained close-seen
+wrong host: handshake -4 (verify failed)
+chain only: TLSv1.3 alpn=/ verified peer-cert end-point no-client-cert echo-ok drained close-seen
+no verify: TLSv1.3 alpn=/ peer-cert end-point no-client-cert echo-ok drained close-seen
+mismatched key: 0 the private key doesn't belong to the certificate
+bad ca: 0 true
+live sessions: 0

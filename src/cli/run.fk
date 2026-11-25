@@ -227,6 +227,16 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_fs.inc")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_json.inc")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_v35_http.inc")
+        if cli_link_tls {
+            -- std::tls programs also compile the optional TLS units.
+            material = material + "|tls"
+            material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_tls.c")
+            material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_tls_core.c")
+            material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_tls_extra.c")
+            material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/third_party/mbedtls/mbedtls_core.inc")
+            material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/third_party/mbedtls/mbedtls_extra.inc")
+            material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/third_party/mbedtls/mbedtls_keys.inc")
+        }
         -- Match freak_v35_http.inc's __has_include selection. The same
         -- amalgamation compiles these headers and C sources into the runtime.
         pilot http_vendor = runtime_dir + "/../../third_party/llhttp"

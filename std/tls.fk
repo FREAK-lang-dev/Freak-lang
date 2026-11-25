@@ -1,0 +1,199 @@
+-- ===================================================================
+-- FREAK Standard Library — std::tls (V3.5 floor)
+-- ===================================================================
+-- TLS 1.2 and 1.3 over std TCP sockets, for clients and servers, on the
+-- runtime's vendored mbedTLS 3.6 LTS. Programs that use this module get
+-- the TLS runtime units linked in; other programs never carry them.
+--
+--   use std::tls::{tls_client_config, tls_client, tls_handshake, tls_send_all, tls_receive}
+--
+-- A config is made once and shared; a session wraps one connected TCP
+-- socket (the socket stays yours: release the session, then close it).
+--
+--   client: verify 2 = check the chain and the host name (the default to
+--           use), 1 = chain only, 0 = encrypt without checking. An empty
+--           ca_pem means the system trust store (SSL_CERT_FILE overrides).
+--   server: PEM certificate chain + PEM private key.
+--   alpn:   "" or a comma list such as "h2,http/1.1".
+--
+-- Calls give back a byte count, 0, or one of the TLS_* codes below. On a
+-- blocking socket tls_handshake / tls_send_all / tls_receive simply wait;
+-- after tls_set_nonblocking(s, true) they give back TLS_WANT_READ or
+-- TLS_WANT_WRITE instead, and the caller retries when the socket is ready
+-- (tls_pending tells whether decrypted bytes are already waiting).
+--
+-- Session resumption, client certificates and OCSP are V4.
+-- ===================================================================
+
+extern task freak_tls_client_config_new(alpn: ByteBuffer, verify_mode: int, ca_pem: ByteBuffer) -> int
+extern task freak_tls_server_config_new(cert_pem: ByteBuffer, key_pem: ByteBuffer, alpn: ByteBuffer) -> int
+extern task freak_tls_config_release(config: int) -> void
+extern task freak_tls_client_new(config: int, tcp: int, host: ByteBuffer) -> int
+extern task freak_tls_server_new(config: int, tcp: int) -> int
+extern task freak_tls_set_nonblocking(session: int, on: int) -> void
+extern task freak_tls_handshake(session: int) -> int
+extern task freak_tls_send(session: int, data: ByteBuffer, offset: int, count: int) -> int
+extern task freak_tls_flush(session: int) -> int
+extern task freak_tls_receive(session: int, out: ByteBuffer, max_bytes: int) -> int
+extern task freak_tls_pending(session: int) -> int
+extern task freak_tls_close_notify(session: int) -> int
+extern task freak_tls_release(session: int) -> void
+extern task freak_tls_status(session: int) -> int
+extern task freak_tls_verified(session: int) -> int
+extern task freak_tls_info(session: int, what: int, out: ByteBuffer) -> int
+extern task freak_tls_last_error(out: ByteBuffer) -> int
+extern task freak_tls_live_sessions() -> int
+
+fixed pilot TLS_WANT_READ = -1
+fixed pilot TLS_WANT_WRITE = -2
+fixed pilot TLS_CLOSED = -3
+fixed pilot TLS_FAILED = -4
+fixed pilot TLS_TIMED_OUT = -5
+
+fixed pilot TLS_VERIFY_NONE = 0
+fixed pilot TLS_VERIFY_CHAIN = 1
+fixed pilot TLS_VERIFY_FULL = 2
+
+task tls_bytes_of(text: word) -> ByteBuffer {
+    pilot mut b = ByteBuffer::new()
+    if text.length() > 0 { b.write_word(text) }
+    give back b
+}
+
+-- A client config, or 0 (see tls_last_error()).
+task tls_client_config(alpn: word, verify: int, ca_pem: word) -> int {
+    pilot mut a = tls_bytes_of(alpn)
+    pilot mut c = tls_bytes_of(ca_pem)
+    pilot config = freak_tls_client_config_new(a, verify, c)
+    a.release()
+    c.release()
+    give back config
+}
+
+-- A server config from PEM text, or 0 (see tls_last_error()).
+task tls_server_config(cert_pem: word, key_pem: word, alpn: word) -> int {
+    pilot mut c = tls_bytes_of(cert_pem)
+    pilot mut k = tls_bytes_of(key_pem)
+    pilot mut a = tls_bytes_of(alpn)
+    pilot config = freak_tls_server_config_new(c, k, a)
+    c.release()
+    k.release()
+    a.release()
+    give back config
+}
+
+-- Sessions made from a config keep it alive until they are released.
+task tls_config_release(config: int) -> void { freak_tls_config_release(config) }
+
+-- A client session on a connected TCP socket, or 0. `host` goes out as SNI
+-- and is what verify mode 2 checks the certificate against.
+task tls_client(config: int, tcp: int, host: word) -> int {
+    pilot mut h = tls_bytes_of(host)
+    pilot session = freak_tls_client_new(config, tcp, h)
+    h.release()
+    give back session
+}
+
+-- A server session on an accepted TCP socket, or 0.
+task tls_server(config: int, tcp: int) -> int { give back freak_tls_server_new(config, tcp) }
+
+task tls_set_nonblocking(session: int, on: bool) -> void {
+    if on { freak_tls_set_nonblocking(session, 1) } else { freak_tls_set_nonblocking(session, 0) }
+}
+
+-- 0 when the handshake is done, else a TLS_* code.
+task tls_handshake(session: int) -> int { give back freak_tls_handshake(session) }
+
+-- Bytes accepted (encrypted and queued) from data[offset, offset + count),
+-- or a TLS_* code. After TLS_WANT_WRITE, call tls_flush when writable.
+task tls_send(session: int, data: ByteBuffer, offset: int, count: int) -> int {
+    give back freak_tls_send(session, data, offset, count)
+}
+
+task tls_flush(session: int) -> int { give back freak_tls_flush(session) }
+
+-- Everything in `data`, for blocking sockets. False on any failure.
+task tls_send_all(session: int, data: ByteBuffer) -> bool {
+    pilot total = data.length()
+    pilot mut sent = 0
+    repeat while sent < total {
+        pilot n = freak_tls_send(session, data, sent, total - sent)
+        if n <= 0 { give back false }
+        sent = sent + n
+    }
+    give back true
+}
+
+task tls_send_text(session: int, text: word) -> bool {
+    pilot mut b = tls_bytes_of(text)
+    pilot good = tls_send_all(session, b)
+    b.release()
+    give back good
+}
+
+-- Appends up to max_bytes decrypted bytes to `out`: the count, 0 when the
+-- peer closed the connection, or a TLS_* code.
+task tls_receive(session: int, out: ByteBuffer, max_bytes: int) -> int {
+    give back freak_tls_receive(session, out, max_bytes)
+}
+
+-- Decrypted bytes already waiting (a readable socket isn't needed for them).
+task tls_pending(session: int) -> int { give back freak_tls_pending(session) }
+
+-- Sends close_notify. 0, or TLS_WANT_WRITE on a non-blocking socket.
+task tls_close(session: int) -> int { give back freak_tls_close_notify(session) }
+
+-- Frees the session; the TCP socket stays open for the caller to close.
+task tls_release(session: int) -> void { freak_tls_release(session) }
+
+-- The last result: 0 or a TLS_* code.
+task tls_status(session: int) -> int { give back freak_tls_status(session) }
+
+-- True when a client session checked the server's certificate and it passed.
+task tls_verified(session: int) -> bool { give back freak_tls_verified(session) == 1 }
+
+task tls_info_word(session: int, what: int) -> word {
+    pilot mut b = ByteBuffer::new()
+    freak_tls_info(session, what, b)
+    pilot text = b.to_word()
+    b.release()
+    give back text
+}
+
+-- Why the last call on this session failed ("" if it didn't).
+task tls_error(session: int) -> word { give back tls_info_word(session, 0) }
+
+-- The ALPN protocol the peers agreed on, or "".
+task tls_alpn(session: int) -> word { give back tls_info_word(session, 1) }
+
+-- "TLSv1.3" or "TLSv1.2" once the handshake is done.
+task tls_version(session: int) -> word { give back tls_info_word(session, 2) }
+
+-- The cipher suite name once the handshake is done.
+task tls_cipher(session: int) -> word { give back tls_info_word(session, 3) }
+
+-- Appends the peer's certificate (DER) to `out`. False, with nothing
+-- appended, when the peer sent none (or the handshake isn't done).
+task tls_peer_certificate(session: int, out: ByteBuffer) -> bool {
+    give back freak_tls_info(session, 4, out) == 1
+}
+
+-- Appends the RFC 5929 tls-server-end-point channel binding (the peer's
+-- certificate hashed with its signature hash; MD5 and SHA-1 become
+-- SHA-256), as Postgres SCRAM-SHA-256-PLUS uses it. False when there is no
+-- certificate or it is signed without SHA-1/2 (Ed25519, say).
+task tls_server_end_point(session: int, out: ByteBuffer) -> bool {
+    give back freak_tls_info(session, 5, out) == 1
+}
+
+-- Why the last config or session creation gave back 0.
+task tls_last_error() -> word {
+    pilot mut b = ByteBuffer::new()
+    freak_tls_last_error(b)
+    pilot text = b.to_word()
+    b.release()
+    give back text
+}
+
+-- TLS sessions not yet released (a leak check).
+task tls_live_sessions() -> int { give back freak_tls_live_sessions() }
