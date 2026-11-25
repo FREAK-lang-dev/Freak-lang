@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from runtime_objects import runtime_objects
 import time
 
 
@@ -135,17 +136,12 @@ def execute_case(compiler: Path, repo: Path, root: Path, backend: str,
     clang = shutil.which(os.environ.get("FREAK_CLANG", "clang"))
     if not clang:
         raise AssertionError("Clang is required")
-    command = [clang, "-O2", "-g", str(generated), str(runtime / "freak_runtime.c"),
-               "-I", str(runtime), "-o", str(binary)]
-    if backend == "llvm":
-        command.append(str(runtime / "freak_llvm_runtime.c"))
-        command.append("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1")
-    else:
-        command.append("-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
-    if sys.platform == "win32":
-        command += ["-D_CRT_SECURE_NO_WARNINGS", "-lws2_32"]
-    else:
-        command += ["-lm", "-fsanitize=address", "-fno-omit-frame-pointer"]
+    flags = ["-O2", "-g", "-I", str(runtime)]
+    flags.append("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1" if backend == "llvm" else "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
+    flags += ["-D_CRT_SECURE_NO_WARNINGS"] if sys.platform == "win32" else ["-fsanitize=address", "-fno-omit-frame-pointer"]
+    sources = [runtime / "freak_runtime.c"] + ([runtime / "freak_llvm_runtime.c"] if backend == "llvm" else [])
+    command = [clang, *flags, str(generated), *runtime_objects(clang, sources, flags, root), "-o", str(binary)]
+    command += ["-lws2_32"] if sys.platform == "win32" else ["-lm"]
     require_ok(run(command, root, 120), f"{name}/{backend} native link")
     started = time.perf_counter()
     result = run([str(binary)], root)
