@@ -105,6 +105,8 @@ struct freak_http_request {
     freak_http_conn *conn;
     freak_http_request *ready_next;
     char error[192];
+    /* The TCP peer of the connection the request arrived on. */
+    char peer_ip[48]; int peer_port;
 };
 struct freak_http_conn {
     freak_native_socket socket;
@@ -118,6 +120,7 @@ struct freak_http_conn {
     /* A streamed file response: -1 when none. */
     int file; uint64_t file_offset,file_remaining;
     uint64_t accepted_at,idle_deadline,write_deadline,write_idle,drain_deadline;
+    char peer_ip[48]; int peer_port;
 };
 typedef struct { uint32_t generation; freak_http_request *request; } freak_http_ticket;
 typedef union { max_align_t alignment; struct { size_t size; } metadata; } freak_http_allocation;
@@ -266,6 +269,7 @@ static freak_http_request *freak_http_new_request(freak_http_server *server,frea
     freak_http_request *request=freak_http_allocate(sizeof(freak_http_request));
     request->socket=FREAK_INVALID_NATIVE_SOCKET; request->server=server->ticket; request->limits=server->limits;
     request->current_header=-1; request->response_status=200; request->conn=conn;
+    if(conn) { memcpy(request->peer_ip,conn->peer_ip,sizeof(request->peer_ip)); request->peer_port=conn->peer_port; }
     freak_http_init_settings(); llhttp_init(&request->parser,HTTP_REQUEST,&freak_http_settings); request->parser.data=request;
     return request;
 }
@@ -1061,13 +1065,31 @@ static void freak_http_service(freak_http_conn *conn) {
     /* Out of budget with an edge still pending: revisit without waiting. */
     if(!conn->dead) freak_http_mark_hot(conn);
 }
+/* Numeric text of an accepted peer. An IPv4 client on a dual-stack listener
+   is reported as plain IPv4 rather than ::ffff:a.b.c.d. */
+static void freak_http_peer_text(const struct sockaddr_storage *peer,char *text,size_t capacity,int *port) {
+    text[0]=0; *port=0;
+    if(peer->ss_family==AF_INET) {
+        const struct sockaddr_in *v4=(const struct sockaddr_in *)peer;
+        if(!inet_ntop(AF_INET,(void *)&v4->sin_addr,text,(socklen_t)capacity)) text[0]=0;
+        *port=ntohs(v4->sin_port);
+    } else if(peer->ss_family==AF_INET6) {
+        const struct sockaddr_in6 *v6=(const struct sockaddr_in6 *)peer;
+        static const unsigned char mapped[12]={0,0,0,0,0,0,0,0,0,0,0xff,0xff};
+        const unsigned char *bytes=(const unsigned char *)&v6->sin6_addr;
+        if(memcmp(bytes,mapped,12)==0) { if(!inet_ntop(AF_INET,(void *)(bytes+12),text,(socklen_t)capacity)) text[0]=0; }
+        else if(!inet_ntop(AF_INET6,(void *)&v6->sin6_addr,text,(socklen_t)capacity)) text[0]=0;
+        *port=ntohs(v6->sin6_port);
+    }
+}
 static void freak_http_accept(freak_http_server *server) {
     for(int accepted=0;accepted<64;accepted++) {
         if(server->conn_count+server->detached_queued>=server->max_connections) { freak_http_listener_arm(server,false); return; }
+        struct sockaddr_storage peer; socklen_t peer_size=sizeof(peer); memset(&peer,0,sizeof(peer));
 #if defined(__linux__)
-        freak_native_socket socket_value=accept4(server->listener,NULL,NULL,SOCK_NONBLOCK|SOCK_CLOEXEC);
+        freak_native_socket socket_value=accept4(server->listener,(struct sockaddr *)&peer,&peer_size,SOCK_NONBLOCK|SOCK_CLOEXEC);
 #else
-        freak_native_socket socket_value=accept(server->listener,NULL,NULL);
+        freak_native_socket socket_value=accept(server->listener,(struct sockaddr *)&peer,&peer_size);
 #endif
         if(socket_value==FREAK_INVALID_NATIVE_SOCKET) {
             if(freak_tcp_socket_error_is_interrupted()) continue;
@@ -1091,6 +1113,7 @@ static void freak_http_accept(freak_http_server *server) {
         if(!configured) { freak_http_close_socket(&socket_value); continue; }
         freak_http_conn *conn=freak_http_allocate(sizeof(freak_http_conn));
         conn->socket=socket_value; conn->server=server; conn->readable=true; conn->writable=true; conn->file=-1; conn->accepted_at=freak_command_now_ms();
+        freak_http_peer_text(&peer,conn->peer_ip,sizeof(conn->peer_ip),&conn->peer_port);
         if(server->conn_count==server->conn_capacity) { size_t next=server->conn_capacity?server->conn_capacity*2:64; server->conns=freak_http_grow(server->conns,next*sizeof(*server->conns)); server->conn_capacity=next; }
         conn->index=server->conn_count; server->conns[server->conn_count++]=conn; freak_http_connection_live++;
         freak_http_begin_read(conn,freak_command_now_ms());
@@ -1223,6 +1246,8 @@ int64_t freak_http_server_request_status(int64_t ticket) { return freak_http_req
 freak_word freak_http_server_request_error(int64_t ticket) { return freak_word_copy_cstr(freak_http_require_request(ticket)->error); }
 static freak_http_request *freak_http_parsed(int64_t ticket) { freak_http_request *request=freak_http_require_request(ticket); if(!request->message_done || request->status) freak_http_fail("request metadata requires a successfully parsed request"); return request; }
 freak_word freak_http_server_request_method(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); return freak_http_word(request->method.data,request->method.length); }
+freak_word freak_http_server_request_peer_ip(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); return freak_http_word((const unsigned char *)request->peer_ip,strlen(request->peer_ip)); }
+int64_t freak_http_server_request_peer_port(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); return request->peer_port; }
 freak_word freak_http_server_request_target(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); return freak_http_word(request->target.data,request->target.length); }
 freak_word freak_http_server_request_path(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); size_t end=0; while(end<request->target.length && request->target.data[end]!='?') end++; return freak_http_word(request->target.data,end); }
 freak_word freak_http_server_request_query(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); size_t begin=0; while(begin<request->target.length && request->target.data[begin]!='?') begin++; if(begin<request->target.length) begin++; return freak_http_word(request->target.data+begin,request->target.length-begin); }
@@ -1408,6 +1433,8 @@ int64_t freak_llvm_http_server_next_request(int64_t server) { return freak_http_
 int64_t freak_llvm_http_server_request_status(int64_t request) { return freak_http_server_request_status(request); }
 int64_t freak_llvm_http_server_request_error(int64_t request) { return freak_llvm_word_take(freak_http_server_request_error(request)); }
 int64_t freak_llvm_http_server_request_method(int64_t request) { return freak_llvm_word_take(freak_http_server_request_method(request)); }
+int64_t freak_llvm_http_server_request_peer_ip(int64_t request) { return freak_llvm_word_take(freak_http_server_request_peer_ip(request)); }
+int64_t freak_llvm_http_server_request_peer_port(int64_t request) { return freak_http_server_request_peer_port(request); }
 int64_t freak_llvm_http_server_request_target(int64_t request) { return freak_llvm_word_take(freak_http_server_request_target(request)); }
 int64_t freak_llvm_http_server_request_path(int64_t request) { return freak_llvm_word_take(freak_http_server_request_path(request)); }
 int64_t freak_llvm_http_server_request_query(int64_t request) { return freak_llvm_word_take(freak_http_server_request_query(request)); }
