@@ -10041,7 +10041,8 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
                 if not c_width_used { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_c_width_runtime_declarations()) }
                 c_width_used = true
                 -- A lent-word shim reads the byte length from the word runtime.
-                if not word_bytes_declared and v4_codegen_llvm_decl_params(codegen_id, decl_id).contains("$W$") and not array_get(v4_codegen_llvm_word_runtime_lines, codegen_id).contains("@freak_v4_word_bytes(") {
+                pilot runtime_lines: word = array_get(v4_codegen_llvm_word_runtime_lines, codegen_id)
+                if not word_bytes_declared and v4_codegen_llvm_decl_params(codegen_id, decl_id).contains("$W$") and not runtime_lines.contains("@freak_v4_word_bytes(") {
                     v4_codegen_llvm_fragment_push(parts, "declare i64 @freak_v4_word_bytes(i64) readonly nounwind\n")
                     word_bytes_declared = true
                 }
