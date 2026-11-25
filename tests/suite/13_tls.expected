@@ -7,5 +7,6 @@ backpressure: queued drained status-0 send-after-ok truncation-seen
 send timeout: first -5 drained then refused
 close backpressure: close -2 send-refused closed exact clean-end
 mismatched key: 0 the private key doesn't belong to the certificate
+huge chain: 0 true
 bad ca: 0 true
 live sessions: 0

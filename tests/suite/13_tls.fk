@@ -1,7 +1,7 @@
 -- std::tls: a client and a server in one process over loopback, both on
 -- non-blocking sessions so the two handshakes can take turns. The test CA
 -- and the localhost certificate (P-256) are valid until 2126.
-use std::tls::{tls_client_config, tls_server_config, tls_client, tls_server, tls_set_nonblocking, tls_handshake, tls_send, tls_receive, tls_pending, tls_close, tls_release, tls_config_release, tls_flush, tls_status, tls_closed_cleanly, tls_verified, tls_alpn, tls_version, tls_error, tls_last_error, tls_live_sessions, tls_peer_certificate, tls_server_end_point}
+use std::tls::{tls_client_config, tls_server_config, tls_client, tls_server, tls_set_nonblocking, tls_handshake, tls_send, tls_receive, tls_pending, tls_close, tls_release, tls_config_release, tls_flush, tls_status, tls_closed_cleanly, tls_verified, tls_alpn, tls_version, tls_error, tls_last_error, tls_live_sessions, tls_peer_certificate, tls_server_end_point, TLS_FAILED}
 use std::crypto::{crypto_sha256}
 
 task test_ca() -> word {
@@ -266,7 +266,7 @@ task send_timeout() -> word {
         }
         if drained > 0 { outcome = outcome + " drained" }
         pilot again = tls_send(client, chunk, 0, 2)
-        if again < 0 { outcome = outcome + " then refused" } else { outcome = outcome + " then accepted " + word_from_int(again) }
+        if again == TLS_FAILED { outcome = outcome + " then refused" } else { outcome = outcome + " then accepted " + word_from_int(again) }
         chunk.release()
     }
     tls_release(client)
@@ -354,6 +354,14 @@ task main() {
     say "close backpressure: " + close_backpressure()
     pilot bad = tls_server_config(test_cert(), test_other_key(), "")
     say "mismatched key: " + word_from_int(bad) + " " + tls_last_error()
+    pilot mut huge_chain = ""
+    pilot mut copies = 0
+    repeat while copies < 40 {
+        huge_chain = huge_chain + test_cert()
+        copies = copies + 1
+    }
+    pilot huge = tls_server_config(huge_chain, test_key(), "")
+    say "huge chain: " + word_from_int(huge) + " " + tls_last_error().contains("certificate chain is too large").to_word()
     pilot garbage = tls_client_config("", 2, "not a certificate")
     say "bad ca: " + word_from_int(garbage) + " " + tls_last_error().contains("could not read the CA certificates").to_word()
     say "live sessions: " + word_from_int(tls_live_sessions())
