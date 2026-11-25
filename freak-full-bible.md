@@ -2389,6 +2389,13 @@ refused until monomorphized layout queries exist.
 > untyped memory" never hands out uninitialized bytes. `ZeroValid` does not
 > exist yet, so `zeroed<T>()` always needs `trust me`.
 > `copy_nonoverlapping` is gated at `.ace` and refused as not yet supported.
+> The queries are compile-time per target: LLVM folds them for the
+> target being built. V4 constants (root `fixed pilot`, array lengths,
+> repeat counts) are target independent, so a layout query in a constant
+> context is refused by name until constant evaluation is target aware.
+> A C width alias (`c_int`, `c_short`, ...) in a type argument stays
+> fenced by name like every other non-boundary C width position, and an
+> array length in a type argument must be a non-negative constant.
 
 `Shared<T>` is the official tool for IDE widget graphs, syntax tree
 sharing, cached diagnostics, and UI state that outlives one function call.

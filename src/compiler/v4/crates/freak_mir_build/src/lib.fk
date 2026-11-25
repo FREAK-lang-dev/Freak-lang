@@ -1409,7 +1409,10 @@ task v4_mir_validate_type_contract(mir_id: int, sig_id: int, stmt_span: word, ty
         }
         pilot length_text = v4_ty_fixed_array_length_text(type_text)
         pilot resolved_length = v4_ty_const_integer_text_from_expr(v4_mir_ty_id(mir_id), length_text)
-        if resolved_length == v4_ty_unknown {
+        if resolved_length == v4_ty_unknown and v4_ty_text_has_layout_query(length_text) {
+            v4_mir_add_type_error(mir_id, stmt_span, v4_ty_layout_query_const_message(), "array length of " + context + ": " + v4_ty_layout_query_const_help(length_text))
+            valid = false
+        } else if resolved_length == v4_ty_unknown {
             pilot const_ty = v4_ty_const_value_type_for_name(v4_mir_ty_id(mir_id), v4_ty_strip_const_expr_wrappers(length_text))
             if const_ty != v4_ty_unknown and not v4_ty_is_integer(const_ty) {
                 v4_mir_add_type_error(mir_id, stmt_span, message, "array length of " + context + " must use int or uint constant, but " + v4_ty_strip_const_expr_wrappers(length_text) + " has type " + const_ty)
@@ -3830,6 +3833,10 @@ task v4_mir_raw_mem_intrinsic_name(name: word) -> bool {
 }
 
 -- The names that take one type argument before their parentheses.
+task v4_mir_unary_is_raw_mem(op: word) -> bool {
+    give back op == v4_mir_unary_raw_alloc or op == v4_mir_unary_raw_free or op == v4_mir_unary_raw_null or op == v4_mir_unary_size_of or op == v4_mir_unary_align_of or op == v4_mir_unary_zeroed or op == v4_mir_unary_ptr_read_unaligned
+}
+
 task v4_mir_raw_mem_typed_intrinsic_name(name: word) -> bool {
     give back name == "null" or name == "size_of" or name == "align_of" or name == "zeroed" or name == "copy_nonoverlapping"
 }
@@ -3898,6 +3905,8 @@ task v4_mir_raw_mem_type_arg(mir_id: int, body_id: int, stream_id: int, name: wo
         v4_mir_add_type_error(mir_id, expr_span, name + " type argument is not declared", ty + " is not a declared value type")
         give back ""
     }
+    -- Array lengths must resolve to non-negative constants, as in annotations.
+    if not v4_mir_validate_type_contract(mir_id, sig_id, expr_span, ty, "invalid " + name + " type argument", name + " type argument") { give back "" }
     give back ty
 }
 
@@ -3985,7 +3994,10 @@ task v4_mir_try_lower_raw_mem_intrinsic(mir_id: int, body_id: int, stream_id: in
         v4_mir_add_type_error(mir_id, expr_span, name + " takes no arguments", name + "<T>() takes no arguments but got " + word_from_int(count))
         v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open, last)
     }
-    if ty == "" { give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown) }
+    -- A layout query is an int even when its type argument is refused.
+    pilot failed_ty = v4_ty_unknown
+    if name == "size_of" or name == "align_of" { failed_ty = v4_ty_int }
+    if ty == "" { give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, failed_ty) }
     if name == "null" {
         pilot pointer_ty = "*" + ty
         if v4_ty_is_raw_pointer_type(expected_ty) and v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_raw_pointer_target_type(expected_ty)) == ty { pointer_ty = expected_ty }
@@ -3993,7 +4005,7 @@ task v4_mir_try_lower_raw_mem_intrinsic(mir_id: int, body_id: int, stream_id: in
     }
     if ty == v4_ty_void or ty == v4_ty_never {
         v4_mir_add_type_error(mir_id, expr_span, name + " needs a sized type", ty + " has no values to lay out; " + name + " takes a sized type such as int or (int, tiny)")
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, failed_ty)
     }
     pilot query = v4_mir_raw_mem_null_rvalue(mir_id, body_id, expr_text, expr_span, "*" + ty)
     if name == "zeroed" {
@@ -4741,6 +4753,9 @@ task v4_mir_const_integer_text_from_rvalue(mir_id: int, body_id: int, rvalue_id:
         give back v4_ty_const_integer_text_for_name(v4_mir_ty_id(mir_id), v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
     }
     if kind == v4_mir_rvalue_unary {
+        -- Raw memory builtins are never constants: a layout query's operand is
+        -- the null pointer it measures, not its value.
+        if v4_mir_unary_is_raw_mem(v4_mir_rvalue_op(mir_id, body_id, rvalue_id)) { give back v4_ty_unknown }
         pilot operand_text = v4_mir_const_integer_text_from_rvalue(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
         if operand_text == v4_ty_unknown or not v4_ty_is_integer_text_literal(operand_text) {
             give back v4_ty_unknown
@@ -4783,6 +4798,10 @@ task v4_mir_fixed_array_count_from_rvalue(mir_id: int, body_id: int, count_rvalu
             give back v4_ty_unknown
         }
         give back const_text
+    }
+    if v4_ty_text_has_layout_query(v4_mir_rvalue_text(mir_id, body_id, count_rvalue)) {
+        v4_mir_add_type_error(mir_id, expr_span, v4_ty_layout_query_const_message(), "array repeat count: " + v4_ty_layout_query_const_help(v4_mir_rvalue_text(mir_id, body_id, count_rvalue)))
+        give back v4_ty_unknown
     }
     if v4_ty_is_known(count_ty) and count_ty != v4_ty_int and count_ty != v4_ty_never {
         v4_mir_add_type_error(mir_id, expr_span, "array repeat count must be int", "got " + count_ty)

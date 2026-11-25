@@ -4631,6 +4631,13 @@ task v4_codegen_llvm_native_c_width_error(mir_id: int, ty_id: int) -> word {
                 -- (bytes, size_t) pair; the bare C symbol cannot take a word.
                 if named >= 0 and v4_codegen_llvm_signature_has_c_word_param(ty_id, named) { give back "native lend word C declarations cannot be task values yet: " + v4_mir_rvalue_text(mir_id, body, rvalue) }
             }
+            -- A raw memory type argument keeps its spelled C width surface.
+            if v4_mir_rvalue_kind(mir_id, body, rvalue) == v4_mir_rvalue_unary and v4_codegen_llvm_raw_mem_has_type_arg(v4_mir_rvalue_op(mir_id, body, rvalue)) {
+                pilot arg_surface = v4_ty_raw_mem_type_arg_surface(v4_mir_rvalue_text(mir_id, body, rvalue))
+                if arg_surface == v4_ty_unknown { give back "native raw memory type argument surface is unresolved" }
+                pilot error = v4_codegen_llvm_native_c_surface_error(ty_id, arg_surface, false)
+                if error != "" { give back error }
+            }
             if v4_mir_rvalue_kind(mir_id, body, rvalue) == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body, rvalue) == v4_mir_unary_ptr_cast {
                 pilot target_surface = v4_ty_raw_pointer_cast_target_surface(v4_mir_rvalue_text(mir_id, body, rvalue))
                 if target_surface == v4_ty_unknown { give back "native C ABI pointer cast surface is unresolved" }
@@ -6994,7 +7001,9 @@ task v4_codegen_llvm_raw_layout_type(mir_id: int, type_text: word, depth: int) -
         }
         give back v4_ty_tuple_slot_count(ty) > 0
     }
-    if v4_ty_is_fixed_array_type(ty) { give back v4_codegen_llvm_raw_layout_type(mir_id, v4_ty_fixed_array_element_type(ty), depth + 1) }
+    -- A fixed array needs a resolved non-negative length; an unresolved one
+    -- would lower as a pointer.
+    if v4_ty_is_fixed_array_type(ty) { give back v4_codegen_llvm_fixed_array_length(mir_id, ty) >= 0 and v4_codegen_llvm_raw_layout_type(mir_id, v4_ty_fixed_array_element_type(ty), depth + 1) }
     -- A nongeneric shape of layout types has a record and a freak_target layout.
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot sig = v4_mir_shape_signature(mir_id, ty)
@@ -7005,6 +7014,10 @@ task v4_codegen_llvm_raw_layout_type(mir_id: int, type_text: word, depth: int) -
         field += 1
     }
     give back true
+}
+
+task v4_codegen_llvm_raw_mem_has_type_arg(op: word) -> bool {
+    give back op == v4_mir_unary_raw_null or op == v4_mir_unary_size_of or op == v4_mir_unary_align_of or op == v4_mir_unary_zeroed
 }
 
 task v4_codegen_llvm_is_raw_mem_op(op: word) -> bool {

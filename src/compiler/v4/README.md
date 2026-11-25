@@ -1613,6 +1613,12 @@ fixed arrays of them, and nongeneric shapes of them; others are refused by
 name. `copy_nonoverlapping` and `lend *ptr` (`.ace+`) and `direct_order`
 (`.commander+`) are gated at their rank and then refused as not yet supported.
 The std::mem names are builtins wherever the program declares none of its own.
+A type argument keeps its spelled surface for the C width fence
+(`size_of<c_int>()` is refused by name, not answered with the int width), its
+array lengths must be non-negative constants, and a layout query in a constant
+context (root `fixed pilot`, array lengths, repeat counts) is refused as
+`layout queries in constant expressions are not yet supported`: TY constants
+are target independent and the query folds per target.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
 fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts
