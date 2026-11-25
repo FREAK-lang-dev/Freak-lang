@@ -1,0 +1,34 @@
+-- maybe/result carriers of dyn values have no box drop yet.
+-- bible: 1.6
+-- expect: reject codegen
+-- error: native maybe/result values that hold dyn values are not yet supported: maybe<dyn Unit>
+
+doctrine Unit {
+    task power(lend self) -> int
+    task train(lend mut self, by: int) -> void
+    task spend(self) -> int
+}
+shape Pilot { name: word, power: int }
+impl Unit for Pilot {
+    task power(lend self) -> int { give back self.power }
+    task train(lend mut self, by: int) -> void { self.power = self.power + by }
+    task spend(self) -> int { give back self.power }
+}
+impl Unit for int {
+    task power(lend self) -> int { give back self }
+    task train(lend mut self, by: int) -> void { self = self + by }
+    task spend(self) -> int { give back self }
+}
+task make(k: int) -> dyn Unit {
+    if k > 0 { give back Pilot { name: "P" + word_from_int(k), power: k } }
+    give back k
+}
+task consume(u: dyn Unit) -> int { give back u.spend() }
+task pick(k: int) -> maybe<dyn Unit> {
+    if k > 0 { give back some(make(k)) }
+    give back nobody
+}
+task main() -> int {
+    pilot m = pick(1)
+    give back 0
+}

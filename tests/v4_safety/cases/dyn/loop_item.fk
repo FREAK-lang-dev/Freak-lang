@@ -1,0 +1,32 @@
+-- A for-each item is a copy of its element, and dyn values have no clone.
+-- bible: 1.6
+-- expect: reject codegen
+-- error: native loop items that hold dyn values are not yet supported (dyn values have no clone): dyn Unit
+
+doctrine Unit {
+    task power(lend self) -> int
+    task train(lend mut self, by: int) -> void
+    task spend(self) -> int
+}
+shape Pilot { name: word, power: int }
+impl Unit for Pilot {
+    task power(lend self) -> int { give back self.power }
+    task train(lend mut self, by: int) -> void { self.power = self.power + by }
+    task spend(self) -> int { give back self.power }
+}
+impl Unit for int {
+    task power(lend self) -> int { give back self }
+    task train(lend mut self, by: int) -> void { self = self + by }
+    task spend(self) -> int { give back self }
+}
+task make(k: int) -> dyn Unit {
+    if k > 0 { give back Pilot { name: "P" + word_from_int(k), power: k } }
+    give back k
+}
+task consume(u: dyn Unit) -> int { give back u.spend() }
+task main() -> int {
+    pilot xs: List<dyn Unit> = [make(1)]
+    pilot mut n = 0
+    for each x in xs { n = n + x.power() }
+    give back n
+}

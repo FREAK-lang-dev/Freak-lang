@@ -1,0 +1,40 @@
+-- A box consumed on one path only is dropped under its flag on the other.
+-- bible: 4.1
+-- expect: run
+-- stdout: 1
+-- stdout: 20
+
+doctrine Unit {
+    task power(lend self) -> int
+    task train(lend mut self, by: int) -> void
+    task spend(self) -> int
+}
+shape Pilot { name: word, power: int }
+impl Unit for Pilot {
+    task power(lend self) -> int { give back self.power }
+    task train(lend mut self, by: int) -> void { self.power = self.power + by }
+    task spend(self) -> int { give back self.power }
+}
+impl Unit for int {
+    task power(lend self) -> int { give back self }
+    task train(lend mut self, by: int) -> void { self = self + by }
+    task spend(self) -> int { give back self }
+}
+task make(k: int) -> dyn Unit {
+    if k > 0 { give back Pilot { name: "P" + word_from_int(k), power: k } }
+    give back k
+}
+task consume(u: dyn Unit) -> int { give back u.spend() }
+task main() -> int {
+    pilot mut sum = 0
+    pilot mut i = 0
+    while i < 3 {
+        pilot recruit = make(i)
+        if i == 1 { sum = sum + consume(recruit) }
+        i = i + 1
+    }
+    say sum
+    pilot reserve = make(20)
+    if sum > 0 { say consume(reserve) }
+    give back 0
+}

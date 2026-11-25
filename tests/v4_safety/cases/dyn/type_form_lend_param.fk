@@ -1,0 +1,31 @@
+-- A type-form lend dyn D parameter stays fenced; declare the mode instead.
+-- bible: 1.6
+-- expect: reject codegen
+-- error: native lend-typed dyn parameters are not yet supported; declare the mode instead (lend w: dyn D): w
+
+doctrine Unit {
+    task power(lend self) -> int
+    task train(lend mut self, by: int) -> void
+    task spend(self) -> int
+}
+shape Pilot { name: word, power: int }
+impl Unit for Pilot {
+    task power(lend self) -> int { give back self.power }
+    task train(lend mut self, by: int) -> void { self.power = self.power + by }
+    task spend(self) -> int { give back self.power }
+}
+impl Unit for int {
+    task power(lend self) -> int { give back self }
+    task train(lend mut self, by: int) -> void { self = self + by }
+    task spend(self) -> int { give back self }
+}
+task make(k: int) -> dyn Unit {
+    if k > 0 { give back Pilot { name: "P" + word_from_int(k), power: k } }
+    give back k
+}
+task consume(u: dyn Unit) -> int { give back u.spend() }
+task peek(w: lend dyn Unit) -> int { give back w.power() }
+task main() -> int {
+    pilot a = make(2)
+    give back peek(lend a)
+}

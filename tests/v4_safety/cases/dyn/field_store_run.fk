@@ -1,0 +1,44 @@
+-- A dyn shape field: a store releases the old box in place (a DropSlot),
+-- and a partial move out of the field leaves a null box the drop skips.
+-- bible: 4.1
+-- expect: run
+-- stdout: 9
+-- stdout: 31
+-- stdout: 31
+
+doctrine Unit {
+    task power(lend self) -> int
+    task train(lend mut self, by: int) -> void
+    task spend(self) -> int
+}
+shape Pilot { name: word, power: int }
+impl Unit for Pilot {
+    task power(lend self) -> int { give back self.power }
+    task train(lend mut self, by: int) -> void { self.power = self.power + by }
+    task spend(self) -> int { give back self.power }
+}
+impl Unit for int {
+    task power(lend self) -> int { give back self }
+    task train(lend mut self, by: int) -> void { self = self + by }
+    task spend(self) -> int { give back self }
+}
+task make(k: int) -> dyn Unit {
+    if k > 0 { give back Pilot { name: "P" + word_from_int(k), power: k } }
+    give back k
+}
+task consume(u: dyn Unit) -> int { give back u.spend() }
+shape Holder { u: dyn Unit, n: int }
+task promote(lend mut h: Holder) -> void {
+    h.u.train(1)
+    h.u = make(30)
+}
+task main() -> int {
+    pilot mut h = Holder { u: make(2), n: 1 }
+    h.u = make(9)
+    say h.u.power()
+    promote(lend mut h)
+    say h.u.power() + h.n
+    pilot q = h.u
+    say q.power() + h.n
+    give back 0
+}
