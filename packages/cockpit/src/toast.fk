@@ -1,3 +1,11 @@
+use self::blackbox::{
+    cockpit_bb_draw_fill,
+    cockpit_bb_draw_stroke,
+    cockpit_bb_draw_text,
+    cockpit_bb_measure,
+    cockpit_blackbox_height,
+    cockpit_blackbox_width
+}
 use self::containers::{
     cockpit_values_get_int,
     cockpit_values_new,
@@ -23,6 +31,7 @@ use self::state::{
     cockpit_ui_mouse_clicked_value
 }
 use self::theme::{
+    cockpit_color_opaque,
     cockpit_color_b,
     cockpit_color_g,
     cockpit_color_mix,
@@ -169,8 +178,8 @@ task cockpit_toasts_draw(window: int) -> void {
     }
     pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
     pilot height = font_size + 20
-    pilot screen_w = ui::get_width(window)
-    pilot bottom = ui::get_height(window) - 12
+    pilot screen_w = cockpit_blackbox_width()
+    pilot bottom = cockpit_blackbox_height() - 12
     -- Newest at the bottom: walk newest-first by drawing in reverse creation order.
     pilot total = cockpit_toast_count()
     pilot drawn = 0
@@ -192,7 +201,7 @@ task cockpit_toast_draw_one(window: int, theme: int, slot: int, now: int, y: int
     pilot created = cockpit_values_get_int(cockpit_toast_meta, slot * 4 + 1)
     pilot duration = cockpit_values_get_int(cockpit_toast_meta, slot * 4 + 2)
     pilot age = now - created
-    pilot width = ui::measure_text(text, font_size, 0, 0) + 36
+    pilot width = cockpit_bb_measure(text, font_size, false) + 36
     -- Slide in from the right over 220 ms; fade toward the background in the last 300 ms.
     pilot slide = cockpit_ease(cockpit_ease_out_cubic, age * 1000 / 220)
     pilot x = screen_w - 12 - width * slide / 1000
@@ -207,10 +216,10 @@ task cockpit_toast_draw_one(window: int, theme: int, slot: int, now: int, y: int
     pilot fg = cockpit_color_mix(cockpit_theme_get(theme, cockpit_theme_text), bg, fade)
     pilot border = cockpit_color_mix(cockpit_theme_get(theme, cockpit_theme_border), bg, fade)
     cockpit_clip_push(window, x, y, width, height)
-    ui::fill_rect(window, x, y, width, height, cockpit_color_r(surface), cockpit_color_g(surface), cockpit_color_b(surface), 255)
-    ui::fill_rect(window, x, y, 5, height, cockpit_color_r(stripe), cockpit_color_g(stripe), cockpit_color_b(stripe), 255)
-    ui::stroke_rect(window, x, y, width, height, cockpit_color_r(border), cockpit_color_g(border), cockpit_color_b(border), 255, 1)
-    pilot ignored = ui::draw_text(window, text, x + 18, y + 10, cockpit_color_r(fg), cockpit_color_g(fg), cockpit_color_b(fg), font_size, false, false)
+    cockpit_bb_draw_fill(x, y, width, height, cockpit_color_opaque(surface))
+    cockpit_bb_draw_fill(x, y, 5, height, cockpit_color_opaque(stripe))
+    cockpit_bb_draw_stroke(x, y, width, height, cockpit_color_opaque(border), 1)
+    pilot ignored = cockpit_bb_draw_text(text, x + 18, y + 10, fg, font_size, false)
     cockpit_clip_pop(window)
     cockpit_values_set_int(cockpit_toast_rects, slot * 4, x)
     cockpit_values_set_int(cockpit_toast_rects, slot * 4 + 1, y)
