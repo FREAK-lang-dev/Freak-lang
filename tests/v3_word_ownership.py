@@ -942,6 +942,32 @@ def main() -> int:
             ("when_lifetime", WHEN_LIFETIME_PROGRAM, [], ["word", "num", "mixed", "matched"], ("c", "llvm")),
             ("predicate_ownership", PREDICATE_OWNERSHIP_PROGRAM, [], ["if", "2", "1"], ("c", "llvm")),
         )
+        # Every case links the same audited runtime with the same flags, so
+        # build each backend's runtime objects once instead of recompiling
+        # ~7.5k lines of runtime (with ASan) for all ~80 case binaries.
+        runtime_objects: dict[str, list[str]] = {}
+
+        def sanitizer_flags() -> list[str]:
+            return [] if sys.platform == "win32" else ["-fsanitize=address", "-fno-omit-frame-pointer"]
+
+        def audit_define(backend: str) -> str:
+            return ("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1" if backend == "llvm"
+                    else "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
+
+        def audited_runtime(clang: str, backend: str) -> list[str]:
+            if backend not in runtime_objects:
+                sources = (["freak_llvm_runtime.c", "freak_runtime.c"] if backend == "llvm"
+                           else ["freak_runtime.c"])
+                objects = []
+                for name in sources:
+                    obj = root / f"ownership_runtime_{backend}_{Path(name).stem}.o"
+                    built = run([clang, "-g", "-O1", "-c", "-o", str(obj), str(runtime_root / name),
+                                 *sanitizer_flags(), audit_define(backend), "-I", str(runtime_root)], repo)
+                    assert built.returncode == 0, built.stdout + built.stderr
+                    objects.append(str(obj))
+                runtime_objects[backend] = objects
+            return runtime_objects[backend]
+
         for case_name, program, extra_flags, expected_output, backends in cases:
             source = root / f"replace_owned_{case_name}.fk"
             source.write_text(program, encoding="utf-8")
@@ -1202,19 +1228,9 @@ def main() -> int:
                         encoding="utf-8",
                     )
                     command.append(str(extern_probe))
-                if sys.platform != "win32":
-                    command.extend(["-fsanitize=address", "-fno-omit-frame-pointer"])
-                if backend == "llvm":
-                    command.append("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1")
-                    command.extend(
-                        [
-                            str(runtime_root / "freak_llvm_runtime.c"),
-                            str(runtime_root / "freak_runtime.c"),
-                        ]
-                    )
-                else:
-                    command.append("-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
-                    command.append(str(runtime_root / "freak_runtime.c"))
+                command.extend(sanitizer_flags())
+                command.append(audit_define(backend))
+                command.extend(audited_runtime(clang, backend))
                 command.extend(["-I", str(runtime_root)])
                 if sys.platform == "win32":
                     command.append("-lws2_32")
