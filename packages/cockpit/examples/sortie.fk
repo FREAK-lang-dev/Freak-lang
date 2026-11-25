@@ -1,0 +1,53 @@
+use self::containers::{
+    cockpit_words_new,
+    cockpit_words_push,
+    cockpit_words_release
+}
+use self::hud::{
+    Cockpit,
+    sortie
+}
+use self::theme::{
+    cockpit_theme_success
+}
+
+-- A pre-flight checklist flown with the Cockpit shape: one sortie() call,
+-- methods for every widget, land() to clean up.
+
+task main() {
+    pilot p = sortie("Pre-flight", 420, 360)
+    pilot squadrons = cockpit_words_new()
+    cockpit_words_push(squadrons, "Valkyries")
+    cockpit_words_push(squadrons, "Storm Vanguard")
+    cockpit_words_push(squadrons, "Black Wolves")
+    pilot squadron = 0
+    pilot callsign = ""
+    pilot fuel = 80
+    pilot radar = true
+    pilot weapons = false
+    pilot cleared = false
+    repeat until p.landed() {
+        p.heading("Pre-flight checklist")
+        callsign = p.input_hint(callsign, "callsign")
+        squadron = p.dropdown(squadron, squadrons)
+        p.label("Fuel load")
+        fuel = p.slider(fuel, 0, 100)
+        p.progress(fuel * 10, word_from_int(fuel) + "%")
+        radar = p.checkbox("Radar check", radar)
+        weapons = p.toggle("Weapons free", weapons)
+        p.separator()
+        p.row(32)
+        if p.button("Request clearance") {
+            if callsign.length() == 0 { p.toast_danger("Callsign first") }
+            else {
+                cleared = true
+                p.toast_success(callsign + " cleared for launch")
+            }
+        }
+        if cleared { p.badge("CLEARED", p.color(cockpit_theme_success)) }
+        p.end()
+        p.over()
+    }
+    cockpit_words_release(squadrons)
+    p.land()
+}

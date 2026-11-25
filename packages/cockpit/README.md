@@ -105,6 +105,65 @@ The native UI implementation currently ships only for Windows. C and LLVM
 source transpilation remain useful portability contracts, but this package
 does not claim a native macOS or Linux window backend or a retained widget tree.
 
+## New in 0.3.0
+
+**The Cockpit shape.** One call opens the window and keeps the layout and
+theme for you; every widget is a method:
+
+```fk
+use cockpit::{Cockpit, sortie}
+
+task main() {
+    pilot p = sortie("Demo", 640, 480)
+    pilot launches = 0
+    repeat until p.landed() {
+        p.heading("Launch control")
+        if p.button("Launch") { launches += 1 }
+        p.label("launches: " + word_from_int(launches))
+        p.over()
+    }
+    p.land()
+}
+```
+
+`sortie_painted(title, width, height, theme)` uses your theme (you still
+release it). `p.row(height)` / `p.column(width)` / `p.grid(columns)` close with
+`p.end()`; panels, scroll areas and modals have their own `_end`.
+
+**The black box.** Every frame is recorded as draw commands before it is
+painted. `cockpit_blackbox_dump()` prints the last frame one command per line
+(`fill 12 50 200 32 #262636`, `text 24 98 14 bold #e6e6f0 "Launch"`);
+`cockpit_blackbox_find_text`, `_count`, `_field` and `_text` read it
+programmatically.
+
+**The flight sim.** Fly a cockpit with no window, on any OS:
+
+```fk
+cockpit_flight_open(640, 480)
+repeat until cockpit_ui_should_close() {
+    if frame == 1 { pilot hit = cockpit_flight_click_text("Launch") }
+    if frame == 2 { cockpit_flight_quit() }
+    cockpit_flight_begin_frame(layout, theme)
+    -- draw widgets as usual
+    cockpit_flight_end_frame()
+    frame += 1
+}
+cockpit_flight_close()
+```
+
+Events queued between frames land in the next one, just like a real window.
+`cockpit_flight_frame_ms(16)` fixes the clock so animations replay exactly.
+`sortie_sim(width, height)` gives a `Cockpit` flown by the sim.
+
+**Frame drivers.** `sortie_hosted(theme)` plus `cockpit_frame_start` /
+`cockpit_frame_finish` let another package own the frame loop. The
+`cockpit-uplink` package uses this to show a cockpit in a browser tab and to
+save snapshots as PNG.
+
+The `Cockpit` shape still links the native window calls, so programs that use
+it build on Windows only until Freak-lang 0.17 brings the Linux and macOS
+backends. The procedural `cockpit_flight_*` API works everywhere today.
+
 ## New in 0.2.0
 
 **Keyboard.** `cockpit_widget_input_ex(window, layout, theme, text, width,
@@ -165,9 +224,10 @@ Examples:
 - `examples/showcase.fk` — the supported widget/layout surface
 - `examples/calculator.fk` — procedural calculator state
 - `examples/settings.fk` — name, notification toggle, slider, theme dropdown and confirmation modal; settings apply to the current session
+- `examples/sortie.fk` — a pre-flight checklist written with the `Cockpit` shape
 - `examples/mission_control.fk` — the 0.2.0 tour: grid dashboard, live sparkline, bar chart, list, radio, toggles, stepper, a Tab/Enter form, mood themes, Ctrl+L/Ctrl+T shortcuts, an eased readiness bar and toasts
 
-The calculator, settings, showcase and mission control run until window close. The separate
+The calculator, settings, showcase, mission control and sortie examples run until window close. The separate
 smoke is bounded to 30 frames.
 
 `freak test --manifest-path=packages/cockpit/hangar.toml` runs the declared pure
