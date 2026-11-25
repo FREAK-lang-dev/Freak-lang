@@ -188,8 +188,16 @@ over LLVM's C API; its header states the contract:
   bridge before LLVM ends the process.
 - Names and paths are (bytes, length) pairs, copied. The core is
   independent of FREAK's word ABI; `freak_llvm_bridge_v35.c` adapts V3.5
-  `freak_word`s for tools built by `v35_seed.py`, and a V4-native host gets
-  its own adapter.
+  `freak_word`s for tools built by `v35_seed.py`. V4 needs no adapter in C:
+  a `lend s: word` parameter of an `extern [C]` task lowers to
+  `(const char*, size_t)`, pointer first (tier 3 C ABI row, word bytes at a
+  C boundary), so V4 declares the bridge's entry points directly and lends
+  its words' own bytes, NULs included. Tickets and codes are spelled
+  `std::ffi::c_isize` (int64_t on all four release targets). A literal is
+  not a place and cannot be lent, so a V4 host wraps the calls it makes with
+  literals in tasks that take the word by value and lend it. V4 reads error
+  codes; the message text (`freak_lb_error_text`) stays with the V3.5
+  adapter until V4 can take C bytes back as a word.
 - It covers types (integers, floats, pointers, arrays, named and literal
   structs, function types), functions, parameters, byte-string globals,
   blocks, constants, alloca (always in the entry block), load, store,
@@ -218,6 +226,19 @@ report line for line, checks the module text for the attributes, calling
 conventions and debug metadata, links each object with a C driver and
 checks its output exactly.
 
+With `--v4` (CI runs `--check --v4`) the gate also builds
+[`tools/llvm_bridge_v4_probe.fk`](tools/llvm_bridge_v4_probe.fk) with V4
+itself (`build_v4.py`) and links it with `freak_llvm_bridge.c` alone, no
+V3.5 adapter. That probe lends run-time-built names, a path built from its
+argument and a 9-byte global holding a NUL to the bridge, builds a loop with
+phis, a call and a struct size answered by the target, refuses 5 kinds of
+misuse with the exact codes, and emits an object at O0 to O3. The gate
+checks its report line for line, finds the names and all 9 bytes in the
+module text, and links each object with a C driver that calls both
+functions and compares the global byte for byte. It is valgrind clean (no
+definite leaks; LLVM keeps 105 KB reachable).
+
 First measurement for the size row: the probe, which links only the core,
 pass pipeline, x86-64 and AArch64 libraries, is 65 MB on Linux x86-64
-(53 MB stripped). The full compiler with LLD will be larger.
+(53 MB stripped); the V4-built probe is the same, 65 MB (53 MB stripped).
+The full compiler with LLD will be larger.

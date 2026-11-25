@@ -240,8 +240,10 @@ jobs:
       - name: Fetch and trim the pinned LLVM (checksum-checked)
         run: python -B -u src/compiler/v4/build_llvm_bridge.py --fetch-only
 
-      - name: Build the bridge probe and run it at O0 to O3
-        run: python -B -u src/compiler/v4/build_llvm_bridge.py --check
+      # Both probes: the V3.5-built one (through the V3.5 word adapter) and
+      # the V4-built one, which lends its words to the bridge directly.
+      - name: Build the bridge probes and run them at O0 to O3
+        run: python -B -u src/compiler/v4/build_llvm_bridge.py --check --v4
 
   v4-runtime-helpers:
     name: V4 native runtime helpers (${{ matrix.os }})
