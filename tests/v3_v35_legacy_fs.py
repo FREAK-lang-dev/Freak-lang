@@ -247,9 +247,14 @@ int main(int count, char **arguments) {
 #ifdef _WIN32
     if (freak_word_eq(mode, freak_word_lit("normalize"))) {
         wchar_t *input = decode(path); if (!input) return 64;
-        wchar_t *normalized = freak_fs_windows_filename(input); if (!normalized) return 65;
-        printf("same-pointer:%d\n", normalized == input); emit_wide("kernel-utf16", normalized);
-        free(normalized); return 0;
+        /* A rewrite frees the input before it allocates the result, so the
+           allocator may hand back the same address. "Same" therefore means
+           the same address AND the caller's original spelling. */
+        wchar_t *original = _wcsdup(input); if (!original) return 64;
+        wchar_t *normalized = freak_fs_windows_filename(input); if (!normalized) { free(original); return 65; }
+        int same = normalized == input && wcscmp(normalized, original) == 0;
+        printf("same-pointer:%d\n", same); emit_wide("kernel-utf16", normalized);
+        free(original); free(normalized); return 0;
     }
     if (freak_word_eq(mode, freak_word_lit("failures"))) return failures(path);
     if (freak_word_eq(mode, freak_word_lit("files-long-cwd"))) {
