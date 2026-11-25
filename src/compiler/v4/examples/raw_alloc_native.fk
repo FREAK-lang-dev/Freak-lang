@@ -4,8 +4,9 @@
 -- free); free(p) releases it. size_of<T>(), align_of<T>() and null<T>() are
 -- safe anywhere; reads need .cadet, writes, alloc, free and zeroed<T>()
 -- .pilot, and offset, cast and read_unaligned .ace. check_v4_native_shapes
--- pins the output and runs it under valgrind; any argument asks for a
--- negative size, which panics (exit 101).
+-- pins the output, tests/v4_owned_word_codegen.py runs it under ASan and
+-- UBSan, and it is valgrind clean; any argument asks for a negative size,
+-- which panics (exit 101).
 
 use std::mem::{alloc, free, null, size_of, align_of, zeroed}
 

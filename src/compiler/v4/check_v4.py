@@ -14922,6 +14922,9 @@ def check_mir_local_annotation_boundary() -> None:
         "v4_mir_shape_ctor_name",
         "v4_mir_constructor_head_name",
         "v4_mir_try_lower_route_case_expr",
+        # size_of<T>() / align_of<T>() / null<T>() / zeroed<T>() read their
+        # expression-level type argument like .cast<U>() does.
+        "v4_mir_raw_mem_type_arg",
     }
     actual_type_text_tasks = freak_tasks_containing(mir_build_source, "v4_ty_type_text(")
     if actual_type_text_tasks != allowed_type_text_tasks:
@@ -14943,7 +14946,7 @@ def check_mir_local_annotation_boundary() -> None:
             print(violation)
         raise SystemExit(1)
 
-    print("semantic MIR local annotations: TY facts, six-task builder type-text allowlist")
+    print("semantic MIR local annotations: TY facts, seven-task builder type-text allowlist")
 
 
 def check_task_return_hir_boundary() -> None:
