@@ -482,6 +482,10 @@ static void service(const char *profile) {
                 else sent=H(send_text)(request,W("healthy"));
             } else if(p.length>7&&!memcmp(p.data,"/hello/",7)) {
                 int64_t b=bytes(p.data+7,p.length-7);sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
+            } else if(eq(p,"/peer")) {
+                __auto_type ip=H(request_peer_ip)(request);freak_word v=view(ip);char text[96];
+                int n=snprintf(text,sizeof(text),"%.*s %lld",(int)v.length,(const char *)v.data,(long long)H(request_peer_port)(request));
+                drop(ip);int64_t b=bytes((const unsigned char *)text,(size_t)n);sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
             } else if(eq(p,"/file-big")) {
                 const char *file=getenv("FREAK_HTTP_TEST_BIG_FILE");REQUIRE(file);sent=H(send_file)(request,W(file));
             } else if(eq(p,"/file")||eq(p,"/file-missing")||eq(p,"/file-dir")) {
@@ -927,6 +931,15 @@ def read_responses(client,count:int):
     return responses,buffer
 
 def keepalive_corpus(s:Server):
+    s.checkpoint('keepalive-corpus','peer-address')
+    # The request reports the TCP peer: the client's own address and port,
+    # the same for every request on one persistent connection.
+    with s.connect() as client:
+        ip,port=client.getsockname()[:2]
+        for _ in range(2):
+            client.sendall(request('/peer'));responses,_=read_responses(client,1)
+            assert responses[0][2]==f'{ip} {port}'.encode(),(responses[0][2],ip,port)
+    s.cases+=2
     s.checkpoint('keepalive-corpus','persistent-connection')
     # Five requests share one connection; the fifth announces the close.
     c=http.client.HTTPConnection('127.0.0.1',s.port,timeout=4);sockets=set()

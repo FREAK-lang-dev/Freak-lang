@@ -34,6 +34,8 @@ OPERATIONS = [
     "request_status",
     "request_error",
     "request_method",
+    "request_peer_ip",
+    "request_peer_port",
     "request_target",
     "request_path",
     "request_query",
@@ -76,6 +78,8 @@ PROGRAM = '''task main() {
     pilot value_request_status: int = http_server::request_status(request)
     pilot value_request_error: word = http_server::request_error(request)
     pilot value_request_method: word = http_server::request_method(request)
+    pilot value_request_peer_ip: word = http_server::request_peer_ip(request)
+    pilot value_request_peer_port: int = http_server::request_peer_port(request)
     pilot value_request_target: word = http_server::request_target(request)
     pilot value_request_path: word = http_server::request_path(request)
     pilot value_request_query: word = http_server::request_query(request)

@@ -51,6 +51,12 @@ permits it, then closes that connection. Release every request, including failed
 requests, before accepting another. Releasing a parsed request without sending a
 response closes its connection. Close every server, including a failed bind.
 
+`request_peer_ip(request)` and `request_peer_port(request)` report the TCP peer
+of the request's connection: numeric text (`203.0.113.7`, `2001:db8::1`; an
+IPv4 client on a dual-stack listener appears as plain IPv4) and its port. Behind
+a reverse proxy this is the proxy, not the browser; see the proxy section below
+before trusting any forwarded header.
+
 Words returned by getters are independent managed values. `request_body` and
 `request_header_value_bytes` return independent owned ByteBuffers; release them
 exactly once. They can survive request release. The namespace builtins borrow
@@ -194,7 +200,9 @@ On loopback the 0.16 floor serves small responses within about 20% of nginx
 per worker (92k vs 110k requests/s on one worker, 245k vs 308k on four; see
 `benchmarks/v35/http_server_load.md`). The remaining steps, roughly in order:
 
-1. Peer address on a request (`X-Real-IP`, per-IP limits).
+1. Peer address on a request: done after 0.16 (`request_peer_ip` /
+   `request_peer_port`); a trusted-proxy policy for forwarded headers and
+   per-IP limits can build on it.
 2. Streaming request bodies and generated response bodies (chunked). File
    responses already stream (`http_send_file`, with `sendfile` on Linux);
    `TransmitFile` on Windows and Range requests would follow.
@@ -244,6 +252,7 @@ is deliberately implemented. A later policy must authenticate the immediate
 proxy peer, restrict direct ingress, discard client-supplied values and parse
 one defined chain with a documented allowlist. A header supplied by an
 arbitrary client is not evidence of its original identity, scheme or origin.
+`request_peer_ip` gives the immediate peer that such a policy would check.
 
 ## Browser policy and logging
 

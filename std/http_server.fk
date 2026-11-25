@@ -51,6 +51,11 @@ task http_next_request(server: int) -> int { give back http_server::next_request
 task http_request_status(request: int) -> int { give back http_server::request_status(request) }
 task http_request_error(request: int) -> word { give back http_server::request_error(request) }
 task http_request_method(request: int) -> word { give back http_server::request_method(request) }
+-- The TCP peer of the request's connection, as numeric text (IPv4 clients on a
+-- dual-stack listener appear as plain IPv4) and port. Behind a proxy this is the
+-- proxy; trust X-Forwarded-For only from a proxy you run.
+task http_request_peer_ip(request: int) -> word { give back http_server::request_peer_ip(request) }
+task http_request_peer_port(request: int) -> int { give back http_server::request_peer_port(request) }
 task http_request_target(request: int) -> word { give back http_server::request_target(request) }
 task http_request_path(request: int) -> word { give back http_server::request_path(request) }
 task http_request_query(request: int) -> word { give back http_server::request_query(request) }
