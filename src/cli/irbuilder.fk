@@ -1,0 +1,207 @@
+-- FREAK CLI — in-process LLVM IRBuilder for the V3.5 backend (0.16.0)
+--
+-- `freak build` lowers the program straight into an LLVM module through the
+-- IRBuilder bridge and hands clang an object file to link. The textual .ll is
+-- still written next to the source as a shadow: it is what `--llvm-text`
+-- builds, what LTO builds use, and the automatic fallback whenever the
+-- builder is not linked into this freak, a lowering has no builder form yet,
+-- or the bridge reports a problem.
+--
+-- Escape hatches: `--llvm-text` per build, FREAK_IRBUILDER=off for a shell.
+
+pilot mut cli_ib_mode = "auto"
+pilot mut cli_ib_request = false
+pilot mut cli_ib_request_path = ""
+pilot mut cli_ib_target_spec = ""
+pilot mut cli_ib_opt = 2
+pilot mut cli_ib_object = ""
+pilot mut cli_ib_last = ""
+
+pilot mut cli_ib_load_state = 0
+
+-- Whether this freak carries the IRBuilder bridge (and LLVM). Windows binds
+-- runtime/LLVM-C.dll on first use; other platforms link LLVM statically.
+task cli_ib_linked() -> bool {
+    if cli_ib_load_state == 0 {
+        cli_ib_load_state = 2
+        pilot runtime_dir = cli_find_runtime_dir()
+        if runtime_dir != "" and freak_ib2_bind(runtime_dir + "/LLVM-C.dll") == 1 { cli_ib_load_state = 1 }
+    }
+    give back cli_ib_load_state == 1 and freak_ib2_available() == 1
+}
+
+-- LLVM version inside the IRBuilder, or "" when this freak has none.
+task cli_ib_llvm_version() -> word {
+    if not cli_ib_linked() { give back "" }
+    give back freak_ib2_version()
+}
+
+task cli_ib_doctor_line() -> word {
+    if not cli_ib_linked() { give back "LLVM backend: textual IR through clang (this freak has no IRBuilder)" }
+    if not cli_ib_enabled() { give back "LLVM backend: IRBuilder (LLVM " + cli_ib_llvm_version() + ") off via FREAK_IRBUILDER=off" }
+    give back "LLVM backend: in-process IRBuilder, LLVM " + cli_ib_llvm_version()
+}
+
+task cli_ib_enabled() -> bool {
+    if cli_ib_mode == "off" { give back false }
+    if process::env("FREAK_IRBUILDER") == "off" { give back false }
+    give back cli_ib_linked()
+}
+
+-- Read triple/CPU/features/relocation model from one `clang -###` cc1
+-- line: a sequence of double-quoted tokens. Returns "" when no triple.
+task cli_ib_spec_from_cc1(line: word) -> word {
+    pilot mut triple = ""
+    pilot mut cpu = ""
+    pilot mut features = ""
+    pilot mut reloc = ""
+    pilot mut previous = ""
+    pilot mut current = ""
+    pilot mut inside = false
+    pilot mut i = 0
+    pilot n = line.length()
+    repeat until i >= n {
+        pilot ch = line.char_at(i)
+        if inside {
+            if ch == "\\" and i + 1 < n {
+                current = current + line.char_at(i + 1)
+                i += 1
+            } else if ch == "\"" {
+                if previous == "-triple" { triple = current }
+                if previous == "-target-cpu" { cpu = current }
+                if previous == "-mrelocation-model" { reloc = current }
+                if previous == "-target-feature" {
+                    if features != "" { features = features + "," }
+                    features = features + current
+                }
+                previous = current
+                current = ""
+                inside = false
+            } else {
+                current = current + ch
+            }
+        } else if ch == "\"" {
+            inside = true
+        }
+        i += 1
+    }
+    if triple == "" { give back "" }
+    give back triple + ";" + cpu + ";" + features + ";" + reloc
+}
+
+-- Ask the selected clang which triple, CPU, features and relocation model it
+-- would compile this build for, so the builder's object matches what clang
+-- itself would have produced from the .ll. Returns "triple;cpu;features;reloc"
+-- or "" when the probe fails (the build then stays on the text path).
+task cli_ib_probe_target(clang_executable: word, runtime_dir: word, opt: word, cross: word) -> word {
+    pilot command = process::command_new(clang_executable)
+    process::command_arg(command, "-###")
+    process::command_arg(command, "-c")
+    process::command_arg(command, "-x")
+    process::command_arg(command, "c")
+    process::command_arg(command, "-O" + opt)
+    if cross != "" { process::command_arg(command, "--target=" + cross) }
+    process::command_arg(command, runtime_dir + "/freak_runtime.c")
+    process::command_arg(command, "-o")
+    process::command_arg(command, runtime_dir + "/freak-irbuilder-probe.o")
+    pilot text = cli_tool_capture(command, true)
+    if cli_tool_capture_problem != "" { give back "" }
+    pilot mut line = ""
+    pilot mut i = 0
+    pilot n = text.length()
+    repeat until i > n {
+        pilot mut ch = "\n"
+        if i < n { ch = text.char_at(i) }
+        if ch == "\n" {
+            if line.contains("\"-cc1\"") { give back cli_ib_spec_from_cc1(line) }
+            line = ""
+        } else {
+            line = line + ch
+        }
+        i += 1
+    }
+    give back ""
+}
+
+-- Decide, before emission, whether this build lowers through the builder.
+task cli_ib_prepare(src_file: word, target: word, opt: word, lto: word, cross: word) -> void {
+    cli_ib_request = false
+    cli_ib_request_path = ""
+    cli_ib_object = ""
+    cli_ib_last = ""
+    if target != "llvm" { give back }
+    if lto != "off" {
+        cli_ib_last = "text (LTO builds link textual IR)"
+        give back
+    }
+    if not cli_ib_enabled() {
+        if not cli_ib_linked() {
+            cli_ib_last = "text (IRBuilder not linked)"
+        } else if cli_ib_mode == "off" {
+            cli_ib_last = "text (--llvm-text)"
+        } else {
+            cli_ib_last = "text (FREAK_IRBUILDER=off)"
+        }
+        give back
+    }
+    pilot clang_executable = cli_find_clang_executable()
+    pilot runtime_dir = cli_find_runtime_dir()
+    if clang_executable == "" or runtime_dir == "" { give back }
+    pilot spec = cli_ib_probe_target(clang_executable, runtime_dir, opt, cross)
+    if spec == "" {
+        cli_ib_last = "text (clang target probe failed)"
+        give back
+    }
+    pilot object = cli_user_object_path(src_file) + ".ib.o"
+    if not cli_delete_derived_artifact(object) { give back }
+    cli_ib_target_spec = spec
+    cli_ib_opt = word_to_int(opt)
+    cli_ib_request_path = object
+    cli_ib_request = true
+}
+
+-- Emit the LLVM module for the current compilation. The shadow .ll at
+-- out_file is always written; the object is produced when requested.
+task cli_ib_emit() -> void {
+    if not cli_ib_request {
+        emit_llvm_program()
+        cli_ib_trace()
+        give back
+    }
+    cli_ib_request = false
+    pilot status = emit_llvm_program_builder(cli_ib_request_path, 0, cli_ib_target_spec, cli_ib_opt)
+    if status == 1 {
+        cli_ib_object = cli_ib_request_path
+        cli_ib_last = "irbuilder"
+        cli_ib_trace()
+        give back
+    }
+    cli_delete_derived_artifact(cli_ib_request_path)
+    if status == 0 {
+        cli_ib_last = "text (lowering without a builder form: " + llvm_builder_fallback_line.trim() + ")"
+        cli_ib_trace()
+        give back
+    }
+    pilot reason = freak_ib2_error()
+    cli_ib_last = "text (IRBuilder: " + reason + ")"
+    -- Trace here too, so the differential gate sees a bridge error as one.
+    cli_ib_trace()
+    say "  " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " IRBuilder stumbled, building from textual IR instead: " + reason + C_RESET
+}
+
+-- Label for the emit step: shows which LLVM path produced the module.
+task cli_ib_step_label() -> word {
+    if cli_ib_object != "" { give back "Emit LLVM (IRBuilder)" }
+    give back "Emit LLVM IR"
+}
+
+task cli_ib_trace() -> void {
+    if process::env("FREAK_IRBUILDER_TRACE") != "" { say "  irbuilder: " + cli_ib_last }
+}
+
+-- The input clang should link for this build: the builder object when one
+-- was produced, otherwise the textual module.
+task cli_ib_link_input(transpiled_file: word) -> word {
+    if cli_ib_object != "" { give back cli_ib_object }
+    give back transpiled_file
+}

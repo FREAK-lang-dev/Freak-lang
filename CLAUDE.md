@@ -648,8 +648,11 @@ tagged release workflows additionally require the exact
 The V3 LLVM IR backend (`src/compiler/v3/emit_llvm.fk`) is the **default** backend as of v0.13.3. The pipeline is:
 
 ```
-.fk source → V3 compiler (freakc_v3.exe) → .ll → clang/lld → native binary
+.fk source → V3 compiler → ir_* sinks → in-process LLVM IRBuilder → object → clang (link only)
+                                     └→ textual .ll shadow (fallback, --llvm-text, LTO)
 ```
+
+Since 0.16.0 the release `freak` lowers V3.5 programs through LLVM's own IRBuilder in process (bridge: `src/compiler/v3/llvm_builder/ib_bridge.c`, LLVM pinned in `src/compiler/v4/llvm.lock`, linked by `tools/irbuilder_cli.py`). New emitter code must go through the `ir_*` sinks: a raw `llvm_emit_line` instruction silently moves that module onto the text fallback. `--llvm-text` / `FREAK_IRBUILDER=off` force the old path, `FREAK_IRBUILDER_TRACE=1` shows which path ran, and `tests/v3_irbuilder_differential.py` gates builder vs text behavior in CI. Full doc: `docs/v35-irbuilder.md`.
 
 Bootstrap: `build_cli.bat` (Windows) or CI workflow. Pre-compiled bootstrap at `build/freakc_v3.fk.c`.
 

@@ -54,7 +54,7 @@ Pipeline (full compiler):
 | §8 Lexer | ⚠️ Partial | All v0.13.x keywords lex. V4 token streams now carry `'a` lifetimes and number suffixes (`42u`/`3.14f`/`42t`/`999b`); the `\|\|` xm3 separator and remaining production recovery depth are still V4. |
 | §9 Parser | ⚠️ Partial | Tolerant parsing (`ErrorNode`/`IncompleteNode`, recovery boundaries, IDE-grade incremental parsing) is V4. v1 (Python) parser fails on V3-superset syntax — V3 self-hosting compiler is the bible-conformant parser. |
 | §10 Type Checker | ⚠️ Partial | Most semantic checks listed (power arithmetic, prob ranges, foreshadow strict enforcement, classified redaction, full FFI safety) are V4. V4 now validates route exhaustiveness, first-pass `dyn Doctrine` object-safety/coercion contracts, and the basic `@layout(C)` / `packed` / `transparent` contracts; deeper layout and backend guarantees still expand. |
-| §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. LLVM emits LineTablesOnly DWARF (DISubprogram per function + per-instruction `!dbg`). Special codegen for `mood`/variants/owned `dyn` values (V4 lowers `lend dyn D` fat pointers and vtables)/`Shared<T>` runtime headers/optimization pragmas/classified symbol stripping is V4; extern ABI lowering is partial in V4. JIT (OrcJIT) is V4. |
+| §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. Since 0.16.0 the V3.5 LLVM backend builds its module in process through LLVM's IRBuilder (LLVM 22.1.8, linked into release `freak`; Windows binds `runtime/LLVM-C.dll`) and hands clang an object to link; `--llvm-text`, `FREAK_IRBUILDER=off` and LTO builds use the textual `.ll`. LLVM emits LineTablesOnly DWARF (DISubprogram per function + per-instruction `!dbg`). Special codegen for `mood`/variants/owned `dyn` values (V4 lowers `lend dyn D` fat pointers and vtables)/`Shared<T>` runtime headers/optimization pragmas/classified symbol stripping is V4; extern ABI lowering is partial in V4. JIT (OrcJIT) is V4. |
 | §12 Build Modes | 🔜 V4 | `slice_of_life`/`mecha`/`shonen_jump`/`final_form`/`alternative` modes are V4. v0.13.x has only LLVM `--opt=0..3` and `--c`/`--llvm` backend selection. |
 | §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`; current V3.5 development also provides installed native `freak test` for ordinary programs declared in `[tests]`, and `-o`/`--output` for build/run. V4: `freak vibe`, the `test "name" { ... }` framework, `--voice=…`, `--clearance=…`, `--build-mode=…`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
@@ -2759,7 +2759,12 @@ on §1.14), and root-`fixed pilot` cycle detection. The
 handles core control flow, shapes/impl, arrays, strings, and the
 fs/process/math/UI/TCP/JSON/HTTP surface. The C portability backend covers
 the scalar, control-flow, word, array, and native-call paths, but packaged
-shape/impl runtime storage is not yet a claimed executable path. The LLVM backend emits
+shape/impl runtime storage is not yet a claimed executable path. Since 0.16.0
+the LLVM backend lowers through LLVM's in-process IRBuilder by default (LLVM
+22.1.8 inside release `freak`), verifies and optimizes the module in process
+and gives clang an object to link. The same lowering still writes textual IR
+for `--llvm-text`, `FREAK_IRBUILDER=off`, LTO builds and as the automatic
+fallback. The LLVM backend emits
 LineTablesOnly DWARF — `DISubprogram` per function plus per-instruction
 `!dbg` annotations — so gdb/lldb get source-line backtraces today.
 **🔜 V4 — the special codegen rules listed below:** mood as uint8_t,

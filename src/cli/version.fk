@@ -282,12 +282,14 @@ task cli_show_help() -> void {
 
     say "  Bootstrap: freak bootstrap-v4 --source=V4_ROOT --output=NEW_DIRECTORY [--locked]"
     say "  Alias: freak bootstrap --v4 (same options); host target only."
+    say "  V4 preview: freak v4 check|emit|build FILE.fk [--output=ABS] (bundled in release archives)."
     say ""
 
     say cli_box_top(45)
     say cli_box_mid(C_BWHITE + " OPTIONS" + C_RESET, 45)
     say cli_box_sep(45)
     say cli_box_mid("  " + C_BYELLOW + "--llvm" + C_RESET + "            " + C_DIM + "LLVM IR backend (default)" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "--llvm-text" + C_RESET + "       " + C_DIM + "LLVM via textual IR, no IRBuilder" + C_RESET, 45)
     say cli_box_mid("  " + C_BYELLOW + "--c" + C_RESET + "               " + C_DIM + "C backend" + C_RESET, 45)
     say cli_box_mid("  " + C_BYELLOW + "--diagnostic-cast=MODE" + C_RESET + " " + C_DIM + "off|minimal|normal" + C_RESET, 45)
     say cli_box_mid("  " + C_DIM + "Compiler voice lines (default: off)" + C_RESET, 45)

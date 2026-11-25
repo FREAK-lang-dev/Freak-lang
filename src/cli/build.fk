@@ -364,9 +364,9 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
         pilot out_ll = cli_backend_output_path(src_file, target)
         out_file = out_ll
         fs::write(out_ll, "")
-        emit_llvm_program()
+        cli_ib_emit()
         out_file = ""
-        cli_view_step_end(emit_lap, emit_label)
+        cli_view_step_end(emit_lap, cli_ib_step_label())
         cli_project_binding_release()
         give back out_ll
     } else {
@@ -1702,17 +1702,22 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
 
     if use_bundle {
         -- Step 1: compile the generated C/LLVM module to one user object.
-        pilot user_obj = cli_user_object_path(src_file)
-        if not cli_delete_derived_artifact(user_obj) { give back "" }
-        pilot cc_command = process::command_new(clang_executable)
-        process::command_arg(cc_command, "-c")
-        cli_build_common_args(cc_command, user_obj, transpiled_file, runtime_dir, opt, cross)
+        -- The IRBuilder already emitted it in process when it ran.
+        pilot mut user_obj = cli_user_object_path(src_file)
+        if cli_ib_object != "" {
+            user_obj = cli_ib_object
+        } else {
+            if not cli_delete_derived_artifact(user_obj) { give back "" }
+            pilot cc_command = process::command_new(clang_executable)
+            process::command_arg(cc_command, "-c")
+            cli_build_common_args(cc_command, user_obj, transpiled_file, runtime_dir, opt, cross)
 
-        cli_view_activity("Compiling program object", "clang -c program object")
-        pilot cc_ok = cli_build_command(cc_command, "object compilation")
-        if not cc_ok or not cli_build_regular_output(user_obj) {
-            cli_delete_derived_artifact(user_obj)
-            give back ""
+            cli_view_activity("Compiling program object", "clang -c program object")
+            pilot cc_ok = cli_build_command(cc_command, "object compilation")
+            if not cc_ok or not cli_build_regular_output(user_obj) {
+                cli_delete_derived_artifact(user_obj)
+                give back ""
+            }
         }
 
         -- Step 2: link through Clang, not raw lld-link. This preserves the
@@ -1748,14 +1753,18 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         -- runtime sources so an otherwise supported toolchain is not rejected.
         say "  " + C_BYELLOW + SYM_RING + C_RESET + " Packaged runtime objects were incompatible; retrying runtime sources."
         if not cli_delete_derived_artifact(out_bin) { give back "" }
-        if not cli_delete_derived_artifact(user_obj) { give back "" }
+        -- The IRBuilder object is the retry's link input; keep it.
+        if cli_ib_object == "" {
+            if not cli_delete_derived_artifact(user_obj) { give back "" }
+        }
     }
 
     -- A cache hit supplies verified runtime objects copied into this build's
     -- private stage. User code is compiled and the selected driver links anew.
     -- Unavailable, unsafe, unsupported or bounded-out caches keep source mode.
+    pilot link_input = cli_ib_link_input(transpiled_file)
     cli_runtime_cache_ffi_source = src_file
-    pilot cached = cli_runtime_cache_build(clang_executable, transpiled_file, out_bin, runtime_dir, target, opt, lto, cross)
+    pilot cached = cli_runtime_cache_build(clang_executable, link_input, out_bin, runtime_dir, target, opt, lto, cross)
     if cached == 1 { give back out_bin }
     pilot compiled = false
     if cached < 0 {
@@ -1763,7 +1772,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         -- LLVM builds need both runtimes: freak_runtime.c (word/array/io functions)
         -- and freak_llvm_runtime.c (math/tcp/time bridge functions)
         pilot command = process::command_new(clang_executable)
-        cli_build_common_args(command, out_bin, transpiled_file, runtime_dir, opt, cross)
+        cli_build_common_args(command, out_bin, link_input, runtime_dir, opt, cross)
         if target == "llvm" {
             -- llvm_runtime first (libc wrappers + LLVM bridge), then freak_runtime (word/array fns)
             -- -z muldefs on Linux allows duplicate symbols (freak_word_length, freak_llvm_fs_*)
@@ -2243,6 +2252,7 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
 
     ffi_target_os = cli_ffi_target_os(cross)
     ffi_target_arch = cli_ffi_target_arch(cross)
+    cli_ib_prepare(src_file, target, opt, lto, cross)
     pilot transpiled: word = cli_transpile(src_file, source, target)
     if transpiled == "" {
         cli_project_binding_release()

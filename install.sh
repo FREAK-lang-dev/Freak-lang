@@ -221,6 +221,8 @@ STAGE_RUNTIME="$STAGE_DIR/runtime"
 STAGE_STD="$STAGE_DIR/std"
 STAGE_TEMPLATES="$STAGE_DIR/templates"
 STAGE_MANIFEST="$STAGE_DIR/distribution-files.manifest"
+# Optional prebuilt V4 preview bundle (release archives since v0.16.0).
+STAGE_V4="$STAGE_DIR/v4"
 mkdir -p "$STAGE_BIN" "$STAGE_RUNTIME" "$STAGE_STD" "$STAGE_TEMPLATES"
 
 fetch_file() {
@@ -380,6 +382,14 @@ validate_stage() {
         validate_manifest_entry "$source" "$destination"
         [ -f "$STAGE_DIR/$destination" ] && [ -s "$STAGE_DIR/$destination" ] || err "Staged payload is missing $destination"
     done < "$STAGE_MANIFEST"
+    if [ -e "$STAGE_V4" ]; then
+        [ -d "$STAGE_V4" ] || err "Staged V4 preview is not a directory"
+        local v4_file
+        for v4_file in freak-v4 freak-v4-engine; do
+            [ -f "$STAGE_V4/$v4_file" ] && [ -s "$STAGE_V4/$v4_file" ] || err "Staged V4 preview is missing v4/$v4_file"
+        done
+        [ -d "$STAGE_V4/runtime" ] || err "Staged V4 preview is missing v4/runtime/"
+    fi
 }
 
 stage_fallback_payload() {
@@ -589,7 +599,7 @@ restore_previous_payload() {
     if truthy "${FREAK_INSTALL_TEST_FAIL_RESTORE:-0}"; then
         return 1
     fi
-    for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/templates" "$INSTALL_DIR/distribution-files.manifest"; do
+    for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/templates" "$INSTALL_DIR/v4" "$INSTALL_DIR/distribution-files.manifest"; do
         backup="$BACKUP_ROOT/${live#"$INSTALL_DIR/"}"
         if [ -e "$backup" ]; then
             if ! rm -rf -- "$live"; then restore_failed=1; continue; fi
@@ -700,6 +710,9 @@ if [ "$ARCHIVE_OK" = true ]; then
         if [ -d "$TMPDIR_INSTALL/freak/templates" ]; then
             cp -R "$TMPDIR_INSTALL/freak/templates/." "$STAGE_TEMPLATES/"
         fi
+        if [ -d "$TMPDIR_INSTALL/freak/v4" ]; then
+            cp -R "$TMPDIR_INSTALL/freak/v4" "$STAGE_V4"
+        fi
         if [ -s "$TMPDIR_INSTALL/freak/distribution-files.manifest" ]; then
             cp "$TMPDIR_INSTALL/freak/distribution-files.manifest" "$STAGE_MANIFEST"
         elif [ "$LEGACY_V014_ARCHIVE" = true ]; then
@@ -728,12 +741,13 @@ install -m 755 "$STAGE_BIN/hangar" "$APPLY_ROOT/bin/hangar"
 cp -R "$STAGE_RUNTIME/." "$APPLY_ROOT/runtime/"
 cp -R "$STAGE_STD/." "$APPLY_ROOT/std/"
 cp -R "$STAGE_TEMPLATES/." "$APPLY_ROOT/templates/"
+if [ -d "$STAGE_V4" ]; then cp -R "$STAGE_V4" "$APPLY_ROOT/v4"; fi
 cp "$STAGE_MANIFEST" "$APPLY_ROOT/distribution-files.manifest"
 mkdir -p "$BIN_DIR"
 
 apply_failed=0
 TRANSACTION_ACTIVE=1
-for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/templates" "$INSTALL_DIR/distribution-files.manifest"; do
+for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/templates" "$INSTALL_DIR/v4" "$INSTALL_DIR/distribution-files.manifest"; do
     if ! backup_live_path "$live"; then apply_failed=1; break; fi
 done
 if [ "$apply_failed" -eq 0 ] && truthy "${FREAK_INSTALL_TEST_PAUSE_AFTER_BACKUP:-0}"; then
@@ -750,6 +764,9 @@ if [ "$apply_failed" -eq 0 ] && truthy "${FREAK_INSTALL_TEST_FAIL_APPLY:-0}"; th
 fi
 if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/std" "$INSTALL_DIR/std" || apply_failed=1; fi
 if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/templates" "$INSTALL_DIR/templates" || apply_failed=1; fi
+# An archive without v4/ leaves no stale preview behind (the old one stays in
+# the rollback backup until this transaction commits).
+if [ "$apply_failed" -eq 0 ] && [ -d "$APPLY_ROOT/v4" ]; then mv -- "$APPLY_ROOT/v4" "$INSTALL_DIR/v4" || apply_failed=1; fi
 if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/distribution-files.manifest" "$INSTALL_DIR/distribution-files.manifest" || apply_failed=1; fi
 if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/bin/freak" "$BIN_DIR/freak" || apply_failed=1; fi
 if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/bin/hangar" "$BIN_DIR/hangar" || apply_failed=1; fi
@@ -800,6 +817,7 @@ ok "  Compiler: $BIN_DIR/freak"
 ok "  Hangar:   $BIN_DIR/hangar"
 ok "  Runtime:  $INSTALL_DIR/runtime/"
 ok "  Std lib:  $INSTALL_DIR/std/"
+if [ -d "$INSTALL_DIR/v4" ]; then ok "  V4 preview: $INSTALL_DIR/v4/ (run: freak v4 --help)"; fi
 if [ "$DEPENDENCY_PENDING" = true ]; then
     warn "Compiler dependency installation is waiting for the macOS system prompt."
 elif ! have_clang; then

@@ -452,6 +452,108 @@ jobs:
         shell: bash
         run: python -u tests/v3_performance_lab.py ./build/freak$EXT
 
+  # 0.16.0 makes the in-process IRBuilder the default V3.5 LLVM path. This
+  # lane links the CLI against the pinned LLVM (src/compiler/v4/llvm.lock),
+  # builds every corpus program through the builder and through --llvm-text,
+  # and requires identical behavior and zero bridge errors.
+  irbuilder-differential:
+    name: V3.5 IRBuilder differential (${{ matrix.os }})
+    needs: scope
+    if: needs.scope.outputs.v3 == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same split as the other V3 lanes: pull requests run Linux only,
+        # the merge queue group and manual runs add macOS and Windows.
+        os: ${{ fromJSON(needs.scope.outputs.windows == 'true' && '["ubuntu-latest","macos-latest","windows-latest"]' || needs.scope.outputs.v3_os) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Clang (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: Install Clang (Windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm -y
+
+      - name: Cache pinned LLVM
+        uses: actions/cache@v4
+        with:
+          path: .llvm-irbuilder
+          key: irbuilder-llvm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/compiler/v4/llvm.lock', 'tools/irbuilder_cli.py') }}
+
+      - name: Fetch pinned LLVM
+        shell: bash
+        run: python -u tools/irbuilder_cli.py fetch --dest .llvm-irbuilder
+
+      - name: Build V3 compiler and CLI C
+        shell: bash
+        run: |
+          LINK_FLAGS=""
+          EXT=""
+          if [[ "$RUNNER_OS" == "Linux" ]]; then LINK_FLAGS="-lm"; fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then LINK_FLAGS="-lws2_32"; EXT=".exe"; fi
+          cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/checker.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
+          clang -o build/freakc_v3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          ./build/freakc_v3$EXT build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          ./build/freakc_v3_stage2$EXT build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          rm -f build/freakc_cli.fk
+          while IFS= read -r source; do
+            cat "$source" >> build/freakc_cli.fk
+          done < packaging/cli-sources.manifest
+          ./build/freakc_v3_stage2$EXT build/freakc_cli.fk --c
+
+      - name: Link freak with the IRBuilder
+        shell: bash
+        run: |
+          EXT=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then EXT=".exe"; fi
+          python -u tools/irbuilder_cli.py link --llvm .llvm-irbuilder --cli-c build/freakc_cli.fk.c --out build/freak$EXT
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp .llvm-irbuilder/bin/LLVM-C.dll freakc/runtime/LLVM-C.dll
+          fi
+
+      - name: IRBuilder is live
+        shell: bash
+        run: |
+          EXT=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then EXT=".exe"; fi
+          FREAK_IRBUILDER_TRACE=1 ./build/freak$EXT build tests/hello.fk | tee "$RUNNER_TEMP/hello.log"
+          grep -q "irbuilder: irbuilder" "$RUNNER_TEMP/hello.log"
+          ./tests/hello$EXT
+          # The run cache must not hand an IRBuilder binary to --llvm-text.
+          rm -rf "$RUNNER_TEMP/ib-run" && mkdir -p "$RUNNER_TEMP/ib-run" && cp tests/hello.fk "$RUNNER_TEMP/ib-run/"
+          FREAK="$PWD/build/freak$EXT"
+          (cd "$RUNNER_TEMP/ib-run" && FREAK_IRBUILDER_TRACE=1 "$FREAK" run hello.fk) | tee "$RUNNER_TEMP/ib-run-1.log"
+          grep -q "irbuilder: irbuilder" "$RUNNER_TEMP/ib-run-1.log"
+          (cd "$RUNNER_TEMP/ib-run" && FREAK_IRBUILDER_TRACE=1 "$FREAK" run hello.fk --llvm-text) | tee "$RUNNER_TEMP/ib-run-2.log"
+          grep -q "irbuilder: text (--llvm-text)" "$RUNNER_TEMP/ib-run-2.log"
+
+      - name: Text vs IRBuilder differential
+        shell: bash
+        run: |
+          EXT=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then EXT=".exe"; fi
+          python -u tests/v3_irbuilder_differential.py --freak ./build/freak$EXT --jobs 3
+
+      - name: Native FFI through the IRBuilder
+        shell: bash
+        env:
+          FREAK_TEST_REQUIRE_IRBUILDER: "1"
+        run: |
+          EXT=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then EXT=".exe"; fi
+          python -u tests/v3_ffi.py ./build/freak$EXT
+
   # The ruleset requires "build-and-test (<os>)". This gate reports under
   # that name so a pull request can merge when scope skipped lanes (V4-only
   # changes skip V3; pull requests skip macOS and Windows, which run in the
@@ -464,6 +566,7 @@ jobs:
     needs:
       - scope
       - build-and-test
+      - irbuilder-differential
       - windows-bootstrap-build
       - windows-test-suites-a
       - windows-test-suites-b
@@ -484,6 +587,7 @@ jobs:
           V3_OS: ${{ needs.scope.outputs.v3_os }}
           GATE_OS: ${{ matrix.os }}
           BUILD_RESULT: ${{ needs.build-and-test.result }}
+          IRBUILDER_RESULT: ${{ needs.irbuilder-differential.result }}
           WINDOWS_RESULTS: >-
             ${{ needs.windows-bootstrap-build.result }}
             ${{ needs.windows-test-suites-a.result }}
@@ -493,7 +597,7 @@ jobs:
         run: |
           read -r -a windows <<< "$WINDOWS_RESULTS"
           echo "scope=$SCOPE_RESULT v3=$RUN_V3 v3_os=$V3_OS windows=$RUN_WINDOWS"
-          echo "build-and-test=$BUILD_RESULT windows bootstrap/a/b/c=${windows[*]}"
+          echo "build-and-test=$BUILD_RESULT irbuilder=$IRBUILDER_RESULT windows bootstrap/a/b/c=${windows[*]}"
           if [[ "$SCOPE_RESULT" != "success" ]]; then
             echo "::error::CI scope did not succeed ($SCOPE_RESULT)"; exit 1
           fi
@@ -503,7 +607,7 @@ jobs:
             for result in "$@"; do [[ "$result" == "$want" ]] || return 1; done
           }
           if [[ "$RUN_V3" == "false" ]]; then
-            if [[ "$BUILD_RESULT" != "skipped" ]] || ! all_are skipped "${windows[@]}"; then
+            if [[ "$BUILD_RESULT" != "skipped" || "$IRBUILDER_RESULT" != "skipped" ]] || ! all_are skipped "${windows[@]}"; then
               echo "::error::V3 lanes were expected to be skipped"; exit 1
             fi
             echo "V4-only pull request: V3 lanes skipped (they run in the merge queue)"
@@ -514,6 +618,9 @@ jobs:
           fi
           if [[ "$BUILD_RESULT" != "success" ]]; then
             echo "::error::V3 build and test did not pass ($BUILD_RESULT)"; exit 1
+          fi
+          if [[ "$IRBUILDER_RESULT" != "success" ]]; then
+            echo "::error::V3.5 IRBuilder differential did not pass ($IRBUILDER_RESULT)"; exit 1
           fi
           if [[ "$RUN_WINDOWS" == "true" ]]; then
             if ! all_are success "${windows[@]}"; then

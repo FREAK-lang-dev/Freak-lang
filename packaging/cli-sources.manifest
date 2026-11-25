@@ -25,6 +25,7 @@ src/cli/registry.fk
 src/cli/package_binding.fk
 src/cli/runtime_cache.fk
 src/cli/build.fk
+src/cli/irbuilder.fk
 src/cli/run.fk
 src/cli/test.fk
 src/cli/templates.fk
@@ -33,4 +34,5 @@ src/cli/doctor.fk
 src/cli/audit.fk
 src/compiler/v4/tools/preview_protocol.fk
 src/cli/bootstrap.fk
+src/cli/v4_forward.fk
 src/cli/main.fk

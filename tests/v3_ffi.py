@@ -144,10 +144,20 @@ def output_lines(text: str) -> list[str]:
     return [line.rstrip("\r") for line in text.splitlines() if line.strip()]
 
 
+# Set by the IRBuilder CI lane: default LLVM builds must lower through the
+# in-process IRBuilder, never fall back to the textual module.
+REQUIRE_IRBUILDER = os.environ.get("FREAK_TEST_REQUIRE_IRBUILDER", "") == "1"
+
+
 def check_program(freak: str, directory: Path, stem: str, backend: list[str]) -> None:
     label = f"{stem} {' '.join(backend) or '--llvm'}"
-    built = run([freak, "build", stem + ".fk", *backend], directory)
+    env = None
+    if REQUIRE_IRBUILDER and not backend:
+        env = dict(os.environ, FREAK_IRBUILDER_TRACE="1")
+    built = run([freak, "build", stem + ".fk", *backend], directory, env)
     require(built.returncode == 0, f"{label}: build failed", built)
+    if env is not None:
+        require("irbuilder: irbuilder" in built.stdout, f"{label}: did not build through the IRBuilder", built)
     binary = executable(directory, stem)
     # Run from another directory: the library must be found next to the
     # executable (rpath $ORIGIN / @executable_path, or the DLL search order).

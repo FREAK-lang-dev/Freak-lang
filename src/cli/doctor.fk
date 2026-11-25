@@ -472,6 +472,11 @@ task cli_doctor_json() -> int {
     say "      \"precompiled_objects\": " + cli_doctor_json_bool(runtime_obj) + ","
     say "      \"llvm_runtime\": " + cli_doctor_json_bool(llvm_runtime)
     say "    },"
+    say "    \"irbuilder\": {"
+    say "      \"linked\": " + cli_doctor_json_bool(cli_ib_linked()) + ","
+    say "      \"enabled\": " + cli_doctor_json_bool(cli_ib_enabled()) + ","
+    say "      \"llvm\": \"" + cli_doctor_json_escape(cli_ib_llvm_version()) + "\""
+    say "    },"
     say "    \"stdlib\": {"
     say "      \"ok\": " + cli_doctor_json_bool(std_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(std_dir) + "\","
@@ -761,6 +766,7 @@ task cli_doctor(fix_mode: bool) -> int {
         if fs::exists(rt_dir + "/freak_llvm_runtime.c") {
             say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " LLVM runtime available" + C_RESET
         }
+        say "        " + C_DIM + cli_ib_doctor_line() + C_RESET
         checks_passed += 1
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " runtime incomplete"

@@ -123,6 +123,60 @@ def manifest_entries(repo: Path) -> list[tuple[Path, str]]:
     return entries
 
 
+def v4_bundle_files(repo: Path) -> list[str]:
+    """
+    List the bundled V4 preview payload, relative to the ``freak/`` root.
+
+    Release archives ship the launcher, its private engine, the bootstrap
+    provenance report and the exact private runtime snapshot named by
+    ``src/compiler/v4/native-runtime.manifest``.
+    """
+    extension = ".exe" if sys.platform == "win32" else ""
+    names = [
+        f"v4/freak-v4{extension}",
+        f"v4/freak-v4-engine{extension}",
+        "v4/bootstrap-report.json",
+    ]
+    manifest = repo / "src" / "compiler" / "v4" / "native-runtime.manifest"
+    for raw_line in manifest.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        role, separator, relative = line.partition(" ")
+        assert separator and role in ("source", "header", "asset", "marker"), raw_line
+        parts = relative.split("/")
+        assert all(part not in ("", ".", "..") for part in parts), raw_line
+        names.append(f"v4/runtime/{relative}")
+    assert len(names) == len(set(names)), "duplicate V4 bundle entries"
+    return names
+
+
+def assert_v4_bundle_contract(files: dict[str, bytes], repo: Path) -> None:
+    """
+    Verify the bundled V4 preview's bytes against its own provenance report.
+
+    The runtime snapshot must be byte-identical to the archive's runtime, and
+    the report must bind the shipped launcher, engine and builder (the
+    archive's own freak binary) by SHA-256.
+    """
+    extension = ".exe" if sys.platform == "win32" else ""
+    for name in v4_bundle_files(repo):
+        if name.startswith("v4/runtime/"):
+            relative = name.removeprefix("v4/runtime/")
+            assert files[f"freak/{name}"] == files[f"freak/runtime/{relative}"], (
+                f"bundled V4 runtime snapshot differs from the archive runtime: {relative}"
+            )
+    report = json.loads(files["freak/v4/bootstrap-report.json"].decode("utf-8"))
+    assert report["status"] == "verified", report
+    assert report["compiler_capability"] == "native-v4-bootstrap-v1", report
+    sha = lambda name: hashlib.sha256(files[name]).hexdigest()
+    assert report["launcher_sha256"] == sha(f"freak/v4/freak-v4{extension}"), report
+    assert report["engine_sha256"] == sha(f"freak/v4/freak-v4-engine{extension}"), report
+    assert report["builder_sha256"] == sha(f"freak/bin/freak{extension}"), (
+        "bundled V4 preview was not built by this archive's freak binary"
+    )
+
+
 def compile_windows_runtime_objects(repo: Path, destination: Path, env: dict[str, str]) -> None:
     """
     Compile the Windows runtime C sources into optimized object files.
@@ -183,9 +237,13 @@ def create_release_archive(
     hangar: Path,
     entries: list[tuple[Path, str]],
     env: dict[str, str],
+    v4_bundle: Path | None = None,
 ) -> Path:
     """
     Create a platform-specific release archive containing the compiler payload.
+
+    When ``v4_bundle`` names a ``freak bootstrap-v4`` output directory, its
+    release subset is shipped as ``freak/v4/`` exactly as the release job does.
 
     Parameters:
         repo (Path): Repository root containing packaging files and Windows runtime sources.
@@ -212,6 +270,11 @@ def create_release_archive(
         repo / "packaging" / "distribution-files.manifest",
         payload / "distribution-files.manifest",
     )
+    if v4_bundle is not None:
+        for name in v4_bundle_files(repo):
+            target = payload / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(v4_bundle / name.removeprefix("v4/"), target)
 
     if sys.platform == "win32":
         runtime = payload / "runtime"
@@ -359,7 +422,8 @@ def assert_archive_safety_controls(root: Path) -> None:
 
 
 def assert_archive_contract(
-    archive: Path, entries: list[tuple[Path, str]], repo: Path
+    archive: Path, entries: list[tuple[Path, str]], repo: Path, *, expect_v4: bool,
+    release: bool = False,
 ) -> dict[str, bytes]:
     """
     Validate that a release archive contains exactly the expected payload and byte contents.
@@ -368,6 +432,9 @@ def assert_archive_contract(
         archive (Path): Release archive to validate.
         entries (list[tuple[Path, str]]): Source files and their archive destinations.
         repo (Path): Repository containing the current distribution manifest.
+        expect_v4 (bool): Whether the bundled V4 preview (``freak/v4/``) is required.
+        release (bool): Whether this is a published release archive, which must
+            carry ``runtime/LLVM-C.dll`` on Windows.
 
     Returns:
         dict[str, bytes]: Archive file paths mapped to their contents.
@@ -387,7 +454,13 @@ def assert_archive_contract(
                 "freak/runtime/freak_ui_win32.obj",
             }
         )
+    if expect_v4:
+        expected.update(f"freak/{name}" for name in v4_bundle_files(repo))
     files, directories = archive_files(archive)
+    # 0.16.0: the Windows IRBuilder binds runtime/LLVM-C.dll at run time.
+    # Release archives must carry it; a PR-built CLI without LLVM may not.
+    if sys.platform == "win32" and (release or "freak/runtime/LLVM-C.dll" in files):
+        expected.add("freak/runtime/LLVM-C.dll")
     assert set(files) == expected, (
         f"release archive closure mismatch: missing={sorted(expected - set(files))} "
         f"extra={sorted(set(files) - expected)}"
@@ -399,6 +472,8 @@ def assert_archive_contract(
     ).read_bytes(), "release archive contains a stale distribution manifest"
     for source, destination in entries:
         assert files[f"freak/{destination}"] == source.read_bytes(), destination
+    if expect_v4:
+        assert_v4_bundle_contract(files, repo)
     return files
 
 
@@ -593,6 +668,72 @@ def assert_exact_installed_discovery(
     require_ok(hangar_version, "installed Hangar version")
     assert compiler_version.stdout.strip() == hangar_version.stdout.strip()
     print("PASS exact installed binary + executable-adjacent Doctor discovery")
+
+
+V4_SMOKE_PROGRAM = """shape Pilot { name: word, kills: int }
+
+task total(lend xs: List<int>) -> int {
+    pilot acc = 0
+    for each x in xs {
+        acc += x
+    }
+    give back acc
+}
+
+task main() -> int {
+    pilot ace = Pilot { name: "FINAL_RELEASE_V4_OK", kills: 7 }
+    pilot kills: List<int> = [3, 4, 5]
+    kills.push(ace.kills)
+    say ace.name
+    say word_from_int(total(lend kills))
+    give back 0
+}
+"""
+
+
+def assert_installed_v4_preview(
+    *, freak: Path, install_home: Path, root: Path, env: dict[str, str], expect_v4: bool
+) -> None:
+    """
+    Verify ``freak v4`` against the installed payload.
+
+    With a bundle, the installed launcher must report the installed builder,
+    check a program, and (on POSIX, where a private owned output directory is
+    available here) build and run it. Without one, ``freak v4`` must fail with
+    the bootstrap hint instead of launching anything.
+    """
+    extension = ".exe" if sys.platform == "win32" else ""
+    work = root / "v4-preview"
+    work.mkdir(mode=0o700)
+    if not expect_v4:
+        assert not (install_home / "v4").exists()
+        missing = run([str(freak), "v4", "--version"], work, env)
+        assert missing.returncode == 1, show_output(missing)
+        assert "bootstrap-v4" in missing.stdout, show_output(missing)
+        print("PASS freak v4 reports a missing bundle with the bootstrap hint")
+        return
+    builder = hashlib.sha256(freak.read_bytes()).hexdigest()
+    version = run([str(freak), "v4", "--version"], work, env)
+    require_ok(version, "installed freak v4 --version")
+    assert "FREAK V4 native preview" in version.stdout, version.stdout
+    assert builder in version.stdout, version.stdout
+    source = work / "v4_smoke.fk"
+    source.write_text(V4_SMOKE_PROGRAM, encoding="utf-8")
+    checked = run([str(freak), "v4", "check", str(source)], work, env, timeout=300)
+    require_ok(checked, "installed freak v4 check")
+    assert "FREAK V4 preview: checked" in checked.stdout, checked.stdout
+    rejected = run([str(freak), "v4", "check", str(work / "missing.fk")], work, env, timeout=300)
+    assert rejected.returncode == 1, show_output(rejected)
+    if sys.platform != "win32":
+        binary = work / f"v4_smoke{extension}"
+        built = run(
+            [str(freak), "v4", "build", str(source), f"--output={binary}"], work, env, timeout=300
+        )
+        require_ok(built, "installed freak v4 build")
+        executed = run([str(binary)], work, env)
+        require_ok(executed, "installed freak v4 program")
+        assert executed.stdout.split() == ["FINAL_RELEASE_V4_OK", "19"], executed.stdout
+    print("PASS installed bundled V4 preview through freak v4")
 
 
 def assert_installed_abi_mismatch(
@@ -915,6 +1056,12 @@ def main() -> int:
     parser.add_argument("--standalone-hangar", type=Path)
     parser.add_argument("--tested-sha256", type=Path)
     parser.add_argument("--evidence-dir", type=Path)
+    parser.add_argument(
+        "--v4-bundle",
+        type=Path,
+        help="local mode: freak bootstrap-v4 output to ship as freak/v4/ "
+        "(release archives always require it)",
+    )
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parents[1]
@@ -931,6 +1078,7 @@ def main() -> int:
         assert standalone_freak.is_file(), standalone_freak
         assert standalone_hangar.is_file(), standalone_hangar
         assert args.tested_sha256 is not None
+        assert args.v4_bundle is None, "a supplied archive already carries its V4 bundle"
     else:
         assert args.freak is not None and args.hangar is not None
         freak = args.freak.resolve()
@@ -941,6 +1089,10 @@ def main() -> int:
         standalone_freak = freak
         standalone_hangar = hangar
 
+    v4_bundle = args.v4_bundle.resolve(strict=True) if args.v4_bundle else None
+    # Release archives must ship the V4 preview; PR-built local archives only
+    # carry it when a bundle is supplied.
+    expect_v4 = supplied_archive is not None or v4_bundle is not None
     entries = manifest_entries(repo)
     base_env = os.environ.copy()
     base_env["NO_COLOR"] = "1"
@@ -956,9 +1108,12 @@ def main() -> int:
             hangar=hangar,
             entries=entries,
             env=base_env,
+            v4_bundle=v4_bundle,
         )
         archive_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
-        archive_payload = assert_archive_contract(archive, entries, repo)
+        archive_payload = assert_archive_contract(
+            archive, entries, repo, expect_v4=expect_v4, release=supplied_archive is not None
+        )
         extension = ".exe" if sys.platform == "win32" else ""
         assert archive_payload[f"freak/bin/freak{extension}"] == (
             standalone_freak.read_bytes()
@@ -989,6 +1144,13 @@ def main() -> int:
             install_home=install_home,
             root=root,
             env=isolated_env,
+        )
+        assert_installed_v4_preview(
+            freak=installed_freak,
+            install_home=install_home,
+            root=root,
+            env=isolated_env,
+            expect_v4=expect_v4,
         )
         assert_installed_abi_mismatch(
             freak=installed_freak,
