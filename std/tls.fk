@@ -18,7 +18,8 @@
 --
 -- Calls give back a byte count, 0, or one of the TLS_* codes below. On a
 -- blocking socket tls_handshake / tls_send_all / tls_receive simply wait;
--- after tls_set_nonblocking(s, true) they give back TLS_WANT_READ or
+-- after tls_set_nonblocking(s, true), which switches the TCP socket itself
+-- to non-blocking mode, they give back TLS_WANT_READ or
 -- TLS_WANT_WRITE instead, and the caller retries when the socket is ready
 -- (tls_pending tells whether decrypted bytes are already waiting).
 --

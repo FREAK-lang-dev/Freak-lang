@@ -60,19 +60,26 @@ task run_case(host: word, verify: int, alpn: word) -> word {
     pilot port = tcp::socket_local_port(listener)
     pilot client_tcp = tcp::socket_connect("127.0.0.1", port)
     pilot server_tcp = tcp::socket_accept(listener)
-    tcp::socket_set_timeout(client_tcp, 20, 2000)
-    tcp::socket_set_timeout(server_tcp, 20, 2000)
+    -- No socket timeouts: tls_set_nonblocking alone must keep every call
+    -- from waiting.
     pilot client = tls_client(client_config, client_tcp, host)
     pilot server = tls_server(server_config, server_tcp)
     tls_set_nonblocking(client, true)
     tls_set_nonblocking(server, true)
     pilot mut outcome = ""
+    -- A send before the handshake runs it implicitly and must not count
+    -- handshake records as accepted bytes.
+    pilot mut early = ByteBuffer::new()
+    early.write_byte(33)
+    pilot early_sent = tls_send(client, early, 0, 1)
+    early.release()
+    if early_sent < 0 { outcome = "early-send-waits " }
     pilot code = both_handshakes(client, server)
     if code != 0 {
-        outcome = "handshake " + word_from_int(code)
+        outcome = outcome + "handshake " + word_from_int(code)
         if tls_error(client).contains("certificate verify failed") { outcome = outcome + " (verify failed)" }
     } else {
-        outcome = tls_version(client) + " alpn=" + tls_alpn(client) + "/" + tls_alpn(server)
+        outcome = outcome + tls_version(client) + " alpn=" + tls_alpn(client) + "/" + tls_alpn(server)
         if tls_verified(client) { outcome = outcome + " verified" }
         pilot mut cert = ByteBuffer::new()
         tls_peer_certificate(client, cert)
