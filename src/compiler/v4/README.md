@@ -763,18 +763,59 @@ pointer `{ ptr data, ptr vtable }`, on every target:
   method's receiver mode against the loan: `dyn method takes self by value`
   and `dyn method needs a lend mut receiver`.
 
-Refused by name: owned dyn values (locals, by-value parameters,
-`List<dyn D>`, `native owned dyn values are not yet supported`), lend-typed
-dyn locals and parameters (`w: lend dyn D`, as the lend ABI row refuses
-type-form parameters), dyn results, dyn values in aggregate slots, dyn
-across the C ABI, generic doctrines, vtables with by-value `self` methods,
-erasure of module globals or of values that hold loans. Generic methods make
-a doctrine non-object-safe in TY. Program: `examples/dyn_native.fk` (exact
+Refused by name: lend-typed dyn parameters (`w: lend dyn D`, as the lend
+ABI row refuses type-form parameters; type-form `lend dyn D` locals are
+native), dyn loan results, dyn across the C ABI, generic doctrines, erasure
+of module globals or of values that hold loans. Generic methods make a
+doctrine non-object-safe in TY. Program: `examples/dyn_native.fk` (exact
 output, exit 234), run by `check_v4_native_dyn` from `check_v4_native_shapes`
 with the layout oracle, the vtable oracle (note, constant and Clang agree;
 tampered sizes, slot orders and foreign impl slots fail) and Clang assembly
-on four targets, a dispatch-only module, and 22 named rejections. The
-`freak.dyn.` and `freak.vtable.` symbol prefixes are reserved.
+on four targets, a dispatch-only module, five formerly refused programs
+that now run, and 17 named rejections. The `freak.dyn.` and `freak.vtable.`
+symbol prefixes are reserved.
+
+### Owned dyn values
+
+An owned `dyn D` is the same `{ ptr data, ptr vtable }` pair, but its data
+points at a heap box the value owns:
+
+- **Boxing.** MIR Build wraps each owned erasure in an explicit `DynBox`
+  rvalue (`v4_mir_unary_dyn_box`) wherever a concrete value meets a `dyn D`
+  slot: local init, assignment, call and method arguments, returns, shape
+  and route fields, list literal elements and `push`. Its vtable is sealed
+  from MIR content like a lend erasure's. Codegen evaluates the operand,
+  allocates a box of the concrete type's size (`@freak.dyn.alloc`, libc
+  `realloc`; failure panics with `dyn allocation failed`) and moves the
+  value in.
+- **Moves and drops.** Meiya treats owned dyn values, and shapes, tuples,
+  arrays, routes and lists that hold them, as owned storage, so the sealed
+  drop plan places every drop: `Drop`, `DropIf` under a runtime flag,
+  replacement drops and `DropSlot` stores into dyn fields and list
+  elements. A drop calls `@freak.dyn.release`, which skips a null box,
+  calls the vtable's drop entry (header slot 3) on the box and frees it. A
+  partial move out of a dyn field nulls the pair in place.
+- **Where they live.** Locals, by-value parameters, results, shape, tuple,
+  fixed array and route payload slots, `List<dyn D>` elements and generic
+  instances. The bible has no `Box`: an owned dyn is itself the box, and a
+  user `shape Box<T>` instance `Box<dyn D>` holds one like any field.
+- **By-value `self`.** The vtable slot of a by-value `self` method is a
+  private shim `freak.dyn.self.T::m(ptr data, ...)`: it hands the boxed
+  value to the impl (by address for aggregates, loaded for scalars) and
+  frees the box. MIR refuses such a call through a loan.
+- **Loans.** An owned dyn local, field or list element lends onward as the
+  pair itself (`lend a`, `lend mut h.u`, `xs[i].m()`), and type-form
+  `pilot w: lend dyn D = lend a` locals hold the loan.
+
+Refused by name: `for each` over `List<dyn D>` (items are copies, and the
+vtable's clone is null), by-value reads of list elements, dyn values in
+`maybe`/`result` carriers, maps and sets, `Shared<dyn D>`, task values and
+closures, and discarded aggregate literals holding dyn values. Program:
+`examples/dyn_owned_native.fk` (exact output, exit 0, valgrind clean), run by
+`check_v4_native_shapes` with the layout, ABI and vtable oracles (shim slots
+included) and Clang assembly on four targets plus 11 named rejections; it is
+also pinned by `tests/v4_owned_word_codegen.py`, and
+`tests/v4_safety/cases/dyn` holds 23 safety cases.
 
 ### Native lists
 
