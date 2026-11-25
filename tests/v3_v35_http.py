@@ -574,6 +574,14 @@ static long process_id(void) {
     return (long)getpid();
 #endif
 }
+/* Keep this worker busy, so the next connections must go to the others. */
+static void hold_worker(void) {
+#ifdef _WIN32
+    Sleep(40);
+#else
+    struct timespec pause={0,40*1000*1000};while(nanosleep(&pause,&pause)!=0&&errno==EINTR) {}
+#endif
+}
 /* Three worker processes share one listener. /worker names the process that
    answered, /crash ends a non-first worker abruptly (it must be replaced),
    /stop stops the first process, which stops every worker in close. */
@@ -587,7 +595,7 @@ static void workers(void) {
         int64_t request=H(next_request)(server);index=H(worker_index)(server);
         if(H(request_status)(request)) { int64_t status=H(request_status)(request);H(request_release)(request);if(status==503)break;continue; }
         __auto_type path=H(request_path)(request);freak_word p=view(path);bool quit=false;
-        if(eq(p,"/worker")) { char body[64];snprintf(body,sizeof(body),"%lld %ld",(long long)index,process_id());REQUIRE(H(send_text)(request,W(body))); }
+        if(eq(p,"/worker")||eq(p,"/worker-hold")) { if(eq(p,"/worker-hold")) hold_worker();char body[64];snprintf(body,sizeof(body),"%lld %ld",(long long)index,process_id());REQUIRE(H(send_text)(request,W(body))); }
         else if(eq(p,"/crash")&&index) { char body[32];snprintf(body,sizeof(body),"bye %lld",(long long)index);REQUIRE(H(send_text)(request,W(body)));drop(path);H(request_release)(request);fflush(stdout);_exit(3); }
         else if(eq(p,"/stop")) { REQUIRE(H(send_text)(request,W(index?"child":"stopped")));quit=!index; }
         else { REQUIRE(H(response_status)(request,404));REQUIRE(H(send_text)(request,W("missing"))); }
@@ -1100,11 +1108,23 @@ def workers_corpus(exe:Path,env,progress:HttpProgress|None=None):
     s=Server(exe,'workers',env,progress)
     try:
         s.checkpoint('workers','fan-out')
-        seen={}
-        for _ in range(3000):
-            status,_,body=http_get(s.port,'/worker');assert status==200,body
-            index,pid=map(int,body.split());seen[index]=pid
-            if len(seen)==3:break
+        # Which idle worker wins an accept is up to the kernel: kqueue on
+        # macOS can keep handing sequential connections to the same two. A
+        # held worker cannot accept, so concurrent held requests reach all.
+        seen={};lock=threading.Lock();deadline=time.monotonic()+30;failures=[]
+        def fan_out():
+            try:
+                while time.monotonic()<deadline:
+                    with lock:
+                        if len(seen)==3:return
+                    status,_,body=http_get(s.port,'/worker-hold');assert status==200,body
+                    index,pid=map(int,body.split())
+                    with lock:seen.setdefault(index,pid)
+            except Exception as error:failures.append(error)
+        threads=[threading.Thread(target=fan_out,daemon=True) for _ in range(6)]
+        for thread in threads:thread.start()
+        for thread in threads:thread.join(35)
+        assert not failures,failures
         # Every worker is known first, so a "new" pid can only be a respawn.
         assert len(seen)==3,seen
         s.checkpoint('workers','respawn')
