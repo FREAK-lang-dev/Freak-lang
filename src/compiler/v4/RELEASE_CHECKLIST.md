@@ -608,6 +608,31 @@ unaffected.
 - [ ] **L** Full debug information through LLVM's builder (extends the tier 4 line-table row)
 - [ ] **L** JIT for `freak run`, a REPL and test runners
 
+## Web lane (wasm32, non-blocking)
+
+Source: the wasm target scoping doc (2026-11-25) and its W0 spike. One
+flavour, `wasm32-unknown-wasip1`, for WASI hosts and browsers alike: the V4
+core runtime on FREAK's own platform layer over WASI preview 1 imports (no
+wasi-libc), with browsers running modules through a small WASI shim. The lane
+blocks no tier; it exists so kamishibai can grow client (kaze) and hybrid
+(musubi) modes once V4 runs it.
+
+Milestone 1 (pre-1.0):
+
+- [x] **S** W0 spike: V4 IR to wasm32 under Node WASI and headless Chromium
+- [x] **M** W1 target record: fifth `freak_target` record (ilp32, pointer width 32, `.wasm`, `wasm-ld-wasip1`, `wasi-start`); `c_long` 32-bit; list helpers reach `realloc` through a checked `size_t` helper and extern declarations spelling `c_size`/`c_isize`/`usize`/`isize` get a narrowing shim on 32-bit targets (callbacks and variadic positions with them fail closed); layout, aggregate ABI and C width oracles on all five triples
+- [x] **M** W2 runtime split: `freakc/runtime/wasi` (platform layer with glibc-exact `%g`, freestanding headers that keep runtime libc names away from user tasks) plus the V4-facing V3 parts extracted at build time by `wasm_target.py`; the native runtime and `native-runtime.manifest` are unchanged
+- [x] **M** W3 driver and CI: `build_v4.py --target wasm32-unknown-wasip1 -o x.wasm`; CI job "V4 wasm" (`tests/v4_wasm_parity.py`) builds every example natively and as wasm and requires identical exit status, stdout and stderr under Node
+- [ ] **S** `freak doctor` and `freak build --target wasm32-unknown-wasip1` once the V4 CLI replaces V3 (tier 4)
+
+Milestone 2, gated on tier 4 std, V4 Hangar loading and kamishibai on V4:
+
+- [ ] **M** W4 std host split: WASI preopens for `std::fs`, clocks, random, environment
+- [ ] **L** W5 JS bridge: `extern [js]` imports, `@export`, pointer-sized aliases with a target-width carrier in the C call plan and callbacks
+- [ ] **L** W6 kaze (client-side kamishibai)
+- [ ] **L** W7 musubi (hybrid server plus client)
+- [ ] **S** W8 size budget gate: hello 16 KB, kaze counter 100 KB raw / 40 KB brotli
+
 ## Tier 1: programs that compute and print
 
 Historical "on #143" annotations refer to earlier branch observations.

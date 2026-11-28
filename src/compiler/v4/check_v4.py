@@ -1274,25 +1274,27 @@ EXECUTABLE_SMOKES = [
         "expect_mode": "line",
         "expect_unique": True,
         "expect_exact": [
-            "target-count=4",
+            "target-count=5",
             "target-linux-x64-summary=target triple=x86_64-unknown-linux-gnu release=linux-x64 arch=x86_64 os=linux env=gnu pointer=64 endian=little c-model=lp64 object=elf ccs=C,cdecl,system,sysv64 exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-gnu entry=posix-main",
             "target-linux-arm64-summary=target triple=aarch64-unknown-linux-gnu release=linux-arm64 arch=aarch64 os=linux env=gnu pointer=64 endian=little c-model=lp64 object=elf ccs=C,cdecl,system exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-gnu entry=posix-main",
             "target-macos-arm64-summary=target triple=aarch64-apple-darwin release=macos-arm64 arch=aarch64 os=macos env=darwin pointer=64 endian=little c-model=lp64 object=mach-o ccs=C,cdecl,system exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-darwin entry=darwin-main",
             "target-windows-x64-summary=target triple=x86_64-w64-windows-gnu release=windows-x64 arch=x86_64 os=windows env=gnu pointer=64 endian=little c-model=llp64 object=coff ccs=C,cdecl,system,win64,vectorcall exe-prefix=<none> exe-suffix=.exe object-prefix=<none> object-suffix=.obj link=clang-driver-ucrt entry=ucrt-main",
+            "target-wasm32-summary=target triple=wasm32-unknown-wasip1 release=wasm32-wasip1 arch=wasm32 os=wasi env=wasip1 pointer=32 endian=little c-model=ilp32 object=wasm ccs=C,cdecl,system exe-prefix=<none> exe-suffix=.wasm object-prefix=<none> object-suffix=.o link=wasm-ld-wasip1 entry=wasi-start",
             "target-all-valid=true",
             "target-index-stable=true",
-            "target-release-names=linux-x64,linux-arm64,macos-arm64,windows-x64",
-            "target-c-models=lp64,lp64,lp64,llp64",
+            "target-release-names=linux-x64,linux-arm64,macos-arm64,windows-x64,wasm32-wasip1",
+            "target-c-models=lp64,lp64,lp64,llp64,ilp32",
             "target-lp64-vs-llp64=true",
-            "target-pointer-widths=64,64,64,64",
-            "target-endianness=little,little,little,little",
-            "target-object-formats=elf,elf,mach-o,coff",
-            "target-artifact-names=maverick,maverick.o,maverick.exe,maverick.obj",
-            "target-link-policies=clang-driver-gnu,clang-driver-darwin,clang-driver-ucrt",
-            "target-entry-policies=posix-main,darwin-main,ucrt-main",
+            "target-pointer-widths=64,64,64,64,32",
+            "target-endianness=little,little,little,little,little",
+            "target-object-formats=elf,elf,mach-o,coff,wasm",
+            "target-artifact-names=maverick,maverick.o,maverick.exe,maverick.obj,maverick.wasm,maverick.o",
+            "target-link-policies=clang-driver-gnu,clang-driver-darwin,clang-driver-ucrt,wasm-ld-wasip1",
+            "target-entry-policies=posix-main,darwin-main,ucrt-main,wasi-start",
             "target-linux-x64-conventions=true",
             "target-arm64-rejects-x64-conventions=true",
             "target-windows-x64-conventions=true",
+            "target-wasm32-conventions=true",
             "target-legacy-x86-conventions-rejected=true",
             "target-unknown-convention-rejected=true",
             "target-round-trip=true",
@@ -1352,6 +1354,14 @@ EXECUTABLE_SMOKES = [
                       'target-c-integer-x86_64-w64-windows-gnu-c_long=descriptor=c-signed32 width=32 '
                       'signed=1 size=4 align=4 carrier=i32',
                       'target-c-integer-x86_64-w64-windows-gnu-c_ulong=descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer-wasm32-unknown-wasip1-c_int=descriptor=c-signed32 width=32 signed=1 '
+                      'size=4 align=4 carrier=i32',
+                      'target-c-integer-wasm32-unknown-wasip1-c_uint=descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer-wasm32-unknown-wasip1-c_long=descriptor=c-signed32 width=32 '
+                      'signed=1 size=4 align=4 carrier=i32',
+                      'target-c-integer-wasm32-unknown-wasip1-c_ulong=descriptor=c-unsigned32 width=32 '
                       'signed=0 size=4 align=4 carrier=i32',
                       'target-c-integer-forged-all17-fields=true',
                       'target-c-integer-unknown-keys=true',
@@ -17897,9 +17907,44 @@ def check_checked_source_runtime(clang: str) -> None:
 
 
 
-NATIVE_LAYOUT_TRIPLES = (
-    "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-w64-windows-gnu",
-)
+class NativeLayoutTriples:
+    """The targets the layout and ABI oracles ask Clang about.
+
+    The four 64-bit release targets always run. wasm32-unknown-wasip1, the
+    first 32-bit target (pointers shrink to 4 bytes, i64/double stay 8), runs
+    whenever this Clang has the WebAssembly backend. Apple's Clang does not,
+    so macOS skips it with a note; everywhere else a Clang without it fails."""
+
+    BASE = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-w64-windows-gnu")
+    WASM = "wasm32-unknown-wasip1"
+
+    def __init__(self) -> None:
+        self._triples: tuple[str, ...] | None = None
+
+    def _resolve(self) -> tuple[str, ...]:
+        if self._triples is None:
+            clang = shutil.which("clang")
+            listed = subprocess.run([clang, "-print-targets"], capture_output=True, text=True, timeout=60) if clang else None
+            if listed is not None and listed.returncode == 0 and re.search(r"^\s*wasm32\b", listed.stdout, re.MULTILINE):
+                self._triples = self.BASE + (self.WASM,)
+            elif sys.platform == "darwin":
+                print(f"layout oracles: this Clang has no WebAssembly backend; {self.WASM} is checked on Linux and Windows")
+                self._triples = self.BASE
+            else:
+                raise RuntimeError(f"layout oracles need a Clang with the WebAssembly backend for {self.WASM}")
+        return self._triples
+
+    def __iter__(self):
+        return iter(self._resolve())
+
+    def __len__(self) -> int:
+        return len(self._resolve())
+
+    def __contains__(self, triple: object) -> bool:
+        return triple in self._resolve()
+
+
+NATIVE_LAYOUT_TRIPLES = NativeLayoutTriples()
 NATIVE_SHAPES_EXPECTED = "3\n4\n14\n2\n50\n1\n42\ntrue\ntrue\n2.5\ntrue\ntrue\nfalse\n9\n6\n"
 NATIVE_AGGREGATES_EXPECTED = "7\n12\n20\n7\n35\n10\n30\n14\n50\ntrue\n9\n35\n43\nfalse\nfill\n6\n6\nfill\n7\nslot\nfill\n6\nfill\n0\ntrue\ntrue\n4\n"
 NATIVE_AGGREGATES_PANIC = "index 7 out of bounds (len 4)"
@@ -20195,7 +20240,7 @@ def native_c_signatures(text: str, keyword: str) -> dict[str, str]:
     """Map each cw_* function to `ret(params)` with names and noundef removed."""
     signatures = {}
     for line in text.splitlines():
-        match = re.match(rf"^{keyword} (?:dso_local )?(?:ccc )?(.*?) @(cw_\w+)\((.*?)\)", line)
+        match = re.match(rf"^{keyword} (?:dso_local )?(?:hidden )?(?:ccc )?(.*?) @(cw_\w+)\((.*?)\)", line)
         if not match:
             continue
         result, name, params = match.groups()
@@ -20436,7 +20481,7 @@ def native_c_abi_split_args(text: str) -> list[str]:
 
 
 def native_c_abi_clean(part: str) -> str:
-    part = re.sub(r"\b(noundef|dso_local|ccc)\b", "", part)
+    part = re.sub(r"\b(noundef|dso_local|hidden|ccc)\b", "", part)
     return re.sub(r"\s+", " ", part).strip()
 
 
@@ -20470,7 +20515,8 @@ def native_c_abi_facts(text: str, callees: str = NATIVE_C_ABI_CALLEES) -> set[tu
 
 
 def check_v4_native_c_abi() -> None:
-    """Tier 3 C ABI rows: real C on the host, Clang's own lowering on all four targets."""
+    """Tier 3 C ABI rows: real C on the host, Clang's own lowering on the four
+    64-bit targets, and the pinned pointer-sized fence on wasm32."""
     from build_v4 import host_target, native_link_command
 
     clang = shutil.which("clang")
@@ -20487,6 +20533,16 @@ def check_v4_native_c_abi() -> None:
             [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
             label=f"V4 C ABI module {triple}", timeout_seconds=180, memory_limit_mb=512,
         )
+        if triple == "wasm32-unknown-wasip1":
+            # The module calls variadic snprintf with a size_t argument and
+            # takes ssize_t callbacks. On a 32-bit target those positions stay
+            # fenced until pointer-sized aliases get a target-width carrier in
+            # the C call plan (Web lane W5); the fence must hold, not leak i64.
+            fence = "pointer-sized C integers at this C boundary are not yet supported on wasm32-unknown-wasip1"
+            if emitted.returncode == 0 or module_path.exists() or fence not in emitted.stdout + emitted.stderr:
+                raise RuntimeError(f"V4 C ABI module on {triple} did not stop at the pointer-sized fence:\n"
+                                   f"{emitted.stdout}{emitted.stderr}")
+            continue
         if emitted.returncode != 0 or not module_path.exists():
             raise RuntimeError(f"V4 could not emit the C ABI module for {triple}:\n{emitted.stdout}{emitted.stderr}")
         module = module_path.read_text(encoding="utf-8")
