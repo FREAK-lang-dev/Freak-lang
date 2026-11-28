@@ -25,14 +25,15 @@ pilot v4_hir_error = "Error"
 pilot v4_hir_snapshot_format = "freak-hir-snapshot-v15"
 pilot v4_hir_extern_return_owner_values = 0
 pilot v4_hir_extern_return_values = 0
--- Signature facts (architecture lane A1), three lazy per-file arrays in one
--- outer array of stride three. Slot 0 holds extern member parameters (eight
+-- Signature facts (architecture lane A1), four lazy per-file arrays in one
+-- outer array of stride four. Slot 0 holds extern member parameters (eight
 -- packed words per parameter, ranged by each member row's parameter count
 -- and start); slot 1 impl and doctrine method owners (item-indexed
 -- start/count pairs); slot 2 their methods (five packed words: name, segment
--- span, return form, return type, return span). A slot stays "-1" until a
--- file has such a fact, so files without externs, impls or doctrines pay no
--- array handles for them.
+-- span, return form, return type, return span); slot 3 method type argument
+-- rows (`v4_hir_method_type_arg_*`). A slot stays "-1" until a file has such
+-- a fact, so files without externs, impls, doctrines or method type lists pay
+-- no array handles for them.
 pilot v4_hir_signature_slots = 0
 pilot v4_hir_signature_extern_params = 0
 pilot v4_hir_signature_method_owners = 1
@@ -7086,7 +7087,7 @@ task v4_hir_method_type_arg_index_emit(values: int, row: int, closed: int, last_
     give back close_start
 }
 
--- Fills column 6 (rows in `>` order) from rows sorted by `<`. False when the
+-- Fills column 8 (rows in `>` order) from rows sorted by `<`. False when the
 -- rows are not one bracket matching: closes out of order, lists that cross,
 -- or an unclosed `<` inside a closed list. Only a snapshot can fail it.
 task v4_hir_method_type_arg_index_closes(values: int) -> bool {
@@ -7320,12 +7321,15 @@ task v4_hir_snapshot_method_type_arg_record_is_valid(line: word) -> bool {
     }
     if not v4_hir_snapshot_span_is_canonical_nonempty(close) or v4_span_file(close) != file { give back false }
     if v4_span_end(open) > v4_span_start(close) { give back false }
-    -- Brackets that hold nothing spell no type text. Others may spell none
-    -- too (`<"">` spells the empty literal payload).
+    -- Brackets that hold nothing spell no type text and brackets that start
+    -- like a type always spell some. Other contents may spell none (`<"">`
+    -- spells the empty literal payload).
     pilot empty: bool = inner == v4_hir_method_type_arg_inner_empty
+    pilot type_like: bool = inner == v4_hir_method_type_arg_inner_type
     if inner != v4_hir_method_type_arg_inner_empty and inner != v4_hir_method_type_arg_inner_type and inner != v4_hir_method_type_arg_inner_other { give back false }
     pilot has_text: bool = type_text != ""
     if empty and has_text { give back false }
+    if type_like and not has_text { give back false }
     if after == no_span { give back true }
     give back v4_hir_snapshot_span_is_canonical_nonempty(after) and v4_span_file(after) == file and v4_span_end(close) <= v4_span_start(after)
 }
