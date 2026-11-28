@@ -3891,11 +3891,43 @@ task v4_mir_check_raw_mem_trust(mir_id: int, span: word, operation: word, requir
     v4_mir_check_trust_honor(mir_id, span, operation, required_level)
 }
 
+-- The `>` closing a free intrinsic's `name<...>`, or -1. These are not
+-- method calls, so HIR keeps no method type argument row for them; the walk
+-- stays inside the one call expression that ends at end_token.
+task v4_mir_raw_mem_type_arg_close(stream_id: int, type_open: int, end_token: int) -> int {
+    pilot idx = type_open
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot value = v4_lex_token_syntax_value(stream_id, idx)
+            if value == "<" {
+                depth += 1
+            } else if value == ">" {
+                depth -= 1
+                if depth == 0 {
+                    give back idx
+                }
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_raw_mem_type_arg_starts_like_type(stream_id: int, target_start: int) -> bool {
+    pilot token_type = v4_lex_token_type(stream_id, target_start)
+    if token_type == v4_tok_ident or token_type == v4_tok_keyword or token_type == v4_tok_lifetime {
+        give back true
+    }
+    pilot token_value = v4_lex_token_syntax_value(stream_id, target_start)
+    give back token_value == "*" or token_value == "(" or token_value == "["
+}
+
 -- The type argument of name<T>(...), checked and canonical, or "" after a
 -- named error. Generic type arguments are not sized in V4 yet.
 task v4_mir_raw_mem_type_arg(mir_id: int, body_id: int, stream_id: int, name: word, type_open: int, type_close: int, expr_span: word) -> word {
     pilot target_start = v4_mir_skip_trivia(stream_id, type_open + 1)
-    if target_start >= type_close or not v4_mir_cast_target_starts_like_type(stream_id, target_start, type_close) {
+    if target_start >= type_close or not v4_mir_raw_mem_type_arg_starts_like_type(stream_id, target_start) {
         v4_mir_add_type_error(mir_id, expr_span, name + " needs a type argument", "write " + name + "<T>() with a type between the angle brackets, e.g. " + name + "<int>()")
         give back ""
     }
@@ -3944,7 +3976,7 @@ task v4_mir_try_lower_raw_mem_intrinsic(mir_id: int, body_id: int, stream_id: in
     pilot type_close = 0 - 1
     if v4_lex_token_syntax_value(stream_id, open) == "<" {
         type_open = open
-        type_close = v4_mir_raw_pointer_method_type_arg_close(stream_id, type_open, last + 1)
+        type_close = v4_mir_raw_mem_type_arg_close(stream_id, type_open, last + 1)
         if type_close < 0 { give back 0 - 1 }
         open = v4_mir_next_nontrivia(stream_id, type_close + 1, last + 1)
     }
