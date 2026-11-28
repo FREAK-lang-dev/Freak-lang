@@ -1007,10 +1007,10 @@ def file_ranges_and_validators(s:Server,expected:bytes):
         for headers in ([('If-None-Match','"other"')],[('If-Modified-Since',old.decode())],[('If-Modified-Since','not a date')],
                         [('If-None-Match','"other"'),('If-Modified-Since',modified.decode())]):
             status,fields,body=get(headers);assert status==200 and body==expected,(headers,status,fields)
-        # If-Range: the range only while the validator is current (strong).
+        # If-Range: the range only while the tag is current (strong). A date
+        # is never a strong validator here, so it always gets the whole file.
         ranged('bytes=0-9',0,9,[('If-Range',tag.decode())])
-        ranged('bytes=0-9',0,9,[('If-Range',modified.decode())])
-        for validator in ('"stale"','W/'+tag.decode(),old.decode()):
+        for validator in ('"stale"','W/'+tag.decode(),old.decode(),modified.decode()):
             status,fields,body=get([('Range','bytes=0-9'),('If-Range',validator)])
             assert status==200 and body==expected,(validator,status,fields)
         client=connection['client'];client.sendall(request('/health'));responses,_=read_responses(client,1);assert responses[0][2]==b'healthy';s.cases+=1
@@ -1040,19 +1040,22 @@ def file_ranges_and_validators(s:Server,expected:bytes):
     small=Path(s.env['FREAK_HTTP_TEST_SMALL_FILE']);second=int(time.time())-30
     small.write_bytes(b'AAAA');os.utime(small,ns=(second*10**9+100_000_000,second*10**9+100_000_000))
     with s.connect() as client:
-        client.sendall(request('/file-small'));responses,_=read_responses(client,1);old_tag=responses[0][1][b'etag']
+        client.sendall(request('/file-small'));responses,_=read_responses(client,1)
+        old_tag=responses[0][1][b'etag'];old_date=responses[0][1][b'last-modified']
         small.write_bytes(b'BBBB');os.utime(small,ns=(second*10**9+700_000_000,second*10**9+700_000_000))
         client.sendall(request('/file-small',headers=[('If-None-Match',old_tag.decode())]));responses,_=read_responses(client,1)
         status,fields,body=responses[0];assert status==200 and body==b'BBBB' and fields[b'etag']!=old_tag,(status,fields,body)
         client.sendall(request('/file-small',headers=[('Range','bytes=0-1'),('If-Range',old_tag.decode())]));responses,_=read_responses(client,1)
         assert responses[0][0]==200 and responses[0][2]==b'BBBB',responses[0]
-        # A modification time that is not yet a second old (here: ahead of
-        # the clock) is no strong validator, so a dated If-Range sends it all.
+        # The date did not change, so a dated resume would splice AA + BB.
+        client.sendall(request('/file-small',headers=[('Range','bytes=2-3'),('If-Range',old_date.decode())]));responses,_=read_responses(client,1)
+        assert responses[0][0]==200 and responses[0][2]==b'BBBB' and responses[0][1][b'last-modified']==old_date,responses[0]
+        # Nor does a date ahead of the clock keep the range.
         ahead=int(time.time())+60;os.utime(small,(ahead,ahead))
         date=email.utils.formatdate(ahead,usegmt=True)
         client.sendall(request('/file-small',headers=[('Range','bytes=0-1'),('If-Range',date)]));responses,_=read_responses(client,1)
         assert responses[0][0]==200 and responses[0][2]==b'BBBB' and responses[0][1][b'last-modified']==date.encode(),responses[0]
-    s.cases+=4
+    s.cases+=5
     # A range deep into a file far past one 512 KiB pump turn.
     with s.connect() as client:
         first=200_000_003

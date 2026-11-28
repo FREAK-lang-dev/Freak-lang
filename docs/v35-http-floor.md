@@ -97,9 +97,10 @@ handles caching and resumable downloads by itself:
   `-suffix` forms). A range that starts past the end gets `416 Range Not
   Satisfiable` with `Content-Range: bytes */<size>`. Several ranges, another
   unit or bad syntax are ignored and the whole file is sent, as RFC 9110
-  allows. `If-Range` keeps the range only while its tag (strong comparison)
-  still matches, or while its date equals the modification time and that time
-  is in the past (a strong validator); otherwise the whole file is sent.
+  allows. `If-Range` keeps the range only while its tag still matches
+  (strong comparison). An `If-Range` date always gets the whole file: two
+  writes in the same second share a date, so it is never a strong validator.
+  Resume with the ETag instead.
 - If the response headers are already full, so `Content-Range` does not fit,
   the whole file is sent with 200 instead of a range.
 
