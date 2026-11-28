@@ -460,7 +460,7 @@ def http_once(cli:Path,project:Path,backend:str,env,progress=None):
         assert port,lines
         if progress:progress.stage('http-request','health')
         with socket.create_connection(('127.0.0.1',port),timeout=4) as client:
-            client.sendall(request('/health'));wire=b''
+            client.sendall(request('/health',headers=[('Connection','close')]));wire=b''
             while data:=client.recv(4096):wire+=data
         assert_response(parse_response(wire),200,b'healthy')
         if progress:progress.stage('http-exit','http')

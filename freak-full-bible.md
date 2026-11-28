@@ -50,7 +50,7 @@ Pipeline (full compiler):
 | §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, body-derived provenance/source discovery through projection/scalar-holder/projected-reborrow/statically resolved call/reordered-argument/CFG-join paths with bounded deterministic loop-header/backedge fixed points, all-candidate final-use liveness (including elided multi-owner results), and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed child provenance, projection-assignment rebinding (including conservative dynamic-index overlap), field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Generic-call, owner-generic, and `Shared<T>::new` checks recursively expose nominal shape/route lends before substitution; direct nominal impl and overloaded operator calls on lend-bearing owners fail closed, and classifier depth exhaustion has a distinct diagnostic. First-pass closure capture ownership (`CaptureBorrow`, `CaptureBorrowMut`, `CaptureCopy`, `CaptureMove`) with stored-closure loan liveness and OneShot consumption, queryable Meiya-owned loan/move facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces (lowered natively as counted boxes with runtime borrow state, §4.4), and trust-me honor gating also exist. Declaration-order children use `freak-mir-snapshot-v7`; v4/v5/v6 are rejected, and restore re-resolves IDs in a fresh borrowck generation. Ordinary-task fixed-layout aggregate parameters and returns now preserve leaf provenance; non-ordinary aggregate task parameters and returns, dynamic and wrapper containers, lend-bearing aliases/doctrine/callback contracts, signature-derived lifetime solving beyond declared ordinary-task relations, general lexical region inference, `'static`, general arena reclamation, `Shared<T>` handles inside other types and generic instances, closure `Send`/`Sync`, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax exists, but borrowed-return closure contracts and forwarding do not yet. No fixed-aggregate backend or runtime ABI is claimed. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
-| §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, http_server (bounded synchronous V3.5 transport), fs, process, time, bytes, math3d, version, zip; current V3.5 development also includes ordinary `std::test` assertion helpers, an OS-secure `std::random` scalar floor and a `std::crypto` hashing floor (SHA-256, HMAC-SHA-256, PBKDF2). V3 ui is limited to the LLVM/Windows Win32-GDI floor and COCKPIT remains a Maverick source preview. Planned: thread, anime, narrative, richer test blocks, regex, crypto, ffi, panic. Maverick (V4) lowers the §7.4 `List<T>`, `Map<K,V>` and `Set<T>` core natively (literals, indexing, `push`/`set`/`get`/`remove`/`add`/`contains`/`length`); the rest of §7.4 is 🔜 V4. |
+| §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, http_server (bounded V3.5 event-loop transport), fs, process, time, bytes, math3d, version, zip; current V3.5 development also includes ordinary `std::test` assertion helpers, an OS-secure `std::random` scalar floor and a `std::crypto` hashing floor (SHA-256, HMAC-SHA-256, PBKDF2). V3 ui is limited to the LLVM/Windows Win32-GDI floor and COCKPIT remains a Maverick source preview. Planned: thread, anime, narrative, richer test blocks, regex, crypto, ffi, panic. Maverick (V4) lowers the §7.4 `List<T>`, `Map<K,V>` and `Set<T>` core natively (literals, indexing, `push`/`set`/`get`/`remove`/`add`/`contains`/`length`); the rest of §7.4 is 🔜 V4. |
 | §8 Lexer | ⚠️ Partial | All v0.13.x keywords lex. V4 token streams now carry `'a` lifetimes and number suffixes (`42u`/`3.14f`/`42t`/`999b`); the `\|\|` xm3 separator and remaining production recovery depth are still V4. |
 | §9 Parser | ⚠️ Partial | Tolerant parsing (`ErrorNode`/`IncompleteNode`, recovery boundaries, IDE-grade incremental parsing) is V4. v1 (Python) parser fails on V3-superset syntax — V3 self-hosting compiler is the bible-conformant parser. |
 | §10 Type Checker | ⚠️ Partial | Most semantic checks listed (power arithmetic, prob ranges, foreshadow strict enforcement, classified redaction, full FFI safety) are V4. V4 now validates route exhaustiveness, first-pass `dyn Doctrine` object-safety/coercion contracts, and the basic `@layout(C)` / `packed` / `transparent` contracts; deeper layout and backend guarantees still expand. |
@@ -59,7 +59,7 @@ Pipeline (full compiler):
 | §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`; current V3.5 development also provides installed native `freak test` for ordinary programs declared in `[tests]`, and `-o`/`--output` for build/run. V4: `freak vibe`, the `test "name" { ... }` framework, `--voice=…`, `--clearance=…`, `--build-mode=…`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
 | §15 Cheatsheet | ⚠️ Partial | Reflects §1-§14 status. |
-| §16 FFI | ⚠️ Partial | V3.5 (0.16.0) calls C functions in prebuilt `.so`/`.dylib`/`.dll` libraries on both backends: `extern [C, link="..."]` blocks with std::ffi C widths, raw pointers, `@link_name`, `if target_os` blocks, run-time `load="..."` binding, `ffi::*` C-string/memory/loader helpers, and `--link=`/`--lib-dir=` (§16 V3.5 note, §16.7). V4 has landed substantial section-16 work (extern ABI metadata, layout attributes, callback surface validation + `@extern_callback` task export with trampolines, stack-unwinder import diagnostics, raw-pointer `.is_null()`, trust-me-gated `*ptr`/`.read()` read, `*ptr = value`/`.write(value)` write, `.offset(n)`, `.cast<U>()`, fieldless `@repr(...)` route/variant FFI safety, target-width C integer aliases with sign/zero extension and checked narrowing on extern declarations, `@extern_callback` trampolines and extern function pointer calls, native C variadic calls with the default argument promotions, and more). Per-landing breakdown lives in [freak-conformance-audit.md §16](freak-conformance-audit.md#§16-system-boundaries-ffi). Still V4: runtime panic-catch in trampoline bodies, raw allocation/freeing, `std::os` platform modules, error-code translation. |
+| §16 FFI | ⚠️ Partial | V3.5 (0.16.0) calls C functions in prebuilt `.so`/`.dylib`/`.dll` libraries on both backends: `extern [C, link="..."]` blocks with std::ffi C widths, raw pointers, `@link_name`, `if target_os` blocks, run-time `load="..."` binding, `ffi::*` C-string/memory/loader helpers, and `--link=`/`--lib-dir=` (§16 V3.5 note, §16.7). V4 has landed substantial section-16 work (extern ABI metadata, layout attributes, callback surface validation + `@extern_callback` task export with trampolines, stack-unwinder import diagnostics, raw-pointer `.is_null()`, trust-me-gated `*ptr`/`.read()` read, `*ptr = value`/`.write(value)` write, `.offset(n)`, `.cast<U>()`, fieldless `@repr(...)` route/variant FFI safety, target-width C integer aliases with sign/zero extension and checked narrowing on extern declarations, `@extern_callback` trampolines and extern function pointer calls, native C variadic calls with the default argument promotions, `lend` word extern parameters as `(const char*, size_t)` (§16.1), and more). Per-landing breakdown lives in [freak-conformance-audit.md §16](freak-conformance-audit.md#§16-system-boundaries-ffi). Still V4: runtime panic-catch in trampoline bodies, raw allocation/freeing, `std::os` platform modules, error-code translation. |
 | §17 Compiler Internals + IDE | 🔜 V4 | Panic infrastructure, tolerant parsing, AST node IDs, incremental parsing, autocomplete, IDE-mode error reporting are V4. V4 TY now diagnoses alias-cycle loops; the broader 00-Unit IDE/compiler-internals surface remains in progress. |
 
 ### 0.3 V4 roadmap and conformance
@@ -437,6 +437,12 @@ for each item in list {
     process(item)
 }
 ```
+
+Destructuring patterns cover tuples `(a, b)`, sequences `[a, b]` (fixed
+arrays, and lists, where the arm matches exactly that length and `[]` an
+empty list) and route/variant payloads `Case { field }`. There is no map
+destructuring pattern: a map is read with `m[k]` or `m.get(k)` (§7.4), never
+taken apart by a pattern.
 
 The condition of `repeat while` and `while` must be `bool`; it is tested
 before every pass, including the first. They share the existing loop rules
@@ -1888,7 +1894,7 @@ freak hangar clean         -- clear cache
 | `std::math`, `std::math3d` | ✅ Implemented (pure FREAK) |
 | `std::string`, `std::convert`, `std::algorithm`, `std::version`, `std::zip` | ✅ Implemented (pure FREAK) |
 | `std::json`, `std::http` | ✅ Implemented (pure FREAK + TCP runtime) |
-| `std::http_server` | ✅ V3.5 bounded synchronous HTTP/1 transport (C/LLVM runtime); application-owned routing and JSON policy, one active request, no TLS or keepalive. See [deployment profile](docs/v35-http-floor.md). |
+| `std::http_server` | ✅ V3.5 bounded HTTP/1 transport (C/LLVM runtime): one event loop per worker process (epoll/kqueue/WSAPoll) serving many connections, keep-alive and pipelining, optional worker processes, streamed file responses (`http_send_file`); application-owned routing and JSON policy, one active request per worker, no TLS. See [deployment profile](docs/v35-http-floor.md). |
 | `std::fs`, `std::time`, `std::bytes` | ✅ Implemented (C runtime) |
 | `std::process` | ⚠️ Partial in shipping V3; the normative `args() -> List<word>` surface requires the V4 list ABI |
 | `std::ui` | ⚠️ Partial in V3 — LLVM/Windows Win32-GDI window, indexed event, and raw drawing floor only; no owned event-list API, POSIX native backend, or executable C UI path. COCKPIT is a Maverick source preview, not a frozen-V3 package. |
@@ -2060,6 +2066,7 @@ Collection rules:
 - `List<dyn D>` stores owned doctrine objects as fat pointers plus drop glue.
 - `List<Shared<dyn D>>` stores shared pointers to erased objects and is the preferred representation for UI trees, scene graphs, IDE buffers, and other cyclic-ish systems.
 - `Map<K,V>` keys must implement `Eq + Hashable`. `dyn` keys are forbidden unless the doctrine object also exposes stable equality and hashing through an object-safe doctrine.
+- A list holds `maybe`/`result` values by value, like any other element. They are not `Copy`, even over scalar payloads: reading `xs[i]` or `xs.get(i)` moves the element out, `push` moves one in, `xs[i] = v` drops the old one, and each `for each` item is the walker's own copy.
 - Removing an element drops the collection's ownership of that element. If the element is `Shared<T>`, the allocation remains alive while other strong references exist.
 - `map[key]` reads or updates the entry for `key` in place and panics with `map key not found` when there is none; `map.get(key)` is the checked read and gives back `maybe<V>` holding a copy. `map[key] = val` is `map.set(key, val)`: it inserts or replaces, moving key and value into the map. `map.remove(key)` and `set.remove(val)` give back whether an entry was removed, `set.add(val)` keeps the first of two equal values, and `map.length` / `set.length` count entries. A lookup lends its key.
 - Lending `map[key]` borrows the map: it cannot be changed or moved while that loan is live.
@@ -2124,7 +2131,8 @@ socket.receive(max)       -- promise<result<List<tiny>, NetError>>
 local-port lookup and timeouts. ByteBuffer carries binary I/O;
 callers handle partial transfers and release both socket and buffer handles.
 This additive runtime floor does not implement the async types above. The
-bounded synchronous `std::http_server` transport also ships with V3.5;
+bounded `std::http_server` transport (event loop, keep-alive, worker
+processes; handlers run one at a time per worker) also ships with V3.5;
 applications own routing, validation and response policy. The userland
 Ordnance example (`packages/http-server`) remains available. See the
 [HTTP deployment profile](docs/v35-http-floor.md) for limits and verification.
@@ -3177,13 +3185,46 @@ FFI-safe types:
 - Fieldless `@repr(...)` variants.
 - Fixed arrays `[T; N]` where `T` is FFI-safe.
 - Extern function pointers: `extern [C] task(...) -> T`.
+- `lend name: word` as a parameter of an extern block member (word bytes at
+  a C boundary, below).
 
-Not FFI-safe by default: `word`, `List<T>`, `Map<K,V>`, `Set<T>`,
+Not FFI-safe by default: `word` (in any other position), `List<T>`, `Map<K,V>`, `Set<T>`,
 `Shared<T>`, `Weak<T>`, `dyn D`, closures, `maybe<T>`, `result<T,E>`,
 payload variants, and any shape without an explicit layout annotation.
 
 Yuuko note: "A FREAK `word` is not a `char*`. If you hand it to C raw,
 the BETA are no longer the main threat."
+
+Word bytes at a C boundary: a `lend` word parameter of an extern task lends C
+the word's bytes for the duration of the call. It is two C parameters, the
+bytes as `const char*` and then their byte length as `size_t` (the target's
+C `size_t` width):
+
+```
+extern [C] {
+    task count_byte(lend text: word, byte: std::ffi::c_int) -> std::ffi::c_size
+}
+-- C: size_t count_byte(const char *text, size_t text_len, int byte);
+
+task main() -> int {
+    pilot greeting = "hello world"
+    pilot ls = count_byte(lend greeting, 108)   -- 3; greeting is still ours
+    give back 0
+}
+```
+
+Rules:
+
+- The caller keeps the word. The call holds a shared loan, as for a FREAK
+  `lend` parameter, so the word cannot be moved or rewritten while C runs;
+  the loan ends when the call returns. Nothing is copied or dropped.
+- The bytes are UTF-8 and are not NUL-terminated for C, and an embedded NUL
+  is an ordinary byte. C must use the length and must not keep the pointer
+  after the call. Use `ffi::cstring` when C needs a terminated copy.
+- C must not write the bytes: `lend mut word` is not FFI-safe, and neither
+  is a word passed by value, a word return, a word behind an alias, or a
+  word parameter of an `@extern_callback` task or extern function pointer
+  type (C would hand FREAK bytes that no word owns).
 
 V4 implementation status: validated target descriptors now expose signedness,
 size, alignment and LLVM carriers for C int32, LP64 long64 and Windows LLP64
@@ -3198,7 +3239,11 @@ spell these widths too (both call directions are checked), and a variadic
 call promotes each `...` argument as C does (`bool`/`tiny` to `int`, `char` to
 `unsigned int`, `float32` to `double`). C widths elsewhere (FREAK task
 signatures, locals, pointees), `wchar` and variadic function pointers keep
-their named fences.
+their named fences. A `lend` word parameter of an extern declaration lowers
+to its `(const char*, size_t)` pair through the declaration's shim, with
+`size_t` at the target's pointer width; variadic declarations with such a
+parameter, and such declarations used as task values, are still refused by
+name.
 
 ### 16.2 extern Blocks and Calling Conventions
 

@@ -374,6 +374,17 @@ task v4_target_c_scalar_extension(target_spec: word, scalar_key: word) -> word {
     give back "zeroext"
 }
 
+-- C size_t on this target: an unsigned integer as wide as a data pointer
+-- (all four registered targets are 64-bit, including LLP64 Windows, where
+-- long stays 32-bit). A word lent to C passes its byte length at this width.
+-- Invalid targets and unknown pointer widths fail closed with "".
+task v4_target_c_size_carrier(target_spec: word) -> word {
+    pilot width = v4_target_spec_pointer_width(target_spec)
+    if width == 64 { give back "i64" }
+    if width == 32 { give back "i32" }
+    give back ""
+}
+
 -- Aggregate layout (tier 3). Sizes and alignments are answered per target
 -- for the LLVM scalar carriers codegen emits, and C struct rules (each field
 -- at the next multiple of its alignment, size rounded to the largest field

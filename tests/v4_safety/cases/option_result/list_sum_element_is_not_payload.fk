@@ -1,0 +1,9 @@
+-- A list element of type maybe<int> never unwraps implicitly.
+-- expect: reject mir
+-- error: local declaration type mismatch
+
+task main() -> int {
+    pilot xs: List<maybe<int>> = [some(1)]
+    pilot v: int = xs[0]
+    give back v
+}

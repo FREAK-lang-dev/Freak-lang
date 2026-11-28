@@ -19,6 +19,7 @@ import struct
 import subprocess
 import tempfile
 import time
+import threading
 
 
 class HttpProgress:
@@ -194,6 +195,7 @@ static ssize_t stop_fixture_send(int,const void *,size_t,int);
 #endif
 #ifdef USE_LLVM_ADAPTER
 #define H(name) freak_llvm_http_server_##name
+#define freak_llvm_http_server_live_connections freak_http_server_live_connections
 #define J(name) freak_llvm_json_document_##name
 #define W(s) ((int64_t)(intptr_t)(s))
 static freak_word view(int64_t w) { return freak_llvm_word_view(w); }
@@ -292,7 +294,10 @@ static ssize_t stop_fixture_send(int socket,const void *data,size_t length,int f
         bool partial=result>0&&(size_t)result<(size_t)length;
         if(partial)c->positive_partial=true;
         int observed=0;
-        if(result<0&&c->positive_partial&&stop_would_block(error))observed=1;
+        /* macOS refuses a nonblocking send outright (EAGAIN, no partial write)
+           while free space is below SO_SNDLOWAT, so a would-block after any
+           earlier accepted bytes is real backpressure too. */
+        if(result<0&&(c->positive_partial||atomic_load_explicit(&c->sent_bytes,memory_order_relaxed)>0)&&stop_would_block(error))observed=1;
         else if(partial) {
             int writable=stop_write_probe(socket);
             if(writable<0)atomic_store_explicit(&c->probe_failed,true,memory_order_release);
@@ -365,17 +370,16 @@ static void stop_tests(void) {
         pthread_t thread;REQUIRE(pthread_create(&thread,NULL,accept_thread,&c)==0);freak_time_sleep(30);
 #endif
         if(c.writing) {
+            /* Responses are queued: send returns once the socket pushes back,
+               and the unsent tail waits in the event loop. stop/close must
+               still end promptly and drop it without retaining anything. */
             uint64_t limit=freak_command_now_ms()+2000;
-            while(!atomic_load_explicit(&c.ready,memory_order_acquire)) {
-                if(atomic_load_explicit(&c.completed,memory_order_acquire))stop_setup_failure(&c,"worker_completed_before_backpressure");
+            while(!atomic_load_explicit(&c.ready,memory_order_acquire)||!atomic_load_explicit(&c.completed,memory_order_acquire)) {
                 if(atomic_load_explicit(&c.probe_failed,memory_order_acquire))stop_setup_failure(&c,"writability_probe_failed");
                 if(freak_command_now_ms()>=limit)stop_setup_failure(&c,"backpressure_deadline");
                 freak_time_sleep(1);
             }
-            freak_time_sleep(30);
-            if(atomic_load_explicit(&c.completed,memory_order_acquire))stop_setup_failure(&c,"worker_completed_before_stop");
-            if(atomic_load_explicit(&c.probe_failed,memory_order_acquire))stop_setup_failure(&c,"writability_probe_failed");
-            if(freak_command_now_ms()>=limit)stop_setup_failure(&c,"setup_deadline");
+            REQUIRE(H(live_connections)()==1);
         }
         uint64_t start=freak_command_now_ms();H(stop)(c.server);
 #ifdef _WIN32
@@ -385,7 +389,7 @@ static void stop_tests(void) {
 #endif
         uint64_t elapsed=freak_command_now_ms()-start;
         int64_t request_status=H(request_status)(c.request),expected_status=c.writing?0:503,server_status=H(status)(c.server);
-        if(elapsed>=500||request_status!=expected_status||server_status!=1||(c.writing&&c.sent)) {
+        if(elapsed>=500||request_status!=expected_status||server_status!=1||(c.writing&&!c.sent)) {
             __auto_type error=H(request_error)(c.request);freak_word message=view(error);
             fprintf(stderr,"STOP_CHECK reading=%d writing=%d elapsed_ms=%llu request_status=%lld expected_status=%lld server_status=%lld sent=%d error=%.*s\n",
                 reading,c.writing,(unsigned long long)elapsed,(long long)request_status,(long long)expected_status,(long long)server_status,c.sent,(int)message.length,message.data);
@@ -394,7 +398,7 @@ static void stop_tests(void) {
         REQUIRE(elapsed<500);
         REQUIRE(request_status==expected_status);
         REQUIRE(server_status==1);
-        if(c.writing)REQUIRE(!c.sent);
+        if(c.writing)REQUIRE(c.sent);
         if(client!=FREAK_INVALID_NATIVE_SOCKET) freak_tcp_socket_native_close(client);
         H(request_release)(c.request);H(close)(c.server);base();
     }
@@ -452,13 +456,23 @@ static void response_size(int64_t request,int status) {
 }
 static void service(const char *profile) {
     int initial_fds=fds();int64_t server=H(open)(0);REQUIRE(H(status)(server)==0);
-    bool tight=!strcmp(profile,"tight");
+    bool tight=!strcmp(profile,"tight"),keepalive=!strcmp(profile,"keepalive");
     if(tight) { H(set_limits)(server,128,512,8,64);H(set_chunk_limits)(server,64,64);H(set_timeouts)(server,220,260,120); }
     else H(set_timeouts)(server,1200,5000,1000);
+    /* The classic corpora read every response to EOF: one request per
+       connection. The keep-alive corpus keeps connections, with a small idle
+       window, five requests per connection and a 64-connection cap. */
+    if(keepalive) { H(set_keep_alive)(server,400,5);H(set_max_connections)(server,64); }
+    else H(set_keep_alive)(server,1000,0);
     printf("PORT %lld\n",(long long)H(local_port)(server));fflush(stdout);
-    size_t requests=0,baseline_retained=0,pool_checks=0;pool_snapshot warmed={0};bool quit=false;int listener_fds=fds();
+    size_t requests=0,baseline_retained=0,pool_checks=0;pool_snapshot warmed={0};bool quit=false,baseline_taken=false;int listener_fds=-2;
     while(!quit) {
         int64_t request=H(next_request)(server);
+        /* Queued requests stay bounded by the connection cap even when their
+           connections are gone (rejections hold memory until dispatched). */
+        { freak_http_server *native=freak_http_require_server(server);size_t queued=0;
+          for(freak_http_request *q=native->ready_head;q;q=q->ready_next)queued++;
+          REQUIRE(queued<=2*native->max_connections); }
         if(!H(request_status)(request)) {
             __auto_type method=H(request_method)(request),path=H(request_path)(request),target=H(request_target)(request),query=H(request_query)(request);
             freak_word p=view(path),m=view(method);bool sent=true;
@@ -468,6 +482,20 @@ static void service(const char *profile) {
                 else sent=H(send_text)(request,W("healthy"));
             } else if(p.length>7&&!memcmp(p.data,"/hello/",7)) {
                 int64_t b=bytes(p.data+7,p.length-7);sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
+            } else if(eq(p,"/file-big")) {
+                const char *file=getenv("FREAK_HTTP_TEST_BIG_FILE");REQUIRE(file);sent=H(send_file)(request,W(file));
+            } else if(eq(p,"/file")||eq(p,"/file-missing")||eq(p,"/file-dir")) {
+                /* Streamed file responses bypass the buffered-body cap; a file
+                   that cannot be opened leaves the request answerable. */
+                const char *file=getenv("FREAK_HTTP_TEST_FILE");REQUIRE(file);char missing[4096];snprintf(missing,sizeof(missing),"%s.missing",file);
+                bool real=eq(p,"/file");const char *target=real?file:eq(p,"/file-missing")?missing:".";
+                if(real) REQUIRE(H(response_header)(request,W("Content-Type"),W("application/zip")));
+                sent=H(send_file)(request,W(target));
+                if(!real) {
+                    REQUIRE(!sent);__auto_type error=H(request_error)(request);REQUIRE(view(error).length>0);
+                    if(eq(p,"/file-missing")) REQUIRE(eq(view(error),"cannot open response file"));
+                    drop(error);REQUIRE(H(response_status)(request,404));sent=H(send_text)(request,W("no file"));
+                }
             } else if(eq(p,"/echo")) {
                 int64_t b=H(request_body)(request);sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
             } else if(eq(p,"/header-bytes")) {
@@ -498,7 +526,9 @@ static void service(const char *profile) {
             else if(eq(p,"/large")) {
                 freak_http_request *native=freak_http_require_request(request);int amount=1024;setsockopt(native->socket,SOL_SOCKET,SO_SNDBUF,(const char *)&amount,sizeof(amount));
                 int64_t b=freak_byte_buffer_with_capacity(262144);freak_byte_buffer_record *r=freak_byte_buffer_require(b,"large fixture");for(size_t i=0;i<262144;i++)r->data[i]=(unsigned char)((i*17+3)&255);r->length=262144;sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
-            } else if(eq(p,"/empty")) sent=H(send_text)(request,W(""));
+            } else if(eq(p,"/slow")) { freak_time_sleep(150);sent=H(send_text)(request,W("slow")); }
+            else if(eq(p,"/retained")) { char body[32];snprintf(body,sizeof(body),"%lld",(long long)H(retained_bytes)());sent=H(send_text)(request,W(body)); }
+            else if(eq(p,"/empty")) sent=H(send_text)(request,W(""));
             else if(eq(p,"/204")) { REQUIRE(H(response_status)(request,204));sent=H(send_text)(request,W("ignored")); }
             else if(eq(p,"/205")) {
                 REQUIRE(H(response_status)(request,205));
@@ -514,11 +544,19 @@ static void service(const char *profile) {
             REQUIRE(view(path).length==p.length&&view(method).length==m.length);drop(method);drop(path);drop(target);drop(query);
         } else H(request_release)(request);
         requests++;
-        REQUIRE(H(live_requests)()==0&&H(live_servers)()==1&&H(live_sockets)()==1);
-        REQUIRE(!freak_byte_buffer_live_count&&!freak_c_owned_word_count&&!freak_llvm_owned_count&&!freak_json_live_documents&&!freak_json_live_nodes);
-        REQUIRE(fds()==listener_fds);
-        if(requests==20) baseline_retained=H(retained_bytes)();
-        if(requests>20) REQUIRE((size_t)H(retained_bytes)()==baseline_retained);
+        REQUIRE(H(live_requests)()==0&&H(live_servers)()==1);
+        REQUIRE(!freak_c_owned_word_count&&!freak_llvm_owned_count&&!freak_json_live_documents&&!freak_json_live_nodes);
+        /* Socket, descriptor and byte ownership are exact whenever no
+           connection is still open and no request is queued: an open one may
+           be finishing a queued write or (keep-alive) parsing its next request
+           body, and a queued rejection outlives its closed connection. */
+        if(!H(live_connections)()&&!freak_http_require_server(server)->ready_head) {
+            REQUIRE(!freak_byte_buffer_live_count&&H(live_sockets)()==1);
+            if(listener_fds==-2) listener_fds=fds();
+            REQUIRE(fds()==listener_fds);
+            if(requests>=20&&!baseline_taken) { baseline_retained=H(retained_bytes)();baseline_taken=true; }
+            else if(baseline_taken) REQUIRE((size_t)H(retained_bytes)()==baseline_retained);
+        }
         /* By 512 requests JSON, binary, malformed and large-body paths have all
            run; table sizes must then stay flat through the remaining soak. */
         if(requests==512) warmed=pools();
@@ -529,10 +567,50 @@ static void service(const char *profile) {
     printf("REPORT %zu %zu %zu %lld %d %zu %zu %zu %zu %zu %zu %zu\n",requests,partial_sends,send_failures,(long long)H(retained_bytes)(),fds(),
         pool_checks,shared_pool_bytes(final),final.byte_capacity,final.byte_slots,final.json_capacity,final.json_slots,final.word_buckets);fflush(stdout);
 }
+static long process_id(void) {
+#ifdef _WIN32
+    return (long)GetCurrentProcessId();
+#else
+    return (long)getpid();
+#endif
+}
+/* Keep this worker busy, so the next connections must go to the others. */
+static void hold_worker(void) {
+#ifdef _WIN32
+    Sleep(40);
+#else
+    struct timespec pause={0,40*1000*1000};while(nanosleep(&pause,&pause)!=0&&errno==EINTR) {}
+#endif
+}
+/* Three worker processes share one listener. /worker names the process that
+   answered, /crash ends a non-first worker abruptly (it must be replaced),
+   /stop stops the first process, which stops every worker in close. */
+static void workers(void) {
+    int64_t server=H(open)(0);REQUIRE(H(status)(server)==0);
+    H(set_workers)(server,3);H(set_keep_alive)(server,1000,0);H(set_timeouts)(server,1200,5000,1000);
+    int64_t index=H(worker_index)(server);
+    if(!index) { printf("PORT %lld\n",(long long)H(local_port)(server));fflush(stdout); }
+    size_t requests=0;
+    for(;;) {
+        int64_t request=H(next_request)(server);index=H(worker_index)(server);
+        if(H(request_status)(request)) { int64_t status=H(request_status)(request);H(request_release)(request);if(status==503)break;continue; }
+        __auto_type path=H(request_path)(request);freak_word p=view(path);bool quit=false;
+        if(eq(p,"/worker")||eq(p,"/worker-hold")) { if(eq(p,"/worker-hold")) hold_worker();char body[64];snprintf(body,sizeof(body),"%lld %ld",(long long)index,process_id());REQUIRE(H(send_text)(request,W(body))); }
+        else if(eq(p,"/crash")&&index) { char body[32];snprintf(body,sizeof(body),"bye %lld",(long long)index);REQUIRE(H(send_text)(request,W(body)));drop(path);H(request_release)(request);fflush(stdout);_exit(3); }
+        else if(eq(p,"/stop")) { REQUIRE(H(send_text)(request,W(index?"child":"stopped")));quit=!index; }
+        else { REQUIRE(H(response_status)(request,404));REQUIRE(H(send_text)(request,W("missing"))); }
+        drop(path);H(request_release)(request);requests++;
+        if(quit)break;
+    }
+    bool first=!index;
+    H(stop)(server);H(close)(server);base();
+    if(first) { printf("REPORT %zu\n",requests);fflush(stdout); }
+}
 int main(int argc,char **argv) {
     REQUIRE(argc==2);
+    if(!strcmp(argv[1],"workers")) {workers();return 0;}
     if(!strcmp(argv[1],"bind")) {bind_tests();stop_tests();return 0;}
-    if(!strcmp(argv[1],"normal")||!strcmp(argv[1],"tight")) {service(argv[1]);return 0;}
+    if(!strcmp(argv[1],"normal")||!strcmp(argv[1],"tight")||!strcmp(argv[1],"keepalive")) {service(argv[1]);return 0;}
     int64_t s=H(open)(0);
     if(!strcmp(argv[1],"stale")) {H(close)(s);s=H(open)(0);H(status)(s-(INT64_C(1)<<32));return 8;}
     if(!strcmp(argv[1],"double")) {H(close)(s);H(close)(s);return 8;}
@@ -559,11 +637,17 @@ class Server:
             assert select.select([self.process.stdout],[],[],5)[0], 'server did not start'
         line=self.process.stdout.readline()
         assert line.startswith(b'PORT '),(line,self.process.poll())
-        self.port=int(line.split()[1]);self.cases=0
+        self.port=int(line.split()[1]);self.cases=0;self.env=env
     def checkpoint(self, phase: str, fixture: str | None = None, *, case: int | None = None):
         if self.progress is not None:self.progress.stage(phase,fixture,case=case)
     def connect(self):
-        s=socket.create_connection(('127.0.0.1',self.port),timeout=4);s.settimeout(4);return s
+        try:s=socket.create_connection(('127.0.0.1',self.port),timeout=4)
+        except ConnectionRefusedError as error:
+            # A refused connect means the server is gone: say how it ended.
+            code=self.process.poll();tail=b''
+            if code is not None and self.process.stderr is not None:tail=self.process.stderr.read()[-2000:]
+            raise AssertionError(f'server refused a connection (exit status {code}): {tail!r}') from error
+        s.settimeout(4);return s
     def exchange(self, data: bytes, *, split: int|None=None, eof=False, slow=False):
         with self.connect() as s:
             if split is None:s.sendall(data)
@@ -580,7 +664,7 @@ class Server:
         self.cases+=1
         return parse_response(b''.join(chunks))
     def stop(self):
-        self.exchange(request('/stop'))
+        self.exchange(request('/stop',headers=[('Connection','close')]))
         out,err=self.process.communicate(timeout=5)
         assert self.process.returncode==0 and not err,(self.process.returncode,out,err)
         assert out.startswith(b'REPORT '),out
@@ -825,6 +909,252 @@ def tight_corpus(s:Server):
     assert_response(s.exchange(request('/echo','POST',headers=[('Content-Length','2')])+b'a',eof=True),400)
     assert_rejection(s.exchange(request('/echo','HEAD',headers=[('Content-Length','2')])+b'a',eof=True),400,head=True)
 
+def read_responses(client,count:int):
+    """Read exactly count Content-Length-framed responses from one socket."""
+    buffer=b'';responses=[]
+    while len(responses)<count:
+        while b'\r\n\r\n' not in buffer:
+            chunk=client.recv(65536);assert chunk,(responses,buffer)
+            buffer+=chunk
+        head,rest=buffer.split(b'\r\n\r\n',1);lines=head.split(b'\r\n');fields={}
+        for line in lines[1:]:
+            k,v=line.split(b':',1);fields[k.strip().lower()]=v.strip()
+        length=int(fields.get(b'content-length',b'0'))
+        while len(rest)<length:
+            chunk=client.recv(65536);assert chunk,(responses,rest)
+            rest+=chunk
+        responses.append((int(lines[0].split()[1]),fields,rest[:length]));buffer=rest[length:]
+    return responses,buffer
+
+def keepalive_corpus(s:Server):
+    s.checkpoint('keepalive-corpus','persistent-connection')
+    # Five requests share one connection; the fifth announces the close.
+    c=http.client.HTTPConnection('127.0.0.1',s.port,timeout=4);sockets=set()
+    for i in range(5):
+        c.request('GET','/hello/n'+str(i));sockets.add(id(c.sock));r=c.getresponse();assert r.status==200 and r.read()==('n'+str(i)).encode()
+        assert r.getheader('Connection')==('close' if i==4 else 'keep-alive'),(i,r.getheaders())
+    assert len(sockets)==1,sockets;c.close();s.cases+=1
+    s.checkpoint('keepalive-corpus','pipelining-and-close')
+    with s.connect() as client:
+        client.sendall(request('/hello/a')+request('/echo','POST',b'b\0b')+request('/hello/c',headers=[('Connection','close')]))
+        responses,rest=read_responses(client,3)
+        assert [r[2] for r in responses]==[b'a',b'b\0b',b'c'],responses
+        assert [r[1][b'connection'] for r in responses]==[b'keep-alive',b'keep-alive',b'close'],responses
+        assert rest==b'' and client.recv(1)==b'';s.cases+=1
+    s.checkpoint('keepalive-corpus','request-cap-with-unread-pipeline')
+    # The cap ends the connection with requests (and junk) still unread: the
+    # last response must arrive and the stream end in FIN, not a reset.
+    with s.connect() as client:
+        client.sendall(b''.join(request('/hello/p'+str(i)) for i in range(7))+b'X'*49152)
+        responses,rest=read_responses(client,5)
+        assert [r[2] for r in responses]==[b'p0',b'p1',b'p2',b'p3',b'p4'],responses
+        assert responses[-1][1][b'connection']==b'close',responses
+        assert rest==b'' and client.recv(1)==b'';s.cases+=1
+    s.checkpoint('keepalive-corpus','file-streaming')
+    expected=Path(s.env['FREAK_HTTP_TEST_FILE']).read_bytes()
+    with s.connect() as client:
+        client.sendall(request('/file')+request('/file-missing')+request('/file-dir')+request('/health'))
+        responses,rest=read_responses(client,4)
+        assert responses[0][0]==200 and responses[0][1][b'content-type']==b'application/zip' and responses[0][1][b'connection']==b'keep-alive'
+        assert hashlib.sha256(responses[0][2]).digest()==hashlib.sha256(expected).digest(),len(responses[0][2])
+        assert [(r[0],r[2]) for r in responses[1:]]==[(404,b'no file'),(404,b'no file'),(200,b'healthy')],responses[1:]
+        assert rest==b'';s.cases+=1
+    # A client that aborts a download mid-file must not take the worker down
+    # (sendfile has no MSG_NOSIGNAL).
+    for linger in (False,True):
+        client=s.connect();client.sendall(request('/file'));got=b''
+        while len(got)<65536:
+            chunk=client.recv(65536);assert chunk,got;got+=chunk
+        if linger:client.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,struct.pack('ii',1,0))
+        client.close();time.sleep(.2)
+        assert_response(s.exchange(request('/health',headers=[('Connection','close')])),200,b'healthy');s.cases+=1
+    # A reader fast enough that the socket never pushes back must still share
+    # the worker: other requests are answered while the download runs.
+    big=Path(s.env['FREAK_HTTP_TEST_BIG_FILE']).stat().st_size
+    reader=s.connect();reader.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,4<<20)
+    progress={'bytes':0,'done':None,'error':None}
+    def drain():
+        try:
+            reader.sendall(request('/file-big',headers=[('Connection','close')]))
+            while chunk:=reader.recv(1<<20):progress['bytes']+=len(chunk)
+            progress['done']=time.monotonic()
+        except OSError as error:progress['error']=error
+    thread=threading.Thread(target=drain,daemon=True);thread.start()
+    try:
+        while progress['bytes']<(1<<20) and progress['done'] is None and progress['error'] is None:time.sleep(.001)
+        answered=0
+        while progress['done'] is None and progress['error'] is None and answered<20:
+            assert_response(s.exchange(request('/health',headers=[('Connection','close')])),200,b'healthy');answered+=1
+        thread.join(30);assert not thread.is_alive() and progress['error'] is None,progress
+        # Headers plus the whole file arrived, and /health was answered at
+        # least once while the download was still running.
+        assert progress['bytes']>big and answered>=1,(progress,answered,big)
+    finally:
+        reader.close()
+    s.cases+=2
+    with s.connect() as client:
+        # HEAD announces the length and sends no body: the next response follows at once.
+        client.sendall(request('/file',method='HEAD')+request('/health'));raw=b''
+        while raw.count(b'\r\n\r\n')<2 or not raw.endswith(b'healthy'):
+            chunk=client.recv(65536);assert chunk,raw;raw+=chunk
+        head,second=raw.split(b'\r\n\r\n',1)
+        assert b'Content-Length: '+str(len(expected)).encode() in head and second.startswith(b'HTTP/1.1 200'),raw[:400];s.cases+=1
+    s.checkpoint('keepalive-corpus','http10')
+    with s.connect() as client:
+        client.sendall(request('/health',version='HTTP/1.0').replace(b'Host: localhost\r\n',b''))
+        responses,_=read_responses(client,1);assert responses[0][1][b'connection']==b'close' and client.recv(1)==b'';s.cases+=1
+    with s.connect() as client:
+        wire=request('/health',version='HTTP/1.0',headers=[('Connection','keep-alive')])
+        client.sendall(wire);responses,_=read_responses(client,1);assert responses[0][1][b'connection']==b'keep-alive',responses
+        client.sendall(wire);responses,_=read_responses(client,1);assert responses[0][2]==b'healthy';s.cases+=1
+    s.checkpoint('keepalive-corpus','idle-close')
+    with s.connect() as client:
+        client.sendall(request('/health'));read_responses(client,1)
+        started=time.monotonic();assert client.recv(1)==b'';idle=time.monotonic()-started
+        assert .25<idle<2.5,idle;s.cases+=1
+    s.checkpoint('keepalive-corpus','stalled-clients-do-not-block')
+    stalled=[s.connect() for _ in range(16)];idle=[s.connect() for _ in range(16)]
+    try:
+        for client in stalled:client.sendall(b'GET /health HTTP/1.1\r\nHo')
+        started=time.monotonic()
+        for i in range(60):
+            begin=time.monotonic();assert_response(s.exchange(request('/hello/x'+str(i),headers=[('Connection','close')])),200,('x'+str(i)).encode())
+            assert time.monotonic()-begin<.5
+        assert time.monotonic()-started<5
+        # Each stalled request still meets its own header deadline.
+        stalled[0].settimeout(5);out=b''
+        while chunk:=stalled[0].recv(4096):out+=chunk
+        assert_rejection(parse_response(out),408)
+    finally:
+        for client in stalled+idle:client.close()
+    s.checkpoint('keepalive-corpus','slow-reader-does-not-block')
+    slow=s.connect()
+    try:
+        slow.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,4096);slow.sendall(request('/large',headers=[('Connection','close')]))
+        time.sleep(.05)
+        for i in range(30):
+            begin=time.monotonic();assert_response(s.exchange(request('/health',headers=[('Connection','close')])),200,b'healthy');assert time.monotonic()-begin<.5
+        out=b''
+        while chunk:=slow.recv(65536):out+=chunk
+        assert_response(parse_response(out),200,bytes((i*17+3)&255 for i in range(262144)))
+    finally:
+        slow.close()
+    s.cases+=31
+    s.checkpoint('keepalive-corpus','pipelining-does-not-starve-others')
+    # Five pipelined 150 ms requests on one connection must not hold a second
+    # client until the whole pipeline drains: it is served after at most one
+    # more pipelined turn.
+    with s.connect() as piped:
+        piped.sendall(b''.join(request('/slow') for _ in range(5)));time.sleep(.02)
+        begin=time.monotonic();assert_response(s.exchange(request('/health',headers=[('Connection','close')])),200,b'healthy')
+        waited=time.monotonic()-begin;assert waited<.6,waited
+        responses,_=read_responses(piped,5);assert [r[2] for r in responses]==[b'slow']*5,responses
+    s.cases+=6
+    s.checkpoint('keepalive-corpus','undispatched-body-is-retained')
+    # A body still being received has no request ticket yet but must count.
+    baseline=int(s.exchange(request('/retained',headers=[('Connection','close')]))[2])
+    with s.connect() as upload:
+        upload.sendall(request('/echo','POST',b'',headers=[('Content-Length','200000')])+b'u'*100000);time.sleep(.2)
+        grown=int(s.exchange(request('/retained',headers=[('Connection','close')]))[2])
+        assert grown-baseline>=100000,(baseline,grown)
+    s.cases+=2
+    s.checkpoint('keepalive-corpus','rejection-flood-is-bounded')
+    # 200 truncated uploads arrive while the application is busy: their
+    # queued rejections count against the 64-connection cap, so admission
+    # pauses instead of queueing every one of them (the harness checks the
+    # queue length on every dispatch).
+    busy=s.connect()
+    try:
+        busy.sendall(request('/slow',headers=[('Connection','close')]));time.sleep(.03)
+        flood=[socket.create_connection(('127.0.0.1',s.port),timeout=10) for _ in range(200)]
+        for client in flood:client.sendall(request('/echo','POST',b'',headers=[('Content-Length','1000')])+b'truncated')
+        for client in flood:client.close()
+        out=b''
+        while chunk:=busy.recv(4096):out+=chunk
+        assert_response(parse_response(out),200,b'slow')
+    finally:
+        busy.close()
+    for _ in range(3):assert_response(s.exchange(request('/health',headers=[('Connection','close')])),200,b'healthy')
+    s.cases+=204
+    s.checkpoint('keepalive-corpus','connection-burst-over-cap')
+    # 200 simultaneous connections against a 64-connection cap: the backlog
+    # holds the rest and every client is answered. Each client sends its
+    # request as soon as it connects: an admitted connection that stays
+    # silent past the idle window is closed by design, and opening all 200
+    # first can take longer than that on a slow runner.
+    clients=[]
+    try:
+        for i in range(200):
+            client=socket.create_connection(('127.0.0.1',s.port),timeout=10);clients.append(client)
+            client.sendall(request('/hello/c'+str(i),headers=[('Connection','close')]))
+        for i,client in enumerate(clients):
+            out=b''
+            try:
+                while chunk:=client.recv(4096):out+=chunk
+            except OSError as error:
+                raise AssertionError(f'burst client {i} of {len(clients)} lost its connection after {len(out)} bytes: {error!r}') from error
+            assert_response(parse_response(out),200,('c'+str(i)).encode())
+    finally:
+        for client in clients:client.close()
+    s.cases+=200
+
+def http_get(port:int,path:str):
+    with socket.create_connection(('127.0.0.1',port),timeout=4) as client:
+        client.settimeout(4);client.sendall(request(path,headers=[('Connection','close')]));out=b''
+        while chunk:=client.recv(4096):out+=chunk
+    return parse_response(out)
+
+def workers_corpus(exe:Path,env,progress:HttpProgress|None=None):
+    s=Server(exe,'workers',env,progress)
+    try:
+        s.checkpoint('workers','fan-out')
+        # Which idle worker wins an accept is up to the kernel: kqueue on
+        # macOS can keep handing sequential connections to the same two. A
+        # held worker cannot accept, so concurrent held requests reach all.
+        seen={};lock=threading.Lock();deadline=time.monotonic()+30;failures=[]
+        def fan_out():
+            try:
+                while time.monotonic()<deadline:
+                    with lock:
+                        if len(seen)==3:return
+                    status,_,body=http_get(s.port,'/worker-hold');assert status==200,body
+                    index,pid=map(int,body.split())
+                    with lock:seen.setdefault(index,pid)
+            except Exception as error:failures.append(error)
+        threads=[threading.Thread(target=fan_out,daemon=True) for _ in range(6)]
+        for thread in threads:thread.start()
+        for thread in threads:thread.join(35)
+        assert not failures,failures
+        # Every worker is known first, so a "new" pid can only be a respawn.
+        assert len(seen)==3,seen
+        s.checkpoint('workers','respawn')
+        victim=None
+        for _ in range(3000):
+            status,_,body=http_get(s.port,'/crash')
+            if body.startswith(b'bye '):victim=int(body.split()[1]);break
+        assert victim in seen and victim,(victim,seen)
+        replaced=False;deadline=time.monotonic()+10;fresh={}
+        while time.monotonic()<deadline and not replaced:
+            status,_,body=http_get(s.port,'/worker');index,pid=map(int,body.split())
+            if index==victim and pid!=seen[victim]:replaced=True
+            fresh[index]=pid
+        assert replaced,(seen,fresh)
+        s.checkpoint('workers','stop-all')
+        for _ in range(3000):
+            if http_get(s.port,'/stop')[2]==b'stopped':break
+        out,err=s.process.communicate(timeout=10)
+        assert s.process.returncode==0 and not err and out.startswith(b'REPORT '),(s.process.returncode,out,err)
+        # No worker may outlive the first process: the port must be closed.
+        deadline=time.monotonic()+3
+        while True:
+            try:socket.create_connection(('127.0.0.1',s.port),timeout=1).close()
+            except OSError:break
+            assert time.monotonic()<deadline,'a worker outlived close'
+            time.sleep(.05)
+        return {'workers_seen':len(seen),'respawned':replaced}
+    finally:
+        s.abort()
+
 def exercise(exe:Path,env,soak:int,progress:HttpProgress|None=None):
     if progress is not None:progress.stage('native-control','bind-stop-ownership')
     c=run([str(exe),'bind'],env=env);assert c.returncode==0 and not c.stdout and not c.stderr,(c.returncode,c.stdout,c.stderr)
@@ -832,10 +1162,11 @@ def exercise(exe:Path,env,soak:int,progress:HttpProgress|None=None):
         if progress is not None:progress.stage('native-control',mode)
         c=run([str(exe),mode],env=env);assert c.returncode!=0 and not c.stdout and message in c.stderr,(mode,c.returncode,c.stdout,c.stderr)
     report={}
-    for profile in ('normal','tight'):
+    for profile in ('normal','tight','keepalive'):
         s=Server(exe,profile,env,progress)
         try:
             if profile=='normal':normal_corpus(s,soak);invalid_corpus(s)
+            elif profile=='keepalive':keepalive_corpus(s)
             else:tight_corpus(s)
             s.checkpoint('server-stop',profile)
             counts=s.stop();report[profile]={'requests':counts[0],'partial_sends':counts[1],'send_failures':counts[2],'retained_bytes':counts[3],'kernel_fds':counts[4],'oracle_cases':s.cases,
@@ -843,9 +1174,12 @@ def exercise(exe:Path,env,soak:int,progress:HttpProgress|None=None):
                 'byte_buffer_capacity':counts[7],'byte_buffer_slots':counts[8],'json_document_capacity':counts[9],
                 'json_document_slots':counts[10],'llvm_word_buckets':counts[11]}
             if profile=='normal' and soak>=512:assert counts[5]>0,counts
-            if profile=='normal' and os.sys.platform.startswith('linux'):assert counts[1]>0 and counts[2]>0,counts
+            # Partial kernel sends must occur; send failures are no longer
+            # visible to the handler once a response is queued.
+            if profile=='normal' and os.sys.platform.startswith('linux'):assert counts[1]>0,counts
         finally:
             s.abort()
+    report['workers']=workers_corpus(exe,env,progress)
     return report
 
 def runtime_inputs(runtime_root:Path|None):
@@ -878,6 +1212,11 @@ def main():
         progress.stage('input-provenance-complete')
         with tempfile.TemporaryDirectory(prefix='freak-http-floor-') as temporary:
             root=Path(temporary);h=root/'http.c';h.write_text(HARNESS)
+            # Eight MiB and change: far past the 1 MiB buffered-body cap.
+            stream=root/'stream.bin';stream.write_bytes(hashlib.sha256(b'freak').digest()*(262144)+b'tail'*31);env['FREAK_HTTP_TEST_FILE']=str(stream)
+            big=root/'big.bin'
+            with big.open('wb') as handle:handle.truncate(256<<20)
+            env['FREAK_HTTP_TEST_BIG_FILE']=str(big)
             flags=['-lws2_32','-lshell32'] if os.name=='nt' else ['-lm','-pthread']
             if os.sys.platform.startswith('linux'):flags+=['-Wl,--wrap=send']
             if args.sanitize:

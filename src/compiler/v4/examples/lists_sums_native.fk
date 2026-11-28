@@ -1,0 +1,194 @@
+-- Native lists of maybe/result values (tier 3, lists inside other types
+-- row). A carrier is a list element by value, as a carrier local is: its
+-- one word field (if any) belongs to the element, the element drop helper
+-- releases it, a for-each item is the walker's own copy (the word cloned
+-- only when the carrier holds one), and reading `xs[i]` moves the element
+-- out, so Meiya refuses later uses of that list. Carriers are pushed,
+-- stored with `xs[i] = v` (the old word is released), walked, and passed
+-- along inside nested lists, shape fields and lent lists.
+-- tests/v4_owned_word_codegen.py runs it under ASan, UBSan and both
+-- ownership audits; check_v4_native_shapes pins output and layouts.
+
+shape Point { x: int, y: int }
+
+route Dir { North / South }
+
+shape Log { name: word, entries: List<result<word, int>> }
+
+task describe(r: result<word, int>) -> word {
+    check result r {
+        ok(w) -> give back "ok " + w
+        err(n) -> give back "err " + word_from_int(n)
+    }
+    give back "unreachable"
+}
+
+-- Pushes move fresh carriers into an empty list, which is given back.
+task names(n: int) -> List<maybe<word>> {
+    pilot out: List<maybe<word>> = []
+    pilot i = 0
+    repeat until i >= n {
+        if i % 2 == 0 { out.push(some("n" + word_from_int(i))) } else { out.push(nobody) }
+        i += 1
+    }
+    give back out
+}
+
+-- A lent walk: each item is a copy, so the caller's words stay put.
+task letters(lend xs: List<maybe<word>>) -> int {
+    pilot c = 0
+    for each x in xs {
+        check x {
+            got w -> c += w.length()
+            nobody -> c += 100
+        }
+    }
+    give back c
+}
+
+-- An early return out of the walk moves only the copy it returns.
+task first_present(lend xs: List<maybe<word>>) -> maybe<word> {
+    for each x in xs {
+        check x {
+            got w -> give back some(w)
+            nobody -> say "skip"
+        }
+    }
+    give back nobody
+}
+
+-- A store through a `lend mut` list releases the element's old word.
+task clear_at(lend mut xs: List<maybe<word>>, i: int) -> void {
+    xs[i] = nobody
+}
+
+-- maybe<int> elements: index stores, `or else` over loop items.
+task sum_or_zero() -> int {
+    pilot nums: List<maybe<int>> = [some(1), nobody, some(3)]
+    nums[1] = some(5)
+    nums.push(nobody)
+    pilot total = 0
+    for each n in nums {
+        total += n or else 0
+    }
+    give back total + nums.length()
+}
+
+task results() -> void {
+    pilot rs: List<result<word, int>> = [ok("a"), err(2)]
+    rs.push(ok("c"))
+    rs[1] = err(4)
+    for each r in rs { say describe(r) }
+    -- get(i) is rs[i]: the element moves into the call.
+    say describe(rs.get(2))
+}
+
+task shared_words() -> void {
+    pilot both: List<result<word, word>> = [ok("yes"), err("no")]
+    both[0] = err("replaced")
+    for each b in both {
+        check result b {
+            ok(w) -> say w
+            err(e) -> say "E " + e
+        }
+    }
+}
+
+task error_words() -> int {
+    pilot tail: List<result<int, word>> = [err("bad"), ok(7)]
+    pilot kept = 0
+    for each t in tail {
+        check result t {
+            ok(n) -> kept += n
+            err(e) -> say e
+        }
+    }
+    give back kept
+}
+
+-- Aggregate and route payloads that own no words.
+task points() -> int {
+    pilot ps: List<maybe<Point>> = [some(Point { x: 1, y: 2 }), nobody, some(Point { x: 3, y: 4 })]
+    pilot dirs: List<maybe<Dir>> = [some(Dir::South), nobody]
+    pilot acc = 0
+    for each p in ps {
+        check p {
+            got pt -> acc += pt.x * pt.y
+            nobody -> acc += 1000
+        }
+    }
+    say dirs.length()
+    give back acc
+}
+
+-- A carrier type held only inside an empty list still gets its type and
+-- drop helper.
+task empty_only() -> int {
+    pilot e: List<result<char, word>> = []
+    give back e.length()
+}
+
+task nested() -> void {
+    pilot grid: List<List<maybe<word>>> = [names(3), []]
+    grid[1].push(some("deep"))
+    for each row in grid {
+        say letters(lend row)
+    }
+    pilot log = Log { name: "log", entries: [ok("x"), err(9)] }
+    log.entries.push(ok("yz"))
+    for each e in log.entries { say describe(e) }
+    say log.name
+}
+
+-- A discarded element read still moves the element out: the full
+-- expression releases the carrier's word (the owned-word gate counts it).
+task discards() -> void {
+    pilot xs: List<maybe<word>> = [some("hello")]
+    xs[0]
+    pilot es: List<result<int, word>> = [err("bad")]
+    es[0]
+    pilot ws: List<result<word, word>> = [ok("s")]
+    ws.get(0)
+    pilot g: List<List<maybe<word>>> = [[some("a"), nobody]]
+    g[0][0]
+    pilot l = Log { name: "log", entries: [ok("x")] }
+    l.entries[0]
+}
+
+task main() -> int {
+    pilot ws = names(5)
+    say ws.length()
+    say letters(lend ws)
+    ws[0] = some("again")
+    ws[2] = nobody
+    pilot held: maybe<word> = some("held")
+    ws.push(held)
+    say letters(lend ws)
+    clear_at(lend mut ws, 4)
+    for each w in ws {
+        check w {
+            got v -> say v
+            nobody -> say "nobody"
+        }
+    }
+    say sum_or_zero()
+    pilot skipped: List<maybe<word>> = [nobody, some("found")]
+    check first_present(lend skipped) {
+        got v -> say v
+        nobody -> say "none"
+    }
+    results()
+    shared_words()
+    say error_words()
+    say points()
+    say empty_only()
+    nested()
+    -- Reading an element moves it out; the list's drop skips it.
+    pilot first = ws[0]
+    check first {
+        got v -> say "first " + v
+        nobody -> say "first none"
+    }
+    discards()
+    give back 0
+}

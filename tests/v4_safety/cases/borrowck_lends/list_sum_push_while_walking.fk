@@ -1,0 +1,12 @@
+-- A walk lends the list it walks: pushing a carrier item onto it is an
+-- overlapping exclusive loan.
+-- expect: reject borrowck
+-- error: Meiya carries an exclusive lend across another loan boundary
+
+task main() -> int {
+    pilot mut xs: List<maybe<int>> = [some(1)]
+    for each x in xs {
+        xs.push(x)
+    }
+    give back 0
+}

@@ -18011,11 +18011,9 @@ NATIVE_LISTS_REJECTED = (
      "list method receiver must be a place"),
     ("tier3_list_untyped_empty", "task main() -> int {\n    pilot xs = []\n    give back 0\n}\n",
      "empty list literal needs type context"),
-    # Later rows: Sum elements, list operators, moved list captures. Lists
-    # inside other types and route items that own words are native (nested
-    # lists row, examples/lists_nested_native.fk).
-    ("tier3_list_maybe_elements", "task main() -> int {\n    pilot xs: List<maybe<int>> = [some(1)]\n    give back 0\n}\n",
-     "native lists of maybe/result values are not yet supported: List<maybe<int>>"),
+    # Later rows: list operators, moved list captures. Lists inside other
+    # types, route items that own words (examples/lists_nested_native.fk)
+    # and maybe/result elements (examples/lists_sums_native.fk) are native.
     ("tier3_list_equality", "task main() -> int {\n    pilot xs: List<int> = [1]\n    pilot ys: List<int> = [1]\n"
      "    if xs == ys { give back 1 }\n    give back 0\n}\n",
      "native list operators are not yet supported"),
@@ -18083,9 +18081,6 @@ NATIVE_NESTED_LISTS_REJECTED = (
      "native list operators are not yet supported"),
     ("tier3_nested_list_repeat_fill", "task main() -> int {\n    pilot a: [List<int>; 3] = [[]; 3]\n    give back a[0].length()\n}\n",
      "fixed-array repeat value must be Copy or Cloneable"),
-    ("tier3_nested_list_shape_maybe_elements", "shape Q { slots: List<maybe<int>> }\n"
-     "task main() -> int {\n    pilot q = Q { slots: [some(1)] }\n    give back 0\n}\n",
-     "native lists of maybe/result values are not yet supported: List<maybe<int>>"),
     # A type holding a list of a type in progress is checked once that type
     # finishes: Holder is not native because Dir has a sum slot.
     ("tier3_nested_list_recursive_bad_slot", "shape Dir { subs: List<Holder>, bad: maybe<int> }\n"
@@ -18105,6 +18100,95 @@ NATIVE_NESTED_LISTS_REJECTED = (
      "        [] -> give back 1\n        _ -> give back 0\n    }\n    give back 2\n}\n",
      "unsupported when arm pattern"),
 )
+
+
+# Lists of maybe/result values (tier 3, lists inside other types row):
+# examples/lists_sums_native.fk, exit 0 and this output.
+NATIVE_LIST_SUMS_EXPECTED = ("5\n206\n311\nagain\nnobody\nnobody\nnobody\nnobody\nheld\n13\nskip\nfound\n"
+                             "ok a\nerr 4\nok c\nok c\nE replaced\nE no\nbad\n7\n2\n1014\n0\n104\n4\n"
+                             "ok x\nerr 9\nok yz\nlog\nfirst again\n")
+# Carrier layouts the oracle must see (result<char, word> lives only inside
+# an empty list), and the element helpers defined once each.
+NATIVE_LIST_SUMS_LAYOUTS = ('%"freak.sum.maybe<word>"', '%"freak.sum.result<word,int>"', '%"freak.sum.result<int,word>"',
+                            '%"freak.sum.maybe<Point>"', '%"freak.sum.maybe<Dir>"', '%"freak.sum.result<char,word>"')
+NATIVE_LIST_SUMS_HELPERS = (
+    '@"freak.list.drop.maybe<int>"', '@"freak.list.drop.maybe<word>"', '@"freak.list.drop.result<word,int>"',
+    '@"freak.list.drop.result<word,word>"', '@"freak.list.drop.result<int,word>"', '@"freak.list.drop.result<char,word>"',
+    '@"freak.list.drop.maybe<Point>"', '@"freak.list.drop.maybe<Dir>"', '@"freak.list.drop.List<maybe<word>>"',
+    '@"freak.list.clone.maybe<word>"', '@"freak.list.clone.result<word,int>"', '@"freak.list.clone.result<word,word>"',
+    '@"freak.list.clone.result<int,word>"', '@"freak.list.clone.List<maybe<word>>"',
+)
+# The one word field each carrier element owns (getelementptr field index).
+NATIVE_LIST_SUMS_WORD_FIELDS = (("maybe<word>", "1"), ("result<word,int>", "1"), ("result<int,word>", "2"),
+                                ("result<word,word>", "1"), ("result<char,word>", "2"))
+# Programs over lists of carriers that native code, the MIR sum proof or
+# Meiya refuses: (stem, source, named reason).
+NATIVE_LIST_SUMS_REJECTED = (
+    ("tier3_list_sums_aggregate_word_payload", "task main() -> int {\n    pilot xs: List<maybe<(int, word)>> = []\n    give back xs.length()\n}\n",
+     "native maybe/result aggregate payloads that own words are not yet supported: (int,word)"),
+    ("tier3_list_sums_nested_payload", "task main() -> int {\n    pilot xs: List<maybe<maybe<int>>> = []\n    give back xs.length()\n}\n",
+     "native nested maybe/result payloads are not yet supported: maybe<maybe<int>>"),
+    ("tier3_list_sums_element_equality", "task main() -> int {\n    pilot xs: List<maybe<int>> = [some(1)]\n    pilot m: maybe<int> = some(1)\n"
+     "    if xs[0] == m { give back 1 }\n    give back 0\n}\n",
+     "native scalar sum equality is not yet supported"),
+    ("tier3_list_sums_task_value", "task count(xs: List<maybe<int>>) -> int { give back xs.length() }\n"
+     "task apply(f: task(xs: List<maybe<int>>) -> int) -> int { give back 0 }\n"
+     "task main() -> int { give back apply(count) }\n",
+     "native task values with list parameters or results are not yet supported: List<maybe<int>>"),
+    ("tier3_list_sums_map_value", "task main() -> int {\n    pilot m: Map<word, List<maybe<int>>> = {}\n    give back 0\n}\n",
+     "native map values of lists, maps or sets are not yet supported: Map<word,List<maybe<int>>>"),
+    # Element glue has no handle retain or release.
+    ("tier3_list_sums_shared_payload", "use std::mem::{Shared, Weak}\n"
+     "task main() -> int {\n    pilot xs: List<maybe<Shared<int>>> = []\n    give back xs.length()\n}\n",
+     "native lists of maybe/result values holding Shared handles or loans are not yet supported: List<maybe<Shared<int>>>"),
+    # The sum proof sees a carrier pushed in and then used again.
+    ("tier3_list_sums_push_moves_item", "task main() -> int {\n    pilot xs: List<maybe<word>> = []\n    pilot m: maybe<word> = some(\"held\")\n"
+     "    xs.push(m)\n    check m {\n        got w -> say w\n        nobody -> say \"none\"\n    }\n    give back xs.length()\n}\n",
+     "scalar sum use requires a live owner"),
+    # Carrier storage is never lent (no lend sum parameters or locals yet).
+    ("tier3_list_sums_lend_element", "task peek(lend m: maybe<int>) -> int { give back 0 }\n"
+     "task main() -> int {\n    pilot xs: List<maybe<int>> = [some(1)]\n    give back peek(lend xs[0])\n}\n",
+     "borrowed scalar sum storage is not yet supported"),
+    # Reading an element moves it out of the list.
+    ("tier3_list_sums_element_moved_twice", "task main() -> int {\n    pilot xs: List<result<word, int>> = [ok(\"a\")]\n"
+     "    pilot a = xs[0]\n    pilot b = xs[0]\n    give back 0\n}\n",
+     "Meiya remembers the field you already moved"),
+)
+
+
+def check_v4_native_list_sums_module(module_text: str, triple: str) -> None:
+    """Lists of carriers: layouts noted, helpers once, each drop releases the word field before free, clones skip empty fields."""
+    notes = native_layout_notes(module_text)
+    missing = [name for name in NATIVE_LIST_SUMS_LAYOUTS if name not in notes]
+    if missing:
+        raise RuntimeError(f"V4 list sums module for {triple} has no layout notes for {', '.join(missing)}")
+    defined = re.findall(r'^define internal [^@]*(@"[^"]+")\(', module_text, re.MULTILINE)
+    for symbol in NATIVE_LIST_SUMS_HELPERS:
+        if defined.count(symbol) != 1:
+            raise RuntimeError(f"V4 list sums module for {triple} defines {symbol} {defined.count(symbol)} times")
+    for carrier, field in NATIVE_LIST_SUMS_WORD_FIELDS:
+        for kind in ("drop", "clone"):
+            if kind == "clone" and carrier == "result<char,word>":
+                continue
+            symbol = f'@"freak.list.{kind}.{carrier}"'
+            body = re.search(r"^define internal \S+ " + re.escape(symbol) + r"\(.*?^}$", module_text, re.MULTILINE | re.DOTALL)
+            if body is None:
+                raise RuntimeError(f"V4 list sums module for {triple} has no {symbol} body")
+            text = body.group(0)
+            if not re.search(r"getelementptr inbounds [^\n]*, i32 0, i32 " + field + r"\n", text):
+                raise RuntimeError(f"V4 list sums module for {triple}: {symbol} does not address word field {field}")
+            if kind == "drop":
+                drop_at = text.find("call void @freak_v4_word_drop(")
+                free_at = text.find("call void @free(")
+                if drop_at < 0 or free_at < 0 or drop_at > free_at:
+                    raise RuntimeError(f"V4 list sums module for {triple}: {symbol} does not release words before freeing")
+            elif not re.search(r"icmp ne i64 \S+, 0\n\s*br i1", text):
+                raise RuntimeError(f"V4 list sums module for {triple}: {symbol} clones an empty word field")
+    # A carrier with no word field has a drop helper that only frees.
+    for carrier in ("maybe<int>", "maybe<Point>", "maybe<Dir>"):
+        body = re.search(r'^define internal void @"freak\.list\.drop\.' + re.escape(carrier) + r'"\(.*?^}$', module_text, re.MULTILINE | re.DOTALL)
+        if body is None or "@freak_v4_word_drop" in body.group(0):
+            raise RuntimeError(f"V4 list sums module for {triple}: the {carrier} drop helper is missing or releases words")
 
 
 def check_v4_native_nested_lists_module(module_text: str, triple: str) -> None:
@@ -18926,6 +19010,7 @@ def check_v4_native_shapes() -> None:
         ("generics_lists", "generics_lists_native.fk", NATIVE_GENERICS_LISTS_EXPECTED),
         ("lists_nested", "lists_nested_native.fk", NATIVE_NESTED_LISTS_EXPECTED),
         ("lists_unused_shape", "lists_unused_shape_native.fk", "7\n"),
+        ("list_sums", "lists_sums_native.fk", NATIVE_LIST_SUMS_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -18970,6 +19055,8 @@ def check_v4_native_shapes() -> None:
                 check_v4_native_nested_lists_module(module_text, triple)
             if stem == "lists_unused_shape":
                 check_v4_native_unused_list_shape_module(module_text, triple)
+            if stem == "list_sums":
+                check_v4_native_list_sums_module(module_text, triple)
             if stem == "maps":
                 check_v4_native_maps_layout_note(module_text, triple)
             if stem == "shared":
@@ -19179,7 +19266,7 @@ def check_v4_native_shapes() -> None:
          "impl Eq for V { task equals(lend self, other: lend V) -> bool { give back self.x == other.x } }\n"
          "task main() -> int { pilot a = V { x: 1 }\n if a == a { give back 1 }\n give back 0 }\n",
          "Meiya cannot store a lend in parameter 1 of Eq::equals yet"),
-    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_SHARED_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED
+    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_SHARED_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED + NATIVE_LIST_SUMS_REJECTED
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")
@@ -19200,6 +19287,7 @@ def check_v4_native_shapes() -> None:
     check_v4_native_c_widths()
     check_v4_native_maybe_result()
     check_v4_native_c_abi()
+    check_v4_native_c_words()
     check_v4_native_closures()
     check_v4_native_closures_nested()
     check_v4_native_dyn()
@@ -20227,13 +20315,17 @@ def native_c_abi_clean(part: str) -> str:
     return re.sub(r"\s+", " ", part).strip()
 
 
-def native_c_abi_facts(text: str) -> set[tuple[str, str, str]]:
+NATIVE_C_ABI_CALLEES = r"ca_\w+|snprintf"
+
+
+def native_c_abi_facts(text: str, callees: str = NATIVE_C_ABI_CALLEES) -> set[tuple[str, str, str]]:
     """Every C boundary in a module: declarations and trampoline definitions
     as (kind, name, ret(params)), and C call sites as ("call", callee, shape)
-    with values removed; calls through a pointer have callee "*"."""
+    with values removed; calls through a pointer have callee "*". callees is
+    the regex of the C symbols the module and its oracle share."""
     facts = set()
     for line in text.splitlines():
-        declared = re.match(r"^(declare|define) (.*?) @(ca_\w+|snprintf|__freak_callback_\w+)\((.*?)\)", line)
+        declared = re.match(r"^(declare|define) (.*?) @(" + callees + r"|__freak_callback_\w+)\((.*?)\)", line)
         if declared:
             kind, result, name, params = declared.groups()
             if kind == "declare" and name.startswith("__freak_callback_"):
@@ -20243,7 +20335,7 @@ def native_c_abi_facts(text: str) -> set[tuple[str, str, str]]:
             cleaned = [native_c_abi_clean(re.sub(r" %[\w.]+$", "", part)) for part in native_c_abi_split_args(params)]
             facts.add((kind, name, native_c_abi_clean(result) + "(" + ", ".join(cleaned) + ")"))
             continue
-        called = re.search(r"\bcall (.*?) (@ca_\w+|@snprintf|%[\w.]+)\((.*)\)", line)
+        called = re.search(r"\bcall (.*?) (@(?:" + callees + r")|%[\w.]+)\((.*)\)", line)
         if not called:
             continue
         result, callee, args = called.groups()
@@ -20368,6 +20460,141 @@ def check_v4_native_c_abi() -> None:
             raise RuntimeError(f"V4 C ABI case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
     print(f"V4 native C ABI: run=exact narrowing=checked clang-facts={compared} "
           f"targets={len(NATIVE_LAYOUT_TRIPLES)} rejections={len(rejected_cases)}")
+
+
+# Tier 3 C ABI: word bytes at a C boundary. A `lend s: word` parameter of an
+# extern declaration is the pair (const char*, size_t); the oracle is the
+# same boundary written as C, which Clang lowers on every target so the
+# declarations and the shims' C call sites can be compared with V4's (size_t
+# is Clang's own __SIZE_TYPE__ there). The helpers are real C.
+NATIVE_C_WORDS_ORACLE = """typedef __SIZE_TYPE__ size_t;
+size_t cw_count_byte(const char *bytes, size_t length, int byte);
+unsigned cw_checksum(const char *bytes, size_t length);
+_Bool cw_same(const char *left, size_t left_length, const char *right, size_t right_length);
+int cw_byte_at(const char *bytes, size_t length, size_t index);
+long cw_lengths(long scale, const char *first, size_t first_length, const char *second, size_t second_length);
+void cw_remember(const char *bytes, size_t length);
+_Bool cw_is_remembered(const char *bytes, size_t length);
+short cw_short_len(const char *bytes, size_t length);
+void oracle(const char *p, size_t n, int c, long l) {
+    cw_count_byte(p, n, c);
+    cw_checksum(p, n);
+    cw_same(p, n, p, n);
+    cw_byte_at(p, n, n);
+    cw_lengths(l, p, n, p, n);
+    cw_remember(p, n);
+    cw_is_remembered(p, n);
+    cw_short_len(p, n);
+}
+"""
+
+NATIVE_C_WORDS_EXPECTED = (
+    "count_l=3\ngreeting=hello world\nlengths=11006\nscalars=5\nlead_bytes=1\nbyte_3=195\nnul_len=3\nnul_count=1\n"
+    "same_storage=yes\ncopy_storage=no\ncopy_bytes=yes\nother_bytes=no\nempty_len=11\ncallsign_k=1 rank=2\nsquad_a=1\n"
+    "checksum_total=100320\nchecksum=3582672807\nmoved=Valkyrie\nshort_len=-11\n"
+)
+
+# Named refusals around word bytes at a C boundary: (stem, source, reason).
+NATIVE_C_WORDS_REJECTED = (
+    ("tier3_c_word_by_value", "extern [C] { task f(s: word) -> std::ffi::c_int }\ntask main() -> int { give back 0 }\n",
+     "f.s uses word; that is a FREAK string fat pointer, not a C char*. Declare it as a lend word parameter"),
+    ("tier3_c_word_lend_mut", "extern [C] { task f(lend mut s: word) -> std::ffi::c_int }\ntask main() -> int { give back 0 }\n",
+     "f.s is lend mut word; C must not write the bytes a FREAK word owns"),
+    ("tier3_c_word_return", "extern [C] { task f() -> word }\ntask main() -> int { give back 0 }\n",
+     "f return uses word; that is a FREAK string fat pointer"),
+    ("tier3_c_word_alias", "alias Text = word\nextern [C] { task f(lend s: Text) -> std::ffi::c_int }\ntask main() -> int { give back 0 }\n",
+     "extern parameter type is not FFI-safe"),
+    ("tier3_c_word_callback", "@extern_callback(\"C\")\ntask cb(lend s: word) -> std::ffi::c_int { give back 0 }\n"
+     "task main() -> int { give back 0 }\n", "cb.s lends a word to a callback"),
+    ("tier3_c_word_callback_type", "extern [C] { task f(cb: extern [C] task(lend s: word) -> std::ffi::c_int) -> void }\n"
+     "task main() -> int { give back 0 }\n", "callback parameter type is not FFI-safe"),
+    ("tier3_c_word_variadic", "extern [C] { task f(lend s: word, args: ...) -> std::ffi::c_int }\n"
+     "task main() -> int {\n    pilot w = \"hi\"\n    give back f(lend w, 1)\n}\n",
+     "native lend word parameters of variadic C declarations are not yet supported: f"),
+    ("tier3_c_word_task_value", "extern [C] { task f(lend s: word) -> std::ffi::c_int }\n"
+     "task main() -> int {\n    pilot p = f\n    give back 0\n}\n", "native word task pointer contracts are not yet supported"),
+    ("tier3_c_word_needs_lend", "extern [C] { task f(lend s: word) -> std::ffi::c_size }\n"
+     "task main() -> int {\n    pilot w = \"hi\"\n    give back f(w)\n}\n", "borrowed call argument needs lend"),
+    ("tier3_c_word_temporary", "extern [C] { task f(lend s: word) -> std::ffi::c_size }\n"
+     "task main() -> int { give back f(lend \"abc\") }\n", "lend source must be a place"),
+    ("tier3_c_word_after_move", "extern [C] { task f(lend s: word) -> std::ffi::c_size }\ntask eat(w: word) -> int { give back 0 }\n"
+     "task main() -> int {\n    pilot w = \"hi\"\n    eat(w)\n    give back f(lend w)\n}\n", "w was moved"),
+    ("tier3_c_word_rewrite_lent", "extern [C] { task f(lend s: word) -> std::ffi::c_int }\n"
+     "task main() -> int {\n    pilot mut w = \"hi\"\n    pilot r = lend w\n    w = \"yo\"\n    give back f(r)\n}\n",
+     "Meiya refuses this rewrite while the value is borrowed"),
+)
+
+
+def check_v4_native_c_words() -> None:
+    """Tier 3 C ABI: lend word extern parameters as (const char*, size_t), checked against Clang."""
+    from build_v4 import host_target, native_link_command
+
+    clang = shutil.which("clang")
+    source = V4_ROOT / "examples" / "c_words_native.fk"
+    helpers = V4_ROOT / "examples" / "c_words_native_helpers.c"
+    oracle_source = RUNTIME_BUILD_ROOT / "tier3_c_words_oracle.c"
+    oracle_source.write_text(NATIVE_C_WORDS_ORACLE, encoding="utf-8")
+    compared = 0
+    for triple in NATIVE_LAYOUT_TRIPLES:
+        module_path = RUNTIME_BUILD_ROOT / f"tier3_c_words_{triple}.ll"
+        module_path.unlink(missing_ok=True)
+        emitted = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(module_path), "--emit-llvm", "--target", triple],
+            label=f"V4 C words module {triple}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not module_path.exists():
+            raise RuntimeError(f"V4 could not emit the C words module for {triple}:\n{emitted.stdout}{emitted.stderr}")
+        module = module_path.read_text(encoding="utf-8")
+        oracle = run_with_heartbeat(
+            [clang, f"--target={triple}", "-O0", "-w", "-S", "-emit-llvm", str(oracle_source), "-o", "-"],
+            label=f"V4 C words oracle {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if oracle.returncode != 0:
+            raise RuntimeError(f"Clang rejected the C words oracle for {triple}:\n{oracle.stderr}")
+        ours = native_c_abi_facts(module, r"cw_\w+")
+        theirs = native_c_abi_facts(oracle.stdout, r"cw_\w+")
+        # Eight declarations and eight call shapes, every word a (ptr, size_t) pair.
+        if sum(1 for fact in theirs if fact[0] == "declare") != 8 or ours != theirs:
+            raise RuntimeError(f"V4 C word boundaries disagree with Clang on {triple}:\n"
+                               f"V4 only: {sorted(ours - theirs)}\nClang only: {sorted(theirs - ours)}")
+        compared += len(theirs)
+        # Each shim lends the caller's storage: no word is built, cloned or
+        # dropped on the way to C, and C never needs a terminator.
+        shims = re.findall(r'^define internal [^\n]*@"freak\.cabi\.cw_\w+"\(.*?^\}', module, re.MULTILINE | re.DOTALL)
+        if len(shims) != 8 or any(re.search(r"@freak_v4_word_(?:from_bytes|clone|concat|drop)\b|@strlen\b", shim) for shim in shims) \
+                or any("@freak_v4_word_bytes(" not in shim or "inttoptr i64 %a" not in shim for shim in shims):
+            raise RuntimeError(f"V4 C word shims do not lend the word's own bytes on {triple}")
+        assembled = run_with_heartbeat(
+            [clang, f"--target={triple}", "-c", "-w", str(module_path), "-o", str(module_path.with_suffix(".o"))],
+            label=f"V4 C words object {triple}", timeout_seconds=60, memory_limit_mb=512,
+        )
+        if assembled.returncode != 0:
+            raise RuntimeError(f"Clang rejected the V4 C words module for {triple}:\n{assembled.stderr}")
+    host = host_target()
+    module_path = RUNTIME_BUILD_ROOT / f"tier3_c_words_{host}.ll"
+    executable = RUNTIME_BUILD_ROOT / ("tier3_c_words.exe" if sys.platform == "win32" else "tier3_c_words.native")
+    executable.unlink(missing_ok=True)
+    command = native_link_command(clang, module_path, executable)
+    command.insert(command.index("-o"), str(helpers))
+    linked = run_with_heartbeat(command, label="V4 C words link", timeout_seconds=180, memory_limit_mb=1024)
+    if linked.returncode != 0 or not executable.exists():
+        raise RuntimeError(f"V4 C words program did not link with real C:\n{linked.stdout}{linked.stderr}")
+    ran = run_with_heartbeat([str(executable)], label="V4 native C words execute", timeout_seconds=10, memory_limit_mb=128)
+    if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n") != NATIVE_C_WORDS_EXPECTED:
+        raise RuntimeError(f"V4 native C words printed the wrong output: exit={ran.returncode} stdout={ran.stdout!r}")
+    for stem, text, reason in NATIVE_C_WORDS_REJECTED:
+        rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
+        rejected_source.write_text(text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / f"{stem}.ll"
+        output.unlink(missing_ok=True)
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(rejected_source), "-o", str(output), "--emit-llvm"],
+            label=f"V4 build command: {stem}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if rejected.returncode == 0 or output.exists() or reason not in rejected.stdout + rejected.stderr:
+            raise RuntimeError(f"V4 C words case {stem} was not rejected with: {reason}\n{rejected.stdout}{rejected.stderr}")
+    print(f"V4 native C words: run=exact clang-facts={compared} targets={len(NATIVE_LAYOUT_TRIPLES)} "
+          f"rejections={len(NATIVE_C_WORDS_REJECTED)}")
 
 
 def check_v4_build_command() -> None:

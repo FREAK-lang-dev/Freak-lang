@@ -1,0 +1,9 @@
+-- C must not write the bytes a FREAK word owns.
+-- bible: 16.1
+-- expect: reject ty
+-- error: is lend mut word
+
+extern [C] {
+    task scribble(lend mut text: word) -> std::ffi::c_int
+}
+task main() -> int { give back 0 }

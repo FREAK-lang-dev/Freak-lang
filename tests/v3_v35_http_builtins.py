@@ -24,6 +24,10 @@ OPERATIONS = [
     "set_limits",
     "set_timeouts",
     "set_chunk_limits",
+    "set_keep_alive",
+    "set_max_connections",
+    "set_workers",
+    "worker_index",
     "stop",
     "close",
     "next_request",
@@ -43,6 +47,7 @@ OPERATIONS = [
     "response_status",
     "response_header",
     "send_bytes",
+    "send_file",
     "send_text",
     "request_release",
     "live_servers",
@@ -62,6 +67,10 @@ PROGRAM = '''task main() {
     http_server::set_limits(server, 1, 1, 1, 1)
     http_server::set_timeouts(server, 1, 1, 1)
     http_server::set_chunk_limits(server, 1, 1)
+    http_server::set_keep_alive(server, 1, 1)
+    http_server::set_max_connections(server, 1)
+    http_server::set_workers(server, 1)
+    pilot value_worker_index: int = http_server::worker_index(server)
     http_server::stop(server)
     pilot value_next_request: int = http_server::next_request(server)
     pilot value_request_status: int = http_server::request_status(request)
@@ -80,6 +89,7 @@ PROGRAM = '''task main() {
     pilot value_response_status: int = http_server::response_status(request, 200)
     pilot value_response_header: int = http_server::response_header(request, "X-Test", "X-Test")
     pilot value_send_bytes: int = http_server::send_bytes(request, bytes)
+    pilot value_send_file: int = http_server::send_file(request, "index.html")
     pilot value_send_text: int = http_server::send_text(request, "body")
     pilot value_live_servers: int = http_server::live_servers()
     pilot value_live_requests: int = http_server::live_requests()
@@ -96,11 +106,14 @@ NEGATIVE = {
     'port_type': ('http_server::open("port")', 'argument 1 expects int, got word', False),
     'opt_in_type': ('http_server::bind("127.0.0.1", 1, true)', 'argument 3 expects int, got bool', False),
     'limits_arity': ('http_server::set_limits(1, 2, 3, 4)', 'expects 5 argument(s), got 4', False),
+    'keep_alive_arity': ('http_server::set_keep_alive(1, 2)', 'expects 3 argument(s), got 2', False),
+    'workers_type': ('http_server::set_workers(1, "all")', 'argument 2 expects int, got word', False),
     'timeouts_type': ('http_server::set_timeouts(1, 2, "body", 4)', 'argument 3 expects int, got word', False),
     'header_index_type': ('http_server::request_header_name(1, "index")', 'argument 2 expects int, got word', False),
     'body_is_buffer': ('pilot body: int = http_server::request_body(1)', "cannot initialize int binding 'body' with ByteBuffer", False),
     'status_is_int': ('pilot status: bool = http_server::request_status(1)', "cannot initialize bool binding 'status' with int", False),
     'send_bytes_type': ('http_server::send_bytes(1, "bytes")', 'argument 2 expects ByteBuffer, got word', False),
+    'send_file_type': ('http_server::send_file(1, 2)', 'argument 2 expects word, got int', False),
     'header_value_type': ('http_server::response_header(1, "X-Test", 2)', 'argument 3 expects word, got int', False),
     'unknown_operation': ('http_server::request_magic(1)', "unknown callable 'http_server::request_magic'", False),
     'released_server': ('pilot server = http_server::open(0); http_server::close(server); http_server::status(server)', "You gave this away", True),
@@ -137,7 +150,7 @@ def main() -> int:
                     assert any('call ' in line and symbol+'(' in line for line in emitted.splitlines()),(backend,operation)
             assert '__freak_user_http_server_' not in emitted,emitted
             inventory.append((backend,'positive'))
-            print('PASS',backend,'HTTP 33-operation emission',flush=True)
+            print('PASS',backend,f'HTTP {len(OPERATIONS)}-operation emission',flush=True)
             cases={name:('task main() { '+body+' }',diagnostic,strict) for name,(body,diagnostic,strict) in NEGATIVE.items()}
             cases.update({name:(program,diagnostic,False) for name,(program,diagnostic) in TOP_NEGATIVE.items()})
             for name,(program,diagnostic,strict) in cases.items():

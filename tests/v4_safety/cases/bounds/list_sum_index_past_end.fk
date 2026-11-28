@@ -1,0 +1,14 @@
+-- A carrier element read past the end is V3's bounds panic.
+-- expect: panic
+-- panic: index 2 out of bounds (len 2)
+
+task main() -> int {
+    pilot xs: List<maybe<word>> = [some("a"), nobody]
+    pilot i = process::args_count() + 1
+    pilot m = xs[i]
+    check m {
+        got w -> say w
+        nobody -> say "none"
+    }
+    give back 0
+}

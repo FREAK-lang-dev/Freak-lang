@@ -63,6 +63,8 @@ pilot v4_codegen_llvm_record_index_names = 0 - 1
 pilot v4_codegen_llvm_numeric_runtime_used = false
 -- Element types whose list drop helper this module emits ("\n"-framed).
 pilot v4_codegen_llvm_list_drop_types = "\n"
+-- Types v4_codegen_llvm_reached_sum_types has walked (",T," entries).
+pilot v4_codegen_llvm_sum_reach_seen = ","
 -- Types whose deep copy helper `freak.list.clone.T` this module emits
 -- ("\n"-framed): lists, and aggregates holding lists or route words.
 pilot v4_codegen_llvm_list_clone_types = "\n"
@@ -1039,6 +1041,29 @@ task v4_codegen_llvm_signature_has_c_width_key(ty_id: int, sig_id: int) -> bool 
     pilot param = 0
     repeat until param >= v4_ty_signature_fixed_param_count(ty_id, sig_id) {
         if v4_codegen_llvm_c_width_key(v4_ty_signature_param_surface_type(ty_id, sig_id, param)) != "" { give back true }
+        if v4_codegen_llvm_c_word_param(ty_id, sig_id, param) { give back true }
+        param += 1
+    }
+    give back false
+}
+
+-- Word bytes at a C boundary (tier 3 C ABI). A `lend s: word` parameter of
+-- an extern block member is two C parameters: `const char*` to the word's
+-- bytes, then their byte length as C `size_t` (v4_target_c_size_carrier).
+-- The declaration plan carries a `$W$` part; the declaration's FREAK-signature
+-- shim (v4_codegen_llvm_c_width_module_lines) takes the word handle, reads
+-- its length through the word runtime (a consumed or foreign handle panics)
+-- and passes the handle's own data pointer, so nothing is copied, dropped or
+-- NUL-terminated. Meiya holds the caller's shared loan for the call.
+task v4_codegen_llvm_c_word_param(ty_id: int, sig_id: int, param: int) -> bool {
+    if not v4_codegen_llvm_signature_is_extern_decl(ty_id, sig_id) { give back false }
+    give back v4_ty_extern_param_is_c_word_loan(ty_id, sig_id, param)
+}
+
+task v4_codegen_llvm_signature_has_c_word_param(ty_id: int, sig_id: int) -> bool {
+    pilot param = 0
+    repeat until param >= v4_ty_signature_fixed_param_count(ty_id, sig_id) {
+        if v4_codegen_llvm_c_word_param(ty_id, sig_id, param) { give back true }
         param += 1
     }
     give back false
@@ -1066,6 +1091,7 @@ task v4_codegen_llvm_signature_lowers_c_widths(ty_id: int, sig_id: int) -> bool 
 
 task v4_codegen_llvm_c_width_param_text(ty_id: int, sig_id: int, param: int, c_width: bool) -> word {
     if c_width {
+        if v4_codegen_llvm_c_word_param(ty_id, sig_id, param) { give back "$W$" }
         pilot key = v4_codegen_llvm_c_width_key(v4_ty_signature_param_surface_type(ty_id, sig_id, param))
         if key != "" { give back "$P." + key + "$" }
     }
@@ -1136,7 +1162,8 @@ task v4_codegen_llvm_c_width_runtime_declarations() -> word {
 }
 
 task v4_codegen_llvm_decl_has_c_width(codegen_id: int, decl_id: int) -> bool {
-    give back v4_codegen_llvm_decl_return(codegen_id, decl_id).starts_with("$R.") or v4_codegen_llvm_decl_params(codegen_id, decl_id).contains("$P.")
+    pilot params_text = v4_codegen_llvm_decl_params(codegen_id, decl_id)
+    give back v4_codegen_llvm_decl_return(codegen_id, decl_id).starts_with("$R.") or params_text.contains("$P.") or params_text.contains("$W$")
 }
 
 -- Plan parameter lists are ", "-separated LLVM scalar types or markers.
@@ -1147,6 +1174,7 @@ task v4_codegen_llvm_c_width_part_end(text: word, start: int) -> int {
 }
 
 task v4_codegen_llvm_c_width_part_error(part: word, target_spec: word) -> word {
+    if part == "$W$" and v4_target_c_size_carrier(target_spec) == "" { give back "native C size_t width is not available for this target" }
     pilot key = v4_codegen_llvm_c_width_marker_key(part)
     if key == "" { give back "" }
     if v4_target_c_scalar_carrier(target_spec, key) == "" or v4_target_c_scalar_signedness(target_spec, key) < 0 { give back "native C scalar width is not available for this target: " + key }
@@ -1202,7 +1230,23 @@ task v4_codegen_llvm_c_width_module_lines_for(codegen_id: int, decl_id: int, tar
         pilot arg = "%a" + slot
         pilot key = v4_codegen_llvm_c_width_marker_key(part)
         pilot shim_ty = part
-        if key != "" {
+        pilot c_part = v4_codegen_llvm_c_width_declared(part, target_spec)
+        if part == "$W$" {
+            -- A lent word: the handle is its data pointer, and the byte
+            -- length goes as size_t (checked if size_t were narrower).
+            shim_ty = "i64"
+            pilot size_ty = v4_target_c_size_carrier(target_spec)
+            pilot length = "%wl" + slot
+            body = body + "  " + length + " = call i64 @freak_v4_word_bytes(i64 " + arg + ")\n"
+            body = body + "  %wp" + slot + " = inttoptr i64 " + arg + " to ptr\n"
+            if size_ty != "i64" {
+                body = body + "  %wk" + slot + " = call i64 " + v4_codegen_llvm_c_width_check_symbol(size_ty, false) + "(i64 " + length + ")\n"
+                body = body + "  %wn" + slot + " = trunc i64 %wk" + slot + " to " + size_ty + "\n"
+                length = "%wn" + slot
+            }
+            c_part = "ptr, " + size_ty
+            arg = "ptr %wp" + slot + ", " + size_ty + " " + length
+        } else if key != "" {
             shim_ty = v4_codegen_llvm_c_width_freak_carrier(key)
             pilot carrier = v4_target_c_scalar_carrier(target_spec, key)
             if carrier != shim_ty {
@@ -1210,11 +1254,11 @@ task v4_codegen_llvm_c_width_module_lines_for(codegen_id: int, decl_id: int, tar
                 body = body + "  %c" + slot + " = trunc i64 %k" + slot + " to " + carrier + "\n"
                 arg = "%c" + slot
             }
-        }
-        pilot c_part = v4_codegen_llvm_c_width_declared(part, target_spec)
+            arg = c_part + " " + arg
+        } else { arg = c_part + " " + arg }
         declared = declared + sep + c_part
         shim_params = shim_params + sep + shim_ty + " %a" + slot
-        args = args + sep + c_part + " " + arg
+        args = args + sep + arg
         index += 1
         start = stop + 2
     }
@@ -3230,6 +3274,16 @@ task v4_codegen_llvm_type_has_route_words(mir_id: int, type_text: word, depth: i
     give back false
 }
 
+-- The one field of a native carrier that can own a word, or "" (a closed
+-- result<word, word> shares field 1; maybe<int> owns none). An inactive
+-- payload is zero, so releasing the field regardless of the tag is exact.
+task v4_codegen_llvm_sum_owned_word_field(mir_id: int, type_text: word) -> word {
+    pilot carrier = v4_mir_scalar_sum_kind(mir_id, type_text)
+    if carrier == "ResultWordWord" { give back "1" }
+    if carrier == "Maybe" or carrier == "Result" { give back v4_codegen_llvm_sum_word_field(mir_id, type_text) }
+    give back ""
+}
+
 -- Drop glue in place: release every word leaf of the value at `address`.
 -- A route releases the leaves of the case its tag names. With `cond` (an
 -- i1 value, or "") each leaf is released only when cond holds.
@@ -3248,6 +3302,13 @@ task v4_codegen_llvm_drop_glue_at(mir_id: int, type_text: word, address: word, c
     if v4_codegen_llvm_is_list(mir_id, type_text) { give back v4_codegen_llvm_list_drop_lines(mir_id, type_text, address, "", cond, temp) }
     if v4_codegen_llvm_is_map(mir_id, type_text) { give back v4_codegen_llvm_map_drop_lines(mir_id, type_text, address, "", cond, temp) }
     if v4_codegen_llvm_is_shared_handle(mir_id, type_text) { give back v4_codegen_llvm_shared_drop_lines(mir_id, type_text, address, cond, temp) }
+    -- A carrier (a list element) releases its word field in place.
+    pilot sum_field = v4_codegen_llvm_sum_owned_word_field(mir_id, type_text)
+    if sum_field != "" {
+        pilot word_at = temp + ".w"
+        pilot sum_out = "  " + word_at + " = getelementptr inbounds " + v4_codegen_llvm_type(type_text) + ", ptr " + address + ", i32 0, i32 " + sum_field + "\n"
+        give back sum_out + v4_codegen_llvm_drop_glue_at(mir_id, v4_ty_word, word_at, cond, word_at, depth + 1)
+    }
     if v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back "" }
     pilot llvm_ty = v4_codegen_llvm_type(type_text)
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
@@ -3303,6 +3364,8 @@ task v4_codegen_llvm_drop_glue_at(mir_id: int, type_text: word, address: word, c
 task v4_codegen_llvm_null_words_at(mir_id: int, type_text: word, address: word, temp: word, depth: int) -> word {
     if depth > 32 { give back "" }
     if v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text) == v4_ty_word { give back "  store i64 0, ptr " + address + "\n" }
+    -- A carrier moved out of a list element leaves the zero carrier behind.
+    if v4_codegen_llvm_sum_owned_word_field(mir_id, type_text) != "" { give back "  store " + v4_codegen_llvm_type(type_text) + " zeroinitializer, ptr " + address + "\n" }
     if v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back "" }
     pilot llvm_ty = v4_codegen_llvm_type(type_text)
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
@@ -4528,6 +4591,8 @@ task v4_codegen_llvm_native_c_width_error(mir_id: int, ty_id: int) -> word {
             if boundary and v4_ty_signature_is_variadic(ty_id, sig) {
                 if v4_ty_signature_has_extern_callback(ty_id, sig) { give back "native C variadic callbacks are not yet supported: " + v4_ty_signature_name(ty_id, sig) }
                 if not v4_codegen_llvm_signature_is_extern_decl(ty_id, sig) { give back "native C variadic ABI not yet supported" }
+                -- The variadic call plan has no (const char*, size_t) pair.
+                if v4_codegen_llvm_signature_has_c_word_param(ty_id, sig) { give back "native lend word parameters of variadic C declarations are not yet supported: " + v4_ty_signature_name(ty_id, sig) }
             }
             -- Extern declarations and @extern_callback trampolines lower C
             -- widths themselves; every other position keeps the named fence.
@@ -4537,7 +4602,8 @@ task v4_codegen_llvm_native_c_width_error(mir_id: int, ty_id: int) -> word {
             if error != "" { give back error }
             pilot param = 0
             repeat until param >= v4_ty_signature_fixed_param_count(ty_id, sig) {
-                if not c_width or v4_codegen_llvm_c_width_key(v4_ty_signature_param_surface_type(ty_id, sig, param)) == "" { error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_signature_param_surface_type(ty_id, sig, param), boundary) }
+                -- A lent word of an extern declaration is its (bytes, size_t) pair.
+                if v4_codegen_llvm_c_word_param(ty_id, sig, param) { error = "" } else if not c_width or v4_codegen_llvm_c_width_key(v4_ty_signature_param_surface_type(ty_id, sig, param)) == "" { error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_signature_param_surface_type(ty_id, sig, param), boundary) }
                 if error != "" { give back error }
                 param += 1
             }
@@ -4562,6 +4628,9 @@ task v4_codegen_llvm_native_c_width_error(mir_id: int, ty_id: int) -> word {
                 -- it take the C call plan. A variadic one would need the
                 -- `(FIXED, ...)` call form on every indirect call: fenced.
                 if named >= 0 and v4_ty_signature_is_variadic(ty_id, named) { give back "native C variadic function pointers are not yet supported: " + v4_mir_rvalue_text(mir_id, body, rvalue) }
+                -- Only the declaration's shim splits a lent word into its
+                -- (bytes, size_t) pair; the bare C symbol cannot take a word.
+                if named >= 0 and v4_codegen_llvm_signature_has_c_word_param(ty_id, named) { give back "native lend word C declarations cannot be task values yet: " + v4_mir_rvalue_text(mir_id, body, rvalue) }
             }
             if v4_mir_rvalue_kind(mir_id, body, rvalue) == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body, rvalue) == v4_mir_unary_ptr_cast {
                 pilot target_surface = v4_ty_raw_pointer_cast_target_surface(v4_mir_rvalue_text(mir_id, body, rvalue))
@@ -5584,6 +5653,56 @@ task v4_codegen_llvm_native_sum_payload_error(mir_id: int, payload: word, type_t
     give back v4_codegen_llvm_native_slot_error(mir_id, payload, type_text, depth)
 }
 
+-- Every carrier type a value of type_text holds: itself, or one reached
+-- through list elements and the aggregate slots around them, so a list's
+-- element helpers always find their carrier's type definition even when no
+-- carrier value appears in a body. Newline-terminated entries.
+task v4_codegen_llvm_reached_sum_types(mir_id: int, type_text: word, depth: int) -> word {
+    if depth == 0 { v4_codegen_llvm_sum_reach_seen = "," }
+    if depth > 32 or type_text == "" or type_text == v4_ty_unknown { give back "" }
+    if v4_ty_is_lend_type(type_text) { give back v4_codegen_llvm_reached_sum_types(mir_id, v4_ty_lend_target_type(type_text), depth + 1) }
+    pilot canonical = v4_ty_canonical_type(v4_mir_ty_id(mir_id), type_text)
+    if v4_mir_scalar_sum_kind(mir_id, canonical) != "" { give back canonical + "\n" }
+    if v4_codegen_llvm_sum_reach_seen.contains("," + canonical + ",") { give back "" }
+    v4_codegen_llvm_sum_reach_seen = v4_codegen_llvm_sum_reach_seen + canonical + ","
+    if v4_codegen_llvm_is_list(mir_id, canonical) { give back v4_codegen_llvm_reached_sum_types(mir_id, v4_codegen_llvm_list_element(mir_id, canonical), depth + 1) }
+    pilot out = ""
+    pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, canonical)
+    if kind == "array" { give back v4_codegen_llvm_reached_sum_types(mir_id, v4_ty_fixed_array_element_type(canonical), depth + 1) }
+    if kind != "" {
+        pilot slot = 0
+        repeat until slot >= v4_codegen_llvm_aggregate_slot_count(mir_id, canonical) {
+            out = out + v4_codegen_llvm_reached_sum_types(mir_id, v4_codegen_llvm_aggregate_slot_type(mir_id, canonical, slot), depth + 1)
+            slot += 1
+        }
+        give back out
+    }
+    pilot sig = v4_codegen_llvm_route_signature(mir_id, canonical)
+    if sig < 0 { give back "" }
+    pilot case_id = 0
+    repeat until case_id >= v4_ty_route_case_count(v4_mir_ty_id(mir_id), v4_codegen_llvm_route_sig(mir_id, sig)) {
+        pilot field = 0
+        repeat until field >= v4_codegen_llvm_route_field_count(mir_id, sig, case_id) {
+            out = out + v4_codegen_llvm_reached_sum_types(mir_id, v4_codegen_llvm_route_field_type(mir_id, sig, case_id, field), depth + 1)
+            field += 1
+        }
+        case_id += 1
+    }
+    give back out
+}
+
+-- Push the carriers type_text reaches (v4_codegen_llvm_reached_sum_types).
+task v4_codegen_llvm_push_reached_sums(parts: int, mir_id: int, type_text: word) -> void {
+    pilot reached = v4_codegen_llvm_reached_sum_types(mir_id, type_text, 0)
+    pilot start = 0
+    repeat until start >= reached.length() {
+        pilot stop = v4_index_of_from(reached, "\n", start)
+        if stop < 0 { stop = reached.length() }
+        v4_codegen_llvm_fragment_push(parts, v4_slice(reached, start, stop))
+        start = stop + 1
+    }
+}
+
 -- One shape record per general carrier a body uses, for the type
 -- definitions and "; freak.layout" notes (the closed kinds keep their own).
 task v4_codegen_llvm_sum_records(mir_id: int) -> word {
@@ -5593,15 +5712,15 @@ task v4_codegen_llvm_sum_records(mir_id: int) -> word {
     body = v4_codegen_llvm_next_emitted_body(mir_id, body)
     repeat until body >= v4_mir_body_count(mir_id) {
         pilot candidates = v4_codegen_llvm_fragment_new()
-        v4_codegen_llvm_fragment_push(candidates, v4_mir_body_callable_return_type(mir_id, body))
+        v4_codegen_llvm_push_reached_sums(candidates, mir_id, v4_mir_body_callable_return_type(mir_id, body))
         pilot row = 0
         repeat until row >= v4_mir_body_local_count(mir_id, body) {
-            v4_codegen_llvm_fragment_push(candidates, v4_mir_local_ty(mir_id, body, row))
+            v4_codegen_llvm_push_reached_sums(candidates, mir_id, v4_mir_local_ty(mir_id, body, row))
             row += 1
         }
         row = 0
         repeat until row >= v4_mir_body_rvalue_count(mir_id, body) {
-            v4_codegen_llvm_fragment_push(candidates, v4_mir_rvalue_ty(mir_id, body, row))
+            v4_codegen_llvm_push_reached_sums(candidates, mir_id, v4_mir_rvalue_ty(mir_id, body, row))
             row += 1
         }
         row = 0
@@ -5808,6 +5927,34 @@ task v4_codegen_llvm_scalar_sum_runtime_lines(mir: int) -> word {
         }
         body = v4_codegen_llvm_next_emitted_body(mir, body + 1)
     }
+    -- A closed carrier held only inside a list still needs its type.
+    if v4_codegen_llvm_mir_uses_lists(mir) {
+        pilot reached = v4_codegen_llvm_fragment_new()
+        body = v4_codegen_llvm_next_emitted_body(mir, 0)
+        repeat until body >= v4_mir_body_count(mir) {
+            pilot row = 0
+            repeat until row >= v4_mir_body_local_count(mir, body) {
+                if v4_codegen_llvm_type_names_list(mir, v4_mir_local_ty(mir, body, row)) { v4_codegen_llvm_push_reached_sums(reached, mir, v4_mir_local_ty(mir, body, row)) }
+                row += 1
+            }
+            row = 0
+            repeat until row >= v4_mir_body_rvalue_count(mir, body) {
+                if v4_codegen_llvm_type_names_list(mir, v4_mir_rvalue_ty(mir, body, row)) { v4_codegen_llvm_push_reached_sums(reached, mir, v4_mir_rvalue_ty(mir, body, row)) }
+                row += 1
+            }
+            if v4_codegen_llvm_type_names_list(mir, v4_mir_body_callable_return_type(mir, body)) { v4_codegen_llvm_push_reached_sums(reached, mir, v4_mir_body_callable_return_type(mir, body)) }
+            body = v4_codegen_llvm_next_emitted_body(mir, body + 1)
+        }
+        pilot seen_row = 0
+        repeat until seen_row >= array_len(reached) {
+            pilot reached_ty: word = array_get(reached, seen_row)
+            pilot reached_kind = v4_mir_scalar_sum_kind(mir, reached_ty)
+            if reached_kind == "MaybeInt" { maybe_used = true }
+            if reached_kind == "ResultWordWord" { result_used = true }
+            seen_row += 1
+        }
+        array_release(reached)
+    }
     pilot out = ""
     if maybe_used { out = out + "%freak_maybe_int = type {" + " i1, i64 " + "}\n" }
     if result_used { out = out + "%freak_result_word_word = type {" + " i1, i64 " + "}\n" }
@@ -5829,6 +5976,9 @@ task v4_codegen_llvm_word_local_is_owned(mir_id: int, body_id: int, local_id: in
 
 task v4_codegen_llvm_word_rvalue_is_owned(mir_id: int, body_id: int, rvalue_id: int) -> bool {
     pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    -- A read Meiya's plan marks as a partial move (a field or element moved
+    -- out, its slot nulled) is the full expression's own value.
+    if v4_codegen_llvm_rvalue_is_owned_move_out(mir_id, body_id, rvalue_id) { give back true }
     if v4_codegen_llvm_is_shared_handle(mir_id, value_ty) {
         pilot handle_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
         if handle_kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
@@ -5844,6 +5994,15 @@ task v4_codegen_llvm_word_rvalue_is_owned(mir_id: int, body_id: int, rvalue_id: 
     if kind == v4_mir_rvalue_use_local { give back v4_codegen_llvm_word_local_is_owned(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)) }
     if v4_codegen_llvm_rvalue_is_global_read(mir_id, body_id, rvalue_id) { give back true }
     give back kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err
+}
+
+task v4_codegen_llvm_rvalue_is_owned_move_out(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if v4_codegen_llvm_active_owned_mir != mir_id or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_use_place { give back false }
+    pilot place_kind = v4_mir_place_kind(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+    if place_kind != v4_mir_place_field and place_kind != v4_mir_place_index { give back false }
+    if not v4_mir_drop_rvalue_is_partial(mir_id, body_id, rvalue_id) { give back false }
+    pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    give back v4_codegen_llvm_word_leaf_count(mir_id, value_ty, 0) > 0 or v4_codegen_llvm_sum_owned_word_field(mir_id, value_ty) != "" or v4_codegen_llvm_is_list(mir_id, value_ty)
 }
 
 -- A word a loan observes that no local owns: the full expression releases
@@ -6344,13 +6503,31 @@ task v4_codegen_llvm_native_list_type_error(mir_id: int, type_text: word, depth:
 
 -- A list as a value or as a shape field, tuple or array slot or list
 -- element: its header is one owned slot (tier 3 nested lists row).
+task v4_codegen_llvm_sum_has_loan_payload(mir_id: int, type_text: word) -> bool {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot kind = v4_mir_scalar_sum_kind(mir_id, type_text)
+    if kind != "Maybe" and kind != "Result" { give back false }
+    if v4_ty_native_sum_family(kind) == "maybe" { give back v4_ty_is_lend_type(v4_ty_native_sum_case_type(ty_id, type_text, "Some")) }
+    give back v4_ty_is_lend_type(v4_ty_native_sum_case_type(ty_id, type_text, "Ok")) or v4_ty_is_lend_type(v4_ty_native_sum_case_type(ty_id, type_text, "Err"))
+}
+
 task v4_codegen_llvm_native_list_slot_error(mir_id: int, type_text: word, depth: int) -> word {
     if depth > 32 { give back "native list nesting exceeds supported depth: " + type_text }
     pilot element = v4_codegen_llvm_list_element(mir_id, type_text)
     if element == "" or element == v4_ty_unknown { give back "native list element type is unresolved: " + type_text }
     if v4_ty_is_lend_type(element) { give back "native lists of loans are not yet supported: " + type_text }
     if element == v4_ty_void or element == v4_ty_never { give back "native lists of void are not supported: " + type_text }
-    if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), element) or v4_mir_scalar_sum_kind(mir_id, element) != "" or v4_ty_is_maybe_type(element) { give back "native lists of maybe/result values are not yet supported: " + type_text }
+    -- A carrier element is stored by value, as a carrier local is: its one
+    -- word field (if any) is released by the element drop helper.
+    -- Its glue has no handle retain or release, so a carrier of a Shared
+    -- handle, BorrowError or loan stays out of lists.
+    if v4_mir_scalar_sum_kind(mir_id, element) != "" {
+        if v4_codegen_llvm_type_names_shared(mir_id, element) or v4_codegen_llvm_sum_has_loan_payload(mir_id, element) { give back "native lists of maybe/result values holding Shared handles or loans are not yet supported: " + type_text }
+        give back v4_codegen_llvm_native_sum_error(mir_id, element, depth + 1)
+    }
+    pilot unadmitted = v4_codegen_llvm_unadmitted_sum_error(mir_id, element)
+    if unadmitted != "" { give back unadmitted }
+    if v4_ty_is_maybe_type(element) { give back "native lists of maybe/result values are not yet supported: " + type_text }
     if v4_codegen_llvm_is_list(mir_id, element) { give back v4_codegen_llvm_native_list_slot_error(mir_id, element, depth + 1) }
     if v4_ty_is_closure_type(element) { give back "native lists of closures are not yet supported: " + type_text }
     -- A list is indirection (bible 1.5): `shape Dir { subs: List<Dir> }` is
@@ -6618,7 +6795,7 @@ task v4_codegen_llvm_list_runtime_lines(mir_id: int) -> word {
         pilot element = v4_slice(v4_codegen_llvm_list_drop_types, start, stop)
         pilot element_llvm = v4_codegen_llvm_type(element)
         out = out + "define internal void " + v4_codegen_llvm_symbol("freak.list.drop." + element) + "(ptr %data, i64 %len) " + "{" + "\nentry:\n"
-        if v4_codegen_llvm_word_leaf_count(mir_id, element, 0) > 0 {
+        if v4_codegen_llvm_word_leaf_count(mir_id, element, 0) > 0 or v4_codegen_llvm_sum_owned_word_field(mir_id, element) != "" {
             out = out + "  %empty = icmp eq i64 %len, 0\n  br i1 %empty, label %done, label %each\neach:\n"
             out = out + "  %i = phi i64 [ 0, %entry ], [ %next, %each ]\n"
             out = out + "  %at = getelementptr inbounds " + element_llvm + ", ptr %data, i64 %i\n"
@@ -6637,7 +6814,7 @@ task v4_codegen_llvm_list_runtime_lines(mir_id: int) -> word {
 -- copied elements, and a route clones the leaves of the case its tag names.
 -- Types without such leaves copy with extractvalue word paths instead.
 task v4_codegen_llvm_needs_clone_helper(mir_id: int, type_text: word) -> bool {
-    give back v4_codegen_llvm_type_holds_list(mir_id, type_text, 0) or v4_codegen_llvm_type_has_route_words(mir_id, type_text, 0)
+    give back v4_codegen_llvm_type_holds_list(mir_id, type_text, 0) or v4_codegen_llvm_type_has_route_words(mir_id, type_text, 0) or v4_codegen_llvm_sum_owned_word_field(mir_id, type_text) != ""
 }
 
 -- The helper `T @"freak.list.clone.T"(ptr src)`, registered for emission.
@@ -6650,7 +6827,21 @@ task v4_codegen_llvm_clone_helper_symbol(mir_id: int, type_text: word) -> word {
 -- Clone the owned leaves of the value at `src` into the bitwise copy at
 -- `dst`. Labels derive from `temp`, unique within one helper.
 task v4_codegen_llvm_clone_glue_at(mir_id: int, type_text: word, dst: word, src: word, temp: word, depth: int) -> word {
-    if depth > 32 or v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back "" }
+    if depth > 32 { give back "" }
+    -- A carrier clones its word field only when it holds one: an inactive
+    -- payload stays zero in the copy.
+    pilot sum_field = v4_codegen_llvm_sum_owned_word_field(mir_id, type_text)
+    if sum_field != "" {
+        pilot sum_ty = v4_codegen_llvm_type(type_text)
+        pilot sum_label = v4_slice(temp, 1, temp.length())
+        pilot sum_out = "  " + temp + ".wsrc = getelementptr inbounds " + sum_ty + ", ptr " + src + ", i32 0, i32 " + sum_field + "\n"
+        sum_out = sum_out + "  " + temp + ".wdst = getelementptr inbounds " + sum_ty + ", ptr " + dst + ", i32 0, i32 " + sum_field + "\n"
+        sum_out = sum_out + "  " + temp + ".wh = load i64, ptr " + temp + ".wsrc\n  " + temp + ".wlive = icmp ne i64 " + temp + ".wh, 0\n"
+        sum_out = sum_out + "  br i1 " + temp + ".wlive, label %" + sum_label + ".wthen, label %" + sum_label + ".wend\n" + sum_label + ".wthen:\n"
+        sum_out = sum_out + "  " + temp + ".wc = call i64 " + v4_codegen_llvm_word_intrinsic_symbol_for(mir_id, "clone") + "(i64 " + temp + ".wh)\n"
+        give back sum_out + "  store i64 " + temp + ".wc, ptr " + temp + ".wdst\n  br label %" + sum_label + ".wend\n" + sum_label + ".wend:\n"
+    }
+    if v4_codegen_llvm_word_leaf_count(mir_id, type_text, 0) <= 0 { give back "" }
     pilot ty_id = v4_mir_ty_id(mir_id)
     if v4_ty_canonical_type(ty_id, type_text) == v4_ty_word {
         pilot out = "  " + temp + ".h = load i64, ptr " + src + "\n"
@@ -6734,7 +6925,7 @@ task v4_codegen_llvm_clone_helper_lines(mir_id: int, type_text: word) -> word {
         out = out + "  %to = getelementptr inbounds " + element_llvm + ", ptr %buf, i64 %i\n"
         if v4_ty_canonical_type(v4_mir_ty_id(mir_id), element) == v4_ty_word {
             out = out + "  %h = load i64, ptr %from\n  %v = call i64 " + v4_codegen_llvm_word_intrinsic_symbol_for(mir_id, "clone") + "(i64 %h)\n"
-        } else if v4_codegen_llvm_word_leaf_count(mir_id, element, 0) > 0 {
+        } else if v4_codegen_llvm_word_leaf_count(mir_id, element, 0) > 0 or v4_codegen_llvm_sum_owned_word_field(mir_id, element) != "" {
             out = out + "  %v = call " + element_llvm + " " + v4_codegen_llvm_clone_helper_symbol(mir_id, element) + "(ptr %from)\n"
         } else {
             out = out + "  %v = load " + element_llvm + ", ptr %from\n"
@@ -8869,7 +9060,7 @@ task v4_codegen_llvm_drop_plan_error(mir_id: int) -> word {
         pilot error = ""
         value = 0
         repeat until value >= count or error != "" {
-            if v4_mir_rvalue_kind(mir_id, body, value) == v4_mir_rvalue_use_place and v4_codegen_llvm_word_leaf_count(mir_id, v4_mir_rvalue_ty(mir_id, body, value), 0) > 0 {
+            if v4_mir_rvalue_kind(mir_id, body, value) == v4_mir_rvalue_use_place and (v4_codegen_llvm_word_leaf_count(mir_id, v4_mir_rvalue_ty(mir_id, body, value), 0) > 0 or v4_codegen_llvm_sum_owned_word_field(mir_id, v4_mir_rvalue_ty(mir_id, body, value)) != "") {
                 pilot place_kind = v4_mir_place_kind(mir_id, body, v4_mir_rvalue_lhs(mir_id, body, value))
                 pilot borrowed: word = array_get(lent, value)
                 if (place_kind == v4_mir_place_field or place_kind == v4_mir_place_index) and borrowed != "1" and not v4_mir_drop_rvalue_is_partial(mir_id, body, value) { error = "native partial moves out of aggregates that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, value) }
@@ -8885,7 +9076,7 @@ task v4_codegen_llvm_drop_plan_error(mir_id: int) -> word {
             pilot root = v4_mir_stmt_rvalue(mir_id, body, stmt)
             -- A discarded route that owns words is released from its call's result slot.
             if kind == v4_mir_stmt_expr and root >= 0 and v4_codegen_llvm_word_rvalue_is_owned(mir_id, body, root) and v4_codegen_llvm_type_has_route_words(mir_id, v4_mir_rvalue_ty(mir_id, body, root), 0) and not (v4_codegen_llvm_call_is_freak_abi(mir_id, body, root) and v4_codegen_llvm_call_returns_aggregate(mir_id, body, root)) { give back "native discarded route values that own words are not yet supported: " + v4_mir_rvalue_text(mir_id, body, root) }
-            if (kind == v4_mir_stmt_assign or kind == v4_mir_stmt_local) and place >= 0 and v4_codegen_llvm_type_owns_words(mir_id, v4_mir_place_ty(mir_id, body, place)) {
+            if (kind == v4_mir_stmt_assign or kind == v4_mir_stmt_local) and place >= 0 and (v4_codegen_llvm_type_owns_words(mir_id, v4_mir_place_ty(mir_id, body, place)) or (v4_mir_place_kind(mir_id, body, place) == v4_mir_place_index and v4_codegen_llvm_sum_owned_word_field(mir_id, v4_mir_place_ty(mir_id, body, place)) != "")) {
                 pilot place_kind = v4_mir_place_kind(mir_id, body, place)
                 -- A lent word parameter itself is replaced with a drop of the old word.
                 pilot through_receiver: bool = place_kind == v4_mir_place_local and v4_codegen_llvm_local_is_lent_param(mir_id, body, v4_mir_place_base(mir_id, body, place)) and v4_mir_place_ty(mir_id, body, place) != v4_ty_word
@@ -10194,6 +10385,7 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
     pilot c_width_used: bool = false
     pilot narrow_pointers: bool = v4_target_spec_pointer_width(target_spec) != 64
     pilot redirected = ""
+    pilot word_bytes_declared: bool = false
     pilot decl_id = 0
     repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
         pilot line = v4_codegen_llvm_decl_line(codegen_id, decl_id)
@@ -10218,6 +10410,11 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
                 if ptr_ret == "" { ptr_ret = v4_codegen_llvm_decl_return(codegen_id, decl_id) }
                 if not c_width_used { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_c_width_runtime_declarations()) }
                 c_width_used = true
+                pilot ptr_runtime_lines: word = array_get(v4_codegen_llvm_word_runtime_lines, codegen_id)
+                if not word_bytes_declared and ptr_params.contains("$W$") and not ptr_runtime_lines.contains("@freak_v4_word_bytes(") {
+                    v4_codegen_llvm_fragment_push(parts, "declare i64 @freak_v4_word_bytes(i64) readonly nounwind\n")
+                    word_bytes_declared = true
+                }
                 v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_c_width_module_lines_for(codegen_id, decl_id, target_spec, ptr_ret, ptr_params))
                 -- A C-width declaration's call sites already call its shim.
                 if not v4_codegen_llvm_decl_has_c_width(codegen_id, decl_id) { redirected = redirected + v4_codegen_llvm_decl_symbol(codegen_id, decl_id) + "\n" }
@@ -10228,6 +10425,12 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
             } else if v4_codegen_llvm_decl_has_c_width(codegen_id, decl_id) {
                 if not c_width_used { v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_c_width_runtime_declarations()) }
                 c_width_used = true
+                -- A lent-word shim reads the byte length from the word runtime.
+                pilot runtime_lines: word = array_get(v4_codegen_llvm_word_runtime_lines, codegen_id)
+                if not word_bytes_declared and v4_codegen_llvm_decl_params(codegen_id, decl_id).contains("$W$") and not runtime_lines.contains("@freak_v4_word_bytes(") {
+                    v4_codegen_llvm_fragment_push(parts, "declare i64 @freak_v4_word_bytes(i64) readonly nounwind\n")
+                    word_bytes_declared = true
+                }
                 v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_c_width_module_lines(codegen_id, decl_id, target_spec))
             } else {
                 v4_codegen_llvm_fragment_push(parts, line)

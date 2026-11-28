@@ -1,0 +1,25 @@
+-- A lent word reaches C as (const char*, size_t): strnlen stops at the length
+-- (the bytes are not NUL-terminated for C) or at an embedded NUL byte.
+-- bible: 16.1
+-- expect: run
+-- stdout: 5
+-- stdout: 6
+-- stdout: 1
+-- stdout: 0
+-- stdout: café!
+
+extern [C] {
+    task strnlen(lend text: word) -> std::ffi::c_size
+}
+task main() -> int {
+    pilot plain = "hello"
+    pilot accented = "café!"
+    pilot nul = "a\0b"
+    pilot empty = ""
+    say word_from_int(strnlen(lend plain))
+    say word_from_int(strnlen(lend accented))
+    say word_from_int(strnlen(lend nul))
+    say word_from_int(strnlen(lend empty))
+    say accented
+    give back 0
+}
