@@ -5,7 +5,7 @@
 -- ===================================================================
 
 pilot CLI_VERSION = FREAK_VERSION
-pilot CLI_CODENAME = "Maverick"
+pilot CLI_CODENAME = "Afterburner"
 
 -- ── ANSI Reset & Styles ──────────────────────────────
 pilot C_RESET   = "\x1b[0m"
