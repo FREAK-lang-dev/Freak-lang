@@ -1,0 +1,14 @@
+-- Meiya checks the generic template for every T: a borrowed T capture
+-- cannot be given back by value, even though the only instance is keep<int>.
+-- bible: 1.8
+-- expect: reject borrowck
+-- error: Meiya refuses to move out of a borrowed parameter
+
+task keep<T>(a: T) -> T {
+    pilot read = |_| => a
+    give back read()
+}
+task main() -> int {
+    say keep(3)
+    give back 0
+}

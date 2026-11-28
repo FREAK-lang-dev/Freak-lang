@@ -1,0 +1,14 @@
+-- Storing a loan into existing aggregate storage is not native yet: the
+-- loan could name a local whose block ends before the holder.
+-- bible: 4.1
+-- expect: reject codegen
+-- error: native writes that store a loan into existing aggregate storage are not yet supported: holder.0
+
+shape Ship { hp: int }
+task main() -> int {
+    pilot mut a = Ship { hp: 3 }
+    pilot mut b = Ship { hp: 4 }
+    pilot mut holder = (lend mut a, 0)
+    holder.0 = lend mut b
+    give back holder.0.hp
+}

@@ -1,0 +1,20 @@
+-- The closure effect summary admits writes that install no loan into a
+-- loan-bearing capture: the int slot beside the lend, and a field written
+-- through the lend.
+-- bible: 1.8
+-- expect: run
+-- stdout: 11
+
+shape Ship { hp: int }
+task run(first: Ship) -> int {
+    pilot mut holder = (lend mut first, 0)
+    pilot setter = mut |v: int| { holder.1 = v }
+    setter(5)
+    pilot hit = mut |d: int| { holder.0.hp = holder.0.hp - d }
+    hit(1)
+    give back holder.1 + holder.0.hp
+}
+task main() -> int {
+    say run(Ship { hp: 7 })
+    give back 0
+}

@@ -1,0 +1,14 @@
+-- An instance whose T is word meets the same native fence as a nongeneric
+-- closure: moving a word into an environment is not native yet.
+-- bible: 1.8
+-- expect: reject codegen
+-- error: native closure captures that move words are not yet supported: a
+
+task hold<T>(a: T) -> T {
+    pilot take = move |_| => a
+    give back take()
+}
+task main() -> int {
+    say hold("w")
+    give back 0
+}

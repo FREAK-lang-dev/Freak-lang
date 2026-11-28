@@ -1,0 +1,116 @@
+-- Native closures inside generic tasks. Each instance (apply<int>,
+-- apply<word>, ...) lowers its own closure bodies with the instance's
+-- substitution applied, so every closure parameter, capture and result is
+-- concrete; the template's closures are never emitted. Meiya checks the
+-- template generically and each instance with its concrete types.
+shape Point { x: int, y: int }
+
+shape Box<T> { value: T, count: int }
+
+-- A closure parameter of the task's type parameter, one body per instance.
+task apply<T>(x: T) -> T {
+    pilot f = |v: T| => v
+    give back f(x)
+}
+
+-- A move capture of A (a OneShot) and a closure over B.
+task first_of<A, B>(a: A, b: B) -> A {
+    pilot keep = move |_| => a
+    pilot echo = |v: B| => v
+    pilot unused = echo(b)
+    give back keep()
+}
+
+-- A mut closure writes a T-typed local through its capture.
+task store<T>(x: T, y: T) -> T {
+    pilot mut slot: T = x
+    pilot set = mut |v: T| { slot = v }
+    set(y)
+    give back slot
+}
+
+-- A MutCallable over an int counter inside a generic task with a lend.
+task count_twice<T>(lend x: T) -> int {
+    pilot mut hits: int = 0
+    pilot bump = mut |_| { hits += 1 }
+    bump()
+    bump()
+    give back hits
+}
+
+-- A closure nested in a closure, both typed by the instance.
+task nested<T>(x: T) -> T {
+    pilot outer = move |_| {
+        pilot inner = |w: T| => w
+        give back inner(x)
+    }
+    give back outer()
+}
+
+-- A borrowed word capture beside a generic parameter.
+task shout<T>(x: T, label: word) -> int {
+    pilot show = |_| { say label }
+    show()
+    give back label.length()
+}
+
+-- A generic shape parameter, and a tuple of both type parameters.
+task unbox<T>(b: Box<T>) -> T {
+    pilot open = |inner: Box<T>| => inner.value
+    give back open(b)
+}
+
+task pair_up<A, B>(a: A, b: B) -> (A, B) {
+    pilot make = move |_| => (a, b)
+    give back make()
+}
+
+task ident<T>(x: T) -> T { give back x }
+
+-- A closure body that calls another generic task names that task's
+-- instance for the closure's concrete parameter type.
+task through<T>(x: T) -> T {
+    pilot via = |v: T| => ident(v)
+    give back via(x)
+}
+
+-- Never called: no instance, so its closure has no native body at all.
+task unused<T>(x: T) -> T {
+    pilot f = |v: T| => v
+    give back f(x)
+}
+
+-- A nongeneric closure calling a generic task.
+task plain(n: int) -> int {
+    pilot g = |v: int| => ident(v) + 1
+    give back g(n)
+}
+
+task main() -> int {
+    say apply(3)
+    say apply("hi")
+    say apply(true)
+    pilot p = Point { x: 4, y: 5 }
+    pilot q = apply(p)
+    say q.x + q.y
+    say first_of(7, 7.5)
+    say first_of(false, 8)
+    say store(1, 2)
+    say store(false, true)
+    pilot one = 1
+    say count_twice(lend one)
+    pilot name = "Sumika"
+    say count_twice(lend name)
+    say nested(9)
+    say nested(2.5)
+    say shout(1, "Takeru")
+    pilot b: Box<int> = Box { value: 21, count: 1 }
+    say unbox(b)
+    pilot t = pair_up(3, 4.5)
+    say t.0
+    say t.1
+    say through(5)
+    say through("five")
+    say plain(6)
+    give back 0
+}

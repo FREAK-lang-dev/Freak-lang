@@ -12781,6 +12781,14 @@ task v4_ty_apply_generic_env(type_text: word, env: word) -> word {
     if v4_ty_is_dyn_type(type_text) {
         give back v4_ty_dyn_type(v4_ty_apply_generic_env(v4_ty_dyn_doctrine_name(type_text), env))
     }
+    -- A closure type keeps its doctrine and mode; its parameters and result
+    -- are substituted like a task type's (a closure in a generic instance).
+    if v4_ty_is_closure_type(type_text) {
+        pilot close_bracket = v4_index_of_from(type_text, "]", 8)
+        pilot applied = v4_ty_apply_generic_env(v4_ty_closure_as_task_type(type_text), env)
+        if not applied.starts_with("task(") { give back type_text }
+        give back v4_slice(type_text, 0, close_bracket + 1) + v4_slice(applied, 4, applied.length())
+    }
     if v4_ty_is_surface_task_function_type(type_text) {
         pilot out = "task("
         if v4_ty_is_surface_extern_function_pointer_type(type_text) {
