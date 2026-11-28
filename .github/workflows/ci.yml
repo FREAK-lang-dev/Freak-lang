@@ -300,7 +300,7 @@ jobs:
           with open("doctor.json", "r", encoding="utf-8") as handle:
               doc = json.load(handle)
           assert doc["schema"] == "freak.doctor.v1"
-          assert doc["checks"]["stdlib"]["modules_expected"] == 17
+          assert doc["checks"]["stdlib"]["modules_expected"] == 18
           assert "clang" in doc["checks"]
           PY
 
@@ -918,7 +918,7 @@ jobs:
           with open("doctor.json", "r", encoding="utf-8") as handle:
               doc = json.load(handle)
           assert doc["schema"] == "freak.doctor.v1"
-          assert doc["checks"]["stdlib"]["modules_expected"] == 17
+          assert doc["checks"]["stdlib"]["modules_expected"] == 18
           assert "clang" in doc["checks"]
           PY
 

@@ -268,6 +268,7 @@ task cli_doctor_std_module_count(std_dir: word) -> int {
     if fs::exists(std_dir + "/path.fk")      { mod_count += 1 }
     if fs::exists(std_dir + "/random.fk")    { mod_count += 1 }
     if fs::exists(std_dir + "/crypto.fk")    { mod_count += 1 }
+    if fs::exists(std_dir + "/tls.fk")       { mod_count += 1 }
     if fs::exists(std_dir + "/ui/window.fk") { mod_count += 1 }
     give back mod_count
 }
@@ -313,6 +314,17 @@ task cli_doctor_runtime_missing(runtime_dir: word) -> word {
     if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/http.c") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/http.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/llhttp.c") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/llhttp.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/llhttp.h") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/llhttp.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_tls.c") { missing = cli_doctor_append_missing(missing, "freak_tls.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_tls_core.c") { missing = cli_doctor_append_missing(missing, "freak_tls_core.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_tls_extra.c") { missing = cli_doctor_append_missing(missing, "freak_tls_extra.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/mbedtls/LICENSE") { missing = cli_doctor_append_missing(missing, "third_party/mbedtls/LICENSE") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/mbedtls/README.freak.md") { missing = cli_doctor_append_missing(missing, "third_party/mbedtls/README.freak.md") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/mbedtls/SHA256SUMS") { missing = cli_doctor_append_missing(missing, "third_party/mbedtls/SHA256SUMS") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/mbedtls/UPSTREAM.json") { missing = cli_doctor_append_missing(missing, "third_party/mbedtls/UPSTREAM.json") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/mbedtls/freak_mbedtls_config.h") { missing = cli_doctor_append_missing(missing, "third_party/mbedtls/freak_mbedtls_config.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/mbedtls/mbedtls_core.inc") { missing = cli_doctor_append_missing(missing, "third_party/mbedtls/mbedtls_core.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/mbedtls/mbedtls_extra.inc") { missing = cli_doctor_append_missing(missing, "third_party/mbedtls/mbedtls_extra.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/mbedtls/mbedtls_keys.inc") { missing = cli_doctor_append_missing(missing, "third_party/mbedtls/mbedtls_keys.inc") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_word_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_word_runtime.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_compiler_array_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_compiler_array_runtime.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_numeric_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_numeric_runtime.c") }
@@ -349,6 +361,7 @@ task cli_doctor_std_missing(std_dir: word) -> word {
     if not fs::exists(std_dir + "/path.fk") { missing = cli_doctor_append_missing(missing, "path.fk") }
     if not fs::exists(std_dir + "/random.fk") { missing = cli_doctor_append_missing(missing, "random.fk") }
     if not fs::exists(std_dir + "/crypto.fk") { missing = cli_doctor_append_missing(missing, "crypto.fk") }
+    if not fs::exists(std_dir + "/tls.fk") { missing = cli_doctor_append_missing(missing, "tls.fk") }
     if not fs::exists(std_dir + "/ui/window.fk") { missing = cli_doctor_append_missing(missing, "ui/window.fk") }
     if not fs::exists(std_dir + "/freak_abi") { missing = cli_doctor_append_missing(missing, "freak_abi") }
     if not fs::exists(std_dir + "/freak_std_api") { missing = cli_doctor_append_missing(missing, "freak_std_api") }
@@ -475,7 +488,7 @@ task cli_doctor_json() -> int {
     say "    \"runtime\": {"
     say "      \"ok\": " + cli_doctor_json_bool(runtime_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(rt_dir) + "\","
-    say "      \"files_expected\": 37,"
+    say "      \"files_expected\": 48,"
     say "      \"missing\": \"" + cli_doctor_json_escape(runtime_missing) + "\","
     say "      \"precompiled_objects\": " + cli_doctor_json_bool(runtime_obj) + ","
     say "      \"llvm_runtime\": " + cli_doctor_json_bool(llvm_runtime)
@@ -489,7 +502,7 @@ task cli_doctor_json() -> int {
     say "      \"ok\": " + cli_doctor_json_bool(std_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(std_dir) + "\","
     say "      \"modules_found\": " + word_from_int(std_modules) + ","
-    say "      \"modules_expected\": 17,"
+    say "      \"modules_expected\": 18,"
     say "      \"missing\": \"" + cli_doctor_json_escape(std_missing) + "\","
     pilot mut std_active_source = "error"
     if std_resolved { std_active_source = cli_std_active_source }
@@ -798,7 +811,7 @@ task cli_doctor(fix_mode: bool) -> int {
     say "  " + C_BWHITE + "[4/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " standard library"
     if std_missing == "" {
         pilot mod_count = cli_doctor_std_module_count(std_dir)
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/14 modules in " + C_DIM + std_dir + C_RESET
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/18 modules in " + C_DIM + std_dir + C_RESET
         checks_passed += 1
         cli_std_search_cwd = true
         if not cli_std_resolve() {

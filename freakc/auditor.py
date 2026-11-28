@@ -1874,6 +1874,7 @@ def audit_conformance(paths: List[Path]) -> int:
         "std::zip": "std/zip.fk",
         "std::random": "std/random.fk",
         "std::crypto": "std/crypto.fk",
+        "std::tls": "std/tls.fk",
     }
     runtime_c = repo / "freakc" / "runtime" / "freak_runtime.c"
     runtime_src = runtime_c.read_text(encoding="utf-8") if runtime_c.exists() else ""
@@ -2355,6 +2356,12 @@ def audit_conformance(paths: List[Path]) -> int:
         expected_sources.update(path.relative_to(repo).as_posix()
                                 for path in (repo / "third_party" / "llhttp").rglob("*")
                                 if path.is_file())
+        # std::tls: the optional TLS units and the generated mbedTLS sources.
+        expected_sources.update({"freakc/runtime/freak_tls.c", "freakc/runtime/freak_tls_core.c",
+                                 "freakc/runtime/freak_tls_extra.c"})
+        expected_sources.update(path.relative_to(repo).as_posix()
+                                for path in (repo / "freakc" / "runtime" / "third_party" / "mbedtls").rglob("*")
+                                if path.is_file())
         expected_sources.update(path.relative_to(repo).as_posix() for path in (repo / "templates/v35").rglob("*") if path.is_file())
         expected_sources.add("src/compiler/v4/native-runtime.manifest")
         for raw in (repo / "src/compiler/v4/native-runtime.manifest").read_text().splitlines():
@@ -2401,8 +2408,8 @@ def audit_conformance(paths: List[Path]) -> int:
         "doctor": (
             repo / "src" / "cli" / "doctor.fk",
             (
-                "modules_expected\\\": 17",
-                "files_expected\\\": 37",
+                "modules_expected\\\": 18",
+                "files_expected\\\": 48",
                 "FREAK_V3_ABI",
                 "FREAK_V3_RUNTIME_API",
                 "runtime_api",

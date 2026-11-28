@@ -445,6 +445,77 @@ int64_t freak_crypto_hmac_sha256(int64_t key, int64_t message, int64_t out);
 int64_t freak_crypto_pbkdf2_sha256(int64_t password, int64_t salt, int64_t rounds, int64_t length, int64_t out);
 
 /* ------------------------------------------------------------------ */
+/*  std::tls (optional runtime unit)                                  */
+/* ------------------------------------------------------------------ */
+
+/* TLS lives in freak_tls.c (+ the vendored mbedTLS units), which the CLI
+   compiles and links only into programs that `use std::tls`. The rest of the
+   runtime reaches it through `freak_tls_api`, which that unit fills in at
+   start-up; it stays NULL in programs built without TLS.
+
+   Result codes shared by the C and FREAK-level calls: a byte count (> 0),
+   0 (handshake done / peer closed the connection), or one of these. */
+#define FREAK_TLS_WANT_READ  (-1)
+#define FREAK_TLS_WANT_WRITE (-2)
+#define FREAK_TLS_CLOSED     (-3)
+#define FREAK_TLS_FAILED     (-4)
+#define FREAK_TLS_TIMED_OUT  (-5)
+
+typedef struct freak_tls_config freak_tls_config;
+typedef struct freak_tls_conn freak_tls_conn;
+
+typedef struct {
+    int version; /* 1 */
+    /* The server config behind a std::tls config handle, or NULL. Borrowed:
+       it lives until the last connection made from it is freed. */
+    freak_tls_config *(*server_config)(int64_t config_handle);
+    /* A server-side connection on a non-blocking socket the caller owns. */
+    freak_tls_conn *(*conn_new)(freak_tls_config *config, uintptr_t native_socket);
+    int (*conn_handshake)(freak_tls_conn *conn);
+    int (*conn_read)(freak_tls_conn *conn, unsigned char *out, size_t count);
+    /* Bytes accepted (encrypted and queued), or WANT_WRITE when the previous
+       output still waits for the socket; call conn_flush when writable. */
+    int (*conn_write)(freak_tls_conn *conn, const unsigned char *data, size_t count);
+    int (*conn_flush)(freak_tls_conn *conn);
+    bool (*conn_wants_write)(freak_tls_conn *conn);
+    size_t (*conn_pending)(freak_tls_conn *conn);
+    int (*conn_close)(freak_tls_conn *conn);
+    void (*conn_free)(freak_tls_conn *conn);
+    const char *(*conn_error)(freak_tls_conn *conn);
+    const char *(*conn_alpn)(freak_tls_conn *conn);
+} freak_tls_c_api;
+
+extern const freak_tls_c_api *freak_tls_api;
+
+/* What freak_tls.c needs from the core runtime. Not for user code. */
+bool freak_tls_bridge_socket(int64_t tcp_handle, uintptr_t *native_socket);
+const unsigned char *freak_tls_bridge_bytes(int64_t buffer, size_t *length);
+bool freak_tls_bridge_append(int64_t buffer, const unsigned char *data, size_t length);
+unsigned char *freak_tls_bridge_reserve(int64_t buffer, size_t count);
+void freak_tls_bridge_commit(int64_t buffer, size_t count);
+void freak_tls_bridge_random(unsigned char *out, size_t length);
+
+int64_t freak_tls_client_config_new(int64_t alpn, int64_t verify_mode, int64_t ca_pem);
+int64_t freak_tls_server_config_new(int64_t cert_pem, int64_t key_pem, int64_t alpn);
+void    freak_tls_config_release(int64_t config);
+int64_t freak_tls_client_new(int64_t config, int64_t tcp, int64_t host);
+int64_t freak_tls_server_new(int64_t config, int64_t tcp);
+void    freak_tls_set_nonblocking(int64_t session, int64_t on);
+int64_t freak_tls_handshake(int64_t session);
+int64_t freak_tls_send(int64_t session, int64_t data, int64_t offset, int64_t count);
+int64_t freak_tls_flush(int64_t session);
+int64_t freak_tls_receive(int64_t session, int64_t out, int64_t max_bytes);
+int64_t freak_tls_pending(int64_t session);
+int64_t freak_tls_close_notify(int64_t session);
+void    freak_tls_release(int64_t session);
+int64_t freak_tls_status(int64_t session);
+int64_t freak_tls_verified(int64_t session);
+int64_t freak_tls_info(int64_t session, int64_t what, int64_t out);
+int64_t freak_tls_last_error(int64_t out);
+int64_t freak_tls_closed_cleanly(int64_t session);
+int64_t freak_tls_live_sessions(void);
+
+/* ------------------------------------------------------------------ */
 /*  Closures                                                          */
 /* ------------------------------------------------------------------ */
 
