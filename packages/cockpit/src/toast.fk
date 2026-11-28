@@ -27,6 +27,7 @@ use self::state::{
     cockpit_clip_push,
     cockpit_ui_click_x,
     cockpit_ui_click_y,
+    cockpit_ui_clock_ms,
     cockpit_ui_consume_click,
     cockpit_ui_mouse_clicked_value
 }
@@ -93,7 +94,7 @@ task cockpit_toast_timed(text: word, kind: int, duration_ms: int) -> void {
     pilot slot = 0 - 1
     pilot oldest = 0
     pilot index = 0
-    pilot now = time::now_ms()
+    pilot now = cockpit_ui_clock_ms
     repeat cockpit_toast_slots times {
         -- Empty slots, and toasts that expired since the last draw, are free.
         pilot free = cockpit_values_get_int(cockpit_toast_meta, index * 4) < 0 or now - cockpit_values_get_int(cockpit_toast_meta, index * 4 + 1) >= cockpit_values_get_int(cockpit_toast_meta, index * 4 + 2)
@@ -169,7 +170,7 @@ task cockpit_toast_next(after: int) -> int {
 task cockpit_toasts_draw(window: int) -> void {
     if cockpit_toast_meta == 0 or cockpit_toast_theme == 0 { give back }
     pilot theme = cockpit_toast_theme
-    pilot now = time::now_ms()
+    pilot now = cockpit_ui_clock_ms
     pilot index = 0
     repeat cockpit_toast_slots times {
         pilot age = now - cockpit_values_get_int(cockpit_toast_meta, index * 4 + 1)

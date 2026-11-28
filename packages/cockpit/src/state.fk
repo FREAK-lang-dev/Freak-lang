@@ -85,6 +85,9 @@ pilot cockpit_ui_last_input_widget = -1
 pilot cockpit_ui_memory = 0
 pilot cockpit_ui_delta_ms_value = 16
 pilot cockpit_ui_frame_ms = 0
+-- cockpit's own clock: the sum of every frame's delta. Toasts and the caret
+-- blink follow it, so a flight sim run animates the same way every time.
+pilot cockpit_ui_clock_ms = 0
 
 
 pilot cockpit_popup_items = 0
@@ -188,6 +191,7 @@ task cockpit_ui_reset() -> void {
     cockpit_ui_memory = array_new()
     repeat 576 times { array_push(cockpit_ui_memory, "-1") }
     cockpit_ui_frame_ms = 0
+    cockpit_ui_clock_ms = 0
     cockpit_ui_delta_ms_value = 16
     cockpit_ui_caret = 0 - 1
     cockpit_ui_input_scroll = 0
@@ -209,6 +213,7 @@ task cockpit_ui_reset() -> void {
 task cockpit_ui_begin_events() -> void {
     cockpit_ui_resolve_tabs()
     pilot carried = cockpit_ui_carry_edits()
+    cockpit_ui_clock_ms += cockpit_ui_delta_ms_value
     cockpit_ui_frame_last_focusable = cockpit_ui_last_focusable
     cockpit_ui_last_focusable = 0 - 1
     cockpit_ui_submit_widget = 0 - 1
@@ -641,7 +646,7 @@ task cockpit_ui_edit_input(text: word, widget_id: int, x: int, y: int, width: in
     if focused {
         cockpit_ui_focused_input = widget_id
         cockpit_ui_caret = caret
-        if edited { cockpit_ui_caret_epoch = time::now_ms() }
+        if edited { cockpit_ui_caret_epoch = cockpit_ui_clock_ms }
         pilot shown = next_text.substring(0, caret)
         if password { shown = cockpit_text_mask(shown) }
         pilot caret_px = cockpit_bb_measure(shown, font_size, false)
