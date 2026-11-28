@@ -81,6 +81,13 @@ pilot v4_codegen_llvm_fragment_error = ""
 -- This transient mode is used only while sealing a fresh checked MIR plan.
 -- Module readers consume sealed text and never revisit this mutable context.
 pilot v4_codegen_llvm_active_owned_mir = 0 - 1
+-- Per-request owned dyn memos: whether a type holds a dyn box (type text
+-- to "1"/"0") and whether the module uses owned dyn at all (-1 unknown).
+-- Every value's type is asked, so each distinct type is walked once.
+pilot v4_codegen_llvm_dyn_memo_ready: bool = false
+pilot v4_codegen_llvm_dyn_memo_types = 0 - 1
+pilot v4_codegen_llvm_dyn_memo_answers = 0 - 1
+pilot v4_codegen_llvm_dyn_uses_memo = 0 - 1
 pilot v4_codegen_llvm_supplied_borrow = 0 - 1
 pilot v4_codegen_llvm_active_word_borrow = 0 - 1
 pilot v4_codegen_llvm_native_errors = 0
@@ -5448,6 +5455,7 @@ task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bo
     }
     v4_codegen_llvm_active_owned_mir = 0 - 1
     v4_codegen_llvm_active_word_borrow = 0 - 1
+    v4_codegen_llvm_dyn_memo_reset()
     -- MIR IDs can be reused on restore, so shape memos start fresh per request.
     v4_codegen_llvm_shape_ok_mir = 0 - 1
     v4_codegen_llvm_route_instances = "\n"
@@ -8681,6 +8689,37 @@ task v4_codegen_llvm_is_owned_dyn(mir_id: int, type_text: word) -> bool {
 -- surface is answered from its type text.
 task v4_codegen_llvm_type_holds_dyn(mir_id: int, type_text: word, depth: int) -> bool {
     if depth > 32 or type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lend_type(type_text) { give back false }
+    if depth > 0 or mir_id < 0 or v4_codegen_llvm_active_owned_mir != mir_id { give back v4_codegen_llvm_type_holds_dyn_walk(mir_id, type_text, depth) }
+    if not v4_codegen_llvm_dyn_memo_ready {
+        v4_codegen_llvm_dyn_memo_types = array_new()
+        v4_codegen_llvm_dyn_memo_answers = array_new()
+        v4_codegen_llvm_dyn_memo_ready = true
+    }
+    pilot memo_id = 0
+    repeat until memo_id >= array_len(v4_codegen_llvm_dyn_memo_types) {
+        pilot memo_type: word = array_get(v4_codegen_llvm_dyn_memo_types, memo_id)
+        if memo_type == type_text {
+            pilot memo_answer: word = array_get(v4_codegen_llvm_dyn_memo_answers, memo_id)
+            give back memo_answer == "1"
+        }
+        memo_id += 1
+    }
+    pilot holds = v4_codegen_llvm_type_holds_dyn_walk(mir_id, type_text, 0)
+    array_push(v4_codegen_llvm_dyn_memo_types, type_text)
+    if holds { array_push(v4_codegen_llvm_dyn_memo_answers, "1") } else { array_push(v4_codegen_llvm_dyn_memo_answers, "0") }
+    give back holds
+}
+
+task v4_codegen_llvm_dyn_memo_reset() -> void {
+    if v4_codegen_llvm_dyn_memo_ready {
+        array_release(v4_codegen_llvm_dyn_memo_types)
+        array_release(v4_codegen_llvm_dyn_memo_answers)
+    }
+    v4_codegen_llvm_dyn_memo_ready = false
+    v4_codegen_llvm_dyn_uses_memo = 0 - 1
+}
+
+task v4_codegen_llvm_type_holds_dyn_walk(mir_id: int, type_text: word, depth: int) -> bool {
     if v4_codegen_llvm_is_owned_dyn(mir_id, type_text) { give back true }
     if v4_codegen_llvm_is_list(mir_id, type_text) { give back v4_codegen_llvm_type_holds_dyn(mir_id, v4_codegen_llvm_list_element(mir_id, type_text), depth + 1) }
     pilot kind = v4_codegen_llvm_aggregate_kind(mir_id, type_text)
@@ -8749,6 +8788,14 @@ task v4_codegen_llvm_collect_dyn_lines(parts: int, mir_id: int, body_id: int, rv
 -- box helpers.
 task v4_codegen_llvm_mir_uses_owned_dyn(mir_id: int) -> bool {
     if v4_codegen_llvm_active_owned_mir != mir_id { give back false }
+    if v4_codegen_llvm_dyn_uses_memo < 0 {
+        v4_codegen_llvm_dyn_uses_memo = 0
+        if v4_codegen_llvm_mir_uses_owned_dyn_scan(mir_id) { v4_codegen_llvm_dyn_uses_memo = 1 }
+    }
+    give back v4_codegen_llvm_dyn_uses_memo == 1
+}
+
+task v4_codegen_llvm_mir_uses_owned_dyn_scan(mir_id: int) -> bool {
     pilot body = v4_codegen_llvm_next_emitted_body(mir_id, 0)
     repeat until body >= v4_mir_body_count(mir_id) {
         if v4_codegen_llvm_type_holds_dyn(mir_id, v4_mir_body_callable_return_type(mir_id, body), 0) { give back true }
@@ -8857,8 +8904,11 @@ task v4_codegen_llvm_dyn_surface_error(mir_id: int, type_text: word) -> word {
 
 -- A `lend w: dyn D` / `lend mut w: dyn D` parameter of a FREAK task.
 task v4_codegen_llvm_local_is_dyn_param(mir_id: int, body_id: int, local_id: int) -> bool {
-    if v4_codegen_llvm_active_owned_mir != mir_id or local_id < 0 or local_id >= v4_mir_body_callable_param_count(mir_id, body_id) { give back false }
-    if v4_mir_body_callable_abi(mir_id, body_id) != "" or not v4_ty_is_dyn_type(v4_mir_local_ty(mir_id, body_id, local_id)) { give back false }
+    -- The local's own type first: every local is asked, and only dyn ones
+    -- need the signature's parameter count.
+    if v4_codegen_llvm_active_owned_mir != mir_id or local_id < 0 or local_id >= v4_mir_body_local_count(mir_id, body_id) { give back false }
+    if not v4_ty_is_dyn_type(v4_mir_local_ty(mir_id, body_id, local_id)) { give back false }
+    if local_id >= v4_mir_body_callable_param_count(mir_id, body_id) or v4_mir_body_callable_abi(mir_id, body_id) != "" { give back false }
     pilot mode = v4_mir_body_callable_param_mode(mir_id, body_id, local_id)
     give back (mode == v4_ty_param_mode_lend or mode == v4_ty_param_mode_lend_mut) and v4_mir_local_mode(mir_id, body_id, local_id) == mode
 }
