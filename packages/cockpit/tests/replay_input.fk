@@ -59,6 +59,12 @@ task hold_key(key: int, down: bool) -> void {
     cockpit_ui_feed_event(2, key, 0, 0, pressed, 0, 0, 0)
 }
 
+task back_tab() -> void {
+    hold_key(cockpit_key_shift, true)
+    press_key(cockpit_key_tab)
+    hold_key(cockpit_key_shift, false)
+}
+
 task type_char(character: int) -> void {
     cockpit_ui_feed_event(3, 0, character, 0, 0, 0, 0, 0)
 }
@@ -261,6 +267,55 @@ task replay_focus_keys(window: int, layout: ByteBuffer, theme: int) -> void {
     right = cockpit_widget_input(window, layout, theme, right, 180)
     check_text(left, "Lx", "nothing replays twice")
     check_text(right, "Ry", "nothing replays twice (clicked field)")
+
+    -- Two jumps back with a click between them: both carried runs replay.
+    left = "L"
+    right = "R"
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    back_tab()
+    type_char(120)
+    click_at(20, 40)
+    type_char(121)
+    back_tab()
+    type_char(122)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "L", "two jumps: the earlier field waits")
+    check_text(right, "Ry", "two jumps: the clicked field types now")
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lxz", "two jumps: both runs reach the earlier field")
+    check_text(right, "Ry", "two jumps: the clicked field plays once")
+    if cockpit_ui_focused_input != 0 { cockpit_fail("two jumps: focus ends on the earlier field") }
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lxz", "two jumps: nothing replays twice")
+
+    -- A jump back, a click, then a Tab that wraps: each run keeps its target.
+    left = "L"
+    right = "R"
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    back_tab()
+    type_char(120)
+    click_at(20, 40)
+    type_char(121)
+    press_key(cockpit_key_tab)
+    type_char(119)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lxw", "jump then wrap: both runs reach the first field")
+    check_text(right, "Ry", "jump then wrap: the clicked field plays once")
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lxw", "jump then wrap: nothing replays twice")
     say "PASS focus keys"
 }
 
