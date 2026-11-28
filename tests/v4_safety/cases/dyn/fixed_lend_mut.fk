@@ -1,0 +1,31 @@
+-- A fixed pilot dyn value cannot grant the exclusive loan a lend mut self needs.
+-- bible: 4.1
+-- expect: reject borrowck
+-- error: fixed pilot cannot be modified
+
+doctrine Unit {
+    task power(lend self) -> int
+    task train(lend mut self, by: int) -> void
+    task spend(self) -> int
+}
+shape Pilot { name: word, power: int }
+impl Unit for Pilot {
+    task power(lend self) -> int { give back self.power }
+    task train(lend mut self, by: int) -> void { self.power = self.power + by }
+    task spend(self) -> int { give back self.power }
+}
+impl Unit for int {
+    task power(lend self) -> int { give back self }
+    task train(lend mut self, by: int) -> void { self = self + by }
+    task spend(self) -> int { give back self }
+}
+task make(k: int) -> dyn Unit {
+    if k > 0 { give back Pilot { name: "P" + word_from_int(k), power: k } }
+    give back k
+}
+task consume(u: dyn Unit) -> int { give back u.spend() }
+task main() -> int {
+    fixed pilot a: dyn Unit = make(2)
+    a.train(1)
+    give back a.power()
+}

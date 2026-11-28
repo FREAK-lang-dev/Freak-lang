@@ -1,0 +1,35 @@
+-- A lend-bearing value cannot hide inside the box of an owned dyn field:
+-- the erasure is checked on the concrete operand, not the box's type.
+-- bible: 4.1
+-- expect: reject mir
+-- error: dyn doctrine erasure cannot hide stored lends
+
+shape Ship {
+    hp: int
+}
+
+shape View<'a> {
+    view: lend 'a Ship
+}
+
+doctrine Widget {
+    task draw(self) -> int
+}
+
+impl Widget for View<'a> {
+    task draw(self) -> int {
+        give back self.view.hp
+    }
+}
+
+shape Holder {
+    item: dyn Widget
+}
+
+task main() -> int {
+    pilot first = Ship { hp: 1 }
+    pilot view = View<'_> { view: lend first }
+    pilot boxed = Holder { item: view }
+    first.hp = 8
+    give back boxed.item.draw()
+}

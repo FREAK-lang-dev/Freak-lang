@@ -4068,8 +4068,15 @@ task v4_borrowck_dyn_erasure_source_ty(mir_id: int, body_id: int, rvalue_id: int
     give back source_ty
 }
 
-task v4_borrowck_report_dyn_lend_erasure(borrow_id: int, result_id: int, mir_id: int, body_id: int, target_ty: word, rvalue_id: int, span: word) -> int {
-    if rvalue_id < 0 or not v4_ty_is_dyn_type(target_ty) { give back 0 }
+task v4_borrowck_report_dyn_lend_erasure(borrow_id: int, result_id: int, mir_id: int, body_id: int, target_ty: word, erased_rvalue: int, span: word) -> int {
+    if erased_rvalue < 0 or not v4_ty_is_dyn_type(target_ty) { give back 0 }
+    -- An owned erasure is a DynBox: judge the concrete operand going into
+    -- the box, so a lend-bearing value cannot hide behind the box's type.
+    pilot rvalue_id = erased_rvalue
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_dyn_box {
+        rvalue_id = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        if rvalue_id < 0 { give back 0 }
+    }
     pilot source_ty = v4_borrowck_dyn_erasure_source_ty(mir_id, body_id, rvalue_id)
     if v4_ty_is_dyn_type(source_ty) { give back 0 }
     if not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), source_ty) and not v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, rvalue_id) { give back 0 }
@@ -8894,7 +8901,13 @@ pilot v4_borrowck_word_plan_resource_failed: bool = false
 -- local moves as one value; a field read of it is never counted as a move
 -- of the local (native lowering refuses those partial moves by name).
 task v4_borrowck_type_is_owned_storage(mir_id: int, type_text: word) -> bool {
-    give back v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), type_text) or v4_borrowck_type_is_heap_collection(mir_id, type_text) or v4_borrowck_type_is_shared_handle(mir_id, type_text) or v4_borrowck_aggregate_holds_word(mir_id, type_text, 0)
+    give back v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), type_text) or v4_borrowck_type_is_heap_collection(mir_id, type_text) or v4_borrowck_type_is_shared_handle(mir_id, type_text) or v4_borrowck_type_is_owned_dyn(type_text) or v4_borrowck_aggregate_holds_word(mir_id, type_text, 0)
+}
+
+-- An owned `dyn D` owns its erased box (tier 3, owned dyn row): its drop
+-- runs the vtable's drop entry and frees the box. A loan of one does not.
+task v4_borrowck_type_is_owned_dyn(type_text: word) -> bool {
+    give back type_text != "" and type_text != v4_ty_unknown and v4_ty_is_dyn_type(type_text)
 }
 
 -- A prelude Shared<T>, Weak<T> or SharedMut<T> handle owns one reference to
@@ -8920,7 +8933,7 @@ task v4_borrowck_aggregate_holds_word(mir_id: int, type_text: word, depth: int) 
     pilot ty_id = v4_mir_ty_id(mir_id)
     if depth > 32 or type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lend_type(type_text) { give back false }
     if v4_ty_canonical_type(ty_id, type_text) == v4_ty_word { give back depth > 0 }
-    if depth > 0 and v4_borrowck_type_is_heap_collection(mir_id, type_text) { give back true }
+    if depth > 0 and (v4_borrowck_type_is_heap_collection(mir_id, type_text) or v4_borrowck_type_is_owned_dyn(type_text)) { give back true }
     if v4_ty_is_fixed_array_type(type_text) { give back v4_borrowck_aggregate_holds_word(mir_id, v4_ty_fixed_array_element_type(type_text), depth + 1) }
     if v4_ty_is_tuple_type(type_text) {
         pilot slot = 0

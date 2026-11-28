@@ -45,6 +45,10 @@ EXPECTED = {
     "shared_native.fk": ("Takemikazuchi\n3\ntrue\nfalse\ntrue\nTakemikazuchi\n108\ntrue\nShiranui\n108\n108\nfalse\n216\n"
                          "Shiranui\n108\nfalse\nGekishin\n9\nfalse\n4\nfalse\n1\nShiranui\n108\nShiranui\n108\n7\nKasumi\n5\nShiranui\n108\n"),
     "raw_alloc_native.fk": "8\n1\n16\n8\n3\n16\n8\ntrue\nfalse\n285\n0\n7\n7\n5\ntrue\n42\n0\nfalse\nfalse\ndone\n",
+    "dyn_owned_native.fk": ("pilot Takeru\npilot Takeru\ncount 6\npilot Cadet9\npilot Cadet30\npilot Cadet3\ncount 0\n"
+                            "pilot Cadet6\n3\npilot Cadet2\nfarewell Cadet8\ntally #9\nsquad of count 0\nmedal #5\n"
+                            "pilot Cadet12\n110\n"),
+    "drops_temporaries_native.fk": "40\n6\n50\n9\n3\n",
     "word_interpolation.fk": "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n",
     "c_words_native.fk": ("count_l=3\ngreeting=hello world\nlengths=11006\nscalars=5\nlead_bytes=1\nbyte_3=195\nnul_len=3\n"
                           "nul_count=1\nsame_storage=yes\ncopy_storage=no\ncopy_bytes=yes\nother_bytes=no\nempty_len=11\n"

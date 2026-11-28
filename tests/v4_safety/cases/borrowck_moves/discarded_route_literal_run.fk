@@ -1,0 +1,22 @@
+-- A discarded route that owns words is released, whether it is a literal,
+-- a moved local or a call result.
+-- bible: 4.1
+-- expect: run
+-- stdout: 1
+
+route Msg {
+    Text { body: word }
+    Quit
+}
+
+task note() -> Msg { give back Msg::Text { body: "n" + "o" } }
+
+task main() -> int {
+    Msg::Text { body: "x" + "y" }
+    pilot m = Msg::Text { body: "z" + "w" }
+    m
+    note()
+    Msg::Quit
+    say 1
+    give back 0
+}

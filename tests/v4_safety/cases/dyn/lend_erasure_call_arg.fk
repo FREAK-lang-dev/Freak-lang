@@ -1,0 +1,32 @@
+-- A lend-bearing value cannot be boxed into an owned dyn parameter.
+-- bible: 4.1
+-- expect: reject mir
+-- error: dyn doctrine erasure cannot hide stored lends
+
+shape Ship {
+    hp: int
+}
+
+shape View<'a> {
+    view: lend 'a Ship
+}
+
+doctrine Widget {
+    task draw(self) -> int
+}
+
+impl Widget for View<'a> {
+    task draw(self) -> int {
+        give back self.view.hp
+    }
+}
+
+task accept(widget: dyn Widget) -> int {
+    give back widget.draw()
+}
+
+task main() -> int {
+    pilot first = Ship { hp: 1 }
+    pilot view = View<'_> { view: lend first }
+    give back accept(view)
+}

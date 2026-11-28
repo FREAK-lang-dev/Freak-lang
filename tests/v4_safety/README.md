@@ -36,6 +36,7 @@ case, there is no crate prepending as in the `src/compiler/v4/tests` smokes.
 | `unsafe` | `trust me` gating of raw-pointer read/write/deref/offset/cast, honor levels, `*const` writes, closures |
 | `ffi` | FFI-safe extern parameter/return types, `@layout(C)`, `@repr`, unwinder imports, `@extern_callback`, callback types, `lend word` extern parameters (bytes and length, loans, refused word forms) |
 | `shared` | `Shared<T>`/`Weak<T>`/`SharedMut<T>` surface rules |
+| `dyn` | owned and boxed `dyn D` values: boxing, moves and by-value `self`, drops under flags and in slots, `List<dyn D>`, `lend dyn D` locals, and the surfaces still fenced by name |
 | `types` | Yuuko: infinite shapes/variants, alias nominality and cycles, constant cycles, basic mismatches |
 | `diagnostics` | message wording, spans, help text and error counts |
 

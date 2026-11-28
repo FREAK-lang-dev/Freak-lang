@@ -1,0 +1,35 @@
+-- A discarded partial move of a route or dyn field is released once from
+-- its discard slot, and the rest of the owner still drops at scope end.
+-- bible: 4.1
+-- expect: run
+-- stdout: 3
+-- stdout: 4
+
+route Msg {
+    Text { body: word }
+    Quit
+}
+
+shape Box2 { m: Msg, n: int }
+
+doctrine Unit {
+    task power(lend self) -> int
+}
+
+shape Pilot { name: word }
+
+impl Unit for Pilot {
+    task power(lend self) -> int { give back self.name.length() }
+}
+
+shape Holder { u: dyn Unit, k: int }
+
+task main() -> int {
+    pilot b = Box2 { m: Msg::Text { body: "a" + "b" }, n: 3 }
+    b.m
+    say b.n
+    pilot h = Holder { u: Pilot { name: "x" + "y" }, k: 4 }
+    h.u
+    say h.k
+    give back 0
+}
