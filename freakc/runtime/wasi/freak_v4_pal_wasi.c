@@ -608,35 +608,162 @@ long long strtoll(const char *s, char **end, int base) {
 
 long long atoll(const char *s) { return strtoll(s, NULL, 10); }
 
-/* Decimal-only strtod for the bootstrap word_to_num path. Strict V4 code
-   parses numbers itself; this keeps the symbol defined and close to libc. */
+/* strtod for the bootstrap word_to_num path, correctly rounded like glibc:
+   the decimal digits become an exact ratio of big integers N / D, 64
+   quotient bits plus a sticky remainder come from binary long division, and
+   one round-half-even step (at the subnormal position when needed) gives the
+   double. Up to 800 significant digits are kept; a dropped nonzero tail
+   becomes a final sticky digit, which cannot change a decision that 800
+   digits leave open. Decimal, inf/infinity and nan are accepted; hex floats
+   are not (they read as their leading 0). */
+#define FREAK_PAL_SLIMBS 192
+typedef struct { uint32_t limb[FREAK_PAL_SLIMBS]; int used; } freak_pal_sbig;
+
+static void freak_pal_sbig_mul_add(freak_pal_sbig *b, uint32_t factor, uint32_t add) {
+    uint64_t carry = add;
+    for (int i = 0; i < b->used; i++) {
+        uint64_t v = (uint64_t)b->limb[i] * factor + carry;
+        b->limb[i] = (uint32_t)v;
+        carry = v >> 32;
+    }
+    if (carry && b->used < FREAK_PAL_SLIMBS) b->limb[b->used++] = (uint32_t)carry;
+}
+
+static int freak_pal_sbig_bits(const freak_pal_sbig *b) {
+    if (b->used == 0) return 0;
+    return (b->used - 1) * 32 + (32 - __builtin_clz(b->limb[b->used - 1]));
+}
+
+static void freak_pal_sbig_shl(freak_pal_sbig *b, int bits) {
+    if (b->used == 0 || bits <= 0) return;
+    int words = bits / 32, rest = bits % 32;
+    int used = b->used + words + 1;
+    if (used > FREAK_PAL_SLIMBS) used = FREAK_PAL_SLIMBS;
+    for (int i = used - 1; i >= 0; i--) {
+        int src = i - words;
+        uint32_t hi = src >= 0 && src < b->used ? b->limb[src] : 0;
+        uint32_t lo = src - 1 >= 0 && src - 1 < b->used ? b->limb[src - 1] : 0;
+        b->limb[i] = rest ? (hi << rest) | (lo >> (32 - rest)) : hi;
+    }
+    b->used = used;
+    while (b->used > 0 && b->limb[b->used - 1] == 0) b->used--;
+}
+
+static int freak_pal_sbig_cmp(const freak_pal_sbig *a, const freak_pal_sbig *b) {
+    if (a->used != b->used) return a->used < b->used ? -1 : 1;
+    for (int i = a->used - 1; i >= 0; i--)
+        if (a->limb[i] != b->limb[i]) return a->limb[i] < b->limb[i] ? -1 : 1;
+    return 0;
+}
+
+static void freak_pal_sbig_sub(freak_pal_sbig *a, const freak_pal_sbig *b) {
+    int64_t borrow = 0;
+    for (int i = 0; i < a->used; i++) {
+        int64_t v = (int64_t)a->limb[i] - (i < b->used ? b->limb[i] : 0) - borrow;
+        borrow = v < 0;
+        a->limb[i] = (uint32_t)(v + (borrow << 32));
+    }
+    while (a->used > 0 && a->limb[a->used - 1] == 0) a->used--;
+}
+
+static double freak_pal_from_bits(uint64_t bits) {
+    double d;
+    memcpy(&d, &bits, sizeof d);
+    return d;
+}
+
+static bool freak_pal_word_at(const char *p, const char *word) {
+    for (; *word; p++, word++)
+        if ((*p | 0x20) != *word) return false;
+    return true;
+}
+
 double strtod(const char *s, char **end) {
     const char *p = s;
-    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || *p == '\f' || *p == '\v') p++;
     bool negative = false;
     if (*p == '-' || *p == '+') negative = *p++ == '-';
-    double value = 0;
-    bool any = false;
-    while (*p >= '0' && *p <= '9') { value = value * 10 + (*p++ - '0'); any = true; }
-    if (*p == '.') {
-        p++;
-        double scale = 0.1;
-        while (*p >= '0' && *p <= '9') { value += (*p++ - '0') * scale; scale /= 10; any = true; }
+    uint64_t sign = negative ? 1ull << 63 : 0;
+    if (freak_pal_word_at(p, "inf")) {
+        p += freak_pal_word_at(p, "infinity") ? 8 : 3;
+        if (end) *end = (char *)p;
+        return freak_pal_from_bits(sign | 0x7ff0000000000000ull);
     }
-    if (any && (*p == 'e' || *p == 'E')) {
+    if (freak_pal_word_at(p, "nan")) {
+        if (end) *end = (char *)p + 3;
+        return freak_pal_from_bits(sign | 0x7ff8000000000000ull);
+    }
+    static freak_pal_sbig num, den;
+    num.used = 0;
+    int kept = 0, scale = 0;
+    bool any = false, dropped = false;
+    for (bool fraction = false;; p++) {
+        if (*p == '.' && !fraction) { fraction = true; continue; }
+        if (*p < '0' || *p > '9') break;
+        any = true;
+        int digit = *p - '0';
+        if (kept == 0 && digit == 0) { if (fraction) scale--; continue; }
+        if (kept < 800) {
+            freak_pal_sbig_mul_add(&num, 10, (uint32_t)digit);
+            kept++;
+            if (fraction) scale--;
+        } else {
+            if (digit) dropped = true;
+            if (!fraction) scale++;
+        }
+    }
+    if (!any) { if (end) *end = (char *)s; return negative ? -0.0 : 0.0; }
+    if (*p == 'e' || *p == 'E') {
         const char *mark = p++;
         bool minus = false;
         if (*p == '-' || *p == '+') minus = *p++ == '-';
         if (*p >= '0' && *p <= '9') {
             int e = 0;
-            while (*p >= '0' && *p <= '9') { if (e < 4000) e = e * 10 + (*p - '0'); p++; }
-            while (e--) value = minus ? value / 10 : value * 10;
+            while (*p >= '0' && *p <= '9') { if (e < 100000) e = e * 10 + (*p - '0'); p++; }
+            scale += minus ? -e : e;
         } else {
             p = mark;
         }
     }
-    if (end) *end = (char *)(any ? p : s);
-    return negative ? -value : value;
+    if (end) *end = (char *)p;
+    if (dropped) { freak_pal_sbig_mul_add(&num, 10, 1); scale--; }
+    if (num.used == 0) return freak_pal_from_bits(sign);
+    int magnitude = kept + (dropped ? 1 : 0) + scale; /* value < 10^magnitude */
+    if (magnitude > 310) { freak_pal_errno = 68; return freak_pal_from_bits(sign | 0x7ff0000000000000ull); }
+    if (magnitude < -330) { freak_pal_errno = 68; return freak_pal_from_bits(sign); }
+    den.limb[0] = 1;
+    den.used = 1;
+    for (int i = 0; i < scale; i++) freak_pal_sbig_mul_add(&num, 10, 0);
+    for (int i = 0; i < -scale; i++) freak_pal_sbig_mul_add(&den, 10, 0);
+    /* Align so den <= num < 2 * den; then value = (num / den) * 2^exp2. */
+    int exp2 = freak_pal_sbig_bits(&num) - freak_pal_sbig_bits(&den);
+    if (exp2 > 0) freak_pal_sbig_shl(&den, exp2); else freak_pal_sbig_shl(&num, -exp2);
+    if (freak_pal_sbig_cmp(&num, &den) < 0) { freak_pal_sbig_shl(&num, 1); exp2--; }
+    uint64_t q = 0;
+    for (int i = 0; i < 64; i++) {
+        q <<= 1;
+        if (freak_pal_sbig_cmp(&num, &den) >= 0) { freak_pal_sbig_sub(&num, &den); q |= 1; }
+        freak_pal_sbig_shl(&num, 1);
+    }
+    bool sticky = num.used != 0;
+    /* q has its top bit set: value = q * 2^(exp2 - 63). Keep 53 bits, fewer
+       below the normal range (biased exponent 1 is 2^-1022). */
+    int keep = 53;
+    if (exp2 < -1022) keep = 53 - (-1022 - exp2);
+    if (keep < 0) { freak_pal_errno = 68; return freak_pal_from_bits(sign); }
+    int drop = 64 - keep;
+    uint64_t mant = drop >= 64 ? 0 : q >> drop;
+    uint64_t rest = drop >= 64 ? q : q & ((1ull << drop) - 1);
+    uint64_t half = 1ull << (drop - 1);
+    if (rest > half || (rest == half && (sticky || (mant & 1)))) mant++;
+    if (keep == 53) {
+        if (mant >> 53) { mant >>= 1; exp2++; }
+        if (exp2 > 1023) { freak_pal_errno = 68; return freak_pal_from_bits(sign | 0x7ff0000000000000ull); }
+        return freak_pal_from_bits(sign | ((uint64_t)(exp2 + 1023) << 52) | (mant & ((1ull << 52) - 1)));
+    }
+    /* Subnormal (a carry into bit 52 is exactly the smallest normal). */
+    if (mant == 0) freak_pal_errno = 68;
+    return freak_pal_from_bits(sign | mant);
 }
 
 char *getenv(const char *name) {

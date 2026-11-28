@@ -1,6 +1,6 @@
 /* FREAK V4 wasm glue: the few V3-runtime entry points native V4 code calls
  * that are host-specific in freak_runtime.c (console setup, argument capture,
- * say). The owned-word registry, freak_word_to_int, the byte-word table and
+ * say). The owned-word registry, freak_word_to_int/_to_num, the byte-word table and
  * the Shared<T> boxes are not copied here: src/compiler/v4/wasm_target.py
  * extracts them from freak_runtime.c and freak_llvm_runtime.c into one
  * translation unit that starts by including this file, so both targets

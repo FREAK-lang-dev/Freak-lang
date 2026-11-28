@@ -4,7 +4,7 @@ A wasm module links the V4 core runtime (the same C files the native link
 uses, minus the V3 monolith), FREAK's own WASI preview 1 platform layer
 (freakc/runtime/wasi) and one generated translation unit holding the parts of
 the V3 runtime that V4 code still calls: the owned-word registry, the byte
-word table, freak_word_to_int and the Shared<T> boxes. Those parts are
+word table, freak_word_to_int, freak_word_to_num and the Shared<T> boxes. Those parts are
 extracted from freak_runtime.c / freak_llvm_runtime.c at build time rather
 than copied, so the two targets cannot drift; an extraction that no longer
 finds its anchors fails the build loudly.
@@ -54,6 +54,7 @@ PLATFORM_SOURCES = ("wasi/freak_v4_pal_wasi.c",)
 EXTRACTS = (
     ("freak_runtime.c", "static const char* freak_word_byte_literal(", "static const char* freak_word_byte_literal("),
     ("freak_runtime.c", "int64_t freak_word_to_int(freak_word w) {", "int64_t freak_word_to_int(freak_word w) {"),
+    ("freak_runtime.c", "double freak_word_to_num(freak_word w) {", "double freak_word_to_num(freak_word w) {"),
     ("freak_runtime.c", "typedef struct freak_llvm_owned_word {", "void freak_llvm_word_release_assigned("),
     ("freak_llvm_runtime.c", "/* ── V4 Shared<T> / Weak<T>", "void freak_v4_shared_end_write("),
 )

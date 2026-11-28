@@ -971,13 +971,14 @@ The module links the V4 core runtime with `freakc/runtime/wasi`, a
 freestanding platform layer over four WASI preview 1 imports (`fd_write`,
 `proc_exit`, `args_sizes_get`, `args_get`): a size-class allocator on linear
 memory, stdio with buffered stdout and a printf subset whose `%g` is exact
-(round-half-even on the binary value, like glibc), `exit`/`atexit`, and
+(round-half-even on the binary value, like glibc), a correctly rounded
+decimal `strtod` (for bootstrap `word_to_num`), `exit`/`atexit`, and
 argument setup from `_start`. No wasi-libc or sysroot is involved; the
 headers in `wasi/include` rename every libc function except the allocator
 and `mem*` to `freak_pal_*`, so a FREAK `task open` cannot replace the
 runtime's own file calls. Files are not wired to preopens yet: `fs::read`
 reports an error. The parts of the V3 runtime that V4 code still calls (the
-owned-word registry, byte words, `freak_word_to_int`, Shared boxes) are
+owned-word registry, byte words, `freak_word_to_int`, `freak_word_to_num`, Shared boxes) are
 extracted from `freak_runtime.c` and `freak_llvm_runtime.c` at build time by
 `wasm_target.py`, so they cannot drift from the native copies, and the
 native runtime inventory is untouched. Clang 18+ with `wasm-ld` (lld) is
@@ -986,7 +987,7 @@ signature disagrees with the runtime fails to link instead of trapping.
 
 `tests/v4_wasm_parity.py` (CI job "V4 wasm") builds every example natively
 and as wasm and requires the same exit status, stdout and stderr under Node,
-plus a generated number-formatting program; `indirect_calls` and
+plus generated number-formatting and `word_to_num` programs; `indirect_calls` and
 `literal_say` are pinned fences (ssize_t callbacks, runtime helpers declared
 as `c_isize`), and two compile-only programs pin the function pointer fence. The layout and ABI oracles ask Clang about wasm32 on every
 host whose Clang has the WebAssembly backend (all but Apple's).

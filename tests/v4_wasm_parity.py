@@ -4,7 +4,8 @@ native program and as a wasm32-unknown-wasip1 module run under Node's WASI.
 For each src/compiler/v4/examples/*.fk with a native build, the lane builds
 the host binary and the .wasm with the same V4 compiler, runs both, and
 compares exit status, stdout and stderr byte for byte. A generated program
-adds number formatting edge cases (the platform layer's own %g). Examples the
+adds number formatting edge cases (the platform layer's own %g), and another
+parses numbers through word_to_num (its strtod). Examples the
 host cannot build are reported and skipped; an example that builds natively
 but not as wasm, or that behaves differently, fails the lane.
 
@@ -70,6 +71,60 @@ task main() -> int {
 """, "pointer-sized C integers in a C function pointer type are not yet supported on wasm32-unknown-wasip1: call_it"),
 }
 
+# word_to_num in bootstrap root mode: the extracted freak_word_to_num over
+# the platform layer's strtod must parse exactly like glibc (round-half-even
+# on the decimal value, subnormals, overflow, inf/nan, partial parses).
+WORD_TO_NUM_SOURCE = """task main() -> int {
+    say word_to_num("2.5") + 1.0
+    say word_to_num("0.1")
+    say word_to_num("123.456")
+    say word_to_num("  -7.25e3")
+    say word_to_num("1e23")
+    say word_to_num("9007199254740993")
+    say word_to_num("2.2250738585072011e-308")
+    say word_to_num("4.9406564584124654e-324")
+    say word_to_num("2.4703282292062327e-324")
+    say word_to_num("2.4703282292062328e-324")
+    say word_to_num("1.7976931348623157e308")
+    say word_to_num("1.7976931348623159e308")
+    say word_to_num("0.000000000000000000000000000001234567890123456789")
+    say word_to_num("123456789012345678901234567890")
+    say word_to_num("3.14159265358979323846264338327950288419716939937510582097494459")
+    say word_to_num("1e-400")
+    say word_to_num("12abc")
+    say word_to_num("1e")
+    say word_to_num(".5")
+    say word_to_num("abc")
+    say word_to_num("-0")
+    say word_to_num("inf")
+    say word_to_num("-Infinity")
+    -- Bit-exact: the compiler parses each literal with the host's strtod
+    -- (V4 literals have no exponent, so they are spelled out).
+    say word_to_num("0.1") == 0.1
+    say word_to_num("0.3") == 0.3
+    say word_to_num("2.675") == 2.675
+    say word_to_num("123.456") == 123.456
+    say word_to_num("1e23") == 100000000000000000000000.0
+    say word_to_num("8.98846567431158e307") == 89884656743115800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000.0
+    say word_to_num("9007199254740993") == 9007199254740993.0
+    say word_to_num("2.2250738585072011e-308") == 0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000022250738585072011
+    say word_to_num("2.2250738585072014e-308") == 0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000022250738585072014
+    say word_to_num("4.9406564584124654e-324") == 0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000049406564584124654
+    say word_to_num("1.7976931348623157e308") == 179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000.0
+    say word_to_num("1.23456789012345678e-200") == 0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000123456789012345678
+    say word_to_num("6.02214076e23") == 602214076000000000000000.0
+    say word_to_num("3.14159265358979323846264338327950288419716939937510582097494459") == 3.14159265358979323846264338327950288419716939937510582097494459
+    say word_to_num("1.234567890123456789e-30") == 0.000000000000000000000000000001234567890123456789
+    give back 0
+}
+"""
+
+# Generated programs, with the root mode each one is compiled in.
+GENERATED_SOURCES = {
+    "wasm_num_format": "strict",
+    "wasm_word_to_num": "bootstrap",
+}
+
 # Number formatting the platform layer must print exactly like glibc %g:
 # rounding ties, exponent switches, denormals, huge values and signed zero.
 NUM_FORMAT_SOURCE = """task main() -> int {
@@ -131,12 +186,15 @@ def node_command() -> list[str]:
 
 def build_case(compiler: Path, clang: str, source: Path, work: Path) -> dict:
     case = {"name": source.stem}
+    root_mode = GENERATED_SOURCES.get(source.stem, "strict")
     native_bin = work / (source.stem + (".exe" if sys.platform == "win32" else ".native"))
     try:
         native_ll = work / (source.stem + ".native.ll")
-        native_ll.write_text(build_v4.emit_module(compiler, source, build_v4.host_target()), encoding="utf-8")
+        native_ll.write_text(build_v4.emit_module(compiler, source, build_v4.host_target(), root_mode=root_mode), encoding="utf-8")
     except RuntimeError as exc:
-        case["skip"] = "no native build: " + str(exc).strip().splitlines()[-1][:160]
+        reason = "no native build: " + str(exc).strip().splitlines()[-1][:160]
+        # The lane's own programs must always build; only examples may skip.
+        case["fail" if source.stem in GENERATED_SOURCES else "skip"] = reason
         return case
     linked = run(build_v4.native_link_command(clang, native_ll, native_bin), timeout=180)
     if linked.returncode != 0:
@@ -145,7 +203,7 @@ def build_case(compiler: Path, clang: str, source: Path, work: Path) -> dict:
     started = time.monotonic()
     try:
         wasm_ll = work / (source.stem + ".wasm.ll")
-        wasm_ll.write_text(build_v4.emit_module(compiler, source, WASM), encoding="utf-8")
+        wasm_ll.write_text(build_v4.emit_module(compiler, source, WASM, root_mode=root_mode), encoding="utf-8")
         wasm_target.link(clang, wasm_ll, work / (source.stem + ".wasm"), check_v4.RUNTIME_BUILD_ROOT / "wasm_runtime")
     except RuntimeError as exc:
         reason = WASM_FENCED.get(source.stem)
@@ -230,9 +288,10 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="freak-v4-wasm-", dir=check_v4.RUNTIME_BUILD_ROOT) as temporary:
         work = Path(temporary)
         if not args.examples:
-            generated = work / "wasm_num_format.fk"
-            generated.write_text(NUM_FORMAT_SOURCE, encoding="utf-8")
-            sources.append(generated)
+            for name, text in (("wasm_num_format", NUM_FORMAT_SOURCE), ("wasm_word_to_num", WORD_TO_NUM_SOURCE)):
+                generated = work / (name + ".fk")
+                generated.write_text(text, encoding="utf-8")
+                sources.append(generated)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
             built = list(pool.map(lambda source: build_case(compiler, clang, source, work), sources))
             results = list(pool.map(lambda case: compare(case, node), built))
