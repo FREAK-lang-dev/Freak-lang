@@ -1004,8 +1004,9 @@ panic run) in `check_v4_native_shapes`, also audited by
 keep 8-byte alignment. FREAK's own types do not change: `int` stays `i64` and
 words stay `i64` handles, so the same Runtime MIR lowers to both widths. Two
 places meet C's `size_t` and get target-specific lowering on a 32-bit target:
-list helpers call `realloc` through `@freak.libc.realloc`, which answers null
-(the out-of-memory panic) for a request `size_t` cannot hold, and extern
+list helpers call `realloc` through `@freak.libc.realloc` and raw `alloc`
+calls `calloc` through `@freak.libc.calloc`, which answer null (the
+out-of-memory panic) for a request `size_t` cannot hold, and extern
 declarations that spell `c_size`, `c_isize`, `usize` or `isize` get the
 ordinary C-width shim with checked narrowing. Callbacks and variadic calls
 with those aliases, C function pointer types that spell them at any depth
@@ -1041,7 +1042,8 @@ signature disagrees with the runtime fails to link instead of trapping.
 and as wasm and requires the same exit status, stdout and stderr under Node,
 plus generated number-formatting and `word_to_num` programs; `indirect_calls` and
 `literal_say` are pinned fences (ssize_t callbacks, runtime helpers declared
-as `c_isize`), and four compile-only programs pin the function pointer, user alias and raw pointee fences. The layout and ABI oracles ask Clang about wasm32 on every
+as `c_isize`), and four compile-only programs pin the function pointer, user alias and raw pointee fences; a pinned output line covers the one
+right difference, `size_of` of a pointer in `raw_alloc_native`. The layout and ABI oracles ask Clang about wasm32 on every
 host whose Clang has the WebAssembly backend (all but Apple's).
 
 ### Persisted interpolation checkpoint (W3)

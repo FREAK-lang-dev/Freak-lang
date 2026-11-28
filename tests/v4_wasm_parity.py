@@ -45,6 +45,14 @@ WASM_FENCED = {
     "literal_say": "function signature mismatch: freak_llvm_process_args_count",
 }
 
+# Output lines that are right to differ: target facts such as pointer size.
+# Each entry is (0-based stdout line, native text, wasm32 text); the native
+# line must still read as pinned, so a moved line fails instead of hiding.
+WASM_TARGET_LINES = {
+    # say size_of<*mut Cell>(): 8 on the 64-bit host, 4 on wasm32.
+    "raw_alloc_native": [(6, b"8", b"4")],
+}
+
 # Programs that only need to compile: the host build must emit and the wasm
 # build must stop at the fence. They declare C functions nothing defines, so
 # they are never linked or run.
@@ -270,15 +278,23 @@ def compare(case: dict, node: list[str]) -> dict:
         return case
     native = run([str(case["native_bin"])])
     wasm = run([*node, str(case["wasm"])])
-    case["native"] = (native.returncode, native.stdout, native.stderr)
+    expected_stdout = native.stdout
+    for line, native_text, wasm_text in WASM_TARGET_LINES.get(case["name"], []):
+        lines = expected_stdout.split(b"\n")
+        if line >= len(lines) or lines[line] != native_text:
+            case["fail"] = f"pinned target line {line} moved: native stdout={native.stdout[:400]!r}"
+            return case
+        lines[line] = wasm_text
+        expected_stdout = b"\n".join(lines)
+    case["native"] = (native.returncode, expected_stdout, native.stderr)
     case["wasm_result"] = (wasm.returncode, wasm.stdout, wasm.stderr)
     case["bytes"] = case["wasm"].stat().st_size
     if case["native"] != case["wasm_result"]:
         diffs = []
         if native.returncode != wasm.returncode:
             diffs.append(f"exit native={native.returncode} wasm={wasm.returncode}")
-        if native.stdout != wasm.stdout:
-            diffs.append(f"stdout native={native.stdout[:400]!r} wasm={wasm.stdout[:400]!r}")
+        if expected_stdout != wasm.stdout:
+            diffs.append(f"stdout native={expected_stdout[:400]!r} wasm={wasm.stdout[:400]!r}")
         if native.stderr != wasm.stderr:
             diffs.append(f"stderr native={native.stderr[:400]!r} wasm={wasm.stderr[:400]!r}")
         case["fail"] = "; ".join(diffs)

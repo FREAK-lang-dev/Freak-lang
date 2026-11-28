@@ -7170,7 +7170,7 @@ task v4_codegen_llvm_raw_globals() -> word {
 -- allocates or frees raw memory may not declare or define those symbols.
 task v4_codegen_llvm_raw_symbol_error(codegen_id: int, alloc_used: bool) -> word {
     pilot reserved = ",@free,"
-    if alloc_used { reserved = ",@free,@calloc," }
+    if alloc_used { reserved = ",@free,@calloc,@freak.libc.calloc,@\"freak.libc.calloc\"," }
     pilot body = 0
     repeat until body >= v4_codegen_llvm_body_count(codegen_id) {
         pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body)
@@ -10558,16 +10558,32 @@ task v4_codegen_llvm_ptrsize_redirect(text: word, symbols: word) -> word {
 -- size never wraps into a small allocation.
 task v4_codegen_llvm_size_t_resolve(text: word, target_spec: word) -> word {
     pilot width = v4_target_spec_pointer_width(target_spec)
-    pilot decl = "declare ptr @realloc(ptr, i64)\n"
-    if width == 64 or not text.contains(decl) { give back text }
+    if width == 64 { give back text }
     pilot size_t = "i" + word_from_int(width)
     pilot limit = "4294967295"
-    pilot helper = "declare ptr @realloc(ptr, " + size_t + ")\n"
-    helper = helper + "define internal ptr @freak.libc.realloc(ptr %p, i64 %n) " + "{" + "\nentry:\n"
-    helper = helper + "  %big = icmp ugt i64 %n, " + limit + "\n  br i1 %big, label %none, label %ask\nnone:\n  ret ptr null\nask:\n"
-    helper = helper + "  %size = trunc i64 %n to " + size_t + "\n  %got = call ptr @realloc(ptr %p, " + size_t + " %size)\n  ret ptr %got\n" + "}" + "\n"
-    -- Calls first: the helper's own call must keep reaching libc.
-    give back v4_codegen_llvm_replace_all(v4_codegen_llvm_replace_all(text, "call ptr @realloc(ptr ", "call ptr @freak.libc.realloc(ptr "), decl, helper)
+    pilot out = text
+    pilot decl = "declare ptr @realloc(ptr, i64)\n"
+    if out.contains(decl) {
+        pilot helper = "declare ptr @realloc(ptr, " + size_t + ")\n"
+        helper = helper + "define internal ptr @freak.libc.realloc(ptr %p, i64 %n) " + "{" + "\nentry:\n"
+        helper = helper + "  %big = icmp ugt i64 %n, " + limit + "\n  br i1 %big, label %none, label %ask\nnone:\n  ret ptr null\nask:\n"
+        helper = helper + "  %size = trunc i64 %n to " + size_t + "\n  %got = call ptr @realloc(ptr %p, " + size_t + " %size)\n  ret ptr %got\n" + "}" + "\n"
+        -- Calls first: the helper's own call must keep reaching libc.
+        out = v4_codegen_llvm_replace_all(v4_codegen_llvm_replace_all(out, "call ptr @realloc(ptr ", "call ptr @freak.libc.realloc(ptr "), decl, helper)
+    }
+    -- Raw alloc asks calloc(1, bytes); a count or size size_t cannot hold
+    -- answers null, which the alloc helper reports as a failed allocation.
+    decl = "declare ptr @calloc(i64, i64)\n"
+    if out.contains(decl) {
+        pilot helper = "declare ptr @calloc(" + size_t + ", " + size_t + ")\n"
+        helper = helper + "define internal ptr @freak.libc.calloc(i64 %c, i64 %n) " + "{" + "\nentry:\n"
+        helper = helper + "  %bigc = icmp ugt i64 %c, " + limit + "\n  %bign = icmp ugt i64 %n, " + limit + "\n  %big = or i1 %bigc, %bign\n"
+        helper = helper + "  br i1 %big, label %none, label %ask\nnone:\n  ret ptr null\nask:\n"
+        helper = helper + "  %count = trunc i64 %c to " + size_t + "\n  %size = trunc i64 %n to " + size_t + "\n"
+        helper = helper + "  %got = call ptr @calloc(" + size_t + " %count, " + size_t + " %size)\n  ret ptr %got\n" + "}" + "\n"
+        out = v4_codegen_llvm_replace_all(v4_codegen_llvm_replace_all(out, "call ptr @calloc(i64 ", "call ptr @freak.libc.calloc(i64 "), decl, helper)
+    }
+    give back out
 }
 
 task v4_codegen_llvm_replace_all(text: word, needle: word, replacement: word) -> word {
