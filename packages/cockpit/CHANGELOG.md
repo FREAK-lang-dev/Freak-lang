@@ -29,7 +29,11 @@
 * New example: `examples/sortie.fk`, a pre-flight checklist written with the
   `Cockpit` shape.
 * Fixed: keys typed in the same frame as a Shift+Tab (or a Tab that wraps to
-  the first field) were dropped. They now land in the field that gets focus.
+  the first field) were dropped. They now land in the field that gets focus,
+  one frame later. If a click follows in the same frame, the keys before the
+  click still go to that field and the keys after it to the clicked one.
+* Text sizes are kept to 1-96 px, for measuring and drawing alike (a bigger
+  theme font draws at 96).
 * Fixed: closing a window or a sim frees all of COCKPIT's state.
 * Toasts and the caret blink follow COCKPIT's frame clock (the sum of each
   frame's time) instead of the wall clock, so the flight sim replays them

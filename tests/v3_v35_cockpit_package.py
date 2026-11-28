@@ -79,7 +79,9 @@ FLIGHT_STDOUT = ['frame 0: callsign= launches=0 armed=off commands=21',
                  'fill 22 132 20 20 #3a3a4e',
                  'circle 22 142 7 #e6e6f0',
                  'text 62 135 14 #e6e6f0 "Armed"',
-                 'unclip']
+                 'unclip',
+                 '',
+                 'clock: T| T| -| -| -. -.']
 HUD_STDOUT = ['frame 0:  launches=0 320x200', 'frame 1: Valkyrie launches=0 320x200', 'frame 2: Valkyrie launches=1 320x200', 'frame 3: Valkyrie launches=2 320x200', 'frame 4: Valkyrie launches=0 320x200', 'landed after 5 frames']
 WIDGETS_STDOUT = ['PASS layout', 'PASS motion', 'PASS controls', 'PASS toasts', 'PASS themes']
 
