@@ -135,6 +135,9 @@ task cockpit_bb_draw_text(text: word, x: int, y: int, color: int, font_size: int
     else { array_push(cockpit_bb_texts, text) }
     pilot weight = 0
     if bold { weight = 1 }
+    -- Text is drawn at the size it is measured at: 1 to 96 px.
+    if font_size < 1 { font_size = 1 }
+    if font_size > cockpit_bb_max_font { font_size = cockpit_bb_max_font }
     pilot width = cockpit_bb_measure(text, font_size, bold)
     cockpit_bb_record(cockpit_bb_text, x, y, width, font_size, color, weight, cockpit_bb_text_count)
     cockpit_bb_text_count += 1

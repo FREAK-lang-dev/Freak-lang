@@ -234,6 +234,33 @@ task replay_focus_keys(window: int, layout: ByteBuffer, theme: int) -> void {
     right = cockpit_widget_input(window, layout, theme, right, 180)
     check_text(left, "Lxy", "keys after a tab wrap carry to the first field")
     check_text(right, "R", "wrap source stays put")
+
+    -- A click after Shift+Tab: keys before the click go to the earlier
+    -- field next frame, keys after it to the clicked field now, each once.
+    left = "L"
+    right = "R"
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    hold_key(cockpit_key_shift, true)
+    press_key(cockpit_key_tab)
+    hold_key(cockpit_key_shift, false)
+    type_char(120)
+    click_at(20, 40)
+    type_char(121)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "L", "keys before the click wait for the earlier field")
+    check_text(right, "Ry", "keys after the click land in the clicked field")
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lx", "the carried key reaches the earlier field")
+    check_text(right, "Ry", "the clicked field's keys play once")
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lx", "nothing replays twice")
+    check_text(right, "Ry", "nothing replays twice (clicked field)")
     say "PASS focus keys"
 }
 

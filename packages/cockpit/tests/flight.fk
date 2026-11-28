@@ -1,6 +1,7 @@
 use self::blackbox::{
     cockpit_blackbox_count,
     cockpit_blackbox_dump,
+    cockpit_blackbox_field,
     cockpit_blackbox_find_text,
     cockpit_blackbox_line
 }
@@ -9,6 +10,7 @@ use self::flight::{
     cockpit_flight_click_text,
     cockpit_flight_close,
     cockpit_flight_end_frame,
+    cockpit_flight_frame_ms,
     cockpit_flight_key,
     cockpit_flight_open,
     cockpit_flight_quit,
@@ -21,11 +23,16 @@ use self::layout::{
 use self::state::{
     cockpit_fail,
     cockpit_key_enter,
+    cockpit_ui_focus_input,
     cockpit_ui_should_close
 }
 use self::theme::{
     cockpit_theme_dark,
     cockpit_theme_release
+}
+use self::toast::{
+    cockpit_toast_info,
+    cockpit_toast_timed
 }
 use self::controls::{
     cockpit_widget_toggle
@@ -68,9 +75,34 @@ task main() {
         if frame > 20 { cockpit_fail("sim never closed") }
     }
     say first_frame
+
+    -- The sim clock drives toasts and the caret blink: no real time passes.
+    cockpit_flight_frame_ms(100)
+    cockpit_ui_focus_input(0)
+    cockpit_toast_timed("short", cockpit_toast_info, 250)
+    pilot timeline = ""
+    repeat 6 times {
+        cockpit_flight_begin_frame(layout, theme)
+        callsign = cockpit_widget_input_ex(0, layout, theme, callsign, 200, "callsign", false)
+        cockpit_flight_end_frame()
+        if cockpit_blackbox_find_text("short") >= 0 { timeline = timeline + "T" } else { timeline = timeline + "-" }
+        if caret_drawn() { timeline = timeline + "|" } else { timeline = timeline + "." }
+        timeline = timeline + " "
+    }
+    say "clock: " + timeline
     cockpit_flight_close()
     cockpit_layout_release(layout)
     cockpit_theme_release(theme)
+}
+
+-- The focused input's caret is the only 2 px wide fill.
+task caret_drawn() -> bool {
+    pilot index = 0
+    repeat cockpit_blackbox_count() times {
+        if cockpit_blackbox_field(index, 0) == 2 and cockpit_blackbox_field(index, 3) == 2 { give back true }
+        index += 1
+    }
+    give back false
 }
 
 task bool_word(value: bool) -> word {
