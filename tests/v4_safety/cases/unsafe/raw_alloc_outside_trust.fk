@@ -1,0 +1,11 @@
+-- Raw allocation is a trust me operation.
+-- bible: 16.4
+-- expect: reject mir
+-- error: raw allocation needs trust me block
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task main() -> int {
+    pilot p: *mut int = alloc(8)
+    give back 0
+}

@@ -1,0 +1,14 @@
+-- Freeing requires .pilot or higher.
+-- bible: 7.18
+-- expect: reject mir
+-- error: raw free requires .pilot or higher; current honor is .cadet
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task main() -> int {
+    trust me "raw memory" on my honor as .cadet {
+        pilot p: *mut int = null<int>()
+        free(p)
+    }
+    give back 0
+}

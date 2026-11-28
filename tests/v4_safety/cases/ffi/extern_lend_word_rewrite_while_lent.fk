@@ -1,0 +1,14 @@
+-- The bytes C sees cannot be replaced while a loan of the word is live.
+-- bible: 4.2
+-- expect: reject borrowck
+-- error: Meiya refuses this rewrite while the value is borrowed
+
+extern [C] {
+    task strnlen(lend text: word) -> std::ffi::c_size
+}
+task main() -> int {
+    pilot mut w = "hi"
+    pilot r = lend w
+    w = "yo"
+    give back strnlen(r)
+}

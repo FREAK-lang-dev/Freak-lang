@@ -1,0 +1,17 @@
+-- A lend of a raw-pointer referent requires .ace or higher.
+-- bible: 7.18
+-- expect: reject mir
+-- error: lend of a raw-pointer referent requires .ace or higher; current honor is .pilot
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task peek(lend x: int) -> int { give back x }
+
+task main() -> int {
+    trust me "raw memory" on my honor as .pilot {
+        pilot p: *mut int = alloc(8)
+        pilot v = peek(lend *p)
+        free(p)
+    }
+    give back 0
+}

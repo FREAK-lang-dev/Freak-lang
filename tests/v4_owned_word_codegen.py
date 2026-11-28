@@ -36,12 +36,24 @@ EXPECTED = {
                         "one1\ntwo2\nTakeru!\nMeiya!\nSumika!\n10\n14\np0\np1\n3\n2.5\n2\n14\n"),
     "lists_nested_native.fk": ("Sumika/Takeru!/Meiya\n5\n5\n2\nKei\n13\nca\n43\n76\n3\nx\ny\nz\nz\nA!\nB!\n4\nkei\n149\n"
                                "0\n4\n15\n-1\n26\n7\n13\n5\nc\n6\nMitsurugi\n"),
+    "lists_sums_native.fk": ("5\n206\n311\nagain\nnobody\nnobody\nnobody\nnobody\nheld\n13\nskip\nfound\n"
+                             "ok a\nerr 4\nok c\nok c\nE replaced\nE no\nbad\n7\n2\n1014\n0\n104\n4\n"
+                             "ok x\nerr 9\nok yz\nlog\nfirst again\n"),
     "maps_native.fk": ("10\n3\nSumika\nTakeru!\n3\n100\n9850\n34\n66\nfalse\n16\n-1\n66\n2\nuno\ntres\n"
                        "none\n6\nk\n1\n2\ntrue\ntrue\nfalse\n1\n20\n4\n"),
     "maps_control_native.fk": "-1\nside ran\nfalse\ntrue\ntrue\n1\nyes\nnoyes\nside_int ran\n-2\n0\n7\n",
     "shared_native.fk": ("Takemikazuchi\n3\ntrue\nfalse\ntrue\nTakemikazuchi\n108\ntrue\nShiranui\n108\n108\nfalse\n216\n"
                          "Shiranui\n108\nfalse\nGekishin\n9\nfalse\n4\nfalse\n1\nShiranui\n108\nShiranui\n108\n7\nKasumi\n5\nShiranui\n108\n"),
+    "raw_alloc_native.fk": "8\n1\n16\n8\n3\n16\n8\ntrue\nfalse\n285\n0\n7\n7\n5\ntrue\n42\n0\nfalse\nfalse\ndone\n",
     "word_interpolation.fk": "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n",
+    "c_words_native.fk": ("count_l=3\ngreeting=hello world\nlengths=11006\nscalars=5\nlead_bytes=1\nbyte_3=195\nnul_len=3\n"
+                          "nul_count=1\nsame_storage=yes\ncopy_storage=no\ncopy_bytes=yes\nother_bytes=no\nempty_len=11\n"
+                          "callsign_k=1 rank=2\nsquad_a=1\nchecksum_total=100320\nchecksum=3582672807\nmoved=Valkyrie\nshort_len=-11\n"),
+}
+
+# Programs that lend words to C link their real C helpers from examples/.
+C_HELPERS = {
+    "c_words_native.fk": "c_words_native_helpers.c",
 }
 
 
@@ -88,6 +100,8 @@ def main() -> int:
                 llvm_path.write_bytes(module.encode("utf-8"))
                 binary = directory / (name + (".exe" if os.name == "nt" else ".native"))
                 command = build.native_link_command(args.clang, llvm_path, binary)
+                if name in C_HELPERS:
+                    command.insert(command.index("-o"), str(checks.V4_ROOT / "examples" / C_HELPERS[name]))
                 command += ["-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1",
                             "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1"]
                 if not args.plain:

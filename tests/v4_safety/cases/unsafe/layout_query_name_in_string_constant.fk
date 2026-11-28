@@ -1,0 +1,11 @@
+-- A string literal that spells a layout query is just a string; only query
+-- tokens in a constant are refused.
+-- bible: 7.18
+-- expect: check
+
+fixed pilot HELP: word = "size_of<int>()"
+fixed pilot PAIR = (3, "align_of<x>")
+
+task main() -> int {
+    give back 0
+}

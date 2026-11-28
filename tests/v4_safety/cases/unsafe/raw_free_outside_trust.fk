@@ -1,0 +1,12 @@
+-- Freeing is a trust me operation even for a null pointer.
+-- bible: 16.4
+-- expect: reject mir
+-- error: raw free needs trust me block
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task main() -> int {
+    pilot p: *mut int = null<int>()
+    free(p)
+    give back 0
+}

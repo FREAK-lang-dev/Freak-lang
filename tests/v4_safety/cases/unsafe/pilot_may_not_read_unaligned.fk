@@ -1,0 +1,15 @@
+-- Unaligned reads require .ace or higher.
+-- bible: 7.18
+-- expect: reject mir
+-- error: raw-pointer unaligned read requires .ace or higher; current honor is .pilot
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task main() -> int {
+    trust me "raw memory" on my honor as .pilot {
+        pilot p: *mut int = alloc(8)
+        pilot v: int = p.read_unaligned()
+        free(p)
+    }
+    give back 0
+}

@@ -1,0 +1,26 @@
+-- An allocation of n elements walked with offset at .ace.
+-- bible: 7.18
+-- expect: run
+-- stdout: 14
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task main() -> int {
+    trust me "four ints" on my honor as .ace {
+        pilot p: *mut int = alloc(size_of<int>() * 4)
+        pilot i = 0
+        repeat until i >= 4 {
+            p.offset(i).write(i * i)
+            i += 1
+        }
+        pilot sum = 0
+        i = 0
+        repeat until i >= 4 {
+            sum += p.offset(i).read()
+            i += 1
+        }
+        say sum
+        free(p)
+    }
+    give back 0
+}

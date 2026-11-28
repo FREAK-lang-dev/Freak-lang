@@ -10,7 +10,13 @@ other V4 tool (v35_seed.py) and linked with llvm_bridge/*.c and LLVM's
 static libraries for the core, the pass pipeline and the x86-64 and AArch64
 targets. No LLVM pointer crosses into FREAK; see BACKEND_DELIVERY.md.
 
+--v4 also builds tools/llvm_bridge_v4_probe.fk with V4 itself (build_v4.py):
+V4 declares the bridge's entry points directly, with `lend word` parameters
+lowered to (const char*, size_t), so it links freak_llvm_bridge.c without the
+V3.5 word adapter.
+
     python src/compiler/v4/build_llvm_bridge.py -o build/llvm_bridge_probe
+    python src/compiler/v4/build_llvm_bridge.py --check --v4
 """
 from __future__ import annotations
 
@@ -32,6 +38,7 @@ V4 = checks.V4_ROOT
 LOCK = V4 / "llvm.lock"
 BRIDGE = V4 / "llvm_bridge"
 PROBE = V4 / "tools" / "llvm_bridge_probe.fk"
+V4_PROBE = V4 / "tools" / "llvm_bridge_v4_probe.fk"
 BRIDGE_SOURCES = (BRIDGE / "freak_llvm_bridge.c", BRIDGE / "freak_llvm_bridge_v35.c")
 BRIDGE_HEADERS = (BRIDGE / "freak_llvm_bridge.h", BRIDGE / "freak_llvm_bridge_v35.h")
 COMPONENTS = ("core", "analysis", "passes", "target", "x86", "aarch64")
@@ -300,6 +307,114 @@ def check(clang: str, probe: Path) -> None:
         print(f"LLVM bridge: O{level} probe report exact, object links and runs on {triple}")
 
 
+def build_v4_probe(clang: str, root: Path, output: Path) -> Path:
+    """Build the V4 probe with V4 and link it with the bridge, no V3.5 adapter."""
+    from build_v4 import native_link_command
+
+    check_llvm_version(root)
+    include = llvm_config(root, "--includedir")[0]
+    libraries = (*llvm_config(root, "--libfiles", *COMPONENTS, "--link-static"), *system_libraries())
+    major = read_lock()[0].split(".")[0]
+    output.parent.mkdir(parents=True, exist_ok=True)
+    module = output.with_suffix(".ll")
+    module.unlink(missing_ok=True)
+    emitted = checks.run_with_heartbeat(
+        [sys.executable, str(V4 / "build_v4.py"), str(V4_PROBE), "-o", str(module), "--emit-llvm"],
+        label="V4 LLVM bridge probe module", timeout_seconds=1800, memory_limit_mb=2048,
+    )
+    if emitted.returncode != 0 or not module.exists():
+        raise RuntimeError(f"V4 could not build the LLVM bridge probe:\n{emitted.stdout}{emitted.stderr}")
+    command = native_link_command(clang, module, output)
+    at = command.index("-o")
+    command[at:at] = [str(BRIDGE / "freak_llvm_bridge.c"), f"-I{BRIDGE}", f"-I{include}",
+                      f"-DFREAK_LB_LLVM_MAJOR={major}"]
+    command += libraries
+    linked = checks.run_with_heartbeat(command, label="V4 LLVM bridge probe link", timeout_seconds=600,
+                                       memory_limit_mb=2048)
+    if linked.returncode != 0 or not output.exists():
+        raise RuntimeError(f"V4 LLVM bridge probe did not link:\n{linked.stdout}{linked.stderr}")
+    return output
+
+
+# Exact V4 probe report, in order.
+V4_PROBE_EXPECTED = [
+    "lb-v4 llvm-major={major}",
+    "lb-v4 struct-size=24",
+    "lb-v4 banner-bytes=9",
+    "lb-v4 refused=duplicate symbol code -4",
+    "lb-v4 refused=unknown attribute code -4",
+    "lb-v4 refused=forged ticket code -2",
+    "lb-v4 verify=0",
+    "lb-v4 optimize=0",
+    "lb-v4 object=0",
+    "lb-v4 ir=0",
+    "lb-v4 refused=released session code -1",
+    "lb-v4 refused=unknown triple code -6",
+    "lb-v4 live-sessions=0",
+    "lb-v4 failures=0",
+]
+
+V4_DRIVER_C = r"""
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+int64_t v4_triangle(int64_t);
+int64_t v4_scaled(int64_t);
+extern const char v4_banner[];
+int main(void) {
+    printf("triangle %lld %lld %lld\n", (long long)v4_triangle(10), (long long)v4_triangle(0),
+           (long long)v4_triangle(-3));
+    printf("scaled %lld\n", (long long)v4_scaled(4));
+    printf("banner %d\n", memcmp(v4_banner, "V4\0bridge", 9) == 0);
+    return 0;
+}
+"""
+V4_DRIVER_EXPECTED = "triangle 55 0 0\nscaled 240\nbanner 1\n"
+
+
+def check_v4(clang: str, probe: Path) -> None:
+    """Run the V4-built probe at O0..O3 and link and run its object."""
+    from build_v4 import host_target
+
+    major = read_lock()[0].split(".")[0]
+    expected = [line.format(major=major) for line in V4_PROBE_EXPECTED]
+    triple = host_target()
+    work = checks.RUNTIME_BUILD_ROOT / "llvm_bridge_v4"
+    work.mkdir(parents=True, exist_ok=True)
+    driver = work / "driver.c"
+    driver.write_text(V4_DRIVER_C, encoding="utf-8")
+    for level in range(4):
+        out = work / f"O{level}"
+        if out.exists():
+            shutil.rmtree(out)
+        out.mkdir()
+        ran = checks.run_with_heartbeat([str(probe), str(out), triple, str(level)],
+                                        label=f"V4 LLVM bridge probe O{level}", timeout_seconds=120,
+                                        memory_limit_mb=1024)
+        if ran.returncode != 0 or ran.stdout.replace("\r\n", "\n").splitlines() != expected or ran.stderr:
+            raise RuntimeError(f"V4 LLVM bridge probe O{level} report differs:\n{ran.stdout}{ran.stderr}")
+        executable = out / ("driver.exe" if sys.platform == "win32" else "driver")
+        linked = checks.run_with_heartbeat([clang, "-w", str(driver), str(out / "v4_probe.o"), "-o", str(executable)],
+                                           label=f"V4 LLVM bridge object link O{level}", timeout_seconds=120,
+                                           memory_limit_mb=512)
+        if linked.returncode != 0:
+            raise RuntimeError(f"V4 LLVM bridge object did not link at O{level}:\n{linked.stdout}{linked.stderr}")
+        executed = checks.run_with_heartbeat([str(executable)], label=f"V4 LLVM bridge object run O{level}",
+                                             timeout_seconds=30, memory_limit_mb=128)
+        if executed.returncode != 0 or executed.stdout.replace("\r\n", "\n") != V4_DRIVER_EXPECTED:
+            raise RuntimeError(f"V4 LLVM bridge object misbehaved at O{level}:\n{executed.stdout}{executed.stderr}")
+        module = (out / "v4_probe.ll").read_text(encoding="utf-8")
+        # Names and the NUL-holding bytes arrive exactly as V4 lent them.
+        wanted = [f'target triple = "{triple}"', "@v4_triangle", "@v4_scaled",
+                  "@v4_banner = ", 'constant [9 x i8] c"V4\\00bridge"', 'source_filename = "freak_bridge_v4_probe"']
+        if level == 0:
+            wanted.append("phi i64")
+        missing = [text for text in wanted if text not in module]
+        if missing:
+            raise RuntimeError(f"V4 LLVM bridge module text at O{level} lacks {missing}")
+        print(f"LLVM bridge: V4 probe O{level} report exact, object links and runs on {triple}")
+
+
 def resolve_root(argument: Path | None) -> Path:
     if argument is not None:
         return argument.resolve()
@@ -318,6 +433,9 @@ def main() -> int:
     parser.add_argument("--fetch-only", action="store_true", help="download and trim LLVM, then stop")
     parser.add_argument("--check", action="store_true",
                         help="also run the probe at O0..O3 and link and run its object (the B2 gate)")
+    parser.add_argument("--v4", action="store_true",
+                        help="also build the V4-native probe with V4 (and run it with --check)")
+    parser.add_argument("--v4-output", type=Path, default=checks.ROOT / "build" / "llvm_bridge_v4_probe")
     args = parser.parse_args()
     clang = shutil.which("clang")
     if clang is None:
@@ -330,6 +448,11 @@ def main() -> int:
         build(clang, root, args.output, args.opt)
         if args.check:
             check(clang, args.output)
+        if args.v4:
+            build_v4_probe(clang, root, args.v4_output)
+            if args.check:
+                check_v4(clang, args.v4_output)
+            print(f"built {args.v4_output}")
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1

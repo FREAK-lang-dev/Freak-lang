@@ -1,0 +1,8 @@
+-- C would hand a callback bytes that no FREAK word owns.
+-- bible: 16.5
+-- expect: reject ty
+-- error: lends a word to a callback
+
+@extern_callback("C")
+task cb(lend text: word) -> std::ffi::c_int { give back 0 }
+task main() -> int { give back 0 }

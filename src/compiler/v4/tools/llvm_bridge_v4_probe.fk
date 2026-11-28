@@ -1,0 +1,246 @@
+-- B2 bridge, V4-native word adapter: V4 calls llvm_bridge/freak_llvm_bridge.c
+-- directly, with no adapter in C. A `lend s: word` parameter of an extern [C]
+-- task lowers to `(const char*, size_t)`, pointer first (tier 3 C ABI row,
+-- word bytes at a C boundary), which is exactly the pair every name, path and
+-- byte entry point of the bridge takes. The bytes are the word's own storage:
+-- not copied, not NUL-terminated, and a NUL inside a word reaches LLVM.
+--
+-- The bridge's int64_t tickets and codes are spelled std::ffi::c_isize, the
+-- signed pointer-width C integer: int64_t on all four release targets, and
+-- TY reads it back as int.
+--
+-- The probe builds a small module (a loop, a branch, a call, a struct size
+-- answer, a global holding a NUL byte), verifies and optimises it, writes an
+-- object file and the module text, and checks that misuse comes back as error
+-- results. build_llvm_bridge.py --check builds it with V4, links the object
+-- with a C driver and runs it.
+--
+--     llvm_bridge_v4_probe <out-dir> <host-triple> <opt 0..3>
+
+extern [C] {
+    task freak_lb_session_new(lend triple: word, lend name: word, opt: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_session_release(session: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_live_sessions() -> std::ffi::c_isize
+    task freak_lb_llvm_major() -> std::ffi::c_isize
+    task freak_lb_type_int(session: std::ffi::c_isize, bits: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_type_ptr(session: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_struct_begin(session: std::ffi::c_isize, lend name: word) -> std::ffi::c_isize
+    task freak_lb_struct_field(session: std::ffi::c_isize, field_type: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_struct_end(session: std::ffi::c_isize, packed: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_fn_type_begin(session: std::ffi::c_isize, return_type: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_fn_type_param(session: std::ffi::c_isize, param_type: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_fn_type_end(session: std::ffi::c_isize, variadic: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_type_size(session: std::ffi::c_isize, sized: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_function(session: std::ffi::c_isize, lend name: word, fn_type: std::ffi::c_isize, linkage: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_param(session: std::ffi::c_isize, function: std::ffi::c_isize, index: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_global_bytes(session: std::ffi::c_isize, lend name: word, lend bytes: word, linkage: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_block(session: std::ffi::c_isize, function: std::ffi::c_isize, lend name: word) -> std::ffi::c_isize
+    task freak_lb_position(session: std::ffi::c_isize, block: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_const_int(session: std::ffi::c_isize, int_type: std::ffi::c_isize, value: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_binary(session: std::ffi::c_isize, op: std::ffi::c_isize, left: std::ffi::c_isize, right: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_icmp(session: std::ffi::c_isize, predicate: std::ffi::c_isize, left: std::ffi::c_isize, right: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_phi(session: std::ffi::c_isize, phi_type: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_phi_incoming(session: std::ffi::c_isize, phi: std::ffi::c_isize, value: std::ffi::c_isize, block: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_call_begin(session: std::ffi::c_isize, fn_type: std::ffi::c_isize, callee: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_call_arg(session: std::ffi::c_isize, value: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_call_end(session: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_br(session: std::ffi::c_isize, block: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_cond_br(session: std::ffi::c_isize, condition: std::ffi::c_isize, yes: std::ffi::c_isize, no: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_ret(session: std::ffi::c_isize, value: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_attribute(session: std::ffi::c_isize, function: std::ffi::c_isize, index: std::ffi::c_isize, lend name: word) -> std::ffi::c_isize
+    task freak_lb_debug_unit(session: std::ffi::c_isize, lend file: word, lend directory: word, lend producer: word) -> std::ffi::c_isize
+    task freak_lb_verify(session: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_optimize(session: std::ffi::c_isize, level: std::ffi::c_isize) -> std::ffi::c_isize
+    task freak_lb_emit(session: std::ffi::c_isize, format: std::ffi::c_isize, lend path: word) -> std::ffi::c_isize
+}
+
+-- Owned-word wrappers. A literal or a temporary is not a place, so it cannot
+-- be lent directly (`lend source must be a place`); these take the word by
+-- value, lend it to C for the call and drop it after.
+task lb_function(s: int, name: word, fn_type: int, linkage: int) -> int {
+    give back freak_lb_function(s, lend name, fn_type, linkage)
+}
+task lb_block(s: int, function: int, name: word) -> int {
+    give back freak_lb_block(s, function, lend name)
+}
+task lb_struct_begin(s: int, name: word) -> int {
+    give back freak_lb_struct_begin(s, lend name)
+}
+task lb_attribute(s: int, function: int, index: int, name: word) -> int {
+    give back freak_lb_attribute(s, function, index, lend name)
+}
+task lb_emit(s: int, format: int, path: word) -> int {
+    give back freak_lb_emit(s, format, lend path)
+}
+task lb_debug_unit(s: int, file: word, directory: word, producer: word) -> int {
+    give back freak_lb_debug_unit(s, lend file, lend directory, lend producer)
+}
+task lb_session_new(triple: word, name: word, opt: int) -> int {
+    give back freak_lb_session_new(lend triple, lend name, opt)
+}
+
+-- Bridge constants (freak_llvm_bridge.h).
+task lb_add() -> int { give back 1 }
+task lb_mul() -> int { give back 3 }
+task lb_slt() -> int { give back 9 }
+task lb_external() -> int { give back 1 }
+task lb_object() -> int { give back 1 }
+task lb_ir_text() -> int { give back 3 }
+
+task report(key: word, value: word) -> void {
+    say "lb-v4 " + key + "=" + value
+}
+
+-- A step that must succeed: a ticket (> 0) or 0. Answers 1 on failure.
+task need(what: word, outcome: int) -> int {
+    if outcome < 0 {
+        report("failed", what + " code " + word_from_int(outcome))
+        give back 1
+    }
+    give back 0
+}
+
+-- A call that must fail with the given code. Answers 1 on failure.
+task refuse(what: word, outcome: int, code: int) -> int {
+    if outcome == code {
+        report("refused", what + " code " + word_from_int(outcome))
+        give back 0
+    }
+    report("failed", what + " expected " + word_from_int(code) + " got " + word_from_int(outcome))
+    give back 1
+}
+
+task fn_type(s: int, ret: int, params: int, param: int) -> int {
+    freak_lb_fn_type_begin(s, ret)
+    pilot mut k: int = 0
+    repeat until k >= params {
+        freak_lb_fn_type_param(s, param)
+        k += 1
+    }
+    give back freak_lb_fn_type_end(s, 0)
+}
+
+-- v4_triangle(n) = 0 + 1 + ... + n, a loop with a phi pair.
+task build_triangle(s: int, i64: int, unary: int) -> int {
+    -- The name is built at run time: the bytes C sees are a fresh word's.
+    pilot name = "v4_" + "triangle"
+    pilot f = freak_lb_function(s, lend name, unary, lb_external())
+    pilot entry = lb_block(s, f, "entry")
+    pilot head = lb_block(s, f, "head")
+    pilot body = lb_block(s, f, "body")
+    pilot done_block = lb_block(s, f, "done")
+    pilot n = freak_lb_param(s, f, 0)
+    pilot zero = freak_lb_const_int(s, i64, 0)
+    pilot one = freak_lb_const_int(s, i64, 1)
+    freak_lb_position(s, entry)
+    freak_lb_br(s, head)
+    freak_lb_position(s, head)
+    pilot i = freak_lb_phi(s, i64)
+    pilot acc = freak_lb_phi(s, i64)
+    pilot more = freak_lb_icmp(s, lb_slt(), n, i)
+    freak_lb_cond_br(s, more, done_block, body)
+    freak_lb_position(s, body)
+    pilot next_acc = freak_lb_binary(s, lb_add(), acc, i)
+    pilot next_i = freak_lb_binary(s, lb_add(), i, one)
+    freak_lb_br(s, head)
+    freak_lb_phi_incoming(s, i, zero, entry)
+    freak_lb_phi_incoming(s, i, next_i, body)
+    freak_lb_phi_incoming(s, acc, zero, entry)
+    freak_lb_phi_incoming(s, acc, next_acc, body)
+    freak_lb_position(s, done_block)
+    freak_lb_ret(s, acc)
+    give back f
+}
+
+-- v4_scaled(n) = v4_triangle(n) * the struct's ABI size, answered by the target.
+task build_scaled(s: int, i64: int, unary: int, triangle: int, size: int) -> int {
+    pilot f = lb_function(s, "v4_scaled", unary, lb_external())
+    lb_attribute(s, f, -1, "nounwind")
+    freak_lb_position(s, lb_block(s, f, "entry"))
+    freak_lb_call_begin(s, unary, triangle)
+    freak_lb_call_arg(s, freak_lb_param(s, f, 0))
+    pilot called = freak_lb_call_end(s)
+    freak_lb_ret(s, freak_lb_binary(s, lb_mul(), called, freak_lb_const_int(s, i64, size)))
+    give back f
+}
+
+task probe(out_dir: word, triple: word, opt: int) -> int {
+    report("llvm-major", word_from_int(freak_lb_llvm_major()))
+    pilot module_name = "freak_bridge_v4_probe"
+    pilot s = freak_lb_session_new(lend triple, lend module_name, opt)
+    if s <= 0 {
+        report("failed", "session code " + word_from_int(s))
+        give back 1
+    }
+    pilot mut failures: int = 0
+    failures += need("debug unit", lb_debug_unit(s, "probe.fk", "/freak/v4", "FREAK V4 bridge probe"))
+    pilot i64 = freak_lb_type_int(s, 64)
+    pilot i8 = freak_lb_type_int(s, 8)
+    pilot unary = fn_type(s, i64, 1, i64)
+
+    -- A struct named through a lent word: { i64, i8, ptr } is 24 bytes on
+    -- every release target.
+    lb_struct_begin(s, "freak.v4.Probe")
+    freak_lb_struct_field(s, i64)
+    freak_lb_struct_field(s, i8)
+    freak_lb_struct_field(s, freak_lb_type_ptr(s))
+    pilot probe_struct = freak_lb_struct_end(s, 0)
+    pilot size = freak_lb_type_size(s, probe_struct)
+    report("struct-size", word_from_int(size))
+
+    pilot triangle = build_triangle(s, i64, unary)
+    failures += need("triangle", triangle)
+    failures += need("scaled", build_scaled(s, i64, unary, triangle, size))
+
+    -- Bytes with an embedded NUL: LLVM gets all nine, the length is the word's.
+    pilot banner = "V4\0bridge"
+    pilot global_name = "v4_banner"
+    report("banner-bytes", word_from_int(banner.length()))
+    failures += need("global", freak_lb_global_bytes(s, lend global_name, lend banner, lb_external()))
+
+    -- Misuse comes back as results, with lent words too.
+    failures += refuse("duplicate symbol", lb_function(s, "v4_triangle", unary, lb_external()), -4)
+    failures += refuse("unknown attribute", lb_attribute(s, triangle, -1, "not_an_attribute"), -4)
+    failures += refuse("forged ticket", freak_lb_param(s, triangle + 1000000, 0), -2)
+
+    pilot verified = freak_lb_verify(s)
+    failures += need("verify", verified)
+    report("verify", word_from_int(verified))
+    pilot optimized = freak_lb_optimize(s, opt)
+    failures += need("optimize", optimized)
+    report("optimize", word_from_int(optimized))
+    pilot object = lb_emit(s, lb_object(), out_dir + "/v4_probe.o")
+    failures += need("object", object)
+    report("object", word_from_int(object))
+    pilot ir = lb_emit(s, lb_ir_text(), out_dir + "/v4_probe.ll")
+    failures += need("ir", ir)
+    report("ir", word_from_int(ir))
+    failures += need("release", freak_lb_session_release(s))
+    failures += refuse("released session", freak_lb_type_int(s, 64), -1)
+
+    pilot bad_triple = "freak-unknown-triple"
+    failures += refuse("unknown triple", lb_session_new(bad_triple, "x", 0), -6)
+    report("live-sessions", word_from_int(freak_lb_live_sessions()))
+    report("failures", word_from_int(failures))
+    give back failures
+}
+
+task main() -> int {
+    if process::args_count() < 4 {
+        say "usage: llvm_bridge_v4_probe <out-dir> <host-triple> <opt 0..3>"
+        give back 2
+    }
+    pilot mut out_dir = ""
+    pilot mut triple = ""
+    pilot mut opt: int = 0
+    check result process::arg(1) { ok(value) -> { out_dir = value } err(_) -> { give back 2 } }
+    check result process::arg(2) { ok(value) -> { triple = value } err(_) -> { give back 2 } }
+    check result process::arg(3) {
+        ok(value) -> {
+            check value.to_int() { got level -> { opt = level } nobody -> { give back 2 } }
+        }
+        err(_) -> { give back 2 }
+    }
+    if probe(out_dir, triple, opt) != 0 { give back 1 }
+    give back 0
+}

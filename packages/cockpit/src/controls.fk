@@ -235,8 +235,8 @@ task cockpit_widget_collapsing(window: int, layout: ByteBuffer, theme: int, titl
     pilot fill = cockpit_theme_get(theme, cockpit_theme_surface)
     if cockpit_ui_pointer_inside(x, y, width, height) { fill = cockpit_color_mix(fill, cockpit_theme_get(theme, cockpit_theme_accent), 200) }
     cockpit_draw_fill(window, x, y, width, height, fill)
-    pilot marker = "▸ "
-    if open { marker = "▾ " }
+    pilot marker = "> "
+    if open { marker = "v " }
     pilot ignored = cockpit_draw_text(window, marker + title, x + 8, y + 6, cockpit_theme_get(theme, cockpit_theme_text), font_size, true)
     give back open
 }

@@ -1,0 +1,9 @@
+-- Layout queries fold per target in codegen, so an array length refuses them.
+-- bible: 7.18
+-- expect: reject mir
+-- error: layout queries in constant expressions are not yet supported
+
+task main() -> int {
+    pilot a: [tiny; size_of<int>()] = [0t; 8]
+    give back 0
+}

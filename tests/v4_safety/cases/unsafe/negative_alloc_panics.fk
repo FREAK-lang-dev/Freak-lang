@@ -1,0 +1,15 @@
+-- A negative allocation size panics instead of wrapping.
+-- bible: 16.4
+-- expect: panic
+-- panic: alloc size out of range
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task main() -> int {
+    pilot n = 0 - 8
+    trust me "a bad size" on my honor as .pilot {
+        pilot p: *mut tiny = alloc(n)
+        free(p)
+    }
+    give back 0
+}

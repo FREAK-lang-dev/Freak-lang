@@ -1,0 +1,28 @@
+use akuma::{Akuma, Offering, summon, rite_get, rite_spa, rite_health, seal, wander, ritual_name, path_word, reply_text, reply_header, unleash_env, awake, next_offering, ritual_next, finish, slay}
+
+task build_app() -> Akuma {
+    pilot app = summon()
+    seal(app, "secure_headers")
+    rite_health(app, "/api/v1/health")
+    rite_get(app, "/api/v1/hello/:name", "hello")
+    rite_spa(app, "/", "public")
+    wander(app, "lost")
+    give back app
+}
+
+task switchboard(o: Offering) -> void {
+    when ritual_name(o) {
+        "hello" -> { reply_header(o, "Content-Type", "application/json") reply_text(o, 200, "{\"hello\":\"" + path_word(o, "name") + "\"}") }
+        "lost" -> { reply_text(o, 404, "lost") }
+    }
+}
+
+task main() {
+    pilot lair = unleash_env(build_app())
+    repeat while awake(lair) {
+        pilot o = next_offering(lair)
+        repeat while ritual_next(o) { switchboard(o) }
+        finish(o)
+    }
+    slay(lair)
+}

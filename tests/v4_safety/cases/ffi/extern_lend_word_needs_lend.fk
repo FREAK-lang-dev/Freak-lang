@@ -1,0 +1,12 @@
+-- Lending to C is explicit at the call site, as for FREAK tasks.
+-- bible: 16.1
+-- expect: reject mir
+-- error: borrowed call argument needs lend
+
+extern [C] {
+    task strnlen(lend text: word) -> std::ffi::c_size
+}
+task main() -> int {
+    pilot w = "hi"
+    give back strnlen(w)
+}

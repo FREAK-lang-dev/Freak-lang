@@ -512,6 +512,37 @@ with 19 stacked varargs, callbacks both ways), checks the narrowing panics,
 and compares every declaration, trampoline and C call site with Clang's own
 lowering of the same boundary written in C on all four `freak_target` triples.
 
+### Word bytes at a C boundary
+
+A word crosses into C only as a `lend s: word` parameter of an extern block
+member (bible section 16.1). It lowers to two C parameters: `const char*` to
+the word's own bytes, then their byte length as C `size_t`, whose width is
+`v4_target_c_size_carrier` (the pointer width: 64 bits on all four
+registered targets, LLP64 Windows included). The declaration's
+FREAK-signature shim (`@"freak.cabi.NAME"`, the same shim the C widths use)
+takes the word handle, reads the length through `freak_v4_word_bytes` (a
+consumed or foreign handle panics) and passes the handle's data pointer, so
+nothing is copied, cloned or dropped. The caller keeps the word: Meiya holds
+a shared loan for the call, which ends when the call returns, and the call
+site writes `lend w` as for FREAK tasks (fields, list elements and a
+forwarded `lend` parameter work). The bytes are UTF-8 and are not
+NUL-terminated for C, and an embedded NUL is an ordinary byte, so C must use
+the length; the pointer is valid only during the call.
+
+Refused by name: by-value `word` parameters (the help names `lend word`),
+`lend mut word` (C must not write the bytes a word owns), word returns, words
+behind an alias, `lend word` in `@extern_callback` tasks (C would hand the
+callback bytes no word owns) and in extern function pointer types,
+variadic declarations with a `lend word` parameter (`native lend word
+parameters of variadic C declarations are not yet supported`), and such
+declarations as task values. `check_v4_native_c_words` (from
+`check_v4_native_shapes`) links `examples/c_words_native.fk` with
+`examples/c_words_native_helpers.c` (real C that never calls `strlen`),
+compares every declaration and C call site with Clang's lowering of the same
+boundary on four targets, checks that the shims never build, clone or drop a
+word, and runs 12 named rejections; `tests/v4_owned_word_codegen.py` repeats
+the run under the ownership audits.
+
 ### Native closures
 
 `build_v4.py` lowers closures in ordinary tasks to native code. The build
@@ -686,7 +717,8 @@ address of the caller's place, on every target:
 
 Refused by name: lend parameters across the C ABI (`extern`,
 `@extern_callback`, `native lend parameters across the C ABI are not yet
-supported`), lend-typed parameters written as a type rather than a mode,
+supported`) other than `lend word` on extern declarations (word bytes at a C
+boundary, above), lend-typed parameters written as a type rather than a mode,
 lend locals other than value bindings of a loan, task value types with
 lend parameters (`native task values with lend parameters are not yet
 supported`), `lend mut` of a module global and other lend pointee types. Meiya refuses an exclusive loan rooted at a shared `lend` parameter
@@ -817,21 +849,40 @@ type-erased pool:
   native runtime itself uses; allocation failure panics with
   `list allocation failed`.
 
-Refused by name: lists of `maybe`/`result` values (the MIR sum proof
-admits sum carriers only in locals, so element places and loop items of a
-sum type wait for it), list operators (including equality of aggregates
-that hold lists), moved list captures, task values with list parameters or
-results, repeat fills of lists, and user declarations of `realloc`/`free`
-in a module that uses lists. Programs: `examples/lists_native.fk` (exact
-output, exit 0, and an out-of-bounds panic run; sixteen named rejections)
+- **`maybe`/`result` elements.** A carrier is an element by value, as a
+  carrier local is (bible 7.4). The MIR sum proof admits it in exactly
+  four list positions: an `Index` place over a list of exactly that
+  carrier, a `UsePlace` read of one, a `LoopItem` over a shared list loan,
+  and the item `push` moves in; a call it checks may also take a `lend` /
+  `lend mut` list argument. Reading `xs[i]` moves the element out (a
+  carrier is not Copy, even `maybe<int>`) and leaves the zero carrier, so
+  the list's drop skips it and Meiya refuses the list afterwards. The
+  element drop helper releases a carrier's one word field (an inactive
+  payload is zero), a `for each` copy clones that field only when it holds
+  a word, and `xs[i] = v` releases the old word through `DropSlot`. A
+  carrier type reached only through a list (`List<result<char, word>>`
+  with no carrier value in any body) still gets its type definition.
+
+Refused by name: list operators (including equality of aggregates that
+hold lists, and carrier element equality), moved list captures, task
+values with list parameters or results, repeat fills of lists (bible 1.15
+asks `Cloneable` of a non-Copy repeat value, and V4 gives `List` no
+`Cloneable`), carrier elements whose payload is an aggregate owning words,
+another carrier, a Shared handle or a loan (element glue has no handle
+retain or release), and user declarations of `realloc`/`free` in a module
+that uses lists. Programs: `examples/lists_native.fk` (exact
+output, exit 0, and an out-of-bounds panic run; fifteen named rejections)
 and `examples/lists_nested_native.fk` (exact output, exit 0; the layout
 oracle sees the list-holding shapes and route, each clone and drop helper
 is defined once, and an outer drop helper calls its element's helper
 before `free`; `NATIVE_NESTED_LISTS_REJECTED`), both in
 `check_v4_native_shapes` and audited by `tests/v4_owned_word_codegen.py`,
-and `examples/lists_unused_shape_native.fk` (a list field with no list
+`examples/lists_unused_shape_native.fk` (a list field with no list
 use: the header layout is present and no `freak.list.` runtime symbol is
-defined or declared).
+defined or declared), and `examples/lists_sums_native.fk` (exact output,
+exit 0; carrier layouts on four targets, each element drop helper
+releases the carrier's word field before `free` and each clone helper
+skips an empty one; `NATIVE_LIST_SUMS_REJECTED`).
 MIR also
 refuses control flow inside any index operand (`xs[f()?]`,
 `xs[pick(a and b)]`) until index operands are wired (#274).
@@ -1549,8 +1600,26 @@ raw-pointer writes require at least `.pilot`. The method forms `.read()` and
 `*ptr` and `*ptr = value`, including arity, mutability, and honor diagnostics.
 Pointer arithmetic and raw retyping are now opened through `.offset(n)` and
 `.cast<U>()`, lowering to LLVM `getelementptr` with preserved `*const`/`*mut`
-shape and `.ace+` honor diagnostics. Raw allocation/freeing, `direct_order`,
-and the higher-rank operation matrix remain later slices.
+shape and `.ace+` honor diagnostics. Native raw allocation completes the
+bible 16.4 honor matrix (`examples/raw_alloc_native.fk`): `alloc(bytes)`
+initializes a `*mut T` binding with zeroed memory from an internal
+`@freak.raw.alloc` helper over `calloc` (`alloc(0)` is unique, a negative size
+panics with `alloc size out of range`), and `free(p)` releases it, both at
+`.pilot+`; `zeroed<T>()` is a `freeze T zeroinitializer` at `.pilot+`;
+`.read_unaligned()` is an `align 1` load at `.ace+`; `null<T>()`,
+`size_of<T>()` and `align_of<T>()` need no trust and fold per target from
+`getelementptr` constants. Layout types are scalars, raw pointers, tuples and
+fixed arrays of them, and nongeneric shapes of them; others are refused by
+name. `copy_nonoverlapping` and `lend *ptr` (`.ace+`) and `direct_order`
+(`.commander+`) are gated at their rank and then refused as not yet supported.
+The std::mem names are builtins wherever the program declares none of its own.
+A type argument keeps its spelled surface for the C width fence
+(`size_of<c_int>()` is refused by name, not answered with the int width), its
+array lengths must be non-negative constants, a packed `@layout` shape is refused
+by name (native records ignore packing), and a layout query in a constant
+context (root `fixed pilot`, array lengths, repeat counts) is refused as
+`layout queries in constant expressions are not yet supported`: TY constants
+are target independent and the query folds per target.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
 fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts

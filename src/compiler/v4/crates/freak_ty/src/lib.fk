@@ -7327,6 +7327,14 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
 
     pilot first_value = v4_lex_token_syntax_value(stream_id, first)
     pilot expr_span = v4_ty_span_from_tokens(stream_id, first, last + 1)
+    -- Layout queries anywhere in a constant are refused by name unless the
+    -- program declares tasks of those names. Tokens, not flattened text, so
+    -- a string literal that spells one is just a string.
+    pilot query_token = v4_ty_tokens_layout_query(stream_id, first, last + 1)
+    if query_token >= 0 and v4_ty_task_signature_id_for_name(ty_id, "size_of") < 0 and v4_ty_task_signature_id_for_name(ty_id, "align_of") < 0 {
+        v4_ty_add_error_diag(ty_id, expr_span, v4_ty_layout_query_const_message(), v4_ty_layout_query_const_help(v4_ty_type_text(stream_id, first, last + 1)))
+        give back
+    }
     if first_value == "(" and v4_ty_find_matching_paren(stream_id, first, end_token) == last {
         pilot tuple_comma = v4_ty_find_top_level_token(stream_id, first + 1, last, ",")
         if tuple_comma >= 0 {
@@ -7384,6 +7392,10 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
                     lookup_name = v4_ty_generic_base_name(lookup_name)
                 }
                 pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, lookup_name)
+                if sig_id < 0 and (lookup_name == "null" or lookup_name == "zeroed" or lookup_name == "alloc" or lookup_name == "free" or lookup_name == "copy_nonoverlapping") {
+                    v4_ty_add_error_diag(ty_id, expr_span, "raw memory builtins in constant expressions are not yet supported", lookup_name + " runs in a task body; root constants cannot call it")
+                    give back
+                }
                 if sig_id >= 0 {
                     v4_ty_validate_signature_type_lifetimes(ty_id, owner_sig, callee_name, "const task call " + callee_name, expr_span)
 
@@ -7706,6 +7718,75 @@ task v4_ty_raw_pointer_cast_target_surface(expr_text: word) -> word {
     }
     if depth != 0 or idx <= start or v4_slice(text, idx + 1, text.length()) != "()" { give back v4_ty_unknown }
     give back v4_slice(text, start, idx)
+}
+
+-- The spelled type argument of a raw memory builtin rvalue
+-- (size_of<T>(), align_of<T>(), zeroed<T>(), null<T>()). MIR keeps the
+-- canonical type, which erases C width aliases, so codegen fences the
+-- surface spelled here.
+task v4_ty_raw_mem_type_arg_surface(expr_text: word) -> word {
+    if expr_text.contains("--") { give back v4_ty_unknown }
+    pilot text = v4_ty_compact_const_expr_text(expr_text)
+    pilot start = 0 - 1
+    if text.starts_with("size_of<") { start = 8 }
+    if text.starts_with("align_of<") { start = 9 }
+    if text.starts_with("zeroed<") { start = 7 }
+    if text.starts_with("null<") { start = 5 }
+    if start < 0 { give back v4_ty_unknown }
+    pilot depth = 1
+    pilot idx = start
+    repeat until idx >= text.length() or depth == 0 {
+        pilot ch = text.char_at(idx)
+        if ch == "<" { depth += 1 }
+        if ch == ">" and text.char_at(idx - 1) != "-" { depth -= 1 }
+        if depth > 0 { idx += 1 }
+    }
+    if depth != 0 or idx <= start or v4_slice(text, idx + 1, text.length()) != "()" { give back v4_ty_unknown }
+    give back v4_slice(text, start, idx)
+}
+
+task v4_ty_text_is_ident_char(ch: word) -> bool {
+    give back ch == "_" or v4_index_of_from("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", ch, 0) >= 0
+}
+
+-- size_of<T>() and align_of<T>() fold per target at code generation, and TY
+-- constants are target independent, so constant contexts refuse them by
+-- name instead of evaluating them for one target.
+task v4_ty_text_has_layout_query(expr_text: word) -> bool {
+    pilot text = v4_ty_compact_const_expr_text(expr_text)
+    pilot idx = 0
+    repeat until idx >= text.length() {
+        if idx == 0 or not v4_ty_text_is_ident_char(text.char_at(idx - 1)) {
+            if v4_slice(text, idx, idx + 8) == "size_of<" or v4_slice(text, idx, idx + 9) == "align_of<" { give back true }
+        }
+        idx += 1
+    }
+    give back false
+}
+
+-- The first size_of or align_of identifier token followed by `<` in
+-- [start, end), or -1. String and char literal tokens are never inspected.
+task v4_ty_tokens_layout_query(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_ident {
+            pilot value = v4_lex_token_syntax_value(stream_id, idx)
+            if value == "size_of" or value == "align_of" {
+                pilot after = v4_ty_skip_trivia(stream_id, idx + 1)
+                if after >= 0 and after < end_token and v4_lex_token_syntax_value(stream_id, after) == "<" { give back idx }
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_layout_query_const_message() -> word {
+    give back "layout queries in constant expressions are not yet supported"
+}
+
+task v4_ty_layout_query_const_help(expr_text: word) -> word {
+    give back v4_ty_strip_const_expr_wrappers(expr_text) + " folds per target at code generation; V4 constants are target independent, so use a literal or bind the query in a task body"
 }
 
 task v4_ty_compact_const_expr_text(expr: word) -> word {
@@ -11032,7 +11113,9 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
         }
         pilot length_text = v4_ty_fixed_array_length_text(type_text)
         pilot resolved_length = v4_ty_const_integer_text_from_expr(ty_id, length_text)
-        if resolved_length == v4_ty_unknown {
+        if resolved_length == v4_ty_unknown and v4_ty_text_has_layout_query(length_text) {
+            v4_ty_add_error_diag(ty_id, context_span, v4_ty_layout_query_const_message(), "array length of " + context + ": " + v4_ty_layout_query_const_help(length_text))
+        } else if resolved_length == v4_ty_unknown {
             pilot const_ty = v4_ty_const_value_type_for_name(ty_id, v4_ty_strip_const_expr_wrappers(length_text))
             if const_ty != v4_ty_unknown and not v4_ty_is_integer(const_ty) {
                 v4_ty_add_error_diag(ty_id, context_span, "array length of " + context + " must use int or uint constant, but " + v4_ty_strip_const_expr_wrappers(length_text) + " has type " + const_ty, "")
@@ -12142,6 +12225,18 @@ task v4_ty_validate_extern_member_link_name_contract(ty_id: int, sig_id: int) ->
     }
 }
 
+-- Word bytes at a C boundary (tier 3 C ABI, bible section 16.1): a `lend s:
+-- word` parameter of an extern block member is the only way a word crosses
+-- into C. It lowers to two C parameters, the bytes as `const char*` and their
+-- byte length as `size_t`; the caller keeps the word and Meiya holds a shared
+-- loan for the call. The bytes are not NUL-terminated for C. By-value words,
+-- `lend mut word`, word returns and words in callbacks stay refused.
+task v4_ty_extern_param_is_c_word_loan(ty_id: int, sig_id: int, param_id: int) -> bool {
+    if v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 { give back false }
+    if v4_ty_signature_param_mode(ty_id, sig_id, param_id) != v4_ty_param_mode_lend { give back false }
+    give back v4_ty_signature_param_surface_type(ty_id, sig_id, param_id) == "word"
+}
+
 task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void {
     if v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 {
         give back
@@ -12151,14 +12246,18 @@ task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void 
     pilot param_id = 0
     pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
     repeat until param_id >= param_count {
-        if v4_ty_signature_param_is_variadic(ty_id, sig_id, param_id) == false {
+        if v4_ty_signature_param_is_variadic(ty_id, sig_id, param_id) == false and v4_ty_extern_param_is_c_word_loan(ty_id, sig_id, param_id) == false {
             pilot param_surface = v4_ty_signature_param_surface_type(ty_id, sig_id, param_id)
             pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
             pilot param_context = member_name + " argument " + word_from_int(param_id + 1)
             if param_name != "" {
                 param_context = member_name + "." + param_name
             }
-            if v4_ty_validate_callback_surface_contract(ty_id, param_surface, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), param_context, "") == false and v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, "") == false {
+            if param_surface == "word" and v4_ty_signature_param_mode(ty_id, sig_id, param_id) == v4_ty_param_mode_lend_mut {
+                v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", param_context + " is lend mut word; C must not write the bytes a FREAK word owns. Pass lend word for read-only bytes, or a *mut tiny buffer.")
+            } else if param_surface == "word" {
+                v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", param_context + " uses word; that is a FREAK string fat pointer, not a C char*. Declare it as a lend word parameter to lend C its bytes as (const char*, size_t), or use *const tiny.")
+            } else if v4_ty_validate_callback_surface_contract(ty_id, param_surface, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), param_context, "") == false and v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, "") == false {
                 v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, param_surface, param_context))
             }
         }
@@ -12344,7 +12443,13 @@ task v4_ty_validate_extern_callback_export_contract(ty_id: int, sig_id: int) -> 
             if param_name != "" {
                 param_context = task_name + "." + param_name
             }
-            v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "@extern_callback parameter type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, param_surface, param_context))
+            pilot help = v4_ty_ffi_boundary_help(ty_id, param_surface, param_context)
+            -- C would hand the callback raw bytes that no FREAK word owns, so
+            -- a word loan has nothing to borrow from on this side.
+            if param_surface == "word" and v4_ty_signature_param_mode(ty_id, sig_id, param_id) != v4_ty_param_mode_value {
+                help = param_context + " lends a word to a callback; lend word crosses the C ABI only into an extern declaration. Take *const tiny and a std::ffi::c_size length instead."
+            }
+            v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "@extern_callback parameter type is not FFI-safe", help)
             give back
         }
         param_id += 1

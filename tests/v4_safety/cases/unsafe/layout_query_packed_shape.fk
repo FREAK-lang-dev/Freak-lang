@@ -1,0 +1,14 @@
+-- Native records ignore packing, so a packed layout is refused by name
+-- instead of answering the natural size.
+-- bible: 16.3
+-- expect: reject codegen
+-- error: native size_of is not yet supported for packed layouts: Packet
+
+use std::ffi::{c_float, c_double}
+
+@layout(C, packed=1)
+shape Packet { tag: c_float, value: c_double }
+
+task main() -> int {
+    give back size_of<Packet>()
+}

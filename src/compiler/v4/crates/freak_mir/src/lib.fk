@@ -81,6 +81,18 @@ pilot v4_mir_unary_num_convert = "NumConvert"
 -- the index operand into a fixed array.
 pilot v4_mir_unary_project = "Project"
 pilot v4_mir_unary_project_index = "ProjectIndex"
+-- Raw allocation and layout queries (bible 7.18). RawAlloc reads a byte
+-- count and gives back the destination's *mut T; RawFree reads a *mut T and
+-- is void; RawNull reads a ConstInt 0 and is the null *T. SizeOf, AlignOf
+-- and Zeroed read a RawNull whose pointer type names the queried T.
+pilot v4_mir_unary_raw_alloc = "RawAlloc"
+pilot v4_mir_unary_raw_free = "RawFree"
+pilot v4_mir_unary_raw_null = "RawNull"
+pilot v4_mir_unary_size_of = "SizeOf"
+pilot v4_mir_unary_align_of = "AlignOf"
+pilot v4_mir_unary_zeroed = "Zeroed"
+-- p.read_unaligned(): a load at alignment 1 (bible 16.3 packed layouts).
+pilot v4_mir_unary_ptr_read_unaligned = "PtrReadUnaligned"
 pilot v4_mir_call_raw_ptr_write = "#RawPtrWrite"
 pilot v4_mir_call_say_literal = "#SayLiteral"
 
@@ -7896,6 +7908,91 @@ task v4_mir_sum_row_shared_error(ty: int, values: int, value: int) -> word {
     give back ""
 }
 
+-- Lists of maybe/result values (tier 3). A carrier lives in a list only as
+-- an element of exactly the carrier type: an Index place over a list place
+-- or a loan of one, a LoopItem (the walker's own copy) over a list loan,
+-- or the item a push moves in. Each is checked on rows, live or staged.
+task v4_mir_sum_list_holds(ty: int, list_text: word, element_text: word) -> bool {
+    pilot list_ty = list_text
+    if v4_ty_is_lend_type(list_ty) { list_ty = v4_ty_lend_target_type(list_ty) }
+    list_ty = v4_ty_canonical_type(ty, list_ty)
+    if not v4_ty_is_generic_instance_type(list_ty) or v4_ty_generic_base_name(list_ty) != "List" or v4_ty_generic_arg_count(list_ty) != 1 { give back false }
+    if v4_ty_type_signature_id_for_name(ty, "List") >= 0 or not v4_ty_is_native_scalar_sum(ty, element_text) { give back false }
+    give back v4_ty_canonical_type(ty, v4_ty_list_element_type(list_ty)) == v4_ty_canonical_type(ty, element_text)
+}
+
+task v4_mir_sum_list_element_place_is_valid(ty: int, places: int, values: int, place: int) -> bool {
+    if place < 0 or place >= array_len(places) { give back false }
+    pilot row: word = array_get(places, place)
+    if v4_mir_snapshot_field(row, 4) != v4_mir_place_index { give back false }
+    pilot base = word_to_int(v4_mir_snapshot_field_raw(row, 6))
+    pilot index = word_to_int(v4_mir_snapshot_field_raw(row, 8))
+    if base < 0 or base >= array_len(places) or base == place or index < 0 or index >= array_len(values) { give back false }
+    give back v4_mir_sum_list_holds(ty, v4_mir_snapshot_field(array_get(places, base), 10), v4_mir_snapshot_field(row, 10))
+}
+
+-- A sum row that reads a list element: a UsePlace of a valid element place
+-- with the place's exact type, or a LoopItem over a shared list loan and an
+-- int index. "" when the row is neither.
+task v4_mir_sum_list_row_error(ty: int, values: int, places: int, value: int) -> word {
+    pilot row: word = array_get(values, value)
+    pilot kind = v4_mir_snapshot_field(row, 4)
+    pilot lhs = word_to_int(v4_mir_snapshot_field_raw(row, 7))
+    pilot rhs = word_to_int(v4_mir_snapshot_field_raw(row, 8))
+    if v4_mir_snapshot_field(row, 11) != "" or v4_mir_snapshot_field(row, 12) != "" or v4_mir_snapshot_field(row, 13) != "" { give back "invalid scalar sum list element row" }
+    if kind == v4_mir_rvalue_use_place {
+        if rhs != -1 or not v4_mir_sum_list_element_place_is_valid(ty, places, values, lhs) or v4_mir_snapshot_field(array_get(places, lhs), 10) != v4_mir_snapshot_field(row, 10) { give back "scalar sum projection places are not yet supported" }
+        give back ""
+    }
+    if kind != v4_mir_rvalue_loop_item { give back "unsupported scalar sum rvalue" }
+    if lhs < 0 or lhs >= value or rhs < 0 or rhs >= value or v4_mir_control_row_type(values, rhs) != v4_ty_int { give back "invalid scalar sum list loop item" }
+    pilot loan_ty = v4_mir_control_row_type(values, lhs)
+    if not v4_ty_is_lend_type(loan_ty) or v4_ty_lend_mode(loan_ty) != v4_ty_param_mode_lend or not v4_mir_sum_list_holds(ty, loan_ty, v4_mir_snapshot_field(row, 10)) { give back "invalid scalar sum list loop item" }
+    give back ""
+}
+
+-- A `lend` / `lend mut` argument of a List formal in a call a sum proof
+-- checks: a loan row of exactly that mode and list type, over an owner row
+-- before it, or an exact local that already holds such a loan. A loan owns
+-- nothing, so it moves no carrier.
+task v4_mir_sum_list_loan_arg_is_valid(ty: int, values: int, locals: int, child: int, expected: word, mode: word) -> bool {
+    if child < 0 or child >= array_len(values) { give back false }
+    pilot list_ty = v4_ty_canonical_type(ty, expected)
+    if v4_ty_is_lend_type(list_ty) or not v4_ty_is_generic_instance_type(list_ty) or v4_ty_generic_base_name(list_ty) != "List" or v4_ty_generic_arg_count(list_ty) != 1 or v4_ty_type_signature_id_for_name(ty, "List") >= 0 { give back false }
+    pilot row: word = array_get(values, child)
+    pilot loan_ty = v4_mir_snapshot_field(row, 10)
+    if not v4_ty_is_lend_type(loan_ty) or v4_ty_lend_mode(loan_ty) != mode or v4_ty_canonical_type(ty, v4_ty_lend_target_type(loan_ty)) != list_ty { give back false }
+    if v4_mir_snapshot_field(row, 11) != "" or v4_mir_snapshot_field(row, 12) != "" or v4_mir_snapshot_field(row, 13) != "" { give back false }
+    pilot kind = v4_mir_snapshot_field(row, 4)
+    if kind == v4_mir_rvalue_use_local { give back v4_mir_sum_row_local(values, locals, child) >= 0 }
+    pilot wanted = v4_mir_rvalue_lend
+    if mode == v4_ty_param_mode_lend_mut { wanted = v4_mir_rvalue_lend_mut }
+    if kind != wanted or v4_mir_snapshot_field_raw(row, 8) != "-1" { give back false }
+    pilot owner = word_to_int(v4_mir_snapshot_field_raw(row, 7))
+    give back owner >= 0 and owner < child and v4_ty_canonical_type(ty, v4_mir_control_row_type(values, owner)) == list_ty
+}
+
+-- `xs.push(item)` with a carrier item: the closed list call over a
+-- `lend mut` loan of a List of exactly the item's carrier type.
+task v4_mir_sum_list_push_row_error(ty: int, values: int, locals: int, value: int) -> word {
+    pilot row: word = array_get(values, value)
+    pilot args = v4_mir_snapshot_field(row, 12)
+    if v4_mir_snapshot_field(row, 6) != "builtin::list::push" or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" or v4_mir_snapshot_field(row, 11) != "" or v4_mir_snapshot_field(row, 10) != v4_ty_void or v4_mir_call_args_payload_count(args) != 2 { give back "invalid native list push contract" }
+    pilot loan = v4_mir_call_args_payload_at(args, 0)
+    pilot item = v4_mir_call_args_payload_at(args, 1)
+    if loan < 0 or loan >= value or item < 0 or item >= value { give back "invalid native list push contract" }
+    pilot loan_ty = v4_mir_control_row_type(values, loan)
+    pilot item_ty = v4_mir_control_row_type(values, item)
+    if not v4_ty_is_lend_type(loan_ty) or v4_ty_lend_mode(loan_ty) != v4_ty_param_mode_lend_mut or not v4_mir_sum_list_holds(ty, loan_ty, item_ty) { give back "invalid native list push contract" }
+    if v4_ty_canonical_type(ty, v4_ty_list_element_type(v4_ty_canonical_type(ty, v4_ty_lend_target_type(loan_ty)))) != item_ty { give back "scalar sum arguments require exact owning value parameters" }
+    pilot loan_kind = v4_mir_snapshot_field(array_get(values, loan), 4)
+    if loan_kind == v4_mir_rvalue_use_local {
+        if v4_mir_sum_row_local(values, locals, loan) < 0 { give back "invalid native list push contract" }
+    } else if loan_kind != v4_mir_rvalue_lend_mut { give back "invalid native list push contract" }
+    if v4_mir_snapshot_field(array_get(values, item), 4) == v4_mir_rvalue_use_local and v4_mir_sum_row_local(values, locals, item) < 0 { give back "invalid scalar sum task argument local identity" }
+    give back ""
+}
+
 task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) -> word {
     pilot row: word = array_get(values, value)
     if v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_call { give back "" }
@@ -7920,6 +8017,7 @@ task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) ->
         give back ""
     }
     if identity == v4_mir_builtin_weak_upgrade or identity == v4_mir_builtin_shared_borrow_mut or identity == v4_mir_builtin_shared_get_mut { give back v4_mir_sum_row_shared_error(ty, values, value) }
+    if identity == "builtin::list::push" { give back v4_mir_sum_list_push_row_error(ty, values, locals, value) }
     if identity != "" or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" { give back "scalar sum calls require a resolved ordinary static task" }
     -- A generic instance call answers with its substitution applied.
     pilot signature = v4_mir_task_call_signature(ty, v4_mir_snapshot_field(row, 6))
@@ -7937,6 +8035,8 @@ task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) ->
         pilot child_row: word = array_get(values, child)
         if v4_ty_is_native_scalar_sum(ty, actual) or v4_ty_is_native_scalar_sum(ty, expected) {
             if actual != expected or mode != v4_ty_param_mode_value { give back "scalar sum arguments require exact owning value parameters" }
+        } else if (mode == v4_ty_param_mode_lend or mode == v4_ty_param_mode_lend_mut) and v4_mir_sum_list_loan_arg_is_valid(ty, values, locals, child, expected, mode) {
+            actual = expected
         } else if mode == v4_ty_param_mode_lend {
             if expected != v4_ty_word or not v4_mir_sum_row_word_loan_is_valid(values, locals, child, value) { give back "invalid scalar sum task word loan argument" }
             actual = v4_ty_word
@@ -8098,6 +8198,9 @@ task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks:
         if not v4_mir_word_scope_fact_is_valid(v4_mir_snapshot_field(statement, 11), file, body_span, v4_mir_snapshot_field(statement, 7), true) { give back "invalid scalar sum statement scope" }
         pilot place = word_to_int(v4_mir_snapshot_field_raw(statement, 9))
         pilot value = word_to_int(v4_mir_snapshot_field_raw(statement, 10))
+        -- A Loop row's place names the for-each binding; its value is the
+        -- header test, never stored there (the item binds by a Local row).
+        if v4_mir_snapshot_field(statement, 4) == v4_mir_stmt_loop and v4_mir_control_row_type(values, value) == v4_ty_bool { place = -1 }
         if place >= 0 and place < array_len(places) and value >= 0 and value < array_len(values) {
             pilot destination: word = array_get(places, place)
             pilot expected = v4_mir_snapshot_field(destination, 10)
@@ -8110,7 +8213,8 @@ task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks:
     repeat until row >= array_len(places) {
         pilot place: word = array_get(places, row)
         if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(place, 10)) {
-            if v4_mir_snapshot_field(place, 4) != v4_mir_place_local and v4_mir_snapshot_field(place, 4) != v4_mir_place_return { give back "scalar sum projection places are not yet supported" }
+            pilot element: bool = v4_mir_sum_list_element_place_is_valid(ty, places, values, row)
+            if v4_mir_snapshot_field(place, 4) != v4_mir_place_local and v4_mir_snapshot_field(place, 4) != v4_mir_place_return and not element { give back "scalar sum projection places are not yet supported" }
             if v4_mir_snapshot_field(place, 4) == v4_mir_place_local {
                 pilot local = word_to_int(v4_mir_snapshot_field_raw(place, 6))
                 if local < 0 or local >= array_len(locals) { give back "invalid scalar sum place local identity" }
@@ -8128,7 +8232,10 @@ task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks:
         pilot value: word = array_get(values, row)
         if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(value, 10)) {
             pilot kind = v4_mir_snapshot_field(value, 4)
-            if kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_call and kind != v4_mir_rvalue_some and kind != v4_mir_rvalue_nobody and kind != v4_mir_rvalue_ok and kind != v4_mir_rvalue_err { give back "unsupported scalar sum rvalue" }
+            if kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_loop_item {
+                error = v4_mir_sum_list_row_error(ty, values, places, row)
+                if error != "" { give back error }
+            } else if kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_call and kind != v4_mir_rvalue_some and kind != v4_mir_rvalue_nobody and kind != v4_mir_rvalue_ok and kind != v4_mir_rvalue_err { give back "unsupported scalar sum rvalue" }
         }
         row += 1
     }
