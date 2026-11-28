@@ -32,6 +32,7 @@
   the first field) were dropped. They now land in the field that gets focus,
   one frame later. If a click follows in the same frame, the keys before the
   click still go to that field and the keys after it to the clicked one.
+  Several jumps in one frame each keep their own keys.
 * `cockpit_ui_shortcut` checks the modifiers that were held when the key went
   down, so a Ctrl+S whose Ctrl comes back up before the frame begins still
   counts (`cockpit_flight_chord` relies on this).
