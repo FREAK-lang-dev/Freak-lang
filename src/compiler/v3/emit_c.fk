@@ -829,6 +829,25 @@ task c_map_call(val: word) -> word {
     if val == "tcp::socket_receive" { give back "freak_tcp_socket_receive" }
     if val == "tcp::socket_set_timeout" { give back "freak_tcp_socket_set_timeout" }
     if val == "tcp::socket_close" { give back "freak_tcp_socket_close" }
+    if val == "oni::summon" { give back "freak_oni_summon" }
+    if val == "oni::resume" { give back "freak_oni_resume" }
+    if val == "oni::next_ready" { give back "freak_oni_next_ready" }
+    if val == "oni::suspend" { give back "freak_oni_suspend" }
+    if val == "oni::suspend_for" { give back "freak_oni_suspend_for" }
+    if val == "oni::wake" { give back "freak_oni_wake" }
+    if val == "oni::cancel" { give back "freak_oni_cancel" }
+    if val == "oni::cancelled" { give back "freak_oni_cancelled" }
+    if val == "oni::timed_out" { give back "freak_oni_timed_out" }
+    if val == "oni::current" { give back "freak_oni_current" }
+    if val == "oni::state" { give back "freak_oni_state" }
+    if val == "oni::returned" { give back "freak_oni_returned" }
+    if val == "oni::release" { give back "freak_oni_release" }
+    if val == "oni::curfew" { give back "freak_oni_curfew" }
+    if val == "oni::stack_kib" { give back "freak_oni_stack_kib" }
+    if val == "oni::live" { give back "freak_oni_live_count" }
+    if val == "oni::waiting" { give back "freak_oni_waiting" }
+    if val == "oni::ready_count" { give back "freak_oni_ready_count" }
+    if val == "oni::poll" { give back "freak_oni_poll" }
     if val == "tcp_connect" { give back "freak_tcp_connect" }
     if val == "tcp_send" { give back "freak_tcp_send" }
     if val == "tcp_recv" { give back "freak_tcp_recv" }
@@ -984,6 +1003,7 @@ task emit_c_call(expr_id: word, val: word, left: word) -> void {
     if val == "List::new" { emit("freak_v3_array_new(FREAK_V3_C_WORD)") give back }
     if val == "List::with_capacity" { emit_c_list_with_capacity(expr_id, left) give back }
     if val.starts_with("shape::ctor::") { emit_c_shape_ctor(val.replace("shape::ctor::", ""), left) give back }
+    if val == "oni::summon" { emit_c_oni_summon(left) give back }
     pilot legacy_array_call = val == "array_get" or val == "array_set" or val == "array_push" or val == "array_len" or val == "array_release"
     if legacy_array_call and tc_is_list(tc_expr_type(tc_arg_at(left, 0))) { emit_c_legacy_list_call(expr_id, val, left) give back }
 
@@ -1015,6 +1035,17 @@ task emit_c_call(expr_id: word, val: word, left: word) -> void {
     }
 
     emit_c_user_call(expr_id, c_user_task_symbol(val), left)
+}
+
+-- oni::summon("task", arg): the checker proved the literal names a task
+-- (int) -> void|int, so pass its address and whether it gives back an int.
+task emit_c_oni_summon(left: word) -> void {
+    pilot task_name: word = array_get(ast_expr_vals, tc_arg_at(left, 0))
+    pilot returns_int = "0"
+    if tc_task_return_type(task_name) == "int" { returns_int = "1" }
+    emit("freak_oni_summon((int64_t)(intptr_t)&" + c_user_task_symbol(task_name) + ", " + returns_int + ", (int64_t)(")
+    emit_expr(word_from_int(tc_arg_at(left, 1)))
+    emit("))")
 }
 
 task emt_raw_type_code(type_name: word) -> word {

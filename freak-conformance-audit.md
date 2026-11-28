@@ -546,7 +546,7 @@ parity. This does not claim native C UI support or general collection fields.
 
 ### §3 CONCURRENCY — FULL MODEL ([freak-full-bible.md:740-834](freak-full-bible.md))
 
-**Section verdict: 📖 entire section tagged V4 except `std::thread` reference.** None of the squadron primitives exist.
+**Section verdict: 📖 entire section tagged V4 except the §3.0 `oni` floor (implemented in V3.5) and the `std::thread` reference.** None of the squadron primitives exist.
 
 | §3 contract | Status | Verdict |
 |---|---|---|
@@ -560,6 +560,7 @@ parity. This does not claim native C UI support or general collection fields.
 | §3.2 `Comms::open<T>()`, `Comms::buffered<T>(n)` typed channels | ⚠️ | 📖 V4 (note: `std::sync::Channel` exists in CLAUDE.md examples) |
 | §3.2 `BriefingRoom<T>::new`, `enter briefing`, `observe briefing` | ❌ | 📖 V4 |
 | §3.2 `wingman ActorName { on msg(...) }` actor model | ❌ | 📖 V4 |
+| §3.0 `oni` hook: `oni::summon("task", arg)` stackful green tasks, parking `tcp::socket_*` / `time::sleep` | ✅ | V3.5 floor (first release after 0.15.2). [Runtime](freakc/runtime/freak_v35_oni.inc), [guide](docs/oni.md), `tests/v3_oni.py` (LLVM/C, O0/O2/O3, `--strict-borrow`, checker diagnostics) in CI on Linux, macOS and Windows. Squadron syntax stays V4. |
 | `std::thread::spawn` (escape hatch) | ⚠️ | 📖 stub status — currently planned in CLAUDE.md table |
 
 ---

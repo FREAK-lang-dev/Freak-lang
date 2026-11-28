@@ -870,6 +870,18 @@ task pb_bind_expr(unit: int, expr: int) -> void {
             }
         }
         if kind == EXPR_CALL { pb_bind_args(unit, left) }
+        -- oni::summon("task", arg) names its task in a string literal; bind
+        -- that name like a call so it reaches the flattened declaration.
+        if kind == EXPR_CALL and bound == "oni::summon" and left != "" {
+            pilot name_expr = tc_arg_at(left, 0)
+            if name_expr >= 0 and array_get(ast_expr_kinds, name_expr) == EXPR_STR {
+                pilot task_name = array_get(ast_expr_vals, name_expr)
+                if pb_missing_generated_access(unit, task_name, STMT_TASK) {
+                    pb_origin_error(array_get(ast_expr_files, name_expr), word_to_int(array_get(ast_expr_lines, name_expr)), task_name, "missing or unimported declaration '" + task_name + "'")
+                }
+                array_set(ast_expr_vals, name_expr, pb_resolve(unit, task_name, STMT_TASK, false))
+            }
+        }
     } else if kind == EXPR_METHOD { pb_bind_expr(unit, word_to_int(left)) pb_bind_args(unit, right) }
     else if kind == EXPR_FIELD or kind == EXPR_UNARYOP { pb_bind_expr(unit, word_to_int(left)) }
     else if kind == EXPR_BINOP or kind == EXPR_INDEX { pb_bind_expr(unit, word_to_int(left)) pb_bind_expr(unit, word_to_int(right)) }

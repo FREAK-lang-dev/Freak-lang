@@ -25,7 +25,7 @@ AUDIT_FLAGS = ("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1", "-DFREAK_C_RUNTIME_OWNERSHIP
 SANITIZER_FLAGS = ("-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer")
 DARWIN_DEPLOYMENT_SOURCE = "/* Observe the selected Clang deployment target; no executable. */\n"
 RUNTIME_SOURCES = ("freak_llvm_runtime.c", "freak_v4_word_runtime.c", "freak_v4_compiler_array_runtime.c", "freak_v4_numeric_runtime.c", "freak_v4_unicode_runtime.c", "freak_v4_system_runtime.c", "freak_v4_panic_runtime.c", "freak_runtime.c")
-RUNTIME_HEADERS = ("freak_runtime.h", "freak_v4_word_runtime.h", "freak_v4_compiler_array_runtime.h", "freak_v4_numeric_runtime.h", "freak_v4_unicode_runtime.h", "freak_v4_unicode_lower_tables.h", "freak_v4_system_runtime.h", "freak_v4_panic_runtime.h", "freak_v35_process.inc", "freak_v35_fs.inc", "freak_v35_json.inc", "freak_v35_http.inc")
+RUNTIME_HEADERS = ("freak_runtime.h", "freak_v4_word_runtime.h", "freak_v4_compiler_array_runtime.h", "freak_v4_numeric_runtime.h", "freak_v4_unicode_runtime.h", "freak_v4_unicode_lower_tables.h", "freak_v4_system_runtime.h", "freak_v4_panic_runtime.h", "freak_v35_process.inc", "freak_v35_fs.inc", "freak_v35_json.inc", "freak_v35_http.inc", "freak_v35_oni.inc")
 RUNTIME_VENDOR_HEADERS = ("third_party/llhttp/freak_amalgamation.inc", "third_party/llhttp/include/llhttp.h", "third_party/llhttp/src/llhttp.h", "third_party/llhttp/src/api.c", "third_party/llhttp/src/http.c", "third_party/llhttp/src/llhttp.c")
 CRATE_MANIFEST = "src/compiler/v4/crate-sources.manifest"
 RUNTIME_MANIFEST = "src/compiler/v4/native-runtime.manifest"

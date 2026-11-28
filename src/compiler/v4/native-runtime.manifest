@@ -20,6 +20,7 @@ header freak_v35_process.inc
 header freak_v35_fs.inc
 header freak_v35_json.inc
 header freak_v35_http.inc
+header freak_v35_oni.inc
 header third_party/llhttp/freak_amalgamation.inc
 header third_party/llhttp/include/llhttp.h
 header third_party/llhttp/src/llhttp.h

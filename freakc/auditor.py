@@ -2343,6 +2343,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freakc/runtime/freak_v35_fs.inc",
                 "freakc/runtime/freak_v35_json.inc",
                 "freakc/runtime/freak_v35_http.inc",
+                "freakc/runtime/freak_v35_oni.inc",
                 "freakc/runtime/ui/win32_backend.c",
                 "freakc/runtime/ui/freak_ui_platform.h",
                 "freakc/runtime/freak_abi",
@@ -2402,7 +2403,7 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "src" / "cli" / "doctor.fk",
             (
                 "modules_expected\\\": 17",
-                "files_expected\\\": 37",
+                "files_expected\\\": 38",
                 "FREAK_V3_ABI",
                 "FREAK_V3_RUNTIME_API",
                 "runtime_api",
@@ -7179,6 +7180,26 @@ def audit_conformance(paths: List[Path]) -> int:
     add("V3 typed arrays", not array_missing, "checked storage + native ownership/parity/performance gates wired" if not array_missing else f"{len(array_missing)} gap(s)")
     if array_missing:
         failures.append("V3 typed array contract regressed: " + "; ".join(array_missing))
+    # Static wiring guard for the V3.5 oni hook (bible §3.0); tests/v3_oni.py runs it.
+    oni_missing: List[str] = []
+    oni_sources = {
+        "src/compiler/v3/checker.fk": ("tc_validate_oni_summon", "oni::summon", "oni::resume"),
+        "src/compiler/v3/emit_c.fk": ("emit_c_oni_summon", "freak_oni_poll"),
+        "src/compiler/v3/emit_llvm.fk": ("llvm_emit_oni_summon", "@freak_llvm_oni_poll"),
+        "src/cli/package_binding.fk": ("oni::summon",),
+        "freakc/runtime/freak_runtime.c": ('#include "freak_v35_oni.inc"', "freak_oni_wait_socket", "freak_oni_socket_closing"),
+        "freakc/runtime/freak_v35_oni.inc": ("freak_oni_summon", "freak_oni_poll", "freak_llvm_oni_summon"),
+        "packaging/distribution-files.manifest": ("freakc/runtime/freak_v35_oni.inc",),
+        "freak-full-bible.md": ("### 3.0 V3.5 floor: the `oni` hook",),
+        ".github/workflows/ci.yml": ("tests/v3_oni.py",),
+    }
+    for relative, needles in oni_sources.items():
+        source = repo / relative
+        source_text = source.read_text(encoding="utf-8") if source.exists() else ""
+        oni_missing.extend(f"{relative}: {needle}" for needle in needles if needle not in source_text)
+    add("V3.5 oni hook", not oni_missing, "summon builtin + parking sockets/sleep + CI wired" if not oni_missing else f"{len(oni_missing)} gap(s)")
+    if oni_missing:
+        failures.append("V3.5 oni hook regressed: " + "; ".join(oni_missing))
 
     # ── Print summary ────────────────────────────────────────
     print()
