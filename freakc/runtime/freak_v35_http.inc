@@ -27,6 +27,10 @@ extern int accept4(int,struct sockaddr *,socklen_t *,int);
 #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
 #include <sys/event.h>
 #define FREAK_HTTP_KQUEUE 1
+#if defined(__APPLE__) && !defined(FREAK_HTTP_NO_SENDFILE)
+#include <sys/uio.h>
+#define FREAK_HTTP_BSD_SENDFILE 1
+#endif
 #else
 #define FREAK_HTTP_POLL 1
 #endif
@@ -105,6 +109,8 @@ struct freak_http_request {
     freak_http_conn *conn;
     freak_http_request *ready_next;
     char error[192];
+    /* The TCP peer of the connection the request arrived on. */
+    char peer_ip[48]; int peer_port;
 };
 struct freak_http_conn {
     freak_native_socket socket;
@@ -118,6 +124,7 @@ struct freak_http_conn {
     /* A streamed file response: -1 when none. */
     int file; uint64_t file_offset,file_remaining;
     uint64_t accepted_at,idle_deadline,write_deadline,write_idle,drain_deadline;
+    char peer_ip[48]; int peer_port;
 };
 typedef struct { uint32_t generation; freak_http_request *request; } freak_http_ticket;
 typedef union { max_align_t alignment; struct { size_t size; } metadata; } freak_http_allocation;
@@ -266,6 +273,7 @@ static freak_http_request *freak_http_new_request(freak_http_server *server,frea
     freak_http_request *request=freak_http_allocate(sizeof(freak_http_request));
     request->socket=FREAK_INVALID_NATIVE_SOCKET; request->server=server->ticket; request->limits=server->limits;
     request->current_header=-1; request->response_status=200; request->conn=conn;
+    if(conn) { memcpy(request->peer_ip,conn->peer_ip,sizeof(request->peer_ip)); request->peer_port=conn->peer_port; }
     freak_http_init_settings(); llhttp_init(&request->parser,HTTP_REQUEST,&freak_http_settings); request->parser.data=request;
     return request;
 }
@@ -808,7 +816,7 @@ static int freak_http_on_chunk_complete(llhttp_t *parser) { freak_http_request *
 static int freak_http_on_complete(llhttp_t *parser) { freak_http_request *request=parser->data; request->message_done=true; request->persistent=request->persistent && llhttp_should_keep_alive(parser)!=0; return HPE_PAUSED; }
 
 static const char *freak_http_reason(int status) {
-    switch(status) { case 200:return "OK";case 201:return "Created";case 204:return "No Content";case 205:return "Reset Content";case 304:return "Not Modified";case 400:return "Bad Request";case 404:return "Not Found";case 405:return "Method Not Allowed";case 408:return "Request Timeout";case 413:return "Content Too Large";case 414:return "URI Too Long";case 417:return "Expectation Failed";case 431:return "Request Header Fields Too Large";case 500:return "Internal Server Error";case 501:return "Not Implemented";case 503:return "Service Unavailable";case 505:return "HTTP Version Not Supported";default:return "Response"; }
+    switch(status) { case 200:return "OK";case 201:return "Created";case 204:return "No Content";case 205:return "Reset Content";case 206:return "Partial Content";case 304:return "Not Modified";case 400:return "Bad Request";case 404:return "Not Found";case 405:return "Method Not Allowed";case 408:return "Request Timeout";case 413:return "Content Too Large";case 414:return "URI Too Long";case 416:return "Range Not Satisfiable";case 417:return "Expectation Failed";case 431:return "Request Header Fields Too Large";case 500:return "Internal Server Error";case 501:return "Not Implemented";case 503:return "Service Unavailable";case 505:return "HTTP Version Not Supported";default:return "Response"; }
 }
 
 /* ── Connection I/O ───────────────────────────────────────────────────── */
@@ -941,10 +949,30 @@ static ssize_t freak_http_sendfile_quiet(int socket,int file,off_t *offset,size_
    the loop: the caller requeues the rest behind other connections.
    false: connection failed. */
 #define FREAK_HTTP_FILE_TURN ((uint64_t)512*1024)
+#if defined(FREAK_HTTP_BSD_SENDFILE) || (defined(FREAK_HTTP_TEST_BSD_SENDFILE) && defined(__linux__))
+#ifndef FREAK_HTTP_BSD_SENDFILE
+#define FREAK_HTTP_BSD_SENDFILE 1
+#endif
+/* macOS sendfile: *sent is what went out even when it fails with EAGAIN or
+   EINTR part way. Accepted sockets carry SO_NOSIGPIPE, so a vanished peer
+   is an EPIPE here, not a signal. FREAK_HTTP_TEST_BSD_SENDFILE emulates
+   these semantics with Linux sendfile so the pump is exercised there too. */
+static int freak_http_sendfile_bsd(int file,int socket,uint64_t offset,uint64_t count,uint64_t *sent) {
+#if defined(__APPLE__)
+    off_t length=(off_t)count; int result=sendfile(file,socket,(off_t)offset,&length,NULL,0);
+    *sent=length>0?(uint64_t)length:0; return result;
+#else
+    off_t at=(off_t)offset; ssize_t moved=freak_http_sendfile_quiet(socket,file,&at,(size_t)(count>(1u<<30)?(1u<<30):count));
+    if(moved<0) { *sent=0; return -1; }
+    *sent=(uint64_t)moved; if(moved>0 && (uint64_t)moved<count) { errno=EAGAIN; return -1; }
+    return 0;
+#endif
+}
+#endif
 static bool freak_http_pump_file(freak_http_conn *conn) {
     uint64_t moved=0;
     while(conn->file_remaining && conn->writable && conn->out_offset==conn->out_length && moved<FREAK_HTTP_FILE_TURN) {
-#if defined(__linux__) && !defined(FREAK_HTTP_NO_SENDFILE)
+#if defined(__linux__) && !defined(FREAK_HTTP_NO_SENDFILE) && !defined(FREAK_HTTP_TEST_BSD_SENDFILE)
         uint64_t turn=FREAK_HTTP_FILE_TURN-moved;
         size_t wanted=conn->file_remaining>turn?(size_t)turn:(size_t)conn->file_remaining;
         off_t offset=(off_t)conn->file_offset;
@@ -954,6 +982,18 @@ static bool freak_http_pump_file(freak_http_conn *conn) {
         if(sent<=0) return false; /* a failed read or send, or the file shrank */
         conn->file_offset+=(uint64_t)sent; conn->file_remaining-=(uint64_t)sent; moved+=(uint64_t)sent;
         conn->write_idle=freak_command_now_ms()+conn->server->limits.idle_ms;
+#elif defined(FREAK_HTTP_BSD_SENDFILE)
+        uint64_t turn=FREAK_HTTP_FILE_TURN-moved,sent=0;
+        uint64_t wanted=conn->file_remaining>turn?turn:conn->file_remaining;
+        int result=freak_http_sendfile_bsd(conn->file,(int)conn->socket,conn->file_offset,wanted,&sent); int error=errno;
+        if(sent>wanted) sent=wanted;
+        if(sent) {
+            conn->file_offset+=sent; conn->file_remaining-=sent; moved+=sent;
+            conn->write_idle=freak_command_now_ms()+conn->server->limits.idle_ms;
+        }
+        if(result<0 && error==EINTR) continue;
+        if(result<0 && (error==EAGAIN || error==EWOULDBLOCK)) { conn->writable=false; break; }
+        if(result<0 || !sent) return false; /* a failed read or send, or the file shrank */
 #else
         size_t wanted=conn->file_remaining>sizeof(freak_http_scratch)?sizeof(freak_http_scratch):(size_t)conn->file_remaining;
 #ifdef _WIN32
@@ -964,8 +1004,16 @@ static bool freak_http_pump_file(freak_http_conn *conn) {
 #endif
         if(got<=0) return false;
         conn->file_offset+=(uint64_t)got; conn->file_remaining-=(uint64_t)got; moved+=(uint64_t)got;
-        freak_http_queue_out(conn,freak_http_scratch,(size_t)got);
-        if(!freak_http_flush(conn)) return false;
+        /* The output queue is empty here: send straight from the chunk and
+           copy only what the socket did not take. */
+        size_t offset=0;
+        while(conn->writable && offset<(size_t)got) {
+            long sent=freak_http_send_some(conn->socket,freak_http_scratch+offset,(size_t)got-offset);
+            if(sent<0) return false;
+            if(sent==0) conn->writable=false;
+            else { offset+=(size_t)sent; conn->write_idle=freak_command_now_ms()+conn->server->limits.idle_ms; }
+        }
+        if(offset<(size_t)got) freak_http_queue_out(conn,freak_http_scratch+offset,(size_t)got-offset);
 #endif
     }
     if(!conn->file_remaining) freak_http_close_file(conn);
@@ -1061,13 +1109,31 @@ static void freak_http_service(freak_http_conn *conn) {
     /* Out of budget with an edge still pending: revisit without waiting. */
     if(!conn->dead) freak_http_mark_hot(conn);
 }
+/* Numeric text of an accepted peer. An IPv4 client on a dual-stack listener
+   is reported as plain IPv4 rather than ::ffff:a.b.c.d. */
+static void freak_http_peer_text(const struct sockaddr_storage *peer,char *text,size_t capacity,int *port) {
+    text[0]=0; *port=0;
+    if(peer->ss_family==AF_INET) {
+        const struct sockaddr_in *v4=(const struct sockaddr_in *)peer;
+        if(!inet_ntop(AF_INET,(void *)&v4->sin_addr,text,(socklen_t)capacity)) text[0]=0;
+        *port=ntohs(v4->sin_port);
+    } else if(peer->ss_family==AF_INET6) {
+        const struct sockaddr_in6 *v6=(const struct sockaddr_in6 *)peer;
+        static const unsigned char mapped[12]={0,0,0,0,0,0,0,0,0,0,0xff,0xff};
+        const unsigned char *bytes=(const unsigned char *)&v6->sin6_addr;
+        if(memcmp(bytes,mapped,12)==0) { if(!inet_ntop(AF_INET,(void *)(bytes+12),text,(socklen_t)capacity)) text[0]=0; }
+        else if(!inet_ntop(AF_INET6,(void *)&v6->sin6_addr,text,(socklen_t)capacity)) text[0]=0;
+        *port=ntohs(v6->sin6_port);
+    }
+}
 static void freak_http_accept(freak_http_server *server) {
     for(int accepted=0;accepted<64;accepted++) {
         if(server->conn_count+server->detached_queued>=server->max_connections) { freak_http_listener_arm(server,false); return; }
+        struct sockaddr_storage peer; socklen_t peer_size=sizeof(peer); memset(&peer,0,sizeof(peer));
 #if defined(__linux__)
-        freak_native_socket socket_value=accept4(server->listener,NULL,NULL,SOCK_NONBLOCK|SOCK_CLOEXEC);
+        freak_native_socket socket_value=accept4(server->listener,(struct sockaddr *)&peer,&peer_size,SOCK_NONBLOCK|SOCK_CLOEXEC);
 #else
-        freak_native_socket socket_value=accept(server->listener,NULL,NULL);
+        freak_native_socket socket_value=accept(server->listener,(struct sockaddr *)&peer,&peer_size);
 #endif
         if(socket_value==FREAK_INVALID_NATIVE_SOCKET) {
             if(freak_tcp_socket_error_is_interrupted()) continue;
@@ -1091,6 +1157,7 @@ static void freak_http_accept(freak_http_server *server) {
         if(!configured) { freak_http_close_socket(&socket_value); continue; }
         freak_http_conn *conn=freak_http_allocate(sizeof(freak_http_conn));
         conn->socket=socket_value; conn->server=server; conn->readable=true; conn->writable=true; conn->file=-1; conn->accepted_at=freak_command_now_ms();
+        freak_http_peer_text(&peer,conn->peer_ip,sizeof(conn->peer_ip),&conn->peer_port);
         if(server->conn_count==server->conn_capacity) { size_t next=server->conn_capacity?server->conn_capacity*2:64; server->conns=freak_http_grow(server->conns,next*sizeof(*server->conns)); server->conn_capacity=next; }
         conn->index=server->conn_count; server->conns[server->conn_count++]=conn; freak_http_connection_live++;
         freak_http_begin_read(conn,freak_command_now_ms());
@@ -1223,6 +1290,8 @@ int64_t freak_http_server_request_status(int64_t ticket) { return freak_http_req
 freak_word freak_http_server_request_error(int64_t ticket) { return freak_word_copy_cstr(freak_http_require_request(ticket)->error); }
 static freak_http_request *freak_http_parsed(int64_t ticket) { freak_http_request *request=freak_http_require_request(ticket); if(!request->message_done || request->status) freak_http_fail("request metadata requires a successfully parsed request"); return request; }
 freak_word freak_http_server_request_method(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); return freak_http_word(request->method.data,request->method.length); }
+freak_word freak_http_server_request_peer_ip(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); return freak_http_word((const unsigned char *)request->peer_ip,strlen(request->peer_ip)); }
+int64_t freak_http_server_request_peer_port(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); return request->peer_port; }
 freak_word freak_http_server_request_target(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); return freak_http_word(request->target.data,request->target.length); }
 freak_word freak_http_server_request_path(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); size_t end=0; while(end<request->target.length && request->target.data[end]!='?') end++; return freak_http_word(request->target.data,end); }
 freak_word freak_http_server_request_query(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); size_t begin=0; while(begin<request->target.length && request->target.data[begin]!='?') begin++; if(begin<request->target.length) begin++; return freak_http_word(request->target.data+begin,request->target.length-begin); }
@@ -1239,8 +1308,12 @@ int64_t freak_http_server_request_header_find(int64_t ticket,freak_word name,int
 int64_t freak_http_server_request_body(int64_t ticket) { freak_http_request *request=freak_http_parsed(ticket); freak_byte_buffer_record *body=freak_byte_buffer_require(request->body,"HTTP body getter"); const unsigned char *data=body->data; size_t length=body->length; return freak_http_bytes(data,length); }
 static bool freak_http_respondable(freak_http_request *request) { if(!request->message_done || request->status || request->responded || !request->conn) { snprintf(request->error,sizeof(request->error),"request cannot receive another response"); return false; } return true; }
 int64_t freak_http_server_response_status(int64_t ticket,int64_t status) { freak_http_request *request=freak_http_require_request(ticket); if(!freak_http_respondable(request) || status<200 || status>599) { snprintf(request->error,sizeof(request->error),"response status must be 200 through 599"); return 0; } request->response_status=(int)status; return 1; }
+static int64_t freak_http_add_response_header(freak_http_request *request,freak_word name,freak_word value);
 int64_t freak_http_server_response_header(int64_t ticket,freak_word name,freak_word value) {
     freak_http_request *request=freak_http_require_request(ticket); if(!freak_http_respondable(request)) return 0;
+    return freak_http_add_response_header(request,name,value);
+}
+static int64_t freak_http_add_response_header(freak_http_request *request,freak_word name,freak_word value) {
     if(!name.length || !name.data || name.length>127 || (value.length&&!value.data) || value.length>request->limits.headers) goto invalid;
     for(size_t i=0;i<name.length;i++) if(!freak_http_token((unsigned char)name.data[i])) goto invalid;
     for(size_t i=0;i<value.length;i++) if((unsigned char)value.data[i]<32 && value.data[i]!='\t' || (unsigned char)value.data[i]==127) goto invalid;
@@ -1310,7 +1383,7 @@ static int64_t freak_http_send(freak_http_request *request,const unsigned char *
 int64_t freak_http_server_send_bytes(int64_t ticket,int64_t body_ticket) { freak_http_request *request=freak_http_require_request(ticket); freak_byte_buffer_record *body=freak_byte_buffer_require(body_ticket,"HTTP response body"); if(body->status!=FREAK_BYTE_BUFFER_OK) { snprintf(request->error,sizeof(request->error),"response ByteBuffer has a pending error"); return 0; } return freak_http_send(request,body->data,body->length,"application/octet-stream"); }
 int64_t freak_http_server_send_text(int64_t ticket,freak_word body) { freak_http_request *request=freak_http_require_request(ticket); if(!freak_byte_buffer_utf8_valid((const uint8_t *)body.data,body.length)) { snprintf(request->error,sizeof(request->error),"text response requires NUL-free UTF-8"); return 0; } return freak_http_send(request,(const unsigned char *)body.data,body.length,"text/plain; charset=utf-8"); }
 /* Open a regular file read-only for a streamed response; -1 on failure. */
-static int freak_http_open_response_file(freak_word path,uint64_t *size,const char **problem) {
+static int freak_http_open_response_file(freak_word path,uint64_t *size,int64_t *modified,int64_t *modified_ns,const char **problem) {
     if(!path.data || !path.length || memchr(path.data,'\0',path.length)) { *problem="response file path is empty or contains NUL"; return -1; }
     char *name=malloc(path.length+1); if(!name) { *problem="response file path allocation failed"; return -1; }
     memcpy(name,path.data,path.length); name[path.length]='\0';
@@ -1332,7 +1405,193 @@ static int freak_http_open_response_file(freak_word path,uint64_t *size,const ch
     if(descriptor>=0 && (fstat(descriptor,&metadata)!=0 || !S_ISREG(metadata.st_mode))) { close(descriptor); *problem="response file is not a regular file"; return -1; }
 #endif
     if(descriptor<0) { *problem="cannot open response file"; return -1; }
-    *size=(uint64_t)metadata.st_size; return descriptor;
+    *size=(uint64_t)metadata.st_size; *modified=(int64_t)metadata.st_mtime;
+#ifdef _WIN32
+    /* NTFS keeps the write time in 100 ns units. */
+    BY_HANDLE_FILE_INFORMATION information;
+    HANDLE handle=(HANDLE)_get_osfhandle(descriptor);
+    *modified_ns=handle!=INVALID_HANDLE_VALUE && GetFileInformationByHandle(handle,&information)?(int64_t)(((((uint64_t)information.ftLastWriteTime.dwHighDateTime)<<32)|information.ftLastWriteTime.dwLowDateTime)%10000000u)*100:0;
+#elif defined(__APPLE__)
+    *modified_ns=(int64_t)metadata.st_mtimespec.tv_nsec;
+#else
+    *modified_ns=(int64_t)metadata.st_mtim.tv_nsec;
+#endif
+    return descriptor;
+}
+/* ── Validators and ranges for file responses (RFC 9110 §8.8, §13, §14) ─ */
+/* Days since 1970-01-01 for a proleptic Gregorian date, and back. */
+static int64_t freak_http_days_from_civil(int64_t year,unsigned month,unsigned day) {
+    year-=month<=2; int64_t era=(year>=0?year:year-399)/400; unsigned yoe=(unsigned)(year-era*400);
+    unsigned doy=(153*(month+(month>2?-3:9))+2)/5+day-1; unsigned doe=yoe*365+yoe/4-yoe/100+doy;
+    return era*146097+(int64_t)doe-719468;
+}
+static const char *const freak_http_months[12]={"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
+/* IMF-fixdate, e.g. "Sun, 06 Nov 1994 08:49:37 GMT" (29 bytes + NUL). */
+static void freak_http_format_date(int64_t seconds,char text[32]) {
+    static const char *const weekdays[7]={"Thu","Fri","Sat","Sun","Mon","Tue","Wed"};
+    int64_t days=seconds>=0?seconds/86400:-((-seconds+86399)/86400); int64_t rest=seconds-days*86400;
+    int64_t z=days+719468; int64_t era=(z>=0?z:z-146096)/146097; unsigned doe=(unsigned)(z-era*146097);
+    unsigned yoe=(doe-doe/1460+doe/36524-doe/146096)/365; int64_t year=(int64_t)yoe+era*400;
+    unsigned doy=doe-(365*yoe+yoe/4-yoe/100); unsigned mp=(5*doy+2)/153; unsigned day=doy-(153*mp+2)/5+1;
+    unsigned month=mp<10?mp+3:mp-9; year+=month<=2;
+    snprintf(text,32,"%s, %02u %s %04lld %02u:%02u:%02u GMT",weekdays[((days%7)+7)%7],day,freak_http_months[month-1],(long long)year,
+        (unsigned)(rest/3600),(unsigned)(rest/60%60),(unsigned)(rest%60));
+}
+static bool freak_http_read_number(const unsigned char **at,const unsigned char *end,unsigned min_digits,unsigned max_digits,unsigned *value) {
+    unsigned digits=0,result=0; while(*at<end && **at>='0' && **at<='9' && digits<max_digits) { result=result*10+(unsigned)(**at-'0'); (*at)++; digits++; }
+    *value=result; return digits>=min_digits;
+}
+static bool freak_http_read_month(const unsigned char **at,const unsigned char *end,unsigned *month) {
+    if(end-*at<3) return false;
+    for(unsigned i=0;i<12;i++) if(freak_http_lower((*at)[0])==freak_http_lower((unsigned char)freak_http_months[i][0]) && freak_http_lower((*at)[1])==(unsigned char)freak_http_months[i][1] && freak_http_lower((*at)[2])==(unsigned char)freak_http_months[i][2]) { *month=i+1; *at+=3; return true; }
+    return false;
+}
+static bool freak_http_read_clock(const unsigned char **at,const unsigned char *end,unsigned *hour,unsigned *minute,unsigned *second) {
+    if(!freak_http_read_number(at,end,2,2,hour) || *at>=end || **at!=':') return false; (*at)++;
+    if(!freak_http_read_number(at,end,2,2,minute) || *at>=end || **at!=':') return false; (*at)++;
+    return freak_http_read_number(at,end,2,2,second) && *hour<24 && *minute<60 && *second<61;
+}
+/* An HTTP-date in any of the three forms recipients must accept: IMF-fixdate,
+   RFC 850 ("Sunday, 06-Nov-94 08:49:37 GMT") and asctime
+   ("Sun Nov  6 08:49:37 1994"). false: not a date (the header is ignored). */
+static bool freak_http_parse_date(const unsigned char *at,size_t length,int64_t *seconds) {
+    const unsigned char *end=at+length; unsigned day=0,month=0,year=0,hour=0,minute=0,second=0;
+    while(at<end && (*at==' ' || *at=='\t')) at++;
+    while(end>at && (end[-1]==' ' || end[-1]=='\t')) end--;
+    const unsigned char *name=at; while(at<end && ((*at>='a'&&*at<='z')||(*at>='A'&&*at<='Z'))) at++;
+    if(at-name<3) return false;
+    if(at<end && *at==',') {
+        at++; while(at<end && *at==' ') at++;
+        if(!freak_http_read_number(&at,end,2,2,&day) || at>=end || (*at!=' ' && *at!='-')) return false;
+        unsigned char separator=*at++; if(!freak_http_read_month(&at,end,&month) || at>=end || *at++!=separator) return false;
+        if(separator==' ') { if(!freak_http_read_number(&at,end,4,4,&year)) return false; }
+        else { if(!freak_http_read_number(&at,end,2,2,&year)) return false; year+=year<70?2000:1900; }
+        if(at>=end || *at++!=' ' || !freak_http_read_clock(&at,end,&hour,&minute,&second)) return false;
+        if(end-at!=4 || memcmp(at," GMT",4)!=0) return false;
+    } else {
+        if(at>=end || *at++!=' ' || !freak_http_read_month(&at,end,&month) || at>=end || *at++!=' ') return false;
+        if(at<end && *at==' ') at++;
+        if(!freak_http_read_number(&at,end,1,2,&day) || at>=end || *at++!=' ' || !freak_http_read_clock(&at,end,&hour,&minute,&second)) return false;
+        if(at>=end || *at++!=' ' || !freak_http_read_number(&at,end,4,4,&year) || at!=end) return false;
+    }
+    if(day<1 || day>31) return false;
+    *seconds=freak_http_days_from_civil((int64_t)year,month,day)*86400+(int64_t)hour*3600+(int64_t)minute*60+(int64_t)second;
+    return true;
+}
+/* First request header with this lowercase name, or NULL. */
+static const freak_http_text *freak_http_request_field(const freak_http_request *request,const char *name) {
+    for(size_t i=0;i<request->header_count;i++) if(!request->headers[i].trailer && freak_http_equal(request->headers[i].name.data,request->headers[i].name.length,name)) return &request->headers[i].value;
+    return NULL;
+}
+static const freak_http_text *freak_http_response_field(const freak_http_request *request,const char *name) {
+    for(size_t i=0;i<request->response_count;i++) if(freak_http_equal(request->response_headers[i].name.data,request->response_headers[i].name.length,name)) return &request->response_headers[i].value;
+    return NULL;
+}
+/* Does an If-None-Match / If-Range list name this entity tag? weak: compare
+   ignoring W/ (If-None-Match); strong: a weak tag on either side never
+   matches (If-Range). */
+static bool freak_http_tag_matches(const freak_http_text *field,const unsigned char *tag,size_t tag_length,bool weak) {
+    bool tag_weak=tag_length>=2 && tag[0]=='W' && tag[1]=='/'; if(tag_weak) { tag+=2; tag_length-=2; }
+    if(tag_length<2 || tag[0]!='"' || tag[tag_length-1]!='"' || (tag_weak && !weak)) return false;
+    const unsigned char *at=field->data,*end=field->data+field->length;
+    for(;;) {
+        while(at<end && (*at==' ' || *at=='\t' || *at==',')) at++;
+        if(at>=end) return false;
+        if(*at=='*') return weak;
+        bool candidate_weak=false; if(end-at>=2 && at[0]=='W' && at[1]=='/') { candidate_weak=true; at+=2; }
+        if(at>=end || *at!='"') return false;
+        const unsigned char *close=memchr(at+1,'"',(size_t)(end-at-1)); if(!close) return false;
+        size_t length=(size_t)(close-at+1);
+        if((weak || !candidate_weak) && length==tag_length && memcmp(at,tag,length)==0) return true;
+        at=close+1;
+    }
+}
+/* Parse one "bytes=first-last" / "first-" / "-suffix" range against size.
+   1: satisfiable (*start, *count); 0: ignore the header and send it all
+   (other unit, several ranges, bad syntax); -1: unsatisfiable (416). */
+static int freak_http_parse_range(const freak_http_text *field,uint64_t size,uint64_t *start,uint64_t *count) {
+    const unsigned char *at=field->data,*end=field->data+field->length;
+    while(at<end && (*at==' ' || *at=='\t')) at++;
+    while(end>at && (end[-1]==' ' || end[-1]=='\t')) end--;
+    if(end-at<6 || !freak_http_equal(at,5,"bytes") || at[5]!='=') return 0;
+    at+=6; while(at<end && (*at==' ' || *at=='\t')) at++;
+    while(end>at && (end[-1]==',' || end[-1]==' ' || end[-1]=='\t')) end--;
+    if(memchr(at,',',(size_t)(end-at))) return 0;
+    uint64_t first=0,last=0; bool has_first=false,has_last=false; unsigned digits=0;
+    while(at<end && *at>='0' && *at<='9') { if(++digits>18) return 0; first=first*10+(uint64_t)(*at-'0'); at++; has_first=true; }
+    while(at<end && (*at==' ' || *at=='\t')) at++;
+    if(at>=end || *at++!='-') return 0;
+    while(at<end && (*at==' ' || *at=='\t')) at++;
+    digits=0; while(at<end && *at>='0' && *at<='9') { if(++digits>18) return 0; last=last*10+(uint64_t)(*at-'0'); at++; has_last=true; }
+    if(at!=end || (!has_first && !has_last)) return 0;
+    if(!has_first) { if(!last || !size) return -1; *start=last>=size?0:size-last; *count=size-*start; return 1; }
+    if(has_last && last<first) return 0;
+    if(first>=size) return -1;
+    if(!has_last || last>=size) last=size-1;
+    *start=first; *count=last-first+1; return 1;
+}
+static bool freak_http_add_text_header(freak_http_request *request,const char *name,const char *value) {
+    freak_word name_word={name,strlen(name),strlen(name),false},value_word={value,strlen(value),strlen(value),false};
+    return freak_http_add_response_header(request,name_word,value_word)==1;
+}
+/* Decide the status of a file response: 200 (whole file), 206 (*start,
+   *count), 304 or 416. Adds ETag, Last-Modified and Accept-Ranges unless the
+   application set its own validators, which are then the ones compared. Only
+   a plain 200 is negotiated: a status the application chose is sent as is.
+   modified_ns is the sub-second part of the modification time: it keeps the
+   ETag of a same-length rewrite within one second distinct. Every header
+   insertion can grow (move) the response header array, so field pointers are
+   looked up again after the last insertion, and a response falls back to the
+   whole file when its Content-Range does not fit the header budget. */
+static void freak_http_negotiate_file(freak_http_request *request,uint64_t size,int64_t modified,int64_t modified_ns,uint64_t *start,uint64_t *count) {
+    *start=0; *count=size;
+    if(request->response_status!=200) return;
+    bool get=freak_http_equal(request->method.data,request->method.length,"get");
+    bool head=freak_http_equal(request->method.data,request->method.length,"head");
+    char text[64];
+    if(!freak_http_response_field(request,"etag")) {
+        snprintf(text,sizeof(text),"\"%llx.%llx-%llx\"",(unsigned long long)modified,(unsigned long long)modified_ns,(unsigned long long)size);
+        freak_http_add_text_header(request,"ETag",text);
+    }
+    if(!freak_http_response_field(request,"last-modified")) { freak_http_format_date(modified,text); freak_http_add_text_header(request,"Last-Modified",text); }
+    if(!freak_http_response_field(request,"accept-ranges")) freak_http_add_text_header(request,"Accept-Ranges","bytes");
+    if(!get && !head) return;
+    /* No more insertions until the validators have been compared. A
+       validator that did not fit is simply not compared. */
+    const freak_http_text *tag=freak_http_response_field(request,"etag");
+    const freak_http_text *date=freak_http_response_field(request,"last-modified");
+    bool dated=date && freak_http_parse_date(date->data,date->length,&modified);
+    /* §13.2.2: If-None-Match wins over If-Modified-Since. */
+    const freak_http_text *none_match=freak_http_request_field(request,"if-none-match");
+    if(none_match) { if(tag && freak_http_tag_matches(none_match,tag->data,tag->length,true)) { request->response_status=304; return; } }
+    else {
+        const freak_http_text *since=freak_http_request_field(request,"if-modified-since"); int64_t when=0;
+        if(since && dated && freak_http_parse_date(since->data,since->length,&when) && modified<=when) { request->response_status=304; return; }
+    }
+    const freak_http_text *range=get?freak_http_request_field(request,"range"):NULL;
+    if(!range) return;
+    const freak_http_text *if_range=freak_http_request_field(request,"if-range");
+    if(if_range) {
+        const unsigned char *value=if_range->data; size_t length=if_range->length;
+        while(length && (*value==' ' || *value=='\t')) { value++; length--; }
+        bool current;
+        if(length && (*value=='"' || (length>=2 && value[0]=='W' && value[1]=='/'))) current=tag && freak_http_tag_matches(if_range,tag->data,tag->length,false);
+        /* A date is never taken as strong: two writes within one second
+           share it, and nothing says the client saw it after the second
+           ended, so a resume could splice two versions together. Every
+           file response carries an ETag, which is the validator to resume
+           with. Sending the whole file is always allowed (§13.1.5). */
+        else current=false;
+        if(!current) return;
+    }
+    uint64_t first=0,length=0;
+    int parsed=freak_http_parse_range(range,size,&first,&length);
+    if(parsed==0) return;
+    if(parsed<0) snprintf(text,sizeof(text),"bytes */%llu",(unsigned long long)size);
+    else snprintf(text,sizeof(text),"bytes %llu-%llu/%llu",(unsigned long long)first,(unsigned long long)(first+length-1),(unsigned long long)size);
+    if(!freak_http_add_text_header(request,"Content-Range",text)) return; /* no room: send it all */
+    if(parsed<0) { request->response_status=416; *count=0; }
+    else { request->response_status=206; *start=first; *count=length; }
 }
 /* Stream a file as the response body, at any size: nothing is buffered
    beyond one chunk. On failure (missing file, directory) the request stays
@@ -1340,11 +1599,25 @@ static int freak_http_open_response_file(freak_word path,uint64_t *size,const ch
 int64_t freak_http_server_send_file(int64_t ticket,freak_word path) {
     freak_http_request *request=freak_http_require_request(ticket);
     if(!freak_http_respondable(request)) return 0;
-    const char *problem=NULL; uint64_t size=0;
-    int file=freak_http_open_response_file(path,&size,&problem);
+    const char *problem=NULL; uint64_t size=0,start=0,count=0; int64_t modified=0,modified_ns=0;
+    int file=freak_http_open_response_file(path,&size,&modified,&modified_ns,&problem);
     if(file<0) { snprintf(request->error,sizeof(request->error),"%s",problem); return 0; }
-    bool omit=false; freak_http_conn *conn=freak_http_begin_response(request,size,"application/octet-stream",&omit); freak_http_server *server=conn->server;
-    if(omit || !size) {
+    size_t own_headers=request->response_count,own_wire=request->response_wire;
+    freak_http_negotiate_file(request,size,modified,modified_ns,&start,&count);
+#ifdef _WIN32
+    /* The chunked pump reads sequentially from the current position. On
+       failure the request is left as the application had it. */
+    if(start && _lseeki64(file,(__int64)start,SEEK_SET)!=(__int64)start) {
+        _close(file);
+        for(size_t i=own_headers;i<request->response_count;i++) { freak_http_free(request->response_headers[i].name.data); freak_http_free(request->response_headers[i].value.data); memset(&request->response_headers[i],0,sizeof(request->response_headers[i])); }
+        request->response_count=own_headers; request->response_wire=own_wire; request->response_status=200;
+        snprintf(request->error,sizeof(request->error),"cannot seek response file"); return 0;
+    }
+#else
+    (void)own_headers; (void)own_wire;
+#endif
+    bool omit=false; freak_http_conn *conn=freak_http_begin_response(request,count,"application/octet-stream",&omit); freak_http_server *server=conn->server;
+    if(omit || !count) {
 #ifdef _WIN32
         _close(file);
 #else
@@ -1353,7 +1626,7 @@ int64_t freak_http_server_send_file(int64_t ticket,freak_word path) {
     } else {
         /* A large download may take as long as it keeps making progress:
            only the idle gap between writes is bounded. */
-        conn->file=file; conn->file_offset=0; conn->file_remaining=size; conn->write_deadline=UINT64_MAX;
+        conn->file=file; conn->file_offset=start; conn->file_remaining=count; conn->write_deadline=UINT64_MAX;
     }
     if(!freak_http_flush(conn)) { freak_http_conn_destroy(conn); freak_http_bury(server); snprintf(request->error,sizeof(request->error),"could not send complete HTTP response"); return 0; }
     freak_http_service(conn); freak_http_bury(server);
@@ -1408,6 +1681,8 @@ int64_t freak_llvm_http_server_next_request(int64_t server) { return freak_http_
 int64_t freak_llvm_http_server_request_status(int64_t request) { return freak_http_server_request_status(request); }
 int64_t freak_llvm_http_server_request_error(int64_t request) { return freak_llvm_word_take(freak_http_server_request_error(request)); }
 int64_t freak_llvm_http_server_request_method(int64_t request) { return freak_llvm_word_take(freak_http_server_request_method(request)); }
+int64_t freak_llvm_http_server_request_peer_ip(int64_t request) { return freak_llvm_word_take(freak_http_server_request_peer_ip(request)); }
+int64_t freak_llvm_http_server_request_peer_port(int64_t request) { return freak_http_server_request_peer_port(request); }
 int64_t freak_llvm_http_server_request_target(int64_t request) { return freak_llvm_word_take(freak_http_server_request_target(request)); }
 int64_t freak_llvm_http_server_request_path(int64_t request) { return freak_llvm_word_take(freak_http_server_request_path(request)); }
 int64_t freak_llvm_http_server_request_query(int64_t request) { return freak_llvm_word_take(freak_http_server_request_query(request)); }

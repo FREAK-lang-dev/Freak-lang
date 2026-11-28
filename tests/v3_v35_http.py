@@ -7,6 +7,8 @@ The fixture application owns its routing; the runtime only parses and sends.
 """
 from __future__ import annotations
 import argparse
+import datetime
+import email.utils
 import hashlib
 import http.client
 import json
@@ -482,6 +484,27 @@ static void service(const char *profile) {
                 else sent=H(send_text)(request,W("healthy"));
             } else if(p.length>7&&!memcmp(p.data,"/hello/",7)) {
                 int64_t b=bytes(p.data+7,p.length-7);sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
+            } else if(eq(p,"/peer")) {
+                __auto_type ip=H(request_peer_ip)(request);freak_word v=view(ip);char text[96];
+                int n=snprintf(text,sizeof(text),"%.*s %lld",(int)v.length,(const char *)v.data,(long long)H(request_peer_port)(request));
+                drop(ip);int64_t b=bytes((const unsigned char *)text,(size_t)n);sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
+            } else if(eq(p,"/file-small")) {
+                const char *file=getenv("FREAK_HTTP_TEST_SMALL_FILE");REQUIRE(file);sent=H(send_file)(request,W(file));
+            } else if(eq(p,"/file-dated16")||eq(p,"/file-full-count")||eq(p,"/file-full-bytes")) {
+                /* Validators and Content-Range must survive a response header
+                   array that grows, and a header budget that is already spent. */
+                const char *file=getenv("FREAK_HTTP_TEST_FILE");REQUIRE(file);char name[32];
+                if(eq(p,"/file-dated16")) {
+                    REQUIRE(H(response_header)(request,W("Last-Modified"),W("Sun, 06 Nov 1994 08:49:37 GMT")));
+                    for(int i=0;i<15;i++) { snprintf(name,sizeof(name),"X-Pad-%d",i);REQUIRE(H(response_header)(request,W(name),W("p"))); }
+                } else if(eq(p,"/file-full-count")) {
+                    for(int i=0;;i++) { snprintf(name,sizeof(name),"X-C%d",i);if(!H(response_header)(request,W(name),W("1")))break; }
+                } else {
+                    static char big[4001];memset(big,'b',4000);big[4000]=0;int i=0;
+                    for(;;i++) { snprintf(name,sizeof(name),"X-B%d",i);if(!H(response_header)(request,W(name),W(big)))break; }
+                    for(;;i++) { snprintf(name,sizeof(name),"X-S%d",i);if(!H(response_header)(request,W(name),W("s")))break; }
+                }
+                sent=H(send_file)(request,W(file));
             } else if(eq(p,"/file-big")) {
                 const char *file=getenv("FREAK_HTTP_TEST_BIG_FILE");REQUIRE(file);sent=H(send_file)(request,W(file));
             } else if(eq(p,"/file")||eq(p,"/file-missing")||eq(p,"/file-dir")) {
@@ -909,8 +932,9 @@ def tight_corpus(s:Server):
     assert_response(s.exchange(request('/echo','POST',headers=[('Content-Length','2')])+b'a',eof=True),400)
     assert_rejection(s.exchange(request('/echo','HEAD',headers=[('Content-Length','2')])+b'a',eof=True),400,head=True)
 
-def read_responses(client,count:int):
-    """Read exactly count Content-Length-framed responses from one socket."""
+def read_responses(client,count:int,bodyless=False):
+    """Read exactly count Content-Length-framed responses from one socket.
+    A 304, or any response to HEAD, has no body whatever its Content-Length."""
     buffer=b'';responses=[]
     while len(responses)<count:
         while b'\r\n\r\n' not in buffer:
@@ -919,14 +943,137 @@ def read_responses(client,count:int):
         head,rest=buffer.split(b'\r\n\r\n',1);lines=head.split(b'\r\n');fields={}
         for line in lines[1:]:
             k,v=line.split(b':',1);fields[k.strip().lower()]=v.strip()
-        length=int(fields.get(b'content-length',b'0'))
+        length=0 if bodyless or lines[0].split()[1]==b'304' else int(fields.get(b'content-length',b'0'))
         while len(rest)<length:
             chunk=client.recv(65536);assert chunk,(responses,rest)
             rest+=chunk
         responses.append((int(lines[0].split()[1]),fields,rest[:length]));buffer=rest[length:]
     return responses,buffer
 
+def file_ranges_and_validators(s:Server,expected:bytes):
+    """http_send_file: ETag/Last-Modified/Accept-Ranges, 304 for a matching
+    If-None-Match or If-Modified-Since, single Range requests as 206/416 and
+    If-Range, all on one keep-alive connection so every framing is checked."""
+    size=len(expected)
+    # The keepalive profile caps a connection at five requests: carry on over
+    # a fresh one each time the server announces the close.
+    connection={'client':s.connect()}
+    try:
+        def get(headers=(),method='GET'):
+            client=connection['client']
+            client.sendall(request('/file',method=method,headers=headers))
+            responses,rest=read_responses(client,1,bodyless=method=="HEAD");assert rest==b'',rest
+            status,fields,body=responses[0]
+            if fields[b'connection']==b'close':
+                assert client.recv(1)==b'';client.close();connection['client']=s.connect()
+            s.cases+=1;return status,fields,body
+        status,fields,body=get()
+        assert status==200 and body==expected and fields[b'accept-ranges']==b'bytes',fields
+        tag=fields[b'etag'];modified=fields[b'last-modified']
+        assert tag.startswith(b'"') and tag.endswith(b'"') and len(tag)>2,tag
+        stamp=email.utils.parsedate_to_datetime(modified.decode())
+        assert abs(stamp.timestamp()-Path(s.env['FREAK_HTTP_TEST_FILE']).stat().st_mtime)<1.5,(modified,stamp)
+        def ranged(spec,first,last,extra=()):
+            status,fields,body=get([('Range',spec),*extra])
+            assert status==206 and fields[b'content-range']==f'bytes {first}-{last}/{size}'.encode(),(spec,status,fields)
+            assert fields[b'content-length']==str(last-first+1).encode() and body==expected[first:last+1],(spec,len(body))
+        ranged('bytes=0-99',0,99)
+        ranged('bytes=5000000-5000099',5000000,5000099)
+        ranged('bytes=5000000-',5000000,size-1)
+        ranged('bytes=-10',size-10,size-1)
+        ranged(f'bytes=-{size*2}',0,size-1)
+        ranged(f'bytes=7-{size*3}',7,size-1)
+        ranged('Bytes=3-4',3,4)
+        for spec in (f'bytes={size}-',f'bytes={size+5}-{size+9}','bytes=-0'):
+            status,fields,body=get([('Range',spec)])
+            assert status==416 and fields[b'content-range']==f'bytes */{size}'.encode() and fields[b'content-length']==b'0' and body==b'',(spec,status,fields)
+        # Ignored Range headers: the whole file, as 200.
+        for spec in ('bytes=0-1,5-6','bytes=5-2','items=0-1','bytes=x-1','bytes=-','bytes=99999999999999999999-'):
+            status,fields,body=get([('Range',spec)])
+            assert status==200 and body==expected and b'content-range' not in fields,(spec,status,fields)
+        # HEAD never ranges; other methods neither.
+        status,fields,_=get([('Range','bytes=0-9')],method='HEAD');assert status==200 and fields[b'content-length']==str(size).encode(),fields
+        # Conditional GET.
+        old=email.utils.format_datetime(stamp-datetime.timedelta(days=1),usegmt=True).encode()
+        newer=email.utils.format_datetime(stamp+datetime.timedelta(days=1),usegmt=True).encode()
+        asctime=f'{stamp:%a %b} {stamp.day:2d} {stamp:%H:%M:%S %Y}'
+        rfc850=stamp.strftime('%A, %d-%b-%y %H:%M:%S GMT')
+        for headers in ([('If-None-Match',tag.decode())],[('If-None-Match','"other", '+tag.decode())],[('If-None-Match','W/'+tag.decode())],[('If-None-Match','*')],
+                        [('If-Modified-Since',modified.decode())],[('If-Modified-Since',newer.decode())],[('If-Modified-Since',asctime)],[('If-Modified-Since',rfc850)],
+                        [('If-None-Match',tag.decode()),('If-Modified-Since',old.decode())],[('If-None-Match',tag.decode()),('Range','bytes=0-1')]):
+            status,fields,body=get(headers)
+            assert status==304 and body==b'' and fields[b'etag']==tag and fields[b'content-length']==str(size).encode(),(headers,status,fields)
+        status,_,_=get([('If-None-Match',tag.decode())],method='HEAD');assert status==304
+        for headers in ([('If-None-Match','"other"')],[('If-Modified-Since',old.decode())],[('If-Modified-Since','not a date')],
+                        [('If-None-Match','"other"'),('If-Modified-Since',modified.decode())]):
+            status,fields,body=get(headers);assert status==200 and body==expected,(headers,status,fields)
+        # If-Range: the range only while the tag is current (strong). A date
+        # is never a strong validator here, so it always gets the whole file.
+        ranged('bytes=0-9',0,9,[('If-Range',tag.decode())])
+        for validator in ('"stale"','W/'+tag.decode(),old.decode(),modified.decode()):
+            status,fields,body=get([('Range','bytes=0-9'),('If-Range',validator)])
+            assert status==200 and body==expected,(validator,status,fields)
+        client=connection['client'];client.sendall(request('/health'));responses,_=read_responses(client,1);assert responses[0][2]==b'healthy';s.cases+=1
+    finally:
+        connection['client'].close()
+    with s.connect() as client:
+        def fetch(path,headers=()):
+            client.sendall(request(path,headers=headers));responses,rest=read_responses(client,1);assert rest==b'',rest
+            s.cases+=1;return responses[0]
+        # Sixteen application headers fill the first header array: adding the
+        # ETag moves it, and the application's Last-Modified still counts.
+        status,fields,body=fetch('/file-dated16',[('If-Modified-Since','Sun, 06 Nov 1994 08:49:37 GMT')])
+        assert status==304 and fields[b'last-modified']==b'Sun, 06 Nov 1994 08:49:37 GMT' and b'etag' in fields and fields[b'x-pad-14']==b'p',fields
+        status,fields,body=fetch('/file-dated16',[('If-Modified-Since','Sat, 05 Nov 1994 08:49:37 GMT')])
+        assert status==200 and body==expected,fields
+    # A spent header budget (count, then bytes) leaves no room for
+    # Content-Range: the whole file goes out as 200 instead of a bare 206/416.
+    for path in ('/file-full-count','/file-full-bytes'):
+        for spec in ('bytes=0-9',f'bytes={size}-'):
+            with s.connect() as client:
+                client.sendall(request(path,headers=[('Range',spec),('Connection','close')]));responses,_=read_responses(client,1)
+                status,fields,body=responses[0]
+                assert status==200 and body==expected and b'content-range' not in fields,(path,spec,status,len(body))
+                s.cases+=1
+    # A same-length rewrite within one second still changes the ETag: no 304
+    # for the old tag, and a resume with the old tag gets the whole new file.
+    small=Path(s.env['FREAK_HTTP_TEST_SMALL_FILE']);second=int(time.time())-30
+    small.write_bytes(b'AAAA');os.utime(small,ns=(second*10**9+100_000_000,second*10**9+100_000_000))
+    with s.connect() as client:
+        client.sendall(request('/file-small'));responses,_=read_responses(client,1)
+        old_tag=responses[0][1][b'etag'];old_date=responses[0][1][b'last-modified']
+        small.write_bytes(b'BBBB');os.utime(small,ns=(second*10**9+700_000_000,second*10**9+700_000_000))
+        client.sendall(request('/file-small',headers=[('If-None-Match',old_tag.decode())]));responses,_=read_responses(client,1)
+        status,fields,body=responses[0];assert status==200 and body==b'BBBB' and fields[b'etag']!=old_tag,(status,fields,body)
+        client.sendall(request('/file-small',headers=[('Range','bytes=0-1'),('If-Range',old_tag.decode())]));responses,_=read_responses(client,1)
+        assert responses[0][0]==200 and responses[0][2]==b'BBBB',responses[0]
+        # The date did not change, so a dated resume would splice AA + BB.
+        client.sendall(request('/file-small',headers=[('Range','bytes=2-3'),('If-Range',old_date.decode())]));responses,_=read_responses(client,1)
+        assert responses[0][0]==200 and responses[0][2]==b'BBBB' and responses[0][1][b'last-modified']==old_date,responses[0]
+        # Nor does a date ahead of the clock keep the range.
+        ahead=int(time.time())+60;os.utime(small,(ahead,ahead))
+        date=email.utils.formatdate(ahead,usegmt=True)
+        client.sendall(request('/file-small',headers=[('Range','bytes=0-1'),('If-Range',date)]));responses,_=read_responses(client,1)
+        assert responses[0][0]==200 and responses[0][2]==b'BBBB' and responses[0][1][b'last-modified']==date.encode(),responses[0]
+    s.cases+=5
+    # A range deep into a file far past one 512 KiB pump turn.
+    with s.connect() as client:
+        first=200_000_003
+        client.sendall(request('/file-big',headers=[('Range',f'bytes={first}-{first+70000}')]));responses,_=read_responses(client,1)
+        status,fields,body=responses[0];big=Path(s.env['FREAK_HTTP_TEST_BIG_FILE']).stat().st_size
+        assert status==206 and fields[b'content-range']==f'bytes {first}-{first+70000}/{big}'.encode() and body==b'\0'*70001,(status,fields,len(body))
+        s.cases+=1
+
 def keepalive_corpus(s:Server):
+    s.checkpoint('keepalive-corpus','peer-address')
+    # The request reports the TCP peer: the client's own address and port,
+    # the same for every request on one persistent connection.
+    with s.connect() as client:
+        ip,port=client.getsockname()[:2]
+        for _ in range(2):
+            client.sendall(request('/peer'));responses,_=read_responses(client,1)
+            assert responses[0][2]==f'{ip} {port}'.encode(),(responses[0][2],ip,port)
+    s.cases+=2
     s.checkpoint('keepalive-corpus','persistent-connection')
     # Five requests share one connection; the fifth announces the close.
     c=http.client.HTTPConnection('127.0.0.1',s.port,timeout=4);sockets=set()
@@ -999,6 +1146,8 @@ def keepalive_corpus(s:Server):
             chunk=client.recv(65536);assert chunk,raw;raw+=chunk
         head,second=raw.split(b'\r\n\r\n',1)
         assert b'Content-Length: '+str(len(expected)).encode() in head and second.startswith(b'HTTP/1.1 200'),raw[:400];s.cases+=1
+    s.checkpoint('keepalive-corpus','file-ranges-and-validators')
+    file_ranges_and_validators(s,expected)
     s.checkpoint('keepalive-corpus','http10')
     with s.connect() as client:
         client.sendall(request('/health',version='HTTP/1.0').replace(b'Host: localhost\r\n',b''))
@@ -1217,6 +1366,7 @@ def main():
             big=root/'big.bin'
             with big.open('wb') as handle:handle.truncate(256<<20)
             env['FREAK_HTTP_TEST_BIG_FILE']=str(big)
+            small=root/'small.bin';small.write_bytes(b'AAAA');env['FREAK_HTTP_TEST_SMALL_FILE']=str(small)
             flags=['-lws2_32','-lshell32'] if os.name=='nt' else ['-lm','-pthread']
             if os.sys.platform.startswith('linux'):flags+=['-Wl,--wrap=send']
             if args.sanitize:

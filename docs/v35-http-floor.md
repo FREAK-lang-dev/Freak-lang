@@ -51,6 +51,12 @@ permits it, then closes that connection. Release every request, including failed
 requests, before accepting another. Releasing a parsed request without sending a
 response closes its connection. Close every server, including a failed bind.
 
+`request_peer_ip(request)` and `request_peer_port(request)` report the TCP peer
+of the request's connection: numeric text (`203.0.113.7`, `2001:db8::1`; an
+IPv4 client on a dual-stack listener appears as plain IPv4) and its port. Behind
+a reverse proxy this is the proxy, not the browser; see the proxy section below
+before trusting any forwarded header.
+
 Words returned by getters are independent managed values. `request_body` and
 `request_header_value_bytes` return independent owned ByteBuffers; release them
 exactly once. They can survive request release. The namespace builtins borrow
@@ -61,8 +67,9 @@ an owned temporary ByteBuffer and releases that buffer on success or failure.
 The caller still releases the JSON document.
 
 `http_send_file(request, path)` streams a regular file as the body, at any
-size, outside the buffered-body cap: Linux hands it to the socket with
-`sendfile`, macOS and Windows read it 64 KiB at a time, so memory stays flat.
+size, outside the buffered-body cap: Linux and macOS hand it to the socket
+with `sendfile`; Windows reads it 64 KiB at a time and sends straight from
+that chunk, copying only what the socket did not take, so memory stays flat.
 Each loop turn moves at most 512 KiB of one download, so a fast reader shares
 the worker with other connections instead of holding it until the file ends.
 On POSIX systems a started server ignores `SIGPIPE` when it still has the
@@ -73,6 +80,33 @@ application/octet-stream` unless the application set one. A file response has
 no total write deadline; it is closed only when no progress is made for
 `idle_ms`. If the file cannot be opened (missing, a directory, a FIFO), it
 returns 0, `request_error` says why, and the request can still be answered.
+
+When the response status is still the default 200, `http_send_file` also
+handles caching and resumable downloads by itself:
+
+- It sends `ETag` (`"<mtime seconds hex>.<nanoseconds hex>-<size hex>"`, so
+  two writes in the same second still get different tags), `Last-Modified` and
+  `Accept-Ranges: bytes`. If the application already set `ETag` or
+  `Last-Modified`, those values are kept and used for the checks below.
+- A GET or HEAD whose `If-None-Match` names the tag (weak comparison, or `*`)
+  gets `304 Not Modified`. Without `If-None-Match`, an `If-Modified-Since` at
+  or after the modification time does the same. All three HTTP date forms are
+  accepted; a header that is not a date is ignored.
+- A GET with one `Range: bytes=` range gets `206 Partial Content` with
+  `Content-Range`, streamed from that offset (`first-last`, `first-` and the
+  `-suffix` forms). A range that starts past the end gets `416 Range Not
+  Satisfiable` with `Content-Range: bytes */<size>`. Several ranges, another
+  unit or bad syntax are ignored and the whole file is sent, as RFC 9110
+  allows. `If-Range` keeps the range only while its tag still matches
+  (strong comparison). An `If-Range` date always gets the whole file: two
+  writes in the same second share a date, so it is never a strong validator.
+  Resume with the ETag instead.
+- If the response headers are already full, so `Content-Range` does not fit,
+  the whole file is sent with 200 instead of a range.
+
+A status the application set itself (for example a 404 page served from a
+file) is sent as is, without validators or ranges.
+
 Released, stale or foreign tickets
 fail before accessing a reused socket or buffer. Copying a scalar ticket does
 not preserve its lifetime after release or subsequent slot reuse.
@@ -194,10 +228,16 @@ On loopback the 0.16 floor serves small responses within about 20% of nginx
 per worker (92k vs 110k requests/s on one worker, 245k vs 308k on four; see
 `benchmarks/v35/http_server_load.md`). The remaining steps, roughly in order:
 
-1. Peer address on a request (`X-Real-IP`, per-IP limits).
+1. Peer address on a request: done after 0.16 (`request_peer_ip` /
+   `request_peer_port`); a trusted-proxy policy for forwarded headers and
+   per-IP limits can build on it.
 2. Streaming request bodies and generated response bodies (chunked). File
-   responses already stream (`http_send_file`, with `sendfile` on Linux);
-   `TransmitFile` on Windows and Range requests would follow.
+   responses already stream (`http_send_file`, with `sendfile` on Linux) and
+   answer Range and conditional requests (after 0.16). `TransmitFile` on
+   Windows belongs with step 3: it completes as overlapped I/O, which WSAPoll
+   cannot wait on, and client editions of Windows run at most two
+   `TransmitFile` calls at once and queue the rest, so one slow download
+   would hold up the others.
 3. IOCP on Windows instead of WSAPoll, and optionally io_uring on Linux.
 4. Response compression in the floor (gzip/brotli, plus precompressed files).
 5. With V4's threads and task values: worker threads sharing one process (and
@@ -244,6 +284,7 @@ is deliberately implemented. A later policy must authenticate the immediate
 proxy peer, restrict direct ingress, discard client-supplied values and parse
 one defined chain with a documented allowlist. A header supplied by an
 arbitrary client is not evidence of its original identity, scheme or origin.
+`request_peer_ip` gives the immediate peer that such a policy would check.
 
 ## Browser policy and logging
 

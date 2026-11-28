@@ -51,6 +51,11 @@ task http_next_request(server: int) -> int { give back http_server::next_request
 task http_request_status(request: int) -> int { give back http_server::request_status(request) }
 task http_request_error(request: int) -> word { give back http_server::request_error(request) }
 task http_request_method(request: int) -> word { give back http_server::request_method(request) }
+-- The TCP peer of the request's connection, as numeric text (IPv4 clients on a
+-- dual-stack listener appear as plain IPv4) and port. Behind a proxy this is the
+-- proxy; trust X-Forwarded-For only from a proxy you run.
+task http_request_peer_ip(request: int) -> word { give back http_server::request_peer_ip(request) }
+task http_request_peer_port(request: int) -> int { give back http_server::request_peer_port(request) }
 task http_request_target(request: int) -> word { give back http_server::request_target(request) }
 task http_request_path(request: int) -> word { give back http_server::request_path(request) }
 task http_request_query(request: int) -> word { give back http_server::request_query(request) }
@@ -69,9 +74,12 @@ task http_send_bytes(request: int, body: ByteBuffer) -> int {
     give back sent
 }
 task http_send_text(request: int, body: word) -> int { give back http_server::send_text(request, body) }
--- Streams a regular file at any size (sendfile on Linux). 0 leaves the
+-- Streams a regular file at any size (sendfile on Linux and macOS). 0 leaves the
 -- request unanswered, with http_request_error saying why (missing file,
 -- directory), so the application can still send an error response.
+-- With the default 200 status it also sends ETag, Last-Modified and
+-- Accept-Ranges, answers If-None-Match / If-Modified-Since with 304 and a
+-- single Range with 206 (416 when it starts past the end).
 task http_send_file(request: int, path: word) -> int { give back http_server::send_file(request, path) }
 task http_request_release(request: int) -> void { http_server::request_release(request) }
 task http_send_json(request: int, document: int) -> int {
