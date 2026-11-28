@@ -232,8 +232,9 @@ The Web lane (W1 to W3) adds `wasm32-unknown-wasip1`, the first 32-bit target
 and `isize` on direct non-variadic extern declarations go through the same
 checked C-width shim at 32 bits; the same aliases in `@extern_callback`
 signatures, variadic declarations, C function pointer types (at any depth, in
-signatures, locals or expressions) and non-call references to such a
-declaration stop with named "pointer-sized C integers ..." errors.
+signatures, locals or expressions), behind raw pointers, user aliases or
+aggregates, and in non-call references to such a declaration stop with named
+"pointer-sized C integers ..." errors.
 `tests/v4_wasm_parity.py` (CI "V4 wasm") pins those fences and requires every
 runnable example to behave byte-identically natively and under WASI.
 Validated target layout descriptors now distinguish signed/unsigned C int32
@@ -1065,7 +1066,7 @@ gates. Full category routing and `--voice` remain V4.
 - raw-pointer `.offset(n)` and `.cast<U>()` method forms: lower to LLVM `getelementptr`, preserve raw-pointer const/mut shape, require `.ace+` honor, diagnose outside-trust, low-honor, arity, missing target type, and non-integer offset cases, and disambiguate generic method calls before binary `<` / `>` lowering
 - fieldless `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` route/variant validation plus FFI-safe boundary acceptance
 - word bytes at a C boundary: a `lend s: word` extern block parameter lowers to `(const char*, size_t)` at the target's `size_t` width through the declaration shim, lending the word's own bytes (not NUL-terminated) under a shared Meiya loan for the call; by-value words, `lend mut word`, word returns, aliases, callback and function-pointer word parameters, variadic declarations and task values stay refused by name (`examples/c_words_native.fk`, `check_v4_native_c_words`, `tests/v4_safety/cases/ffi/`)
-- `wasm32-unknown-wasip1` (Web lane W1 to W3): the fifth target record and first 32-bit one; pointer-sized `std::ffi` aliases narrow through the checked C-width shim on direct non-variadic extern declarations, and stop with named errors in callbacks, variadic declarations, C function pointer types and non-call references (`tests/v4_wasm_parity.py`)
+- `wasm32-unknown-wasip1` (Web lane W1 to W3): the fifth target record and first 32-bit one; pointer-sized `std::ffi` aliases narrow through the checked C-width shim on direct non-variadic extern declarations, and stop with named errors in callbacks, variadic declarations, C function pointer types, raw pointees, user aliases, aggregates and non-call references (`tests/v4_wasm_parity.py`)
 
 **Still V4:**
 

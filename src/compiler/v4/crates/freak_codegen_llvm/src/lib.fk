@@ -81,6 +81,9 @@ pilot v4_codegen_llvm_fragment_error = ""
 -- This transient mode is used only while sealing a fresh checked MIR plan.
 -- Module readers consume sealed text and never revisit this mutable context.
 pilot v4_codegen_llvm_active_owned_mir = 0 - 1
+-- The target triple while the C surface walker re-runs for a 32-bit target
+-- (v4_codegen_llvm_pointer_sized_target_error); "" otherwise.
+pilot v4_codegen_llvm_ptrsize_fence_triple = ""
 pilot v4_codegen_llvm_supplied_borrow = 0 - 1
 pilot v4_codegen_llvm_active_word_borrow = 0 - 1
 pilot v4_codegen_llvm_native_errors = 0
@@ -4503,6 +4506,11 @@ task v4_codegen_llvm_c_surface_is_hash_collection(ty_id: int, surface: word) -> 
 
 task v4_codegen_llvm_native_c_surface_error_depth(ty_id: int, surface: word, c_boundary: bool, direct: bool, depth: int) -> word {
     if depth > 32 { give back "native C ABI surface nesting exceeds supported depth" }
+    -- On a 32-bit target only a pointer-sized alias spelled at the top of a
+    -- position has a target-width lowering (the declaration shim); behind a
+    -- raw pointer, a user alias, an aggregate or a function type it would
+    -- keep TY's 64-bit carrier (a pointee would load and store 8 bytes).
+    if v4_codegen_llvm_ptrsize_fence_triple != "" and depth > 0 and v4_codegen_llvm_ptrsize_key(surface) != "" { give back "pointer-sized C integers behind a pointer, alias or aggregate are not yet supported on " + v4_codegen_llvm_ptrsize_fence_triple + ": " + surface }
     pilot alias_name = v4_ty_surface_ffi_alias_name(surface)
     -- Inside an extern function pointer type, a C width spelled directly
     -- (not through an alias or a pointee) is lowered by the C call plan and
@@ -10228,6 +10236,12 @@ task v4_codegen_llvm_pointer_sized_target_error(codegen_id: int, target_spec: wo
         if found { give back "pointer-sized C integers in a C function pointer type are not yet supported on " + triple + ": " + v4_mir_body_name(mir_id, body_id) }
         body_id += 1
     }
+    -- Re-walk every spelled surface (signatures, impl methods, local
+    -- annotations, pointer casts) with the pointer-sized fence on.
+    v4_codegen_llvm_ptrsize_fence_triple = triple
+    pilot surface_error = v4_codegen_llvm_native_c_width_error(mir_id, ty_id)
+    v4_codegen_llvm_ptrsize_fence_triple = ""
+    if surface_error != "" { give back surface_error }
     pilot decl_id = 0
     repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
         if v4_codegen_llvm_ptrsize_params(codegen_id, decl_id) != "" or v4_codegen_llvm_ptrsize_return(codegen_id, decl_id) != "" {

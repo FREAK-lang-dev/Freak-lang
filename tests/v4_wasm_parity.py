@@ -69,6 +69,29 @@ task main() -> int {
     give back 0
 }
 """, "pointer-sized C integers in a C function pointer type are not yet supported on wasm32-unknown-wasip1: call_it"),
+    # A user alias of c_size at a C boundary: the shim reads the spelled
+    # surface, so the alias would keep the 64-bit carrier.
+    "ptrsize_user_alias": ("""alias Size = std::ffi::c_size
+
+extern [C] {
+    task ps_alloc(n: Size) -> *mut tiny
+}
+
+task main() -> int {
+    pilot p = ps_alloc(8)
+    give back 0
+}
+""", "pointer-sized C integers behind a pointer, alias or aggregate are not yet supported on wasm32-unknown-wasip1: std::ffi::c_size"),
+    # A raw pointer to C size_t storage would load and store 8 bytes.
+    "ptrsize_raw_pointee": ("""extern [C] {
+    task ps_sizes() -> *mut std::ffi::c_size
+}
+
+task main() -> int {
+    pilot p = ps_sizes()
+    give back 0
+}
+""", "pointer-sized C integers behind a pointer, alias or aggregate are not yet supported on wasm32-unknown-wasip1: std::ffi::c_size"),
 }
 
 # word_to_num in bootstrap root mode: the extracted freak_word_to_num over
