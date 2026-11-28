@@ -13,7 +13,9 @@ use self::flight::{
     cockpit_flight_end_frame,
     cockpit_flight_frame_ms,
     cockpit_flight_key,
+    cockpit_flight_move,
     cockpit_flight_open,
+    cockpit_flight_queued,
     cockpit_flight_quit,
     cockpit_flight_type
 }
@@ -87,6 +89,15 @@ task main() {
     if not cockpit_ui_shortcut(cockpit_key_letter("S"), true, false, false) { cockpit_fail("ctrl+s chord") }
     if cockpit_ui_shortcut(cockpit_key_letter("S"), false, false, false) { cockpit_fail("chord matched plain s") }
     if cockpit_ui_shortcut(cockpit_key_letter("S"), true, true, false) { cockpit_fail("chord matched ctrl+shift+s") }
+    cockpit_flight_end_frame()
+
+    -- An action that doesn't fit whole is not queued at all.
+    repeat 61 times { cockpit_flight_move(1, 1) }
+    cockpit_flight_chord(cockpit_key_ctrl, cockpit_key_letter("S"))
+    if cockpit_flight_queued() != 61 { cockpit_fail("half a chord was queued") }
+    cockpit_flight_key(cockpit_key_enter)
+    if cockpit_flight_queued() != 63 { cockpit_fail("a key tap that fits was refused") }
+    cockpit_flight_begin_frame(layout, theme)
     cockpit_flight_end_frame()
 
     -- The sim clock drives toasts and the caret blink: no real time passes.

@@ -29,10 +29,12 @@
 * New example: `examples/sortie.fk`, a pre-flight checklist written with the
   `Cockpit` shape.
 * Fixed: keys typed in the same frame as a Shift+Tab (or a Tab that wraps to
-  the first field) were dropped. They now land in the field that gets focus,
-  one frame later. If a click follows in the same frame, the keys before the
-  click still go to that field and the keys after it to the clicked one.
-  Several jumps in one frame each keep their own keys.
+  the first field) were dropped. Now every edit after a frame's first Tab or
+  Shift+Tab (keys, clicks, more Tabs) waits for the next frame, when focus has
+  already moved, and plays there in the order it came. Each Tab costs at most
+  one frame; text and carets come out as if every event had its own frame.
+* The flight sim queues a click, key tap, wheel turn or chord whole or not at
+  all, so a full queue never leaves half an action behind.
 * `cockpit_ui_shortcut` checks the modifiers that were held when the key went
   down, so a Ctrl+S whose Ctrl comes back up before the frame begins still
   counts (`cockpit_flight_chord` relies on this).

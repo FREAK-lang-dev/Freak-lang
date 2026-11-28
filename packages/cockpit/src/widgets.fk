@@ -44,7 +44,7 @@ use self::state::{
     cockpit_popup_y,
     cockpit_slider_drag,
     cockpit_ui_clicked_inside,
-    cockpit_ui_edit_count,
+    cockpit_ui_drop_edits,
     cockpit_ui_edit_input,
     cockpit_ui_focused_input,
     cockpit_ui_initial_focus,
@@ -448,7 +448,7 @@ task cockpit_modal_open() -> void {
     cockpit_ui_focused_input = 0 - 1
     cockpit_ui_initial_focus = 0 - 1
     -- The event that opened this modal belongs to the previous input scope.
-    cockpit_ui_edit_count = 0
+    cockpit_ui_drop_edits()
     cockpit_ui_mouse_clicked_value = false
 }
 
