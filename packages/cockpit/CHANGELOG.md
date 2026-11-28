@@ -31,6 +31,9 @@
 * Fixed: keys typed in the same frame as a Shift+Tab (or a Tab that wraps to
   the first field) were dropped. They now land in the field that gets focus.
 * Fixed: closing a window or a sim frees all of COCKPIT's state.
+* Toasts and the caret blink follow COCKPIT's frame clock (the sum of each
+  frame's time) instead of the wall clock, so the flight sim replays them
+  exactly.
 * Note: the `Cockpit` shape still links the native window calls, so
   `sortie(...)` programs build on Windows only until the Linux and macOS
   window backends arrive with Freak-lang 0.17.

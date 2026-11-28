@@ -53,6 +53,7 @@ use self::state::{
     cockpit_text_mask,
     cockpit_ui_caret,
     cockpit_ui_caret_epoch,
+    cockpit_ui_clock_ms,
     cockpit_ui_input_allowed,
     cockpit_ui_input_is_focused,
     cockpit_ui_delta_ms,
@@ -217,7 +218,7 @@ task cockpit_widget_input_ex(window: int, layout: ByteBuffer, theme: int, text: 
         if password { before = cockpit_text_mask(before) }
         pilot caret_x = x + 8 - scroll + cockpit_bb_measure(before, font_size, false)
         -- Solid while typing, then a 530 ms blink.
-        if ((time::now_ms() - cockpit_ui_caret_epoch) / 530) % 2 == 0 {
+        if ((cockpit_ui_clock_ms - cockpit_ui_caret_epoch) / 530) % 2 == 0 {
             cockpit_draw_fill(window, caret_x, y + 6, 2, height - 12, cockpit_theme_get(theme, cockpit_theme_text))
         }
     }
