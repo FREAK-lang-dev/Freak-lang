@@ -4068,8 +4068,15 @@ task v4_borrowck_dyn_erasure_source_ty(mir_id: int, body_id: int, rvalue_id: int
     give back source_ty
 }
 
-task v4_borrowck_report_dyn_lend_erasure(borrow_id: int, result_id: int, mir_id: int, body_id: int, target_ty: word, rvalue_id: int, span: word) -> int {
-    if rvalue_id < 0 or not v4_ty_is_dyn_type(target_ty) { give back 0 }
+task v4_borrowck_report_dyn_lend_erasure(borrow_id: int, result_id: int, mir_id: int, body_id: int, target_ty: word, erased_rvalue: int, span: word) -> int {
+    if erased_rvalue < 0 or not v4_ty_is_dyn_type(target_ty) { give back 0 }
+    -- An owned erasure is a DynBox: judge the concrete operand going into
+    -- the box, so a lend-bearing value cannot hide behind the box's type.
+    pilot rvalue_id = erased_rvalue
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_dyn_box {
+        rvalue_id = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        if rvalue_id < 0 { give back 0 }
+    }
     pilot source_ty = v4_borrowck_dyn_erasure_source_ty(mir_id, body_id, rvalue_id)
     if v4_ty_is_dyn_type(source_ty) { give back 0 }
     if not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), source_ty) and not v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, rvalue_id) { give back 0 }

@@ -1194,7 +1194,14 @@ task v4_mir_check_dyn_lend_erasure_rvalue(mir_id: int, body_id: int, target_ty: 
     if source_rvalue < 0 or source_rvalue >= v4_mir_body_rvalue_count(mir_id, body_id) {
         give back
     }
-    v4_mir_check_dyn_lend_erasure(mir_id, v4_mir_rvalue_span(mir_id, body_id, source_rvalue), target_ty, v4_mir_rvalue_ty(mir_id, body_id, source_rvalue), context)
+    -- An owned erasure is already wrapped in its DynBox: check the
+    -- concrete operand going into the box, not the box's dyn type.
+    pilot checked = source_rvalue
+    if v4_mir_rvalue_kind(mir_id, body_id, checked) == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body_id, checked) == v4_mir_unary_dyn_box {
+        checked = v4_mir_rvalue_lhs(mir_id, body_id, checked)
+        if checked < 0 { give back }
+    }
+    v4_mir_check_dyn_lend_erasure(mir_id, v4_mir_rvalue_span(mir_id, body_id, checked), target_ty, v4_mir_rvalue_ty(mir_id, body_id, checked), context)
 }
 
 task v4_mir_check_assignment_types(mir_id: int, body_id: int, stmt_span: word, place_id: int, place_ty: word, value_ty: word) -> void {
