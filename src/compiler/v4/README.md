@@ -1647,8 +1647,26 @@ raw-pointer writes require at least `.pilot`. The method forms `.read()` and
 `*ptr` and `*ptr = value`, including arity, mutability, and honor diagnostics.
 Pointer arithmetic and raw retyping are now opened through `.offset(n)` and
 `.cast<U>()`, lowering to LLVM `getelementptr` with preserved `*const`/`*mut`
-shape and `.ace+` honor diagnostics. Raw allocation/freeing, `direct_order`,
-and the higher-rank operation matrix remain later slices.
+shape and `.ace+` honor diagnostics. Native raw allocation completes the
+bible 16.4 honor matrix (`examples/raw_alloc_native.fk`): `alloc(bytes)`
+initializes a `*mut T` binding with zeroed memory from an internal
+`@freak.raw.alloc` helper over `calloc` (`alloc(0)` is unique, a negative size
+panics with `alloc size out of range`), and `free(p)` releases it, both at
+`.pilot+`; `zeroed<T>()` is a `freeze T zeroinitializer` at `.pilot+`;
+`.read_unaligned()` is an `align 1` load at `.ace+`; `null<T>()`,
+`size_of<T>()` and `align_of<T>()` need no trust and fold per target from
+`getelementptr` constants. Layout types are scalars, raw pointers, tuples and
+fixed arrays of them, and nongeneric shapes of them; others are refused by
+name. `copy_nonoverlapping` and `lend *ptr` (`.ace+`) and `direct_order`
+(`.commander+`) are gated at their rank and then refused as not yet supported.
+The std::mem names are builtins wherever the program declares none of its own.
+A type argument keeps its spelled surface for the C width fence
+(`size_of<c_int>()` is refused by name, not answered with the int width), its
+array lengths must be non-negative constants, a packed `@layout` shape is refused
+by name (native records ignore packing), and a layout query in a constant
+context (root `fixed pilot`, array lengths, repeat counts) is refused as
+`layout queries in constant expressions are not yet supported`: TY constants
+are target independent and the query folds per target.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
 fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts

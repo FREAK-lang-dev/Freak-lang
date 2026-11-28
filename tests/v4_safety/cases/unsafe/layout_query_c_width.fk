@@ -1,0 +1,11 @@
+-- A layout query keeps its spelled C width; V4 stores c_int as int, so it is
+-- refused by name instead of answering 8.
+-- bible: 7.18
+-- expect: reject codegen
+-- error: native C scalar ABI not yet supported: std::ffi::c_int
+
+use std::ffi::c_int
+
+task main() -> int {
+    give back size_of<std::ffi::c_int>()
+}

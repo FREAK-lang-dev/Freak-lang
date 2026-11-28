@@ -1,0 +1,13 @@
+-- alloc gives back *mut T; the binding names T.
+-- bible: 16.4
+-- expect: reject mir
+-- error: alloc needs a *mut T destination
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task main() -> int {
+    trust me "raw memory" on my honor as .pilot {
+        pilot p = alloc(8)
+    }
+    give back 0
+}

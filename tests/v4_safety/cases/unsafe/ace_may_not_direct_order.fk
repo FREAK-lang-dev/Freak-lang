@@ -1,0 +1,13 @@
+-- direct_order inline assembly requires .commander or higher.
+-- bible: 7.18
+-- expect: reject mir
+-- error: direct_order requires .commander or higher; current honor is .ace
+
+task main() -> int {
+    trust me "raw memory" on my honor as .ace {
+        direct_order [x86_64] {
+            nop
+        }
+    }
+    give back 0
+}

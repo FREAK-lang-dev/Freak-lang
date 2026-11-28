@@ -1,0 +1,11 @@
+-- zeroed<T>() needs trust me: no doctrine proves all-zero bits valid.
+-- bible: 16.4
+-- expect: reject mir
+-- error: zeroed needs trust me block
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task main() -> int {
+    pilot z: int = zeroed<int>()
+    give back 0
+}

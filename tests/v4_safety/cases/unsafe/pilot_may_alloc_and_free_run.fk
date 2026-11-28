@@ -1,0 +1,18 @@
+-- .pilot may allocate, write, read and free.
+-- bible: 7.18
+-- expect: run
+-- exit: 42
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task main() -> int {
+    pilot got = 0
+    trust me "one cell" on my honor as .pilot {
+        pilot p: *mut int = alloc(size_of<int>())
+        pilot fresh: int = *p
+        *p = 42 + fresh
+        got = *p
+        free(p)
+    }
+    give back got
+}

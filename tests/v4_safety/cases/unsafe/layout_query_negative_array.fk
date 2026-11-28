@@ -1,0 +1,8 @@
+-- A fixed array in a type argument needs a non-negative constant length.
+-- bible: 7.18
+-- expect: reject mir
+-- error: array length of size_of type argument must be non-negative
+
+task main() -> int {
+    give back size_of<[tiny; -1]>()
+}

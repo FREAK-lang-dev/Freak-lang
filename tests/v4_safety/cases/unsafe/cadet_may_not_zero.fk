@@ -1,0 +1,13 @@
+-- zeroed<T>() requires .pilot or higher.
+-- bible: 7.18
+-- expect: reject mir
+-- error: zeroed requires .pilot or higher; current honor is .cadet
+
+use std::mem::{alloc, free, null, size_of, align_of, zeroed}
+
+task main() -> int {
+    trust me "raw memory" on my honor as .cadet {
+        pilot z: int = zeroed<int>()
+    }
+    give back 0
+}

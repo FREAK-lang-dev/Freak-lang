@@ -14932,6 +14932,9 @@ def check_mir_local_annotation_boundary() -> None:
         "v4_mir_shape_ctor_name",
         "v4_mir_constructor_head_name",
         "v4_mir_try_lower_route_case_expr",
+        # size_of<T>() / align_of<T>() / null<T>() / zeroed<T>() read their
+        # expression-level type argument like .cast<U>() does.
+        "v4_mir_raw_mem_type_arg",
     }
     actual_type_text_tasks = freak_tasks_containing(mir_build_source, "v4_ty_type_text(")
     if actual_type_text_tasks != allowed_type_text_tasks:
@@ -14953,7 +14956,7 @@ def check_mir_local_annotation_boundary() -> None:
             print(violation)
         raise SystemExit(1)
 
-    print("semantic MIR local annotations: TY facts, six-task builder type-text allowlist")
+    print("semantic MIR local annotations: TY facts, seven-task builder type-text allowlist")
 
 
 def check_task_return_hir_boundary() -> None:
@@ -18404,6 +18407,168 @@ NATIVE_SHARED_REJECTED = (
      "task main() -> int {\n    pilot a = Shared<P>::new(P { x: 1 })\n    give back 0\n}\n",
      "native Shared runtime symbol conflict: @freak_v4_shared_retain"),
 )
+
+
+# Native raw allocation and the honor-rank matrix (tier 3 row "Raw allocation
+# and free"). Any argument asks alloc for a negative size.
+# tests/v4_owned_word_codegen.py pins the same output.
+NATIVE_RAW_ALLOC_EXPECTED = ("8\n1\n16\n8\n3\n16\n8\ntrue\nfalse\n285\n0\n7\n7\n5\ntrue\n42\n0\nfalse\nfalse\ndone\n")
+NATIVE_RAW_ALLOC_PANIC = "alloc size out of range"
+
+
+NATIVE_RAW_PACKED_PRELUDE = ("use std::ffi::{c_float, c_double}\n@layout(C, packed=1)\n"
+                             "shape Packet { tag: c_float, value: c_double }\n")
+
+
+def native_raw_case(stem: str, level: str, body: str, prelude: str = "") -> tuple[str, str]:
+    """A main whose body runs inside one trust me block at level ("" for none)."""
+    inner = "".join("        " + line + "\n" for line in body.split("\n"))
+    if level == "":
+        inner = "".join("    " + line + "\n" for line in body.split("\n"))
+        return stem, prelude + "task main() -> int {\n" + inner + "    give back 0\n}\n"
+    return stem, (prelude + "task main() -> int {\n    trust me \"t\" on my honor as ." + level + " {\n" + inner
+                  + "    }\n    give back 0\n}\n")
+
+
+# Rejected raw memory programs: (stem, source, named reason). Every operation
+# of the matrix is refused below its rank and outside trust me by name; the
+# forms V4 does not lower are named too. tests/v4_safety/cases/unsafe has
+# one case per rank refusal.
+NATIVE_RAW_ALLOC_REJECTED = tuple(case + (reason,) for case, reason in (
+    (native_raw_case("tier3_raw_alloc_outside_trust", "", "pilot p: *mut int = alloc(8)"),
+     "raw allocation needs trust me block"),
+    (native_raw_case("tier3_raw_alloc_cadet", "cadet", "pilot p: *mut int = alloc(8)"),
+     "raw allocation requires .pilot or higher; current honor is .cadet"),
+    (native_raw_case("tier3_raw_free_cadet", "cadet", "pilot p: *mut int = null<int>()\nfree(p)"),
+     "raw free requires .pilot or higher; current honor is .cadet"),
+    (native_raw_case("tier3_raw_zeroed_outside_trust", "", "pilot z: int = zeroed<int>()"),
+     "zeroed needs trust me block"),
+    (native_raw_case("tier3_raw_unaligned_pilot", "pilot", "pilot p: *mut int = alloc(8)\npilot v: int = p.read_unaligned()\nfree(p)"),
+     "raw-pointer unaligned read requires .ace or higher; current honor is .pilot"),
+    (native_raw_case("tier3_raw_copy_pilot", "pilot", "pilot p: *mut int = alloc(16)\ncopy_nonoverlapping<int>(p, p, 1)\nfree(p)"),
+     "copy_nonoverlapping requires .ace or higher; current honor is .pilot"),
+    (native_raw_case("tier3_raw_copy_ace", "ace", "pilot p: *mut int = alloc(16)\ncopy_nonoverlapping<int>(p, p.offset(1), 1)\nfree(p)"),
+     "native copy_nonoverlapping is not yet supported: copy_nonoverlapping < int >"),
+    (native_raw_case("tier3_raw_lend_referent_pilot", "pilot", "pilot p: *mut int = alloc(8)\npilot v = peek(lend *p)\nfree(p)",
+                     "task peek(lend x: int) -> int { give back x }\n"),
+     "lend of a raw-pointer referent requires .ace or higher; current honor is .pilot"),
+    (native_raw_case("tier3_raw_lend_referent_ace", "ace", "pilot p: *mut int = alloc(8)\npilot v = peek(lend *p)\nfree(p)",
+                     "task peek(lend x: int) -> int { give back x }\n"),
+     "native lends of raw-pointer referents are not yet supported: lend * p"),
+    (native_raw_case("tier3_raw_direct_order_ace", "ace", "direct_order [x86_64] {\n    nop\n}"),
+     "direct_order requires .commander or higher; current honor is .ace"),
+    (native_raw_case("tier3_raw_direct_order_commander", "commander", "direct_order [x86_64] {\n    nop\n}"),
+     "native direct_order inline assembly is not yet supported: direct_order [ x86_64 ]"),
+    # alloc gives back *mut T; the binding names the pointee.
+    (native_raw_case("tier3_raw_alloc_untyped", "pilot", "pilot p = alloc(8)"),
+     "alloc needs a *mut T destination"),
+    (native_raw_case("tier3_raw_alloc_const", "pilot", "pilot p: *int = alloc(8)"),
+     "alloc needs a *mut T destination"),
+    (native_raw_case("tier3_raw_free_const", "pilot", "pilot p: *int = null<int>()\nfree(p)"),
+     "free needs a *mut T"),
+    (native_raw_case("tier3_raw_alloc_num_size", "pilot", "pilot p: *mut int = alloc(8.5)"),
+     "alloc size must be int or uint"),
+    (native_raw_case("tier3_raw_null_untyped", "", "pilot p: *int = null()"),
+     "null needs a type argument"),
+    (native_raw_case("tier3_raw_size_of_void", "", "pilot n = size_of<void>()"),
+     "size_of needs a sized type"),
+    (("tier3_raw_size_of_generic", "task bytes<T>(x: T) -> int {\n    give back size_of<T>()\n}\n"
+      "task main() -> int {\n    give back bytes(1)\n}\n"),
+     "size_of type argument must be concrete"),
+    # Only types with a fixed native layout that own nothing are sized, zeroed
+    # or allocated: scalars, raw pointers, nongeneric shapes, tuples and
+    # fixed arrays of them.
+    (native_raw_case("tier3_raw_size_of_word", "", "pilot n = size_of<word>()"),
+     "native size_of is not yet supported for this type: word"),
+    (native_raw_case("tier3_raw_align_of_list", "", "pilot n = align_of<List<int>>()"),
+     "native align_of is not yet supported for this type: List<int>"),
+    (native_raw_case("tier3_raw_zeroed_word_shape", "pilot", "pilot z: Named = zeroed<Named>()", "shape Named { name: word }\n"),
+     "native zeroed is not yet supported for this type: Named"),
+    (native_raw_case("tier3_raw_alloc_word", "pilot", "pilot p: *mut word = alloc(8)\nfree(p)"),
+     "native raw allocation is not yet supported for this pointee: *mutword"),
+    (native_raw_case("tier3_raw_unaligned_word", "ace", "pilot p: *mut word = null<word>()\npilot w: word = p.read_unaligned()"),
+     "native unaligned reads are not yet supported for this pointee: *mutword"),
+    # The helpers link libc's allocator under its C names.
+    (native_raw_case("tier3_raw_free_symbol", "pilot", "pilot p: *mut tiny = alloc(8)\nfree(p)",
+                     "extern [C] {\n    task free(value: *mut tiny) -> void\n}\n"),
+     "native raw allocation runtime symbol conflict: @free"),
+    (native_raw_case("tier3_raw_calloc_symbol", "pilot", "pilot p: *mut tiny = alloc(8)\nfree(p)",
+                     "extern [C] {\n    task calloc(n: std::ffi::c_size, size: std::ffi::c_size) -> *mut tiny\n}\n"),
+     "native raw allocation runtime symbol conflict: @calloc"),
+    # A type argument keeps its spelled C width: V4 stores C widths as int,
+    # so a query would answer 8 for a 4-byte c_int.
+    (native_raw_case("tier3_raw_size_of_c_int", "", "pilot n = size_of<std::ffi::c_int>()", "use std::ffi::c_int\n"),
+     "native C scalar ABI not yet supported: std::ffi::c_int"),
+    (native_raw_case("tier3_raw_align_of_c_short", "", "pilot n = align_of<c_short>()", "use std::ffi::c_short\n"),
+     "native C scalar ABI not yet supported: c_short"),
+    (native_raw_case("tier3_raw_size_of_c_int_tuple", "", "pilot n = size_of<(std::ffi::c_int, tiny)>()", "use std::ffi::c_int\n"),
+     "native C scalar ABI not yet supported: std::ffi::c_int"),
+    (native_raw_case("tier3_raw_zeroed_c_int", "pilot", "pilot z: int = zeroed<c_int>()", "use std::ffi::c_int\n"),
+     "native C scalar ABI not yet supported: c_int"),
+    (native_raw_case("tier3_raw_null_c_int", "", "pilot p: *int = null<c_int>()", "use std::ffi::c_int\n"),
+     "native C scalar ABI not yet supported: c_int"),
+    # Array lengths in a type argument resolve to non-negative constants.
+    (native_raw_case("tier3_raw_size_of_negative_array", "", "pilot n = size_of<[tiny; -1]>()"),
+     "array length of size_of type argument must be non-negative"),
+    (native_raw_case("tier3_raw_align_of_unresolved_array", "", "pilot n = align_of<[tiny; missing]>()"),
+     "array length of align_of type argument must be compile-time constant"),
+    (native_raw_case("tier3_raw_zeroed_nested_negative_array", "pilot", "pilot z = zeroed<[[tiny; 2]; -3]>()"),
+     "array length of zeroed type argument must be non-negative"),
+    # Layout queries fold per target in codegen; TY constants are target
+    # independent, so constant contexts refuse them by name.
+    (native_raw_case("tier3_raw_layout_array_length", "", "pilot a: [tiny; size_of<int>()] = [0t; 8]"),
+     "layout queries in constant expressions are not yet supported"),
+    (native_raw_case("tier3_raw_layout_repeat_count", "", "pilot a = [0t; size_of<int>()]"),
+     "layout queries in constant expressions are not yet supported"),
+    (("tier3_raw_layout_root_constant", "fixed pilot N = size_of<int>()\ntask main() -> int {\n    give back N\n}\n"),
+     "layout queries in constant expressions are not yet supported"),
+    (("tier3_raw_layout_root_constant_expr", "fixed pilot N = 1 + align_of<int>()\ntask main() -> int {\n    give back 0\n}\n"),
+     "layout queries in constant expressions are not yet supported"),
+    (("tier3_raw_layout_shape_field_length", "shape S { a: [tiny; size_of<int>()] }\ntask main() -> int {\n    give back 0\n}\n"),
+     "layout queries in constant expressions are not yet supported"),
+    (("tier3_raw_null_root_constant", "fixed pilot P = null<int>()\ntask main() -> int {\n    give back 0\n}\n"),
+     "raw memory builtins in constant expressions are not yet supported"),
+    # Native records are LLVM structs at natural alignment; a packed layout
+    # (bible 16.3) is refused by name, directly or nested, until records
+    # honor it.
+    (native_raw_case("tier3_raw_size_of_packed", "", "pilot n = size_of<Packet>()", NATIVE_RAW_PACKED_PRELUDE),
+     "native size_of is not yet supported for packed layouts: Packet"),
+    (native_raw_case("tier3_raw_size_of_packed_field", "", "pilot n = size_of<Wrap>()", NATIVE_RAW_PACKED_PRELUDE + "shape Wrap { p: Packet }\n"),
+     "native size_of is not yet supported for packed layouts: Packet"),
+    (native_raw_case("tier3_raw_align_of_packed_slot", "", "pilot n = align_of<[(tiny, Packet); 2]>()", NATIVE_RAW_PACKED_PRELUDE),
+     "native align_of is not yet supported for packed layouts: Packet"),
+    (native_raw_case("tier3_raw_zeroed_packed", "pilot", "pilot z: Packet = zeroed<Packet>()", NATIVE_RAW_PACKED_PRELUDE),
+     "native zeroed is not yet supported for packed layouts: Packet"),
+    (native_raw_case("tier3_raw_alloc_packed", "pilot", "pilot p: *mut Packet = alloc(12)\nfree(p)", NATIVE_RAW_PACKED_PRELUDE),
+     "native raw allocation is not yet supported for packed layouts: Packet"),
+))
+
+
+def check_v4_native_raw_alloc_panic(executable: Path) -> None:
+    """Any argument makes raw_alloc_native.fk ask alloc for a negative size."""
+    panicked = run_with_heartbeat([str(executable), "negative"], label="V4 native raw allocation size check", timeout_seconds=10, memory_limit_mb=128)
+    if panicked.returncode != 101 or NATIVE_RAW_ALLOC_PANIC not in panicked.stdout + panicked.stderr:
+        raise RuntimeError(f"V4 native raw allocation size check did not panic: exit={panicked.returncode} "
+                           f"stdout={panicked.stdout!r} stderr={panicked.stderr!r}")
+
+
+def check_v4_native_raw_alloc_module(module_text: str, triple: str) -> None:
+    """One allocation helper over calloc, free declared once, layout queries folded by LLVM."""
+    for line, wanted in (("define internal ptr @freak.raw.alloc(i64 %bytes) {", 1), ("declare ptr @calloc(i64, i64)", 1),
+                         ("declare void @free(ptr)", 1)):
+        found = len(re.findall(r"^" + re.escape(line) + r"$", module_text, re.MULTILINE))
+        if found != wanted:
+            raise RuntimeError(f"V4 raw allocation module for {triple} has {found} lines {line!r}, wanted {wanted}")
+    # Sizes and alignments are never spelled as numbers: the target folds them.
+    for query in ("ptrtoint (ptr getelementptr (i64, ptr null, i32 1) to i64)",
+                  'ptrtoint (ptr getelementptr ({ i1, i8 }, ptr null, i32 0, i32 1) to i64)',
+                  'ptrtoint (ptr getelementptr (%"freak.shape.Cell", ptr null, i32 1) to i64)'):
+        if query not in module_text:
+            raise RuntimeError(f"V4 raw allocation module for {triple} does not fold {query}")
+    if "call ptr @malloc(" in module_text or "call ptr @realloc(" in module_text:
+        raise RuntimeError(f"V4 raw allocation module for {triple} allocates outside the calloc helper")
+
+
 # Rejected lend ABI programs: (stem, source, named reason).
 NATIVE_LEND_ABI_REJECTED = (
     # A lend-typed parameter is not a lend mode.
@@ -19011,6 +19176,7 @@ def check_v4_native_shapes() -> None:
         ("lists_nested", "lists_nested_native.fk", NATIVE_NESTED_LISTS_EXPECTED),
         ("lists_unused_shape", "lists_unused_shape_native.fk", "7\n"),
         ("list_sums", "lists_sums_native.fk", NATIVE_LIST_SUMS_EXPECTED),
+        ("raw_alloc", "raw_alloc_native.fk", NATIVE_RAW_ALLOC_EXPECTED),
     )
     abi_probes = 0
     for stem, file_name, expected in programs:
@@ -19039,6 +19205,8 @@ def check_v4_native_shapes() -> None:
             check_v4_native_maps_panic(executable)
         if stem == "shared":
             check_v4_native_shared_panic(executable)
+        if stem == "raw_alloc":
+            check_v4_native_raw_alloc_panic(executable)
         for triple in NATIVE_LAYOUT_TRIPLES:
             module_path = RUNTIME_BUILD_ROOT / f"tier3_native_{stem}_{triple}.ll"
             module_path.unlink(missing_ok=True)
@@ -19061,6 +19229,8 @@ def check_v4_native_shapes() -> None:
                 check_v4_native_maps_layout_note(module_text, triple)
             if stem == "shared":
                 check_v4_native_shared_module(module_text, triple)
+            if stem == "raw_alloc":
+                check_v4_native_raw_alloc_module(module_text, triple)
             probes += check_native_layout_oracle(module_text, triple)
             abi_probes += check_native_abi_oracle(module_text, triple)
             if stem == "agg_abi":
@@ -19266,7 +19436,7 @@ def check_v4_native_shapes() -> None:
          "impl Eq for V { task equals(lend self, other: lend V) -> bool { give back self.x == other.x } }\n"
          "task main() -> int { pilot a = V { x: 1 }\n if a == a { give back 1 }\n give back 0 }\n",
          "Meiya cannot store a lend in parameter 1 of Eq::equals yet"),
-    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_SHARED_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED + NATIVE_LIST_SUMS_REJECTED
+    ) + NATIVE_LEND_ABI_REJECTED + NATIVE_LISTS_REJECTED + NATIVE_MAPS_REJECTED + NATIVE_SHARED_REJECTED + NATIVE_GENERICS_REJECTED + NATIVE_NESTED_LISTS_REJECTED + NATIVE_LIST_SUMS_REJECTED + NATIVE_RAW_ALLOC_REJECTED
     for stem, text, reason in rejected_cases:
         rejected_source = RUNTIME_BUILD_ROOT / f"{stem}.fk"
         rejected_source.write_text(text, encoding="utf-8")
