@@ -59,6 +59,12 @@ task hold_key(key: int, down: bool) -> void {
     cockpit_ui_feed_event(2, key, 0, 0, pressed, 0, 0, 0)
 }
 
+task back_tab() -> void {
+    hold_key(cockpit_key_shift, true)
+    press_key(cockpit_key_tab)
+    hold_key(cockpit_key_shift, false)
+}
+
 task type_char(character: int) -> void {
     cockpit_ui_feed_event(3, 0, character, 0, 0, 0, 0, 0)
 }
@@ -136,8 +142,13 @@ task replay_focus_keys(window: int, layout: ByteBuffer, theme: int) -> void {
     pilot first = cockpit_widget_input(window, layout, theme, "A", 180)
     pilot second = cockpit_widget_input(window, layout, theme, "B", 180)
     check_text(first, "A1", "tab source keeps earlier edits")
-    check_text(second, "B2", "tab target receives later edits")
+    check_text(second, "B", "edits after a tab wait one frame")
     if cockpit_ui_focused_input != 1 { cockpit_fail("tab focus") }
+    next_frame(layout)
+    first = cockpit_widget_input(window, layout, theme, first, 180)
+    second = cockpit_widget_input(window, layout, theme, second, 180)
+    check_text(first, "A1", "held edits skip the tab source")
+    check_text(second, "B2", "tab target receives later edits")
 
     -- Tab from the last field wraps to the first one on the next frame.
     next_frame(layout)
@@ -201,6 +212,153 @@ task replay_focus_keys(window: int, layout: ByteBuffer, theme: int) -> void {
     type_char(115)
     pilot secret = cockpit_widget_input_ex(window, layout, theme, "pa", 180, "Password", true)
     check_text(secret, "pas", "password edits")
+
+    -- Typing right after Shift+Tab lands in the earlier field, one frame on.
+    pilot left = "L"
+    pilot right = "R"
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    hold_key(cockpit_key_shift, true)
+    press_key(cockpit_key_tab)
+    hold_key(cockpit_key_shift, false)
+    type_char(120)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(right, "R", "shift tab source keeps later keys out")
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lx", "keys after shift tab carry to the earlier field")
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    check_text(left, "Lx", "carried keys play once")
+
+    -- Same for a Tab that wraps from the last field to the first.
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    press_key(cockpit_key_tab)
+    type_char(121)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lxy", "keys after a tab wrap carry to the first field")
+    check_text(right, "R", "wrap source stays put")
+
+    -- A click after Shift+Tab: keys before the click go to the earlier
+    -- field next frame, keys after it to the clicked field now, each once.
+    left = "L"
+    right = "R"
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    hold_key(cockpit_key_shift, true)
+    press_key(cockpit_key_tab)
+    hold_key(cockpit_key_shift, false)
+    type_char(120)
+    click_at(20, 40)
+    type_char(121)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "L", "keys after shift tab wait a frame")
+    check_text(right, "R", "keys after shift tab wait a frame (source)")
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lx", "the held key reaches the earlier field")
+    check_text(right, "Ry", "keys after the click land in the clicked field")
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lx", "nothing replays twice")
+    check_text(right, "Ry", "nothing replays twice (clicked field)")
+
+    -- Two jumps back with a click between them: each jump costs one frame.
+    left = "L"
+    right = "R"
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    back_tab()
+    type_char(120)
+    click_at(20, 40)
+    type_char(121)
+    back_tab()
+    type_char(122)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lx", "two jumps: the first run reaches the earlier field")
+    check_text(right, "Ry", "two jumps: the clicked field types")
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lxz", "two jumps: the second run follows")
+    check_text(right, "Ry", "two jumps: the clicked field plays once")
+    if cockpit_ui_focused_input != 0 { cockpit_fail("two jumps: focus ends on the earlier field") }
+    next_frame(layout)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lxz", "two jumps: nothing replays twice")
+
+    -- A jump back, a click, then a Tab that wraps: each run keeps its target.
+    left = "L"
+    right = "R"
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    back_tab()
+    type_char(120)
+    click_at(20, 40)
+    type_char(121)
+    press_key(cockpit_key_tab)
+    type_char(119)
+    repeat 3 times {
+        left = cockpit_widget_input(window, layout, theme, left, 180)
+        right = cockpit_widget_input(window, layout, theme, right, 180)
+        next_frame(layout)
+    }
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lxw", "jump then wrap: both runs reach the first field")
+    check_text(right, "Ry", "jump then wrap: the clicked field plays once")
+
+    -- Clicking the jump's own target keeps the order of its keys.
+    left = "L"
+    right = "R"
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    back_tab()
+    type_char(120)
+    click_at(170, 10)
+    type_char(121)
+    repeat 2 times {
+        left = cockpit_widget_input(window, layout, theme, left, 180)
+        right = cockpit_widget_input(window, layout, theme, right, 180)
+        next_frame(layout)
+    }
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    check_text(left, "Lxy", "click on the target: keys keep their order")
+
+    -- A click after the jump places the caret where it landed.
+    left = "L"
+    right = "R"
+    cockpit_ui_focus_input(1)
+    next_frame(layout)
+    back_tab()
+    type_char(120)
+    click_at(8, 40)
+    type_char(121)
+    repeat 2 times {
+        left = cockpit_widget_input(window, layout, theme, left, 180)
+        right = cockpit_widget_input(window, layout, theme, right, 180)
+        next_frame(layout)
+    }
+    type_char(122)
+    left = cockpit_widget_input(window, layout, theme, left, 180)
+    right = cockpit_widget_input(window, layout, theme, right, 180)
+    check_text(left, "Lx", "click caret: the earlier field")
+    check_text(right, "yzR", "click caret: the caret stays where the click put it")
     say "PASS focus keys"
 }
 

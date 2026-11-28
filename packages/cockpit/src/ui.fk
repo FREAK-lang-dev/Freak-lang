@@ -1,15 +1,40 @@
+use self::blackbox::{
+    cockpit_bb_circle,
+    cockpit_bb_clear,
+    cockpit_bb_clip,
+    cockpit_bb_fill,
+    cockpit_bb_is_calibrated,
+    cockpit_bb_line,
+    cockpit_bb_slot,
+    cockpit_bb_stroke,
+    cockpit_bb_text,
+    cockpit_bb_unclip,
+    cockpit_blackbox_begin,
+    cockpit_blackbox_clear_wanted,
+    cockpit_blackbox_count,
+    cockpit_blackbox_field,
+    cockpit_blackbox_mark_calibrated,
+    cockpit_blackbox_release,
+    cockpit_blackbox_set_advance,
+    cockpit_blackbox_slot_bold,
+    cockpit_blackbox_slot_size,
+    cockpit_blackbox_text,
+    cockpit_blackbox_wanted,
+    cockpit_blackbox_wanted_count
+}
+use self::frame::{
+    cockpit_frame_finish,
+    cockpit_frame_start
+}
 use self::layout::{
     cockpit_layout_begin_column,
-    cockpit_layout_begin_frame,
     cockpit_layout_begin_grid,
     cockpit_layout_begin_row,
     cockpit_layout_begin_row_aligned,
     cockpit_layout_end
 }
 use self::state::{
-    cockpit_fail,
     cockpit_ui_begin_events,
-    cockpit_ui_clip_depth,
     cockpit_ui_clip_stack,
     cockpit_ui_edits,
     cockpit_ui_feed_event,
@@ -18,30 +43,51 @@ use self::state::{
     cockpit_ui_memory,
     cockpit_ui_tick_clock,
     cockpit_ui_poll_result,
+    cockpit_ui_release_state,
     cockpit_ui_reset
 }
 use self::theme::{
     cockpit_color_a,
     cockpit_color_b,
     cockpit_color_g,
-    cockpit_color_r,
-    cockpit_theme_bg,
-    cockpit_theme_gap,
-    cockpit_theme_get,
-    cockpit_theme_padding
+    cockpit_color_r
 }
 use self::toast::{
     cockpit_toast_theme,
-    cockpit_toasts_capture_click,
-    cockpit_toasts_draw,
     cockpit_toasts_release,
     cockpit_toasts_reset
 }
-use self::widgets::{
-    cockpit_popup_draw
+
+-- COCKPIT window: the only module that talks to the native window (ui::).
+-- It feeds the window's events in, then replays the black box to the screen.
+
+-- Printable ASCII in code order, 32..126, for measuring one glyph at a time.
+fixed pilot cockpit_ui_glyphs = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz\{|\}~"
+
+-- Measures every printable character once at this size, so later text widths
+-- are exact without asking the window again.
+task cockpit_ui_calibrate(font_size: int, bold: bool) -> void {
+    if cockpit_bb_is_calibrated(cockpit_bb_slot(font_size, bold)) { give back }
+    pilot weight = 0
+    if bold { weight = 1 }
+    pilot code = 32
+    repeat 95 times {
+        pilot glyph = cockpit_ui_glyphs.substring(code - 32, 1)
+        cockpit_blackbox_set_advance(font_size, bold, code, ui::measure_text(glyph, font_size, weight, 0))
+        code += 1
+    }
+    cockpit_blackbox_mark_calibrated(font_size, bold)
 }
 
--- COCKPIT frame/window facade. State and drawing modules are explicit inputs.
+task cockpit_ui_calibrate_wanted() -> void {
+    pilot index = 0
+    repeat cockpit_blackbox_wanted_count() times {
+        pilot slot = cockpit_blackbox_wanted(index)
+        cockpit_ui_calibrate(cockpit_blackbox_slot_size(slot), cockpit_blackbox_slot_bold(slot))
+        index += 1
+    }
+    cockpit_blackbox_clear_wanted()
+}
 
 task cockpit_ui_open(title: word, width: int, height: int, resizable: bool) -> int {
     pilot resize_flag = 0
@@ -50,6 +96,13 @@ task cockpit_ui_open(title: word, width: int, height: int, resizable: bool) -> i
     if window == 0 { give back 0 }
     cockpit_ui_reset()
     cockpit_toasts_reset()
+    -- The sizes the built-in themes use: body 12-16, headings +6 in bold.
+    pilot size = 12
+    repeat 11 times {
+        cockpit_ui_calibrate(size, false)
+        cockpit_ui_calibrate(size, true)
+        size += 1
+    }
     give back window
 }
 
@@ -57,15 +110,11 @@ task cockpit_ui_close(window: int) -> void {
     ui::destroy_window(window)
     cockpit_toasts_release()
     cockpit_toast_theme = 0
-    if cockpit_ui_edits != 0 { array_release(cockpit_ui_edits) cockpit_ui_edits = 0 }
-    if cockpit_ui_clip_stack != 0 { array_release(cockpit_ui_clip_stack) cockpit_ui_clip_stack = 0 }
-    if cockpit_ui_keys_down != 0 { array_release(cockpit_ui_keys_down) cockpit_ui_keys_down = 0 }
-    if cockpit_ui_memory != 0 { array_release(cockpit_ui_memory) cockpit_ui_memory = 0 }
-    if cockpit_ui_keys_pressed != 0 { array_release(cockpit_ui_keys_pressed) cockpit_ui_keys_pressed = 0 }
+    cockpit_blackbox_release()
+    cockpit_ui_release_state()
 }
 
 task cockpit_ui_begin_frame(window: int, layout: ByteBuffer, theme: int) -> void {
-    cockpit_ui_clip_depth = 0
     cockpit_ui_tick_clock()
     cockpit_toast_theme = theme
     cockpit_ui_begin_events()
@@ -79,18 +128,45 @@ task cockpit_ui_begin_frame(window: int, layout: ByteBuffer, theme: int) -> void
         cockpit_ui_feed_event(kind, ui::event_key(index), ui::event_character(index), ui::event_button(index), pressed, ui::event_mouse_x(index), ui::event_mouse_y(index), ui::event_scroll_dy(index))
         index += 1
     }
-    cockpit_toasts_capture_click()
-    ui::begin_frame(window)
-    pilot bg = cockpit_theme_get(theme, cockpit_theme_bg)
-    ui::clear(window, cockpit_color_r(bg), cockpit_color_g(bg), cockpit_color_b(bg), cockpit_color_a(bg))
-    cockpit_layout_begin_frame(layout, ui::get_width(window), ui::get_height(window), cockpit_theme_get(theme, cockpit_theme_padding), cockpit_theme_get(theme, cockpit_theme_gap))
+    cockpit_ui_calibrate_wanted()
+    cockpit_blackbox_begin(ui::get_width(window), ui::get_height(window))
+    cockpit_frame_start(layout, theme)
 }
 
 task cockpit_ui_end_frame(window: int) -> void {
-    if cockpit_ui_clip_depth != 0 { cockpit_fail("COCKPIT unclosed clipped container") }
-    cockpit_toasts_draw(window)
-    cockpit_popup_draw(window)
+    cockpit_frame_finish()
+    ui::begin_frame(window)
+    cockpit_ui_replay(window)
     ui::end_frame(window)
+}
+
+-- Draws every command in the black box to the window, in order.
+task cockpit_ui_replay(window: int) -> void {
+    pilot index = 0
+    repeat cockpit_blackbox_count() times {
+        pilot kind = cockpit_blackbox_field(index, 0)
+        pilot a = cockpit_blackbox_field(index, 1)
+        pilot b = cockpit_blackbox_field(index, 2)
+        pilot c = cockpit_blackbox_field(index, 3)
+        pilot d = cockpit_blackbox_field(index, 4)
+        pilot color = cockpit_blackbox_field(index, 5)
+        pilot extra = cockpit_blackbox_field(index, 6)
+        pilot red = cockpit_color_r(color)
+        pilot green = cockpit_color_g(color)
+        pilot blue = cockpit_color_b(color)
+        pilot alpha = cockpit_color_a(color)
+        if kind == cockpit_bb_clear { ui::clear(window, red, green, blue, alpha) }
+        else if kind == cockpit_bb_fill { ui::fill_rect(window, a, b, c, d, red, green, blue, alpha) }
+        else if kind == cockpit_bb_stroke { ui::stroke_rect(window, a, b, c, d, red, green, blue, alpha, extra) }
+        else if kind == cockpit_bb_circle { ui::fill_circle(window, a, b, c, red, green, blue, alpha) }
+        else if kind == cockpit_bb_line { ui::draw_line(window, a, b, c, d, red, green, blue, alpha, extra) }
+        else if kind == cockpit_bb_text {
+            pilot ignored = ui::draw_text(window, cockpit_blackbox_text(index), a, b, red, green, blue, d, extra == 1, false)
+        }
+        else if kind == cockpit_bb_clip { ui::set_clip(window, a, b, c, d) }
+        else if kind == cockpit_bb_unclip { ui::reset_clip(window) }
+        index += 1
+    }
 }
 
 task cockpit_row_begin(layout: ByteBuffer, height: int, gap: int) -> void {

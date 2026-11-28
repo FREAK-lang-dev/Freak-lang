@@ -31,6 +31,9 @@ task cockpit_color_g(color: int) -> int { give back (color / 256) % 256 }
 task cockpit_color_b(color: int) -> int { give back (color / 65536) % 256 }
 task cockpit_color_a(color: int) -> int { give back (color / 16777216) % 256 }
 
+-- The same colour with full alpha.
+task cockpit_color_opaque(color: int) -> int { give back color % 16777216 + 255 * 16777216 }
+
 -- Blends two colors channel by channel; t is permille (0 = a, 1000 = b).
 task cockpit_color_mix(a: int, b: int, t: int) -> int {
     if t < 0 { t = 0 }

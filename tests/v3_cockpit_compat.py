@@ -21,11 +21,14 @@ SOURCE_ORDER = (
     "containers.fk",
     "layout.fk",
     "theme.fk",
+    "blackbox.fk",
     "state.fk",
     "widgets.fk",
     "motion.fk",
     "controls.fk",
     "toast.fk",
+    "frame.fk",
+    "flight.fk",
     "ui.fk",
 )
 
@@ -508,6 +511,17 @@ def assert_static_contract(package: Path) -> None:
     assert "ui::event_kind" in joined
     assert "ui::event_mouse_x" in joined
     assert "ui::event_character" in joined
+    # Shape examples fly a Cockpit (hud.fk): sortie() before the loop, land() after.
+    shape_examples = [path for path in example_paths if "sortie(" in path.read_text(encoding="utf-8")]
+    for example in shape_examples:
+        text = example.read_text(encoding="utf-8")
+        loop = re.search(r"repeat\s+until\s+([a-z_]+)\.landed\(\)", text)
+        assert loop is not None, example
+        assert text.index("sortie(") < loop.start(), example
+        assert f"{loop.group(1)}.over()" in text, example
+        assert f"{loop.group(1)}.land()" in text[loop.end():], example
+        assert "ByteBuffer::with_capacity" not in text, example
+    example_paths = [path for path in example_paths if path not in shape_examples]
     assert joined.count("ByteBuffer::with_capacity") == len(example_paths)
     for example in example_paths:
         text = example.read_text(encoding="utf-8")

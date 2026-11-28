@@ -1,0 +1,135 @@
+use self::blackbox::{
+    cockpit_blackbox_count,
+    cockpit_blackbox_dump,
+    cockpit_blackbox_field,
+    cockpit_blackbox_find_text,
+    cockpit_blackbox_line
+}
+use self::flight::{
+    cockpit_flight_begin_frame,
+    cockpit_flight_chord,
+    cockpit_flight_click_text,
+    cockpit_flight_close,
+    cockpit_flight_end_frame,
+    cockpit_flight_frame_ms,
+    cockpit_flight_key,
+    cockpit_flight_move,
+    cockpit_flight_open,
+    cockpit_flight_queued,
+    cockpit_flight_quit,
+    cockpit_flight_type
+}
+use self::layout::{
+    cockpit_layout_capacity,
+    cockpit_layout_release
+}
+use self::state::{
+    cockpit_fail,
+    cockpit_key_ctrl,
+    cockpit_key_enter,
+    cockpit_key_letter,
+    cockpit_ui_focus_input,
+    cockpit_ui_shortcut,
+    cockpit_ui_should_close
+}
+use self::theme::{
+    cockpit_theme_dark,
+    cockpit_theme_release
+}
+use self::toast::{
+    cockpit_toast_info,
+    cockpit_toast_timed
+}
+use self::controls::{
+    cockpit_widget_toggle
+}
+use self::widgets::{
+    cockpit_widget_button,
+    cockpit_widget_heading,
+    cockpit_widget_input_ex
+}
+
+-- Flight sim: a whole cockpit flown with no window. Links with no UI backend.
+
+task main() {
+    pilot layout = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    pilot theme = cockpit_theme_dark()
+    cockpit_flight_open(320, 200)
+    pilot callsign = ""
+    pilot armed = false
+    pilot launches = 0
+    pilot frame = 0
+    pilot first_frame = ""
+    repeat until cockpit_ui_should_close() {
+        if frame == 1 {
+            if not cockpit_flight_click_text("callsign") { cockpit_fail("placeholder not drawn") }
+            cockpit_flight_type("Eagle")
+        }
+        if frame == 2 { pilot hit = cockpit_flight_click_text("Launch") }
+        if frame == 3 { pilot hit = cockpit_flight_click_text("Armed") }
+        if frame == 4 { cockpit_flight_key(cockpit_key_enter) }
+        if frame == 5 { cockpit_flight_quit() }
+        cockpit_flight_begin_frame(layout, theme)
+        cockpit_widget_heading(0, layout, theme, "Launch control")
+        callsign = cockpit_widget_input_ex(0, layout, theme, callsign, 200, "callsign", false)
+        if cockpit_widget_button(0, layout, theme, "Launch", 0) { launches += 1 }
+        armed = cockpit_widget_toggle(0, layout, theme, "Armed", armed)
+        cockpit_flight_end_frame()
+        if frame == 0 { first_frame = cockpit_blackbox_dump() }
+        say "frame " + word_from_int(frame) + ": callsign=" + callsign + " launches=" + word_from_int(launches) + " armed=" + bool_word(armed) + " commands=" + word_from_int(cockpit_blackbox_count())
+        frame += 1
+        if frame > 20 { cockpit_fail("sim never closed") }
+    }
+    say first_frame
+
+    -- A chord queued between frames still matches its shortcut in the next
+    -- frame, although Ctrl is already up again when the frame begins.
+    cockpit_flight_chord(cockpit_key_ctrl, cockpit_key_letter("S"))
+    cockpit_flight_begin_frame(layout, theme)
+    if not cockpit_ui_shortcut(cockpit_key_letter("S"), true, false, false) { cockpit_fail("ctrl+s chord") }
+    if cockpit_ui_shortcut(cockpit_key_letter("S"), false, false, false) { cockpit_fail("chord matched plain s") }
+    if cockpit_ui_shortcut(cockpit_key_letter("S"), true, true, false) { cockpit_fail("chord matched ctrl+shift+s") }
+    cockpit_flight_end_frame()
+
+    -- An action that doesn't fit whole is not queued at all.
+    repeat 61 times { cockpit_flight_move(1, 1) }
+    cockpit_flight_chord(cockpit_key_ctrl, cockpit_key_letter("S"))
+    if cockpit_flight_queued() != 61 { cockpit_fail("half a chord was queued") }
+    cockpit_flight_key(cockpit_key_enter)
+    if cockpit_flight_queued() != 63 { cockpit_fail("a key tap that fits was refused") }
+    cockpit_flight_begin_frame(layout, theme)
+    cockpit_flight_end_frame()
+
+    -- The sim clock drives toasts and the caret blink: no real time passes.
+    cockpit_flight_frame_ms(100)
+    cockpit_ui_focus_input(0)
+    cockpit_toast_timed("short", cockpit_toast_info, 250)
+    pilot timeline = ""
+    repeat 6 times {
+        cockpit_flight_begin_frame(layout, theme)
+        callsign = cockpit_widget_input_ex(0, layout, theme, callsign, 200, "callsign", false)
+        cockpit_flight_end_frame()
+        if cockpit_blackbox_find_text("short") >= 0 { timeline = timeline + "T" } else { timeline = timeline + "-" }
+        if caret_drawn() { timeline = timeline + "|" } else { timeline = timeline + "." }
+        timeline = timeline + " "
+    }
+    say "clock: " + timeline
+    cockpit_flight_close()
+    cockpit_layout_release(layout)
+    cockpit_theme_release(theme)
+}
+
+-- The focused input's caret is the only 2 px wide fill.
+task caret_drawn() -> bool {
+    pilot index = 0
+    repeat cockpit_blackbox_count() times {
+        if cockpit_blackbox_field(index, 0) == 2 and cockpit_blackbox_field(index, 3) == 2 { give back true }
+        index += 1
+    }
+    give back false
+}
+
+task bool_word(value: bool) -> word {
+    if value { give back "on" }
+    give back "off"
+}

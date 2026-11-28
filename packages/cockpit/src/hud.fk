@@ -1,0 +1,298 @@
+use self::blackbox::{
+    cockpit_blackbox_height,
+    cockpit_blackbox_width
+}
+use self::controls::{
+    cockpit_widget_badge,
+    cockpit_widget_bar_chart,
+    cockpit_widget_collapsing,
+    cockpit_widget_list,
+    cockpit_widget_radio,
+    cockpit_widget_sparkline,
+    cockpit_widget_stepper,
+    cockpit_widget_toggle
+}
+use self::flight::{
+    cockpit_flight_begin_frame,
+    cockpit_flight_close,
+    cockpit_flight_end_frame,
+    cockpit_flight_open
+}
+use self::layout::{
+    cockpit_layout_capacity,
+    cockpit_layout_last_height,
+    cockpit_layout_last_width,
+    cockpit_layout_last_x,
+    cockpit_layout_last_y,
+    cockpit_layout_release
+}
+use self::state::{
+    cockpit_ui_reset,
+    cockpit_fail,
+    cockpit_ui_delta_ms,
+    cockpit_ui_request_close,
+    cockpit_ui_should_close,
+    cockpit_widget_input_submitted
+}
+use self::theme::{
+    cockpit_theme_dark,
+    cockpit_theme_gap,
+    cockpit_theme_get,
+    cockpit_theme_release
+}
+use self::toast::{
+    cockpit_toasts_reset,
+    cockpit_toast,
+    cockpit_toast_danger,
+    cockpit_toast_info,
+    cockpit_toast_success
+}
+use self::ui::{
+    cockpit_column_begin,
+    cockpit_container_end,
+    cockpit_grid_begin,
+    cockpit_row_begin,
+    cockpit_ui_begin_frame,
+    cockpit_ui_close,
+    cockpit_ui_end_frame,
+    cockpit_ui_open
+}
+use self::widgets::{
+    cockpit_modal_begin,
+    cockpit_modal_close,
+    cockpit_modal_end,
+    cockpit_modal_open,
+    cockpit_panel_begin,
+    cockpit_panel_end,
+    cockpit_scroll_begin,
+    cockpit_scroll_end,
+    cockpit_widget_button,
+    cockpit_widget_checkbox,
+    cockpit_widget_dropdown,
+    cockpit_widget_heading,
+    cockpit_widget_input,
+    cockpit_widget_input_ex,
+    cockpit_widget_label,
+    cockpit_widget_progress,
+    cockpit_widget_separator,
+    cockpit_widget_slider,
+    cockpit_widget_spacer,
+    cockpit_widget_tabs,
+    cockpit_widget_tooltip
+}
+
+-- COCKPIT the shape: one value that carries the window, the layout buffer and
+-- the theme, so widgets are method calls.
+--
+--     pilot p = sortie("Launch control", 480, 240)
+--     repeat until p.landed() {
+--         p.heading("Launch control")
+--         if p.button("Launch") { say "go" }
+--         p.over()
+--     }
+--     p.land()
+--
+-- It can't be called Pilot: the V3.5 lexer matches keywords without case.
+
+shape Cockpit {
+    window: int,
+    layout: ByteBuffer,
+    theme: int,
+    owns_theme: bool,
+    sim: bool,
+    hosted: bool
+}
+
+-- Opens a window with the dark theme. window is 0 if it couldn't open.
+task sortie(title: word, width: int, height: int) -> Cockpit {
+    give back Cockpit { window: cockpit_ui_open(title, width, height, true), layout: ByteBuffer::with_capacity(cockpit_layout_capacity()), theme: cockpit_theme_dark(), owns_theme: true, sim: false, hosted: false }
+}
+
+-- Opens a window with your theme. land() leaves the theme for you to release.
+task sortie_painted(title: word, width: int, height: int, theme: int) -> Cockpit {
+    give back Cockpit { window: cockpit_ui_open(title, width, height, true), layout: ByteBuffer::with_capacity(cockpit_layout_capacity()), theme: theme, owns_theme: false, sim: false, hosted: false }
+}
+
+-- A cockpit with no window, flown by the flight sim (cockpit_flight_*).
+task sortie_sim(width: int, height: int) -> Cockpit {
+    cockpit_flight_open(width, height)
+    give back Cockpit { window: 0, layout: ByteBuffer::with_capacity(cockpit_layout_capacity()), theme: cockpit_theme_dark(), owns_theme: true, sim: true, hosted: false }
+}
+
+-- A cockpit whose frames another package drives (cockpit-uplink). Its driver
+-- starts and ends frames; landed() and over() on it are mistakes.
+task sortie_hosted(theme: int) -> Cockpit {
+    cockpit_ui_reset()
+    cockpit_toasts_reset()
+    give back Cockpit { window: 0, layout: ByteBuffer::with_capacity(cockpit_layout_capacity()), theme: theme, owns_theme: false, sim: false, hosted: true }
+}
+
+impl Cockpit {
+    -- Starts the next frame. True once the window has closed: stop drawing then.
+    task landed(self) -> bool {
+        if self.hosted { cockpit_fail("COCKPIT this cockpit is flown by its driver: call landed() on the driver") }
+        if self.sim { cockpit_flight_begin_frame(self.layout, self.theme) }
+        else { cockpit_ui_begin_frame(self.window, self.layout, self.theme) }
+        give back cockpit_ui_should_close()
+    }
+
+    -- Ends the frame and puts it on screen.
+    task over(self) -> void {
+        if self.hosted { cockpit_fail("COCKPIT this cockpit is flown by its driver: call over() on the driver") }
+        if self.sim { cockpit_flight_end_frame() }
+        else { cockpit_ui_end_frame(self.window) }
+    }
+
+    -- Closes the window and frees the layout (and the theme, if sortie made it).
+    task land(self) -> void {
+        if self.owns_theme { cockpit_theme_release(self.theme) }
+        self.layout.release()
+        if self.sim or self.hosted { cockpit_flight_close() }
+        else { cockpit_ui_close(self.window) }
+    }
+
+    -- The theme handle, for cockpit_theme_get and friends.
+    task theme_handle(self) -> int { give back self.theme }
+
+    -- One of the theme's colors: p.color(cockpit_theme_success).
+    task color(self, field: int) -> int { give back cockpit_theme_get(self.theme, field) }
+
+    -- Draws a big bold line of text.
+    task heading(self, text: word) -> void { cockpit_widget_heading(self.window, self.layout, self.theme, text) }
+
+    -- Draws a line of text.
+    task label(self, text: word) -> void { cockpit_widget_label(self.window, self.layout, self.theme, text) }
+
+    -- A button as wide as its text. True on the frame it was clicked.
+    task button(self, text: word) -> bool { give back cockpit_widget_button(self.window, self.layout, self.theme, text, 0) }
+
+    -- A button this many pixels wide.
+    task button_sized(self, text: word, width: int) -> bool { give back cockpit_widget_button(self.window, self.layout, self.theme, text, width) }
+
+    -- A checkbox. Give it the current value, keep what comes back.
+    task checkbox(self, text: word, checked: bool) -> bool { give back cockpit_widget_checkbox(self.window, self.layout, self.theme, text, checked) }
+
+    -- A sliding switch, same contract as checkbox.
+    task toggle(self, text: word, on: bool) -> bool { give back cockpit_widget_toggle(self.window, self.layout, self.theme, text, on) }
+
+    -- A 240 px text box. You own the text: pass it in, keep what comes back.
+    task input(self, text: word) -> word { give back cockpit_widget_input(self.window, self.layout, self.theme, text, 240) }
+
+    -- A text box this many pixels wide.
+    task input_sized(self, text: word, width: int) -> word { give back cockpit_widget_input(self.window, self.layout, self.theme, text, width) }
+
+    -- A 240 px text box that shows a hint while empty.
+    task input_hint(self, text: word, placeholder: word) -> word { give back cockpit_widget_input_ex(self.window, self.layout, self.theme, text, 240, placeholder, false) }
+
+    -- A 240 px box that draws one * per character.
+    task password(self, text: word, placeholder: word) -> word { give back cockpit_widget_input_ex(self.window, self.layout, self.theme, text, 240, placeholder, true) }
+
+    -- Everything cockpit_widget_input_ex can do.
+    task input_ex(self, text: word, width: int, placeholder: word, password: bool) -> word { give back cockpit_widget_input_ex(self.window, self.layout, self.theme, text, width, placeholder, password) }
+
+    -- True right after the input where Enter was pressed.
+    task submitted(self) -> bool { give back cockpit_widget_input_submitted() }
+
+    -- A 200 px slider from minimum to maximum.
+    task slider(self, value: int, minimum: int, maximum: int) -> int { give back cockpit_widget_slider(self.window, self.layout, self.theme, value, minimum, maximum, 200) }
+
+    -- A slider this many pixels wide.
+    task slider_sized(self, value: int, minimum: int, maximum: int, width: int) -> int { give back cockpit_widget_slider(self.window, self.layout, self.theme, value, minimum, maximum, width) }
+
+    -- - value + buttons, clamped to the range.
+    task stepper(self, value: int, minimum: int, maximum: int, step: int) -> int { give back cockpit_widget_stepper(self.window, self.layout, self.theme, value, minimum, maximum, step) }
+
+    -- A bar filled to value per mille (0..1000), with a label.
+    task progress(self, value: int, label: word) -> void { cockpit_widget_progress(self.window, self.layout, self.theme, value, label) }
+
+    -- A thin line across.
+    task separator(self) -> void { cockpit_widget_separator(self.window, self.layout, self.theme) }
+
+    -- Empty space this many pixels tall (or wide, in a row).
+    task spacer(self, size: int) -> void { cockpit_widget_spacer(self.layout, size) }
+
+    -- One choice from a words list, as radio buttons.
+    task radio(self, selected: int, items: int) -> int { give back cockpit_widget_radio(self.window, self.layout, self.theme, selected, items) }
+
+    -- One choice from a words list, in a popup.
+    task dropdown(self, selected: int, items: int) -> int { give back cockpit_widget_dropdown(self.window, self.layout, self.theme, selected, items) }
+
+    -- A row of tabs from a words list.
+    task tabs(self, selected: int, names: int) -> int { give back cockpit_widget_tabs(self.window, self.layout, self.theme, selected, names) }
+
+    -- A scrolling list showing this many rows.
+    task list(self, selected: int, items: int, rows: int) -> int { give back cockpit_widget_list(self.window, self.layout, self.theme, selected, items, rows) }
+
+    -- A header that opens and closes. Draw its contents when it gives back true.
+    task collapsing(self, title: word, open: bool) -> bool { give back cockpit_widget_collapsing(self.window, self.layout, self.theme, title, open) }
+
+    -- A small coloured tag.
+    task badge(self, text: word, color: int) -> void { cockpit_widget_badge(self.window, self.layout, self.theme, text, color) }
+
+    -- A line chart of a values list.
+    task sparkline(self, values: int, width: int, height: int) -> void { cockpit_widget_sparkline(self.window, self.layout, self.theme, values, width, height) }
+
+    -- Bars for a values list, labelled from a words list.
+    task bar_chart(self, values: int, labels: int, width: int, height: int) -> void { cockpit_widget_bar_chart(self.window, self.layout, self.theme, values, labels, width, height) }
+
+    -- Shows text when the pointer rests on the widget drawn just before.
+    task hint(self, text: word) -> void { cockpit_widget_tooltip(self.window, self.theme, text, cockpit_layout_last_x(), cockpit_layout_last_y(), cockpit_layout_last_width(), cockpit_layout_last_height()) }
+
+    -- Starts a row this many pixels tall. Close it with end().
+    task row(self, height: int) -> void { cockpit_row_begin(self.layout, height, cockpit_theme_get(self.theme, cockpit_theme_gap)) }
+
+    -- Starts a column this many pixels wide. Close it with end().
+    task column(self, width: int) -> void { cockpit_column_begin(self.layout, width, cockpit_theme_get(self.theme, cockpit_theme_gap)) }
+
+    -- Starts a grid with this many columns. Close it with end().
+    task grid(self, columns: int) -> void { cockpit_grid_begin(self.layout, columns, cockpit_theme_get(self.theme, cockpit_theme_gap)) }
+
+    -- Closes the last row, column or grid.
+    task end(self) -> void { cockpit_container_end(self.layout) }
+
+    -- Starts a framed panel. Close it with panel_end().
+    task panel(self, width: int, height: int) -> void { cockpit_panel_begin(self.window, self.layout, self.theme, width, height) }
+
+    -- Closes a panel.
+    task panel_end(self) -> void { cockpit_panel_end(self.window, self.layout) }
+
+    -- Starts a scrolling area; keep the offset it gives back. Close with scroll_end().
+    task scroll(self, width: int, height: int, content_height: int, offset: int) -> int { give back cockpit_scroll_begin(self.window, self.layout, self.theme, width, height, content_height, offset) }
+
+    -- Closes a scrolling area.
+    task scroll_end(self) -> void { cockpit_scroll_end(self.window, self.layout) }
+
+    -- Opens the modal from the next frame on.
+    task modal_open(self) -> void { cockpit_modal_open() }
+
+    -- Draws the modal if open; when true, draw its contents then call modal_end().
+    task modal(self, width: int, height: int) -> bool { give back cockpit_modal_begin(self.window, self.layout, self.theme, width, height) }
+
+    -- Closes the modal body.
+    task modal_end(self) -> void { cockpit_modal_end(self.window, self.layout) }
+
+    -- Closes the modal for good.
+    task modal_close(self) -> void { cockpit_modal_close() }
+
+    -- A message that pops up bottom right for 3 seconds.
+    task toast(self, text: word) -> void { cockpit_toast(text, cockpit_toast_info) }
+
+    -- A green toast.
+    task toast_success(self, text: word) -> void { cockpit_toast(text, cockpit_toast_success) }
+
+    -- A red toast.
+    task toast_danger(self, text: word) -> void { cockpit_toast(text, cockpit_toast_danger) }
+
+    -- Milliseconds since the last frame.
+    task delta_ms(self) -> int { give back cockpit_ui_delta_ms() }
+
+    -- Window width this frame.
+    task width(self) -> int { give back cockpit_blackbox_width() }
+
+    -- Window height this frame.
+    task height(self) -> int { give back cockpit_blackbox_height() }
+
+    -- Asks the window to close after this frame.
+    task eject(self) -> void { cockpit_ui_request_close() }
+
+}

@@ -1,0 +1,305 @@
+-- COCKPIT black box: every frame's drawing is recorded here first.
+-- Widgets never talk to the window directly. They append commands to the
+-- black box and ask it how wide text is and how big the window is. The
+-- window module (ui.fk) replays the list to the native window at the end of
+-- the frame; a flight-sim test or the uplink reads the same list instead.
+--
+-- A command is eight integers: kind, then seven fields. Text lives in its
+-- own list and the command keeps its index.
+
+fixed pilot cockpit_bb_clear = 1
+fixed pilot cockpit_bb_fill = 2
+fixed pilot cockpit_bb_stroke = 3
+fixed pilot cockpit_bb_circle = 4
+fixed pilot cockpit_bb_line = 5
+fixed pilot cockpit_bb_text = 6
+fixed pilot cockpit_bb_clip = 7
+fixed pilot cockpit_bb_unclip = 8
+fixed pilot cockpit_bb_fields = 8
+
+-- Text metrics: one advance table per (font size, bold) slot, 95 printable
+-- ASCII characters each. Until the window calibrates a slot, every byte is
+-- half the font size wide, rounded up (the flight-sim metrics: 7 px at 14).
+fixed pilot cockpit_bb_default_advance = 7
+fixed pilot cockpit_bb_max_font = 96
+fixed pilot cockpit_bb_glyphs = 95
+
+pilot cockpit_bb_ops = 0
+pilot cockpit_bb_count = 0
+pilot cockpit_bb_texts = 0
+pilot cockpit_bb_text_count = 0
+pilot cockpit_bb_width = 640
+pilot cockpit_bb_height = 480
+pilot cockpit_bb_advances = 0
+pilot cockpit_bb_calibrated = 0
+pilot cockpit_bb_wanted = 0
+pilot cockpit_bb_wanted_count = 0
+pilot cockpit_bb_frames = 0
+pilot cockpit_bb_clip_set = false
+pilot cockpit_bb_clip_x = 0
+pilot cockpit_bb_clip_y = 0
+pilot cockpit_bb_clip_w = 0
+pilot cockpit_bb_clip_h = 0
+
+task cockpit_bb_ready() -> void {
+    if cockpit_bb_ops == 0 { cockpit_bb_ops = array_new() }
+    if cockpit_bb_texts == 0 { cockpit_bb_texts = array_new() }
+    if cockpit_bb_calibrated == 0 {
+        cockpit_bb_calibrated = array_new()
+        repeat (cockpit_bb_max_font + 1) * 2 times { array_push(cockpit_bb_calibrated, "0") }
+    }
+    if cockpit_bb_wanted == 0 { cockpit_bb_wanted = array_new() }
+}
+
+-- Starts a new frame of commands for a window of this size.
+task cockpit_blackbox_begin(width: int, height: int) -> void {
+    cockpit_bb_ready()
+    cockpit_bb_count = 0
+    cockpit_bb_text_count = 0
+    cockpit_bb_width = width
+    cockpit_bb_height = height
+    cockpit_bb_frames += 1
+    cockpit_bb_clip_set = false
+}
+
+task cockpit_blackbox_release() -> void {
+    if cockpit_bb_ops != 0 { array_release(cockpit_bb_ops) cockpit_bb_ops = 0 }
+    if cockpit_bb_texts != 0 { array_release(cockpit_bb_texts) cockpit_bb_texts = 0 }
+    if cockpit_bb_advances != 0 { array_release(cockpit_bb_advances) cockpit_bb_advances = 0 }
+    if cockpit_bb_calibrated != 0 { array_release(cockpit_bb_calibrated) cockpit_bb_calibrated = 0 }
+    if cockpit_bb_wanted != 0 { array_release(cockpit_bb_wanted) cockpit_bb_wanted = 0 }
+    cockpit_bb_count = 0
+    cockpit_bb_text_count = 0
+    cockpit_bb_wanted_count = 0
+    cockpit_bb_frames = 0
+}
+
+task cockpit_blackbox_width() -> int { give back cockpit_bb_width }
+task cockpit_blackbox_height() -> int { give back cockpit_bb_height }
+task cockpit_blackbox_count() -> int { give back cockpit_bb_count }
+task cockpit_blackbox_frames() -> int { give back cockpit_bb_frames }
+
+-- Field 0 is the kind; fields 1-7 depend on it (see cockpit_blackbox_line).
+task cockpit_blackbox_field(command: int, field: int) -> int {
+    give back word_to_int(array_get(cockpit_bb_ops, command * cockpit_bb_fields + field))
+}
+
+task cockpit_blackbox_text(command: int) -> word {
+    if cockpit_blackbox_field(command, 0) != cockpit_bb_text { give back "" }
+    give back array_get(cockpit_bb_texts, cockpit_blackbox_field(command, 7))
+}
+
+task cockpit_bb_put(slot: int, value: int) -> void {
+    if slot < array_len(cockpit_bb_ops) { array_set(cockpit_bb_ops, slot, word_from_int(value)) }
+    else { array_push(cockpit_bb_ops, word_from_int(value)) }
+}
+
+task cockpit_bb_record(kind: int, a: int, b: int, c: int, d: int, e: int, f: int, g: int) -> void {
+    cockpit_bb_ready()
+    pilot base = cockpit_bb_count * cockpit_bb_fields
+    cockpit_bb_put(base, kind)
+    cockpit_bb_put(base + 1, a)
+    cockpit_bb_put(base + 2, b)
+    cockpit_bb_put(base + 3, c)
+    cockpit_bb_put(base + 4, d)
+    cockpit_bb_put(base + 5, e)
+    cockpit_bb_put(base + 6, f)
+    cockpit_bb_put(base + 7, g)
+    cockpit_bb_count += 1
+}
+
+task cockpit_bb_draw_clear(color: int) -> void {
+    cockpit_bb_record(cockpit_bb_clear, 0, 0, cockpit_bb_width, cockpit_bb_height, color, 0, 0)
+}
+
+task cockpit_bb_draw_fill(x: int, y: int, width: int, height: int, color: int) -> void {
+    cockpit_bb_record(cockpit_bb_fill, x, y, width, height, color, 0, 0)
+}
+
+task cockpit_bb_draw_stroke(x: int, y: int, width: int, height: int, color: int, thickness: int) -> void {
+    cockpit_bb_record(cockpit_bb_stroke, x, y, width, height, color, thickness, 0)
+}
+
+task cockpit_bb_draw_circle(cx: int, cy: int, radius: int, color: int) -> void {
+    cockpit_bb_record(cockpit_bb_circle, cx, cy, radius, radius, color, 0, 0)
+}
+
+task cockpit_bb_draw_line(x1: int, y1: int, x2: int, y2: int, color: int, thickness: int) -> void {
+    cockpit_bb_record(cockpit_bb_line, x1, y1, x2, y2, color, thickness, 0)
+}
+
+-- Records text and gives back its width, like ui::draw_text did.
+task cockpit_bb_draw_text(text: word, x: int, y: int, color: int, font_size: int, bold: bool) -> int {
+    cockpit_bb_ready()
+    if cockpit_bb_text_count < array_len(cockpit_bb_texts) { array_set(cockpit_bb_texts, cockpit_bb_text_count, text) }
+    else { array_push(cockpit_bb_texts, text) }
+    pilot weight = 0
+    if bold { weight = 1 }
+    -- Text is drawn at the size it is measured at: 1 to 96 px.
+    if font_size < 1 { font_size = 1 }
+    if font_size > cockpit_bb_max_font { font_size = cockpit_bb_max_font }
+    pilot width = cockpit_bb_measure(text, font_size, bold)
+    cockpit_bb_record(cockpit_bb_text, x, y, width, font_size, color, weight, cockpit_bb_text_count)
+    cockpit_bb_text_count += 1
+    give back width
+}
+
+task cockpit_bb_set_clip(x: int, y: int, width: int, height: int) -> void {
+    -- unclip then the same clip again is a no-op pair: drop the unclip.
+    if cockpit_bb_count > 0 and cockpit_bb_clip_set {
+        if cockpit_blackbox_field(cockpit_bb_count - 1, 0) == cockpit_bb_unclip and x == cockpit_bb_clip_x and y == cockpit_bb_clip_y and width == cockpit_bb_clip_w and height == cockpit_bb_clip_h {
+            cockpit_bb_count -= 1
+            give back
+        }
+    }
+    cockpit_bb_clip_set = true
+    cockpit_bb_clip_x = x
+    cockpit_bb_clip_y = y
+    cockpit_bb_clip_w = width
+    cockpit_bb_clip_h = height
+    cockpit_bb_record(cockpit_bb_clip, x, y, width, height, 0, 0, 0)
+}
+
+task cockpit_bb_reset_clip() -> void {
+    cockpit_bb_record(cockpit_bb_unclip, 0, 0, cockpit_bb_width, cockpit_bb_height, 0, 0, 0)
+}
+
+-- Metrics ------------------------------------------------------------------
+
+task cockpit_bb_slot(font_size: int, bold: bool) -> int {
+    if font_size < 1 { font_size = 1 }
+    if font_size > cockpit_bb_max_font { font_size = cockpit_bb_max_font }
+    pilot slot = font_size * 2
+    if bold { slot += 1 }
+    give back slot
+}
+
+task cockpit_bb_is_calibrated(slot: int) -> bool {
+    cockpit_bb_ready()
+    give back array_get(cockpit_bb_calibrated, slot) == "1"
+}
+
+-- Width of text in pixels at this size. Non-ASCII scalars measure as "?".
+task cockpit_bb_measure(text: word, font_size: int, bold: bool) -> int {
+    pilot slot = cockpit_bb_slot(font_size, bold)
+    if not cockpit_bb_is_calibrated(slot) {
+        cockpit_bb_want(slot)
+        give back text.length() * ((cockpit_blackbox_slot_size(slot) + 1) / 2)
+    }
+    pilot base = slot * cockpit_bb_glyphs
+    pilot bytes = ByteBuffer::new()
+    bytes.write_word(text)
+    bytes.seek(0)
+    pilot total = 0
+    repeat text.length() times {
+        pilot byte = bytes.read_byte()
+        if byte >= 32 and byte < 127 { total += word_to_int(array_get(cockpit_bb_advances, base + byte - 32)) }
+        else {
+            if byte < 128 or byte >= 192 { total += word_to_int(array_get(cockpit_bb_advances, base + 63 - 32)) }
+        }
+    }
+    bytes.release()
+    give back total
+}
+
+task cockpit_bb_want(slot: int) -> void {
+    pilot index = 0
+    repeat cockpit_bb_wanted_count times {
+        if word_to_int(array_get(cockpit_bb_wanted, index)) == slot { give back }
+        index += 1
+    }
+    if cockpit_bb_wanted_count < array_len(cockpit_bb_wanted) { array_set(cockpit_bb_wanted, cockpit_bb_wanted_count, word_from_int(slot)) }
+    else { array_push(cockpit_bb_wanted, word_from_int(slot)) }
+    cockpit_bb_wanted_count += 1
+}
+
+-- Slots text asked for that nobody has calibrated yet. The window module
+-- calibrates them before the next frame.
+task cockpit_blackbox_wanted_count() -> int { give back cockpit_bb_wanted_count }
+task cockpit_blackbox_wanted(index: int) -> int { give back word_to_int(array_get(cockpit_bb_wanted, index)) }
+task cockpit_blackbox_clear_wanted() -> void { cockpit_bb_wanted_count = 0 }
+task cockpit_blackbox_slot_size(slot: int) -> int { give back slot / 2 }
+task cockpit_blackbox_slot_bold(slot: int) -> bool { give back slot % 2 == 1 }
+
+-- Sets the advance of one printable ASCII character (code 32..126).
+task cockpit_blackbox_set_advance(font_size: int, bold: bool, code: int, advance: int) -> void {
+    cockpit_bb_ready()
+    if code < 32 or code > 126 { give back }
+    if cockpit_bb_advances == 0 {
+        cockpit_bb_advances = array_new()
+        repeat (cockpit_bb_max_font + 1) * 2 * cockpit_bb_glyphs times { array_push(cockpit_bb_advances, "7") }
+    }
+    array_set(cockpit_bb_advances, cockpit_bb_slot(font_size, bold) * cockpit_bb_glyphs + code - 32, word_from_int(advance))
+}
+
+-- Marks a slot as measured once all its advances are set.
+task cockpit_blackbox_mark_calibrated(font_size: int, bold: bool) -> void {
+    cockpit_bb_ready()
+    if cockpit_bb_advances == 0 { cockpit_blackbox_set_advance(font_size, bold, 32, cockpit_bb_default_advance) }
+    array_set(cockpit_bb_calibrated, cockpit_bb_slot(font_size, bold), "1")
+}
+
+-- Readable text --------------------------------------------------------------
+
+task cockpit_bb_hex2(value: int) -> word {
+    pilot digits = "0123456789abcdef"
+    give back digits.substring(value / 16, 1) + digits.substring(value % 16, 1)
+}
+
+task cockpit_blackbox_color_word(color: int) -> word {
+    pilot shown = "#" + cockpit_bb_hex2(color % 256) + cockpit_bb_hex2((color / 256) % 256) + cockpit_bb_hex2((color / 65536) % 256)
+    pilot alpha = (color / 16777216) % 256
+    if alpha != 255 { shown = shown + cockpit_bb_hex2(alpha) }
+    give back shown
+}
+
+-- One command as a line of text, for tests and for reading a frame by eye.
+task cockpit_blackbox_line(command: int) -> word {
+    pilot kind = cockpit_blackbox_field(command, 0)
+    pilot a = word_from_int(cockpit_blackbox_field(command, 1))
+    pilot b = word_from_int(cockpit_blackbox_field(command, 2))
+    pilot c = word_from_int(cockpit_blackbox_field(command, 3))
+    pilot d = word_from_int(cockpit_blackbox_field(command, 4))
+    pilot color = cockpit_blackbox_color_word(cockpit_blackbox_field(command, 5))
+    pilot extra = word_from_int(cockpit_blackbox_field(command, 6))
+    if kind == cockpit_bb_clear { give back "clear " + color }
+    if kind == cockpit_bb_fill { give back "fill " + a + " " + b + " " + c + " " + d + " " + color }
+    if kind == cockpit_bb_stroke { give back "stroke " + a + " " + b + " " + c + " " + d + " " + color + " " + extra }
+    if kind == cockpit_bb_circle { give back "circle " + a + " " + b + " " + c + " " + color }
+    if kind == cockpit_bb_line { give back "line " + a + " " + b + " " + c + " " + d + " " + color + " " + extra }
+    if kind == cockpit_bb_text {
+        pilot style = ""
+        if cockpit_blackbox_field(command, 6) == 1 { style = " bold" }
+        give back "text " + a + " " + b + " " + d + style + " " + color + " \"" + cockpit_blackbox_text(command) + "\""
+    }
+    if kind == cockpit_bb_clip { give back "clip " + a + " " + b + " " + c + " " + d }
+    if kind == cockpit_bb_unclip { give back "unclip" }
+    give back "?"
+}
+
+-- The whole frame, one command per line.
+task cockpit_blackbox_dump() -> word {
+    pilot out = ""
+    pilot index = 0
+    repeat cockpit_bb_count times {
+        out = out + cockpit_blackbox_line(index) + "\n"
+        index += 1
+    }
+    give back out
+}
+
+-- The commands that draw this text, or -1.
+task cockpit_blackbox_find_text(text: word) -> int {
+    pilot index = 0
+    repeat cockpit_bb_count times {
+        if cockpit_blackbox_field(index, 0) == cockpit_bb_text and cockpit_blackbox_text(index) == text { give back index }
+        index += 1
+    }
+    give back -1
+}
+
+-- How wide text is at this size, by the current metrics (the same widths the
+-- widgets laid out with).
+task cockpit_blackbox_measure(text: word, font_size: int, bold: bool) -> int {
+    give back cockpit_bb_measure(text, font_size, bold)
+}

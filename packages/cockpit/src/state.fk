@@ -1,3 +1,10 @@
+use self::blackbox::{
+    cockpit_bb_measure,
+    cockpit_bb_reset_clip,
+    cockpit_bb_set_clip,
+    cockpit_blackbox_height,
+    cockpit_blackbox_width
+}
 use self::containers::{
     cockpit_values_get_int,
     cockpit_values_set_int
@@ -68,6 +75,12 @@ pilot cockpit_ui_caret = -1
 pilot cockpit_ui_input_scroll = 0
 pilot cockpit_ui_caret_epoch = 0
 pilot cockpit_ui_focus_wrap = false
+-- Edits after the frame's first Tab or Shift+Tab wait for the next frame, so
+-- every input sees them with focus already moved, in the order they came.
+pilot cockpit_ui_edit_split = false
+pilot cockpit_ui_edit_held = 0
+-- Where the held edits start in cockpit_ui_edits.
+pilot cockpit_ui_edit_held_from = 0
 pilot cockpit_ui_last_focusable = -1
 pilot cockpit_ui_frame_last_focusable = -1
 pilot cockpit_ui_submit_widget = -1
@@ -75,6 +88,9 @@ pilot cockpit_ui_last_input_widget = -1
 pilot cockpit_ui_memory = 0
 pilot cockpit_ui_delta_ms_value = 16
 pilot cockpit_ui_frame_ms = 0
+-- cockpit's own clock: the sum of every frame's delta. Toasts and the caret
+-- blink follow it, so a flight sim run animates the same way every time.
+pilot cockpit_ui_clock_ms = 0
 
 
 pilot cockpit_popup_items = 0
@@ -95,8 +111,8 @@ task cockpit_fail(message: word) -> void {
 
 task cockpit_clip_push(window: int, x: int, y: int, width: int, height: int) -> void {
     if cockpit_ui_clip_depth >= 32 { cockpit_fail("COCKPIT clip stack exhausted") }
-    pilot screen_w = ui::get_width(window)
-    pilot screen_h = ui::get_height(window)
+    pilot screen_w = cockpit_blackbox_width()
+    pilot screen_h = cockpit_blackbox_height()
     if width < 0 { width = 0 }
     if height < 0 { height = 0 }
     if x < 0 { width += x x = 0 }
@@ -128,18 +144,18 @@ task cockpit_clip_push(window: int, x: int, y: int, width: int, height: int) -> 
     cockpit_values_set_int(cockpit_ui_clip_stack, offset + 2, right)
     cockpit_values_set_int(cockpit_ui_clip_stack, offset + 3, bottom)
     cockpit_ui_clip_depth += 1
-    ui::set_clip(window, x, y, right - x, bottom - y)
+    cockpit_bb_set_clip(x, y, right - x, bottom - y)
 }
 
 task cockpit_clip_pop(window: int) -> void {
     if cockpit_ui_clip_depth <= 0 { cockpit_fail("COCKPIT clip stack underflow") }
     cockpit_ui_clip_depth -= 1
-    if cockpit_ui_clip_depth == 0 { ui::reset_clip(window) }
+    if cockpit_ui_clip_depth == 0 { cockpit_bb_reset_clip() }
     else {
         pilot offset = (cockpit_ui_clip_depth - 1) * 4
         pilot x = cockpit_values_get_int(cockpit_ui_clip_stack, offset)
         pilot y = cockpit_values_get_int(cockpit_ui_clip_stack, offset + 1)
-        ui::set_clip(window, x, y, cockpit_values_get_int(cockpit_ui_clip_stack, offset + 2) - x, cockpit_values_get_int(cockpit_ui_clip_stack, offset + 3) - y)
+        cockpit_bb_set_clip(x, y, cockpit_values_get_int(cockpit_ui_clip_stack, offset + 2) - x, cockpit_values_get_int(cockpit_ui_clip_stack, offset + 3) - y)
     }
 }
 
@@ -147,6 +163,15 @@ task cockpit_clip_contains(x: int, y: int) -> bool {
     if cockpit_ui_clip_depth == 0 { give back true }
     pilot offset = (cockpit_ui_clip_depth - 1) * 4
     give back x >= cockpit_values_get_int(cockpit_ui_clip_stack, offset) and y >= cockpit_values_get_int(cockpit_ui_clip_stack, offset + 1) and x < cockpit_values_get_int(cockpit_ui_clip_stack, offset + 2) and y < cockpit_values_get_int(cockpit_ui_clip_stack, offset + 3)
+}
+
+-- Gives back the arrays cockpit_ui_reset made. Window and sim close call it.
+task cockpit_ui_release_state() -> void {
+    if cockpit_ui_edits != 0 { array_release(cockpit_ui_edits) cockpit_ui_edits = 0 }
+    if cockpit_ui_clip_stack != 0 { array_release(cockpit_ui_clip_stack) cockpit_ui_clip_stack = 0 }
+    if cockpit_ui_keys_down != 0 { array_release(cockpit_ui_keys_down) cockpit_ui_keys_down = 0 }
+    if cockpit_ui_memory != 0 { array_release(cockpit_ui_memory) cockpit_ui_memory = 0 }
+    if cockpit_ui_keys_pressed != 0 { array_release(cockpit_ui_keys_pressed) cockpit_ui_keys_pressed = 0 }
 }
 
 task cockpit_ui_reset() -> void {
@@ -169,10 +194,14 @@ task cockpit_ui_reset() -> void {
     cockpit_ui_memory = array_new()
     repeat 576 times { array_push(cockpit_ui_memory, "-1") }
     cockpit_ui_frame_ms = 0
+    cockpit_ui_clock_ms = 0
     cockpit_ui_delta_ms_value = 16
     cockpit_ui_caret = 0 - 1
     cockpit_ui_input_scroll = 0
     cockpit_ui_focus_wrap = false
+    cockpit_ui_edit_split = false
+    cockpit_ui_edit_held = 0
+    cockpit_ui_edit_held_from = 0
     cockpit_ui_last_focusable = 0 - 1
     cockpit_ui_frame_last_focusable = 0 - 1
     cockpit_ui_quit = false
@@ -189,6 +218,7 @@ task cockpit_ui_reset() -> void {
 
 task cockpit_ui_begin_events() -> void {
     cockpit_ui_resolve_tabs()
+    cockpit_ui_clock_ms += cockpit_ui_delta_ms_value
     cockpit_ui_frame_last_focusable = cockpit_ui_last_focusable
     cockpit_ui_last_focusable = 0 - 1
     cockpit_ui_submit_widget = 0 - 1
@@ -198,10 +228,37 @@ task cockpit_ui_begin_events() -> void {
     cockpit_ui_mouse_clicked_value = false
     cockpit_ui_character_value = 0
     cockpit_ui_backspace_value = false
-    cockpit_ui_edit_count = 0
     cockpit_ui_scroll_value = 0
     cockpit_ui_widget_counter = 0
     cockpit_ui_modal_scope = false
+    cockpit_ui_requeue_held()
+}
+
+-- Queues last frame's held edits first, splitting again at their first Tab.
+-- Writes never pass reads: a held edit moves to its own index or below.
+task cockpit_ui_requeue_held() -> void {
+    pilot held = cockpit_ui_edit_held
+    pilot from = cockpit_ui_edit_held_from
+    if not cockpit_ui_edit_split { held = 0 }
+    cockpit_ui_edit_count = 0
+    cockpit_ui_edit_split = false
+    cockpit_ui_edit_held = 0
+    cockpit_ui_edit_held_from = 0
+    if cockpit_ui_edits == 0 { give back }
+    pilot index = 0
+    repeat held times {
+        pilot offset = (from + index) * 3
+        pilot queued = cockpit_ui_queue_edit(cockpit_values_get_int(cockpit_ui_edits, offset), cockpit_values_get_int(cockpit_ui_edits, offset + 1), cockpit_values_get_int(cockpit_ui_edits, offset + 2))
+        index += 1
+    }
+}
+
+-- Drops this frame's edits, held ones included.
+task cockpit_ui_drop_edits() -> void {
+    cockpit_ui_edit_count = 0
+    cockpit_ui_edit_split = false
+    cockpit_ui_edit_held = 0
+    cockpit_ui_edit_held_from = 0
 }
 
 task cockpit_ui_poll_result(count: int) -> void {
@@ -225,8 +282,7 @@ task cockpit_ui_feed_event(kind: int, key: int, character: int, button: int, pre
                     cockpit_ui_mouse_clicked_value = true
                     cockpit_ui_click_x = x
                     cockpit_ui_click_y = y
-                    cockpit_ui_queue_edit(0 - 2, x, y)
-                    cockpit_ui_focused_input = 0 - 1
+                    pilot queued = cockpit_ui_queue_edit(0 - 2, x, y)
                 }
                 cockpit_ui_mouse_down_value = true
             } else { cockpit_ui_mouse_down_value = false }
@@ -237,12 +293,11 @@ task cockpit_ui_feed_event(kind: int, key: int, character: int, button: int, pre
         if character < 55296 or character > 57343 { edit = character }
     }
     if kind == cockpit_event_key and pressed != 0 { edit = cockpit_ui_key_edit(key) }
-    if edit != 0 and cockpit_ui_edit_count < 256 {
-        if edit == cockpit_edit_backspace { cockpit_ui_backspace_value = true }
-        else if edit > 0 { cockpit_ui_character_value = edit }
+    if edit != 0 {
         -- Focus transfers record their source and claimed target; -1 means unknown.
-        if edit == cockpit_edit_tab or edit == cockpit_edit_back_tab { cockpit_ui_queue_edit(edit, 0 - 1, 0 - 1) }
-        else { cockpit_ui_queue_edit(edit, 0, 0) }
+        pilot mut queued = false
+        if edit == cockpit_edit_tab or edit == cockpit_edit_back_tab { queued = cockpit_ui_queue_edit(edit, 0 - 1, 0 - 1) }
+        else { queued = cockpit_ui_queue_edit(edit, 0, 0) }
     }
 }
 
@@ -267,10 +322,20 @@ task cockpit_ui_track_key(key: int, pressed: int) -> void {
     if pressed != 0 {
         cockpit_values_set_int(cockpit_ui_keys_down, key, 1)
         if cockpit_ui_keys_pressed_count < 64 {
-            cockpit_values_set_int(cockpit_ui_keys_pressed, cockpit_ui_keys_pressed_count, key)
+            -- Each press keeps the modifiers held at that moment (ctrl 1, shift 2,
+            -- alt 4, times 64), so a chord released within the frame still counts.
+            cockpit_values_set_int(cockpit_ui_keys_pressed, cockpit_ui_keys_pressed_count, key + 64 * cockpit_ui_modifier_mask())
             cockpit_ui_keys_pressed_count += 1
         }
     } else { cockpit_values_set_int(cockpit_ui_keys_down, key, 0) }
+}
+
+task cockpit_ui_modifier_mask() -> int {
+    pilot mask = 0
+    if cockpit_ui_key_down(cockpit_key_ctrl) { mask += 1 }
+    if cockpit_ui_key_down(cockpit_key_shift) { mask += 2 }
+    if cockpit_ui_key_down(cockpit_key_alt) { mask += 4 }
+    give back mask
 }
 
 task cockpit_ui_release_keys() -> void {
@@ -296,19 +361,26 @@ task cockpit_ui_key_presses(key: int) -> int {
     pilot count = 0
     pilot index = 0
     repeat cockpit_ui_keys_pressed_count times {
-        if cockpit_values_get_int(cockpit_ui_keys_pressed, index) == key { count += 1 }
+        if cockpit_values_get_int(cockpit_ui_keys_pressed, index) % 64 == key { count += 1 }
         index += 1
     }
     give back count
 }
 
--- A shortcut matches when the key was pressed this frame with exactly these modifiers held.
+-- A shortcut matches when the key was pressed this frame with exactly these
+-- modifiers held at the moment it went down.
 task cockpit_ui_shortcut(key: int, ctrl: bool, shift: bool, alt: bool) -> bool {
     if not cockpit_ui_input_allowed() { give back false }
-    if cockpit_ui_key_down(cockpit_key_ctrl) != ctrl { give back false }
-    if cockpit_ui_key_down(cockpit_key_shift) != shift { give back false }
-    if cockpit_ui_key_down(cockpit_key_alt) != alt { give back false }
-    give back cockpit_ui_key_pressed(key)
+    pilot mut mask = 0
+    if ctrl { mask += 1 }
+    if shift { mask += 2 }
+    if alt { mask += 4 }
+    pilot index = 0
+    repeat cockpit_ui_keys_pressed_count times {
+        if cockpit_values_get_int(cockpit_ui_keys_pressed, index) == key + 64 * mask { give back true }
+        index += 1
+    }
+    give back false
 }
 
 -- Letters A-Z map to 1-26, digits 0-9 to 27-36, F1-F12 to 50-61.
@@ -333,13 +405,29 @@ task cockpit_key_function(number: int) -> int {
     give back 49 + number
 }
 
-task cockpit_ui_queue_edit(edit: int, x: int, y: int) -> void {
-    if cockpit_ui_edit_count >= 256 { give back }
-    pilot offset = cockpit_ui_edit_count * 3
+-- Gives back true when the edit plays this frame, false when it waits for the
+-- next one (or the queue is full).
+task cockpit_ui_queue_edit(edit: int, x: int, y: int) -> bool {
+    pilot mut slot = cockpit_ui_edit_count
+    if cockpit_ui_edit_split { slot = cockpit_ui_edit_held_from + cockpit_ui_edit_held }
+    if slot >= 256 { give back false }
+    pilot offset = slot * 3
     cockpit_values_set_int(cockpit_ui_edits, offset, edit)
     cockpit_values_set_int(cockpit_ui_edits, offset + 1, x)
     cockpit_values_set_int(cockpit_ui_edits, offset + 2, y)
+    if cockpit_ui_edit_split {
+        cockpit_ui_edit_held += 1
+        give back false
+    }
     cockpit_ui_edit_count += 1
+    if edit == cockpit_edit_backspace { cockpit_ui_backspace_value = true }
+    else if edit > 0 { cockpit_ui_character_value = edit }
+    if edit == cockpit_edit_click { cockpit_ui_focused_input = 0 - 1 }
+    if edit == cockpit_edit_tab or edit == cockpit_edit_back_tab {
+        cockpit_ui_edit_split = true
+        cockpit_ui_edit_held_from = cockpit_ui_edit_count
+    }
+    give back true
 }
 
 task cockpit_ui_input_allowed() -> bool {
@@ -356,6 +444,14 @@ task cockpit_ui_consume_click() -> void {
     repeat cockpit_ui_edit_count times {
         if cockpit_values_get_int(cockpit_ui_edits, index * 3) == cockpit_edit_click { cockpit_values_set_int(cockpit_ui_edits, index * 3, cockpit_edit_none) }
         index += 1
+    }
+    -- A click held for the next frame belongs to the overlay too.
+    if cockpit_ui_edit_split {
+        index = cockpit_ui_edit_held_from
+        repeat cockpit_ui_edit_held times {
+            if cockpit_values_get_int(cockpit_ui_edits, index * 3) == cockpit_edit_click { cockpit_values_set_int(cockpit_ui_edits, index * 3, cockpit_edit_none) }
+            index += 1
+        }
     }
 }
 
@@ -465,7 +561,7 @@ task cockpit_text_hit(text: word, target: int, font_size: int, password: bool) -
         offset = cockpit_text_next(text, offset)
         pilot prefix = text.substring(0, offset)
         if password { prefix = cockpit_text_mask(prefix) }
-        pilot distance = ui::measure_text(prefix, font_size, 0, 0) - target
+        pilot distance = cockpit_bb_measure(prefix, font_size, false) - target
         if distance < 0 { distance = 0 - distance }
         if distance < best_distance {
             best = offset
@@ -549,8 +645,12 @@ task cockpit_ui_edit_input(text: word, widget_id: int, x: int, y: int, width: in
                     if target < 0 { target = widget_id }
                     cockpit_values_set_int(cockpit_ui_edits, offset + 2, target)
                     focused = target == widget_id
-                    -- An earlier widget already ran; it takes focus from the next frame.
-                    if not focused and target < widget_id { cockpit_ui_focused_input = target cockpit_ui_caret = 0 - 1 }
+                    -- An earlier widget already ran: it takes focus from the next frame,
+                    -- which is when the edits after this Shift+Tab play.
+                    if not focused and target < widget_id {
+                        cockpit_ui_focused_input = target
+                        cockpit_ui_caret = 0 - 1
+                    }
                 } else { focused = false }
             } else if edit == cockpit_edit_tab and source >= 0 and source != widget_id and target < 0 {
                 cockpit_values_set_int(cockpit_ui_edits, offset + 2, widget_id)
@@ -588,10 +688,10 @@ task cockpit_ui_edit_input(text: word, widget_id: int, x: int, y: int, width: in
     if focused {
         cockpit_ui_focused_input = widget_id
         cockpit_ui_caret = caret
-        if edited { cockpit_ui_caret_epoch = time::now_ms() }
+        if edited { cockpit_ui_caret_epoch = cockpit_ui_clock_ms }
         pilot shown = next_text.substring(0, caret)
         if password { shown = cockpit_text_mask(shown) }
-        pilot caret_px = ui::measure_text(shown, font_size, 0, 0)
+        pilot caret_px = cockpit_bb_measure(shown, font_size, false)
         pilot inner = width - 16
         if inner < 1 { inner = 1 }
         if caret_px - scroll > inner { scroll = caret_px - inner }
