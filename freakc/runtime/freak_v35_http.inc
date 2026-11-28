@@ -962,7 +962,7 @@ static int freak_http_sendfile_bsd(int file,int socket,uint64_t offset,uint64_t 
     off_t length=(off_t)count; int result=sendfile(file,socket,(off_t)offset,&length,NULL,0);
     *sent=length>0?(uint64_t)length:0; return result;
 #else
-    off_t at=(off_t)offset; ssize_t moved=sendfile(socket,file,&at,(size_t)(count>(1u<<30)?(1u<<30):count));
+    off_t at=(off_t)offset; ssize_t moved=freak_http_sendfile_quiet(socket,file,&at,(size_t)(count>(1u<<30)?(1u<<30):count));
     if(moved<0) { *sent=0; return -1; }
     *sent=(uint64_t)moved; if(moved>0 && (uint64_t)moved<count) { errno=EAGAIN; return -1; }
     return 0;
@@ -972,7 +972,7 @@ static int freak_http_sendfile_bsd(int file,int socket,uint64_t offset,uint64_t 
 static bool freak_http_pump_file(freak_http_conn *conn) {
     uint64_t moved=0;
     while(conn->file_remaining && conn->writable && conn->out_offset==conn->out_length && moved<FREAK_HTTP_FILE_TURN) {
-#if defined(__linux__) && !defined(FREAK_HTTP_NO_SENDFILE)
+#if defined(__linux__) && !defined(FREAK_HTTP_NO_SENDFILE) && !defined(FREAK_HTTP_TEST_BSD_SENDFILE)
         uint64_t turn=FREAK_HTTP_FILE_TURN-moved;
         size_t wanted=conn->file_remaining>turn?(size_t)turn:(size_t)conn->file_remaining;
         off_t offset=(off_t)conn->file_offset;
@@ -1576,12 +1576,12 @@ static void freak_http_negotiate_file(freak_http_request *request,uint64_t size,
         while(length && (*value==' ' || *value=='\t')) { value++; length--; }
         bool current;
         if(length && (*value=='"' || (length>=2 && value[0]=='W' && value[1]=='/'))) current=tag && freak_http_tag_matches(if_range,tag->data,tag->length,false);
-        else {
-            /* §13.1.5: a date is only a strong validator once the file is
-               at least a second older than now; before that, a same-second
-               rewrite could splice two versions together. */
-            int64_t when=0; current=dated && freak_http_parse_date(value,length,&when) && when==modified && (int64_t)time(NULL)>modified;
-        }
+        /* A date is never taken as strong: two writes within one second
+           share it, and nothing says the client saw it after the second
+           ended, so a resume could splice two versions together. Every
+           file response carries an ETag, which is the validator to resume
+           with. Sending the whole file is always allowed (§13.1.5). */
+        else current=false;
         if(!current) return;
     }
     uint64_t first=0,length=0;
