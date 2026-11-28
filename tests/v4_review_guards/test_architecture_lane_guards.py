@@ -184,6 +184,76 @@ class ArchitectureLaneGuards(unittest.TestCase):
             guard.read_text = original
         return ""
 
+    def mir_build_type_arg_violations(self, mutate):
+        source = mutate(guard.read_text(guard.crate_path("freak_mir_build")))
+        return guard.mir_build_method_type_arg_violations(source)
+
+    def test_method_type_arg_readers_are_clean(self):
+        self.assertEqual(self.mir_build_type_arg_violations(lambda text: text), [])
+
+    def test_method_type_arg_token_pairing_is_rejected(self):
+        body = guard.freak_task_body(guard.read_text(guard.crate_path("freak_mir_build")), "v4_mir_method_type_arg_open")
+        self.assertIsNotNone(body)
+        found = self.mir_build_type_arg_violations(
+            lambda text: text.replace(body, "\n    pilot next_token = v4_mir_skip_trivia(stream_id, method_token + 1)\n    give back next_token\n", 1)
+        )
+        self.assertIn("v4_mir_method_type_arg_open does not read HIR method type argument facts", found)
+        self.assertIn("v4_mir_method_type_arg_open reads method type arguments from tokens: v4_mir_skip_trivia", found)
+
+    def test_method_type_arg_text_from_tokens_is_rejected(self):
+        found = self.mir_build_type_arg_violations(
+            lambda text: text.replace(
+                "type_text = v4_mir_compact_type_text(v4_hir_method_type_arg_type_text(v4_mir_build_hir_id, row))",
+                "type_text = v4_mir_compact_type_text(v4_ty_type_text(stream_id, method_token, open_token))",
+                1,
+            )
+        )
+        self.assertIn("v4_mir_reject_method_type_args reads method type arguments from tokens: v4_ty_type_text", found)
+
+    def test_generic_call_shape_bracket_scan_is_rejected(self):
+        found = self.mir_build_type_arg_violations(
+            lambda text: text.replace(
+                "give back v4_mir_method_type_arg_open(stream_id, method_token, open_token) >= 0",
+                'give back v4_lex_token_syntax_value(stream_id, method_token + 1) == "<"',
+                1,
+            )
+        )
+        self.assertIn("generic instance method call shape does not read HIR method type argument facts", found)
+
+    def test_method_type_args_need_the_lowered_hir_file(self):
+        found = self.mir_build_type_arg_violations(
+            lambda text: text.replace("v4_parse_stream_id(v4_hir_tree_id(hir_id)) != stream_id", "false", 1)
+        )
+        self.assertIn("method type argument facts are read without checking the lowered HIR file", found)
+
+    def test_raw_pointer_cast_token_walk_is_rejected(self):
+        found = self.mir_build_type_arg_violations(
+            lambda text: text.replace(
+                "if v4_span_start(v4_hir_method_type_arg_after_close_span(v4_mir_build_hir_id, row)) != open_offset {",
+                "if v4_mir_skip_trivia(stream_id, type_close + 1) != open_token {",
+                1,
+            )
+        )
+        self.assertIn("raw-pointer cast does not read HIR method type argument facts: v4_hir_method_type_arg_after_close_span", found)
+        self.assertIn("raw-pointer cast reads its type argument list from tokens: type_close + 1", found)
+
+    def test_raw_pointer_cast_text_from_tokens_is_rejected(self):
+        found = self.mir_build_type_arg_violations(
+            lambda text: text.replace(
+                "v4_mir_compact_type_text(v4_hir_method_type_arg_type_text(v4_mir_build_hir_id, row))\n        target_pointee = v4_ty_canonical_type",
+                "v4_mir_compact_type_text(v4_ty_type_text(stream_id, type_open + 1, open_token))\n        target_pointee = v4_ty_canonical_type",
+                1,
+            )
+        )
+        self.assertIn("raw-pointer cast reads its type argument list from tokens: v4_ty_type_text", found)
+
+    def test_boundary_gate_runs_method_type_arg_guard(self):
+        found = self.boundary_violations(
+            "freak_mir_build",
+            lambda text: text.replace("give back v4_mir_method_type_arg_open(stream_id, method_token, open_token) >= 0", "give back false", 1),
+        )
+        self.assertIn("generic instance method call shape does not read HIR method type argument facts", found)
+
     def test_codegen_meiya_call_is_rejected(self):
         found = self.boundary_violations(
             "freak_codegen_llvm",

@@ -1,0 +1,103 @@
+-- V4 method type argument HIR facts (architecture lane A1).
+-- Verification prepends the V4 crates before this file.
+
+task v4_mta_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot n = p.get<int>(1)\n"
+    src = src + "    pilot m = Box::make<List<int>, word>(2)\n"
+    src = src + "    pilot t = pair.0<1>\n"
+    src = src + "    pilot c = a < b > c\n"
+    src = src + "    pilot k = q.len < 3\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mta_text = v4_mta_source()
+pilot v4_mta_stream = v4_lex_text(0, v4_mta_text)
+pilot v4_mta_tree = v4_parse_stream(0, v4_mta_stream)
+pilot v4_mta_hir = v4_hir_lower_tree(0, v4_mta_tree)
+
+task v4_mta_offset(needle: word, nth: int) -> int {
+    pilot idx = 0
+    pilot seen = 0
+    repeat until idx + needle.length() > v4_mta_text.length() {
+        if v4_mta_text.substring(idx, needle.length()) == needle {
+            if seen == nth { give back idx }
+            seen += 1
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mta_span_at(needle: word) -> word {
+    pilot start = v4_mta_offset(needle, 0)
+    give back "0@" + word_from_int(start) + ":" + word_from_int(start + 1)
+}
+
+task v4_mta_rejected(payload: word, before: word) -> bool {
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot validation = v4_hir_snapshot_validate(payload)
+    pilot report = v4_hir_snapshot_restore(payload)
+    give back validation.starts_with("hir-snapshot-import ok=0") and report.starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == before and v4_session_semantic_restore_generation() == generation
+}
+
+task v4_mta_row_line(row: int) -> word {
+    give back v4_hir_snapshot_method_type_arg_line(v4_mta_hir, row)
+}
+
+-- The row's line with one column (0..5) replaced.
+task v4_mta_with_column(row: int, column: int, value: word) -> word {
+    pilot out = "hir-method-type-arg|" + word_from_int(v4_mta_hir) + "|" + word_from_int(row)
+    pilot idx = 0
+    repeat until idx >= 8 {
+        pilot cell = v4_hir_snapshot_escape(v4_hir_method_type_arg_value(v4_mta_hir, row, idx))
+        if idx == column { cell = value }
+        out = out + "|" + cell
+        idx += 1
+    }
+    give back out
+}
+
+task v4_mta_run() -> void {
+    pilot hir = v4_mta_hir
+    say "mta-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_mta_tree))
+    say "mta-rows=" + word_from_int(v4_hir_method_type_arg_count(hir)) + " closed=" + word_from_int(v4_hir_method_type_arg_closed_count(hir))
+    pilot row = 0
+    repeat until row >= v4_hir_method_type_arg_count(hir) {
+        pilot named = "unnamed"
+        if v4_hir_method_type_arg_is_named(hir, row) { named = "named" }
+        say "mta-row" + word_from_int(row) + " sep=" + v4_hir_method_type_arg_separator_span(hir, row) + " method=" + v4_hir_method_type_arg_method_span(hir, row) + " " + named + " open=" + v4_hir_method_type_arg_open_span(hir, row) + " close=" + v4_hir_method_type_arg_close_span(hir, row) + " text=" + v4_hir_method_type_arg_type_text(hir, row) + " inner=" + v4_hir_method_type_arg_inner(hir, row) + " after=" + v4_hir_method_type_arg_after_close_span(hir, row)
+        row += 1
+    }
+    say "mta-after-get=" + word_from_int(v4_hir_method_type_arg_after_method(hir, v4_mta_offset("get", 0)))
+    say "mta-after-make=" + word_from_int(v4_hir_method_type_arg_after_method(hir, v4_mta_offset("make", 0)))
+    say "mta-after-len=" + word_from_int(v4_hir_method_type_arg_after_method(hir, v4_mta_offset("len", 0)))
+    say "mta-after-p=" + word_from_int(v4_hir_method_type_arg_after_method(hir, v4_mta_offset("p.", 0)))
+    say "mta-closing-get=" + word_from_int(v4_hir_method_type_arg_closing_at(hir, v4_mta_offset(">(1)", 0)))
+    say "mta-closing-make=" + word_from_int(v4_hir_method_type_arg_closing_at(hir, v4_mta_offset(">(2)", 0)))
+    say "mta-closing-inner-list=" + word_from_int(v4_hir_method_type_arg_closing_at(hir, v4_mta_offset(">,", 0)))
+    say "mta-closing-comparison=" + word_from_int(v4_hir_method_type_arg_closing_at(hir, v4_mta_offset("> c", 0)))
+
+    pilot before = v4_hir_snapshot()
+    say "mta-summary=" + v4_hir_snapshot_summary()
+    say "mta-snapshot-lines=" + word_from_bool(before.contains("|method-type-args=4|") and before.contains("\n" + v4_mta_row_line(0) + "\n" + v4_mta_row_line(1) + "\n" + v4_mta_row_line(2) + "\n" + v4_mta_row_line(3) + "\n"))
+    pilot restored = v4_hir_snapshot_restore(before)
+    say "mta-roundtrip=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == before and v4_hir_method_type_arg_closed_count(hir) == 3 and v4_hir_method_type_arg_closing_at(hir, v4_mta_offset(">(2)", 0)) == 1 and v4_hir_method_type_arg_type_text(hir, 0) == "int")
+    before = v4_hir_snapshot()
+
+    pilot line0 = v4_mta_row_line(0)
+    pilot line1 = v4_mta_row_line(1)
+    pilot line2 = v4_mta_row_line(2)
+    pilot none = v4_hir_snapshot_escape(V4_NO_SPAN)
+    say "mta-reject-counts=" + word_from_bool(v4_mta_rejected(before.replace("|method-type-args=4|", "|method-type-args=3|"), before) and v4_mta_rejected(before.replace("\n" + line2, ""), before) and v4_mta_rejected(before.replace("|method-type-args=4|", "|"), before))
+    say "mta-reject-order=" + word_from_bool(v4_mta_rejected(before.replace(line0 + "\n" + line1, line1 + "\n" + line0), before) and v4_mta_rejected(before.replace(line1, line1.replace("|0|1|", "|0|2|")), before) and v4_mta_rejected(before.replace(line1, line1.replace("|0|1|", "|0|01|")), before))
+    say "mta-reject-schema=" + word_from_bool(v4_mta_rejected(before.replace(line0, line0 + "|extra"), before) and v4_mta_rejected(before.replace(line0, v4_mta_with_column(0, 2, "maybe")), before) and v4_mta_rejected(before.replace(line0, v4_mta_with_column(0, 4, none)), before) and v4_mta_rejected(before.replace(line0, v4_mta_with_column(0, 0, none)), before) and v4_mta_rejected(before.replace(v4_mta_row_line(3), v4_mta_with_column(3, 5, "int")), before) and v4_mta_rejected(before.replace(line0, v4_mta_with_column(0, 6, "empty")), before) and v4_mta_rejected(before.replace(line0, v4_mta_with_column(0, 6, "maybe")), before) and v4_mta_rejected(before.replace(line0, v4_mta_with_column(0, 7, v4_hir_method_type_arg_open_span(hir, 0))), before) and v4_mta_rejected(before.replace(v4_mta_row_line(3), v4_mta_with_column(3, 6, "type")), before))
+    say "mta-reject-spans=" + word_from_bool(v4_mta_rejected(before.replace(line0, v4_mta_with_column(0, 1, v4_hir_method_type_arg_open_span(hir, 0))), before) and v4_mta_rejected(before.replace(line0, v4_mta_with_column(0, 4, v4_hir_method_type_arg_method_span(hir, 0))), before) and v4_mta_rejected(before.replace(line0, v4_mta_with_column(0, 3, "9" + v4_hir_method_type_arg_open_span(hir, 0))), before))
+    -- Crossing lists and an unclosed `<` inside a closed list are no bracket matching.
+    say "mta-reject-matching=" + word_from_bool(v4_mta_rejected(before.replace(line0, v4_mta_with_column(0, 4, v4_hir_method_type_arg_close_span(hir, 1))), before) and v4_mta_rejected(before.replace(line1, v4_mta_with_column(1, 4, v4_hir_method_type_arg_close_span(hir, 2))), before) and v4_mta_rejected(before.replace(line2, v4_mta_with_column(2, 4, v4_mta_span_at("3\n"))), before))
+    say "mta-after-rejects=" + word_from_bool(v4_hir_snapshot() == before and v4_hir_method_type_arg_count(hir) == 4)
+}
+
+v4_mta_run()
