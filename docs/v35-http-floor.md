@@ -84,7 +84,8 @@ returns 0, `request_error` says why, and the request can still be answered.
 When the response status is still the default 200, `http_send_file` also
 handles caching and resumable downloads by itself:
 
-- It sends `ETag` (`"<mtime hex>-<size hex>"`), `Last-Modified` and
+- It sends `ETag` (`"<mtime seconds hex>.<nanoseconds hex>-<size hex>"`, so
+  two writes in the same second still get different tags), `Last-Modified` and
   `Accept-Ranges: bytes`. If the application already set `ETag` or
   `Last-Modified`, those values are kept and used for the checks below.
 - A GET or HEAD whose `If-None-Match` names the tag (weak comparison, or `*`)
@@ -97,7 +98,10 @@ handles caching and resumable downloads by itself:
   Satisfiable` with `Content-Range: bytes */<size>`. Several ranges, another
   unit or bad syntax are ignored and the whole file is sent, as RFC 9110
   allows. `If-Range` keeps the range only while its tag (strong comparison)
-  or date still matches; otherwise the whole file is sent.
+  still matches, or while its date equals the modification time and that time
+  is in the past (a strong validator); otherwise the whole file is sent.
+- If the response headers are already full, so `Content-Range` does not fit,
+  the whole file is sent with 200 instead of a range.
 
 A status the application set itself (for example a 404 page served from a
 file) is sent as is, without validators or ranges.

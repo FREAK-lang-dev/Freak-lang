@@ -488,6 +488,23 @@ static void service(const char *profile) {
                 __auto_type ip=H(request_peer_ip)(request);freak_word v=view(ip);char text[96];
                 int n=snprintf(text,sizeof(text),"%.*s %lld",(int)v.length,(const char *)v.data,(long long)H(request_peer_port)(request));
                 drop(ip);int64_t b=bytes((const unsigned char *)text,(size_t)n);sent=H(send_bytes)(request,b);freak_byte_buffer_release(b);
+            } else if(eq(p,"/file-small")) {
+                const char *file=getenv("FREAK_HTTP_TEST_SMALL_FILE");REQUIRE(file);sent=H(send_file)(request,W(file));
+            } else if(eq(p,"/file-dated16")||eq(p,"/file-full-count")||eq(p,"/file-full-bytes")) {
+                /* Validators and Content-Range must survive a response header
+                   array that grows, and a header budget that is already spent. */
+                const char *file=getenv("FREAK_HTTP_TEST_FILE");REQUIRE(file);char name[32];
+                if(eq(p,"/file-dated16")) {
+                    REQUIRE(H(response_header)(request,W("Last-Modified"),W("Sun, 06 Nov 1994 08:49:37 GMT")));
+                    for(int i=0;i<15;i++) { snprintf(name,sizeof(name),"X-Pad-%d",i);REQUIRE(H(response_header)(request,W(name),W("p"))); }
+                } else if(eq(p,"/file-full-count")) {
+                    for(int i=0;;i++) { snprintf(name,sizeof(name),"X-C%d",i);if(!H(response_header)(request,W(name),W("1")))break; }
+                } else {
+                    static char big[4001];memset(big,'b',4000);big[4000]=0;int i=0;
+                    for(;;i++) { snprintf(name,sizeof(name),"X-B%d",i);if(!H(response_header)(request,W(name),W(big)))break; }
+                    for(;;i++) { snprintf(name,sizeof(name),"X-S%d",i);if(!H(response_header)(request,W(name),W("s")))break; }
+                }
+                sent=H(send_file)(request,W(file));
             } else if(eq(p,"/file-big")) {
                 const char *file=getenv("FREAK_HTTP_TEST_BIG_FILE");REQUIRE(file);sent=H(send_file)(request,W(file));
             } else if(eq(p,"/file")||eq(p,"/file-missing")||eq(p,"/file-dir")) {
@@ -999,6 +1016,43 @@ def file_ranges_and_validators(s:Server,expected:bytes):
         client=connection['client'];client.sendall(request('/health'));responses,_=read_responses(client,1);assert responses[0][2]==b'healthy';s.cases+=1
     finally:
         connection['client'].close()
+    with s.connect() as client:
+        def fetch(path,headers=()):
+            client.sendall(request(path,headers=headers));responses,rest=read_responses(client,1);assert rest==b'',rest
+            s.cases+=1;return responses[0]
+        # Sixteen application headers fill the first header array: adding the
+        # ETag moves it, and the application's Last-Modified still counts.
+        status,fields,body=fetch('/file-dated16',[('If-Modified-Since','Sun, 06 Nov 1994 08:49:37 GMT')])
+        assert status==304 and fields[b'last-modified']==b'Sun, 06 Nov 1994 08:49:37 GMT' and b'etag' in fields and fields[b'x-pad-14']==b'p',fields
+        status,fields,body=fetch('/file-dated16',[('If-Modified-Since','Sat, 05 Nov 1994 08:49:37 GMT')])
+        assert status==200 and body==expected,fields
+    # A spent header budget (count, then bytes) leaves no room for
+    # Content-Range: the whole file goes out as 200 instead of a bare 206/416.
+    for path in ('/file-full-count','/file-full-bytes'):
+        for spec in ('bytes=0-9',f'bytes={size}-'):
+            with s.connect() as client:
+                client.sendall(request(path,headers=[('Range',spec),('Connection','close')]));responses,_=read_responses(client,1)
+                status,fields,body=responses[0]
+                assert status==200 and body==expected and b'content-range' not in fields,(path,spec,status,len(body))
+                s.cases+=1
+    # A same-length rewrite within one second still changes the ETag: no 304
+    # for the old tag, and a resume with the old tag gets the whole new file.
+    small=Path(s.env['FREAK_HTTP_TEST_SMALL_FILE']);second=int(time.time())-30
+    small.write_bytes(b'AAAA');os.utime(small,ns=(second*10**9+100_000_000,second*10**9+100_000_000))
+    with s.connect() as client:
+        client.sendall(request('/file-small'));responses,_=read_responses(client,1);old_tag=responses[0][1][b'etag']
+        small.write_bytes(b'BBBB');os.utime(small,ns=(second*10**9+700_000_000,second*10**9+700_000_000))
+        client.sendall(request('/file-small',headers=[('If-None-Match',old_tag.decode())]));responses,_=read_responses(client,1)
+        status,fields,body=responses[0];assert status==200 and body==b'BBBB' and fields[b'etag']!=old_tag,(status,fields,body)
+        client.sendall(request('/file-small',headers=[('Range','bytes=0-1'),('If-Range',old_tag.decode())]));responses,_=read_responses(client,1)
+        assert responses[0][0]==200 and responses[0][2]==b'BBBB',responses[0]
+        # A modification time that is not yet a second old (here: ahead of
+        # the clock) is no strong validator, so a dated If-Range sends it all.
+        ahead=int(time.time())+60;os.utime(small,(ahead,ahead))
+        date=email.utils.formatdate(ahead,usegmt=True)
+        client.sendall(request('/file-small',headers=[('Range','bytes=0-1'),('If-Range',date)]));responses,_=read_responses(client,1)
+        assert responses[0][0]==200 and responses[0][2]==b'BBBB' and responses[0][1][b'last-modified']==date.encode(),responses[0]
+    s.cases+=4
     # A range deep into a file far past one 512 KiB pump turn.
     with s.connect() as client:
         first=200_000_003
@@ -1309,6 +1363,7 @@ def main():
             big=root/'big.bin'
             with big.open('wb') as handle:handle.truncate(256<<20)
             env['FREAK_HTTP_TEST_BIG_FILE']=str(big)
+            small=root/'small.bin';small.write_bytes(b'AAAA');env['FREAK_HTTP_TEST_SMALL_FILE']=str(small)
             flags=['-lws2_32','-lshell32'] if os.name=='nt' else ['-lm','-pthread']
             if os.sys.platform.startswith('linux'):flags+=['-Wl,--wrap=send']
             if args.sanitize:

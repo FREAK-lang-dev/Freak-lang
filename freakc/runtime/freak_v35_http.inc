@@ -1383,7 +1383,7 @@ static int64_t freak_http_send(freak_http_request *request,const unsigned char *
 int64_t freak_http_server_send_bytes(int64_t ticket,int64_t body_ticket) { freak_http_request *request=freak_http_require_request(ticket); freak_byte_buffer_record *body=freak_byte_buffer_require(body_ticket,"HTTP response body"); if(body->status!=FREAK_BYTE_BUFFER_OK) { snprintf(request->error,sizeof(request->error),"response ByteBuffer has a pending error"); return 0; } return freak_http_send(request,body->data,body->length,"application/octet-stream"); }
 int64_t freak_http_server_send_text(int64_t ticket,freak_word body) { freak_http_request *request=freak_http_require_request(ticket); if(!freak_byte_buffer_utf8_valid((const uint8_t *)body.data,body.length)) { snprintf(request->error,sizeof(request->error),"text response requires NUL-free UTF-8"); return 0; } return freak_http_send(request,(const unsigned char *)body.data,body.length,"text/plain; charset=utf-8"); }
 /* Open a regular file read-only for a streamed response; -1 on failure. */
-static int freak_http_open_response_file(freak_word path,uint64_t *size,int64_t *modified,const char **problem) {
+static int freak_http_open_response_file(freak_word path,uint64_t *size,int64_t *modified,int64_t *modified_ns,const char **problem) {
     if(!path.data || !path.length || memchr(path.data,'\0',path.length)) { *problem="response file path is empty or contains NUL"; return -1; }
     char *name=malloc(path.length+1); if(!name) { *problem="response file path allocation failed"; return -1; }
     memcpy(name,path.data,path.length); name[path.length]='\0';
@@ -1405,7 +1405,18 @@ static int freak_http_open_response_file(freak_word path,uint64_t *size,int64_t 
     if(descriptor>=0 && (fstat(descriptor,&metadata)!=0 || !S_ISREG(metadata.st_mode))) { close(descriptor); *problem="response file is not a regular file"; return -1; }
 #endif
     if(descriptor<0) { *problem="cannot open response file"; return -1; }
-    *size=(uint64_t)metadata.st_size; *modified=(int64_t)metadata.st_mtime; return descriptor;
+    *size=(uint64_t)metadata.st_size; *modified=(int64_t)metadata.st_mtime;
+#ifdef _WIN32
+    /* NTFS keeps the write time in 100 ns units. */
+    BY_HANDLE_FILE_INFORMATION information;
+    HANDLE handle=(HANDLE)_get_osfhandle(descriptor);
+    *modified_ns=handle!=INVALID_HANDLE_VALUE && GetFileInformationByHandle(handle,&information)?(int64_t)(((((uint64_t)information.ftLastWriteTime.dwHighDateTime)<<32)|information.ftLastWriteTime.dwLowDateTime)%10000000u)*100:0;
+#elif defined(__APPLE__)
+    *modified_ns=(int64_t)metadata.st_mtimespec.tv_nsec;
+#else
+    *modified_ns=(int64_t)metadata.st_mtim.tv_nsec;
+#endif
+    return descriptor;
 }
 /* ── Validators and ranges for file responses (RFC 9110 §8.8, §13, §14) ─ */
 /* Days since 1970-01-01 for a proleptic Gregorian date, and back. */
@@ -1519,36 +1530,40 @@ static int freak_http_parse_range(const freak_http_text *field,uint64_t size,uin
     if(!has_last || last>=size) last=size-1;
     *start=first; *count=last-first+1; return 1;
 }
-static void freak_http_add_text_header(freak_http_request *request,const char *name,const char *value) {
+static bool freak_http_add_text_header(freak_http_request *request,const char *name,const char *value) {
     freak_word name_word={name,strlen(name),strlen(name),false},value_word={value,strlen(value),strlen(value),false};
-    (void)freak_http_add_response_header(request,name_word,value_word);
+    return freak_http_add_response_header(request,name_word,value_word)==1;
 }
 /* Decide the status of a file response: 200 (whole file), 206 (*start,
    *count), 304 or 416. Adds ETag, Last-Modified and Accept-Ranges unless the
    application set its own validators, which are then the ones compared. Only
-   a plain 200 is negotiated: a status the application chose is sent as is. */
-static void freak_http_negotiate_file(freak_http_request *request,uint64_t size,int64_t modified,uint64_t *start,uint64_t *count) {
+   a plain 200 is negotiated: a status the application chose is sent as is.
+   modified_ns is the sub-second part of the modification time: it keeps the
+   ETag of a same-length rewrite within one second distinct. Every header
+   insertion can grow (move) the response header array, so field pointers are
+   looked up again after the last insertion, and a response falls back to the
+   whole file when its Content-Range does not fit the header budget. */
+static void freak_http_negotiate_file(freak_http_request *request,uint64_t size,int64_t modified,int64_t modified_ns,uint64_t *start,uint64_t *count) {
     *start=0; *count=size;
     if(request->response_status!=200) return;
     bool get=freak_http_equal(request->method.data,request->method.length,"get");
     bool head=freak_http_equal(request->method.data,request->method.length,"head");
-    char tag_text[48],date_text[32];
-    const freak_http_text *own_tag=freak_http_response_field(request,"etag");
-    const freak_http_text *own_date=freak_http_response_field(request,"last-modified");
-    const unsigned char *tag; size_t tag_length;
-    if(own_tag) { tag=own_tag->data; tag_length=own_tag->length; }
-    else {
-        snprintf(tag_text,sizeof(tag_text),"\"%llx-%llx\"",(unsigned long long)modified,(unsigned long long)size);
-        freak_http_add_text_header(request,"ETag",tag_text); tag=(const unsigned char *)tag_text; tag_length=strlen(tag_text);
+    char text[64];
+    if(!freak_http_response_field(request,"etag")) {
+        snprintf(text,sizeof(text),"\"%llx.%llx-%llx\"",(unsigned long long)modified,(unsigned long long)modified_ns,(unsigned long long)size);
+        freak_http_add_text_header(request,"ETag",text);
     }
-    bool dated=true;
-    if(own_date) dated=freak_http_parse_date(own_date->data,own_date->length,&modified);
-    else { freak_http_format_date(modified,date_text); freak_http_add_text_header(request,"Last-Modified",date_text); }
+    if(!freak_http_response_field(request,"last-modified")) { freak_http_format_date(modified,text); freak_http_add_text_header(request,"Last-Modified",text); }
     if(!freak_http_response_field(request,"accept-ranges")) freak_http_add_text_header(request,"Accept-Ranges","bytes");
     if(!get && !head) return;
+    /* No more insertions until the validators have been compared. A
+       validator that did not fit is simply not compared. */
+    const freak_http_text *tag=freak_http_response_field(request,"etag");
+    const freak_http_text *date=freak_http_response_field(request,"last-modified");
+    bool dated=date && freak_http_parse_date(date->data,date->length,&modified);
     /* §13.2.2: If-None-Match wins over If-Modified-Since. */
     const freak_http_text *none_match=freak_http_request_field(request,"if-none-match");
-    if(none_match) { if(freak_http_tag_matches(none_match,tag,tag_length,true)) { request->response_status=304; return; } }
+    if(none_match) { if(tag && freak_http_tag_matches(none_match,tag->data,tag->length,true)) { request->response_status=304; return; } }
     else {
         const freak_http_text *since=freak_http_request_field(request,"if-modified-since"); int64_t when=0;
         if(since && dated && freak_http_parse_date(since->data,since->length,&when) && modified<=when) { request->response_status=304; return; }
@@ -1560,19 +1575,23 @@ static void freak_http_negotiate_file(freak_http_request *request,uint64_t size,
         const unsigned char *value=if_range->data; size_t length=if_range->length;
         while(length && (*value==' ' || *value=='\t')) { value++; length--; }
         bool current;
-        if(length && (*value=='"' || (length>=2 && value[0]=='W' && value[1]=='/'))) current=freak_http_tag_matches(if_range,tag,tag_length,false);
-        else { int64_t when=0; current=dated && freak_http_parse_date(value,length,&when) && when==modified; }
+        if(length && (*value=='"' || (length>=2 && value[0]=='W' && value[1]=='/'))) current=tag && freak_http_tag_matches(if_range,tag->data,tag->length,false);
+        else {
+            /* §13.1.5: a date is only a strong validator once the file is
+               at least a second older than now; before that, a same-second
+               rewrite could splice two versions together. */
+            int64_t when=0; current=dated && freak_http_parse_date(value,length,&when) && when==modified && (int64_t)time(NULL)>modified;
+        }
         if(!current) return;
     }
-    char content_range[80]; uint64_t first=0,length=0;
+    uint64_t first=0,length=0;
     int parsed=freak_http_parse_range(range,size,&first,&length);
     if(parsed==0) return;
-    if(parsed<0) {
-        snprintf(content_range,sizeof(content_range),"bytes */%llu",(unsigned long long)size);
-        freak_http_add_text_header(request,"Content-Range",content_range); request->response_status=416; *count=0; return;
-    }
-    snprintf(content_range,sizeof(content_range),"bytes %llu-%llu/%llu",(unsigned long long)first,(unsigned long long)(first+length-1),(unsigned long long)size);
-    freak_http_add_text_header(request,"Content-Range",content_range); request->response_status=206; *start=first; *count=length;
+    if(parsed<0) snprintf(text,sizeof(text),"bytes */%llu",(unsigned long long)size);
+    else snprintf(text,sizeof(text),"bytes %llu-%llu/%llu",(unsigned long long)first,(unsigned long long)(first+length-1),(unsigned long long)size);
+    if(!freak_http_add_text_header(request,"Content-Range",text)) return; /* no room: send it all */
+    if(parsed<0) { request->response_status=416; *count=0; }
+    else { request->response_status=206; *start=first; *count=length; }
 }
 /* Stream a file as the response body, at any size: nothing is buffered
    beyond one chunk. On failure (missing file, directory) the request stays
@@ -1580,11 +1599,11 @@ static void freak_http_negotiate_file(freak_http_request *request,uint64_t size,
 int64_t freak_http_server_send_file(int64_t ticket,freak_word path) {
     freak_http_request *request=freak_http_require_request(ticket);
     if(!freak_http_respondable(request)) return 0;
-    const char *problem=NULL; uint64_t size=0,start=0,count=0; int64_t modified=0;
-    int file=freak_http_open_response_file(path,&size,&modified,&problem);
+    const char *problem=NULL; uint64_t size=0,start=0,count=0; int64_t modified=0,modified_ns=0;
+    int file=freak_http_open_response_file(path,&size,&modified,&modified_ns,&problem);
     if(file<0) { snprintf(request->error,sizeof(request->error),"%s",problem); return 0; }
     size_t own_headers=request->response_count,own_wire=request->response_wire;
-    freak_http_negotiate_file(request,size,modified,&start,&count);
+    freak_http_negotiate_file(request,size,modified,modified_ns,&start,&count);
 #ifdef _WIN32
     /* The chunked pump reads sequentially from the current position. On
        failure the request is left as the application had it. */
