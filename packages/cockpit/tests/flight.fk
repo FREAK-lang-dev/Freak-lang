@@ -7,6 +7,7 @@ use self::blackbox::{
 }
 use self::flight::{
     cockpit_flight_begin_frame,
+    cockpit_flight_chord,
     cockpit_flight_click_text,
     cockpit_flight_close,
     cockpit_flight_end_frame,
@@ -22,8 +23,11 @@ use self::layout::{
 }
 use self::state::{
     cockpit_fail,
+    cockpit_key_ctrl,
     cockpit_key_enter,
+    cockpit_key_letter,
     cockpit_ui_focus_input,
+    cockpit_ui_shortcut,
     cockpit_ui_should_close
 }
 use self::theme::{
@@ -75,6 +79,15 @@ task main() {
         if frame > 20 { cockpit_fail("sim never closed") }
     }
     say first_frame
+
+    -- A chord queued between frames still matches its shortcut in the next
+    -- frame, although Ctrl is already up again when the frame begins.
+    cockpit_flight_chord(cockpit_key_ctrl, cockpit_key_letter("S"))
+    cockpit_flight_begin_frame(layout, theme)
+    if not cockpit_ui_shortcut(cockpit_key_letter("S"), true, false, false) { cockpit_fail("ctrl+s chord") }
+    if cockpit_ui_shortcut(cockpit_key_letter("S"), false, false, false) { cockpit_fail("chord matched plain s") }
+    if cockpit_ui_shortcut(cockpit_key_letter("S"), true, true, false) { cockpit_fail("chord matched ctrl+shift+s") }
+    cockpit_flight_end_frame()
 
     -- The sim clock drives toasts and the caret blink: no real time passes.
     cockpit_flight_frame_ms(100)

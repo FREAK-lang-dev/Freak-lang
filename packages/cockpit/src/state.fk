@@ -300,10 +300,20 @@ task cockpit_ui_track_key(key: int, pressed: int) -> void {
     if pressed != 0 {
         cockpit_values_set_int(cockpit_ui_keys_down, key, 1)
         if cockpit_ui_keys_pressed_count < 64 {
-            cockpit_values_set_int(cockpit_ui_keys_pressed, cockpit_ui_keys_pressed_count, key)
+            -- Each press keeps the modifiers held at that moment (ctrl 1, shift 2,
+            -- alt 4, times 64), so a chord released within the frame still counts.
+            cockpit_values_set_int(cockpit_ui_keys_pressed, cockpit_ui_keys_pressed_count, key + 64 * cockpit_ui_modifier_mask())
             cockpit_ui_keys_pressed_count += 1
         }
     } else { cockpit_values_set_int(cockpit_ui_keys_down, key, 0) }
+}
+
+task cockpit_ui_modifier_mask() -> int {
+    pilot mask = 0
+    if cockpit_ui_key_down(cockpit_key_ctrl) { mask += 1 }
+    if cockpit_ui_key_down(cockpit_key_shift) { mask += 2 }
+    if cockpit_ui_key_down(cockpit_key_alt) { mask += 4 }
+    give back mask
 }
 
 task cockpit_ui_release_keys() -> void {
@@ -329,19 +339,26 @@ task cockpit_ui_key_presses(key: int) -> int {
     pilot count = 0
     pilot index = 0
     repeat cockpit_ui_keys_pressed_count times {
-        if cockpit_values_get_int(cockpit_ui_keys_pressed, index) == key { count += 1 }
+        if cockpit_values_get_int(cockpit_ui_keys_pressed, index) % 64 == key { count += 1 }
         index += 1
     }
     give back count
 }
 
--- A shortcut matches when the key was pressed this frame with exactly these modifiers held.
+-- A shortcut matches when the key was pressed this frame with exactly these
+-- modifiers held at the moment it went down.
 task cockpit_ui_shortcut(key: int, ctrl: bool, shift: bool, alt: bool) -> bool {
     if not cockpit_ui_input_allowed() { give back false }
-    if cockpit_ui_key_down(cockpit_key_ctrl) != ctrl { give back false }
-    if cockpit_ui_key_down(cockpit_key_shift) != shift { give back false }
-    if cockpit_ui_key_down(cockpit_key_alt) != alt { give back false }
-    give back cockpit_ui_key_pressed(key)
+    pilot mut mask = 0
+    if ctrl { mask += 1 }
+    if shift { mask += 2 }
+    if alt { mask += 4 }
+    pilot index = 0
+    repeat cockpit_ui_keys_pressed_count times {
+        if cockpit_values_get_int(cockpit_ui_keys_pressed, index) == key + 64 * mask { give back true }
+        index += 1
+    }
+    give back false
 }
 
 -- Letters A-Z map to 1-26, digits 0-9 to 27-36, F1-F12 to 50-61.
